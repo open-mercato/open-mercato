@@ -13,7 +13,7 @@ import {
   validateSlug,
 } from './lib/ready-apps.js'
 import { applyStarterPreset, resolvePreset } from './lib/apply-starter-preset.js'
-import { runCatalogStep } from './lib/catalog/catalog-step.js'
+import { runCatalogStep, type CatalogStepResult } from './lib/catalog/catalog-step.js'
 import { parseModulesFlag } from './lib/catalog/selection.js'
 import { DEFAULT_PRESET_ID, VALID_PRESET_IDS } from './lib/starter-presets.js'
 import { runAgenticSetup, parseAgentsValue } from './setup/wizard.js'
@@ -510,16 +510,26 @@ async function maybeRunAgenticSetup(
   }
 }
 
-function printCatalogNextSteps(catalogCommands: string[]): void {
+function printCatalogNextSteps(catalogCommands: string[], commandWarnings: Record<string, string> = {}): void {
   if (catalogCommands.length === 0) return
   console.log(pc.green('Modules you planned from the catalog:'))
   console.log(pc.dim('  # After yarn install, in this order (each command runs yarn generate for you):'))
-  for (const command of catalogCommands) console.log(pc.cyan(`  ${command}`))
+  for (const command of catalogCommands) {
+    const warning = commandWarnings[command]
+    if (warning) console.log(pc.yellow(`  # Warning: ${warning}`))
+    console.log(pc.cyan(`  ${command}`))
+  }
   console.log(pc.dim('  # Then yarn db:migrate. The plan is saved in .mercato/catalog-selection.json'))
   console.log('')
 }
 
-function printTemplateNextSteps(appName: string, agenticConfigured: boolean, catalogCommands: string[] = []): void {
+type CatalogPlan = Pick<CatalogStepResult, 'commands' | 'commandWarnings'>
+
+function printTemplateNextSteps(
+  appName: string,
+  agenticConfigured: boolean,
+  catalogPlan: CatalogPlan = { commands: [], commandWarnings: {} },
+): void {
   console.log('Next steps:')
   console.log('')
   console.log(pc.cyan(`  cd ${appName}`))
@@ -541,7 +551,7 @@ function printTemplateNextSteps(appName: string, agenticConfigured: boolean, cat
   console.log(pc.cyan('  yarn initialize'))
   console.log(pc.cyan('  yarn dev'))
   console.log('')
-  printCatalogNextSteps(catalogCommands)
+  printCatalogNextSteps(catalogPlan.commands, catalogPlan.commandWarnings)
   console.log('Docker alternatives:')
   console.log(pc.dim('  # Before Docker: cp .env.example .env && yarn install'))
   console.log(pc.dim('  # Docker expects your local app env and dependencies to be prepared first'))
@@ -595,7 +605,7 @@ async function maybeRunCatalogStep(
   presetId: string,
   requested: string[] | null,
   picker: boolean,
-): Promise<string[]> {
+): Promise<CatalogPlan> {
   const preset = resolvePreset(presetId)
   const presetModuleIds = preset.isClassic ? null : preset.modules.map((entry) => entry.id)
   const interactive = picker && Boolean(process.stdin.isTTY && process.stdout.isTTY)
@@ -617,7 +627,7 @@ async function maybeRunCatalogStep(
       log: (line) => console.log(line),
       warn: (line) => console.log(pc.yellow(line)),
     })
-    return result.commands
+    return { commands: result.commands, commandWarnings: result.commandWarnings }
   } finally {
     rl?.close()
   }
@@ -703,9 +713,9 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
     applyStarterPreset(presetId, targetDir)
   }
 
-  let catalogCommands: string[] = []
+  let catalogPlan: CatalogPlan = { commands: [], commandWarnings: {} }
   if (!readyAppSource && (requestedCatalogModules !== null || options.modulePicker)) {
-    catalogCommands = await maybeRunCatalogStep(targetDir, presetId, requestedCatalogModules, options.modulePicker)
+    catalogPlan = await maybeRunCatalogStep(targetDir, presetId, requestedCatalogModules, options.modulePicker)
   }
 
   console.log(pc.green('Success!') + ` Created ${pc.bold(appName)}`)
@@ -725,7 +735,7 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
   if (readyAppSource) {
     printImportedReadyAppNextSteps(appName)
   } else {
-    printTemplateNextSteps(appName, agenticConfigured, catalogCommands)
+    printTemplateNextSteps(appName, agenticConfigured, catalogPlan)
   }
   printGitHubSyncInstructions(gitResult)
 

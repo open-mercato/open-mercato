@@ -309,6 +309,7 @@ test('parsePickerAnswer accepts numbers separated by commas or spaces', () => {
 test('runCatalogStep with --modules writes .mercato/catalog-selection.json and returns the commands', async () => {
   const { options, logs, warnings } = stepOptions({ requested: ['gateway_stripe', 'integration_ksef_direct'] })
   const result = await runCatalogStep(options)
+  assert.deepEqual(result.commandWarnings, {})
   assert.deepEqual(result.commands, [
     'yarn mercato module add @open-mercato/gateway-stripe@0.9.0',
     'yarn mercato module add @fastwhitecat/integration-ksef-direct@0.1.8 --allow-third-party',
@@ -345,7 +346,7 @@ test('runCatalogStep leaves out a module without an install command for a line o
     presetModuleIds: null,
     fetchImpl,
   })
-  assert.deepEqual(await runCatalogStep(requested.options), { commands: [], selectionFile: null })
+  assert.deepEqual(await runCatalogStep(requested.options), { commands: [], selectionFile: null, commandWarnings: {} })
   assert.deepEqual(requested.warnings, [
     'integration_ksef_direct is verified on next, but the module catalog gives no install command for next yet. Add it later from https://modules.openmercato.com.',
   ])
@@ -358,7 +359,7 @@ test('runCatalogStep leaves out a module without an install command for a line o
     },
     fetchImpl,
   })
-  assert.deepEqual(await runCatalogStep(picker.options), { commands: [], selectionFile: null })
+  assert.deepEqual(await runCatalogStep(picker.options), { commands: [], selectionFile: null, commandWarnings: {} })
   assert.deepEqual(picker.warnings, [
     'Left out of the list: integration_ksef_direct. The module catalog verifies them on next but gives no install command for next yet.',
   ])
@@ -370,14 +371,14 @@ test('runCatalogStep never blocks scaffolding when the catalog is offline', asyn
     fetchImpl: fakeFetch(['error']).fetchImpl,
   })
   const result = await runCatalogStep(options)
-  assert.deepEqual(result, { commands: [], selectionFile: null })
+  assert.deepEqual(result, { commands: [], selectionFile: null, commandWarnings: {} })
   assert.equal(existsSync(join(options.targetDir, CATALOG_SELECTION_FILE)), false)
   assert.match(warnings[0] ?? '', /^Module catalog unavailable \(getaddrinfo ENOTFOUND modules\.openmercato\.com\)\. The app keeps its preset modules/)
 })
 
 test('runCatalogStep offers nothing for a version the catalog does not verify', async () => {
   const { options, warnings } = stepOptions({ requested: ['gateway_stripe'], version: '0.10.0' })
-  assert.deepEqual(await runCatalogStep(options), { commands: [], selectionFile: null })
+  assert.deepEqual(await runCatalogStep(options), { commands: [], selectionFile: null, commandWarnings: {} })
   assert.match(warnings[0] ?? '', /does not verify modules for Open Mercato 0\.10\.0 yet/)
 })
 
@@ -395,7 +396,7 @@ test('runCatalogStep warns about unknown modules and unmet core requirements', a
 
 test('runCatalogStep points core module ids to module enable instead of a package', async () => {
   const { options, logs, warnings } = stepOptions({ requested: ['wms', 'currencies'], presetModuleIds: ['auth', 'currencies'] })
-  assert.deepEqual(await runCatalogStep(options), { commands: [], selectionFile: null })
+  assert.deepEqual(await runCatalogStep(options), { commands: [], selectionFile: null, commandWarnings: {} })
   assert.ok(warnings.includes('wms is built into Open Mercato core, not a package: yarn mercato module enable @open-mercato/core --module wms'))
   assert.ok(logs.includes('currencies is built into Open Mercato core and the preset already enables it.'))
 })
@@ -439,7 +440,7 @@ test('runCatalogStep installs the package picked, not another package with the s
 test('runCatalogStep reports a module id two packages share and resolves their npm names', async () => {
   const shared = fakeFetch(['ok'], fixtureWithSharedId).fetchImpl
   const byId = stepOptions({ requested: ['durable_work'], fetchImpl: shared })
-  assert.deepEqual(await runCatalogStep(byId.options), { commands: [], selectionFile: null })
+  assert.deepEqual(await runCatalogStep(byId.options), { commands: [], selectionFile: null, commandWarnings: {} })
   assert.deepEqual(byId.warnings, [
     '"durable_work" matches several modules (durable_work from @fullstackhouse/open-mercato-durable-work, durable_work from @publisher-b/work), so none is planned. Pass one of these to --modules instead: @fullstackhouse/open-mercato-durable-work, @publisher-b/work.',
   ])
@@ -553,6 +554,18 @@ test('runCatalogStep skips the picker without a terminal and keeps --modules', a
   assert.ok(warnings.includes('--module-picker needs an interactive terminal; skipped. Use --modules <list> instead.'))
 })
 
+test('runCatalogStep fetches nothing when there is nothing to plan', async () => {
+  const noTerminal = fakeFetch(['ok'])
+  const picker = stepOptions({ picker: true, ask: null, fetchImpl: noTerminal.fetchImpl })
+  assert.deepEqual(await runCatalogStep(picker.options), { commands: [], selectionFile: null, commandWarnings: {} })
+  assert.deepEqual(picker.warnings, ['--module-picker needs an interactive terminal; skipped. Use --modules <list> instead.'])
+  const emptyList = fakeFetch(['ok'])
+  const modules = stepOptions({ requested: [], fetchImpl: emptyList.fetchImpl })
+  assert.deepEqual(await runCatalogStep(modules.options), { commands: [], selectionFile: null, commandWarnings: {} })
+  assert.deepEqual(modules.warnings, [])
+  assert.equal(noTerminal.calls.length + emptyList.calls.length, 0)
+})
+
 test('runCatalogStep reads the picker URL from OM_MODULES_PICKER_URL', async () => {
   const mirror = fakeFetch(['ok'])
   const { options } = stepOptions({
@@ -586,7 +599,7 @@ test('runCatalogStep plans nothing for a module a new classic app already regist
   assert.ok(!logs.some((line) => line.includes('gateway-stripe@')))
 
   const only = stepOptions({ requested: ['@open-mercato/gateway-stripe'], presetModuleIds: null })
-  assert.deepEqual(await runCatalogStep(only.options), { commands: [], selectionFile: null })
+  assert.deepEqual(await runCatalogStep(only.options), { commands: [], selectionFile: null, commandWarnings: {} })
   assert.equal(existsSync(join(only.options.targetDir, CATALOG_SELECTION_FILE)), false)
   assert.deepEqual(only.warnings, [])
 })
@@ -600,7 +613,7 @@ test('runCatalogStep checks a preset other than classic against its own module l
       { id: 'gateway_stripe', from: '@open-mercato/gateway-stripe' },
     ],
   })
-  assert.deepEqual(await runCatalogStep(registers.options), { commands: [], selectionFile: null })
+  assert.deepEqual(await runCatalogStep(registers.options), { commands: [], selectionFile: null, commandWarnings: {} })
   assert.ok(registers.logs.includes('Nothing to install: the preset already registers gateway_stripe in src/modules.ts.'))
 
   const lacks = stepOptions({
@@ -625,7 +638,7 @@ test('runCatalogStep tells a name the catalog lacks from a module it lists but h
     requested: ['ksef_direct', 'nonexistent-x', '@piotrkarwatka/marketing-consents'],
     presetModuleIds: null,
   })
-  assert.deepEqual(await runCatalogStep(options), { commands: [], selectionFile: null })
+  assert.deepEqual(await runCatalogStep(options), { commands: [], selectionFile: null, commandWarnings: {} })
   assert.deepEqual(warnings, [
     'Not in the module catalog: ksef_direct. Did you mean integration_ksef_direct?',
     'Not in the module catalog: nonexistent-x. Search https://modules.openmercato.com for modules.',
@@ -654,20 +667,51 @@ test('parsePickerIndex reads conflictsWith and warning, and entries without them
   assert.equal(ksef.warning, null)
 })
 
+/** The fixture with the webhooks module a new classic app registers on `inPresets`, as the catalog lists it. */
+function fixtureWithWebhooks(inPresets: string[]): Record<string, unknown> {
+  const body = fixture() as { modules: Record<string, unknown>[] }
+  body.modules.push({
+    id: 'webhooks',
+    from: '@open-mercato/webhooks',
+    title: 'Webhooks',
+    description: 'Outbound and inbound webhooks.',
+    requires: [],
+    source: 'official',
+    locator: 'npm:@open-mercato/webhooks',
+    license: { spdx: 'MIT', kind: 'osi' },
+    tier: 'verified',
+    verifiedOn: [],
+    install: 'yarn mercato module add @open-mercato/webhooks@0.9.0',
+    installByLine: {},
+    inPresets,
+  })
+  return body
+}
+
 test('collisionWarning applies to a classic app, and to another preset only when it has a conflicting module', () => {
   const shipment = index.modules.find((entry) => entry.id === 'shipment_tracking')!
-  assert.equal(collisionWarning(shipment, null), SHIPMENT_WARNING)
-  assert.equal(collisionWarning(shipment, ['auth', 'webhooks']), SHIPMENT_WARNING)
-  assert.equal(collisionWarning(shipment, ['auth']), null)
-  assert.equal(collisionWarning({ ...shipment, conflictsWith: [] }, ['auth']), SHIPMENT_WARNING)
+  assert.equal(collisionWarning(shipment, null, '0.8', index.modules), SHIPMENT_WARNING)
+  assert.equal(collisionWarning(shipment, ['auth', 'webhooks'], '0.8', index.modules), SHIPMENT_WARNING)
+  assert.equal(collisionWarning(shipment, ['auth'], '0.8', index.modules), null)
+  assert.equal(collisionWarning({ ...shipment, conflictsWith: [] }, ['auth'], '0.8', index.modules), SHIPMENT_WARNING)
   const ksef = index.modules.find((entry) => entry.id === 'integration_ksef_direct')!
-  assert.equal(collisionWarning(ksef, null), null)
+  assert.equal(collisionWarning(ksef, null, '0.9', index.modules), null)
+})
+
+test('collisionWarning for a classic app keeps the lines whose app registers the conflicting module', () => {
+  const shipment = index.modules.find((entry) => entry.id === 'shipment_tracking')!
+  const onAllLines = (parsePickerIndex(fixtureWithWebhooks(['0.8', '0.9', 'next'])) as PickerIndex).modules
+  assert.equal(collisionWarning(shipment, null, '0.8', onAllLines), SHIPMENT_WARNING)
+  const onlyOnNine = (parsePickerIndex(fixtureWithWebhooks(['0.9'])) as PickerIndex).modules
+  assert.equal(collisionWarning(shipment, null, '0.8', onlyOnNine), null)
+  assert.equal(collisionWarning(shipment, null, '0.9', onlyOnNine), SHIPMENT_WARNING)
 })
 
 test('runCatalogStep plans a module with a route collision and shows the catalog warning', async () => {
   const { options, logs, warnings } = stepOptions({ version: '0.8.2', requested: ['shipment_tracking'], presetModuleIds: null })
   const result = await runCatalogStep(options)
   assert.deepEqual(result.commands, [SHIPMENT])
+  assert.deepEqual(result.commandWarnings, { [SHIPMENT]: SHIPMENT_WARNING })
   const planned = logs.indexOf('  shipment_tracking from @freighttech/shipment-tracking (third-party · MIT · listed, installs on 0.8)')
   assert.ok(planned >= 0)
   assert.deepEqual(warnings, [`    Warning: ${SHIPMENT_WARNING}`])
@@ -678,8 +722,21 @@ test('runCatalogStep plans a module with a route collision and shows the catalog
     presetModuleIds: ['auth'],
     presetModules: [{ id: 'auth', from: '@open-mercato/core' }],
   })
-  assert.deepEqual((await runCatalogStep(withoutWebhooks.options)).commands, [SHIPMENT])
+  assert.deepEqual(await runCatalogStep(withoutWebhooks.options), {
+    commands: [SHIPMENT],
+    selectionFile: join(withoutWebhooks.options.targetDir, CATALOG_SELECTION_FILE),
+    commandWarnings: {},
+  })
   assert.deepEqual(withoutWebhooks.warnings, [])
+
+  const notOnLine = stepOptions({
+    version: '0.8.2',
+    requested: ['shipment_tracking'],
+    presetModuleIds: null,
+    fetchImpl: fakeFetch(['ok'], () => fixtureWithWebhooks(['0.9'])).fetchImpl,
+  })
+  assert.deepEqual((await runCatalogStep(notOnLine.options)).commandWarnings, {})
+  assert.deepEqual(notOnLine.warnings, [])
 })
 
 test('runCatalogStep shows the catalog warning under the module in the picker', async () => {
@@ -688,4 +745,16 @@ test('runCatalogStep shows the catalog warning under the module in the picker', 
   assert.deepEqual(result.commands, [SHIPMENT])
   assert.ok(logs.includes('   1. shipment_tracking  Shipment Tracking  (third-party · MIT · listed, installs on 0.8)'))
   assert.equal(warnings[0], `      Warning: ${SHIPMENT_WARNING}`)
+})
+
+test('parsePickerIndex strips control characters from catalog text before it reaches the terminal', () => {
+  const body = fixture() as { lines: string[]; modules: Record<string, unknown>[] }
+  const shipment = body.modules.find((entry) => entry.id === 'shipment_tracking') as Record<string, unknown>
+  shipment.title = 'Shipment\u001b[2K Tracking'
+  shipment.warning = 'Adds a route.\u009b31m'
+  shipment.installByLine = { '0.8': `${SHIPMENT}\u0007` }
+  const parsed = (parsePickerIndex(body) as PickerIndex).modules.find((entry) => entry.id === 'shipment_tracking')!
+  assert.equal(parsed.title, 'Shipment [2K Tracking')
+  assert.equal(parsed.warning, 'Adds a route. 31m')
+  assert.deepEqual(parsed.installByLine, { '0.8': `${SHIPMENT} ` })
 })

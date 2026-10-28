@@ -40,9 +40,11 @@ export type CatalogStepOptions = {
 export type CatalogStepResult = {
   commands: string[]
   selectionFile: string | null
+  /** The catalog's route-collision warning per planned command that has one; {} when none. */
+  commandWarnings: Record<string, string>
 }
 
-const EMPTY_RESULT: CatalogStepResult = { commands: [], selectionFile: null }
+const EMPTY_RESULT: CatalogStepResult = { commands: [], selectionFile: null, commandWarnings: {} }
 
 export function parsePickerAnswer(answer: string, count: number): number[] {
   const trimmed = answer.trim()
@@ -63,10 +65,20 @@ export function parsePickerAnswer(answer: string, count: number): number[] {
  * The catalog's warning that `yarn generate` refuses this module next to a module of the new app with the same backend
  * route. For a preset other than classic, only when that preset registers one of the modules named in `conflictsWith`.
  */
-export function collisionWarning(entry: CatalogModule, presetModuleIds: readonly string[] | null): string | null {
-  if (entry.warning === null) return null
-  if (presetModuleIds === null || entry.conflictsWith.length === 0) return entry.warning
-  return entry.conflictsWith.some((id) => presetModuleIds.includes(id)) ? entry.warning : null
+export function collisionWarning(
+  entry: CatalogModule,
+  presetModuleIds: readonly string[] | null,
+  line: string,
+  all: readonly CatalogModule[],
+): string | null {
+  if (entry.warning === null || entry.conflictsWith.length === 0) return entry.warning
+  if (presetModuleIds !== null) {
+    return entry.conflictsWith.some((id) => presetModuleIds.includes(id)) ? entry.warning : null
+  }
+  // A classic app: the catalog merges the collisions of all lines, so keep the ones whose module the line's app has.
+  const owners = all.filter((other) => entry.conflictsWith.includes(other.id) && other.inPresets.length > 0)
+  if (owners.length === 0) return entry.warning
+  return owners.some((other) => other.inPresets.includes(line)) ? entry.warning : null
 }
 
 export async function promptCatalogModules(
@@ -76,7 +88,7 @@ export async function promptCatalogModules(
   log: (line: string) => void,
   warn: (line: string) => void,
   alreadyInAppCount = 0,
-  presetModuleIds: readonly string[] | null = null,
+  warningFor: (entry: CatalogModule) => string | null = (entry) => entry.warning,
 ): Promise<CatalogModule[]> {
   log('')
   log(`🧩  Modules from the Open Mercato Modules catalog (verified on ${line})`)
@@ -88,7 +100,7 @@ export async function promptCatalogModules(
     const number = String(index + 1).padStart(String(selectable.length).length)
     const from = shared(entry) ? `${entry.from} · ` : ''
     log(`   ${number}. ${entry.id.padEnd(idWidth)}  ${entry.title}  (${from}${describeModule(entry, line)})`)
-    const warning = collisionWarning(entry, presetModuleIds)
+    const warning = warningFor(entry)
     if (warning) warn(`   ${' '.repeat(number.length)}  Warning: ${warning}`)
   })
   if (alreadyInAppCount > 0) {
@@ -168,6 +180,7 @@ type CatalogContext = {
   all: readonly CatalogModule[]
   inApp: readonly CatalogModule[]
   withoutLineInstall: readonly CatalogModule[]
+  warningFor: (entry: CatalogModule) => string | null
 }
 
 function reportSelection(selection: CatalogSelection, context: CatalogContext, options: CatalogStepOptions): void {
@@ -215,7 +228,7 @@ function reportSelection(selection: CatalogSelection, context: CatalogContext, o
   for (const { entry, reason } of selection.selected) {
     const required = reason === 'required' ? ', required by another pick' : ''
     options.log(`  ${entry.id} from ${entry.from} (${describeModule(entry, line)}${required})`)
-    const warning = collisionWarning(entry, options.presetModuleIds)
+    const warning = context.warningFor(entry)
     if (warning) options.warn(`    Warning: ${warning}`)
   }
   if (selection.selected.some(({ entry }) => entry.source === 'third-party' || entry.source === 'community')) {
@@ -223,7 +236,13 @@ function reportSelection(selection: CatalogSelection, context: CatalogContext, o
   }
 }
 
+const PICKER_NEEDS_TERMINAL = '--module-picker needs an interactive terminal; skipped. Use --modules <list> instead.'
+
 export async function runCatalogStep(options: CatalogStepOptions): Promise<CatalogStepResult> {
+  if ((options.requested ?? []).length === 0 && !(options.picker && options.ask)) {
+    if (options.picker) options.warn(PICKER_NEEDS_TERMINAL)
+    return EMPTY_RESULT
+  }
   const url = resolvePickerUrl(options.env)
   const fetched = await fetchPickerCatalog({ url, ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}) })
   if (fetched.status === 'unavailable') {
@@ -243,11 +262,12 @@ export async function runCatalogStep(options: CatalogStepOptions): Promise<Catal
   const notInApp = (entry: CatalogModule) => !inApp.some((other) => other.id === entry.id && other.from === entry.from)
   const selectable = selectableModules(fetched.index, line).filter(notInApp)
   const withoutLineInstall = modulesWithoutLineInstall(fetched.index, line).filter(notInApp)
+  const warningFor = (entry: CatalogModule) => collisionWarning(entry, options.presetModuleIds, line, fetched.index.modules)
   const requests = [...(options.requested ?? [])]
   let picked: CatalogModule[] = []
   if (options.picker) {
     if (!options.ask) {
-      options.warn('--module-picker needs an interactive terminal; skipped. Use --modules <list> instead.')
+      options.warn(PICKER_NEEDS_TERMINAL)
     } else {
       if (withoutLineInstall.length > 0) {
         options.warn(
@@ -266,17 +286,26 @@ export async function runCatalogStep(options: CatalogStepOptions): Promise<Catal
           options.log,
           options.warn,
           inApp.length,
-          options.presetModuleIds,
+          warningFor,
         )
       }
     }
   }
   if (requests.length === 0 && picked.length === 0) return EMPTY_RESULT
   const selection = resolveCatalogSelection(requests, selectable, options.presetModuleIds, picked)
-  reportSelection(selection, { line, lines: fetched.index.lines, all: fetched.index.modules, inApp, withoutLineInstall }, options)
+  reportSelection(
+    selection,
+    { line, lines: fetched.index.lines, all: fetched.index.modules, inApp, withoutLineInstall, warningFor },
+    options,
+  )
   if (selection.selected.length === 0) return EMPTY_RESULT
   const selectionFile = writeSelectionFile(options.targetDir, buildSelectionFile(url, fetched.index, line, selection))
   options.log(`  Saved to ${CATALOG_SELECTION_FILE}. Nothing is installed until you run the commands below.`)
   options.log('')
-  return { commands: installCommands(selection), selectionFile }
+  const commandWarnings: Record<string, string> = {}
+  for (const { entry } of selection.selected) {
+    const warning = warningFor(entry)
+    if (warning && !(entry.install in commandWarnings)) commandWarnings[entry.install] = warning
+  }
+  return { commands: installCommands(selection), selectionFile, commandWarnings }
 }

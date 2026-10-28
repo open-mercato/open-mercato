@@ -20,6 +20,18 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 const isString = (value: unknown): value is string => typeof value === 'string'
 const isStringArray = (value: unknown): value is string[] => Array.isArray(value) && value.every(isString)
 
+const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f-\u009f]/g
+
+const printableText = (text: string) => text.replace(CONTROL_CHARACTERS, ' ')
+
+/** Catalog values with every string freed of control characters, which could rewrite the terminal they print to. */
+function printable(value: unknown): unknown {
+  if (isString(value)) return printableText(value)
+  if (Array.isArray(value)) return value.map(printable)
+  if (isRecord(value)) return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, printable(item)]))
+  return value
+}
+
 function toInstallByLine(value: unknown): Record<string, string> | null {
   if (!isRecord(value)) return null
   const commands: Record<string, string> = {}
@@ -72,9 +84,9 @@ export function parsePickerIndex(value: unknown): PickerIndex | null {
   if (!isRecord(value) || value.schemaVersion !== 1) return null
   if (!isString(value.generatedAt) || !isStringArray(value.lines) || !Array.isArray(value.modules)) return null
   const modules = value.modules
-    .map((entry) => toCatalogModule(entry))
+    .map((entry) => toCatalogModule(printable(entry)))
     .filter((entry): entry is CatalogModule => entry !== null)
-  return { schemaVersion: 1, generatedAt: value.generatedAt, lines: value.lines, modules }
+  return { schemaVersion: 1, generatedAt: value.generatedAt, lines: value.lines.map(printableText), modules }
 }
 
 export function resolvePickerUrl(env: NodeJS.ProcessEnv = process.env): string {
