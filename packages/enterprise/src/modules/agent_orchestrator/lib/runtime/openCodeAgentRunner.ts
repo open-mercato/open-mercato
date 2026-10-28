@@ -34,6 +34,7 @@ import { deriveEnvelopeConfidence } from '../../data/proposalEnvelope'
 import {
   type AgentRunCtx,
   buildCommandContext,
+  withRunAuditCorrelation,
   createRun,
   completeRun,
   failRun,
@@ -176,7 +177,7 @@ export class OpenCodeAgentRunner {
   async run(entry: AgentRegistryEntry, input: unknown, ctx: AgentRunCtx): Promise<AgentResult> {
     const agentId = entry.id
     const openCodeAgentName = agentId.replace(/[^a-z0-9_-]/gi, '_')
-    const commandCtx = buildCommandContext(this.container, ctx)
+    const baseCommandCtx = buildCommandContext(this.container, ctx)
 
     // File plane (#12): strip the reserved `__files` envelope BEFORE persisting the
     // run input, so the stored/prompted input stays clean business data and the
@@ -194,7 +195,7 @@ export class OpenCodeAgentRunner {
       ? await resolveRunCapture(this.container, { tenantId: ctx.tenantId, agentId, runSource: ctx.source })
       : null
 
-    const runId = await createRun(this.commandBus, commandCtx, {
+    const runId = await createRun(this.commandBus, baseCommandCtx, {
       source: ctx.source,
       tenantId: ctx.tenantId,
       organizationId: ctx.organizationId,
@@ -210,6 +211,7 @@ export class OpenCodeAgentRunner {
       agentType: entry.agentType ?? null,
       definitionHash: resolveAgentDefinitionHash(entry),
     })
+    const commandCtx = withRunAuditCorrelation(baseCommandCtx, ctx, runId)
 
     if (ctx.onRunPersisted) {
       try {

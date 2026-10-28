@@ -29,6 +29,7 @@ const failRunMock = jest.fn<Promise<void>, unknown[]>()
 const createProposalMock = jest.fn<Promise<void>, unknown[]>()
 jest.mock('../lib/runtime/persistence', () => ({
   buildCommandContext: () => ({}),
+  withRunAuditCorrelation: jest.requireActual('../lib/runtime/persistence').withRunAuditCorrelation,
   resolveCallerAcl: async () => ({ features: [], isSuperAdmin: false }),
   createRun: (...args: unknown[]) => createRunMock(...args),
   completeRun: (...args: unknown[]) => completeRunMock(...args),
@@ -203,6 +204,43 @@ describe('native run stamping', () => {
     } finally {
       logs.restore()
     }
+  })
+
+  it('stamps run correlation on every command the run writes after createRun', async () => {
+    registerNativeAgent('native.correlation_agent')
+    runAiAgentObjectMock.mockResolvedValue(VALID_MODEL_OUTPUT)
+
+    const service = makeService()
+    await service.run('native.correlation_agent', {}, {
+      ...runCtx,
+      parentRunId: 'parent-run-1',
+      workflowInstanceId: 'instance-1',
+      stepId: 'step-1',
+      invocationId: 'invocation-1',
+      correlationId: 'correlation-1',
+      invoker: { kind: 'api_key', apiKeyId: 'key-1', ownerUserId: 'user-1' },
+    })
+
+    const runId = await createRunMock.mock.results[0].value
+    expect((createRunMock.mock.calls[0][1] as Record<string, unknown>).auditCorrelation).toBeUndefined()
+    expect((completeRunMock.mock.calls[0][1] as Record<string, unknown>).auditCorrelation).toEqual({
+      agentRunId: runId,
+      parentAgentRunId: 'parent-run-1',
+      workflowInstanceId: 'instance-1',
+      correlationId: 'correlation-1',
+      apiKeyId: 'key-1',
+    })
+  })
+
+  it('stamps only the run id when the context carries no other correlation', async () => {
+    registerNativeAgent('native.correlation_bare_agent')
+    runAiAgentObjectMock.mockRejectedValue(new Error('[internal] model down'))
+
+    const service = makeService()
+    await expect(service.run('native.correlation_bare_agent', {}, runCtx)).rejects.toThrow('model down')
+
+    const runId = await createRunMock.mock.results[0].value
+    expect((failRunMock.mock.calls[0][1] as Record<string, unknown>).auditCorrelation).toEqual({ agentRunId: runId })
   })
 
   it('dispatches a legacy in-process entry to the same native runner', async () => {

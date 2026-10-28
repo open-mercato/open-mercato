@@ -772,6 +772,62 @@ describe('Activity Executor (Unit Tests)', () => {
       expect(mockCommandBus.execute).not.toHaveBeenCalled()
     })
 
+    describe('audit correlation', () => {
+      function runUpdateEntity(workflowContext: Record<string, unknown>) {
+        const execute = jest.fn().mockResolvedValue({ result: { id: 'order-123' }, logEntry: { id: 'log-1' } })
+        registerWorkflowSafeCommands([
+          { commandId: 'sales.orders.update', requiredFeatures: ['sales.orders.manage'], defaultEnabled: true },
+        ])
+        mockContainer.resolve.mockImplementation((name: string) => {
+          if (name === 'rbacService') return { userHasAllFeatures: jest.fn().mockResolvedValue(true) } as never
+          if (name === 'commandBus') return { execute } as never
+          throw new Error(`Unexpected service: ${name}`)
+        })
+        const activity: ActivityDefinition = {
+          activityId: 'activity-correlation',
+          activityName: 'Apply Proposal',
+          activityType: 'UPDATE_ENTITY',
+          config: { commandId: 'sales.orders.update', input: { id: 'order-123' } },
+        }
+        return activityExecutor
+          .executeActivity(mockEm, mockContainer, activity, { ...mockContext, workflowContext })
+          .then((result) => ({ result, execute }))
+      }
+
+      function executedCtx(execute: jest.Mock): Record<string, unknown> {
+        const [, options] = execute.mock.calls[0] as [string, { ctx: Record<string, unknown> }]
+        return options.ctx
+      }
+
+      test('stamps the workflow instance and the disposed proposal id', async () => {
+        const { result, execute } = await runUpdateEntity({ proposalId: 'proposal-1', disposition: 'approved' })
+        expect(result.success).toBe(true)
+        expect(executedCtx(execute).auditCorrelation).toEqual({
+          workflowInstanceId: testInstanceId,
+          proposalId: 'proposal-1',
+        })
+      })
+
+      test('falls back to the inline agentProposalId key', async () => {
+        const { execute } = await runUpdateEntity({ agentProposalId: 'proposal-2' })
+        expect(executedCtx(execute).auditCorrelation).toEqual({
+          workflowInstanceId: testInstanceId,
+          proposalId: 'proposal-2',
+        })
+      })
+
+      test('stamps only the instance when no proposal is in the context', async () => {
+        const { execute } = await runUpdateEntity({ proposalId: 42, agentProposalId: '' })
+        expect(executedCtx(execute).auditCorrelation).toEqual({ workflowInstanceId: testInstanceId })
+      })
+
+      test('stamps nothing when the instance has no id and no proposal is present', async () => {
+        mockInstance.id = '' as WorkflowInstance['id']
+        const { execute } = await runUpdateEntity({})
+        expect(executedCtx(execute)).not.toHaveProperty('auditCorrelation')
+      })
+    })
+
     test('should fail UPDATE_ENTITY if command is not workflow-safe', async () => {
       const mockCommandBus = {
         execute: jest.fn().mockResolvedValue({ result: {} }),

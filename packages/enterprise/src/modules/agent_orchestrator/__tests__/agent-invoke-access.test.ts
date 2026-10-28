@@ -20,6 +20,7 @@ jest.mock('@open-mercato/ai-assistant/modules/ai_assistant/lib/agent-runtime', (
 const createRunMock = jest.fn<Promise<string>, unknown[]>()
 jest.mock('../lib/runtime/persistence', () => ({
   buildCommandContext: () => ({}),
+  withRunAuditCorrelation: jest.requireActual('../lib/runtime/persistence').withRunAuditCorrelation,
   resolveCallerAcl: async () => ({ features: [], isSuperAdmin: false }),
   createRun: (...args: unknown[]) => createRunMock(...args),
   completeRun: jest.fn(async () => undefined),

@@ -1,6 +1,7 @@
 import type { AwilixContainer } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
+import { buildProposalAuditCorrelation } from './proposalAuditCorrelation'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { AgentGuardrailCheck, AgentProposal, AgentSpan } from '../../data/entities'
@@ -198,6 +199,7 @@ export class DispositionServiceImpl implements DispositionService {
       selectedOrganizationId: proposal.organizationId,
       organizationIds: [proposal.organizationId],
       systemActor: true,
+      auditCorrelation: buildProposalAuditCorrelation(proposal),
     }
     await commandBus.execute<DisposeProposalCommandInput, DisposeProposalCommandResult>(
       'agent_orchestrator.proposals.dispose',

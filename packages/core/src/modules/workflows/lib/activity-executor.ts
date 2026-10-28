@@ -1130,6 +1130,7 @@ export async function executeUpdateEntity(
     organizationIds: context.workflowInstance.organizationId
       ? [context.workflowInstance.organizationId]
       : null,
+    ...withWorkflowAuditCorrelation(context),
   }
 
   // Execute the command. A timeout AbortSignal refuses a start (throwIfAborted
@@ -1153,6 +1154,32 @@ export async function executeUpdateEntity(
     result,
     logEntryId: logEntry?.id,
   }
+}
+
+function readCorrelationValue(value: unknown): string | null {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null
+}
+
+/**
+ * Correlation ids stamped on the action log of a workflow-driven write: the
+ * instance always, and the agent proposal whose verdict the run is carrying out
+ * when the context holds one (`proposalId` from a human dispose, `agentProposalId`
+ * from the inline resolution path).
+ */
+function buildWorkflowAuditCorrelation(context: ActivityContext): Record<string, string> {
+  const correlation: Record<string, string> = {}
+  const workflowInstanceId = readCorrelationValue(context.workflowInstance?.id)
+  if (workflowInstanceId) correlation.workflowInstanceId = workflowInstanceId
+  const workflowContext = context.workflowContext ?? {}
+  const proposalId =
+    readCorrelationValue(workflowContext.proposalId) ?? readCorrelationValue(workflowContext.agentProposalId)
+  if (proposalId) correlation.proposalId = proposalId
+  return correlation
+}
+
+function withWorkflowAuditCorrelation(context: ActivityContext): { auditCorrelation?: Record<string, string> } {
+  const auditCorrelation = buildWorkflowAuditCorrelation(context)
+  return Object.keys(auditCorrelation).length > 0 ? { auditCorrelation } : {}
 }
 
 /**

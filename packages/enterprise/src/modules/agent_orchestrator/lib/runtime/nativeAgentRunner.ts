@@ -69,6 +69,7 @@ import {
 import {
   type AgentRunCtx,
   buildCommandContext,
+  withRunAuditCorrelation,
   createRun,
   completeRun,
   failRun,
@@ -141,9 +142,9 @@ export class NativeAgentRunner {
     input: unknown,
     ctx: AgentRunCtx,
   ): Promise<AgentResult> {
-    const commandCtx = buildCommandContext(this.container, ctx)
+    const baseCommandCtx = buildCommandContext(this.container, ctx)
 
-    const runId = await createRun(this.commandBus, commandCtx, {
+    const runId = await createRun(this.commandBus, baseCommandCtx, {
       source: ctx.source,
       tenantId: ctx.tenantId,
       organizationId: ctx.organizationId,
@@ -162,6 +163,7 @@ export class NativeAgentRunner {
       agentType: entry.agentType ?? null,
       definitionHash: resolveAgentDefinitionHash(entry),
     })
+    const commandCtx = withRunAuditCorrelation(baseCommandCtx, ctx, runId)
 
     if (ctx.onRunPersisted) {
       try {

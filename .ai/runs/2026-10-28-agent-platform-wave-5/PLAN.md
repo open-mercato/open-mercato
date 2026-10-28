@@ -43,7 +43,7 @@
 | 2 | 2.7-review-fix | Satisfy the core authorization guards for principals and tool ACL | inline | done | 70928a467 |
 | 2 | 2.8 | Record tools denied by the principal | dispatch | done | pending |
 | 2 | 2.9 | Carry audit correlation into action logs | dispatch:capable | done | pending |
-| 2 | 2.10 | Stamp run and proposal correlation on agent and effector writes | dispatch | todo | — |
+| 2 | 2.10 | Stamp run and proposal correlation on agent and effector writes | dispatch | done | pending |
 | 2 | 2.11 | List a run's actions and show them on the trace page | dispatch | todo | — |
 | 2 | 2.12 | Cover principals and run actions with integration tests | dispatch | todo | — |
 | 3 | 3.1 | Add the trace content namespace and tri-state artifact reads | dispatch:cheap | todo | — |

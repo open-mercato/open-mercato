@@ -21,6 +21,7 @@ const failRunMock = jest.fn<Promise<void>, unknown[]>()
 const createProposalMock = jest.fn<Promise<void>, unknown[]>()
 jest.mock('../lib/runtime/persistence', () => ({
   buildCommandContext: () => ({}),
+  withRunAuditCorrelation: jest.requireActual('../lib/runtime/persistence').withRunAuditCorrelation,
   resolveCallerAcl: async () => ({ features: [], isSuperAdmin: false }),
   createRun: (...args: unknown[]) => createRunMock(...args),
   completeRun: (...args: unknown[]) => completeRunMock(...args),

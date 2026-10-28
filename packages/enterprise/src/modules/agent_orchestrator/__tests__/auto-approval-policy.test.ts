@@ -403,6 +403,19 @@ describe('DispositionService applies the rule', () => {
       expect.objectContaining({ input: expect.objectContaining({ selectedOptionId: 'b' }) }),
     )
   })
+
+  test('the auto-approve dispose carries the proposal and run correlation', async () => {
+    const { service, execute } = makeService()
+
+    await service.dispose(makeProposal({ options: [option('a', 0.95)] }), { autoApproveThreshold: 0.8 }, ctx)
+
+    expect(execute).toHaveBeenCalledWith(
+      'agent_orchestrator.proposals.dispose',
+      expect.objectContaining({
+        ctx: expect.objectContaining({ auditCorrelation: { proposalId: 'proposal-1', agentRunId: 'run-1' } }),
+      }),
+    )
+  })
 })
 
 /**
