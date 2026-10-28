@@ -657,6 +657,7 @@ export const guardrailKind = z.enum([
   'reference_exists',
   'tool_consulted',
   'custom_integrity',
+  'abstain_or_review',
 ])
 export type GuardrailKindInput = z.infer<typeof guardrailKind>
 
@@ -1092,16 +1093,75 @@ export const customIntegrityRuleSchema = z.object({
   onViolation: integrityOnViolationWithoutRepair,
 })
 
+/** A concrete integrity path (no `[*]`): the single place an `abstain_or_review` rule writes to. */
+export const integrityConcretePathSchema = integrityPathSchema.refine((path) => !path.includes('[*]'), {
+  message: 'Path must not contain [*]',
+})
+
+export const abstainOrReviewSignalSchema = z.discriminatedUnion('signal', [
+  z.object({ signal: z.literal('output_empty'), path: integrityPathSchema }).strict(),
+  z.object({ signal: z.literal('tool_returned_empty'), tool: z.string().min(1).max(200) }).strict(),
+  z.object({ signal: z.literal('retrieval_empty') }).strict(),
+  z
+    .object({ signal: z.literal('confidence_below'), path: integrityPathSchema, threshold: z.number().finite() })
+    .strict(),
+  z
+    .object({
+      signal: z.literal('violations_at_least'),
+      count: z.number().int().min(1),
+      rules: z.array(integrityRuleIdSchema).min(1).optional(),
+    })
+    .strict(),
+  z.object({ signal: z.literal('output_flag'), path: integrityPathSchema }).strict(),
+  z.object({ signal: z.literal('integrity_dropped_all'), rule: integrityRuleIdSchema }).strict(),
+])
+export type AbstainOrReviewSignal = z.infer<typeof abstainOrReviewSignalSchema>
+
+/** Result fields an outcome writes: concrete path → value (validated against the result schema at registration). */
+const abstainOrReviewSetSchema = z
+  .record(integrityConcretePathSchema, z.unknown())
+  .refine((set) => Object.keys(set).length <= 20, { message: 'At most 20 set paths' })
+  .default({})
+
+export const abstainOrReviewNotApplicableSchema = z
+  .object({
+    when: z.array(abstainOrReviewSignalSchema).min(1).max(20),
+    set: abstainOrReviewSetSchema,
+  })
+  .strict()
+
+export const abstainOrReviewNeedsReviewSchema = z
+  .object({
+    when: z.array(abstainOrReviewSignalSchema).min(1).max(20),
+    set: abstainOrReviewSetSchema,
+    /** Where the stable reason codes (rule ids / signal names) are written. */
+    reasonsPath: integrityConcretePathSchema.optional(),
+    /** `flag` holds auto-approval; `review` additionally emits `agent_orchestrator.run.review_requested`. */
+    route: z.enum(['flag', 'review']).default('flag'),
+  })
+  .strict()
+
+export const abstainOrReviewRuleSchema = z.object({
+  id: integrityRuleIdSchema,
+  kind: z.literal('abstain_or_review'),
+  notApplicable: abstainOrReviewNotApplicableSchema.optional(),
+  needsReview: abstainOrReviewNeedsReviewSchema.optional(),
+})
+
 export const integrityRuleSchema = z
   .discriminatedUnion('kind', [
     evidenceQuoteRuleSchema,
     referenceExistsRuleSchema,
     toolConsultedRuleSchema,
     customIntegrityRuleSchema,
+    abstainOrReviewRuleSchema,
   ])
   .superRefine((rule, ctx) => {
     if (rule.kind === 'tool_consulted' && rule.returned.length === 0 && !rule.matchArgs) {
       ctx.addIssue({ code: 'custom', path: ['returned'], message: 'Declare returned paths or enable matchArgs' })
+    }
+    if (rule.kind === 'abstain_or_review' && !rule.notApplicable && !rule.needsReview) {
+      ctx.addIssue({ code: 'custom', path: ['needsReview'], message: 'Declare notApplicable or needsReview' })
     }
   })
 export type IntegrityRuleInput = z.input<typeof integrityRuleSchema>
@@ -1110,6 +1170,7 @@ export type EvidenceQuoteRule = z.infer<typeof evidenceQuoteRuleSchema>
 export type ReferenceExistsRule = z.infer<typeof referenceExistsRuleSchema>
 export type ToolConsultedRule = z.infer<typeof toolConsultedRuleSchema>
 export type CustomIntegrityRule = z.infer<typeof customIntegrityRuleSchema>
+export type AbstainOrReviewRule = z.infer<typeof abstainOrReviewRuleSchema>
 
 export const integrityRulesSchema = z
   .array(integrityRuleSchema)
@@ -1121,6 +1182,35 @@ export const integrityRulesSchema = z
         ctx.addIssue({ code: 'custom', path: [index, 'id'], message: `Duplicate integrity rule id "${rule.id}"` })
       }
       seen.add(rule.id)
+      if (rule.kind === 'abstain_or_review') {
+        if (index !== rules.length - 1) {
+          ctx.addIssue({ code: 'custom', path: [index, 'kind'], message: 'abstain_or_review must be the last integrity rule' })
+        }
+        const earlierIds = new Set(rules.slice(0, index).map((earlier) => earlier.id))
+        const outcomes = [
+          ['notApplicable', rule.notApplicable],
+          ['needsReview', rule.needsReview],
+        ] as const
+        for (const [outcomeKey, outcome] of outcomes) {
+          outcome?.when.forEach((signal, signalIndex) => {
+            const referenced =
+              signal.signal === 'integrity_dropped_all'
+                ? [signal.rule]
+                : signal.signal === 'violations_at_least'
+                  ? (signal.rules ?? [])
+                  : []
+            for (const ruleId of referenced) {
+              if (!earlierIds.has(ruleId)) {
+                ctx.addIssue({
+                  code: 'custom',
+                  path: [index, outcomeKey, 'when', signalIndex],
+                  message: `Signal references unknown earlier integrity rule "${ruleId}"`,
+                })
+              }
+            }
+          })
+        }
+      }
     })
   })
 
@@ -1130,6 +1220,7 @@ export const INTEGRITY_RULE_CHECK_KIND = {
   reference_exists: 'reference_exists',
   tool_consulted: 'tool_consulted',
   custom: 'custom_integrity',
+  abstain_or_review: 'abstain_or_review',
 } as const satisfies Record<IntegrityRule['kind'], GuardrailKindInput>
 
 export const INTEGRITY_EVIDENCE_MAX_VIOLATIONS = 20

@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { defineAgent, getAgentEntry } from '../lib/sdk/defineAgent'
 import {
+  INTEGRITY_RULE_CHECK_KIND,
   guardrailCheckSchema,
   guardrailKind,
   integrityEvidenceSchema,
@@ -27,8 +28,30 @@ const resultSchema = z.object({
         ),
       }),
     ),
+    overall: z.enum(['ok', 'not_applicable']).optional(),
+    confidence: z.number().optional(),
+    needsHumanReview: z.boolean().optional(),
+    reviewReasons: z.array(z.string()).optional(),
   }),
 })
+
+const abstainRule: IntegrityRuleInput = {
+  id: 'abstain',
+  kind: 'abstain_or_review',
+  notApplicable: { when: [{ signal: 'output_empty', path: 'data.findings' }], set: { 'data.overall': 'not_applicable' } },
+  needsReview: {
+    when: [
+      { signal: 'confidence_below', path: 'data.confidence', threshold: 0.6 },
+      { signal: 'violations_at_least', count: 1, rules: ['quotes'] },
+      { signal: 'integrity_dropped_all', rule: 'quotes' },
+      { signal: 'tool_returned_empty', tool: 'acme.retrieve_rules' },
+      { signal: 'retrieval_empty' },
+      { signal: 'output_flag', path: 'data.needsHumanReview' },
+    ],
+    set: { 'data.needsHumanReview': true },
+    reasonsPath: 'data.reviewReasons',
+  },
+}
 
 const quoteRule: IntegrityRuleInput = {
   id: 'quotes',
@@ -90,6 +113,7 @@ describe('integrityRuleSchema', () => {
     expect(integrityRuleSchema.safeParse({ ...quoteRule, source: { input: 'a', fromItem: 'b' } }).success).toBe(false)
     expect(integrityRuleSchema.safeParse({ ...quoteRule, id: 'bad id' }).success).toBe(false)
     expect(integrityRuleSchema.safeParse({ ...quoteRule, kind: 'abstain_or_review' }).success).toBe(false)
+    expect(integrityRuleSchema.safeParse({ id: 'abstain', kind: 'abstain_or_review' }).success).toBe(false)
     expect(integrityRuleSchema.safeParse({ id: 'read', kind: 'tool_consulted', cites: 'a[*]', tools: ['t'] }).success).toBe(false)
     expect(
       integrityRuleSchema.safeParse({ id: 'read', kind: 'tool_consulted', cites: 'a[*]', tools: ['t'], matchArgs: true }).success,
@@ -105,9 +129,17 @@ describe('integrityRuleSchema', () => {
 describe('integrity evidence, summary and check kinds', () => {
   it('extends guardrailKind additively', () => {
     expect(guardrailKind.options).toEqual(
-      expect.arrayContaining(['prompt_injection', 'evidence_quote', 'reference_exists', 'tool_consulted', 'custom_integrity']),
+      expect.arrayContaining([
+        'prompt_injection',
+        'evidence_quote',
+        'reference_exists',
+        'tool_consulted',
+        'custom_integrity',
+        'abstain_or_review',
+      ]),
     )
-    expect(guardrailKind.safeParse('abstain_or_review').success).toBe(false)
+    expect(INTEGRITY_RULE_CHECK_KIND.abstain_or_review).toBe('abstain_or_review')
+    expect(guardrailCheckSchema.safeParse({ kind: 'abstain_or_review', result: 'warn', guardrailSetVersion: 'i1-x' }).success).toBe(true)
   })
 
   it('validates redacted evidence and caps violations', () => {
@@ -217,5 +249,99 @@ describe('defineAgent integrity', () => {
     const nextId = `test.integrity_agent_${agentSequence + 1}`
     expect(() => register([{ ...quoteRule, quote: 'missing' }])).toThrow()
     expect(getAgentEntry(nextId)).toBeUndefined()
+  })
+})
+
+describe('abstain_or_review declaration', () => {
+  it('parses every signal and defaults route to flag', () => {
+    const parsed = integrityRulesSchema.parse([quoteRule, abstainRule])
+    expect(parsed[1]).toMatchObject({
+      kind: 'abstain_or_review',
+      needsReview: { route: 'flag', reasonsPath: 'data.reviewReasons' },
+      notApplicable: { set: { 'data.overall': 'not_applicable' } },
+    })
+    expect(
+      integrityRuleSchema.parse({ id: 'abstain', kind: 'abstain_or_review', needsReview: { when: [{ signal: 'retrieval_empty' }] } }),
+    ).toMatchObject({ needsReview: { set: {}, route: 'flag' } })
+  })
+
+  it('rejects malformed outcomes and signals', () => {
+    const base = { id: 'abstain', kind: 'abstain_or_review' }
+    const review = (needsReview: Record<string, unknown>) => integrityRuleSchema.safeParse({ ...base, needsReview }).success
+    expect(review({ when: [] })).toBe(false)
+    expect(review({ when: [{ signal: 'unknown_signal' }] })).toBe(false)
+    expect(review({ when: [{ signal: 'confidence_below', path: 'data.confidence' }] })).toBe(false)
+    expect(review({ when: [{ signal: 'violations_at_least', count: 0 }] })).toBe(false)
+    expect(review({ when: [{ signal: 'retrieval_empty' }], route: 'escalate' })).toBe(false)
+    expect(review({ when: [{ signal: 'retrieval_empty' }], set: { 'data.findings[*].ruleId': 'x' } })).toBe(false)
+    expect(review({ when: [{ signal: 'retrieval_empty' }], reasonsPath: 'data.items[*]' })).toBe(false)
+    expect(review({ when: [{ signal: 'retrieval_empty', path: 'data' }] })).toBe(false)
+    expect(review({ when: [{ signal: 'retrieval_empty' }], route: 'review' })).toBe(true)
+  })
+
+  it('requires abstain_or_review to be the last rule', () => {
+    expect(integrityRulesSchema.safeParse([abstainRule, quoteRule]).success).toBe(false)
+    expect(integrityRulesSchema.safeParse([quoteRule, abstainRule, { ...abstainRule, id: 'abstain-2' }]).success).toBe(false)
+  })
+
+  it('requires signal rule references to name an earlier rule', () => {
+    const unknownRule = {
+      id: 'abstain',
+      kind: 'abstain_or_review',
+      needsReview: { when: [{ signal: 'integrity_dropped_all', rule: 'missing' }] },
+    }
+    expect(integrityRulesSchema.safeParse([quoteRule, unknownRule]).success).toBe(false)
+    const unknownInList = {
+      id: 'abstain',
+      kind: 'abstain_or_review',
+      notApplicable: { when: [{ signal: 'violations_at_least', count: 2, rules: ['quotes', 'missing'] }] },
+    }
+    expect(integrityRulesSchema.safeParse([quoteRule, unknownInList]).success).toBe(false)
+  })
+
+  it('registers a valid rule on the agent', () => {
+    const integrity = getAgentEntry(register([quoteRule, abstainRule]))?.integrity
+    expect(integrity?.map((rule) => rule.kind)).toEqual(['evidence_quote', 'abstain_or_review'])
+  })
+
+  it('rejects a rule that is not last at registration', () => {
+    expect(() => register([abstainRule, quoteRule])).toThrow(/rule "abstain": invalid declaration at "0\.kind": abstain_or_review must be the last/)
+  })
+
+  it.each<[string, Record<string, unknown>, RegExp]>([
+    [
+      'signal path',
+      { needsReview: { when: [{ signal: 'output_flag', path: 'data.flagged' }] } },
+      /needsReview\.when\.0\.path path "data\.flagged" cannot exist in the result schema/,
+    ],
+    [
+      'set path',
+      { notApplicable: { when: [{ signal: 'retrieval_empty' }], set: { 'data.verdict': 'n/a' } } },
+      /notApplicable\.set path "data\.verdict" cannot exist/,
+    ],
+    [
+      'set value',
+      { notApplicable: { when: [{ signal: 'retrieval_empty' }], set: { 'data.overall': 'skipped' } } },
+      /notApplicable\.set value for "data\.overall" does not satisfy the result schema/,
+    ],
+    [
+      'set value type',
+      { needsReview: { when: [{ signal: 'retrieval_empty' }], set: { 'data.needsHumanReview': 'yes' } } },
+      /needsReview\.set value for "data\.needsHumanReview"/,
+    ],
+    [
+      'reasonsPath',
+      { needsReview: { when: [{ signal: 'retrieval_empty' }], reasonsPath: 'data.overall' } },
+      /needsReview\.reasonsPath "data\.overall" must address an array/,
+    ],
+    [
+      'missing reasonsPath',
+      { needsReview: { when: [{ signal: 'retrieval_empty' }], reasonsPath: 'data.reasons' } },
+      /needsReview\.reasonsPath path "data\.reasons" cannot exist/,
+    ],
+  ])('rejects an invalid %s naming the agent and rule', (_label, outcomes, message) => {
+    const rule = { id: 'abstain', kind: 'abstain_or_review', ...outcomes } as IntegrityRuleInput
+    expect(() => register([rule])).toThrow(/^\[internal\] agent "test\.integrity_agent_\d+" integrity rule "abstain"/)
+    expect(() => register([rule])).toThrow(message)
   })
 })

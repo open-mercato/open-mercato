@@ -782,6 +782,7 @@ export type GuardrailKind =
   | 'reference_exists'
   | 'tool_consulted'
   | 'custom_integrity'
+  | 'abstain_or_review'
 
 export type GuardrailResult = 'pass' | 'warn' | 'block'
 

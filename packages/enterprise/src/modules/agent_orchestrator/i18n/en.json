@@ -1519,6 +1519,7 @@
   "agent_orchestrator.traces.detail.gated": "Gated to human",
   "agent_orchestrator.traces.detail.goldenMatch": "Golden match",
   "agent_orchestrator.traces.detail.guardrailEvidence": "Evidence",
+  "agent_orchestrator.traces.detail.guardrailKind.abstain_or_review": "Abstain or review",
   "agent_orchestrator.traces.detail.guardrailKind.custom_integrity": "Custom integrity check",
   "agent_orchestrator.traces.detail.guardrailKind.evidence_quote": "Evidence quote",
   "agent_orchestrator.traces.detail.guardrailKind.reference_exists": "Reference exists",

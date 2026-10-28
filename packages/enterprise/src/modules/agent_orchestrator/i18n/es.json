@@ -1519,6 +1519,7 @@
   "agent_orchestrator.traces.detail.gated": "Requiere humano",
   "agent_orchestrator.traces.detail.goldenMatch": "Coincidencia dorada",
   "agent_orchestrator.traces.detail.guardrailEvidence": "Evidencia",
+  "agent_orchestrator.traces.detail.guardrailKind.abstain_or_review": "Abstención o revisión",
   "agent_orchestrator.traces.detail.guardrailKind.custom_integrity": "Comprobación de integridad personalizada",
   "agent_orchestrator.traces.detail.guardrailKind.evidence_quote": "Cita de evidencia",
   "agent_orchestrator.traces.detail.guardrailKind.reference_exists": "Referencia existente",

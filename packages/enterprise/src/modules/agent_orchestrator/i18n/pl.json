@@ -1519,6 +1519,7 @@
   "agent_orchestrator.traces.detail.gated": "Wymaga człowieka",
   "agent_orchestrator.traces.detail.goldenMatch": "Dopasowanie do wzorca",
   "agent_orchestrator.traces.detail.guardrailEvidence": "Dowód",
+  "agent_orchestrator.traces.detail.guardrailKind.abstain_or_review": "Wstrzymanie lub przegląd",
   "agent_orchestrator.traces.detail.guardrailKind.custom_integrity": "Niestandardowa kontrola integralności",
   "agent_orchestrator.traces.detail.guardrailKind.evidence_quote": "Cytat dowodowy",
   "agent_orchestrator.traces.detail.guardrailKind.reference_exists": "Istnienie odwołania",

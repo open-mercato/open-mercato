@@ -81,6 +81,11 @@ describe('integrity set versioning', () => {
     expect(integritySetVersionFor(reordered)).toBe(version)
   })
 
+  it('keeps the version of a set without abstain_or_review unchanged', () => {
+    const body = integritySetBodyFor({ id: 'test.integrity_agent', integrity: [quoteRule()] })
+    expect(integritySetVersionFor(body)).toBe('i1-cd6d0f49029dcac9e96a6eaa')
+  })
+
   it('changes the version when a rule changes', () => {
     const base = integritySetVersionFor(integritySetBodyFor({ id: 'test.integrity_agent', integrity: [quoteRule()] }))
     const edited = integritySetVersionFor(

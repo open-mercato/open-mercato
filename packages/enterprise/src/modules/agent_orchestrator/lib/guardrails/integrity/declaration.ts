@@ -1,5 +1,10 @@
-import type { ZodTypeAny } from 'zod'
-import { integrityRulesSchema, type IntegrityRule } from '../../../data/validators'
+import { z, type ZodTypeAny } from 'zod'
+import {
+  integrityRulesSchema,
+  type AbstainOrReviewRule,
+  type AbstainOrReviewSignal,
+  type IntegrityRule,
+} from '../../../data/validators'
 import { validatePathAgainstSchema } from './paths'
 import { normalizeToolName } from './pipeline'
 
@@ -49,6 +54,48 @@ function validateRulePaths(agentId: string, rule: IntegrityRule, schema: ZodType
   }
   if (rule.kind === 'tool_consulted') {
     resolveBase(agentId, rule, schema, 'cites', rule.cites)
+    return
+  }
+  if (rule.kind === 'abstain_or_review') {
+    validateAbstainOrReviewPaths(agentId, rule, schema)
+  }
+}
+
+function signalPath(signal: AbstainOrReviewSignal): string | null {
+  if (signal.signal === 'output_empty' || signal.signal === 'confidence_below' || signal.signal === 'output_flag') {
+    return signal.path
+  }
+  return null
+}
+
+function acceptsList(leaf: ZodTypeAny): boolean {
+  return leaf instanceof z.ZodArray || leaf instanceof z.ZodUnknown || leaf instanceof z.ZodAny
+}
+
+function validateAbstainOrReviewPaths(agentId: string, rule: AbstainOrReviewRule, schema: ZodTypeAny): void {
+  const outcomes = [
+    ['notApplicable', rule.notApplicable],
+    ['needsReview', rule.needsReview],
+  ] as const
+  for (const [outcomeKey, outcome] of outcomes) {
+    if (!outcome) continue
+    outcome.when.forEach((signal, signalIndex) => {
+      const path = signalPath(signal)
+      if (path) resolveBase(agentId, rule, schema, `${outcomeKey}.when.${signalIndex}.path`, path)
+    })
+    for (const [path, value] of Object.entries(outcome.set)) {
+      const leaves = resolveBase(agentId, rule, schema, `${outcomeKey}.set`, path)
+      if (!leaves.some((leaf) => leaf.safeParse(value).success)) {
+        throw registrationError(agentId, rule.id, `${outcomeKey}.set value for "${path}" does not satisfy the result schema`)
+      }
+    }
+  }
+  const reasonsPath = rule.needsReview?.reasonsPath
+  if (reasonsPath) {
+    const leaves = resolveBase(agentId, rule, schema, 'needsReview.reasonsPath', reasonsPath)
+    if (!leaves.some(acceptsList)) {
+      throw registrationError(agentId, rule.id, `needsReview.reasonsPath "${reasonsPath}" must address an array in the result schema`)
+    }
   }
 }
 
@@ -78,7 +125,9 @@ export type ParseAgentIntegrityRulesOptions = {
  * Parses an agent's `integrity` declaration and checks every output path against
  * its result schema — `items`/`ids`/`cites` from the result root, item-relative
  * paths (`quote`, `offsets`, `source.fromItem`, `idPath`, `versionPath`,
- * `version.path`) from the addressed item. Run-input and tool-result paths are
+ * `version.path`) from the addressed item, and `abstain_or_review` signal, `set`
+ * and `reasonsPath` paths from the result root (each `set` value must satisfy the
+ * addressed schema leaf). Run-input and tool-result paths are
  * syntax-checked only: neither has a schema at registration. Fails loud with an
  * `[internal]` error naming the agent and rule; returns undefined for no rules.
  */

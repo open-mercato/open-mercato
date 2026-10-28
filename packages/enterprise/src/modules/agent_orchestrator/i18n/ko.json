@@ -1519,6 +1519,7 @@
   "agent_orchestrator.traces.detail.gated": "사람 판단 대상",
   "agent_orchestrator.traces.detail.goldenMatch": "정답 일치",
   "agent_orchestrator.traces.detail.guardrailEvidence": "근거",
+  "agent_orchestrator.traces.detail.guardrailKind.abstain_or_review": "판단 보류 또는 검토",
   "agent_orchestrator.traces.detail.guardrailKind.custom_integrity": "사용자 정의 무결성 검사",
   "agent_orchestrator.traces.detail.guardrailKind.evidence_quote": "증거 인용",
   "agent_orchestrator.traces.detail.guardrailKind.reference_exists": "참조 존재",

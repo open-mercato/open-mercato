@@ -20,7 +20,7 @@
 
 | Phase | Step | Title | Exec | Status | Commit |
 |-------|------|-------|------|--------|--------|
-| 1 | 1.1 | Declare the abstain_or_review integrity rule | dispatch | todo | — |
+| 1 | 1.1 | Declare the abstain_or_review integrity rule | dispatch | done | pending |
 | 1 | 1.2 | Evaluate abstain_or_review after grounding | dispatch:capable | todo | — |
 | 1 | 1.3 | Hold auto-approval on integrity warnings that request it | dispatch | todo | — |
 | 1 | 1.4 | Emit agent_orchestrator.run.review_requested | dispatch:cheap | todo | — |

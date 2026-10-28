@@ -1519,6 +1519,7 @@
   "agent_orchestrator.traces.detail.gated": "Mensch erforderlich",
   "agent_orchestrator.traces.detail.goldenMatch": "Golden-Treffer",
   "agent_orchestrator.traces.detail.guardrailEvidence": "Nachweis",
+  "agent_orchestrator.traces.detail.guardrailKind.abstain_or_review": "Enthaltung oder Prüfung",
   "agent_orchestrator.traces.detail.guardrailKind.custom_integrity": "Benutzerdefinierte Integritätsprüfung",
   "agent_orchestrator.traces.detail.guardrailKind.evidence_quote": "Belegzitat",
   "agent_orchestrator.traces.detail.guardrailKind.reference_exists": "Referenz vorhanden",
