@@ -1,24 +1,23 @@
 # Handoff — 2026-10-28-agent-platform-wave-5
 
-**Last updated:** 2026-10-28T04:01:22Z
+**Last updated:** 2026-10-28T04:42:57Z
 **Branch:** feat/agent-platform-wave-5
 **PR:** https://github.com/open-mercato/open-mercato/pull/8099 (draft, claimed)
-**Current phase/step:** Phase 2 Step 2.1
-**Last commit:** d51ea26f5 — fix(agent_orchestrator): wrap guardrail check rows in narrow cards
+**Current phase/step:** Phase 2 Step 2.8 (paused at the safety checkpoint for user review)
+**Last commit:** 70928a467 — fix(agent_orchestrator): satisfy core authorization guards for principals and tool ACL
 
 ## What just happened
-- Phase 1 (Integrity P3–P5) complete; checkpoint 1 green (typecheck, AO jest 2515, core guards, integration 16 passed / 3 skipped).
+- Phase 1 (Integrity) done; Phase 2 Steps 2.1–2.7 done (principals, central runAs, intersect tool ACL). Checkpoint 2 green after 2.7-review-fix.
 
 ## Next concrete action
-- Step 2.1 — Close the agent identity route and tenant-scope follow-ups (D2.1).
+- After user review: Step 2.8 — Record tools denied by the principal (D3.3).
 
 ## Blockers / open questions
-- none. Safety stop for user review after ~20 consecutive Steps (around Step 2.8).
+- Paused for user review (skill safety stop after ~20 consecutive Steps).
 
 ## Environment caveats
-- Checkpoints every 10+ Steps (user preference).
-- Ephemeral app stopped and cleaned; it rewrites generated/file-agents.generated.ts while running — revert before commits.
-- Database/migration state: clean
+- Checkpoints every 10+ Steps (user preference). Ephemeral app stopped and cleaned.
+- Database/migration state: clean (core audit_logs migration comes at D4.1 / Step 2.10).
 
 ## Worktree
 - Path: .ai/tmp/om-auto-create-pr-loop/agent-platform-wave-5-20261028-034518

@@ -14,3 +14,7 @@
 - Decision: checkpoints every 10+ Steps (user request).
 - Fixes: 1.9-review-fix (optional ScorerRunView.guardrailChecks), 1.11-review-fix (guardrail row wrap).
 - Delegations: executors for 1.1–1.11 (1.4 cheap tier).
+
+## 2026-10-28T04:42:57Z — checkpoint 2 + safety stop
+- Steps 2.1–2.7 verified after 2.7-review-fix (core guard violations). Integration 14 passed / 2 skipped; build:app pass.
+- Paused for user review after ~20 consecutive Steps (skill safety stop).

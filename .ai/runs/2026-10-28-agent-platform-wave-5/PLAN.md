@@ -33,14 +33,14 @@
 | 1 | 1.10 | Run the output pipeline in the OpenCode runner | dispatch:capable | done | b992db30f |
 | 1 | 1.11 | Cover integrity review and untrusted inputs with integration tests | dispatch | done | eccc2fef7 |
 | 1 | 1.11-review-fix | Wrap guardrail check rows in narrow cards | inline | done | d51ea26f5 |
-| 2 | 2.1 | Close the agent identity route and tenant-scope follow-ups | dispatch:cheap | done | pending |
-| 2 | 2.2 | Declare agent principals and sync them | dispatch:capable | done | pending |
-| 2 | 2.3 | Run principal sync in setup and the CLI | dispatch | done | pending |
-| 2 | 2.4 | Bind runAs centrally in the agent runtime | dispatch:capable | done | pending |
-| 2 | 2.5 | Show the agent principal on the agents API and detail page | dispatch | done | pending |
-| 2 | 2.6 | Add intersectFeatureGrants to shared | dispatch:cheap | done | pending |
-| 2 | 2.7 | Resolve the effective tool ACL with an intersect mode | dispatch:capable | done | pending |
-| 2 | 2.7-review-fix | Satisfy the core authorization guards for principals and tool ACL | inline | done | pending |
+| 2 | 2.1 | Close the agent identity route and tenant-scope follow-ups | dispatch:cheap | done | 233d80418 |
+| 2 | 2.2 | Declare agent principals and sync them | dispatch:capable | done | c75f01c51 |
+| 2 | 2.3 | Run principal sync in setup and the CLI | dispatch | done | 8ce9a5461 |
+| 2 | 2.4 | Bind runAs centrally in the agent runtime | dispatch:capable | done | 39ecd863b |
+| 2 | 2.5 | Show the agent principal on the agents API and detail page | dispatch | done | 77b1822bb |
+| 2 | 2.6 | Add intersectFeatureGrants to shared | dispatch:cheap | done | 2fd788317 |
+| 2 | 2.7 | Resolve the effective tool ACL with an intersect mode | dispatch:capable | done | 97bdeae71 |
+| 2 | 2.7-review-fix | Satisfy the core authorization guards for principals and tool ACL | inline | done | 70928a467 |
 | 2 | 2.8 | Record tools denied by the principal | dispatch | todo | — |
 | 2 | 2.9 | Carry audit correlation into action logs | dispatch:capable | todo | — |
 | 2 | 2.10 | Stamp run and proposal correlation on agent and effector writes | dispatch | todo | — |
