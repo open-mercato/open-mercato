@@ -7,7 +7,7 @@ import {
   isCommandInterceptorError,
 } from '@open-mercato/shared/lib/commands'
 import { registerCommandInterceptors } from '@open-mercato/shared/lib/commands/command-interceptor-store'
-import type { CommandInterceptor } from '@open-mercato/shared/lib/commands/command-interceptor'
+import type { CommandInterceptor, CommandInterceptorContext } from '@open-mercato/shared/lib/commands/command-interceptor'
 
 describe('CommandBus', () => {
   afterEach(() => {
@@ -296,6 +296,57 @@ describe('CommandBus', () => {
     )
   })
 
+  it('defers opted-in before snapshots until after the transactional write guard', async () => {
+    const calls: string[] = []
+    const transactionalEm = { id: 'transaction-em' }
+    const buildLogMock = jest.fn(() => ({
+      actionLabel: 'Transaction snapshot',
+      resourceKind: 'test',
+      resourceId: 'transactional',
+    }))
+    const prepare = jest.fn(async (_input, ctx) => {
+      calls.push('prepare')
+      expect(ctx.transactionalEm).toBe(transactionalEm)
+      return { before: { state: 'locked-before' } }
+    })
+
+    registerCommand({
+      id: 'test.command.transactional-snapshot',
+      prepare,
+      prepareSnapshotInsideTransaction: true,
+      execute: jest.fn(async (_input, ctx) => {
+        calls.push('execute')
+        await ctx.beforeTransactionalWrite?.(transactionalEm as never)
+        calls.push('mutate')
+        return { ok: true }
+      }),
+      buildLog: buildLogMock,
+    })
+
+    const logMock = jest.fn(async () => ({ id: 'transaction-log' }))
+    const container = createContainer({ injectionMode: InjectionMode.CLASSIC })
+    container.register({ actionLogService: asValue({ log: logMock }) })
+    const bus = new CommandBus()
+    const ctx = {
+      container,
+      auth: { sub: 'user-transaction', tenantId: 'tenant-transaction', orgId: null },
+      organizationScope: null,
+      selectedOrganizationId: null,
+      organizationIds: null,
+      beforeTransactionalWrite: jest.fn(async () => {
+        calls.push('lock')
+      }),
+    }
+
+    await bus.execute('test.command.transactional-snapshot', { input: {}, ctx })
+
+    expect(calls).toEqual(['execute', 'lock', 'prepare', 'mutate'])
+    expect(prepare).toHaveBeenCalledTimes(1)
+    expect(buildLogMock).toHaveBeenCalledWith(expect.objectContaining({
+      snapshots: { before: { state: 'locked-before' }, after: undefined },
+    }))
+  })
+
   it('loads a command file lazily before execution', async () => {
     const execute = jest.fn(async () => ({ ok: true }))
     registerCommandLoaders([
@@ -538,6 +589,54 @@ describe('CommandBus', () => {
   })
 
   describe('interceptor rejections', () => {
+    it('passes the original request to beforeExecute for preflight version checks', async () => {
+      registerCommand({ id: 'test.request-context', execute: jest.fn(async () => ({ ok: true })) })
+      const beforeExecute = jest.fn(async (_input: unknown, context: { request?: Request | null }) => {
+        expect(context.request?.headers.get('x-om-ext-optimistic-lock-expected-updated-at')).toBe('2026-09-29T11:00:00.000Z')
+        return { ok: false, status: 422 }
+      })
+      registerCommandInterceptors([{ moduleId: 'test', interceptors: [{
+        id: 'test.request-context-interceptor', targetCommand: 'test.request-context', beforeExecute,
+      }] }])
+      const request = new Request('http://localhost/test', { headers: { 'x-om-ext-optimistic-lock-expected-updated-at': '2026-09-29T11:00:00.000Z' } })
+      const container = createContainer({ injectionMode: InjectionMode.CLASSIC })
+      const bus = new CommandBus()
+      await expect(bus.execute('test.request-context', { input: {}, ctx: {
+        container,
+        auth: { sub: 'user-1', tenantId: 'tenant-1', orgId: null },
+        organizationScope: null,
+        selectedOrganizationId: null,
+        organizationIds: null,
+        request,
+      } })).rejects.toMatchObject({ status: 422 })
+      expect(beforeExecute).toHaveBeenCalledTimes(1)
+    })
+
+    it('passes request and organization scope to both execution lifecycle hooks', async () => {
+      registerCommand({ id: 'test.lifecycle-context', execute: async () => ({ ok: true }) })
+      const request = new Request('http://localhost/test')
+      const organizationScope = { selectedId: 'parent', filterIds: ['parent', 'child'], allowedIds: ['parent', 'child'], tenantId: 'tenant-1' }
+      const beforeExecute = jest.fn(async (_input: unknown, context: CommandInterceptorContext) => {
+        expect(context.request).toBe(request)
+        expect(context.organizationScope).toBe(organizationScope)
+        return { ok: true }
+      })
+      const afterExecute = jest.fn(async (_input: unknown, _result: unknown, context: CommandInterceptorContext) => {
+        expect(context.request).toBe(request)
+        expect(context.organizationScope).toBe(organizationScope)
+      })
+      registerCommandInterceptors([{ moduleId: 'test', interceptors: [{
+        id: 'test.lifecycle-context-interceptor', targetCommand: 'test.lifecycle-context', beforeExecute, afterExecute,
+      }] }])
+      await new CommandBus().execute('test.lifecycle-context', { input: {}, ctx: {
+        container: createContainer({ injectionMode: InjectionMode.CLASSIC }),
+        auth: { sub: 'user-1', tenantId: 'tenant-1', orgId: 'parent' },
+        organizationScope, selectedOrganizationId: 'parent', organizationIds: ['parent', 'child'], request,
+      } })
+      expect(beforeExecute).toHaveBeenCalledTimes(1)
+      expect(afterExecute).toHaveBeenCalledTimes(1)
+    })
+
     const blockingInterceptor = (result: Record<string, unknown>): CommandInterceptor => ({
       id: 'test.block',
       targetCommand: 'test.*',

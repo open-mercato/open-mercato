@@ -8,6 +8,14 @@ const BCRYPT_COST = 10
 const MAX_FAILED_ATTEMPTS = 5
 const LOCKOUT_DURATION_MS = 15 * 60 * 1000 // 15 minutes
 
+type CustomerUserLockoutDatabase = {
+  customer_users: {
+    id: string
+    failed_login_attempts: number
+    locked_until: Date | null
+  }
+}
+
 export class CustomerUserService {
   constructor(private em: EntityManager) {}
 
@@ -81,14 +89,32 @@ export class CustomerUserService {
   }
 
   async incrementFailedAttempts(user: CustomerUser): Promise<void> {
-    const newCount = (user.failedLoginAttempts || 0) + 1
-    const updates: Record<string, unknown> = { failedLoginAttempts: newCount }
-    if (newCount >= MAX_FAILED_ATTEMPTS) {
-      updates.lockedUntil = new Date(Date.now() + LOCKOUT_DURATION_MS)
-    }
-    await this.em.nativeUpdate(CustomerUser, { id: user.id }, updates)
-    user.failedLoginAttempts = newCount
-    if (updates.lockedUntil) user.lockedUntil = updates.lockedUntil as Date
+    const lockedUntil = new Date(Date.now() + LOCKOUT_DURATION_MS)
+    await this.em.getKysely<CustomerUserLockoutDatabase>()
+      .updateTable('customer_users')
+      .set((eb) => ({
+        failed_login_attempts: eb('failed_login_attempts', '+', 1),
+        locked_until: eb
+          .case()
+          .when('failed_login_attempts', '>=', MAX_FAILED_ATTEMPTS - 1)
+          .then(eb.fn<Date>('greatest', [eb.ref('locked_until'), eb.val(lockedUntil)]))
+          .else(eb.ref('locked_until'))
+          .end(),
+      }))
+      .where('id', '=', user.id)
+      .execute()
+  }
+
+  async resetFailedAttemptsUnlessLocked(user: CustomerUser): Promise<boolean> {
+    const now = new Date()
+    const row = await this.em.getKysely<CustomerUserLockoutDatabase>()
+      .updateTable('customer_users')
+      .set({ failed_login_attempts: 0, locked_until: null })
+      .where('id', '=', user.id)
+      .where((eb) => eb.or([eb('locked_until', 'is', null), eb('locked_until', '<=', now)]))
+      .returning('id')
+      .executeTakeFirst()
+    return row !== undefined
   }
 
   async resetFailedAttempts(user: CustomerUser): Promise<void> {
@@ -96,8 +122,6 @@ export class CustomerUserService {
       failedLoginAttempts: 0,
       lockedUntil: null,
     })
-    user.failedLoginAttempts = 0
-    user.lockedUntil = null
   }
 
   async updatePassword(user: CustomerUser, newPassword: string, em?: EntityManager): Promise<void> {

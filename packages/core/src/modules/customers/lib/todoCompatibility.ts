@@ -56,6 +56,7 @@ export type CustomerTodoRow = {
   todoSeverity?: string | null
   todoDescription?: string | null
   todoDueAt?: string | null
+  todoTimezone?: string | null
   todoCustomValues?: Record<string, unknown> | null
   todoOrganizationId: string | null
   todoUpdatedAt?: string | null
@@ -668,6 +669,7 @@ export function mapInteractionRecordToTodoRow(
         : null,
     todoDescription: interaction.body ?? null,
     todoDueAt: interaction.scheduledAt ?? null,
+    todoTimezone: interaction.timezone ?? null,
     todoCustomValues: Object.keys(customValues).length > 0 ? customValues : null,
     todoOrganizationId: interaction.organizationId ?? null,
     todoUpdatedAt: interaction.updatedAt ?? null,

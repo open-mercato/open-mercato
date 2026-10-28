@@ -97,24 +97,25 @@ fs.writeFileSync('.test-cache.json', JSON.stringify(plan, null, 2));
 Build one changed-file list and reuse it for cache invalidation, classification, Jest, and
 Playwright mapping. Include PR diff, local staged/unstaged changes, and untracked files:
 
-First resolve the comparison base. Do **not** guess `origin/main` when the branch is based on
-`develop`; comparing a develop-based branch to `origin/main` can pull in unrelated
-`packages/shared/` changes from the long-lived develop branch and incorrectly force the full
-suite.
+First resolve the comparison base. PRs target `main`, so `origin/main` is the default base. Do
+**not** guess `origin/main` when the branch is based on a `release/vX.Y.x` line (a hotfix);
+comparing a line-based branch to `origin/main` can pull in unrelated `packages/shared/`
+changes and incorrectly force the full suite. Set `SMART_TEST_BASE_REF=origin/release/vX.Y.x`
+(or rely on the branch upstream) in that case.
 
 ```bash
 BASE_REF="${SMART_TEST_BASE_REF:-}"
 if [ -z "$BASE_REF" ]; then
   BASE_REF="$(git rev-parse --abbrev-ref --symbolic-full-name @{upstream} 2>/dev/null || true)"
 fi
-if [ -z "$BASE_REF" ] && git rev-parse --verify --quiet origin/develop >/dev/null; then
-  if git merge-base --fork-point origin/develop HEAD >/dev/null 2>&1 || git merge-base --is-ancestor origin/develop HEAD; then
-    BASE_REF="origin/develop"
+if [ -z "$BASE_REF" ] && git rev-parse --verify --quiet origin/main >/dev/null; then
+  if git merge-base --fork-point origin/main HEAD >/dev/null 2>&1 || git merge-base --is-ancestor origin/main HEAD; then
+    BASE_REF="origin/main"
   fi
 fi
-if [ -z "$BASE_REF" ] && git rev-parse --verify --quiet develop >/dev/null; then
-  if git merge-base --fork-point develop HEAD >/dev/null 2>&1 || git merge-base --is-ancestor develop HEAD; then
-    BASE_REF="develop"
+if [ -z "$BASE_REF" ] && git rev-parse --verify --quiet main >/dev/null; then
+  if git merge-base --fork-point main HEAD >/dev/null 2>&1 || git merge-base --is-ancestor main HEAD; then
+    BASE_REF="main"
   fi
 fi
 
@@ -128,9 +129,9 @@ CHANGED_FILES=$({
 ```
 
 If `git diff --name-only origin/main...HEAD` contains `packages/shared/` but `$BASE_REF` is
-`origin/develop`/`develop` and the `$BASE_REF...HEAD` diff does not contain
+a `release/vX.Y.x` line and the `$BASE_REF...HEAD` diff does not contain
 `packages/shared/`, do not classify the branch as wide-scope. Report it as a base-ref
-mismatch and use the resolved develop base.
+mismatch and use the resolved release-line base.
 
 If there is no upstream PR context, use only local changes and untracked files:
 
