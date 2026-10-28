@@ -7,6 +7,7 @@ import { scimJson } from '../../../../../lib/scim-response'
 import { handleScimApiError } from '../../../../error-handler'
 
 export const metadata = { requireAuth: false }
+export { checkScimRateLimit as beforeAuth } from '../../../rate-limit'
 
 type RouteContext = { params: Promise<{ id: string }> }
 

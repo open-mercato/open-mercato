@@ -309,6 +309,8 @@ Use `idp_subject` (not email) as the stable cross-system identifier — emails c
   - Exhaustion returns a SCIM `429` error with `Retry-After` and `X-RateLimit-*` headers, without token lookup or bcrypt work. An unavailable limiter returns a SCIM `503` before verification. Identity providers must retry after the advertised delay.
   - Sizing evidence: ten local cost-10 `bcryptjs.hash` samples on Node 24.22.1 measured 54.3 ms median wall time and 562 ms aggregate CPU. Ten admitted invalid requests per second therefore cost approximately 0.56 CPU-seconds per second per client on this host. This is a microbenchmark, not a load test or a deployment capacity guarantee.
   - Regression coverage: `packages/enterprise/src/modules/sso/api/scim/__tests__/rate-limit.test.ts` exercises all six public operations with the real memory limiter, cross-route budget sharing, forwarding-header spoof resistance, client isolation, quota reset/configuration, unavailable/degraded limiter behavior, invalid-token bcrypt calls, and valid organization-scoped user creation.
+  - Admission runs through the optional route-file `beforeAuth` export before the dispatcher's generic JWT/API-key resolution, closing credential work that would otherwise precede a handler-level limit. Its `ApiRouteBeforeAuth` contract accepts `(Request, { method, params })`, returns `null` to continue or a `Response` to reject, and leaves normal authentication/authorization intact after admission. Existing routes without the hook retain their behavior; monorepo and create-app template dispatchers are identical.
+  - The SCIM helper memoizes the admission promise by request identity, preserving one quota charge across the dispatcher hook and direct-handler fallback. `apps/mercato/src/app/api/__tests__/scim-admission.test.ts` executes the dispatcher with real generic auth, API-key verification, SCIM token verification and limiter flow. With database/bcrypt boundaries instrumented, exhausted requests on all six operations perform no further lookup/hash/compare; a 30-request rotating-key burst permits ten credential resolutions and rejects twenty before that work.
 - **Entra ID quirks:** Lenient SCIM parser for non-standard PATCH paths and mixed-case filter operators
 
 ### 7.4 Break-Glass
@@ -397,10 +399,13 @@ SCIM server implemented directly — no SCIM library needed (straightforward RES
 
 Issue [#7829](https://github.com/open-mercato/open-mercato/issues/7829) adds `429` and `503` error responses; existing SCIM URLs, request bodies, successful response bodies, token formats, and organization scoping stay stable. No database migration is required. Clients should honor `Retry-After` on `429`; operators should set trusted proxy depth to the real topology and tune `RATE_LIMIT_SCIM_*` if normal provisioning bursts exceed the default. The public discovery operation uses the same budget without requiring bearer authentication. The existing integration-test global rate-limit disable behavior remains in effect.
 
+The optional `beforeAuth` route export and `ApiRouteBeforeAuth` type are additive. Existing route exports/signatures and all routes without the hook remain supported. Standalone applications must adopt the updated template dispatcher before relying on this hook to precede generic credential resolution; SCIM's direct-handler fallback still limits its own bearer verifier in older dispatchers. No enterprise-specific behavior is added to shared dispatch code. See [rate-limiting admission documentation](../../../../apps/docs/docs/framework/security/rate-limiting.mdx).
+
 ## Changelog
 
 | Date | Changes |
 |---|---|
+| 2026-10-28 | Added optional pre-auth admission to both dispatchers, one-charge SCIM reuse, and dispatcher regressions covering generic API-key work (R1, #7829). |
 | 2026-10-27 | Bound public SCIM requests before bcrypt verification; documented trusted-IP budget, configurable defaults, additive errors, benchmark, and regression coverage (#7829). |
 | 2026-02-19 | Initial draft — high-level SSO & Directory Sync specification |
 | 2026-02-19 | Added V1 targeted IdPs: Microsoft Entra ID, Google Workspace, Keycloak |

@@ -20,9 +20,9 @@ REDIS_URL=redis://localhost:6379
 
 ## How It Works
 
-### Two Enforcement Paths
+### Enforcement Paths
 
-Open Mercato supports two complementary ways to enforce rate limits:
+Open Mercato supports three complementary ways to enforce rate limits:
 
 #### 1. Metadata-Driven (Automatic)
 
@@ -49,7 +49,15 @@ export async function POST(req: Request) {
 
 This follows the same pattern as `requireAuth` and `requireFeatures` — zero boilerplate in the handler.
 
-#### 2. Handler-Level (Manual)
+#### 2. Admission Before Authentication
+
+Routes that must limit work before generic credential lookup can export an optional `beforeAuth` function, typed as `ApiRouteBeforeAuth` from `@open-mercato/shared/modules/registry`. After matching a supported route and method, the dispatcher calls this function before resolving staff JWTs, API keys, authorization guards, or metadata-driven limits.
+
+The hook receives the original `Request` and `{ method, params }`. Return `null` to continue through normal authentication and authorization, or return a `Response` to stop immediately with its body, status, and headers intact. A thrown error stops the request without resolving credentials. The hook does not authenticate a principal or bypass any later permission checks. It runs for every supported method in that route file, including legacy routes; routes without it keep their existing behavior.
+
+Public SCIM routes use this hook for their shared trusted-IP budget and SCIM error envelopes. Their handler-level fallback reuses the same request's admission promise, so dispatch and handler checks consume one point altogether. When adopting this pattern, avoid charging the same request again in the handler and avoid consuming its body before the handler reads it.
+
+#### 3. Handler-Level (Manual)
 
 For advanced key strategies (e.g., compound `IP:emailHash` keys), use the `checkAuthRateLimit` centralizer. This is how the authentication endpoints work — it handles two-layer checks (IP-only + compound), email hashing, fail-open semantics, and i18n in a single call:
 

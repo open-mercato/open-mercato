@@ -7,6 +7,7 @@ import { scimUserPayloadSchema } from '../../../../data/validators'
 import { buildScimError, scimJson as scimJsonResponse } from '../../../../lib/scim-response'
 
 export const metadata = { requireAuth: false }
+export { checkScimRateLimit as beforeAuth } from '../../rate-limit'
 
 export async function POST(req: Request) {
   try {

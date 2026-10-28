@@ -12,7 +12,17 @@ import {
 } from '@open-mercato/shared/lib/ratelimit/helpers'
 import { buildScimError, scimJson } from '../../lib/scim-response'
 
-export async function checkScimRateLimit(req: Request): Promise<Response | null> {
+const admissions = new WeakMap<Request, Promise<Response | null>>()
+
+export function checkScimRateLimit(req: Request): Promise<Response | null> {
+  const existing = admissions.get(req)
+  if (existing) return existing
+  const admission = consumeScimRateLimit(req)
+  admissions.set(req, admission)
+  return admission
+}
+
+async function consumeScimRateLimit(req: Request): Promise<Response | null> {
   const limiter = getCachedRateLimiterService()
   const config = readEndpointRateLimitConfig('SCIM', {
     points: 10,

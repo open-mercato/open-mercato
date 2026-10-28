@@ -3,6 +3,7 @@ import { scimJson } from '../../../../lib/scim-response'
 import { checkScimRateLimit } from '../../rate-limit'
 
 export const metadata = { requireAuth: false }
+export const beforeAuth = checkScimRateLimit
 
 export async function GET(req: Request) {
   const rateLimitError = await checkScimRateLimit(req)

@@ -2,7 +2,7 @@
 title: "Shared security-default changes require a complete consumer audit"
 modules: ["shared","auth","cache","events","example","create_app"]
 areas: ["integration","testing","module-data"]
-topics: ["access-control","data-scoping","events"]
+topics: ["access-control","data-scoping","events","testing"]
 ---
 
 # Shared security-default changes require a complete consumer audit
@@ -14,6 +14,8 @@ topics: ["access-control","data-scoping","events"]
 **Rule**: When changing a shared security default, enumerate every production call site and remove local overrides that bypass the contract. Centralize repeated key derivation in the owning module and add tests for direct, one-proxy, multi-proxy, and fallback behavior.
 
 **Applies to**: shared auth, rate-limit, origin, session, encryption, and tenant-scoping helpers and every module that consumes them.
+
+- 2026-10-28 · sso/api_keys: handler-only SCIM limiter tests missed generic API-key bcrypt before dispatch admission → exercise the production dispatcher and real credential verifiers with instrumented DB/bcrypt boundaries; exhausted requests must skip every credential path, and admitted requests must consume one quota point.
 
 - 2026-08-11 · events/example: options-only SSE scope hardening would have dropped 53 of 62 current browser event types → use an explicit trusted-scope marker and audit every `clientBroadcast` producer before changing the legacy fallback.
 
