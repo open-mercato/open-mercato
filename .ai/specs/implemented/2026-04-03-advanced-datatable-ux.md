@@ -371,6 +371,24 @@ deny-all helper already uses an empty overlap predicate. Reviewed callers in
 entity-record search, scheduler visibility, WMS search, and staff time-entry
 access add a guaranteed branch or guard the empty case.
 
+### PR #7996 caller compatibility repair
+
+`has_all_of` now compiles to an AND of singleton `$overlap` predicates in both
+the tree and legacy compilers. Multiple all-of conditions retain each predicate
+instead of overwriting a sibling `$and`. Native SQL arrays retain `&&`; a
+JSONB array such as staff `role_ids` uses `?|` with bound string values. Basic
+custom-field storage applies each overlap through its own scoped EXISTS so
+different selected tags can match different stored value rows. Staff role
+filtering emits `$overlap` rather than unsupported `$contains`.
+
+Regression coverage sends every other advertised UI operator through both
+compilers and `normalizeFilters`, preserves multiple all-of constraints, and
+checks JSONB/native-array SQL and the real staff route filter configuration.
+`does_not_contain` remains an unresolved review finding: its emitted `$not` with
+`$ilike` needs an additive QueryEngine contract and encrypted-field semantics
+approved before publication. This partial repair does not change FilterOp,
+WhereOps, API routes, or database schema.
+
 ### Existing UI compatibility
 
 All features are opt-in via new props. Existing pages that don't pass these props see zero behavior change.
@@ -645,6 +663,7 @@ No other new dependencies. All other features built on existing TanStack React T
 
 | Date | Change |
 |------|--------|
+| 2026-10-28 | #7996: Repair all-of compilation and JSONB staff role filters without extending the operator contract; negated-text support remains pending approval. |
 | 2026-10-26 | #7831: Reject empty OR and unsupported QueryEngine field operators; preserve absent-filter semantics and document module/preset migration. |
 | 2026-04-03 | Initial skeleton with open questions |
 | 2026-04-03 | Full spec after Q&A — 4 phases, 8 features, UX designer notes incorporated |

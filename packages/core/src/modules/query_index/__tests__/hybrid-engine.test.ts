@@ -50,7 +50,7 @@ type KyselyMockConfig = {
   customFieldDefs?: Array<Record<string, unknown>>
   rows?: Record<string, Array<Record<string, unknown>>>
   /** If provided, returned for information_schema.columns lookups. */
-  columns?: Array<{ table_name: string; column_name: string }>
+  columns?: Array<{ table_name: string; column_name: string; data_type?: string }>
 }
 
 type ChainLog = {
@@ -261,7 +261,7 @@ function resolveRows(
       const tableName = args[args.indexOf('table_name') + 2] as string | undefined
       return config.columns
         .filter((col) => col.table_name === tableName)
-        .map((col) => ({ column_name: col.column_name, data_type: 'text' }))
+        .map((col) => ({ column_name: col.column_name, data_type: col.data_type ?? 'text' }))
     }
     return [
       { column_name: 'id', data_type: 'uuid' },
@@ -2593,4 +2593,45 @@ describe('HybridQueryEngine decrypt tenant binding (#5430)', () => {
     expect(decryptEntityPayload).not.toHaveBeenCalled()
     expect((result.items[0] as any)['cf:priority']).toBe('enc:v1:cipher-priority')
   })
+})
+
+
+test('HybridQueryEngine query uses resolved JSONB role metadata and retains both all-of members (#7996)', async () => {
+  const db = createFakeKysely({
+    baseTable: 'staff_team_members', hasIndexAny: true, baseCount: 1, indexCount: 1,
+    customFieldKeys: { 'staff:staff_team_member': ['labels'] },
+    columns: [
+      { table_name: 'staff_team_members', column_name: 'id', data_type: 'uuid' },
+      { table_name: 'staff_team_members', column_name: 'tenant_id', data_type: 'uuid' },
+      { table_name: 'staff_team_members', column_name: 'organization_id', data_type: 'uuid' },
+      { table_name: 'staff_team_members', column_name: 'deleted_at', data_type: 'timestamp' },
+      { table_name: 'staff_team_members', column_name: 'role_ids', data_type: 'jsonb' },
+    ],
+  })
+  const em = buildEmWithOrmMetadata(db, { StaffTeamMember: 'staff_team_members' })
+  const engine = new HybridQueryEngine(em, new BasicQueryEngine(em, () => db))
+  const tracked = engine as unknown as {
+    applyCfFilterAcrossSources: (builder: unknown, field: string, op: string, value: unknown, ...rest: unknown[]) => unknown
+  }
+  const applyCustomField = jest.spyOn(tracked, 'applyCfFilterAcrossSources')
+  await engine.query('staff:staff_team_member', {
+    tenantId: 'tenant-1', organizationId: 'org-1', fields: ['id'],
+    filters: { $and: [
+      { role_ids: { $overlap: ['role-1'] } },
+      { 'cf:labels': { $overlap: ['alpha'] } },
+      { 'cf:labels': { $overlap: ['beta'] } },
+    ] },
+  })
+  const chains = db._chains as ChainLog[]
+  const sqlNodes = chains.filter((chain) => chain.table === 'staff_team_members')
+    .flatMap((chain) => chain.wheres.flat() as unknown[])
+    .filter((value): value is { toOperationNode: () => unknown } => !!value && typeof value === 'object' && 'toOperationNode' in value)
+    .map((value) => JSON.stringify(value.toOperationNode())).join('\n')
+  expect(sqlNodes).toContain('?|')
+  expect(sqlNodes).not.toContain(' && ')
+  expect(chains.filter((chain) => chain.table === 'information_schema.columns' && chain.selects.includes('data_type'))).toHaveLength(0)
+  const applied = applyCustomField.mock.calls.map((call) => call.slice(1, 4))
+  expect(applied).toEqual(expect.arrayContaining([
+    ['cf:labels', 'overlap', ['alpha']], ['cf:labels', 'overlap', ['beta']],
+  ]))
 })

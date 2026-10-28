@@ -273,7 +273,7 @@ function buildConditionFilter(condition: FilterCondition): Record<string, unknow
     case 'has_all_of': {
       const allOfValues = normalizeListValue(condition.value)
       if (allOfValues.length === 0) return null
-      filter[condition.field] = { $contains: allOfValues }
+      filter.$and = allOfValues.map((value) => ({ [condition.field]: { $overlap: [value] } }))
       break
     }
     case 'is_true':
@@ -310,10 +310,11 @@ export function convertAdvancedFilterToWhere(state: AdvancedFilterState): Record
       clauses = [...clauses, entry.filter]
       continue
     }
-    clauses = clauses.map((clause) => ({
-      ...clause,
-      ...entry.filter,
-    }))
+    clauses = clauses.map((clause) => (
+      '$and' in clause || '$and' in entry.filter
+        ? { $and: [clause, entry.filter] }
+        : { ...clause, ...entry.filter }
+    ))
   }
 
   return clauses.length > 1 ? { $or: clauses } : clauses[0]

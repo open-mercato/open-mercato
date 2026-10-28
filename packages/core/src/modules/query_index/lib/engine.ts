@@ -5,6 +5,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { BasicQueryEngine, resolveEntityTableName, resolveRegisteredEntityTableName } from '@open-mercato/shared/lib/query/engine'
 import { isOrmBackedSystemEntityId } from '@open-mercato/shared/lib/data/engine'
 import {
+  prepareOverlapFilters,
   buildArrayColumnNoOverlapPredicate,
   buildArrayColumnOverlapPredicate,
   buildJsonbNoOverlapPredicate,
@@ -552,6 +553,22 @@ export class HybridQueryEngine implements QueryEngine {
         joinMap.set(join.alias, join)
         aliasTables.set(join.alias, join.table)
       }
+      await prepareOverlapFilters(normalizedFilters, async (field) => {
+        const separator = field.indexOf('.')
+        if (separator < 0) return columns.get(field) ?? null
+        const alias = field.slice(0, separator)
+        const column = field.slice(separator + 1)
+        const targetTable = aliasTables.get(alias)
+        if (!targetTable) return null
+        if (targetTable === baseTable) return columns.get(column) ?? null
+        const row = await this.getDb().selectFrom('information_schema.columns')
+          .select('data_type').where('table_name', '=', targetTable).where('column_name', '=', column)
+          .where(sql<boolean>`table_schema = (select nspname from pg_namespace where oid = (
+            select relnamespace from pg_class where oid = to_regclass(${targetTable})
+          ))`)
+          .limit(1).executeTakeFirst()
+        return typeof row?.data_type === 'string' ? row.data_type : null
+      })
       const { baseFilters, joinFilters } = partitionFilters(baseTable, normalizedFilters, joinMap)
 
       const searchRuntimeBase = {
@@ -2787,6 +2804,9 @@ export class HybridQueryEngine implements QueryEngine {
       .selectFrom('information_schema.columns')
       .select(['column_name', 'data_type'])
       .where('table_name', '=', table)
+      .where(sql<boolean>`table_schema = (select nspname from pg_namespace where oid = (
+        select relnamespace from pg_class where oid = to_regclass(${table})
+      ))`)
       .execute() as Array<{ column_name: string; data_type: string }>
     const map = new Map<string, string>()
     for (const r of rows) map.set(r.column_name, r.data_type)

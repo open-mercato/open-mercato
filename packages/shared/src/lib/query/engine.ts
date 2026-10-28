@@ -52,6 +52,7 @@ import {
 import { parseNumberWithDefault } from '../number'
 import { createLogger } from '../logger'
 import {
+  prepareOverlapFilters,
   buildArrayColumnNoOverlapPredicate,
   buildArrayColumnOverlapPredicate,
   buildJsonbNoOverlapPredicate,
@@ -134,7 +135,7 @@ export function clearEncryptedLikeFieldsCache(): void {
 // per request again; OM_QUERY_COLUMN_EXISTS_CACHE_MAX_ENTRIES tunes the bound.
 const COLUMN_EXISTS_CACHE_DEFAULT_TTL_MS = 300_000
 const COLUMN_EXISTS_CACHE_DEFAULT_MAX_ENTRIES = 10_000
-const columnExistsCache = new Map<string, { value: boolean; expiresAt: number }>()
+const columnExistsCache = new Map<string, { value: boolean; expiresAt: number; dataType?: string | null }>()
 
 function resolveColumnExistsCacheTtlMs(): number {
   return parseNumberWithDefault(process.env.OM_QUERY_COLUMN_EXISTS_CACHE_MS, COLUMN_EXISTS_CACHE_DEFAULT_TTL_MS, { integer: true, min: 0 })
@@ -144,7 +145,7 @@ function resolveColumnExistsCacheMaxEntries(): number {
   return parseNumberWithDefault(process.env.OM_QUERY_COLUMN_EXISTS_CACHE_MAX_ENTRIES, COLUMN_EXISTS_CACHE_DEFAULT_MAX_ENTRIES, { integer: true, min: 1 })
 }
 
-function storeColumnExists(key: string, value: boolean, ttlMs: number): void {
+function storeColumnExists(key: string, value: boolean, ttlMs: number, dataType?: string | null): void {
   const maxEntries = resolveColumnExistsCacheMaxEntries()
   if (columnExistsCache.size >= maxEntries) {
     const now = Date.now()
@@ -153,7 +154,7 @@ function storeColumnExists(key: string, value: boolean, ttlMs: number): void {
     }
     if (columnExistsCache.size >= maxEntries) columnExistsCache.clear()
   }
-  columnExistsCache.set(key, { value, expiresAt: Date.now() + ttlMs })
+  columnExistsCache.set(key, { value, expiresAt: Date.now() + ttlMs, dataType })
 }
 
 /** Test-only: the module-scoped memo would otherwise leak state across specs. */
@@ -467,6 +468,14 @@ export class BasicQueryEngine implements QueryEngine {
       joinMap.set(join.alias, join)
       aliasTables.set(join.alias, join.table)
     }
+    await prepareOverlapFilters(normalizedFilters, async (field) => {
+      const separator = field.indexOf('.')
+      const alias = separator > 0 ? field.slice(0, separator) : table
+      const column = separator > 0 ? field.slice(separator + 1) : field
+      const targetTable = aliasTables.get(alias)
+      if (!targetTable) return null
+      return this.getColumnType(targetTable, column)
+    })
     const { baseFilters, joinFilters } = partitionFilters(table, normalizedFilters, joinMap)
     const cfFilters = normalizedFilters.filter((filter) => String(filter.field).startsWith('cf:'))
     // Custom-field leaves carrying an orGroup belong to an OR disjunct; applying them
@@ -1254,7 +1263,7 @@ export class BasicQueryEngine implements QueryEngine {
             })
           }
         }
-        if (isCountProjection) {
+        if (isCountProjection || f.op === 'overlap') {
           q = this.applyCfValueExistsFilter(q, {
             source: filterSource,
             qualify,
@@ -1265,11 +1274,9 @@ export class BasicQueryEngine implements QueryEngine {
           })
           continue
         }
-        q = f.op === 'overlap'
-          ? q.where(buildScalarOverlapPredicate(expr, f.value))
-          : f.op === 'noverlap'
-            ? q.where(sql<boolean>`false`)
-            : this.applyColumnOp(q, expr, f.op, f.value)
+        q = f.op === 'noverlap'
+          ? q.where(sql<boolean>`false`)
+          : this.applyColumnOp(q, expr, f.op, f.value)
       }
 
       // OR groups are applied here, after the cf:* value expressions exist, so a
@@ -1306,7 +1313,7 @@ export class BasicQueryEngine implements QueryEngine {
             const parts = group.map((rf) => {
               if (rf.kind === 'column') return this.buildColumnOpExpression(eb, rf.qualified, rf.op, rf.value)
               if (rf.kind === 'cf') {
-                if (isCountProjection) {
+                if (isCountProjection || rf.op === 'overlap') {
                   return this.buildCfValueExistsExpression(eb, {
                     source: keySource.get(rf.key)!,
                     qualify,
@@ -1317,9 +1324,7 @@ export class BasicQueryEngine implements QueryEngine {
                   })
                 }
                 if (rf.op === 'noverlap') return sql<boolean>`false`
-                return rf.op === 'overlap'
-                  ? buildScalarOverlapPredicate(cfValueExprByKey[rf.key], rf.value)
-                  : this.buildColumnOpExpression(eb, cfValueExprByKey[rf.key], rf.op, rf.value)
+                return this.buildColumnOpExpression(eb, cfValueExprByKey[rf.key], rf.op, rf.value)
               }
               return this.buildIndexDocOpExpression(eb, {
                 entity: String(entity),
@@ -1868,6 +1873,22 @@ export class BasicQueryEngine implements QueryEngine {
     if (await this.columnExists(table, field)) return field
     if (field === 'organization_id' && await this.columnExists(table, 'id')) return 'id'
     return null
+  }
+
+  private async getColumnType(table: string, column: string): Promise<string | null> {
+    const key = `${table}.${column}`
+    const cached = columnExistsCache.get(key)
+    if (cached && cached.expiresAt > Date.now() && cached.dataType !== undefined) return cached.dataType
+    const row = await this.getDb().selectFrom('information_schema.columns')
+      .select('data_type').where('table_name', '=', table).where('column_name', '=', column)
+      .where(sql<boolean>`table_schema = (select nspname from pg_namespace where oid = (
+        select relnamespace from pg_class where oid = to_regclass(${table})
+      ))`)
+      .limit(1).executeTakeFirst()
+    const dataType = typeof row?.data_type === 'string' ? row.data_type : null
+    const ttlMs = resolveColumnExistsCacheTtlMs()
+    if (ttlMs > 0) storeColumnExists(key, !!row, ttlMs, dataType)
+    return dataType
   }
 
   private async columnExists(table: string, column: string): Promise<boolean> {

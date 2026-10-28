@@ -38,6 +38,15 @@ their existing unconstrained meaning. Operators: audit custom modules and saved
 filter presets before upgrading. No database migration or configuration change
 is required. See the [filter specification](.ai/specs/implemented/2026-04-03-advanced-datatable-ux.md#migration--backward-compatibility).
 
+### Advanced-filter all-of and staff role filters (PR #7996)
+
+The built-in advanced-filter compilers now emit supported `$overlap` predicates
+for `has_all_of`. Staff role filtering uses the same operator. Native SQL arrays,
+JSONB string arrays, and custom-field value rows preserve their storage-specific
+membership semantics. No configuration, schema migration, or public operator
+addition is required for these caller repairs. The separate `does_not_contain`
+review finding is still pending a contract decision.
+
 ### Bundled Traefik keeps app and collaboration ports private (#7833)
 
 The optional `starters/docker/compose.fullapp.traefik.yml` overlay (and its
