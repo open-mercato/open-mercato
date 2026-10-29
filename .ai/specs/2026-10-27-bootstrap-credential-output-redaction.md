@@ -45,15 +45,16 @@ One phase, one confidentiality invariant: framework-owned initialization and dis
 
 Consumers that scrape passwords from stdout must supply credentials through the existing environment variables or use the existing password-reset flow. No CLI command or flag is removed. The final spec records the security-output exception, operator migration and validation evidence.
 
-The removed surface is plaintext credential output: retaining it behind a bridge or toggle would keep the disclosure reachable. This is the narrow security exception to the deprecation protocol; no insecure output opt-in is retained. The dated `BACKWARD_COMPATIBILITY.md` entry and `UPGRADE_NOTES.md` carry client and operator migration. A named human maintainer must acknowledge the waiver before merge; automated review cannot supply that sign-off.
+The removed surface is plaintext credential output: retaining it behind a bridge or toggle would keep the disclosure reachable. This is the narrow security exception to the deprecation protocol; no insecure output opt-in is retained. The dated `BACKWARD_COMPATIBILITY.md` entry and `UPGRADE_NOTES.md` carry client and operator migration. Human maintainer [@haxiorz acknowledged the waiver and client/operator migration on 2026-10-29](https://github.com/open-mercato/open-mercato/pull/8089#issuecomment-6505347774), explicitly authorizing removal without a bridge. Independent review and human QA remain required.
 
 Operators should supply the existing `OM_INIT_SUPERADMIN_PASSWORD`, `OM_INIT_ADMIN_PASSWORD` and `OM_INIT_EMPLOYEE_PASSWORD` overrides from their secret manager when they need known initial credentials. If production derived passwords were generated without overrides, use the configured password-reset flow; no replacement secret file is created. Rotate bootstrap credentials that may already appear in retained logs and restrict/purge those logs according to retention policy. This patch cannot remove previously copied credentials.
 
-## Final Compliance Report — 2026-10-27
+## Final Compliance Report — 2026-10-29
 
-Reviewed root `AGENTS.md`, `packages/cli/AGENTS.md`, `packages/create-app/AGENTS.md`, `.ai/specs/AGENTS.md` and `BACKWARD_COMPATIBILITY.md`. Package placement, unchanged execution arguments, scope isolation and self-contained test fixtures comply. Database/CRUD/mutation/cache/event/UI/design-system rules are inapplicable because their surfaces are unchanged. Both shell-script copies are exercised. The security waiver remains pending named human maintainer approval; full CI and live deployment coverage are not claimed.
+Reviewed root `AGENTS.md`, `packages/cli/AGENTS.md`, `packages/create-app/AGENTS.md`, `.ai/specs/AGENTS.md` and `BACKWARD_COMPATIBILITY.md`. Package placement, unchanged execution arguments, scope isolation and self-contained test fixtures comply. Database/CRUD/mutation/cache/event/UI/design-system rules are inapplicable because their surfaces are unchanged. Both shell-script copies are exercised. The named human security-waiver acknowledgment is linked above; independent review and human QA remain required. Live deployment coverage is not claimed.
 
 ## Changelog
 
 - 2026-10-27: Implemented #7822 output redaction and CLI/container regression coverage. Five real-call-site regression cases fail against the original CLI and pass with the fix. Targeted validation and independent review evidence are recorded in the implementation PR.
 - 2026-10-28: Scoped credential matching to suffixes, preserved token configuration diagnostics and positional URI redaction, and covered the real dispatcher with benign environment values. Kept the exported Railway helper intentionally compatible.
+- 2026-10-29: Recorded @haxiorz's explicit security-waiver and migration acknowledgment; independent review and QA gates remain in force.

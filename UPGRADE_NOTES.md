@@ -62,8 +62,8 @@ removed by this upgrade.
 
 This narrow security-output removal has no compatibility toggle: a bridge would
 retain the disclosure. See the [spec](.ai/specs/2026-10-27-bootstrap-credential-output-redaction.md)
-and the dated entry in `BACKWARD_COMPATIBILITY.md`. Named human maintainer
-acknowledgment of the security exception is required before merge.
+and the dated entry in `BACKWARD_COMPATIBILITY.md`. Human maintainer
+[@haxiorz acknowledged this waiver and migration on 2026-10-29](https://github.com/open-mercato/open-mercato/pull/8089#issuecomment-6505347774).
 
 ### Scoped attachment bytes no longer advertise shared caching (#7220)
 

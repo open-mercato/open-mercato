@@ -609,4 +609,4 @@ Spec: [`.ai/specs/2026-09-08-error-reporting-policy.md`](.ai/specs/2026-09-08-er
 
 ## Init success banner stdout (2026-10-27, #7822)
 
-STABLE CLI presentation: plaintext passwords are the disclosure; retaining them preserves it. Client/operator migration: [notes](UPGRADE_NOTES.md). Named human waiver pending.
+STABLE CLI stdout: plaintext passwords disclose credentials; a bridge preserves it. Client/operator [migration](UPGRADE_NOTES.md). [@haxiorz approved the waiver, 2026-10-29](https://github.com/open-mercato/open-mercato/pull/8089#issuecomment-6505347774).
