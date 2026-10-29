@@ -606,3 +606,13 @@ Spec: [`.ai/specs/2026-09-08-error-reporting-policy.md`](.ai/specs/2026-09-08-er
 ## #7220
 
 [Cache fix](UPGRADE_NOTES.md)
+
+## Signed body limits (2026-10-29, #7241)
+
+`POST /api/channel_discord/interactions` and `POST /api/agent_orchestrator/trace/ingest`
+are STABLE (§7). Unlimited pre-auth reads are the memory-exhaustion exploit; a bridge
+keeps it reachable. The narrow emergency exception adds 413 above the shared
+1 MiB/`OM_WEBHOOK_MAX_BODY_BYTES` cap, with no unlimited mode. Clients reduce/split
+and re-sign oversized bodies; operators align ingress caps. `UPGRADE_NOTES.md` and
+its linked Discord/enterprise trace specs give migration details. Named human
+maintainer acknowledgment of this waiver is required before merge.
