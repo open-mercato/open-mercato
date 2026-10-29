@@ -1,9 +1,39 @@
-import type { InventoryLotStatus, InventoryStrategy } from '../data/entities'
+import type {
+  InventoryLotStatus,
+  InventoryStrategy,
+  WarehouseLocationType,
+} from '../data/entities'
 
 type LotEligibilityInput = {
   status?: InventoryLotStatus | null
   expiresAt?: Date | null
 } | null | undefined
+
+/** Staging/dock hold inbound stock; Phase 2 must not treat them as pick/reserve candidates. */
+export const NON_RESERVABLE_LOCATION_TYPES: ReadonlySet<WarehouseLocationType> = new Set([
+  'staging',
+  'dock',
+])
+
+export function isReservableLocationType(type: string | null | undefined): boolean {
+  if (typeof type !== 'string' || type.length === 0) return true
+  return !NON_RESERVABLE_LOCATION_TYPES.has(type as WarehouseLocationType)
+}
+
+/**
+ * Returns false when the balance sits on staging/dock. Unpopulated location FKs
+ * (string id only) stay eligible so callers that omit `populate: ['location']`
+ * do not accidentally empty the candidate set.
+ */
+export function isBalanceLocationReservable(balance: { location?: unknown }): boolean {
+  const location = balance.location
+  if (!location || typeof location === 'string') return true
+  const type =
+    typeof (location as { type?: unknown }).type === 'string'
+      ? (location as { type: string }).type
+      : null
+  return isReservableLocationType(type)
+}
 
 export function isLotEligible(lot: LotEligibilityInput, now: Date = new Date()): boolean {
   if (!lot) return true

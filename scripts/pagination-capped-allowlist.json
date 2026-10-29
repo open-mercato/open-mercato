@@ -1,5 +1,9 @@
 [
   {
+    "file": "packages/ai-assistant/src/modules/ai_assistant/backend/config/ai-assistant/pending-actions/PendingActionsPageClient.tsx",
+    "reason": "GET /api/ai_assistant/ai/actions counts with findAndCountWithDecryption (data/repositories/AiPendingActionRepository.ts:335) \u2014 an exact total, not a capped query-engine count; the response schema has no totalIsCapped field to forward"
+  },
+  {
     "file": "packages/core/src/modules/dictionaries/components/DictionaryTable.tsx",
     "reason": "entries arrive as a prop; total derives from the locally filtered array"
   },
@@ -26,6 +30,10 @@
   {
     "file": "packages/core/src/modules/forms/ui/admin/forms/[id]/distributions/RecipientsTable.tsx",
     "reason": "invitations are returned unpaginated with total = items.length (api/distributions/[distributionId]/invitations/route.ts:132) \u2014 exact by construction"
+  },
+  {
+    "file": "packages/core/src/modules/promotions/components/GeneratedCodesModal.tsx",
+    "reason": "generated-codes list counts with em.count (api/codes/[id]/generated/route.ts) \u2014 an exact total, not a capped query-engine count; the response schema has no totalIsCapped field to forward"
   },
   {
     "file": "packages/core/src/modules/warranty_claims/backend/warranty_claims/create/page.tsx",
