@@ -3,6 +3,9 @@ import { z } from 'zod'
 import { registerCommand, type CommandHandler } from '@open-mercato/shared/lib/commands'
 import { extractUndoPayload, type UndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { Message, MessageObject, MessageRecipient } from '../data/entities'
 import { emitMessagesEvent } from '../events'
@@ -374,10 +377,14 @@ const executeActionCommand: CommandHandler<
         result = (commandResult.result as Record<string, unknown>) ?? {}
         operationLogEntry = commandResult.logEntry ?? null
       } catch (err) {
-        logger.error('executeActionCommand sub-command failed', { err })
         // The target command never completed — release the reservation so the
         // action stays retryable, matching the pre-claim failure semantics.
         await releaseTerminalClaim()
+        if (isCrudHttpError(err) || getCommandInterceptorHttpRejection(err)) {
+          throw err
+        }
+        logger.error('executeActionCommand sub-command failed', { err })
+        getTelemetryRuntime()?.reportError(err, { module: 'messages', code: 'messages.action_failed' })
         throw new Error('Action failed')
       }
     } else if (action.href) {
