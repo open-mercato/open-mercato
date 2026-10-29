@@ -548,8 +548,11 @@ export function LinkEntityDialog<TDetails = unknown, TLinkSettings = Record<stri
   return (
     <>
       <Dialog open={open} onOpenChange={handleDialogOpenChange}>
+        {/* Fixed desktop height (`sm:h-160`, still capped by the primitive's `max-h-[90vh]`):
+            the modal used to open at the loading-state size and jump ~180px taller once
+            the first results page arrived. Both panes scroll inside the fixed shell. */}
         <DialogContent
-          className="flex flex-col gap-0 overflow-hidden p-0"
+          className="flex flex-col gap-0 overflow-hidden p-0 sm:h-160"
           style={{
             width: 'min(calc(100vw - 2rem), 920px)',
             maxWidth: 'min(calc(100vw - 2rem), 920px)',
