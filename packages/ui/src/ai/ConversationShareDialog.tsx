@@ -241,7 +241,7 @@ export function ConversationShareDialog({ open, onOpenChange, conversationId }: 
           </div>
 
           {error ? (
-            <p className="text-sm text-status-danger-text">{error}</p>
+            <p className="text-sm text-status-error-text">{error}</p>
           ) : null}
 
           <div className="space-y-2 min-h-[60px]">

@@ -39,7 +39,7 @@ export function DefaultStepper({ status }: StepperProps) {
               <span
                 className={cn(
                   'flex h-7 w-7 items-center justify-center rounded-full border text-xs font-medium',
-                  isDone && 'border-status-success-icon bg-status-success-icon text-status-success-foreground',
+                  isDone && 'border-status-success-solid bg-status-success-solid text-status-success-solid-foreground',
                   isCurrent && 'border-primary bg-primary/10 text-primary',
                   !isDone && !isCurrent && 'border-border bg-background text-muted-foreground',
                 )}
