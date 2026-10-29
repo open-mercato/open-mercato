@@ -11,10 +11,10 @@ type ModuleOccurrence = {
   entry: ModuleEntry
   node: ts.ObjectLiteralExpression
   active: boolean
-  envFlags: string[]
+  envFlags: string[] | null
 }
 
-type EnvFlagScope = Map<string, string[]>
+type EnvFlagScope = Map<string, string[] | null>
 
 type ModuleConfigShape = {
   arrayNode: ts.ArrayLiteralExpression
@@ -201,7 +201,12 @@ function evaluateStaticCondition(
   return Boolean(evaluateStaticExpressionWithScope(node, env, scope))
 }
 
-function collectEnablingEnvFlags(node: ts.Expression, envFlagScope: EnvFlagScope): string[] {
+function mergeEnvFlags(left: string[] | null, right: string[] | null): string[] | null {
+  if (left === null || right === null) return null
+  return Array.from(new Set([...left, ...right]))
+}
+
+function collectEnablingEnvFlags(node: ts.Expression, envFlagScope: EnvFlagScope): string[] | null {
   if (ts.isParenthesizedExpression(node)) {
     return collectEnablingEnvFlags(node.expression, envFlagScope)
   }
@@ -210,18 +215,14 @@ function collectEnablingEnvFlags(node: ts.Expression, envFlagScope: EnvFlagScope
   if (envName) return [envName]
 
   if (ts.isIdentifier(node)) {
-    return envFlagScope.get(node.text) ?? []
+    return envFlagScope.get(node.text) ?? null
   }
 
-  if (
-    ts.isBinaryExpression(node)
-    && (node.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken
-      || node.operatorToken.kind === ts.SyntaxKind.BarBarToken)
-  ) {
-    return Array.from(new Set([
-      ...collectEnablingEnvFlags(node.left, envFlagScope),
-      ...collectEnablingEnvFlags(node.right, envFlagScope),
-    ]))
+  if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken) {
+    return mergeEnvFlags(
+      collectEnablingEnvFlags(node.left, envFlagScope),
+      collectEnablingEnvFlags(node.right, envFlagScope),
+    )
   }
 
   if (
@@ -231,15 +232,15 @@ function collectEnablingEnvFlags(node: ts.Expression, envFlagScope: EnvFlagScope
     && node.arguments[0]
   ) {
     const envArgument = readProcessEnvName(node.arguments[0])
-    return envArgument ? [envArgument] : []
+    return envArgument ? [envArgument] : null
   }
 
-  return []
+  return null
 }
 
 type BranchContext = {
   active: boolean
-  envFlags: string[]
+  envFlags: string[] | null
 }
 
 function collectPushEntriesFromStatement(
@@ -258,9 +259,7 @@ function collectPushEntriesFromStatement(
 
   if (ts.isIfStatement(statement)) {
     const conditionMet = evaluateStaticCondition(statement.expression, env, scope)
-    const envFlags = Array.from(
-      new Set([...branch.envFlags, ...collectEnablingEnvFlags(statement.expression, envFlagScope)]),
-    )
+    const envFlags = mergeEnvFlags(branch.envFlags, collectEnablingEnvFlags(statement.expression, envFlagScope))
     const thenEntries = collectPushEntriesFromStatement(
       statement.thenStatement,
       env,
@@ -276,7 +275,7 @@ function collectPushEntriesFromStatement(
           targetVariableName,
           scope,
           envFlagScope,
-          { active: branch.active && !conditionMet, envFlags: branch.envFlags },
+          { active: branch.active && !conditionMet, envFlags: null },
         )
       : []
     return [...thenEntries, ...elseEntries]
@@ -423,19 +422,37 @@ function upsertModuleSource(objectLiteral: string, from: string): string {
   return objectLiteral.replace(/\}\s*$/, `, from: '${escapeSingleQuotedString(from)}' }`)
 }
 
-function buildInactiveRegistrationMessage(
+export class ModuleGatedOffError extends Error {
+  readonly code = 'MODULE_GATED_OFF'
+
+  constructor(
+    message: string,
+    readonly moduleId: string,
+    readonly envFlags: string[],
+  ) {
+    super(message)
+    this.name = 'ModuleGatedOffError'
+  }
+}
+
+function resolveFlagsToSet(occurrences: ModuleOccurrence[], env: NodeJS.ProcessEnv): string[] {
+  if (occurrences.some((occurrence) => occurrence.envFlags === null)) return []
+  const envFlags = Array.from(new Set(occurrences.flatMap((occurrence) => occurrence.envFlags ?? [])))
+  return envFlags.filter((flag) => !parseBooleanWithDefault(env[flag], false))
+}
+
+function buildModuleGatedOffError(
   moduleId: string,
   modulesPath: string,
   occurrences: ModuleOccurrence[],
   env: NodeJS.ProcessEnv = process.env,
-): string {
-  const envFlags = Array.from(new Set(occurrences.flatMap((occurrence) => occurrence.envFlags)))
-  const flagsToSet = envFlags.filter((flag) => !parseBooleanWithDefault(env[flag], false))
+): ModuleGatedOffError {
+  const flagsToSet = resolveFlagsToSet(occurrences, env)
   const prefix = `Module "${moduleId}" is already registered in ${modulesPath} behind a condition that is currently off, so no second entry was added.`
-  if (flagsToSet.length === 0) {
-    return `${prefix} Make that condition true to enable it.`
-  }
-  return `${prefix} Enable it by setting ${flagsToSet.map((flag) => `${flag}=true`).join(' and ')} in your environment (.env), then run \`yarn generate\`.`
+  const message = flagsToSet.length === 0
+    ? `${prefix} Make that condition true to enable it.`
+    : `${prefix} Enable it by setting ${flagsToSet.map((flag) => `${flag}=true`).join(' and ')} in your environment (.env), then run \`yarn generate\`.`
+  return new ModuleGatedOffError(message, moduleId, flagsToSet)
 }
 
 export function assertModuleNotGatedOff(modulesPath: string, moduleId: string): void {
@@ -444,7 +461,7 @@ export function assertModuleNotGatedOff(modulesPath: string, moduleId: string): 
   const config = parseModuleConfigShape(fs.readFileSync(modulesPath, 'utf8'))
   const matches = config.occurrences.filter((occurrence) => occurrence.entry.id === moduleId)
   if (matches.length > 0 && matches.every((occurrence) => !occurrence.active)) {
-    throw new Error(buildInactiveRegistrationMessage(moduleId, modulesPath, matches))
+    throw buildModuleGatedOffError(moduleId, modulesPath, matches)
   }
 }
 
@@ -464,7 +481,7 @@ export function ensureModuleRegistration(
   const matches = allMatches.filter((occurrence) => occurrence.active)
 
   if (matches.length === 0 && allMatches.length > 0) {
-    throw new Error(buildInactiveRegistrationMessage(normalized.id, modulesPath, allMatches))
+    throw buildModuleGatedOffError(normalized.id, modulesPath, allMatches)
   }
 
   if (matches.length > 1) {

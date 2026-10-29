@@ -1,7 +1,12 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { ensureModuleRegistration, setModuleRegistrationSource } from '../modules-config'
+import {
+  assertModuleNotGatedOff,
+  ensureModuleRegistration,
+  ModuleGatedOffError,
+  setModuleRegistrationSource,
+} from '../modules-config'
 
 describe('modules-config', () => {
   let tmpDir: string
@@ -278,6 +283,113 @@ describe('modules-config', () => {
         expect(message).toContain('Make that condition true to enable it.')
         expect(message).not.toMatch(/=true/)
       }
+    })
+
+    function readGatedOffError(filePath: string, id: string): ModuleGatedOffError {
+      try {
+        ensureModuleRegistration(filePath, { id, from: '@open-mercato/gated' })
+      } catch (error) {
+        if (error instanceof ModuleGatedOffError) return error
+        throw error
+      }
+      throw new Error(`[internal] expected module "${id}" to be gated off`)
+    }
+
+    function writeConditionFile(statements: string[]): string {
+      const filePath = path.join(tmpDir, 'modules.ts')
+      fs.writeFileSync(
+        filePath,
+        [
+          "import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'",
+          '',
+          'const enterpriseEnabled = parseBooleanWithDefault(process.env.OM_ENABLE_ENTERPRISE_MODULES, false)',
+          'const s3Disabled = !parseBooleanWithDefault(process.env.OM_ENABLE_STORAGE_S3, false)',
+          '',
+          'export const enabledModules = []',
+          '',
+          ...statements,
+        ].join('\n'),
+      )
+      return filePath
+    }
+
+    it.each([
+      [
+        'a negated operand inside &&',
+        ['if (enterpriseEnabled && !parseBooleanWithDefault(process.env.OM_ENABLE_STORAGE_S3, false)) {'],
+      ],
+      ['a comparison inside &&', ["if (enterpriseEnabled && process.env.OM_ENABLE_STORAGE_S3 !== 'true') {"]],
+      ['a negated variable inside &&', ['if (enterpriseEnabled && s3Disabled) {']],
+      ['a variable the parser does not know', ['if (enterpriseEnabled && unknownFlag) {']],
+      ['an || condition', ['if (enterpriseEnabled || parseBooleanWithDefault(process.env.OM_ENABLE_ENTERPRISE_MODULES_SSO, false)) {']],
+    ])('asks to make the condition true for %s', (_label, condition) => {
+      process.env.OM_ENABLE_STORAGE_S3 = 'true'
+      delete process.env.OM_ENABLE_ENTERPRISE_MODULES
+      delete process.env.OM_ENABLE_ENTERPRISE_MODULES_SSO
+      const filePath = writeConditionFile([
+        ...condition,
+        "  enabledModules.push({ id: 'gated', from: '@open-mercato/gated' })",
+        '}',
+      ])
+
+      const error = readGatedOffError(filePath, 'gated')
+      expect(error.message).toContain('Make that condition true to enable it.')
+      expect(error.message).not.toMatch(/=true/)
+      expect(error.envFlags).toEqual([])
+    })
+
+    it('keeps an inner condition unvouched when the outer condition is not understood', () => {
+      process.env.OM_ENABLE_STORAGE_S3 = 'true'
+      delete process.env.OM_ENABLE_ENTERPRISE_MODULES
+      const filePath = writeConditionFile([
+        'if (s3Disabled) {',
+        '  if (enterpriseEnabled) {',
+        "    enabledModules.push({ id: 'gated', from: '@open-mercato/gated' })",
+        '  }',
+        '}',
+      ])
+
+      const error = readGatedOffError(filePath, 'gated')
+      expect(error.message).toContain('Make that condition true to enable it.')
+      expect(error.envFlags).toEqual([])
+    })
+
+    it('names the flags of nested positive conditions', () => {
+      delete process.env.OM_ENABLE_ENTERPRISE_MODULES
+      delete process.env.OM_ENABLE_ENTERPRISE_MODULES_SSO
+      const filePath = writeConditionFile([
+        'if (enterpriseEnabled) {',
+        '  if (parseBooleanWithDefault(process.env.OM_ENABLE_ENTERPRISE_MODULES_SSO, false)) {',
+        "    enabledModules.push({ id: 'gated', from: '@open-mercato/gated' })",
+        '  }',
+        '}',
+      ])
+
+      const error = readGatedOffError(filePath, 'gated')
+      expect(error.envFlags).toEqual(['OM_ENABLE_ENTERPRISE_MODULES', 'OM_ENABLE_ENTERPRISE_MODULES_SSO'])
+      expect(error.message).toContain('OM_ENABLE_ENTERPRISE_MODULES=true and OM_ENABLE_ENTERPRISE_MODULES_SSO=true')
+    })
+
+    it('throws a ModuleGatedOffError carrying the flags for a gated template module', () => {
+      delete process.env.OM_ENABLE_STORAGE_S3
+      const templatePath = path.resolve(__dirname, '../../../../create-app/template/src/modules.ts')
+      const filePath = path.join(tmpDir, 'modules.ts')
+      fs.copyFileSync(templatePath, filePath)
+
+      let thrown: unknown
+      try {
+        assertModuleNotGatedOff(filePath, 'storage_s3')
+      } catch (error) {
+        thrown = error
+      }
+
+      expect(thrown).toBeInstanceOf(ModuleGatedOffError)
+      const gatedOff = thrown as ModuleGatedOffError
+      expect(gatedOff.code).toBe('MODULE_GATED_OFF')
+      expect(gatedOff.moduleId).toBe('storage_s3')
+      expect(gatedOff.envFlags).toEqual(['OM_ENABLE_STORAGE_S3'])
+      expect(gatedOff.message).toContain('OM_ENABLE_STORAGE_S3=true')
+      expect(() => assertModuleNotGatedOff(filePath, 'auth')).not.toThrow()
     })
 
     it('ignores inactive gated entries when switching the source of an active registration', () => {
