@@ -20,6 +20,7 @@ let backendChromeReady = true
 
 jest.mock('@open-mercato/shared/modules/widgets/injection-loader', () => ({
   getInjectionRegistryVersion: () => 0,
+  getInjectionRegistryError: () => null,
   isInjectionRegistryReady: () => true,
   subscribeToInjectionRegistryChanges: () => () => {},
   loadInjectionWidgetsForSpot: (...args: unknown[]) => loadInjectionWidgetsForSpotMock(...args),
