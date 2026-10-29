@@ -119,6 +119,7 @@ flowchart LR
   - `suggest(productId, scope, { trigger, actorUserId?, signal })` → the tree walk plus persistence;
   - `buildProductState(product)` → the D6/D9 state.
 - **Soft-optional resolve:** `decisionModelService` is resolved through `tryResolve` (pattern: `inbox_ops/subscribers/extractionWorker.ts:64`). If `ai-assistant` is not installed, the status is `available: false, reason: 'not_installed'`. `not_installed` is a catalog-side reason added to the port's reasons. `catalog` gets **no** `requires` on `ai-assistant` and imports **only types** from `@open-mercato/shared/lib/ai/decision-model`. This keeps `packages/core/src/__tests__/module-decoupling.test.ts` green.
+  - The service-level types (`DecisionModelService`, `DecisionModelAvailability`, `DecisionModelDecideResult`, `DecisionModelUnavailableReason`) live in `ai-assistant`, not in `shared`. Catalog therefore declares a minimal structural type in `lib/` with `getAvailability({ moduleId })` and `decide({ request, moduleId, timeoutMs, signal })`. It builds that type from the shared `DecisionRequest`, `DecisionResult` and `DecisionErrorCode`, and keeps `reason` / `code` as open strings.
 - **Gate placement:** every entry point checks `effective` on the server: the API routes, the worker (re-checked per product) and the Phase 4 subscriber. Hiding UI is a convenience, not the gate.
 - **Command context outside requests:** the worker builds `CommandRuntimeContext` from the job's `{ tenantId, organizationId, userId }`, exactly like `lib/bulkDelete.ts:29-53`. The job stores `userId`, which is the user who started the bulk run. `catalog.product.created` carries only identifiers, not an actor. So Phase 4 runs have no actor: they only **create suggestion rows**, which needs no command, and never auto-apply.
 
@@ -363,4 +364,5 @@ All routes are tenant/org scoped from the auth context, zod-validated in `data/v
   - the sentinel is always the last option;
   - full list of availability reasons and port error codes, with an open-union fallback;
   - integration tests document the fixture adapter's behavior, are env-gated, and move the 422 case to a route unit test; CI env needs maintainer approval;
-  - line-number references replaced with symbol names.
+  - line-number references replaced with symbol names;
+  - catalog declares its own structural type for the port service, because the service types live in `ai-assistant`.
