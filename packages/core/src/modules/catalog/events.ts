@@ -42,6 +42,13 @@ const events = [
   // Lifecycle events - Pricing resolution
   { id: 'catalog.pricing.resolve.before', label: 'Before Pricing Resolve', category: 'lifecycle', excludeFromTriggers: true },
   { id: 'catalog.pricing.resolve.after', label: 'After Pricing Resolve', category: 'lifecycle', excludeFromTriggers: true },
+
+  // AI category suggestions (spec 2026-10-28-catalog-ai-product-categorization.md).
+  // clientBroadcast bridges these to the product page via the DOM event bridge.
+  // Payload carries ids/status/confidence only — never product text.
+  { id: 'catalog.category_suggestion.created', label: 'Category Suggestion Created', entity: 'category_suggestion', category: 'crud', clientBroadcast: true },
+  { id: 'catalog.category_suggestion.accepted', label: 'Category Suggestion Accepted', entity: 'category_suggestion', category: 'crud', clientBroadcast: true },
+  { id: 'catalog.category_suggestion.rejected', label: 'Category Suggestion Rejected', entity: 'category_suggestion', category: 'crud', clientBroadcast: true },
 ] as const
 
 export const eventsConfig = createModuleEvents({
