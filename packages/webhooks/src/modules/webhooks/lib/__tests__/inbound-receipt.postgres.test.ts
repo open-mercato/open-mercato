@@ -299,7 +299,7 @@ describePostgres.each([1, 8])('inbound receipt PostgreSQL transactions with pool
     }
   }, 10_000)
 
-  const itWithRedis = process.env.OM_QUEUE_TEST_REDIS_URL && poolSize === 1 ? it : it.skip
+  const itWithRedis = process.env.OM_QUEUE_TEST_REDIS_URL ? it : it.skip
   itWithRedis('recovers twenty timed-out Redis deliveries without duplicate active or completed handlers', async () => {
     const redisUrl = process.env.OM_QUEUE_TEST_REDIS_URL!
     const queue = createQueue<InboundDispatchJob>(`webhook-recovery-${randomUUID()}`, 'async', {

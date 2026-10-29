@@ -840,8 +840,17 @@ ordinary unit runs skip it when no database is configured. With `OM_QUEUE_TEST_R
 also set, the suite pauses writes on that disposable Redis instance, sends twenty deliveries,
 reconnects/retries and asserts one active production handler and no handler rerun after
 completion. The queue `publication.test.ts` runs local identity/late-write cases by default
-and the same cases against Redis when that variable is set. These opt-in tests require
-isolated test services, including `redis-cli`, never a developer or production database.
+and the same cases against Redis when that variable is set. The committed CI durability
+job supplies both variables using disposable PostgreSQL 16 and Redis 7 services, and
+installs `redis-cli` on the runner. It runs every receipt case with pools 1 and 8,
+including Redis recovery at both pool sizes, and both local/async publication strategies.
+`scripts/ci/check-webhook-durability-results.mjs` rejects skipped/failed/empty reports or
+missing pool/strategy/recovery coverage, prints executed counts in the job summary, and
+CI uploads the raw Jest reports as `webhook-durability-results`. This extends the existing
+`documents-multi-instance` job, which the final coverage gate already depends on; no
+required job, branch trigger, QA gate or runtime contract changes. The tests require
+isolated test services, never a developer or production database. Schemas and queues are
+cleaned by their tests, and CI tears down both service containers when the job finishes.
 Manual async outage QA rows 7–8 from PR #7609's prior NO-GO still require reviewer sign-off;
 automated recovery tests do not grant QA approval.
 
@@ -1123,6 +1132,7 @@ by `WebhookSourceConfig` + the handler convention. They MUST follow the deprecat
 | 2026-06-17 | Phase 1 progress: shared inbound types; `WebhookIngestion`/`InboundEndpointConfig` entities + migration + encryption map; `inbound.processed`/`handler_failed` events; globalThis-backed source/handler registries + wildcard resolution; queue-backed `webhook-inbound-dispatch` worker. **Auto-discovery convention chosen:** implemented via the sanctioned `generators.ts` plugin mechanism (`webhooks/generators.ts`: `webhooks.sources` + `webhooks.handlers` plugins with `bootstrapRegistration`) rather than forking the two core generators. Consequently handlers are declared in a module-root **`webhook-handlers.ts`** barrel (impl files under `webhook-handlers/`) instead of a pure `webhook-handlers/*.ts` folder scan — lower blast-radius, zero `bootstrap.ts`/template edits (§3.2, §6). |
 | 2026-10-18 | Fixed #7601: atomic receipt/ingestion intake, independent row-locked dispatch/publication checkpoints, retry recovery without repeating completed stages, additive migration preserving historical receipts, and route plus PostgreSQL concurrency regressions. |
 | 2026-10-28 | Removed unrelated carried changes; implemented the user-approved #7979 durability design: committed scoped fenced claims, external publication outside transactions, stable queue IDs and bounded publication deadlines, nullable claim migration, real PostgreSQL pool/fencing and Redis outage/reconnect regressions. Delivery remains at least once; manual async QA and fresh review remain gates. |
+| 2026-10-29 | Added a committed real-service CI gate for both receipt pool sizes and queue strategies, fail-closed executed-count verification, and JSON artifacts; Redis recovery now runs at both pool sizes when enabled. |
 
 ---
 

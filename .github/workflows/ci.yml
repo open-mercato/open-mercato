@@ -819,6 +819,29 @@ jobs:
   documents-multi-instance:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    services:
+      webhook_postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: webhook_durability
+          POSTGRES_USER: webhook_durability
+          POSTGRES_PASSWORD: webhook_durability
+        ports:
+          - 5432/tcp
+        options: >-
+          --health-cmd "pg_isready -U webhook_durability -d webhook_durability"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+      webhook_redis:
+        image: redis:7-alpine
+        ports:
+          - 6379/tcp
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
     needs: [prepare, audit-scope, audit, lint]
     if: |
       always() &&
@@ -874,6 +897,31 @@ jobs:
       - name: Run integrations module suites against real Postgres
         if: ${{ !cancelled() }}
         run: yarn workspace @open-mercato/core test:pg-integration
+
+      - name: Install Redis durability test client
+        if: ${{ !cancelled() }}
+        run: sudo apt-get update && sudo apt-get install --no-install-recommends -y redis-tools
+
+      - name: Run webhook receipt and queue durability against real services
+        if: ${{ !cancelled() }}
+        env:
+          OM_WEBHOOKS_TEST_DATABASE_URL: postgresql://webhook_durability:webhook_durability@127.0.0.1:${{ job.services.webhook_postgres.ports[5432] }}/webhook_durability
+          OM_QUEUE_TEST_REDIS_URL: redis://127.0.0.1:${{ job.services.webhook_redis.ports[6379] }}
+        run: |
+          command -v redis-cli
+          mkdir -p .ai/qa/test-results/webhook-durability
+          node node_modules/jest/bin/jest.js --config packages/webhooks/jest.config.cjs --runInBand --runTestsByPath packages/webhooks/src/modules/webhooks/lib/__tests__/inbound-receipt.postgres.test.ts --verbose --json --outputFile=.ai/qa/test-results/webhook-durability/receipts.json
+          node node_modules/jest/bin/jest.js --config packages/queue/jest.config.cjs --runInBand --runTestsByPath packages/queue/src/__tests__/publication.test.ts --verbose --json --outputFile=.ai/qa/test-results/webhook-durability/queues.json
+          node scripts/ci/check-webhook-durability-results.mjs .ai/qa/test-results/webhook-durability/receipts.json .ai/qa/test-results/webhook-durability/queues.json
+
+      - name: Upload webhook durability results
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: webhook-durability-results
+          path: .ai/qa/test-results/webhook-durability/
+          include-hidden-files: true
+          if-no-files-found: error
 
       - name: Check OAuth grant import paths resolve against the built dist
         if: ${{ !cancelled() }}
