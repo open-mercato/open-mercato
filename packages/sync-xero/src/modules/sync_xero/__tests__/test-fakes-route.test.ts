@@ -1,4 +1,5 @@
 /** @jest-environment node */
+import { registerMutationGuards } from '@open-mercato/shared/lib/crud/mutation-guard-store'
 import { createFakeContainer } from './support/fakeContainer'
 
 const mockControlLoaded = jest.fn()
@@ -41,6 +42,7 @@ function post(body: unknown): Promise<Response> {
 
 beforeEach(() => {
   jest.clearAllMocks()
+  registerMutationGuards([])
   mockGetAuthFromRequest.mockResolvedValue({ sub: 'user-1', tenantId: TENANT_ID, orgId: ORG_ID })
   mockResolveOrganizationScope.mockResolvedValue({ selectedId: ORG_ID, filterIds: [ORG_ID], allowedIds: null, tenantId: TENANT_ID })
   mockCreateRequestContainer.mockResolvedValue(
@@ -51,6 +53,7 @@ beforeEach(() => {
 })
 
 afterAll(() => {
+  registerMutationGuards([])
   if (savedFlag === undefined) delete process.env.OM_ENABLE_TEST_OAUTH_GRANTS
   else process.env.OM_ENABLE_TEST_OAUTH_GRANTS = savedFlag
 })
@@ -81,6 +84,23 @@ describe('POST /api/sync_xero/test-fakes', () => {
     const started = await post({ action: 'start' })
     expect(started.status).toBe(200)
     expect(mockStartSeam).toHaveBeenLastCalledWith({ container: expect.anything(), scope: { tenantId: TENANT_ID, organizationId: ORG_ID }, userId: 'user-1' })
+  })
+
+  it('refuses with 422 guard_payload_invalid when a grant guard rewrites the seam action', async () => {
+    process.env.OM_ENABLE_TEST_OAUTH_GRANTS = 'true'
+    registerMutationGuards([{
+      moduleId: 'test',
+      guards: [{
+        id: 'test.rewrite-seam',
+        targetEntity: 'integrations.oauth_grant',
+        operations: ['update'],
+        validate: async () => ({ ok: true, modifiedPayload: { action: 'reset' } }),
+      }],
+    }])
+    const response = await post({ action: 'start' })
+    expect(response.status).toBe(422)
+    expect(await response.json()).toMatchObject({ code: 'guard_payload_invalid' })
+    expect(mockStartSeam).not.toHaveBeenCalled()
   })
 
   it('rejects an unknown action with 400', async () => {

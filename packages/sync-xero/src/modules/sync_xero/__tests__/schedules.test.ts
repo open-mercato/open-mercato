@@ -80,6 +80,49 @@ describe('ensureDefaultSchedules', () => {
     expect(schedules.saves).toBe(0)
   })
 
+  it('saves the schedule a data_sync.schedule create guard transforms, then runs its afterSuccess', async () => {
+    const afterSuccess = jest.fn(async () => undefined)
+    registerMutationGuards([{
+      moduleId: 'test',
+      guards: [{
+        id: 'test.disable-schedules',
+        targetEntity: 'data_sync.schedule',
+        operations: ['create'],
+        validate: async () => ({ ok: true, modifiedPayload: { isEnabled: false, scheduleValue: '6h' }, shouldRunAfterSuccess: true }),
+        afterSuccess,
+      }],
+    }])
+    const result = await ensureDefaultSchedules({ container: container(), scope, guard: { req, userId: 'user-1' } })
+    expect(result).toEqual({ schedules: [{ entityType: 'xero.contacts', exists: true, isEnabled: false, fullSync: false, scheduleValue: '6h' }], failed: [] })
+    expect([...schedules.schedules.values()]).toEqual([expect.objectContaining({ entityType: 'xero.contacts', isEnabled: false, scheduleValue: '6h' })])
+    expect(afterSuccess).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
+    ['another integration', { integrationId: 'gateway_stripe' }],
+    ['another entity type', { entityType: 'xero.invoices' }],
+    ['another direction', { direction: 'export' }],
+    ['an invalid interval', { scheduleValue: 'hourly' }],
+    ['a non-boolean flag', { isEnabled: 'no' }],
+  ])('refuses the creation when a guard transformation returns %s, without its afterSuccess', async (_label, modifiedPayload) => {
+    const afterSuccess = jest.fn(async () => undefined)
+    registerMutationGuards([{
+      moduleId: 'test',
+      guards: [{
+        id: 'test.rewrite-schedules',
+        targetEntity: 'data_sync.schedule',
+        operations: ['create'],
+        validate: async () => ({ ok: true, modifiedPayload, shouldRunAfterSuccess: true }),
+        afterSuccess,
+      }],
+    }])
+    const result = await ensureDefaultSchedules({ container: container(), scope, guard: { req, userId: 'user-1' } })
+    expect(result.failed).toEqual(['xero.contacts'])
+    expect(schedules.saves).toBe(0)
+    expect(logWrites).toEqual([expect.objectContaining({ code: 'xero.schedule_create_failed' })])
+    expect(afterSuccess).not.toHaveBeenCalled()
+  })
+
   it('lists a missing schedule as missing', async () => {
     await expect(listXeroSchedules(schedules, scope)).resolves.toEqual([
       { entityType: 'xero.contacts', exists: false, isEnabled: false, fullSync: false, scheduleValue: null },

@@ -7,6 +7,7 @@ import { createFakeContainer } from './support/fakeContainer'
 const mockGetAuthFromRequest = jest.fn()
 const mockCreateRequestContainer = jest.fn()
 const mockResolveOrganizationScope = jest.fn()
+const mockReportError = jest.fn()
 
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   getAuthFromRequest: (...args: unknown[]) => mockGetAuthFromRequest(...args),
@@ -18,6 +19,10 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
 
 jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => ({
   resolveOrganizationScopeForRequest: (...args: unknown[]) => mockResolveOrganizationScope(...args),
+}))
+
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  getTelemetryRuntime: () => ({ reportError: (...args: unknown[]) => mockReportError(...args) }),
 }))
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
@@ -89,6 +94,15 @@ function registerGuard(targetEntity: string, operations: MutationGuard['operatio
           validate: async () => ({ ok: false, status: 423, body: { error: 'Locked', code: 'record_locked' } }),
         },
       ],
+    },
+  ])
+}
+
+function registerTransformer(targetEntity: string, operations: MutationGuard['operations'], modifiedPayload: Record<string, unknown>): void {
+  registerMutationGuards([
+    {
+      moduleId: 'test',
+      guards: [{ id: `test.transform-${targetEntity}`, targetEntity, operations, validate: async () => ({ ok: true, modifiedPayload }) }],
     },
   ])
 }
@@ -228,6 +242,49 @@ describe('POST /api/sync_xero/disconnect', () => {
     const response = await disconnect(request({}, currentRevision()))
     expect(response.status).toBe(423)
     expect(grants.state.status).toBe('active')
+  })
+
+  it('honors a grant-delete guard that withdraws force', async () => {
+    grants.setStatus('unavailable')
+    registerTransformer('integrations.oauth_grant', ['delete'], { force: false })
+    const response = await disconnect(request({ force: true }))
+    expect(response.status).toBe(409)
+    expect(await json(response)).toMatchObject({ code: 'disconnect_tokens_unreadable' })
+    expect(grants.calls.filter((call) => call.method === 'disconnect').at(-1)?.options).toMatchObject({ force: false })
+  })
+
+  it('refuses with 422 guard_payload_invalid when a grant-delete guard changes the integration, adds force or returns an invalid force', async () => {
+    for (const modifiedPayload of [{ integrationId: 'gateway_stripe' }, { force: true }, { force: 'yes' }]) {
+      registerTransformer('integrations.oauth_grant', ['delete'], modifiedPayload)
+      const response = await disconnect(request({}, currentRevision()))
+      expect(response.status).toBe(422)
+      expect(await json(response)).toMatchObject({ code: 'guard_payload_invalid' })
+    }
+    expect(grants.state.status).toBe('active')
+  })
+
+  it('skips a follow-up step an integration guard turns off', async () => {
+    registerTransformer('integrations.integration', ['update'], { isEnabled: true, removeClientCredentials: false })
+    const body = await json(await disconnect(request({ removeClientCredentials: true }, currentRevision())))
+    expect(body).toMatchObject({ erased: true, steps: { healthCheck: 'ok', disable: 'skipped', removeClientCredentials: 'skipped' } })
+    expect(upsertState).not.toHaveBeenCalled()
+    expect(saveCredentials).not.toHaveBeenCalled()
+  })
+
+  it('fails the follow-up steps when an integration guard adds a step the admin did not ask for or may not run', async () => {
+    registerTransformer('integrations.integration', ['update'], { removeClientCredentials: true })
+    const added = await json(await disconnect(request({}, currentRevision())))
+    expect(added.steps).toEqual({ healthCheck: 'ok', disable: 'failed', removeClientCredentials: 'skipped' })
+    expect(saveCredentials).not.toHaveBeenCalled()
+    expect(mockReportError).toHaveBeenCalledWith(expect.any(Error), { module: 'sync_xero', code: 'sync_xero.disconnect_disable_failed' })
+
+    grants = createFakeGrantService({ connected: true, providerData: PROVIDER_DATA })
+    features = new Set(['integrations.credentials.manage'])
+    registerTransformer('integrations.integration', ['update'], { isEnabled: false })
+    const escalated = await json(await disconnect(request({ removeClientCredentials: true }, currentRevision())))
+    expect(escalated.steps).toEqual({ healthCheck: 'ok', disable: 'skipped', removeClientCredentials: 'failed' })
+    expect(upsertState).not.toHaveBeenCalled()
+    expect(saveCredentials).not.toHaveBeenCalled()
   })
 
   it('answers erased false without a grant and runs no step', async () => {

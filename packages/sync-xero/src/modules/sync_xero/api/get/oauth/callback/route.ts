@@ -36,7 +36,8 @@ import {
 } from '../../../../lib/constants'
 import { createXeroDescriptor } from '../../../../lib/descriptor'
 import { resolveXeroEndpoints } from '../../../../lib/endpoints'
-import { autoSelectOrganisation, hasXeroSyncHistory } from '../../../../lib/organisation'
+import { grantActionGuardPayloadSchema, readGuardedPayload } from '../../../../lib/guarded-payload'
+import { autoSelectOrganisation, hasXeroSyncHistory, xeroProviderDataGuardPayload } from '../../../../lib/organisation'
 import { buildXeroGrantOwner, type XeroScope } from '../../../../lib/owner'
 import { ensureXeroFieldDefinitionsAfterSave } from '../../../../lib/field-definitions'
 import { ensureDefaultSchedules } from '../../../../lib/schedules'
@@ -133,6 +134,7 @@ async function completeCallback(req: Request): Promise<XeroCallbackResult> {
   const { scope, extra } = verified
   const owner = buildXeroGrantOwner(scope)
 
+  const connectPayload = { integrationId: XERO_INTEGRATION_ID, action: 'connect' as const }
   const guard = await runRouteMutationGuards({
     container,
     req,
@@ -141,10 +143,13 @@ async function completeCallback(req: Request): Promise<XeroCallbackResult> {
       resourceKind: XERO_GRANT_RESOURCE_KIND,
       resourceId: XERO_GRANT_RESOURCE_ID,
       operation: 'custom',
-      mutationPayload: { integrationId: XERO_INTEGRATION_ID, action: 'connect' },
+      mutationPayload: connectPayload,
     },
   })
   if (!guard.ok) return 'guard_blocked'
+  if (!readGuardedPayload({ guard, payload: connectPayload, schema: grantActionGuardPayloadSchema, fixedKeys: ['integrationId', 'action'] })) {
+    return 'guard_blocked'
+  }
 
   const credentialsService = container.resolve<CredentialsService>('integrationCredentialsService')
   const client = await readXeroClientConfiguration(credentialsService, scope)
@@ -182,7 +187,7 @@ async function completeCallback(req: Request): Promise<XeroCallbackResult> {
           resourceKind: XERO_GRANT_RESOURCE_KIND,
           resourceId: XERO_GRANT_RESOURCE_ID,
           operation: 'update',
-          mutationPayload: { integrationId: XERO_INTEGRATION_ID, providerData },
+          mutationPayload: xeroProviderDataGuardPayload(providerData),
         },
       }),
     actorUserId: auth.sub,

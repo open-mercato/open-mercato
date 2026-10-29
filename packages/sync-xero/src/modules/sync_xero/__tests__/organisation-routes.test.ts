@@ -62,6 +62,15 @@ const CONN_B = 'b0b0b0b0-0000-4000-8000-00000000000b'
 const CONN_C = 'c1c1c1c1-0000-4000-8000-00000000000c'
 const PROVIDER_DATA_A = { xeroOrganisationId: XERO_ORG_A, xeroConnectionId: CONN_A, xeroOrganisationName: 'Demo Company (Global)' }
 
+function registerTransformer(targetEntity: string, operations: Array<'create' | 'update' | 'delete'>, modifiedPayload: Record<string, unknown>): void {
+  registerMutationGuards([
+    {
+      moduleId: 'test',
+      guards: [{ id: `test.transform-${targetEntity}`, targetEntity, operations, validate: async () => ({ ok: true, modifiedPayload }) }],
+    },
+  ])
+}
+
 const connection = (id: string, tenantId: string, tenantName: string, authEventId = 'evt-0') => ({
   id,
   tenantId,
@@ -452,6 +461,30 @@ describe('PUT /api/sync_xero/organisation', () => {
     expect(grants.calls.some((call) => call.method === 'updateProviderData')).toBe(false)
   })
 
+  it('saves the External Account a grant guard transforms', async () => {
+    registerTransformer('integrations.oauth_grant', ['update'], { providerData: { ...PROVIDER_DATA_A, xeroOrganisationName: 'Demo Company (Renamed)' } })
+    const response = await putOrganisation(putRequest({ xeroOrganisationId: XERO_ORG_A }, grants.state.revisedAt.toISOString()))
+    expect(response.status).toBe(200)
+    expect(await json(response)).toMatchObject({ organisation: { id: XERO_ORG_A, name: 'Demo Company (Renamed)' } })
+    expect(grants.calls.filter((call) => call.method === 'updateProviderData').at(-1)?.options).toMatchObject({
+      data: { ...PROVIDER_DATA_A, xeroOrganisationName: 'Demo Company (Renamed)' },
+    })
+  })
+
+  it.each([
+    ['another integration', { integrationId: 'gateway_stripe' }],
+    ['another Organisation', { providerData: { ...PROVIDER_DATA_A, xeroOrganisationId: XERO_ORG_B } }],
+    ['another connection', { providerData: { ...PROVIDER_DATA_A, xeroConnectionId: CONN_B } }],
+    ['an invalid External Account', { providerData: { xeroOrganisationId: XERO_ORG_A } }],
+  ])('refuses with 422 guard_payload_invalid when a grant guard returns %s', async (_label, modifiedPayload) => {
+    registerTransformer('integrations.oauth_grant', ['update'], modifiedPayload)
+    const response = await putOrganisation(putRequest({ xeroOrganisationId: XERO_ORG_A }, grants.state.revisedAt.toISOString()))
+    expect(response.status).toBe(422)
+    expect(await json(response)).toMatchObject({ code: 'guard_payload_invalid' })
+    expect(grants.calls.some((call) => call.method === 'updateProviderData')).toBe(false)
+    expect(schedules.saves).toBe(0)
+  })
+
   it('rejects a body that is not a Xero Organisation id', async () => {
     const response = await putOrganisation(putRequest({ xeroOrganisationId: 'not-a-uuid' }))
     expect(response.status).toBe(400)
@@ -471,6 +504,13 @@ describe('POST /api/sync_xero/schedules', () => {
     expect(await json(created)).toEqual({ schedules: [{ entityType: 'xero.contacts', exists: true, isEnabled: true, fullSync: false, scheduleValue: '1h' }] })
     await postSchedules(request('/api/sync_xero/schedules', { method: 'POST' }))
     expect(schedules.saves).toBe(1)
+  })
+
+  it('creates the schedule disabled when a data_sync.schedule create guard disables it', async () => {
+    registerTransformer('data_sync.schedule', ['create'], { isEnabled: false })
+    const response = await postSchedules(request('/api/sync_xero/schedules', { method: 'POST' }))
+    expect(response.status).toBe(200)
+    expect(await json(response)).toEqual({ schedules: [{ entityType: 'xero.contacts', exists: true, isEnabled: false, fullSync: false, scheduleValue: '1h' }] })
   })
 
   it('answers 503 xero.schedule_create_failed when a schedule cannot be created', async () => {

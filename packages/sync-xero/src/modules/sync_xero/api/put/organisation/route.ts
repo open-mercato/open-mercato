@@ -7,8 +7,8 @@ import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi/types'
 import { OAuthGrantError } from '@open-mercato/core/modules/integrations/lib/oauth/descriptor'
 import { listAllOrganisations, type XeroOrganisationOption } from '../../../lib/connections'
-import { XERO_GRANT_RESOURCE_ID, XERO_GRANT_RESOURCE_KIND, XERO_INTEGRATION_ID } from '../../../lib/constants'
-import { decideOrganisationChange, toXeroProviderData } from '../../../lib/organisation'
+import { XERO_GRANT_RESOURCE_ID, XERO_GRANT_RESOURCE_KIND } from '../../../lib/constants'
+import { decideOrganisationChange, readGuardedProviderData, toXeroProviderData, xeroProviderDataGuardPayload } from '../../../lib/organisation'
 import { ensureXeroFieldDefinitionsAfterSave } from '../../../lib/field-definitions'
 import { ensureDefaultSchedules } from '../../../lib/schedules'
 import { authorizeXeroRoute, CREDENTIALS_MANAGE_FEATURE } from '../../../lib/route-auth'
@@ -79,7 +79,7 @@ export async function PUT(req: Request): Promise<Response> {
     })
   }
 
-  const providerData = toXeroProviderData(choice)
+  const chosen = toXeroProviderData(choice)
   const guard = await runRouteMutationGuards({
     container,
     req,
@@ -88,10 +88,12 @@ export async function PUT(req: Request): Promise<Response> {
       resourceKind: XERO_GRANT_RESOURCE_KIND,
       resourceId: XERO_GRANT_RESOURCE_ID,
       operation: 'update',
-      mutationPayload: { integrationId: XERO_INTEGRATION_ID, providerData },
+      mutationPayload: xeroProviderDataGuardPayload(chosen),
     },
   })
   if (!guard.ok) return guard.response
+  const providerData = readGuardedProviderData(guard, chosen)
+  if (!providerData) return xeroErrorResponse(422, 'guard_payload_invalid')
 
   let revisedAt: Date
   try {
@@ -145,7 +147,12 @@ export const openApi: OpenApiRouteDoc = {
             'optimistic_lock_conflict (stale revision); not_connected; xero.client_misconfigured; xero.account_unavailable (also when Xero rejects the token or its access); xero.organisation_change_confirmation_required with next and previous[] (companyCount); xero.organisation_switch_blocked with previous[] (invoiceCount)',
           schema: xeroErrorSchema.extend({ next: previousSchema.optional(), previous: z.array(previousSchema).optional() }),
         },
-        { status: 422, description: 'xero.organisation_not_authorised: the Organisation is not part of the grant', schema: xeroErrorSchema },
+        {
+          status: 422,
+          description:
+            'xero.organisation_not_authorised: the Organisation is not part of the grant; guard_payload_invalid: a mutation guard changed the integration, the Organisation or its connection, or returned an invalid External Account',
+          schema: xeroErrorSchema,
+        },
         { status: 503, description: 'xero.unavailable (Xero failed within the single attempt), transient or platform_unavailable', schema: xeroErrorSchema },
       ],
     },

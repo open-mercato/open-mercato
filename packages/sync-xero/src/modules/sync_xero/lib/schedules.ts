@@ -1,9 +1,11 @@
+import { createSyncScheduleSchema } from '@open-mercato/core/modules/data_sync/data/validators'
 import type { SyncScheduleService } from '@open-mercato/core/modules/data_sync/lib/sync-schedule-service'
 import type { IntegrationLogService } from '@open-mercato/core/modules/integrations/lib/log-service'
 import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { XERO_INTEGRATION_ID, XERO_SUPPORTED_ENTITY_TYPES } from './constants'
+import { readGuardedPayload } from './guarded-payload'
 import type { XeroScope } from './owner'
 
 export type XeroScheduleView = {
@@ -45,9 +47,11 @@ export async function listXeroSchedules(
 /**
  * Creates the hourly incremental schedule of every `xero.*` entity type that has none (App Spec
  * § 6.7, US-4.1), behind the same `data_sync.schedule` create guard as the platform's schedule
- * route. An existing schedule — the admin's, or a disabled one — is never changed. A blocked or
- * failed creation is logged as `xero.schedule_create_failed` and returned, never thrown, so it
- * never undoes the Organisation save that called it.
+ * route; a guard's transformation is saved, but one that changes the integration, entity type or
+ * direction, or no longer validates, refuses the creation. An existing schedule — the admin's,
+ * or a disabled one — is never changed. A blocked or failed creation is logged as
+ * `xero.schedule_create_failed` and returned, never thrown, so it never undoes the Organisation
+ * save that called it.
  */
 export async function ensureDefaultSchedules(input: {
   container: AppContainer
@@ -92,7 +96,17 @@ export async function ensureDefaultSchedules(input: {
         await reportFailure(entityType, null)
         continue
       }
-      await scheduleService.saveSchedule(payload, scope, container)
+      const guarded = readGuardedPayload({
+        guard,
+        payload,
+        schema: createSyncScheduleSchema,
+        fixedKeys: ['integrationId', 'entityType', 'direction'],
+      })
+      if (!guarded) {
+        await reportFailure(entityType, null)
+        continue
+      }
+      await scheduleService.saveSchedule(guarded, scope, container)
       await guard.runAfterSuccess()
     } catch (error) {
       await reportFailure(entityType, error)

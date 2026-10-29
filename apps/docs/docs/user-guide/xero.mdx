@@ -47,7 +47,7 @@ Every Xero login has a **Demo Company** with sample contacts and invoices. Regis
 
 ## Schedules and Xero's 60-day limit
 
-When the Organisation is saved, Open Mercato creates an hourly incremental schedule for Contacts, unless one exists already, also for a user without `data_sync.configure`: the schedule is what keeps the Xero connection alive. An existing schedule is never changed, and a `data_sync.schedule` mutation guard can still block the creation. Enable the integration to let it run. The Xero tab lists the schedule and offers **Create default schedule** when it is missing; that button needs `data_sync.configure`.
+When the Organisation is saved, Open Mercato creates an hourly incremental schedule for Contacts, unless one exists already, also for a user without `data_sync.configure`: the schedule is what keeps the Xero connection alive. An existing schedule is never changed, and a `data_sync.schedule` mutation guard can still block the creation or change the new schedule, for example create it disabled; a guard change to the integration, entity type or direction refuses the creation. Enable the integration to let it run. The Xero tab lists the schedule and offers **Create default schedule** when it is missing; that button needs `data_sync.configure`.
 
 Xero ends a connection that is not used for 60 days. Every sync renews it, so an enabled integration with its schedule never reaches the limit. When syncing is paused or no schedule is enabled, the Xero tab shows how many days are left before Xero requires a Reconnect.
 

@@ -26,6 +26,7 @@ export const XERO_ROUTE_ERROR_FALLBACKS = {
   'xero.test_fakes_unavailable': 'The Xero test fakes of this organization are not running. Start them again or reset the test organization.',
   'xero.schedule_create_failed': 'The default Xero schedule could not be created. Check that the scheduler runs, or create the schedule on the Sync schedules tab.',
   not_found: 'The company was not found.',
+  guard_payload_invalid: 'A rule of this organization changed the request into one that cannot be saved.',
 } as const
 
 export type XeroRouteErrorCode = keyof typeof XERO_ROUTE_ERROR_FALLBACKS

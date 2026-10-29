@@ -4,6 +4,7 @@ import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-muta
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi/types'
 import { XERO_GRANT_RESOURCE_ID, XERO_GRANT_RESOURCE_KIND, XERO_INTEGRATION_ID } from '../../../lib/constants'
+import { grantActionGuardPayloadSchema, readGuardedPayload } from '../../../lib/guarded-payload'
 import { authorizeXeroRoute, CREDENTIALS_MANAGE_FEATURE } from '../../../lib/route-auth'
 import { isXeroSeamEnabled } from '../../../lib/testing/seam'
 import { XERO_OPENAPI_TAG, xeroErrorSchema, xeroRuleOneErrors } from '../../openapi'
@@ -34,6 +35,7 @@ export async function POST(req: Request): Promise<Response> {
   const parsed = control.seamActionSchema.safeParse(await readJsonSafe(req, null))
   if (!parsed.success) return NextResponse.json({ error: 'Invalid request body', code: 'invalid_request' }, { status: 400 })
 
+  const guardPayload = { integrationId: XERO_INTEGRATION_ID, action: parsed.data.action }
   const guard = await runRouteMutationGuards({
     container,
     req,
@@ -42,10 +44,13 @@ export async function POST(req: Request): Promise<Response> {
       resourceKind: XERO_GRANT_RESOURCE_KIND,
       resourceId: XERO_GRANT_RESOURCE_ID,
       operation: 'custom',
-      mutationPayload: { integrationId: XERO_INTEGRATION_ID, action: parsed.data.action },
+      mutationPayload: guardPayload,
     },
   })
   if (!guard.ok) return guard.response
+  if (!readGuardedPayload({ guard, payload: guardPayload, schema: grantActionGuardPayloadSchema, fixedKeys: ['integrationId', 'action'] })) {
+    return NextResponse.json({ error: 'A mutation guard changed the seam action', code: 'guard_payload_invalid' }, { status: 422 })
+  }
 
   const context = { container, scope, userId }
   try {
@@ -82,6 +87,7 @@ export const openApi: OpenApiRouteDoc = {
         ...xeroRuleOneErrors(),
         { status: 404, description: 'OM_ENABLE_TEST_OAUTH_GRANTS is off (production default); unauthenticated or unauthorised callers get 401 or 403 first', schema: xeroErrorSchema },
         { status: 409, description: 'real_xero_state, not_seam_organization or not_started', schema: xeroErrorSchema },
+        { status: 422, description: 'guard_payload_invalid: a mutation guard changed the integration or the action', schema: xeroErrorSchema },
       ],
     },
   },

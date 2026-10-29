@@ -9,6 +9,7 @@ import { OAuthGrantError } from '@open-mercato/core/modules/integrations/lib/oau
 import type { OAuthDisconnectResult } from '@open-mercato/core/modules/integrations/lib/oauth/grant-service'
 import { XERO_GRANT_RESOURCE_ID, XERO_GRANT_RESOURCE_KIND, XERO_INTEGRATION_ID } from '../../../lib/constants'
 import { runDisconnectSteps, SKIPPED_DISCONNECT_STEPS } from '../../../lib/disconnect-steps'
+import { readGuardedPayload } from '../../../lib/guarded-payload'
 import { authorizeXeroRoute, CREDENTIALS_MANAGE_FEATURE } from '../../../lib/route-auth'
 import { xeroErrorResponse, seamFailureResponse } from '../../../lib/route-errors'
 import { resolveXeroRouteGrant, type XeroRouteGrant } from '../../../lib/route-grant'
@@ -23,6 +24,8 @@ const bodySchema = z.strictObject({
   force: z.boolean().optional(),
   removeClientCredentials: z.boolean().optional(),
 })
+
+const disconnectGuardPayloadSchema = z.object({ integrationId: z.string(), force: z.boolean() })
 
 async function disconnectFailureResponse(error: unknown): Promise<Response | null> {
   if (isCrudHttpError(error)) return NextResponse.json(error.body, { status: error.status })
@@ -40,7 +43,7 @@ export async function POST(req: Request): Promise<Response> {
 
   const body = bodySchema.safeParse((await readJsonSafe(req, {})) ?? {})
   if (!body.success) return xeroErrorResponse(400, 'invalid_request')
-  const force = body.data.force === true
+  const payload = { integrationId: XERO_INTEGRATION_ID, force: body.data.force === true }
 
   const guard = await runRouteMutationGuards({
     container,
@@ -50,10 +53,13 @@ export async function POST(req: Request): Promise<Response> {
       resourceKind: XERO_GRANT_RESOURCE_KIND,
       resourceId: XERO_GRANT_RESOURCE_ID,
       operation: 'delete',
-      mutationPayload: { integrationId: XERO_INTEGRATION_ID, force },
+      mutationPayload: payload,
     },
   })
   if (!guard.ok) return guard.response
+  const guarded = readGuardedPayload({ guard, payload, schema: disconnectGuardPayloadSchema, fixedKeys: ['integrationId'] })
+  if (!guarded || (guarded.force && !payload.force)) return xeroErrorResponse(422, 'guard_payload_invalid')
+  const { force } = guarded
 
   let grant: XeroRouteGrant
   try {
@@ -121,6 +127,7 @@ export const openApi: OpenApiRouteDoc = {
           description: 'optimistic_lock_conflict (stale revision), or disconnect_tokens_unreadable (offer "Disconnect anyway" with force)',
           schema: xeroErrorSchema,
         },
+        { status: 422, description: 'guard_payload_invalid: a mutation guard changed the integration, set force the caller did not send, or returned an invalid force; nothing was erased', schema: xeroErrorSchema },
         { status: 503, description: 'transient: the grant lock or the database was unavailable; nothing was erased', schema: xeroErrorSchema },
       ],
     },

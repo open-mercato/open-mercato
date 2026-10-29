@@ -1,8 +1,10 @@
+import { z } from 'zod'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import type { CredentialsService } from '@open-mercato/core/modules/integrations/lib/credentials-service'
 import { XERO_INTEGRATION_ID } from './constants'
+import { readGuardedPayload } from './guarded-payload'
 import type { XeroScope } from './owner'
 import { userHoldsFeatures } from './route-auth'
 
@@ -17,6 +19,8 @@ export type DisconnectSteps = {
 export const SKIPPED_DISCONNECT_STEPS: DisconnectSteps = { healthCheck: 'skipped', disable: 'skipped', removeClientCredentials: 'skipped' }
 
 const MANAGE_FEATURE = 'integrations.manage'
+
+const followUpGuardPayloadSchema = z.object({ isEnabled: z.boolean().optional(), removeClientCredentials: z.boolean() })
 
 type HealthRunner = { runHealthCheck(integrationId: string, scope: XeroScope): Promise<unknown> }
 type StateWriter = { upsert(integrationId: string, input: { isEnabled: boolean }, scope: XeroScope): Promise<unknown> }
@@ -38,8 +42,10 @@ async function runStep(step: keyof DisconnectSteps, action: () => Promise<void>)
 /**
  * The follow-up of an erased grant (App Spec US-1.2): one health check so the badge shows the
  * disconnect, disabling the integration when the admin may (integrations.manage), and removing the
- * Client ID and Secret on request while keeping every other credential value. A failed step never
- * undoes the erase; it is reported.
+ * Client ID and Secret on request while keeping every other credential value. A guard's
+ * transformation may skip a step; one that adds a step the admin did not ask for or may not run,
+ * or no longer validates, fails both steps like a block. A failed step never undoes the erase; it
+ * is reported.
  */
 export async function runDisconnectSteps(input: {
   container: AppContainer
@@ -64,6 +70,10 @@ export async function runDisconnectSteps(input: {
     return { healthCheck, disable: withoutDisable, removeClientCredentials: 'skipped' }
   }
 
+  const payload: z.input<typeof followUpGuardPayloadSchema> = {
+    ...(mayDisable ? { isEnabled: false } : {}),
+    removeClientCredentials: input.removeClientCredentials,
+  }
   const guard = await runRouteMutationGuards({
     container,
     req,
@@ -72,13 +82,20 @@ export async function runDisconnectSteps(input: {
       resourceKind: 'integrations.integration',
       resourceId: XERO_INTEGRATION_ID,
       operation: 'update',
-      mutationPayload: { ...(mayDisable ? { isEnabled: false } : {}), removeClientCredentials: input.removeClientCredentials },
+      mutationPayload: payload,
     },
   }).catch((error: unknown) => {
     reportStepFailure(error, 'disable')
     return null
   })
-  if (!guard?.ok) {
+  const guarded = guard?.ok ? readGuardedPayload({ guard, payload, schema: followUpGuardPayloadSchema, fixedKeys: [] }) : null
+  const addsStep =
+    guarded !== null &&
+    ((guarded.isEnabled === false && !mayDisable) || (guarded.removeClientCredentials && !input.removeClientCredentials))
+  if (guard?.ok && (!guarded || addsStep)) {
+    reportStepFailure(new Error('[internal] the integration guard returned an invalid follow-up payload'), 'disable')
+  }
+  if (!guard?.ok || !guarded || addsStep) {
     return {
       healthCheck,
       disable: mayDisable ? 'failed' : withoutDisable,
@@ -86,12 +103,12 @@ export async function runDisconnectSteps(input: {
     }
   }
 
-  const disable: DisconnectStepOutcome = mayDisable
+  const disable: DisconnectStepOutcome = mayDisable && guarded.isEnabled === false
     ? await runStep('disable', async () => {
         await container.resolve<StateWriter>('integrationStateService').upsert(XERO_INTEGRATION_ID, { isEnabled: false }, scope)
       })
     : withoutDisable
-  const removeClientCredentials: DisconnectStepOutcome = input.removeClientCredentials
+  const removeClientCredentials: DisconnectStepOutcome = guarded.removeClientCredentials
     ? await runStep('removeClientCredentials', async () => {
         const credentialsService = container.resolve<CredentialsService>('integrationCredentialsService')
         const current = (await credentialsService.getRaw(XERO_INTEGRATION_ID, scope)) ?? {}

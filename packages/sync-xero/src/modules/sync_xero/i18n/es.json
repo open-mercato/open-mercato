@@ -30,6 +30,7 @@
   "sync_xero.errors.connect_origin_rejected": "Abre Open Mercato desde su dirección configurada (APP_URL) para conectar con Xero.",
   "sync_xero.errors.disconnect_tokens_unreadable": "La conexión con Xero guardada no se puede leer. Usa Desconectar de todos modos.",
   "sync_xero.errors.forbidden": "No tienes acceso a la conexión de Xero de esta organización.",
+  "sync_xero.errors.guard_payload_invalid": "Una regla de esta organización cambió la solicitud de forma que no se puede guardar.",
   "sync_xero.errors.invalid_request": "La solicitud no es válida.",
   "sync_xero.errors.missing_secret": "No se puede conectar Xero: el servidor no tiene configurada una clave de estado OAuth.",
   "sync_xero.errors.not_configured": "Introduce primero el Client ID y el Client Secret de Xero en la pestaña Credenciales.",

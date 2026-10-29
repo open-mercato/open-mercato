@@ -1,13 +1,15 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { z } from 'zod'
 import { SyncCursor } from '@open-mercato/core/modules/data_sync/data/entities'
 import { SyncExternalIdMapping } from '@open-mercato/core/modules/integrations/data/entities'
 import type { OAuthGrantOwner, OAuthProviderDescriptor } from '@open-mercato/core/modules/integrations/lib/oauth/descriptor'
 import type { IntegrationOAuthGrantService, OAuthConnectResult } from '@open-mercato/core/modules/integrations/lib/oauth/grant-service'
-import type { RouteMutationGuardResult } from '@open-mercato/shared/lib/crud/route-mutation-guard'
+import type { RouteMutationGuardPassed, RouteMutationGuardResult } from '@open-mercato/shared/lib/crud/route-mutation-guard'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { XeroApiClient } from './api-client'
 import { listConsentOrganisations, type XeroOrganisationOption } from './connections'
 import { XERO_COMPANY_MAPPING_TYPE, XERO_INTEGRATION_ID, XERO_INVOICE_MAPPING_TYPE } from './constants'
+import { readGuardedPayload } from './guarded-payload'
 import type { XeroScope } from './owner'
 import { parseXeroProviderData, xeroProviderDataSchema, type XeroProviderData } from './provider-data'
 
@@ -17,6 +19,32 @@ export function toXeroProviderData(option: XeroOrganisationOption): XeroProvider
     xeroConnectionId: option.xeroConnectionId,
     xeroOrganisationName: option.name.slice(0, 255),
   })
+}
+
+const guardedProviderDataSchema = z.object({ integrationId: z.string(), providerData: xeroProviderDataSchema })
+
+/** The guard payload of an External Account save: the integration and the chosen Organisation. */
+export function xeroProviderDataGuardPayload(providerData: XeroProviderData) {
+  return { integrationId: XERO_INTEGRATION_ID, providerData }
+}
+
+/**
+ * The External Account a passed guard lets the save persist. The guard may rewrite the
+ * Organisation name by returning the whole `providerData` (the merge is shallow); a transformation
+ * that changes the integration, the Organisation or its connection, or no longer validates,
+ * yields null and the save is refused.
+ */
+export function readGuardedProviderData(guard: RouteMutationGuardPassed, providerData: XeroProviderData): XeroProviderData | null {
+  const guarded = readGuardedPayload({
+    guard,
+    payload: xeroProviderDataGuardPayload(providerData),
+    schema: guardedProviderDataSchema,
+    fixedKeys: ['integrationId'],
+  })
+  if (!guarded) return null
+  const next = guarded.providerData
+  if (next.xeroOrganisationId !== providerData.xeroOrganisationId || next.xeroConnectionId !== providerData.xeroConnectionId) return null
+  return next
 }
 
 export async function hasXeroSyncHistory(em: EntityManager, scope: XeroScope): Promise<boolean> {
@@ -77,9 +105,11 @@ export async function autoSelectOrganisation(input: AutoSelectOrganisationInput)
       hasSyncHistory: previousOrganisationId === null && organisations.length === 1 ? await input.hasSyncHistory() : false,
     })
     if (!choice) return 'account_pending'
-    const providerData = toXeroProviderData(choice)
-    const guard = await input.runGuard(providerData)
+    const chosen = toXeroProviderData(choice)
+    const guard = await input.runGuard(chosen)
     if (!guard.ok) return 'account_pending'
+    const providerData = readGuardedProviderData(guard, chosen)
+    if (!providerData) return 'account_pending'
     await input.grantService.updateProviderData(input.descriptor, input.owner, providerData, {
       expectedRevisedAt: input.connect.revisedAt,
       actorUserId: input.actorUserId,

@@ -392,6 +392,13 @@ describe('GET /api/sync_xero/oauth/callback', () => {
     expect(authorizationServer.counters().token.authorizationCode).toBe(0)
   })
 
+  it('reports a guard that rewrites the Connect action as guard_blocked without exchanging the code', async () => {
+    registerGuard(async (input) => (input.mutationPayload?.action === 'connect' ? { ok: true, modifiedPayload: { action: 'refresh' } } : { ok: true }))
+    expect(resultOf(await finishConnect(await startConnect()))).toBe('guard_blocked')
+    expect(authorizationServer.counters().token.authorizationCode).toBe(0)
+    expect(grants.calls.some((call) => call.method === 'completeConnect')).toBe(false)
+  })
+
   it('reports client_misconfigured when the Client Configuration is gone', async () => {
     const started = await startConnect()
     clientConfiguration = null
@@ -487,6 +494,29 @@ describe('GET /api/sync_xero/oauth/callback — automatic Organisation selection
     )
     expect(resultOf(await finishConnect(await startConnect()))).toBe('account_pending')
     expect(updateProviderDataCalls()).toHaveLength(0)
+  })
+
+  it('saves the External Account a selection guard transforms', async () => {
+    const renamed = { xeroOrganisationId: XERO_ORG_A, xeroConnectionId: CONN_A, xeroOrganisationName: 'Demo Company (Renamed)' }
+    registerGuard(async (input) =>
+      input.mutationPayload && 'providerData' in input.mutationPayload ? { ok: true, modifiedPayload: { providerData: renamed } } : { ok: true },
+    )
+    expect(resultOf(await finishConnect(await startConnect()))).toBe('connected')
+    expect(grants.state.providerData).toEqual(renamed)
+  })
+
+  it('leaves the Account pending when a selection guard swaps the Organisation or returns an invalid one', async () => {
+    for (const providerData of [
+      { xeroOrganisationId: XERO_ORG_B, xeroConnectionId: CONN_A, xeroOrganisationName: 'Other' },
+      { xeroOrganisationId: XERO_ORG_A },
+    ]) {
+      registerGuard(async (input) =>
+        input.mutationPayload && 'providerData' in input.mutationPayload ? { ok: true, modifiedPayload: { providerData } } : { ok: true },
+      )
+      expect(resultOf(await finishConnect(await startConnect()))).toBe('account_pending')
+    }
+    expect(updateProviderDataCalls()).toHaveLength(0)
+    expect(schedules.saves).toBe(0)
   })
 
   it('leaves the Account pending when the selection hits a stale revision', async () => {
