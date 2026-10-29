@@ -244,6 +244,41 @@ describe('DashboardScreenV2', () => {
     expect((apiCall as jest.Mock).mock.calls.some(([, options]) => options?.method === 'PUT')).toBe(false)
   })
 
+  it('preserves an open wizard draft throughout a background layout reload', async () => {
+    function MockWizard() {
+      const [draft, setDraft] = React.useState('')
+      return <input aria-label="Metric draft" value={draft} onChange={(event) => setDraft(event.target.value)} />
+    }
+    ;(apiCall as jest.Mock).mockResolvedValue({ ok: true, status: 200, result: layoutResponse })
+    ;(loadDashboardWidgetModule as jest.Mock).mockResolvedValue({
+      metadata: { id: 'foo', title: 'Widget Foo', supportsMultipleInstances: true },
+      Widget: () => <div>Ready widget</div>,
+      SetupWizard: MockWizard,
+    })
+    const { rerender } = renderWithProviders(<DashboardScreenV2 />, { dict })
+    await screen.findByText('Ready widget')
+    fireEvent.click(await screen.findByRole('button', { name: 'Customize' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Add widget' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Add widget' })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Add widget' }))
+    const draft = await screen.findByRole('textbox', { name: 'Metric draft' })
+    fireEvent.change(draft, { target: { value: 'Orders by day' } })
+
+    let finishReload!: () => void
+    ;(apiCall as jest.Mock).mockReturnValueOnce(new Promise((resolve) => {
+      finishReload = () => resolve({ ok: true, status: 200, result: layoutResponse })
+    }))
+    mockOrganizationScopeVersion += 1
+    rerender(<DashboardScreenV2 />)
+
+    expect(apiCall).toHaveBeenCalledTimes(2)
+    expect(draft).toBeInTheDocument()
+    expect(draft).toHaveValue('Orders by day')
+    await act(async () => { finishReload() })
+    expect(screen.getByRole('textbox', { name: 'Metric draft' })).toBe(draft)
+    expect(draft).toHaveValue('Orders by day')
+  })
+
   it.each([
     [9, 'Morning Ada'],
     [13, 'Afternoon Ada'],

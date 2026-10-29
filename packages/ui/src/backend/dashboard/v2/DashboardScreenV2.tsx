@@ -166,7 +166,6 @@ export function DashboardScreenV2() {
   }, [retryLastMutation, runMutation, t])
 
   const load = React.useCallback(async () => {
-    setLoading(true)
     setError(null)
     try {
       const call = await apiCall<LayoutResponse>('/api/dashboards/layout')

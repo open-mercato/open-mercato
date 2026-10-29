@@ -314,6 +314,7 @@ None identified.
 - Preserve omitted v2 preferences, Views and active View on legacy whole-layout PUTs. A v2 save now sends `presets: []` explicitly when clearing its last View.
 - Keep `dateRangeMode` optional on existing exported widget settings inputs; hydration continues to choose the global range by default.
 - Keep settings hydration inside the protected card path or a guarded wizard-open handler. Cache failed module imports until explicit retry. Add route/cache/layout and UI regression coverage.
+- Show the dashboard skeleton only for the initial load. Background layout reloads keep the interactive tree mounted so open wizard drafts, selects and date-picker state survive organization-scope/i18n refreshes; cover draft and DOM identity preservation during and after a deferred reload.
 
 ### 2026-07-03 — Post-review hardening (code-review pass)
 Fixes from a fresh code-review of the implemented branch:
