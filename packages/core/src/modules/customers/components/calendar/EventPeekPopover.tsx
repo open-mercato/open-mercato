@@ -28,7 +28,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@open-mercato/ui/primit
 import { SimpleTooltip } from '@open-mercato/ui/primitives/tooltip'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import { resolveRegisteredLucideIcon } from '@open-mercato/ui/backend/icons/lucideRegistryRuntime'
-import { formatTimeRange } from './EventBlock'
+import { formatTimeRange, readableTypeColor } from './EventBlock'
 import type { CalendarCategory, CalendarItem, CalendarPlatform } from './types'
 
 const PLATFORM_FULL_LABELS: Record<CalendarPlatform, { key: string; fallback: string }> = {
@@ -150,7 +150,7 @@ export function EventPeekPopover({
           <span
             aria-hidden
             className={cn('flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted', !item.color && 'text-muted-foreground')}
-            style={item.color ? { color: item.color, backgroundColor: `color-mix(in srgb, ${item.color} 18%, transparent)` } : undefined}
+            style={item.color ? { color: readableTypeColor(item.color), backgroundColor: `color-mix(in srgb, ${item.color} 18%, transparent)` } : undefined}
           >
             <TypeIcon className="size-4" />
           </span>

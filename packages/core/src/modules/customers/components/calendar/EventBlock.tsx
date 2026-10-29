@@ -35,6 +35,14 @@ export type EventTone = {
 const TINT_ALPHA_HEX = '2E'
 const TINT_MIX_PERCENT = 18
 
+/**
+ * Icon/text color derived from a dictionary color: mixed toward the theme
+ * foreground so light tenant colors (amber, yellow) stay readable on the tint.
+ */
+export function readableTypeColor(color: string): string {
+  return `color-mix(in srgb, ${color} 70%, var(--foreground))`
+}
+
 function softTintStyle(color: string): React.CSSProperties {
   if (/^#[0-9a-fA-F]{6}$/.test(color)) return { backgroundColor: `${color}${TINT_ALPHA_HEX}` }
   return { backgroundColor: `color-mix(in srgb, ${color} ${TINT_MIX_PERCENT}%, transparent)` }
@@ -104,7 +112,7 @@ type LocationMetaProps = {
 function LocationMeta({ item, subClassName, accentColor }: LocationMetaProps) {
   const t = useT()
   if (!item.location || !item.locationKind) return null
-  const iconStyle = accentColor ? { color: accentColor } : undefined
+  const iconStyle = accentColor ? { color: readableTypeColor(accentColor) } : undefined
   if (item.locationKind === 'platform' && item.platform) {
     const platform = PLATFORM_LABELS[item.platform]
     return (

@@ -7,7 +7,7 @@ import { Video } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Popover, PopoverContent, PopoverTrigger } from '@open-mercato/ui/primitives/popover'
-import { formatTimeRange, resolveEventTone } from './EventBlock'
+import { formatTimeRange, readableTypeColor, resolveEventTone } from './EventBlock'
 import { resolveEventTypeIcon } from './EventPeekPopover'
 import type { CalendarItem } from './types'
 
@@ -46,7 +46,7 @@ function TypeIcon({ item, typeIcons, className }: TypeIconProps) {
     <Icon
       aria-hidden
       className={cn('shrink-0', !item.color && 'text-muted-foreground', className)}
-      style={item.color ? { color: item.color } : undefined}
+      style={item.color ? { color: readableTypeColor(item.color) } : undefined}
     />
   )
 }
