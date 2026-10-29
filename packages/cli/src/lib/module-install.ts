@@ -111,6 +111,10 @@ function isDeclaredAppDependency(appDir: string, packageName: string): boolean {
   })
 }
 
+function isGatedOffError(error: unknown): boolean {
+  return error instanceof Error && (error as { code?: unknown }).code === 'MODULE_GATED_OFF'
+}
+
 function withLeftoverPackageHint(error: unknown, resolver: PackageResolver, packageName: string): Error {
   const message = error instanceof Error ? error.message : String(error)
   const removeArgs = [...resolveInstallTarget(resolver).args.slice(0, -1), 'remove', packageName]
@@ -296,7 +300,7 @@ export async function addOfficialModule(
     return await registerResolvedOfficialModule(resolver, modulePackage, packageName, eject)
   } catch (error) {
     const moduleWasRegistered = readFileIfExists(resolver.getModulesConfigPath()) !== modulesConfigBefore
-    if (wasDeclaredBefore || moduleWasRegistered) {
+    if (wasDeclaredBefore || moduleWasRegistered || isGatedOffError(error)) {
       throw error
     }
     throw withLeftoverPackageHint(error, resolver, packageName)

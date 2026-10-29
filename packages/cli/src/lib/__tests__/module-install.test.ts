@@ -4,6 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import type { PackageResolver } from '../resolver'
 import { addOfficialModule, enableOfficialModule } from '../module-install'
+import * as modulesConfig from '../modules-config'
 import spawn from 'cross-spawn'
 
 jest.mock('cross-spawn', () => ({ __esModule: true, default: jest.fn() }))
@@ -425,5 +426,55 @@ describe('addOfficialModule', () => {
     const failure = addOfficialModule(resolver, '@open-mercato/no-modules', false)
     await expect(failure).rejects.toThrow('has no modules')
     await expect(failure).rejects.not.toThrow('yarn remove')
+  })
+
+  it('rethrows a gated-off registration error without the leftover-package hint', async () => {
+    const packageRoot = path.join(tmpDir, 'node_modules', '@open-mercato', 'test-package')
+    const appDir = path.join(tmpDir, 'app')
+    buildPackageFixture(packageRoot, 'test_package')
+    writeAppPackageJson(appDir)
+    const resolver = buildResolver(appDir, packageRoot, 'export const enabledModules = []\n')
+    simulateYarnAdd(appDir, '@open-mercato/test-package')
+    const gatedOffError = Object.assign(
+      new Error('Module "test_package" is gated off. Enable it by setting OM_ENABLE_TEST_PACKAGE=true, then run `yarn generate`.'),
+      { code: 'MODULE_GATED_OFF' },
+    )
+    const registrationSpy = jest
+      .spyOn(modulesConfig, 'ensureModuleRegistration')
+      .mockImplementation(() => {
+        throw gatedOffError
+      })
+
+    try {
+      const failure = addOfficialModule(resolver, '@open-mercato/test-package', false)
+      await expect(failure).rejects.toBe(gatedOffError)
+      await expect(failure).rejects.not.toThrow('stayed in package.json')
+    } finally {
+      registrationSpy.mockRestore()
+    }
+  })
+
+  it('keeps the leftover-package hint for a plain registration error on a newly added package', async () => {
+    const packageRoot = path.join(tmpDir, 'node_modules', '@open-mercato', 'test-package')
+    const appDir = path.join(tmpDir, 'app')
+    buildPackageFixture(packageRoot, 'test_package')
+    writeAppPackageJson(appDir)
+    const resolver = buildResolver(appDir, packageRoot, 'export const enabledModules = []\n')
+    simulateYarnAdd(appDir, '@open-mercato/test-package')
+    const registrationSpy = jest
+      .spyOn(modulesConfig, 'ensureModuleRegistration')
+      .mockImplementation(() => {
+        throw new Error('Could not update modules.ts.')
+      })
+
+    try {
+      const failure = addOfficialModule(resolver, '@open-mercato/test-package', false)
+      await expect(failure).rejects.toThrow('Could not update modules.ts.')
+      await expect(failure).rejects.toThrow(
+        'The package "@open-mercato/test-package" stayed in package.json. To remove it, run: yarn remove @open-mercato/test-package',
+      )
+    } finally {
+      registrationSpy.mockRestore()
+    }
   })
 })
