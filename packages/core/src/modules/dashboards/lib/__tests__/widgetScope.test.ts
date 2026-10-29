@@ -179,6 +179,20 @@ describe('resolveWidgetScope scope authorization', () => {
     expect(status).toBe(400)
   })
 
+  it('does not widen an explicit empty scope to auth.orgId', async () => {
+    getAuthFromRequest.mockResolvedValue({
+      sub: USER_A,
+      tenantId: TENANT_A,
+      orgId: ORG_A1,
+      isSuperAdmin: false,
+    })
+    loadAcl.mockResolvedValue({ isSuperAdmin: false, organizations: [] })
+
+    const { status } = await expectCrudError(resolveWidgetScope(request(), translate))
+
+    expect(status).toBe(400)
+  })
+
   it('rejects an unauthenticated caller before touching the container', async () => {
     getAuthFromRequest.mockResolvedValue(null)
 

@@ -1,0 +1,66 @@
+import { Meta } from '@storybook/addon-docs/blocks'
+
+<Meta title="Design system/Figma comparison" />
+
+# Figma comparison
+
+Measured on 12 September 2026 in **DS — Open Mercato**. This first component pass
+covers the neutral filled Button and Basic Text Input. The references below are
+the actual inspected nodes. A recorded component set does not mean that every
+variant has been checked.
+
+## Size names
+
+Use the pixel height to match Figma to code. The input height excludes its label
+and hint. All four Button heights and all three Input heights agree.
+
+| Figma size | Height | Button `size` | Input `size` |
+| --- | --- | --- | --- |
+| 2X-Small | 28 px | `2xs` | — |
+| X-Small | 32 px | `sm` | `sm` |
+| Small | 36 px | `default` | `default` |
+| Medium | 40 px | `lg` | `lg` |
+
+Source nodes: Button `129:1422`; Input `266:5251`.
+
+## Confirmed details and remaining differences
+
+| Inspected detail | Figma | Current code | Result |
+| --- | --- | --- | --- |
+| Neutral filled Button, Small | 36 px tall, 8 px radius, 14/20 medium text | `default`: 36 px, 8 px, 14/20 medium | Geometry and type scale agree; font family differs |
+| Basic Input, Small | 36 px tall, 8 px radius, 14/20 text | `default`: 36 px, 8 px, 14/20 | Geometry and type scale agree; font family differs |
+| Basic Input, X-Small | 32 px tall, 8 px radius, 14/20 text | `sm`: 32 px, 8 px, 14/20 text | Text scale corrected locally |
+| Basic Input, Medium | 40 px tall, 10 px radius | `lg`: 40 px, 10 px radius | Radius corrected locally |
+| Leading Input icons at 36 px | 20 px icon box | 20 px default icon box | Size corrected locally; installed glyph shapes can differ |
+| Label / input / hint spacing | 4 px vertical gap | 4 px in FormField | Spacing corrected locally |
+| Disabled input text and hint | Disabled text role, no opacity on the whole field | Disabled token applied directly to text, placeholder, icons and hint | Corrected locally |
+| Basic Input focus | Inner 2 px ring and outer 4 px halo | Shared `shadow-focus` recipe | Ring structure agrees; dark palette still needs Figma verification |
+
+Reference nodes: Button / Small / Neutral / Filled `130:3217`, Input / Small / Focus `417:6977`, Input / Small / Disabled `417:7161`, Input / X-Small `417:9933`, Input / Medium `266:5245`.
+
+The application keeps its existing semantic palette, font stack and icon library.
+The Inter toolbar option helps compare typography in the preview. It does not
+change application fonts or imply complete visual parity. Figma's button set
+also reports errors when reading its property definitions; its individual
+variants remain inspectable. All 32 local Code Connect declarations now use verified
+component-set IDs. Local parsing passes; online validation requires a Figma
+plan/seat capability that is unavailable in this session. Nothing was published.
+
+## Try the real states
+
+The playgrounds expose the production props through Controls. Values stay in sync
+when typed into the example; search can be cleared and passwords can be revealed.
+Use **Tab** to inspect keyboard focus. Disabled and read-only are separate states:
+a read-only text field remains focusable and selectable.
+
+- [Button controls](./?path=/story/playgrounds-button--playground)
+- [Input controls](./?path=/story/playgrounds-input--playground)
+- [Search controls](./?path=/story/playgrounds-searchinput--playground)
+- [Password controls](./?path=/story/playgrounds-passwordinput--playground)
+- [Shared button examples, including loading](./?path=/story/primitives-buttons-button--overview)
+- [Shared input examples, including read-only](./?path=/story/primitives-inputs-input--overview)
+
+The [complete source inventory](./?path=/story/design-system-figma-library--library)
+now covers every non-empty Figma page and records the full set axes. Light and dark
+browser checks cover runtime states; not every Figma variant, dark design or full
+product screen has been visually matched.

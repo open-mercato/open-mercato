@@ -18,7 +18,7 @@ import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { InventoryBalance, InventoryReservation } from '../../data/entities'
 import { emitWmsEvent } from '../../events'
 import { loadExplicitWarehouseIdForOrder } from '../salesOrderWarehouseAssignment'
-import { reserveInventoryForConfirmedOrder } from '../salesOrderInventoryAutomation'
+import { isSalesOrderCancelled, reserveInventoryForConfirmedOrder } from '../salesOrderInventoryAutomation'
 
 const findWithDecryptionMock = jest.mocked(findWithDecryption)
 const loadExplicitWarehouseIdForOrderMock = jest.mocked(loadExplicitWarehouseIdForOrder)
@@ -208,5 +208,69 @@ describe('reserveInventoryForConfirmedOrder', () => {
         ]),
       }),
     )
+  })
+})
+
+describe('cancelled sales orders (issue #4521)', () => {
+  const execute = jest.fn(async () => ({ result: {} }))
+
+  function buildCtx(status: string | null) {
+    const queryEngine = {
+      query: jest.fn().mockResolvedValue({
+        items: [{ id: 'order-1', order_number: 'SO-9', status }],
+      }),
+    }
+    const featureTogglesService = {
+      getBoolConfig: jest.fn().mockResolvedValue({ ok: true, value: true }),
+      invalidateIsEnabledCacheByKey: jest.fn().mockResolvedValue(undefined),
+    }
+    return {
+      queryEngine,
+      ctx: {
+        resolve: (name: string) => {
+          if (name === 'em') return { fork: () => ({}) }
+          if (name === 'commandBus') return { execute }
+          if (name === 'queryEngine') return queryEngine
+          if (name === 'featureTogglesService') return featureTogglesService
+          throw new Error(`Unexpected resolve: ${name}`)
+        },
+      },
+    }
+  }
+
+  const payload = { orderId: 'order-1', tenantId: 'tenant-1', organizationId: 'org-1' }
+
+  beforeEach(() => {
+    execute.mockClear()
+  })
+
+  it.each(['canceled', 'cancelled', ' canceled '])('reports a %p order as cancelled', async (status) => {
+    const { ctx } = buildCtx(status)
+    await expect(isSalesOrderCancelled(payload, ctx)).resolves.toBe(true)
+  })
+
+  it.each(['confirmed', 'draft', null])('does not report a %p order as cancelled', async (status) => {
+    const { ctx } = buildCtx(status)
+    await expect(isSalesOrderCancelled(payload, ctx)).resolves.toBe(false)
+  })
+
+  it('reads the order status through the query engine', async () => {
+    const { ctx, queryEngine } = buildCtx('canceled')
+    await isSalesOrderCancelled(payload, ctx)
+    expect(queryEngine.query).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+        fields: expect.arrayContaining(['status']),
+      }),
+    )
+  })
+
+  it('never reserves stock for a cancelled order', async () => {
+    const { ctx, queryEngine } = buildCtx('canceled')
+    await reserveInventoryForConfirmedOrder(payload, ctx)
+    expect(queryEngine.query).toHaveBeenCalledTimes(1)
+    expect(execute).not.toHaveBeenCalled()
   })
 })

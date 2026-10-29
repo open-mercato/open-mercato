@@ -22,6 +22,10 @@ const EXPECTED_TABLE_IDS = [
   'staff.time_entries.list',
   'staff.time_projects.list',
   'staff.time_reports.list',
+  'staff.my_work.today_entries.list',
+  'staff.time_project_detail.entries.list',
+  'staff.time_report_detail.locked_entries.list',
+  'staff.time_task_board.list_view',
 ]
 
 const EXPECTED_CRUD_FORM_SPOT_IDS = [
@@ -115,7 +119,7 @@ describe('staff time-tracking extension host catalog', () => {
     expect(extensionPoints.moduleId).toBe('staff')
   })
 
-  it('publishes exactly the three time-tracking data-table hosts', () => {
+  it('publishes exactly the seven time-tracking data-table hosts', () => {
     expect(idsOfFamily('data-table', 'tableId')).toEqual([...EXPECTED_TABLE_IDS].sort())
   })
 

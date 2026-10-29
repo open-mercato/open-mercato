@@ -11,9 +11,28 @@ function toNumeric(value: unknown): number {
   return 0
 }
 
-function mapPersistedLine(line: SalesOrderLine | SalesQuoteLine): SalesLineSnapshot {
+/**
+ * A snapshot rebuilt from a persisted row, plus the columns the calculation
+ * engine never reads but the write paths must carry back to the row.
+ *
+ * The line upsert, line delete and adjustment write paths all rebuild *every*
+ * line of the document from these snapshots and then `Object.assign` the result
+ * onto the existing entities. Anything the mapper drops is therefore not merely
+ * absent from the calculation — it is written back as `null` over the stored
+ * value of lines the caller never touched (#5911).
+ */
+export type SalesPersistedLineSnapshot = SalesLineSnapshot & {
+  statusEntryId: string | null
+  catalogSnapshot: Record<string, unknown> | null
+  promotionSnapshot: Record<string, unknown> | null
+}
+
+function mapPersistedLine(line: SalesOrderLine | SalesQuoteLine): SalesPersistedLineSnapshot {
   return {
     id: line.id,
+    statusEntryId: line.statusEntryId ?? null,
+    catalogSnapshot: line.catalogSnapshot ? cloneJson(line.catalogSnapshot) : null,
+    promotionSnapshot: line.promotionSnapshot ? cloneJson(line.promotionSnapshot) : null,
     lineNumber: line.lineNumber,
     kind: line.kind,
     productId: line.productId ?? null,
@@ -60,11 +79,11 @@ function mapPersistedLine(line: SalesOrderLine | SalesQuoteLine): SalesLineSnaps
  * two files used to carry byte-identical copies, and that duplication is why
  * the return flows kept the discount defect after the order flows were fixed.
  */
-export function mapOrderLineEntityToSnapshot(line: SalesOrderLine): SalesLineSnapshot {
+export function mapOrderLineEntityToSnapshot(line: SalesOrderLine): SalesPersistedLineSnapshot {
   return mapPersistedLine(line)
 }
 
-export function mapQuoteLineEntityToSnapshot(line: SalesQuoteLine): SalesLineSnapshot {
+export function mapQuoteLineEntityToSnapshot(line: SalesQuoteLine): SalesPersistedLineSnapshot {
   return mapPersistedLine(line)
 }
 
@@ -118,4 +137,40 @@ export function resolveUpsertTotalsOrigin(
 ): Pick<SalesLineSnapshot, 'totalsFromStoredRow'> {
   if (callerTotalNetAmount !== null && callerTotalNetAmount !== undefined) return {}
   return existingSnapshot != null ? { totalsFromStoredRow: true } : {}
+}
+
+/** Reuse stored tax/gross only while the edited line's pricing inputs are unchanged. */
+export function resolveUpsertCalculatedAmounts(
+  caller: Pick<SalesLineSnapshot, 'taxAmount' | 'totalGrossAmount'>,
+  nextSnapshot: SalesLineSnapshot,
+  existingSnapshot: SalesLineSnapshot | null,
+): Pick<SalesLineSnapshot, 'taxAmount' | 'totalGrossAmount'> {
+  const pricingFields = [
+    'quantity',
+    'unitPriceNet',
+    'unitPriceGross',
+    'taxRate',
+  ] as const
+  const nextDiscountAmount = nextSnapshot.discountAmount ?? 0
+  const nextDiscountLineAmount = nextSnapshot.discountAmountFromStoredRow === true ||
+    nextSnapshot.discountAmountBasis === 'line'
+    ? nextDiscountAmount
+    : nextDiscountAmount * nextSnapshot.quantity
+  const discountChanged =
+    (nextSnapshot.discountPercent ?? 0) !== (existingSnapshot?.discountPercent ?? 0) ||
+    ((nextSnapshot.discountPercent ?? 0) === 0 &&
+      Math.round((nextDiscountLineAmount + Number.EPSILON) * 1e4) / 1e4 !==
+        (existingSnapshot?.discountAmount ?? 0))
+  const pricingChanged = existingSnapshot === null || discountChanged ||
+    pricingFields.some((field) => (nextSnapshot[field] ?? 0) !== (existingSnapshot[field] ?? 0))
+  const grossChanged = caller.totalGrossAmount !== undefined && caller.totalGrossAmount !== null &&
+    caller.totalGrossAmount !== existingSnapshot?.totalGrossAmount
+  const taxChanged = caller.taxAmount !== undefined && caller.taxAmount !== null &&
+    caller.taxAmount !== existingSnapshot?.taxAmount
+  return {
+    taxAmount: caller.taxAmount ??
+      (pricingChanged || grossChanged ? null : existingSnapshot?.taxAmount ?? null),
+    totalGrossAmount: caller.totalGrossAmount ??
+      (pricingChanged || taxChanged ? null : existingSnapshot?.totalGrossAmount ?? null),
+  }
 }

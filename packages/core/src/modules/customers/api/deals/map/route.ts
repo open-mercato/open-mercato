@@ -4,6 +4,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import type { CrudCtx } from '@open-mercato/shared/lib/crud/factory'
 import { readQueryParamList } from '@open-mercato/shared/lib/crud/query-params'
 import { SortDir, type QueryEngine } from '@open-mercato/shared/lib/query/types'
@@ -231,19 +232,19 @@ export async function GET(req: Request) {
   const effectiveTenantId = scope.tenantId ?? auth.tenantId
   // `null` = unrestricted access (superadmin or an "all organizations" grant): aggregate tenant-wide,
   // exactly like the deals List route (`makeCrudRoute`) and the query_index status route. A populated
-  // array bounds the query to the caller's visible orgs; an empty array means no org visibility → 401.
+  // array bounds the query to the caller's visible orgs; an empty array means no org visibility and
+  // returns an empty page without touching any data source.
   // The previous guard hard-required `auth.orgId`, which is empty under the header "All organizations"
   // scope, so the map 401'd (and hung on the loading spinner) while List/Kanban aggregated fine (#3481).
-  const orgScopeIds: string[] | null =
-    scope.filterIds === null
-      ? null
-      : Array.isArray(scope.filterIds) && scope.filterIds.length > 0
-        ? Array.from(new Set(scope.filterIds.filter((id) => typeof id === 'string' && id.length > 0)))
-        : auth.orgId
-          ? [auth.orgId]
-          : []
-  if (!effectiveTenantId || (Array.isArray(orgScopeIds) && orgScopeIds.length === 0)) {
+  const { organizationIds } = resolveOrganizationScopeFilter(scope, auth)
+  const orgScopeIds = organizationIds === undefined
+    ? null
+    : Array.from(new Set(organizationIds.filter((id) => typeof id === 'string' && id.length > 0)))
+  if (!effectiveTenantId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+  if (orgScopeIds?.length === 0) {
+    return emptyMapResponse(query.page, query.pageSize)
   }
 
   // Bounded `$in` when the caller is org-restricted; omitted entirely under unrestricted access so

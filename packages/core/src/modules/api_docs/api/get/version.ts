@@ -3,30 +3,46 @@ import path from 'node:path'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { APP_VERSION } from '@open-mercato/shared/lib/version'
 
 const versionResponseSchema = z.object({
-  version: z.string(),
+  version: z
+    .string()
+    .describe(
+      'Deployed Open Mercato version: the OM_VERSION / OPEN_MERCATO_VERSION override when set, otherwise the installed platform version.',
+    ),
+  platform: z
+    .string()
+    .describe('Installed Open Mercato platform version (the version shown in the backend footer).'),
+  app: z
+    .string()
+    .nullable()
+    .describe("Version from the deployment app's own package.json, or null when it cannot be read."),
 })
 
 type VersionResponse = z.infer<typeof versionResponseSchema>
 
-function readDeployedVersion(): string {
-  // Explicit override wins: deployments that bundle a different version than the
-  // running app's package.json (or want to pin the Open Mercato platform version)
-  // set OM_VERSION / OPEN_MERCATO_VERSION.
+function readExplicitVersion(): string | null {
   const explicit = process.env.OM_VERSION || process.env.OPEN_MERCATO_VERSION
-  if (explicit && explicit.length > 0) return explicit
+  return explicit && explicit.length > 0 ? explicit : null
+}
+
+function readAppVersion(): string | null {
   try {
     const packageJsonPath = path.join(process.cwd(), 'package.json')
     const parsed = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8')) as { version?: string }
     if (typeof parsed.version === 'string' && parsed.version.length > 0) return parsed.version
   } catch {
-    // Fall through to the development sentinel below.
+    return null
   }
-  return '0.0.0-dev'
+  return null
 }
 
-const deployedVersion = readDeployedVersion()
+const versionInfo: VersionResponse = {
+  version: readExplicitVersion() ?? APP_VERSION,
+  platform: APP_VERSION,
+  app: readAppVersion(),
+}
 
 export const metadata = {
   path: '/version',
@@ -37,8 +53,7 @@ export const metadata = {
 }
 
 export async function GET() {
-  const body: VersionResponse = { version: deployedVersion }
-  return NextResponse.json(body)
+  return NextResponse.json(versionInfo)
 }
 
 export default GET
@@ -49,6 +64,8 @@ export const openApi: OpenApiRouteDoc = {
   methods: {
     GET: {
       summary: 'Return the deployed Open Mercato version',
+      description:
+        'Reports the installed Open Mercato platform version (the same value the backend footer shows). `version` honours an explicit OM_VERSION / OPEN_MERCATO_VERSION override; `platform` is always the installed platform version; `app` is the deployment app shell version from its package.json.',
       tags: ['API Documentation'],
       responses: [
         {

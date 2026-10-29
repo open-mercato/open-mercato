@@ -22,6 +22,7 @@ import { parseBooleanToken } from '../boolean'
 import { isReadProjectionAlwaysConsistent } from './consistency'
 import { isEventDeclared } from '../../modules/events'
 import { createLogger } from '../logger'
+import { createBoundedTtlMemo } from '../query/bounded-ttl-memo'
 
 const logger = createLogger('shared').child({ component: 'data-engine' })
 
@@ -37,6 +38,18 @@ function warnIfUndeclaredEvent(eventName: string, context: string): void {
 /** Internal: clear the undeclared-event warning cache. Exposed for tests. */
 export function __resetUndeclaredEventWarningsForTests(): void {
   undeclaredEventWarned.clear()
+}
+
+/** Only `true` is cached: a cached `false` would keep this failing after a migration creates the table. */
+const tableExistsCache = createBoundedTtlMemo<true>({
+  ttlEnv: 'OM_DATA_ENGINE_TABLE_EXISTS_CACHE_MS',
+  defaultTtlMs: 3_600_000,
+  defaultMaxEntries: 1_000,
+})
+
+/** Test-only: the module-scoped memo would otherwise leak state across specs. */
+export function clearDataEngineTableExistsCache(): void {
+  tableExistsCache.clear()
 }
 
 const COVERAGE_REFRESH_INTERVAL_MS = 5 * 60 * 1000
@@ -85,6 +98,9 @@ export interface DataEngine {
     tenantId?: string | null
     values: Record<string, string | number | boolean | null | undefined | Array<string | number | boolean | null | undefined>>
     notify?: boolean // default true -> emit '<module>.<entity>.updated'
+    // Forwarded to `setRecordCustomFields` — see its doc for when a caller must pass
+    // true (a recordId that is not unique across organizations for this entityId).
+    pinOrganizationId?: boolean
   }): Promise<void>
 
   // Storage for user-defined entities (doc-based)
@@ -274,6 +290,7 @@ export class DefaultDataEngine implements DataEngine {
       tenantId,
       values: sanitizedValues,
       encryptionService,
+      pinOrganizationId: opts.pinOrganizationId === true,
     })
     if (opts.notify !== false) {
       let bus: EventBus | null = null
@@ -325,6 +342,8 @@ export class DefaultDataEngine implements DataEngine {
   }
 
   private async ensureStorageTableExists(): Promise<void> {
+    const cacheKey = 'custom_entities_storage'
+    if (tableExistsCache.get(cacheKey)) return
     const db = this.getKysely()
     const exists = await db
       .selectFrom('information_schema.tables' as any)
@@ -334,6 +353,7 @@ export class DefaultDataEngine implements DataEngine {
     if (!exists) {
       throw new Error('custom_entities_storage table is missing. Run migrations (yarn db:migrate).')
     }
+    tableExistsCache.set(cacheKey, true)
   }
 
   private normalizeValuesForValidation(values: Record<string, unknown> | undefined | null): Record<string, unknown> {
@@ -457,6 +477,10 @@ export class DefaultDataEngine implements DataEngine {
         tenantId: tenantId,
         values: normalizeCustomFieldValues(sanitizedValues),
         notify: opts.notify, // defaults to true
+        // custom_entities_storage upserts on (entity_type, entity_id, organization_id),
+        // so `id` is unique only within this organization, not across organizations —
+        // pin the reconciling delete/lookup to this organization (#6034 review).
+        pinOrganizationId: true,
       })
     }
 
@@ -528,6 +552,10 @@ export class DefaultDataEngine implements DataEngine {
         tenantId: tenantId,
         values: normalizeCustomFieldValues(sanitizedValues),
         notify: opts.notify, // defaults to true
+        // custom_entities_storage upserts on (entity_type, entity_id, organization_id),
+        // so `id` is unique only within this organization, not across organizations —
+        // pin the reconciling delete/lookup to this organization (#6034 review).
+        pinOrganizationId: true,
       })
     }
   }

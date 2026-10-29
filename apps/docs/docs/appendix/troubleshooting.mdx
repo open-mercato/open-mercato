@@ -116,7 +116,7 @@ Tuning knobs for `auto-optimized`:
 
 - `OM_WATCH_GIT_STATUS=off` — ignore uncommitted working-tree changes (use only the branch diff).
 - `OM_WATCH_GIT_BRANCH=off` — ignore the branch diff (use only the working tree).
-- `OM_WATCH_BASE_REF=origin/main` — override the base ref the branch diff is computed against (defaults to the first of `origin/develop`, `develop`, `origin/main`, `main` that exists).
+- `OM_WATCH_BASE_REF=origin/main` — override the base ref the branch diff is computed against (defaults to `origin/main`, falling back to `main`).
 
 If a non-`all` scope ever leaves out a package you are actively editing, either switch back with `OM_WATCH_SCOPE=all` / `--watch=all`, add it to `OM_WATCH_PACKAGES`, or just wait — `auto-optimized` will pick it up at the next 2-minute sweep once it has a git change.
 
@@ -137,7 +137,7 @@ you may be connecting to a different PostgreSQL instance already bound to `local
 Start Docker PostgreSQL on a different host port and use the same port in `DATABASE_URL`:
 
 ```bash
-POSTGRES_PORT=55432 docker compose up -d postgres
+POSTGRES_PORT=55432 docker compose --project-directory . -f starters/docker/compose.infra.yml up -d postgres
 ```
 
 ```env

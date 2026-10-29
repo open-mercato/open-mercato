@@ -2,7 +2,7 @@ import { extractChangeRows, isRecord } from './changeRows'
 
 export const ACTION_LOG_FILTER_TYPES = ['create', 'edit', 'delete', 'assign'] as const
 export const ACTION_LOG_PROJECTION_TYPES = [...ACTION_LOG_FILTER_TYPES, 'system'] as const
-export const ACTION_LOG_SOURCE_KEYS = ['ui', 'api', 'system'] as const
+export const ACTION_LOG_SOURCE_KEYS = ['ui', 'api', 'system', 'agent'] as const
 
 export type ActionLogFilterType = (typeof ACTION_LOG_FILTER_TYPES)[number]
 export type ActionLogProjectionType = (typeof ACTION_LOG_PROJECTION_TYPES)[number]
@@ -76,6 +76,10 @@ export function deriveActionLogSource(
   if (normalizedSource === 'api') return 'api'
   if (normalizedSource === 'system') return 'system'
   if (normalizedSource === 'ui') return 'ui'
+  // Agent-attributed writes flow through the same Command path as a human's; the
+  // `runAs` wrapper stamps `context.source = 'agent'` so the action is sourced to
+  // the agent principal (actorUserId) rather than defaulting to 'ui'.
+  if (normalizedSource === 'agent') return 'agent'
 
   return actorUserId ? 'ui' : 'system'
 }

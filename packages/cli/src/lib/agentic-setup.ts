@@ -811,17 +811,38 @@ function generateCursor(config: AgenticConfig): void {
   // which scripts/install-skills.sh populates.
 }
 
+function generateGithubCopilot(config: AgenticConfig): void {
+  const { targetDir } = config
+  const srcDir = join(AGENTIC_DIR, 'github-copilot')
+
+  writeTemplate(srcDir, 'copilot-instructions.md.template', join(targetDir, '.github', 'copilot-instructions.md'), config)
+  copyFile(srcDir, 'instructions/entity-guard.instructions.md', join(targetDir, '.github', 'instructions', 'entity-guard.instructions.md'))
+  copyFile(srcDir, 'instructions/generated-guard.instructions.md', join(targetDir, '.github', 'instructions', 'generated-guard.instructions.md'))
+  copyFile(srcDir, 'mcp.json.example', join(targetDir, '.vscode', 'mcp.json.example'))
+
+  // No .github/skills directory: Copilot reads the canonical .agents/skills/,
+  // which scripts/install-skills.sh populates.
+}
 // ─── Wizard ──────────────────────────────────────────────────────────────
 
 const TOOLS = [
   { key: '1', label: 'Claude Code     (Anthropic)', id: 'claude-code' },
   { key: '2', label: 'Codex           (OpenAI)', id: 'codex' },
   { key: '3', label: 'Cursor          (Anysphere)', id: 'cursor' },
-  { key: '4', label: 'Multiple tools  (select individually)', id: 'multiple' },
-  { key: '5', label: 'Skip — set up manually later', id: 'skip' },
+  { key: '4', label: 'GitHub Copilot  (GitHub)', id: 'github-copilot' },
+  { key: '5', label: 'Multiple tools  (select individually)', id: 'multiple' },
+  { key: '6', label: 'Skip — set up manually later', id: 'skip' },
 ] as const
 
 const SELECTABLE = TOOLS.filter((t) => t.id !== 'multiple' && t.id !== 'skip')
+
+/**
+ * The agents whose SKILL directories `scripts/install-skills.mjs` manages.
+ * GitHub Copilot is selectable here but reads instruction files under
+ * `.github/`, not a skills directory, so the installer does not know that id —
+ * naming it in `agents.ignore` aborts the install with "unknown agent".
+ */
+const SKILL_MANAGED_AGENT_IDS = ['claude-code', 'codex', 'cursor']
 
 function persistedAgentSelection(targetDir: string): string[] | null {
   const selectableIds = SELECTABLE.map((tool) => tool.id)
@@ -865,9 +886,9 @@ async function promptSelection(ask: AskFn): Promise<string[]> {
 
   const answer = (await ask('   Enter number(s) separated by comma [1]: ')).trim() || '1'
 
-  if (answer === '5') return ['skip']
+  if (answer === '6') return ['skip']
 
-  if (answer === '4') {
+  if (answer === '5') {
     const selected: string[] = []
     for (const tool of SELECTABLE) {
       const yn = await ask(`   Include ${tool.label}? [y/N]: `)
@@ -962,6 +983,9 @@ export async function runAgenticSetup(
   if (selectedIds.includes('cursor')) {
     console.log('   ✓ Cursor — .cursor/rules/, .cursor/hooks/, .cursor/mcp.json.example')
   }
+  if (selectedIds.includes('github-copilot')) {
+    console.log('   ✓ GitHub Copilot — .github/copilot-instructions.md, .github/instructions/, .vscode/mcp.json.example')
+  }
   if (config.experimentalHooksValidator) {
     console.log('   ✓ Experimental gate-evidence/typecheck validator hooks')
   }
@@ -978,6 +1002,7 @@ function generateHarness(config: AgenticConfig, selectedIds: string[]): void {
   if (selectedIds.includes('claude-code')) generateClaudeCode(config)
   if (selectedIds.includes('codex')) generateCodex(config)
   if (selectedIds.includes('cursor')) generateCursor(config)
+  if (selectedIds.includes('github-copilot')) generateGithubCopilot(config)
 
   enforceGeneratedRootBudget(config)
 
@@ -1003,7 +1028,7 @@ function enforceGeneratedRootBudget(
 function persistAgentSelection(targetDir: string, selectedIds: string[]): void {
   const manifestPath = join(targetDir, '.ai', 'skills', 'tiers.json')
   if (!existsSync(manifestPath)) return
-  const ignore = SELECTABLE.map((tool) => tool.id).filter((id) => !selectedIds.includes(id))
+  const ignore = SKILL_MANAGED_AGENT_IDS.filter((id) => !selectedIds.includes(id))
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf-8')) as Record<string, unknown>
   if (ignore.length > 0) {
     manifest.agents = { ignore }

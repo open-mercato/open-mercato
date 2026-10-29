@@ -16,6 +16,7 @@ import {
   resolveBuildCacheTtlSeconds,
   resolveAppReadyTimeoutMs,
   resolveEphemeralPostgresImage,
+  resolveEphemeralJwtSecret,
   ephemeralPostgresInitSql,
   shouldReuseBuildArtifacts,
   acquireEphemeralRuntimeLock,
@@ -202,7 +203,7 @@ describe('integration cache and options', () => {
   it('reuses an existing reachable ephemeral environment state', async () => {
     const baseUrl = 'http://127.0.0.1:5001'
     const originalJwtSecret = process.env.JWT_SECRET
-    const callerJwtSecret = 'change-me-dev-secret'
+    const callerJwtSecret = 'f'.repeat(64)
     delete process.env[CHECKOUT_TEST_INJECTION_FLAG]
     process.env.JWT_SECRET = callerJwtSecret
     const fetchSpy = mockHealthyReadinessFetch()
@@ -581,6 +582,31 @@ describe('integration cache and options', () => {
     expect(
       resolveEphemeralPostgresImage({ OM_INTEGRATION_POSTGRES_IMAGE: 'pgvector/pgvector:pg17' }),
     ).toBe('pgvector/pgvector:pg17')
+  })
+
+  it('falls back to the ephemeral JWT secret when the inherited one is missing, a placeholder, or too short', () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined)
+    try {
+      expect(resolveEphemeralJwtSecret({})).toBe('om-ephemeral-integration-jwt-secret')
+      expect(warnSpy).not.toHaveBeenCalled()
+      expect(resolveEphemeralJwtSecret({ JWT_SECRET: 'change-me-dev-secret' })).toBe(
+        'om-ephemeral-integration-jwt-secret',
+      )
+      expect(resolveEphemeralJwtSecret({ JWT_SECRET: 'short-secret' })).toBe(
+        'om-ephemeral-integration-jwt-secret',
+      )
+      expect(warnSpy).toHaveBeenCalledTimes(2)
+    } finally {
+      warnSpy.mockRestore()
+    }
+  })
+
+  it('keeps a safe operator-provided JWT secret for the ephemeral environment', () => {
+    const strongSecret = 'f'.repeat(64)
+    expect(resolveEphemeralJwtSecret({ JWT_SECRET: strongSecret })).toBe(strongSecret)
+    expect(resolveEphemeralJwtSecret({ JWT_SECRET: 'ci-ephemeral-test-jwt-secret-32-chars-min' })).toBe(
+      'ci-ephemeral-test-jwt-secret-32-chars-min',
+    )
   })
 
   it('creates the vector and pgcrypto extensions in the ephemeral init SQL', () => {

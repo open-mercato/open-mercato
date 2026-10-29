@@ -109,6 +109,7 @@ export function ActivitiesSection({
   useCanonicalInteractions = false,
   onActionChange,
   onLoadingChange,
+  onDataRefresh,
   refreshKey = 0,
   onEditActivity,
   runGuardedMutation,
@@ -294,8 +295,14 @@ export function ActivitiesSection({
     } catch (err) {
       logger.warn('Mark done failed', { component: 'ActivitiesSection', activityId, err })
       flash(t('customers.activities.actions.markDoneError', 'Could not mark activity as done'), 'error')
+      return
     }
-  }, [loadActivities, runGuardedMutation, t])
+    try {
+      await Promise.resolve(onDataRefresh?.())
+    } catch (err) {
+      logger.warn('Parent refresh after mark done failed', { component: 'ActivitiesSection', activityId, err })
+    }
+  }, [loadActivities, onDataRefresh, runGuardedMutation, t])
 
   const resolvedUserIdsRef = React.useRef(new Set<string>())
 

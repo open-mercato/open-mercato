@@ -7,14 +7,23 @@
 
 import * as React from 'react'
 import { fireEvent, render, screen } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider'
 import TimeTrackingMyWorkPage from '../page'
 
+function renderWithQueryClient(children: React.ReactElement) {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })
+  return render(<QueryClientProvider client={queryClient}>{children}</QueryClientProvider>)
+}
+
 const mockTranslate = (key: string, fallback?: string | Record<string, string | number>): string =>
   typeof fallback === 'string' ? fallback : key
 
-jest.mock('@open-mercato/shared/lib/i18n/context', () => ({ useT: () => mockTranslate }))
+jest.mock('@open-mercato/shared/lib/i18n/context', () => {
+  const actual = jest.requireActual('@open-mercato/shared/lib/i18n/context')
+  return { ...actual, useT: () => mockTranslate, useLocale: () => 'en' }
+})
 
 jest.mock('@open-mercato/shared/lib/frontend/useOrganizationScope', () => ({
   useOrganizationScopeVersion: () => 1,
@@ -23,6 +32,12 @@ jest.mock('@open-mercato/shared/lib/frontend/useOrganizationScope', () => ({
 jest.mock('next/link', () => ({
   __esModule: true,
   default: ({ children, href }: { children: React.ReactNode; href: string }) => <a href={href}>{children}</a>,
+}))
+
+jest.mock('next/navigation', () => ({
+  useRouter: () => ({ push: jest.fn(), replace: jest.fn(), refresh: jest.fn() }),
+  usePathname: () => '/backend/staff/time-tracking',
+  useSearchParams: () => new URLSearchParams(),
 }))
 
 jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({ flash: jest.fn() }))
@@ -125,5 +140,65 @@ describe('my work — load failure', () => {
 
     expect(await screen.findByText(EMPTY_STATE_TITLE)).toBeInTheDocument()
     expect(screen.queryByText(LOAD_ERROR)).not.toBeInTheDocument()
+  })
+})
+
+describe('my work — today’s entries table', () => {
+  it('renders logged entries in the DataTable with the edit action and the running total', async () => {
+    resolveWith({
+      ...emptyResponse,
+      entries: [
+        {
+          id: 'entry-1',
+          date: emptyResponse.today,
+          taskId: null,
+          taskTitle: 'Fix the bug',
+          timeProjectId: null,
+          projectName: 'Apollo',
+          description: null,
+          startedAt: null,
+          endedAt: null,
+          durationMinutes: 90,
+          isBillable: false,
+          isLocked: false,
+        },
+      ],
+    })
+
+    renderWithQueryClient(<TimeTrackingMyWorkPage />)
+
+    expect(await screen.findByText('Fix the bug')).toBeInTheDocument()
+    expect(screen.getByText('non-billable')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Edit' })).toBeInTheDocument()
+    expect(screen.getAllByText('1:30')).toHaveLength(2)
+    expect(screen.getByText('Total today')).toBeInTheDocument()
+  })
+
+  it('hides the edit action for a locked entry', async () => {
+    resolveWith({
+      ...emptyResponse,
+      entries: [
+        {
+          id: 'entry-1',
+          date: emptyResponse.today,
+          taskId: null,
+          taskTitle: 'Fix the bug',
+          timeProjectId: null,
+          projectName: null,
+          description: null,
+          startedAt: null,
+          endedAt: null,
+          durationMinutes: 60,
+          isBillable: true,
+          isLocked: true,
+        },
+      ],
+    })
+
+    renderWithQueryClient(<TimeTrackingMyWorkPage />)
+
+    expect(await screen.findByText('Fix the bug')).toBeInTheDocument()
+    expect(screen.getByText('locked')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Edit' })).not.toBeInTheDocument()
   })
 })

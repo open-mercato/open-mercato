@@ -25,6 +25,12 @@ Both permissions are seeded by `mercato auth setup`. If you introduce new roles 
 
 The `tableId` can be any unique string; it scopes the stored data and maps to the `/api/perspectives/{tableId}` endpoints from the `perspectives` module.
 
+A saved view is dense: on every save it records an explicit `true`/`false` for every leaf
+column the table currently renders, not just the ones the user touched. A column a view
+never names — because it registered after the view was saved, such as a custom field or a
+widget-injected column — falls back to that column's own `meta.hidden` default instead of
+defaulting to visible.
+
 ## Eliminating flicker with SSR
 
 When a user lands on the table for the first time, the client component normally downloads perspectives and applies the selected view afterwards. To hydrate the table with the right layout from the start, fetch the initial state on the server and pass it down:

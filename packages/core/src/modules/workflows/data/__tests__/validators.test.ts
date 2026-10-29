@@ -8,9 +8,19 @@ import {
   activityTypeSchema,
   workflowStepSchema,
   workflowTransitionSchema,
+  activityRetryPolicySchema,
   activityDefinitionSchema,
+  contextSchemaFieldSchema,
+  contextSchemaSchema,
+  sampleEnvelopeSchema,
+  workflowMetadataSchema,
+  WORKFLOW_EDITOR_SAMPLES_MAX_CHARS,
+  workflowDefinitionDataSchema,
+  workflowDefinitionDraftDataSchema,
   createWorkflowDefinitionSchema,
+  createWorkflowDefinitionInputSchema,
   updateWorkflowDefinitionSchema,
+  updateWorkflowDefinitionInputSchema,
   workflowDefinitionFilterSchema,
   createWorkflowInstanceSchema,
   updateWorkflowInstanceSchema,
@@ -22,6 +32,10 @@ import {
   type CreateStepInstanceInput,
   type CreateUserTaskInput,
 } from '../validators'
+import {
+  collectBranchingRouteWarnings,
+  collectDuplicateBranchingCaseWarnings,
+} from '../branching-route-warnings'
 
 describe('Workflows Validators', () => {
   describe('workflowStepTypeSchema', () => {
@@ -37,8 +51,208 @@ describe('Workflows Validators', () => {
       expect(workflowStepTypeSchema.parse('WAIT_FOR_TIMER')).toBe('WAIT_FOR_TIMER')
     })
 
+    test('should accept the additive branching step types', () => {
+      expect(workflowStepTypeSchema.parse('IF_ELSE')).toBe('IF_ELSE')
+      expect(workflowStepTypeSchema.parse('SWITCH')).toBe('SWITCH')
+    })
+
     test('should reject invalid step types', () => {
       expect(() => workflowStepTypeSchema.parse('INVALID')).toThrow()
+    })
+  })
+
+  describe('branching steps as transition sugar', () => {
+    const branchingDefinition = {
+      steps: [
+        { stepId: 'start', stepName: 'Start', stepType: 'START' as const },
+        { stepId: 'branch', stepName: 'Branch', stepType: 'IF_ELSE' as const },
+        { stepId: 'approve', stepName: 'Approve', stepType: 'AUTOMATED' as const },
+        { stepId: 'end', stepName: 'End', stepType: 'END' as const },
+      ],
+      transitions: [
+        {
+          transitionId: 'e_start_branch',
+          fromStepId: 'start',
+          toStepId: 'branch',
+          trigger: 'auto' as const,
+          priority: 0,
+        },
+        {
+          transitionId: 'e_branch_approve',
+          fromStepId: 'branch',
+          toStepId: 'approve',
+          trigger: 'auto' as const,
+          priority: 10,
+          condition: { field: 'total', operator: '>', value: 100 },
+        },
+        {
+          transitionId: 'e_approve_end',
+          fromStepId: 'approve',
+          toStepId: 'end',
+          trigger: 'auto' as const,
+          priority: 0,
+        },
+      ],
+    }
+
+    test('should accept a definition using IF_ELSE and SWITCH steps', () => {
+      const result = workflowDefinitionDataSchema.safeParse(branchingDefinition)
+      expect(result.success).toBe(true)
+
+      const switchDefinition = {
+        ...branchingDefinition,
+        steps: branchingDefinition.steps.map((step) =>
+          step.stepId === 'branch' ? { ...step, stepType: 'SWITCH' as const } : step,
+        ),
+      }
+      expect(workflowDefinitionDataSchema.safeParse(switchDefinition).success).toBe(true)
+    })
+
+    test('should warn when a branching step has no unconditioned otherwise route', () => {
+      const warnings = collectBranchingRouteWarnings(branchingDefinition)
+      expect(warnings).toEqual([{ path: ['steps', 1], stepId: 'branch', stepType: 'IF_ELSE' }])
+    })
+
+    test('should not warn once an otherwise route exists', () => {
+      const withOtherwise = {
+        ...branchingDefinition,
+        transitions: [
+          ...branchingDefinition.transitions,
+          {
+            transitionId: 'e_branch_end',
+            fromStepId: 'branch',
+            toStepId: 'end',
+            trigger: 'auto' as const,
+            priority: 0,
+          },
+        ],
+      }
+      expect(collectBranchingRouteWarnings(withOtherwise)).toEqual([])
+    })
+
+    test('should not count an error route as the otherwise route (step 2.12)', () => {
+      const withErrorRoute = {
+        ...branchingDefinition,
+        transitions: [
+          ...branchingDefinition.transitions,
+          {
+            transitionId: 'e_branch_handler',
+            fromStepId: 'branch',
+            toStepId: 'end',
+            trigger: 'auto' as const,
+            priority: 0,
+            kind: 'error' as const,
+          },
+        ],
+      }
+      expect(collectBranchingRouteWarnings(withErrorRoute)).toEqual([
+        { path: ['steps', 1], stepId: 'branch', stepType: 'IF_ELSE' },
+      ])
+    })
+
+    test('should treat business-rule pre/post conditions as conditioned routes', () => {
+      const ruleRouted = {
+        ...branchingDefinition,
+        transitions: branchingDefinition.transitions.map((transition) =>
+          transition.transitionId === 'e_branch_approve'
+            ? {
+                transitionId: transition.transitionId,
+                fromStepId: transition.fromStepId,
+                toStepId: transition.toStepId,
+                trigger: transition.trigger,
+                priority: transition.priority,
+                preConditions: ['11111111-1111-4111-8111-111111111111'],
+              }
+            : transition,
+        ),
+      }
+      expect(collectBranchingRouteWarnings(ruleRouted)).toHaveLength(1)
+    })
+
+    test('should not warn for branching steps without outgoing routes', () => {
+      expect(
+        collectBranchingRouteWarnings({
+          steps: [{ stepId: 'branch', stepName: 'Branch', stepType: 'SWITCH' }],
+          transitions: [],
+        }),
+      ).toEqual([])
+    })
+
+    test('should warn when two Switch routes test the same value', () => {
+      const duplicated = {
+        steps: [
+          { stepId: 'switch', stepName: 'Switch', stepType: 'SWITCH' as const },
+          { stepId: 'end', stepName: 'End', stepType: 'END' as const },
+        ],
+        transitions: [
+          {
+            transitionId: 'e_switch_a',
+            fromStepId: 'switch',
+            toStepId: 'end',
+            condition: { operator: 'AND', rules: [{ field: 'channel', operator: '==', value: 'web' }] },
+          },
+          {
+            transitionId: 'e_switch_b',
+            fromStepId: 'switch',
+            toStepId: 'end',
+            condition: { operator: 'AND', rules: [{ field: 'channel', operator: '==', value: 'web' }] },
+          },
+          { transitionId: 'e_switch_other', fromStepId: 'switch', toStepId: 'end' },
+        ],
+      }
+
+      expect(collectDuplicateBranchingCaseWarnings(duplicated)).toEqual([
+        { path: ['steps', 0], stepId: 'switch', stepType: 'SWITCH', caseValue: 'channel=web' },
+      ])
+    })
+
+    test('should not warn when Switch routes test distinct values', () => {
+      const distinct = {
+        steps: [{ stepId: 'switch', stepName: 'Switch', stepType: 'SWITCH' as const }],
+        transitions: [
+          {
+            transitionId: 'e_switch_a',
+            fromStepId: 'switch',
+            toStepId: 'end',
+            condition: { operator: 'AND', rules: [{ field: 'channel', operator: '==', value: 'web' }] },
+          },
+          {
+            transitionId: 'e_switch_b',
+            fromStepId: 'switch',
+            toStepId: 'end',
+            condition: { operator: 'AND', rules: [{ field: 'channel', operator: '==', value: 'pos' }] },
+          },
+        ],
+      }
+      expect(collectDuplicateBranchingCaseWarnings(distinct)).toEqual([])
+    })
+
+    test('should not warn for non-branching steps', () => {
+      expect(
+        collectBranchingRouteWarnings({
+          steps: [{ stepId: 'auto', stepName: 'Auto', stepType: 'AUTOMATED' }],
+          transitions: [
+            {
+              transitionId: 'e_auto_end',
+              fromStepId: 'auto',
+              toStepId: 'end',
+              condition: { field: 'x', operator: '==', value: 1 },
+            },
+          ],
+        }),
+      ).toEqual([])
+    })
+  })
+
+  describe('minEngineVersion metadata guard', () => {
+    test('should accept an optional positive integer', () => {
+      expect(workflowMetadataSchema.parse({ minEngineVersion: 2 }).minEngineVersion).toBe(2)
+      expect(workflowMetadataSchema.parse({}).minEngineVersion).toBeUndefined()
+    })
+
+    test('should reject non-integer or non-positive versions', () => {
+      expect(workflowMetadataSchema.safeParse({ minEngineVersion: 0 }).success).toBe(false)
+      expect(workflowMetadataSchema.safeParse({ minEngineVersion: 1.5 }).success).toBe(false)
     })
   })
 
@@ -109,10 +323,26 @@ describe('Workflows Validators', () => {
       expect(activityTypeSchema.parse('CALL_WEBHOOK')).toBe('CALL_WEBHOOK')
       expect(activityTypeSchema.parse('EXECUTE_FUNCTION')).toBe('EXECUTE_FUNCTION')
       expect(activityTypeSchema.parse('WAIT')).toBe('WAIT')
+      expect(activityTypeSchema.parse('SET_VARIABLE')).toBe('SET_VARIABLE')
+      expect(activityTypeSchema.parse('INVOKE_AGENT')).toBe('INVOKE_AGENT')
     })
 
     test('should reject invalid activity types', () => {
       expect(() => activityTypeSchema.parse('INVALID')).toThrow()
+    })
+
+    test('should expose exactly the registry-driven builtin ids', () => {
+      expect([...activityTypeSchema.options].sort()).toEqual([
+        'CALL_API',
+        'CALL_WEBHOOK',
+        'EMIT_EVENT',
+        'EXECUTE_FUNCTION',
+        'INVOKE_AGENT',
+        'SEND_EMAIL',
+        'SET_VARIABLE',
+        'UPDATE_ENTITY',
+        'WAIT',
+      ])
     })
   })
 
@@ -161,6 +391,42 @@ describe('Workflows Validators', () => {
       const result = workflowStepSchema.parse(userTaskStep)
       expect(result.userTaskConfig?.assignedTo).toBe('manager@example.com')
       expect(result.userTaskConfig?.slaDuration).toBe('P1D')
+    })
+
+    test('should keep authored role assignment, form key and allowed actions (A1 regression)', () => {
+      // The Studio writes these three keys (`lib/graph-utils.ts`) and the engine
+      // reads `assignedToRoles` (`lib/step-handler.ts`), but the schema declared
+      // none of them: zod stripped the unknown keys and the definition PUT
+      // persisted the parsed value, silently discarding the author's work.
+      const roleAssignedStep = {
+        stepId: 'approve-order',
+        stepName: 'Approve Order',
+        stepType: 'USER_TASK' as const,
+        userTaskConfig: {
+          assignedToRoles: ['approver', 'manager'],
+          formKey: 'order-approval',
+          allowedActions: ['complete', 'reject'],
+        },
+      }
+
+      const result = workflowStepSchema.parse(roleAssignedStep)
+
+      expect(result.userTaskConfig?.assignedToRoles).toEqual(['approver', 'manager'])
+      expect(result.userTaskConfig?.formKey).toBe('order-approval')
+      expect(result.userTaskConfig?.allowedActions).toEqual(['complete', 'reject'])
+    })
+
+    test('should leave user task config without the new keys untouched', () => {
+      const minimalUserTaskStep = {
+        stepId: 'approve-order',
+        stepName: 'Approve Order',
+        stepType: 'USER_TASK' as const,
+        userTaskConfig: { assignedTo: 'manager@example.com' },
+      }
+
+      const result = workflowStepSchema.parse(minimalUserTaskStep)
+
+      expect(result.userTaskConfig).toEqual({ assignedTo: 'manager@example.com' })
     })
 
     test('should validate step with retry policy', () => {
@@ -260,6 +526,160 @@ describe('Workflows Validators', () => {
         ).not.toThrow()
       })
     })
+
+    describe('WAIT_FOR_CONDITION step config', () => {
+      const baseConditionStep = {
+        stepId: 'wait-for-payment',
+        stepName: 'Wait for payment',
+        stepType: 'WAIT_FOR_CONDITION' as const,
+      }
+      const validCondition = {
+        operator: 'AND',
+        rules: [{ field: 'payment.status', operator: '==', value: 'captured' }],
+      }
+
+      function parseConfig(config: Record<string, unknown>) {
+        return workflowStepSchema.safeParse({ ...baseConditionStep, config })
+      }
+
+      test('accepts a valid condition with a timeout', () => {
+        expect(parseConfig({ condition: validCondition, timeout: 'PT30M' }).success).toBe(true)
+      })
+
+      test('accepts the IS_NOT_EMPTY "wait for variable" shorthand', () => {
+        const result = parseConfig({
+          condition: { field: 'invoiceId', operator: 'IS_NOT_EMPTY', value: null },
+          timeout: 'PT30M',
+        })
+        expect(result.success).toBe(true)
+      })
+
+      test('rejects a missing condition', () => {
+        const result = parseConfig({ timeout: 'PT30M' })
+        expect(result.success).toBe(false)
+        expect(JSON.stringify(result)).toContain('condition')
+      })
+
+      test('rejects a malformed condition expression through the business-rules validator', () => {
+        const result = parseConfig({
+          condition: { operator: 'AND', rules: [{ operator: 'NOPE' }] },
+          timeout: 'PT30M',
+        })
+        expect(result.success).toBe(false)
+      })
+
+      test('rejects a missing timeout', () => {
+        const result = parseConfig({ condition: validCondition })
+        expect(result.success).toBe(false)
+        expect(JSON.stringify(result)).toContain('timeout')
+      })
+
+      test('rejects an invalid timeout duration', () => {
+        expect(parseConfig({ condition: validCondition, timeout: '30 minutes' }).success).toBe(false)
+      })
+
+      test('rejects an invalid onTimeout value', () => {
+        expect(
+          parseConfig({ condition: validCondition, timeout: 'PT30M', onTimeout: 'RETRY' }).success
+        ).toBe(false)
+        expect(
+          parseConfig({ condition: validCondition, timeout: 'PT30M', onTimeout: 'CONTINUE' }).success
+        ).toBe(true)
+      })
+
+      test('rejects a poll interval below the floor or above the ceiling', () => {
+        expect(
+          parseConfig({ condition: validCondition, timeout: 'PT30M', pollIntervalMs: 4999 }).success
+        ).toBe(false)
+        expect(
+          parseConfig({ condition: validCondition, timeout: 'PT2H', pollIntervalMs: 3600001 }).success
+        ).toBe(false)
+        expect(
+          parseConfig({ condition: validCondition, timeout: 'PT30M', pollIntervalMs: 60000 }).success
+        ).toBe(true)
+      })
+
+      test('rejects a poll interval longer than the timeout', () => {
+        const result = parseConfig({
+          condition: validCondition,
+          timeout: 'PT10S',
+          pollIntervalMs: 60000,
+        })
+        expect(result.success).toBe(false)
+      })
+
+      test('does not affect non-WAIT_FOR_CONDITION steps', () => {
+        expect(
+          workflowStepSchema.safeParse({
+            stepId: 'do-something',
+            stepName: 'Automated',
+            stepType: 'AUTOMATED' as const,
+            config: { condition: 'nonsense' },
+          }).success
+        ).toBe(true)
+      })
+    })
+  })
+
+  describe('WAIT_FOR_CONDITION outgoing-transition rule', () => {
+    const conditionStep = {
+      stepId: 'wait_for_payment',
+      stepName: 'Wait for payment',
+      stepType: 'WAIT_FOR_CONDITION' as const,
+      config: {
+        condition: { field: 'invoiceId', operator: 'IS_NOT_EMPTY', value: null },
+        timeout: 'PT30M',
+      },
+    }
+
+    function buildDefinition(transitions: Array<Record<string, unknown>>) {
+      return {
+        steps: [
+          { stepId: 'start', stepName: 'Start', stepType: 'START' as const },
+          conditionStep,
+          { stepId: 'end', stepName: 'End', stepType: 'END' as const },
+        ],
+        transitions,
+      }
+    }
+
+    test('rejects a waiting step with no way out', () => {
+      const result = workflowDefinitionDataSchema.safeParse(
+        buildDefinition([
+          {
+            transitionId: 'e_start_wait',
+            fromStepId: 'start',
+            toStepId: 'wait_for_payment',
+            trigger: 'auto' as const,
+            priority: 0,
+          },
+        ])
+      )
+      expect(result.success).toBe(false)
+      expect(JSON.stringify(result)).toContain('outgoing transition')
+    })
+
+    test('accepts a waiting step with an outgoing transition', () => {
+      const result = workflowDefinitionDataSchema.safeParse(
+        buildDefinition([
+          {
+            transitionId: 'e_start_wait',
+            fromStepId: 'start',
+            toStepId: 'wait_for_payment',
+            trigger: 'auto' as const,
+            priority: 0,
+          },
+          {
+            transitionId: 'e_wait_end',
+            fromStepId: 'wait_for_payment',
+            toStepId: 'end',
+            trigger: 'auto' as const,
+            priority: 0,
+          },
+        ])
+      )
+      expect(result.success).toBe(true)
+    })
   })
 
   describe('workflowTransitionSchema', () => {
@@ -331,6 +751,27 @@ describe('Workflows Validators', () => {
     })
   })
 
+  describe('activityRetryPolicySchema', () => {
+    test('should accept the canonical field quadruple', () => {
+      const result = activityRetryPolicySchema.parse({
+        maxAttempts: 3,
+        initialIntervalMs: 1000,
+        backoffCoefficient: 2,
+        maxIntervalMs: 10000,
+      })
+      expect(result.maxAttempts).toBe(3)
+      expect(result.initialIntervalMs).toBe(1000)
+      expect(result.backoffCoefficient).toBe(2)
+      expect(result.maxIntervalMs).toBe(10000)
+    })
+
+    test('should reject legacy retryDelay/backoffMultiplier field names', () => {
+      expect(() =>
+        activityRetryPolicySchema.parse({ retryDelay: 1000, backoffMultiplier: 2 })
+      ).toThrow()
+    })
+  })
+
   describe('activityDefinitionSchema', () => {
     const validActivity = {
       activityId: 'send-email-1',
@@ -365,6 +806,15 @@ describe('Workflows Validators', () => {
       const result = activityDefinitionSchema.parse(withRetry)
       expect(result.retryPolicy?.maxAttempts).toBe(5)
       expect(result.retryPolicy?.backoffCoefficient).toBe(2)
+    })
+
+    test('should reject retry policy using legacy field names', () => {
+      const withLegacyRetry = {
+        ...validActivity,
+        retryPolicy: { retryDelay: 1000, backoffMultiplier: 2 },
+      }
+
+      expect(() => activityDefinitionSchema.parse(withLegacyRetry)).toThrow()
     })
 
     test('should validate activity with compensation flag', () => {
@@ -636,6 +1086,267 @@ describe('Workflows Validators', () => {
     })
   })
 
+  describe('contextSchema on workflow definitions', () => {
+    const minimalGraph = {
+      steps: [
+        { stepId: 'start', stepName: 'Start', stepType: 'START' as const },
+        { stepId: 'end', stepName: 'End', stepType: 'END' as const },
+      ],
+      transitions: [
+        {
+          transitionId: 'start-to-end',
+          fromStepId: 'start',
+          toStepId: 'end',
+          trigger: 'auto' as const,
+          priority: 0,
+        },
+      ],
+    }
+
+    const declaredContextSchema = {
+      input: {
+        fields: [
+          { name: 'dealId', type: 'text' as const, label: 'Deal ID', required: true },
+          { name: 'amount', type: 'number' as const },
+          { name: 'stage', type: 'select' as const, options: ['new', 'won', 'lost'] },
+        ],
+      },
+    }
+
+    test('definition data schema parses and retains a declared contextSchema', () => {
+      const result = workflowDefinitionDataSchema.parse({
+        ...minimalGraph,
+        contextSchema: declaredContextSchema,
+      })
+      expect(result.contextSchema).toEqual(declaredContextSchema)
+    })
+
+    test('definition data without contextSchema stays without it', () => {
+      const result = workflowDefinitionDataSchema.parse(minimalGraph)
+      expect(result.contextSchema).toBeUndefined()
+    })
+
+    test('rejects an invalid field type', () => {
+      const invalid = {
+        ...minimalGraph,
+        contextSchema: {
+          input: {
+            fields: [{ name: 'dealId', type: 'json' }],
+          },
+        },
+      }
+      expect(workflowDefinitionDataSchema.safeParse(invalid).success).toBe(false)
+    })
+
+    test('rejects a field with an empty name', () => {
+      const invalid = {
+        ...minimalGraph,
+        contextSchema: {
+          input: {
+            fields: [{ name: '', type: 'text' }],
+          },
+        },
+      }
+      expect(workflowDefinitionDataSchema.safeParse(invalid).success).toBe(false)
+    })
+
+    test('contextSchemaSchema accepts an empty object', () => {
+      expect(contextSchemaSchema.parse({})).toEqual({})
+    })
+
+    test('contextSchemaFieldSchema retains all declared attributes', () => {
+      const field = {
+        name: 'dueDate',
+        type: 'date' as const,
+        label: 'Due date',
+        required: false,
+      }
+      expect(contextSchemaFieldSchema.parse(field)).toEqual(field)
+    })
+
+    test('create input schema retains contextSchema end-to-end', () => {
+      const result = createWorkflowDefinitionInputSchema.parse({
+        workflowId: 'ctx-schema-flow',
+        workflowName: 'Context Schema Flow',
+        definition: {
+          ...minimalGraph,
+          contextSchema: declaredContextSchema,
+        },
+      })
+      expect(result.definition.contextSchema).toEqual(declaredContextSchema)
+    })
+
+    test('create schema retains contextSchema end-to-end', () => {
+      const result = createWorkflowDefinitionSchema.parse({
+        workflowId: 'ctx-schema-flow',
+        workflowName: 'Context Schema Flow',
+        definition: {
+          ...minimalGraph,
+          contextSchema: declaredContextSchema,
+        },
+        tenantId: '123e4567-e89b-12d3-a456-426614174000',
+        organizationId: '123e4567-e89b-12d3-a456-426614174001',
+      })
+      expect(result.definition.contextSchema).toEqual(declaredContextSchema)
+    })
+
+    test('update input schema retains contextSchema end-to-end', () => {
+      const result = updateWorkflowDefinitionInputSchema.parse({
+        definition: {
+          ...minimalGraph,
+          contextSchema: declaredContextSchema,
+        },
+      })
+      expect(result.definition?.contextSchema).toEqual(declaredContextSchema)
+    })
+
+    test('draft schema passes contextSchema through untouched', () => {
+      const result = workflowDefinitionDraftDataSchema.parse({
+        steps: [{ stepId: 'start' }],
+        transitions: [],
+        contextSchema: declaredContextSchema,
+      })
+      expect(result.contextSchema).toEqual(declaredContextSchema)
+    })
+  })
+
+  describe('editor samples in workflow metadata', () => {
+    const minimalGraph = {
+      steps: [
+        { stepId: 'start', stepName: 'Start', stepType: 'START' as const },
+        { stepId: 'end', stepName: 'End', stepType: 'END' as const },
+      ],
+      transitions: [
+        {
+          transitionId: 'start-to-end',
+          fromStepId: 'start',
+          toStepId: 'end',
+          trigger: 'auto' as const,
+          priority: 0,
+        },
+      ],
+    }
+
+    const metadataWithSamples = {
+      tags: ['approval'],
+      category: 'workflow',
+      editor: {
+        samples: {
+          step_1: {
+            pinnedAt: '2026-07-27T00:00:00.000Z',
+            source: 'manual' as const,
+            data: { orderId: 'ord_42', total: 99.5 },
+          },
+          step_2: {
+            pinnedAt: '2026-07-27T12:30:00+02:00',
+            source: 'test' as const,
+            data: null,
+          },
+        },
+      },
+    }
+
+    test('metadata schema retains editor.samples', () => {
+      const result = workflowMetadataSchema.parse(metadataWithSamples)
+      expect(result.editor).toEqual(metadataWithSamples.editor)
+    })
+
+    test('metadata schema keeps unknown editor keys via passthrough', () => {
+      const result = workflowMetadataSchema.parse({
+        editor: { samples: {}, layout: { zoom: 1.5 } },
+      })
+      expect(result.editor).toEqual({ samples: {}, layout: { zoom: 1.5 } })
+    })
+
+    test('sample envelope rejects a non-ISO pinnedAt', () => {
+      const invalid = { pinnedAt: 'yesterday', source: 'manual', data: {} }
+      expect(sampleEnvelopeSchema.safeParse(invalid).success).toBe(false)
+    })
+
+    test('sample envelope rejects an unknown source', () => {
+      const invalid = { pinnedAt: '2026-07-27T00:00:00.000Z', source: 'import', data: {} }
+      expect(sampleEnvelopeSchema.safeParse(invalid).success).toBe(false)
+    })
+
+    test('create input schema retains editor.samples end-to-end', () => {
+      const result = createWorkflowDefinitionInputSchema.parse({
+        workflowId: 'samples-flow',
+        workflowName: 'Samples Flow',
+        definition: minimalGraph,
+        metadata: metadataWithSamples,
+      })
+      expect(result.metadata?.editor).toEqual(metadataWithSamples.editor)
+    })
+
+    test('update input schema retains editor.samples end-to-end', () => {
+      const result = updateWorkflowDefinitionInputSchema.parse({
+        definition: minimalGraph,
+        metadata: metadataWithSamples,
+      })
+      expect(result.metadata?.editor).toEqual(metadataWithSamples.editor)
+    })
+
+    test('metadata without editor stays without it', () => {
+      const result = workflowMetadataSchema.parse({ tags: ['plain'] })
+      expect(result.editor).toBeUndefined()
+    })
+
+    test('rejects samples exceeding the total size cap', () => {
+      const oversized = {
+        editor: {
+          samples: {
+            step_1: {
+              pinnedAt: '2026-07-27T00:00:00.000Z',
+              source: 'manual',
+              data: { blob: 'x'.repeat(WORKFLOW_EDITOR_SAMPLES_MAX_CHARS) },
+            },
+          },
+        },
+      }
+      const result = workflowMetadataSchema.safeParse(oversized)
+      expect(result.success).toBe(false)
+      if (!result.success) {
+        const issue = result.error.issues.find((candidate) => candidate.path.join('.') === 'editor.samples')
+        expect(issue?.message).toContain(`${WORKFLOW_EDITOR_SAMPLES_MAX_CHARS}`)
+      }
+    })
+
+    test('rejects oversized samples on the update input schema', () => {
+      const oversized = {
+        metadata: {
+          editor: {
+            samples: {
+              step_1: {
+                pinnedAt: '2026-07-27T00:00:00.000Z',
+                source: 'test',
+                data: 'x'.repeat(WORKFLOW_EDITOR_SAMPLES_MAX_CHARS + 1),
+              },
+            },
+          },
+        },
+      }
+      expect(updateWorkflowDefinitionInputSchema.safeParse(oversized).success).toBe(false)
+    })
+
+    test('accepts samples right at the size boundary', () => {
+      const envelopeOverhead = JSON.stringify({
+        step_1: { pinnedAt: '2026-07-27T00:00:00.000Z', source: 'manual', data: '' },
+      }).length
+      const withinCap = {
+        editor: {
+          samples: {
+            step_1: {
+              pinnedAt: '2026-07-27T00:00:00.000Z',
+              source: 'manual' as const,
+              data: 'x'.repeat(WORKFLOW_EDITOR_SAMPLES_MAX_CHARS - envelopeOverhead),
+            },
+          },
+        },
+      }
+      expect(workflowMetadataSchema.safeParse(withinCap).success).toBe(true)
+    })
+  })
+
   describe('workflowDefinitionFilterSchema', () => {
     test('should validate filter with all fields', () => {
       const filter = {
@@ -855,5 +1566,43 @@ describe('Workflows Validators', () => {
       const result = createWorkflowEventSchema.parse(eventWithoutStep)
       expect(result.stepInstanceId).toBeNull()
     })
+  })
+})
+
+describe('userTaskConfigSchema formSchema — label is optional (widening, 2026-07-30)', () => {
+  const stepWithFields = (fields: unknown[]) => ({
+    stepId: 'review',
+    stepName: 'Review',
+    stepType: 'USER_TASK' as const,
+    userTaskConfig: { formSchema: { fields } },
+  })
+
+  it('accepts a field with no label, because every consumer falls back to the name', () => {
+    const parsed = workflowStepSchema.parse(
+      stepWithFields([{ name: 'approved', type: 'boolean', required: true }]),
+    )
+    const [field] = (parsed.userTaskConfig?.formSchema as { fields: { name: string; label?: string }[] }).fields
+    expect(field.name).toBe('approved')
+    expect(field.label).toBeUndefined()
+  })
+
+  it('still keeps a label that is supplied', () => {
+    const parsed = workflowStepSchema.parse(
+      stepWithFields([{ name: 'approved', type: 'boolean', label: 'Approved' }]),
+    )
+    const [field] = (parsed.userTaskConfig?.formSchema as { fields: { label?: string }[] }).fields
+    expect(field.label).toBe('Approved')
+  })
+
+  it('still rejects an EMPTY label rather than silently accepting a blank one', () => {
+    expect(() => workflowStepSchema.parse(
+      stepWithFields([{ name: 'approved', type: 'boolean', label: '' }]),
+    )).toThrow()
+  })
+
+  it('still requires the field name, which is what the fallback resolves to', () => {
+    expect(() => workflowStepSchema.parse(
+      stepWithFields([{ type: 'boolean', label: 'Approved' }]),
+    )).toThrow()
   })
 })

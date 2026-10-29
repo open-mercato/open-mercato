@@ -45,6 +45,7 @@ import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { mapCrudServerErrorToFormErrors } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useCurrentUserId } from '@open-mercato/ui/backend/utils/useCurrentUserId'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
+import { useCurrentOrganization } from '@open-mercato/ui/backend/BackendChromeProvider'
 import { AttachmentInput } from '@open-mercato/core/modules/attachments/fields/attachment'
 import {
   fetchAssignableStaffMembersPage,
@@ -766,6 +767,7 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const currentUserId = useCurrentUserId()
   const scopeVersion = useOrganizationScopeVersion()
+  const activeOrgId = useCurrentOrganization()?.id ?? null
   const [claim, setClaim] = React.useState<ClaimRecord | null>(null)
   const [lines, setLines] = React.useState<ClaimLine[]>([])
   const [events, setEvents] = React.useState<ClaimEvent[]>([])
@@ -1007,14 +1009,19 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
     if (!assignDialogOpen) return
     const controller = new AbortController()
     setAssignLoading(true)
-    fetchAssignableStaffMembersPage(assignSearch, { page: 1, pageSize: 24, signal: controller.signal })
+    fetchAssignableStaffMembersPage(assignSearch, {
+      page: 1,
+      pageSize: 24,
+      activeOrgId,
+      signal: controller.signal,
+    })
       .then((page) => setAssignOptions(page.items))
       .catch(() => setAssignOptions([]))
       .finally(() => {
         if (!controller.signal.aborted) setAssignLoading(false)
       })
     return () => controller.abort()
-  }, [assignDialogOpen, assignSearch])
+  }, [activeOrgId, assignDialogOpen, assignSearch])
 
   const claimCustomerId = claim?.customerId ?? null
   React.useEffect(() => {

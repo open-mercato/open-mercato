@@ -80,9 +80,9 @@ The spec-writing skill ensures the update follows project conventions (TLDR, str
 |------|---------------|---------------------|
 | Node.js | `.nvmrc` + `package.json` engines | `.devcontainer/Dockerfile` `FROM node:<ver>-slim` |
 | Yarn | `package.json` `"packageManager"` | `.devcontainer/Dockerfile` `corepack prepare yarn@<ver>` |
-| PostgreSQL | `docker-compose.yml` image tag | `.devcontainer/docker-compose.yml` postgres image |
-| Redis | `docker-compose.yml` image tag | `.devcontainer/docker-compose.yml` redis image |
-| Meilisearch | `docker-compose.yml` image tag | `.devcontainer/docker-compose.yml` meilisearch image |
+| PostgreSQL | `starters/docker/compose.infra.yml` image tag | `.devcontainer/docker-compose.yml` postgres image |
+| Redis | `starters/docker/compose.infra.yml` image tag | `.devcontainer/docker-compose.yml` redis image |
+| Meilisearch | `starters/docker/compose.infra.yml` image tag | `.devcontainer/docker-compose.yml` meilisearch image |
 
 **Environment variable flow:**
 ```

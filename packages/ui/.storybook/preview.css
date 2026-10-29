@@ -1,0 +1,11 @@
+:root[data-storybook-font='figma'] { --font-geist-sans: 'Inter Variable', Inter, sans-serif; }
+html, body, #storybook-root { min-height: 100%; background: var(--background); color: var(--foreground); }
+body { margin: 0; }
+.om-story-surface { min-height: 100vh; }
+.om-entry { padding: 2rem; max-width: 80rem; margin-inline: auto; }
+.om-entry-stage { padding: 1.5rem; min-height: 8rem; overflow: auto; border: 1px solid var(--border); border-radius: var(--radius-xl); background: var(--background); }
+.om-entry-code { padding: 1rem; overflow: auto; font-size: 0.75rem; line-height: 1.5; background: var(--muted); border-radius: var(--radius-md); }
+.sbdocs.sbdocs-wrapper { background: var(--background); color: var(--foreground); }
+.sbdocs.sbdocs-content { max-width: 80rem; }
+@media (max-width: 640px) { .om-entry { padding: 1rem; } .om-entry-stage { padding: 1rem; } }
+@media (prefers-reduced-motion: reduce) { .om-entry *, .om-story-surface * { scroll-behavior: auto !important; } }

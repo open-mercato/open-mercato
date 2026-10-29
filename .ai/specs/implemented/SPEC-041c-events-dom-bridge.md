@@ -610,7 +610,7 @@ export default {
 ### SSE Endpoint
 - Implemented at `packages/events/src/modules/events/api/stream/route.ts`
 - Uses `ReadableStream` with SSE format (`text/event-stream`)
-- Heartbeat every 30s (`:heartbeat\n\n`)
+- Heartbeat every 30s (`:heartbeat\ndata: :heartbeat\n\n`)
 - Global connection registry pattern: single `*` event bus handler broadcasts to all SSE connections
 - Connection context MUST include `tenantId`, `organizationId`, `userId`, and `roleIds`
 - Server-side audience filtering MUST enforce tenant + organization + recipient user/role checks before enqueueing event to stream
@@ -661,3 +661,11 @@ export default {
 ## Changelog
 
 - 2026-02-25: Added mandatory server-side audience filtering contract (tenant/org/user/role), added negative isolation integration coverage requirements (E11-E13), and aligned implementation notes with `/api/events/stream`.
+
+## Heartbeat delivery correction (2026-09-16)
+
+The server heartbeat comment was invisible to EventSource.onmessage, so the backend watchdog disconnected healthy idle streams after 45 seconds. Preserve the comment and add `data: :heartbeat` in the same frame. Existing bridge clients already reset their timer and explicitly ignore this sentinel before JSON parsing. Hidden backend tabs release their SSE connection and reconnect when visible, which prevents several open tabs from exhausting the HTTP/1.1 per-origin connection pool. A visible tab emits the existing bridge-reconnected event after returning so consumers can refresh. Business event IDs, payloads, scopes and authorization remain unchanged. Route and hook regression coverage verify heartbeat delivery and the visibility lifecycle.
+
+### Migration & Backward Compatibility
+
+No migration. Preserve the transport comment; add the already-supported heartbeat sentinel. It is not a business event and is never dispatched through the DOM bridge. Hidden tabs can miss transient events while suspended; the existing reconnect signal remains the refresh boundary when a tab becomes visible again.

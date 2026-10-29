@@ -158,7 +158,7 @@ export function WarrantyClaimNotificationRenderer({
   )
 
   const handleView = async () => {
-    if (!viewAction) {
+    if (!viewAction || notification.status === 'actioned') {
       router.push(href)
       return
     }

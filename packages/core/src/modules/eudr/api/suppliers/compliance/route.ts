@@ -9,6 +9,7 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { EUDR_SUBMISSION_STATUSES } from '../../../data/validators'
 
 const logger = createLogger('eudr')
@@ -113,7 +114,7 @@ async function resolveRequestContext(req: Request): Promise<RequestContext> {
   }
 
   const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
-  const organizationId = scope?.selectedId ?? auth.orgId ?? null
+  const organizationId = resolveSingleOrganizationIdOrDeny(scope, auth) ?? null
   if (!organizationId) {
     throw new CrudHttpError(400, {
       error: translate('eudr.errors.organization_required', 'Organization context is required'),

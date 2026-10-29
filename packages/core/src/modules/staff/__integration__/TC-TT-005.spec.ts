@@ -244,7 +244,9 @@ test.describe('TC-TT-005: Project team drawer', () => {
       // becomes interactive, an already-open confirmation is therefore destroyed with
       // its pending promise unresolved — the same settle-wait TC-LOCK-OSS-043 takes
       // before driving its confirm dialog.
-      await page.waitForLoadState('networkidle')
+      // Bounded on purpose: the SSE event stream stays open for the whole session, so the
+      // network never goes fully idle. This is a settle window, not a completion signal.
+      await page.waitForLoadState('networkidle', { timeout: 5_000 }).catch(() => {})
 
       // Screen 5 note 3 — the confirmation names the person and the hours at stake.
       // `.click()` rather than `.uncheck()`: clearing the box is what opens the

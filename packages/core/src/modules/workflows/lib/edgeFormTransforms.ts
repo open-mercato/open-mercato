@@ -6,11 +6,10 @@
  */
 
 import type { Edge } from '@xyflow/react'
+import type { GroupCondition } from '@open-mercato/core/modules/business_rules/components/utils/conditionValidation'
 import type { Activity } from '../components/fields/ActivityArrayEditor'
 import type { TransitionCondition } from '../components/fields/BusinessRuleConditionsEditor'
-import { createLogger } from '@open-mercato/shared/lib/logger'
-
-const logger = createLogger('workflows')
+import { parseAdvancedConfigValue } from './advanced-config'
 
 /**
  * Normalized condition format (object only, no string)
@@ -30,8 +29,13 @@ export interface EdgeFormValues {
   continueOnActivityFailure: boolean
   preConditions: NormalizedCondition[]
   postConditions: NormalizedCondition[]
+  // Inline routing condition in the business_rules expression language. Edited
+  // through the same ConditionBuilder the branching inspectors use, so the
+  // condition chip on the canvas has an editor to open.
+  condition?: GroupCondition | null
   activities: Activity[]
-  advancedConfig?: string
+  // JsonBuilder emits the parsed object; legacy callers may still provide a JSON string.
+  advancedConfig?: Record<string, unknown> | string
 }
 
 /**
@@ -91,8 +95,9 @@ export function edgeToFormValues(edge: Edge): EdgeFormValues {
       : false,
     preConditions: normalizeConditions(edgeData?.preConditions || []),
     postConditions: normalizeConditions(edgeData?.postConditions || []),
+    condition: (edgeData?.condition as GroupCondition | undefined) ?? null,
     activities: edgeData?.activities || [],
-    advancedConfig: '', // Advanced config is empty initially (can be populated from edgeData if needed)
+    advancedConfig: undefined, // Advanced config is empty initially (can be populated from edgeData if needed)
   }
 }
 
@@ -113,18 +118,14 @@ export function formValuesToEdgeUpdates(
     continueOnActivityFailure: values.continueOnActivityFailure,
     preConditions: values.preConditions.length > 0 ? values.preConditions : undefined,
     postConditions: values.postConditions.length > 0 ? values.postConditions : undefined,
+    condition: values.condition ?? undefined,
     activities: values.activities.length > 0 ? values.activities : undefined,
   }
 
-  // Parse advanced config (JSON) and merge
-  if (values.advancedConfig && values.advancedConfig.trim()) {
-    try {
-      const parsed = JSON.parse(values.advancedConfig)
-      Object.assign(updates, parsed)
-    } catch (error) {
-      logger.error('Invalid JSON in Advanced Configuration', { err: error })
-      throw new Error('Invalid JSON in Advanced Configuration. Please check your syntax.')
-    }
+  // Merge the advanced config (object from JsonBuilder, or legacy JSON string)
+  const advanced = parseAdvancedConfigValue(values.advancedConfig)
+  if (advanced) {
+    Object.assign(updates, advanced)
   }
 
   return updates

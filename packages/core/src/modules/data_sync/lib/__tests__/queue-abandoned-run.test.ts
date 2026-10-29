@@ -108,7 +108,11 @@ describe('data_sync queue — abandoned job repair', () => {
   })
 
   it('leaves a run that already finished in its terminal state', async () => {
-    const em = { flush: jest.fn().mockResolvedValue(undefined) }
+    const em = {
+      flush: jest.fn().mockResolvedValue(undefined),
+      nativeUpdate: jest.fn().mockResolvedValue(0),
+      refresh: jest.fn().mockResolvedValue(undefined),
+    }
     const run = { id: 'run-1', status: 'completed' as const, lastError: null }
     ;(findOneWithDecryption as jest.Mock).mockImplementation((_em: unknown, entity: unknown) =>
       Promise.resolve(entity === SyncRun ? run : null),
@@ -127,5 +131,10 @@ describe('data_sync queue — abandoned job repair', () => {
     expect(run.status).toBe('completed')
     expect(run.lastError).toBeNull()
     expect(em.flush).not.toHaveBeenCalled()
+    expect(em.nativeUpdate).toHaveBeenCalledWith(
+      SyncRun,
+      expect.objectContaining({ status: { $in: ['pending', 'running', 'paused', 'failed'] } }),
+      expect.objectContaining({ status: 'failed' }),
+    )
   })
 })

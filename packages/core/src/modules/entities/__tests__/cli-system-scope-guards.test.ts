@@ -13,6 +13,7 @@ const find = jest.fn()
 const create = jest.fn((_entity: unknown, data: Record<string, unknown>) => data)
 const persist = jest.fn(() => ({ flush: jest.fn(async () => {}) }))
 const findOne = jest.fn(async () => null)
+const invalidateMap = jest.fn(async () => undefined)
 
 const declaredMaps = [
   {
@@ -50,7 +51,8 @@ jest.mock('@open-mercato/shared/lib/encryption/tenantDataEncryptionService', () 
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: async () => ({
-    resolve: () => ({
+    resolve: (name: string) => name === 'tenantEncryptionService' ? { invalidateMap } : ({
+      execute,
       getConnection: () => ({ execute }),
       getMetadata: () => ({
         getAll: () => ([{
@@ -137,10 +139,42 @@ describe('entities CLI system-scope guards', () => {
   })
 
   it('seed-encryption persists tenant-scoped maps only', async () => {
+    execute.mockResolvedValue([{ id: 'map-1', updated_at: new Date('2020-01-01T00:00:00.000Z') }])
+
     await loadCommand('seed-encryption').run(['--tenant', 'tenant-1'])
 
-    const persistedEntityIds = create.mock.calls.map(([, data]) => data.entityId)
-    expect(persistedEntityIds).toEqual(['customers:person'])
+    const seedCalls = execute.mock.calls.filter(([sql]) => String(sql).includes('insert into "encryption_maps"'))
+    expect(seedCalls).toHaveLength(1)
+    expect(seedCalls[0]?.[1]?.[0]).toBe('customers:person')
+    expect(String(seedCalls[0]?.[0])).toContain('on conflict ("entity_id", "tenant_id", "organization_id")')
+    expect(invalidateMap).toHaveBeenCalledWith('customers:person', 'tenant-1', null)
     expect(logSpy.mock.calls.flat().join('\n')).toContain('Skipping onboarding:onboarding_request: system-scoped map')
+  })
+
+  it('invalidates every completed autocommit before a later map fails', async () => {
+    declaredMaps.push({
+      entityId: 'customers:company',
+      keyScope: 'tenant',
+      fields: [{ field: 'name' }],
+    })
+    let writes = 0
+    execute.mockImplementation(async () => {
+      writes += 1
+      if (writes === 2) throw new Error('second map failed')
+      return [{ id: 'map-1', updated_at: new Date('2020-01-01T00:00:00.000Z') }]
+    })
+
+    try {
+      await expect(loadCommand('seed-encryption').run(['--tenant', 'tenant-1']))
+        .rejects.toThrow('second map failed')
+    } finally {
+      declaredMaps.pop()
+    }
+
+    expect(invalidateMap.mock.calls).toEqual([
+      ['customers:person', 'tenant-1', null],
+    ])
+    expect(logSpy.mock.calls.flat().join('\n')).toContain('Seeded encryption map for customers:person')
+    expect(logSpy.mock.calls.flat().join('\n')).not.toContain('Seeded encryption map for customers:company')
   })
 })

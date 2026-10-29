@@ -6,6 +6,7 @@ import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/er
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
@@ -77,11 +78,7 @@ export async function GET(req: Request) {
     }
 
     const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
-    const organizationIds = Array.isArray(scope?.filterIds) && scope.filterIds.length > 0
-      ? scope.filterIds
-      : auth.orgId
-        ? [auth.orgId]
-        : []
+    const { organizationIds, rbacOrganizationId } = resolveOrganizationScopeFilter(scope, auth)
 
     const offsetMinutes = query.timezoneOffsetMinutes ?? 0
     const offsetSign = offsetMinutes >= 0 ? '+' : '-'
@@ -94,6 +91,9 @@ export async function GET(req: Request) {
 
     if (Number.isNaN(windowStart.getTime()) || Number.isNaN(windowEnd.getTime())) {
       throw new CrudHttpError(400, { error: translate('customers.errors.invalid_date_time', 'Invalid date/time') })
+    }
+    if (organizationIds?.length === 0) {
+      return NextResponse.json({ ok: true, result: { hasConflicts: false, conflicts: [] } })
     }
 
     const checkUserId = query.userId ?? auth.userId
@@ -108,9 +108,9 @@ export async function GET(req: Request) {
       .where('scheduled_at', 'is not', null)
       .where('deleted_at', 'is', null)
 
-    if (organizationIds.length === 1) {
+    if (organizationIds?.length === 1) {
       baseQuery = baseQuery.where('organization_id', '=', organizationIds[0])
-    } else if (organizationIds.length > 1) {
+    } else if (organizationIds && organizationIds.length > 1) {
       baseQuery = baseQuery.where('organization_id', 'in', organizationIds)
     }
 
@@ -149,7 +149,7 @@ export async function GET(req: Request) {
 
     const decryptionScope = {
       tenantId: auth.tenantId ?? null,
-      organizationId: auth.orgId ?? null,
+      organizationId: rbacOrganizationId,
     }
     const conflictIds = rows.map((row) => row.id)
     const interactionFilter: Record<string, unknown> = {
@@ -157,9 +157,9 @@ export async function GET(req: Request) {
       tenantId: auth.tenantId,
       deletedAt: null,
     }
-    if (organizationIds.length === 1) {
+    if (organizationIds?.length === 1) {
       interactionFilter.organizationId = organizationIds[0]
-    } else if (organizationIds.length > 1) {
+    } else if (organizationIds && organizationIds.length > 1) {
       interactionFilter.organizationId = { $in: organizationIds }
     }
     const decryptedInteractions = conflictIds.length > 0

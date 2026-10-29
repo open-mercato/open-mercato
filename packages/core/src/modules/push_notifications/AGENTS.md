@@ -18,8 +18,12 @@ FCM/APNs/Expo channel packages). Spec: `.ai/specs/2026-04-28-push-notifications-
   transient failures with exponential backoff + jitter (3 attempts, shared
   `@open-mercato/shared/lib/delivery/retry`), records `next_retry_at`, and marks the row `expired` once
   retries are exhausted (vs `failed` for terminal errors); on the `unregistered` sentinel soft-deletes the device.
-- **Queue** (`lib/queue.ts`) mirrors the webhooks queue: `createModuleQueue` + `enqueuePushDelivery` +
-  a local-worker bootstrap for dev/test (`QUEUE_STRATEGY !== 'async'`).
+- **Queue** (`lib/queue.ts`) mirrors the webhooks queue: `createModuleQueue` + `enqueuePushDelivery`.
+  It is enqueue-only in BOTH strategies — the consumer is always `workers/send-push.worker.ts`, run by
+  a worker process (`async`) or the local worker runner / `drainIntegrationQueue` (local). Never boot a
+  consumer from the enqueue path: the local strategy's `process()` only returns after its first drain, so
+  awaiting it runs the send inside the enqueueing request, and a retryable send re-enqueues from within
+  that handler and deadlocks on its own bootstrap.
 - **Reaper** (`lib/push-reaper.ts` → `workers/reclaim-stuck.worker.ts`) recovers rows stranded in
   `sending` by a crashed worker — the send-path claim only matches `pending`, so such a row has no
   outstanding job and would never terminate. A per-tenant `@open-mercato/scheduler` interval entry
@@ -61,9 +65,9 @@ FCM/APNs/Expo channel packages). Spec: `.ai/specs/2026-04-28-push-notifications-
 - Never export `OM_PUSH_FAKE_PROVIDERS` by hand and point `TC-PUSH-004+` / `TC-CHANNEL-PUSH-005..007` at a
   live server that does not itself have it. Their `.meta.ts` gate skips them when the flag is absent from the
   test process, which is the protection you want; exporting it defeats that gate. The fake swaps the provider
-  SDK client in `di.ts` `register()`, so whichever process claims the delivery job must have the flag — a dev
-  server without it runs its in-process worker against the **real** provider, and on real credentials that
-  means a real push to the recipient's real devices. Start the server with `OM_PUSH_FAKE_PROVIDERS=1`, or use
+  SDK client in `di.ts` `register()`, so whichever process claims the delivery job must have the flag — a
+  worker without it sends against the **real** provider, and on real credentials that means a real push to
+  the recipient's real devices. Start the worker (and the server) with `OM_PUSH_FAKE_PROVIDERS=1`, or use
   the ephemeral harness, which sets it for both the app and the drain child.
 - Resolve cross-module entities (`UserDevice`, `CommunicationChannel`) via DI tokens (`ctx.resolve(...)`),
   not import-time references, to stay decoupled.

@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
@@ -46,7 +47,7 @@ async function resolveSettingsContext(req: Request): Promise<SettingsRouteContex
   }
 
   const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
-  const organizationId = scope?.selectedId ?? auth.orgId ?? null
+  const organizationId = resolveSingleOrganizationIdOrDeny(scope, auth) ?? null
   if (!organizationId) {
     throw new CrudHttpError(400, {
       error: translate('sales.settings.errors.organization_required', 'Organization context is required'),
@@ -230,6 +231,11 @@ export const openApi: OpenApiRouteDoc = {
       responses: [
         { status: 200, description: 'Updated order editing guards', schema: settingsResponseSchema },
         { status: 401, description: 'Unauthorized', schema: settingsErrorSchema },
+        {
+          status: 403,
+          description: 'Changing a document-number counter requires sales.documents.number.edit',
+          schema: settingsErrorSchema,
+        },
         { status: 400, description: 'Invalid payload', schema: settingsErrorSchema },
       ],
     },

@@ -6,5 +6,5 @@ const packageDir = dirname(fileURLToPath(import.meta.url))
 
 await buildPackage(packageDir, {
   name: 'telemetry',
-  entryPoints: 'src/**/*.ts',
+  entryPoints: 'src/**/*.{ts,tsx}',
 })

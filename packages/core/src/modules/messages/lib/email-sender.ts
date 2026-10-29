@@ -1,4 +1,3 @@
-import * as React from 'react'
 import { promises as fs } from 'fs'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { sendEmail } from '@open-mercato/shared/lib/email/send'
@@ -12,6 +11,7 @@ import MessageEmail from '../emails/MessageEmail'
 import { resolveAttachmentAbsolutePath } from '../../attachments/lib/storage'
 import { generateAuthToken, hashAuthToken } from '../../auth/lib/tokenHash'
 import type { MessageEmailAttachment } from './attachments'
+import { renderMarkdownEmailBody } from './markdownEmailBody'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('messages').child({ component: 'email-sender' })
@@ -97,22 +97,6 @@ async function mapAttachmentsForEmail(
   }
 
   return emailAttachments
-}
-
-async function renderMarkdownEmailBody(body: string) {
-  const ReactMarkdownModule = await import('react-markdown')
-  const remarkGfmModule = await import('remark-gfm')
-  const ReactMarkdown =
-    (ReactMarkdownModule.default ?? ReactMarkdownModule) as React.ComponentType<{
-      remarkPlugins?: unknown
-      children?: React.ReactNode
-    }>
-  const remarkGfmPlugin = remarkGfmModule.default ?? remarkGfmModule
-  const { renderToStaticMarkup } = await import('react-dom/server')
-
-  return renderToStaticMarkup(
-    React.createElement(ReactMarkdown, { remarkPlugins: [remarkGfmPlugin] }, body),
-  )
 }
 
 async function buildEmailBodyHtml(message: Message): Promise<string | undefined> {

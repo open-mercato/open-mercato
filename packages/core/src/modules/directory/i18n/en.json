@@ -23,6 +23,7 @@
   "directory.branding.flash.saved": "Organization branding updated",
   "directory.branding.loading": "Loading organization branding...",
   "directory.branding.nav": "Organization branding",
+  "directory.branding.organizationRequired": "Branding is managed for one organization at a time. Select a single organization to continue.",
   "directory.branding.previewAlt": "{{name}} logo preview",
   "directory.branding.title": "Organization branding",
   "directory.branding.url.hint": "Use an external image URL or leave empty to fall back to the default Open Mercato logo.",

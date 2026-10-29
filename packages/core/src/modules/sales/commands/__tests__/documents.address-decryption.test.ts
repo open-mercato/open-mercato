@@ -166,7 +166,10 @@ describe('#3038 — sales document shipping address is decrypted before snapshot
     const quote = makeQuote()
     const em = makeEm(quote)
     const container = createContainer({ injectionMode: InjectionMode.CLASSIC })
-    container.register({ em: asValue(em) })
+    container.register({
+      em: asValue(em),
+      dataEngine: asValue({ markOrmEntityChange: jest.fn() }),
+    })
     const ctx: any = {
       container,
       auth: { tenantId: TENANT_ID, orgId: ORG_ID, sub: 'user-1' },

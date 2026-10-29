@@ -3,9 +3,11 @@ name: Develop Snapshot Release
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
 
+# Every push to main (the next minor) publishes a snapshot. The channel and dist-tag keep the
+# `develop` name from the retired develop branch so `@open-mercato/*@develop` installs keep working.
 on:
   push:
-    branches: [develop]
+    branches: [main]
 
 permissions:
   contents: read
@@ -148,7 +150,7 @@ jobs:
     services:
       postgres:
         # MUST match the pgvector-enabled image used by local dev / prod
-        # (docker-compose.yml, docker-compose.fullapp.yml) — plain `postgres:17`
+        # (starters/docker/compose.infra.yml, starters/docker/compose.fullapp.yml) — plain `postgres:17`
         # lacks the `vector` extension, so `CREATE EXTENSION vector` fails and
         # any vector-search codepath exercised by the integration suite breaks.
         image: pgvector/pgvector:pg17-trixie

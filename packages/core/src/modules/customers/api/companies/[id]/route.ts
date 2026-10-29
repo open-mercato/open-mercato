@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import {
   CustomerEntity,
@@ -38,6 +39,7 @@ import {
 import { resolveCustomerInteractionFeatureFlags } from '../../../lib/interactionFeatureFlags'
 import { hydrateCanonicalInteractions } from '../../../lib/interactionReadModel'
 import { buildEmailVisibilityMikroFilter } from '../../../lib/visibilityFilter'
+import { listGrantsForViewer, listSharedChannelIds } from '../../../lib/conversationShares'
 import { resolveCustomerDetailTenantScope } from '../../../lib/detailTenantScope'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
@@ -453,7 +455,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
     { populate: ['companyProfile'] },
     {
       tenantId: auth.tenantId ?? null,
-      organizationId: scope?.selectedId ?? auth.orgId ?? null,
+      organizationId: resolveSingleOrganizationIdOrDeny(scope, auth) ?? null,
     },
   )
   if (!company) return notFound('Company not found')
@@ -471,7 +473,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
 
   const companyScope = {
     tenantId: company.tenantId ?? auth.tenantId ?? null,
-    organizationId: company.organizationId ?? scope?.selectedId ?? auth.orgId ?? null,
+    organizationId: company.organizationId ?? resolveSingleOrganizationIdOrDeny(scope, auth) ?? null,
   }
 
   // Per-user email privacy (CRM email integration): exclude private email
@@ -483,9 +485,21 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
   // Mirrors the people detail route. API-key callers resolve to null
   // (no author match — shared/non-email rows only).
   const viewerUserId = auth.isApiKey ? null : (auth.sub ?? null)
+  // Company detail spans many Persons, so it uses the capped tenant-wide grant
+  // list rather than a per-Person lookup.
+  const companyEmailScope = {
+    tenantId: companyScope.tenantId,
+    organizationId: companyScope.organizationId,
+  }
+  const [companyShareGrants, companySharedChannelIds] = await Promise.all([
+    listGrantsForViewer(em, companyEmailScope, viewerUserId),
+    listSharedChannelIds(em, companyEmailScope, viewerUserId),
+  ])
   const emailVisibilityFilter = buildEmailVisibilityMikroFilter({
     currentUserId: viewerUserId,
     userFeatures: undefined,
+    sharedConversations: companyShareGrants,
+    sharedChannelIds: companySharedChannelIds,
   })
 
   // Opt-in cache (#3664): the company existence + org read-access checks above
@@ -499,7 +513,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
         tenantId: cacheTenantId,
         organizationId: companyScope.organizationId,
         companyId: company.id,
-        selectedOrganizationId: scope?.selectedId ?? auth.orgId ?? null,
+        selectedOrganizationId: resolveSingleOrganizationIdOrDeny(scope, auth) ?? null,
         filterIds: scope?.filterIds ?? null,
         allowedIds: scope?.allowedIds ?? null,
         isSuperAdmin: auth.isSuperAdmin === true,
@@ -619,7 +633,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
         em,
         container,
         auth,
-        selectedOrganizationId: scope?.selectedId ?? auth.orgId ?? null,
+        selectedOrganizationId: resolveSingleOrganizationIdOrDeny(scope, auth) ?? null,
         interactions: canonicalActiveInteractions,
         enrich: includeInteractions,
       })
@@ -656,7 +670,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
         em,
         container,
         auth,
-        selectedOrganizationId: scope?.selectedId ?? auth.orgId ?? null,
+        selectedOrganizationId: resolveSingleOrganizationIdOrDeny(scope, auth) ?? null,
         interactions: plannedPreviewRows,
         enrich: true,
       })
@@ -805,7 +819,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
 
   const peopleUnionScope = {
     tenantId: company.tenantId ?? auth.tenantId ?? null,
-    organizationId: company.organizationId ?? scope?.selectedId ?? auth.orgId ?? null,
+    organizationId: company.organizationId ?? resolveSingleOrganizationIdOrDeny(scope, auth) ?? null,
   }
   let relatedPeople: CompanyPersonUnionEntry[] = []
   if (includePeople) {
