@@ -555,6 +555,14 @@ const STICKY_RIGHT_SHADOW_CLASS =
   'md:before:absolute md:before:inset-y-0 md:before:-left-2 md:before:w-2 md:before:bg-gradient-to-l md:before:from-foreground/8 md:before:to-transparent md:before:pointer-events-none'
 const STICKY_LEFT_SHADOW_CLASS =
   'md:after:absolute md:after:inset-y-0 md:after:-right-2 md:after:w-2 md:after:bg-gradient-to-r md:after:from-foreground/8 md:after:to-transparent md:after:pointer-events-none'
+// Pinned cells need an opaque background so scrolled columns don't show through,
+// which also hides the translucent tints painted behind them (the `bg-muted/40`
+// header strip on `<thead>`, the `bg-muted/30` row hover on `<tr>`). A flat
+// gradient (equal stops) layers the same tint over the opaque surface, so the
+// pinned cell composites to exactly what the transparent cells show (#7414).
+const STICKY_HEADER_TINT_CLASS = 'md:bg-linear-to-r md:from-muted/40 md:to-muted/40'
+const STICKY_ROW_HOVER_TINT_CLASS =
+  'md:group-hover/row:bg-linear-to-r md:group-hover/row:from-muted/30 md:group-hover/row:to-muted/30'
 
 export type BulkActionExecuteResult = {
   ok: boolean
@@ -3618,19 +3626,24 @@ function DataTableImpl<T extends RowData>({
   // `isolate` keeps the z-index of pinned cells local to the table so they
   // scroll beneath the sticky app top bar instead of over it.
   const tableScrollWrapperClassName = embedded ? 'isolate' : 'isolate overflow-auto'
+  // Non-embedded tables sit on the `bg-card` container above; embedded ones
+  // render on whatever surface hosts them, so they keep the page background.
+  const stickySurfaceClass = embedded ? 'md:bg-background' : 'md:bg-card'
+  const stickyHeaderSurfaceClass = `${stickySurfaceClass} ${STICKY_HEADER_TINT_CLASS}`
+  const stickyBodySurfaceClass = `${stickySurfaceClass} ${STICKY_ROW_HOVER_TINT_CLASS}`
 
   const virtualScrollRef = React.useRef<HTMLDivElement>(null)
-  // Measure the horizontal scroll viewport so the empty state can center within
+  // Measure the horizontal scroll viewport so the empty and error states can center within
   // the visible area instead of within the (often wider, overflowing) table.
   const [tableScrollEl, setTableScrollEl] = React.useState<HTMLDivElement | null>(null)
-  const [emptyStateViewportWidth, setEmptyStateViewportWidth] = React.useState<number | null>(null)
+  const [scrollViewportWidth, setScrollViewportWidth] = React.useState<number | null>(null)
   const setTableScrollWrapperRef = React.useCallback((node: HTMLDivElement | null) => {
     setTableScrollEl(node)
     virtualScrollRef.current = node
   }, [])
   React.useEffect(() => {
     if (!tableScrollEl || typeof ResizeObserver === 'undefined') return
-    const update = () => setEmptyStateViewportWidth(tableScrollEl.clientWidth)
+    const update = () => setScrollViewportWidth(tableScrollEl.clientWidth)
     update()
     const observer = new ResizeObserver(update)
     observer.observe(tableScrollEl)
@@ -3797,7 +3810,7 @@ function DataTableImpl<T extends RowData>({
                   const columnMeta = (header.column.columnDef as any)?.meta
                   const priority = resolvePriority(header.column)
                   const isFirstDataColumn = headerIndex === 0
-                  const stickyClass = stickyFirstColumn && isFirstDataColumn ? ` md:sticky md:left-0 md:z-10 md:bg-background ${STICKY_LEFT_SHADOW_CLASS}` : ''
+                  const stickyClass = stickyFirstColumn && isFirstDataColumn ? ` md:sticky md:left-0 md:z-10 ${stickyHeaderSurfaceClass} ${STICKY_LEFT_SHADOW_CLASS}` : ''
                   const isColumnSortable = sortable && !!header.column.getCanSort?.()
                   const headerContent = header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())
                   // Columns that can't be sorted (e.g. a manual "select" checkbox column) may render
@@ -3853,7 +3866,7 @@ function DataTableImpl<T extends RowData>({
                   <TableHead
                     className={cn(
                       actionsColumnAlign === 'center' ? 'w-0 text-center' : 'w-0 text-right',
-                      stickyActionsColumn && `md:sticky md:right-0 md:z-20 md:bg-background ${STICKY_RIGHT_SHADOW_CLASS}`,
+                      stickyActionsColumn && `md:sticky md:right-0 md:z-20 ${stickyHeaderSurfaceClass} ${STICKY_RIGHT_SHADOW_CLASS}`,
                     )}
                   >
                     {t('ui.dataTable.actionsColumn', 'Actions')}
@@ -3874,8 +3887,13 @@ function DataTableImpl<T extends RowData>({
               </TableRow>
             ) : error ? (
               <TableRow>
-                <TableCell colSpan={mergedColumns.length + (rowActions || injectedRowActions.length > 0 ? 1 : 0) + (hasInjectedBulkActions ? 1 : 0)} className="h-24 text-center text-destructive">
-                  {error}
+                <TableCell colSpan={mergedColumns.length + (rowActions || injectedRowActions.length > 0 ? 1 : 0) + (hasInjectedBulkActions ? 1 : 0)} className="p-0">
+                  <div
+                    className={cn('sticky left-0 flex min-h-24 items-center justify-center px-4 text-center text-destructive', scrollViewportWidth ? '' : 'w-fit')}
+                    style={scrollViewportWidth ? { width: scrollViewportWidth } : undefined}
+                  >
+                    {error}
+                  </div>
                 </TableCell>
               </TableRow>
             ) : allRows.length ? (
@@ -3899,7 +3917,7 @@ function DataTableImpl<T extends RowData>({
                   <TableRow 
                     key={row.id} 
                     data-state={row.getIsSelected() && 'selected'}
-                    className={isClickable ? 'cursor-pointer hover:bg-muted/50 transition-colors' : ''}
+                    className={cn('group/row', isClickable && 'cursor-pointer hover:bg-muted/50 transition-colors')}
                     onClick={isClickable ? (e) => {
                       // Don't trigger row click if clicking on actions cell
                       if ((e.target as HTMLElement).closest('[data-actions-cell]')) {
@@ -4014,7 +4032,7 @@ function DataTableImpl<T extends RowData>({
                       return (
                         <TableCell
                           key={cell.id}
-                          className={responsiveClass(priority, columnMeta?.hidden) + (isStickyCell ? ` md:sticky md:left-0 md:z-10 md:bg-background ${STICKY_LEFT_SHADOW_CLASS}` : '')}
+                          className={responsiveClass(priority, columnMeta?.hidden) + (isStickyCell ? ` md:sticky md:left-0 md:z-10 ${stickyBodySurfaceClass} ${STICKY_LEFT_SHADOW_CLASS}` : '')}
                           style={typeof sizedWidth === 'number' ? { width: sizedWidth, minWidth: sizedWidth, maxWidth: sizedWidth } : undefined}
                         >
                           {expandAffordance ? (
@@ -4030,7 +4048,7 @@ function DataTableImpl<T extends RowData>({
                       <TableCell
                         className={cn(
                           actionsColumnAlign === 'center' ? 'text-center whitespace-nowrap' : 'text-right whitespace-nowrap',
-                          stickyActionsColumn && `md:sticky md:right-0 md:z-10 md:bg-background ${STICKY_RIGHT_SHADOW_CLASS}`,
+                          stickyActionsColumn && `md:sticky md:right-0 md:z-10 ${stickyBodySurfaceClass} ${STICKY_RIGHT_SHADOW_CLASS}`,
                         )}
                         data-actions-cell
                       >
@@ -4051,8 +4069,8 @@ function DataTableImpl<T extends RowData>({
               <TableRow>
                 <TableCell colSpan={mergedColumns.length + (rowActions || injectedRowActions.length > 0 ? 1 : 0) + (hasInjectedBulkActions ? 1 : 0)} className="p-0">
                   <div
-                    className={cn('sticky left-0 flex justify-center py-6', emptyStateViewportWidth ? '' : 'w-fit')}
-                    style={emptyStateViewportWidth ? { width: emptyStateViewportWidth } : undefined}
+                    className={cn('sticky left-0 flex justify-center py-6', scrollViewportWidth ? '' : 'w-fit')}
+                    style={scrollViewportWidth ? { width: scrollViewportWidth } : undefined}
                   >
                     {filterAwareEmptyState?.active ? (
                       <FilteredEmptyResults
