@@ -140,11 +140,11 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
     organizationIds: scope.filterIds,
     userId: auth.sub,
   }
-  const existing = await progressService.getJob(params.id, progressContext)
-  if (!existing || !(await canMutateProgressJob(container, auth, existing))) {
-    return cannotCancelJobResponse()
-  }
   try {
+    const existing = await progressService.getJob(params.id, progressContext)
+    if (!existing || !(await canMutateProgressJob(container, auth, existing))) {
+      return cannotCancelJobResponse()
+    }
     await progressService.cancelJob(params.id, progressContext)
     return NextResponse.json({ ok: true })
   } catch {

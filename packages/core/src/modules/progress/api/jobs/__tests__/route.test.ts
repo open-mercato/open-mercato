@@ -528,6 +528,19 @@ describe('progress jobs route', () => {
       await expect(response.json()).resolves.toEqual({ error: 'Cannot cancel this job' })
       expect(mockCancelJob).not.toHaveBeenCalled()
     })
+
+    it('keeps the documented 400 when the job lookup rejects for a malformed id', async () => {
+      mockGetJob.mockRejectedValueOnce(new Error('[internal] invalid input syntax for type uuid: "not-a-uuid"'))
+
+      const response = await detailDeleteHandler(
+        new Request('http://localhost/api/progress/jobs/not-a-uuid', { method: 'DELETE' }),
+        { params: { id: 'not-a-uuid' } },
+      )
+
+      expect(response.status).toBe(400)
+      await expect(response.json()).resolves.toEqual({ error: 'Cannot cancel this job' })
+      expect(mockCancelJob).not.toHaveBeenCalled()
+    })
   })
 
   it('returns an empty active payload without sweeping for explicit empty scope', async () => {
