@@ -188,6 +188,7 @@ export default function PaymentTransactionsPage() {
   const [search, setSearch] = React.useState('')
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
   const [isLoading, setIsLoading] = React.useState(true)
+  const [loadError, setLoadError] = React.useState<string | null>(null)
   const [selectedId, setSelectedId] = React.useState<string | null>(null)
   const [detail, setDetail] = React.useState<TransactionDetail | null>(null)
   const [isLoadingDetail, setIsLoadingDetail] = React.useState(false)
@@ -228,12 +229,15 @@ export default function PaymentTransactionsPage() {
     const fallback: TransactionsResponse = { items: [], total: 0, page, pageSize: 20, totalPages: 1 }
     const call = await apiCall<TransactionsResponse>(`/api/payment_gateways/transactions?${params.toString()}`, undefined, { fallback })
     if (call.ok && call.result) {
+      setLoadError(null)
       setRows(Array.isArray(call.result.items) ? call.result.items : [])
       setTotal(call.result.total ?? 0)
       setTotalPages(call.result.totalPages ?? 1)
       setTotalIsCapped(call.result?.totalIsCapped === true)
     } else {
-      flash(t('payment_gateways.transactions.error.load', 'Failed to load payment transactions'), 'error')
+      const message = t('payment_gateways.transactions.error.load', 'Failed to load payment transactions')
+      flash(message, 'error')
+      setLoadError(message)
       setRows([])
       setTotal(0)
       setTotalPages(1)
@@ -480,6 +484,7 @@ export default function PaymentTransactionsPage() {
           perspective={{ tableId: extensionPoints.hosts.transactionsTable.tableId }}
           pagination={{ page, pageSize: 20, total, totalPages, totalIsCapped, onPageChange: setPage }}
           isLoading={isLoading}
+          error={loadError}
           onRowClick={(row) => setSelectedId((current) => current === row.id ? null : row.id)}
           rowActions={(row) => (
             <RowActions items={[

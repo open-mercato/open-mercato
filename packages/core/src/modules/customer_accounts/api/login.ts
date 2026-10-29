@@ -21,6 +21,8 @@ import {
   resolveTenantContext,
   TenantResolutionError,
 } from '@open-mercato/core/modules/customer_accounts/lib/resolveTenantContext'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { isCrossSiteBrowserRequest } from '@open-mercato/shared/lib/url'
 
 export const metadata: { path?: string; requireAuth?: boolean } = { requireAuth: false }
 
@@ -34,6 +36,10 @@ function reportLoginEventError(error: unknown): void {
 }
 
 export async function POST(req: Request) {
+  if (isCrossSiteBrowserRequest(req)) {
+    const { translate } = await resolveTranslations()
+    return NextResponse.json({ ok: false, error: translate('customer_accounts.errors.crossSiteRequest', 'This sign-in request did not come from this application. Open the sign-in page and try again.') }, { status: 403 })
+  }
   let body: unknown
   try {
     body = await req.json()
@@ -199,6 +205,7 @@ const methodDoc: OpenApiMethodDoc = {
   errors: [
     { status: 400, description: 'Validation failed', schema: errorSchema },
     { status: 401, description: 'Invalid credentials', schema: errorSchema },
+    { status: 403, description: 'Request was submitted cross-site', schema: errorSchema },
     { status: 429, description: 'Too many login attempts', schema: rateLimitErrorSchema },
   ],
 }

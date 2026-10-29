@@ -11,6 +11,8 @@
   "feature_toggles.detail.fields.failMode": "Modo de Fallo",
   "feature_toggles.detail.fields.identifier": "Identificador",
   "feature_toggles.detail.fields.name": "Nombre",
+  "feature_toggles.errors.overrideRedoConflict": "Ya existe una anulación para este indicador de función. Se rechazó rehacer la acción.",
+  "feature_toggles.errors.overrideUndoConflict": "Esta anulación cambió desde la acción que estás deshaciendo. Se rechazó deshacer la acción.",
   "feature_toggles.form.action.save": "Guardar",
   "feature_toggles.form.errors.load": "Error al cargar las anulaciones de interruptores de funciones",
   "feature_toggles.form.fields.category.label": "Categoría",
