@@ -34,7 +34,8 @@ describe('catalog edit pages — optimistic-lock single header source', () => {
     // reconciles `values` against `initialValues` on every change and re-applies
     // every field the user isn't still mid-edit on, so refreshing `updatedAt` alone
     // would leave every other field pinned to its pre-save snapshot (#6170).
-    expect(productPageSource).toContain('...values,')
+    // The UoM decimals are re-rendered in the viewer's locale on the way back (#6309).
+    expect(productPageSource).toContain('...withLocaleUomFields(values, locale),')
     expect(productPageSource).toContain('updatedAt: refreshedUpdatedAt ?? prev.updatedAt')
   })
 

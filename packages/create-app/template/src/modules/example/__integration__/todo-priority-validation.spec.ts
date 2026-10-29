@@ -105,6 +105,7 @@ test.describe('Todo priority validation', () => {
     try {
       await login(page, 'admin')
       await page.goto('/backend/todos/create', { waitUntil: 'commit' })
+      await expect(page.getByText('Example Injection Widget', { exact: true })).toBeVisible()
 
       const titleInput = page.locator('[data-crud-field-id="title"] input').first()
       const priorityField = page.locator('[data-crud-field-id="cf_priority"]').first()
@@ -126,7 +127,9 @@ test.describe('Todo priority validation', () => {
 
       await priorityInput.fill('5')
       await severitySelect.click()
-      await page.getByRole('option', { name: 'Medium' }).click()
+      const severityOption = page.getByRole('option', { name: 'Medium', exact: true })
+      await expect(severityOption).toBeInViewport()
+      await severityOption.click()
       await form.locator('button[type="submit"]').first().click()
 
       await expect(page).toHaveURL(/\/backend\/todos(?:\?.*)?$/)
