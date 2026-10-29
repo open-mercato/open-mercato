@@ -206,7 +206,6 @@ function resolveDebugVerbosity(): boolean {
 
 type AnyDb = Kysely<any>
 type AnyBuilder = any
-type NormalizedFilter = { field: string; op: FilterOp; value?: unknown }
 type IndexDocSource = { alias: string; entityId: EntityId; recordIdColumn: string }
 type PreparedCustomFieldSource = {
   join: NonNullable<QueryCustomFieldSource['join']>
