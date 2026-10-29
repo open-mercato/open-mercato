@@ -904,6 +904,7 @@ type DocumentRecord = {
   metadata?: Record<string, unknown> | null
   customFields?: Record<string, unknown> | null
   tags?: TagOption[] | null
+  validUntil?: string | null
 }
 
 type DocumentUpdateResult = {
@@ -970,6 +971,18 @@ const resolveLineItemCount = (record: unknown): number | null => {
   const current = (record as any).lineItemCount ?? (record as any).line_item_count
   if (typeof current !== 'number') return null
   return Number.isFinite(current) ? current : null
+}
+
+const DEFAULT_QUOTE_VALID_FOR_DAYS = 14
+const MS_PER_DAY = 24 * 60 * 60 * 1000
+
+export function resolveDefaultValidForDays(validUntil: string | null | undefined): number {
+  if (!validUntil) return DEFAULT_QUOTE_VALID_FOR_DAYS
+  const target = new Date(validUntil)
+  if (Number.isNaN(target.getTime())) return DEFAULT_QUOTE_VALID_FOR_DAYS
+  const daysRemaining = Math.ceil((target.getTime() - Date.now()) / MS_PER_DAY)
+  if (daysRemaining < 1) return DEFAULT_QUOTE_VALID_FOR_DAYS
+  return Math.min(daysRemaining, 365)
 }
 
 async function fetchDocument(id: string, kind: 'order' | 'quote', errorMessage: string): Promise<DocumentRecord | null> {
@@ -1926,7 +1939,7 @@ export default function SalesDocumentDetailPage({
   const [deleting, setDeleting] = React.useState(false)
   const [sending, setSending] = React.useState(false)
   const [sendOpen, setSendOpen] = React.useState(false)
-  const [validForDays, setValidForDays] = React.useState(14)
+  const [validForDays, setValidForDays] = React.useState(DEFAULT_QUOTE_VALID_FOR_DAYS)
   const [numberEditing, setNumberEditing] = React.useState(false)
   const [canEditNumber, setCanEditNumber] = React.useState(false)
   const [currencyError, setCurrencyError] = React.useState<string | null>(null)
@@ -1954,7 +1967,7 @@ export default function SalesDocumentDetailPage({
   const statusOptionsRef = React.useRef<Map<string, StatusOption>>(new Map())
   const [adjustmentRows, setAdjustmentRows] = React.useState<AdjustmentRowData[]>([])
   const mutationContextId = React.useMemo(
-    () => (record?.id ? `sales-document:${kind}:${record.id}` : `sales-document:${kind}:pending`),
+    () => `record-lock:sales.${kind}:${record?.id ?? 'pending'}`,
     [kind, record?.id],
   )
   const detailsInjectionSpotId = React.useMemo(
@@ -1967,6 +1980,7 @@ export default function SalesDocumentDetailPage({
     formId: string
     resourceKind: string
     resourceId?: string
+    operation?: 'delete'
     retryLastMutation: () => Promise<boolean>
   }>({
     contextId: mutationContextId,
@@ -3720,23 +3734,27 @@ export default function SalesDocumentDetailPage({
     if (!record || kind !== 'quote') return
     setConverting(true)
     try {
-      await runMutationWithContext(async () => {
-        const call = await apiCallOrThrow<{ orderId?: string }>(
-          '/api/sales/quotes/convert',
-          {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              ...buildOptimisticLockHeader(record.updatedAt),
+      const orderId = await runMutation({
+        operation: async () => {
+          const call = await apiCallOrThrow<{ orderId?: string }>(
+            '/api/sales/quotes/convert',
+            {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                ...buildOptimisticLockHeader(record.updatedAt),
+              },
+              body: JSON.stringify({ quoteId: record.id }),
             },
-            body: JSON.stringify({ quoteId: record.id }),
-          },
-          { errorMessage: t('sales.documents.detail.convertError', 'Failed to convert quote.') },
-        )
-        const orderId = call.result?.orderId ?? record.id
-        flash(t('sales.documents.detail.convertSuccess', 'Quote converted to order.'), 'success')
-        router.replace(`/backend/sales/orders/${orderId}`)
-      }, { quoteId: record.id })
+            { errorMessage: t('sales.documents.detail.convertError', 'Failed to convert quote.') },
+          )
+          return call.result?.orderId ?? record.id
+        },
+        context: { ...detailInjectionContext, operation: 'delete' },
+        mutationPayload: { quoteId: record.id },
+      })
+      flash(t('sales.documents.detail.convertSuccess', 'Quote converted to order.'), 'success')
+      router.replace(`/backend/sales/orders/${orderId}`)
     } catch (err) {
       logger.error('sales.documents.convert', { err })
       if (!handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) {
@@ -3745,7 +3763,7 @@ export default function SalesDocumentDetailPage({
     } finally {
       setConverting(false)
     }
-  }, [kind, record, router, runMutationWithContext, t])
+  }, [detailInjectionContext, kind, record, router, runMutation, t])
 
   const handleSendQuote = React.useCallback(async () => {
     if (!record || kind !== 'quote') return
@@ -3754,7 +3772,10 @@ export default function SalesDocumentDetailPage({
       await runMutationWithContext(async () => {
         await apiCallOrThrow('/api/sales/quotes/send', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            ...buildOptimisticLockHeader(record.updatedAt),
+          },
           body: JSON.stringify({ quoteId: record.id, validForDays }),
         })
         flash(t('sales.quotes.send.success', 'Quote sent.'), 'success')
@@ -3780,8 +3801,8 @@ export default function SalesDocumentDetailPage({
     setDeleting(true)
     const endpoint = kind === 'order' ? '/api/sales/orders' : '/api/sales/quotes'
     try {
-      await runMutationWithContext(async () => {
-        await withScopedApiRequestHeaders(buildOptimisticLockHeader(record.updatedAt), () =>
+      await runMutation({
+        operation: () => withScopedApiRequestHeaders(buildOptimisticLockHeader(record.updatedAt), () =>
           apiCallOrThrow(endpoint, {
             method: 'DELETE',
             headers: { 'Content-Type': 'application/json' },
@@ -3789,8 +3810,10 @@ export default function SalesDocumentDetailPage({
           }, {
             errorMessage: t('sales.documents.detail.deleteFailed', 'Could not delete document.'),
           }),
-        )
-      }, { id: record.id })
+        ),
+        context: { ...detailInjectionContext, operation: 'delete' },
+        mutationPayload: { id: record.id },
+      })
       flash(t('sales.documents.detail.deleted', 'Document deleted.'), 'success')
       const listPath = kind === 'order' ? '/backend/sales/orders' : '/backend/sales/quotes'
       router.push(listPath)
@@ -3801,7 +3824,7 @@ export default function SalesDocumentDetailPage({
       }
     }
     setDeleting(false)
-  }, [kind, record, router, runMutationWithContext, t])
+  }, [detailInjectionContext, kind, record, router, runMutation, t])
 
   const detailFields = React.useMemo(() => {
     const fields: DetailFieldConfig[] = [
@@ -4678,7 +4701,7 @@ export default function SalesDocumentDetailPage({
           ) : undefined}
           menuActions={kind === 'quote' ? ([
             { id: 'convert', label: t('sales.documents.detail.convertToOrder', 'Convert to order'), icon: ArrowRightLeft, onSelect: () => void handleConvert(), disabled: converting, loading: converting },
-            { id: 'send', label: t('sales.quotes.send.action', 'Send to customer'), icon: Send, onSelect: () => setSendOpen(true), disabled: !contactEmail || sending, loading: sending },
+            { id: 'send', label: t('sales.quotes.send.action', 'Send to customer'), icon: Send, onSelect: () => { setValidForDays(resolveDefaultValidForDays(record.validUntil)); setSendOpen(true) }, disabled: !contactEmail || sending, loading: sending },
           ] satisfies ActionItem[]) : undefined}
           onDelete={() => void handleDelete()}
           isDeleting={deleting}

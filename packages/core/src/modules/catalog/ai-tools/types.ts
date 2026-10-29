@@ -21,6 +21,7 @@ export interface CatalogToolContext {
   isSuperAdmin: boolean
   apiKeySecret?: string
   sessionId?: string
+  expectedRecordVersions?: Readonly<Record<string, string>>
 }
 
 /**

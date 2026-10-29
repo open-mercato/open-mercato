@@ -2,6 +2,7 @@ import { Resolver, promises as dnsPromises } from 'node:dns'
 import { request as httpsRequest } from 'node:https'
 import { setTimeout as delay } from 'node:timers/promises'
 import { EntityManager } from '@mikro-orm/postgresql'
+import { runWithCacheTenant } from '@open-mercato/cache'
 import {
   DomainMapping,
   type DomainStatus,
@@ -173,17 +174,18 @@ export class DomainMappingService {
     if (platformDomains().includes(hostname)) return null
 
     const cacheKey = `${RESOLVE_KEY_PREFIX}:${hostname}`
-    if (this.cache) {
-      const cached = (await this.cache.get(cacheKey)) as ResolveResult | null | undefined
+    const cache = this.cache
+    if (cache) {
+      const cached = (await runWithCacheTenant(null, () => cache.get(cacheKey))) as ResolveResult | null | undefined
       if (cached !== undefined && cached !== null) return cached
     }
 
     const result = await this.lookupResolveResult(hostname)
-    if (this.cache) {
-      await this.cache.set(cacheKey, result, {
+    if (cache) {
+      await runWithCacheTenant(null, () => cache.set(cacheKey, result, {
         ttl: RESOLVE_TTL_MS,
         tags: [DOMAIN_ROUTING_TAG, `${DOMAIN_ROUTING_TAG}:${hostname}`],
-      })
+      }))
     }
     return result
   }
@@ -285,6 +287,7 @@ export class DomainMappingService {
       replacesDomain = await this.em.findOne(DomainMapping, {
         id: input.replacesDomainId,
         tenantId: input.tenantId,
+        organizationId: input.organizationId,
       } as never)
     }
 
@@ -381,6 +384,8 @@ export class DomainMappingService {
     if (entity.replacesDomain) {
       const replaced = await this.em.findOne(DomainMapping, {
         id: (entity.replacesDomain as unknown as { id: string }).id,
+        tenantId: entity.tenantId,
+        organizationId: entity.organizationId,
       } as never)
       if (replaced) {
         const replacedHostname = replaced.hostname
@@ -487,14 +492,14 @@ export class DomainMappingService {
   }
 
   private async invalidateCacheFor(hostname: string, organizationId: string | null): Promise<void> {
-    if (!this.cache) return
+    const cache = this.cache
+    if (!cache) return
     const tags = [DOMAIN_ROUTING_TAG, `${DOMAIN_ROUTING_TAG}:${hostname}`]
     if (organizationId) tags.push(`${DOMAIN_ROUTING_TAG}:org:${organizationId}`)
-    try {
-      await this.cache.deleteByTags(tags)
-    } catch {
-      // Cache invalidation is best-effort — TTL backstop ensures eventual consistency.
-    }
+    await Promise.allSettled([
+      cache.deleteByTags(tags),
+      runWithCacheTenant(null, () => cache.deleteByTags([`${DOMAIN_ROUTING_TAG}:${hostname}`])),
+    ])
   }
 
   private async runDnsVerification(

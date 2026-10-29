@@ -17,6 +17,7 @@ import * as React from 'react'
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { createCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { buildGridCells, buildGridRows, GridView } from '../GridView'
 import type { TimesheetEntry } from '../../../../../lib/time-tracking-ui/timesheetData'
 
@@ -158,6 +159,16 @@ describe('the grid keeps its look (W3)', () => {
       ],
     })
     expect(firstCell().value).toBe('1.25')
+  })
+
+  // The sticky Project column is `z-10`, the same as the app top bar
+  // (`z-sticky`); without an isolated stacking context around the grid it
+  // painted over the top bar while the page scrolled (#7414).
+  it('confines the sticky Project column to the grid stacking context', () => {
+    renderGrid()
+    const scrollWrapper = screen.getByRole('table').parentElement
+    expect(scrollWrapper?.classList.contains('isolate')).toBe(true)
+    expect(scrollWrapper?.classList.contains('overflow-x-auto')).toBe(true)
   })
 })
 
@@ -317,6 +328,88 @@ describe('locked cells', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }))
     })
     expect(screen.getByTitle('Locked by a closed report')).toBeInTheDocument()
+  })
+})
+
+describe('refused saves (#7393, #7394)', () => {
+  const OUTSIDE_WINDOW = 'This date is outside your assignment to this project.'
+
+  function accessRefusal(indexes: number[]): Error {
+    return Object.assign(new Error(OUTSIDE_WINDOW), {
+      status: 403,
+      ok: false,
+      errors: indexes.map((index) => ({
+        path: 'entries[].timeProjectId',
+        message: OUTSIDE_WINDOW,
+        value: PROJECT_ID,
+        index,
+        date: MONDAY,
+      })),
+    })
+  }
+
+  it('shows the server\'s reason and marks only the cell the 403 names', async () => {
+    mockApiCallOrThrow.mockRejectedValueOnce(accessRefusal([0]))
+    renderGrid({ entries: [] })
+    const row = screen.getByRole('row', { name: /Nordvik/ })
+    const [monday, tuesday] = Array.from(row.querySelectorAll('input[type="text"]')) as HTMLInputElement[]
+    fireEvent.change(monday, { target: { value: '1' } })
+    fireEvent.change(tuesday, { target: { value: '1' } })
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }))
+    })
+
+    // The shared fetch wrapper turns a plain 403 into a ForbiddenError without
+    // the body, so the request must opt out for errors[].index to arrive.
+    expect(mockApiCallOrThrow.mock.calls[0][1]?.headers).toEqual(
+      expect.objectContaining({ 'x-om-forbidden-redirect': '0' }),
+    )
+    expect(flash).toHaveBeenCalledWith(OUTSIDE_WINDOW, 'error')
+    expect(monday).toHaveAttribute('aria-invalid', 'true')
+    expect(monday).toHaveAttribute('title', OUTSIDE_WINDOW)
+    expect(tuesday).toHaveAttribute('aria-invalid', 'false')
+
+    fireEvent.change(monday, { target: { value: '' } })
+    expect(monday).toHaveAttribute('aria-invalid', 'false')
+    expect(screen.getByRole('button', { name: 'Save Changes' })).toBeEnabled()
+  })
+
+  it('falls back to the generic message when the failure carries no reason', async () => {
+    mockApiCallOrThrow.mockRejectedValueOnce(new Error(''))
+    renderGrid({ entries: [] })
+    fireEvent.change(firstCell(), { target: { value: '1' } })
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }))
+    })
+    expect(flash).toHaveBeenCalledWith('Failed to save timesheets.', 'error')
+  })
+
+  it('does not create the stored project cells again after a task cell is refused', async () => {
+    mockCreateCrud.mockRejectedValueOnce(Object.assign(new Error(OUTSIDE_WINDOW), { status: 403 }))
+    const { onSaved } = renderGrid({
+      rowMode: 'tasks',
+      entries: [entry({ id: TASK_ENTRY_ID, taskId: TASK_ID, durationMinutes: 60 })],
+    })
+    const projectRow = screen.getByRole('row', { name: /^Nordvik/ })
+    const taskRow = screen.getByRole('row', { name: /Cart migration/ })
+    const projectTuesday = projectRow.querySelectorAll('input[type="text"]')[1] as HTMLInputElement
+    const taskTuesday = taskRow.querySelectorAll('input[type="text"]')[1] as HTMLInputElement
+    fireEvent.change(projectTuesday, { target: { value: '1' } })
+    fireEvent.change(taskTuesday, { target: { value: '1' } })
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }))
+    })
+    expect(mockApiCallOrThrow).toHaveBeenCalledTimes(1)
+    expect(flash).toHaveBeenCalledWith(OUTSIDE_WINDOW, 'error')
+    expect(taskTuesday).toHaveAttribute('aria-invalid', 'true')
+    expect(onSaved).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }))
+    })
+    expect(mockApiCallOrThrow).toHaveBeenCalledTimes(1)
+    expect(mockCreateCrud).toHaveBeenCalledTimes(2)
   })
 })
 
