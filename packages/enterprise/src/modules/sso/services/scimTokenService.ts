@@ -125,7 +125,13 @@ export class ScimTokenService {
     await this.em.flush()
     const cache = this.cache
     if (cache) {
-      await runWithCacheTenant(null, () => cache.deleteByTags([scimAdmissionTokenTag(token.id)]))
+      try {
+        await runWithCacheTenant(null, () => cache.deleteByTags([scimAdmissionTokenTag(token.id)]))
+      } catch (error) {
+        try {
+          getTelemetryRuntime()?.reportError(error, { module: 'sso', code: 'sso.scim_admission_cache_invalidation_failed' })
+        } catch {}
+      }
     }
   }
 

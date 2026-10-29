@@ -15,7 +15,7 @@ topics: ["access-control","data-scoping","events","testing"]
 
 **Applies to**: shared auth, rate-limit, origin, session, encryption, and tenant-scoping helpers and every module that consumes them.
 
-- 2026-10-29 · sso: enumerable public token prefixes must never select private admission budgets; remember only fully verified complete-bearer fingerprints in the shared DI cache, invalidate on revoke, and test wrong-suffix exhaustion alongside independent verified-tenant budgets.
+- 2026-10-29 · sso: enumerable public token prefixes must never select private admission budgets; remember only fully verified complete-bearer fingerprints in the shared DI cache, invalidate on revoke, and test wrong-suffix exhaustion alongside independent verified-tenant budgets. Cache invalidation after a committed revocation must report failure without reversing API success; a stale admission entry must never bypass active-token verification.
 
 - 2026-10-28 · sso/api_keys: handler-only SCIM limiter tests missed generic API-key bcrypt before dispatch admission → exercise the production dispatcher and real credential verifiers with instrumented DB/bcrypt boundaries; exhausted requests must skip every credential path, and admitted requests must consume one quota point.
 

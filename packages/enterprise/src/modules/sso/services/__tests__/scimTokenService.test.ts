@@ -6,6 +6,12 @@ import { ScimToken, SsoConfig } from '../../data/entities'
 import type { SsoAdminScope } from '../ssoConfigService'
 import { ScimTokenError, ScimTokenService } from '../scimTokenService'
 
+const mockReportError = jest.fn()
+
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  getTelemetryRuntime: () => ({ reportError: mockReportError }),
+}))
+
 jest.mock('bcryptjs', () => ({
   hash: jest.fn().mockResolvedValue('hashed-token'),
   compare: jest.fn().mockResolvedValue(false),
@@ -98,6 +104,7 @@ describe('verified SCIM admission cache', () => {
     delete process.env.RATE_LIMIT_ENABLED
     delete process.env.OM_INTEGRATION_TEST
     jest.mocked(compare).mockReset()
+    mockReportError.mockReset()
   })
 
   afterEach(() => {
@@ -144,6 +151,23 @@ describe('verified SCIM admission cache', () => {
     await service.verifyToken(rawToken)
     await runWithCacheTenant('tenant-1', () => service.revokeToken('token-1', scope))
     expect(await readScimAdmissionKey(cache, rawToken)).toBeNull()
+    expect(await service.verifyToken(rawToken)).toBeNull()
+  })
+
+  it.each([false, true])('keeps committed revocation successful when cache invalidation fails (telemetry throws: %s)', async (telemetryThrows) => {
+    const { token, em, cache, service } = setup()
+    await service.verifyToken(rawToken)
+    const cacheError = new Error('[internal] Admission cache unavailable')
+    jest.spyOn(cache, 'deleteByTags').mockRejectedValue(cacheError)
+    if (telemetryThrows) mockReportError.mockImplementation(() => { throw new Error('[internal] Telemetry unavailable') })
+
+    await expect(runWithCacheTenant('tenant-1', () => service.revokeToken('token-1', scope))).resolves.toBeUndefined()
+
+    expect(token.isActive).toBe(false)
+    expect(em.flush).toHaveBeenCalledTimes(1)
+    expect(em.findOne).toHaveBeenCalledWith(ScimToken, { id: 'token-1', organizationId: 'org-1' })
+    expect(mockReportError).toHaveBeenCalledWith(cacheError, { module: 'sso', code: 'sso.scim_admission_cache_invalidation_failed' })
+    expect(await readScimAdmissionKey(cache, rawToken)).toBe('token:tenant-1:org-1:token-1')
     expect(await service.verifyToken(rawToken)).toBeNull()
   })
 
