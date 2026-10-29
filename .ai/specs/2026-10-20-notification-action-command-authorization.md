@@ -82,7 +82,7 @@ where action_data::text like '%commandId%'
 
 No database migration is needed.
 
-**Exception bookkeeping.** The PR description's "Upgrade notes" section carries the client and operator notes for the release notes (maintainers asked to keep new entries out of `UPGRADE_NOTES.md`); `BACKWARD_COMPATIBILITY.md` has a dated one-line entry naming the PR; the PR carries the `security` label and needs a named human maintainer approval acknowledging the waiver.
+**Exception bookkeeping.** The PR description's "Upgrade notes" section carries the client and operator notes for the release notes (maintainers asked to keep new entries out of `UPGRADE_NOTES.md`); the PR description holds the waiver (there is no `BACKWARD_COMPATIBILITY.md` entry, because even a one-line entry puts the OMH-057 compatibility context over its byte cap); the PR carries the `security` label and needs a named human maintainer approval acknowledging the waiver.
 
 ## Testing
 
@@ -105,9 +105,10 @@ No database migration is needed.
 
 - Tenant scoping unchanged; the feature check uses the notification service context's tenant and organization.
 - No new raw `em.find`/`em.findOne`; i18n keys added in all five locales; errors carry `code`.
-- Emergency Security Exception: qualifying argument and narrowest-removal argument above; client and operator upgrade notes in the PR description; dated `BACKWARD_COMPATIBILITY.md` entry; maintainer sign-off pending on the PR.
+- Emergency Security Exception: qualifying argument and narrowest-removal argument above; client and operator upgrade notes and the waiver in the PR description; maintainer sign-off pending on the PR.
 
 ## Changelog
 
 - 2026-10-20 — Spec written for #7215 to record the Migration & Backward Compatibility rationale of the shipped fix.
 - 2026-10-28 — Upgrade notes moved from `UPGRADE_NOTES.md` to the PR description; operator query inlined; the `BACKWARD_COMPATIBILITY.md` entry shortened to one line to fit the context budget.
+- 2026-10-29 — `BACKWARD_COMPATIBILITY.md` entry removed; after merging `main` even the one-line entry put the OMH-057 compatibility context over its byte cap. The waiver stays in the PR description.
