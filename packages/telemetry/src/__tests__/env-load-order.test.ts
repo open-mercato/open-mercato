@@ -12,6 +12,7 @@ import {
 import { resetTelemetryEnvCache } from '../env'
 import type { TelemetryProvider } from '../types'
 import { NOOP_SPAN } from '../provider/noop-provider'
+import * as errorReporting from '../facade/report-error'
 
 function provider(name = 'noop'): TelemetryProvider {
   return {
@@ -41,6 +42,7 @@ describe('telemetry explicit opt-in boundary', () => {
   })
 
   afterEach(() => {
+    jest.restoreAllMocks()
     resetTelemetryInit()
     jest.useRealTimers()
   })
@@ -99,6 +101,52 @@ describe('telemetry explicit opt-in boundary', () => {
     await shutdownTelemetry()
 
     expect(customConsole.shutdown).toHaveBeenCalledTimes(1)
+    expect(getTelemetryRuntime()).toBeUndefined()
+    expect(jest.getTimerCount()).toBe(0)
+  })
+
+  it.each([false, true])('reports rejected initialization during shutdown and permits recovery (reporting throws: %s)', async (reportingThrows) => {
+    const failure = new Error('[internal] telemetry provider startup failed')
+    let rejectStart!: (reason: unknown) => void
+    const startup = new Promise<void>((_resolve, reject) => { rejectStart = reject })
+    const customConsole = provider('console')
+    customConsole.start = jest.fn(() => startup)
+    registerProvider(customConsole)
+    process.env.TELEMETRY_BACKEND = 'console'
+    const reportError = jest.spyOn(errorReporting, 'reportError')
+    if (reportingThrows) {
+      reportError.mockImplementation(() => { throw new Error('[internal] reporting unavailable') })
+    }
+
+    const initialization = initTelemetry()
+    const initializationFailure = expect(initialization).rejects.toBe(failure)
+    const shutdown = shutdownTelemetry()
+    expect(customConsole.start).toHaveBeenCalledTimes(1)
+    expect(reportError).not.toHaveBeenCalled()
+
+    rejectStart(failure)
+    await initializationFailure
+    await expect(shutdown).resolves.toBeUndefined()
+
+    expect(reportError).toHaveBeenCalledTimes(1)
+    expect(reportError).toHaveBeenCalledWith(failure, {
+      module: 'telemetry',
+      code: 'telemetry.initialization_failed',
+    })
+    expect(customConsole.shutdown).not.toHaveBeenCalled()
+    expect(getActiveProvider().name).toBe('noop')
+    expect(getLoggerExtension()).toBeUndefined()
+    expect(getTelemetryRuntime()).toBeUndefined()
+    expect(jest.getTimerCount()).toBe(0)
+
+    const recoveredProvider = provider('console')
+    registerProvider(recoveredProvider)
+    await initTelemetry()
+    expect(recoveredProvider.start).toHaveBeenCalledTimes(1)
+    expect(jest.getTimerCount()).toBe(1)
+    await shutdownTelemetry()
+    expect(recoveredProvider.shutdown).toHaveBeenCalledTimes(1)
+    expect(getLoggerExtension()).toBeUndefined()
     expect(getTelemetryRuntime()).toBeUndefined()
     expect(jest.getTimerCount()).toBe(0)
   })
