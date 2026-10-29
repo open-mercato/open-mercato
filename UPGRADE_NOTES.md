@@ -30,6 +30,23 @@ most of the patterns listed below in a user's codebase.
 
 **Client action:** wait at least one second and retry the same body and `Idempotency-Key`. Do not apply this safe-retry rule to unrelated `500` responses or uncertain commit outcomes. Successful responses, request schemas and database structure are unchanged; no operator migration is required. See [Cart API](apps/docs/docs/api/cart.mdx) and the [cart specification](.ai/specs/2026-08-14-cart-module.md).
 
+### Scoped attachment bytes no longer advertise shared caching (#7220)
+
+The attachment file and image byte routes now return `Cache-Control: private,
+max-age=60` for tenant- or organization-scoped records, including records in a
+public partition and reads by superadmins. Only records that the existing origin
+access policy permits anonymously retain public caching (global public files:
+86400 seconds; global public images: 3600 seconds). Private partitions keep their
+existing private cache policy. URLs, byte formats, and authorization are unchanged.
+
+**Operator action:** purge previously cached scoped attachment responses from
+CDNs, reverse proxies, and other shared HTTP caches when deploying this fix.
+Include both `/api/attachments/file/*` (including download query variants) and
+`/api/attachments/image/*` (all slugs, sizes, crop options, and query variants).
+Changing origin headers cannot invalidate copies already stored with the old
+public TTL. Check cache rules honor origin `private` and do not force-cache these
+routes. No database or module-code migration is required.
+
 ### Bundled Traefik keeps app and collaboration ports private (#7833)
 
 The optional `starters/docker/compose.fullapp.traefik.yml` overlay (and its
