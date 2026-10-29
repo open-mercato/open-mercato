@@ -9,6 +9,7 @@ import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { CatalogCategorizationService } from '../../../../lib/aiCategorization/categorizationService'
 import { serializeCategorySuggestion } from '../../../../lib/aiCategorization/serializeSuggestion'
+import { attachOperationHeader } from '../../../../lib/aiCategorization/operationHeader'
 import { CatalogProductCategorySuggestion } from '../../../../data/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
 
@@ -54,16 +55,19 @@ export async function POST(req: Request, routeContext: RouteContext) {
       organizationIds: [organizationId],
       request: req,
     }
-    const { result } = await commandBus.execute('catalog.category_suggestions.accept', {
+    const { result, logEntry } = await commandBus.execute('catalog.category_suggestions.accept', {
       input: { id: suggestionId, categoryId: body.categoryId, makeMain: body.makeMain },
       ctx,
-    }) as { result: { suggestionId: string; product: { id: string; categoryIds: string[]; updatedAt: string } } }
+    }) as { result: { suggestionId: string; product: { id: string; categoryIds: string[]; updatedAt: string } }; logEntry: unknown }
 
     const em = (container.resolve('em') as EntityManager).fork()
     const suggestion = await em.findOne(CatalogProductCategorySuggestion, { id: result.suggestionId })
     if (!suggestion) throw new CrudHttpError(404, { error: 'Catalog category suggestion not found' })
 
-    return NextResponse.json({ suggestion: serializeCategorySuggestion(suggestion), product: result.product })
+    return attachOperationHeader(
+      NextResponse.json({ suggestion: serializeCategorySuggestion(suggestion), product: result.product }),
+      logEntry,
+    )
   } catch (err) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })

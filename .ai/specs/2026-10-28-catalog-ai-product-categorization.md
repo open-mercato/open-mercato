@@ -342,7 +342,7 @@ All routes are tenant/org scoped from the auth context, zod-validated in `data/v
 | Naming: plural command ids (`catalog.category_suggestions.*`), singular event entity | ✅ |
 | i18n for all strings, DS tokens, dialog shortcuts | ✅ (to verify in implementation) |
 | Contract surfaces additive only | ✅ |
-| Integration coverage listed per API / UI path | ✅ (CI fixture env to confirm in Step 11) |
+| Integration coverage listed per API / UI path | ⚠️ written, typechecked, and manually traced; execution blocked by the fixture adapter's NODE_ENV!=production gate (ephemeral harness) and local machine contention (dev-server fallback) — see 2026-10-29 changelog entry |
 
 ## 📝 Changelog
 
@@ -366,3 +366,9 @@ All routes are tenant/org scoped from the auth context, zod-validated in `data/v
   - integration tests document the fixture adapter's behavior, are env-gated, and move the 422 case to a route unit test; CI env needs maintainer approval;
   - line-number references replaced with symbol names;
   - catalog declares its own structural type for the port service, because the service types live in `ai-assistant`.
+- 2026-10-29: Phase 1 implemented (PR #18, stacked on this design-only spec PR #17). Divergences from this plan:
+  - `GET /api/catalog/category-suggestions` is a hand-rolled read-only route rather than a literal `makeCrudRoute` instance — same filters (`status`, `productId`, `ids`, `minConfidence`), the 100-row `pageSize` cap, the soft-deleted-product exclusion, and the batched `categoryLive` lookup, but without the CRUD factory's write paths, which this route never needs.
+  - `catalog.category_suggestions.accept` / `.reject` attach the same `x-om-operation` undo-token header `makeCrudRoute` sets for CRUD writes (new `lib/aiCategorization/operationHeader.ts`, reusing the shared `serializeOperationMetadata`), so the hand-rolled command routes stay undoable through the standard `/api/audit_logs/audit-logs/actions/undo` contract and are covered by the same undo-token integration-test pattern as CRUD routes.
+  - Everything else — the settings schema, the soft-optional `decisionModelService` resolve, the tree walk's batched tournament, the suggestion entity/migration/partial-unique-index, the D5 merge rules, the ACL feature, the three events, and the product-page card gating — matches this spec as written.
+  - Per step 11, the integration env (`OM_DECISION_PROVIDER`, `OM_DECISION_MODEL`, `OM_DECISION_FIXTURE_ENABLED`) is proposed for `.github/workflows/ci.yml`'s integration job in the implementation PR's description, not applied to the workflow file itself (root `AGENTS.md` → Ask First).
+  - New finding while verifying step 11's tests: the fixture decision adapter is additionally gated on `NODE_ENV !== 'production'` (`decision-model-registry.ts`'s `isDecisionFixtureEnabled`), and the standard ephemeral QA harness (`yarn test:integration:ephemeral`) always runs its spawned app with `NODE_ENV=production` — so these tests cannot execute there regardless of the three env vars. They were instead typechecked, lint-clean, and manually traced against the fixture adapter's documented whole-word matching for every case; a live run against a disposable-DB `yarn dev` server was attempted but blocked by this machine's concurrent-session contention (freshly-compiled, unrelated routes 404'd under load, a known environmental failure mode, not a code defect). Recorded as a verification gap for the reviewer, not a silent pass.
