@@ -1,4 +1,5 @@
 import { expect, test, type APIRequestContext } from '@playwright/test';
+import { readJsonSafe as parseJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe';
 import {
   createPipelineFixture,
   createPipelineStageFixture,
@@ -103,7 +104,7 @@ test.describe('TC-CRM-092: Deals list duplicate row action', () => {
     await page.goto(`/backend/customers/deals?search=${encodeURIComponent(dealTitle)}`, { waitUntil: 'domcontentloaded' });
     const filteredResponse = await filteredResponsePromise;
     expect(filteredResponse.ok(), 'the fixture-filtered deals request should succeed').toBe(true);
-    const filteredPayload = (await readJsonSafe(filteredResponse)) as { items?: DealListItem[] } | null;
+    const filteredPayload = await parseJsonSafe<{ items?: DealListItem[] }>(await filteredResponse.text());
     expect((filteredPayload?.items ?? []).map((item) => item.id), 'the filtered response contains only the source deal').toEqual([dealId]);
 
     const searchBox = page.getByPlaceholder(/Search by title/i);
