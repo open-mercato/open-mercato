@@ -4,6 +4,8 @@
   "catalog.audit.categories.create": "Create category",
   "catalog.audit.categories.delete": "Delete category",
   "catalog.audit.categories.update": "Update category",
+  "catalog.audit.categorySuggestions.accept": "Accept AI category suggestion",
+  "catalog.audit.categorySuggestions.reject": "Reject AI category suggestion",
   "catalog.audit.offers.create": "Create offer",
   "catalog.audit.offers.delete": "Delete offer",
   "catalog.audit.offers.update": "Update offer",

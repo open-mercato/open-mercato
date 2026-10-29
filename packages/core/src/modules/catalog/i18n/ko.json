@@ -4,6 +4,8 @@
   "catalog.audit.categories.create": "카테고리 생성",
   "catalog.audit.categories.delete": "카테고리 삭제",
   "catalog.audit.categories.update": "카테고리 수정",
+  "catalog.audit.categorySuggestions.accept": "Accept AI category suggestion",
+  "catalog.audit.categorySuggestions.reject": "Reject AI category suggestion",
   "catalog.audit.offers.create": "오퍼 생성",
   "catalog.audit.offers.delete": "오퍼 삭제",
   "catalog.audit.offers.update": "오퍼 수정",
