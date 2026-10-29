@@ -12,6 +12,8 @@ import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { CustomerInteraction } from '../../../data/entities'
 import { TERMINAL_INTERACTION_STATUS_LIST } from '../../../lib/interactionStatus'
+import { applyEmailVisibilityFilter } from '../../../lib/visibilityFilter'
+import { listGrantsForViewer, listSharedChannelIds } from '../../../lib/conversationShares'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('customers')
@@ -96,9 +98,15 @@ export async function GET(req: Request) {
       return NextResponse.json({ ok: true, result: { hasConflicts: false, conflicts: [] } })
     }
 
-    const checkUserId = query.userId ?? auth.userId
+    const viewerUserId = auth.isApiKey ? null : (auth.sub ?? null)
+    const checkUserId = query.userId ?? (auth.isApiKey ? auth.userId : viewerUserId)
     const em = (container.resolve('em') as EntityManager).fork()
     const kysely = em.getKysely<any>()
+    const emailShareScope = { tenantId: auth.tenantId, organizationId: rbacOrganizationId }
+    const [sharedConversations, sharedChannelIds] = await Promise.all([
+      listGrantsForViewer(em, emailShareScope, viewerUserId),
+      listSharedChannelIds(em, emailShareScope, viewerUserId),
+    ])
 
     let baseQuery = (kysely as any)
       .selectFrom('customer_interactions')
@@ -113,6 +121,13 @@ export async function GET(req: Request) {
     } else if (organizationIds && organizationIds.length > 1) {
       baseQuery = baseQuery.where('organization_id', 'in', organizationIds)
     }
+
+    baseQuery = applyEmailVisibilityFilter(baseQuery, {
+      currentUserId: viewerUserId,
+      userFeatures: undefined,
+      sharedConversations,
+      sharedChannelIds,
+    })
 
     if (checkUserId) {
       baseQuery = baseQuery.where((eb: any) =>
