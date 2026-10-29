@@ -282,25 +282,27 @@ export function CompletePutawayTaskDialog({
         <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
           <div className="flex flex-col gap-5 overflow-y-auto px-6 py-6">
             {task.serialNumber?.trim() ? (
-              <FormField
-                label={t('wms.backend.putaway.complete.form.serialConfirm', 'Confirm serial')}
-                required
-                error={fieldErrors.serialConfirmation}
-                description={t(
-                  'wms.backend.putaway.complete.form.serialConfirmHint',
-                  'Scan or type the serial on the unit. It must match this task.',
-                )}
-              >
+              <div>
                 <div className="mb-2 text-sm" data-testid="complete-putaway-expected-serial">
                   {t('wms.backend.putaway.complete.form.serial', 'Serial')}: {task.serialNumber.trim()}
                 </div>
-                <Input
-                  value={serialConfirmation}
-                  onChange={(event) => setSerialConfirmation(event.target.value)}
+                <FormField
+                  label={t('wms.backend.putaway.complete.form.serialConfirm', 'Confirm serial')}
+                  required
                   disabled={submitting}
-                  data-testid="complete-putaway-serial"
-                />
-              </FormField>
+                  error={fieldErrors.serialConfirmation}
+                  description={t(
+                    'wms.backend.putaway.complete.form.serialConfirmHint',
+                    'Scan or type the serial on the unit. It must match this task.',
+                  )}
+                >
+                  <Input
+                    value={serialConfirmation}
+                    onChange={(event) => setSerialConfirmation(event.target.value)}
+                    data-testid="complete-putaway-serial"
+                  />
+                </FormField>
+              </div>
             ) : null}
             <FormField
               label={t('wms.backend.putaway.complete.form.quantity', 'Confirmed quantity')}

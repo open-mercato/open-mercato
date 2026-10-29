@@ -202,9 +202,14 @@ describe('CompletePutawayTaskDialog', () => {
     )
 
     expect(screen.getByTestId('complete-putaway-expected-serial').textContent).toContain('S1')
+    const serialInput = screen.getByRole('textbox', { name: 'Confirm serial' })
+    expect(serialInput).toBe(screen.getByTestId('complete-putaway-serial'))
+    expect(serialInput.getAttribute('aria-required')).toBe('true')
     fireEvent.change(screen.getByTestId('complete-putaway-serial'), { target: { value: 'S2' } })
     fireEvent.click(screen.getByTestId('complete-putaway-submit'))
-    expect(await screen.findByText('The scanned serial does not match this task.')).toBeTruthy()
+    const mismatchError = await screen.findByText('The scanned serial does not match this task.')
+    expect(serialInput.getAttribute('aria-invalid')).toBe('true')
+    expect(serialInput.getAttribute('aria-describedby')).toBe(mismatchError.id)
     expect(mockApiCall).not.toHaveBeenCalled()
 
     fireEvent.change(screen.getByTestId('complete-putaway-serial'), { target: { value: ' S1 ' } })
