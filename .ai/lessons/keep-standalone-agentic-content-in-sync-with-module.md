@@ -2,7 +2,7 @@
 title: "Keep standalone agentic content in sync with module conventions"
 modules: ["create_app","documents","events","cli"]
 areas: ["architecture","framework-context"]
-topics: ["auto-discovery","generated-files","package-runtime","testing","context-budget","backward-compatibility"]
+topics: ["auto-discovery","generated-files","package-runtime","session-export","testing","context-budget","backward-compatibility"]
 ---
 
 # Keep standalone agentic content in sync with module conventions
@@ -18,3 +18,5 @@ When an enabled package-backed module adds a generated fact sheet, add or expand
 Compatibility cases also include the upstream `BACKWARD_COMPATIBILITY.md` in their exact context byte budgets. A new contract note can exceed a case's cap even when template sync passes. Run `packages/create-app/src/lib/compatibility-context-budget.test.ts` after changing that document. Keep its summary concise, link detailed migration guidance, and shorten redundant prose without changing contract rules; do not hide an overflow by raising harness budgets.
 
 **Applies to**: `packages/create-app/agentic/shared/`, `packages/create-app/agentic/claude-code/`, `packages/create-app/agentic/codex/`, `packages/create-app/agentic/cursor/`.
+
+Compatibility guidance is also retrieved by standalone harness cases. Adding to root `BACKWARD_COMPATIBILITY.md` increases their required context even when no create-app source changes. Keep compatibility summaries concise and link rollout detail in `UPGRADE_NOTES.md`; run `packages/create-app/src/lib/compatibility-context-budget.test.ts` after such additions. Preserve the existing context caps rather than increasing them to accommodate verbose notes.

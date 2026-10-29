@@ -601,6 +601,10 @@ Spec: [`.ai/specs/2026-09-08-error-reporting-policy.md`](.ai/specs/2026-09-08-er
 
 **Migration path for existing modules**: none for first-party code. Third-party modules must not register an integration or bundle id that ends in `__oauth_grant` (see `UPGRADE_NOTES.md`).
 
+## #7220
+
+[Cache fix](UPGRADE_NOTES.md)
+
 ---
 
 ## SCIM rate limiting (2026-10-27)
