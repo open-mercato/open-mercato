@@ -24,6 +24,7 @@ import {
   BUILT_IN_UNAVAILABLE_MESSAGE,
   parseBuiltInIndex,
   parseCatalogIndex,
+  renderInfoHuman,
   runModuleInfo,
   runModuleSearch,
   type FetchLike,
@@ -49,6 +50,7 @@ type ParityCases = {
 
 type ParityPatch = {
   dataAsOf?: Partial<NonNullable<CatalogIndex['dataAsOf']>>
+  addEntries?: CatalogEntry[]
   entries?: Record<string, { compat?: Partial<CatalogEntry['compat']> }>
   builtIn?: Record<string, Partial<BuiltInModule>>
 }
@@ -67,6 +69,7 @@ function patchedFixture(patch: ParityPatch): { index: CatalogIndex; builtIn: Bui
     const compat = patch.entries?.[entry.locator]?.compat
     if (compat) entry.compat = { ...entry.compat, ...compat }
   }
+  if (patch.addEntries) patchedIndex.entries.push(...structuredClone(patch.addEntries))
   patchedBuiltIn.modules = patchedBuiltIn.modules.map((coreModule) => ({ ...coreModule, ...(patch.builtIn?.[coreModule.id] ?? {}) }))
   return { index: patchedIndex, builtIn: patchedBuiltIn }
 }
@@ -446,6 +449,127 @@ describe('yarn mercato module search', () => {
     const io = capture()
     expect(await runModuleSearch([], deps(tempApp(), fixtureFetch().fetchImpl, io))).toBe(1)
     expect(io.stderr[0]).toContain('Usage: yarn mercato module search [<query>]')
+  })
+})
+
+describe('providers, libraries and tools, follow-up steps and the app line', () => {
+  const variant = parity.variants.find((item) => item.name === 'adapters, libraries and tools') as (typeof parity.variants)[number]
+  const patch = variant.patch
+
+  it.each([
+    ['0.8.0', '0.8.0'],
+    ['0.10.1-develop.7590.1.abc', '0.10.1-develop.7583.1.0c886d0a14'],
+  ])('adds the library an adapter needs to its yarn add on %s', async (coreVersion, version) => {
+    const app = tempApp({ coreVersion })
+    const human = capture()
+    await runModuleSearch(['web research', '--all-lines'], deps(app, fixtureFetch({ patch }).fetchImpl, human))
+    expect(human.stdout).toContain(
+      `  install: yarn add @open-mercato/web-research@${version} @open-mercato/web-research-model@${version} && yarn generate`,
+    )
+    const json = capture()
+    await runModuleSearch(['web research', '--all-lines', '--json'], deps(app, fixtureFetch({ patch }).fetchImpl, json))
+    const model = JSON.parse(json.stdout.join('\n')).results.find(
+      (card: { locator: string }) => card.locator === 'npm:@open-mercato/web-research-model',
+    )
+    expect(model.install).toBe(`yarn add @open-mercato/web-research@${version} @open-mercato/web-research-model@${version}`)
+  })
+
+  it('lists providers, libraries and tools on the app line with their status, not as hidden', async () => {
+    const app = tempApp({ coreVersion: '0.9.0' })
+    const provider = capture()
+    await runModuleSearch(['--kind', 'provider'], deps(app, fixtureFetch({ patch }).fetchImpl, provider))
+    expect(provider.stdout).toContain('@open-mercato/web-research-model 0.9.0   LISTED · untested on 0.9   official · MIT')
+    expect(provider.stdout.join('\n')).not.toContain('Use --all-lines.')
+
+    const query = capture()
+    await runModuleSearch(['web research', '--json'], deps(app, fixtureFetch({ patch }).fetchImpl, query))
+    const json = JSON.parse(query.stdout.join('\n'))
+    expect(json.hidden).toBe(0)
+    expect(json.results.map((card: { locator: string }) => card.locator)).toEqual([
+      'npm:@open-mercato/web-research',
+      'npm:@open-mercato/web-research-model',
+    ])
+    expect(json.results[0].install).toBe('yarn add @open-mercato/web-research@0.9.0')
+
+    const library = capture()
+    await runModuleSearch(['--kind', 'library'], deps(app, fixtureFetch({ patch }).fetchImpl, library))
+    expect(library.stdout).toContain('  install: yarn add @open-mercato/web-research@0.9.0 && yarn generate')
+
+    const tool = capture()
+    await runModuleSearch(['--kind', 'tool'], deps(app, fixtureFetch({ patch }).fetchImpl, tool))
+    expect(tool.stdout).toContain('  install: npx create-mercato-module@0.4.2')
+  })
+
+  it('still hides modules not verified on the app line and counts only those', async () => {
+    const io = capture()
+    await runModuleSearch(['--category', 'payments-finance', '--json'], deps(tempApp({ coreVersion: '0.9.0' }), fixtureFetch({ patch }).fetchImpl, io))
+    expect(JSON.parse(io.stdout.join('\n')).hidden).toBe(1)
+  })
+
+  it('prints generate after create-mercato-module and db:migrate after a module install that adds tables', async () => {
+    const app = tempApp({ coreVersion: '0.9.0' })
+    const treg = capture()
+    await runModuleInfo(['github:Chmarusso/open-mercato-enrichment-treg'], deps(app, fixtureFetch().fetchImpl, treg))
+    expect(treg.stdout).toContain(
+      '  install: npx create-mercato-module install Chmarusso/open-mercato-enrichment-treg && yarn generate && yarn db:migrate',
+    )
+    const ksef = capture()
+    await runModuleInfo(['@fastwhitecat/integration-ksef-direct'], deps(app, fixtureFetch().fetchImpl, ksef))
+    expect(ksef.stdout).toContain(
+      '  install: yarn mercato module add @fastwhitecat/integration-ksef-direct@0.1.8 --allow-third-party && yarn db:migrate',
+    )
+    const stripe = capture()
+    await runModuleSearch(['stripe'], deps(app, fixtureFetch().fetchImpl, stripe))
+    expect(stripe.stdout).toContain('  install: yarn mercato module add @open-mercato/gateway-stripe@0.9.0')
+    const enterprise = capture()
+    await runModuleInfo(['@open-mercato/enterprise'], deps(app, fixtureFetch().fetchImpl, enterprise))
+    expect(enterprise.stdout.filter((line) => line.startsWith('  install:')).join('\n')).not.toMatch(/yarn generate.*yarn generate/)
+    const json = capture()
+    await runModuleInfo(['@fastwhitecat/integration-ksef-direct', '--json'], deps(app, fixtureFetch().fetchImpl, json))
+    expect(JSON.parse(json.stdout.join('\n')).entry.install.cli).toBe(
+      'yarn mercato module add @fastwhitecat/integration-ksef-direct@0.1.8 --allow-third-party',
+    )
+  })
+
+  it('reads conditional registrations in src/modules.ts with the injected environment', async () => {
+    const modulesTs = [
+      "export const enabledModules = [{ id: 'auth', from: '@open-mercato/core' }]",
+      "if (process.env.OM_TEST_CURRENCIES) enabledModules.push({ id: 'currencies', from: '@open-mercato/core' })",
+      '',
+    ].join('\n')
+    const app = tempApp({ coreVersion: '0.9.0', modulesTs })
+    const off = capture()
+    await runModuleSearch(['exchange rates'], deps(app, fixtureFetch().fetchImpl, off))
+    expect(off.stdout.join('\n')).not.toContain('Already enabled.')
+    const offInfo = capture()
+    await runModuleInfo(['currencies'], deps(app, fixtureFetch().fetchImpl, offInfo))
+    expect(offInfo.stdout.join('\n')).not.toContain('Already enabled.')
+
+    const env = { OM_TEST_CURRENCIES: 'true' }
+    const on = capture()
+    await runModuleSearch(['exchange rates'], { ...deps(app, fixtureFetch().fetchImpl, on), env })
+    expect(on.stdout[1]).toContain('Already enabled.')
+    const onInfo = capture()
+    await runModuleInfo(['currencies'], { ...deps(app, fixtureFetch().fetchImpl, onInfo), env })
+    expect(onInfo.stdout).toContain('  Already enabled.')
+  })
+
+  it('gives module info --json the preset advice of the app line', () => {
+    const data = patchedFixture({ builtIn: { currencies: { inPresets: ['0.8', '0.9', 'next'], inEmptyPreset: ['0.9', 'next'] } } })
+    const searcher = createCatalogSearcher(data.index, data.builtIn)
+    const today = parity.now.slice(0, 10)
+    const enable = 'yarn mercato module enable @open-mercato/core --module currencies'
+
+    const older = buildInfoView(searcher, 'currencies', { omVersion: '0.8.0', enabledModules: null }, today)
+    if ('error' in older.json) throw new Error('expected a built-in module')
+    const presetNote = `On in a new app on 0.8: nothing to enable. In an app from the empty preset: ${enable}`
+    expect(older.json.warnings).toEqual(['Built into Open Mercato core as currencies.', presetNote])
+    expect(renderInfoHuman(older, searcher)).toContain(`  ${presetNote}`)
+
+    const untested = buildInfoView(searcher, 'currencies', { omVersion: '0.7.4', enabledModules: null }, today)
+    if ('error' in untested.json) throw new Error('expected a built-in module')
+    expect(untested.json.warnings).toEqual([`Built into Open Mercato core as currencies. Enable it: ${enable}`])
+    expect(renderInfoHuman(untested, searcher)).toContain(`  enable: ${enable}`)
   })
 })
 

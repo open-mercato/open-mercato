@@ -2926,6 +2926,1151 @@
           "card": "https://modules.openmercato.com/m/@fastwhitecat/integration-ksef-direct.md"
         }
       ]
+    },
+    {
+      "name": "adapters, libraries and tools",
+      "patch": {
+        "addEntries": [
+          {
+            "locator": "npm:@open-mercato/web-research",
+            "path": "@open-mercato/web-research",
+            "npm": "@open-mercato/web-research",
+            "github": null,
+            "repoPath": "open-mercato/open-mercato#main/packages/web-research",
+            "kind": "library",
+            "type": "official",
+            "enterprise": false,
+            "title": "Web Research",
+            "summary": "Engine that runs several web search adapters under one deadline, fuses their results and reports each step.",
+            "whenToUse": "Use when AI agents in the app need web search or page reading. Add at least one adapter, for example web-research-model.",
+            "whenNotToUse": null,
+            "category": "ai-automation",
+            "tags": [
+              "web-search",
+              "ai",
+              "agents"
+            ],
+            "providers": [],
+            "moduleIds": [],
+            "requires": [],
+            "replaces": [],
+            "slotConflicts": [],
+            "renamedFrom": [],
+            "supersededBy": null,
+            "alternatives": [],
+            "status": "active",
+            "listed": true,
+            "featured": false,
+            "license": {
+              "spdx": "MIT",
+              "kind": "osi",
+              "mismatch": false
+            },
+            "version": {
+              "latest": "0.9.0",
+              "preview": null,
+              "publishedAt": "2026-10-09",
+              "integrity": "sha512-U/tlIjnj/V5AuSB+fEEIh4Ta9Uftzrzr5iUb6nSWLcd7W8W7mzPHd6Ngg3ZYPH9g98cSUayH1e6nOga2E3Iqag==",
+              "installableFrom": "2026-10-09",
+              "gitRef": null,
+              "recommended": {
+                "0.9": null,
+                "0.8": null,
+                "next": null
+              }
+            },
+            "identity": {
+              "builtFrom": "verified",
+              "claimed": false,
+              "source": "npm"
+            },
+            "compat": {
+              "builtFor": {
+                "range": "0.9.0",
+                "kind": "exact-pin",
+                "lines": [
+                  "0.9"
+                ]
+              },
+              "lines": {},
+              "verifiedOn": []
+            },
+            "anatomy": null,
+            "signals": {
+              "receipt": {
+                "0.9": "untested",
+                "0.8": "untested",
+                "next": "untested"
+              },
+              "fit": {
+                "0.9": "ok",
+                "0.8": "ok",
+                "next": "ok"
+              },
+              "anatomy": "none",
+              "supplyChain": {
+                "status": "ok",
+                "reasons": []
+              },
+              "hygiene": {
+                "status": "ok",
+                "failing": []
+              },
+              "maintenance": {
+                "status": "current",
+                "lastRelease": "2026-10-09",
+                "catchUpDays": null
+              },
+              "declaredVsObserved": {
+                "status": "match",
+                "notes": []
+              }
+            },
+            "tier": "listed",
+            "quality": null,
+            "agentPolicy": {
+              "0.9": {
+                "decision": "ask",
+                "reasons": [
+                  {
+                    "code": "NOT_VERIFIED",
+                    "text": "No receipt on 0.9 yet."
+                  }
+                ],
+                "consentText": "Install @open-mercato/web-research@0.9.0"
+              },
+              "0.8": {
+                "decision": "ask",
+                "reasons": [
+                  {
+                    "code": "NOT_VERIFIED",
+                    "text": "No receipt on 0.8 yet."
+                  }
+                ],
+                "consentText": "Install @open-mercato/web-research@0.8.0"
+              },
+              "next": {
+                "decision": "ask",
+                "reasons": [
+                  {
+                    "code": "NOT_VERIFIED",
+                    "text": "No receipt on next yet."
+                  }
+                ],
+                "consentText": "Install @open-mercato/web-research@0.10.1-develop.7583.1.0c886d0a14"
+              }
+            },
+            "install": {
+              "cli": "yarn add @open-mercato/web-research@0.9.0",
+              "cmm": null,
+              "needsAllowThirdParty": false,
+              "moduleFlag": null
+            },
+            "stats": null,
+            "sigil": {
+              "glyph": "0020201",
+              "phase": 141,
+              "publicRoutes": false
+            },
+            "links": {
+              "page": "https://modules.openmercato.com/m/@open-mercato/web-research",
+              "md": "https://modules.openmercato.com/m/@open-mercato/web-research.md",
+              "json": "https://modules.openmercato.com/m/@open-mercato/web-research.json",
+              "facts": null,
+              "npm": "https://www.npmjs.com/package/@open-mercato/web-research",
+              "repo": "https://github.com/open-mercato/open-mercato",
+              "docs": null
+            },
+            "addedAt": "2026-10-23",
+            "updatedAt": "2026-10-23T03:05:00Z",
+            "_meta": {
+              "com.openmercato.modules/installable": {
+                "0.9": "0.9.0",
+                "0.8": "0.8.0",
+                "next": "0.10.1-develop.7583.1.0c886d0a14"
+              }
+            }
+          },
+          {
+            "locator": "npm:@open-mercato/web-research-model",
+            "path": "@open-mercato/web-research-model",
+            "npm": "@open-mercato/web-research-model",
+            "github": null,
+            "repoPath": "open-mercato/open-mercato#main/packages/web-research-model",
+            "kind": "provider",
+            "type": "official",
+            "enterprise": false,
+            "title": "Web Research Model Search",
+            "summary": "Web search through the native search tool of the agent LLM on Anthropic, OpenAI or Azure OpenAI. On by default.",
+            "whenToUse": "Use when you want web search without another vendor or key, through the model the agent already calls.",
+            "whenNotToUse": null,
+            "category": "ai-automation",
+            "tags": [
+              "web-search",
+              "llm",
+              "ai"
+            ],
+            "providers": [
+              {
+                "name": "anthropic",
+                "label": "Anthropic"
+              },
+              {
+                "name": "openai",
+                "label": "OpenAI"
+              },
+              {
+                "name": "azure-openai",
+                "label": "Azure OpenAI"
+              }
+            ],
+            "moduleIds": [],
+            "requires": [
+              {
+                "raw": "@open-mercato/web-research",
+                "resolvesTo": "npm:@open-mercato/web-research"
+              }
+            ],
+            "replaces": [],
+            "slotConflicts": [],
+            "renamedFrom": [],
+            "supersededBy": null,
+            "alternatives": [],
+            "status": "active",
+            "listed": true,
+            "featured": false,
+            "license": {
+              "spdx": "MIT",
+              "kind": "osi",
+              "mismatch": false
+            },
+            "version": {
+              "latest": "0.9.0",
+              "preview": null,
+              "publishedAt": "2026-10-09",
+              "integrity": "sha512-U/tlIjnj/V5AuSB+fEEIh4Ta9Uftzrzr5iUb6nSWLcd7W8W7mzPHd6Ngg3ZYPH9g98cSUayH1e6nOga2E3Iqag==",
+              "installableFrom": "2026-10-09",
+              "gitRef": null,
+              "recommended": {
+                "0.9": null,
+                "0.8": null,
+                "next": null
+              }
+            },
+            "identity": {
+              "builtFrom": "verified",
+              "claimed": false,
+              "source": "npm"
+            },
+            "compat": {
+              "builtFor": {
+                "range": "0.9.0",
+                "kind": "exact-pin",
+                "lines": [
+                  "0.9"
+                ]
+              },
+              "lines": {},
+              "verifiedOn": []
+            },
+            "anatomy": null,
+            "signals": {
+              "receipt": {
+                "0.9": "untested",
+                "0.8": "untested",
+                "next": "untested"
+              },
+              "fit": {
+                "0.9": "ok",
+                "0.8": "ok",
+                "next": "ok"
+              },
+              "anatomy": "none",
+              "supplyChain": {
+                "status": "ok",
+                "reasons": []
+              },
+              "hygiene": {
+                "status": "ok",
+                "failing": []
+              },
+              "maintenance": {
+                "status": "current",
+                "lastRelease": "2026-10-09",
+                "catchUpDays": null
+              },
+              "declaredVsObserved": {
+                "status": "match",
+                "notes": []
+              }
+            },
+            "tier": "listed",
+            "quality": null,
+            "agentPolicy": {
+              "0.9": {
+                "decision": "ask",
+                "reasons": [
+                  {
+                    "code": "NOT_VERIFIED",
+                    "text": "No receipt on 0.9 yet."
+                  }
+                ],
+                "consentText": "Install @open-mercato/web-research-model@0.9.0"
+              },
+              "0.8": {
+                "decision": "ask",
+                "reasons": [
+                  {
+                    "code": "NOT_VERIFIED",
+                    "text": "No receipt on 0.8 yet."
+                  }
+                ],
+                "consentText": "Install @open-mercato/web-research-model@0.8.0"
+              },
+              "next": {
+                "decision": "ask",
+                "reasons": [
+                  {
+                    "code": "NOT_VERIFIED",
+                    "text": "No receipt on next yet."
+                  }
+                ],
+                "consentText": "Install @open-mercato/web-research-model@0.10.1-develop.7583.1.0c886d0a14"
+              }
+            },
+            "install": {
+              "cli": "yarn add @open-mercato/web-research@0.9.0 @open-mercato/web-research-model@0.9.0",
+              "cmm": null,
+              "needsAllowThirdParty": false,
+              "moduleFlag": null
+            },
+            "stats": null,
+            "sigil": {
+              "glyph": "0020201",
+              "phase": 141,
+              "publicRoutes": false
+            },
+            "links": {
+              "page": "https://modules.openmercato.com/m/@open-mercato/web-research-model",
+              "md": "https://modules.openmercato.com/m/@open-mercato/web-research-model.md",
+              "json": "https://modules.openmercato.com/m/@open-mercato/web-research-model.json",
+              "facts": null,
+              "npm": "https://www.npmjs.com/package/@open-mercato/web-research-model",
+              "repo": "https://github.com/open-mercato/open-mercato",
+              "docs": null
+            },
+            "addedAt": "2026-10-23",
+            "updatedAt": "2026-10-23T03:05:00Z",
+            "_meta": {
+              "com.openmercato.modules/installable": {
+                "0.9": "0.9.0",
+                "0.8": "0.8.0",
+                "next": "0.10.1-develop.7583.1.0c886d0a14"
+              }
+            }
+          },
+          {
+            "locator": "npm:create-mercato-module",
+            "path": "create-mercato-module",
+            "npm": "create-mercato-module",
+            "github": "open-mercato/create-mercato-module",
+            "repoPath": null,
+            "kind": "tool",
+            "type": "official",
+            "enterprise": false,
+            "title": "create-mercato-module",
+            "summary": "CLI that turns one module of your app into an npm package and a GitHub repository, and installs or links modules.",
+            "whenToUse": "Use when a module built inside your app should be published for other apps, or you install a module from GitHub.",
+            "whenNotToUse": null,
+            "category": "devtools",
+            "tags": [
+              "cli",
+              "publishing",
+              "scaffold"
+            ],
+            "providers": [],
+            "moduleIds": [],
+            "requires": [],
+            "replaces": [],
+            "slotConflicts": [],
+            "renamedFrom": [],
+            "supersededBy": null,
+            "alternatives": [],
+            "status": "active",
+            "listed": true,
+            "featured": false,
+            "license": {
+              "spdx": "MIT",
+              "kind": "osi",
+              "mismatch": false
+            },
+            "version": {
+              "latest": "0.4.2",
+              "preview": null,
+              "publishedAt": "2026-10-09",
+              "integrity": "sha512-U/tlIjnj/V5AuSB+fEEIh4Ta9Uftzrzr5iUb6nSWLcd7W8W7mzPHd6Ngg3ZYPH9g98cSUayH1e6nOga2E3Iqag==",
+              "installableFrom": "2026-10-09",
+              "gitRef": null,
+              "recommended": {
+                "0.9": null,
+                "0.8": null,
+                "next": null
+              }
+            },
+            "identity": {
+              "builtFrom": "verified",
+              "claimed": false,
+              "source": "npm"
+            },
+            "compat": {
+              "builtFor": {
+                "range": null,
+                "kind": "missing",
+                "lines": []
+              },
+              "lines": {},
+              "verifiedOn": []
+            },
+            "anatomy": null,
+            "signals": {
+              "receipt": {
+                "0.9": "untested",
+                "0.8": "untested",
+                "next": "untested"
+              },
+              "fit": {
+                "0.9": "ok",
+                "0.8": "ok",
+                "next": "ok"
+              },
+              "anatomy": "none",
+              "supplyChain": {
+                "status": "ok",
+                "reasons": []
+              },
+              "hygiene": {
+                "status": "ok",
+                "failing": []
+              },
+              "maintenance": {
+                "status": "current",
+                "lastRelease": "2026-10-09",
+                "catchUpDays": null
+              },
+              "declaredVsObserved": {
+                "status": "match",
+                "notes": []
+              }
+            },
+            "tier": "listed",
+            "quality": null,
+            "agentPolicy": {
+              "0.9": {
+                "decision": "ask",
+                "reasons": [
+                  {
+                    "code": "NOT_VERIFIED",
+                    "text": "No receipt on 0.9 yet."
+                  }
+                ],
+                "consentText": "Install create-mercato-module@0.4.2"
+              },
+              "0.8": {
+                "decision": "ask",
+                "reasons": [
+                  {
+                    "code": "NOT_VERIFIED",
+                    "text": "No receipt on 0.8 yet."
+                  }
+                ],
+                "consentText": "Install create-mercato-module@0.4.2"
+              },
+              "next": {
+                "decision": "ask",
+                "reasons": [
+                  {
+                    "code": "NOT_VERIFIED",
+                    "text": "No receipt on next yet."
+                  }
+                ],
+                "consentText": "Install create-mercato-module@0.4.2"
+              }
+            },
+            "install": {
+              "cli": "npx create-mercato-module@0.4.2",
+              "cmm": null,
+              "needsAllowThirdParty": false,
+              "moduleFlag": null
+            },
+            "stats": null,
+            "sigil": {
+              "glyph": "0020201",
+              "phase": 141,
+              "publicRoutes": false
+            },
+            "links": {
+              "page": "https://modules.openmercato.com/m/create-mercato-module",
+              "md": "https://modules.openmercato.com/m/create-mercato-module.md",
+              "json": "https://modules.openmercato.com/m/create-mercato-module.json",
+              "facts": null,
+              "npm": "https://www.npmjs.com/package/create-mercato-module",
+              "repo": "https://github.com/open-mercato/open-mercato",
+              "docs": null
+            },
+            "addedAt": "2026-10-23",
+            "updatedAt": "2026-10-23T03:05:00Z",
+            "_meta": {
+              "com.openmercato.modules/installable": {
+                "0.9": "0.4.2",
+                "0.8": "0.4.2",
+                "next": "0.4.2"
+              }
+            }
+          }
+        ]
+      },
+      "search": [
+        {
+          "input": {
+            "query": "web research"
+          },
+          "output": {
+            "results": [
+              {
+                "locator": "npm:@open-mercato/web-research",
+                "path": "@open-mercato/web-research",
+                "title": "Web Research",
+                "summary": "Engine that runs several web search adapters under one deadline, fuses their results and reports each step.",
+                "whenToUse": "Use when AI agents in the app need web search or page reading. Add at least one adapter, for example web-research-model.",
+                "type": "official",
+                "kind": "library",
+                "category": "ai-automation",
+                "license": {
+                  "spdx": "MIT",
+                  "kind": "osi"
+                },
+                "tier": "listed",
+                "omQuality": false,
+                "verifiedOn": [],
+                "line": "0.9",
+                "status": "untested",
+                "agentPolicy": {
+                  "decision": "ask",
+                  "reasons": [
+                    {
+                      "code": "NOT_VERIFIED",
+                      "text": "No receipt on 0.9 yet."
+                    }
+                  ],
+                  "consentText": "Install @open-mercato/web-research@0.9.0"
+                },
+                "installableFrom": "2026-10-09",
+                "install": "yarn add @open-mercato/web-research@0.9.0",
+                "matchedOn": [
+                  "name",
+                  "summary",
+                  "tag web-search"
+                ],
+                "card": "https://modules.openmercato.com/m/@open-mercato/web-research"
+              },
+              {
+                "locator": "npm:@open-mercato/web-research-model",
+                "path": "@open-mercato/web-research-model",
+                "title": "Web Research Model Search",
+                "summary": "Web search through the native search tool of the agent LLM on Anthropic, OpenAI or Azure OpenAI. On by default.",
+                "whenToUse": "Use when you want web search without another vendor or key, through the model the agent already calls.",
+                "type": "official",
+                "kind": "provider",
+                "category": "ai-automation",
+                "license": {
+                  "spdx": "MIT",
+                  "kind": "osi"
+                },
+                "tier": "listed",
+                "omQuality": false,
+                "verifiedOn": [],
+                "line": "0.9",
+                "status": "untested",
+                "agentPolicy": {
+                  "decision": "ask",
+                  "reasons": [
+                    {
+                      "code": "NOT_VERIFIED",
+                      "text": "No receipt on 0.9 yet."
+                    }
+                  ],
+                  "consentText": "Install @open-mercato/web-research-model@0.9.0"
+                },
+                "installableFrom": "2026-10-09",
+                "install": "yarn add @open-mercato/web-research@0.9.0 @open-mercato/web-research-model@0.9.0",
+                "matchedOn": [
+                  "name",
+                  "summary",
+                  "tag web-search"
+                ],
+                "card": "https://modules.openmercato.com/m/@open-mercato/web-research-model"
+              }
+            ],
+            "builtIn": [],
+            "total": 2,
+            "line": "0.9",
+            "dataVersion": "1.0.0-202610230305.ha3da99",
+            "generatedAt": "2026-10-23T03:05:00Z",
+            "receiptSource": null
+          }
+        },
+        {
+          "input": {
+            "query": "web research",
+            "omVersion": "0.8.0"
+          },
+          "output": {
+            "results": [
+              {
+                "locator": "npm:@open-mercato/web-research",
+                "path": "@open-mercato/web-research",
+                "title": "Web Research",
+                "summary": "Engine that runs several web search adapters under one deadline, fuses their results and reports each step.",
+                "whenToUse": "Use when AI agents in the app need web search or page reading. Add at least one adapter, for example web-research-model.",
+                "type": "official",
+                "kind": "library",
+                "category": "ai-automation",
+                "license": {
+                  "spdx": "MIT",
+                  "kind": "osi"
+                },
+                "tier": "listed",
+                "omQuality": false,
+                "verifiedOn": [],
+                "line": "0.8",
+                "status": "untested",
+                "agentPolicy": {
+                  "decision": "ask",
+                  "reasons": [
+                    {
+                      "code": "NOT_VERIFIED",
+                      "text": "No receipt on 0.8 yet."
+                    }
+                  ],
+                  "consentText": "Install @open-mercato/web-research@0.8.0"
+                },
+                "installableFrom": "2026-10-09",
+                "install": "yarn add @open-mercato/web-research@0.8.0",
+                "matchedOn": [
+                  "name",
+                  "summary",
+                  "tag web-search"
+                ],
+                "card": "https://modules.openmercato.com/m/@open-mercato/web-research"
+              },
+              {
+                "locator": "npm:@open-mercato/web-research-model",
+                "path": "@open-mercato/web-research-model",
+                "title": "Web Research Model Search",
+                "summary": "Web search through the native search tool of the agent LLM on Anthropic, OpenAI or Azure OpenAI. On by default.",
+                "whenToUse": "Use when you want web search without another vendor or key, through the model the agent already calls.",
+                "type": "official",
+                "kind": "provider",
+                "category": "ai-automation",
+                "license": {
+                  "spdx": "MIT",
+                  "kind": "osi"
+                },
+                "tier": "listed",
+                "omQuality": false,
+                "verifiedOn": [],
+                "line": "0.8",
+                "status": "untested",
+                "agentPolicy": {
+                  "decision": "ask",
+                  "reasons": [
+                    {
+                      "code": "NOT_VERIFIED",
+                      "text": "No receipt on 0.8 yet."
+                    }
+                  ],
+                  "consentText": "Install @open-mercato/web-research-model@0.8.0"
+                },
+                "installableFrom": "2026-10-09",
+                "install": "yarn add @open-mercato/web-research@0.8.0 @open-mercato/web-research-model@0.8.0",
+                "matchedOn": [
+                  "name",
+                  "summary",
+                  "tag web-search"
+                ],
+                "card": "https://modules.openmercato.com/m/@open-mercato/web-research-model"
+              }
+            ],
+            "builtIn": [],
+            "total": 2,
+            "line": "0.8",
+            "dataVersion": "1.0.0-202610230305.ha3da99",
+            "generatedAt": "2026-10-23T03:05:00Z",
+            "receiptSource": null
+          }
+        },
+        {
+          "input": {
+            "query": "web research",
+            "omVersion": "0.10.1-develop.7590.1.abc"
+          },
+          "output": {
+            "results": [
+              {
+                "locator": "npm:@open-mercato/web-research",
+                "path": "@open-mercato/web-research",
+                "title": "Web Research",
+                "summary": "Engine that runs several web search adapters under one deadline, fuses their results and reports each step.",
+                "whenToUse": "Use when AI agents in the app need web search or page reading. Add at least one adapter, for example web-research-model.",
+                "type": "official",
+                "kind": "library",
+                "category": "ai-automation",
+                "license": {
+                  "spdx": "MIT",
+                  "kind": "osi"
+                },
+                "tier": "listed",
+                "omQuality": false,
+                "verifiedOn": [],
+                "line": "next",
+                "status": "untested",
+                "agentPolicy": {
+                  "decision": "ask",
+                  "reasons": [
+                    {
+                      "code": "NOT_VERIFIED",
+                      "text": "No receipt on next yet."
+                    }
+                  ],
+                  "consentText": "Install @open-mercato/web-research@0.10.1-develop.7583.1.0c886d0a14"
+                },
+                "installableFrom": "2026-10-09",
+                "install": "yarn add @open-mercato/web-research@0.10.1-develop.7583.1.0c886d0a14",
+                "matchedOn": [
+                  "name",
+                  "summary",
+                  "tag web-search"
+                ],
+                "card": "https://modules.openmercato.com/m/@open-mercato/web-research"
+              },
+              {
+                "locator": "npm:@open-mercato/web-research-model",
+                "path": "@open-mercato/web-research-model",
+                "title": "Web Research Model Search",
+                "summary": "Web search through the native search tool of the agent LLM on Anthropic, OpenAI or Azure OpenAI. On by default.",
+                "whenToUse": "Use when you want web search without another vendor or key, through the model the agent already calls.",
+                "type": "official",
+                "kind": "provider",
+                "category": "ai-automation",
+                "license": {
+                  "spdx": "MIT",
+                  "kind": "osi"
+                },
+                "tier": "listed",
+                "omQuality": false,
+                "verifiedOn": [],
+                "line": "next",
+                "status": "untested",
+                "agentPolicy": {
+                  "decision": "ask",
+                  "reasons": [
+                    {
+                      "code": "NOT_VERIFIED",
+                      "text": "No receipt on next yet."
+                    }
+                  ],
+                  "consentText": "Install @open-mercato/web-research-model@0.10.1-develop.7583.1.0c886d0a14"
+                },
+                "installableFrom": "2026-10-09",
+                "install": "yarn add @open-mercato/web-research@0.10.1-develop.7583.1.0c886d0a14 @open-mercato/web-research-model@0.10.1-develop.7583.1.0c886d0a14",
+                "matchedOn": [
+                  "name",
+                  "summary",
+                  "tag web-search"
+                ],
+                "card": "https://modules.openmercato.com/m/@open-mercato/web-research-model"
+              }
+            ],
+            "builtIn": [],
+            "total": 2,
+            "line": "next",
+            "dataVersion": "1.0.0-202610230305.ha3da99",
+            "generatedAt": "2026-10-23T03:05:00Z",
+            "receiptSource": null
+          }
+        },
+        {
+          "input": {
+            "query": "web search",
+            "omVersion": "0.8"
+          },
+          "output": {
+            "results": [
+              {
+                "locator": "npm:@open-mercato/web-research-model",
+                "path": "@open-mercato/web-research-model",
+                "title": "Web Research Model Search",
+                "summary": "Web search through the native search tool of the agent LLM on Anthropic, OpenAI or Azure OpenAI. On by default.",
+                "whenToUse": "Use when you want web search without another vendor or key, through the model the agent already calls.",
+                "type": "official",
+                "kind": "provider",
+                "category": "ai-automation",
+                "license": {
+                  "spdx": "MIT",
+                  "kind": "osi"
+                },
+                "tier": "listed",
+                "omQuality": false,
+                "verifiedOn": [],
+                "line": "0.8",
+                "status": "untested",
+                "agentPolicy": {
+                  "decision": "ask",
+                  "reasons": [
+                    {
+                      "code": "NOT_VERIFIED",
+                      "text": "No receipt on 0.8 yet."
+                    }
+                  ],
+                  "consentText": "Install @open-mercato/web-research-model@0.8.0"
+                },
+                "installableFrom": "2026-10-09",
+                "install": "yarn add @open-mercato/web-research@0.8.0 @open-mercato/web-research-model@0.8.0",
+                "matchedOn": [
+                  "name",
+                  "summary",
+                  "tag web-search"
+                ],
+                "card": "https://modules.openmercato.com/m/@open-mercato/web-research-model"
+              },
+              {
+                "locator": "npm:@open-mercato/web-research",
+                "path": "@open-mercato/web-research",
+                "title": "Web Research",
+                "summary": "Engine that runs several web search adapters under one deadline, fuses their results and reports each step.",
+                "whenToUse": "Use when AI agents in the app need web search or page reading. Add at least one adapter, for example web-research-model.",
+                "type": "official",
+                "kind": "library",
+                "category": "ai-automation",
+                "license": {
+                  "spdx": "MIT",
+                  "kind": "osi"
+                },
+                "tier": "listed",
+                "omQuality": false,
+                "verifiedOn": [],
+                "line": "0.8",
+                "status": "untested",
+                "agentPolicy": {
+                  "decision": "ask",
+                  "reasons": [
+                    {
+                      "code": "NOT_VERIFIED",
+                      "text": "No receipt on 0.8 yet."
+                    }
+                  ],
+                  "consentText": "Install @open-mercato/web-research@0.8.0"
+                },
+                "installableFrom": "2026-10-09",
+                "install": "yarn add @open-mercato/web-research@0.8.0",
+                "matchedOn": [
+                  "name",
+                  "summary",
+                  "tag web-search"
+                ],
+                "card": "https://modules.openmercato.com/m/@open-mercato/web-research"
+              }
+            ],
+            "builtIn": [],
+            "total": 2,
+            "line": "0.8",
+            "dataVersion": "1.0.0-202610230305.ha3da99",
+            "generatedAt": "2026-10-23T03:05:00Z",
+            "receiptSource": null
+          }
+        },
+        {
+          "input": {
+            "kind": [
+              "provider"
+            ],
+            "omVersion": "0.8.0"
+          },
+          "output": {
+            "results": [
+              {
+                "locator": "npm:@open-mercato/web-research-model",
+                "path": "@open-mercato/web-research-model",
+                "title": "Web Research Model Search",
+                "summary": "Web search through the native search tool of the agent LLM on Anthropic, OpenAI or Azure OpenAI. On by default.",
+                "whenToUse": "Use when you want web search without another vendor or key, through the model the agent already calls.",
+                "type": "official",
+                "kind": "provider",
+                "category": "ai-automation",
+                "license": {
+                  "spdx": "MIT",
+                  "kind": "osi"
+                },
+                "tier": "listed",
+                "omQuality": false,
+                "verifiedOn": [],
+                "line": "0.8",
+                "status": "untested",
+                "agentPolicy": {
+                  "decision": "ask",
+                  "reasons": [
+                    {
+                      "code": "NOT_VERIFIED",
+                      "text": "No receipt on 0.8 yet."
+                    }
+                  ],
+                  "consentText": "Install @open-mercato/web-research-model@0.8.0"
+                },
+                "installableFrom": "2026-10-09",
+                "install": "yarn add @open-mercato/web-research@0.8.0 @open-mercato/web-research-model@0.8.0",
+                "matchedOn": [],
+                "card": "https://modules.openmercato.com/m/@open-mercato/web-research-model"
+              }
+            ],
+            "builtIn": [],
+            "total": 1,
+            "line": "0.8",
+            "dataVersion": "1.0.0-202610230305.ha3da99",
+            "generatedAt": "2026-10-23T03:05:00Z",
+            "receiptSource": null
+          }
+        },
+        {
+          "input": {
+            "kind": [
+              "provider"
+            ],
+            "omVersion": "next"
+          },
+          "output": {
+            "results": [
+              {
+                "locator": "npm:@open-mercato/web-research-model",
+                "path": "@open-mercato/web-research-model",
+                "title": "Web Research Model Search",
+                "summary": "Web search through the native search tool of the agent LLM on Anthropic, OpenAI or Azure OpenAI. On by default.",
+                "whenToUse": "Use when you want web search without another vendor or key, through the model the agent already calls.",
+                "type": "official",
+                "kind": "provider",
+                "category": "ai-automation",
+                "license": {
+                  "spdx": "MIT",
+                  "kind": "osi"
+                },
+                "tier": "listed",
+                "omQuality": false,
+                "verifiedOn": [],
+                "line": "next",
+                "status": "untested",
+                "agentPolicy": {
+                  "decision": "ask",
+                  "reasons": [
+                    {
+                      "code": "NOT_VERIFIED",
+                      "text": "No receipt on next yet."
+                    }
+                  ],
+                  "consentText": "Install @open-mercato/web-research-model@0.10.1-develop.7583.1.0c886d0a14"
+                },
+                "installableFrom": "2026-10-09",
+                "install": "yarn add @open-mercato/web-research@0.10.1-develop.7583.1.0c886d0a14 @open-mercato/web-research-model@0.10.1-develop.7583.1.0c886d0a14",
+                "matchedOn": [],
+                "card": "https://modules.openmercato.com/m/@open-mercato/web-research-model"
+              }
+            ],
+            "builtIn": [],
+            "total": 1,
+            "line": "next",
+            "dataVersion": "1.0.0-202610230305.ha3da99",
+            "generatedAt": "2026-10-23T03:05:00Z",
+            "receiptSource": null
+          }
+        },
+        {
+          "input": {
+            "kind": [
+              "library"
+            ]
+          },
+          "output": {
+            "results": [
+              {
+                "locator": "npm:@open-mercato/web-research",
+                "path": "@open-mercato/web-research",
+                "title": "Web Research",
+                "summary": "Engine that runs several web search adapters under one deadline, fuses their results and reports each step.",
+                "whenToUse": "Use when AI agents in the app need web search or page reading. Add at least one adapter, for example web-research-model.",
+                "type": "official",
+                "kind": "library",
+                "category": "ai-automation",
+                "license": {
+                  "spdx": "MIT",
+                  "kind": "osi"
+                },
+                "tier": "listed",
+                "omQuality": false,
+                "verifiedOn": [],
+                "line": "0.9",
+                "status": "untested",
+                "agentPolicy": {
+                  "decision": "ask",
+                  "reasons": [
+                    {
+                      "code": "NOT_VERIFIED",
+                      "text": "No receipt on 0.9 yet."
+                    }
+                  ],
+                  "consentText": "Install @open-mercato/web-research@0.9.0"
+                },
+                "installableFrom": "2026-10-09",
+                "install": "yarn add @open-mercato/web-research@0.9.0",
+                "matchedOn": [],
+                "card": "https://modules.openmercato.com/m/@open-mercato/web-research"
+              }
+            ],
+            "builtIn": [],
+            "total": 1,
+            "line": "0.9",
+            "dataVersion": "1.0.0-202610230305.ha3da99",
+            "generatedAt": "2026-10-23T03:05:00Z",
+            "receiptSource": null
+          }
+        },
+        {
+          "input": {
+            "kind": [
+              "tool"
+            ]
+          },
+          "output": {
+            "results": [
+              {
+                "locator": "npm:create-mercato-module",
+                "path": "create-mercato-module",
+                "title": "create-mercato-module",
+                "summary": "CLI that turns one module of your app into an npm package and a GitHub repository, and installs or links modules.",
+                "whenToUse": "Use when a module built inside your app should be published for other apps, or you install a module from GitHub.",
+                "type": "official",
+                "kind": "tool",
+                "category": "devtools",
+                "license": {
+                  "spdx": "MIT",
+                  "kind": "osi"
+                },
+                "tier": "listed",
+                "omQuality": false,
+                "verifiedOn": [],
+                "line": "0.9",
+                "status": "untested",
+                "agentPolicy": {
+                  "decision": "ask",
+                  "reasons": [
+                    {
+                      "code": "NOT_VERIFIED",
+                      "text": "No receipt on 0.9 yet."
+                    }
+                  ],
+                  "consentText": "Install create-mercato-module@0.4.2"
+                },
+                "installableFrom": "2026-10-09",
+                "install": "npx create-mercato-module@0.4.2",
+                "matchedOn": [],
+                "card": "https://modules.openmercato.com/m/create-mercato-module"
+              }
+            ],
+            "builtIn": [],
+            "total": 1,
+            "line": "0.9",
+            "dataVersion": "1.0.0-202610230305.ha3da99",
+            "generatedAt": "2026-10-23T03:05:00Z",
+            "receiptSource": null
+          }
+        },
+        {
+          "input": {
+            "query": "anthropic",
+            "omVersion": "next"
+          },
+          "output": {
+            "results": [
+              {
+                "locator": "npm:@open-mercato/web-research-model",
+                "path": "@open-mercato/web-research-model",
+                "title": "Web Research Model Search",
+                "summary": "Web search through the native search tool of the agent LLM on Anthropic, OpenAI or Azure OpenAI. On by default.",
+                "whenToUse": "Use when you want web search without another vendor or key, through the model the agent already calls.",
+                "type": "official",
+                "kind": "provider",
+                "category": "ai-automation",
+                "license": {
+                  "spdx": "MIT",
+                  "kind": "osi"
+                },
+                "tier": "listed",
+                "omQuality": false,
+                "verifiedOn": [],
+                "line": "next",
+                "status": "untested",
+                "agentPolicy": {
+                  "decision": "ask",
+                  "reasons": [
+                    {
+                      "code": "NOT_VERIFIED",
+                      "text": "No receipt on next yet."
+                    }
+                  ],
+                  "consentText": "Install @open-mercato/web-research-model@0.10.1-develop.7583.1.0c886d0a14"
+                },
+                "installableFrom": "2026-10-09",
+                "install": "yarn add @open-mercato/web-research@0.10.1-develop.7583.1.0c886d0a14 @open-mercato/web-research-model@0.10.1-develop.7583.1.0c886d0a14",
+                "matchedOn": [
+                  "provider Anthropic",
+                  "summary"
+                ],
+                "card": "https://modules.openmercato.com/m/@open-mercato/web-research-model"
+              }
+            ],
+            "builtIn": [],
+            "total": 1,
+            "line": "next",
+            "dataVersion": "1.0.0-202610230305.ha3da99",
+            "generatedAt": "2026-10-23T03:05:00Z",
+            "receiptSource": null
+          }
+        }
+      ],
+      "info": [
+        {
+          "ref": "@open-mercato/web-research-model",
+          "ok": true,
+          "locator": "npm:@open-mercato/web-research-model",
+          "candidates": [],
+          "warnings": [],
+          "card": "https://modules.openmercato.com/m/@open-mercato/web-research-model.md"
+        },
+        {
+          "ref": "web-research",
+          "ok": false,
+          "error": "Unknown module \"web-research\". Did you mean: npm:@open-mercato/web-research, npm:@open-mercato/web-research-model?",
+          "candidates": [
+            "npm:@open-mercato/web-research",
+            "npm:@open-mercato/web-research-model"
+          ]
+        },
+        {
+          "ref": "create-mercato-module",
+          "ok": true,
+          "locator": "npm:create-mercato-module",
+          "candidates": [],
+          "warnings": [],
+          "card": "https://modules.openmercato.com/m/create-mercato-module.md"
+        }
+      ]
     }
   ]
 }

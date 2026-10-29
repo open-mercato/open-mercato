@@ -59,6 +59,8 @@ export type CatalogEntry = {
   tags: string[]
   providers: { name: string; label: string }[]
   moduleIds: string[]
+  /** What the package needs; an adapter's catalog libraries among them join its `yarn add` (`peerLibrarySpecs`). */
+  requires?: { raw: string; resolvesTo?: string | null }[]
   renamedFrom: string[]
   status: string
   listed: boolean
@@ -548,9 +550,40 @@ export function builtInEnableCommand(id: string): string {
   return `yarn mercato module enable ${CORE_PACKAGE} --module ${id}`
 }
 
-function packageCommand(entry: CatalogEntry, spec: string): string | null {
+/** A provider without a module of its own: an adapter `yarn add` adds and `yarn generate` registers. */
+export const isAdapter = (entry: Pick<CatalogEntry, 'kind' | 'moduleIds'>): boolean =>
+  entry.kind === 'provider' && entry.moduleIds.length === 0
+
+/** Finds a catalog entry by locator (`npm:<name>`). */
+export type PeerLookup = (locator: string) => CatalogEntry | null | undefined
+
+/**
+ * The catalog libraries an adapter peers on, as `name@version` for its `yarn add` (catalog `peerLibrarySpecs`). An
+ * @open-mercato peer of an @open-mercato adapter comes from the same release and takes the adapter's version; any
+ * other peer takes its own install version on the line. Empty for every other kind.
+ */
+export function peerLibrarySpecs(
+  entry: CatalogEntry,
+  version: string | null,
+  line: string | null,
+  find: PeerLookup | undefined,
+): string[] {
+  if (!find || !entry.npm || !isAdapter(entry)) return []
+  const specs: string[] = []
+  for (const requirement of entry.requires ?? []) {
+    const peer = requirement.resolvesTo?.startsWith('npm:') ? find(requirement.resolvesTo) : null
+    if (!peer?.npm || peer.kind !== 'library' || peer.npm === entry.npm) continue
+    const sameRelease = Boolean(version) && peer.npm.startsWith('@open-mercato/') && entry.npm.startsWith('@open-mercato/')
+    const peerVersion = sameRelease ? version : installVersion(peer, line)
+    const spec = peerVersion ? `${peer.npm}@${peerVersion}` : peer.npm
+    if (!specs.includes(spec)) specs.push(spec)
+  }
+  return specs
+}
+
+function packageCommand(entry: CatalogEntry, spec: string, peers: readonly string[] = []): string | null {
   if (entry.kind === 'tool') return entry.tags.includes('cli') ? `npx ${spec}` : `yarn add ${spec}`
-  if (entry.kind === 'provider' && entry.moduleIds.length === 0) return `yarn add ${spec}`
+  if (isAdapter(entry)) return `yarn add ${[...peers, spec].join(' ')}`
   return entry.kind === 'library' ? `yarn add ${spec}` : null
 }
 
@@ -564,6 +597,7 @@ function installCli(
   line: string | null,
   preset: readonly { id: string; from: string }[] | null,
   version: string | null = installVersion(entry, line),
+  find?: PeerLookup,
 ): string {
   if (entry.npm === null) {
     const repo = entry.locator.replace(/^github:/, '')
@@ -571,7 +605,7 @@ function installCli(
     return `npx create-mercato-module install ${repo}${ref}`
   }
   const spec = version ? `${entry.npm}@${version}` : entry.npm
-  const own = packageCommand(entry, spec)
+  const own = packageCommand(entry, spec, peerLibrarySpecs(entry, version, line, find))
   if (own) return own
   if (inPreset(entry, preset)) return `yarn add ${spec}`
   const moduleFlag = entry.install.moduleFlag ?? null
@@ -584,14 +618,19 @@ function installCli(
 }
 
 /** The command of an app that does not register the package yet (an app from the empty preset) on a line. */
-export function installCommand(entry: CatalogEntry, line: string | null, latest: string | null): string {
+export function installCommand(
+  entry: CatalogEntry,
+  line: string | null,
+  latest: string | null,
+  find?: PeerLookup,
+): string {
   if (line === null || line === latest) return entry.install.cli
   const both = entry.npm !== null && (entry.compat.inEmptyPreset ?? []).includes(line)
   const version = (entry.compat.inPresets ?? []).includes(line)
     ? emptyPresetVersion(entry, line)
     : installVersion(entry, line)
   const npm = entry.npm
-  return installCli(entry, line, both && npm ? entry.moduleIds.map((id) => ({ id, from: npm })) : null, version)
+  return installCli(entry, line, both && npm ? entry.moduleIds.map((id) => ({ id, from: npm })) : null, version, find)
 }
 
 function listAnd(items: readonly string[]): string {
@@ -604,7 +643,7 @@ function presetInstallText(moduleIds: readonly string[]): string {
   return `Nothing to install: a new app already registers ${moduleIds.length ? listAnd(moduleIds) : 'it'} in src/modules.ts.`
 }
 
-function newAppInstallText(moduleIds: readonly string[], emptyCommand: string | null): string {
+export function newAppInstallText(moduleIds: readonly string[], emptyCommand: string | null): string {
   return emptyCommand ? `${presetInstallText(moduleIds)} ${EMPTY_PRESET_LEAD} ${emptyCommand}` : presetInstallText(moduleIds)
 }
 
@@ -617,8 +656,9 @@ export function installFields(
   entry: CatalogEntry,
   line: string | null,
   latest: string | null,
+  find?: PeerLookup,
 ): Pick<ModuleCard, 'install' | 'presetNote' | 'installEmptyPreset'> {
-  const command = installCommand(entry, line, latest)
+  const command = installCommand(entry, line, latest, find)
   if (line === null || !(entry.compat.inPresets ?? []).includes(line)) return { install: command }
   const empty = (entry.compat.inEmptyPreset ?? []).includes(line) ? null : command
   return {
@@ -869,10 +909,15 @@ export function toModuleCard(searcher: CatalogSearcher, hit: RankedModule, line:
     status: line ? statusOn(entry, line) : null,
     agentPolicy: line ? (entry.agentPolicy[line] ?? null) : null,
     installableFrom: entry.version.installableFrom,
-    ...installFields(entry, line, latest),
+    ...installFields(entry, line, latest, peerLookup(searcher)),
     matchedOn: hit.matchedOn,
     card: absolute(searcher.site, entry.links.page),
   }
+}
+
+/** The listed entries of the search index, where the catalog looks up an adapter's peer libraries. */
+export function peerLookup(searcher: CatalogSearcher): PeerLookup {
+  return (locator) => searcher.modules.get(locator)?.entry
 }
 
 export function receiptSourceOf(searcher: CatalogSearcher): ReceiptSource | null {

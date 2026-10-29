@@ -12,6 +12,8 @@ import {
   installFields,
   installVersion,
   latestLine,
+  newAppInstallText,
+  peerLookup,
   rankModules,
   receiptSourceOf,
   resolveLine,
@@ -194,6 +196,12 @@ function isCatalogEntry(value: unknown): value is CatalogEntry {
     isStringArray(value.tags) &&
     isArrayOf(value.providers, (provider) => isRecord(provider) && isString(provider.name) && isString(provider.label)) &&
     isStringArray(value.moduleIds) &&
+    isAbsentOr(value.requires, (requires) =>
+      isArrayOf(
+        requires,
+        (requirement) => isRecord(requirement) && isString(requirement.raw) && isAbsentOr(requirement.resolvesTo, isNullableString),
+      ),
+    ) &&
     isStringArray(value.renamedFrom) &&
     isString(value.status) &&
     typeof value.listed === 'boolean' &&
@@ -471,14 +479,18 @@ export function detectAppLine(appRoot: string): string | null {
   return null
 }
 
-export type ReadEnabledModules = (modulesPath: string) => ModuleEntry[]
+export type ReadEnabledModules = (modulesPath: string, env: NodeJS.ProcessEnv) => ModuleEntry[]
 
-export function detectAppContext(appRoot: string, readEnabled: ReadEnabledModules | null): AppContext {
+export function detectAppContext(
+  appRoot: string,
+  readEnabled: ReadEnabledModules | null,
+  env: NodeJS.ProcessEnv = process.env,
+): AppContext {
   const modulesPath = path.join(appRoot, 'src', 'modules.ts')
   let enabledModules: ModuleEntry[] | null = null
   if (readEnabled && fs.existsSync(modulesPath)) {
     try {
-      enabledModules = readEnabled(modulesPath)
+      enabledModules = readEnabled(modulesPath, env)
     } catch {
       enabledModules = null
     }
@@ -538,7 +550,10 @@ export function buildSearchView(
   })
   const line = ranked.line
   const allLines = request.allLines === true || line === null
-  const kept = ranked.modules.filter((hit) => allLines || (line !== null && Boolean(hit.meta.entry.version.recommended[line])))
+  // the nightly run installs modules only, so providers, libraries and tools stay listed with their status on the line
+  const kept = ranked.modules.filter(
+    (hit) => allLines || hit.meta.entry.kind !== 'module' || (line !== null && Boolean(hit.meta.entry.version.recommended[line])),
+  )
   const limit = Math.min(SEARCH_MAX_LIMIT, Math.max(1, Math.floor(request.limit ?? 10)))
   const results = kept.slice(0, limit).map((hit) => toModuleCard(searcher, hit, line, ranked.latest))
   const entries = new Map<string, CatalogEntry>()
@@ -588,6 +603,32 @@ function licenseLabel(entry: CatalogEntry): string {
   return entry.license.spdx ?? entry.license.kind
 }
 
+const steps = (command: string) => command.split(' && ')
+
+/**
+ * The install line a person copies: the command, then `yarn generate` after a `yarn add` of a library or a provider
+ * and after `npx create-mercato-module install` (`yarn mercato module add` runs it itself), then `yarn db:migrate`
+ * after a module install that adds tables or whose anatomy is unknown. `--json` keeps the bare command (tools@1).
+ */
+export function withFollowUpSteps(command: string, entry: CatalogEntry): string {
+  const cmm = command.startsWith('npx create-mercato-module install')
+  const moduleInstall = cmm || command.includes('yarn mercato module add')
+  const addsPackage = command.startsWith('yarn add ') && (entry.kind === 'library' || entry.kind === 'provider')
+  const generate = (addsPackage || cmm) && !steps(command).includes('yarn generate')
+  const tables = entry.anatomy?.lists?.tables
+  const migrate = moduleInstall && (tables === undefined || tables.length > 0) && !steps(command).includes('yarn db:migrate')
+  return [command, ...(generate ? ['yarn generate'] : []), ...(migrate ? ['yarn db:migrate'] : [])].join(' && ')
+}
+
+function installText(
+  install: Pick<ModuleCard, 'install' | 'presetNote' | 'installEmptyPreset'>,
+  entry: CatalogEntry,
+): string {
+  if (install.presetNote === undefined) return withFollowUpSteps(install.install, entry)
+  const empty = install.installEmptyPreset ?? null
+  return newAppInstallText(entry.moduleIds, empty === null ? null : withFollowUpSteps(empty, entry))
+}
+
 function entryHeading(entry: CatalogEntry, line: string | null): string {
   const name = entry.npm ?? entry.locator.replace(/^github:/, '')
   const version = installVersion(entry, line)
@@ -624,7 +665,7 @@ export function renderSearchHuman(view: ModuleSearchView, today: string = new Da
     if (card.installableFrom && card.installableFrom > today && card.status !== 'verified') {
       out.push(`  installable from: ${card.installableFrom}`)
     }
-    out.push(`  install: ${card.presetNote ?? card.install}`)
+    out.push(`  install: ${installText(card, entry)}`)
     out.push(`  more: ${card.card}`)
     out.push('')
   }
@@ -681,7 +722,7 @@ export function buildInfoView(searcher: CatalogSearcher, ref: string, app: AppCo
         entry: null,
         candidates: resolved.candidates,
         anatomy: null,
-        warnings: builtInWarnings(coreModule, latest),
+        warnings: builtInWarnings(coreModule, line),
         untrusted: null,
         card: cardUrl(searcher, coreModule.page),
       },
@@ -725,7 +766,7 @@ export function buildInfoView(searcher: CatalogSearcher, ref: string, app: AppCo
       entry,
       candidates: [],
       anatomy: null,
-      warnings: entryWarnings(entry, today, latest, receiptSourceOf(searcher)),
+      warnings: entryWarnings(entry, today, line, receiptSourceOf(searcher)),
       untrusted: null,
       card: cardUrl(searcher, entry.links.md),
     },
@@ -792,8 +833,8 @@ export function renderInfoHuman(view: ModuleInfoView, searcher: CatalogSearcher)
   const settings = [...(lists?.env ?? []), ...(lists?.credentials ?? []).map((credential) => credential.key)]
   if (settings.length > 0) out.push(`  needs settings: ${settings.slice(0, 10).join(', ')}`)
   if (lists?.hosts && lists.hosts.length > 0) out.push(`  talks to: ${lists.hosts.slice(0, 10).join(', ')}`)
-  const install = installFields(entry, line, latestLine(searcher.index.lines)?.key ?? null)
-  out.push(`  install: ${install.presetNote ?? install.install}`)
+  const install = installFields(entry, line, latestLine(searcher.index.lines)?.key ?? null, peerLookup(searcher))
+  out.push(`  install: ${installText(install, entry)}`)
   for (const warning of json.warnings) out.push(`  warning: ${warning}`)
   out.push(`  install plan: ${json.card ?? entry.links.md}`)
   out.push(`  more: ${cardUrl(searcher, entry.links.page)}`)
@@ -837,7 +878,7 @@ async function loadForCommand(deps: ModuleSearchDeps): Promise<LoadedForCommand>
     stderr(BUILT_IN_UNAVAILABLE_MESSAGE)
     stderr(`Reason: ${loaded.builtInUnavailable}`)
   }
-  const app = detectAppContext(appRoot, deps.readEnabledModules ?? null)
+  const app = detectAppContext(appRoot, deps.readEnabledModules ?? null, env)
   return {
     searcher: loaded.searcher,
     app,

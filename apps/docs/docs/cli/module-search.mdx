@@ -4,7 +4,7 @@ sidebar_label: module search and info
 description: Searches the Open Mercato Modules catalog from the terminal and shows one module's card, before you build or install anything.
 ---
 
-`yarn mercato module search` asks the [Open Mercato Modules](https://modules.openmercato.com) catalog whether a module for your need already exists. Modules built into Open Mercato core come first, then official, community and third-party packages that the catalog has verified on your app's Open Mercato version. `yarn mercato module info` shows one module: its levels per release line, the agent policy, what it adds to your app and the exact install command.
+`yarn mercato module search` asks the [Open Mercato Modules](https://modules.openmercato.com) catalog whether a module for your need already exists. Modules built into Open Mercato core come first, then official, community and third-party packages that the catalog has verified on your app's Open Mercato version. `yarn mercato module info` shows one module: its levels per release line, the agent policy, what it adds to your app and the install line to copy.
 
 Both commands only read. They never install, enable or change anything; use [`module enable`](./module-enable) or [`module add`](./module-add) with the printed command when you decide to install.
 
@@ -54,12 +54,19 @@ Already in Open Mercato core:
 @fastwhitecat/integration-ksef-direct 0.1.8   VERIFIED · 0.9   community · MIT
   Sends and receives Polish structured e-invoices through the KSeF API v2.
   matched: provider KSeF · agent policy: ask (third-party)
-  install: yarn mercato module add @fastwhitecat/integration-ksef-direct@0.1.8 --allow-third-party
+  install: yarn mercato module add @fastwhitecat/integration-ksef-direct@0.1.8 --allow-third-party && yarn db:migrate
   more: https://modules.openmercato.com/m/@fastwhitecat/integration-ksef-direct
+
+@open-mercato/web-research-model 0.9.0   LISTED · untested on 0.9   official · MIT
+  Web search through the native search tool of the agent LLM on Anthropic, OpenAI or Azure OpenAI. On by default.
+  matched: name, summary, tag web-search · agent policy: ask (not-verified)
+  install: yarn add @open-mercato/web-research@0.9.0 @open-mercato/web-research-model@0.9.0 && yarn generate
+  more: https://modules.openmercato.com/m/@open-mercato/web-research-model
 ```
 
 - **Built-in first.** When a core module matches, enable it instead of installing a package. If `src/modules.ts` already enables it, the line says `Already enabled.`
-- **Your line only.** The command reads the Open Mercato version from `node_modules/@open-mercato/core/package.json` (or the `@open-mercato/core` range in `package.json`) and shows only modules with a verified install on that line, with the version the catalog verified there. A closing line such as `2 more modules are listed but not verified on 0.9. Use --all-lines.` tells you what was left out. When your version is not a line the catalog tests, every line is shown with a note.
+- **Your line only.** The command reads the Open Mercato version from `node_modules/@open-mercato/core/package.json` (or the `@open-mercato/core` range in `package.json`) and shows only modules with a verified install on that line, with the version the catalog verified there. A closing line such as `2 more modules are listed but not verified on 0.9. Use --all-lines.` tells you what was left out. The filter applies to modules only: providers, libraries and tools are not installed by the catalog's nightly run, so they are always listed, with their status on the line (for example `untested on 0.9`). When your version is not a line the catalog tests, every line is shown with a note.
+- **Install line.** The printed line includes the steps that follow the install: `yarn generate` after `yarn add` of a library or a provider and after `npx create-mercato-module install` (`yarn mercato module add` runs it itself), and `yarn db:migrate` after a module install that adds database tables or whose anatomy is not published. A provider without a module of its own (an adapter) is added together with the catalog library it needs.
 - **Ranking.** Every word must match first. When nothing does, modules that match some of the words follow, without loose fuzzy matches. When still nothing matches, one swap of two letters is undone (`stirpe` finds Stripe) and the first line says `Nothing matched "stirpe". Showing results for "stripe".`
 - **New apps.** When a new app on your line already registers a package or has a core module on, the line says so (`Nothing to install: a new app already registers ...`), followed by the command for an app from the empty preset.
 - **Agent policy.** `allow`, `ask` or `refuse`, with the reasons, for your line. Coding agents use it to decide whether they may install a module after you agree.
@@ -77,9 +84,9 @@ Already in Open Mercato core:
 | `line` | Catalog line of the app (`0.9`, `next`), or `null` when the app's version is not tested. |
 | `omVersion` | The Open Mercato version read from the app, or `null`. |
 | `builtIn` | Matching core modules: `id`, `title`, `description`, `category`, `enabled` (`true`/`false` from `src/modules.ts`, `null` when unknown), `install`, `page`, `matchedOn`, `presetNote` (what a new app on `line` has, or `null` when a new app has it off). |
-| `results` | Module cards: `locator`, `path`, `title`, `summary`, `whenToUse`, `type`, `kind`, `category`, `license`, `tier`, `omQuality`, `verifiedOn`, `line`, `status`, `agentPolicy`, `installableFrom`, `install`, `matchedOn`, `card`. On a line whose new app already registers the package, `install` is that sentence, and `presetNote` and `installEmptyPreset` (the command for an app from the empty preset, or `null`) are set. |
+| `results` | Module cards: `locator`, `path`, `title`, `summary`, `whenToUse`, `type`, `kind`, `category`, `license`, `tier`, `omQuality`, `verifiedOn`, `line`, `status`, `agentPolicy`, `installableFrom`, `install`, `matchedOn`, `card`. `install` is the bare command of `tools@1`, without the `yarn generate` and `yarn db:migrate` steps of the text output. On a line whose new app already registers the package, `install` is that sentence, and `presetNote` and `installEmptyPreset` (the command for an app from the empty preset, or `null`) are set. |
 | `total` | All catalog modules that matched, on any line. |
-| `hidden` | How many of them were left out because they are not verified on `line` (always `0` with `--all-lines`). |
+| `hidden` | How many modules (kind `module`) were left out because they are not verified on `line` (always `0` with `--all-lines`). |
 | `dataVersion`, `generatedAt` | Version and time of the catalog data. |
 | `receiptSource` | Where the install receipts come from: `ci`, `preview` (a preview run, not CI) or `null`. |
 | `didYouMean` | Present when nothing matched the query and the results are for this spelling of it. |

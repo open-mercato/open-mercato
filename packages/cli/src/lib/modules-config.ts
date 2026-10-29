@@ -361,9 +361,12 @@ function upsertModuleSource(objectLiteral: string, from: string): string {
   return objectLiteral.replace(/\}\s*$/, `, from: '${escapeSingleQuotedString(from)}' }`)
 }
 
-export function readEnabledModules(modulesPath: string): ModuleEntry[] {
+export function readEnabledModules(modulesPath: string, env: NodeJS.ProcessEnv = process.env): ModuleEntry[] {
   const source = fs.readFileSync(modulesPath, 'utf8')
-  return parseModuleConfigShape(source).occurrences.map((occurrence) => normalizeModuleEntry(occurrence.entry))
+  // keeps only registrations whose condition holds; #8116 tags the others `active: false` instead of skipping them
+  return parseModuleConfigShape(source, env)
+    .occurrences.filter((occurrence) => !('active' in occurrence) || occurrence.active !== false)
+    .map((occurrence) => normalizeModuleEntry(occurrence.entry))
 }
 
 export function ensureModuleRegistration(

@@ -61,6 +61,8 @@ tasks passed (`@open-mercato/cli` 2218 of 2218). Two failures do not come from t
 
 ## Outcome
 
-Review with autofix: approvable, fixes in ea19435c81, follow-ups in #8124. CI on ea19435c81: every check green except
-the required `test`, which fails only on the `.ai/lessons.md` count, red on `main` as well and fixed by #8123. Next:
-once #8123 lands, merge `main` into this branch and let CI rerun; a review from another account is needed.
+Review with autofix: approvable, fixes in ea19435c81, follow-ups in #8124. #8123 landed and `main` was merged in
+(9e458cd2d4), after which the required `test` passed. A second `om-auto-fix-pr 8117 --no-ui` run (2026-10-29) merged
+`main` at 8bbd70dcd, moved the parity point to open-mercato/modules `2c182e6` and fixed adapter peers, the module-only
+line filter, follow-up steps in text output, env-aware `src/modules.ts` reading and the line of `module info --json`
+warnings. Next: a review from another account.

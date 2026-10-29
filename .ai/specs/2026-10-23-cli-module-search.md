@@ -100,7 +100,7 @@ additive.
 | `builtInUnavailable` | `true`, only when the built-in list could not be loaded (`builtIn` may then miss core modules) |
 | `results` | `ModuleCard[]` (`tools@1`) |
 | `total` | `number`, matches on any line |
-| `hidden` | `number`, matches not verified on `line` (`0` with `--all-lines`) |
+| `hidden` | `number`, modules (kind `module`) not verified on `line` (`0` with `--all-lines`) |
 | `dataVersion`, `generatedAt` | `string`, version and time of the catalog data |
 | `receiptSource` | `'ci' \| 'preview' \| null`, from `modules.json` `dataAsOf.source` |
 | `didYouMean` | `string`, only when the results are for a spelling with one swap undone |
@@ -116,9 +116,11 @@ second line `Reason: <detail>` (for example `Reason: https://mirror.example.com/
 
 No API route and no UI path is added, so there is no `.ai/qa/tests/` scenario. Coverage is in unit tests
 (`packages/cli/src/lib/__tests__/module-search.test.ts`, `packages/cli/src/__tests__/mercato.test.ts`) with the
-catalog's fixture through an injected `fetch`: parity with `search_modules` and `get_module` on the fixture and on a
-patched variant with presets and preview receipts (goldens produced by the catalog's handlers), golden queries,
-`--json` keys, line filter and `--all-lines`, line detection, download, TTL cache, ETag 304, retry, stale copy,
+catalog's fixture through an injected `fetch`: parity with `search_modules` and `get_module` on the fixture, on a
+patched variant with presets and preview receipts and on a variant that adds a library, an adapter and a tool (goldens
+produced by the catalog's handlers), golden queries, `--json` keys, line filter (modules only) and `--all-lines`, adapter
+peers on other lines, follow-up steps in text output, conditional registrations in `src/modules.ts` read with the
+injected environment, `module info --json` warnings for the app line, line detection, download, TTL cache, ETag 304, retry, stale copy,
 a malformed or unsearchable download that keeps the cached copy, a cached copy the CLI cannot read,
 exit code 2 with its reason, `OM_MODULES_INDEX_URL`, `module info` text and JSON.
 
@@ -147,3 +149,10 @@ exit code 2 with its reason, `OM_MODULES_INDEX_URL`, `module info` text and JSON
   cut, filter without a query, one-swap typo retry, judged line statuses, preset-aware install fields
   (`presetNote`, `installEmptyPreset`), `receiptSource`, and the preview line and preset notes in `module info`
   warnings. Goldens regenerated from the catalog's handlers.
+- 2026-10-29: Parity point moved to open-mercato/modules `2c182e6`: an adapter's `yarn add` names the catalog
+  libraries it peers on, on every line (`requires`, `peerLibrarySpecs`). The app-line filter of `module search`
+  applies to modules only; providers, libraries and tools are listed with their status on the line. Text output
+  appends `yarn generate` after `yarn add` of a library or a provider and after `npx create-mercato-module install`,
+  and `yarn db:migrate` after a module install that adds tables or has no published anatomy; `--json` keeps the bare
+  command of `tools@1`. `src/modules.ts` is read with the command's environment and keeps only active registrations.
+  `module info --json` warnings use the app line, not the latest one.

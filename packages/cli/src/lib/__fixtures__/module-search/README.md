@@ -9,7 +9,8 @@ Generated from the test fixture of the Open Mercato Modules catalog (8 real entr
   the same data. `search` and `info` hold the golden queries of the catalog spec (Appendix B), filter cases and
   cases for the search of 25 Oct (stop words, filters without a query, the typo retry). `variants` holds the same
   tools on a patched copy of the data: `patch` adds `dataAsOf.source`, preset lists, `ships` and `isolation` to
-  some entries, which the plain fixture does not have. `module-search.test.ts` applies the same patch and checks that
+  some entries, which the plain fixture does not have; `addEntries` appends whole entries (a library, an adapter that
+  peers on it and a tool, written by hand from the catalog descriptors). `module-search.test.ts` applies the same patch and checks that
   `yarn mercato module search|info` produce the same ranking, cards and lookups.
 
 The data predates the catalog's move of partner modules to `community`, so `@fastwhitecat/integration-ksef-direct` is
@@ -18,10 +19,12 @@ The data predates the catalog's move of partner modules to `community`, so `@fas
 ## How the goldens were produced
 
 Outputs of `catalog-parity.json` come from open-mercato/modules at commit
-`587b293aafc4782c39f3f1b10623c2d2d1cd92c5` (2026-10-26), `mcp/handlers.ts` `runTool` with `now` from the file. Inputs
-(`input`, `ref`, `patch`) are written by hand; the script below rewrites every output. Do not edit outputs by hand.
+`2c182e6` (2026-10-28), `mcp/handlers.ts` `runTool` with `now` from the file. Inputs (`input`, `ref`, `patch`) are
+written by hand; the script below rewrites every output. Do not edit outputs by hand.
 
-1. Clone open-mercato/modules, check out the commit above, run `yarn install` (Node 24).
+1. Clone open-mercato/modules, check out the commit above, run `yarn install` (Node 24). The script imports only the
+   catalog's `lib` and `mcp` code, which needs `zod`, `yaml`, `minisearch`, `semver`, `fastest-levenshtein` and
+   `p-limit`; installing just those is enough.
 2. Save the script below as `gen-parity.ts` in the clone and run `node gen-parity.ts <this directory>`.
 3. Run `yarn jest --config jest.config.cjs src/lib/__tests__/module-search.test.ts` in `packages/cli`.
 
@@ -33,6 +36,7 @@ import { createCatalogSource } from './mcp/index-cache.ts'
 
 type Patch = {
   dataAsOf?: Record<string, unknown>
+  addEntries?: Record<string, unknown>[]
   entries?: Record<string, { compat?: Record<string, unknown> }>
   builtIn?: Record<string, Record<string, unknown>>
 }
@@ -50,6 +54,7 @@ function applyPatch(index: any, builtIn: any, patch: Patch) {
     const compat = patch.entries?.[entry.locator]?.compat
     if (compat) entry.compat = { ...entry.compat, ...compat }
   }
+  if (patch.addEntries) index.entries.push(...structuredClone(patch.addEntries))
   builtIn.modules = builtIn.modules.map((m: any) => ({ ...m, ...(patch.builtIn?.[m.id] ?? {}) }))
 }
 
