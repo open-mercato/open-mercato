@@ -9,6 +9,8 @@ import { resolveAllowedWidgetIds } from '@open-mercato/core/modules/dashboards/l
 import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { resolveUserDataSubject } from '@open-mercato/core/modules/auth/lib/userDataSubject'
 import {
   runCrudMutationGuardAfterSuccess,
   validateCrudMutationGuard,
@@ -80,15 +82,19 @@ export async function GET(req: Request) {
   // Use a fresh fork to avoid carrying over pending entities from other operations
   const em = (container.resolve('em') as any).fork({ clear: true, freshEventManager: true, useContext: true })
   const rbac = container.resolve('rbacService') as any
-  const url = new URL(req.url)
+  const userId = await resolveUserDataSubject(em, auth)
+  if (!userId) {
+    const { translate } = await resolveTranslations()
+    return NextResponse.json({ error: translate('api.errors.forbidden', 'Forbidden') }, { status: 403 })
+  }
 
   const scope: LayoutScope = {
-    userId: String(auth.sub),
+    userId,
     tenantId: auth.tenantId ?? null,
     organizationId: auth.orgId ?? null,
   }
 
-  const effectiveFeatures = await rbac.getEffectiveFeatures(scope.userId, {
+  const effectiveFeatures = await rbac.getEffectiveFeatures(auth.sub, {
     tenantId: scope.tenantId,
     organizationId: scope.organizationId,
   })
@@ -128,7 +134,7 @@ export async function GET(req: Request) {
       size: widget.metadata.defaultSize ?? DEFAULT_SIZE,
       settings: widget.metadata.defaultSettings ?? undefined,
     }))
-    if (hasRegisteredWidgets) {
+    if (hasRegisteredWidgets && !auth.isApiKey) {
       layout = em.create(DashboardLayout, {
         userId: scope.userId,
         tenantId: scope.tenantId,
@@ -152,11 +158,11 @@ export async function GET(req: Request) {
     ) {
       hasChanged = true
     }
-    existingLayout.layoutJson = items
+    if (!auth.isApiKey) existingLayout.layoutJson = items
     layout = existingLayout
   }
 
-  if (hasChanged) {
+  if (hasChanged && !auth.isApiKey) {
     await em.flush()
   }
 
@@ -231,14 +237,20 @@ export async function PUT(req: Request) {
   const em = (resolve('em') as any).fork({ clear: true, freshEventManager: true, useContext: true })
   const rbac = resolve('rbacService') as any
 
+  const userId = await resolveUserDataSubject(em, auth)
+  if (!userId) {
+    const { translate } = await resolveTranslations()
+    return NextResponse.json({ error: translate('api.errors.forbidden', 'Forbidden') }, { status: 403 })
+  }
+
   const scope: LayoutScope = {
-    userId: String(auth.sub),
+    userId,
     tenantId: auth.tenantId ?? null,
     organizationId: auth.orgId ?? null,
   }
 
   const canConfigure = await rbac.userHasAllFeatures(
-    scope.userId,
+    auth.sub,
     ['dashboards.configure'],
     { tenantId: scope.tenantId, organizationId: scope.organizationId },
   )
@@ -249,7 +261,7 @@ export async function PUT(req: Request) {
   const guardResult = await validateCrudMutationGuard(container, {
     tenantId: scope.tenantId ?? '',
     organizationId: scope.organizationId,
-    userId: scope.userId,
+    userId: auth.sub,
     resourceKind: RESOURCE_KIND,
     resourceId: scope.userId,
     operation: 'update',
@@ -271,7 +283,7 @@ export async function PUT(req: Request) {
   if (widgets.length === 0) {
     return NextResponse.json({ error: 'Widget registry unavailable' }, { status: 503 })
   }
-  const effectiveFeatures = await rbac.getEffectiveFeatures(scope.userId, {
+  const effectiveFeatures = await rbac.getEffectiveFeatures(auth.sub, {
     tenantId: scope.tenantId,
     organizationId: scope.organizationId,
   })
@@ -323,7 +335,7 @@ export async function PUT(req: Request) {
     await runCrudMutationGuardAfterSuccess(container, {
       tenantId: scope.tenantId ?? '',
       organizationId: scope.organizationId,
-      userId: scope.userId,
+      userId: auth.sub,
       resourceKind: RESOURCE_KIND,
       resourceId: scope.userId,
       operation: 'update',
@@ -349,6 +361,7 @@ const layoutGetDoc: OpenApiMethodDoc = {
   ],
   errors: [
     { status: 401, description: 'Authentication required', schema: dashboardsErrorSchema },
+    { status: 403, description: 'No user binding in the authenticated scope', schema: dashboardsErrorSchema },
   ],
 }
 
