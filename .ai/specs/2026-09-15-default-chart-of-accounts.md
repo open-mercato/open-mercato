@@ -204,10 +204,11 @@ schema or command change.
 
 No new entities. This document writes only into the three entities GL
 core engine (#5663) already owns and this document treats as
-authoritative: `LedgerAccountGroup` (read-only here — every row this
-document creates links to an `accountGroupId` GL core engine already
-seeded via `seedPolishAccountGroups`; whether the import may seed missing
-groups itself is Open Question OQ-R1), `LedgerAccountType` (created by
+authoritative: `LedgerAccountGroup` (every type this document creates
+links to the `accountGroupId` of its zespół; the import seeds missing PL
+groups itself through the ledger-owned `seedPolishAccountGroups` before it
+reads them, see OQ-R1; it never modifies an existing group row),
+`LedgerAccountType` (created by
 this document's command, using the same shape `createLedgerAccountType`
 already validates in #6340, `ledgerAccountTypeCreateSchema`: `number`,
 `name`, `normalBalance`, optional `accountGroupId`), and `LedgerAccount`
@@ -266,17 +267,16 @@ document adds.
   (`deletedAt` set) don't count toward this precondition. (PR #6137
   review, m2 — this bullet previously said "fails validation," which
   doesn't match the implementation.)
-- **Missing account groups**: every `LedgerAccountType` links to an
-  existing PL `LedgerAccountGroup` row (see Architecture, "Entities").
-  If those aren't seeded for the caller's organization yet, the command
-  throws a 409 conflict (`ledger.errors.chartOfAccountsGroupsNotSeeded`)
-  without writing anything, instead of importing a type with a
-  dangling `accountGroupId`. *(Corrected 2026-10-29, PR #6137 re-review,
-  R1.)* This is not unreachable: #6340 seeds the groups only in
-  `setup.ts`'s `seedDefaults` (`mercato init`, the `seed:defaults` CLI
-  command, self-service onboarding), and an organization created in
-  Directory does not run that hook, so every import there ends in this
-  409. Where the groups should come from is Open Question OQ-R1.
+- **Missing account groups** *(changed 2026-10-29, OQ-R1)*: every
+  `LedgerAccountType` links to a PL `LedgerAccountGroup` row (see
+  Architecture, "Entities"). #6340 seeds the groups only in `setup.ts`'s
+  `seedDefaults`, which an organization created in Directory does not run.
+  The import therefore calls `seedPolishAccountGroups(em, scope)` inside
+  its own transaction before the precondition check; it creates only the
+  missing codes. A concurrent seed that hits
+  `ledger_account_groups_scope_code_unique` is treated as "already
+  exists" and the groups are re-read. The `chartOfAccountsGroupsNotSeeded`
+  error is gone.
 - **Concurrent imports**: two simultaneous calls against the same
   empty chart of accounts can both pass the precondition check above
   before either writes. The database's own partial unique indexes
@@ -332,10 +332,11 @@ document adds.
   same content-idempotent undo contract JELD's own write command
   already established (see
   `2026-09-06-journal-entry-line-dimension.md`, Design Decisions, "Undo
-  contract"). *(2026-10-29, PR #6137 re-review, R2.)* As written, the
-  guards and the soft-delete are not required to run under one lock, so a
-  posting can commit between the check and the delete and be left on a
-  soft-deleted account. The locking requirement is Open Question OQ-R2.
+  contract"). *(2026-10-29, PR #6137 re-review, R2.)* The guards and the
+  soft-delete run in one transaction under `PESSIMISTIC_WRITE` locks on
+  the imported types, then the imported accounts, each in id order, so a
+  posting cannot commit between the check and the delete (decision OQ-R2;
+  #6439 does not implement it yet).
 - **Permission**: `ledger.accounts.manage`.
 
 ### Events
@@ -597,7 +598,6 @@ every other route in this module.
 | 401 | `{ "error": "..." }` | Not authenticated. |
 | 403 | `{ "error": "...", "requiredFeatures": ["ledger.accounts.manage"] }` | Caller lacks `ledger.accounts.manage` (framework-level `requireFeatures` rejection, before the route handler runs). |
 | 409 | `{ "error": "..." }`, translated `ledger.errors.chartOfAccountsNotEmpty` | Chart of accounts already has account types and/or accounts. |
-| 409 | `{ "error": "..." }`, translated `ledger.errors.chartOfAccountsGroupsNotSeeded` | The org's PL account groups aren't seeded yet. Reachable for every organization created in Directory after setup (corrected 2026-10-29, R1); see Open Question OQ-R1. |
 | 409 | `{ "error": "..." }`, translated `ledger.errors.chartOfAccountsImportConflict` | A concurrent import lost the unique-number race (see Risks & Impact Review, "Concurrent import attempts"). |
 
 (PR #6137 review, m2 — this section previously named the route but
@@ -844,7 +844,7 @@ conventions (`.ai/qa/AGENTS.md`: self-contained fixtures, cleaned up in
 
 - **API happy path**: `POST /api/ledger/accounts/import-default-chart-of-accounts`
   against a fresh, empty organization returns 200 with
-  `{ ok: true, createdAccountTypeCount: 42, createdAccountCount: 46 }`. The organization is created through Directory after initial setup (no `seedDefaults`), so this case also proves OQ-R1's answer; until OQ-R1 is implemented it ends in 409 `chartOfAccountsGroupsNotSeeded` (added 2026-10-29, R1).
+  `{ ok: true, createdAccountTypeCount: 42, createdAccountCount: 46 }`. The organization is created through Directory after initial setup (no `seedDefaults`), so this case is also the required happy-path test for OQ-R1: the import seeds the missing PL groups and succeeds (added 2026-10-29, R1).
 - **409 on a non-empty chart of accounts**: seed one account first,
   call the route again, assert 409 with the translated
   `ledger.errors.chartOfAccountsNotEmpty` refusal message in the
@@ -938,28 +938,29 @@ conventions (`.ai/qa/AGENTS.md`: self-contained fixtures, cleaned up in
 - **Severity:** High.
 - **Affected area:** Ledger integrity of the organization that undoes an
   import while postings run.
-- **Mitigation:** See Open Question OQ-R2 (working decision: one
-  transaction that locks the imported rows in a fixed order, runs both
-  guards and soft-deletes, plus an executable undo-versus-post contender
-  test).
-- **Residual risk:** Open until OQ-R2 is confirmed and implemented in #6439.
+- **Mitigation:** Decision OQ-R2: one transaction that locks the
+  imported rows in a fixed order, runs both guards and soft-deletes, plus
+  an executable undo-versus-post contender test.
+- **Residual risk:** Open until #6439 implements OQ-R2.
 
 ### Import in an organization created after setup
 
 - **Scenario:** An organization created in Directory has no PL account
-  groups, because only `seedDefaults` creates them. Every import there
-  ends in 409 `chartOfAccountsGroupsNotSeeded`, and the button is offered
-  anyway.
+  groups, because only `seedDefaults` creates them. Without the OQ-R1
+  decision every import there would end in 409
+  `chartOfAccountsGroupsNotSeeded` (the behaviour of #6439 today), and the
+  button is offered anyway.
 - **Severity:** High (the feature does not work for these organizations).
 - **Affected area:** Every organization created after initial setup.
-- **Mitigation:** See Open Question OQ-R1.
-- **Residual risk:** Open until OQ-R1 is confirmed and implemented.
+- **Mitigation:** Decision OQ-R1: the import seeds missing PL groups
+  itself.
+- **Residual risk:** Open until #6439 implements OQ-R1.
 
-## Open Questions (PR #6137 re-review of 2026-10-29)
+## Decisions on the PR #6137 re-review of 2026-10-29 (OQ-R1, OQ-R2)
 
-Both are architecture questions; each has a working decision so the
-implementation (#6439) can proceed, marked **⚠ NEEDS HUMAN CONFIRMATION**
-until an architecture owner confirms or replaces it.
+Both were recorded as open questions on 2026-10-29 and are settled below
+by the author after checking the code of #6340 and #6439. Owner
+confirmation was not requested. #6439 does not implement them yet.
 
 ### OQ-R1 — where PL account groups come from in organizations created after setup
 
@@ -974,12 +975,17 @@ until an architecture owner confirms or replaces it.
   the precondition check. (b) `ledger` provisions the groups whenever an
   organization is created (a subscriber or hook, which belongs with
   #6340).
-- **Working decision ⚠ NEEDS HUMAN CONFIRMATION.** (a): the import seeds
-  missing groups itself. It only creates the codes that are missing, so
-  it is safe to repeat, and the change stays inside the import. The
-  "this document never creates a `LedgerAccountGroup` row" claim and the
-  `chartOfAccountsGroupsNotSeeded` error would then go. A happy-path test
-  for an organization created after initial setup is required either way.
+- **Decision.** (a): the import calls the ledger-owned
+  `seedPolishAccountGroups(em, scope)` inside its own transaction before
+  the precondition check. It is idempotent (creates only missing codes).
+  `ledger_account_groups_scope_code_unique` means a concurrent seed fails
+  instead of duplicating, so the import treats a unique violation from the
+  seed as "already exists" and re-reads. A unique violation aborts the
+  enclosing Postgres transaction, so the seed runs in a nested transaction
+  (a savepoint) for the import to continue after it. The "this document
+  never creates a `LedgerAccountGroup` row" claim and the
+  `chartOfAccountsGroupsNotSeeded` error go. A happy-path test for an
+  organization created after initial setup is required.
 
 ### OQ-R2 — undo and delete atomic against posting
 
@@ -989,7 +995,7 @@ until an architecture owner confirms or replaces it.
   order; the lock order everywhere in #6340 is type → accounts by id.
   #6439 runs its undo guards as plain counts before a separate write
   transaction (`importDefaultChartOfAccounts.ts:367-388`, then `:393`).
-- **Working decision ⚠ NEEDS HUMAN CONFIRMATION.** `undo` runs in one
+- **Decision.** `undo` runs in one
   transaction that locks the imported account types and then the
   imported accounts with `PESSIMISTIC_WRITE`, each in id order (matching
   #6340's type → accounts order), evaluates both guards with that
@@ -999,7 +1005,10 @@ until an architecture owner confirms or replaces it.
   then refused by the posted-entries guard. Required tests: an executable
   undo-versus-post contender test on a real second connection (the
   two-connection harness of #6340's lock-protocol integration test), in
-  addition to the two sequential refusal tests.
+  addition to the two sequential refusal tests. This matches the lock
+  order in #6340: account type, then account (`updateLedgerAccount`, and
+  `createLedgerAccount` since `e22d963`; `deleteLedgerAccount` locks only
+  the account it deletes).
 
 ### No impact on existing modules
 
@@ -1083,9 +1092,25 @@ no new tagging mechanism, no new control-account pattern, no new
 event declaration (the import raises the existing CRUD events, see Events);
 nothing to add to §2.
 
-**Verdict:** Not yet fully compliant (refreshed 2026-10-29): Open Questions OQ-R1 (group provisioning for organizations created after setup) and OQ-R2 (undo atomic against posting) carry working decisions marked ⚠ NEEDS HUMAN CONFIRMATION, and #6439 does not implement them yet. The rest is implemented (#6439, OM-16 to OM-20) and updated through three rounds of external review (see Changelog).
+**Verdict:** Not yet fully compliant (refreshed 2026-10-29): decisions OQ-R1 (group provisioning for organizations created after setup) and OQ-R2 (undo atomic against posting) are settled, not yet implemented in #6439. The rest is implemented (#6439, OM-16 to OM-20) and updated through three rounds of external review (see Changelog).
 
 ## Changelog
+
+### 2026-10-29 (cont.) — OQ-R1 and OQ-R2 settled
+
+- OQ-R1 and OQ-R2 settled by the author after checking the code of #6340
+  and #6439; owner confirmation not requested. The section "Open
+  Questions" is now "Decisions on the PR #6137 re-review of 2026-10-29".
+- **OQ-R1.** The import seeds missing PL groups itself
+  (`seedPolishAccountGroups`, in a savepoint; a unique violation on
+  `ledger_account_groups_scope_code_unique` means "already exists").
+  Entities, Commands, API Contracts (the `chartOfAccountsGroupsNotSeeded`
+  row removed), Integration Coverage and Risks updated.
+- **OQ-R2.** Undo in one transaction, `PESSIMISTIC_WRITE` on the imported
+  types then accounts in id order, as the working decision stated; lock
+  order compared with #6340.
+- Verdict stays "Not yet fully compliant": decisions settled, not yet
+  implemented in #6439.
 
 ### 2026-10-29 — PR #6137 re-review (@haxiorz, `5693531745`): R1–R4 and the changelog order
 
