@@ -8,6 +8,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Popover, PopoverContent, PopoverTrigger } from '@open-mercato/ui/primitives/popover'
 import { formatTimeRange, resolveEventTone } from './EventBlock'
+import { resolveEventTypeIcon } from './EventPeekPopover'
 import type { CalendarItem } from './types'
 
 const HEADER_HEIGHT_PX = 24
@@ -26,6 +27,7 @@ export type OverflowBlockProps = {
   conflictIds: Set<string>
   showConflicts: boolean
   highlightItemId?: string | null
+  typeIcons?: Record<string, string | null>
   canManage: boolean
   nowMs: number
   resolveJoinUrl(location: string | null): string | null
@@ -35,14 +37,16 @@ export type OverflowBlockProps = {
   onEdit(item: CalendarItem): void
 }
 
-type ToneDotProps = { item: CalendarItem }
+type TypeIconProps = { item: CalendarItem; typeIcons?: Record<string, string | null>; className?: string }
 
-function ToneDot({ item }: ToneDotProps) {
+/** Dictionary icon of the interaction type in its color: names the kind of event, not just its hue. */
+function TypeIcon({ item, typeIcons, className }: TypeIconProps) {
+  const Icon = resolveEventTypeIcon(item, typeIcons?.[item.interactionType])
   return (
-    <span
+    <Icon
       aria-hidden
-      className={cn('size-1.5 shrink-0 rounded-full', !item.color && 'bg-muted-foreground')}
-      style={item.color ? { backgroundColor: item.color } : undefined}
+      className={cn('shrink-0', !item.color && 'text-muted-foreground', className)}
+      style={item.color ? { color: item.color } : undefined}
     />
   )
 }
@@ -59,6 +63,7 @@ export function OverflowBlock({
   conflictIds,
   showConflicts,
   highlightItemId,
+  typeIcons,
   canManage,
   nowMs,
   resolveJoinUrl,
@@ -103,7 +108,7 @@ export function OverflowBlock({
           </span>
           {previewItems.map((item) => (
             <span key={item.id} className="flex w-full min-w-0 items-center gap-1.5">
-              <ToneDot item={item} />
+              <TypeIcon item={item} typeIcons={typeIcons} className="size-3" />
               <span className={cn('min-w-0 flex-1 truncate text-overline leading-4', tone.subClassName)}>
                 {item.title || untitled}
               </span>
@@ -132,13 +137,13 @@ export function OverflowBlock({
               <>
                 <span className="flex w-full min-w-0 items-start gap-2">
                   <span className="flex h-4 shrink-0 items-center">
-                    <ToneDot item={item} />
+                    <TypeIcon item={item} typeIcons={typeIcons} className="size-3.5" />
                   </span>
                   <span className={cn('min-w-0 flex-1 break-words text-xs font-medium leading-4', rowTone.titleClassName)}>
                     {title}
                   </span>
                 </span>
-                <span className={cn('ps-3.5 text-overline tracking-wide', rowTone.subClassName)}>{timeRange}</span>
+                <span className={cn('ps-5 text-overline tracking-wide', rowTone.subClassName)}>{timeRange}</span>
               </>
             )
             return (

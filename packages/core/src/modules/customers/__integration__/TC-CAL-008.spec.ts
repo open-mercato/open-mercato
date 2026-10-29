@@ -19,8 +19,8 @@ import {
  *
  * - Clicking a time-grid event block opens the `EventPeekPopover` (the block is
  *   a `button` whose accessible name is `${title}, ${timeRange}` — e.g. the
- *   label contains the title and "9:00"). The popover shows the title, a
- *   `EEE, MMM d · h:mm` date·time line, and an **Edit** button.
+ *   label contains the title and "9:00"). The popover shows the title, the
+ *   date and time rows, and an **Edit** button.
  * - Clicking the popover's **Edit** opens the full `CalendarEventEditor` in edit
  *   mode ("Edit event" dialog) with the title prefilled.
  * - With two overlapping planned meetings sharing an owner, the time-grid column
@@ -111,12 +111,12 @@ test.describe('TC-CAL-008: Calendar week-view states', () => {
 
       // -- Clicking the block opens the peek popover -----------------------------
       await blockA.click();
-      // The peek is a Radix Popover (not a [role=dialog]); assert on its
-      // peek-unique content: the `EEE, MMM d · h:mm` date·time line (the "·"
-      // separator does not appear on the grid block) and the Edit button (grid
+      // The peek is a Radix Popover (not a [role=dialog]); scope the assertions
+      // to the open popover content: its time row and the Edit button (grid
       // blocks have no Edit affordance).
-      await expect(page.getByText(/·.*9:00/).first()).toBeVisible();
-      const peekEdit = page.getByRole('button', { name: 'Edit', exact: true });
+      const peek = page.locator('[data-slot="popover-content"][data-state="open"]');
+      await expect(peek.getByText(/9:00/).first()).toBeVisible();
+      const peekEdit = peek.getByRole('button', { name: 'Edit', exact: true });
       await expect(peekEdit).toBeVisible();
 
       // -- Edit opens the editor in edit mode with the title prefilled -----------
@@ -227,6 +227,44 @@ test.describe('TC-CAL-008: Calendar week-view states', () => {
     await expect(editor.getByRole('combobox', { name: 'Starts' })).toContainText(/\d{1,2}:\d{2}/);
 
     // No fixture was saved; just dismiss the editor.
+    await page.keyboard.press('Escape');
+    await expect(editor).toBeHidden();
+  });
+
+  // Click-to-create: a plain click on an empty half-hour slot opens the create
+  // editor prefilled with that slot, no drag required.
+  test('clicking an empty week-grid slot opens the create editor prefilled with that half hour', async ({ page }) => {
+    test.slow();
+    await login(page, 'admin');
+    await page.goto('/backend/calendar');
+    await waitForCalendarLoaded(page);
+
+    const emptyGridSearch = `__qa_empty_click_${Date.now()}__`;
+    const searchInput = page.locator('[data-calendar-search]');
+    await searchInput.fill(emptyGridSearch);
+    await searchInput.blur();
+
+    const dragLayer = page.locator('.cursor-cell').first();
+    const scroller = dragLayer.locator(
+      'xpath=ancestor::div[contains(concat(" ", normalize-space(@class), " "), " overflow-auto ")][1]',
+    );
+    await expect(dragLayer).toBeVisible();
+    const [layerBox, scrollerBox] = await Promise.all([dragLayer.boundingBox(), scroller.boundingBox()]);
+    expect(layerBox).not.toBeNull();
+    expect(scrollerBox).not.toBeNull();
+    const point = { x: layerBox!.x + layerBox!.width / 2, y: scrollerBox!.y + scrollerBox!.height * 0.5 };
+
+    // Hovering highlights the slot under the pointer before any click.
+    await page.mouse.move(point.x, point.y);
+    await expect(page.locator('[data-calendar-hover-slot]')).toHaveCount(1);
+
+    await page.mouse.click(point.x, point.y);
+    const editor = page.getByRole('dialog');
+    await expect(editor).toBeVisible();
+    await expect(editor.getByText('New event').first()).toBeVisible();
+    await expect(editor.getByRole('combobox', { name: 'Starts' })).toContainText(/\d{1,2}:(00|30)/);
+    await expect(editor.getByRole('combobox', { name: 'Ends' })).toContainText(/\d{1,2}:(00|30)/);
+
     await page.keyboard.press('Escape');
     await expect(editor).toBeHidden();
   });

@@ -511,6 +511,8 @@ export function CalendarScreen({ resourcesEnabled = false, staffEnabled = true }
         onItemClick={openEditEditor}
         onJoin={handleJoin}
         onNavigate={handleTimeGridNavigate}
+        typeIcons={typeIcons}
+        onCancelItem={handleCancelItem}
         onCreate={canManage ? openCreateEditor : undefined}
         onCreateRange={canManage ? handleCreateRange : undefined}
       />

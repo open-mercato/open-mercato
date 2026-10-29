@@ -87,7 +87,7 @@ test.describe('TC-CAL-003: Calendar view switching & navigation', () => {
       // -- Switcher click: Day — long weekday header + block -------------------
       await dayRadio.click();
       await expect(dayRadio).toBeChecked();
-      const dayHeader = `${new Intl.DateTimeFormat('en', { weekday: 'long' }).format(now).toUpperCase()} · ${String(now.getDate()).padStart(2, '0')}`;
+      const dayHeader = `${String(now.getDate()).padStart(2, '0')} ${new Intl.DateTimeFormat('en', { weekday: 'long' }).format(now).toUpperCase()}`;
       await expect(page.getByText(dayHeader, { exact: true })).toBeVisible();
       await expect(page.getByRole('button', { name: gridBlockName(meetingTitle) })).toBeVisible();
 

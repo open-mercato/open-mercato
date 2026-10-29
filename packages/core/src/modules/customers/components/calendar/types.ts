@@ -90,8 +90,12 @@ export interface TimeGridProps {
   aiSummaries: boolean
   canManage?: boolean
   highlightItemId?: string | null
+  /** Dictionary icon per interaction type (`lucide:*`), used by the dense-slot overflow list. */
+  typeIcons?: Record<string, string | null>
   onItemClick(item: CalendarItem): void
   onJoin(item: CalendarItem): void
+  /** Cancels a planned event from the block peek; omitted when the host has no cancel flow. */
+  onCancelItem?(item: CalendarItem): void | Promise<void>
   onNavigate(deltaDays: number): void
   onCreate?: () => void
   onCreateRange?(start: Date, end: Date): void

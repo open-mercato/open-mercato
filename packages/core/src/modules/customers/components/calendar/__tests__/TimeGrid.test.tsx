@@ -90,14 +90,16 @@ describe('TimeGrid drag-to-create', () => {
     expect(screen.queryByText('New event')).not.toBeInTheDocument()
   })
 
-  it('does not create a range for a plain click', () => {
+  it('creates the half-hour slot under the pointer for a plain click', () => {
     const { layers, onCreateRange } = renderGrid(1)
     dispatchPointer(layers[0], 'pointerdown', 1080)
     dispatchPointer(layers[0], 'pointerup', 1080)
 
-    expect(onCreateRange).not.toHaveBeenCalled()
-    expect(screen.queryByLabelText('Created range')).not.toBeInTheDocument()
-    expect(screen.queryByText('New event')).not.toBeInTheDocument()
+    expect(onCreateRange).toHaveBeenCalledTimes(1)
+    const [start, end] = onCreateRange.mock.calls[0] as [Date, Date]
+    expect(start.getHours()).toBe(9)
+    expect(start.getMinutes()).toBe(0)
+    expect(end.getTime() - start.getTime()).toBe(30 * 60000)
   })
 
   it('clears a canceled drag without creating a range', () => {

@@ -122,6 +122,34 @@ describe('TimeGrid dense overlaps (#7500)', () => {
     expect(screen.queryByRole('list')).not.toBeInTheDocument()
   })
 
+  it('closes an open overflow list on a click beside it without creating an event', () => {
+    installColumnWidth(170)
+    const onCreateRange = jest.fn()
+    renderWithProviders(
+      <TimeGrid
+        anchor={anchor}
+        days={1}
+        items={denseItems()}
+        showWeekends
+        showConflicts={false}
+        aiSummaries={false}
+        conflictIds={new Set()}
+        onItemClick={() => {}}
+        onJoin={() => {}}
+        onNavigate={() => {}}
+        onCreateRange={onCreateRange}
+      />,
+      { dict },
+    )
+    fireEvent.click(screen.getByRole('button', { name: /^5 more events, / }))
+    expect(screen.getByRole('list')).toBeInTheDocument()
+    const layer = document.querySelector('.cursor-cell')!
+    fireEvent(layer, new MouseEvent('pointerdown', { bubbles: true, button: 0, clientY: 1300 }))
+    fireEvent(layer, new MouseEvent('pointerup', { bubbles: true, button: 0, clientY: 1300 }))
+    expect(screen.queryByRole('list')).not.toBeInTheDocument()
+    expect(onCreateRange).not.toHaveBeenCalled()
+  })
+
   it('keeps two overlapping meetings side by side without an overflow', () => {
     installColumnWidth(170)
     renderGrid([
