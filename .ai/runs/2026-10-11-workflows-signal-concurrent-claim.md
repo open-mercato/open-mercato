@@ -61,4 +61,4 @@ PR: #7190
 ### Phase 4: Maintainer review 5693825447
 
 - [x] 4.1 Replace the `updated_at` wait pin with an SQL-incremented `wait_version` column (migration + snapshot, real-Postgres regression) — 6857797d1
-- [ ] 4.2 Report unexpected fan-out failures through the telemetry runtime and localize the generic delivery failure
+- [x] 4.2 Report unexpected fan-out failures through the telemetry runtime and localize the generic delivery failure — b31dac0d4
