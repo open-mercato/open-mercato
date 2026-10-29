@@ -611,4 +611,4 @@ Spec: [`.ai/specs/2026-09-08-error-reporting-policy.md`](.ai/specs/2026-09-08-er
 
 | Surface | Classification and migration |
 |---|---|
-| Init defaults/bypass and Compose/starter credentials | Security narrowing: retaining them preserves vulnerable provisioning. No bridge; named human waiver approval pending. Supply a unique policy-valid password; rotate suspect existing credentials. Details: [spec](.ai/specs/2026-10-29-unique-bootstrap-superadmin-password.md), [operator/client migration](UPGRADE_NOTES.md#initialization-requires-a-unique-superadmin-password-7809). |
+| Init defaults/bypass and Compose/starter credentials | Security narrowing; a bridge preserves vulnerable provisioning. Waiver: [@haxiorz](https://github.com/open-mercato/open-mercato/pull/8175#issuecomment-6505346223). Supply unique policy-valid credentials; rotate suspect passwords. [Spec](.ai/specs/2026-10-29-unique-bootstrap-superadmin-password.md), [migration](UPGRADE_NOTES.md#initialization-requires-a-unique-superadmin-password-7809). |

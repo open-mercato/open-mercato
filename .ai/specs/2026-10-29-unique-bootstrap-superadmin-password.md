@@ -73,7 +73,7 @@ No HTTP API, response schema, event, ACL feature, DI registration, or generated-
 |----------|---------------------------|------------|---------------|
 | High | Automation or development setup relies on omitted/default credentials and stops initializing | Document the new requirement and validate before expensive or destructive work | Operators must update initialization scripts and secret provisioning |
 | High | Existing accounts retain earlier predictable credentials after upgrading | Explicit operator rotation instructions in upgrade and deployment docs | Upgrading alone cannot establish whether an old credential was exposed |
-| High | A deprecation bridge preserves exploitable bootstrap behavior | Remove the vulnerable branches without a bypass toggle; require the security exception acknowledgment below | Human maintainer approval remains a merge prerequisite |
+| High | A deprecation bridge preserves exploitable bootstrap behavior | Remove the vulnerable branches without a bypass toggle; require the security exception acknowledgment below | Human waiver acknowledgment recorded below; QA and independent re-review remain |
 | Medium | A valid password is reused or guessable despite passing policy | Require a unique deployment password in operator instructions; reuse shared policy and reject known placeholders | Policy validation cannot prove uniqueness or randomness |
 | Medium | A customized minimum exceeds the starter's generated 68-character password | Document explicit override through `.env` or company defaults; keep final shared-policy validation in the CLI | Operators with that custom minimum must supply a suitable value |
 | Low | Compose validation incorrectly blocks established deployments | Pass through an empty variable and leave initialized restart/migration behavior intact | Custom entrypoints that always invoke init must supply a valid password |
@@ -86,7 +86,7 @@ The old default and bypass are the vulnerable provisioning paths themselves. Kee
 
 Before first initialization or deliberate reinstall, operators must supply a unique policy-compliant password using `OM_INIT_SUPERADMIN_PASSWORD` or explicit `--password`. Client automation must handle rejection as a non-zero command result and stop relying on init bypass flags. Initialized deployments can restart and migrate normally without supplying a bootstrap password. Operators must review accounts created by earlier flows and rotate any predictable or reused credentials through existing account-management or password-reset mechanisms. Updating the bootstrap environment does not alter an existing account; reinstall is not a credential-rotation mechanism.
 
-The release must include the corresponding `UPGRADE_NOTES.md` instructions and dated compatibility entry. The PR must carry `security` and a **named human maintainer approval explicitly acknowledging the emergency waiver**. That acknowledgment remains pending; neither this specification nor automated review asserts it. Rolling back to the previous bootstrap implementation would restore the vulnerable behavior and is not a safe mitigation.
+The release must include the corresponding `UPGRADE_NOTES.md` instructions and dated compatibility entry. The PR must carry `security` and a **named human maintainer approval explicitly acknowledging the emergency waiver**. On 2026-10-29, human maintainer [@haxiorz explicitly approved the waiver](https://github.com/open-mercato/open-mercato/pull/8175#issuecomment-6505346223), acknowledging the client/operator migration obligations. Codex recorded that human decision; it grants no QA or independent code-review approval. Rolling back to the previous bootstrap implementation would restore the vulnerable behavior and is not a safe mitigation.
 
 ## Validation Coverage
 
@@ -113,7 +113,7 @@ No API or UI paths change, so API/Playwright coverage is not added for this CLI/
 | Shared password policy | Existing validation implementation reused; no parallel policy or production dependency |
 | Data/tenancy, CRUD, encryption maps, UI/design system, cache, events | Not applicable: no entities, queries, APIs, UI, cache, or event contracts change |
 | `.ai/specs/AGENTS.md` | Required design, risk, compatibility, validation, changelog, and implementation-plan sections included; spec remains outside `implemented/` pending deployment |
-| Emergency security exception | Disclosure documented; named human maintainer waiver acknowledgment remains required before merge |
+| Emergency security exception | Disclosure and named human maintainer acknowledgment recorded; QA and independent re-review remain |
 
 ## Changelog
 
@@ -124,17 +124,18 @@ No API or UI paths change, so API/Playwright coverage is not added for this CLI/
 - Starter runtime regression verification: `node --test packages/starter/src/__tests__/starter.test.mjs` passed all 41 tests, including summary disclosure and new-file permissions. The new default-generation, uniqueness, preservation, and logging cases first demonstrated failures against the original writer.
 - Independent final review found no remaining code findings and confirmed one cohesive bootstrap-security capability, including the necessary first-party caller updates. Targeted validation passed 145 CLI tests, 61 starter/Compose tests, and 7 caller-propagation tests; full-gate limits and human waiver acknowledgment are reported separately in the PR.
 
+- Recorded @haxiorz’s explicit emergency-waiver approval and migration acknowledgment; retained QA and independent re-review gates.
 - PR review follow-up: resolve base-document conflicts; shorten the compatibility entry within existing harness budgets; provision and document Railway credentials, mirror local setup guidance in both env examples, and treat blank ephemeral credentials as unset.
 
 ### Review — 2026-10-29
 
 - **Reviewer:** Agent; a fresh-context scope reviewer examined only this specification and found one cohesive capability, with no split required.
-- **Security:** Shared-policy enforcement and placeholder rejection specified; human exception acknowledgment remains pending.
+- **Security:** Shared-policy enforcement and placeholder rejection specified; @haxiorz’s human exception acknowledgment is linked above.
 - **Performance:** Validation precedes expensive initialization and database writes; normal initialization retains a read-only existing-user probe, and no new runtime service is introduced.
 - **Cache:** Not applicable; no cache behavior changes.
 - **Commands:** Existing inputs retained; intentional validation narrowing disclosed.
 - **Risks:** Initialization automation and existing credential rotation covered; rollback would restore vulnerable provisioning.
-- **Verdict:** Implementation and targeted regression validation are complete; merge still requires full validation, QA, and the named human waiver acknowledgment.
+- **Verdict:** Implementation and targeted regression validation are complete; the named human waiver acknowledgment is recorded. Merge still requires current-head validation, QA, and independent approving re-review.
 
 ## Phasing
 
@@ -144,4 +145,4 @@ Deliver one focused security fix covering CLI validation, Compose defaults, nece
 
 1. Add early superadmin credential resolution and shared-policy validation, with helper and CLI dispatch regression coverage proving invalid input cannot reach initialization side effects.
 2. Remove predictable fallbacks from starter/generated-app full-app Compose variants and mirror legacy root duplicates; generate unique credentials in the cross-platform starter and existing disposable bootstrap callers, then verify preservation, forwarding, and parity.
-3. Publish CLI, deployment, upgrade, and compatibility instructions; run the relevant tests and configured validation gate, then obtain the named human maintainer acknowledgment before merge.
+3. Publish CLI, deployment, upgrade, and compatibility instructions; run the relevant tests and configured validation gate. The named human maintainer acknowledgment is recorded above; QA and independent approving re-review remain before merge.
