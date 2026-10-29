@@ -29,3 +29,8 @@
 ## 2026-10-28T07:22:00Z — paused by the user
 - User asked to stop after Step 4.6. Rows 3.5–4.6 are unit-verified by executors; checkpoint 4 (incl. integration) is due on resume.
 - Step 4.6 added an additive `createdBefore` filter to GET /runs.
+
+## 2026-10-29T19:25:58Z — resumed + checkpoint 4
+- Resumed with om-auto-continue-pr-loop after bringing the stack up to date with `main` (2026-10-29).
+- Step 4.7 delegated to one executor (standard tier); landed 9d6ae05fa. Scope addition: a metadata-level UI case so the tabs/dialog run without storage.
+- Checkpoint 4 (3.5–4.7): all static + unit checks pass; integration 30 passed / 8 skipped (LLM provider or storage) / 0 failed; ACC-004 fix verified.
