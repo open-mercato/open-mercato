@@ -133,7 +133,7 @@ This catalog indexes 158 focused lessons. Route the task first, then read only r
 - [Route-aware backend chrome should use route manifests, not the full module registry](lessons/route-aware-backend-chrome-should-use-route-manifests.md) — area:backend-ui,architecture; module:ui,events; topic:events,generated-files,regeneration
 - [Shared candidate sets must stay identical across display and validation consumers](lessons/shared-candidate-sets-must-stay-identical-across-display.md) — area:backend-ui,testing; module:customers; topic:filters,testing,ui-components
 - [Sidebar hydration must preserve the exact RBAC inclusion semantics of the server layout](lessons/sidebar-hydration-must-preserve-the-exact-rbac.md) — area:backend-ui,debugging; module:ui; topic:access-control,data-scoping,generated-files
-- [Standardize record-not-found as a dedicated page state in backend UI](lessons/standardize-record-not-found-as-a-dedicated-page-state.md) — area:backend-ui,debugging; module:ui,auth,customers; topic:error-states,ui-components
+- [Standardize record-not-found as a dedicated page state in backend UI](lessons/standardize-record-not-found-as-a-dedicated-page-state.md) — area:backend-ui,debugging,module-data,testing; module:ui,auth,customers,sales,audit_logs,shared; topic:error-states,ui-components,i18n,command-pattern
 
 ### integration
 

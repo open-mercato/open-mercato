@@ -4,10 +4,14 @@ import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import { emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
 import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
+import { createFallbackTranslator } from '@open-mercato/shared/lib/i18n/translate'
 import { SalesOrder } from '../../data/entities'
+import polishTranslations from '../../i18n/pl.json'
+
+const mockTranslate = jest.fn((key: string, _fallback?: string) => key)
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
-  resolveTranslations: async () => ({ translate: (key: string) => key }),
+  resolveTranslations: async () => ({ translate: mockTranslate }),
 }))
 
 jest.mock('@open-mercato/shared/lib/commands/helpers', () => ({
@@ -77,7 +81,10 @@ function setup(expectedVersion: string | null, editBeforeTransaction = false) {
 
 describe('sales.orders.delete optimistic locking', () => {
   beforeAll(async () => { await import('../documents') })
-  beforeEach(() => { jest.clearAllMocks() })
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mockTranslate.mockImplementation((key) => key)
+  })
 
   it('refuses an order edited between version validation and the deletion transaction', async () => {
     const { em, order, run } = setup(VALIDATED_VERSION, true)
@@ -107,5 +114,26 @@ describe('sales.orders.delete optimistic locking', () => {
     expect(em.commit).toHaveBeenCalledTimes(1)
     expect(em.rollback).not.toHaveBeenCalled()
     expect(emitCrudSideEffects).toHaveBeenCalledTimes(1)
+  })
+
+  it('returns a Polish 404 without deletion when the locked order no longer exists', async () => {
+    const { em, order, run } = setup(VALIDATED_VERSION)
+    em.findOne.mockResolvedValueOnce(order).mockResolvedValueOnce(null)
+    mockTranslate.mockImplementation(createFallbackTranslator(polishTranslations))
+
+    await expect(run()).rejects.toMatchObject({
+      status: 404,
+      body: { error: polishTranslations['sales.documents.detail.notFound'] },
+    })
+
+    expect(em.findOne).toHaveBeenLastCalledWith(SalesOrder,
+      { id: ORDER_ID, tenantId: TENANT_ID, organizationId: ORG_ID },
+      { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true })
+    expect(em.begin).toHaveBeenCalledTimes(1)
+    expect(em.rollback).toHaveBeenCalledTimes(1)
+    expect(em.nativeDelete).not.toHaveBeenCalled()
+    expect(em.remove).not.toHaveBeenCalled()
+    expect(em.commit).not.toHaveBeenCalled()
+    expect(emitCrudSideEffects).not.toHaveBeenCalled()
   })
 })

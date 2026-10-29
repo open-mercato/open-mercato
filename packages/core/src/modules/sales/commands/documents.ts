@@ -6612,7 +6612,10 @@ const deleteOrderCommand: CommandHandler<
             { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
             { tenantId: order.tenantId, organizationId: order.organizationId },
           );
-          if (!lockedOrder) throw notFound("Sales order not found");
+          if (!lockedOrder) {
+            const { translate } = await resolveTranslations();
+            throw notFound(translate("sales.documents.detail.notFound", "Document not found."));
+          }
           await enforceSalesDocumentOptimisticLock(ctx, lockedOrder, SALES_RESOURCE_KIND_ORDER);
           if (shipmentIds.length) {
             await em.nativeDelete(SalesShipmentItem, {
