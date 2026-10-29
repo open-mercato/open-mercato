@@ -45,8 +45,10 @@ import {
  *      not contain the in-flight lines, and so changed the number of an
  *      account that had posted lines (200).
  *
- * The last test checks the append-only trigger on `journal_entries` and
- * `journal_entry_lines` against the real database.
+ * The last two tests check the append-only trigger on `journal_entries` and
+ * `journal_entry_lines` against the real database, including its one
+ * exception: an UPDATE of a line that changes only `contractor_snapshot`
+ * (#5663, OQ-1; `Migration20261029120000`).
  */
 
 const WAIT_MS = 1500;
@@ -237,6 +239,72 @@ test.describe('TC-GL-006: posting lock protocol and append-only entries', () => 
         expect(header.rows[0]?.description).not.toBe('tampered');
         const lines = await client.query<{ n: string }>('select count(*)::text as n from journal_entry_lines where journal_entry_id = $1', [entryId]);
         expect(lines.rows[0]?.n).toBe('2');
+      });
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
+  test('a line UPDATE that changes only contractor_snapshot is let through', async ({ request }) => {
+    const fx = await createFixture(request, 'TC-GL-006 snapshot exception');
+    try {
+      const entryId = await seedJournalEntryInDb({
+        organizationId: fx.organizationId,
+        tenantId: fx.tenantId,
+        currencyId: fx.currencyId,
+        operationDate: '2034-03-12',
+        lines: [
+          { accountId: fx.cashId, debit: '10.0000', credit: '0' },
+          { accountId: fx.otherId, debit: '0', credit: '10.0000' },
+        ],
+      });
+      const snapshot = JSON.stringify({ name: 'QA re-keyed', taxId: '0000000000' });
+
+      await withClient(async (client) => {
+        await client.query(
+          'update journal_entry_lines set contractor_snapshot = $1::jsonb where journal_entry_id = $2 and debit > 0',
+          [snapshot, entryId],
+        );
+        const stored = await client.query<{ snapshot: { name?: string } | null }>(
+          'select contractor_snapshot as snapshot from journal_entry_lines where journal_entry_id = $1 and debit > 0',
+          [entryId],
+        );
+        expect(stored.rows[0]?.snapshot?.name).toBe('QA re-keyed');
+
+        await client.query(
+          'update journal_entry_lines set contractor_snapshot = null where journal_entry_id = $1 and debit > 0',
+          [entryId],
+        );
+
+        await expect(
+          client.query('update journal_entry_lines set debit = debit + 1 where journal_entry_id = $1', [entryId]),
+        ).rejects.toThrow(/append-only/);
+        await expect(
+          client.query('update journal_entry_lines set credit = credit + 1 where journal_entry_id = $1', [entryId]),
+        ).rejects.toThrow(/append-only/);
+        await expect(
+          client.query('update journal_entry_lines set account_id = $1 where journal_entry_id = $2 and debit > 0', [fx.otherId, entryId]),
+        ).rejects.toThrow(/append-only/);
+        await expect(
+          client.query('update journal_entry_lines set amount_currency = amount_currency + 1 where journal_entry_id = $1', [entryId]),
+        ).rejects.toThrow(/append-only/);
+        await expect(
+          client.query(
+            'update journal_entry_lines set contractor_snapshot = $1::jsonb, account_id = $2 where journal_entry_id = $3 and debit > 0',
+            [snapshot, fx.otherId, entryId],
+          ),
+        ).rejects.toThrow(/append-only/);
+        await expect(
+          client.query('delete from journal_entry_lines where journal_entry_id = $1', [entryId]),
+        ).rejects.toThrow(/append-only/);
+
+        const after = await client.query<{ account_id: string; debit: string; snapshot: unknown }>(
+          'select account_id, debit::text as debit, contractor_snapshot as snapshot from journal_entry_lines where journal_entry_id = $1 and debit > 0',
+          [entryId],
+        );
+        expect(after.rows[0]?.account_id).toBe(fx.cashId);
+        expect(after.rows[0]?.debit).toBe('10.0000');
+        expect(after.rows[0]?.snapshot).toBeNull();
       });
     } finally {
       await fx.cleanup();
