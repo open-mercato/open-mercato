@@ -86,6 +86,7 @@
   "ledger.errors.accountNumberTaken": "Konto o tym numerze już istnieje w tej organizacji.",
   "ledger.errors.accountNumberTypePrefix": "Numer konta musi zaczynać się od numeru jego rodzaju ({{typeNumber}}).",
   "ledger.errors.accountTypeAttributesImmutableAfterPosting": "Nie można zmienić normalBalance ani accountGroupId, gdy konto tego rodzaju ma zaksięgowane zapisy.",
+  "ledger.errors.accountTypeGroupAccountsPrefix": "Rodzaju konta nie można przypisać do tej grupy, dopóki konta tego rodzaju mają numery niezaczynające się od {{typeNumber}}.",
   "ledger.errors.accountTypeHasPostedEntriesCannotDelete": "Nie można usunąć tego rodzaju konta, ponieważ konto tego rodzaju ma zaksięgowane zapisy.",
   "ledger.errors.accountTypeImmutableAfterPosting": "Nie można zmienić rodzaju konta (accountTypeId), gdy konto ma zaksięgowane zapisy.",
   "ledger.errors.accountTypeNotFound": "Nie znaleziono rodzaju konta księgowego.",

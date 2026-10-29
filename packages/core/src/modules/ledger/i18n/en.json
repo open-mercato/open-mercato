@@ -86,6 +86,7 @@
   "ledger.errors.accountNumberTaken": "An account with this number already exists for this organization.",
   "ledger.errors.accountNumberTypePrefix": "The account number must start with its type number ({{typeNumber}}).",
   "ledger.errors.accountTypeAttributesImmutableAfterPosting": "normalBalance and accountGroupId cannot be changed once an account of this type has posted entries.",
+  "ledger.errors.accountTypeGroupAccountsPrefix": "The type cannot be assigned to this group while accounts of this type have numbers that do not start with {{typeNumber}}.",
   "ledger.errors.accountTypeHasPostedEntriesCannotDelete": "This account type cannot be deleted because an account of this type has posted entries.",
   "ledger.errors.accountTypeImmutableAfterPosting": "accountTypeId cannot be changed once this account has posted entries.",
   "ledger.errors.accountTypeNotFound": "Ledger account type not found.",

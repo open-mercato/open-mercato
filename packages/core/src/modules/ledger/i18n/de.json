@@ -86,6 +86,7 @@
   "ledger.errors.accountNumberTaken": "Für diese Organisation existiert bereits ein Konto mit dieser Nummer.",
   "ledger.errors.accountNumberTypePrefix": "Die Kontonummer muss mit der Nummer ihrer Kontoart ({{typeNumber}}) beginnen.",
   "ledger.errors.accountTypeAttributesImmutableAfterPosting": "normalBalance und accountGroupId können nicht mehr geändert werden, sobald ein Konto dieser Art gebuchte Buchungssätze hat.",
+  "ledger.errors.accountTypeGroupAccountsPrefix": "Die Kontoart kann dieser Gruppe nicht zugeordnet werden, solange Konten dieser Art Nummern haben, die nicht mit {{typeNumber}} beginnen.",
   "ledger.errors.accountTypeHasPostedEntriesCannotDelete": "Diese Kontoart kann nicht gelöscht werden, da ein Konto dieser Art gebuchte Buchungssätze hat.",
   "ledger.errors.accountTypeImmutableAfterPosting": "accountTypeId kann nicht mehr geändert werden, sobald dieses Konto gebuchte Buchungssätze hat.",
   "ledger.errors.accountTypeNotFound": "Kontoart nicht gefunden.",

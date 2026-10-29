@@ -124,57 +124,72 @@ const createLedgerAccountCommand: CommandHandler<LedgerAccountCreateInput, { led
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
 
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const rootEm = (ctx.container.resolve('em') as EntityManager).fork()
     const scope: Scope = { organizationId: parsed.organizationId, tenantId: parsed.tenantId }
     const { translate } = await resolveTranslations()
 
-    const existing = await em.findOne(LedgerAccount, {
-      number: parsed.number,
-      organizationId: scope.organizationId,
-      tenantId: scope.tenantId,
-      deletedAt: null,
-    })
-    if (existing) {
-      throw conflict(translate('ledger.errors.accountNumberTaken', 'An account with this number already exists for this organization.'))
-    }
+    // Same lock protocol as `updateLedgerAccount`: `for share` on the account
+    // type, taken before the prefix check and held through the insert, so a
+    // concurrent `updateLedgerAccountType` (which takes `for update` on the
+    // type) cannot renumber it between the check and the write. Lock order is
+    // account type -> account, as everywhere in this module.
+    const record = await rootEm.transactional(async (em) => {
+      await em.findOne(
+        LedgerAccountType,
+        { id: parsed.accountTypeId, deletedAt: null },
+        { lockMode: LockMode.PESSIMISTIC_READ },
+      )
 
-    const accountType = await requireExistingAccountType(em, parsed.accountTypeId, scope, translate)
-    await requireAccountNumberMatchesType(em, parsed.number, accountType, scope, translate)
-    if (parsed.currencyId) {
-      await requireExistingCurrency(em, parsed.currencyId, scope, translate)
-    }
+      const existing = await em.findOne(LedgerAccount, {
+        number: parsed.number,
+        organizationId: scope.organizationId,
+        tenantId: scope.tenantId,
+        deletedAt: null,
+      })
+      if (existing) {
+        throw conflict(translate('ledger.errors.accountNumberTaken', 'An account with this number already exists for this organization.'))
+      }
 
-    let record!: LedgerAccount
-    await runCrudCommandWrite({
-      ctx,
-      em,
-      entityId: LEDGER_ACCOUNT_ENTITY_ID,
-      action: 'created',
-      scope,
-      customFields: custom,
-      events: ledgerAccountCrudEvents,
-      indexer: ledgerAccountCrudIndexer,
-      sideEffect: () => ({
-        entity: record,
-        identifiers: { id: record.id, organizationId: record.organizationId, tenantId: record.tenantId },
-      }),
-      phases: [
-        () => {
-          const now = new Date()
-          record = em.create(LedgerAccount, {
-            id: randomUUID(),
-            organizationId: parsed.organizationId,
-            tenantId: parsed.tenantId,
-            number: parsed.number,
-            accountTypeId: parsed.accountTypeId,
-            currencyId: parsed.currencyId ?? null,
-            description: parsed.description ?? null,
-            createdAt: now,
-            updatedAt: now,
-          })
-          em.persist(record)
-        },
-      ],
+      const accountType = await requireExistingAccountType(em, parsed.accountTypeId, scope, translate)
+      await requireAccountNumberMatchesType(em, parsed.number, accountType, scope, translate)
+      if (parsed.currencyId) {
+        await requireExistingCurrency(em, parsed.currencyId, scope, translate)
+      }
+
+      let record!: LedgerAccount
+      await runCrudCommandWrite({
+        ctx,
+        em,
+        entityId: LEDGER_ACCOUNT_ENTITY_ID,
+        action: 'created',
+        scope,
+        customFields: custom,
+        events: ledgerAccountCrudEvents,
+        indexer: ledgerAccountCrudIndexer,
+        sideEffect: () => ({
+          entity: record,
+          identifiers: { id: record.id, organizationId: record.organizationId, tenantId: record.tenantId },
+        }),
+        phases: [
+          () => {
+            const now = new Date()
+            record = em.create(LedgerAccount, {
+              id: randomUUID(),
+              organizationId: parsed.organizationId,
+              tenantId: parsed.tenantId,
+              number: parsed.number,
+              accountTypeId: parsed.accountTypeId,
+              currencyId: parsed.currencyId ?? null,
+              description: parsed.description ?? null,
+              createdAt: now,
+              updatedAt: now,
+            })
+            em.persist(record)
+          },
+        ],
+      })
+
+      return record
     })
 
     return { ledgerAccountId: record.id }

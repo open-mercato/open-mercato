@@ -86,6 +86,7 @@
   "ledger.errors.accountNumberTaken": "Ya existe una cuenta con este número para esta organización.",
   "ledger.errors.accountNumberTypePrefix": "El número de la cuenta debe empezar por el número de su tipo ({{typeNumber}}).",
   "ledger.errors.accountTypeAttributesImmutableAfterPosting": "normalBalance y accountGroupId no se pueden cambiar una vez que una cuenta de este tipo tiene asientos contables registrados.",
+  "ledger.errors.accountTypeGroupAccountsPrefix": "El tipo de cuenta no se puede asignar a este grupo mientras haya cuentas de este tipo cuyos números no empiecen por {{typeNumber}}.",
   "ledger.errors.accountTypeHasPostedEntriesCannotDelete": "Este tipo de cuenta no se puede eliminar porque una cuenta de este tipo tiene asientos contables registrados.",
   "ledger.errors.accountTypeImmutableAfterPosting": "accountTypeId no se puede cambiar una vez que esta cuenta tiene asientos contables registrados.",
   "ledger.errors.accountTypeNotFound": "Tipo de cuenta contable no encontrado.",
