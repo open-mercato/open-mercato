@@ -48,6 +48,18 @@ export const features = [
     module: 'ai_assistant',
     dependsOn: ['ai_assistant.view'],
   },
+  {
+    id: 'ai_assistant.runs.view',
+    title: 'View AI agent runs',
+    module: 'ai_assistant',
+    dependsOn: ['ai_assistant.view'],
+  },
+  {
+    id: 'ai_assistant.runs.view_all',
+    title: 'View all AI agent runs',
+    module: 'ai_assistant',
+    dependsOn: ['ai_assistant.runs.view'],
+  },
 ]
 
 export default features

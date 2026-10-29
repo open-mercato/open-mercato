@@ -170,3 +170,64 @@ export const aiPendingActionListQuerySchema = z.object({
 })
 
 export type AiPendingActionListQuery = z.infer<typeof aiPendingActionListQuerySchema>
+
+export const AI_AGENT_RUN_LIST_DEFAULT_PAGE_SIZE = 25
+
+export const AI_AGENT_RUN_LIST_MAX_PAGE_SIZE = 100
+
+export const AI_AGENT_RUN_CHANNELS = [
+  'chat',
+  'playground',
+  'run-object',
+  'mcp',
+  'tools-api',
+  'internal',
+] as const
+
+export const AI_AGENT_RUN_STATUSES = ['completed', 'failed', 'aborted'] as const
+
+const runIsoDateSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(64)
+  .refine((value) => !Number.isNaN(Date.parse(value)), { message: 'must be an ISO date' })
+
+/** `GET /api/ai_assistant/ai/runs?agentId&channel&status&userId&conversationId&from&to&page&pageSize` */
+export const aiAgentRunListQuerySchema = z
+  .object({
+    agentId: z.string().trim().min(1).max(256).optional(),
+    channel: z.enum(AI_AGENT_RUN_CHANNELS).optional(),
+    status: z.enum(AI_AGENT_RUN_STATUSES).optional(),
+    userId: z.string().uuid().optional(),
+    conversationId: z.string().uuid().optional(),
+    from: runIsoDateSchema.optional(),
+    to: runIsoDateSchema.optional(),
+    page: z.coerce.number().int().min(1).default(1),
+    pageSize: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(AI_AGENT_RUN_LIST_MAX_PAGE_SIZE)
+      .default(AI_AGENT_RUN_LIST_DEFAULT_PAGE_SIZE),
+  })
+  .refine((value) => !value.from || !value.to || Date.parse(value.from) <= Date.parse(value.to), {
+    message: 'from must not be after to',
+    path: ['from'],
+  })
+
+export type AiAgentRunListQuery = z.infer<typeof aiAgentRunListQuerySchema>
+
+/** `GET /api/ai_assistant/ai/runs/:id` path parameter */
+export const aiAgentRunDetailParamsSchema = z.object({
+  id: z.string().uuid(),
+})
+
+export type AiAgentRunDetailParams = z.infer<typeof aiAgentRunDetailParamsSchema>
+
+/** `GET /api/ai_assistant/ai/conversations/:conversationId/runs` path parameter */
+export const aiAgentConversationRunsParamsSchema = z.object({
+  conversationId: z.string().uuid(),
+})
+
+export type AiAgentConversationRunsParams = z.infer<typeof aiAgentConversationRunsParamsSchema>
