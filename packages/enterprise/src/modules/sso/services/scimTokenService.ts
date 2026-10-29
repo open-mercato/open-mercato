@@ -53,21 +53,27 @@ export class ScimTokenService {
     const tokenHash = await hash(raw, BCRYPT_COST)
     const tokenPrefix = raw.slice(0, 12)
 
-    const token = this.em.create(ScimToken, {
-      ssoConfigId,
-      name,
-      tokenHash,
-      tokenLookupHash: scimTokenLookupHash(raw),
-      tokenPrefix,
-      isActive: true,
-      createdBy: null,
-      tenantId: config.tenantId ?? null,
-      organizationId: config.organizationId,
-    } as RequiredEntityData<ScimToken>)
-
-    await this.em.persist(token).flush()
-
-    return { id: token.id, token: raw, prefix: tokenPrefix, name }
+    try {
+      const token = this.em.create(ScimToken, {
+        ssoConfigId,
+        name,
+        tokenHash,
+        tokenLookupHash: scimTokenLookupHash(raw),
+        tokenPrefix,
+        isActive: true,
+        createdBy: null,
+        tenantId: config.tenantId ?? null,
+        organizationId: config.organizationId,
+      } as RequiredEntityData<ScimToken>)
+      await this.em.persist(token).flush()
+      return { id: token.id, token: raw, prefix: tokenPrefix, name }
+    } catch {
+      const error = new Error('[internal] SCIM token persistence unavailable')
+      try {
+        getTelemetryRuntime()?.reportError(error, { module: 'sso', code: 'sso.scim_token_persistence_unavailable' })
+      } catch {}
+      throw error
+    }
   }
 
   async verifyToken(rawToken: string): Promise<{

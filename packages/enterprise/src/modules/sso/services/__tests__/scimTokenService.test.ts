@@ -48,6 +48,8 @@ describe('ScimTokenService.generateToken', () => {
     tenantId: 'tenant-1',
   }
 
+  beforeEach(() => { mockReportError.mockReset() })
+
   it('scopes non-superadmin config lookup to the caller organization', async () => {
     const { em, flush } = createEntityManagerMock()
     em.findOne.mockResolvedValue({
@@ -73,6 +75,39 @@ describe('ScimTokenService.generateToken', () => {
       tokenLookupHash: expect.stringMatching(/^[a-f0-9]{64}$/),
     }))
     expect(flush).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([false, true])('sanitizes fingerprint-bearing persistence failures (telemetry throws: %s)', async (telemetryThrows) => {
+    const { em, flush } = createEntityManagerMock()
+    const rawToken = `omscim_${'d'.repeat(64)}`
+    const fingerprint = scimTokenLookupHash(rawToken)
+    const verifier = 'private-bcrypt-verifier'
+    const driverError = new Error(`insert failed: ${rawToken} ${fingerprint} ${verifier}`)
+    em.findOne.mockResolvedValue({ id: 'sso-config-1', jitEnabled: false, organizationId: 'org-1', tenantId: 'tenant-1' })
+    flush.mockRejectedValue(driverError)
+    if (telemetryThrows) mockReportError.mockImplementation(() => { throw new Error('[internal] Telemetry unavailable') })
+    const service = new ScimTokenService(em as unknown as EntityManager)
+    const thrown = await captureThrow(() => service.generateToken('sso-config-1', 'Directory sync', sameOrgScope))
+    expect(thrown).toBeInstanceOf(Error)
+    expect(thrown).toMatchObject({ message: '[internal] SCIM token persistence unavailable' })
+    expect(thrown).not.toHaveProperty('cause')
+    expect(thrown).not.toBeInstanceOf(ScimTokenError)
+    expect(mockReportError).toHaveBeenCalledWith(thrown, { module: 'sso', code: 'sso.scim_token_persistence_unavailable' })
+    const reported = [String(thrown), ...mockReportError.mock.calls.map(([error]) => String(error))].join(' ')
+    for (const privateValue of [rawToken, fingerprint, verifier]) expect(reported).not.toContain(privateValue)
+  })
+
+  it.each(['create', 'persist'] as const)('sanitizes synchronous ORM %s failures before they reach the API logger', async (operation) => {
+    const { em } = createEntityManagerMock()
+    em.findOne.mockResolvedValue({ id: 'sso-config-1', jitEnabled: false, organizationId: 'org-1', tenantId: 'tenant-1' })
+    const originalError = new Error('private query material')
+    em[operation].mockImplementation(() => { throw originalError })
+    const service = new ScimTokenService(em as unknown as EntityManager)
+    const thrown = await captureThrow(() => service.generateToken('sso-config-1', 'Directory sync', sameOrgScope))
+    expect(thrown).toMatchObject({ message: '[internal] SCIM token persistence unavailable' })
+    expect(thrown).not.toHaveProperty('cause')
+    expect(thrown).not.toBe(originalError)
+    expect(mockReportError).toHaveBeenCalledWith(thrown, { module: 'sso', code: 'sso.scim_token_persistence_unavailable' })
   })
 
   it('fails closed before lookup when a non-superadmin has no organization scope', async () => {

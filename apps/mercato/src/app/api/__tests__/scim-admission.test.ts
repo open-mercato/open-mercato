@@ -206,6 +206,22 @@ describe('SCIM admission through the API dispatcher', () => {
     expect(listUsers).toHaveBeenLastCalledWith(null, 1, 100, expect.objectContaining({ organizationId: 'org-1', tenantId: 'tenant-1' }), 'http://localhost')
   })
 
+  it('does not resolve SCIM tokens when the disabled module has no registered routes', async () => {
+    const registry = jest.requireActual<typeof import('@open-mercato/shared/modules/registry')>('@open-mercato/shared/modules/registry')
+    jest.mocked(findApiRouteManifestMatch).mockImplementation(registry.findApiRouteManifestMatch)
+    const request = new NextRequest('http://localhost/api/sso/scim/v2/Users', {
+      headers: { authorization: `Bearer omscim_${'a'.repeat(64)}` },
+    })
+    const response = await dispatcher.GET(request, { params: Promise.resolve({ slug: ['sso', 'scim', 'v2', 'Users'] }) })
+    expect(response.status).toBe(404)
+    expect(getCachedRateLimiterService).not.toHaveBeenCalled()
+    expect(createRequestContainer).not.toHaveBeenCalled()
+    expect(find).not.toHaveBeenCalled()
+    expect(findOne).not.toHaveBeenCalled()
+    expect(mockCompare).not.toHaveBeenCalled()
+    expect(mockHash).not.toHaveBeenCalled()
+  })
+
   it('charges once per request and bounds rotating generic API keys across a burst', async () => {
     const statuses: number[] = []
     for (let index = 0; index < 30; index++) statuses.push((await dispatch(operations[0], index)).status)
