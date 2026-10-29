@@ -5,6 +5,11 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 
 const tenantId = randomUUID()
 const orgId = randomUUID()
+const mockTenantLookup = jest.fn(async () => ({ id: tenantId }))
+
+jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
+  findOneWithDecryption: (...args: unknown[]) => mockTenantLookup(...args as []),
+}))
 
 const authServiceMock = {
   findUsersByEmail: jest.fn(async (email: string) => ([{ id: 1, email, passwordHash: 'hash', tenantId, organizationId: orgId }])),
@@ -57,12 +62,23 @@ function setAutoLoginEnv(env: Record<string, string | undefined>) {
 describe('GET /api/auth/autologin', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    mockTenantLookup.mockResolvedValue({ id: tenantId })
     getAuthFromRequestMock.mockResolvedValue(null)
     setAutoLoginEnv({})
   })
 
   afterAll(() => {
     process.env = { ...ORIGINAL_ENV }
+  })
+
+  test('falls back to manual login when the tenant is unavailable', async () => {
+    setAutoLoginEnv({ OM_AUTOLOGIN_EMAIL: 'superadmin@acme.com', OM_AUTOLOGIN_PASSWORD: 'secret' })
+    mockTenantLookup.mockResolvedValueOnce(null as never)
+    const response = await GET(autologinRequest())
+    expect(response.headers.get('location')).toContain('/login')
+    expect(response.headers.get('set-cookie')).toBeNull()
+    expect(authServiceMock.updateLastLoginAt).not.toHaveBeenCalled()
+    expect(authServiceMock.createSession).not.toHaveBeenCalled()
   })
 
   test('is a no-op that redirects to /login when the env credentials are unset', async () => {

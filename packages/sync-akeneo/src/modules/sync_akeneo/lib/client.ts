@@ -1,3 +1,4 @@
+import { resolveAttachmentMaxBytes } from '@open-mercato/core/modules/attachments/lib/upload-limits'
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import {
   FetchTimeoutError,
@@ -17,6 +18,17 @@ type TokenState = {
   refreshToken?: string | null
   expiresAt: number
 }
+
+type AkeneoTokenPayload = {
+  access_token?: string
+  refresh_token?: string
+  expires_in?: number
+}
+
+type AkeneoAttemptOutcome<T> =
+  | { kind: 'done'; value: T }
+  | { kind: 'reauthenticate' }
+  | { kind: 'rate_limited'; retryAfter: string | null }
 
 type AkeneoListResponse<T> = {
   _embedded?: {
@@ -57,6 +69,20 @@ export class UnsafeAkeneoUrlError extends Error {
     this.name = 'UnsafeAkeneoUrlError'
     this.reason = reason
   }
+}
+
+export class AkeneoResponseTooLargeError extends Error {
+  public readonly limitBytes: number
+
+  constructor(limitBytes: number) {
+    super(`Akeneo response exceeds the ${limitBytes} byte limit`)
+    this.name = 'AkeneoResponseTooLargeError'
+    this.limitBytes = limitBytes
+  }
+}
+
+export function isAkeneoResponseTooLargeError(error: unknown): error is AkeneoResponseTooLargeError {
+  return error instanceof Error && error.name === 'AkeneoResponseTooLargeError'
 }
 
 type AkeneoClient = ReturnType<typeof createAkeneoClient>
@@ -250,6 +276,8 @@ function sleep(ms: number): Promise<void> {
 const DEFAULT_AKENEO_REQUEST_TIMEOUT_MS = 30_000
 const DEFAULT_AKENEO_MAX_RATE_LIMIT_RETRIES = 5
 const DEFAULT_AKENEO_RETRY_AFTER_CAP_MS = 60_000
+const DEFAULT_AKENEO_MAX_RESPONSE_BYTES = 32 * 1024 * 1024
+const AKENEO_ERROR_BODY_MAX_BYTES = 64 * 1024
 
 function resolvePositiveIntEnv(raw: string | undefined, fallback: number): number {
   const parsed = Number.parseInt(raw ?? '', 10)
@@ -271,11 +299,90 @@ function clampAkeneoRetryAfterMs(retryAfterHeader: string | null, env: NodeJS.Pr
   return Math.min(Math.max(requestedMs, 0), cap)
 }
 
-async function safeAkeneoFetchWithTimeout(
+function resolveAkeneoMaxResponseBytes(env: NodeJS.ProcessEnv = process.env): number {
+  return resolvePositiveIntEnv(env.OM_INTEGRATION_AKENEO_MAX_RESPONSE_BYTES, DEFAULT_AKENEO_MAX_RESPONSE_BYTES)
+}
+
+function abortReasonError(signal: AbortSignal): Error {
+  return signal.reason instanceof Error ? signal.reason : new DOMException('Aborted', 'AbortError')
+}
+
+function settleBeforeAbort<T>(pending: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) return Promise.reject(abortReasonError(signal))
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(abortReasonError(signal))
+    signal.addEventListener('abort', onAbort, { once: true })
+    pending.then(
+      (value) => {
+        signal.removeEventListener('abort', onAbort)
+        resolve(value)
+      },
+      (error: unknown) => {
+        signal.removeEventListener('abort', onAbort)
+        reject(error)
+      },
+    )
+  })
+}
+
+function discardAkeneoBody(response: Response): void {
+  void response.body?.cancel().catch(() => undefined)
+}
+
+async function readAkeneoBody(
+  response: Response,
+  options: { maxBytes: number; signal: AbortSignal; truncate?: boolean },
+): Promise<Buffer> {
+  const { maxBytes, signal, truncate = false } = options
+  const declaredLength = Number(response.headers.get('content-length') ?? '')
+  if (!truncate && Number.isFinite(declaredLength) && declaredLength > maxBytes) {
+    discardAkeneoBody(response)
+    throw new AkeneoResponseTooLargeError(maxBytes)
+  }
+  if (!response.body) return Buffer.alloc(0)
+
+  const reader = response.body.getReader()
+  const chunks: Uint8Array[] = []
+  let receivedBytes = 0
+  let finished = false
+  try {
+    while (true) {
+      const { done, value } = await settleBeforeAbort(reader.read(), signal)
+      if (done) {
+        finished = true
+        break
+      }
+      if (receivedBytes + value.byteLength > maxBytes) {
+        if (!truncate) throw new AkeneoResponseTooLargeError(maxBytes)
+        chunks.push(value.subarray(0, maxBytes - receivedBytes))
+        receivedBytes = maxBytes
+        break
+      }
+      chunks.push(value)
+      receivedBytes += value.byteLength
+    }
+  } finally {
+    if (!finished) void reader.cancel().catch(() => undefined)
+  }
+  return Buffer.concat(chunks, receivedBytes)
+}
+
+async function readAkeneoJson<T>(response: Response, signal: AbortSignal): Promise<T> {
+  const bytes = await readAkeneoBody(response, { maxBytes: resolveAkeneoMaxResponseBytes(), signal })
+  return JSON.parse(new TextDecoder().decode(bytes)) as T
+}
+
+async function readAkeneoErrorText(response: Response, signal: AbortSignal): Promise<string> {
+  const bytes = await readAkeneoBody(response, { maxBytes: AKENEO_ERROR_BODY_MAX_BYTES, signal, truncate: true })
+  return new TextDecoder().decode(bytes)
+}
+
+async function withAkeneoResponse<T>(
   input: string,
-  init: FetchWithTimeoutInit = {},
-  deps: AkeneoClientDeps = {},
-): Promise<Response> {
+  init: FetchWithTimeoutInit,
+  deps: AkeneoClientDeps,
+  consume: (response: Response, signal: AbortSignal) => Promise<T>,
+): Promise<T> {
   const { timeoutMs, signal, ...rest } = init
   const effectiveTimeout = resolveTimeoutMs(timeoutMs)
   const controller = new AbortController()
@@ -296,13 +403,14 @@ async function safeAkeneoFetchWithTimeout(
   }
 
   try {
-    return await safeOutboundFetch(input, { ...rest, signal: controller.signal }, {
+    const response = await safeOutboundFetch(input, { ...rest, signal: controller.signal }, {
       errorFactory: akeneoUrlErrorFactory,
       subject: AKENEO_URL_SUBJECT,
       allowPrivate: deps.allowPrivate ?? isAllowPrivateAkeneoUrlsEnabled(),
       lookupHost: deps.lookupHost,
       fetchImpl: deps.fetchImpl,
     })
+    return await consume(response, controller.signal)
   } catch (err) {
     if ((err as { name?: string } | null)?.name === 'AbortError') {
       const reason = (controller.signal as AbortSignal & { reason?: unknown }).reason
@@ -342,7 +450,7 @@ export function createAkeneoClient(credentialsInput: Record<string, unknown>, de
   }
 
   async function acquirePasswordGrantToken(): Promise<TokenState> {
-    const response = await safeAkeneoFetchWithTimeout(tokenEndpointUrl, {
+    const payload = await withAkeneoResponse(tokenEndpointUrl, {
       method: 'POST',
       timeoutMs: resolveAkeneoRequestTimeoutMs(),
       redirect: 'manual',
@@ -357,18 +465,13 @@ export function createAkeneoClient(credentialsInput: Record<string, unknown>, de
         username: credentials.username,
         password: credentials.password,
       }),
-    }, deps)
-
-    if (!response.ok) {
-      const message = await response.text()
-      throw new Error(`Akeneo authentication failed (${response.status}): ${message}`)
-    }
-
-    const payload = await response.json() as {
-      access_token?: string
-      refresh_token?: string
-      expires_in?: number
-    }
+    }, deps, async (response, signal) => {
+      if (!response.ok) {
+        const message = await readAkeneoErrorText(response, signal)
+        throw new Error(`Akeneo authentication failed (${response.status}): ${message}`)
+      }
+      return readAkeneoJson<AkeneoTokenPayload>(response, signal)
+    })
     if (!payload.access_token) {
       throw new Error('Akeneo authentication did not return an access token')
     }
@@ -382,7 +485,7 @@ export function createAkeneoClient(credentialsInput: Record<string, unknown>, de
 
   async function refreshAccessToken(current: TokenState): Promise<TokenState> {
     if (!current.refreshToken) return acquirePasswordGrantToken()
-    const response = await safeAkeneoFetchWithTimeout(tokenEndpointUrl, {
+    const payload = await withAkeneoResponse(tokenEndpointUrl, {
       method: 'POST',
       timeoutMs: resolveAkeneoRequestTimeoutMs(),
       redirect: 'manual',
@@ -396,18 +499,15 @@ export function createAkeneoClient(credentialsInput: Record<string, unknown>, de
         client_secret: credentials.clientSecret,
         refresh_token: current.refreshToken,
       }),
-    }, deps)
+    }, deps, async (response, signal) => {
+      if (!response.ok) {
+        discardAkeneoBody(response)
+        return null
+      }
+      return readAkeneoJson<AkeneoTokenPayload>(response, signal)
+    })
 
-    if (!response.ok) {
-      return acquirePasswordGrantToken()
-    }
-
-    const payload = await response.json() as {
-      access_token?: string
-      refresh_token?: string
-      expires_in?: number
-    }
-    if (!payload.access_token) return acquirePasswordGrantToken()
+    if (!payload?.access_token) return acquirePasswordGrantToken()
     return {
       accessToken: payload.access_token,
       refreshToken: payload.refresh_token ?? current.refreshToken ?? null,
@@ -423,100 +523,76 @@ export function createAkeneoClient(credentialsInput: Record<string, unknown>, de
     return tokenState.accessToken
   }
 
-  async function request<T>(
+  async function sendAuthenticated<T>(
     pathOrUrl: string,
-    init: RequestInit = {},
+    init: RequestInit,
+    defaultHeaders: Record<string, string>,
+    readSuccess: (response: Response, signal: AbortSignal) => Promise<T>,
     retried = false,
     rateLimitAttempts = 0,
   ): Promise<T> {
     const url = resolveAkeneoRequestUrl(pathOrUrl)
     const token = await ensureToken()
 
-    const response = await safeAkeneoFetchWithTimeout(url, {
+    const outcome = await withAkeneoResponse<AkeneoAttemptOutcome<T>>(url, {
       ...init,
       timeoutMs: resolveAkeneoRequestTimeoutMs(),
       redirect: 'manual',
       headers: {
-        accept: 'application/json',
+        ...defaultHeaders,
         authorization: `Bearer ${token}`,
         ...init.headers,
       },
-    }, deps)
-
-    if (response.status === 401 && !retried) {
-      await ensureToken(true)
-      return request<T>(pathOrUrl, init, true, rateLimitAttempts)
-    }
-
-    if (response.status === 429) {
-      if (rateLimitAttempts >= resolveAkeneoMaxRateLimitRetries()) {
-        const body = await response.text()
-        throw new Error(`Akeneo request failed (429): ${body}`)
+    }, deps, async (response, signal) => {
+      if (response.status === 401 && !retried) {
+        discardAkeneoBody(response)
+        return { kind: 'reauthenticate' }
       }
-      await sleep(clampAkeneoRetryAfterMs(response.headers.get('retry-after')))
-      return request<T>(pathOrUrl, init, retried, rateLimitAttempts + 1)
-    }
+      if (response.status === 429 && rateLimitAttempts < resolveAkeneoMaxRateLimitRetries()) {
+        discardAkeneoBody(response)
+        return { kind: 'rate_limited', retryAfter: response.headers.get('retry-after') }
+      }
+      if (!response.ok) {
+        const body = await readAkeneoErrorText(response, signal)
+        throw new Error(`Akeneo request failed (${response.status}): ${body}`)
+      }
+      return { kind: 'done', value: await readSuccess(response, signal) }
+    })
 
-    if (!response.ok) {
-      const body = await response.text()
-      throw new Error(`Akeneo request failed (${response.status}): ${body}`)
+    if (outcome.kind === 'reauthenticate') {
+      await ensureToken(true)
+      return sendAuthenticated(pathOrUrl, init, defaultHeaders, readSuccess, true, rateLimitAttempts)
     }
-
-    if (response.status === 204) {
-      return null as T
+    if (outcome.kind === 'rate_limited') {
+      await sleep(clampAkeneoRetryAfterMs(outcome.retryAfter))
+      return sendAuthenticated(pathOrUrl, init, defaultHeaders, readSuccess, retried, rateLimitAttempts + 1)
     }
-
-    return response.json() as Promise<T>
+    return outcome.value
   }
 
-  async function requestBinary(
-    pathOrUrl: string,
-    init: RequestInit = {},
-    retried = false,
-    rateLimitAttempts = 0,
-  ): Promise<{
+  async function request<T>(pathOrUrl: string, init: RequestInit = {}): Promise<T> {
+    return sendAuthenticated<T>(pathOrUrl, init, { accept: 'application/json' }, async (response, signal) => {
+      if (response.status === 204) {
+        discardAkeneoBody(response)
+        return null as T
+      }
+      return readAkeneoJson<T>(response, signal)
+    })
+  }
+
+  async function requestBinary(pathOrUrl: string, init: RequestInit = {}): Promise<{
     buffer: Buffer
     contentType: string | null
     contentLength: number | null
   }> {
-    const url = resolveAkeneoRequestUrl(pathOrUrl)
-    const token = await ensureToken()
-
-    const response = await safeAkeneoFetchWithTimeout(url, {
-      ...init,
-      timeoutMs: resolveAkeneoRequestTimeoutMs(),
-      redirect: 'manual',
-      headers: {
-        authorization: `Bearer ${token}`,
-        ...init.headers,
-      },
-    }, deps)
-
-    if (response.status === 401 && !retried) {
-      await ensureToken(true)
-      return requestBinary(pathOrUrl, init, true, rateLimitAttempts)
-    }
-
-    if (response.status === 429) {
-      if (rateLimitAttempts >= resolveAkeneoMaxRateLimitRetries()) {
-        const body = await response.text()
-        throw new Error(`Akeneo request failed (429): ${body}`)
+    return sendAuthenticated(pathOrUrl, init, {}, async (response, signal) => {
+      const buffer = await readAkeneoBody(response, { maxBytes: resolveAttachmentMaxBytes(), signal })
+      return {
+        buffer,
+        contentType: response.headers.get('content-type'),
+        contentLength: buffer.byteLength,
       }
-      await sleep(clampAkeneoRetryAfterMs(response.headers.get('retry-after')))
-      return requestBinary(pathOrUrl, init, retried, rateLimitAttempts + 1)
-    }
-
-    if (!response.ok) {
-      const body = await response.text()
-      throw new Error(`Akeneo request failed (${response.status}): ${body}`)
-    }
-
-    const arrayBuffer = await response.arrayBuffer()
-    return {
-      buffer: Buffer.from(arrayBuffer),
-      contentType: response.headers.get('content-type'),
-      contentLength: Number(response.headers.get('content-length') ?? '') || arrayBuffer.byteLength || null,
-    }
+    })
   }
 
   function buildUrl(path: string, params: Record<string, string | number | boolean | undefined | null>): string {
