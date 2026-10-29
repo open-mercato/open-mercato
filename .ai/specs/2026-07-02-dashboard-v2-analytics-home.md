@@ -307,6 +307,14 @@ None identified.
 **Fully compliant** — ready for implementation (pending pre-implement audit + spec-stage cross-model review).
 
 ## Changelog
+
+### 2026-10-29 — Re-review corrections
+
+- Resolve organization selection with the current shared scope helper for insights queries and all three new routes’ per-entity feature checks. Preserve an explicitly empty organization filter in both aggregation and insights cache identity; the July observation about the old widget-data convention does not apply to the current base.
+- Preserve omitted v2 preferences, Views and active View on legacy whole-layout PUTs. A v2 save now sends `presets: []` explicitly when clearing its last View.
+- Keep `dateRangeMode` optional on existing exported widget settings inputs; hydration continues to choose the global range by default.
+- Keep settings hydration inside the protected card path or a guarded wizard-open handler. Cache failed module imports until explicit retry. Add route/cache/layout and UI regression coverage.
+
 ### 2026-07-03 — Post-review hardening (code-review pass)
 Fixes from a fresh code-review of the implemented branch:
 1. **Critical — `PATCH /api/dashboards/layout/:itemId` no longer drops saved Views.** The per-item PATCH re-serialized the stored layout with only `items` + `preferences`, silently wiping `presets`/`activePresetId` (reachable when a v2 user edits a widget on the legacy escape-hatch screen, which fires the per-item PATCH). It now threads `presets`/`activePresetId` through `serializeLayoutStateForStoredShape`, mirroring the GET/PUT paths; regression test added in `api/layout/[itemId]/__tests__/route.test.ts`.

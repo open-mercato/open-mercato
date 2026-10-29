@@ -2,7 +2,7 @@ import { type DateRangePreset, isValidDateRangePreset } from '@open-mercato/ui/b
 import { type DateGranularity, isValidGranularity } from '../../../lib/aggregations'
 
 export type RevenueTrendSettings = {
-  dateRangeMode: 'global' | 'custom'
+  dateRangeMode?: 'global' | 'custom'
   dateRange: DateRangePreset
   granularity: DateGranularity
   showArea: boolean

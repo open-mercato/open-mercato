@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import type { AnalyticsEntityConfig, AnalyticsFieldType } from '@open-mercato/shared/modules/analytics'
@@ -162,6 +164,8 @@ export async function GET(req: Request) {
   }
 
   const container = await createRequestContainer()
+  const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
+  const { rbacOrganizationId } = resolveOrganizationScopeFilter(scope, auth)
   const analyticsRegistry = container.resolve<AnalyticsRegistry>('analyticsRegistry')
   const rbacService = container.resolve<RbacFeatureService>('rbacService')
   const { translate } = await resolveTranslations()
@@ -171,7 +175,7 @@ export async function GET(req: Request) {
     (features) =>
       rbacService.userHasAllFeatures(String(auth.sub ?? ''), features, {
         tenantId: auth.tenantId ?? '',
-        organizationId: auth.orgId ?? null,
+        organizationId: rbacOrganizationId,
       }),
     translate,
   )

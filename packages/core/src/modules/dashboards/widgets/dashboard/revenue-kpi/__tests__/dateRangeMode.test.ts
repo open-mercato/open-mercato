@@ -13,7 +13,7 @@ import { hydrateSettings as hydrateTopCustomers } from '../../top-customers/conf
 import { hydrateSettings as hydrateTopProducts } from '../../top-products/config'
 
 type DateRangeSettings = {
-  dateRangeMode: 'global' | 'custom'
+  dateRangeMode?: 'global' | 'custom'
   dateRange: string
 }
 

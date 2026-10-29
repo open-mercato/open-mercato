@@ -4,6 +4,8 @@ import { generateObject } from 'ai'
 import type { AwilixContainer } from 'awilix'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { AiModelFactoryError, createModelFactory } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/model-factory'
@@ -213,6 +215,8 @@ export async function POST(req: Request) {
   }
 
   const container = await createRequestContainer()
+  const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
+  const { rbacOrganizationId } = resolveOrganizationScopeFilter(scope, auth)
   const analyticsRegistry = container.resolve<AnalyticsRegistry>('analyticsRegistry')
   const rbacService = container.resolve<RbacFeatureService>('rbacService')
   const { translate } = await resolveTranslations()
@@ -223,7 +227,7 @@ export async function POST(req: Request) {
       if (features.length === 0) return Promise.resolve(true)
       return rbacService.userHasAllFeatures(String(auth.sub ?? ''), features, {
         tenantId: auth.tenantId ?? '',
-        organizationId: auth.orgId ?? null,
+        organizationId: rbacOrganizationId,
       })
     },
     translate,

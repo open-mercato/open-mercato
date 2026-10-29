@@ -10,7 +10,7 @@ export const KPI_KEYS: readonly KpiKey[] = ['revenue', 'orders', 'aov', 'new_cus
 export type KpiRangeInput = { from: string; to: string; compare: DashboardDateRangeCompare }
 export type KpiDateRangeMode = 'global' | 'custom'
 export type KpiWidgetRequestInput = {
-  dateRangeMode: KpiDateRangeMode
+  dateRangeMode?: KpiDateRangeMode
   dateRange: DateRangePreset
   compare: DashboardDateRangeCompare
   dashboardDateRange?: DashboardGlobalDateRange
@@ -164,7 +164,7 @@ export function buildKpiWidgetRequests(
   key: KpiKey,
   input: KpiWidgetRequestInput,
 ): { valueRequest: WidgetDataRequest; seriesRequest: WidgetDataRequest; compare: DashboardDateRangeCompare; usesDashboardDateRange: boolean } {
-  if (input.dateRangeMode === 'global' && input.dashboardDateRange) {
+  if (input.dateRangeMode !== 'custom' && input.dashboardDateRange) {
     const range = {
       from: input.dashboardDateRange.from,
       to: input.dashboardDateRange.to,

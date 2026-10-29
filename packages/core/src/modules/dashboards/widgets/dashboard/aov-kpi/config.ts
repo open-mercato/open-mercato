@@ -1,7 +1,7 @@
 import { type DateRangePreset, isValidDateRangePreset } from '@open-mercato/ui/backend/date-range'
 
 export type AovKpiSettings = {
-  dateRangeMode: 'global' | 'custom'
+  dateRangeMode?: 'global' | 'custom'
   dateRange: DateRangePreset
   showComparison: boolean
 }

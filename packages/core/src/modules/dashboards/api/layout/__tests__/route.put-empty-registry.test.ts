@@ -68,11 +68,11 @@ const savedItems = [
   { id: layoutItemId, widgetId: 'sales-summary', order: 0, priority: 0, size: 'md' },
 ]
 
-function buildRequest(items: unknown[]): Request {
+function buildRequest(items: unknown[], metadata: Record<string, unknown> = {}): Request {
   return new Request('http://localhost/api/dashboards/layout', {
     method: 'PUT',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ items }),
+    body: JSON.stringify({ items, ...metadata }),
   })
 }
 
@@ -144,5 +144,38 @@ describe('#5041: dashboards layout PUT with an empty widget registry', () => {
     expect(response.status).toBe(200)
     expect(storedLayout.layoutJson).toEqual({ items: [] })
     expect(em.flush).toHaveBeenCalledTimes(1)
+  })
+
+  it('preserves v2 preferences and saved Views on a legacy whole-layout PUT', async () => {
+    const preferences = { dateRange: { preset: 'last_7_days', compare: 'none' } }
+    const presets = [{ id: 'view-1', name: 'Executive', items: savedItems, preferences }]
+    const storedLayout = { layoutJson: { items: savedItems, preferences, presets, activePresetId: 'view-1' } }
+    em.findOne.mockResolvedValue(storedLayout)
+    loadAllWidgetsMock.mockResolvedValue([{ metadata: { id: 'sales-summary' } }])
+    resolveAllowedWidgetIdsMock.mockResolvedValue(['sales-summary'])
+
+    const response = await PUT(buildRequest([{ ...savedItems[0], size: 'lg' }]))
+
+    expect(response.status).toBe(200)
+    expect(storedLayout.layoutJson).toMatchObject({
+      items: [{ size: 'lg' }], preferences, presets, activePresetId: 'view-1',
+    })
+  })
+
+  it('clears saved Views when v2 explicitly submits an empty presets list', async () => {
+    const storedLayout = { layoutJson: {
+      items: savedItems,
+      presets: [{ id: 'view-1', name: 'Executive', items: savedItems }],
+      activePresetId: 'view-1',
+    } }
+    em.findOne.mockResolvedValue(storedLayout)
+    loadAllWidgetsMock.mockResolvedValue([{ metadata: { id: 'sales-summary' } }])
+    resolveAllowedWidgetIdsMock.mockResolvedValue(['sales-summary'])
+
+    const response = await PUT(buildRequest(savedItems, { presets: [] }))
+
+    expect(response.status).toBe(200)
+    expect(storedLayout.layoutJson).not.toHaveProperty('presets')
+    expect(storedLayout.layoutJson).not.toHaveProperty('activePresetId')
   })
 })

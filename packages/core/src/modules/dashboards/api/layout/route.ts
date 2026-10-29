@@ -267,7 +267,7 @@ export async function PUT(req: Request) {
     operation: 'update',
     requestMethod: req.method,
     requestHeaders: req.headers,
-    mutationPayload: { items: parsed.data.items, preferences: parsed.data.preferences },
+    mutationPayload: parsed.data,
   })
   if (guardResult && !guardResult.ok) {
     return NextResponse.json(guardResult.body, { status: guardResult.status })
@@ -323,7 +323,11 @@ export async function PUT(req: Request) {
       .map((item, index) => ({ id: item.id, widgetId: item.widgetId, order: index, priority: index, size: item.size ?? DEFAULT_SIZE, accent: item.accent, settings: item.settings }))
       .filter((item) => allowedSet.has(item.widgetId))
 
-  const sanitizedPresets = parsed.data.presets?.map((preset) => ({
+  let layout = await loadScopeLayout(em, scope)
+  const previousState = normalizeLayoutState(layout?.layoutJson)
+  const preferences = parsed.data.preferences ?? previousState.preferences
+  const presetPayloads = parsed.data.presets ?? previousState.presets
+  const sanitizedPresets = presetPayloads?.map((preset) => ({
     id: preset.id,
     name: preset.name,
     items: sanitizePresetItems(preset.items),
@@ -334,16 +338,16 @@ export async function PUT(req: Request) {
       return NextResponse.json({ error: 'Preset item IDs must be unique' }, { status: 400 })
     }
   }
-  const activePresetId = sanitizedPresets?.some((preset) => preset.id === parsed.data.activePresetId) ? parsed.data.activePresetId : undefined
+  const requestedActivePresetId = parsed.data.activePresetId ?? (parsed.data.presets === undefined ? previousState.activePresetId : undefined)
+  const activePresetId = sanitizedPresets?.some((preset) => preset.id === requestedActivePresetId) ? requestedActivePresetId : undefined
 
   const storedLayout = {
     items: sanitized,
-    ...(parsed.data.preferences ? { preferences: parsed.data.preferences } : {}),
+    ...(preferences ? { preferences } : {}),
     ...(sanitizedPresets && sanitizedPresets.length > 0 ? { presets: sanitizedPresets } : {}),
     ...(activePresetId ? { activePresetId } : {}),
   }
 
-  let layout = await loadScopeLayout(em, scope)
   if (!layout) {
     layout = em.create(DashboardLayout, {
       userId: scope.userId,
@@ -374,7 +378,7 @@ export async function PUT(req: Request) {
 
   return NextResponse.json({
     ok: true,
-    ...(parsed.data.preferences ? { preferences: parsed.data.preferences } : {}),
+    ...(preferences ? { preferences } : {}),
     ...(sanitizedPresets && sanitizedPresets.length > 0 ? { presets: sanitizedPresets } : {}),
     ...(activePresetId ? { activePresetId } : {}),
   })

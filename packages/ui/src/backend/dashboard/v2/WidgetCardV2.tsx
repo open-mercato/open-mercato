@@ -39,7 +39,7 @@ type WidgetCardV2Props = {
   meta: DashboardWidgetCatalogItem
   title: string
   description?: string | null
-  widgetModule: DashboardWidgetModule<any> | null
+  widgetModule: DashboardWidgetModule<unknown> | null
   loading: boolean
   loadError?: string | null
   context: DashboardWidgetRenderContext
@@ -193,7 +193,7 @@ export function WidgetCardV2({
     setLocalRefreshToken((value) => value + 1)
   }, [loadError, loading])
 
-  const WidgetComponent = widgetModule?.Widget as React.ComponentType<DashboardWidgetComponentProps<any>> | undefined
+  const WidgetComponent = widgetModule?.Widget as React.ComponentType<DashboardWidgetComponentProps<unknown>> | undefined
   const mode = settingsOpen ? 'settings' : 'view'
   const dragAttributes = dragHandle.attributes as React.ButtonHTMLAttributes<HTMLButtonElement>
   const dragListeners = dragHandle.listeners as React.ButtonHTMLAttributes<HTMLButtonElement> | undefined

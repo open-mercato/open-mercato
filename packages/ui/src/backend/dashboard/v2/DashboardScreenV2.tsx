@@ -5,6 +5,7 @@ import { Plus, Sparkles, Wand2 } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
@@ -28,7 +29,7 @@ type LayoutEnvelope = { items?: DashboardLayoutItem[]; preferences?: LayoutPrefe
 type LayoutResponse = { layout?: LayoutEnvelope | DashboardLayoutItem[]; preferences?: LayoutPreferences | null; widgets?: DashboardWidgetCatalogItem[]; allowedWidgetIds?: string[]; canConfigure?: boolean; context?: DashboardWidgetRenderContext | null }
 
 export const MAX_DASHBOARD_PRESETS = 12
-type ModuleState = { loading: boolean; module: DashboardWidgetModule<any> | null; error: string | null }
+type ModuleState = { loading: boolean; module: DashboardWidgetModule<unknown> | null; error: string | null }
 
 const DEFAULT_SIZE: DashboardWidgetSize = 'md'
 
@@ -91,7 +92,7 @@ function serializeDateRange(dateRange: DashboardGlobalDateRange) {
 
 function buildPayload(items: DashboardLayoutItem[], dateRange: DashboardGlobalDateRange, presets: DashboardPreset[] = [], activePresetId: string | null = null) {
   const preferences = { dateRange: serializeDateRange(dateRange) }
-  const payload: Record<string, unknown> = { items: serializeItems(items), preferences }
+  const payload: Record<string, unknown> = { items: serializeItems(items), preferences, presets: [] }
   if (presets.length > 0) {
     // Mirror the live layout into the active preset so switching back is lossless.
     payload.presets = presets.map((preset) => preset.id === activePresetId
@@ -213,7 +214,7 @@ export function DashboardScreenV2() {
 
   const loadModule = React.useCallback((meta: DashboardWidgetCatalogItem, force = false) => {
     const current = modules[meta.loaderKey]
-    if (!force && (current?.loading || current?.module)) return
+    if (!force && current) return
     setModules((prev) => ({ ...prev, [meta.loaderKey]: { loading: true, module: null, error: null } }))
     void loadDashboardWidgetModule(meta.loaderKey)
       .then((module) => setModules((prev) => ({ ...prev, [meta.loaderKey]: module ? { loading: false, module, error: null } : { loading: false, module: null, error: t('dashboard.v2.widgetLoadFailed') } })))
@@ -258,15 +259,21 @@ export function DashboardScreenV2() {
     const mod = modules[meta.loaderKey]?.module
     if (mod?.SetupWizard) {
       setAddOpen(false)
-      const initial = mod.hydrateSettings ? mod.hydrateSettings(meta.defaultSettings ?? null) : (meta.defaultSettings ?? null)
-      setWizard({ widgetId: meta.id, itemId: null, initialSettings: initial })
+      try {
+        const initial = mod.hydrateSettings ? mod.hydrateSettings(meta.defaultSettings ?? null) : (meta.defaultSettings ?? null)
+        setWizard({ widgetId: meta.id, itemId: null, initialSettings: initial })
+      } catch (err) {
+        logger.warn('Failed to open dashboard widget setup', { err })
+        getTelemetryRuntime()?.reportError(err, { module: 'dashboards', code: 'dashboards.widget_setup_failed' })
+        setError(t('dashboard.v2.widgetLoadFailed'))
+      }
       return
     }
     const newId = generateId()
     updateLayout((prev) => [...prev, { id: newId, widgetId: meta.id, order: prev.length, priority: prev.length, size: meta.defaultSize ?? DEFAULT_SIZE, settings: meta.defaultSettings ?? null }])
     setPendingScrollId(newId)
     setAddOpen(false)
-  }, [modules, updateLayout])
+  }, [modules, t, updateLayout])
 
   const moduleForWidget = React.useCallback((widgetId: string) => {
     const meta = metaById.get(widgetId)
@@ -424,9 +431,18 @@ export function DashboardScreenV2() {
             const state = modules[meta.loaderKey] ?? { loading: true, module: null, error: null }
             const effectiveMeta = { ...meta, ...(state.module?.metadata ?? {}), loaderKey: meta.loaderKey }
             const hasWizard = !!state.module?.SetupWizard
-            const wizardInitial = state.module?.hydrateSettings ? state.module.hydrateSettings(item.settings ?? meta.defaultSettings ?? null) : (item.settings ?? meta.defaultSettings ?? null)
             return (
-              <WidgetCardV2 layout={item} meta={effectiveMeta} title={resolveWidgetTitle(effectiveMeta)} description={effectiveMeta.description ?? null} widgetModule={state.module} loading={state.loading} loadError={state.error} context={widgetContext} editing={editing && canConfigure} settingsOpen={settingsId === item.id} refreshToken={refreshToken} dragHandle={dragHandle} dragging={dragging} onRetry={() => loadModule(meta, true)} onRemove={() => updateLayout((prev) => prev.filter((entry) => entry.id !== item.id))} onSizeChange={(size) => updateLayout((prev) => prev.map((entry) => entry.id === item.id ? { ...entry, size } : entry))} onAccentChange={(accent) => updateLayout((prev) => prev.map((entry) => entry.id === item.id ? { ...entry, accent } : entry))} onSettingsChange={(settings) => updateLayout((prev) => prev.map((entry) => entry.id === item.id ? { ...entry, settings } : entry))} onToggleSettings={() => setSettingsId((current) => current === item.id ? null : item.id)} onEditWizard={hasWizard ? () => setWizard({ widgetId: item.widgetId, itemId: item.id, initialSettings: wizardInitial }) : undefined} />
+              <WidgetCardV2 layout={item} meta={effectiveMeta} title={resolveWidgetTitle(effectiveMeta)} description={effectiveMeta.description ?? null} widgetModule={state.module} loading={state.loading} loadError={state.error} context={widgetContext} editing={editing && canConfigure} settingsOpen={settingsId === item.id} refreshToken={refreshToken} dragHandle={dragHandle} dragging={dragging} onRetry={() => loadModule(meta, true)} onRemove={() => updateLayout((prev) => prev.filter((entry) => entry.id !== item.id))} onSizeChange={(size) => updateLayout((prev) => prev.map((entry) => entry.id === item.id ? { ...entry, size } : entry))} onAccentChange={(accent) => updateLayout((prev) => prev.map((entry) => entry.id === item.id ? { ...entry, accent } : entry))} onSettingsChange={(settings) => updateLayout((prev) => prev.map((entry) => entry.id === item.id ? { ...entry, settings } : entry))} onToggleSettings={() => setSettingsId((current) => current === item.id ? null : item.id)} onEditWizard={hasWizard ? () => {
+                try {
+                  const raw = item.settings ?? meta.defaultSettings ?? null
+                  const initialSettings = state.module?.hydrateSettings ? state.module.hydrateSettings(raw) : raw
+                  setWizard({ widgetId: item.widgetId, itemId: item.id, initialSettings })
+                } catch (err) {
+                  logger.warn('Failed to open dashboard widget settings', { err })
+                  getTelemetryRuntime()?.reportError(err, { module: 'dashboards', code: 'dashboards.widget_settings_failed' })
+                  setError(t('dashboard.v2.widgetLoadFailed'))
+                }
+              } : undefined} />
             )
           }} />
         </WidgetDataBatchProvider>

@@ -135,7 +135,7 @@ function calculateDeltaPct(value: number, previousValue: number | null, compare:
 
 function resolveEffectiveOrgScope(scope: InsightsScope): string[] | 'all' {
   const source = scope.effectiveOrgScope ?? scope.organizationIds
-  if (source === 'all' || !Array.isArray(source) || source.length === 0) return 'all'
+  if (source === 'all' || !Array.isArray(source)) return 'all'
   return [...new Set(source)].sort((a, b) => a.localeCompare(b))
 }
 

@@ -3,7 +3,7 @@ import { type DateRangePreset, isValidDateRangePreset } from '@open-mercato/ui/b
 export type ChartLayout = 'horizontal' | 'vertical'
 
 export type TopProductsSettings = {
-  dateRangeMode: 'global' | 'custom'
+  dateRangeMode?: 'global' | 'custom'
   dateRange: DateRangePreset
   limit: number
   layout: ChartLayout

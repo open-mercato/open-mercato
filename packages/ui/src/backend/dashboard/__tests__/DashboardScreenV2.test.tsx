@@ -17,7 +17,7 @@ jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
 }))
 
 jest.mock('@open-mercato/ui/backend/detail', () => ({
-  ErrorMessage: ({ label }: { label: string }) => <div role="alert">{label}</div>,
+  ErrorMessage: ({ label, action }: { label: string; action?: React.ReactNode }) => <div role="alert">{label}{action}</div>,
 }))
 
 jest.mock('@open-mercato/ui/backend/injection/useGuardedMutation', () => ({
@@ -58,6 +58,8 @@ const dict = {
   'dashboard.v2.widgetSettings': 'Widget settings',
   'dashboard.v2.sizeLabel': 'Size',
   'dashboard.v2.saveFailed': 'Save failed',
+  'dashboard.v2.widgetLoadFailed': 'Widget failed',
+  'dashboard.v2.presets.delete': 'Delete view',
   'dashboard.v2.dateRange.preset.last_30_days': 'Last 30 days',
   'dashboard.widgets.foo.title': 'Widget Foo',
 }
@@ -112,6 +114,67 @@ describe('DashboardScreenV2', () => {
     expect(sizeToSpanClass('md')).toBe('md:col-span-6 xl:col-span-6')
     expect(sizeToSpanClass('lg')).toBe('md:col-span-6 xl:col-span-9')
     expect(sizeToSpanClass('full')).toBe('md:col-span-6 xl:col-span-12')
+  })
+
+  it('keeps other widgets visible when a saved settings hydrator throws', async () => {
+    const brokenMeta = { ...layoutResponse.widgets[0], id: 'broken', loaderKey: 'broken.loader', title: 'Broken widget' }
+    ;(apiCall as jest.Mock).mockResolvedValue({ ok: true, status: 200, result: {
+      ...layoutResponse,
+      layout: { ...layoutResponse.layout, items: [
+        ...layoutResponse.layout.items,
+        { id: 'item-broken', widgetId: 'broken', order: 1, size: 'md' },
+      ] },
+      widgets: [...layoutResponse.widgets, brokenMeta],
+    } })
+    ;(loadDashboardWidgetModule as jest.Mock).mockImplementation(async (key: string) => ({
+      metadata: { id: key === 'broken.loader' ? 'broken' : 'foo', title: 'Widget' },
+      Widget: () => <div>{key === 'broken.loader' ? 'Broken content' : 'Healthy content'}</div>,
+      ...(key === 'broken.loader' ? { hydrateSettings: () => { throw new Error('[internal] stale settings') } } : {}),
+    }))
+
+    renderWithProviders(<DashboardScreenV2 />, { dict })
+
+    expect(await screen.findByText('Healthy content')).toBeInTheDocument()
+    expect(await screen.findByText('Broken content')).toBeInTheDocument()
+    expect(screen.getByText('Widget Foo')).toBeInTheDocument()
+  })
+
+  it('retains a failed module load until the user explicitly retries', async () => {
+    ;(apiCall as jest.Mock).mockResolvedValue({ ok: true, status: 200, result: layoutResponse })
+    ;(loadDashboardWidgetModule as jest.Mock)
+      .mockRejectedValueOnce(new Error('[internal] chunk unavailable'))
+      .mockResolvedValue({ metadata: { id: 'foo', title: 'Widget Foo' }, Widget: () => <div>Recovered widget</div> })
+
+    renderWithProviders(<DashboardScreenV2 />, { dict })
+
+    expect(await screen.findByText('Widget failed')).toBeInTheDocument()
+    await act(async () => { await Promise.resolve() })
+    expect(loadDashboardWidgetModule).toHaveBeenCalledTimes(1)
+    const card = screen.getByText('Widget Foo').closest('section')
+    expect(card).not.toBeNull()
+    fireEvent.click(within(card!).getByRole('button', { name: 'Refresh all' }))
+    expect(await screen.findByText('Recovered widget')).toBeInTheDocument()
+    expect(loadDashboardWidgetModule).toHaveBeenCalledTimes(2)
+  })
+
+  it('explicitly clears the last saved View in the PUT payload', async () => {
+    ;(apiCall as jest.Mock).mockResolvedValue({ ok: true, status: 200, result: {
+      ...layoutResponse,
+      layout: { ...layoutResponse.layout, presets: [{
+        id: 'view-1', name: 'Executive', items: layoutResponse.layout.items,
+      }], activePresetId: 'view-1' },
+    } })
+    ;(loadDashboardWidgetModule as jest.Mock).mockResolvedValue({ metadata: { id: 'foo', title: 'Widget Foo' }, Widget: () => null })
+
+    renderWithProviders(<DashboardScreenV2 />, { dict })
+    fireEvent.click(await screen.findByRole('button', { name: 'Executive' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete view' }))
+
+    await waitFor(() => {
+      const saves = (apiCall as jest.Mock).mock.calls.filter(([, options]) => options?.method === 'PUT')
+      expect(saves).toHaveLength(1)
+      expect(JSON.parse(saves[0][1].body)).toMatchObject({ presets: [] })
+    })
   })
 
   it('renders mocked registry widgets with the active global date range in context', async () => {

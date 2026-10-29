@@ -7,6 +7,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { dashboardsErrorSchema, dashboardsTag } from '../openapi'
 import { computeInsights, type InsightsScope } from '../../lib/insights'
@@ -91,19 +92,11 @@ function isoDateToUtcMs(value: string): number | null {
   return date.getTime()
 }
 
-function resolveOrganizationIds(scope: Awaited<ReturnType<typeof resolveOrganizationScopeForRequest>>, authOrgId?: string | null): string[] | undefined {
-  if (scope?.selectedId) return [scope.selectedId]
-  if (Array.isArray(scope?.filterIds) && scope.filterIds.length > 0) return scope.filterIds
-  if (scope?.allowedIds === null) return undefined
-  if (authOrgId) return [authOrgId]
-  return undefined
-}
-
 function buildInsightsScope(tenantId: string, organizationIds: string[] | undefined): InsightsScope {
   return {
     tenantId,
     organizationIds,
-    effectiveOrgScope: organizationIds && organizationIds.length > 0 ? [...new Set(organizationIds)].sort((a, b) => a.localeCompare(b)) : 'all',
+    effectiveOrgScope: organizationIds !== undefined ? [...new Set(organizationIds)].sort((first, second) => first.localeCompare(second)) : 'all',
   }
 }
 
@@ -136,7 +129,7 @@ export async function GET(req: Request) {
   })
 
   const orgScope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
-  const organizationIds = resolveOrganizationIds(orgScope, auth.orgId)
+  const { organizationIds, rbacOrganizationId } = resolveOrganizationScopeFilter(orgScope, auth)
   const cache = container.resolve<CacheStrategy>('cache')
   const widgetDataService = createWidgetDataService(em, { tenantId, organizationIds }, analyticsRegistry, cache)
   const { locale, translate } = await resolveTranslations()
@@ -151,7 +144,7 @@ export async function GET(req: Request) {
           if (features.length === 0) return Promise.resolve(true)
           return rbacService.userHasAllFeatures(String(auth.sub ?? ''), features, {
             tenantId,
-            organizationId: auth.orgId ?? null,
+            organizationId: rbacOrganizationId,
           })
         },
         cache,

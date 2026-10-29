@@ -86,6 +86,35 @@ function createMemoryCache(): CacheStrategy {
 }
 
 describe('computeInsights', () => {
+  test('never reuses unrestricted cached metrics for an explicitly empty organization scope', async () => {
+    const cache = createMemoryCache()
+    const fetchAll = createFetch({
+      revenue: { value: 200, previousValue: 100 },
+      orders: { value: 12, previousValue: 10 },
+      aov: { value: 50, previousValue: 40 },
+      new_customers: { value: 5, previousValue: 4 },
+    })
+    const fetchEmpty = jest.fn(async () => response(0, 0))
+    const deps: ComputeInsightsDeps = {
+      widgetDataService: { fetchWidgetData: fetchAll },
+      analyticsRegistry: createRegistry(),
+      checkFeatures: async () => true,
+      cache,
+      ...createProviderDeps({ createModelFactory: jest.fn(() => {
+        throw new AiModelFactoryError('no_provider_configured', 'No provider')
+      }) as unknown as ComputeInsightsDeps['createModelFactory'] }),
+    }
+    await computeInsights(deps, { tenantId: 'tenant-1', effectiveOrgScope: 'all' }, RANGE)
+
+    const denied = await computeInsights({ ...deps, widgetDataService: { fetchWidgetData: fetchEmpty } }, {
+      tenantId: 'tenant-1', organizationIds: [], effectiveOrgScope: [],
+    }, RANGE)
+
+    expect(denied.cached).toBe(false)
+    expect(denied.metrics.every((metric) => metric.value === 0)).toBe(true)
+    expect(fetchEmpty).toHaveBeenCalledTimes(4)
+  })
+
   test('computes deterministic deltas and nulls the delta when previous value is zero', async () => {
     const fetchWidgetData = createFetch({
       revenue: { value: 200, previousValue: 100 },
