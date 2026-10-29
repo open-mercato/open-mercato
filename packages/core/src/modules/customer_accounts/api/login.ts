@@ -23,6 +23,8 @@ import {
 } from '@open-mercato/core/modules/customer_accounts/lib/resolveTenantContext'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { isCrossSiteBrowserRequest } from '@open-mercato/shared/lib/url'
+import { isCustomerTenantActive } from '@open-mercato/core/modules/customer_accounts/lib/tenantEligibility'
+import type { EntityManager } from '@mikro-orm/postgresql'
 
 export const metadata: { path?: string; requireAuth?: boolean } = { requireAuth: false }
 
@@ -86,7 +88,7 @@ export async function POST(req: Request) {
   // password-less, inactive, locked, wrong-password, and unverified accounts all run a
   // bcrypt comparison and return the same generic 401 — lockout/deactivation guidance is
   // conveyed out-of-band (e.g. email), never in the synchronous response.
-  if (!user || !user.passwordHash) {
+  if (!user || !user.passwordHash || !(await isCustomerTenantActive(container.resolve('em') as EntityManager, tenantId))) {
     await bcryptCompare(password, TIMING_EQUALIZATION_HASH)
     void emitCustomerAccountsEvent('customer_accounts.login.failed', { email, reason: 'invalid_credentials', tenantId }).catch(reportLoginEventError)
     return NextResponse.json({ ok: false, error: 'Invalid email or password' }, { status: 401 })
