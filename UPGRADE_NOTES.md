@@ -23,7 +23,12 @@ integration requests are unaffected by the browser policy.
 Client components use `useContentSecurityPolicyNonce` from
 `@open-mercato/ui/theme/ContentSecurityPolicyProvider` for trusted style elements.
 The provider preserves the original document nonce during client navigation and
-seeds webpack's nonce for Radix scroll-lock styles. Do not copy a nonce from user
+seeds webpack's nonce for Radix scroll-lock styles. Sandboxed `srcDoc` previews
+inherit the parent's CSP too: pass the nonce to their trusted style elements and
+any additional iframe meta policy, as the storefront branding preview does.
+The webpack nonce does not configure every CSS-in-JS runtime. Use ordinary
+nonced style elements or configure the styling library's own nonce integration.
+Do not copy a nonce from user
 input or persist it between document requests. Nonce-dependent pages render
 dynamically; do not cache their HTML separately from its CSP response header.
 

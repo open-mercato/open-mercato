@@ -27,6 +27,11 @@ its own hydration scripts. `ContentSecurityPolicyProvider` carries the original
 document nonce through client navigation and initializes the runtime nonce used
 by Radix's style singleton. Brand styles, document pagination/presence style
 elements, and all four TipTap editor entry points receive that nonce explicitly.
+The sandboxed storefront branding `srcDoc` preview also inherits the parent's
+policy: its two style elements and its own meta policy use the document nonce.
+Its helper accepts an optional trailing nonce, preserving existing callers.
+The demo feedback widget uses a plain nonced style element for its global
+keyframes, avoiding the separate styled-jsx runtime nonce configuration.
 
 Only `NODE_ENV=development` permits eval and scheme-wide websocket connections.
 Production and unset/test/preview environments use the restrictive policy.
@@ -87,7 +92,10 @@ branches, request/response policy equality, preserved rewrites and attachment CS
 
 `TC-AUTH-CSP-001` covers production `/login`, hydration-script nonces, reload nonce
 rotation, blocked inline script/style injection and `/backend` using a newly
-created account with cleanup. Required manual QA additionally covers a dialog's
+created account with cleanup. `TC-ECOM-CSP-001` verifies computed branding styles
+inside an opaque sandboxed iframe under the actual production parent CSP.
+Helper/component regression tests additionally check nonce propagation and reject
+nonce markup injection. Required manual QA additionally covers a dialog's
 scroll-lock stylesheet, document editor/preview and collaboration, Stripe Elements
 including 3DS/Link, Tpay redirects, and a custom module using an additional origin.
 No payment or provider connection is claimed verified without live evidence.
@@ -126,3 +134,8 @@ results remain required before calling the implementation merge-ready.
 
 - 2026-10-29: Defined and implemented the production policy, nonce plumbing,
   provider origin declaration, consumer compatibility and regression coverage.
+- 2026-10-29: Fresh scope-cohesion review approved the single coordinated capability.
+  Security review identified inherited CSP on the storefront `srcDoc` preview;
+  added validated nonce propagation and unit/component/browser regression coverage.
+  Its second finding, blocked demo keyframes, is covered by a failing-before /
+  passing-after component regression and the production Chromium fixture.

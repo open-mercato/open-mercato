@@ -46,7 +46,7 @@ test('both production configs restrict scripts and connections and preserve the 
       assert.doesNotMatch(globalPolicy.split('; ').find((directive) => directive.startsWith('script-src '))!, /unsafe-inline|unsafe-eval/)
       const connections = globalPolicy.split('; ').find((directive) => directive.startsWith('connect-src '))!.split(' ')
       assert.ok(!connections.some((source) => ['https:', 'ws:', 'wss:', '*'].includes(source)))
-      assert.ok(connections.includes('https://api.stripe.com'))
+      assert.ok(connections.some((source) => source === 'https://api.stripe.com'))
       const attachment = headers.find((entry) => entry.source === '/api/attachments/file/:path*')
       assert.equal(attachment?.headers.find((header) => header.key === 'Content-Security-Policy')?.value, "default-src 'none'; sandbox")
     }
