@@ -3,6 +3,7 @@ import { verifyAudienceJwt, verifyJwt } from '@open-mercato/shared/lib/auth/jwt'
 import type { CustomerRbacService } from '@open-mercato/core/modules/customer_accounts/services/customerRbacService'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CUSTOMER_JWT_AUDIENCE } from '@open-mercato/core/modules/customer_accounts/services/customerSessionService'
+import { isCustomerTenantActive } from './tenantEligibility'
 
 export interface CustomerAuthContext {
   sub: string
@@ -103,6 +104,7 @@ export async function validateUserState(
   if (user.sessionsRevokedAt && typeof iat === 'number' && iat * 1000 < user.sessionsRevokedAt.getTime()) {
     return { valid: false }
   }
+  if (!(await isCustomerTenantActive(em, tenantId))) return { valid: false }
 
   const { CustomerRbacService } = await import(
     '@open-mercato/core/modules/customer_accounts/services/customerRbacService'
