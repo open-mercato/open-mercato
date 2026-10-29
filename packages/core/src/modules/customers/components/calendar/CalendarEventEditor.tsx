@@ -357,10 +357,11 @@ export function CalendarEventEditor({
       setClosePromptOpen(true)
       try {
         const confirmed = await confirm({
-          title: t('ui.forms.confirmUnsavedChanges', 'You have unsaved changes. Are you sure you want to leave?'),
+          title: t('ui.forms.unsavedChangesTitle', 'Discard unsaved changes?'),
+          description: t('ui.forms.unsavedChangesDescription', 'Your edits will be lost if you leave now.'),
           confirmText: t('customers.deals.detail.unsavedConfirm', 'Discard changes'),
           cancelText: t('customers.deals.detail.unsavedCancel', 'Keep editing'),
-          variant: 'destructive',
+          variant: 'warning',
         })
         if (!confirmed) return
       } finally {
@@ -550,7 +551,7 @@ export function CalendarEventEditor({
             }).join(', ')}`,
             confirmText: t('customers.calendar.editor.discardConfirm'),
             cancelText: t('customers.calendar.editor.cancel'),
-            variant: 'destructive',
+            variant: 'warning',
           })
           if (!approved) return
           await submitInteraction(true)

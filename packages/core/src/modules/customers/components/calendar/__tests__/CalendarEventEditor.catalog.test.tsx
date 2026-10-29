@@ -291,7 +291,7 @@ describe('CalendarEventEditor catalog host', () => {
 
     expect(apiCallOrThrowMock).toHaveBeenCalledTimes(1)
     expect(confirmMock).toHaveBeenCalledWith(expect.objectContaining({
-      variant: 'destructive',
+      variant: 'warning',
       text: expect.stringContaining('customers.calendar.editor.location, Visit notes'),
     }))
     expect(onOpenChange).not.toHaveBeenCalled()
