@@ -1,4 +1,5 @@
 {
+  "notifications.categories.record_locks": "Datensatzsperren",
   "record_locks.banner.active_users_label": "Active users",
   "record_locks.banner.contention_notice": "Ein anderer Benutzer hat diesen Datensatz geöffnet, während Sie ihn bearbeiten. Beim Speichern können Konflikte auftreten.",
   "record_locks.banner.local_machine": "lokaler Rechner",

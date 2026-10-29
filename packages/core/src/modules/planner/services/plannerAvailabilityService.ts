@@ -7,6 +7,8 @@ export interface PlannerAvailabilityService {
   getMergedAvailabilityWindows(params: {
     rules: AvailabilityRuleLike[]
     range: AvailabilityRange
+    respectTimezone?: boolean
+    weeklyScheduleTemplate?: boolean
   }): AvailabilityWindow[]
 }
 
@@ -14,6 +16,8 @@ export class DefaultPlannerAvailabilityService implements PlannerAvailabilitySer
   getMergedAvailabilityWindows(params: {
     rules: AvailabilityRuleLike[]
     range: AvailabilityRange
+    respectTimezone?: boolean
+    weeklyScheduleTemplate?: boolean
   }): AvailabilityWindow[] {
     return getMergedAvailabilityWindows(params)
   }

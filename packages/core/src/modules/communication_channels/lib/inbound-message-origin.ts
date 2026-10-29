@@ -1,12 +1,8 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { resolveCommunicationChannelsSystemUserId } from './system-user'
+import { EXTERNAL_CONVERSATION_SOURCE_ENTITY_TYPE } from '../../messages/lib/messageSourceEntityTypes'
 
-/**
- * Entity type a channel-backed conversation is exposed under on a message's
- * `sourceEntityType`. Written by `commands/ingest-inbound-message.ts` and
- * inherited by every operator message composed on the same conversation.
- */
-export const EXTERNAL_CONVERSATION_SOURCE_ENTITY_TYPE = 'communication_channels.external_conversation'
+export { EXTERNAL_CONVERSATION_SOURCE_ENTITY_TYPE }
 
 /**
  * Dedup key `ingest-inbound-message` stamps on the platform message it composes,

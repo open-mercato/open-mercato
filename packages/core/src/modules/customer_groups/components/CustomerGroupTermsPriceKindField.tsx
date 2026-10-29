@@ -13,8 +13,9 @@ type RemotePriceKind = Record<string, unknown>
 // Mirrors `pickString`/`loadOptions`/`resolveOne` in
 // `catalog/components/prices/PriceScopeSelectors.tsx` (`PricePriceKindSelect`) — the
 // terms `priceKindId` field is an FK-id into `catalog`'s price kinds (spec: "a picker
-// sourced from catalog price kinds, not free text"), sourced via the public
-// `/api/catalog/price-kinds` route rather than an ORM relationship.
+// sourced from catalog price kinds, not free text"), sourced via `customer_groups`'
+// own `/api/customer_groups/customer-groups/price-kinds` route (gated by `customer_groups.terms.view`,
+// not `catalog.settings.manage`) rather than an ORM relationship.
 function pickString(item: RemotePriceKind, ...keys: string[]): string {
   for (const key of keys) {
     const value = item[key]
@@ -35,7 +36,7 @@ async function loadPriceKindOptions(query?: string): Promise<ComboboxOption[]> {
   try {
     const params = new URLSearchParams({ search: (query ?? '').trim(), pageSize: '20' })
     const payload = await readApiResultOrThrow<{ items?: RemotePriceKind[] }>(
-      `/api/catalog/price-kinds?${params.toString()}`,
+      `/api/customer_groups/customer-groups/price-kinds?${params.toString()}`,
       undefined,
       { fallback: { items: [] } },
     )
@@ -51,7 +52,7 @@ async function resolvePriceKindLabel(id: string): Promise<string> {
   try {
     const params = new URLSearchParams({ ids: id, pageSize: '1' })
     const payload = await readApiResultOrThrow<{ items?: RemotePriceKind[] }>(
-      `/api/catalog/price-kinds?${params.toString()}`,
+      `/api/customer_groups/customer-groups/price-kinds?${params.toString()}`,
       undefined,
       { fallback: { items: [] } },
     )

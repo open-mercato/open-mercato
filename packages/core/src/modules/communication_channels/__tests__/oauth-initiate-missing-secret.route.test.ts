@@ -8,7 +8,7 @@ const mockResolveOAuthClientCredentials = jest.fn()
 const mockReportError = jest.fn()
 
 jest.mock('@open-mercato/shared/lib/logger', () => {
-  const logger = { error: jest.fn(), child: jest.fn() }
+  const logger = { error: jest.fn(), warn: jest.fn(), info: jest.fn(), debug: jest.fn(), child: jest.fn() }
   logger.child.mockReturnValue(logger)
   return { createLogger: jest.fn(() => logger) }
 })
