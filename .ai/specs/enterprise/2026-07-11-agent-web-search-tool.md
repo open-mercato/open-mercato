@@ -373,8 +373,10 @@ validation still run independently on every authorized HTTP hop.
 `HttpRequestInit.assertUrlAllowed`, `SearchEngineOptions.isContentUrlAllowed`, and the blocked
 outcome's optional `code: 'domain_blocked'` discriminator are additive. Domain-denied redirects
 retain the existing `web_fetch` error code `domain_blocked`. The adapter contract advances to
-version 2 while still accepting version 1 adapters;
-existing adapters need no source changes. A custom HTTP client must await a supplied assertion
+version 2 while still accepting version 1 adapters in both the loader and the shared contract-test
+suite. Existing version 1 descriptors need no source changes. Adapters rebuilt against the current
+`CONTRACT_VERSION` advertise version 2 and require a host supporting version 2; upgrade the host
+before deploying those rebuilt descriptors. A custom HTTP client must await a supplied assertion
 before DNS and transmission for the initial request and every redirect; synchronous and async
 assertions are supported. The engine also checks final URLs defensively.
 

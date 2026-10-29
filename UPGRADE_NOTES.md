@@ -39,7 +39,10 @@ searches bypass result caches automatically, including previously enriched entri
 No cache purge or database migration is needed.
 
 **Adapter author action:** existing contract version 1 adapters remain supported
-by contract version 2. Custom HTTP clients must honor the new optional
+by the version 2 loader and shared contract-test kit. Adapters rebuilt against
+the current `CONTRACT_VERSION` advertise version 2 and require a host supporting
+version 2; upgrade the host before deploying those rebuilt descriptors.
+Custom HTTP clients must honor the new optional
 `HttpRequestInit.assertUrlAllowed(url)` callback, awaiting synchronous or async
 assertions before DNS and transmission for initial requests and every redirect.
 No tool input or result-field migration is required.
