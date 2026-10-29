@@ -447,6 +447,35 @@ describe('sales.orders.lines.* — external amounts', () => {
     expect(num(written!.totalGrossAmount)).toBeCloseTo(21.28, 4)
   })
 
+  it('rejects a new external line that omits every unit price, persisting nothing', async () => {
+    const { ctx, persisted } = harnessWithExternalOrder()
+
+    const rejection = await expectRejection(
+      upsert().execute(
+        {
+          body: {
+            organizationId: ORG_ID,
+            tenantId: TENANT_ID,
+            orderId: ORDER_ID,
+            kind: 'service',
+            name: 'Source-only line',
+            currencyCode: 'USD',
+            quantity: 1,
+            totalNetAmount: 10,
+            taxAmount: 2,
+            totalGrossAmount: 12,
+            orderTotals: SUPPLIED_TOTALS,
+          },
+        } as never,
+        ctx,
+      ),
+    )
+
+    expect(rejection.status).toBe(400)
+    expect(rejection.error).toContain('unitPriceNet')
+    expect(persistedLines(persisted)).toHaveLength(0)
+  })
+
   it('keeps stored tax and gross when an external line changes no pricing input', async () => {
     const { ctx, persisted } = harnessWithExternalOrder()
 

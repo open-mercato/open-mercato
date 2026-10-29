@@ -7813,9 +7813,10 @@ const orderLineUpsertCommand: CommandHandler<
     );
     // After the line above, never before: tax and gross only exist once it runs,
     // and it nulls them when pricing changed, which an external line must restate.
+    // The unit price is checked as resolved, not as defaulted to zero above.
     if (isExternalAmountsMode(totalsMode)) {
       await assertExternalLineComplete(
-        updatedSnapshot as Record<string, unknown>,
+        { ...(updatedSnapshot as Record<string, unknown>), unitPriceNet },
         updatedSnapshot.lineNumber ?? 1,
       );
     }

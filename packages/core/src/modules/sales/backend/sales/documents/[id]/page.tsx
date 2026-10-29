@@ -77,6 +77,7 @@ import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuarde
 import { buildRecordInjectionContext, useSetCurrentRecordInjectionContext } from '@open-mercato/ui/backend/injection/recordContext'
 import { useSalesChannelsEnabled } from '@open-mercato/core/modules/sales/components/useSalesChannelsEnabled'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 
 const logger = createLogger('sales')
 
@@ -3823,6 +3824,15 @@ export default function SalesDocumentDetailPage({
       await refreshDocumentTotals()
     } catch (err) {
       logger.error('sales.documents.amounts.switchToComputed', { err })
+      try {
+        getTelemetryRuntime()?.reportError(err, {
+          module: 'sales',
+          code: 'sales.amounts_switch_to_computed_failed',
+          attributes: { orderId: record.id },
+        })
+      } catch (reportFailure) {
+        logger.warn('sales.documents.amounts.switchToComputed.reportFailed', { err: reportFailure })
+      }
       if (!handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) {
         flash(t('sales.documents.amountsSwitchFailed', 'Could not switch to computed amounts.'), 'error')
       }
