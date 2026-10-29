@@ -1038,5 +1038,7 @@ the entries below rather than into the implementation.
 
 ## Changelog
 
+- 2026-10-29 — Added `TC-CRM-8020-injected-tab-priority` browser coverage on real company, person and deal detail pages for priority ordering, unchanged defaults, stable ties, unavailable contributors, selection and deep links.
+
 - 2026-10-22 — Documented the additive injected-tab priority contract and its
   migration/backward-compatibility guarantees for customer detail hosts.
