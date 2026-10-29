@@ -68,6 +68,19 @@ function shouldTriggerCoverageRefresh(entityType: string | undefined, tenantId: 
 
 type CustomEntityValues = Record<string, unknown>
 
+type CustomEntityStorageDatabase = {
+  custom_entities_storage: {
+    entity_type: string
+    entity_id: string
+    organization_id: string | null
+    tenant_id: string | null
+    doc: CustomEntityValues
+    updated_at: Date
+    created_at: Date
+    deleted_at: Date | null
+  }
+}
+
 type QueuedCrudSideEffect = {
   action: CrudEventAction
   entity: unknown
@@ -421,13 +434,13 @@ export class DefaultDataEngine implements DataEngine {
     const tenantId = opts.tenantId ?? null
     const doc: Record<string, unknown> = { id, ...this.normalizeDocValues(sanitizedValues || {}) }
 
-    const now = sql`now()`
+    const now = sql<Date>`now()`
     const payload = {
       entity_type: opts.entityId,
       entity_id: id,
       organization_id: orgId,
       tenant_id: tenantId,
-      doc: sql`${JSON.stringify(doc)}::jsonb`,
+      doc: sql<CustomEntityValues>`${JSON.stringify(doc)}::jsonb`,
       updated_at: now,
       created_at: now,
       deleted_at: null,
@@ -441,7 +454,7 @@ export class DefaultDataEngine implements DataEngine {
       }
       const lockKey = `custom_entity_create:${JSON.stringify([tenantId, orgId, opts.entityId, id.toLowerCase()])}`
       await withAdvisoryXactLock(this.em, lockKey, async (txEm) => {
-        const storage = txEm.getKysely()
+        const storage = txEm.getKysely<CustomEntityStorageDatabase>()
         const existing = await storage
           .selectFrom('custom_entities_storage')
           .select('entity_id')
