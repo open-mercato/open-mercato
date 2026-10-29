@@ -348,6 +348,19 @@ describe('channel_discord ai-auto-reply subscriber — routing', () => {
     expect(JSON.stringify(where)).not.toContain('deletedAt')
   })
 
+  it('(retry) keeps a null organization in the already-handled check', async () => {
+    findOne
+      .mockResolvedValueOnce(channelRow({ organizationId: null }))
+      .mockResolvedValueOnce(messageRow('What are your opening hours?'))
+    const { ctx, forked } = makeCtx({ aiPresent: true, alreadyHandled: true })
+
+    await handler({ ...basePayload, organizationId: null }, ctx)
+
+    const [, where] = forked.count.mock.calls[0]
+    expect(where.tenantId).toBe('t-1')
+    expect(where.organizationId).toBeNull()
+  })
+
   it('(retry) the already-handled check matches the proposal the first run files', async () => {
     findOne
       .mockResolvedValueOnce(channelRow())

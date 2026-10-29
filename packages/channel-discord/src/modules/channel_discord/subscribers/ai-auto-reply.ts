@@ -301,8 +301,9 @@ async function draftAndRoute(args: {
  * the reply again nor file a second proposal, so an inbound message that already
  * has this subscriber's reply or proposal is left alone. Soft-deleted rows count
  * too: an undone reply was still posted, and a removed proposal must not come
- * back on a retry. The bot sender is matched with its sentinel fallback too, since the bot-user
- * lookup degrades to the sentinel on a transient error.
+ * back on a retry. A proposal is also matched when the first run filed it under
+ * the sentinel sender, because the bot-user lookup falls back to the sentinel on
+ * a transient error.
  */
 async function wasAlreadyHandled(params: {
   em: EntityManager
