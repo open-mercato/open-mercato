@@ -5,15 +5,9 @@
 **Depends on:** `.ai/specs/2026-10-27-catalog-variant-combination-claim.md`, `.ai/specs/implemented/2026-05-25-oss-optimistic-locking.md`
 **Related:** `.ai/specs/2026-09-30-catalog-product-form-section-policy.md`
 
-## Open Questions — blocking implementation review (2026-10-29)
+## Design decision — finite invocation budgets (F3, 2026-10-29)
 
-**F3 — bounded generation and forward progress.** The eager full-Cartesian enumeration/recomputation below is not implementation-approved. Ten options with ten choices permit ten billion candidates, and the empty-request size limit does not bound server work. A guard rewriting A to B may repeatedly leave A missing and produce duplicate-B skips without progress.
-
-Core maintainers must choose overflow-safe pre-mutation cardinality/attempt/result caps with explicit limit-error semantics, or a bounded resumable protocol with stable progress. Exact limits or continuation contracts are product/resource and API decisions; this run does not invent them. Recompute must terminate even under repeated guard rewrites.
-
-Require at-limit/over-limit/overflow/max-schema cases, zero creates for rejected schemas, bounded attempts/result bytes, repeated A→B guard rewrites and no-progress termination, retry after partial success, and no duplicate side effects. Generation and its section adopter remain blocked.
-
-This gate takes precedence over the proposed details and historical compliance verdict below. Status: **changes requested; not implementation-ready**. Source: [exact-head specification review](https://github.com/open-mercato/open-mercato/pull/6769#issuecomment-6450602566).
+Use overflow-safe preflight caps and deterministic no-progress termination, rather than introducing a resumable/background protocol. The explicit limits and error/progress contract below bound accepted generation work while leaving existing manual variant and schema inputs unchanged. They are part of this additive endpoint's initial design, not a change to an existing public endpoint. Runtime tests described here remain implementation acceptance requirements.
 
 ## TLDR
 
@@ -47,9 +41,15 @@ A section-policy action cannot delegate to a browser loop. Generation needs one 
 
 ## Proposed Solution
 
-Register DI service `catalogVariantGenerationService` with operation id `catalog.variants.generate_missing`. Its `generateMissing` method receives trusted tenant/organization context, an authorized product id, and the expected parent version. It loads the scoped current product/schema, enumerates complete finite combinations by stable option/choice code, reads current live variants, and processes the remaining combinations in canonical order. Before each attempt it recomputes the remaining set. It invokes a reusable guard-complete `catalog.variants.create` provider extracted from the existing CRUD route, so every candidate runs the registered `create` guards, modified-payload revalidation, command side effects, and after-success callbacks exactly as a direct create. The legacy DI bridge remains update/delete-only and therefore does not run for either direct or generated candidate creates. Only `variant_combination_exists` is recorded as a scoped skip. Any other failure stops the sequence and carries sanitized partial-progress evidence.
+Register DI service `catalogVariantGenerationService` with operation id `catalog.variants.generate_missing`. Its `generateMissing` method receives trusted tenant/organization context, an authorized product id, and the expected parent version. It loads the scoped current product/schema, preflights the resource caps below, lazily enumerates complete finite combinations by stable option/choice code, reads current live variants, and processes the remaining combinations in canonical order. Before each attempt it recomputes the remaining set. It invokes a reusable guard-complete `catalog.variants.create` provider extracted from the existing CRUD route, so every candidate runs the registered `create` guards, modified-payload revalidation, command side effects, and after-success callbacks exactly as a direct create. The legacy DI bridge remains update/delete-only and therefore does not run for either direct or generated candidate creates. Only `variant_combination_exists` is recorded as a scoped skip. Any other failure stops the sequence and carries sanitized partial-progress evidence.
 
 Expose the operation through a normal catalog route used by the existing page. The later section-policy adopter adds only its policy façade and delegates once to this same service.
+
+### Bounded work and forward progress
+
+This new endpoint supports at most 4,096 Cartesian combinations, 4,096 guarded create attempts, 4,096 combined returned ids, 10,000 total variant projections examined across the invocation, 8 MiB of retained canonical-key bytes, and 1 MiB of serialized progress/success output. These are fixed initial service limits, not caller-controlled options or restrictions on manual CRUD/schema validity. Before enumeration or any mutation, multiply finite choice counts with `BigInt` and reject immediately when the next product exceeds 4,096; never convert an overflowing product to Number. Compute a conservative UTF-8 key-storage bound with BigInt from maximum encoded choice/code lengths and cardinality and reject above 8 MiB. Read existing variant projections in pages of at most 100 and stop at the scan/byte cap; do not load an unbounded relation or materialize the entire Cartesian product. Use a lazy canonical-order iterator. Preflight rejection is `422 variant_generation_limit_exceeded` with zero create-provider calls and empty progress; include the same finite limit constants in Zod/OpenAPI and localized UI guidance.
+
+Before every candidate, reauthorize/refresh the authoritative schema and remaining set within these budgets. Track each requested full canonical key for this invocation. If a guard redirects requested A to B, B may commit under the ordinary guarded-create contract, but if A is still missing when selected again, stop before a second attempt with `409 variant_generation_no_progress` and truthful same-scope progress. A typed duplicate of B is not evidence that A completed. Any schema revision change from the initial authorized version stops with `409 variant_generation_schema_changed` rather than resetting counters or the attempted-key set. Check attempts, scan/byte and combined-result limits before any next provider call; exhaustion after earlier commits returns `409 variant_generation_limit_exceeded` with bounded progress and makes no later call. Every returned id is deduplicated, scoped and bounded; serialize only the fixed progress schema. A retry starts a new bounded invocation over committed authoritative state. This design introduces no continuation token, queue, aggregate transaction or silent partial-success 200.
 
 ## Architecture
 
@@ -101,7 +101,7 @@ Success is HTTP 200:
 { "complete": true, "createdIds": ["uuid"], "skippedIds": ["uuid"] }
 ```
 
-The route preserves the standard `409 optimistic_lock_conflict`, `409 variant_combination_claim_unresolved`, the shared fixed `422` mutation-guard rejection envelope, validation/permission/not-found envelopes, and create-command failures. A nonduplicate failure after progress uses the original status/code and adds only same-scope `details.generationProgress` matching the strict progress schema. Typed duplicates are not errors and appear in `skippedIds`. Strict Zod request/params/success/error schemas and OpenAPI document these outcomes.
+The route preserves the standard `409 optimistic_lock_conflict`, `409 variant_combination_claim_unresolved`, the shared fixed `422` mutation-guard rejection envelope, validation/permission/not-found envelopes, and create-command failures. A nonduplicate failure after progress uses the original status/code and adds only same-scope `details.generationProgress` matching the strict bounded progress schema. Preflight resource rejection uses `422 variant_generation_limit_exceeded`; post-progress exhaustion uses `409 variant_generation_limit_exceeded`, and repeated unresolved candidate/schema changes use `409 variant_generation_no_progress` / `409 variant_generation_schema_changed`. None is converted to a duplicate skip. Typed duplicates are not errors and appear in `skippedIds`. Strict Zod request/params/success/error schemas and OpenAPI document these outcomes.
 
 ## UI/UX
 
@@ -119,7 +119,7 @@ The existing product edit client root and variant list remain. The handler uses 
 | Two generators start together | Claim boundary yields one live row per key; loser records scoped skips |
 | Manual create wins a candidate | Generator records only the typed duplicate as a skip and recomputes |
 | Generator wins before manual create | Manual create receives the prerequisite's stable duplicate 409 |
-| Schema changes between candidates | Next recomputation uses locked current schema; unresolved/invalid state aborts |
+| Schema changes between candidates | Scoped refresh detects changed schema revision and stops with explicit progress; counters never reset |
 | Candidate create fails after earlier successes | Earlier rows remain; later candidates do not run; progress is returned in sanitized error details |
 | Retry after partial failure | Recompute from live rows; committed rows skip and no duplicate side effects occur |
 | Stale parent version before first candidate | Standard 409; zero create command calls |
@@ -143,7 +143,7 @@ Rollback returns the existing page to its browser loop while retaining the addit
 
 ## Migration & Backward Compatibility
 
-No data migration. The service/route/DI key are additive. Existing manual CRUD routes, variant command ids, events, audit records, index behavior, and option payloads remain. The page's visible workflow is preserved. Each successful generated row still has one ordinary create command/action log; there is no new aggregate undo record or changed event id.
+No data migration. The service/route/DI key are additive. Existing manual CRUD routes, variant command ids, events, audit records, index behavior, and option payloads remain. The page's ordinary workflow is preserved; oversized generation now reports the documented localized resource-limit error while manual CRUD remains available. Each successful generated row still has one ordinary create command/action log; there is no new aggregate undo record or changed event id.
 
 ## Phasing and Implementation Plan
 
@@ -157,7 +157,7 @@ No data migration. The service/route/DI key are additive. Existing manual CRUD r
 ## Integration Coverage
 
 - Guarded create provider: direct/generated parity; registered create-only guard selection; explicit non-invocation of the update/delete-only legacy bridge; deny, modify, invalid modification, thrown guard, actual created-id callback, and callback failure; one command only after approval.
-- Service: empty/finite schemas, canonical stable-code order, authoritative recomputation, one guarded create provider call per attempted candidate, duplicate-only skip, and stop-on-other-error.
+- Service: at-limit/over-limit and arithmetic-overflow schemas; maximum accepted code lengths at cardinality one; zero creates on rejected preflight; page-size, attempted-key, total scan/key-byte/result-count and serialized-output bounds; repeated A→B guard rewrite/duplicate-B no-progress termination; schema-change stop and bounded retry after partial commits; empty/finite schemas, canonical stable-code order, authoritative recomputation, one guarded create provider call per attempted candidate, duplicate-only skip, and stop-on-other-error.
 - API: exact route/method/feature, strict empty body, raw-size limit, scoped product, parent version, aggregate `custom`→`update` registry and legacy-bridge lifecycle, reauthorization after modification, actual product-id callback, one delegation, OpenAPI including 422, and sanitized errors/progress.
 - Concurrency: two generators and manual/generator contenders in both winning orders, schema mutation barrier, unresolved historical null row, and partial-failure retry.
 - Side effects: one event/audit/index/custom-field/undo contribution for each committed create, zero duplicates, no aggregate double emission, and no later call after failure.
@@ -218,7 +218,7 @@ None.
 
 ## Changelog
 
-- **2026-10-29:** Record F3 as an unresolved maintainer decision with concrete failure and integration acceptance gates; historical compliance is not implementation approval.
+- **2026-10-29:** Specify overflow-safe preflight, finite work/output budgets and deterministic guard-rewrite/schema-change termination with truthful partial progress.
 
 - **2026-10-27:** Corrected generated-variant mutation guards to the canonical `catalog.variant` resource kind and required direct/generator allowlist parity.
 - **2026-10-27:** Split authoritative generate-missing orchestration and its ordinary page/API adoption from the catalog section-policy adopter.

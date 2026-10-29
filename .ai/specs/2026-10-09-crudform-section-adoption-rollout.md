@@ -72,11 +72,15 @@ type ExternalCoordinationEntry = {
 ```
 
 - `adopterSpec` is a repository path under the owning repository's correct spec directory with all mandatory spec sections and a complete Final Compliance Report. `designReview` is exact-head evidence for a provider-native approving review by an eligible non-author; comments and external run ids are supplemental only. The static inventory validates its shape and the link verifier rejects missing, self-authored, stale-head, or non-approved evidence.
-- `implementationPr` satisfies the link verifier's current-PR-or-merged causal evidence rule and names the exact work-unit ids; `implementationReview` is a separate provider-native eligible non-author approval pinned to that implementation head and cannot be replaced by `designReview`.
+- `implementationPr` satisfies the link verifier's merged-ancestor and separate-promotion evidence rule and names the exact work-unit ids; `implementationReview` is a separate provider-native eligible non-author approval pinned to that implementation head and cannot be replaced by `designReview`.
 - `specPr` is verified as an open approved-design or merged spec PR, not free text.
 - `deferred.issue` is verified as an open tracker URL with the declared assignee, explicit host ids, blocking reason, and unexpired ISO `revisitBy` date.
 - `ExternalCoordinationEntry` is link-only, is not an inventory record, and is sufficient for OSS completion when repository, owner, and evidence link resolve; it does not claim the external work shipped.
 - `compatibility-only` is valid only for ungrouped forms or an explicit `hostId: null` path with no addressable topology.
+
+### Stable evidence promotion
+
+Committed `ready` records reference only implementation PRs already merged to the configured base with final-source-head independent approval, settled applicable checks and merge ancestry. The declaration is committed in a later separate promotion PR, so it cannot stale the implementation approval it cites. An implementation PR retains historical `planned`/`deferred` state and never declares itself ready; live current-PR previews are ephemeral and do not satisfy completion or introduce a self-ready approval gate. Design/spec PRs likewise do not commit review evidence about their own current head: publish stable work-unit markers first, then record approved independent design evidence in a later declaration commit. Planned external spec references remain exact-head and fail closed if that separate PR changes. Historical reviewed SHAs are evidence; the current validation head, time and live status remain ephemeral. See the link-verification spec's F5 promotion contract.
 
 ### Deployable-unit rule
 
@@ -224,6 +228,8 @@ None.
 - **Fully compliant**: Approved — valid as a non-implementing rollout index.
 
 ## Changelog
+
+- **2026-10-29:** Align static state and rollout completion with F5 post-merge readiness promotion; forbid self-referential approval commits.
 
 - **2026-10-27:** Reconciled the current OSS and enterprise CrudForm audit totals and removed unverifiable structured-comment approval from readiness evidence.
 - **2026-10-27:** Split static inventory from tracker-backed link verification, made approved exact-head design review representable per finite-alternative work unit, made external coordination link-only and owner-repository scoped, and completed the mandatory compliance report.

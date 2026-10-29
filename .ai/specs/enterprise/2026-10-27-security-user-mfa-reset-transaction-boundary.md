@@ -4,15 +4,9 @@
 **Implementation ownership:** Open Mercato core team members only
 **Related:** `.ai/specs/enterprise/2026-10-22-security-user-mfa-reset-section-adoption.md`
 
-## Open Questions — blocking implementation review (2026-10-29)
+## Design decision — historical credential ownership (F1, 2026-10-29)
 
-**F1 — historical MFA credential scope.** The current-organization method predicate below is not implementation-approved. Enrollment in organization A followed by an authorized move to B leaves an A-scoped method that verification can still use, while a B-scoped reset would miss it. A reset must not report success while a credential covered by the existing reset guarantee remains usable. Target authorization must remain scoped and non-enumerating.
-
-Core maintainers must decide the historical credential selection rule after current-target authorization, including cross-tenant/superadmin moves: tenant plus immutable authorized user id covers intra-tenant history, while cross-tenant history needs an explicit supported policy. This run does not approve a wider credential query or a narrower reset guarantee.
-
-Require real integration fixtures for enroll-A → move-B → authorized reset → old method and recovery credential unusable; denied actor, foreign user, historical tenant/superadmin move, rollback and exact legacy response/event behavior. The MFA section adopter remains blocked on this prerequisite.
-
-This gate takes precedence over the proposed details and historical compliance verdict below. Status: **changes requested; not implementation-ready**. Source: [exact-head specification review](https://github.com/open-mercato/open-mercato/pull/6769#issuecomment-6450602566).
+Preserve the existing identity-wide reset guarantee after scoped current-target authorization. An organization or tenant move does not create a new user identity or revoke old MFA credentials automatically. Reset therefore revokes every active method and unused recovery code owned by that authorized immutable user UUID, regardless of enrollment-time scope; it never authorizes a different target or exposes historical credential data. The same rule applies to ordinary authorized administrators and legitimate global-superadmin target resolution. Authorization and credential ownership are separate checks; neither is inferred from caller-supplied historical scope. The transaction, predicates, effect boundary and integration matrix below are normative. No runtime change ships in this design PR.
 
 ## TLDR
 
@@ -47,9 +41,9 @@ Without one transaction and held row locks, a reset can partially reason over ac
 
 ## Proposed Solution
 
-`MfaAdminService.resetUserMfa` receives the authorized tenant, organization, actor, and target ids from `security.admin.mfa.reset`. It executes the target read through `findOneWithDecryption` using the transaction manager and current tenant/organization encryption scope, then performs the active-method read, unused-recovery-code read, mutations, and flush inside the same `em.transactional` callback. Missing and out-of-scope targets retain the unified 404.
+`MfaAdminService.resetUserMfa` receives the authorized tenant, organization, actor, and target ids from `security.admin.mfa.reset`. It executes the target read through `findOneWithDecryption` using the transaction manager and existing authorized tenant/organization scope, with `PESSIMISTIC_WRITE` and `refresh: true`, then performs the active-method read, unused-recovery-code read, mutations, and flush inside the same `em.transactional` callback. The held current-user row prevents a concurrent tenant/organization move from changing the authorized principal during cleanup. Missing and out-of-scope targets retain the unified 404.
 
-Both child queries use the transaction manager, deterministic id ordering, `LockMode.PESSIMISTIC_WRITE`, and `refresh: true`; all loaded rows remain locked through commit. `UserMfaMethod` predicates include tenant, organization, target user, active, and soft-delete scope. `MfaRecoveryCode`, which has no organization column, is constrained by the already authorized target user plus tenant and unused state. Enrollment committed before the relevant child-table query is included. A method or recovery code committed after its table query is outside that request's locked set and remains active/unused. No direct ORM relationship is added.
+Both child queries use the transaction manager, deterministic id ordering, `LockMode.PESSIMISTIC_WRITE`, and `refresh: true`; all loaded rows remain locked through commit. `UserMfaMethod` predicates retain the existing immutable authorized `userId`, `isActive: true`, and `deletedAt: null` selectors; `MfaRecoveryCode` retains that same authorized `userId` and `isUsed: false`. Do not add current-organization or current-tenant predicates to credential selection: login verification and the existing reset guarantee own credentials by globally unique user identity, including rows enrolled before an organization or tenant move. Current-scope authorization is mandatory on the target before either child query, and a denied/missing target produces the existing unified 404 without reading credentials. This private identity-owned cleanup grants no access to another user or historical tenant: it selects only credential ids, owner/scope metadata and mutation state, decrypts no credential secret, returns no historical scope or row identifiers, and preserves current-target scope in event/audit payloads. Every child mutation retains its persisted owner id and stored scope metadata; no credential is reassigned or exposed. Enrollment committed before the relevant child-table query is included. A method or recovery code committed after its table query is outside that request's locked set and remains active/unused. No direct ORM relationship is added.
 
 Overlapping resets serialize on matching rows. After the first commits, the second transaction re-evaluates current predicates and reports zero for rows already reset. A retry remains a separate accepted command under existing behavior.
 
@@ -120,7 +114,7 @@ Not applicable: this prerequisite changes only an enterprise command/service tra
 | Risk | Severity | Mitigation | Residual risk |
 |---|---|---|---|
 | Partial or incoherent reset | Critical | One transaction and held scoped child-row locks | Rows inserted after their table query remain active by design |
-| Cross-tenant reset | Critical | Existing authorized scope plus tenant/org/user predicates on every query | None accepted |
+| Cross-tenant reset | Critical | Locked current-target authorization followed by exact immutable-owner credential cleanup; other user ids remain excluded | None accepted |
 | Deadlock between concurrent resets | High | Deterministic table/query/id order and focused concurrency tests | Database may still abort one contender, which returns an error safely |
 | Event/subscriber/audit mistaken for atomic DB work | High | Exact inline post-commit order, swallowed-handler semantics, and failure-injection tests | Successful HTTP responses can coexist with missing/partial notification/email effects |
 | Later reset after partial subscriber failure | High | Explicitly document new-command semantics and test failure between notification/email | Duplicate partial effects remain possible until a separate idempotent persistent-delivery spec lands |
@@ -144,7 +138,7 @@ The prerequisite must merge before `.ai/specs/enterprise/2026-10-22-security-use
 
 ## Integration Coverage
 
-- legacy MFA-reset API success and established auth/scope/not-found behavior;
+- legacy MFA-reset API success and established auth/scope/not-found behavior; enroll in organization A, move the same authorized identity to B, reset and prove old methods/recovery codes unusable; repeat historical tenant moves for ordinary authorized actors and legitimate global superadmins, with another-user negative controls, denied actors, zero credential reads on denied targets, concurrent target move and rollback;
 - no methods/codes and ordinary populated reset;
 - enroll-before and enroll-after each child-table read;
 - barrier-controlled reset/reset overlap with deterministic row ordering and zero-count second result;
@@ -181,7 +175,7 @@ The prerequisite must merge before `.ai/specs/enterprise/2026-10-22-security-use
 
 | Rule Source | Rule | Status | Notes |
 |---|---|---|---|
-| root security/data rules | Preserve tenant/org scope, DI, and non-leaking behavior | Compliant | Every read/write retains authorized scope and uses the injected transaction manager |
+| root security/data rules | Preserve tenant/org scope, DI, and non-leaking behavior | Compliant | Target reads preserve current authorization; private credential cleanup preserves immutable identity ownership across historical scopes and never exposes them; all work uses the injected transaction manager |
 | root mutation/event rules | Preserve command side effects and define failure boundaries | Compliant | Commit, non-persistent emit, logged/swallowed inline handler, audit, and response order is explicit and tested |
 | `packages/events/AGENTS.md` | Do not silently change persistent delivery; persistent retries require focused idempotent subscribers and trusted scope | Compliant | This prerequisite retains the non-persistent emit, claims no queue retry, and defers any persistent redesign to a separate approved spec |
 | notifications guide | Keep notification type/id and centralized creation/delivery behavior stable | Compliant | Existing type/create/email behavior is unchanged; logged/swallowed partial inline failures are documented rather than presented as atomic/idempotent |
@@ -210,7 +204,7 @@ None.
 
 ## Changelog
 
-- **2026-10-29:** Record F1 as an unresolved maintainer decision with concrete failure and integration acceptance gates; historical compliance is not implementation approval.
+- **2026-10-29:** Preserve the identity-wide MFA reset guarantee across historical organization/tenant moves after locked current-target authorization; add explicit negative/rollback coverage.
 
 - **2026-10-27:** Kept the typed transaction result private and explicitly preserved the exported `resetUserMfa(...): Promise<void>` service contract.
 - **2026-10-27:** Split MFA reset transaction-held locking and post-commit effect ordering from the section-policy adopter; pinned the existing non-persistent inline logged-and-swallowed notification/email failure boundary without claiming queue retry or exactly-once delivery.

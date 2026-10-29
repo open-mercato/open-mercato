@@ -115,6 +115,10 @@ No compatibility window permits an unkeyed or unclassified scanned invocation af
 - The offline inventory does not claim that a URL resolves, a review is approving/current, a PR is open/merged/ancestral, an issue is open/assigned, or a remote marker exists. Those network-backed semantics and required job belong exclusively to `.ai/specs/2026-10-27-crudform-section-adoption-link-verification.md`.
 - External coordination references contain no commercial/runtime topology. Their remote delivery status never enters the committed OSS manifest.
 
+### Stable evidence promotion
+
+Committed `ready` records reference only implementation PRs already merged to the configured base with final-source-head independent approval, settled applicable checks and merge ancestry. The declaration is committed in a later separate promotion PR, so it cannot stale the implementation approval it cites. An implementation PR retains historical `planned`/`deferred` state and never declares itself ready; live current-PR previews are ephemeral and do not satisfy completion or introduce a self-ready approval gate. Design/spec PRs likewise do not commit review evidence about their own current head: publish stable work-unit markers first, then record approved independent design evidence in a later declaration commit. Planned external spec references remain exact-head and fail closed if that separate PR changes. Historical reviewed SHAs are evidence; the current validation head, time and live status remain ephemeral. See the link-verification spec's F5 promotion contract.
+
 ## Generated Artifacts
 
 - committed `.ai/generated/crud-form-section-adoption/manifest.json` with `schemaVersion: 1`, `scope: 'oss'`, `sourceTreeHash`, OSS records, and deterministic alternative-work-unit state counts partitioned by participation;
@@ -266,6 +270,8 @@ None.
 - **Fully compliant**: Approved — ready for implementation.
 
 ## Changelog
+
+- **2026-10-29:** Align static state and rollout completion with F5 post-merge readiness promotion; forbid self-referential approval commits.
 
 - **2026-10-27:** Recorded the exact 140-invocation OSS and seven-invocation enterprise audit, made formal reviewer identity explicit, and added the no-runtime-impact frontend architecture contract for the repository-wide `inventoryKey` migration.
 - **2026-10-27:** Split tracker-backed link resolution into its own dependent spec; added the mandatory report-only baseline migration and ordered static activation; removed self-referential/run-variant provenance, isolated optional scopes into owner-repository artifacts, moved readiness/evidence references to each finite alternative work unit, and completed the mandatory compliance report.
