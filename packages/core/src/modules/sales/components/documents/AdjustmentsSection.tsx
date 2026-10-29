@@ -28,6 +28,7 @@ import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeDetail } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { extractCustomFieldValues } from './customFieldHelpers'
 import { toExactAmount } from './lineItemUtils'
+import { decimalToNumber } from '@open-mercato/shared/lib/decimal'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('sales')
@@ -226,8 +227,10 @@ export function SalesDocumentAdjustmentsSection({
                   ? (item as any).calculatorKey
                   : null,
             rate: Number.isFinite(rateRaw) ? rateRaw : null,
-            amountNet,
-            amountGross,
+            amountNet: amountNet === null ? null : decimalToNumber(amountNet),
+            amountGross: amountGross === null ? null : decimalToNumber(amountGross),
+            amountNetExact: amountNet,
+            amountGrossExact: amountGross,
             currencyCode: currency,
             position:
               typeof item.position === 'number'
@@ -317,8 +320,8 @@ export function SalesDocumentAdjustmentsSection({
         label: values.label ?? undefined,
         calculatorKey: values.calculatorKey ?? undefined,
         rate: Number.isFinite(values.rate) ? values.rate : undefined,
-        amountNet: values.amountNet ?? undefined,
-        amountGross: values.amountGross ?? undefined,
+        amountNet: values.amountNetExact ?? values.amountNet ?? undefined,
+        amountGross: values.amountGrossExact ?? values.amountGross ?? undefined,
         currencyCode: (values.currencyCode ?? currencyCode ?? '').toUpperCase(),
         position: Number.isFinite(values.position) ? values.position : undefined,
         customFields: values.customFields ?? undefined,
@@ -423,14 +426,14 @@ export function SalesDocumentAdjustmentsSection({
         id: 'amountNet',
         header: t('sales.documents.adjustments.amountNet', 'Net amount'),
         cell: ({ row }) => (
-          <PriceWithCurrency amount={row.original.amountNet} currency={row.original.currencyCode ?? currencyCode} className="font-mono text-sm" />
+          <PriceWithCurrency amount={row.original.amountNetExact ?? row.original.amountNet} currency={row.original.currencyCode ?? currencyCode} className="font-mono text-sm" />
         ),
       },
       {
         id: 'amountGross',
         header: t('sales.documents.adjustments.amountGross', 'Gross amount'),
         cell: ({ row }) => (
-          <PriceWithCurrency amount={row.original.amountGross} currency={row.original.currencyCode ?? currencyCode} className="font-mono text-sm" />
+          <PriceWithCurrency amount={row.original.amountGrossExact ?? row.original.amountGross} currency={row.original.currencyCode ?? currencyCode} className="font-mono text-sm" />
         ),
       },
       {

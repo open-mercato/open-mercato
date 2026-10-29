@@ -54,7 +54,7 @@ jest.mock('../LogoUploadField', () => ({
   LogoUploadField: () => null,
 }))
 
-import { normalizeFormValues, PricingSection, PriceListEditor, toSubmittedAmount } from '../LinkTemplateForm'
+import { normalizeFormValues, PricingSection, PriceListEditor, toSubmittedAmount, toSubmittedAmountExact } from '../LinkTemplateForm'
 
 function renderPricingSection(initialValues: Record<string, unknown>) {
   const setValue = jest.fn()
@@ -173,32 +173,51 @@ describe('LinkTemplateForm locale decimal separator (issue #5828)', () => {
         'pl-PL',
       )
       expect(values.fixedPriceAmount).toBe('1234,567891234567891234')
-      expect(toSubmittedAmount(values.fixedPriceAmount, 'pl-PL')).toBe('1234.567891234567891234')
+      expect(toSubmittedAmountExact(values.fixedPriceAmount, 'pl-PL')).toBe('1234.567891234567891234')
     })
   })
 
-
-  describe('toSubmittedAmount (converts the raw typed text to an exact decimal string at submit time)', () => {
+  describe('toSubmittedAmount (converts the raw typed text to a number at submit time)', () => {
     it('parses a comma-decimal value', () => {
-      expect(toSubmittedAmount('110,70', 'pl-PL')).toBe('110.7')
+      expect(toSubmittedAmount('110,70', 'pl-PL')).toBe(110.7)
     })
 
     it('still parses a dot-decimal value', () => {
-      expect(toSubmittedAmount('110.70', 'pl-PL')).toBe('110.7')
+      expect(toSubmittedAmount('110.70', 'pl-PL')).toBe(110.7)
     })
 
     it('passes an already-numeric value through unchanged', () => {
-      expect(toSubmittedAmount(150, 'pl-PL')).toBe('150')
-    })
-
-    it('keeps every digit of an amount beyond float precision', () => {
-      expect(toSubmittedAmount('0,123456789012345678', 'pl-PL')).toBe('0.123456789012345678')
+      expect(toSubmittedAmount(150, 'pl-PL')).toBe(150)
     })
 
     it('returns null for unparseable or blank input, never a silent 0 or NaN', () => {
       expect(toSubmittedAmount('abc', 'pl-PL')).toBeNull()
       expect(toSubmittedAmount('', 'pl-PL')).toBeNull()
       expect(toSubmittedAmount(null, 'pl-PL')).toBeNull()
+    })
+  })
+
+  describe('toSubmittedAmountExact (converts the raw typed text to an exact decimal string at submit time)', () => {
+    it('parses a comma-decimal value', () => {
+      expect(toSubmittedAmountExact('110,70', 'pl-PL')).toBe('110.7')
+    })
+
+    it('still parses a dot-decimal value', () => {
+      expect(toSubmittedAmountExact('110.70', 'pl-PL')).toBe('110.7')
+    })
+
+    it('passes an already-numeric value through unchanged', () => {
+      expect(toSubmittedAmountExact(150, 'pl-PL')).toBe('150')
+    })
+
+    it('keeps every digit of an amount beyond float precision', () => {
+      expect(toSubmittedAmountExact('0,123456789012345678', 'pl-PL')).toBe('0.123456789012345678')
+    })
+
+    it('returns null for unparseable or blank input, never a silent 0 or NaN', () => {
+      expect(toSubmittedAmountExact('abc', 'pl-PL')).toBeNull()
+      expect(toSubmittedAmountExact('', 'pl-PL')).toBeNull()
+      expect(toSubmittedAmountExact(null, 'pl-PL')).toBeNull()
     })
   })
 })

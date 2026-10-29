@@ -226,7 +226,7 @@ export type PayPagePricingProps = {
   selectedPriceItemId: string | null
   fieldErrors: FieldErrors
   inputsLocked: boolean
-  formatAmount: (value: number | string | null | undefined, currencyCode?: string | null, exact?: string | null) => string
+  formatAmount: (value: number | null | undefined, currencyCode?: string | null, exact?: string | null) => string
   onAmountChange: (value: string) => void
   onPriceItemSelect: (item: PriceListItem) => void
   translateValidationMessage: (message: string | null | undefined, fieldPath?: string) => string
@@ -238,7 +238,7 @@ export type PayPageSummaryProps = {
   selectedAmount: number | null
   selectedAmountExact?: string | null
   currencyCode: string | null
-  formatAmount: (value: number | string | null | undefined, currencyCode?: string | null, exact?: string | null) => string
+  formatAmount: (value: number | null | undefined, currencyCode?: string | null, exact?: string | null) => string
   preview: boolean
   themeTokens: PayPageThemeTokens
 }
@@ -955,17 +955,11 @@ export function PayPagePricing({
         <div className="rounded-xl border p-5" style={buildPanelStyle(themeTokens, 'default')}>
           {typeof payload.fixedPriceOriginalAmount === 'number' ? (
             <div className="text-sm line-through" style={{ color: themeTokens.mutedText }}>
-              {formatAmount(
-                resolveExactDecimal(payload.fixedPriceOriginalAmountExact, payload.fixedPriceOriginalAmount),
-                payload.fixedPriceCurrencyCode,
-              )}
+              {formatAmount(payload.fixedPriceOriginalAmount, payload.fixedPriceCurrencyCode, resolveExactDecimal(payload.fixedPriceOriginalAmountExact, payload.fixedPriceOriginalAmount))}
             </div>
           ) : null}
           <div className="mt-1 text-4xl font-semibold">
-            {formatAmount(
-              resolveExactDecimal(payload.fixedPriceAmountExact, payload.fixedPriceAmount),
-              payload.fixedPriceCurrencyCode,
-            )}
+            {formatAmount(payload.fixedPriceAmount, payload.fixedPriceCurrencyCode, resolveExactDecimal(payload.fixedPriceAmountExact, payload.fixedPriceAmount))}
           </div>
         </div>
       ) : null}
@@ -981,10 +975,10 @@ export function PayPagePricing({
             onChange={(event) => onAmountChange(event.target.value)}
             placeholder={[
               payload.customAmountMin != null
-                ? formatAmount(resolveExactDecimal(payload.customAmountMinExact, payload.customAmountMin), payload.customAmountCurrencyCode)
+                ? formatAmount(payload.customAmountMin, payload.customAmountCurrencyCode, resolveExactDecimal(payload.customAmountMinExact, payload.customAmountMin))
                 : null,
               payload.customAmountMax != null
-                ? formatAmount(resolveExactDecimal(payload.customAmountMaxExact, payload.customAmountMax), payload.customAmountCurrencyCode)
+                ? formatAmount(payload.customAmountMax, payload.customAmountCurrencyCode, resolveExactDecimal(payload.customAmountMaxExact, payload.customAmountMax))
                 : null,
             ].filter(Boolean).join(' - ')}
             style={buildReadableInputStyle(themeTokens, Boolean(fieldErrors.amount), inputsLocked)}
@@ -1028,7 +1022,7 @@ export function PayPagePricing({
                   />
                   <span className="font-medium">{item.description}</span>
                 </span>
-                <span className="whitespace-nowrap font-semibold">{formatAmount(resolveExactDecimal(item.amountExact, item.amount), item.currencyCode)}</span>
+                <span className="whitespace-nowrap font-semibold">{formatAmount(item.amount, item.currencyCode, resolveExactDecimal(item.amountExact, item.amount))}</span>
               </label>
             ))}
           </RadioGroup>
@@ -1054,7 +1048,7 @@ export function PayPageSummary({
 }: PayPageSummaryProps) {
   const t = useT()
   const amountLabel = selectedAmount != null && currencyCode
-    ? formatAmount(resolveExactDecimal(selectedAmountExact, selectedAmount), currencyCode)
+    ? formatAmount(selectedAmount, currencyCode, resolveExactDecimal(selectedAmountExact, selectedAmount))
     : t('checkout.payPage.summary.awaitingSelection', 'Select an amount')
 
   return (
@@ -1566,7 +1560,7 @@ export function PayPage({
   }, [payload])
 
   const formatAmount = React.useCallback(
-    (value: number | string | null | undefined, currencyCode?: string | null, exact?: string | null) =>
+    (value: number | null | undefined, currencyCode?: string | null, exact?: string | null) =>
       formatPayPageAmount(value, currencyCode, locale, exact),
     [locale],
   )
@@ -1672,13 +1666,13 @@ export function PayPage({
         nextErrors.amount = t(
           'checkout.payPage.validation.amountMin',
           'Enter at least {amount}.',
-          { amount: formatAmount(resolveExactDecimal(payload.customAmountMinExact, payload.customAmountMin), payload.customAmountCurrencyCode) },
+          { amount: formatAmount(payload.customAmountMin, payload.customAmountCurrencyCode, resolveExactDecimal(payload.customAmountMinExact, payload.customAmountMin)) },
         )
       } else if (amountIssue === 'max') {
         nextErrors.amount = t(
           'checkout.payPage.validation.amountMax',
           'Enter no more than {amount}.',
-          { amount: formatAmount(resolveExactDecimal(payload.customAmountMaxExact, payload.customAmountMax), payload.customAmountCurrencyCode) },
+          { amount: formatAmount(payload.customAmountMax, payload.customAmountCurrencyCode, resolveExactDecimal(payload.customAmountMaxExact, payload.customAmountMax)) },
         )
       }
     }

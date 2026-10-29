@@ -60,10 +60,12 @@ export type ConvertedAmount = {
 
 export type ConvertedSums = {
   total: number
-  totalExact: string
+  totalExact?: string
   convertedAll: boolean
   missingRateCurrencies: string[]
 }
+
+export type ExactConvertedSums = ConvertedSums & { totalExact: string }
 
 function startOfQuarterUtc(year: number, quarterStartMonth: number): Date {
   return new Date(Date.UTC(year, quarterStartMonth, 1, 0, 0, 0, 0))
@@ -158,7 +160,7 @@ export function convertSumsToBase(
   perCurrency: CurrencySum[],
   baseCode: string | null,
   rates: ReadonlyMap<string, RateResult> | null,
-): ConvertedSums {
+): ExactConvertedSums {
   if (!baseCode) {
     const missing = Array.from(
       new Set(perCurrency.map((entry) => entry.currency).filter((code): code is string => Boolean(code))),

@@ -2363,5 +2363,6 @@
   "staff.timesheets.widgets.timeReporting.stop": "타이머 중지",
   "staff.timesheets.widgets.timeReporting.stopError": "타이머를 중지하지 못했습니다",
   "staff.timesheets.widgets.timeReporting.taskNote": "작업 / 메모",
-  "staff.timesheets.widgets.timeReporting.unknownProject": "알 수 없는 프로젝트"
+  "staff.timesheets.widgets.timeReporting.unknownProject": "알 수 없는 프로젝트",
+  "staff.validation.nonNegativeAmount": "음수가 아닌 금액이어야 합니다."
 }

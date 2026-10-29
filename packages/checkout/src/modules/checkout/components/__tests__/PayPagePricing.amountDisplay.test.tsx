@@ -52,7 +52,7 @@ function renderPricing(payload: PayLinkPayload) {
       selectedPriceItemId={null}
       fieldErrors={{}}
       inputsLocked={false}
-      formatAmount={(value, currencyCode) => formatPayPageAmount(value, currencyCode, 'en-US')}
+      formatAmount={(value, currencyCode, exact) => formatPayPageAmount(value, currencyCode, 'en-US', exact)}
       onAmountChange={() => undefined}
       onPriceItemSelect={() => undefined}
       translateValidationMessage={(message) => message ?? ''}

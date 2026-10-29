@@ -28,7 +28,7 @@ import { Settings } from 'lucide-react'
 import { extractCustomFieldValues, normalizeCustomFieldSubmitValue } from './customFieldHelpers'
 import { autoFillOppositeAmount, toExactAmount, type CurrencyPrecision } from './lineItemUtils'
 import { useCurrencyDecimalPlaces } from './currencyDecimalPlaces'
-import { compareDecimals } from '@open-mercato/shared/lib/decimal'
+import { compareDecimals, decimalToNumber } from '@open-mercato/shared/lib/decimal'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('sales')
@@ -64,8 +64,12 @@ export type AdjustmentRowData = {
   kind: SalesAdjustmentKind
   calculatorKey: string | null
   rate: number | null
-  amountNet: number | string | null
-  amountGross: number | string | null
+  amountNet: number | null
+  amountGross: number | null
+  /** Exact decimal string of `amountNet`; prefer it over the float copy. */
+  amountNetExact?: string | null
+  /** Exact decimal string of `amountGross`; prefer it over the float copy. */
+  amountGrossExact?: string | null
   currencyCode: string | null
   position: number
   customFields?: Record<string, unknown> | null
@@ -80,8 +84,12 @@ export type AdjustmentSubmitPayload = {
   kind: SalesAdjustmentKind
   calculatorKey: string | null
   rate?: number | null
-  amountNet?: string | null
-  amountGross?: string | null
+  amountNet?: number | null
+  amountGross?: number | null
+  /** Exact decimal string of `amountNet`; prefer it over the float copy. */
+  amountNetExact?: string | null
+  /** Exact decimal string of `amountGross`; prefer it over the float copy. */
+  amountGrossExact?: string | null
   position?: number | null
   currencyCode: string
   customFields?: Record<string, unknown> | null
@@ -351,8 +359,8 @@ export function AdjustmentDialog({
         mode: resolvedMode,
         calculatorKey: initialAdjustment?.calculatorKey ?? '',
         rate: initialAdjustment?.rate ?? '',
-        amountNet: initialAdjustment?.amountNet ?? '',
-        amountGross: initialAdjustment?.amountGross ?? '',
+        amountNet: initialAdjustment?.amountNetExact ?? initialAdjustment?.amountNet ?? '',
+        amountGross: initialAdjustment?.amountGrossExact ?? initialAdjustment?.amountGross ?? '',
         position: initialAdjustment?.position ?? '',
         customFieldSetId: initialAdjustment?.customFieldSetId ?? null,
         taxRateId: metaTaxRateId ?? defaultRate?.id ?? null,
@@ -758,8 +766,10 @@ export function AdjustmentDialog({
             ? values.calculatorKey.trim()
             : null,
         rate: calculationMode === 'rate' && Number.isFinite(percentageRate) ? percentageRate : null,
-        amountNet: calculationMode === 'amount' ? amountNet : null,
-        amountGross: calculationMode === 'amount' ? amountGross : null,
+        amountNet: calculationMode === 'amount' && amountNet !== null ? decimalToNumber(amountNet) : null,
+        amountGross: calculationMode === 'amount' && amountGross !== null ? decimalToNumber(amountGross) : null,
+        amountNetExact: calculationMode === 'amount' ? amountNet : null,
+        amountGrossExact: calculationMode === 'amount' ? amountGross : null,
         position: Number.isFinite(normalizeNumber(values.position)) ? Number(normalizeNumber(values.position)) : null,
         currencyCode: resolvedCurrency,
         customFields: Object.keys(customFields).length ? normalizeCustomFieldValues(customFields) : null,

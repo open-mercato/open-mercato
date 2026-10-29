@@ -51,6 +51,10 @@ uses exact decimals. Public contracts keep their `number` fields (a float copy) 
 - Staff rate resolvers keep receiving numbers in `ctx.entry.rateOverrideAmount` / `ctx.project.hourlyRate`
   and returning `number | null` from `resolve`. A resolver that needs digits beyond float precision can
   read `rateOverrideAmountExact` / `hourlyRateExact` and implement the optional `resolveExact(ctx)`.
+- UI helpers keep their numeric results (`resolveCatalogPriceAmount`, `toSubmittedAmount`,
+  `validateExchangeRateForm(...).rate`, `AdjustmentSubmitPayload.amountNet` / `amountGross`). Use
+  `resolveCatalogPriceAmountExact`, `toSubmittedAmountExact`, `rateExact` and
+  `amountNetExact` / `amountGrossExact` for the exact decimal strings.
 - Payment gateway session, capture and refund requests with more decimals than the currency allows
   (e.g. `10.005` USD) now get a 400. Money inputs with more than 1000 significant digits or 300
   integer digits get a 400 on CRUD money endpoints (`withDecimalCaps` guards the number-coercing schemas); invalid payment gateway payloads get a 422.

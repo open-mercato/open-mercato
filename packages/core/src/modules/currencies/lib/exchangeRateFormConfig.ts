@@ -3,7 +3,7 @@ import type { ApiCallResult } from '@open-mercato/ui/backend/utils/apiCall'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { isExchangeRateMetadataWithinLimit } from '../data/validators'
-import { MIN_SIGNIFICANT_DIGITS, decimalToString, isDecimalInput, parseDecimal, toDecimal } from '@open-mercato/shared/lib/decimal'
+import { MIN_SIGNIFICANT_DIGITS, decimalToNumber, decimalToString, isDecimalInput, parseDecimal, toDecimal } from '@open-mercato/shared/lib/decimal'
 
 const logger = createLogger('currencies').child({ component: 'exchange-rate-form' })
 
@@ -136,10 +136,23 @@ export function exchangeRateGroups(
 export type ValidatedExchangeRateForm = {
   fromCode: string
   toCode: string
-  rate: string
+  /** Float copy of `rateExact`; prefer the exact field. */
+  rate: number
+  rateExact: string
   date: Date
   source: string
   metadata: Record<string, unknown> | null
+}
+
+/** Input of {@link buildExchangeRatePayload}; the pre-exact shape (numeric `rate`, no metadata) is still accepted. */
+export type ExchangeRatePayloadInput = {
+  fromCode: string
+  toCode: string
+  rate: number
+  rateExact?: string
+  date: Date
+  source: string
+  metadata?: Record<string, unknown> | null
 }
 
 export function metadataToFormValue(metadata: Record<string, unknown> | null | undefined): string {
@@ -227,18 +240,19 @@ export function validateExchangeRateForm(
 
   const metadata = parseMetadataFormValue(values.metadata, t)
 
-  return { fromCode, toCode, rate: decimalToString(rawRate), date, source, metadata }
+  const rateExact = decimalToString(rawRate)
+  return { fromCode, toCode, rate: decimalToNumber(rateExact), rateExact, date, source, metadata }
 }
 
-export function buildExchangeRatePayload(values: Record<string, unknown>, validated: ValidatedExchangeRateForm) {
+export function buildExchangeRatePayload(values: Record<string, unknown>, validated: ExchangeRatePayloadInput) {
   return {
     fromCurrencyCode: validated.fromCode,
     toCurrencyCode: validated.toCode,
-    rate: validated.rate,
+    rate: validated.rateExact ?? decimalToString(validated.rate),
     date: validated.date.toISOString(),
     source: validated.source,
     type: values.type && values.type !== '' ? values.type : null,
-    metadata: validated.metadata,
+    ...(validated.metadata !== undefined ? { metadata: validated.metadata } : {}),
     isActive: values.isActive !== false,
   }
 }

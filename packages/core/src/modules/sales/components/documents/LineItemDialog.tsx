@@ -53,7 +53,7 @@ import {
   deriveUnitPrices,
   formatMoney,
   normalizeNumber,
-  resolveCatalogPriceAmount,
+  resolveCatalogPriceAmountExact,
   resolveMoneyDecimalPlaces,
   roundMoney,
   toExactAmount,
@@ -1128,7 +1128,7 @@ export function LineItemDialog({
           .filter((entry): entry is PriceOption => Boolean(entry))
           .filter(
             (entry) =>
-              resolveCatalogPriceAmount(
+              resolveCatalogPriceAmountExact(
                 entry.amountNet,
                 entry.amountGross,
                 entry.displayMode === "excluding-tax" ? "net" : "gross",
@@ -1226,7 +1226,7 @@ export function LineItemDialog({
         const mode =
           selected.displayMode === "excluding-tax" ? "net" : "gross";
         const amountPerBaseUnit =
-          resolveCatalogPriceAmount(
+          resolveCatalogPriceAmountExact(
             selected.amountNet,
             selected.amountGross,
             mode,

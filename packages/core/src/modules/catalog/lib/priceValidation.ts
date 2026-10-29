@@ -13,6 +13,10 @@ export type CatalogPriceAmountValidationReason =
   | 'too_many_fraction_digits'
 
 export type CatalogPriceAmountValidationResult =
+  | { ok: true; numeric: number; exact?: string }
+  | { ok: false; reason: CatalogPriceAmountValidationReason }
+
+export type ExactCatalogPriceAmountValidationResult =
   | { ok: true; numeric: number; exact: string }
   | { ok: false; reason: CatalogPriceAmountValidationReason }
 
@@ -28,7 +32,7 @@ function normalizeCatalogPriceRawValue(value: unknown): string | null {
 
 export function validateCatalogPriceAmountInput(
   value: unknown,
-): CatalogPriceAmountValidationResult {
+): ExactCatalogPriceAmountValidationResult {
   const raw = normalizeCatalogPriceRawValue(value)
   if (!raw) return { ok: false, reason: 'invalid_format' }
   if (raw.startsWith('-')) return { ok: false, reason: 'negative' }

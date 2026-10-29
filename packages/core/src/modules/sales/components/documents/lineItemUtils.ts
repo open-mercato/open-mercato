@@ -5,6 +5,7 @@ import {
   FX_DECIMAL_PLACES,
   addDecimals,
   countDecimalPlaces,
+  decimalToNumber,
   decimalToString,
   divideDecimals,
   multiplyDecimals,
@@ -34,6 +35,16 @@ export function normalizeNumber(value: unknown, fallback = 0): number {
  * has no positive amount to use.
  */
 export function resolveCatalogPriceAmount(
+  amountNet: number | null | undefined,
+  amountGross: number | null | undefined,
+  mode: 'net' | 'gross',
+): number | null {
+  const exact = resolveCatalogPriceAmountExact(amountNet, amountGross, mode)
+  return exact === null ? null : decimalToNumber(exact)
+}
+
+/** Exact variant of {@link resolveCatalogPriceAmount}: same rules, decimal string result. */
+export function resolveCatalogPriceAmountExact(
   amountNet: DecimalInput | null | undefined,
   amountGross: DecimalInput | null | undefined,
   mode: 'net' | 'gross',

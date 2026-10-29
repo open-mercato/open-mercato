@@ -4,7 +4,7 @@ import * as React from 'react'
 import { useSearchParams } from 'next/navigation'
 import { useT, useLocale, type TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import { formatLocaleDecimalInput, formatLocaleNumberInput, parseLocaleDecimal } from '@open-mercato/shared/lib/number'
-import { decimalToString, resolveExactDecimal } from '@open-mercato/shared/lib/decimal'
+import { decimalToNumber, decimalToString, resolveExactDecimal } from '@open-mercato/shared/lib/decimal'
 import {
   AlertTriangle,
   BadgeCheck,
@@ -118,15 +118,22 @@ function readNumberInputValue(value: unknown, locale?: string): string {
 // in-progress decimal separator is never dropped mid-keystroke; this converts to the
 // canonical exact decimal string the API accepts right before submission, so no digit is
 // lost to a float.
-export function toSubmittedAmount(value: unknown, locale?: string): string | null {
+export function toSubmittedAmountExact(value: unknown, locale?: string): string | null {
   if (typeof value === 'number') return Number.isFinite(value) ? decimalToString(value) : null
   if (typeof value !== 'string') return null
   if (!value.trim()) return null
   return parseLocaleDecimal(value, locale)
 }
 
+/** Float copy of {@link toSubmittedAmountExact}. */
+export function toSubmittedAmount(value: unknown, locale?: string): number | null {
+  const exact = toSubmittedAmountExact(value, locale)
+  return exact === null ? null : decimalToNumber(exact)
+}
+
+
 function isUnparseableAmount(value: unknown, locale?: string): boolean {
-  return typeof value === 'string' && value.trim().length > 0 && toSubmittedAmount(value, locale) === null
+  return typeof value === 'string' && value.trim().length > 0 && toSubmittedAmountExact(value, locale) === null
 }
 
 // `toSubmittedAmount` turns unparseable text into `null`, which the API then reads as "no
@@ -1758,13 +1765,13 @@ export function LinkTemplateForm({ mode, recordId }: Props) {
               const payload = {
                 ...values,
                 status: submitIntent === 'publish' ? 'active' : values.status,
-                fixedPriceAmount: toSubmittedAmount(values.fixedPriceAmount, locale),
-                fixedPriceOriginalAmount: toSubmittedAmount(values.fixedPriceOriginalAmount, locale),
-                customAmountMin: toSubmittedAmount(values.customAmountMin, locale),
-                customAmountMax: toSubmittedAmount(values.customAmountMax, locale),
+                fixedPriceAmount: toSubmittedAmountExact(values.fixedPriceAmount, locale),
+                fixedPriceOriginalAmount: toSubmittedAmountExact(values.fixedPriceOriginalAmount, locale),
+                customAmountMin: toSubmittedAmountExact(values.customAmountMin, locale),
+                customAmountMax: toSubmittedAmountExact(values.customAmountMax, locale),
                 priceListItems: normalizePriceListItems(values.priceListItems).map((item) => ({
                   ...item,
-                  amount: toSubmittedAmount(item.amount, locale) ?? Number.NaN,
+                  amount: toSubmittedAmountExact(item.amount, locale) ?? Number.NaN,
                 })),
                 customFields: collectCustomFieldValues(values),
               }
