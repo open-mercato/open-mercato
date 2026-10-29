@@ -173,7 +173,7 @@ export default async function handle(
     variant?: 'default' | 'secondary' | 'destructive' | 'outline' | 'ghost'
     icon?: string              // Optional icon
     commandId?: string         // Command to execute (e.g., 'sales.orders.approve')
-    href?: string              // Or URL to navigate to
+    href?: string              // Or same-origin path to navigate to (see below)
     confirmRequired?: boolean  // Show confirmation dialog
     confirmMessage?: string    // Confirmation text
   }>
@@ -183,7 +183,7 @@ export default async function handle(
   sourceModule?: string        // Module that created the notification
   sourceEntityType?: string    // Entity type (e.g., 'order', 'leave_request')
   sourceEntityId?: string      // Entity UUID
-  linkHref?: string            // URL to navigate when clicking notification
+  linkHref?: string            // Same-origin path to navigate to when clicking
 
   // Organization
   groupKey?: string            // Key for collapsing similar notifications
@@ -277,6 +277,8 @@ actions: [
   },
 ]
 ```
+
+`href` and `linkHref` must be same-origin paths starting with `/`. Values containing a backslash or a control character, or resolving to another origin (for example `//host` or `/\host`), are rejected when the notification is created.
 
 ## Batch Notifications
 

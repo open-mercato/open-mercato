@@ -174,6 +174,34 @@ export function readErrorStatus(error: unknown): number | null {
 }
 
 /**
+ * The reason the server gave for a refused write — already translated, e.g.
+ * "This date is outside your assignment to this project." — or the caller's
+ * fallback when the failure carried none. Pass the same fallback as the
+ * request's `errorMessage`, so a body without a reason never surfaces as
+ * `Request failed (403)`.
+ */
+export function readErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message.trim().length > 0) return error.message
+  return fallback
+}
+
+/**
+ * The payload rows a refused bulk save names in `errors[].index`, so the grid
+ * can mark the cells that caused it instead of failing the batch opaquely.
+ */
+export function readRejectedRowIndexes(error: unknown): number[] {
+  const indexes = new Set<number>()
+  for (const bag of errorPayloads(error)) {
+    if (!Array.isArray(bag.errors)) continue
+    for (const item of bag.errors) {
+      const index = (item as { index?: unknown } | null)?.index
+      if (typeof index === 'number' && Number.isInteger(index) && index >= 0) indexes.add(index)
+    }
+  }
+  return Array.from(indexes)
+}
+
+/**
  * True for the `409 time_entry_locked` every write path answers for an entry a
  * closed report has frozen. `entry_locked` is accepted as well so a route that
  * spells the code without its resource prefix still reads as a lock rather than

@@ -1290,6 +1290,8 @@
   "sales.orders.detail.title": "주문 상세 정보",
   "sales.orders.edit_addresses_blocked": "현재 상태에서는 주소를 변경할 수 없습니다.",
   "sales.orders.edit_customer_blocked": "현재 상태에서는 고객을 변경할 수 없습니다.",
+  "sales.orders.errors.cancel_has_payments": "이 주문에는 환불되지 않은 결제가 있습니다. 주문을 취소하기 전에 환불하세요.",
+  "sales.orders.errors.cancel_has_shipments": "이 주문에는 배송이 있습니다. 주문을 취소하기 전에 배송을 취소하거나 반품하세요.",
   "sales.orders.form.general": "일반",
   "sales.orders.form.invoices": "청구서",
   "sales.orders.form.lines": "라인 항목",

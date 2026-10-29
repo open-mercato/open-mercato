@@ -25,11 +25,17 @@ test('TC-SALES-ADDR-CONTACT-002: the document form persists address contact fiel
     await page.goto(resolveUrl('/backend/sales/documents/create?kind=quote'), {
       waitUntil: 'domcontentloaded',
     })
-    expect((await numberResponsePromise).ok()).toBeTruthy()
+    const numberResponse = await numberResponsePromise
+    expect(numberResponse.ok(), 'initial document number generation should succeed').toBeTruthy()
+    const numberBody = (await numberResponse.json()) as { number: string }
+    expect(numberBody.number, 'initial generation should return a document number').toMatch(/\S/)
+    await expect(
+      page.locator('[data-crud-field-id="documentNumber"]').getByRole('textbox'),
+    ).toHaveValue(numberBody.number)
     await expect(page.getByRole('button', { name: 'Generate' })).toBeEnabled()
-    const customAddressSwitch = page.getByRole('switch', { name: 'Define new address' })
-    await customAddressSwitch.click()
-    await expect(customAddressSwitch).toBeChecked()
+    const newAddressSwitch = page.getByRole('switch', { name: 'Define new address' })
+    await newAddressSwitch.click()
+    await expect(newAddressSwitch).toBeChecked()
     await page.getByRole('textbox', { name: 'Label' }).fill('QA create contact fixture')
     await page.getByRole('textbox', { name: 'Address line 1' }).fill('12 Browser Street')
     await page.getByRole('textbox', { name: 'City' }).fill('London')

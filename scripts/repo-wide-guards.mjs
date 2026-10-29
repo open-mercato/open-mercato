@@ -124,6 +124,10 @@ export const REPO_WIDE_GUARDS = [
     jestConfig: 'jest.config.cjs',
     tests: [
       {
+        path: 'src/lib/generators/__tests__/module-subset.test.ts',
+        scans: 'live Catalog and Entities dependency metadata across packages/core and all three module-generator variants — standalone dependency closure (#6517)',
+      },
+      {
         path: 'src/lib/generators/__tests__/module-facts.bc-guard.test.ts',
         scans: 'every package module source — generator BC resolve guard',
       },
@@ -307,6 +311,10 @@ export const CROSS_PACKAGE_EXCEPTIONS = [
   {
     path: 'packages/create-app/src/lib/root-layout-theme-script.test.ts',
     reason: 'Already unfiltered — covered by the same create-app parity step (#3779).',
+  },
+  {
+    path: 'packages/create-app/src/lib/setup-ci-skill.test.ts',
+    reason: 'Already unfiltered — the "Check create-app template parity" CI step runs the whole create-mercato-app suite (#3779). It compares the om-setup-ci skill\'s vendored templates/scripts/ci/{audit-ci,time-bomb-scanner}.mjs against the monorepo scripts/ originals.',
   },
   {
     path: 'packages/create-app/src/lib/template-dependency-drift.test.ts',
