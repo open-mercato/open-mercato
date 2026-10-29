@@ -722,3 +722,30 @@ export type OmnibusPreviewQuery = z.infer<typeof omnibusPreviewQuerySchema>
 export type OmnibusConfigPatch = z.infer<typeof omnibusConfigPatchSchema>
 export type OmnibusBackfillOptionsInput = z.input<typeof omnibusBackfillOptionsSchema>
 export type OmnibusBackfillOptions = z.infer<typeof omnibusBackfillOptionsSchema>
+
+// AI category suggestions (spec 2026-10-28-catalog-ai-product-categorization.md).
+// `applyMode` / `autoApplyThreshold` take effect in Phase 3, `autoSuggestOnCreate`
+// in Phase 4 — the full schema ships in Phase 1 so later phases change no stored shape.
+export const aiCategorizationSettingsSchema = z.object({
+  enabled: z.boolean().default(false),
+  applyMode: z.enum(['suggest', 'auto_apply']).default('suggest'),
+  autoApplyThreshold: z.number().min(0.5).max(0.99).default(0.85),
+  autoSuggestOnCreate: z.boolean().default(false),
+})
+export type AiCategorizationSettings = z.infer<typeof aiCategorizationSettingsSchema>
+
+export const categorySuggestionAcceptSchema = z.object({
+  categoryId: uuid().optional(),
+  makeMain: z.boolean().default(false),
+})
+export type CategorySuggestionAcceptInput = z.infer<typeof categorySuggestionAcceptSchema>
+
+export const categorySuggestionListQuerySchema = z.object({
+  status: z.enum(['pending', 'accepted', 'rejected', 'auto_applied', 'superseded']).optional(),
+  productId: uuid().optional(),
+  ids: z.string().optional(),
+  minConfidence: z.coerce.number().min(0).max(1).optional(),
+  page: z.coerce.number().int().min(1).optional(),
+  pageSize: z.coerce.number().int().min(1).max(100).optional(),
+})
+export type CategorySuggestionListQuery = z.infer<typeof categorySuggestionListQuerySchema>
