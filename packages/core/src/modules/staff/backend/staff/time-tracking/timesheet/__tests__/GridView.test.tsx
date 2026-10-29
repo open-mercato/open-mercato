@@ -422,6 +422,28 @@ describe('refused saves (#7393, #7394)', () => {
     expect(taskTuesday).toHaveAttribute('aria-invalid', 'false')
     expect(screen.getByRole('button', { name: 'Save Changes' })).toBeEnabled()
   })
+
+  it('only flashes a task cell 5xx that follows a committed bulk save', async () => {
+    mockCreateCrud.mockRejectedValueOnce(Object.assign(new Error('Service unavailable'), { status: 503 }))
+    const { onSaved } = renderGrid({
+      rowMode: 'tasks',
+      entries: [entry({ id: TASK_ENTRY_ID, taskId: TASK_ID, durationMinutes: 60 })],
+    })
+    const projectRow = screen.getByRole('row', { name: /^Nordvik/ })
+    const taskRow = screen.getByRole('row', { name: /Cart migration/ })
+    const projectTuesday = projectRow.querySelectorAll('input[type="text"]')[1] as HTMLInputElement
+    const taskTuesday = taskRow.querySelectorAll('input[type="text"]')[1] as HTMLInputElement
+    fireEvent.change(projectTuesday, { target: { value: '1' } })
+    fireEvent.change(taskTuesday, { target: { value: '1' } })
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }))
+    })
+    expect(mockApiCallOrThrow).toHaveBeenCalledTimes(1)
+    expect(flash).toHaveBeenCalledWith('Service unavailable', 'error')
+    expect(taskTuesday).toHaveAttribute('aria-invalid', 'false')
+    expect(onSaved).toHaveBeenCalledTimes(1)
+  })
 })
 
 /**

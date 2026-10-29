@@ -179,9 +179,10 @@ export function readErrorStatus(error: unknown): number | null {
  * fallback when the failure carried none. Pass the same fallback as the
  * request's `errorMessage`, so a body without a reason never surfaces as
  * `Request failed (403)`. Only an error that carries an HTTP status came from
- * the server; anything else — a network `TypeError: Failed to fetch`, a client
- * error inside the mutation pipeline, an `[internal]` message — is untranslated
- * and never reaches the user, so it yields the fallback.
+ * the server. Anything else — a network `TypeError: Failed to fetch`, a JS error
+ * inside the mutation pipeline, an `[internal]` message, a save an injection
+ * widget blocked — yields the fallback, so an untranslated client message never
+ * reaches the user.
  */
 export function readErrorMessage(error: unknown, fallback: string): string {
   if (readErrorStatus(error) === null) return fallback

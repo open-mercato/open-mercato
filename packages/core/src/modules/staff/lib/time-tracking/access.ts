@@ -60,7 +60,8 @@ export function normalizeAssignmentGraceDays(value: unknown): number {
  * `assigned_start_date` / `assigned_end_date` are `date` columns, so both bounds
  * are compared as whole days rather than timestamps. MikroORM returns those
  * columns as `YYYY-MM-DD` strings, which take the string branch. The `Date`
- * branch only serves `now` and test fixtures, and reads local calendar fields
+ * branch serves `now`, test fixtures and a membership written in the same
+ * EntityManager that was not reloaded, and reads local calendar fields
  * because "today" means the server's local day — unlike `toEntryDayIndex`,
  * whose input is always a client-sent calendar day.
  */
