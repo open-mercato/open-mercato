@@ -91,6 +91,7 @@ export function CompletePutawayTaskDialog({
   }, [onOpenChange, submitting])
 
   const warehouseId = task?.warehouseId?.trim() || ''
+  const expectedSerial = task?.serialNumber?.trim() ?? ''
 
   // Stable identity so ComboboxInput's debounced suggestion effect is not torn
   // down on every parent re-render (queue refetch / access churn) — an inline
@@ -137,7 +138,6 @@ export function CompletePutawayTaskDialog({
         confirmedQuantity,
         targetLocationId: targetLocationId.trim(),
       })
-      const expectedSerial = task.serialNumber?.trim() ?? ''
       const nextErrors: Record<string, string> = {}
       if (!parsed.success) {
         for (const issue of parsed.error.issues) {
@@ -233,6 +233,7 @@ export function CompletePutawayTaskDialog({
       access,
       closeDialog,
       confirmedQuantity,
+      expectedSerial,
       lockUpdatedAt,
       serialConfirmation,
       mutationContext,
@@ -281,26 +282,28 @@ export function CompletePutawayTaskDialog({
 
         <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
           <div className="flex flex-col gap-5 overflow-y-auto px-6 py-6">
-            {task.serialNumber?.trim() ? (
-              <FormField
-                label={t('wms.backend.putaway.complete.form.serialConfirm', 'Confirm serial')}
-                required
-                error={fieldErrors.serialConfirmation}
-                description={t(
-                  'wms.backend.putaway.complete.form.serialConfirmHint',
-                  'Scan or type the serial on the unit. It must match this task.',
-                )}
-              >
-                <div className="mb-2 text-sm" data-testid="complete-putaway-expected-serial">
-                  {t('wms.backend.putaway.complete.form.serial', 'Serial')}: {task.serialNumber.trim()}
-                </div>
-                <Input
-                  value={serialConfirmation}
-                  onChange={(event) => setSerialConfirmation(event.target.value)}
+            {expectedSerial ? (
+              <>
+                <p className="text-sm text-muted-foreground" data-testid="complete-putaway-expected-serial">
+                  {t('wms.backend.putaway.complete.form.serial', 'Serial')}: {expectedSerial}
+                </p>
+                <FormField
+                  label={t('wms.backend.putaway.complete.form.serialConfirm', 'Confirm serial')}
+                  required
                   disabled={submitting}
-                  data-testid="complete-putaway-serial"
-                />
-              </FormField>
+                  error={fieldErrors.serialConfirmation}
+                  description={t(
+                    'wms.backend.putaway.complete.form.serialConfirmHint',
+                    'Scan or type the serial on the unit. It must match this task.',
+                  )}
+                >
+                  <Input
+                    value={serialConfirmation}
+                    onChange={(event) => setSerialConfirmation(event.target.value)}
+                    data-testid="complete-putaway-serial"
+                  />
+                </FormField>
+              </>
             ) : null}
             <FormField
               label={t('wms.backend.putaway.complete.form.quantity', 'Confirmed quantity')}
