@@ -646,6 +646,9 @@ as it always did (guarded by a regression test in `lib/__tests__/error-routing.t
 - **The DB is the arbiter**: partial UNIQUE `workflow_instances_business_key_open_uq` over OPEN
   instances. Its `status not in (…)` list MUST equal `WORKFLOW_TERMINAL_INSTANCE_STATUSES` — adding a
   terminal instance status needs a migration recreating the index (a test compares them).
+- **The holder is the OPEN instance first**, whatever its age; only with none open does the LATEST ended run decide the
+  reuse policy (`findBusinessKeyHolder`). A creation-order-only lookup returns a newer finished run over a recovered
+  older one that holds the key again.
 - The keyed insert runs in `em.transactional` (a SAVEPOINT inside a caller's transaction) so a lost
   race rolls back only the insert; the loser re-reads the winner. Keys never go on dry runs.
 - Subject lookups are containment: GIN `jsonb_path_ops` on `workflow_instances.metadata` and

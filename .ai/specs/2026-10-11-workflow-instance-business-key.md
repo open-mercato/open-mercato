@@ -151,3 +151,4 @@ their exact behaviour.
 ## Changelog
 
 - 2026-10-11 — Initial spec and implementation (#7182).
+- 2026-10-29 — Holder lookup prefers the scoped OPEN instance over a newer ended one (pre-check, post-insert re-check and unique-violation fallback), so a recovered older run keeps its key; added the PostgreSQL migration up/down/up round trip (TC-WF-067b).
