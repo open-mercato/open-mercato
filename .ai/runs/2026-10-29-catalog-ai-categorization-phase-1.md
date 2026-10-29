@@ -117,6 +117,6 @@ Spec § Implementation Plan → Phase 1, steps 1–11. Read the spec's Decisions
 
 ### Phase 4: Product page and verification
 
-- [ ] 4.1 Product page suggestion card
+- [x] 4.1 Product page suggestion card — 8df6b1c6ea
 - [ ] 4.2 Integration tests
 - [ ] 4.3 Spec sync and full gate
