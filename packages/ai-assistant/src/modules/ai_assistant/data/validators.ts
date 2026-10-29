@@ -186,6 +186,8 @@ export const AI_AGENT_RUN_CHANNELS = [
 
 export const AI_AGENT_RUN_STATUSES = ['completed', 'failed', 'aborted'] as const
 
+const runConversationIdSchema = z.string().trim().min(1).max(128)
+
 const runIsoDateSchema = z
   .string()
   .trim()
@@ -200,7 +202,7 @@ export const aiAgentRunListQuerySchema = z
     channel: z.enum(AI_AGENT_RUN_CHANNELS).optional(),
     status: z.enum(AI_AGENT_RUN_STATUSES).optional(),
     userId: z.string().uuid().optional(),
-    conversationId: z.string().uuid().optional(),
+    conversationId: runConversationIdSchema.optional(),
     from: runIsoDateSchema.optional(),
     to: runIsoDateSchema.optional(),
     page: z.coerce.number().int().min(1).default(1),
@@ -227,7 +229,7 @@ export type AiAgentRunDetailParams = z.infer<typeof aiAgentRunDetailParamsSchema
 
 /** `GET /api/ai_assistant/ai/conversations/:conversationId/runs` path parameter */
 export const aiAgentConversationRunsParamsSchema = z.object({
-  conversationId: z.string().uuid(),
+  conversationId: runConversationIdSchema,
 })
 
 export type AiAgentConversationRunsParams = z.infer<typeof aiAgentConversationRunsParamsSchema>

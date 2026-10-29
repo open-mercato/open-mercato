@@ -52,10 +52,12 @@ describe('aiAgentRunListQuerySchema', () => {
 })
 
 describe('run path parameter schemas', () => {
-  it('requires uuid ids', () => {
+  it('requires a uuid run id and a bounded conversation id', () => {
     expect(aiAgentRunDetailParamsSchema.safeParse({ id: uuid }).success).toBe(true)
     expect(aiAgentRunDetailParamsSchema.safeParse({ id: 'x' }).success).toBe(false)
     expect(aiAgentConversationRunsParamsSchema.safeParse({ conversationId: uuid }).success).toBe(true)
+    expect(aiAgentConversationRunsParamsSchema.safeParse({ conversationId: 'chat_legacy_1' }).success).toBe(true)
     expect(aiAgentConversationRunsParamsSchema.safeParse({ conversationId: '' }).success).toBe(false)
+    expect(aiAgentConversationRunsParamsSchema.safeParse({ conversationId: 'x'.repeat(129) }).success).toBe(false)
   })
 })
