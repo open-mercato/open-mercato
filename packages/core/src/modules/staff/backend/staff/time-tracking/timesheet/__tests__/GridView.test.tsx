@@ -401,6 +401,27 @@ describe('refused saves (#7393, #7394)', () => {
     expect(mockApiCallOrThrow).toHaveBeenCalledTimes(1)
     expect(mockCreateCrud).toHaveBeenCalledTimes(2)
   })
+
+  it.each([
+    ['a transient 5xx', Object.assign(new Error('Service unavailable'), { status: 503 }), 'Service unavailable'],
+    ['a network failure', new TypeError('Failed to fetch'), 'Failed to save timesheets.'],
+  ])('only flashes, without marking the task cell refused, after %s', async (_label, failure, shown) => {
+    mockCreateCrud.mockRejectedValueOnce(failure)
+    renderGrid({
+      rowMode: 'tasks',
+      entries: [entry({ id: TASK_ENTRY_ID, taskId: TASK_ID, durationMinutes: 60 })],
+    })
+    const taskRow = screen.getByRole('row', { name: /Cart migration/ })
+    const taskTuesday = taskRow.querySelectorAll('input[type="text"]')[1] as HTMLInputElement
+    fireEvent.change(taskTuesday, { target: { value: '1' } })
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }))
+    })
+    expect(flash).toHaveBeenCalledWith(shown, 'error')
+    expect(taskTuesday).toHaveAttribute('aria-invalid', 'false')
+    expect(screen.getByRole('button', { name: 'Save Changes' })).toBeEnabled()
+  })
 })
 
 /**
