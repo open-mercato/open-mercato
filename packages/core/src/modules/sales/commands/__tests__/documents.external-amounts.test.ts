@@ -841,6 +841,61 @@ describe('sales.orders.update — crossing between the modes', () => {
     expect(num(order!.grandTotalGrossAmount)).toBeLessThan(16)
   })
 
+  it.each([
+    [
+      'a markup line',
+      {
+        quantity: '4',
+        normalizedQuantity: '4',
+        unitPriceNet: '5',
+        unitPriceGross: '6.15',
+        discountAmount: '-0.52',
+        discountPercent: '0',
+        taxAmount: '4.72',
+        totalNetAmount: '20.52',
+        totalGrossAmount: '25.24',
+      },
+      { net: 20, tax: 4.6, gross: 24.6 },
+    ],
+    [
+      'a non-zero discountPercent line',
+      {
+        quantity: '3',
+        normalizedQuantity: '3',
+        unitPriceNet: '10',
+        unitPriceGross: '12.3',
+        discountAmount: '2.9',
+        discountPercent: '10',
+        taxAmount: '6.23',
+        totalNetAmount: '27.1',
+        totalGrossAmount: '33.33',
+      },
+      { net: 27, tax: 6.21, gross: 33.21 },
+    ],
+  ] as const)(
+    're-derives tax and gross from the recomputed net of %s when leaving external',
+    async (_label, lineOverrides, expected) => {
+      const { ctx, order, em } = buildHarness({
+        orders: [storedExternalOrder({ lineItemCount: 1 })],
+        lines: [storedExternalLine(LINE_ONE_ID, 1, lineOverrides)],
+      })
+      const lines = await (em.find as (entity: unknown) => Promise<Row[]>)({ name: 'SalesOrderLine' })
+
+      await update().execute({ id: ORDER_ID, totalsMode: 'computed' } as never, ctx)
+
+      const [line] = lines
+      expect(line.amountsMode).toBe('computed')
+      expect(num(line.totalNetAmount)).toBeCloseTo(expected.net, 4)
+      expect(num(line.taxAmount)).toBeCloseTo(expected.tax, 4)
+      expect(num(line.totalGrossAmount)).toBeCloseTo(expected.gross, 4)
+      expect(num(order!.subtotalNetAmount)).toBeCloseTo(expected.net, 4)
+      expect(num(order!.taxTotalAmount)).toBeCloseTo(expected.tax, 4)
+      expect(num(order!.subtotalGrossAmount)).toBeCloseTo(expected.gross, 4)
+      expect(num(order!.grandTotalNetAmount)).toBeCloseTo(expected.net, 4)
+      expect(num(order!.grandTotalGrossAmount)).toBeCloseTo(expected.gross, 4)
+    },
+  )
+
   it('requires the complete header when entering external', async () => {
     const { ctx } = harnessWith('computed')
 

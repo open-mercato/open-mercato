@@ -5991,10 +5991,16 @@ const updateOrderCommand: CommandHandler<
               ),
             ]);
             const lineSnapshots = existingLines.map(mapOrderLineEntityToSnapshot);
+            // Leaving external: the stored tax and gross are the source's figures,
+            // and the computed path honours both verbatim while it re-derives net,
+            // so they must be re-derived too or net + tax ≠ gross (#7925).
+            const leavingExternal =
+              totalsModeChanged && !isExternalAmountsMode(nextTotalsMode);
             const calcLines = lineSnapshots.map((line, index) =>
               createLineSnapshotFromInput(
                 {
                   ...line,
+                  ...(leavingExternal ? { taxAmount: null, totalGrossAmount: null } : {}),
                   amountsMode: nextTotalsMode,
                   organizationId: order.organizationId,
                   tenantId: order.tenantId,
