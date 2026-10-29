@@ -20,7 +20,7 @@ import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/direc
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { serializeWorkInboxRow } from '../../lib/work-inbox/provider'
 import { parseWorkInboxQuery } from '../../lib/work-inbox/query'
-import { WORKFLOW_LIST_MAX_OFFSET } from '../../data/pagination'
+import { WORKFLOW_LIST_MAX_OFFSET, WORKFLOW_LIST_OFFSET_ERROR } from '../../data/pagination'
 import type { WorkInboxService } from '../../lib/work-inbox/service'
 import {
   collectScopedTaskEntityTypes,
@@ -67,7 +67,7 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url)
     const query = parseWorkInboxQuery(searchParams, new Date())
     if (query.offset > WORKFLOW_LIST_MAX_OFFSET) {
-      return NextResponse.json({ error: '[internal] Requested offset exceeds the workflow list limit' }, { status: 400 })
+      return NextResponse.json({ error: WORKFLOW_LIST_OFFSET_ERROR }, { status: 400 })
     }
 
     // §6.4, resolved ONCE for the whole merged page: one ACL load, one entity

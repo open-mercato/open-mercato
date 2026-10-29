@@ -175,7 +175,7 @@ describe('GET /api/workflows/tasks', () => {
   test.each([100001, 100050, 999999999])('rejects offset %i without reading a substituted page', async (offset) => {
     const response = await listTasks(new NextRequest(`http://localhost/api/workflows/tasks?limit=10&offset=${offset}`))
     expect(response.status).toBe(400)
-    expect(await response.json()).toHaveProperty('error')
+    expect(await response.json()).toHaveProperty('error', 'WORKFLOW_LIST_OFFSET_EXCEEDED')
     expect(mockEm.findAndCount).not.toHaveBeenCalled()
   })
 

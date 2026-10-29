@@ -240,7 +240,7 @@ describe('the list', () => {
   ])('rejects an excessive derived offset for page $page / size $pageSize', async ({ page, pageSize }) => {
     const response = await runList(`?page=${page}&pageSize=${pageSize}`)
     expect(response.status).toBe(400)
-    expect(await response.json()).toMatchObject({ ok: false, error: expect.any(String) })
+    expect(await response.json()).toMatchObject({ ok: false, error: 'WORKFLOW_LIST_OFFSET_EXCEEDED' })
     expect(mockEm.findAndCount).not.toHaveBeenCalled()
   })
 

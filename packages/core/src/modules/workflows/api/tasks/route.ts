@@ -6,7 +6,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { WORKFLOW_LIST_MAX_OFFSET } from '../../data/pagination'
+import { WORKFLOW_LIST_MAX_OFFSET, WORKFLOW_LIST_OFFSET_ERROR } from '../../data/pagination'
 import type { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
@@ -89,7 +89,7 @@ export async function GET(request: NextRequest) {
     )
     const offset = parseNumberWithDefault(searchParams.get('offset'), 0, { min: 0, integer: true })
     if (offset > WORKFLOW_LIST_MAX_OFFSET) {
-      return NextResponse.json({ error: '[internal] Requested offset exceeds the workflow list limit' }, { status: 400 })
+      return NextResponse.json({ error: WORKFLOW_LIST_OFFSET_ERROR }, { status: 400 })
     }
 
     // Build where clause with tenant scoping

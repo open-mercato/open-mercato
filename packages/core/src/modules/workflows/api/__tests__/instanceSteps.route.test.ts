@@ -190,7 +190,7 @@ describe('GET /api/workflows/instances/[id]/steps', () => {
       makeContext(),
     )
     expect(response.status).toBe(400)
-    expect(await response.json()).toHaveProperty('error')
+    expect(await response.json()).toHaveProperty('error', 'WORKFLOW_LIST_OFFSET_EXCEEDED')
     expect(mockEm.findAndCount).not.toHaveBeenCalled()
   })
 

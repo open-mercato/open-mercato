@@ -11,7 +11,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { WORKFLOW_LIST_MAX_OFFSET } from '../../../data/pagination'
+import { WORKFLOW_LIST_MAX_OFFSET, WORKFLOW_LIST_OFFSET_ERROR } from '../../../data/pagination'
 import type { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
@@ -88,7 +88,7 @@ export async function GET(request: NextRequest) {
 
     const page = requestedPage
     if ((page - 1) * pageSize > WORKFLOW_LIST_MAX_OFFSET) {
-      return NextResponse.json({ ok: false, error: '[internal] Requested offset exceeds the workflow list limit' }, { status: 400 })
+      return NextResponse.json({ ok: false, error: WORKFLOW_LIST_OFFSET_ERROR }, { status: 400 })
     }
 
     const where: Record<string, unknown> = buildPortalTaskConditions({
@@ -154,6 +154,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 200, description: 'Portal task list', schema: portalTaskListResponseSchema },
       ],
       errors: [
+        { status: 400, description: 'Requested pagination offset exceeds 100000 (WORKFLOW_LIST_OFFSET_EXCEEDED).', schema: portalTaskErrorSchema },
         { status: 401, description: 'Authentication required', schema: portalTaskErrorSchema },
         { status: 403, description: 'Insufficient permissions or no company association', schema: portalTaskErrorSchema },
         { status: 500, description: 'Internal server error', schema: portalTaskErrorSchema },

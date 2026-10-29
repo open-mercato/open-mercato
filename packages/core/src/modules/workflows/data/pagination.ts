@@ -6,6 +6,7 @@ const paginationIntegerSchema = z.preprocess(
 )
 
 export const WORKFLOW_LIST_MAX_OFFSET = 100_000
+export const WORKFLOW_LIST_OFFSET_ERROR = 'WORKFLOW_LIST_OFFSET_EXCEEDED'
 
 export const workflowListPaginationSchema = z.object({
   limit: paginationIntegerSchema.pipe(z.number().int().min(1).max(100)).default(50),

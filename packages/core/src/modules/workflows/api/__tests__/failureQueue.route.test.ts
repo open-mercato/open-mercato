@@ -185,7 +185,7 @@ describe('GET /api/workflows/instances/failure-queue', () => {
       new NextRequest(`http://localhost/api/workflows/instances/failure-queue?offset=${offset}&limit=10`),
     )
     expect(response.status).toBe(400)
-    expect(await response.json()).toHaveProperty('error')
+    expect(await response.json()).toHaveProperty('error', 'WORKFLOW_LIST_OFFSET_EXCEEDED')
     expect(mockEm.find).not.toHaveBeenCalled()
     expect(mockEm.count).not.toHaveBeenCalled()
   })

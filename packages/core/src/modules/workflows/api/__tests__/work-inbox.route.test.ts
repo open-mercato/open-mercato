@@ -245,7 +245,7 @@ describe('GET /api/workflows/work-inbox — filters and paging', () => {
     try {
       const response = await run(`?limit=10&offset=${offset}`)
       expect(response.status).toBe(400)
-      expect(await response.json()).toHaveProperty('error')
+      expect(await response.json()).toHaveProperty('error', 'WORKFLOW_LIST_OFFSET_EXCEEDED')
       expect(providerList).not.toHaveBeenCalled()
       expect(mockEm.findAndCount).not.toHaveBeenCalled()
       expect(mockEm.nativeUpdate).not.toHaveBeenCalled()

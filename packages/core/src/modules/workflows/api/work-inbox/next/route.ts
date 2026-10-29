@@ -30,7 +30,7 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import { USER_TASK_INBOX_KIND } from '../../tasks/serialize'
 import { serializeWorkInboxRow } from '../../../lib/work-inbox/provider'
 import { parseWorkInboxQuery } from '../../../lib/work-inbox/query'
-import { WORKFLOW_LIST_MAX_OFFSET } from '../../../data/pagination'
+import { WORKFLOW_LIST_MAX_OFFSET, WORKFLOW_LIST_OFFSET_ERROR } from '../../../data/pagination'
 import { toUserTaskWorkInboxRow } from '../../../lib/work-inbox/user-task-source'
 import type { WorkInboxService } from '../../../lib/work-inbox/service'
 import type { TaskHandlerService } from '../../../lib/task-handler'
@@ -86,7 +86,7 @@ export async function POST(request: NextRequest) {
     const roles = auth.roles ?? []
     const query = parseWorkInboxQuery(new URL(request.url).searchParams, new Date())
     if (query.offset > WORKFLOW_LIST_MAX_OFFSET) {
-      return NextResponse.json({ error: '[internal] Requested offset exceeds the workflow list limit' }, { status: 400 })
+      return NextResponse.json({ error: WORKFLOW_LIST_OFFSET_ERROR }, { status: 400 })
     }
     const workInboxService = container.resolve<WorkInboxService>('workInboxService')
 

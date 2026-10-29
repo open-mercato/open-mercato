@@ -156,7 +156,7 @@ describe('GET /api/workflows/instances/[id]/would-do', () => {
   test.each([100001, 100050, 999999999])('rejects offset %i before reading simulation report entries', async (offset) => {
     const response = await getWouldDo(makeRequest(`?offset=${offset}&limit=10`), makeContext())
     expect(response.status).toBe(400)
-    expect(await response.json()).toHaveProperty('error')
+    expect(await response.json()).toHaveProperty('error', 'WORKFLOW_LIST_OFFSET_EXCEEDED')
     expect(mockEm.findAndCount).not.toHaveBeenCalled()
   })
 
