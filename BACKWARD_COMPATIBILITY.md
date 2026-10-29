@@ -606,3 +606,12 @@ Spec: [`.ai/specs/2026-09-08-error-reporting-policy.md`](.ai/specs/2026-09-08-er
 ## #7220
 
 [Cache fix](UPGRADE_NOTES.md)
+
+
+## Workflow List Pagination Bounds (2026-10-29, #7534)
+
+**Surface and classification.** The workflow list API query contracts (category 7, STABLE) previously accepted positive integer limits without a maximum and nonnegative integer offsets without a ceiling on definitions, instances and instance events; global events likewise had no page-size or derived-offset maximum. For example, `GET /api/workflows/definitions?limit=101` and `?offset=100001` were supported requests. They now return HTTP 400: strict lists accept page sizes 1–100 and offsets 0–100,000. The task, Work Inbox (including POST claim-next), portal-task, step, would-do and failure-queue routes retain their existing page-size clamps and malformed/negative fallback behavior, but also reject offsets above 100,000. URLs, methods, response fields, authorization and scope checks are unchanged.
+
+**Emergency Security Exception requested; human acknowledgement pending.** Accepting arbitrarily large pagination values enables authenticated resource amplification through oversized reads or offset-dependent query work (#7534). Keeping the unbounded request branch during a bridge window would preserve that input path. This is the qualifying argument for the exception above, not a claim that the old requests were unsupported. The existing policy's condition 4 requires this dated disclosure; condition 5 still requires a named human maintainer to acknowledge the exception on [PR #8166](https://github.com/open-mercato/open-mercato/pull/8166) before merge. Automated review cannot supply that acknowledgement.
+
+**Migration.** Clients must request at most 100 rows and narrow filters before the offset ceiling; handle 400 on every affected list and claim-next route. The seven formerly clamping/fallback routes return the stable `WORKFLOW_LIST_OFFSET_EXCEEDED` error string for excessive offsets. Definitions use consistent UTF-8 byte ordering (`COLLATE "C"` / `Buffer.compare`), so case/accent positions can change; use server-provided ordering. Operators deploy the updated application; no database migration or configuration is required. See [upgrade guidance](UPGRADE_NOTES.md#workflow-list-pagination-bounds-7534) and the spec's [Migration & Backward Compatibility section](.ai/specs/implemented/2026-04-14-code-based-workflow-definitions.md#migration--backward-compatibility--pagination-hardening-7534).
