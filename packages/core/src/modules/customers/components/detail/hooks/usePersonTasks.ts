@@ -163,9 +163,9 @@ function buildLegacyTaskCustomValues(
     custom[key] = value
   }
 
-  assignValue('priority', payload.base.priority ?? null)
-  assignValue('description', payload.base.description ?? null)
-  assignValue('due_at', payload.base.scheduledAt ?? null)
+  assignValue('priority', payload.base.priority)
+  assignValue('description', payload.base.description)
+  assignValue('due_at', payload.base.scheduledAt)
 
   return custom
 }
