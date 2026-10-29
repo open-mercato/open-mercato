@@ -1166,8 +1166,8 @@ on `journal_entries` (`journal_entries_reference_idx`) backs the `referenceType`
   without a second read back to `ledger` (`debit`, `credit`,
   `exchangeRate` and `amountCurrency` as numeric strings, matching the
   entity's own column types). The three line currency fields were added
-  2026-10-29 (OQ-2, Decisions on the review of 2026-10-26); #6340 does not
-  emit them yet.
+  2026-10-29 (OQ-2, Decisions on the review of 2026-10-26); #6340 sends
+  them since commit `17f6818d36`.
   `createModuleEvents`'s required `entity`/`category` fields: `entity:
   'journal_entry'`, `category: 'lifecycle'` (checked against the
   category values other modules actually use — `crud` / `custom` /
@@ -1695,14 +1695,14 @@ Three findings of the 2026-10-26 re-review (@wojciechszyjka, PR #5663, head `d65
 ### OQ-1 — encrypted `contractorSnapshot` under the append-only trigger, and the retention basis
 
 - **Facts.** `contractor_snapshot` is in `defaultEncryptionMaps` (`encryption.ts`, `{ field: 'contractor_snapshot' }`). `journal_entry_lines_append_only` (#6340, `Migration20260922093649`) raises on every `UPDATE` or `DELETE` of a line. `mercato entities rotate-encryption-key` (`packages/core/src/modules/entities/cli.ts:675`) re-keys rows with a plain `update … set <col> = ? where "<pk>" = ?`, and the same command encrypts plaintext rows when run without `--old-key`. Once Accounts Payable writes snapshots, key rotation, and turning encryption on for a tenant that already has lines, both abort on the trigger.
-- **Decision.** The `journal_entry_lines_append_only` trigger function allows an `UPDATE` only if every column except `contractor_snapshot` is unchanged (`to_jsonb(new) - 'contractor_snapshot' is not distinct from to_jsonb(old) - 'contractor_snapshot'`); every other `UPDATE` and every `DELETE` still raises. Checked: `mercato entities rotate-encryption-key` (`packages/core/src/modules/entities/cli.ts:675`, `992`, `1263`) re-keys with a plain `UPDATE` of the encrypted column only, and the trigger blocks it. A maintenance-transaction procedure is rejected: `Migration20261023110000` lifts the trigger only for a one-off backfill, and a runtime CLI should not need `ALTER TABLE` rights on a table whose guarantee must hold at all times.
+- **Decision.** The `journal_entry_lines_append_only` trigger function allows an `UPDATE` only if every column except `contractor_snapshot` is unchanged (`to_jsonb(new) - 'contractor_snapshot' is not distinct from to_jsonb(old) - 'contractor_snapshot'`); every other `UPDATE` and every `DELETE` still raises. Checked: `mercato entities rotate-encryption-key` (`packages/core/src/modules/entities/cli.ts:675`, `992`, `1263`) re-keys with a plain `UPDATE` of the encrypted column only, and the trigger blocks it. A maintenance-transaction procedure is rejected: `Migration20261023110000` lifts the trigger only for a one-off backfill, and a runtime CLI should not need `ALTER TABLE` rights on a table whose guarantee must hold at all times. Implemented in #6340 by commit `a76c5f79c9` (`Migration20261029120000`, trigger function `ledger_journal_entry_line_append_only()`; the `journal_entries` trigger is unchanged), with a real-database case in `TC-GL-006`.
 - **Retention basis.** The snapshot sits on a journal line, which belongs to the accounting books; books are kept for at least 5 years counted from the beginning of the year following the financial year (art. 74 ust. 2 pkt 1 and ust. 3 of the Accounting Act, text checked 2026-10-29). Within that period an erasure request is refused for the snapshot on a posted line (art. 17(3)(b) GDPR, processing required by a legal obligation). After the period the snapshot may be set to `NULL`, which the trigger exception allows because only that column changes; the erasure procedure itself is out of scope.
 - **Note.** That a snapshot counts as part of the books is the author's interpretation, not a legal opinion. Art. 17(3)(b) GDPR was checked only against a secondary source; the EUR-Lex text could not be retrieved in this pass.
 
 ### OQ-2 — currency fields in the `ledger.journal_entry.posted` payload
 
 - **Facts.** The payload (Architecture → Events) listed lines as `{ id, accountId, debit, credit }` and called this enough to act without reading back. Since 2026-10-23 every line also has `currencyId`, `exchangeRate` and `amountCurrency`, and the Posting Rules Engine copies them from the source line. A mirroring subscriber cannot meet the account-currency rule or the tolerance from that payload. #6340 at `c47359dd18` emits the same four fields (`commands/postJournalEntry.ts`, `PostJournalEntryResult.lines`).
-- **Decision.** Add `currencyId`, `exchangeRate` and `amountCurrency` (numeric strings like `debit`/`credit`) to every line in the `ledger.journal_entry.posted` payload, for `postJournalEntry` and `reverseJournalEntry`. Additive; the lines carry these columns since 2026-10-23 and a mirroring subscriber (Posting Rules Engine) cannot apply the account-currency rule or the tolerance without them. The module is not merged, so no consumer breaks. #6340 emits only `{ id, accountId, debit, credit }` at the moment (`events.ts`, `LedgerJournalEntryPostedPayload`) and needs a follow-up change.
+- **Decision.** Add `currencyId`, `exchangeRate` and `amountCurrency` (numeric strings like `debit`/`credit`) to every line in the `ledger.journal_entry.posted` payload, for `postJournalEntry` and `reverseJournalEntry`. Additive; the lines carry these columns since 2026-10-23 and a mirroring subscriber (Posting Rules Engine) cannot apply the account-currency rule or the tolerance without them. The module is not merged, so no consumer breaks. #6340 sends these fields since commit `17f6818d36` (`events.ts`, `LedgerJournalEntryPostedPayload`; both emitters build the line through `toPostedLine`).
 
 ### OQ-3 — rate and amount precision against the Money spec (#7795) and #7324
 
@@ -3015,3 +3015,8 @@ code. Not yet reviewed by a maintainer.
 - **OQ-2.** The `ledger.journal_entry.posted` payload lines gain `currencyId`, `exchangeRate` and `amountCurrency`; #6340 needs a follow-up change.
 - **OQ-3.** Option (B) until #7324 merges, as a deliberate exception to #7795, with the rounding rule; option (C) not adopted.
 - **N2 of the #6340 review (settled by the author).** Moving a type into a PL group without changing its number is refused with 409 (`ledger.errors.accountTypeGroupAccountsPrefix`) when a live account of the type does not start with the type number, not cascaded, because those accounts have no old prefix to swap (Commands, `updateLedgerAccountType`).
+
+### 2026-10-29 (cont.) — #6340 implements OQ-1 and OQ-2
+
+- **OQ-1.** #6340 commit `a76c5f79c9` adds `Migration20261029120000`: `journal_entry_lines` gets its own trigger function that lets through an `UPDATE` changing only `contractor_snapshot`; every other `UPDATE` and every `DELETE` still raises. `TC-GL-006` covers it on the real database.
+- **OQ-2.** #6340 commit `17f6818d36` sends `currencyId`, `exchangeRate` and `amountCurrency` on every line of the `ledger.journal_entry.posted` payload, from both `postJournalEntry` and `reverseJournalEntry`. The OQ-2 decision and the Events payload paragraph now say so instead of "#6340 does not send these yet".
