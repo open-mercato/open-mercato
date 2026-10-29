@@ -783,6 +783,7 @@
   "ui.dataTable.export.viewTitle": "Eksport tego, co widzisz",
   "ui.dataTable.fieldset.label": "Kolumny",
   "ui.dataTable.filters": "Filtry",
+  "ui.dataTable.extensions.error": "Nie udało się załadować części rozszerzeń tabeli. Odśwież stronę, aby spróbować ponownie.",
   "ui.dataTable.loading": "Ładowanie tabeli…",
   "ui.dataTable.pagination.cache.ariaLabel": "Pamięć podręczna {status}",
   "ui.dataTable.pagination.cache.srOnly": "Pamięć podręczna {status}",

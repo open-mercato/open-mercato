@@ -5,6 +5,7 @@ const registryGlobals = [
   '__openMercatoCoreInjectionTables__',
   '__openMercatoEnabledModuleIds__',
   '__openMercatoCoreInjectionRegistryVersion__',
+  '__openMercatoCoreInjectionRegistryError__',
 ]
 
 function freshLoader(): InjectionLoader {
@@ -64,6 +65,36 @@ describe('injection registry readiness', () => {
     const reader = freshLoader()
 
     expect(reader.isInjectionRegistryReady()).toBe(true)
+  })
+
+  it('shares terminal failures and successful recovery across module instances', () => {
+    const writer = freshLoader()
+    const reader = freshLoader()
+    const initialVersion = reader.getInjectionRegistryVersion()
+
+    writer.setInjectionRegistryError('ChunkLoadError')
+
+    expect(reader.getInjectionRegistryError()).toBe('ChunkLoadError')
+    expect(reader.getInjectionRegistryVersion()).toBeGreaterThan(initialVersion)
+    expect(reader.isInjectionRegistryReady()).toBe(false)
+    const failureVersion = writer.getInjectionRegistryVersion()
+
+    reader.registerCoreInjectionWidgets([])
+    expect(reader.getInjectionRegistryVersion()).toBeGreaterThan(failureVersion)
+    reader.registerCoreInjectionTables([])
+    reader.setInjectionRegistryError(null)
+
+    expect(writer.getInjectionRegistryError()).toBeNull()
+    expect(writer.isInjectionRegistryReady()).toBe(true)
+    expect(writer.getInjectionRegistryVersion()).toBeGreaterThan(failureVersion)
+  })
+
+  it('keeps an empty rejection message distinguishable from successful registration', () => {
+    const loader = freshLoader()
+    loader.setInjectionRegistryError('')
+
+    expect(loader.getInjectionRegistryError()).toBeTruthy()
+    expect(loader.isInjectionRegistryReady()).toBe(false)
   })
 
   it('preserves the unregistered state for an empty merge contribution', () => {

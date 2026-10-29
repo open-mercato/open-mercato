@@ -23,6 +23,7 @@ import { EmptyState } from '../primitives/empty-state'
 import { TooltipProvider } from '../primitives/tooltip'
 import { TruncatedCell } from './TruncatedCell'
 import { LoadingMessage } from './detail/LoadingMessage'
+import { ErrorMessage } from './detail/ErrorMessage'
 import { FilterBar, type FilterDef, type FilterValues } from './FilterBar'
 import { FilteredEmptyResults } from './filters/FilteredEmptyResults'
 import { SearchEmptyResults } from './filters/SearchEmptyResults'
@@ -1681,7 +1682,7 @@ function DataTableImpl<T extends RowData>({
     () => (resolvedInjectionSpotId ? extensionSpotChildId(resolvedInjectionSpotId, 'footer') : null),
     [resolvedInjectionSpotId]
   )
-  const { widgets: columnWidgets, isLoading: injectedColumnsLoading } = useInjectionDataWidgets(
+  const { widgets: columnWidgets, isLoading: injectedColumnsLoading, error: injectedColumnsError } = useInjectionDataWidgets(
     extensionTableId ? dataTableExtensionSpotId(extensionTableId, 'columns') : '__disabled__:columns',
   )
   const [hasInitializedColumns, setHasInitializedColumns] = React.useState(false)
@@ -3763,6 +3764,9 @@ function DataTableImpl<T extends RowData>({
         </div>
       ) : null}
       {activeFilterChips}
+      {injectedColumnsError ? (
+        <ErrorMessage label={t('ui.dataTable.extensions.error', 'Some table extensions could not load. Reload the page to retry.')} />
+      ) : null}
       <HeaderDndWrapper
         enabled={enableHeaderDnd}
         contextId={`${stableDndContextId}-headers`}

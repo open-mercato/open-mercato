@@ -783,6 +783,7 @@
   "ui.dataTable.export.viewTitle": "보고 있는 내용 내보내기",
   "ui.dataTable.fieldset.label": "열",
   "ui.dataTable.filters": "필터",
+  "ui.dataTable.extensions.error": "일부 테이블 확장 기능을 불러오지 못했습니다. 다시 시도하려면 페이지를 새로고침하세요.",
   "ui.dataTable.loading": "테이블을 불러오는 중…",
   "ui.dataTable.pagination.cache.ariaLabel": "캐시 {status}",
   "ui.dataTable.pagination.cache.srOnly": "캐시 {status}",

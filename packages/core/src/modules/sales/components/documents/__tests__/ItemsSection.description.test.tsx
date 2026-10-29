@@ -10,6 +10,7 @@ import type { InjectionColumnDefinition } from '@open-mercato/shared/modules/wid
 const mockApiCall = jest.fn()
 let mockColumnWidgets: Array<{ columns: InjectionColumnDefinition[] }> = []
 let mockColumnsLoading = false
+let mockColumnsError: string | null = null
 
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   apiCall: (...args: any[]) => mockApiCall(...args),
@@ -34,6 +35,7 @@ jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({
 
 jest.mock('@open-mercato/ui/backend/detail', () => ({
   LoadingMessage: () => null,
+  ErrorMessage: ({ label }: { label: string }) => <div role="alert">{label}</div>,
   TabEmptyState: () => null,
 }))
 
@@ -49,7 +51,7 @@ jest.mock('@open-mercato/ui/backend/confirm-dialog', () => ({
 }))
 
 jest.mock('@open-mercato/ui/backend/injection/useInjectionDataWidgets', () => ({
-  useInjectionDataWidgets: () => ({ widgets: mockColumnWidgets, isLoading: mockColumnsLoading }),
+  useInjectionDataWidgets: () => ({ widgets: mockColumnWidgets, isLoading: mockColumnsLoading, error: mockColumnsError }),
 }))
 
 jest.mock('../LineItemDialog', () => ({
@@ -114,6 +116,7 @@ describe('SalesDocumentItemsSection line description', () => {
     mockApiCall.mockReset()
     mockColumnWidgets = []
     mockColumnsLoading = false
+    mockColumnsError = null
   })
 
   it('renders the line description under the product name', async () => {
@@ -177,6 +180,17 @@ describe('SalesDocumentItemsSection line description', () => {
     renderSection()
     expect(await screen.findByRole('columnheader', { name: 'Product' })).toBeInTheDocument()
     expect(screen.getByText('Widget')).toBeInTheDocument()
+  })
+
+  it('keeps base order rows usable when extension registration fails', async () => {
+    mockColumnsError = 'ChunkLoadError'
+    mockApiCall.mockImplementation(async (url: string) => url.startsWith('/api/sales/order-lines')
+      ? lineResponse(null) : { ok: true, result: { items: [] } })
+    renderSection()
+
+    expect(await screen.findByRole('columnheader', { name: 'Product' })).toBeInTheDocument()
+    expect(screen.getByText('Widget')).toBeInTheDocument()
+    expect(screen.getByRole('alert')).toHaveTextContent('Reload the page to retry.')
   })
 
   it('does not hold quote headers for order-only column loading', async () => {

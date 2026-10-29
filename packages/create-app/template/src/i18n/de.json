@@ -783,6 +783,7 @@
   "ui.dataTable.export.viewTitle": "Exportieren, was Sie sehen",
   "ui.dataTable.fieldset.label": "Columns",
   "ui.dataTable.filters": "Filter",
+  "ui.dataTable.extensions.error": "Einige Tabellenerweiterungen konnten nicht geladen werden. Laden Sie die Seite neu, um es erneut zu versuchen.",
   "ui.dataTable.loading": "Loading table…",
   "ui.dataTable.pagination.cache.ariaLabel": "Cache {status}",
   "ui.dataTable.pagination.cache.srOnly": "Cache {status}",

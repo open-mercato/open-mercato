@@ -492,14 +492,19 @@ export default {
 
 ---
 
-## Backward Compatibility
+## Migration & Backward Compatibility
 
 - Existing DataTable props unchanged — injected extensions are merged at render time
 - Existing columns, row actions, filters preserved in their original order
 - Injected items only appear when widgets are registered and user has required features
 - No changes to DataTable's external API (props interface)
+- Client bootstrap publishes terminal injection/translation registration failures through the shared injection registry notification path. `useInjectionDataWidgets` retains its existing result shape, releases loading with empty widgets and an error, and reloads after successful registration. DataTable and order Items keep base rows usable and display a localized recovery instruction. Pending successful registration still waits for both registries and widget modules before the first header.
+- Isolated extension-enabled table tests must register both registries, using empty arrays when no extensions are under test (see `UPGRADE_NOTES.md`).
+- Fresh-session residual: absent, expired, or mismatched selection cookies still cause the first validated switcher event to advance `scopeVersion`. This can reset custom-field columns once; matching-cookie hydration and same-scope Refresh retain their headers. Keep public scope unresolved before validation to protect scope isolation.
 
 ## Changelog
+
+- 2026-10-29: Handle rejected injection registry chunks and failed translation prerequisites as terminal, recoverable extension failures. Added bootstrap rejection, base-table fallback, shared-state recovery and hook regressions; documented downstream empty-registry setup and the fresh-cookie scope residual. Human screen QA and the existing QA gate remain required.
 
 - 2026-10-15: Initial table rendering waits for registry registration, parent column definitions, and injected columns. Hidden defaults and injected placement settle before paint, while subsequent row refreshes retain the header (#7436). Customers People, Companies, and Deals include custom-field definition loading in the existing `isLoading` prop.
 - 2026-10-29: Keep People, Companies, Deals, and Products definition queries stable during same-scope refreshes, refetching existing entries instead of replacing them. Use persisted selection cookies only as the private first-emission version-comparison baseline so switcher hydration does not falsely reset the same scope; public scope stays unresolved until the switcher validates it, preserving early form submissions. Real tenant/organization changes still invalidate definitions. Order Items waits for injected columns before its first header; quotes and settled empty/failed optional widgets remain usable. Existing props, scope events, and widget IDs are unchanged. Added executed refresh, scope-isolation, bootstrap, real-hook currency/exchange-rate submission, and Items readiness regressions; live-screen QA remains required after the earlier NO-GO.

@@ -5,6 +5,7 @@ import type { InjectionSpotId } from '@open-mercato/shared/modules/widgets/injec
 import {
   loadInjectionDataWidgetsForSpot,
   getInjectionRegistryVersion,
+  getInjectionRegistryError,
   isInjectionRegistryReady,
   subscribeToInjectionRegistryChanges,
   type LoadedInjectionDataWidget,
@@ -32,6 +33,7 @@ export function useInjectionDataWidgets(spotId: InjectionSpotId): {
   const hasBackendChromePayload = payload !== null
   const disabled = spotId.startsWith('__disabled__:')
   const registryReady = isInjectionRegistryReady()
+  const registryError = getInjectionRegistryError()
   // Re-load when the injection registry is (re-)populated. With the async
   // ClientBootstrap, registration can land after this hook first runs; the
   // version bump triggers a reload so injected menus/columns/fields appear
@@ -48,6 +50,12 @@ export function useInjectionDataWidgets(spotId: InjectionSpotId): {
 
   React.useEffect(() => {
     if (disabled) return
+    if (registryError) {
+      setWidgets([])
+      setIsLoading(false)
+      setError(registryError)
+      return
+    }
     if (!backendChromeReady || !registryReady) {
       setIsLoading(true)
       setError(null)
@@ -80,9 +88,11 @@ export function useInjectionDataWidgets(spotId: InjectionSpotId): {
     return () => {
       mounted = false
     }
-  }, [spotId, registryVersion, backendChromeReady, registryReady, disabled, grantedFeatureList, hasBackendChromePayload])
+  }, [spotId, registryVersion, backendChromeReady, registryReady, registryError, disabled, grantedFeatureList, hasBackendChromePayload])
 
   return disabled
     ? { widgets: EMPTY_WIDGETS, isLoading: false, error: null }
-    : { widgets, isLoading: isLoading || !backendChromeReady || !registryReady, error }
+    : registryError
+      ? { widgets: EMPTY_WIDGETS, isLoading: false, error: registryError }
+      : { widgets, isLoading: isLoading || !backendChromeReady || !registryReady, error }
 }
