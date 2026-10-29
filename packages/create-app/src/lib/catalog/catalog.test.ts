@@ -924,3 +924,19 @@ test('runCatalogStep checks a requirement named by npm name against the packages
     ),
   )
 })
+
+test('runCatalogStep answers a core module ID with core, not with the package that replaces it', async () => {
+  const classic = withRequirements({ requested: ['data_sync'], presetModuleIds: null })
+  assert.deepEqual(await runCatalogStep(classic.options), { commands: [], selectionFile: null, commandWarnings: {} })
+  assert.ok(classic.logs.includes('data_sync is built into Open Mercato core and the preset already enables it.'))
+  assert.deepEqual(classic.warnings, [])
+
+  const crm = withRequirements({ requested: ['data_sync'], ...presetOptions('crm') })
+  assert.deepEqual((await runCatalogStep(crm.options)).commands, [])
+  assert.deepEqual(crm.warnings, [
+    'data_sync is built into Open Mercato core, not a package: yarn mercato module enable @open-mercato/core --module data_sync',
+  ])
+
+  const byName = withRequirements({ requested: ['@fullstackhouse/open-mercato-data-sync-durable'], presetModuleIds: null })
+  assert.deepEqual((await runCatalogStep(byName.options)).commands, [WORK_A, DURABLE_SYNC])
+})

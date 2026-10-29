@@ -276,6 +276,8 @@ Phase 1 (`resolveCatalogSelection` in `src/lib/catalog/selection.ts`):
 - A requirement naming a core module (an ID the catalog lists with `source: 'core'`, or `core:<id>`) stays on
   core: it is satisfied only by a package the user requested or picked (a drop-in replacement such as a durable
   `data_sync`), never by a package found among the selectable ones, and is otherwise checked against the preset.
+  A core module ID passed to `--modules` is answered as core too; the replacing package is asked for by its npm
+  name.
 - A requirement given as an npm name is met when the preset registers a module from that package.
 - A requirement that is not a selectable module and not enabled by the preset is reported with its fix
   (`yarn mercato module enable @open-mercato/core --module <id>` for a module ID). With the `classic` preset

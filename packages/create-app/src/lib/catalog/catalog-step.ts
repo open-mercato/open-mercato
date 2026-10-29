@@ -203,12 +203,12 @@ function reportSelection(selection: CatalogSelection, context: CatalogContext, o
     const inApp = findCatalogModules(request, context.inApp)
     if (inApp.length > 0) {
       for (const entry of inApp) options.log(alreadyInAppText(entry, line, context.lines, options.presetModuleIds === null))
-    } else if (findCatalogModules(request, context.withoutLineInstall).length > 0) {
-      options.warn(withoutLineInstallText(request, findCatalogModules(request, context.withoutLineInstall), line))
     } else if (core && (options.presetModuleIds === null || options.presetModuleIds.includes(core.id))) {
       options.log(`${core.id} is built into Open Mercato core and the preset already enables it.`)
     } else if (core) {
       options.warn(`${core.id} is built into Open Mercato core, not a package: ${core.install}`)
+    } else if (findCatalogModules(request, context.withoutLineInstall).length > 0) {
+      options.warn(withoutLineInstallText(request, findCatalogModules(request, context.withoutLineInstall), line))
     } else if (findCatalogModules(request, packages).length > 0) {
       options.warn(`Not verified on ${line}: ${request} is in the module catalog, but the catalog has not verified it on ${line}. Check its page on ${MODULES_SITE_URL} or pick an alternative there.`)
     } else {

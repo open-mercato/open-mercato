@@ -83,8 +83,12 @@ export function resolveCatalogSelection(
   const addTarget = (entry: CatalogModule) => {
     if (!targets.some((target) => moduleKey(target) === moduleKey(entry))) targets.push(entry)
   }
+  const coreModuleIds = context.coreModuleIds ?? []
+  // A core module ID names core, not a package that replaces it; that package is asked for by its npm name.
+  const findRequested = (request: string) =>
+    coreRequirement(request, coreModuleIds) === null ? findCatalogModules(request, selectable) : []
   const matchesOnly = (pick: string, entry: CatalogModule) => {
-    const found = findCatalogModules(pick, selectable)
+    const found = findRequested(pick)
     return found.length > 0 && found.every((other) => moduleKey(other) === moduleKey(entry))
   }
   // The shortest item that names this module alone: its id, its npm name, or `<npm name>:<id>`, which always does.
@@ -99,7 +103,7 @@ export function resolveCatalogSelection(
   }
 
   for (const request of requests) {
-    const matches = findCatalogModules(request, selectable).filter(
+    const matches = findRequested(request).filter(
       (match, position, all) => all.findIndex((other) => moduleKey(other) === moduleKey(match)) === position,
     )
     if (matches.length === 0) unknown.push(request)
@@ -108,7 +112,6 @@ export function resolveCatalogSelection(
   }
   for (const entry of picked) addTarget(entry)
 
-  const coreModuleIds = context.coreModuleIds ?? []
   const presetModules = context.presetModules ?? []
   // A requirement is a module ID, or the npm name of a package the preset registers modules from.
   const enabledInPreset = (requirement: string) =>
