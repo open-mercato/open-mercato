@@ -30024,6 +30024,7 @@ __metadata:
   resolution: "open-mercato@workspace:."
   dependencies:
     "@ai-sdk/openai": "npm:^4.0.50"
+    "@balena/dockerignore": "npm:^1.0.2"
     "@cucumber/cucumber": "npm:^13.2.1"
     "@eslint/eslintrc": "npm:^3.3.6"
     "@fontsource-variable/inter": "npm:5.3.0"
