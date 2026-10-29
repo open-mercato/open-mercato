@@ -103,7 +103,7 @@ for (const kind of ['company', 'person', 'deal'] as const) {
       await page.screenshot({ path: screenshot, fullPage: true })
       await testInfo.attach(`${kind}-tab-priority`, { path: screenshot, contentType: 'image/png' })
       await page.setViewportSize({ width: 390, height: 844 })
-      if (kind === 'person') await main.getByRole('button', { name: 'Activity', exact: true }).click()
+      if (kind === 'person') await main.getByRole('tab', { name: 'Activity', exact: true }).click()
       const selectedTab = main.getByRole('tab', { name: 'QA Negative', exact: true })
       await selectedTab.scrollIntoViewIfNeeded()
       await expect(selectedTab).toBeVisible()
