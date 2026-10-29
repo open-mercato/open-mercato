@@ -201,6 +201,23 @@ export class CustomerInvitationService {
     return invitation
   }
 
+  async cancelInvitation(
+    invitationId: string,
+    scope: { tenantId: string; organizationId: string },
+  ): Promise<boolean> {
+    if (!scope.tenantId || !scope.organizationId) return false
+    const cancelledAt = new Date()
+    const changed = await this.em.nativeUpdate(CustomerUserInvitation, {
+      id: invitationId,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      acceptedAt: null,
+      cancelledAt: null,
+      expiresAt: { $gt: cancelledAt },
+    }, { cancelledAt })
+    return changed === 1
+  }
+
   async acceptInvitation(
     token: string,
     password: string,
@@ -210,88 +227,83 @@ export class CustomerInvitationService {
     if (!invitation) return null
     if (!(await isCustomerTenantActive(this.em, invitation.tenantId))) return null
 
-    const emailHash = hashForLookup(invitation.email)
-
-    // A soft-deleted CustomerUser row does not block re-invitation (the unique
-    // index only applies to non-deleted rows), but an active account with the
-    // same email is a genuine conflict — fail with a domain error here instead
-    // of letting the DB unique-constraint violation surface as a raw 500.
-    // The lookup matches both hash formats: rows written before the keyed digest
-    // still carry the legacy hash, and the partial index cannot relate the two.
-    const existingActiveUser = await findOneWithDecryption(
-      this.em,
-      CustomerUser,
-      {
-        tenantId: invitation.tenantId,
-        emailHash: { $in: lookupHashCandidates(invitation.email) },
-        deletedAt: null,
-      } as any,
-      undefined,
-      { tenantId: invitation.tenantId, organizationId: invitation.organizationId },
-    )
-    if (existingActiveUser) {
-      throw new CustomerInvitationEmailConflictError(invitation.email)
-    }
-
     const passwordHash = await hash(password, BCRYPT_COST)
-
-    // Create user
-    const user = this.em.create(CustomerUser, {
-      email: invitation.email,
-      emailHash,
-      passwordHash,
-      displayName: displayName || invitation.displayName || invitation.email,
-      tenantId: invitation.tenantId,
-      organizationId: invitation.organizationId,
-      customerEntityId: invitation.customerEntityId || null,
-      personEntityId: invitation.personEntityId || null,
-      isActive: true,
-      emailVerifiedAt: new Date(), // Invitation implicitly verifies email
-      failedLoginAttempts: 0,
-      createdAt: new Date(),
-    } as any) as CustomerUser
-    this.em.persist(user)
-
-    // Assign roles
-    const roleIds = Array.isArray(invitation.roleIdsJson) ? invitation.roleIdsJson : []
-    const roles = roleIds.length > 0
-      ? await findWithDecryption(
-          this.em,
-          CustomerRole,
-          {
-            id: { $in: roleIds } as any,
-            tenantId: invitation.tenantId,
-            organizationId: invitation.organizationId,
-            deletedAt: null,
-          } as any,
-          undefined,
-          { tenantId: invitation.tenantId, organizationId: invitation.organizationId },
-        )
-      : []
-    for (const role of roles) {
-      const userRole = this.em.create(CustomerUserRole, {
-        user,
-        role,
-        createdAt: new Date(),
-      } as any)
-      this.em.persist(userRole)
-    }
-
-    // Mark invitation as accepted
-    invitation.acceptedAt = new Date()
-
-    // The guard above is only the friendly fast path: it and this write are
-    // separated by a bcrypt hash and a role query, so two concurrent accepts can
-    // both pass it. The partial unique index is the real authority — translate
-    // its violation onto the same domain error so both paths answer 409.
     try {
-      await this.em.flush()
+      return await this.em.transactional(async (transactionEm) => {
+        const acceptedAt = new Date()
+        const changed = await transactionEm.nativeUpdate(CustomerUserInvitation, {
+          id: invitation.id,
+          tenantId: invitation.tenantId,
+          organizationId: invitation.organizationId,
+          token: hashToken(token),
+          acceptedAt: null,
+          cancelledAt: null,
+          expiresAt: { $gt: acceptedAt },
+        }, { acceptedAt })
+        if (changed !== 1) return null
+
+        const scope = { tenantId: invitation.tenantId, organizationId: invitation.organizationId }
+        const existingActiveUser = await findOneWithDecryption(
+          transactionEm,
+          CustomerUser,
+          {
+            tenantId: invitation.tenantId,
+            emailHash: { $in: lookupHashCandidates(invitation.email) },
+            deletedAt: null,
+          },
+          undefined,
+          scope,
+        )
+        if (existingActiveUser) {
+          throw new CustomerInvitationEmailConflictError(invitation.email)
+        }
+
+        const user = transactionEm.create(CustomerUser, {
+          email: invitation.email,
+          emailHash: hashForLookup(invitation.email),
+          passwordHash,
+          displayName: displayName || invitation.displayName || invitation.email,
+          tenantId: invitation.tenantId,
+          organizationId: invitation.organizationId,
+          customerEntityId: invitation.customerEntityId || null,
+          personEntityId: invitation.personEntityId || null,
+          isActive: true,
+          emailVerifiedAt: acceptedAt,
+          failedLoginAttempts: 0,
+          createdAt: acceptedAt,
+        })
+        transactionEm.persist(user)
+
+        const roleIds = Array.isArray(invitation.roleIdsJson) ? invitation.roleIdsJson : []
+        const roles = roleIds.length > 0
+          ? await findWithDecryption(
+              transactionEm,
+              CustomerRole,
+              {
+                id: { $in: roleIds },
+                tenantId: invitation.tenantId,
+                organizationId: invitation.organizationId,
+                deletedAt: null,
+              },
+              undefined,
+              scope,
+            )
+          : []
+        for (const role of roles) {
+          transactionEm.persist(transactionEm.create(CustomerUserRole, {
+            user,
+            role,
+            createdAt: acceptedAt,
+          }))
+        }
+        await transactionEm.flush()
+        return { user, invitation: { ...invitation, acceptedAt } }
+      })
     } catch (error) {
       if (isUniqueConstraintViolation(error)) {
         throw new CustomerInvitationEmailConflictError(invitation.email)
       }
       throw error
     }
-    return { user, invitation }
   }
 }

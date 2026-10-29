@@ -1,6 +1,7 @@
 /** @jest-environment node */
 import { UniqueConstraintViolationException } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { hash } from 'bcryptjs'
 import {
   CustomerInvitationEmailConflictError,
   CustomerInvitationService,
@@ -37,6 +38,132 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findAndCountWithDecryption: (em: any, entity: any, where: any, options?: any) => em.findAndCount(entity, where, options),
 }))
 
+describe('CustomerInvitationService invitation terminal transitions', () => {
+  const scope = {
+    tenantId: '11111111-1111-4111-8111-111111111111',
+    organizationId: '22222222-2222-4222-8222-222222222222',
+  }
+  const invitationId = '33333333-3333-4333-8333-333333333333'
+
+  function buildFixture() {
+    const invitation = {
+      id: invitationId,
+      ...scope,
+      email: 'invitee@example.com',
+      token: 'hashed-token',
+      roleIdsJson: [],
+      expiresAt: new Date(Date.now() + 60_000),
+      acceptedAt: null,
+      cancelledAt: null,
+    } as unknown as CustomerUserInvitation
+    const transactionEm = {
+      nativeUpdate: jest.fn(async () => 1),
+      findOne: jest.fn(async () => null),
+      create: jest.fn((_entity: unknown, data: unknown) => data),
+      persist: jest.fn(),
+      flush: jest.fn(async () => undefined),
+    }
+    const transactional = jest.fn(async (operation: (em: EntityManager) => Promise<unknown>) =>
+      operation(transactionEm as unknown as EntityManager),
+    )
+    const rootEm = {
+      findOne: jest.fn(async () => invitation),
+      nativeUpdate: jest.fn(async () => 1),
+      transactional,
+    }
+    const service = new CustomerInvitationService(rootEm as unknown as EntityManager)
+    return { service, invitation, rootEm, transactionEm }
+  }
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+  })
+
+  it('cancels only an unexpired pending invitation in the supplied tenant and organization', async () => {
+    const { service, rootEm } = buildFixture()
+
+    await expect(service.cancelInvitation(invitationId, scope)).resolves.toBe(true)
+
+    expect(rootEm.nativeUpdate).toHaveBeenCalledWith(CustomerUserInvitation, {
+      id: invitationId,
+      ...scope,
+      acceptedAt: null,
+      cancelledAt: null,
+      expiresAt: { $gt: expect.any(Date) },
+    }, { cancelledAt: expect.any(Date) })
+    expect(rootEm.findOne).not.toHaveBeenCalled()
+    expect(rootEm.transactional).not.toHaveBeenCalled()
+  })
+
+  it('returns a neutral unchanged outcome for missing, out-of-scope, or terminal invitations', async () => {
+    const { service, rootEm } = buildFixture()
+    rootEm.nativeUpdate.mockResolvedValue(0)
+
+    await expect(service.cancelInvitation(invitationId, scope)).resolves.toBe(false)
+  })
+
+  it.each([
+    { tenantId: '', organizationId: scope.organizationId },
+    { tenantId: scope.tenantId, organizationId: '' },
+  ])('refuses an incomplete scope without querying', async (incompleteScope) => {
+    const { service, rootEm } = buildFixture()
+
+    await expect(service.cancelInvitation(invitationId, incompleteScope)).resolves.toBe(false)
+    expect(rootEm.nativeUpdate).not.toHaveBeenCalled()
+  })
+
+  it('does not create a user if cancellation wins during password hashing', async () => {
+    const { service, transactionEm } = buildFixture()
+    jest.mocked(hash).mockImplementationOnce(async () => {
+      await service.cancelInvitation(invitationId, scope)
+      transactionEm.nativeUpdate.mockResolvedValue(0)
+      return 'hashed-password'
+    })
+
+    await expect(service.acceptInvitation('raw-token', 'Password123!', 'Invitee')).resolves.toBeNull()
+    expect(transactionEm.create).not.toHaveBeenCalled()
+    expect(transactionEm.persist).not.toHaveBeenCalled()
+    expect(transactionEm.flush).not.toHaveBeenCalled()
+  })
+
+  it('rechecks the original token and pending state atomically within the user creation transaction', async () => {
+    const { service, invitation, rootEm, transactionEm } = buildFixture()
+
+    const result = await service.acceptInvitation('raw-token', 'Password123!', 'Invitee')
+
+    expect(rootEm.transactional).toHaveBeenCalledTimes(1)
+    expect(transactionEm.nativeUpdate).toHaveBeenCalledWith(CustomerUserInvitation, {
+      id: invitationId,
+      ...scope,
+      token: 'hashed-token',
+      acceptedAt: null,
+      cancelledAt: null,
+      expiresAt: { $gt: expect.any(Date) },
+    }, { acceptedAt: expect.any(Date) })
+    expect(result?.invitation.acceptedAt).toBeInstanceOf(Date)
+    expect(transactionEm.create).toHaveBeenCalledTimes(1)
+    expect(transactionEm.flush).toHaveBeenCalledTimes(1)
+    expect(invitation.acceptedAt).toBeNull()
+  })
+
+  it('propagates transaction failure without marking the original invitation accepted', async () => {
+    const { service, invitation, transactionEm } = buildFixture()
+    transactionEm.flush.mockRejectedValue(new Error('transaction failed'))
+
+    await expect(service.acceptInvitation('raw-token', 'Password123!', 'Invitee'))
+      .rejects.toThrow('transaction failed')
+    expect(invitation.acceptedAt).toBeNull()
+  })
+
+  it.each(['cancelledAt', 'acceptedAt'] as const)('rejects an invitation already marked %s', async (field) => {
+    const { service, invitation, rootEm } = buildFixture()
+    invitation[field] = new Date()
+
+    await expect(service.acceptInvitation('raw-token', 'Password123!', 'Invitee')).resolves.toBeNull()
+    expect(rootEm.transactional).not.toHaveBeenCalled()
+  })
+})
+
 describe('CustomerInvitationService.acceptInvitation — role lookup batching', () => {
   const roleIds = [
     'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
@@ -46,7 +173,7 @@ describe('CustomerInvitationService.acceptInvitation — role lookup batching', 
   const tenantId = '11111111-1111-4111-8111-111111111111'
   const organizationId = '22222222-2222-4222-8222-222222222222'
 
-  let mockEm: jest.Mocked<Pick<EntityManager, 'find' | 'findOne' | 'create' | 'persist' | 'flush'>>
+  let mockEm: jest.Mocked<Pick<EntityManager, 'find' | 'findOne' | 'create' | 'persist' | 'flush' | 'nativeUpdate' | 'transactional'>>
   let service: CustomerInvitationService
 
   beforeEach(() => {
@@ -57,7 +184,9 @@ describe('CustomerInvitationService.acceptInvitation — role lookup batching', 
       create: jest.fn((_: unknown, data: unknown) => data as any),
       persist: jest.fn(),
       flush: jest.fn(async () => undefined),
-    } as unknown as jest.Mocked<Pick<EntityManager, 'find' | 'findOne' | 'create' | 'persist' | 'flush'>>
+      nativeUpdate: jest.fn(async () => 1),
+      transactional: jest.fn(async (operation: (transactionEm: EntityManager) => Promise<unknown>) => operation(mockEm as unknown as EntityManager)),
+    } as unknown as jest.Mocked<Pick<EntityManager, 'find' | 'findOne' | 'create' | 'persist' | 'flush' | 'nativeUpdate' | 'transactional'>>
     service = new CustomerInvitationService(mockEm as unknown as EntityManager)
   })
 
@@ -209,7 +338,7 @@ describe('CustomerInvitationService.acceptInvitation — soft-deleted email reus
   const tenantId = '11111111-1111-4111-8111-111111111111'
   const organizationId = '22222222-2222-4222-8222-222222222222'
 
-  let mockEm: jest.Mocked<Pick<EntityManager, 'find' | 'findOne' | 'create' | 'persist' | 'flush'>>
+  let mockEm: jest.Mocked<Pick<EntityManager, 'find' | 'findOne' | 'create' | 'persist' | 'flush' | 'nativeUpdate' | 'transactional'>>
   let service: CustomerInvitationService
 
   const buildInvitation = () => ({
@@ -233,7 +362,9 @@ describe('CustomerInvitationService.acceptInvitation — soft-deleted email reus
       create: jest.fn((_: unknown, data: unknown) => data as any),
       persist: jest.fn(),
       flush: jest.fn(async () => undefined),
-    } as unknown as jest.Mocked<Pick<EntityManager, 'find' | 'findOne' | 'create' | 'persist' | 'flush'>>
+      nativeUpdate: jest.fn(async () => 1),
+      transactional: jest.fn(async (operation: (transactionEm: EntityManager) => Promise<unknown>) => operation(mockEm as unknown as EntityManager)),
+    } as unknown as jest.Mocked<Pick<EntityManager, 'find' | 'findOne' | 'create' | 'persist' | 'flush' | 'nativeUpdate' | 'transactional'>>
     service = new CustomerInvitationService(mockEm as unknown as EntityManager)
   })
 
