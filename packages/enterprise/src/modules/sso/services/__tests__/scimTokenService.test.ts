@@ -1,6 +1,6 @@
 import { createCacheService, runWithCacheTenant } from '@open-mercato/cache'
 import { compare } from 'bcryptjs'
-import { readScimAdmissionKey, SCIM_ADMISSION_TTL_MS } from '../../lib/scim-admission-cache'
+import { readScimAdmissionKey, SCIM_ADMISSION_TTL_MS, scimTokenLookupHash } from '../../lib/scim-admission-cache'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { ScimToken, SsoConfig } from '../../data/entities'
 import type { SsoAdminScope } from '../ssoConfigService'
@@ -58,7 +58,8 @@ describe('ScimTokenService.generateToken', () => {
     })
     const service = new ScimTokenService(em as unknown as EntityManager)
 
-    await service.generateToken('sso-config-1', 'Directory sync', sameOrgScope)
+    const generated = await service.generateToken('sso-config-1', 'Directory sync', sameOrgScope)
+    expect(em.create).toHaveBeenCalledWith(ScimToken, expect.objectContaining({ tokenLookupHash: scimTokenLookupHash(generated.token) }))
 
     expect(em.findOne).toHaveBeenCalledWith(SsoConfig, {
       id: 'sso-config-1',
@@ -69,6 +70,7 @@ describe('ScimTokenService.generateToken', () => {
       ssoConfigId: 'sso-config-1',
       organizationId: 'org-1',
       tenantId: 'tenant-1',
+      tokenLookupHash: expect.stringMatching(/^[a-f0-9]{64}$/),
     }))
     expect(flush).toHaveBeenCalledTimes(1)
   })
@@ -121,6 +123,7 @@ describe('verified SCIM admission cache', () => {
       find: jest.fn(async () => token.isActive ? [token] : []),
       findOne: jest.fn(async () => token),
       flush: jest.fn(async () => undefined),
+      nativeUpdate: jest.fn(async () => 1),
     }
     const cache = createCacheService({ strategy: 'memory' })
     const service = new ScimTokenService(em as unknown as EntityManager, cache)
@@ -146,12 +149,83 @@ describe('verified SCIM admission cache', () => {
     expect(await readScimAdmissionKey(cache, rawToken)).toBeNull()
   })
 
+  it('backfills legacy credentials only after bcrypt and guards scope, active state and the compared hash', async () => {
+    const { token, em, service } = setup()
+    const wrongSuffix = `${rawToken.slice(0, 12)}${'b'.repeat(59)}`
+    expect(await service.verifyToken(wrongSuffix)).toBeNull()
+    expect(em.nativeUpdate).not.toHaveBeenCalled()
+    expect(await service.verifyToken(rawToken)).toEqual(expect.objectContaining({ organizationId: 'org-1', tenantId: 'tenant-1' }))
+    const tokenLookupHash = scimTokenLookupHash(rawToken)
+    expect(em.nativeUpdate).toHaveBeenCalledWith(ScimToken, {
+      id: token.id, tenantId: 'tenant-1', organizationId: 'org-1', ssoConfigId: 'config-1',
+      tokenHash: 'stored-hash', isActive: true, $or: [{ tokenLookupHash: null }, { tokenLookupHash }],
+    }, { tokenLookupHash })
+  })
+
+  it('rejects enrollment when the database compare-and-set loses a concurrent change', async () => {
+    const { em, cache, service } = setup()
+    em.nativeUpdate.mockResolvedValue(0)
+    expect(await service.verifyToken(rawToken)).toBeNull()
+    expect(await readScimAdmissionKey(cache, rawToken)).toBeNull()
+  })
+
+  it('does not emit fingerprint or verifier query material when enrollment fails', async () => {
+    const { em, cache, service } = setup()
+    const fingerprint = scimTokenLookupHash(rawToken)
+    em.nativeUpdate.mockRejectedValue(new Error(`query failed: ${fingerprint} stored-hash`))
+    await expect(service.verifyToken(rawToken)).rejects.toThrow('[internal] SCIM token enrollment unavailable')
+    const reported = mockReportError.mock.calls.map(([error]) => String(error)).join(' ')
+    expect(reported).not.toContain(fingerprint)
+    expect(reported).not.toContain('stored-hash')
+    expect(mockReportError).toHaveBeenCalledWith(expect.objectContaining({ message: '[internal] SCIM token enrollment unavailable' }), { module: 'sso', code: 'sso.scim_enrollment_unavailable' })
+    expect(await readScimAdmissionKey(cache, rawToken)).toBeNull()
+  })
+
+  it('uses the bcrypt hash captured before comparison in the enrollment guard', async () => {
+    const { token, em, service } = setup()
+    jest.mocked(compare).mockImplementationOnce(async () => {
+      token.tokenHash = 'changed-hash'
+      return true
+    })
+    em.nativeUpdate.mockResolvedValue(0)
+    expect(await service.verifyToken(rawToken)).toBeNull()
+    expect(em.nativeUpdate).toHaveBeenCalledWith(ScimToken, expect.objectContaining({ tokenHash: 'stored-hash' }), expect.any(Object))
+  })
+
+  it('retains null-tenant legacy scope and permits an identical concurrent enrollment', async () => {
+    const { token, em, service } = setup()
+    Object.assign(token, { tenantId: null })
+    await service.verifyToken(rawToken)
+    expect(em.nativeUpdate).toHaveBeenCalledWith(ScimToken, expect.objectContaining({ tenantId: null, $or: [{ tokenLookupHash: null }, { tokenLookupHash: scimTokenLookupHash(rawToken) }] }), expect.any(Object))
+  })
+
+  it('keeps lookup hashes out of management payloads', async () => {
+    const { token, em, service } = setup()
+    Object.assign(token, { tokenLookupHash: scimTokenLookupHash(rawToken) })
+    const listed = await service.listTokens('config-1', scope)
+    expect(listed[0]).not.toHaveProperty('tokenLookupHash')
+    expect(listed[0]).not.toHaveProperty('tokenHash')
+    expect(listed[0]).not.toHaveProperty('token')
+    await service.verifyToken(rawToken)
+    expect(em.nativeUpdate).not.toHaveBeenCalled()
+  })
+
   it('invalidates pre-auth entries on scoped revocation and continues to verify active state', async () => {
     const { cache, service } = setup()
     await service.verifyToken(rawToken)
     await runWithCacheTenant('tenant-1', () => service.revokeToken('token-1', scope))
     expect(await readScimAdmissionKey(cache, rawToken)).toBeNull()
     expect(await service.verifyToken(rawToken)).toBeNull()
+  })
+
+  it('keeps wrong-organization revocation from invalidating another scope', async () => {
+    const { token, em, cache, service } = setup()
+    em.findOne.mockImplementation(async (_entity: unknown, where: Record<string, unknown>) => where.organizationId === token.organizationId ? token : null)
+    const invalidate = jest.spyOn(cache, 'deleteByTags')
+    await expect(service.revokeToken('token-1', { ...scope, organizationId: 'org-2' })).rejects.toMatchObject({ statusCode: 404 })
+    expect(token.isActive).toBe(true)
+    expect(em.flush).not.toHaveBeenCalled()
+    expect(invalidate).not.toHaveBeenCalled()
   })
 
   it.each([false, true])('keeps committed revocation successful when cache invalidation fails (telemetry throws: %s)', async (telemetryThrows) => {

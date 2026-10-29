@@ -3,7 +3,7 @@ import type { CacheStrategy } from '@open-mercato/cache'
 import { runWithCacheTenant } from '@open-mercato/cache'
 import { readRateLimitConfig } from '@open-mercato/shared/lib/ratelimit/config'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
-import { SCIM_ADMISSION_TTL_MS, scimAdmissionCacheKey, scimAdmissionTokenTag } from '../lib/scim-admission-cache'
+import { SCIM_ADMISSION_TTL_MS, scimAdmissionCacheKey, scimAdmissionTokenTag, scimAdmissionTokenKey, scimTokenLookupHash } from '../lib/scim-admission-cache'
 import type { RequiredEntityData } from '@mikro-orm/core'
 import { EntityManager } from '@mikro-orm/postgresql'
 import { hash, compare } from 'bcryptjs'
@@ -57,6 +57,7 @@ export class ScimTokenService {
       ssoConfigId,
       name,
       tokenHash,
+      tokenLookupHash: scimTokenLookupHash(raw),
       tokenPrefix,
       isActive: true,
       createdBy: null,
@@ -87,14 +88,34 @@ export class ScimTokenService {
     }
 
     for (const candidate of candidates) {
-      const isValid = await compare(rawToken, candidate.tokenHash)
+      const tokenHash = candidate.tokenHash
+      const isValid = await compare(rawToken, tokenHash)
       if (isValid) {
+        if (candidate.tokenLookupHash == null) {
+          const tokenLookupHash = scimTokenLookupHash(rawToken)
+          const updated = await this.em.nativeUpdate(ScimToken, {
+            id: candidate.id,
+            tenantId: candidate.tenantId ?? null,
+            organizationId: candidate.organizationId,
+            ssoConfigId: candidate.ssoConfigId,
+            tokenHash,
+            isActive: true,
+            $or: [{ tokenLookupHash: null }, { tokenLookupHash }],
+          }, { tokenLookupHash }).catch(() => {
+            const error = new Error('[internal] SCIM token enrollment unavailable')
+            try {
+              getTelemetryRuntime()?.reportError(error, { module: 'sso', code: 'sso.scim_enrollment_unavailable' })
+            } catch {}
+            throw error
+          })
+          if (updated === 0) return null
+        }
         const cache = this.cache
         if (cache && readRateLimitConfig().enabled) {
           try {
             await runWithCacheTenant(null, () => cache.set(
               scimAdmissionCacheKey(rawToken),
-              `token:${candidate.tenantId ?? 'global'}:${candidate.organizationId}:${candidate.id}`,
+              scimAdmissionTokenKey(candidate),
               { ttl: SCIM_ADMISSION_TTL_MS, tags: [scimAdmissionTokenTag(candidate.id)] },
             ))
           } catch (error) {

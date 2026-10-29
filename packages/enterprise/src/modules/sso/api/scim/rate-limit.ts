@@ -1,3 +1,5 @@
+import type { EntityManager } from '@mikro-orm/postgresql'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { CacheStrategy } from '@open-mercato/cache'
 import { getCachedRateLimiterService } from '@open-mercato/core/bootstrap'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
@@ -14,7 +16,8 @@ import {
   RATE_LIMIT_UNAVAILABLE_FALLBACK,
 } from '@open-mercato/shared/lib/ratelimit/helpers'
 import { buildScimError, scimJson } from '../../lib/scim-response'
-import { readScimAdmissionKey } from '../../lib/scim-admission-cache'
+import { readScimAdmissionKey, scimAdmissionTokenKey, scimTokenLookupHash } from '../../lib/scim-admission-cache'
+import { ScimToken } from '../../data/entities'
 
 const admissions = new WeakMap<Request, Promise<Response | null>>()
 
@@ -74,6 +77,14 @@ async function resolveScimRateLimitKey(req: Request, clientIp: string | null): P
     const cache = container.resolve<CacheStrategy>('cache')
     const verifiedKey = await readScimAdmissionKey(cache, rawToken)
     if (verifiedKey) return verifiedKey
+    const em = container.resolve<EntityManager>('em')
+    const token = await findOneWithDecryption(em, ScimToken, {
+      tokenLookupHash: scimTokenLookupHash(rawToken),
+      isActive: true,
+    }, { fields: ['id', 'tenantId', 'organizationId'] }).catch(() => {
+      throw new Error('[internal] SCIM fingerprint lookup unavailable')
+    })
+    if (token) return scimAdmissionTokenKey(token)
   }
   return clientIp ?? RATE_LIMIT_FALLBACK_KEY
 }

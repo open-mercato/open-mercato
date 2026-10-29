@@ -8,6 +8,7 @@ import { RateLimiterService } from '@open-mercato/shared/lib/ratelimit/service'
 import { ScimTokenService } from '@open-mercato/enterprise/modules/sso/services/scimTokenService'
 import { ApiKey } from '@open-mercato/core/modules/api_keys/data/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { scimTokenLookupHash } from '@open-mercato/enterprise/modules/sso/lib/scim-admission-cache'
 import { ScimToken } from '@open-mercato/enterprise/modules/sso/data/entities'
 import * as usersRoute from '@open-mercato/enterprise/modules/sso/api/scim/v2/Users/route'
 import * as userRoute from '@open-mercato/enterprise/modules/sso/api/scim/v2/Users/[id]/route'
@@ -83,6 +84,7 @@ describe('SCIM admission through the API dispatcher', () => {
   const findOne = jest.fn()
   const listUsers = jest.fn()
   let limiter: RateLimiterService
+  let admissionCache: ReturnType<typeof createCacheService>
 
   beforeEach(() => {
     for (const key of configKeys) delete process.env[key]
@@ -93,8 +95,9 @@ describe('SCIM admission through the API dispatcher', () => {
     jest.mocked(getCachedRateLimiterService).mockReturnValue(limiter)
     find.mockImplementation(async (entity: unknown) => entity === ApiKey ? [{ keyHash: 'known-hash' }] : [])
     findOne.mockResolvedValue(null)
-    const em = { find, findOne } as unknown as EntityManager
+    const em = { find, findOne, nativeUpdate: jest.fn().mockResolvedValue(1) } as unknown as EntityManager
     const cache = createCacheService({ strategy: 'memory' })
+    admissionCache = cache
     const tokenService = new ScimTokenService(em, cache)
     jest.mocked(createRequestContainer).mockResolvedValue({
       resolve: (name: string) => {
@@ -155,7 +158,7 @@ describe('SCIM admission through the API dispatcher', () => {
   it('isolates a verified SCIM bearer from active-prefix forgeries before generic credential work', async () => {
     const rawToken = `omscim_${'a'.repeat(64)}`
     const wrongSuffix = `${rawToken.slice(0, 12)}${'c'.repeat(59)}`
-    findOne.mockResolvedValue({ id: 'config-1', organizationId: 'org-1', tenantId: 'tenant-1', isActive: true, jitEnabled: false })
+    findOne.mockImplementation(async (entity: unknown) => entity === ScimToken ? null : { id: 'config-1', organizationId: 'org-1', tenantId: 'tenant-1', isActive: true, jitEnabled: false })
     find.mockImplementation(async (entity: unknown) => entity === ApiKey
       ? [{ keyHash: 'known-hash' }]
       : [{ id: 'active-token', tokenHash: 'scim-hash', ssoConfigId: 'config-1', organizationId: 'org-1', tenantId: 'tenant-1' }])
@@ -173,8 +176,34 @@ describe('SCIM admission through the API dispatcher', () => {
     expect((await dispatch(operations[0], 12, usersRoute, 'route-file', rawToken)).status).toBe(200)
     expect(consume).toHaveBeenCalledTimes(1)
     expect(listUsers).toHaveBeenLastCalledWith(null, 1, 100, expect.objectContaining({ organizationId: 'org-1', tenantId: 'tenant-1' }), 'http://localhost')
-    expect(findOne.mock.calls.filter(([entity]) => entity === ScimToken)).toHaveLength(0)
+    expect(findOne.mock.calls.filter(([entity]) => entity === ScimToken)).toHaveLength(12)
     expect(mockCompare).toHaveBeenCalledWith(rawToken, 'scim-hash')
+  })
+
+  it('admits a never-seen enrolled bearer through the dispatcher after fallback exhaustion and cache loss', async () => {
+    for (let index = 0; index < 10; index++) expect((await dispatch(operations[0], index)).status).toBe(401)
+    expect((await dispatch(operations[0], 10)).status).toBe(429)
+    const rawToken = `omscim_${'e'.repeat(64)}`
+    const tokenLookupHash = scimTokenLookupHash(rawToken)
+    findOne.mockImplementation(async (entity: unknown, where: Record<string, unknown>) => entity === ScimToken
+      ? where.tokenLookupHash === tokenLookupHash ? { id: 'cold-token', tenantId: 'tenant-1', organizationId: 'org-1' } : null
+      : { id: 'config-1', organizationId: 'org-1', isActive: true, jitEnabled: false })
+    find.mockImplementation(async (entity: unknown) => entity === ApiKey ? [{ keyHash: 'known-hash' }]
+      : [{ id: 'cold-token', tokenLookupHash, tokenHash: 'scim-hash', ssoConfigId: 'config-1', organizationId: 'org-1', tenantId: 'tenant-1' }])
+    mockCompare.mockImplementation(async (raw: string, tokenHash: string) => raw === rawToken && tokenHash === 'scim-hash')
+    listUsers.mockResolvedValue({ Resources: [], totalResults: 0 })
+    const consume = jest.spyOn(limiter, 'consume')
+    expect((await dispatch(operations[0], 11, usersRoute, 'route-file', rawToken)).status).toBe(200)
+    expect(consume).toHaveBeenCalledTimes(1)
+    await admissionCache.clear()
+    expect((await dispatch(operations[0], 12, usersRoute, 'route-file', rawToken)).status).toBe(200)
+    expect(consume).toHaveBeenCalledTimes(2)
+    find.mockClear()
+    mockCompare.mockClear()
+    expect((await dispatch(operations[0], 13, usersRoute, 'route-file', `${rawToken.slice(0, 12)}${'f'.repeat(59)}`)).status).toBe(429)
+    expect(find).not.toHaveBeenCalled()
+    expect(mockCompare).not.toHaveBeenCalled()
+    expect(listUsers).toHaveBeenLastCalledWith(null, 1, 100, expect.objectContaining({ organizationId: 'org-1', tenantId: 'tenant-1' }), 'http://localhost')
   })
 
   it('charges once per request and bounds rotating generic API keys across a burst', async () => {
