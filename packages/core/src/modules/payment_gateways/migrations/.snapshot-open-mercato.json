@@ -558,6 +558,19 @@
           "keyName": "gateway_session_initializations_scope_operation_unique",
           "primary": false,
           "unique": true
+        },
+        {
+          "columnNames": [
+            "tenant_id",
+            "organization_id",
+            "updated_at",
+            "id"
+          ],
+          "composite": true,
+          "constraint": false,
+          "keyName": "gateway_session_initializations_retention_idx",
+          "primary": false,
+          "unique": false
         }
       ],
       "checks": [],
