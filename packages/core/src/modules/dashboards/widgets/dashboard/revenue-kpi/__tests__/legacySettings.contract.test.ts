@@ -1,3 +1,7 @@
+import { spawnSync } from 'node:child_process'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { dirname, join, resolve } from 'node:path'
 import * as aov from '../../aov-kpi/config'
 import * as customers from '../../new-customers-kpi/config'
 import * as statuses from '../../orders-by-status/config'
@@ -26,8 +30,25 @@ const legacyInputs = [
 ]
 
 describe('legacy analytics settings input contract', () => {
-  test.each(legacyInputs)('accepts settings without the new date-range mode', (settings) => {
-    expect(settings).not.toHaveProperty('dateRangeMode')
-    expect(settings).toHaveProperty('dateRange')
+  test('typechecks every legacy settings input without the new date-range mode', () => {
+    const packageRoot = resolve(__dirname, '../../../../../../..')
+    const directory = mkdtempSync(join(tmpdir(), 'dashboard-settings-contract-'))
+    const configPath = join(directory, 'tsconfig.json')
+    writeFileSync(configPath, JSON.stringify({
+      extends: join(packageRoot, 'tsconfig.json'),
+      compilerOptions: { incremental: false, types: ['jest', 'node', 'react'] },
+      include: [__filename],
+      exclude: [],
+    }))
+    try {
+      const compiler = join(dirname(require.resolve('typescript/package.json')), 'bin/tsc')
+      const result = spawnSync(process.execPath, [compiler, '--project', configPath], { cwd: packageRoot, encoding: 'utf8' })
+
+      expect(legacyInputs).toHaveLength(9)
+      expect(result.error).toBeUndefined()
+      expect({ status: result.status, output: result.stdout + result.stderr }).toEqual({ status: 0, output: '' })
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
   })
 })
