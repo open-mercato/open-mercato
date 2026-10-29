@@ -24,7 +24,7 @@ function makeContext(currencyDecimalPlaces: number | null) {
       gatewayProviderKey: 'stripe',
       isLocked: true,
     })),
-    getConnection: () => ({ execute: jest.fn(async () => [{ id: LINK_ID }]) }),
+    execute: jest.fn(async () => [{ active_reservation_count: 1 }]),
     create: jest.fn((_entity: unknown, data: Record<string, unknown>) => {
       const record = { id: 'tx-1', ...data }
       created.push(record)
