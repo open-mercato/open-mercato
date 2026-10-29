@@ -179,10 +179,17 @@ for (const entityKind of ['people', 'companies'] as const) {
       const offboarded = { name: `${marker}-offboarded`, email: `${marker}-offboarded@example.com` }
       const offboardedUserId = await create(home, '/api/auth/users', { ...offboarded, password: 'StrongSecret123!', tenantId: actor.tenantId, organizationId: actor.organizationId })
       const offboardedId = await create(home, ACTIVITIES, { entityId, activityType: 'note', subject: `${marker}-history`, authorUserId: offboardedUserId })
-      const offboardedResponse = await scopedRequest(request, home, 'DELETE', `/api/auth/users?id=${offboardedUserId}`, { id: offboardedUserId })
-      expect(offboardedResponse.status(), 'the historical author fixture should be soft-deleted').toBe(200)
 
       try {
+        await withClient(async (client) => {
+          const offboardedUser = await client.query<{ id: string; deleted_at: Date | null }>(
+            'update users set deleted_at = now() where id = $1 and tenant_id = $2 and organization_id = $3 and deleted_at is null returning id, deleted_at',
+            [offboardedUserId, actor.tenantId, actor.organizationId],
+          )
+          expect(offboardedUser.rowCount, 'exactly the owned author fixture should be soft-deleted').toBe(1)
+          expect(offboardedUser.rows[0]?.id).toBe(offboardedUserId)
+          expect(offboardedUser.rows[0]?.deleted_at).toBeTruthy()
+        })
         for (const user of foreign) {
           const canonicalId = await create(home, ACTIVITIES, { entityId, activityType: 'note', subject: marker, authorUserId: local.id })
           const legacyId = randomUUID()
@@ -225,6 +232,11 @@ for (const entityKind of ['people', 'companies'] as const) {
         }
       } finally {
         await withClient(async (client) => {
+          const restoredUser = await client.query(
+            'update users set deleted_at = null where id = $1 and tenant_id = $2 and organization_id = $3',
+            [offboardedUserId, actor.tenantId, actor.organizationId],
+          )
+          expect(restoredUser.rowCount, 'the owned author fixture should remain available for API cleanup').toBe(1)
           await client.query(
             'delete from customer_activities where id = any($1::uuid[]) and tenant_id = $2 and organization_id = $3',
             [legacyIds, actor.tenantId, actor.organizationId],
