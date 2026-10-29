@@ -1,4 +1,4 @@
-import { expect, test, type APIRequestContext } from '@playwright/test'
+import { expect, test, request as playwrightRequest, type APIRequestContext } from '@playwright/test'
 import { randomUUID } from 'node:crypto'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import {
@@ -170,16 +170,21 @@ test.describe('TC-SALES-2979: bulk order-line upsert over HTTP', () => {
   for (const role of ['admin', 'superadmin', 'employee'] as const) {
     test(`a rejected organization selection refuses every batch operation for ${role} (#8015)`, async ({ request }) => {
       const token = await getAuthToken(request, role)
-      test.skip(!(await canManageSalesOrders(request, token)), 'sales.orders.manage not granted on this tenant')
-      const organizationId = getTokenContext(token).organizationId
-      expect(organizationId, 'the positive control requires a home organization').toBeTruthy()
+      const fixtureToken = await getAuthToken(request, 'admin')
+      const organizationId = getTokenContext(fixtureToken).organizationId
+      expect(organizationId, 'the positive control requires a selected fixture organization').toBeTruthy()
+      const scopedRequest = await playwrightRequest.newContext({
+        baseURL: process.env.BASE_URL,
+        extraHTTPHeaders: { Cookie: `om_selected_org=${organizationId}` },
+      })
       let orderId: string | null = null
 
       try {
-        orderId = await createSalesOrderFixture(request, token, CURRENCY)
-        const lineId = await createOrderLineFixture(request, token, orderId, body('Unchanged line', 2, 10))
-        const beforeLines = await readLines(request, token, orderId)
-        const beforeOrder = await readOrder(request, token, orderId)
+        test.skip(!(await canManageSalesOrders(scopedRequest, token)), 'sales.orders.manage not granted on this tenant')
+        orderId = await createSalesOrderFixture(scopedRequest, token, CURRENCY)
+        const lineId = await createOrderLineFixture(scopedRequest, token, orderId, body('Unchanged line', 2, 10))
+        const beforeLines = await readLines(scopedRequest, token, orderId)
+        const beforeOrder = await readOrder(scopedRequest, token, orderId)
         const line = body(`Rejected selection ${randomUUID()}`, 3, 15)
         const headers = { Cookie: `om_selected_org=${randomUUID()}` }
         const batches = [
@@ -188,7 +193,7 @@ test.describe('TC-SALES-2979: bulk order-line upsert over HTTP', () => {
           { lines: [], deleteIds: [lineId] },
         ]
 
-        const perLineResponse = await apiRequest(request, 'POST', LINES_PATH, {
+        const perLineResponse = await apiRequest(scopedRequest, 'POST', LINES_PATH, {
           token, headers, data: { orderId, ...line },
         })
         expect(perLineResponse.status()).toBe(422)
@@ -196,7 +201,7 @@ test.describe('TC-SALES-2979: bulk order-line upsert over HTTP', () => {
           .toBe('organization_selection_invalid')
 
         for (const batch of batches) {
-          const response = await apiRequest(request, 'POST', BATCH_PATH, {
+          const response = await apiRequest(scopedRequest, 'POST', BATCH_PATH, {
             token, headers, data: { orderId, ...batch },
           })
 
@@ -204,21 +209,22 @@ test.describe('TC-SALES-2979: bulk order-line upsert over HTTP', () => {
           expect((await readJsonSafe<{ code?: string }>(response))?.code)
             .toBe('organization_selection_invalid')
           expect(response.headers()['set-cookie'] ?? '').not.toContain('om_selected_org=')
-          expect(fingerprint(await readLines(request, token, orderId))).toBe(fingerprint(beforeLines))
-          const afterOrder = await readOrder(request, token, orderId)
+          expect(fingerprint(await readLines(scopedRequest, token, orderId))).toBe(fingerprint(beforeLines))
+          const afterOrder = await readOrder(scopedRequest, token, orderId)
           expect([orderNetOf(afterOrder), orderGrossOf(afterOrder), orderLineCountOf(afterOrder)])
             .toEqual([orderNetOf(beforeOrder), orderGrossOf(beforeOrder), orderLineCountOf(beforeOrder)])
         }
 
-        const selectedResponse = await apiRequest(request, 'POST', BATCH_PATH, {
+        const selectedResponse = await apiRequest(scopedRequest, 'POST', BATCH_PATH, {
           token,
           headers: { Cookie: `om_selected_org=${organizationId}` },
           data: { orderId, lines: [line] },
         })
         expect(selectedResponse.status()).toBe(200)
-        expect((await readLines(request, token, orderId)).length).toBe(beforeLines.length + 1)
+        expect((await readLines(scopedRequest, token, orderId)).length).toBe(beforeLines.length + 1)
       } finally {
-        await deleteSalesEntityIfExists(request, token, ORDERS_PATH, orderId)
+        await deleteSalesEntityIfExists(scopedRequest, token, ORDERS_PATH, orderId)
+        await scopedRequest.dispose()
       }
     })
   }
