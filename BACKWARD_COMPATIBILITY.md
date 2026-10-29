@@ -608,3 +608,7 @@ Clients send WebAuthn responses; operators audit stored-key provenance and re-en
 | Event IDs, database schema, ACL features, notification types, AI agent and tool IDs, CLI commands | No change | ✓ n/a |
 
 **Migration path for existing modules**: none for first-party code. Third-party modules must not register an integration or bundle id that ends in `__oauth_grant` (see `UPGRADE_NOTES.md`).
+
+## #7220
+
+[Cache fix](UPGRADE_NOTES.md)

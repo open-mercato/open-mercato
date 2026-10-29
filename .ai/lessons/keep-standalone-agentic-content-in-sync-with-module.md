@@ -1,8 +1,8 @@
 ---
 title: "Keep standalone agentic content in sync with module conventions"
 modules: ["create_app","documents","events","cli"]
-areas: ["architecture","framework-context","testing"]
-topics: ["auto-discovery","events","generated-files","package-runtime","session-export","context-budgets"]
+areas: ["architecture","framework-context"]
+topics: ["auto-discovery","generated-files","package-runtime","session-export","testing","context-budget"]
 ---
 
 # Keep standalone agentic content in sync with module conventions
@@ -17,4 +17,6 @@ When an enabled package-backed module adds a generated fact sheet, add or expand
 
 **Applies to**: `packages/create-app/agentic/shared/`, `packages/create-app/agentic/claude-code/`, `packages/create-app/agentic/codex/`, `packages/create-app/agentic/cursor/`.
 
-**Context budgets**: When a release-matched contract document grows, measure each affected case's existing exact required and allowed files in a fresh scaffold. First remove duplicated release-specific prose with precise links and use equivalent Markdown table formatting without changing policy or cells. If knowledge growth still requires a cap change, adjust only overflowing total caps with bounded measured headroom; preserve initial budgets and read sets, report cases independently, and retain the unmodified knowledge-change controller's failing-base/passing-head evidence. Validate concurrently prepared release entries in one materialized document, counting shared formatting savings only once. A deterministic pass does not establish the full packed-preset or certified release gate.
+Compatibility guidance is also retrieved by standalone harness cases. Adding to root `BACKWARD_COMPATIBILITY.md` increases their required context even when no create-app source changes. Keep compatibility summaries concise and link rollout detail in `UPGRADE_NOTES.md`; run `packages/create-app/src/lib/compatibility-context-budget.test.ts` after such additions. Preserve the existing context caps rather than increasing them to accommodate verbose notes.
+
+Measure concurrently prepared release entries in one materialized document, counting shared formatting savings once. Preserve initial budgets, read sets and containment. A deterministic pass does not establish packed-preset or certified release evidence.
