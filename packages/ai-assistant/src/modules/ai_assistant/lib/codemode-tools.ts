@@ -835,8 +835,18 @@ export function createApiRequestFn(
       method: normalizedMethod,
       headers,
       body: requestBody ? JSON.stringify(requestBody) : undefined,
+      redirect: 'manual',
       timeoutMs: resolveAiApiRequestTimeoutMs(),
     })
+
+    if (response.status >= 300 && response.status < 400) {
+      await response.body?.cancel()
+      return {
+        success: false,
+        statusCode: response.status,
+        error: `API redirect ${response.status} blocked`,
+      }
+    }
 
     const responseText = await response.text()
     const data = tryParseJson(responseText)
