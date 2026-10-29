@@ -119,4 +119,4 @@ Spec § Implementation Plan → Phase 1, steps 1–11. Read the spec's Decisions
 
 - [x] 4.1 Product page suggestion card — 8df6b1c6ea
 - [x] 4.2 Integration tests — c75764134c (written, typechecked; execution blocked by env constraints, see spec changelog)
-- [ ] 4.3 Spec sync and full gate
+- [x] 4.3 Spec sync and full gate — 9becf795c3 (local runner: full typecheck, @open-mercato/core 2513/2513 suites, i18n:check-sync/usage, build:packages x2, generate, build:app all green; @open-mercato/cli's aggregate yarn test failure reproduced as pre-existing machine-contention flakiness, not a regression — see commit message)
