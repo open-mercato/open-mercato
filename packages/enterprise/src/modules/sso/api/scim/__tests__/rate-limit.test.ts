@@ -3,12 +3,15 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { RateLimiterService } from '@open-mercato/shared/lib/ratelimit/service'
 import { ScimTokenService } from '../../../services/scimTokenService'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { ScimToken } from '../../../data/entities'
+import { checkScimRateLimit } from '../rate-limit'
 import { GET as listUsers, POST as createUser } from '../v2/Users/route'
 import { GET as getUser, PATCH as patchUser, DELETE as deleteUser } from '../v2/Users/[id]/route'
 import { GET as getCapabilities } from '../v2/ServiceProviderConfig/route'
 
 const mockHash = jest.fn().mockResolvedValue('hashed-token')
 const mockCompare = jest.fn().mockResolvedValue(false)
+const mockReportError = jest.fn()
 
 jest.mock('bcryptjs', () => ({
   hash: (...args: unknown[]) => mockHash(...args),
@@ -16,6 +19,12 @@ jest.mock('bcryptjs', () => ({
 }))
 jest.mock('@open-mercato/core/bootstrap', () => ({ getCachedRateLimiterService: jest.fn() }))
 jest.mock('@open-mercato/shared/lib/di/container', () => ({ createRequestContainer: jest.fn() }))
+jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
+  findOneWithDecryption: (manager: { findOne: (...args: unknown[]) => Promise<unknown> }, ...args: unknown[]) => manager.findOne(...args),
+}))
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  getTelemetryRuntime: () => ({ reportError: mockReportError }),
+}))
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: async () => ({ translate: (_key: string, fallback: string) => fallback }),
 }))
@@ -43,7 +52,7 @@ function request(method = 'GET', path = 'Users', headers: Record<string, string>
 }
 
 describe('SCIM pre-verification rate limit', () => {
-  const configKeys = ['RATE_LIMIT_SCIM_POINTS', 'RATE_LIMIT_SCIM_DURATION', 'RATE_LIMIT_SCIM_BLOCK_DURATION']
+  const configKeys = ['RATE_LIMIT_SCIM_POINTS', 'RATE_LIMIT_SCIM_DURATION', 'RATE_LIMIT_SCIM_BLOCK_DURATION', 'RATE_LIMIT_ENABLED', 'OM_INTEGRATION_TEST']
   const originalConfig = Object.fromEntries(configKeys.map((key) => [key, process.env[key]]))
   let limiter: RateLimiterService
   const find = jest.fn()
@@ -59,6 +68,7 @@ describe('SCIM pre-verification rate limit', () => {
   beforeEach(() => {
     for (const key of configKeys) delete process.env[key]
     jest.clearAllMocks()
+    mockReportError.mockReset()
     jest.useFakeTimers({ now: new Date('2026-10-27T12:00:00Z') })
     limiter = new RateLimiterService({ enabled: true, strategy: 'memory', keyPrefix: 'test-scim', trustProxyDepth: 0 })
     jest.mocked(getCachedRateLimiterService).mockReturnValue(limiter)
@@ -87,7 +97,7 @@ describe('SCIM pre-verification rate limit', () => {
     }
   })
 
-  it.each(operations)('blocks $name before further bcrypt or provisioning work', async ({ method, path, run }) => {
+  it.each(operations.filter((operation) => operation.name !== 'capabilities'))('blocks $name before further bcrypt or provisioning work', async ({ method, path, run }) => {
     for (let index = 0; index < 10; index++) {
       const response = await listUsers(request('GET', 'Users', { authorization: `Bearer invalid-${index}` }))
       expect(response.status).toBe(401)
@@ -113,17 +123,145 @@ describe('SCIM pre-verification rate limit', () => {
     expect(provisioningService.deleteUser).not.toHaveBeenCalled()
   })
 
-  it('shares the discovery budget and ignores spoofed forwarding headers without proxy trust', async () => {
+  it('isolates discovery and ignores spoofed forwarding headers without proxy trust', async () => {
     for (let index = 0; index < 10; index++) {
       const response = await getCapabilities(request('GET', 'ServiceProviderConfig', { 'x-forwarded-for': `192.0.2.${index}` }))
       expect(response.status).toBe(200)
     }
 
-    const response = await listUsers(request('GET', 'Users', { 'x-real-ip': '198.51.100.1' }))
+    const response = await getCapabilities(request('GET', 'ServiceProviderConfig', { 'x-real-ip': '198.51.100.1' }))
 
     expect(response.status).toBe(429)
     expect(mockHash).not.toHaveBeenCalled()
     expect(createRequestContainer).not.toHaveBeenCalled()
+    expect((await listUsers(request())).status).toBe(401)
+  })
+
+  it('admits an active token after anonymous discovery exhausts its separate default bucket', async () => {
+    const rawToken = `omscim_${'a'.repeat(64)}`
+    findOne.mockImplementation(async (entity: unknown) => entity === ScimToken
+      ? { id: 'token-1' }
+      : { id: 'config-1', organizationId: 'org-1', tenantId: 'tenant-1', isActive: true, jitEnabled: false })
+    find.mockResolvedValue([{ tokenHash: 'stored-hash', ssoConfigId: 'config-1', organizationId: 'org-1', tenantId: 'tenant-1' }])
+    mockCompare.mockResolvedValue(true)
+    provisioningService.listUsers.mockResolvedValue({ Resources: [], totalResults: 0 })
+    for (let index = 0; index < 10; index++) {
+      expect((await getCapabilities(request('GET', 'ServiceProviderConfig', { authorization: '' }))).status).toBe(200)
+    }
+    expect((await getCapabilities(request('GET', 'ServiceProviderConfig', { authorization: '' }))).status).toBe(429)
+
+    const response = await listUsers(request('GET', 'Users', { authorization: `Bearer ${rawToken}` }))
+
+    expect(response.status).toBe(200)
+    expect(provisioningService.listUsers).toHaveBeenCalledWith(null, 1, 100, expect.objectContaining({ tenantId: 'tenant-1', organizationId: 'org-1' }), 'http://localhost')
+    expect(mockCompare).toHaveBeenCalledWith(rawToken, 'stored-hash')
+  })
+
+  it('admits active-token provisioning after unknown credentials exhaust the default fallback', async () => {
+    for (let index = 0; index < 10; index++) expect((await listUsers(request())).status).toBe(401)
+    expect((await listUsers(request())).status).toBe(429)
+    const rawToken = `omscim_${'b'.repeat(64)}`
+    findOne.mockImplementation(async (entity: unknown) => entity === ScimToken
+      ? { id: 'token-2' }
+      : { id: 'config-2', organizationId: 'org-2', tenantId: 'tenant-2', isActive: true, jitEnabled: false })
+    find.mockResolvedValue([{ tokenHash: 'stored-hash', ssoConfigId: 'config-2', organizationId: 'org-2', tenantId: 'tenant-2' }])
+    mockCompare.mockResolvedValue(true)
+    provisioningService.listUsers.mockResolvedValue({ Resources: [], totalResults: 0 })
+
+    const response = await listUsers(request('GET', 'Users', { authorization: `Bearer ${rawToken}` }))
+
+    expect(response.status).toBe(200)
+    expect(provisioningService.listUsers).toHaveBeenCalledWith(null, 1, 100, expect.objectContaining({ tenantId: 'tenant-2', organizationId: 'org-2' }), 'http://localhost')
+    expect(findOne).toHaveBeenCalledWith(ScimToken, { tokenPrefix: rawToken.slice(0, 12), isActive: true }, { fields: ['id'] })
+  })
+
+  it('isolates active prefixes without creating keys from arbitrary credentials or retaining token material', async () => {
+    const rawTokens = [`omscim_${'a'.repeat(64)}`, `omscim_${'b'.repeat(64)}`]
+    const activePrefixes = new Set(rawTokens.map((rawToken) => rawToken.slice(0, 12)))
+    const consume = jest.spyOn(limiter, 'consume')
+    findOne.mockImplementation(async (entity: unknown, where: Record<string, unknown>) => {
+      if (entity === ScimToken) return activePrefixes.has(String(where.tokenPrefix)) ? { id: 'active-token' } : null
+      const scopeNumber = where.id === 'config-2' ? 2 : 1
+      return { id: `config-${scopeNumber}`, organizationId: `org-${scopeNumber}`, tenantId: `tenant-${scopeNumber}`, isActive: true, jitEnabled: false }
+    })
+    find.mockImplementation(async (_entity: unknown, where: Record<string, unknown>) => {
+      if (!activePrefixes.has(String(where.tokenPrefix))) return []
+      const scopeNumber = where.tokenPrefix === rawTokens[1].slice(0, 12) ? 2 : 1
+      return [{ tokenHash: 'stored-hash', ssoConfigId: `config-${scopeNumber}`, organizationId: `org-${scopeNumber}`, tenantId: `tenant-${scopeNumber}` }]
+    })
+    mockCompare.mockResolvedValue(true)
+    provisioningService.listUsers.mockResolvedValue({ Resources: [], totalResults: 0 })
+    for (let index = 0; index < 10; index++) {
+      expect((await listUsers(request('GET', 'Users', { authorization: `Bearer ${rawTokens[0]}` }))).status).toBe(200)
+    }
+    expect((await listUsers(request('GET', 'Users', { authorization: `Bearer ${rawTokens[0]}` }))).status).toBe(429)
+    expect((await listUsers(request('GET', 'Users', { authorization: `Bearer ${rawTokens[1]}` }))).status).toBe(200)
+    expect(provisioningService.listUsers).toHaveBeenLastCalledWith(null, 1, 100, expect.objectContaining({ tenantId: 'tenant-2', organizationId: 'org-2' }), 'http://localhost')
+    for (let index = 0; index < 12; index++) {
+      const unknownToken = `omscim_${(index + 100).toString(16).padStart(6, '0').padEnd(64, 'c')}`
+      expect((await listUsers(request('GET', 'Users', { authorization: `Bearer ${unknownToken}` }))).status).toBe(index < 10 ? 401 : 429)
+    }
+
+    const keys = [...new Set(consume.mock.calls.map(([key]) => key))]
+    expect(keys).toHaveLength(3)
+    expect(keys).toContain('global')
+    expect(keys.filter((key) => /^token:[a-f0-9]{64}$/.test(key))).toHaveLength(2)
+    expect(keys.every((key) => !key.includes('omscim_'))).toBe(true)
+    expect(mockHash).toHaveBeenCalledTimes(10)
+    expect(mockCompare).toHaveBeenCalledTimes(11)
+  })
+
+  it('keeps revoked or unknown prefixes in the bounded fallback', async () => {
+    findOne.mockResolvedValue(null)
+    for (let index = 0; index < 12; index++) {
+      const rawToken = `omscim_${index.toString(16).padStart(6, '0').padEnd(64, 'c')}`
+      expect((await listUsers(request('GET', 'Users', { authorization: `Bearer ${rawToken}` }))).status).toBe(index < 10 ? 401 : 429)
+    }
+
+    expect(findOne).toHaveBeenCalledWith(ScimToken, expect.objectContaining({ isActive: true }), { fields: ['id'] })
+    expect(mockHash).toHaveBeenCalledTimes(10)
+    expect(mockCompare).not.toHaveBeenCalled()
+  })
+
+  it('fails closed and reports active-prefix lookup failures before credential work', async () => {
+    const lookupError = new Error('[internal] Token lookup unavailable')
+    findOne.mockRejectedValue(lookupError)
+    const response = await listUsers(request('GET', 'Users', { authorization: `Bearer omscim_${'a'.repeat(64)}` }))
+
+    expect(response.status).toBe(503)
+    expect(response.headers.get('content-type')).toBe('application/scim+json')
+    expect(await response.json()).toEqual(expect.objectContaining({ status: '503' }))
+    expect(mockReportError).toHaveBeenCalledWith(lookupError, { module: 'sso', code: 'sso.scim_admission_unavailable' })
+    expect(mockHash).not.toHaveBeenCalled()
+    expect(mockCompare).not.toHaveBeenCalled()
+  })
+
+  it('retains the SCIM 503 response when telemetry reporting throws', async () => {
+    findOne.mockRejectedValue(new Error('[internal] Token lookup unavailable'))
+    mockReportError.mockImplementation(() => { throw new Error('[internal] Telemetry sink unavailable') })
+
+    const response = await listUsers(request('GET', 'Users', { authorization: `Bearer omscim_${'a'.repeat(64)}` }))
+
+    expect(response.status).toBe(503)
+    expect(response.headers.get('content-type')).toBe('application/scim+json')
+    expect(await response.json()).toEqual(expect.objectContaining({ status: '503' }))
+    expect(mockReportError).toHaveBeenCalledTimes(1)
+    expect(mockHash).not.toHaveBeenCalled()
+    expect(mockCompare).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    { flag: 'RATE_LIMIT_ENABLED', value: 'false' },
+    { flag: 'OM_INTEGRATION_TEST', value: 'true' },
+  ])('preserves $flag bypass without a limiter or active-prefix lookup', async ({ flag, value }) => {
+    process.env[flag] = value
+    jest.mocked(getCachedRateLimiterService).mockReturnValue(null)
+    findOne.mockRejectedValue(new Error('[internal] Lookup must not run'))
+
+    expect(await checkScimRateLimit(request('GET', 'Users', { authorization: `Bearer omscim_${'a'.repeat(64)}` }))).toBeNull()
+    expect(createRequestContainer).not.toHaveBeenCalled()
+    expect(findOne).not.toHaveBeenCalled()
+    expect(mockReportError).not.toHaveBeenCalled()
   })
 
   it('uses the trusted hop while isolating independent clients', async () => {
@@ -136,6 +274,17 @@ describe('SCIM pre-verification rate limit', () => {
     expect((await listUsers(request('GET', 'Users', { 'x-forwarded-for': '192.0.2.99, 198.51.100.1' }))).status).toBe(429)
     expect((await listUsers(request('GET', 'Users', { 'x-forwarded-for': '198.51.100.2' }))).status).toBe(401)
     expect(mockHash).toHaveBeenCalledTimes(11)
+  })
+
+  it('keeps trusted-IP admission free of active-prefix lookup', async () => {
+    limiter = new RateLimiterService({ enabled: true, strategy: 'memory', keyPrefix: 'test-scim', trustProxyDepth: 1 })
+    jest.mocked(getCachedRateLimiterService).mockReturnValue(limiter)
+    findOne.mockRejectedValue(new Error('[internal] Prefix lookup must not run'))
+
+    expect(await checkScimRateLimit(request('GET', 'Users', {
+      authorization: `Bearer omscim_${'a'.repeat(64)}`, 'x-forwarded-for': '198.51.100.1',
+    }))).toBeNull()
+    expect(createRequestContainer).not.toHaveBeenCalled()
   })
 
   it('allows requests again when the window expires', async () => {

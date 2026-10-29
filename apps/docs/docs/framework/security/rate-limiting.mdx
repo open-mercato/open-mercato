@@ -55,7 +55,9 @@ Routes that must limit work before generic credential lookup can export an optio
 
 The hook receives the original `Request` and `{ method, params }`. Return `null` to continue through normal authentication and authorization, or return a `Response` to stop immediately with its body, status, and headers intact. A thrown error stops the request without resolving credentials. The hook does not authenticate a principal or bypass any later permission checks. It runs for every supported method in that route file, including legacy routes; routes without it keep their existing behavior.
 
-Public SCIM routes use this hook for their shared trusted-IP budget and SCIM error envelopes. Their handler-level fallback reuses the same request's admission promise, so dispatch and handler checks consume one point altogether. When adopting this pattern, avoid charging the same request again in the handler and avoid consuming its body before the handler reads it.
+Public SCIM provisioning routes use this hook for their trusted-IP budget and SCIM error envelopes. Discovery has a separate budget. Without a trusted IP, an indexed active-token-prefix lookup selects a bounded per-prefix bucket; missing, malformed, revoked, and unknown tokens share a fixed fallback. Keys contain only a digest of the public prefix, never the full bearer. Exhausting discovery or unknown traffic therefore does not reject valid-token provisioning in the default no-proxy configuration. The cheap prefix lookup remains necessary to distinguish active tokens even when the unknown bucket is exhausted; lookup failures fail closed with SCIM 503. Forwarding headers remain ignored until the actual proxy depth is configured.
+
+The handler-level fallback reuses the same request's admission promise, so dispatch and handler checks consume one point altogether. When adopting this pattern, avoid charging the same request again in the handler and avoid consuming its body before the handler reads it.
 
 #### 3. Handler-Level (Manual)
 
