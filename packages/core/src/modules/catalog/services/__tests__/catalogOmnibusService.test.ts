@@ -2,9 +2,25 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { createCacheService } from '@open-mercato/cache'
 import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { DefaultCatalogOmnibusService, selectOmnibusCandidates } from '../catalogOmnibusService'
-import { fetchOmnibusFirstOfferIds, fetchOmnibusWindowIds } from '../../lib/omnibusHistoryQueries'
-import type { OmnibusFirstOfferLookup, OmnibusWindowLookup } from '../../lib/omnibusHistoryQueries'
+import {
+  DefaultCatalogOmnibusService,
+  evaluateProgressiveCampaign,
+  resolveNewArrivalLookbackDays,
+  selectOmnibusCandidates,
+  selectPrecedingObservation,
+} from '../catalogOmnibusService'
+import {
+  fetchOmnibusCampaignIds,
+  fetchOmnibusFirstOfferIds,
+  fetchOmnibusPrecedingIds,
+  fetchOmnibusWindowIds,
+} from '../../lib/omnibusHistoryQueries'
+import type {
+  OmnibusCampaignLookup,
+  OmnibusFirstOfferLookup,
+  OmnibusPrecedingLookup,
+  OmnibusWindowLookup,
+} from '../../lib/omnibusHistoryQueries'
 import { invalidateOmnibusCache } from '../../lib/omnibusCache'
 import { omnibusConfigSchema } from '../../lib/omnibusTypes'
 import type {
@@ -34,6 +50,21 @@ type MockHistoryRow = {
 }
 
 const mockHistoryStore: MockHistoryRow[] = []
+
+type MockCatalogRecord = {
+  id: string
+  tenantId: string
+  organizationId: string
+  omnibusExempt?: boolean | null
+  firstListedAt?: Date | null
+  product?: { id: string }
+}
+
+const mockCatalogRecords: Record<'CatalogProduct' | 'CatalogProductVariant' | 'CatalogOffer', MockCatalogRecord[]> = {
+  CatalogProduct: [],
+  CatalogProductVariant: [],
+  CatalogOffer: [],
+}
 
 function mockScopeValue(row: MockHistoryRow, column: OmnibusWindowLookup['scopeColumn']): string | null {
   if (column === 'product_id') return row.productId
@@ -91,15 +122,71 @@ jest.mock('../../lib/omnibusHistoryQueries', () => ({
       return first ? first.id : null
     }),
   ),
+  fetchOmnibusCampaignIds: jest.fn(async (_em: unknown, lookups: OmnibusCampaignLookup[]) =>
+    lookups.map((lookup) => {
+      const sameKind = (row: MockHistoryRow) =>
+        row.tenantId === lookup.tenantId &&
+        row.organizationId === lookup.organizationId &&
+        (lookup.channelId === null || row.channelId === lookup.channelId) &&
+        row.priceKindId === lookup.priceKindId &&
+        row.currencyCode === lookup.currencyCode &&
+        row.changeType !== 'delete'
+      const campaign = mockHistoryStore
+        .filter((row) => sameKind(row) && row.offerId === lookup.offerId)
+        .sort(mockNewestFirst)
+        .reverse()
+      if (!campaign.length) return { campaignIds: [], baselineId: null }
+      const startedAt = campaign[0].recordedAt.getTime()
+      const baseline = mockHistoryStore
+        .filter(
+          (row) =>
+            sameKind(row) &&
+            row.offerId === null &&
+            mockScopeValue(row, lookup.baselineScopeColumn) === lookup.baselineScopeId &&
+            row.recordedAt.getTime() < startedAt,
+        )
+        .sort(mockNewestFirst)[0]
+      return { campaignIds: campaign.map((row) => row.id), baselineId: baseline ? baseline.id : null }
+    }),
+  ),
+  fetchOmnibusPrecedingIds: jest.fn(async (_em: unknown, lookups: OmnibusPrecedingLookup[]) =>
+    lookups.map((lookup) =>
+      mockHistoryStore
+        .filter(
+          (row) =>
+            row.tenantId === lookup.tenantId &&
+            row.organizationId === lookup.organizationId &&
+            mockScopeValue(row, lookup.scopeColumn) === lookup.scopeId &&
+            (lookup.channelId === null || row.channelId === lookup.channelId) &&
+            row.priceKindId === lookup.priceKindId &&
+            row.currencyCode === lookup.currencyCode &&
+            row.changeType !== 'delete' &&
+            row.recordedAt.getTime() < lookup.before.getTime(),
+        )
+        .sort(mockNewestFirst)
+        .slice(0, 2)
+        .map((row) => row.id),
+    ),
+  ),
 }))
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findWithDecryption: jest.fn(
-    async (_em: unknown, _entity: unknown, where: { id: { $in: string[] }; tenantId: string; organizationId: string }) =>
-      mockHistoryStore.filter(
+    async (
+      _em: unknown,
+      entity: { name?: string },
+      where: { id: { $in: string[] }; tenantId: string; organizationId: string },
+    ) => {
+      const name = entity?.name ?? ''
+      const source: Array<{ id: string; tenantId: string; organizationId: string }> =
+        name === 'CatalogProduct' || name === 'CatalogProductVariant' || name === 'CatalogOffer'
+          ? mockCatalogRecords[name]
+          : mockHistoryStore
+      return source.filter(
         (row) =>
           where.id.$in.includes(row.id) && row.tenantId === where.tenantId && row.organizationId === where.organizationId,
-      ),
+      )
+    },
   ),
 }))
 
@@ -123,6 +210,8 @@ const TODAY = new Date('2026-06-10T12:00:00.000Z')
 const em = {} as EntityManager
 const windowIdsMock = fetchOmnibusWindowIds as jest.MockedFunction<typeof fetchOmnibusWindowIds>
 const firstOfferMock = fetchOmnibusFirstOfferIds as jest.MockedFunction<typeof fetchOmnibusFirstOfferIds>
+const campaignIdsMock = fetchOmnibusCampaignIds as jest.MockedFunction<typeof fetchOmnibusCampaignIds>
+const precedingIdsMock = fetchOmnibusPrecedingIds as jest.MockedFunction<typeof fetchOmnibusPrecedingIds>
 const findMock = findWithDecryption as jest.MockedFunction<typeof findWithDecryption>
 
 let rowCounter = 0
@@ -220,9 +309,14 @@ function ctx(overrides: Partial<OmnibusResolutionContext> = {}): OmnibusResoluti
 
 beforeEach(() => {
   mockHistoryStore.length = 0
+  mockCatalogRecords.CatalogProduct.length = 0
+  mockCatalogRecords.CatalogProductVariant.length = 0
+  mockCatalogRecords.CatalogOffer.length = 0
   rowCounter = 0
   windowIdsMock.mockClear()
   firstOfferMock.mockClear()
+  campaignIdsMock.mockClear()
+  precedingIdsMock.mockClear()
   findMock.mockClear()
 })
 
@@ -331,13 +425,8 @@ describe('catalogOmnibusService worked examples', () => {
     expect(day45).toEqual(day10)
   })
 
-  it('E5 — progressive-reduction fields are ignored in MVP and the offer anchors a standard window', async () => {
-    const parsed = omnibusConfigSchema.parse(
-      baseConfig({
-        channels: { [CH_PL]: { presentedPriceKindId: PRICE_KIND, countryCode: 'PL', progressiveReductionRule: true } },
-      }),
-    )
-    expect(parsed.channels[CH_PL]).not.toHaveProperty('progressiveReductionRule')
+  it('E5 — without the progressive rule the offer anchors a standard window', async () => {
+    const parsed = omnibusConfigSchema.parse(baseConfig())
     addRow({ gross: '100.00', recordedAt: '2026-03-01T00:00:00.000Z' })
     addRow({ gross: '100.00', recordedAt: '2026-04-20T00:00:00.000Z' })
     addRow({ gross: '90.00', recordedAt: '2026-05-01T00:00:00.000Z', offerId: OFFER, priceId: PROMO_PRICE_ROW })
@@ -690,5 +779,265 @@ describe('selectOmnibusCandidates tombstones', () => {
     expect(selection.lowestRow?.id).toBe('undone-delete')
     expect(selection.insufficientHistory).toBe(true)
     expect(selection.coverageStartAt).toBe('2026-05-20T00:00:00.000Z')
+  })
+})
+
+describe('catalogOmnibusService member-state derogations', () => {
+  function derogationConfig(channel: Record<string, unknown>): Record<string, unknown> {
+    return baseConfig({
+      channels: { [CH_PL]: { presentedPriceKindId: PRICE_KIND, countryCode: 'PL', ...channel } },
+    })
+  }
+
+  function addProgressiveCampaign(offerGrosses: Array<[string, string]>) {
+    addRow({ gross: '100.00', recordedAt: '2026-03-01T00:00:00.000Z' })
+    addRow({ gross: '100.00', recordedAt: '2026-04-20T00:00:00.000Z' })
+    let current: MockHistoryRow | null = null
+    for (const [gross, recordedAt] of offerGrosses) {
+      current = addRow({ gross, recordedAt, offerId: OFFER, priceId: PROMO_PRICE_ROW })
+    }
+    return current as MockHistoryRow
+  }
+
+  it('E5 — the progressive rule freezes the reference to the price before the first reduction (Art. 6a(5))', async () => {
+    const current = addProgressiveCampaign([
+      ['90.00', '2026-05-01T00:00:00.000Z'],
+      ['80.00', '2026-05-05T00:00:00.000Z'],
+      ['70.00', '2026-05-09T00:00:00.000Z'],
+    ])
+    const block = await buildService(derogationConfig({ progressiveReductionRule: true })).resolveOmnibusBlock(
+      em,
+      ctx(),
+      presentedFrom(current),
+    )
+    expect(block).toMatchObject({
+      applicabilityReason: 'progressive_reduction_frozen',
+      applicable: true,
+      lowestPriceGross: '100.0000',
+      previousPriceGross: '70.0000',
+      promotionAnchorAt: '2026-05-01T00:00:00.000Z',
+      windowStart: '2026-04-01T00:00:00.000Z',
+      windowEnd: '2026-05-01T00:00:00.000Z',
+    })
+    expect(windowIdsMock).not.toHaveBeenCalled()
+  })
+
+  it('falls back to the standard window when the campaign price goes up', async () => {
+    const current = addProgressiveCampaign([
+      ['90.00', '2026-05-01T00:00:00.000Z'],
+      ['95.00', '2026-05-05T00:00:00.000Z'],
+      ['70.00', '2026-05-09T00:00:00.000Z'],
+    ])
+    const block = await buildService(derogationConfig({ progressiveReductionRule: true })).resolveOmnibusBlock(
+      em,
+      ctx(),
+      presentedFrom(current),
+    )
+    expect(block).toMatchObject({ applicabilityReason: 'announced_promotion', lowestPriceGross: '100.0000' })
+    expect(windowIdsMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('falls back to the standard window when a pause exceeds progressiveMaxGapDays', async () => {
+    const current = addProgressiveCampaign([
+      ['90.00', '2026-05-01T00:00:00.000Z'],
+      ['80.00', '2026-05-12T00:00:00.000Z'],
+    ])
+    const service = buildService(derogationConfig({ progressiveReductionRule: true, progressiveMaxGapDays: 10 }))
+    const block = await service.resolveOmnibusBlock(em, ctx(), presentedFrom(current))
+    expect(block?.applicabilityReason).toBe('announced_promotion')
+    const relaxed = buildService(derogationConfig({ progressiveReductionRule: true, progressiveMaxGapDays: 11 }))
+    const frozen = await relaxed.resolveOmnibusBlock(em, ctx(), presentedFrom(current))
+    expect(frozen?.applicabilityReason).toBe('progressive_reduction_frozen')
+  })
+
+  it('perishable goods have no reference on a channel with the exempt rule (Art. 6a(3))', async () => {
+    addRow({ gross: '100.00', recordedAt: '2026-05-20T00:00:00.000Z' })
+    const block = await buildService(derogationConfig({ perishableGoodsRule: 'exempt' })).resolveOmnibusBlock(
+      em,
+      ctx({ omnibusExempt: true }),
+      null,
+      true,
+    )
+    expect(block).toMatchObject({
+      applicabilityReason: 'perishable_exempt',
+      applicable: false,
+      lowestPriceGross: null,
+    })
+    expect(windowIdsMock).not.toHaveBeenCalled()
+  })
+
+  it('perishable goods reference the price immediately before the reduction under last_price', async () => {
+    addRow({ gross: '100.00', recordedAt: '2026-05-01T00:00:00.000Z' })
+    addRow({ gross: '120.00', recordedAt: '2026-05-20T00:00:00.000Z' })
+    const promo = addRow({
+      gross: '90.00',
+      recordedAt: '2026-06-05T00:00:00.000Z',
+      startsAt: '2026-06-05T00:00:00.000Z',
+      priceId: PROMO_PRICE_ROW,
+    })
+    const service = buildService(derogationConfig({ perishableGoodsRule: 'last_price' }))
+    const block = await service.resolveOmnibusBlock(em, ctx({ omnibusExempt: true }), presentedFrom(promo))
+    expect(block).toMatchObject({
+      applicabilityReason: 'perishable_last_price',
+      applicable: true,
+      lowestPriceGross: '120.0000',
+      previousPriceGross: '120.0000',
+      windowEnd: '2026-06-05T00:00:00.000Z',
+    })
+    const standard = await service.resolveOmnibusBlock(em, ctx({ omnibusExempt: false }), presentedFrom(promo))
+    expect(standard).toMatchObject({ applicabilityReason: 'announced_promotion', lowestPriceGross: '100.0000' })
+  })
+
+  it('new arrivals use the configured shorter window (Art. 6a(4))', async () => {
+    addRow({ gross: '80.00', recordedAt: '2026-05-31T00:00:00.000Z' })
+    addRow({ gross: '100.00', recordedAt: '2026-06-01T00:00:00.000Z' })
+    const promo = addRow({
+      gross: '90.00',
+      recordedAt: '2026-06-09T00:00:00.000Z',
+      startsAt: '2026-06-09T00:00:00.000Z',
+      priceId: PROMO_PRICE_ROW,
+    })
+    const service = buildService(derogationConfig({ newArrivalRule: 'shorter_window', newArrivalsLookbackDays: 7 }))
+    const block = await service.resolveOmnibusBlock(
+      em,
+      ctx({ firstListedAt: '2026-05-31T00:00:00.000Z' }),
+      presentedFrom(promo),
+    )
+    expect(block).toMatchObject({
+      applicabilityReason: 'new_arrival_reduced_window',
+      lookbackDays: 7,
+      windowStart: '2026-06-02T00:00:00.000Z',
+      lowestPriceGross: '100.0000',
+    })
+    const established = await service.resolveOmnibusBlock(
+      em,
+      ctx({ firstListedAt: '2026-01-01T00:00:00.000Z' }),
+      presentedFrom(promo),
+    )
+    expect(established).toMatchObject({ applicabilityReason: 'insufficient_history', lookbackDays: 30, lowestPriceGross: '80.0000' })
+  })
+
+  it('new arrivals without a configured window use the time on the market', async () => {
+    addRow({ gross: '80.00', recordedAt: '2026-05-31T00:00:00.000Z' })
+    const promo = addRow({
+      gross: '70.00',
+      recordedAt: '2026-06-09T00:00:00.000Z',
+      startsAt: '2026-06-09T00:00:00.000Z',
+      priceId: PROMO_PRICE_ROW,
+    })
+    const block = await buildService(derogationConfig({ newArrivalRule: 'shorter_window', newArrivalsLookbackDays: null }))
+      .resolveOmnibusBlock(em, ctx({ firstListedAt: '2026-05-31T00:00:00.000Z' }), presentedFrom(promo))
+    expect(block).toMatchObject({ applicabilityReason: 'new_arrival_reduced_window', lookbackDays: 9, lowestPriceGross: '80.0000' })
+  })
+
+  it('loads the exemption from the product and lets a variant override it', async () => {
+    mockCatalogRecords.CatalogProduct.push({ id: PRODUCT, tenantId: TENANT, organizationId: ORG, omnibusExempt: true })
+    mockCatalogRecords.CatalogProductVariant.push({
+      id: VARIANT,
+      tenantId: TENANT,
+      organizationId: ORG,
+      omnibusExempt: null,
+      product: { id: PRODUCT },
+    })
+    addRow({ gross: '100.00', recordedAt: '2026-05-20T00:00:00.000Z', variantId: VARIANT })
+    const service = buildService(derogationConfig({ perishableGoodsRule: 'exempt' }))
+    const inherited = await service.resolveOmnibusBlock(em, ctx({ productId: null, variantId: VARIANT }), null, true)
+    expect(inherited?.applicabilityReason).toBe('perishable_exempt')
+    mockCatalogRecords.CatalogProductVariant[0].omnibusExempt = false
+    const overridden = await service.resolveOmnibusBlock(em, ctx({ productId: null, variantId: VARIANT }), null, true)
+    expect(overridden).toMatchObject({ applicabilityReason: 'insufficient_history', lowestPriceGross: '100.0000' })
+  })
+
+  it('does not load product flags when no channel uses a derogation', async () => {
+    addRow({ gross: '100.00', recordedAt: '2026-05-20T00:00:00.000Z' })
+    await buildService().resolveOmnibusBlock(em, ctx(), null, true)
+    const entityNames = findMock.mock.calls.map((call) => (call[1] as { name?: string }).name)
+    expect(entityNames).not.toContain('CatalogProduct')
+    expect(entityNames).not.toContain('CatalogProductVariant')
+  })
+})
+
+describe('omnibus derogation helpers', () => {
+  function row(id: string, recordedAt: string, gross: string | null, overrides: Partial<OmnibusHistoryRow> = {}): OmnibusHistoryRow {
+    return { id, priceId: PRICE_ROW, changeType: 'update', recordedAt, unitPriceNet: gross, unitPriceGross: gross, ...overrides }
+  }
+
+  it('does not treat a single offer entry or a start above the baseline as progressive', () => {
+    const baseline = row('baseline', '2026-04-01T00:00:00.000Z', '100.00')
+    expect(
+      evaluateProgressiveCampaign({ campaign: [row('a', '2026-05-01T00:00:00.000Z', '90.00')], baseline, axis: 'gross', maxGapDays: 7 }),
+    ).toBeNull()
+    expect(
+      evaluateProgressiveCampaign({
+        campaign: [row('a', '2026-05-01T00:00:00.000Z', '110.00'), row('b', '2026-05-02T00:00:00.000Z', '90.00')],
+        baseline,
+        axis: 'gross',
+        maxGapDays: 7,
+      }),
+    ).toBeNull()
+    expect(
+      evaluateProgressiveCampaign({
+        campaign: [row('b', '2026-05-02T00:00:00.000Z', '90.00'), row('a', '2026-05-01T00:00:00.000Z', '95.00')],
+        baseline: null,
+        axis: 'gross',
+        maxGapDays: 7,
+      }),
+    ).toBeNull()
+  })
+
+  it('orders the campaign chronologically before checking it', () => {
+    const frozen = evaluateProgressiveCampaign({
+      campaign: [row('b', '2026-05-02T00:00:00.000Z', '90.00'), row('a', '2026-05-01T00:00:00.000Z', '95.00')],
+      baseline: row('baseline', '2026-04-01T00:00:00.000Z', '100.00'),
+      axis: 'gross',
+      maxGapDays: 7,
+    })
+    expect(frozen).toEqual({
+      lowestRow: expect.objectContaining({ id: 'baseline' }),
+      previousRow: expect.objectContaining({ id: 'b' }),
+      anchorAt: '2026-05-01T00:00:00.000Z',
+    })
+  })
+
+  it('skips the presented reduction and tombstones when picking the preceding price', () => {
+    const presented: OmnibusPresentedEntry = {
+      priceId: PROMO_PRICE_ROW,
+      changeType: 'update',
+      recordedAt: '2026-06-05T00:00:00.000Z',
+    }
+    const picked = selectPrecedingObservation(
+      [
+        row('promo', '2026-06-05T00:00:00.000Z', '90.00', { priceId: PROMO_PRICE_ROW }),
+        row('deleted', '2026-06-04T00:00:00.000Z', '10.00', { changeType: 'delete' }),
+        row('regular', '2026-06-01T00:00:00.000Z', '120.00'),
+      ],
+      presented,
+    )
+    expect(picked?.id).toBe('regular')
+  })
+
+  it('shortens the window only for products younger than the lookback', () => {
+    const at = new Date('2026-06-10T00:00:00.000Z')
+    const shorter = { presentedPriceKindId: PRICE_KIND, newArrivalRule: 'shorter_window' as const }
+    expect(resolveNewArrivalLookbackDays({ channelConfig: shorter, firstListedAt: new Date('2026-06-01T00:00:00.000Z'), lookbackDays: 30, at })).toBe(9)
+    expect(
+      resolveNewArrivalLookbackDays({
+        channelConfig: { ...shorter, newArrivalsLookbackDays: 45 },
+        firstListedAt: new Date('2026-06-01T00:00:00.000Z'),
+        lookbackDays: 30,
+        at,
+      }),
+    ).toBe(30)
+    expect(resolveNewArrivalLookbackDays({ channelConfig: shorter, firstListedAt: new Date('2026-06-10T00:00:00.000Z'), lookbackDays: 30, at })).toBe(1)
+    expect(resolveNewArrivalLookbackDays({ channelConfig: shorter, firstListedAt: new Date('2026-04-01T00:00:00.000Z'), lookbackDays: 30, at })).toBeNull()
+    expect(resolveNewArrivalLookbackDays({ channelConfig: shorter, firstListedAt: null, lookbackDays: 30, at })).toBeNull()
+    expect(
+      resolveNewArrivalLookbackDays({
+        channelConfig: { presentedPriceKindId: PRICE_KIND },
+        firstListedAt: new Date('2026-06-01T00:00:00.000Z'),
+        lookbackDays: 30,
+        at,
+      }),
+    ).toBeNull()
   })
 })

@@ -66,6 +66,11 @@ import {
   CatalogProduct,
   CatalogProductUnitConversion,
 } from "../../catalog/data/entities";
+import type { CatalogOmnibusService } from "../../catalog/services/catalogOmnibusService";
+import {
+  applyOmnibusSnapshotToLine,
+  resolveOmnibusService,
+} from "../lib/omnibusSnapshot";
 import { Dictionary, DictionaryEntry } from "../../dictionaries/data/entities";
 import { CustomFieldValue } from "@open-mercato/core/modules/entities/data/entities";
 import {
@@ -314,6 +319,12 @@ type QuoteLineSnapshot = {
   metadata: Record<string, unknown> | null;
   customFieldSetId: string | null;
   customFields: Record<string, unknown> | null;
+  omnibusReferenceNet: string | null;
+  omnibusReferenceGross: string | null;
+  omnibusPromotionAnchorAt: string | null;
+  omnibusApplicabilityReason: string | null;
+  isPersonalized: boolean | null;
+  personalizationReason: string | null;
 };
 
 type QuoteAdjustmentSnapshot = {
@@ -436,6 +447,12 @@ type OrderLineSnapshot = {
   metadata: Record<string, unknown> | null;
   customFieldSetId: string | null;
   customFields: Record<string, unknown> | null;
+  omnibusReferenceNet: string | null;
+  omnibusReferenceGross: string | null;
+  omnibusPromotionAnchorAt: string | null;
+  omnibusApplicabilityReason: string | null;
+  isPersonalized: boolean | null;
+  personalizationReason: string | null;
 };
 
 type OrderAdjustmentSnapshot = {
@@ -1786,6 +1803,14 @@ async function loadQuoteSnapshot(
       customFields: lineCustomFields[line.id]
         ? cloneJson(lineCustomFields[line.id])
         : null,
+      omnibusReferenceNet: line.omnibusReferenceNet ?? null,
+      omnibusReferenceGross: line.omnibusReferenceGross ?? null,
+      omnibusPromotionAnchorAt: line.omnibusPromotionAnchorAt
+        ? line.omnibusPromotionAnchorAt.toISOString()
+        : null,
+      omnibusApplicabilityReason: line.omnibusApplicabilityReason ?? null,
+      isPersonalized: line.isPersonalized ?? null,
+      personalizationReason: line.personalizationReason ?? null,
     })),
     adjustments: adjustments.map((adj) => ({
       id: adj.id,
@@ -2092,6 +2117,14 @@ async function loadOrderSnapshot(
       customFields: lineCustomFields[line.id]
         ? cloneJson(lineCustomFields[line.id])
         : null,
+      omnibusReferenceNet: line.omnibusReferenceNet ?? null,
+      omnibusReferenceGross: line.omnibusReferenceGross ?? null,
+      omnibusPromotionAnchorAt: line.omnibusPromotionAnchorAt
+        ? line.omnibusPromotionAnchorAt.toISOString()
+        : null,
+      omnibusApplicabilityReason: line.omnibusApplicabilityReason ?? null,
+      isPersonalized: line.isPersonalized ?? null,
+      personalizationReason: line.personalizationReason ?? null,
     })),
     adjustments: adjustments.map((adj) => ({
       id: adj.id,
@@ -3250,8 +3283,16 @@ async function applyOrderLineResults(params: {
   calculation: SalesDocumentCalculationResult;
   sourceLines: Array<DocumentLineCreateInput & { id?: string }>;
   existingLines: SalesOrderLine[];
+  omnibusService?: CatalogOmnibusService | null;
 }): Promise<void> {
-  const { em, order, calculation, sourceLines, existingLines } = params;
+  const {
+    em,
+    order,
+    calculation,
+    sourceLines,
+    existingLines,
+    omnibusService = null,
+  } = params;
   const existingMap = new Map(existingLines.map((line) => [line.id, line]));
   const persisted = new Set<string>();
   const statusCache = new Map<string, string | null>();
@@ -3294,6 +3335,16 @@ async function applyOrderLineResults(params: {
       statusEntryId,
       status: statusValue,
     });
+    if (!existing && omnibusService && sourceLine.productId) {
+      await applyOmnibusSnapshotToLine({
+        em: em.fork(),
+        service: omnibusService,
+        line: lineEntity,
+        sourceLine,
+        document: order,
+        documentKind: "order",
+      });
+    }
     em.persist(lineEntity);
     const rawCustomFields = (sourceLine as any).customFields;
     if (rawCustomFields !== undefined && rawCustomFields !== null) {
@@ -3324,8 +3375,16 @@ async function applyQuoteLineResults(params: {
   calculation: SalesDocumentCalculationResult;
   sourceLines: Array<DocumentLineCreateInput & { id?: string }>;
   existingLines: SalesQuoteLine[];
+  omnibusService?: CatalogOmnibusService | null;
 }): Promise<void> {
-  const { em, quote, calculation, sourceLines, existingLines } = params;
+  const {
+    em,
+    quote,
+    calculation,
+    sourceLines,
+    existingLines,
+    omnibusService = null,
+  } = params;
   const existingMap = new Map(existingLines.map((line) => [line.id, line]));
   const persisted = new Set<string>();
   const statusCache = new Map<string, string | null>();
@@ -3364,6 +3423,16 @@ async function applyQuoteLineResults(params: {
       statusEntryId,
       status: statusValue,
     });
+    if (!existing && omnibusService && sourceLine.productId) {
+      await applyOmnibusSnapshotToLine({
+        em: em.fork(),
+        service: omnibusService,
+        line: lineEntity,
+        sourceLine,
+        document: quote,
+        documentKind: "quote",
+      });
+    }
     em.persist(lineEntity);
     const rawCustomFields = (sourceLine as any).customFields;
     if (rawCustomFields !== undefined && rawCustomFields !== null) {
@@ -3393,6 +3462,7 @@ async function replaceQuoteLines(
   quote: SalesQuote,
   calculation: SalesDocumentCalculationResult,
   lineInputs: QuoteLineCreateInput[],
+  omnibusService: CatalogOmnibusService | null = null,
 ): Promise<void> {
   await em.nativeDelete(SalesQuoteLine, { quote: quote.id });
   const statusCache = new Map<string, string | null>();
@@ -3420,6 +3490,16 @@ async function replaceQuoteLines(
       createdAt: new Date(),
       updatedAt: new Date(),
     });
+    if (omnibusService && sourceLine.productId) {
+      await applyOmnibusSnapshotToLine({
+        em: em.fork(),
+        service: omnibusService,
+        line: lineEntity,
+        sourceLine,
+        document: quote,
+        documentKind: "quote",
+      });
+    }
     em.persist(lineEntity);
     const rawCustomFields = (sourceLine as any).customFields;
     if (rawCustomFields !== undefined && rawCustomFields !== null) {
@@ -3521,6 +3601,7 @@ async function replaceOrderLines(
   order: SalesOrder,
   calculation: SalesDocumentCalculationResult,
   lineInputs: OrderLineCreateInput[],
+  omnibusService: CatalogOmnibusService | null = null,
 ): Promise<void> {
   await em.nativeDelete(SalesOrderLine, { order: order.id });
   const statusCache = new Map<string, string | null>();
@@ -3552,6 +3633,16 @@ async function replaceOrderLines(
       createdAt: new Date(),
       updatedAt: new Date(),
     });
+    if (omnibusService && sourceLine.productId) {
+      await applyOmnibusSnapshotToLine({
+        em: em.fork(),
+        service: omnibusService,
+        line: lineEntity,
+        sourceLine,
+        document: order,
+        documentKind: "order",
+      });
+    }
     em.persist(lineEntity);
     const rawCustomFields = (sourceLine as any).customFields;
     if (rawCustomFields !== undefined && rawCustomFields !== null) {
@@ -4306,6 +4397,14 @@ async function restoreQuoteGraph(
         : null,
       metadata: line.metadata ? cloneJson(line.metadata) : null,
       customFieldSetId: line.customFieldSetId ?? null,
+      omnibusReferenceNet: line.omnibusReferenceNet ?? null,
+      omnibusReferenceGross: line.omnibusReferenceGross ?? null,
+      omnibusPromotionAnchorAt: line.omnibusPromotionAnchorAt
+        ? new Date(line.omnibusPromotionAnchorAt)
+        : null,
+      omnibusApplicabilityReason: line.omnibusApplicabilityReason ?? null,
+      isPersonalized: line.isPersonalized ?? null,
+      personalizationReason: line.personalizationReason ?? null,
       createdAt: new Date(),
       updatedAt: new Date(),
     });
@@ -4865,6 +4964,14 @@ async function restoreOrderGraph(
         : null,
       metadata: line.metadata ? cloneJson(line.metadata) : null,
       customFieldSetId: line.customFieldSetId ?? null,
+      omnibusReferenceNet: line.omnibusReferenceNet ?? null,
+      omnibusReferenceGross: line.omnibusReferenceGross ?? null,
+      omnibusPromotionAnchorAt: line.omnibusPromotionAnchorAt
+        ? new Date(line.omnibusPromotionAnchorAt)
+        : null,
+      omnibusApplicabilityReason: line.omnibusApplicabilityReason ?? null,
+      isPersonalized: line.isPersonalized ?? null,
+      personalizationReason: line.personalizationReason ?? null,
       createdAt: new Date(),
       updatedAt: new Date(),
     });
@@ -5239,7 +5346,13 @@ const createQuoteCommand: CommandHandler<
       [
         async () => {
           em.persist(quote);
-          await replaceQuoteLines(em, quote, calculation, normalizedLineInputs);
+          await replaceQuoteLines(
+            em,
+            quote,
+            calculation,
+            normalizedLineInputs,
+            resolveOmnibusService(ctx),
+          );
           await replaceQuoteAdjustments(
             em,
             quote,
@@ -6349,7 +6462,13 @@ const createOrderCommand: CommandHandler<
       [
         async () => {
           em.persist(order);
-          await replaceOrderLines(em, order, calculation, normalizedLineInputs);
+          await replaceOrderLines(
+            em,
+            order,
+            calculation,
+            normalizedLineInputs,
+            resolveOmnibusService(ctx),
+          );
           await replaceOrderAdjustments(
             em,
             order,
@@ -6946,6 +7065,14 @@ const convertQuoteToOrderCommand: CommandHandler<
             : null,
           metadata: line.metadata ? cloneJson(line.metadata) : null,
           customFieldSetId: line.customFieldSetId ?? null,
+          omnibusReferenceNet: line.omnibusReferenceNet ?? null,
+          omnibusReferenceGross: line.omnibusReferenceGross ?? null,
+          omnibusPromotionAnchorAt: line.omnibusPromotionAnchorAt
+            ? new Date(line.omnibusPromotionAnchorAt)
+            : null,
+          omnibusApplicabilityReason: line.omnibusApplicabilityReason ?? null,
+          isPersonalized: line.isPersonalized ?? null,
+          personalizationReason: line.personalizationReason ?? null,
           createdAt: new Date(),
           updatedAt: new Date(),
         });
@@ -7735,6 +7862,7 @@ const orderLineUpsertCommand: CommandHandler<
             calculation,
             sourceLines: sourceInputs,
             existingLines,
+            omnibusService: resolveOmnibusService(ctx),
           });
           applyOrderTotals(order, calculation.totals, calculation.lines.length);
           await emitTotalsCalculated(eventBus, {
@@ -8227,6 +8355,7 @@ const quoteLineUpsertCommand: CommandHandler<
             calculation,
             sourceLines: sourceInputs,
             existingLines,
+            omnibusService: resolveOmnibusService(ctx),
           });
           applyQuoteTotals(quote, calculation.totals, calculation.lines.length);
           await emitTotalsCalculated(eventBus, {

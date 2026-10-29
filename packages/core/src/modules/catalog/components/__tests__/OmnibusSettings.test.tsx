@@ -178,6 +178,52 @@ describe('OmnibusSettings', () => {
     expect(JSON.parse(String(init?.body))).toEqual(mutation.mutationPayload)
   })
 
+  it('round-trips the member-state derogation rules of a channel', async () => {
+    mockLoad({
+      ...STORED_CONFIG,
+      channels: {
+        [CHANNEL_ID]: {
+          presentedPriceKindId: PRICE_KIND_ID,
+          countryCode: 'PL',
+          perishableGoodsRule: 'last_price',
+          newArrivalRule: 'shorter_window',
+          newArrivalsLookbackDays: 14,
+        },
+      },
+    })
+    await renderLoaded()
+    expect(screen.getByLabelText('New-arrival window (days)')).toHaveValue(14)
+    expect(screen.queryByLabelText('Longest pause between reductions (days)')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('switch', { name: 'Progressive reductions keep the first reference price' }))
+    fireEvent.change(screen.getByLabelText('Longest pause between reductions (days)'), { target: { value: '5' } })
+    fireEvent.click(screen.getByTestId('catalog-omnibus-save'))
+
+    await waitFor(() => expect(mockFlash).toHaveBeenCalledWith('Omnibus settings saved.', 'success'))
+    const mutation = mockRunMutation.mock.calls[0][0] as unknown as { mutationPayload: { channels: Record<string, unknown> } }
+    expect(mutation.mutationPayload.channels[CHANNEL_ID]).toEqual({
+      presentedPriceKindId: PRICE_KIND_ID,
+      countryCode: 'PL',
+      progressiveReductionRule: true,
+      progressiveMaxGapDays: 5,
+      perishableGoodsRule: 'last_price',
+      newArrivalRule: 'shorter_window',
+      newArrivalsLookbackDays: 14,
+    })
+  })
+
+  it('rejects an out-of-range derogation window before saving', async () => {
+    mockLoad({
+      ...STORED_CONFIG,
+      channels: { [CHANNEL_ID]: { presentedPriceKindId: PRICE_KIND_ID, countryCode: 'PL', newArrivalRule: 'shorter_window' } },
+    })
+    await renderLoaded()
+    fireEvent.change(screen.getByLabelText('New-arrival window (days)'), { target: { value: '400' } })
+    fireEvent.click(screen.getByTestId('catalog-omnibus-save'))
+    expect(await screen.findByText('Enter a whole number of days between 1 and 365.')).toBeInTheDocument()
+    expect(patchCalls()).toHaveLength(0)
+  })
+
   it('submits with Cmd/Ctrl+Enter and resets unsaved changes on Escape', async () => {
     mockLoad()
     await renderLoaded()
@@ -245,7 +291,7 @@ describe('OmnibusSettings', () => {
       return { ok: true, status: 200, result: STORED_CONFIG }
     })
     await renderLoaded()
-    fireEvent.click(screen.getByRole('switch'))
+    fireEvent.click(screen.getByRole('switch', { name: 'Enable Omnibus reference prices' }))
     fireEvent.click(screen.getByTestId('catalog-omnibus-save'))
 
     const alert = await screen.findByTestId('catalog-omnibus-backfill-required')
@@ -297,7 +343,7 @@ describe('OmnibusSettings', () => {
     expect(screen.getByText('You can view these settings but not change them.')).toBeInTheDocument()
     expect(screen.queryByTestId('catalog-omnibus-save')).not.toBeInTheDocument()
     expect(screen.queryByText('Add channel')).not.toBeInTheDocument()
-    expect(screen.getByRole('switch')).toBeDisabled()
+    expect(screen.getByRole('switch', { name: 'Enable Omnibus reference prices' })).toBeDisabled()
     expect(screen.getByTestId('catalog-omnibus-lookback')).toBeDisabled()
     expect(screen.getByTestId('channel-select')).toBeDisabled()
 

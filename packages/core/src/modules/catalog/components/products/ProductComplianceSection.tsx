@@ -462,6 +462,64 @@ export function ProductComplianceSection({
       <div className="space-y-4">
         <div className="space-y-1">
           <h3 className="text-sm font-semibold">
+            {t("catalog.products.compliance.omnibus.title", "Omnibus (EU 2019/2161)")}
+          </h3>
+          <p className="text-xs text-muted-foreground">
+            {t(
+              "catalog.products.compliance.omnibus.description",
+              "Per-product inputs for the member-state derogations. The rules themselves are configured per sales channel in catalog settings.",
+            )}
+          </p>
+        </div>
+        <div className="grid gap-4 md:grid-cols-2">
+          <div className="space-y-2">
+            <Label htmlFor="catalog-product-compliance-first-listed-at">
+              {t("catalog.products.compliance.fields.firstListedAt", "First listed on the market")}
+            </Label>
+            <Input
+              id="catalog-product-compliance-first-listed-at"
+              type="date"
+              value={values.firstListedAt ?? ""}
+              onChange={(event) => setValue("firstListedAt", event.target.value)}
+              {...describedByError("catalog-product-compliance-first-listed-at", errors.firstListedAt)}
+            />
+            <p className="text-xs text-muted-foreground">
+              {t(
+                "catalog.products.compliance.omnibus.firstListedAtHint",
+                "Drives the shorter reference window for new arrivals (Art. 6a(4)). Left empty, the product is never treated as a new arrival.",
+              )}
+            </p>
+            <FieldError
+              id={fieldErrorId("catalog-product-compliance-first-listed-at")}
+              message={errors.firstListedAt}
+            />
+          </div>
+        </div>
+        <label
+          className="flex items-center gap-2 text-sm"
+          htmlFor="catalog-product-compliance-omnibus-exempt"
+        >
+          <Checkbox
+            id="catalog-product-compliance-omnibus-exempt"
+            checked={values.omnibusExempt === true}
+            onCheckedChange={(checked) => setValue("omnibusExempt", checked === true)}
+          />
+          {t(
+            "catalog.products.compliance.fields.omnibusExempt",
+            "Perishable or short shelf-life goods (Art. 6a(3))",
+          )}
+        </label>
+        <p className="text-xs text-muted-foreground">
+          {t(
+            "catalog.products.compliance.omnibus.exemptHint",
+            "Only takes effect on channels whose perishable-goods rule is set to exempt or last price.",
+          )}
+        </p>
+      </div>
+
+      <div className="space-y-4">
+        <div className="space-y-1">
+          <h3 className="text-sm font-semibold">
             {t("catalog.products.compliance.commercial.title", "Commercial terms")}
           </h3>
           <p className="text-xs text-muted-foreground">

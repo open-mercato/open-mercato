@@ -202,17 +202,32 @@ describe('catalog omnibus config route', () => {
     }
   })
 
+  it('persists the member-state derogation rules of a channel', async () => {
+    const derogations = {
+      progressiveReductionRule: true,
+      progressiveMaxGapDays: 10,
+      perishableGoodsRule: 'last_price',
+      newArrivalRule: 'shorter_window',
+      newArrivalsLookbackDays: null,
+    }
+    const response = await PATCH(patchRequest({ channels: plChannel(derogations) }))
+    expect(response.status).toBe(200)
+    const payload = await response.json()
+    expect(payload.channels[channelPl]).toMatchObject(derogations)
+    expect(setValueMock).toHaveBeenCalledTimes(1)
+  })
+
   it.each([
-    'progressiveReductionRule',
-    'progressiveMaxGapDays',
-    'perishableGoodsRule',
-    'newArrivalRule',
-    'newArrivalsLookbackDays',
-  ])('rejects the unsupported derogation field %s instead of dropping it', async (field) => {
-    const response = await PATCH(patchRequest({ channels: plChannel({ [field]: 'standard' }) }))
+    ['progressiveReductionRule', 'yes'],
+    ['progressiveMaxGapDays', 0],
+    ['perishableGoodsRule', 'never'],
+    ['newArrivalRule', 'longer_window'],
+    ['newArrivalsLookbackDays', 366],
+  ])('rejects an invalid %s derogation value', async (field, value) => {
+    const response = await PATCH(patchRequest({ channels: plChannel({ [field]: value }) }))
     expect(response.status).toBe(400)
     const payload = await response.json()
-    expect(payload.details.fieldErrors[`channels.${channelPl}.${field}`]).toEqual(['omnibus_derogation_not_supported'])
+    expect(payload.details.fieldErrors[`channels.${channelPl}.${field}`]).toBeDefined()
     expect(setValueMock).not.toHaveBeenCalled()
   })
 
