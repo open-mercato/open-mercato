@@ -196,6 +196,8 @@ describe('resolveApiKeyAuth caching + lastUsedAt debounce', () => {
   })
 
   it('never caches a role-only super-admin flag for a user-bound key', async () => {
+    const { User } = await import('@open-mercato/core/modules/auth/data/entities')
+    const { Tenant } = await import('@open-mercato/core/modules/directory/data/entities')
     const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
     findApiKeyBySecret.mockResolvedValue({
       id: 'bound-super-key', name: 'bound', tenantId: 'tenant-1', organizationId: null,
@@ -203,12 +205,17 @@ describe('resolveApiKeyAuth caching + lastUsedAt debounce', () => {
       expiresAt: null, lastUsedAt: null,
     })
     emFind.mockResolvedValue([{ name: 'superadmin', isSuperAdmin: true, organizationsJson: null }])
-    emFindOne.mockResolvedValue({ id: 'owner-1', tenantId: 'tenant-1', organizationId: null })
+    emFindOne.mockImplementation(async (entity: unknown) => {
+      if (entity === Tenant) return { id: 'tenant-1' }
+      if (entity === User) return { id: 'owner-1', tenantId: 'tenant-1', organizationId: null }
+      return null
+    })
     for (let attempt = 0; attempt < 2; attempt += 1) {
       await expect(getAuthFromRequest(buildRequest('bound-super-secret')))
         .resolves.toMatchObject({ isSuperAdmin: false, userId: 'owner-1' })
     }
     expect(findApiKeyBySecret).toHaveBeenCalledTimes(1)
+    expect(emFindOne.mock.calls.filter((call) => call[0] === Tenant)).toHaveLength(2)
   })
 
   it('accepts a tenant-scoped regular key that records no creator', async () => {
@@ -394,7 +401,7 @@ describe('resolveApiKeyAuth caching + lastUsedAt debounce', () => {
     expect(findApiKeyBySecret).toHaveBeenCalledTimes(2)
   })
 
-  describe.each(['unbound', 'creator-bound', 'session-bound'] as const)('%s tenant liveness', (binding) => {
+  describe.each(['unbound', 'creator-bound', 'session-bound', 'mcp-bound'] as const)('%s tenant liveness', (binding) => {
     let tenant: { id: string; isActive: boolean; deletedAt: Date | null } | null
 
     beforeEach(async () => {
@@ -410,7 +417,7 @@ describe('resolveApiKeyAuth caching + lastUsedAt debounce', () => {
         organizationId: null,
         rolesJson: [],
         sessionToken: binding === 'session-bound' ? 'session-marker' : null,
-        sessionUserId: binding === 'session-bound' ? 'key-owner' : null,
+        sessionUserId: binding === 'session-bound' || binding === 'mcp-bound' ? 'key-owner' : null,
         sessionSecretEncrypted: null,
         opencodeSessionId: null,
         createdBy: binding === 'unbound' ? null : 'key-owner',
