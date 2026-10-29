@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from 'node:util'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import {
@@ -67,6 +68,25 @@ export function schedulesEqual(left: RecurrenceSchedule | null, right: Recurrenc
     a.anchorDay === b.anchorDay &&
     a.periodCount === b.periodCount
   )
+}
+
+/**
+ * Whether two undo snapshots describe the same recurrence. `scheduleVersion` is left out:
+ * every undo bumps it on purpose, so including it would reject the next undo in a chain.
+ * `undefined` means the snapshot predates recurrences and matches anything.
+ */
+export function sameRecurrenceState(
+  current: QuoteRecurrenceSnapshot | OrderRecurrenceSnapshot | null | undefined,
+  expected: QuoteRecurrenceSnapshot | OrderRecurrenceSnapshot | null | undefined,
+): boolean {
+  if (expected === undefined) return true
+  return isDeepStrictEqual(withoutScheduleVersion(current ?? null), withoutScheduleVersion(expected))
+}
+
+function withoutScheduleVersion(snapshot: QuoteRecurrenceSnapshot | OrderRecurrenceSnapshot | null) {
+  if (!snapshot || !('scheduleVersion' in snapshot)) return snapshot
+  const { scheduleVersion: _scheduleVersion, ...rest } = snapshot
+  return rest
 }
 
 export function snapshotQuoteRecurrence(entity: SalesQuoteRecurrence): QuoteRecurrenceSnapshot {

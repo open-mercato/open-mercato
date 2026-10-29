@@ -133,6 +133,7 @@ import {
   persistNewOrderRecurrence,
   restoreOrderRecurrence,
   restoreQuoteRecurrence,
+  sameRecurrenceState,
   writeOrderRecurrence,
   writeQuoteRecurrence,
   type OrderRecurrenceSnapshot,
@@ -4113,14 +4114,6 @@ function applyOrderSnapshot(
   order.lineItemCount = snapshot.lineItemCount;
 }
 
-function sameRecurrence(
-  current: QuoteRecurrenceSnapshot | OrderRecurrenceSnapshot | null | undefined,
-  expected: QuoteRecurrenceSnapshot | OrderRecurrenceSnapshot | null | undefined,
-): boolean {
-  if (expected === undefined) return true;
-  return isDeepStrictEqual(current ?? null, expected ?? null);
-}
-
 async function assertQuoteGraphUndoCurrent(
   em: EntityManager,
   quoteId: string,
@@ -4134,7 +4127,7 @@ async function assertQuoteGraphUndoCurrent(
     sameRecords(current.notes, expected.notes) &&
     sameRecords(current.tags, expected.tags) &&
     sameRecords(current.addresses, expected.addresses) &&
-    sameRecurrence(current.recurrence, expected.recurrence);
+    sameRecurrenceState(current.recurrence, expected.recurrence);
   if (!unchanged) return throwDocumentUndoStale("quote");
 }
 
@@ -4615,7 +4608,7 @@ async function assertOrderGraphUndoCurrent(
     sameRecords(current.notes, expected.notes) &&
     sameRecords(current.tags, expected.tags) &&
     sameRecords(current.addresses, expected.addresses) &&
-    sameRecurrence(current.recurrence, expected.recurrence);
+    sameRecurrenceState(current.recurrence, expected.recurrence);
   if (!unchanged) return throwDocumentUndoStale("order");
 }
 

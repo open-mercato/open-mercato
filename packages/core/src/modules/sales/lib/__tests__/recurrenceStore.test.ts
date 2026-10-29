@@ -11,6 +11,7 @@ import type { SalesOrder, SalesOrderRecurrence } from '../../data/entities'
 import {
   persistNewOrderRecurrence,
   restoreOrderRecurrence,
+  sameRecurrenceState,
   writeOrderRecurrence,
   writeQuoteRecurrence,
   type OrderRecurrenceSnapshot,
@@ -139,6 +140,46 @@ describe('restoreOrderRecurrence', () => {
     const { em, mock } = buildEm()
     await restoreOrderRecurrence(em, order, undefined)
     expect(mock.findOne).not.toHaveBeenCalled()
+  })
+})
+
+describe('sameRecurrenceState', () => {
+  const recorded: OrderRecurrenceSnapshot = {
+    frequency: 'monthly',
+    startsOn: '2027-01-01',
+    anchorDay: null,
+    periodCount: null,
+    endsOn: null,
+    nextPeriodIndex: 0,
+    nextInvoiceOn: '2027-01-01',
+    status: 'scheduled',
+    scheduleVersion: 1,
+    cancelRequestedAt: null,
+    cancelEffectiveOn: null,
+    cancelSettlement: null,
+    cancelledByUserId: null,
+    cancelIdempotencyKey: null,
+    cancelResult: null,
+  }
+
+  it('ignores the schedule version an earlier undo bumped', () => {
+    expect(sameRecurrenceState({ ...recorded, scheduleVersion: 3 }, recorded)).toBe(true)
+  })
+
+  it('detects a changed schedule or billing state', () => {
+    expect(sameRecurrenceState({ ...recorded, frequency: 'yearly' }, recorded)).toBe(false)
+    expect(sameRecurrenceState({ ...recorded, nextPeriodIndex: 1 }, recorded)).toBe(false)
+    expect(sameRecurrenceState({ ...recorded, status: 'cancelling' }, recorded)).toBe(false)
+  })
+
+  it('detects an added or removed recurrence', () => {
+    expect(sameRecurrenceState(null, recorded)).toBe(false)
+    expect(sameRecurrenceState(recorded, null)).toBe(false)
+    expect(sameRecurrenceState(null, null)).toBe(true)
+  })
+
+  it('matches anything for snapshots recorded before recurrence existed', () => {
+    expect(sameRecurrenceState(recorded, undefined)).toBe(true)
   })
 })
 
