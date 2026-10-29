@@ -1,12 +1,17 @@
 import type { NextRequest } from 'next/server'
 import { NextResponse } from 'next/server'
+import { createContentSecurityPolicyRequestHeaders } from '@open-mercato/shared/lib/security/contentSecurityPolicy'
+import { stripeContentSecurityPolicy } from '@open-mercato/gateway-stripe/contentSecurityPolicy'
 
-// Do NOT import bootstrap here — proxy runs in the Edge runtime and
-// cannot use Node.js-only modules like MikroORM. Bootstrap runs in layouts.
 export function proxy(req: NextRequest) {
-  const requestHeaders = new Headers(req.headers)
+  const { requestHeaders, contentSecurityPolicy } = createContentSecurityPolicyRequestHeaders(req.headers, {
+    env: process.env,
+    ...stripeContentSecurityPolicy,
+  })
   requestHeaders.set('x-next-url', req.nextUrl.pathname)
-  return NextResponse.next({ request: { headers: requestHeaders } })
+  const response = NextResponse.next({ request: { headers: requestHeaders } })
+  response.headers.set('Content-Security-Policy', contentSecurityPolicy)
+  return response
 }
 
 // Match app routes while skipping Next internals, API routes, and static assets.
