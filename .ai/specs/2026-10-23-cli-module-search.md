@@ -153,6 +153,7 @@ exit code 2 with its reason, `OM_MODULES_INDEX_URL`, `module info` text and JSON
   libraries it peers on, on every line (`requires`, `peerLibrarySpecs`). The app-line filter of `module search`
   applies to modules only; providers, libraries and tools are listed with their status on the line. Text output
   appends `yarn generate` after `yarn add` of a library or a provider and after `npx create-mercato-module install`,
-  and `yarn db:migrate` after a module install that adds tables or has no published anatomy; `--json` keeps the bare
+  and `yarn db:migrate` after a module install or the enterprise step that adds tables or migrations or has no
+  published anatomy; `--json` keeps the bare
   command of `tools@1`. `src/modules.ts` is read with the command's environment and keeps only active registrations.
   `module info --json` warnings use the app line, not the latest one.

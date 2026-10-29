@@ -8,6 +8,7 @@ import {
   cardUrl,
   CORE_PACKAGE,
   createCatalogSearcher,
+  ENTERPRISE_ENABLE_STEP,
   entryWarnings,
   installFields,
   installVersion,
@@ -608,15 +609,19 @@ const steps = (command: string) => command.split(' && ')
 /**
  * The install line a person copies: the command, then `yarn generate` after a `yarn add` of a library or a provider
  * and after `npx create-mercato-module install` (`yarn mercato module add` runs it itself), then `yarn db:migrate`
- * after a module install that adds tables or whose anatomy is unknown. `--json` keeps the bare command (tools@1).
+ * after a module install (also the enterprise step) that adds tables or migrations or whose anatomy is unknown.
+ * `--json` keeps the bare command (tools@1).
  */
 export function withFollowUpSteps(command: string, entry: CatalogEntry): string {
   const cmm = command.startsWith('npx create-mercato-module install')
-  const moduleInstall = cmm || command.includes('yarn mercato module add')
+  const ofModules = entry.kind === 'module' || entry.kind === 'provider'
+  const moduleInstall =
+    (cmm && ofModules) || command.includes('yarn mercato module add') || command.startsWith(ENTERPRISE_ENABLE_STEP)
   const addsPackage = command.startsWith('yarn add ') && (entry.kind === 'library' || entry.kind === 'provider')
   const generate = (addsPackage || cmm) && !steps(command).includes('yarn generate')
   const tables = entry.anatomy?.lists?.tables
-  const migrate = moduleInstall && (tables === undefined || tables.length > 0) && !steps(command).includes('yarn db:migrate')
+  const adds = tables === undefined || tables.length > 0 || (entry.anatomy?.counts?.migrations ?? 0) > 0
+  const migrate = moduleInstall && adds && !steps(command).includes('yarn db:migrate')
   return [command, ...(generate ? ['yarn generate'] : []), ...(migrate ? ['yarn db:migrate'] : [])].join(' && ')
 }
 

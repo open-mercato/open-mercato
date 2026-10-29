@@ -26,6 +26,7 @@ import {
   parseCatalogIndex,
   renderInfoHuman,
   runModuleInfo,
+  withFollowUpSteps,
   runModuleSearch,
   type FetchLike,
   type FetchResponseLike,
@@ -528,6 +529,30 @@ describe('providers, libraries and tools, follow-up steps and the app line', () 
     await runModuleInfo(['@fastwhitecat/integration-ksef-direct', '--json'], deps(app, fixtureFetch().fetchImpl, json))
     expect(JSON.parse(json.stdout.join('\n')).entry.install.cli).toBe(
       'yarn mercato module add @fastwhitecat/integration-ksef-direct@0.1.8 --allow-third-party',
+    )
+  })
+
+  it('adds the steps once to multi-module, enterprise and empty-preset commands', () => {
+    const ksef = index.entries.find((entry) => entry.locator === 'npm:@fastwhitecat/integration-ksef-direct') as CatalogEntry
+    const enterprise = index.entries.find((entry) => entry.locator === 'npm:@open-mercato/enterprise') as CatalogEntry
+    const several = 'yarn mercato module add x@1.0.0 --module a && yarn mercato module add x@1.0.0 --module b'
+    expect(withFollowUpSteps(several, ksef)).toBe(`${several} && yarn db:migrate`)
+    const step = 'echo OM_ENABLE_ENTERPRISE_MODULES=true >> .env && yarn generate'
+    expect(withFollowUpSteps(step, enterprise)).toBe(`${step} && yarn db:migrate`)
+    const migrationsOnly = { ...ksef, anatomy: { version: '1.0.0', counts: { migrations: 2 }, lists: { tables: [] } } }
+    expect(withFollowUpSteps('yarn mercato module add x@1.0.0', migrationsOnly)).toBe('yarn mercato module add x@1.0.0 && yarn db:migrate')
+    const githubLibrary = { ...ksef, kind: 'library' as const, anatomy: null }
+    expect(withFollowUpSteps('npx create-mercato-module install o/r', githubLibrary)).toBe(
+      'npx create-mercato-module install o/r && yarn generate',
+    )
+  })
+
+  it('adds db:migrate to the empty-preset command of a preset note', async () => {
+    const patch: ParityPatch = { entries: { 'npm:@fastwhitecat/integration-ksef-direct': { compat: { inPresets: ['0.9'] } } } }
+    const io = capture()
+    await runModuleSearch(['ksef'], deps(tempApp({ coreVersion: '0.9.0' }), fixtureFetch({ patch }).fetchImpl, io))
+    expect(io.stdout).toContain(
+      '  install: Nothing to install: a new app already registers integration_ksef_direct in src/modules.ts. In an app from the empty preset: yarn mercato module add @fastwhitecat/integration-ksef-direct@0.1.8 --allow-third-party && yarn db:migrate',
     )
   })
 

@@ -56,7 +56,11 @@ Already in Open Mercato core:
   matched: provider KSeF · agent policy: ask (third-party)
   install: yarn mercato module add @fastwhitecat/integration-ksef-direct@0.1.8 --allow-third-party && yarn db:migrate
   more: https://modules.openmercato.com/m/@fastwhitecat/integration-ksef-direct
+```
 
+`yarn mercato module search "web research"` on a 0.9 app lists a provider the catalog has not run on 0.9, with the library it needs in the same `yarn add`:
+
+```text
 @open-mercato/web-research-model 0.9.0   LISTED · untested on 0.9   official · MIT
   Web search through the native search tool of the agent LLM on Anthropic, OpenAI or Azure OpenAI. On by default.
   matched: name, summary, tag web-search · agent policy: ask (not-verified)
@@ -66,7 +70,7 @@ Already in Open Mercato core:
 
 - **Built-in first.** When a core module matches, enable it instead of installing a package. If `src/modules.ts` already enables it, the line says `Already enabled.`
 - **Your line only.** The command reads the Open Mercato version from `node_modules/@open-mercato/core/package.json` (or the `@open-mercato/core` range in `package.json`) and shows only modules with a verified install on that line, with the version the catalog verified there. A closing line such as `2 more modules are listed but not verified on 0.9. Use --all-lines.` tells you what was left out. The filter applies to modules only: providers, libraries and tools are not installed by the catalog's nightly run, so they are always listed, with their status on the line (for example `untested on 0.9`). When your version is not a line the catalog tests, every line is shown with a note.
-- **Install line.** The printed line includes the steps that follow the install: `yarn generate` after `yarn add` of a library or a provider and after `npx create-mercato-module install` (`yarn mercato module add` runs it itself), and `yarn db:migrate` after a module install that adds database tables or whose anatomy is not published. A provider without a module of its own (an adapter) is added together with the catalog library it needs.
+- **Install line.** The printed line includes the steps that follow the install: `yarn generate` after `yarn add` of a library or a provider and after `npx create-mercato-module install` (`yarn mercato module add` runs it itself), and `yarn db:migrate` after a module install that adds database tables or migrations or whose anatomy is not published (the enterprise step too). A provider without a module of its own (an adapter) is added together with the catalog library it needs.
 - **Ranking.** Every word must match first. When nothing does, modules that match some of the words follow, without loose fuzzy matches. When still nothing matches, one swap of two letters is undone (`stirpe` finds Stripe) and the first line says `Nothing matched "stirpe". Showing results for "stripe".`
 - **New apps.** When a new app on your line already registers a package or has a core module on, the line says so (`Nothing to install: a new app already registers ...`), followed by the command for an app from the empty preset.
 - **Agent policy.** `allow`, `ask` or `refuse`, with the reasons, for your line. Coding agents use it to decide whether they may install a module after you agree.
