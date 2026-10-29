@@ -515,7 +515,7 @@ export function printCatalogNextSteps(catalogCommands: string[], commandWarnings
   console.log(pc.green('Modules you planned from the catalog:'))
   console.log(pc.dim('  # After yarn install, in this order (each command runs yarn generate for you):'))
   for (const command of catalogCommands) {
-    const warning = commandWarnings[command]
+    const warning = Object.hasOwn(commandWarnings, command) ? commandWarnings[command] : undefined
     if (warning) console.log(pc.yellow(`  # Warning: ${warning}`))
     console.log(pc.cyan(`  ${command}`))
   }
