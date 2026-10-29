@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "baseBranch": "develop",
+  "baseBranch": "main",
   "tracker": "github",
   "browser": {
     "provider": "playwright"
@@ -33,5 +33,13 @@
     "scripts": ".ai/scripts",
     "qa": ".ai/qa"
   },
-  "reviewChecklist": ".ai/review-checklist.md"
+  "reviewChecklist": ".ai/review-checklist.md",
+  "help": {
+    "data": [".ai/skills/om-help/references/workflow-sequences.md"]
+  },
+  "sessionShare": {
+    "enabled": true,
+    "issueRepo": "open-mercato/open-mercato",
+    "storageRepo": "open-mercato/open-mercato"
+  }
 }

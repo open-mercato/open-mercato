@@ -74,6 +74,25 @@ describe('DataTable sticky columns are viewport-gated', () => {
     }
   })
 
+  // Pinned cells carry z-10/z-20 while the app top bar sits at `z-sticky`
+  // (10). Without an isolated stacking context around the table, the pinned
+  // actions column painted over the top bar while the page scrolled (#7063).
+  it('confines pinned cell z-index to the table stacking context', () => {
+    const { container, queryClient } = renderStickyTable()
+    try {
+      const table = container.querySelector('table')
+      const scrollWrapper = table?.parentElement ?? null
+      expect(tokensOf(scrollWrapper)).toContain('isolate')
+      const pinned = container.querySelectorAll('[class*="md:sticky"]')
+      expect(pinned.length).toBeGreaterThan(0)
+      pinned.forEach((cell) => {
+        expect(scrollWrapper?.contains(cell)).toBe(true)
+      })
+    } finally {
+      queryClient.clear()
+    }
+  })
+
   it('pins the actions column only from md up', () => {
     const { container, queryClient } = renderStickyTable()
     try {

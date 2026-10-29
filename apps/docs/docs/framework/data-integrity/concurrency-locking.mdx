@@ -16,7 +16,7 @@ to it, never open a hole in it.
    (since 2026-05-27). This is the always-on **floor**. Operators opt out
    with `OM_OPTIMISTIC_LOCK=off`.
 2. **Enterprise — collaborative-editing enrichment** via the
-   [`record_locks`](https://github.com/open-mercato/open-mercato/tree/develop/packages/enterprise/src/modules/record_locks)
+   [`record_locks`](https://github.com/open-mercato/open-mercato/tree/main/packages/enterprise/src/modules/record_locks)
    module: live presence widgets ("Jane is editing this record"),
    acquire/heartbeat, admin force-release, action-log conflict detection,
    a field-level merge/conflict dialog, and ACL features (`record_locks.*`).
@@ -323,7 +323,7 @@ time. The remaining work is the client + env + tests:
 3. Add `<entityType>` to `OM_OPTIMISTIC_LOCK` in your deployment, or
    set `OM_OPTIMISTIC_LOCK=all` to opt in platform-wide.
 4. Add an integration test that mirrors
-   [`TC-LOCK-OSS-001`](https://github.com/open-mercato/open-mercato/blob/develop/packages/core/src/modules/customers/__integration__/TC-LOCK-OSS-001.spec.ts):
+   [`TC-LOCK-OSS-001`](https://github.com/open-mercato/open-mercato/blob/main/packages/core/src/modules/customers/__integration__/TC-LOCK-OSS-001.spec.ts):
    create the record, snapshot its `updatedAt`, perform a fresh update,
    then a stale update and assert the 409 body shape.
 
@@ -535,8 +535,8 @@ covers them too — no `core → enterprise` import, no handler-side change.
 
 ## Spec & FAQ
 
-- **Spec (OSS floor):** [`.ai/specs/implemented/2026-05-25-oss-optimistic-locking.md`](https://github.com/open-mercato/open-mercato/blob/develop/.ai/specs/implemented/2026-05-25-oss-optimistic-locking.md)
-- **Spec (enterprise layering):** [`.ai/specs/enterprise/2026-06-09-record-locks-unified-coverage.md`](https://github.com/open-mercato/open-mercato/blob/develop/.ai/specs/enterprise/2026-06-09-record-locks-unified-coverage.md) — how `record_locks` layers on the OSS floor across every lock site.
+- **Spec (OSS floor):** [`.ai/specs/implemented/2026-05-25-oss-optimistic-locking.md`](https://github.com/open-mercato/open-mercato/blob/main/.ai/specs/implemented/2026-05-25-oss-optimistic-locking.md)
+- **Spec (enterprise layering):** [`.ai/specs/enterprise/2026-06-09-record-locks-unified-coverage.md`](https://github.com/open-mercato/open-mercato/blob/main/.ai/specs/enterprise/2026-06-09-record-locks-unified-coverage.md) — how `record_locks` layers on the OSS floor across every lock site.
 - **Source files:**
   - `packages/shared/src/lib/crud/optimistic-lock.ts`
   - `packages/shared/src/lib/crud/optimistic-lock-headers.ts`

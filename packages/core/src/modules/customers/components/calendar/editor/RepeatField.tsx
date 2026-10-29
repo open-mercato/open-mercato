@@ -26,6 +26,8 @@ export function RepeatField({
   endType,
   count,
   untilDate,
+  untilError,
+  disabled,
   onFreqChange,
   onToggleDay,
   onEndTypeChange,
@@ -37,6 +39,8 @@ export function RepeatField({
   endType: EditorRepeatEndType
   count: number
   untilDate: string
+  untilError?: string | null
+  disabled?: boolean
   onFreqChange(next: EditorRepeatFreq): void
   onToggleDay(index: number): void
   onEndTypeChange(next: EditorRepeatEndType): void
@@ -51,6 +55,7 @@ export function RepeatField({
       <Select
         value={freq}
         onValueChange={(value) => onFreqChange(value as EditorRepeatFreq)}
+        disabled={disabled}
       >
         <SelectTrigger aria-label={freqLabel}>
           <SelectValue />
@@ -72,6 +77,7 @@ export function RepeatField({
                 variant={isActive ? 'default' : 'outline'}
                 aria-pressed={isActive}
                 aria-label={t(day.ariaKey, day.ariaFallback)}
+                disabled={disabled}
                 onClick={() => onToggleDay(index)}
                 className={cn(
                   'size-9 px-0 text-xs font-medium',
@@ -91,6 +97,7 @@ export function RepeatField({
             ariaLabel={t('customers.calendar.editor.repeat.ends', 'Ends')}
             value={endType}
             onChange={onEndTypeChange}
+            disabled={disabled}
             options={[
               { value: 'never', label: t('customers.calendar.editor.repeat.never', 'Never') },
               { value: 'date', label: t('customers.calendar.editor.repeat.onDate', 'On date') },
@@ -103,8 +110,10 @@ export function RepeatField({
               value={untilDate || ''}
               onChange={onUntilDateChange}
               ariaLabel={t('customers.calendar.editor.repeat.onDate', 'On date')}
+              disabled={disabled}
             />
           ) : null}
+          {endType === 'date' && untilError ? <p className="w-full text-xs text-status-error-text">{untilError}</p> : null}
           {endType === 'count' ? (
             <span className="flex items-center gap-2">
               <Input
@@ -117,6 +126,7 @@ export function RepeatField({
                   if (Number.isInteger(next) && next >= 1) onCountChange(next)
                 }}
                 aria-label={t('customers.calendar.editor.repeat.after', 'After')}
+                disabled={disabled}
                 className="h-9 w-20"
               />
               <span className={LABEL_CLASS}>{t('customers.calendar.editor.repeat.times', 'times')}</span>

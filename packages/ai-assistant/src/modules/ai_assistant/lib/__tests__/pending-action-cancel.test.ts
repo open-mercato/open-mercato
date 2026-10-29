@@ -147,7 +147,7 @@ describe('executePendingActionCancel', () => {
     expect(typeof emittedPayload.resolvedAt).toBe('string')
   })
 
-  it('defaults to "Cancelled by user" message when no reason is supplied', async () => {
+  it('stores an empty message when no reason is supplied (no hardcoded English copy)', async () => {
     const repo = makeRepoStub(makeAction())
     const emitEvent = jest.fn().mockResolvedValue(undefined)
     const clock = new Date('2026-04-18T10:05:00.000Z')
@@ -164,7 +164,7 @@ describe('executePendingActionCancel', () => {
     const [, , , extra] = repo.setStatus.mock.calls[0]
     expect(extra).toMatchObject({
       executionResult: {
-        error: { code: 'cancelled_by_user', message: 'Cancelled by user' },
+        error: { code: 'cancelled_by_user', message: '' },
       },
     })
     const [, payload] = emitEvent.mock.calls[0] as [string, AiActionCancelledPayload]

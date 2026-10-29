@@ -44,7 +44,8 @@ import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { hasFeature } from '@open-mercato/shared/security/features'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
+import type { OrganizationScopeChangedDetail } from '@open-mercato/shared/lib/frontend/organizationEvents'
+import { useOrganizationScopeDetail, useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { formatDuration } from '../../../../lib/time-tracking/duration'
 import type { RoundingUnitMinutes } from '../../../../lib/time-tracking/rounding'
@@ -72,6 +73,21 @@ const MUTATION_CONTEXT_ID = 'staff.time_tracking.settings'
 const RESOURCE_KIND = 'staff.timesheets.settings'
 const RESOURCE_ID = 'time_tracking'
 const IMPACT_DEBOUNCE_MS = 350
+const TENANT_SCOPE_CHANGED_CODE = 'tenant_scope_changed'
+
+class TenantScopeChangedError extends Error {
+  constructor() {
+    super('[internal] tenant scope changed before the settings save was applied')
+    this.name = 'TenantScopeChangedError'
+  }
+}
+
+function isTenantScopeChangedResponse(status: number, result: unknown): boolean {
+  return status === 409
+    && typeof result === 'object'
+    && result !== null
+    && (result as { code?: unknown }).code === TENANT_SCOPE_CHANGED_CODE
+}
 
 type MutationContext = {
   formId: string
@@ -100,11 +116,20 @@ export default function TimeTrackingSettingsPage() {
   const t = useT()
   const { payload } = useBackendChrome()
   const scopeVersion = useOrganizationScopeVersion()
+  const scope = useOrganizationScopeDetail()
+  const scopeRef = React.useRef(scope)
+  scopeRef.current = scope
+  const loadedScopeRef = React.useRef<OrganizationScopeChangedDetail | null>(null)
+  const latestLoadRef = React.useRef(0)
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const canManage = hasFeature(payload?.grantedFeatures, MANAGE_FEATURE)
 
   const [baseline, setBaseline] = React.useState<TimeTrackingSettingsDraft | null>(null)
   const [draft, setDraft] = React.useState<TimeTrackingSettingsDraft | null>(null)
+  const draftRef = React.useRef(draft)
+  draftRef.current = draft
+  const baselineRef = React.useRef(baseline)
+  baselineRef.current = baseline
   const [isLoading, setIsLoading] = React.useState(true)
   const [loadError, setLoadError] = React.useState<string | null>(null)
   const [isSaving, setIsSaving] = React.useState(false)
@@ -118,23 +143,38 @@ export default function TimeTrackingSettingsPage() {
     blockedMessage: t('staff.time_tracking.settings.saveError', 'Failed to save the settings.'),
   })
 
-  const loadSettings = React.useCallback(async () => {
+  const loadSettings = React.useCallback(async (options?: { discardDraft?: boolean }) => {
+    const requestId = latestLoadRef.current + 1
+    latestLoadRef.current = requestId
+    const requestScope = { tenantId: scopeRef.current.tenantId, organizationId: scopeRef.current.organizationId }
     setIsLoading(true)
     setLoadError(null)
     try {
       const call = await apiCall<TimeTrackingSettings>(SETTINGS_API)
+      if (requestId !== latestLoadRef.current) return
       if (!call.ok || !call.result) {
         setLoadError(t('staff.time_tracking.settings.loadError', 'Failed to load the settings.'))
         return
       }
       const next = toSettingsDraft(call.result)
+      const pending = draftRef.current
+      const previous = baselineRef.current
+      const loadedScope = loadedScopeRef.current
+      const scopeUnresolved = loadedScope === null || (loadedScope.tenantId === null && loadedScope.organizationId === null)
+      const scopeUnchanged = loadedScope !== null
+        && loadedScope.tenantId === requestScope.tenantId
+        && loadedScope.organizationId === requestScope.organizationId
+      const hasUnsavedEdit = pending !== null && previous !== null && isSettingsDraftDirty(pending, previous)
+      const keepDraft = options?.discardDraft !== true && hasUnsavedEdit && (scopeUnresolved || scopeUnchanged)
+      loadedScopeRef.current = requestScope
       setBaseline(next)
-      setDraft(next)
+      if (!keepDraft) setDraft(next)
     } catch (err) {
+      if (requestId !== latestLoadRef.current) return
       logger.error('time tracking settings load failed', { err })
       setLoadError(t('staff.time_tracking.settings.loadError', 'Failed to load the settings.'))
     } finally {
-      setIsLoading(false)
+      if (requestId === latestLoadRef.current) setIsLoading(false)
     }
   }, [t])
 
@@ -206,7 +246,7 @@ export default function TimeTrackingSettingsPage() {
     }),
     [canManage, contributedValues, setContributedSetting],
   )
-  const canSave = canManage && isDirty && fieldErrors.length === 0 && !isSaving
+  const canSave = canManage && isDirty && fieldErrors.length === 0 && !isSaving && !isLoading
 
   /**
    * optimistic-lock-exempt: tenant time-tracking settings are a single config
@@ -221,15 +261,39 @@ export default function TimeTrackingSettingsPage() {
     if (!draft) return
     const body = toSettingsPayload(draft)
     if (!body) return
+    const saveLoadId = latestLoadRef.current
+    const saveScope = scopeRef.current
+    const saveTenantId = saveScope.tenantId
+    const saveUrl = saveTenantId
+      ? `${SETTINGS_API}?expectedTenantId=${encodeURIComponent(saveTenantId)}`
+      : SETTINGS_API
+    const reportTenantScopeChanged = () => {
+      flash(
+        t(
+          'staff.time_tracking.settings.tenantChanged',
+          'The tenant changed before the settings were saved. Nothing was saved.',
+        ),
+        'warning',
+      )
+      void loadSettings({ discardDraft: true })
+    }
     setIsSaving(true)
     try {
       const call = await runMutation({
-        operation: () =>
-          apiCall<TimeTrackingSettings>(SETTINGS_API, {
+        operation: async () => {
+          if (saveTenantId !== null && scopeRef.current.tenantId !== saveTenantId) {
+            throw new TenantScopeChangedError()
+          }
+          const response = await apiCall<TimeTrackingSettings>(saveUrl, {
             method: 'PUT',
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify(body),
-          }),
+          })
+          if (isTenantScopeChangedResponse(response.status, response.result)) {
+            throw new TenantScopeChangedError()
+          }
+          return response
+        },
         context: {
           formId: MUTATION_CONTEXT_ID,
           resourceKind: RESOURCE_KIND,
@@ -242,17 +306,29 @@ export default function TimeTrackingSettingsPage() {
         flash(t('staff.time_tracking.settings.saveError', 'Failed to save the settings.'), 'error')
         return
       }
+      const scopeMoved =
+        saveLoadId !== latestLoadRef.current
+        || saveScope.tenantId !== scopeRef.current.tenantId
+        || saveScope.organizationId !== scopeRef.current.organizationId
+      if (scopeMoved) {
+        void loadSettings()
+        return
+      }
       const saved = toSettingsDraft(call.result)
       setBaseline(saved)
       setDraft(saved)
       flash(t('staff.time_tracking.settings.saved', 'Settings saved.'), 'success')
     } catch (err) {
+      if (err instanceof TenantScopeChangedError) {
+        reportTenantScopeChanged()
+        return
+      }
       logger.error('time tracking settings save failed', { err })
       flash(t('staff.time_tracking.settings.saveError', 'Failed to save the settings.'), 'error')
     } finally {
       setIsSaving(false)
     }
-  }, [draft, retryLastMutation, runMutation, t])
+  }, [draft, loadSettings, retryLastMutation, runMutation, t])
 
   const handleReapply = React.useCallback(async () => {
     const candidateCount = impact?.projected.entryCount ?? 0
@@ -320,7 +396,7 @@ export default function TimeTrackingSettingsPage() {
         })
   }, [rounding, t])
 
-  if (isLoading) {
+  if (isLoading && !draft) {
     return (
       <Page>
         <PageHeader title={t('staff.time_tracking.settings.title', 'Module settings')} />
@@ -685,7 +761,7 @@ export default function TimeTrackingSettingsPage() {
             type="button"
             variant="ghost"
             onClick={() => setDraft(baseline)}
-            disabled={!isDirty || isSaving}
+            disabled={!isDirty || isSaving || isLoading}
           >
             {t('staff.time_tracking.settings.actions.cancel', 'Cancel')}
           </Button>

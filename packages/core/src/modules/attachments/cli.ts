@@ -3,6 +3,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { Attachment } from './data/entities'
 import type { StorageDriverFactory } from './lib/drivers'
+import { removeAttachmentRecord } from './lib/storageReferences'
 
 type ParsedArgs = Record<string, string | boolean>
 
@@ -81,12 +82,12 @@ const deleteAttachments: ModuleCli = {
           tenantId: entry.tenantId ?? '',
           organizationId: entry.organizationId ?? '',
         })
-        await driver.delete(entry.partitionCode, entry.storagePath)
-        em.remove(entry)
+        const removal = await removeAttachmentRecord(em, entry)
+        if (!removal.removed) continue
+        if (removal.releaseStorage) await driver.delete(entry.partitionCode, entry.storagePath)
         removedIds.add(entry.id)
         console.log(`Deleted attachment ${entry.id}${entry.fileName ? ` (${entry.fileName})` : ''}`)
       }
-      await em.flush()
       const missing = idList.filter((id) => !removedIds.has(id))
       if (missing.length > 0) {
         console.log(`Not found: ${missing.join(', ')}`)

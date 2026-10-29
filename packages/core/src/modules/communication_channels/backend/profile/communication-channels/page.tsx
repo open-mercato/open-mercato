@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { extensionPoints } from '@open-mercato/core/modules/communication_channels/extension-points'
 import { getImportHistoryLimits } from '@open-mercato/core/modules/communication_channels/lib/import-history-limits'
+import { OAUTH_RESULT_QUERY_PARAM, stripOAuthResultParams } from '@open-mercato/core/modules/communication_channels/lib/oauth-result'
 import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
@@ -76,7 +77,7 @@ export default function ProfileCommunicationChannelsPage() {
   const t = useT()
   const router = useRouter()
   const searchParams = useSearchParams()
-  const flashType = searchParams?.get('flash')
+  const flashType = searchParams?.get(OAUTH_RESULT_QUERY_PARAM)
   const flashCode = searchParams?.get('code')
   const flashProvider = searchParams?.get('provider')
 
@@ -96,10 +97,13 @@ export default function ProfileCommunicationChannelsPage() {
 
   React.useEffect(() => {
     if (flashType === 'connected') {
+      const providerLabel = flashProvider
+        ? t(`communication_channels.channel.providers.${flashProvider}`, '')
+        : ''
       flash(
-        flashProvider
+        providerLabel
           ? t('communication_channels.profile.flash.connectedWithProvider', 'Channel connected ({provider}).', {
-              provider: flashProvider,
+              provider: providerLabel,
             })
           : t('communication_channels.profile.flash.connected', 'Channel connected.'),
         'success',
@@ -126,15 +130,14 @@ export default function ProfileCommunicationChannelsPage() {
                     'communication_channels.profile.flash.stateStoreUnavailable',
                     'A server error prevented completing the connection. Please try again in a moment.',
                   )
-                : flashCode
-                  ? t('communication_channels.profile.flash.errorWithCode', 'Failed to connect channel — {code}.', {
-                      code: flashCode,
-                    })
-                  : t('communication_channels.profile.flash.error', 'Failed to connect channel.'),
+                : t('communication_channels.profile.flash.error', 'Failed to connect channel.'),
         'error',
       )
+    } else {
+      return
     }
-  }, [flashType, flashCode, flashProvider, t])
+    router.replace(stripOAuthResultParams(window.location.href), { scroll: false })
+  }, [flashType, flashCode, flashProvider, router, t])
 
   React.useEffect(() => {
     let cancelled = false

@@ -1289,8 +1289,12 @@ export function DealForm({
           ownerUserId: parsed.data.ownerUserId && parsed.data.ownerUserId.length
             ? parsed.data.ownerUserId
             : null,
-          personIds,
-          companyIds,
+          // Only submit the link lists when this form is actually showing them. The deal
+          // detail page hides the associations group and manages links from its People and
+          // Companies tabs instead, so a Details save there would otherwise write back the
+          // ids this form captured when it mounted — re-linking whoever the user has since
+          // unlinked, and re-dating every surviving link row on the way through.
+          ...(showAssociationsGroup ? { personIds, companyIds } : {}),
         }
         const customEntries = collectCustomFieldValues(values, {
           transform: (value) => normalizeCustomFieldSubmitValue(value),
@@ -1300,7 +1304,7 @@ export function DealForm({
         setPending(false)
       }
     },
-    [isSubmitting, onSubmit, pending, t],
+    [isSubmitting, onSubmit, pending, showAssociationsGroup, t],
   )
 
   return (

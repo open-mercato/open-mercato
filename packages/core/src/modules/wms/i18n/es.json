@@ -1,4 +1,5 @@
 {
+  "notifications.categories.wms": "Almacén",
   "search.entityType.wms.inventory_lot": "Lote de inventario",
   "search.entityType.wms.product_inventory_profile": "Perfil de inventario",
   "search.entityType.wms.warehouse": "Almacén",
@@ -984,6 +985,7 @@
   "wms.errors.forbidden.manageZones": "No tienes permiso para gestionar zonas del almacén.",
   "wms.errors.forbidden.receiveInventory": "No tienes permiso para recibir inventario entrante.",
   "wms.errors.internalServerError": "Error interno del servidor",
+  "wms.errors.salesOrder.reRunReservationCancelled": "Un pedido cancelado no puede tener una reserva de stock.",
   "wms.errors.unauthorized": "No autorizado",
   "wms.nav.group": "WMS",
   "wms.notifications.lowStock.body": "Alerta de stock bajo — disponible: {availableQuantity}, punto de reorden: {reorderPoint}, stock de seguridad: {safetyStock}",
