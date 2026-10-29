@@ -2,7 +2,7 @@
 title: "Stabilize flaky integration tests by finding the hang, not by raising the timeout"
 modules: ["events","queue","ui","auth","example","record_locks","warranty_claims","customers","cart","phone_calls","search","cache","query_index","sales","workflows","sync_excel"]
 areas: ["integration","testing","backend-ui","module-data"]
-topics: ["workers","hydration","component-overrides","timers","transactions","events"]
+topics: ["workers","hydration","component-overrides","timers","transactions","events","lock-snapshots"]
 ---
 
 # Stabilize flaky integration tests by finding the hang, not by raising the timeout
@@ -18,6 +18,8 @@ topics: ["workers","hydration","component-overrides","timers","transactions","ev
 `TC-CRM-6442-list` timed out with a closed request context before its first owner read-back could finish. Its trace showed 30.4 seconds between a successful enqueue response and the first read-back attempt: a private in-process bootstrap/queue drain exhausted the 20-second test budget. Reuse `drainIntegrationQueue` so managed-worker tests observe queue completion without starting another consumer or cold bootstrapping the app.
 
 The cart `TC-CART-CONC-05` failure had a different root cause: blocking advisory waiters retained every pooled connection while the holder needed a separate pricing-service query. A local per-cart mutex passed one-cart tests but failed a native two-process/two-cart counterexample. Validate pool sizes and multiple processes/keys, release unsuccessful transaction attempts before backoff, and never replay mutation/uncertain-commit errors. A new deadline needs an explicit documented HTTP contract. Scope any no-write guarantee to the requested mutation phases: existing request preflight activity or repricing may already have persisted.
+
+Cart issue #8221 exposed a separate lost-update race in bulk adds despite holding that lock during writes: the merge map and next line number had already been read before acquisition. Read every database-derived merge decision after the lock is acquired. A deterministic regression can commit a preceding writer at the acquisition boundary and verify the resulting quantity, uniqueness, numbering and totals; HTTP coverage should exercise empty, populated and mixed single/bulk carts.
 
 `TC-PHONE-HUB-006` correctly observed a cache miss after command-side invalidation but intermittently received an empty list because its `q` filter depended on asynchronously populated full-text tokens. The cache behavior was synchronous; record discoverability was not. A run-unique exact `providerKey` filter keeps the three cache reads identical while removing the unrelated search-index readiness race.
 
