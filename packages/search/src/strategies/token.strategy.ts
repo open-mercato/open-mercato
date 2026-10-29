@@ -7,6 +7,7 @@ import type {
   IndexableRecord,
 } from '../types'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
+import { buildIndexDocFilterExists } from '../lib/index-doc-filter'
 
 /**
  * Configuration for TokenSearchStrategy.
@@ -86,6 +87,7 @@ export class TokenSearchStrategy implements SearchStrategy {
   readonly id: SearchStrategyId = 'tokens'
   readonly name = 'Token Search'
   readonly priority = 10 // Lowest priority, always available as fallback
+  readonly supportsIndexDocFilter = true
 
   private readonly minMatchRatio: number
   private readonly defaultLimit: number
@@ -157,6 +159,16 @@ export class TokenSearchStrategy implements SearchStrategy {
       queryBuilder = queryBuilder.where('entity_type' as any, 'in', requestedEntityTypes)
     } else if (excludedEntityTypes.length) {
       queryBuilder = queryBuilder.where('entity_type' as any, 'not in', excludedEntityTypes)
+    }
+
+    if (options.indexDocFilter) {
+      queryBuilder = queryBuilder.where(
+        buildIndexDocFilterExists(options.indexDocFilter, {
+          entityTypeRef: 'search_tokens.entity_type',
+          recordIdRef: 'search_tokens.entity_id',
+          tenantIdRef: 'search_tokens.tenant_id',
+        }),
+      )
     }
 
     const rows = await queryBuilder.execute() as Array<{

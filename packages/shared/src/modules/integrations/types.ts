@@ -157,6 +157,12 @@ export interface IntegrationDetailPageConfig {
    * Provider modules can replace these with injected tabs using the same spot.
    */
   hiddenTabs?: IntegrationDetailBuiltInTab[]
+  /**
+   * Detail-page tab that holds the provider's Connect / Reconnect controls (a built-in tab id or
+   * an injected tab id). The OAuth reauth banner links to `?tab=<connectTabId>` while that tab is
+   * visible and the viewer holds `integrations.credentials.manage`.
+   */
+  connectTabId?: string
 }
 
 export type IntegrationDetailBuiltInTab =

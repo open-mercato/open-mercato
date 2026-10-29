@@ -3,8 +3,11 @@
  *
  * Final submit. Body: `{ base_revision_id, submit_metadata? }`. Sets
  * status = submitted, captures `submit_metadata` (locale, IP, UA), emits
- * `forms.submission.submitted`. Idempotency hardening lands in 1d once the
- * client renderer is in place; phase 1c rejects double-submits with 422.
+ * `forms.submission.submitted`. A submission the caller started themselves
+ * must carry their own subject (`lib/portal-subject-policy.ts`), so a draft
+ * started for someone else before that check existed cannot be finalized.
+ * Idempotency hardening lands in 1d once the client renderer is in place;
+ * phase 1c rejects double-submits with 422.
  */
 
 import { NextResponse, type NextRequest } from 'next/server'
@@ -14,7 +17,14 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getCustomerAuthFromRequest } from '@open-mercato/core/modules/customer_accounts/lib/customerAuth'
 import { SubmissionService } from '../../../../services/submission-service'
 import { submissionSubmitInputSchema } from '../../../../data/validators'
-import { buildSubmitMetadata, mapSubmissionError, readJsonBody, serializeSubmission } from '../../../runtime-helpers'
+import {
+  buildSubmitMetadata,
+  isPortalSubjectForbiddenError,
+  mapSubmissionError,
+  portalSubjectForbiddenResponse,
+  readJsonBody,
+  serializeSubmission,
+} from '../../../runtime-helpers'
 
 export const metadata = {
   POST: { requireAuth: false },
@@ -56,9 +66,11 @@ export async function POST(
       baseRevisionId: parsed.data.base_revision_id,
       submittedBy: auth.sub,
       submitMetadata: buildSubmitMetadata(req, parsed.data.submit_metadata),
+      submittedByPortalCustomer: true,
     })
     return NextResponse.json({ submission: serializeSubmission(submission) })
   } catch (error) {
+    if (isPortalSubjectForbiddenError(error)) return portalSubjectForbiddenResponse()
     return mapSubmissionError(error)
   }
 }
@@ -79,6 +91,7 @@ const postMethodDoc: OpenApiMethodDoc = {
   responses: [{ status: 200, description: 'Submission submitted', schema: responseSchema }],
   errors: [
     { status: 401, description: 'Not authenticated', schema: errorSchema },
+    { status: 403, description: 'SUBJECT_FORBIDDEN: caller-started submission is not on the caller\'s own customer subject', schema: errorSchema },
     { status: 404, description: 'Submission not found', schema: errorSchema },
     { status: 409, description: 'Stale base_revision_id', schema: errorSchema },
     { status: 422, description: 'Submission already in terminal state', schema: errorSchema },

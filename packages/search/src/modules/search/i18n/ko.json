@@ -171,6 +171,8 @@
   "search.settings.model.label": "모델",
   "search.settings.model.namePlaceholder": "모델 이름",
   "search.settings.noIndexMessage": "아직 생성된 검색 인덱스가 없습니다.",
+  "search.settings.ollama.baseUrl.hint": "비워 두면 OLLAMA_BASE_URL 환경 변수를 사용합니다.",
+  "search.settings.ollama.baseUrl.label": "기본 URL",
   "search.settings.pageDescription": "검색 전략을 구성하고, 인덱스를 관리하고, 활동을 모니터링합니다.",
   "search.settings.pageTitle": "검색 설정",
   "search.settings.processingLabel": "처리 중…",

@@ -142,4 +142,34 @@ describe('hot-path indexes (#2966)', () => {
       )
     })
   })
+
+  describe('catalog_product_variant_prices row narrowing (pricing-engine Phase 2b)', () => {
+    const indexNames = [
+      'catalog_product_variant_prices_customer_idx',
+      'catalog_product_variant_prices_customer_group_idx',
+      'catalog_product_variant_prices_product_lookup_idx',
+    ]
+
+    it('declares every index on the CatalogProductPrice entity', () => {
+      const source = readEntities('catalog')
+      for (const name of indexNames) {
+        expect(source).toContain(`name: '${name}'`)
+      }
+    })
+
+    it('creates every index concurrently in a catalog migration', () => {
+      const sql = readAllMigrationSql('catalog')
+      expect(sql).toContain('create index concurrently "${index.name}" on "catalog_product_variant_prices"')
+      for (const name of indexNames) {
+        expect(sql).toContain(`name: '${name}'`)
+      }
+      expect(sql).not.toMatch(/catalog_product_variant_prices[^\n]*deleted_at/)
+    })
+
+    it('records every index in the catalog schema snapshot', () => {
+      expect(readSnapshotIndexNames('catalog', 'catalog_product_variant_prices')).toEqual(
+        expect.arrayContaining(indexNames),
+      )
+    })
+  })
 })
