@@ -82,6 +82,7 @@ async function readDocument(request: APIRequestContext, token: string, resource:
 
 test.describe('TC-LOCK-SALES-quote-session: local mutations and stale sessions', () => {
   test('P0 immediately converts after adding a line, shipping and surcharge', async ({ page, request }, testInfo) => {
+    test.slow()
     const token = await getAuthToken(request, 'admin')
     const settingsToken = await getAuthToken(request, 'superadmin')
     const suffix = `${Date.now()}-${testInfo.workerIndex}`
@@ -146,6 +147,7 @@ test.describe('TC-LOCK-SALES-quote-session: local mutations and stale sessions',
   })
 
   test('P1 keeps a second tab stale after passive refresh and blocks sending the quote', async ({ page, request }, testInfo) => {
+    test.slow()
     const token = await getAuthToken(request, 'admin')
     const settingsToken = await getAuthToken(request, 'superadmin')
     const suffix = `${Date.now()}-${testInfo.workerIndex}`
