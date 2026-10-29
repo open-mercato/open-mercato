@@ -144,7 +144,7 @@ export async function GET(req: Request) {
       em.persist(layout)
       hasChanged = true
     }
-  } else if (hasRegisteredWidgets) {
+  } else if (hasRegisteredWidgets || auth.isApiKey) {
     const existingLayout = layout
     const filtered = items.filter((item) => allowedIds.includes(item.widgetId))
     if (filtered.length !== items.length) {

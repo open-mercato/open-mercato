@@ -10,6 +10,7 @@ Correct personal dashboard and profile reads for user-bound API keys without cha
 
 - `GET /api/auth/profile` returns the bound user's email and name, with the key's existing roles.
 - `GET /api/dashboards/layout` uses the bound user's layout and widget preferences, filtered by the key's effective features. API-key reads never persist pruning or defaults: a restricted key must not erase the user's broader saved layout.
+- When the widget registry is temporarily empty, API-key reads return an empty transient layout without exposing saved widget settings. Interactive callers retain their existing recovery fallback.
 - Dashboard layout PUT and item PATCH use the same data subject, but check permissions and run mutation guards under the API-key actor.
 - Profile PUT requires an interactive session. It issues a user session cookie and must not exchange a restricted API key for the creator's full user session.
 - Bearer/cookie behavior remains unchanged.
@@ -29,3 +30,4 @@ Route tests cover bound/unbound keys, malformed and stale bindings, tenant/organ
 ## Changelog
 
 - 2026-10-29: Documented the scoped correction and regression coverage for #7261.
+- 2026-10-29: Verified and corrected the empty-registry API-key fallback after independent security review.

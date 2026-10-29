@@ -12,6 +12,7 @@ const rbac = { getEffectiveFeatures: jest.fn(), userHasAllFeatures: jest.fn() }
 const guard = jest.fn()
 const afterSuccess = jest.fn()
 const allowedWidgets = jest.fn()
+const widgetRegistry = jest.fn()
 const container = { resolve: (name: string) => name === 'em' ? em : rbac }
 
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({ getAuthFromRequest: () => authMock() }))
@@ -21,7 +22,7 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: async () => ({ translate: (_key: string, fallback: string) => fallback }),
 }))
 jest.mock('@open-mercato/core/modules/dashboards/lib/widgets', () => ({
-  loadAllWidgets: async () => [{ metadata: { id: 'visible', title: 'Visible' } }],
+  loadAllWidgets: () => widgetRegistry(),
 }))
 jest.mock('@open-mercato/core/modules/dashboards/lib/access', () => ({
   resolveAllowedWidgetIds: (...args: unknown[]) => allowedWidgets(...args),
@@ -56,6 +57,7 @@ beforeEach(() => {
   em.fork.mockReturnValue(em)
   em.findOne.mockResolvedValue({ layoutJson: savedItems.map((item) => ({ ...item })) })
   allowedWidgets.mockResolvedValue(['visible'])
+  widgetRegistry.mockResolvedValue([{ metadata: { id: 'visible', title: 'Visible' } }])
   rbac.getEffectiveFeatures.mockResolvedValue(['dashboards.view'])
   rbac.userHasAllFeatures.mockResolvedValue(true)
   guard.mockResolvedValue({ ok: true, shouldRunAfterSuccess: true })
@@ -84,6 +86,25 @@ it('does not seed a personal layout during an API-key read', async () => {
   expect((await GET(request())).status).toBe(200)
   expect(em.create).not.toHaveBeenCalled()
   expect(em.persist).not.toHaveBeenCalled()
+})
+
+it('withholds saved widget settings from a restricted key when the widget registry is unavailable', async () => {
+  const layout = { layoutJson: [
+    ...savedItems,
+    { id: '77777777-7777-4777-8777-777777777777', widgetId: 'private-report', order: 2, priority: 2, settings: { savedReportId: 'private-report' } },
+  ] }
+  const savedLayout = structuredClone(layout)
+  em.findOne.mockResolvedValue(layout)
+  widgetRegistry.mockResolvedValue([])
+  allowedWidgets.mockResolvedValue([])
+
+  const response = await GET(request())
+
+  expect(response.status).toBe(200)
+  expect(await response.json()).toMatchObject({ layout: { items: [] }, allowedWidgetIds: [], widgets: [] })
+  expect(layout).toEqual(savedLayout)
+  expect(em.persist).not.toHaveBeenCalled()
+  expect(em.flush).not.toHaveBeenCalled()
 })
 
 it.each(['GET', 'PUT', 'PATCH'])('rejects an unbound key before %s accesses personal data', async (method) => {
