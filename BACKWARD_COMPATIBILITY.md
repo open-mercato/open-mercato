@@ -434,16 +434,16 @@ Deleting a user who had customised their sidebar failed on the `user_sidebar_pre
 
 ## Passkey MFA Verification Payload (2026-08-14)
 
-Issue #3852 removed the non-cryptographic passkey verification shape from `PasskeyProvider` in the enterprise `security` module. This is a **deliberate breaking change to a STABLE contract surface (category 7, API request shapes)** that ships under the [Emergency Security Exception](#emergency-security-exception) rather than the ordinary deprecation protocol.
+Issue #3852 removes the non-cryptographic verification shape from enterprise `security`’s `PasskeyProvider`: a **deliberate STABLE category 7 API-request break** under the [Emergency Security Exception](#emergency-security-exception).
 
-**Classification.** The removed shape was a *publicly supported* surface, not an undocumented accident: it was part of the exported `MfaProviderInterface.verifySchema` union that a third-party client could validate against, and the enterprise test suite pinned it in a case named *"supports legacy verification payload for backward compatibility"*. It is therefore a genuine STABLE-surface break, and the exception — not a claim that no contract existed — is what authorizes it.
+**Classification.** This publicly supported shape belonged to exported `MfaProviderInterface.verifySchema`, available to third-party validators, and was pinned by the enterprise test *"supports legacy verification payload for backward compatibility"*. Its removal breaks STABLE compatibility and requires the exception.
 
 **Exception requirements, as met by this change:**
 
 | Requirement | How it is satisfied |
 |-------------|--------------------|
-| 1. Qualifying condition argued | See *Why the deprecation protocol does not apply* below — both values the removed shape compared are disclosed by the server, so accepting it *is* the bypass |
-| 2. Narrowest removal, no retained vulnerable branch | Only `verifyPayloadSchema` and the two non-cryptographic acceptance paths are deleted. The `{ response }` path, the challenge TTL check and the signature-counter update are untouched, and **no flag, config toggle or opt-in keeps the old shape reachable** |
+| 1. Qualifying condition argued | The server discloses both compared values: accepting the old shape *is* the bypass (rationale below) |
+| 2. Narrowest removal, no retained vulnerable branch | Delete only `verifyPayloadSchema` and both non-cryptographic paths; preserve `{ response }`, challenge TTL and signature-counter update. **No flag, config toggle or opt-in retains the old shape** |
 | 3. Steps 4 and 5 | [`UPGRADE_NOTES.md`](UPGRADE_NOTES.md) `0.6.7 → 0.7.0` (client *and* operator actions); spec [`.ai/specs/enterprise/2026-08-14-passkey-mfa-require-webauthn-assertion.md`](.ai/specs/enterprise/2026-08-14-passkey-mfa-require-webauthn-assertion.md) § Migration & Backward Compatibility |
 | 4. Dated entry | This section |
 | 5. Maintainer sign-off | PR carries the `security` label; the waiver is called out in the PR body for explicit human approval |
@@ -456,7 +456,7 @@ Issue #3852 removed the non-cryptographic passkey verification shape from `Passk
 | Failure mode | A payload that fails the schema, and an assertion the verifier throws on, return `false` instead of throwing — so they answer the documented `401` and count toward the challenge attempt limit instead of logging a `500` that skipped lockout | ✓ Strictly safer (no verdict flips from negative to positive) |
 | API route URLs, HTTP methods, response schemas, database schema, event IDs, ACL features, DI names, CLI commands | No change | ✓ n/a |
 
-**Why the deprecation protocol does not apply.** The protocol exists to give downstream authors a bridge release. Here the request shape being removed *is* the vulnerability: both values it compared are disclosed by the server, so a bridge would keep the passkey second factor bypassable for a minor version in both login MFA and sudo step-up. A security fix that leaves the hole open is not a fix.
+**Why no bridge.** The removed request shape *is* the vulnerability: the server discloses both compared values. Retaining it for a bridge minor release would preserve the passkey bypass in both login MFA and sudo step-up.
 
 **Migration path.** Send `startAuthentication()` output as `payload.response`. The first-party `PasskeyChallengeVerify` component already does, so shipped UIs are unaffected. Credentials enrolled through the setup path's client-supplied `publicKey` shortcut are **not** reliably rendered unusable by this change — depending on what the client supplied, such a row holds either a key nobody can sign with or a keypair the enroller controls, and the second kind produces assertions this change accepts. That shortcut is a separate open surface (#5296); operator-facing remediation is in [`UPGRADE_NOTES.md`](UPGRADE_NOTES.md).
 
@@ -603,20 +603,12 @@ Spec: [`.ai/specs/2026-09-08-error-reporting-policy.md`](.ai/specs/2026-09-08-er
 
 **Migration path for existing modules**: none for first-party code. Third-party modules must not register an integration or bundle id that ends in `__oauth_grant` (see `UPGRADE_NOTES.md`).
 
----
+## #7220
+
+[Cache fix](UPGRADE_NOTES.md)
 
 ## Unique Bootstrap Superadmin Password (2026-10-29)
 
-Issue [#7809](https://github.com/open-mercato/open-mercato/issues/7809) removes predictable privileged credentials from `mercato init` and the starter/generated-app full-app Compose flows. The [specification](.ai/specs/2026-10-29-unique-bootstrap-superadmin-password.md#migration--backward-compatibility) records the scope and validation requirements.
-
-| Surface | Change | Classification |
-|---------|--------|----------------|
-| CLI initialization credential behavior | `mercato init` / `yarn initialize` require an explicit superadmin password through `--password` or `OM_INIT_SUPERADMIN_PASSWORD`; missing, empty, known-placeholder, and policy-invalid values fail before initialization side effects. Init policy-bypass aliases no longer disable that validation. | Intentional security narrowing of CLI behavior; emergency security exception requires human sign-off |
-| Full-app Compose environment defaults | Starter, generated-app, development, and legacy root variants pass through an empty value when unset instead of supplying `password`. | Removal of a vulnerable bootstrap default; normal initialized restart/migration paths remain available |
-| Cross-platform starter environment setup | New environment files receive a unique generated superadmin password instead of `secret`; the app environment receives the same value. Existing values and company defaults remain unchanged. | Intentional security narrowing of the generated credential default; no automatic rotation |
-| Starter success summaries and new environment files | Hybrid and Docker startup summaries show the email and credential-file location instead of a password. Newly created environment files use `0600` permissions on POSIX systems; existing permissions remain unchanged. | Credential-disclosure hardening; retrieve credentials locally from the environment files |
-| API routes, response shapes, database schema, event IDs, ACL features, DI names, and standalone `auth setup` behavior | Unchanged | No contract change |
-
-**Qualifying argument:** a bridge preserving the predictable fallback or the init password-policy bypass would continue to permit the same insecure privileged-account provisioning. Removing those branches is the narrowest change that closes issue #7809; no flag or environment toggle retains them. The ordinary deprecation protocol's steps 1–3 are therefore proposed for waiver. The `security` label and approval from a **named human maintainer explicitly acknowledging this waiver are still required before merge**; this entry records no such approval.
-
-**Migration path:** operators must supply a unique policy-compliant `OM_INIT_SUPERADMIN_PASSWORD` or explicit `--password` for initialization and deliberate reinstall. Client scripts must stop relying on defaults or init bypass flags and handle validation failure. Already-initialized deployments can restart and migrate normally without the bootstrap password. Existing stored passwords are not changed; review privileged accounts created with earlier defaults and rotate suspect credentials through existing account-management or password-reset flows. Full operator and client actions are recorded in [`UPGRADE_NOTES.md`](UPGRADE_NOTES.md#initialization-requires-a-unique-superadmin-password-7809).
+| Surface | Classification and migration |
+|---|---|
+| Init defaults/bypass and Compose/starter credentials | Security narrowing: retaining them preserves vulnerable provisioning. No bridge; named human waiver approval pending. Supply a unique policy-valid password; rotate suspect existing credentials. Details: [spec](.ai/specs/2026-10-29-unique-bootstrap-superadmin-password.md), [operator/client migration](UPGRADE_NOTES.md#initialization-requires-a-unique-superadmin-password-7809). |

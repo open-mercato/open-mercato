@@ -34,9 +34,11 @@ All four canonical full-app Compose files pass an empty value when the bootstrap
 
 `packages/starter/src/env-setup.mjs` replaces its fixed password with a value containing 32 random bytes from the existing `secretHex` helper plus characters guaranteeing the default policy's required classes. It writes the same generated value to root/app environments through existing fill-missing-only helpers; reruns and explicit company defaults never rotate it. Setup logs a fingerprint for this key. The generated value is 68 characters long and satisfies the default policy. Rather than importing workspace TypeScript dependencies into this pre-install, Node-stdlib-only package or duplicating policy parsing, custom minimum lengths above 68 require an explicit compliant value.
 
+Railway deployment generates a unique 68-character bootstrap password alongside its protected secrets when neither local nor existing Railway variables provide a nonblank value. Existing values are preserved; `--write-env` persists generated values in the ignored local environment file, including blank placeholders. Dry-run and completion output disclose only the variable name and retrieval location. For custom minimum lengths above 68, operators provide a compliant explicit value. Both application `.env.example` files document the required credential for local setup and greenfield/reinstall paths.
+
 Both hybrid and Docker starter success summaries use one formatter that reads the email and points to `OM_INIT_SUPERADMIN_PASSWORD` in root/app `.env` files without reading or printing the password. The environment-file writer creates new files with owner-only read/write mode (`0600`) on POSIX; existing permissions remain unchanged. Operators retrieve the credential locally from those files. The existing initial `mercato init` completion output is outside this summary change.
 
-The integration runner and dev-ephemeral entrypoint supply an ephemeral password only when the environment key is absent, preserving explicit empty or invalid values for CLI validation. Snapshot/package-preview initialization similarly receives a run-specific credential. These are compatibility updates to existing consumers of `mercato init`, with no new bootstrap mode or pipeline behavior.
+The integration runner and dev-ephemeral entrypoint supply an ephemeral password when the environment key is absent or blank, preserving nonblank explicit values for CLI validation. Snapshot/package-preview initialization similarly receives a run-specific credential. These are compatibility updates to existing consumers of `mercato init`, with no new bootstrap mode or pipeline behavior.
 
 ## Data Models
 
@@ -61,7 +63,8 @@ No HTTP API, response schema, event, ACL feature, DI registration, or generated-
 | Fresh starter environment | Generate a unique default-policy-compliant password, copy the same value into the app environment, and preserve it on reruns |
 | Explicit starter/company credential, including a known placeholder | Preserve the configured value; CLI validation decides whether initialization can proceed |
 | Custom minimum length above the starter's generated length | Supply an explicit compliant value; CLI validation remains authoritative |
-| Ephemeral caller with an explicit empty/invalid credential | Preserve it so CLI validation fails; do not silently replace operator configuration |
+| Ephemeral caller with a blank credential | Treat the blank placeholder as unset and generate a unique credential |
+| Ephemeral caller with a nonblank invalid credential | Preserve it so CLI validation fails; do not silently replace operator configuration |
 | Deployment previously initialized with a predictable credential | Require operator review and rotation through existing account-management/reset flows; changing the environment alone does not rotate it |
 
 ## Risks & Impact Review
@@ -96,7 +99,9 @@ Regression coverage must exercise the actual `mercato init` dispatch path in add
 - Existing initialized restart/migration script behavior remains covered by the init-or-migrate tests.
 - Fresh starter environments receive different compliant passwords with identical root/app copies; reruns and explicit credentials remain unchanged, and setup logs do not contain the password.
 - Starter summary output for generated/configured credentials includes the email and environment-file location while excluding the password; both actual success callsites must use that formatter. POSIX tests verify new root/app environment files use `0600` and existing permissions remain unchanged.
-- Ephemeral helper and caller tests cover absent-key generation, preservation of explicit values, and forwarding into existing initialization flows.
+- Ephemeral helper and caller tests cover absent/blank-key generation, preservation of nonblank explicit values, and forwarding into existing initialization flows.
+- Railway tests cover unique policy-compliant generation, preservation, app-variable forwarding, ignored env-file persistence and repeatability, and dry-run redaction; local and standalone environment examples document the same key.
+- The standalone compatibility-context test stays within its existing caps after the compatibility summary is shortened.
 
 No API or UI paths change, so API/Playwright coverage is not added for this CLI/configuration fix. Run the affected CLI and script tests plus the configured repository validation gate; record actual results and environmental limits in the PR. This document does not claim those checks have passed.
 
@@ -118,6 +123,8 @@ No API or UI paths change, so API/Playwright coverage is not added for this CLI/
 - Added the cross-platform starter's unique environment-file credential and necessary ephemeral/preview caller compatibility; retained the normal-init read-only existing-user recovery probe.
 - Starter runtime regression verification: `node --test packages/starter/src/__tests__/starter.test.mjs` passed all 41 tests, including summary disclosure and new-file permissions. The new default-generation, uniqueness, preservation, and logging cases first demonstrated failures against the original writer.
 - Independent final review found no remaining code findings and confirmed one cohesive bootstrap-security capability, including the necessary first-party caller updates. Targeted validation passed 145 CLI tests, 61 starter/Compose tests, and 7 caller-propagation tests; full-gate limits and human waiver acknowledgment are reported separately in the PR.
+
+- PR review follow-up: resolve base-document conflicts; shorten the compatibility entry within existing harness budgets; provision and document Railway credentials, mirror local setup guidance in both env examples, and treat blank ephemeral credentials as unset.
 
 ### Review — 2026-10-29
 

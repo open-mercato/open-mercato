@@ -12,7 +12,12 @@ describe('ephemeral bootstrap superadmin credentials', () => {
     expect(validatePassword(secondPassword, getPasswordPolicy({})).ok).toBe(true)
   })
 
-  it.each(['Operator-8sW!k3zR', 'password', ''])('preserves an explicit credential for CLI validation', (password) => {
+  it.each(['', '  ', '\t'])('generates a compliant credential when the configured value is blank', (password) => {
+    const generated = resolveEphemeralSuperadminPassword({ OM_INIT_SUPERADMIN_PASSWORD: password })
+    expect(validatePassword(generated, getPasswordPolicy({})).ok).toBe(true)
+  })
+
+  it.each(['Operator-8sW!k3zR', 'password'])('preserves an explicit credential for CLI validation', (password) => {
     expect(resolveEphemeralSuperadminPassword({ OM_INIT_SUPERADMIN_PASSWORD: password })).toBe(password)
   })
 })

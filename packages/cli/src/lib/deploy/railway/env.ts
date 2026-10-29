@@ -38,6 +38,10 @@ export function parseEnvFile(contents: string): Record<string, string> {
 
 export function generateProtectedSecrets(existing: Record<string, string>): Record<string, string> {
   return {
+    OM_INIT_SUPERADMIN_PASSWORD:
+      existing.OM_INIT_SUPERADMIN_PASSWORD?.trim()
+        ? existing.OM_INIT_SUPERADMIN_PASSWORD
+        : `Aa1!${randomBytes(32).toString('hex')}`,
     AUTH_SECRET: existing.AUTH_SECRET || randomBytes(64).toString('hex'),
     JWT_SECRET: existing.JWT_SECRET || randomBytes(64).toString('hex'),
     TENANT_DATA_ENCRYPTION_FALLBACK_KEY:
@@ -103,7 +107,8 @@ export function writeGeneratedSecrets(envFile: string, secrets: Record<string, s
     throw new Error(`Refusing --write-env because ${envFile} is not ignored by Git.`)
   }
   const existing = readFileSync(envFile, 'utf8')
-  const missing = Object.entries(secrets).filter(([key]) => !new RegExp(`^${key}=`, 'm').test(existing))
+  const configured = parseEnvFile(existing)
+  const missing = Object.entries(secrets).filter(([key]) => !configured[key]?.trim())
   if (missing.length === 0) return
   const suffix = missing.map(([key, value]) => `${key}=${value}`).join('\n')
   writeFileSync(envFile, `${existing.trimEnd()}\n\n# DO NOT COMMIT: generated for Railway deployment\n${suffix}\n`, {

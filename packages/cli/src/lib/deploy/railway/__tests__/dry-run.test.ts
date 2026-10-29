@@ -28,6 +28,7 @@ describe('mercato deploy railway --dry-run', () => {
     expect(output).toContain('Project: my-shop')
     expect(output).toContain('Source: local')
     expect(output).toContain('AUTH_SECRET=<redacted>')
+    expect(output).toContain('OM_INIT_SUPERADMIN_PASSWORD=<redacted>')
     expect(output).not.toContain('generated-at-deploy')
     log.mockRestore()
   })
