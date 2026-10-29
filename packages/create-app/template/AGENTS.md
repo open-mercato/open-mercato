@@ -1,6 +1,6 @@
 # Standalone Open Mercato App — Agent Rules
 
-Route first; never probe unmatched context.
+Route first; skip unmatched context.
 
 ## Always
 
@@ -123,7 +123,7 @@ Mechanisms: events/subscribers→events; long operation/progress→progress; pro
 
 ## Working Sequence
 
-1. Route; implement the smallest complete slice through real call sites.
-2. Discovery changes: `yarn generate`; then focused gates/integration paths.
+1. Route; implement a minimal complete slice via real call sites.
+2. Discovery: `yarn generate`; then focused gates/integration paths.
 
 Precedence: root→BC→installed `AGENTS.md`→facts; stop on skew/conflict; never guess.
