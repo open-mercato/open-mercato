@@ -613,6 +613,40 @@ function assertUniqueSerialNumbers(serialNumbers: string[]): void {
   }
 }
 
+/** A later batch must not receive a serial already stored on a partially received line. */
+function assertIncomingSerialsAreNew(
+  incoming: string[],
+  stored: string[] | null | undefined,
+): void {
+  const known = new Set(normalizeStoredSerials(stored))
+  for (const serialNumber of incoming) {
+    if (known.has(serialNumber)) {
+      throw new CrudHttpError(422, { error: 'duplicate_serial' })
+    }
+  }
+}
+
+function mergeReceivedSerials(stored: string[] | null | undefined, incoming: string[]): string[] {
+  const next = normalizeStoredSerials(stored)
+  const seen = new Set(next)
+  for (const serialNumber of incoming) {
+    if (seen.has(serialNumber)) continue
+    seen.add(serialNumber)
+    next.push(serialNumber)
+  }
+  return next
+}
+
+function recordReceivedSerials(
+  line: ReceivingLine,
+  incoming: string[],
+  priorReceivedQty: number,
+): void {
+  if (incoming.length === 0) return
+  line.serialNumbers =
+    priorReceivedQty > 0.000001 ? mergeReceivedSerials(line.serialNumbers, incoming) : incoming
+}
+
 async function emitAsnSideEffects(
   ctx: CommandRuntimeContext,
   affected: {
@@ -1580,6 +1614,9 @@ const receiveAsnLineCommand: CommandHandler<AsnReceiveLineInput, ReceiveAsnLineR
         const receivingStarted = asn.status === 'draft' || asn.status === 'in_transit'
         let lineUpdated = false
         if (attempt.applyQty > 0.000001 && priorReceivedQty === toNumber(line.receivedQty)) {
+          if (serialNumbers.length > 0 && priorReceivedQty > 0.000001) {
+            assertIncomingSerialsAreNew(serialNumbers, line.serialNumbers)
+          }
           line.receivedQty = toNumericString(attempt.targetReceivedQty)
           line.qcStatus = 'failed'
           line.rejectionReason =
@@ -1587,7 +1624,7 @@ const receiveAsnLineCommand: CommandHandler<AsnReceiveLineInput, ReceiveAsnLineR
           if (input.lotNumber !== undefined) {
             line.lotNumber = normalizeOptionalString(input.lotNumber) ?? line.lotNumber ?? null
           }
-          if (serialNumbers.length) line.serialNumbers = serialNumbers
+          recordReceivedSerials(line, serialNumbers, priorReceivedQty)
           if (asn.status === 'draft') asn.status = 'in_transit'
           // Bump ASN version only with the successful line write (not before).
           asn.updatedAt = new Date()
@@ -1824,6 +1861,9 @@ const receiveAsnLineCommand: CommandHandler<AsnReceiveLineInput, ReceiveAsnLineR
         }
       }
 
+      if (serialNumbers.length > 0 && priorReceivedQty > 0.000001) {
+        assertIncomingSerialsAreNew(serialNumbers, line.serialNumbers)
+      }
       if (serialNumbers.length > 0 && serialNumbers.length !== attempt.applyQty) {
         throw new CrudHttpError(422, { error: 'tracking_required' })
       }
@@ -1906,7 +1946,7 @@ const receiveAsnLineCommand: CommandHandler<AsnReceiveLineInput, ReceiveAsnLineR
         if (input.lotNumber !== undefined) {
           line.lotNumber = normalizeOptionalString(input.lotNumber) ?? line.lotNumber ?? null
         }
-        if (serialNumbers.length) line.serialNumbers = serialNumbers
+        recordReceivedSerials(line, serialNumbers, priorReceivedQty)
         if (asn.status === 'draft') asn.status = 'in_transit'
         // Bump ASN version only after stock + line write succeed in this TX.
         asn.updatedAt = new Date()

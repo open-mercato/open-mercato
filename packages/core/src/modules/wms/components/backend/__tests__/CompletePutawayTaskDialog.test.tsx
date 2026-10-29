@@ -184,4 +184,32 @@ describe('CompletePutawayTaskDialog', () => {
     expect(mockApiCall).toHaveBeenCalledTimes(2)
     expect(mockApiCall.mock.calls[1][1].headers[OPTIMISTIC_LOCK_HEADER_NAME]).toBe(freshUpdatedAt)
   })
+
+  it('completes only when the scanned serial matches the selected task', async () => {
+    mockApiCall.mockResolvedValue({
+      ok: true,
+      status: 200,
+      result: { ok: true },
+      response: new Response(null, { status: 200 }),
+    })
+    render(
+      <CompletePutawayTaskDialog
+        open
+        onOpenChange={jest.fn()}
+        access={access}
+        task={{ ...task, quantity: 1, serialNumber: 'S1' }}
+      />,
+    )
+
+    expect(screen.getByTestId('complete-putaway-expected-serial').textContent).toContain('S1')
+    fireEvent.change(screen.getByTestId('complete-putaway-serial'), { target: { value: 'S2' } })
+    fireEvent.click(screen.getByTestId('complete-putaway-submit'))
+    expect(await screen.findByText('The scanned serial does not match this task.')).toBeTruthy()
+    expect(mockApiCall).not.toHaveBeenCalled()
+
+    fireEvent.change(screen.getByTestId('complete-putaway-serial'), { target: { value: ' S1 ' } })
+    fireEvent.click(screen.getByTestId('complete-putaway-submit'))
+    await waitFor(() => expect(mockApiCall).toHaveBeenCalledTimes(1))
+    expect(String(mockApiCall.mock.calls[0][0])).toContain(task.id)
+  })
 })

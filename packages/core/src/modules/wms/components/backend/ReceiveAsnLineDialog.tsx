@@ -143,7 +143,10 @@ export function ReceiveAsnLineDialog({
     setQcStatus('passed')
     setTargetStagingLocationId(line.targetStagingLocationId?.trim() || '')
     setLotNumber(line.lotNumber?.trim() || '')
-    setSerialNumbersText((line.serialNumbers ?? []).map((value) => value.trim()).filter(Boolean).join('\n'))
+    const storedSerials = (line.serialNumbers ?? []).map((value) => value.trim()).filter(Boolean)
+    // After a partial receipt the field is this batch only. Planned serials still
+    // prefill the first receipt, when nothing has been received yet.
+    setSerialNumbersText(line.receivedQty > 0 ? '' : storedSerials.join('\n'))
     setRejectionReason('')
     setFieldErrors({})
     setSubmitting(false)
@@ -175,6 +178,10 @@ export function ReceiveAsnLineDialog({
         rejectionReason: rejectionReason.trim() || undefined,
       })
       const serialNumbers = parseReceiveSerialNumbers(serialNumbersText)
+      const alreadyReceivedSerials =
+        line.receivedQty > 0
+          ? (line.serialNumbers ?? []).map((value) => value.trim()).filter(Boolean)
+          : []
       const nextErrors: Record<string, string> = {}
       if (!parsed.success) {
         for (const issue of parsed.error.issues) {
@@ -186,7 +193,8 @@ export function ReceiveAsnLineDialog({
       }
       if (serialNumbers.length > 0) {
         const uniqueSerials = new Set(serialNumbers)
-        if (uniqueSerials.size !== serialNumbers.length) {
+        const knownSerials = new Set(alreadyReceivedSerials)
+        if (uniqueSerials.size !== serialNumbers.length || serialNumbers.some((value) => knownSerials.has(value))) {
           nextErrors.serialNumbers = t(
             'wms.backend.asns.receive.errors.duplicateSerial',
             'Duplicate serial numbers are not allowed.',
@@ -381,6 +389,15 @@ export function ReceiveAsnLineDialog({
                 {' · '}
                 {t('wms.backend.asns.receive.summary.received', 'Received')}: {baselineReceivedQty}
               </div>
+              {baselineReceivedQty > 0 && (line.serialNumbers ?? []).some((value) => value.trim()) ? (
+                <div className="text-muted-foreground" data-testid="receive-asn-known-serials">
+                  {t('wms.backend.asns.receive.summary.alreadyReceivedSerials', 'Already received')}:{' '}
+                  {(line.serialNumbers ?? [])
+                    .map((value) => value.trim())
+                    .filter(Boolean)
+                    .join(', ')}
+                </div>
+              ) : null}
             </div>
 
             <FormField
@@ -465,7 +482,7 @@ export function ReceiveAsnLineDialog({
               error={fieldErrors.serialNumbers}
               description={t(
                 'wms.backend.asns.receive.form.serialNumbersHint',
-                'One per line. The count must match the received quantity.',
+                'This batch only, one per line. Do not repeat serials already received. The count must match this quantity.',
               )}
             >
               <Textarea

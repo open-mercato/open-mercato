@@ -40,6 +40,7 @@ export type PutawayTaskTarget = {
   targetLocationId?: string | null
   catalogVariantId?: string | null
   sourceLocationId?: string | null
+  serialNumber?: string | null
   updatedAt?: string | null
 }
 
@@ -77,6 +78,7 @@ export function CompletePutawayTaskDialog({
 
   const [confirmedQuantity, setConfirmedQuantity] = React.useState(1)
   const [targetLocationId, setTargetLocationId] = React.useState('')
+  const [serialConfirmation, setSerialConfirmation] = React.useState('')
   const [fieldErrors, setFieldErrors] = React.useState<Record<string, string>>({})
   const [submitting, setSubmitting] = React.useState(false)
   const [lockUpdatedAt, setLockUpdatedAt] = React.useState<string | null>(null)
@@ -108,6 +110,7 @@ export function CompletePutawayTaskDialog({
     if (!open || !task) return
     setConfirmedQuantity(task.quantity > 0 ? task.quantity : 1)
     setTargetLocationId(task.targetLocationId?.trim() || '')
+    setSerialConfirmation('')
     setFieldErrors({})
     setSubmitting(false)
     const seed = task.updatedAt ?? null
@@ -134,12 +137,21 @@ export function CompletePutawayTaskDialog({
         confirmedQuantity,
         targetLocationId: targetLocationId.trim(),
       })
+      const expectedSerial = task.serialNumber?.trim() ?? ''
+      const nextErrors: Record<string, string> = {}
       if (!parsed.success) {
-        const nextErrors: Record<string, string> = {}
         for (const issue of parsed.error.issues) {
           const key = String(issue.path[0] ?? 'form')
           if (!nextErrors[key]) nextErrors[key] = t(issue.message, issue.message)
         }
+      }
+      if (expectedSerial && serialConfirmation.trim() !== expectedSerial) {
+        nextErrors.serialConfirmation = t(
+          'wms.backend.putaway.complete.errors.serialMismatch',
+          'The scanned serial does not match this task.',
+        )
+      }
+      if (!parsed.success || nextErrors.serialConfirmation) {
         setFieldErrors(nextErrors)
         return
       }
@@ -222,6 +234,7 @@ export function CompletePutawayTaskDialog({
       closeDialog,
       confirmedQuantity,
       lockUpdatedAt,
+      serialConfirmation,
       mutationContext,
       onSuccess,
       queryClient,
@@ -268,6 +281,27 @@ export function CompletePutawayTaskDialog({
 
         <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
           <div className="flex flex-col gap-5 overflow-y-auto px-6 py-6">
+            {task.serialNumber?.trim() ? (
+              <FormField
+                label={t('wms.backend.putaway.complete.form.serialConfirm', 'Confirm serial')}
+                required
+                error={fieldErrors.serialConfirmation}
+                description={t(
+                  'wms.backend.putaway.complete.form.serialConfirmHint',
+                  'Scan or type the serial on the unit. It must match this task.',
+                )}
+              >
+                <div className="mb-2 text-sm" data-testid="complete-putaway-expected-serial">
+                  {t('wms.backend.putaway.complete.form.serial', 'Serial')}: {task.serialNumber.trim()}
+                </div>
+                <Input
+                  value={serialConfirmation}
+                  onChange={(event) => setSerialConfirmation(event.target.value)}
+                  disabled={submitting}
+                  data-testid="complete-putaway-serial"
+                />
+              </FormField>
+            ) : null}
             <FormField
               label={t('wms.backend.putaway.complete.form.quantity', 'Confirmed quantity')}
               required

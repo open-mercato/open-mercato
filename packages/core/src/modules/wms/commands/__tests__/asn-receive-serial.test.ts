@@ -230,6 +230,87 @@ describe('wms.asns.receive-line serial identity', () => {
     expect(receivingLine.serialNumbers).toEqual(['S1', 'S2'])
   })
 
+  function stubReceiveLookups(
+    em: ReturnType<typeof createEm>,
+    receivingLine: ReturnType<typeof line>,
+  ) {
+    findOneWithDecryption.mockImplementation(async (_em, entity, where) => {
+      if (entity === Asn) return asn()
+      if (entity === ReceivingLine) return receivingLine
+      if (entity === WarehouseLocation) {
+        return {
+          id: (where as { id?: string }).id,
+          tenantId: TENANT,
+          organizationId: ORG,
+          warehouse: { id: WH_ID },
+          type: 'staging',
+          isActive: true,
+        }
+      }
+      if (entity === PutawayTask) return null
+      return null
+    })
+    findWithDecryption.mockResolvedValue([])
+    return em
+  }
+
+  it('rejects a second receipt of the same serial without writes', async () => {
+    const em = createEm()
+    const receivingLine = line({
+      expectedQty: '4',
+      receivedQty: '1',
+      serialNumbers: ['S1'],
+      qcStatus: 'passed',
+    })
+    stubReceiveLookups(em, receivingLine)
+
+    const handler = commandRegistry.get('wms.asns.receive-line')
+    await expect(
+      handler!.execute(
+        receiveInput({
+          receivedQty: 1,
+          targetReceivedQty: 2,
+          serialNumbers: ['S1'],
+        }),
+        createCtx(em) as never,
+      ),
+    ).rejects.toMatchObject({ status: 422, body: { error: 'duplicate_serial' } })
+
+    expect(applyInventoryReceiveInTransaction).not.toHaveBeenCalled()
+    expect(em.flush).not.toHaveBeenCalled()
+    expect(em.create).not.toHaveBeenCalled()
+    expect(receivingLine.receivedQty).toBe('1')
+    expect(receivingLine.serialNumbers).toEqual(['S1'])
+  })
+
+  it('appends a later serial without dropping the earlier one', async () => {
+    const em = createEm()
+    const receivingLine = line({ expectedQty: '4' })
+    stubReceiveLookups(em, receivingLine)
+    const handler = commandRegistry.get('wms.asns.receive-line')
+    const ctx = createCtx(em)
+
+    await handler!.execute(
+      receiveInput({ receivedQty: 1, targetReceivedQty: 1, serialNumbers: ['S1'] }),
+      ctx as never,
+    )
+    expect(receivingLine.serialNumbers).toEqual(['S1'])
+    expect(receivingLine.receivedQty).toBe('1')
+
+    await handler!.execute(
+      receiveInput({ receivedQty: 1, targetReceivedQty: 2, serialNumbers: ['S2'] }),
+      ctx as never,
+    )
+
+    expect(applyInventoryReceiveInTransaction).toHaveBeenLastCalledWith(
+      em,
+      expect.anything(),
+      expect.objectContaining({ serialNumber: 'S2', quantity: 1 }),
+    )
+    expect(receivingLine.receivedQty).toBe('2')
+    expect(receivingLine.serialNumbers).toEqual(['S1', 'S2'])
+  })
+
   it('retries an already-received serial pair without a second receipt or aggregate task', async () => {
     const em = createEm()
     const ctx = createCtx(em)

@@ -61,6 +61,7 @@ type PutawayTaskRow = {
   target_location_id?: string | null
   catalog_variant_id?: string | null
   lot_id?: string | null
+  serial_number?: string | null
   quantity?: string | number | null
   status?: string | null
   assigned_to?: string | null
@@ -360,6 +361,7 @@ export default function WmsPutawayQueuePage() {
         targetLocationId: row.target_location_id,
         catalogVariantId: row.catalog_variant_id,
         sourceLocationId: row.source_location_id,
+        serialNumber: row.serial_number,
         updatedAt: resolveRowUpdatedAt(row),
       })
       setCompleteOpen(true)
@@ -411,6 +413,16 @@ export default function WmsPutawayQueuePage() {
         header: t('wms.backend.putaway.columns.quantity', 'Qty'),
         enableSorting: true,
         cell: ({ row }) => toNumber(row.original.quantity),
+      },
+      {
+        id: 'serial',
+        accessorKey: 'serial_number',
+        header: t('wms.backend.putaway.columns.serial', 'Serial'),
+        cell: ({ row }) => {
+          const serial = row.original.serial_number?.trim()
+          if (!serial) return '—'
+          return serial
+        },
       },
       {
         id: 'source',

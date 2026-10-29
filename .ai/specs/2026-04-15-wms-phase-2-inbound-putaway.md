@@ -234,7 +234,7 @@ Mirror new IDs in `setup.ts` / `lib/roleFeatures.ts` and run `yarn mercato auth 
 ### Data Integrity Rules
 
 1. `ReceivingLine.received_qty` may be lower or higher than `expected_qty`, but over-receipts must be explicit.
-2. **QC `passed` only:** write `InventoryMovement` (`type: receipt`) + update `InventoryBalance` at the staging/dock location; then auto-create an open `PutawayTask` (MVP: target may be null until complete confirms it). Serial-tracked receipts create **one quantity-one task per distinct serial** (`serial_number` set, putaway key includes the serial). Duplicate normalized serials (trim, no case-fold) are rejected with `422 duplicate_serial` **before any write**. Non-serial receipts stay one aggregate task with the legacy putaway key.
+2. **QC `passed` only:** write `InventoryMovement` (`type: receipt`) + update `InventoryBalance` at the staging/dock location; then auto-create an open `PutawayTask` (MVP: target may be null until complete confirms it). Serial-tracked receipts create **one quantity-one task per distinct serial** (`serial_number` set, putaway key includes the serial). Duplicate normalized serials (trim, no case-fold) are rejected with `422 duplicate_serial` **before any write**, including a serial already stored on a partially received line. The receive dialog sends only the current batch; the line appends new serials and keeps earlier ones. The putaway list returns `serial_number`, and completion of a serial task requires the operator to confirm that serial. Non-serial receipts stay one aggregate task with the legacy putaway key.
 3. **QC `failed`:** persist line QC state + emit `wms.inventory.receipt_qc_failed`; **do not** increase available balances; **do not** create putaway tasks. Dedicated quarantine location routing is **deferred**.
 4. **QC transitions are one-way after the first decision** (`assertAsnQcTransition`): `pending → passed|failed` and same-status re-entry (idempotent retry) are allowed; `passed ↔ failed` is rejected with `422 invalid_qc_transition`. This is intentional for MVP so a QC-fail cannot silently become stock and a QC-pass cannot be quietly demoted after ledger/putaway side effects.
    - **Operator recovery (mistaken QC fail):** do not flip the line — physically rework/quarantine as needed, then create a **new** receiving line (or a new ASN) for re-inspection and receive that line with QC pass. Close the original ASN with `closeWhenShort` when short/failed qty should not block close.
@@ -575,6 +575,11 @@ None.
 - See pre-implement analysis: `.ai/specs/analysis/ANALYSIS-2026-08-12-wms-phase-2-inbound-putaway.md`
 
 ## Changelog
+
+### 2026-10-29 (rev 48) — partial serial batches and visible putaway serials
+- A later ASN receive rejects serials already stored on the line (`422 duplicate_serial`) and appends new serials instead of replacing history
+- The receive dialog treats the serial field as the current batch after the first receipt
+- Putaway list/OpenAPI include `serial_number`; the queue shows it and completion requires a matching scan
 
 ### 2026-10-29 (rev 47) — review: serial putaway identity, receipt guards, putaway capacity
 - Reject duplicate trimmed serials on ASN receive with `422 duplicate_serial` before stock, line, or putaway writes

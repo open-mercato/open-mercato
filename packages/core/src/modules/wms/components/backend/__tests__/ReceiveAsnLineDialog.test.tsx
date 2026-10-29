@@ -228,6 +228,53 @@ describe('ReceiveAsnLineDialog', () => {
     expect(body.serialNumbers).toEqual(['S1', 'S2'])
   })
 
+  it('submits only the new batch after a partial serial receipt', async () => {
+    mockApiCall.mockResolvedValue({
+      ok: true,
+      status: 200,
+      result: { ok: true, receivedQty: 4 },
+      response: new Response(null, { status: 200 }),
+    })
+    render(
+      <ReceiveAsnLineDialog
+        open
+        onOpenChange={jest.fn()}
+        access={access}
+        asnId="11111111-1111-1111-1111-111111111111"
+        warehouseId="22222222-2222-2222-2222-222222222222"
+        line={{
+          ...line,
+          expectedQty: 4,
+          receivedQty: 2,
+          serialNumbers: ['S1', 'S2'],
+        }}
+      />,
+    )
+
+    const serials = screen.getByTestId('receive-asn-serials') as HTMLTextAreaElement
+    expect(serials.value).toBe('')
+    expect(screen.getByTestId('receive-asn-known-serials').textContent).toContain('S1, S2')
+    expect((screen.getByTestId('receive-asn-qty') as HTMLInputElement).value).toBe('2')
+
+    fireEvent.change(serials, { target: { value: 'S1\nS3' } })
+    fireEvent.click(screen.getByTestId('receive-asn-submit'))
+    expect(await screen.findByText('Duplicate serial numbers are not allowed.')).toBeTruthy()
+    expect(mockApiCall).not.toHaveBeenCalled()
+
+    fireEvent.change(serials, { target: { value: 'S3\nS4' } })
+    fireEvent.click(screen.getByTestId('receive-asn-submit'))
+
+    await waitFor(() => expect(mockApiCall).toHaveBeenCalledTimes(1))
+    const body = JSON.parse(String(mockApiCall.mock.calls[0][1].body)) as {
+      serialNumbers?: string[]
+      receivedQty?: number
+      targetReceivedQty?: number
+    }
+    expect(body.serialNumbers).toEqual(['S3', 'S4'])
+    expect(body.receivedQty).toBe(2)
+    expect(body.targetReceivedQty).toBe(4)
+  })
+
   it('rejects duplicate serials without submitting', async () => {
     render(
       <ReceiveAsnLineDialog
