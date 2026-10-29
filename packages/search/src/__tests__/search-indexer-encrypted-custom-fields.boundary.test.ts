@@ -165,6 +165,27 @@ describe('SearchIndexer encrypted custom fields at the strategy boundary', () =>
     }
   })
 
+  it('leaves every custom field out of bulk documents when constructed without a resolver', async () => {
+    const { driver, documents } = createFulltextDriver()
+    const searchService = new SearchService({ strategies: [new FullTextSearchStrategy(driver)] })
+    const indexer = new SearchIndexer(searchService, moduleConfigs)
+
+    await indexer.bulkIndexRecords([
+      {
+        entityId: companyEntityId,
+        recordId: 'profile-1',
+        tenantId: 'tenant-1',
+        record: createRecord(),
+        customFields: { tax_number: secret, industry_note: 'Wholesale' },
+      },
+    ])
+
+    expect(documents).toHaveLength(1)
+    const callbackOutput = JSON.stringify({ presenter: documents[0].presenter, url: documents[0].url, links: documents[0].links })
+    expect(callbackOutput).not.toContain(secret)
+    expect(callbackOutput).not.toContain('Wholesale')
+  })
+
   it('keeps indexing when the telemetry runtime itself throws', async () => {
     const unregister = registerTelemetryRuntime({
       reportError: () => {

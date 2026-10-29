@@ -199,9 +199,10 @@ export type SearchIndexerOptions = {
   /** Queue for vector batch indexing */
   vectorQueue?: Queue<VectorIndexJobPayload>
   /**
-   * Resolves the custom fields declared `encrypted` for an entity. When set, their values never
-   * reach buildSource, formatResult, resolveUrl or resolveLinks, so they stay out of the plain
-   * text a strategy stores or embeds. `IndexableRecord.fields` keeps them for hash-only tokens.
+   * Resolves the custom fields declared `encrypted` for an entity, so their values never reach
+   * buildSource, formatResult, resolveUrl or resolveLinks and stay out of the plain text a
+   * strategy stores or embeds. Without it, every custom field is left out of those callbacks.
+   * `IndexableRecord.fields` keeps them for hash-only tokens.
    */
   encryptedCustomFieldKeysResolver?: EncryptedCustomFieldKeysResolver
 }
@@ -227,6 +228,14 @@ export class SearchIndexer {
     this.fulltextQueue = options?.fulltextQueue
     this.vectorQueue = options?.vectorQueue
     this.encryptedCustomFieldKeysResolver = options?.encryptedCustomFieldKeysResolver
+    if (!this.encryptedCustomFieldKeysResolver) {
+      searchWarn('SearchIndexer', 'No encrypted custom-field resolver; excluding every custom field from build contexts')
+      reportSearchError(
+        'SearchIndexer',
+        new Error('[internal] SearchIndexer has no encryptedCustomFieldKeysResolver; excluding every custom field from build contexts'),
+        'search.encrypted_custom_fields_resolver_missing',
+      )
+    }
     for (const moduleConfig of moduleConfigs) {
       for (const entityConfig of moduleConfig.entities) {
         if (entityConfig.enabled !== false) {
@@ -238,13 +247,13 @@ export class SearchIndexer {
 
   /**
    * Returns a lookup of the custom fields to keep out of build contexts, memoized per entity
-   * for one indexing call. A failed resolution excludes every custom field of that entity.
+   * for one indexing call. A missing resolver or a failed resolution excludes every custom field.
    */
   private createCustomFieldExclusionLookup(): CustomFieldExclusionLookup {
     const resolver = this.encryptedCustomFieldKeysResolver
     const cache = new Map<EntityId, Promise<CustomFieldExclusion>>()
     return (entityId) => {
-      if (!resolver) return Promise.resolve(null)
+      if (!resolver) return Promise.resolve('all')
       let pending = cache.get(entityId)
       if (!pending) {
         pending = resolver(entityId).catch((error): CustomFieldExclusion => {

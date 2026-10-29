@@ -1,6 +1,7 @@
 import { SearchIndexer } from '../indexer/search-indexer'
 import type { SearchBuildContext, SearchModuleConfig } from '../types'
 import type { QueryEngine, QueryResult } from '@open-mercato/shared/lib/query/types'
+import { registerTelemetryRuntime, type TelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 
 describe('SearchIndexer encrypted custom fields', () => {
   const companyEntityId = 'customers:customer_company_profile'
@@ -253,19 +254,33 @@ describe('SearchIndexer encrypted custom fields', () => {
     expect(searchService.index.mock.calls[0][0].text).not.toContain('GB123456')
   })
 
-  it('leaves the build context unchanged without a resolver', async () => {
-    const { indexer, contexts, record } = setup()
-    const indexedRecord = { ...record }
+  it('excludes every custom field and reports it when constructed without a resolver', async () => {
+    const reportError = jest.fn()
+    const unregister = registerTelemetryRuntime({ reportError } as unknown as TelemetryRuntime)
+    try {
+      const { indexer, searchService, contexts, hydrated, record } = setup({
+        parentRecord: { id: 'entity-1', display_name: 'Acme', 'cf:vat_id': 'PL555', cf_vat_id: 'PL555' },
+      })
 
-    await indexer.indexRecord({
-      entityId: companyEntityId,
-      recordId: record.id,
-      tenantId: 'tenant-1',
-      record: indexedRecord,
-      customFields: { tax_number: 'GB123456' },
-    })
+      await indexer.indexRecord({
+        entityId: companyEntityId,
+        recordId: record.id,
+        tenantId: 'tenant-1',
+        record: { ...record },
+        customFields: { tax_number: 'GB123456', industry_note: 'Wholesale' },
+      })
 
-    expect(contexts[0].record).toBe(indexedRecord)
-    expect(contexts[0].customFields).toEqual({ tax_number: 'GB123456' })
+      expect(contexts[0].customFields).toEqual({})
+      expect(Object.keys(contexts[0].record).filter((key) => key.startsWith('cf'))).toEqual([])
+      expect(hydrated[0]).toEqual({ id: 'entity-1', display_name: 'Acme' })
+      expect(searchService.index.mock.calls[0][0].text).not.toContain('GB123456')
+      expect(searchService.index.mock.calls[0][0].fields['cf:tax_number']).toBe('GB123456')
+      expect(reportError).toHaveBeenCalledWith(expect.any(Error), {
+        module: 'search',
+        code: 'search.encrypted_custom_fields_resolver_missing',
+      })
+    } finally {
+      unregister()
+    }
   })
 })
