@@ -134,6 +134,7 @@ import {
   countDecimalPlaces,
   decimalToNumber,
   decimalToString,
+  decimalsEqual,
   divideDecimals,
   maxDecimal,
   multiplyDecimals,
@@ -7377,14 +7378,15 @@ const quoteAdjustmentDeleteSchema = z.object({
 
 const SHIPPED_QUANTITY_TOLERANCE = 1e-6;
 
-// Locked outright on a shipped line: none of these may move at all.
-const SHIPPED_LINE_NUMERIC_PRICING_FIELDS = [
+// Locked outright on a shipped line: none of these may move at all. Amounts are
+// compared through their exact siblings, rates within the float tolerance.
+const SHIPPED_LINE_LOCKED_AMOUNT_FIELDS = [
   "unitPriceNet",
   "unitPriceGross",
   "discountAmount",
-  "discountPercent",
-  "taxRate",
 ] as const;
+
+const SHIPPED_LINE_LOCKED_RATE_FIELDS = ["discountPercent", "taxRate"] as const;
 
 // Line totals are derived, not authored: clients recompute and echo them on every
 // submit, so raising the quantity of a shipped line legitimately changes them. They
@@ -7397,11 +7399,15 @@ const SHIPPED_LINE_DERIVED_TOTAL_FIELDS = [
   "totalGrossAmount",
 ] as const;
 
+type ShippedLineLockedAmountField = (typeof SHIPPED_LINE_LOCKED_AMOUNT_FIELDS)[number];
+
 type ShippedLineComparable = Pick<
   SalesLineSnapshot,
   | "quantity"
   | "quantityUnit"
-  | (typeof SHIPPED_LINE_NUMERIC_PRICING_FIELDS)[number]
+  | ShippedLineLockedAmountField
+  | `${ShippedLineLockedAmountField}Exact`
+  | (typeof SHIPPED_LINE_LOCKED_RATE_FIELDS)[number]
   | (typeof SHIPPED_LINE_DERIVED_TOTAL_FIELDS)[number]
   | `${(typeof SHIPPED_LINE_DERIVED_TOTAL_FIELDS)[number]}Exact`
 >;
@@ -7433,7 +7439,6 @@ function isRescaledShippedTotal(
     addDecimals(1, quantityRatio),
   );
   const tolerance = maxDecimal(
-    SHIPPED_QUANTITY_TOLERANCE,
     multiplyDecimals(absDecimal(expectedTotal), SHIPPED_TOTAL_FLOAT_RELATIVE_TOLERANCE),
     roundingTolerance,
   );
@@ -7459,6 +7464,29 @@ const hasExactNumericChange = (
   if (previous === undefined || previous === null) return true;
   return Math.abs(next - previous) > SHIPPED_QUANTITY_TOLERANCE;
 };
+
+/**
+ * Whether a locked amount moves, compared exactly. A discount is stored rounded to
+ * the amount precision, so the next one is rounded the same way before comparing;
+ * unit prices are stored as sent.
+ */
+function hasShippedLineAmountChange(
+  next: Partial<ShippedLineComparable>,
+  previous: ShippedLineComparable,
+  field: ShippedLineLockedAmountField,
+  exact: boolean,
+  amountDecimalPlaces: number,
+): boolean {
+  const nextAmount = resolveExactDecimal(next[`${field}Exact`], next[field]);
+  const previousAmount = resolveExactDecimal(previous[`${field}Exact`], previous[field]);
+  if (nextAmount === null) return exact && previousAmount !== null;
+  if (previousAmount === null) return true;
+  const comparable =
+    field === "discountAmount"
+      ? roundDecimal(nextAmount, Math.max(amountDecimalPlaces, countDecimalPlaces(previousAmount)))
+      : nextAmount;
+  return !decimalsEqual(comparable, previousAmount);
+}
 
 const hasUnitChange = (
   next: string | null | undefined,
@@ -7529,7 +7557,10 @@ function hasShippedLinePricingChange(
 ): boolean {
   const numericChange = exact ? hasExactNumericChange : hasNumericChange;
   return (
-    SHIPPED_LINE_NUMERIC_PRICING_FIELDS.some((field) =>
+    SHIPPED_LINE_LOCKED_AMOUNT_FIELDS.some((field) =>
+      hasShippedLineAmountChange(next, previous, field, exact, amountDecimalPlaces),
+    ) ||
+    SHIPPED_LINE_LOCKED_RATE_FIELDS.some((field) =>
       numericChange(next[field], previous[field]),
     ) ||
     hasShippedLineTotalChange(
@@ -7595,7 +7626,7 @@ async function assertShippedOrderLineEditable(
   em: EntityManager,
   order: SalesOrder,
   existingSnapshot: SalesLineSnapshot | null,
-  parsed: z.infer<typeof orderLineUpsertSchema>,
+  parsed: Partial<ShippedLineComparable>,
   amountDecimalPlaces: number,
 ): Promise<void> {
   const lineId = existingSnapshot?.id;

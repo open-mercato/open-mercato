@@ -414,6 +414,58 @@ describe('sales.orders.lines.upsert shipment guard (issue #3993)', () => {
     expect(isCrudHttpError(caught) && (caught as CrudHttpError).status === 409).toBe(false)
   })
 
+  it.each([
+    ['a unit price moved by one smallest unit', { unitPriceNet: '0.00000002' }],
+    ['a unit price whose float equals the stored one', { unitPriceNet: '0.000000010000000000000001' }],
+    ['a discount moved by one smallest unit', { discountAmount: '0.000000000000000002' }],
+  ])('rejects %s on a shipped ETH line', async (_label, overrides) => {
+    partiallyShippedWorld('ETH', {
+      quantity: '3',
+      unitPriceNet: '0.00000001',
+      unitPriceGross: '0.0000000123',
+      discountAmount: '0.000000000000000001',
+      totalNetAmount: '0.00000003',
+      totalGrossAmount: '0.0000000369',
+    })
+    const { caught, em } = await runUpsert(
+      rescaleInput('ETH', 3, { unitPriceNet: '0.00000001', unitPriceGross: '0.0000000123', ...overrides }),
+    )
+    expect(isCrudHttpError(caught)).toBe(true)
+    expect((caught as CrudHttpError).status).toBe(409)
+    expect(em.flush).not.toHaveBeenCalled()
+  })
+
+  it('accepts a quantity-only change of a shipped ETH line echoing its exact prices', async () => {
+    partiallyShippedWorld('ETH', {
+      quantity: '3',
+      unitPriceNet: '0.00000001',
+      unitPriceGross: '0.0000000123',
+      discountAmount: '0.000000000000000001',
+      totalNetAmount: '0.00000003',
+      totalGrossAmount: '0.0000000369',
+    })
+    const { caught } = await runUpsert(
+      rescaleInput('ETH', 2, {
+        unitPriceNet: '0.00000001',
+        unitPriceGross: '0.0000000123',
+        discountAmount: '0.000000000000000001',
+        totalNetAmount: '0.00000002',
+        totalGrossAmount: '0.0000000246',
+      }),
+    )
+    expect(isCrudHttpError(caught) && (caught as CrudHttpError).status === 409).toBe(false)
+  })
+
+  it('rejects a micro total moved by less than the old 1e-6 floor on a quantity change', async () => {
+    partiallyShippedWorld('ETH', { quantity: '3', totalNetAmount: '0.00000003', totalGrossAmount: '0.0000000369' })
+    const { caught, em } = await runUpsert(
+      rescaleInput('ETH', 2, { totalNetAmount: '0.0000005', totalGrossAmount: '0.0000000246' }),
+    )
+    expect(isCrudHttpError(caught)).toBe(true)
+    expect((caught as CrudHttpError).status).toBe(409)
+    expect(em.flush).not.toHaveBeenCalled()
+  })
+
   it('rejects a 3 to 2 quantity change of an ETH line rounded far coarser than its precision', async () => {
     partiallyShippedWorld('ETH', { quantity: '3', totalNetAmount: '0.25', totalGrossAmount: '0.3075' })
     const { caught, em } = await runUpsert(
