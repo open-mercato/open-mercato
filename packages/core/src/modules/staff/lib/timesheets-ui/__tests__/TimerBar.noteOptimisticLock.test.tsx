@@ -173,6 +173,42 @@ describe('TimerBar — running-note save uses optimistic locking', () => {
     expect(mockRefresh).not.toHaveBeenCalled()
   })
 
+  it('adopts the other tab\'s note and version once the user refreshes from the conflict bar', async () => {
+    const remoteVersion = '2026-01-01T08:05:00.000Z'
+    const conflict = Object.assign(new Error('conflict'), { status: 409 })
+    apiCallOrThrowMock.mockRejectedValue(conflict)
+    surfaceRecordConflictMock.mockReturnValue(true)
+    mockRefresh.mockImplementation(async () => mockTimerStore.state)
+
+    renderTimerBar()
+    await waitFor(() => expect(noteInput()).toHaveValue('Build task'))
+
+    fireEvent.change(noteInput(), { target: { value: 'My unsaved draft' } })
+    act(() => mockTimerStore.set({ notes: 'Edited in another tab', updatedAt: remoteVersion }))
+    await act(async () => {})
+    expect(noteInput()).toHaveValue('My unsaved draft')
+
+    await act(async () => {
+      fireEvent.blur(noteInput())
+    })
+    await waitFor(() => expect(surfaceRecordConflictMock).toHaveBeenCalledTimes(1))
+    expect(withScopedHeadersMock).toHaveBeenCalledWith(buildOptimisticLockHeader(ENTRY_VERSION), expect.any(Function))
+
+    const [, , options] = surfaceRecordConflictMock.mock.calls[0] as [unknown, unknown, { onRefresh: () => void }]
+    await act(async () => {
+      options.onRefresh()
+    })
+
+    await waitFor(() => expect(noteInput()).toHaveValue('Edited in another tab'))
+    apiCallOrThrowMock.mockResolvedValue({ ok: true, result: { ok: true } })
+    fireEvent.change(noteInput(), { target: { value: 'Edited in another tab, then here' } })
+    await act(async () => {
+      fireEvent.blur(noteInput())
+    })
+    await waitFor(() => expect(notesPutCalls()).toHaveLength(2))
+    expect(withScopedHeadersMock).toHaveBeenLastCalledWith(buildOptimisticLockHeader(remoteVersion), expect.any(Function))
+  })
+
   it('falls back to the error flash when the failure is not a version conflict', async () => {
     apiCallOrThrowMock.mockRejectedValue(new Error('boom'))
 

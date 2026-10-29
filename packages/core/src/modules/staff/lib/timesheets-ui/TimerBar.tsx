@@ -102,10 +102,13 @@ function DefaultTimerBar({
   const [showProjectDropdown, setShowProjectDropdown] = useState(false)
   const [projectFilter, setProjectFilter] = useState('')
   const [hasPendingNoteSync, setHasPendingNoteSync] = useState(false)
+  const [noteBaseVersion, setNoteBaseVersion] = useState<string | null>(null)
 
   const descriptionRef = useRef(description)
   const persistedDescriptionRef = useRef(persistedDescription)
   const startRequestedRef = useRef(false)
+  const noteEntryIdRef = useRef<string | null>(null)
+  const surfacedRemoteNoteVersionRef = useRef<string | null>(null)
   const pendingNoteSaveRef = useRef<Promise<boolean> | null>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -115,7 +118,6 @@ function DefaultTimerBar({
   const preference = useTimesheetPreference(staffMemberId)
 
   const activeEntryId = activeTimer.entryId
-  const activeEntryUpdatedAt = activeTimer.updatedAt
   const activeProjectId = activeTimer.projectId
   const isRunning = activeTimer.running
   const refreshActiveTimer = activeTimer.refresh
@@ -168,30 +170,66 @@ function DefaultTimerBar({
     persistedDescriptionRef.current = persistedDescription
   }, [description, persistedDescription])
 
+  useEffect(() => {
+    if (activeTimer.running && activeTimer.startedAt) {
+      startElapsedCounter(activeTimer.startedAt)
+      return
+    }
+    stopElapsedCounter()
+  }, [activeTimer.running, activeTimer.startedAt, startElapsedCounter, stopElapsedCounter])
+
   // The server's note only replaces the field when the user has nothing unsaved in
   // it. Text typed while this bar's own start is still in flight (Enter does nothing
   // until the timer runs) would otherwise be overwritten by the note the start was
   // sent with. A timer started elsewhere (another tab, the dashboard widget) always
   // adopts the server note, so a half-typed draft is never saved onto it.
+  //
+  // A refetch of the SAME running entry is different: the draft belongs to that
+  // entry, so it is kept, together with the version it was based on. Adopting the
+  // refetched note and version would silently drop the typed text, and saving the
+  // draft against the refetched version would silently overwrite the other tab's
+  // note; keeping the old version lets the save hit the optimistic-lock conflict
+  // bar instead. A note changed elsewhere is surfaced once per remote version.
   // The latest field values are read through refs so typing does not re-run this.
   useEffect(() => {
-    if (activeTimer.running && activeTimer.startedAt) {
-      startElapsedCounter(activeTimer.startedAt)
-      const hasUnsavedEdit =
-        descriptionRef.current.trim() !== persistedDescriptionRef.current.trim()
-      const isOwnStart = startRequestedRef.current
-      startRequestedRef.current = false
-      if (hasUnsavedEdit && isOwnStart) {
-        if (activeTimer.notes != null) setPersistedDescription(activeTimer.notes)
-        setHasPendingNoteSync(true)
-      } else if (activeTimer.notes != null) {
-        setDescription(activeTimer.notes)
-        setPersistedDescription(activeTimer.notes)
+    if (!activeTimer.running || !activeTimer.entryId) {
+      noteEntryIdRef.current = null
+      return
+    }
+    const remoteNotes = activeTimer.notes
+    const remoteVersion = activeTimer.updatedAt ?? null
+    const isSameEntry = noteEntryIdRef.current === activeTimer.entryId
+    noteEntryIdRef.current = activeTimer.entryId
+    const hasUnsavedEdit =
+      descriptionRef.current.trim() !== persistedDescriptionRef.current.trim()
+    const isOwnStart = startRequestedRef.current
+    startRequestedRef.current = false
+    if (hasUnsavedEdit && isOwnStart) {
+      if (remoteNotes != null) setPersistedDescription(remoteNotes)
+      setNoteBaseVersion(remoteVersion)
+      setHasPendingNoteSync(true)
+      return
+    }
+    if (hasUnsavedEdit && isSameEntry) {
+      const remoteNoteChanged = (remoteNotes ?? '').trim() !== persistedDescriptionRef.current.trim()
+      if (remoteNoteChanged && surfacedRemoteNoteVersionRef.current !== remoteVersion) {
+        surfacedRemoteNoteVersionRef.current = remoteVersion
+        flash(
+          t(
+            'staff.timesheets.my.timer.noteChangedElsewhere',
+            'This timer\'s note was changed in another tab. Your unsaved text is kept; saving it will ask you to resolve the conflict.',
+          ),
+          'warning',
+        )
       }
       return
     }
-    stopElapsedCounter()
-  }, [activeTimer.running, activeTimer.startedAt, activeTimer.notes, startElapsedCounter, stopElapsedCounter])
+    if (remoteNotes != null) {
+      setDescription(remoteNotes)
+      setPersistedDescription(remoteNotes)
+    }
+    setNoteBaseVersion(remoteVersion)
+  }, [activeTimer.running, activeTimer.entryId, activeTimer.notes, activeTimer.updatedAt, t])
 
   useEffect(() => {
     return () => {
@@ -371,8 +409,20 @@ function DefaultTimerBar({
       return true
     } catch (err) {
       const surfaced = surfaceRecordConflict(err, t, {
+        // Refreshing is the user choosing the other tab's note over their draft, so
+        // the refetched note and version are adopted explicitly — the sync effect
+        // alone would keep protecting the still-dirty draft of the same entry.
         onRefresh: () => {
           void refreshActiveTimer()
+            .then((latest) => {
+              if (!latest.running || latest.entryId !== entryId) return
+              setDescription(latest.notes ?? '')
+              setPersistedDescription(latest.notes ?? '')
+              setNoteBaseVersion(latest.updatedAt ?? null)
+            })
+            .catch((refreshErr: unknown) => {
+              logger.warn('staff.timesheets.timer.refreshAfterNoteConflictFailed', { err: refreshErr })
+            })
         },
       })
       if (!surfaced) {
@@ -398,12 +448,12 @@ function DefaultTimerBar({
     const normalizedPersistedDescription = persistedDescription.trim()
     if (normalizedDescription === normalizedPersistedDescription) return Promise.resolve(true)
 
-    const pending = persistRunningDescription(activeEntryId, normalizedDescription, activeEntryUpdatedAt).finally(() => {
+    const pending = persistRunningDescription(activeEntryId, normalizedDescription, noteBaseVersion).finally(() => {
       pendingNoteSaveRef.current = null
     })
     pendingNoteSaveRef.current = pending
     return pending
-  }, [activeEntryId, activeEntryUpdatedAt, description, persistedDescription, persistRunningDescription])
+  }, [activeEntryId, noteBaseVersion, description, persistedDescription, persistRunningDescription])
 
   useEffect(() => {
     if (!hasPendingNoteSync || !isRunning || !activeEntryId) return

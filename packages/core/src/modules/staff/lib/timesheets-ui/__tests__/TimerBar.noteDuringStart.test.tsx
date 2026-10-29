@@ -3,7 +3,8 @@
  */
 import * as React from 'react'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCallOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { startTimerEntry } from '../startTimer'
 
@@ -13,6 +14,7 @@ type MockTimerState = {
   startedAt: string | null
   projectId: string | null
   notes: string | null
+  updatedAt?: string | null
 }
 
 const IDLE_TIMER: MockTimerState = {
@@ -21,6 +23,7 @@ const IDLE_TIMER: MockTimerState = {
   startedAt: null,
   projectId: null,
   notes: null,
+  updatedAt: null,
 }
 
 // A tiny external store so a test can flip the active timer mid-flight and have the
@@ -104,6 +107,7 @@ const NOTES_URL = '/api/staff/timesheets/time-entries'
 const apiCallOrThrowMock = apiCallOrThrow as jest.Mock
 const startTimerEntryMock = startTimerEntry as jest.Mock
 const flashMock = flash as jest.Mock
+const withScopedHeadersMock = withScopedApiRequestHeaders as jest.Mock
 
 function renderTimerBar() {
   return render(<TimerBar projects={PROJECTS} staffMemberId="staff-1" onTimerStopped={jest.fn()} />)
@@ -192,6 +196,37 @@ describe('TimerBar — note typed while a start is in flight', () => {
     await waitFor(() => expect(noteInput()).toHaveValue('Edited in another tab'))
 
     expect(notesPutCalls()).toHaveLength(0)
+  })
+
+  it('keeps a dirty draft and its base version when a refetch of the same entry brings a new remote note', async () => {
+    const draftBaseVersion = '2026-01-01T08:00:00.000Z'
+    const remoteVersion = '2026-01-01T08:05:00.000Z'
+    mockTimerStore.state = {
+      ...IDLE_TIMER,
+      ...runningTimer('Server note'),
+      updatedAt: draftBaseVersion,
+    } as MockTimerState
+
+    renderTimerBar()
+    await waitFor(() => expect(noteInput()).toHaveValue('Server note'))
+
+    fireEvent.change(noteInput(), { target: { value: 'My unsaved draft' } })
+    act(() => mockTimerStore.set({ notes: 'Edited in another tab', updatedAt: remoteVersion }))
+    await act(async () => {})
+
+    expect(noteInput()).toHaveValue('My unsaved draft')
+    expect(notesPutCalls()).toHaveLength(0)
+    expect(flashMock).toHaveBeenCalledTimes(1)
+    expect(flashMock).toHaveBeenCalledWith(expect.stringContaining('changed in another tab'), 'warning')
+
+    fireEvent.blur(noteInput())
+    await waitFor(() => expect(notesPutCalls()).toHaveLength(1))
+    const [, init] = notesPutCalls()[0] as [string, { body: string }]
+    expect(JSON.parse(init.body)).toEqual({ id: 'entry-1', notes: 'My unsaved draft' })
+    expect(withScopedHeadersMock).toHaveBeenCalledWith(
+      buildOptimisticLockHeader(draftBaseVersion),
+      expect.any(Function),
+    )
   })
 
   it('does not save a draft note onto a timer started elsewhere', async () => {

@@ -736,6 +736,11 @@ Two test cases were realized differently from the § Testing Strategy table. Bot
 
 ## Changelog
 
+### 2026-10-29 — review fixes (`om-auto-fix-pr`)
+
+- The active-timer refetch (30 s, or after a save elsewhere) no longer discards an unsaved note on the SAME running entry. `TimerBar` now tells a different active entry (adopt its note, as before) from a refresh of the one the draft belongs to: for the same entry a dirty draft is kept together with the version it was based on, so its save still carries that version and reaches the optimistic-lock conflict bar instead of silently overwriting the other tab. A changed remote note is surfaced once per remote version with the new `staff.timesheets.my.timer.noteChangedElsewhere` warning (en/pl/de/es/ko). Choosing Refresh on the conflict bar adopts the remote note and version explicitly. Component tests: `TimerBar.noteDuringStart.test.tsx` (dirty draft + new remote note/version) and `TimerBar.noteOptimisticLock.test.tsx` (refresh adopts).
+- `GET`/`PUT /api/staff/timesheets/my-preferences` report unexpected failures through the shared telemetry bridge (`getTelemetryRuntime()?.reportError`) with stable codes `staff.timesheet_preference_read_failed`, `staff.timesheet_preference_write_failed` and `staff.timesheet_preference_after_success_failed`, besides logging them. Behaviour stays fail-soft: a throwing after-success callback still returns the committed preference, and a throwing telemetry bridge never changes the response.
+
 ### 2026-10-23 — review fixes (`om-auto-fix-pr`)
 
 - `GET /api/staff/timesheets/my-preferences` now runs the timesheet API interceptor before and after passes, like `PUT` and the sibling `my-projects` / `my-work` reads (staff `AGENTS.md`, BC surface #7). The contract test now checks that every exported handler of an intercepted route reaches `runTimesheetInterceptors`, so a second handler without the wiring fails it.
