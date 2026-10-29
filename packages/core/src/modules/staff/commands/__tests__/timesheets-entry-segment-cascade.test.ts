@@ -9,6 +9,7 @@
 // in the undo payload, which is what stops undo from resurrecting a segment the
 // user had deleted individually beforehand.
 import type { AwilixContainer } from 'awilix'
+import { LockMode } from '@mikro-orm/core'
 
 const mockFindOneWithDecryption = jest.fn()
 const mockFindWithDecryption = jest.fn()
@@ -161,7 +162,11 @@ function snapshotOf(entry: EntryRow): Record<string, unknown> {
  * silently pass.
  */
 function installWorld(entry: EntryRow | null, segments: SegmentRow[]) {
-  mockFindOneWithDecryption.mockImplementation(async () => entry)
+  mockFindOneWithDecryption.mockImplementation(async (_em, _entity, where: Record<string, unknown> = {}) => {
+    const excludedId = (where.id as { $ne?: string } | undefined)?.$ne
+    if (excludedId !== undefined) return null
+    return entry
+  })
   mockFindWithDecryption.mockImplementation(async (_em, _entity, where: Record<string, unknown>) =>
     segments.filter((row) =>
       Object.entries(where).every(([field, expected]) => {
@@ -191,6 +196,9 @@ function makeCtx(entry: EntryRow | null) {
     create: jest.fn((_cls: unknown, data: Record<string, unknown>) => data),
     persist: jest.fn(),
     flush: jest.fn(async () => undefined),
+    isInTransaction: jest.fn(() => true),
+    execute: jest.fn(async () => []),
+    transactional: jest.fn(async (cb: (trx: unknown) => Promise<unknown>) => cb(em)),
   }
   em.fork.mockReturnValue(em)
   const container = {
@@ -501,6 +509,153 @@ describe('segment queries run before the entry is mutated', () => {
     expect(segmentStateAtEntryLookups.length).toBeGreaterThan(0)
     expect(segmentStateAtEntryLookups.every((state) => state === cascadeInstant)).toBe(true)
     expect(segment.deletedAt).toBeNull()
+    expect(entry.deletedAt).toBeNull()
+  })
+})
+
+/**
+ * `POST /time-entries/{id}/segments` inserts under a PESSIMISTIC_WRITE lock on the live
+ * parent. Every cascade has to take that same lock, inside the transaction that commits
+ * the deletions, BEFORE it reads the segment set — otherwise a segment can commit between
+ * the read and the flush and outlive its deleted parent. Each case records the order of
+ * the parent lock and the segment read.
+ */
+describe('the parent entry is locked before its segments are read', () => {
+  function recordLockAndSegmentOrder(em: ReturnType<typeof makeCtx>['em']) {
+    const events: string[] = []
+    const entryLookup = mockFindOneWithDecryption.getMockImplementation()
+    mockFindOneWithDecryption.mockImplementation(async (...args: unknown[]) => {
+      const options = args[3] as { lockMode?: unknown } | undefined
+      if (options?.lockMode === LockMode.PESSIMISTIC_WRITE) events.push('lock-parent')
+      return entryLookup ? entryLookup(...args) : null
+    })
+    const findOne = em.findOne.getMockImplementation()
+    em.findOne.mockImplementation(async (...args: unknown[]) => {
+      const options = args[2] as { lockMode?: unknown } | undefined
+      if (options?.lockMode === LockMode.PESSIMISTIC_WRITE) events.push('lock-parent')
+      return findOne ? findOne(...(args as [unknown, Record<string, unknown>])) : null
+    })
+    const segmentTable = mockFindWithDecryption.getMockImplementation()
+    mockFindWithDecryption.mockImplementation(async (...args: unknown[]) => {
+      const where = args[2] as Record<string, unknown> | undefined
+      if (where && 'timeEntryId' in where) events.push('read-segments')
+      return segmentTable ? segmentTable(...args) : []
+    })
+    em.flush.mockImplementation(async () => {
+      events.push('flush')
+    })
+    return events
+  }
+
+  it('delete: locks the live parent inside the transaction, then reads segments, then flushes', async () => {
+    const { deleteEntry } = await loadCommands()
+    const entry = makeEntry()
+    installWorld(entry, [makeSegment({ id: 'seg-a' })])
+    const { ctx, em } = makeCtx(entry)
+    const events = recordLockAndSegmentOrder(em)
+
+    await deleteEntry.execute({ id: ENTRY_ID }, ctx)
+
+    expect(em.transactional).toHaveBeenCalledTimes(1)
+    expect(events).toEqual(['lock-parent', 'read-segments', 'flush'])
+    expect(mockFindOneWithDecryption).toHaveBeenCalledWith(
+      em,
+      expect.anything(),
+      expect.objectContaining({ id: ENTRY_ID, tenantId: TENANT_ID, organizationId: ORG_ID, deletedAt: null }),
+      { lockMode: LockMode.PESSIMISTIC_WRITE },
+      { tenantId: TENANT_ID, organizationId: ORG_ID },
+    )
+  })
+
+  it('delete: answers 404 and touches no segment when the locked re-read finds the parent gone', async () => {
+    const { deleteEntry } = await loadCommands()
+    const entry = makeEntry()
+    const segment = makeSegment({ id: 'seg-a' })
+    installWorld(entry, [segment])
+    mockFindOneWithDecryption.mockImplementation(async (...args: unknown[]) => {
+      const options = args[3] as { lockMode?: unknown } | undefined
+      return options?.lockMode === LockMode.PESSIMISTIC_WRITE ? null : entry
+    })
+    const { ctx, em } = makeCtx(entry)
+
+    await expect(deleteEntry.execute({ id: ENTRY_ID }, ctx)).rejects.toMatchObject({ status: 404 })
+
+    const segmentReads = mockFindWithDecryption.mock.calls.filter(
+      (call) => 'timeEntryId' in ((call[2] as Record<string, unknown> | undefined) ?? {}),
+    )
+    expect(segmentReads).toHaveLength(0)
+    expect(em.flush).not.toHaveBeenCalled()
+    expect(segment.deletedAt).toBeNull()
+  })
+
+  it('start_timer undo: locks the parent before reading its segments', async () => {
+    const { startTimer } = await loadCommands()
+    const entry = makeEntry()
+    installWorld(entry, [makeSegment({ id: 'seg-a' })])
+    const { ctx, em } = makeCtx(entry)
+    const events = recordLockAndSegmentOrder(em)
+
+    await startTimer.undo({ ctx, logEntry: { payload: { undo: { after: snapshotOf(entry) } } } })
+
+    expect(em.transactional).toHaveBeenCalledTimes(1)
+    expect(events).toEqual(['lock-parent', 'read-segments', 'flush'])
+  })
+
+  it('create undo: locks the parent before reading its segments', async () => {
+    const { createEntry } = await loadCommands()
+    const entry = makeEntry({ source: 'manual' })
+    installWorld(entry, [makeSegment({ id: 'seg-a' })])
+    const { ctx, em } = makeCtx(entry)
+    const events = recordLockAndSegmentOrder(em)
+
+    await createEntry.undo({ ctx, logEntry: { payload: { undo: { after: snapshotOf(entry) } } } })
+
+    expect(em.transactional).toHaveBeenCalledTimes(1)
+    expect(events).toEqual(['lock-parent', 'read-segments', 'flush'])
+  })
+})
+
+describe('delete undo of an entry whose timer was running', () => {
+  it('takes the member timer lock and refuses with 409 when another timer has started since', async () => {
+    const { deleteEntry } = await loadCommands()
+    const entry = makeEntry()
+    const segment = makeSegment({ id: 'seg-a' })
+    installWorld(entry, [segment])
+    const { ctx, em } = makeCtx(entry)
+    const result = await deleteEntry.execute({ id: ENTRY_ID }, ctx)
+    const log = await deleteEntry.buildLog({ result, snapshots: { before: snapshotOf(makeEntry()) } })
+    const cascadeInstant = entry.deletedAt as Date
+    em.flush.mockClear()
+    mockFindOneWithDecryption.mockImplementation(async (_em, _entity, where: Record<string, unknown> = {}) => {
+      if ((where.id as { $ne?: string } | undefined)?.$ne === ENTRY_ID) {
+        return makeEntry({ id: '99999999-9999-4999-8999-999999999999' })
+      }
+      return entry
+    })
+
+    await expect(deleteEntry.undo({ ctx, logEntry: { payload: log?.payload } })).rejects.toMatchObject({ status: 409 })
+
+    expect(em.execute).toHaveBeenCalledWith(
+      'select pg_advisory_xact_lock(hashtextextended(?::text, 0))',
+      [`staff:timesheets:timer:${TENANT_ID}:${ORG_ID}:${STAFF_MEMBER_ID}`],
+    )
+    expect(em.flush).not.toHaveBeenCalled()
+    expect(entry.deletedAt).toBe(cascadeInstant)
+    expect(segment.deletedAt).toBe(cascadeInstant)
+  })
+
+  it('does not take the member timer lock when the restored entry was already stopped', async () => {
+    const { deleteEntry } = await loadCommands()
+    const stoppedAt = new Date('2026-08-26T11:00:00.000Z')
+    const entry = makeEntry({ endedAt: stoppedAt })
+    installWorld(entry, [makeSegment({ id: 'seg-a', endedAt: stoppedAt })])
+    const { ctx, em } = makeCtx(entry)
+    const result = await deleteEntry.execute({ id: ENTRY_ID }, ctx)
+    const log = await deleteEntry.buildLog({ result, snapshots: { before: snapshotOf(makeEntry({ endedAt: stoppedAt })) } })
+
+    await deleteEntry.undo({ ctx, logEntry: { payload: log?.payload } })
+
+    expect(em.execute).not.toHaveBeenCalled()
     expect(entry.deletedAt).toBeNull()
   })
 })

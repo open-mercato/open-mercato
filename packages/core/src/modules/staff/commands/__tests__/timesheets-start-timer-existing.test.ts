@@ -90,6 +90,8 @@ function makeEm() {
     flush: jest.fn(async () => {
       flushCalls += 1
     }),
+    isInTransaction: jest.fn(() => true),
+    execute: jest.fn(async () => []),
     transactional: jest.fn(async (cb: (trx: unknown) => Promise<unknown>) => {
       transactionalCalls += 1
       return cb(em)
@@ -227,6 +229,34 @@ describe('start_timer_existing command — transaction and lock (#2416)', () => 
       expect.objectContaining({ id: ENTRY_ID, staffMemberId: STAFF_MEMBER_ID }),
       expect.objectContaining({ persistent: true }),
     )
+  })
+
+  it('takes the member timer lock before the entry row lock and the running re-check', async () => {
+    const command = await loadStartTimerExistingCommand()
+    const lockedLookups: number[] = []
+    const siblingLookups: number[] = []
+    mockFindOneWithDecryption.mockImplementation(async (_em, _cls, where, opts) => {
+      const order = mockFindOneWithDecryption.mock.invocationCallOrder[mockFindOneWithDecryption.mock.calls.length - 1]
+      if (isSiblingRunningTimerQuery(where)) {
+        siblingLookups.push(order)
+        return null
+      }
+      if ((opts as { lockMode?: unknown } | undefined)?.lockMode === LockMode.PESSIMISTIC_WRITE) lockedLookups.push(order)
+      return makeEntry()
+    })
+    const em = makeEm()
+
+    await command.execute(startInput(), createCtx(em))
+
+    expect(em.execute).toHaveBeenCalledTimes(1)
+    expect(em.execute).toHaveBeenCalledWith(
+      'select pg_advisory_xact_lock(hashtextextended(?::text, 0))',
+      [`staff:timesheets:timer:${TENANT_ID}:${ORG_ID}:${STAFF_MEMBER_ID}`],
+    )
+    const memberLockOrder = em.execute.mock.invocationCallOrder[0]
+    expect(lockedLookups.length).toBeGreaterThan(0)
+    expect(memberLockOrder).toBeLessThan(Math.min(...lockedLookups))
+    expect(memberLockOrder).toBeLessThan(Math.min(...siblingLookups))
   })
 
   it('rejects with 409 when the lock observes startedAt already set', async () => {

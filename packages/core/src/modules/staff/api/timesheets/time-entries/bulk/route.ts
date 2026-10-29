@@ -11,6 +11,7 @@ import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { emitCrudSideEffects, flushCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { LockMode } from '@mikro-orm/core'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { StaffTimeEntry, StaffTeamMember, StaffTimeProject, StaffTimeTask } from '../../../../data/entities'
 import {
@@ -428,12 +429,17 @@ export async function POST(req: Request) {
       let deleted = 0
       const changes: PendingChange[] = []
 
+      // Locked, and re-read live, before any zeroed row's segments are loaded below:
+      // the segment create route inserts under a PESSIMISTIC_WRITE lock on the same
+      // live parent, so a segment either commits first and is cascaded here, or
+      // waits and then finds its parent deleted. Ordered by id so two batches
+      // touching the same rows always queue on them in the same order.
       const existingEntries = existingIds.length > 0
         ? await findWithDecryption(
             trx,
             StaffTimeEntry,
             { id: { $in: existingIds }, tenantId, organizationId, staffMemberId, deletedAt: null },
-            {},
+            { lockMode: LockMode.PESSIMISTIC_WRITE, orderBy: { id: 'asc' } },
             scopeCtx,
           )
         : []

@@ -76,6 +76,7 @@ import {
 } from './shared'
 import { getStaffMemberByUserId } from '../lib/staffMemberResolver'
 import { restoreSegmentsForEntry, softDeleteSegmentsForEntry } from '../lib/timesheets/timeEntrySegmentCascade'
+import { lockStaffMemberTimers } from '../lib/timesheets/staffTimerLock'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('staff')
@@ -1038,23 +1039,32 @@ const createTimeEntryCommand: CommandHandler<StaffTimeEntryCreateInput, { timeEn
     const after = payload?.after
     if (!after) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const entry = await em.findOne(StaffTimeEntry, scopedStaffSnapshotWhere(after.id, staffSnapshotScopeFromSnapshot(after)))
-    if (entry) {
-      assertTimeEntryUnlocked(entry, (await resolveTranslations()).translate)
-      // An entry created manually can still accrue segments afterwards — the
-      // segments API adds them, and `start_timer_existing` opens one. Undoing the
-      // create must take them with it, on the same instant so `redo` can reverse
-      // exactly this set. The cascade queries, so it runs before the entry is dirtied.
+    const { translate } = await resolveTranslations()
+    // An entry created manually can still accrue segments afterwards — the
+    // segments API adds them, and `start_timer_existing` opens one. Undoing the
+    // create must take them with it, on the same instant so `redo` can reverse
+    // exactly this set. See `deleteTimeEntryCommand.execute` for why the parent
+    // row is locked before the segments are read.
+    const entry = await em.transactional(async (trx) => {
+      const lockedEntry = await trx.findOne(
+        StaffTimeEntry,
+        scopedStaffSnapshotWhere(after.id, staffSnapshotScopeFromSnapshot(after)),
+        { lockMode: LockMode.PESSIMISTIC_WRITE },
+      )
+      if (!lockedEntry) return null
+      assertTimeEntryUnlocked(lockedEntry, translate)
       const deletedAt = new Date()
       await softDeleteSegmentsForEntry(
-        em,
-        entry.id,
-        { tenantId: entry.tenantId, organizationId: entry.organizationId },
+        trx,
+        lockedEntry.id,
+        { tenantId: lockedEntry.tenantId, organizationId: lockedEntry.organizationId },
         deletedAt,
       )
-      entry.deletedAt = deletedAt
-      await em.flush()
-
+      lockedEntry.deletedAt = deletedAt
+      await trx.flush()
+      return lockedEntry
+    })
+    if (entry) {
       await emitCrudUndoSideEffects({
         dataEngine: ctx.container.resolve('dataEngine'),
         action: 'deleted',
@@ -1150,7 +1160,10 @@ const startTimerCommand: CommandHandler<StaffTimeEntryStartTimerInput, { timeEnt
     // (issue #3311 — the legacy two-request create-then-start flow). The
     // single-active-timer invariant (#2855) is re-checked here so a second
     // surface cannot create a parallel running timer for the same staff member.
+    // The member timer lock makes that re-check and the insert one step: without
+    // it two concurrent starts both read "nothing running" and both insert.
     const { entry, startedAt } = await em.transactional(async (trx) => {
+      await lockStaffMemberTimers(trx, scopeCtx, effectiveStaffMemberId)
       const otherRunningEntry = await findOneWithDecryption(
         trx,
         StaffTimeEntry,
@@ -1267,23 +1280,31 @@ const startTimerCommand: CommandHandler<StaffTimeEntryStartTimerInput, { timeEnt
     const after = payload?.after
     if (!after) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const entry = await em.findOne(StaffTimeEntry, scopedStaffSnapshotWhere(after.id, staffSnapshotScopeFromSnapshot(after)))
-    if (entry) {
-      assertTimeEntryUnlocked(entry, (await resolveTranslations()).translate)
-      // `execute` created the entry and opened a work segment on it, so undoing the
-      // start has to retire both. Cascading on the same instant keeps the segment
-      // from outliving its parent as a still-running orphan. The cascade queries,
-      // so it runs before the entry is dirtied.
+    const { translate } = await resolveTranslations()
+    // `execute` created the entry and opened a work segment on it, so undoing the
+    // start has to retire both. Cascading on the same instant keeps the segment
+    // from outliving its parent as a still-running orphan. See
+    // `deleteTimeEntryCommand.execute` for why the parent row is locked first.
+    const entry = await em.transactional(async (trx) => {
+      const lockedEntry = await trx.findOne(
+        StaffTimeEntry,
+        scopedStaffSnapshotWhere(after.id, staffSnapshotScopeFromSnapshot(after)),
+        { lockMode: LockMode.PESSIMISTIC_WRITE },
+      )
+      if (!lockedEntry) return null
+      assertTimeEntryUnlocked(lockedEntry, translate)
       const deletedAt = new Date()
       await softDeleteSegmentsForEntry(
-        em,
-        entry.id,
-        { tenantId: entry.tenantId, organizationId: entry.organizationId },
+        trx,
+        lockedEntry.id,
+        { tenantId: lockedEntry.tenantId, organizationId: lockedEntry.organizationId },
         deletedAt,
       )
-      entry.deletedAt = deletedAt
-      await em.flush()
-
+      lockedEntry.deletedAt = deletedAt
+      await trx.flush()
+      return lockedEntry
+    })
+    if (entry) {
       await emitCrudUndoSideEffects({
         dataEngine: ctx.container.resolve('dataEngine'),
         action: 'deleted',
@@ -1513,8 +1534,11 @@ const stopTimerCommand: CommandHandler<StaffTimeEntryStopTimerInput, StopTimerRe
 
     // Undo takes the same PESSIMISTIC_WRITE lock `execute` does: without it an
     // undo racing a concurrent segment write reintroduces #2416 through the
-    // back door.
+    // back door. The member timer lock comes first: reopening is a timer start,
+    // and two undos of two different stopped entries lock different rows, so
+    // only a lock on the member serializes their "nothing else running" checks.
     const entry = await em.transactional(async (trx) => {
+      await lockStaffMemberTimers(trx, scopeCtx, before.staffMemberId)
       const lockedEntry = await findOneWithDecryption(
         trx,
         StaffTimeEntry,
@@ -1655,8 +1679,11 @@ const startTimerExistingCommand: CommandHandler<StaffTimeEntryStartTimerExisting
     // Same transaction + PESSIMISTIC_WRITE shape the route used: re-check
     // startedAt under the lock so two concurrent starts on one entry cannot both
     // open an initial work segment (#2416), and re-check the single-active-timer
-    // invariant (#2855) against the staff member's other entries.
+    // invariant (#2855) against the staff member's other entries. The member
+    // timer lock is taken before the row lock, in the order every timer-opening
+    // path uses, so that re-check cannot interleave with another start or undo.
     const { startedAt, undoState } = await em.transactional(async (trx) => {
+      await lockStaffMemberTimers(trx, scopeCtx, staffMember.id)
       const lockedEntry = await findOneWithDecryption(
         trx,
         StaffTimeEntry,
@@ -2168,29 +2195,47 @@ const deleteTimeEntryCommand: CommandHandler<{ id?: string }, { timeEntryId: str
 
     // The entry and every segment it owns are stamped with ONE instant, and that
     // instant is what `undo` restores on. Matching on it is what keeps undo from
-    // resurrecting a segment the user had deleted individually beforehand. The
-    // cascade queries, so it runs before the entry is dirtied.
-    const deletedAt = new Date()
-    await softDeleteSegmentsForEntry(
-      em,
-      entry.id,
-      { tenantId: entry.tenantId, organizationId: entry.organizationId },
-      deletedAt,
-    )
-    entry.deletedAt = deletedAt
-    entry.updatedAt = deletedAt
-    await em.flush()
+    // resurrecting a segment the user had deleted individually beforehand.
+    //
+    // The parent row is locked, and re-read live, BEFORE its segments are loaded,
+    // all in the transaction that commits both deletions. `POST
+    // /time-entries/{id}/segments` inserts under a PESSIMISTIC_WRITE lock on this
+    // same live parent, so the two now serialize: a segment committed first is in
+    // the set loaded here, and one arriving after waits, re-checks the parent, and
+    // finds it deleted. Reading the segments outside that lock let a segment commit
+    // between the read and the flush and outlive its deleted parent.
+    const entityScope = { tenantId: entry.tenantId, organizationId: entry.organizationId }
+    const { translate: lockTranslate } = await resolveTranslations()
+    const { deletedEntry, deletedAt } = await em.transactional(async (trx) => {
+      const lockedEntry = await findOneWithDecryption(
+        trx,
+        StaffTimeEntry,
+        { id: entry.id, ...entityScope, deletedAt: null },
+        { lockMode: LockMode.PESSIMISTIC_WRITE },
+        entityScope,
+      )
+      if (!lockedEntry) {
+        throw new CrudHttpError(404, { error: lockTranslate('staff.timesheets.errors.entryNotFound', 'Time entry not found.') })
+      }
+      assertTimeEntryUnlocked(lockedEntry, lockTranslate)
+      const stampedAt = new Date()
+      await softDeleteSegmentsForEntry(trx, lockedEntry.id, entityScope, stampedAt)
+      lockedEntry.deletedAt = stampedAt
+      lockedEntry.updatedAt = stampedAt
+      await trx.flush()
+      return { deletedEntry: lockedEntry, deletedAt: stampedAt }
+    })
 
     await emitCrudSideEffects({
       dataEngine: ctx.container.resolve('dataEngine'),
       action: 'deleted',
-      entity: entry,
-      identifiers: { id: entry.id, organizationId: entry.organizationId, tenantId: entry.tenantId },
+      entity: deletedEntry,
+      identifiers: { id: deletedEntry.id, organizationId: deletedEntry.organizationId, tenantId: deletedEntry.tenantId },
       events: staffTimeEntryCrudEvents,
       indexer: timeEntryCrudIndexer,
     })
 
-    return { timeEntryId: entry.id, segmentsDeletedAt: deletedAt.toISOString() }
+    return { timeEntryId: deletedEntry.id, segmentsDeletedAt: deletedAt.toISOString() }
   },
   buildLog: async ({ result, snapshots }) => {
     const before = snapshots.before as TimeEntrySnapshot | undefined
@@ -2216,76 +2261,113 @@ const deleteTimeEntryCommand: CommandHandler<{ id?: string }, { timeEntryId: str
     const before = payload?.before
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    let entry = await em.findOne(StaffTimeEntry, scopedStaffSnapshotWhere(before.id, staffSnapshotScopeFromSnapshot(before)))
+    const { translate } = await resolveTranslations()
+    const restoresRunningTimer = Boolean(before.startedAt) && !before.endedAt
 
-    // Absent on logs written before the cascade existed. Those deletes never
-    // touched segments, so restoring none is the correct outcome, not a fallback.
-    // Runs before the entry is re-created or restored below, because the restore
-    // queries and no query may follow a pending scalar change on this manager.
-    if (payload?.segmentsDeletedAt) {
-      await restoreSegmentsForEntry(
-        em,
-        before.id,
-        { tenantId: before.tenantId, organizationId: before.organizationId },
-        new Date(payload.segmentsDeletedAt),
-      )
-    }
+    const restoredEntry = await em.transactional(async (trx) => {
+      // Restoring an entry that was deleted while its timer ran reopens that timer,
+      // so it passes the same member-scoped gate and single-active-timer check
+      // (#2855) as a start: a timer started after the delete must not end up
+      // running beside the entry one.
+      if (restoresRunningTimer) {
+        const timerScope = { tenantId: before.tenantId, organizationId: before.organizationId }
+        await lockStaffMemberTimers(trx, timerScope, before.staffMemberId)
+        const otherRunningEntry = await findOneWithDecryption(
+          trx,
+          StaffTimeEntry,
+          {
+            id: { $ne: before.id },
+            ...timerScope,
+            staffMemberId: before.staffMemberId,
+            startedAt: { $ne: null },
+            endedAt: null,
+            deletedAt: null,
+          },
+          {},
+          timerScope,
+        )
+        if (otherRunningEntry) {
+          throw new CrudHttpError(409, {
+            error: translate(
+              'staff.timesheets.errors.timerAlreadyRunning',
+              'Another timer is already running. Stop it before starting a new one.',
+            ),
+          })
+        }
+      }
 
-    if (!entry) {
-      entry = em.create(StaffTimeEntry, {
-        id: before.id,
-        tenantId: before.tenantId,
-        organizationId: before.organizationId,
-        staffMemberId: before.staffMemberId,
-        date: before.date as unknown as Date,
-        durationMinutes: before.durationMinutes,
-        roundedMinutes: before.roundedMinutes ?? null,
-        startedAt: before.startedAt ? new Date(before.startedAt) : null,
-        endedAt: before.endedAt ? new Date(before.endedAt) : null,
-        notes: before.notes ?? null,
-        timeProjectId: before.timeProjectId ?? null,
-        taskId: before.taskId ?? null,
-        customerId: before.customerId ?? null,
-        dealId: before.dealId ?? null,
-        orderId: before.orderId ?? null,
-        isBillable: before.isBillable ?? true,
-        rateOverrideAmount: before.rateOverrideAmount ?? null,
-        rateCurrencyCode: before.rateCurrencyCode ?? null,
-        source: (before.source ?? 'manual') as StaffTimeEntrySource,
-        deletedAt: null,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      })
-      em.persist(entry)
-    } else {
-      assertTimeEntryUnlocked(entry, (await resolveTranslations()).translate)
-      entry.staffMemberId = before.staffMemberId
-      entry.date = before.date as unknown as Date
-      entry.durationMinutes = before.durationMinutes
-      entry.roundedMinutes = before.roundedMinutes ?? null
-      entry.startedAt = before.startedAt ? new Date(before.startedAt) : null
-      entry.endedAt = before.endedAt ? new Date(before.endedAt) : null
-      entry.notes = before.notes ?? null
-      entry.timeProjectId = before.timeProjectId ?? null
-      entry.taskId = before.taskId ?? null
-      entry.customerId = before.customerId ?? null
-      entry.dealId = before.dealId ?? null
-      entry.orderId = before.orderId ?? null
-      entry.isBillable = before.isBillable ?? true
-      entry.rateOverrideAmount = before.rateOverrideAmount ?? null
-      entry.rateCurrencyCode = before.rateCurrencyCode ?? null
-      entry.source = (before.source ?? 'manual') as StaffTimeEntrySource
-      entry.deletedAt = null
-      entry.updatedAt = new Date()
-    }
+      let entry = await trx.findOne(StaffTimeEntry, scopedStaffSnapshotWhere(before.id, staffSnapshotScopeFromSnapshot(before)))
 
-    await em.flush()
+      // Absent on logs written before the cascade existed. Those deletes never
+      // touched segments, so restoring none is the correct outcome, not a fallback.
+      // Runs before the entry is re-created or restored below, because the restore
+      // queries and no query may follow a pending scalar change on this manager.
+      if (payload?.segmentsDeletedAt) {
+        await restoreSegmentsForEntry(
+          trx,
+          before.id,
+          { tenantId: before.tenantId, organizationId: before.organizationId },
+          new Date(payload.segmentsDeletedAt),
+        )
+      }
+
+      if (!entry) {
+        entry = trx.create(StaffTimeEntry, {
+          id: before.id,
+          tenantId: before.tenantId,
+          organizationId: before.organizationId,
+          staffMemberId: before.staffMemberId,
+          date: before.date as unknown as Date,
+          durationMinutes: before.durationMinutes,
+          roundedMinutes: before.roundedMinutes ?? null,
+          startedAt: before.startedAt ? new Date(before.startedAt) : null,
+          endedAt: before.endedAt ? new Date(before.endedAt) : null,
+          notes: before.notes ?? null,
+          timeProjectId: before.timeProjectId ?? null,
+          taskId: before.taskId ?? null,
+          customerId: before.customerId ?? null,
+          dealId: before.dealId ?? null,
+          orderId: before.orderId ?? null,
+          isBillable: before.isBillable ?? true,
+          rateOverrideAmount: before.rateOverrideAmount ?? null,
+          rateCurrencyCode: before.rateCurrencyCode ?? null,
+          source: (before.source ?? 'manual') as StaffTimeEntrySource,
+          deletedAt: null,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        })
+        trx.persist(entry)
+      } else {
+        assertTimeEntryUnlocked(entry, translate)
+        entry.staffMemberId = before.staffMemberId
+        entry.date = before.date as unknown as Date
+        entry.durationMinutes = before.durationMinutes
+        entry.roundedMinutes = before.roundedMinutes ?? null
+        entry.startedAt = before.startedAt ? new Date(before.startedAt) : null
+        entry.endedAt = before.endedAt ? new Date(before.endedAt) : null
+        entry.notes = before.notes ?? null
+        entry.timeProjectId = before.timeProjectId ?? null
+        entry.taskId = before.taskId ?? null
+        entry.customerId = before.customerId ?? null
+        entry.dealId = before.dealId ?? null
+        entry.orderId = before.orderId ?? null
+        entry.isBillable = before.isBillable ?? true
+        entry.rateOverrideAmount = before.rateOverrideAmount ?? null
+        entry.rateCurrencyCode = before.rateCurrencyCode ?? null
+        entry.source = (before.source ?? 'manual') as StaffTimeEntrySource
+        entry.deletedAt = null
+        entry.updatedAt = new Date()
+      }
+
+      await trx.flush()
+      return entry
+    })
 
     await emitCrudUndoSideEffects({
       dataEngine: ctx.container.resolve('dataEngine'),
       action: 'created',
-      entity: entry,
-      identifiers: { id: entry.id, organizationId: entry.organizationId, tenantId: entry.tenantId },
+      entity: restoredEntry,
+      identifiers: { id: restoredEntry.id, organizationId: restoredEntry.organizationId, tenantId: restoredEntry.tenantId },
       events: staffTimeEntryCrudEvents,
       indexer: timeEntryCrudIndexer,
     })

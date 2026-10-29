@@ -92,6 +92,8 @@ function makeEm() {
     flush: jest.fn(async () => {
       flushCalls += 1
     }),
+    isInTransaction: jest.fn(() => true),
+    execute: jest.fn(async () => []),
     transactional: jest.fn(async (cb: (trx: unknown) => Promise<unknown>) => {
       transactionalCalls += 1
       return cb(em)
@@ -367,6 +369,32 @@ describe('stop_timer command — undo', () => {
     await command.undo!({ input: stopInput(), ctx: createCtx(makeEm()), logEntry: undoLogEntry(legacyUndoState) })
 
     expect(restoredEntry.roundedMinutes).toBe(90)
+  })
+
+  it('serializes on the member timer lock before locking the entry or re-checking for a running timer', async () => {
+    const { command, undoState } = await captureUndoState()
+
+    const lookupOrders: number[] = []
+    mockFindOneWithDecryption.mockImplementation(async (_em, _cls, where) => {
+      lookupOrders.push(
+        mockFindOneWithDecryption.mock.invocationCallOrder[mockFindOneWithDecryption.mock.calls.length - 1],
+      )
+      const filter = where as Record<string, unknown>
+      if (filter.id && typeof filter.id === 'object') return null
+      if (filter.id === SEGMENT_ID) return makeSegment({ endedAt: new Date('2026-01-01T09:00:00.000Z') })
+      return makeEntry({ endedAt: new Date('2026-01-01T09:00:00.000Z'), durationMinutes: 90 })
+    })
+    const em = makeEm()
+
+    await command.undo!({ input: stopInput(), ctx: createCtx(em), logEntry: undoLogEntry(undoState) })
+
+    expect(em.execute).toHaveBeenCalledTimes(1)
+    expect(em.execute).toHaveBeenCalledWith(
+      'select pg_advisory_xact_lock(hashtextextended(?::text, 0))',
+      [`staff:timesheets:timer:${TENANT_ID}:${ORG_ID}:${STAFF_MEMBER_ID}`],
+    )
+    expect(lookupOrders.length).toBeGreaterThan(0)
+    expect(em.execute.mock.invocationCallOrder[0]).toBeLessThan(Math.min(...lookupOrders))
   })
 
   it('refuses with 409 when another timer is already running for the staff member (#2855)', async () => {

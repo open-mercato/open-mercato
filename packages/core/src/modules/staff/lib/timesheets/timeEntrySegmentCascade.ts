@@ -27,6 +27,12 @@ export type TimeEntrySegmentCascadeScope = {
  * A query issued while scalar changes are pending can drop them silently
  * (`packages/core/AGENTS.md` → `withAtomicFlush`; SPEC-018). Set the entry's own
  * `deletedAt` after the cascade returns, not before.
+ *
+ * The soft-delete half MUST also run inside a transaction that already holds a
+ * PESSIMISTIC_WRITE lock on the live parent entry, taken before the segments are
+ * read. `POST /time-entries/{id}/segments` inserts under that same lock, so only
+ * then can a concurrent insert not land between this read and the caller's flush
+ * and survive its parent's deletion.
  */
 export async function softDeleteSegmentsForEntry(
   em: EntityManager,

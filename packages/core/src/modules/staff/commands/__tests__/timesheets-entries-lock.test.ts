@@ -219,6 +219,8 @@ function makeEm(world: World, entities: Entities) {
     }),
     persist: jest.fn(),
     flush: jest.fn(async () => {}),
+    isInTransaction: jest.fn(() => true),
+    execute: jest.fn(async () => []),
     transactional: jest.fn(async (cb: (trx: unknown) => Promise<unknown>) => cb(em)),
   }
   em.fork.mockReturnValue(em)

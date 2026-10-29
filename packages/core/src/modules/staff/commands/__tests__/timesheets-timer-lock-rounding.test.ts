@@ -34,6 +34,8 @@ const mockEm: Record<string, jest.Mock> = {
   fork: jest.fn(),
   create: jest.fn((_cls: unknown, data: Record<string, unknown>) => ({ id: 'segment-created', ...data })),
   flush: jest.fn(async () => {}),
+  isInTransaction: jest.fn(() => true),
+  execute: jest.fn(async () => []),
   transactional: jest.fn(async (callback: (trx: unknown) => Promise<unknown>) => callback(mockEm)),
 }
 
