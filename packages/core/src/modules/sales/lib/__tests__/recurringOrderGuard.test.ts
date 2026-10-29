@@ -71,6 +71,14 @@ describe('assertRecurringOrderDeletable', () => {
     expect(mock.findOne.mock.calls[0][2]).toMatchObject({ lockMode: expect.anything() })
   })
 
+  it('filters the recurrence and its periods by the order scope', async () => {
+    const { em, mock } = buildEm({ recurrence: { status: 'scheduled' }, periods: 0 })
+    await assertRecurringOrderDeletable(em, order)
+    const scope = { tenantId: 'ten-1', organizationId: 'org-1' }
+    expect(mock.findOne.mock.calls[0][1]).toEqual({ order: 'order-1', ...scope })
+    expect(mock.find.mock.calls[0][1]).toEqual({ order: 'order-1', ...scope })
+  })
+
   it('refuses to delete a recurring order with a period', async () => {
     const { em } = buildEm({ recurrence: { status: 'active' }, periods: 1 })
     await expect(assertRecurringOrderDeletable(em, order)).rejects.toMatchObject({

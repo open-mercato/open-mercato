@@ -141,6 +141,12 @@ describe('restoreOrderRecurrence', () => {
     await restoreOrderRecurrence(em, order, undefined)
     expect(mock.findOne).not.toHaveBeenCalled()
   })
+
+  it('looks the recurrence up within the order scope', async () => {
+    const { em, mock } = buildEm()
+    await restoreOrderRecurrence(em, order, snapshot)
+    expect(mock.findOne.mock.calls[0][1]).toEqual({ order: 'order-1', tenantId: 'ten-1', organizationId: 'org-1' })
+  })
 })
 
 describe('sameRecurrenceState', () => {

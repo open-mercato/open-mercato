@@ -91,7 +91,7 @@ export async function assertRecurringOrderDeletable(em: EntityManager, order: Or
   const recurrence = await findOneWithDecryption(
     em,
     SalesOrderRecurrence,
-    { order: order.id },
+    { order: order.id, tenantId: order.tenantId, organizationId: order.organizationId },
     { lockMode: LockMode.PESSIMISTIC_WRITE },
     { tenantId: order.tenantId, organizationId: order.organizationId },
   )

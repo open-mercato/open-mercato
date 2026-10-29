@@ -125,11 +125,23 @@ export function toRecurrenceResponse(
 }
 
 export function findQuoteRecurrence(em: EntityManager, quote: DocumentScope) {
-  return findOneWithDecryption(em, SalesQuoteRecurrence, { quote: quote.id }, undefined, scopeOf(quote))
+  return findOneWithDecryption(
+    em,
+    SalesQuoteRecurrence,
+    { quote: quote.id, ...scopeOf(quote) },
+    undefined,
+    scopeOf(quote),
+  )
 }
 
 export function findOrderRecurrence(em: EntityManager, order: DocumentScope) {
-  return findOneWithDecryption(em, SalesOrderRecurrence, { order: order.id }, undefined, scopeOf(order))
+  return findOneWithDecryption(
+    em,
+    SalesOrderRecurrence,
+    { order: order.id, ...scopeOf(order) },
+    undefined,
+    scopeOf(order),
+  )
 }
 
 export async function loadQuoteRecurrenceSnapshot(
@@ -152,7 +164,7 @@ export async function hasRecurringPeriods(em: EntityManager, order: DocumentScop
   const periods = await findWithDecryption(
     em,
     SalesRecurringPeriod,
-    { order: order.id },
+    { order: order.id, ...scopeOf(order) },
     { limit: 1, fields: ['id'] },
     scopeOf(order),
   )

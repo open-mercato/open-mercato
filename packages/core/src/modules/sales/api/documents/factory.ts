@@ -262,6 +262,13 @@ const mapUpdateResponse = (entity: any) => {
   }
 }
 
+function listOrganizationIds(ctx: Pick<CrudCtx, 'organizationIds' | 'selectedOrganizationId'> | null | undefined): string[] {
+  if (Array.isArray(ctx?.organizationIds) && ctx.organizationIds.length) {
+    return ctx.organizationIds.filter((value): value is string => !!value)
+  }
+  return ctx?.selectedOrganizationId ? [ctx.selectedOrganizationId] : []
+}
+
 const attachTags = async (payload: any, ctx: any) => {
   const items = Array.isArray(payload?.items) ? (payload.items as Array<Record<string, any>>) : []
   if (!items.length) return
@@ -276,12 +283,7 @@ const attachTags = async (payload: any, ctx: any) => {
     documentKind: ctx?.bindingKind ?? null,
   }
   if (ctx?.auth?.tenantId) where.tenantId = ctx.auth.tenantId
-  const orgIds =
-    Array.isArray(ctx?.organizationIds) && ctx.organizationIds.length
-      ? ctx.organizationIds.filter((val: string | null) => !!val)
-      : ctx?.selectedOrganizationId
-        ? [ctx.selectedOrganizationId]
-        : []
+  const orgIds = listOrganizationIds(ctx)
   if (orgIds.length) where.organizationId = { $in: orgIds }
   const assignments = await em.find(
     SalesDocumentTagAssignment,
@@ -327,14 +329,16 @@ export const attachRecurrences = async (
   const tenantId = ctx?.auth?.tenantId ?? null
   if (!tenantId) return
   const scope = { tenantId, organizationId: ctx?.selectedOrganizationId ?? ctx?.auth?.orgId ?? null }
+  const orgIds = listOrganizationIds(ctx)
+  const scoped = orgIds.length ? { tenantId, organizationId: { $in: orgIds } } : { tenantId }
   const byDocument = new Map<string, Record<string, unknown>>()
   if (kind === 'order') {
     const [recurrences, periods] = await Promise.all([
-      findWithDecryption(em, SalesOrderRecurrence, { order: { $in: ids }, tenantId }, undefined, scope),
+      findWithDecryption(em, SalesOrderRecurrence, { order: { $in: ids }, ...scoped }, undefined, scope),
       findWithDecryption(
         em,
         SalesRecurringPeriod,
-        { order: { $in: ids }, tenantId },
+        { order: { $in: ids }, ...scoped },
         { fields: ['id', 'order'] },
         scope,
       ),
@@ -351,7 +355,7 @@ export const attachRecurrences = async (
     const recurrences = await findWithDecryption(
       em,
       SalesQuoteRecurrence,
-      { quote: { $in: ids }, tenantId },
+      { quote: { $in: ids }, ...scoped },
       undefined,
       scope,
     )
@@ -393,12 +397,7 @@ export const attachChannelNames = async (
 
   const where: Record<string, unknown> = { id: { $in: channelIds } }
   if (ctx?.auth?.tenantId) where.tenantId = ctx.auth.tenantId
-  const orgIds =
-    Array.isArray(ctx?.organizationIds) && ctx.organizationIds.length
-      ? ctx.organizationIds.filter((val: string | null) => !!val)
-      : ctx?.selectedOrganizationId
-        ? [ctx.selectedOrganizationId]
-        : []
+  const orgIds = listOrganizationIds(ctx)
   if (orgIds.length) where.organizationId = { $in: orgIds }
 
   // Only `name` and `code` are read. Without this projection the query loads the whole channel row,

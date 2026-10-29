@@ -72,6 +72,16 @@ describe('attachRecurrences', () => {
     expect(payload.items[1].recurrence).toMatchObject({ locked: true })
     expect(payload.items[2].recurrence).toBeNull()
     expect(calls.every((call) => call.where.tenantId === 'ten-1')).toBe(true)
+    expect(calls.every((call) => JSON.stringify(call.where.organizationId) === JSON.stringify({ $in: ['org-1'] }))).toBe(true)
+  })
+
+  it('limits the lookup to every organization the list covers', async () => {
+    const { ctx, calls } = buildCtx({})
+    const payload = { items: [{ id: 'order-1' }] as Array<Record<string, unknown>> }
+
+    await attachRecurrences(payload, { ...ctx, organizationIds: ['org-1', null, 'org-2'] } as never, 'order')
+
+    expect(calls.map((call) => call.where.organizationId)).toEqual([{ $in: ['org-1', 'org-2'] }, { $in: ['org-1', 'org-2'] }])
   })
 
   it('adds the quote schedule with a calculated end date and no order-only state', async () => {
