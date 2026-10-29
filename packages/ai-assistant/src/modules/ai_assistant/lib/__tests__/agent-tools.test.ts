@@ -30,6 +30,7 @@ import {
   seedAgentRegistryForTests,
 } from '../agent-registry'
 import { toolRegistry, registerMcpTool } from '../tool-registry'
+import { emitCitations } from '../citations'
 
 jest.mock('@open-mercato/shared/lib/logger', () => {
   const mocked = {
@@ -320,6 +321,146 @@ describe('resolveAiAgentTools', () => {
       )
       expect(first.toolCallTimings.has('call-1')).toBe(true)
       expect(second.toolCallTimings.size).toBe(0)
+    })
+  })
+
+  describe('tool UI parts', () => {
+    type ExecutableTool = {
+      execute: (args: unknown, options?: { toolCallId?: string; messages?: unknown[] }) => Promise<unknown>
+    }
+
+    async function resolveWithTools(tools: AiToolDefinition[]) {
+      for (const definition of tools) {
+        registerMcpTool(definition, { moduleId: 'customers' })
+      }
+      seedAgentRegistryForTests([
+        makeAgent({
+          id: 'customers.assistant',
+          moduleId: 'customers',
+          allowedTools: tools.map((definition) => definition.name),
+        }),
+      ])
+      return resolveAiAgentTools({ agentId: 'customers.assistant', authContext: baseAuth })
+    }
+
+    function executable(tools: Record<string, unknown>, name: string): ExecutableTool {
+      return tools[name] as ExecutableTool
+    }
+
+    it('carries emitted citations in the tool output uiParts envelope', async () => {
+      const result = await resolveWithTools([
+        makeTool({
+          name: 'customers.list_people',
+          handler: async (_input, ctx) => {
+            emitCitations(ctx, [{ kind: 'record', ref: 'customers.person:1', href: '/backend/customers/people/1' }], {
+              title: 'Sources',
+            })
+            return { items: [{ id: '1' }] }
+          },
+        }),
+      ])
+      const output = await executable(result.tools, 'customers__list_people').execute({}, { toolCallId: 'call-1' })
+      expect(JSON.parse(output as string)).toEqual({
+        items: [{ id: '1' }],
+        uiParts: [
+          {
+            componentId: 'ai_assistant:citations',
+            payload: {
+              citations: [{ kind: 'record', ref: 'customers.person:1', href: '/backend/customers/people/1' }],
+              title: 'Sources',
+            },
+          },
+        ],
+      })
+      expect(result.uiPartQueue.size()).toBe(0)
+    })
+
+    it('appends emitted parts after the uiParts a tool returns itself', async () => {
+      const own = { componentId: 'customers:card', payload: { id: '1' } }
+      const result = await resolveWithTools([
+        makeTool({
+          name: 'customers.list_people',
+          handler: async (_input, ctx) => {
+            emitCitations(ctx, [{ kind: 'record', ref: 'a' }])
+            return { ok: true, uiParts: [own] }
+          },
+        }),
+      ])
+      const output = await executable(result.tools, 'customers__list_people').execute({})
+      const parsed = JSON.parse(output as string) as { uiParts: Array<{ componentId: string }> }
+      expect(parsed.uiParts.map((part) => part.componentId)).toEqual(['customers:card', 'ai_assistant:citations'])
+    })
+
+    it('leaves string and primitive outputs untouched when nothing is emitted', async () => {
+      const result = await resolveWithTools([
+        makeTool({ name: 'customers.list_people', handler: async () => 'plain answer' }),
+        makeTool({ name: 'customers.get_person', handler: async () => 42 }),
+      ])
+      await expect(executable(result.tools, 'customers__list_people').execute({})).resolves.toBe('plain answer')
+      await expect(executable(result.tools, 'customers__get_person').execute({})).resolves.toBe('42')
+    })
+
+    it('wraps a string output when a tool emits citations', async () => {
+      const result = await resolveWithTools([
+        makeTool({
+          name: 'customers.list_people',
+          handler: async (_input, ctx) => {
+            emitCitations(ctx, [{ kind: 'kb', ref: 'policy@1' }])
+            return 'plain answer'
+          },
+        }),
+      ])
+      const output = await executable(result.tools, 'customers__list_people').execute({})
+      expect(JSON.parse(output as string)).toMatchObject({
+        result: 'plain answer',
+        uiParts: [{ componentId: 'ai_assistant:citations' }],
+      })
+    })
+
+    it('gives every call its own collector so concurrent calls never share parts', async () => {
+      const gates: Array<() => void> = []
+      const result = await resolveWithTools([
+        makeTool({
+          name: 'customers.list_people',
+          inputSchema: z.object({ query: z.string() }),
+          handler: async (input, ctx) => {
+            const { query } = input as { query: string }
+            emitCitations(ctx, [{ kind: 'kb', ref: `${query}-before` }])
+            await new Promise<void>((resolve) => gates.push(resolve))
+            emitCitations(ctx, [{ kind: 'kb', ref: `${query}-after` }])
+            return { query }
+          },
+        }),
+      ])
+      const tool = executable(result.tools, 'customers__list_people')
+      const first = tool.execute({ query: 'one' }, { toolCallId: 'call-1' })
+      const second = tool.execute({ query: 'two' }, { toolCallId: 'call-2' })
+      while (gates.length < 2) {
+        await new Promise((resolve) => setImmediate(resolve))
+      }
+      gates.forEach((release) => release())
+      const refsOf = (output: unknown) =>
+        (JSON.parse(output as string) as { uiParts: Array<{ payload: { citations: Array<{ ref: string }> } }> }).uiParts
+          .flatMap((part) => part.payload.citations.map((citation) => citation.ref))
+      expect(refsOf(await first)).toEqual(['one-before', 'one-after'])
+      expect(refsOf(await second)).toEqual(['two-before', 'two-after'])
+    })
+
+    it('does not leak parts into the next call of the same tool', async () => {
+      let emit = true
+      const result = await resolveWithTools([
+        makeTool({
+          name: 'customers.list_people',
+          handler: async (_input, ctx) => {
+            if (emit) emitCitations(ctx, [{ kind: 'kb', ref: 'a' }])
+            return { ok: true }
+          },
+        }),
+      ])
+      const tool = executable(result.tools, 'customers__list_people')
+      await tool.execute({})
+      emit = false
+      expect(JSON.parse((await tool.execute({})) as string)).toEqual({ ok: true })
     })
   })
 })

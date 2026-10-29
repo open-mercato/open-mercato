@@ -18,6 +18,7 @@ import {
 } from './agent-policy'
 import { toolRegistry } from './tool-registry'
 import { toSafeZodSchema } from './schema-utils'
+import { createToolUiPartBuffer, mergeUiPartsIntoToolResult } from './tool-ui-parts'
 import { prepareMutation } from './prepare-mutation'
 import { resolveAgentRunMutationPolicyOverride } from './agent-channel-policy'
 import type { McpMutationMode } from './mcp-exposure'
@@ -344,16 +345,18 @@ function adaptToolToAiSdk(
     try {
       // Create a fresh container per tool call so the EM is never stale.
       const freshContainer = await createRequestContainer()
+      const uiPartBuffer = createToolUiPartBuffer()
       const freshContext: McpToolContext = {
         ...handlerContext,
         container: freshContainer as unknown as McpToolContext['container'],
+        uiParts: { enqueue: uiPartBuffer.enqueue },
       }
       const { executeTool } = await import('./tool-executor')
       const execResult = await executeTool(tool.name, args, freshContext)
       if (!execResult.success) {
         throw new Error(execResult.error || 'Tool execution failed')
       }
-      return formatToolResult(execResult.result)
+      return formatToolResult(mergeUiPartsIntoToolResult(execResult.result, uiPartBuffer.drain()))
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       throw new Error(`Tool "${tool.name}" failed: ${message}`)

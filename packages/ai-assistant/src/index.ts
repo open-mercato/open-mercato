@@ -78,6 +78,17 @@ export {
 // Additive AI tool builder
 export { defineAiTool } from './modules/ai_assistant/lib/ai-tool-definition'
 
+export {
+  emitCitations,
+  aiCitationSchema,
+  isSafeHref,
+  AI_CITATIONS_COMPONENT_ID,
+  AI_CITATIONS_MAX_PER_CALL,
+  type AiCitation,
+  type AiCitationsPartPayload,
+  type EmitCitationsOptions,
+} from './modules/ai_assistant/lib/citations'
+
 // Agent exposed as one tool (chat, MCP, /tools/execute)
 export {
   defineAgentTool,

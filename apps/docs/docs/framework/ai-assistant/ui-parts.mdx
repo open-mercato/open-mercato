@@ -212,8 +212,10 @@ export const showSalesSnapshot = defineAiTool({
   inputSchema: z.object({ from: z.string(), to: z.string() }),
   async handler(args, ctx) {
     const totals = await loadSalesSnapshot(ctx, args)
-    // Tools may emit one or more AiUiParts via the queue available on ctx.
-    // The dispatcher drains the queue between streamText chunks.
+    // `ctx.uiParts` is a per-call collector, set only for in-process agent
+    // tool calls (undefined on MCP and /tools/execute). Enqueued parts travel
+    // in the tool output's `uiParts` envelope as `{ componentId, payload }`
+    // (`props` is accepted as an alias for `payload`).
     ctx.uiParts?.enqueue({
       componentId: 'sales:snapshot-card',
       props: {

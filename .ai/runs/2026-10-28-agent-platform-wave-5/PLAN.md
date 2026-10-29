@@ -68,7 +68,7 @@
 | 5 | 5.3 | Add the chat runs list and detail pages | dispatch | done | pending |
 | 5 | 5.4 | Link chat messages to their run trace | dispatch | done | pending |
 | 5 | 5.5 | Cover the chat runs API and pages with integration tests | dispatch | done | pending |
-| 6 | 6.1 | Add emitCitations and carry citations in tool output | dispatch:capable | todo | — |
+| 6 | 6.1 | Add emitCitations and carry citations in tool output | dispatch:capable | done | pending |
 | 6 | 6.2 | Add the citation resolver registry and citations UI part | dispatch | todo | — |
 | 6 | 6.3 | Persist run citations and show Sources | dispatch | todo | — |
 | 6 | 6.4 | Cover citations with integration tests and docs | dispatch | todo | — |

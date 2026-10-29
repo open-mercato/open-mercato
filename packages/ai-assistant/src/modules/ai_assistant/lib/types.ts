@@ -58,6 +58,32 @@ export interface McpToolContext {
   requesterUserId?: string | null
   /** Correlation id shared by the call's audit row and any run it starts. */
   correlationId?: string | null
+  /**
+   * Per-call UI-part collector. Set by the in-process agent dispatcher for each
+   * tool call (never shared across calls); the parts a handler enqueues travel
+   * in the tool output's `uiParts` envelope. Undefined on MCP and
+   * `/tools/execute`, so handlers MUST use optional chaining.
+   */
+  uiParts?: AiToolUiPartCollector
+}
+
+/**
+ * UI part a tool handler emits. `payload` is what the chat client renders;
+ * `props` is accepted as an alias for parity with `AiUiPart`.
+ */
+export interface AiToolUiPartInput {
+  componentId: string
+  payload?: unknown
+  props?: Record<string, unknown>
+}
+
+export interface AiToolEmittedUiPart {
+  componentId: string
+  payload?: unknown
+}
+
+export interface AiToolUiPartCollector {
+  enqueue: (part: AiToolUiPartInput) => void
 }
 
 export interface McpToolAuditCorrelation {
