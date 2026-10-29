@@ -64,8 +64,9 @@ existing links, templates, credentials and password sessions remain usable.
 
 This response removal follows the Emergency Security Exception in
 [`BACKWARD_COMPATIBILITY.md`](BACKWARD_COMPATIBILITY.md): retaining the old shape
-would preserve the disclosure. A named human maintainer must approve the waiver
-of deprecation steps 1–3 before merge; automated approval is insufficient.
+would preserve the disclosure. Human maintainer @haxiorz [approved the waiver](https://github.com/open-mercato/open-mercato/pull/8087#issuecomment-6505348826)
+on 2026-10-29 for all 18 removed administrative fields and acknowledged the
+client/operator migration. Independent review and QA approval remain required.
 The [pay-links spec](.ai/specs/implemented/2026-03-19-checkout-pay-links.md)
 records the complete allowlist and regression coverage.
 

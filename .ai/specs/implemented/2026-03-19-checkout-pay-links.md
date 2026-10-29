@@ -1975,7 +1975,7 @@ Removing the administrative fields from `GET /api/checkout/pay/:slug` narrows a 
 
 **Operator migration:** deploy the patched checkout package/app and purge any cached public pay-link responses. Review configured email templates for confidential content and assess any prior public exposure; previously returned copies cannot be recalled. No database migration, password-session invalidation, credential rotation, or stored-data rewrite is required by this change itself.
 
-The PR must carry `security` and receive a named human maintainer approval explicitly acknowledging the waiver of deprecation steps 1–3. Approval is pending; an automated review cannot satisfy this merge requirement. See the dated compatibility entry and `UPGRADE_NOTES.md` for migration disclosure.
+Human maintainer @haxiorz [approved the waiver](https://github.com/open-mercato/open-mercato/pull/8087#issuecomment-6505348826) on 2026-10-29 for deprecation steps 1–3 covering all 18 removed administrative fields, including management metadata, and acknowledged the client/operator migration. The PR carries `security`; independent review and QA approval remain required. See the dated compatibility entry and `UPGRADE_NOTES.md` for migration disclosure.
 
 ---
 
@@ -2084,3 +2084,6 @@ None identified.
 ### 2026-10-27
 - Replaced the public pay-link route's administrative response spread with an explicit payer-facing allowlist, including verified-password and preview responses; documented the security exception and client/operator migration for #7823.
 - Added exact-shape route regressions and self-contained API integration coverage for public omission and retained administrative configuration.
+
+### 2026-10-29
+- Recorded @haxiorz’s human approval of the security exception for all 18 administrative fields and acknowledgment of the client/operator migration; independent review and QA remain required.
