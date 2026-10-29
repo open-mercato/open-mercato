@@ -1104,40 +1104,39 @@ const forwardMessageCommand: CommandHandler<unknown, { id: string; externalEmail
   },
 }
 
-const deleteForActorCommand: CommandHandler<unknown, { ok: true }> = {
+const DELETE_RECIPIENT_CLAIM_ATTEMPTS = 3
+
+async function claimRecipientDelete(
+  em: EntityManager,
+  messageId: string,
+  userId: string,
+): Promise<{ id: string; status: MessageRecipient['status'] } | null> {
+  for (let attempt = 0; attempt < DELETE_RECIPIENT_CLAIM_ATTEMPTS; attempt += 1) {
+    const recipient = await em.findOne(
+      MessageRecipient,
+      { messageId, recipientUserId: userId, deletedAt: null },
+      { refresh: true },
+    )
+    if (!recipient) return null
+    const claimed = { id: recipient.id, status: recipient.status }
+    const claimedRows = await em.nativeUpdate(
+      MessageRecipient,
+      { id: claimed.id, deletedAt: null, status: claimed.status },
+      { status: 'deleted', deletedAt: new Date() },
+    )
+    if (claimedRows > 0) return claimed
+  }
+  throw new Error('[internal] Message recipient changed concurrently during delete')
+}
+
+const deleteForActorCommand: CommandHandler<unknown, { ok: true; executed: MessageDeleteUndoState }> = {
   id: 'messages.messages.delete_for_actor',
-  async prepare(rawInput, ctx) {
-    const input = deleteForActorCommandSchema.parse(rawInput)
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const message = await requireMessageById(em, input, input.messageId)
-    const recipient = await em.findOne(MessageRecipient, {
-      messageId: input.messageId,
-      recipientUserId: input.userId,
-      deletedAt: null,
-    })
-    return {
-      before: {
-        messageId: message.id,
-        messageDeletedAt: toIso(message.deletedAt),
-        recipientId: recipient?.id ?? null,
-        recipientStatus: recipient?.status ?? null,
-        recipientDeletedAt: toIso(recipient?.deletedAt),
-      } satisfies MessageDeleteUndoState,
-    }
-  },
   async execute(rawInput, ctx) {
     const input = deleteForActorCommandSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const message = await requireMessageById(em, input, input.messageId)
-    const recipient = await em.findOne(MessageRecipient, {
-      messageId: input.messageId,
-      recipientUserId: input.userId,
-      deletedAt: null,
-    })
+    const recipient = await claimRecipientDelete(em, input.messageId, input.userId)
     if (recipient) {
-      recipient.status = 'deleted'
-      recipient.deletedAt = new Date()
-      await em.flush()
       await emitMessageDeletedEvent(ctx.container, {
         messageId: input.messageId,
         actorUserId: input.userId,
@@ -1145,10 +1144,20 @@ const deleteForActorCommand: CommandHandler<unknown, { ok: true }> = {
         tenantId: input.tenantId,
         organizationId: input.organizationId,
       })
-      return { ok: true }
+      return {
+        ok: true,
+        executed: {
+          messageId: message.id,
+          messageDeletedAt: toIso(message.deletedAt),
+          recipientId: recipient.id,
+          recipientStatus: recipient.status,
+          recipientDeletedAt: null,
+        },
+      }
     }
     if (message.senderUserId === input.userId) {
       const recipientRows = await em.find(MessageRecipient, { messageId: input.messageId })
+      const messageDeletedAtBefore = toIso(message.deletedAt)
       message.deletedAt = new Date()
       await em.flush()
       const recipientUserIds = recipientRows
@@ -1161,7 +1170,16 @@ const deleteForActorCommand: CommandHandler<unknown, { ok: true }> = {
         tenantId: input.tenantId,
         organizationId: input.organizationId,
       })
-      return { ok: true }
+      return {
+        ok: true,
+        executed: {
+          messageId: message.id,
+          messageDeletedAt: messageDeletedAtBefore,
+          recipientId: null,
+          recipientStatus: null,
+          recipientDeletedAt: null,
+        },
+      }
     }
     throw new Error('Access denied')
   },
@@ -1181,8 +1199,9 @@ const deleteForActorCommand: CommandHandler<unknown, { ok: true }> = {
       recipientDeletedAt: toIso(recipient?.deletedAt),
     } satisfies MessageDeleteUndoState
   },
-  buildLog: async ({ input, snapshots }) => {
+  buildLog: async ({ input, result, snapshots }) => {
     const parsed = deleteForActorCommandSchema.parse(input)
+    const before = result?.executed ?? null
     return {
       actionLabel: 'Delete message for actor',
       resourceKind: 'messages.message',
@@ -1191,11 +1210,11 @@ const deleteForActorCommand: CommandHandler<unknown, { ok: true }> = {
       organizationId: parsed.organizationId,
       payload: {
         undo: {
-          before: (snapshots.before as MessageDeleteUndoState | undefined) ?? null,
+          before,
           after: (snapshots.after as MessageDeleteUndoState | undefined) ?? null,
         } satisfies UndoPayload<MessageDeleteUndoState>,
       },
-      snapshotBefore: snapshots.before ?? null,
+      snapshotBefore: before,
       snapshotAfter: snapshots.after ?? null,
     }
   },

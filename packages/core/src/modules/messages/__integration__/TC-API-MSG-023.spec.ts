@@ -1,12 +1,18 @@
 import { expect, test } from '@playwright/test';
-import { apiRequest } from '@open-mercato/core/modules/core/__integration__/helpers/api';
+import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api';
 import {
   expectOperation,
   skipIfUndoTestsDisabled,
+  undoByToken,
   undoOk,
 } from '@open-mercato/core/helpers/integration/undoHarness';
 import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures';
-import { composeInternalMessage, decodeJwtSubject, deleteMessageIfExists } from './helpers';
+import {
+  composeInternalMessage,
+  composeMessageWithToken,
+  decodeJwtSubject,
+  deleteMessageIfExists,
+} from './helpers';
 
 /**
  * TC-API-MSG-023: Undoing a recipient-only delete keeps a later global delete
@@ -18,7 +24,9 @@ import { composeInternalMessage, decodeJwtSubject, deleteMessageIfExists } from 
  * then deletes the message for everyone, the recipient undoing their own
  * earlier delete must restore only their recipient row and must not bring the
  * globally deleted message back for every participant. The sender undoing
- * their own global delete still restores the message.
+ * their own global delete still restores the message. When a sender who is
+ * also a recipient sends two overlapping deletes, each undo must reverse the
+ * branch its own request actually executed.
  */
 test.describe('TC-API-MSG-023: Recipient delete undo keeps the sender global delete', () => {
   test('recipient undo after a sender global delete leaves the message deleted', async ({ request }) => {
@@ -127,6 +135,69 @@ test.describe('TC-API-MSG-023: Recipient delete undo keeps the sender global del
       expect(detailBody.subject).toBe(composed.subject);
     } finally {
       await deleteMessageIfExists(request, senderToken, messageId);
+    }
+  });
+
+  test('overlapping deletes by a sender who is also a recipient undo to the original state', async ({ request }) => {
+    skipIfUndoTestsDisabled();
+    const senderToken = await getAuthToken(request, 'admin');
+    const senderUserId = decodeJwtSubject(senderToken);
+    const rounds = 5;
+
+    for (let round = 0; round < rounds; round += 1) {
+      let messageId: string | null = null;
+      try {
+        messageId = await composeMessageWithToken(request, senderToken, {
+          recipients: [{ userId: senderUserId, type: 'to' }],
+          subject: `QA TC-API-MSG-023 overlap ${round} ${Date.now()}`,
+          body: 'Overlapping delete fixture',
+          sendViaEmail: false,
+        });
+
+        const [firstDelete, secondDelete] = await Promise.all([
+          apiRequest(request, 'DELETE', `/api/messages/${messageId}`, { token: senderToken }),
+          apiRequest(request, 'DELETE', `/api/messages/${messageId}`, { token: senderToken }),
+        ]);
+        expect(firstDelete.status()).toBe(200);
+        expect(secondDelete.status()).toBe(200);
+        const pending = [
+          expectOperation(firstDelete, `overlapping delete ${round} (first)`).undoToken,
+          expectOperation(secondDelete, `overlapping delete ${round} (second)`).undoToken,
+        ];
+
+        const afterDeletes = await apiRequest(request, 'GET', `/api/messages/${messageId}`, { token: senderToken });
+        expect(afterDeletes.status()).toBe(404);
+
+        while (pending.length > 0) {
+          let undone = false;
+          for (let index = 0; index < pending.length; index += 1) {
+            const response = await undoByToken(request, senderToken, pending[index]);
+            if (response.ok()) {
+              pending.splice(index, 1);
+              undone = true;
+              break;
+            }
+          }
+          expect(undone, `one of the remaining overlapping deletes is undoable in round ${round}`).toBe(true);
+        }
+
+        const persisted = await withClient(async (client) => {
+          const messageRows = await client.query<{ deleted_at: Date | null }>(
+            'select deleted_at from messages where id = $1',
+            [messageId],
+          );
+          const recipientRows = await client.query<{ deleted_at: Date | null }>(
+            'select deleted_at from message_recipients where message_id = $1 and recipient_user_id = $2',
+            [messageId, senderUserId],
+          );
+          return { message: messageRows.rows[0], recipient: recipientRows.rows[0] };
+        });
+        expect(persisted.message?.deleted_at, `round ${round}: undoing both deletes restores the message`).toBeNull();
+        expect(persisted.recipient?.deleted_at, `round ${round}: undoing both deletes restores the recipient row`).toBeNull();
+      } finally {
+        await deleteMessageIfExists(request, senderToken, messageId);
+        await deleteMessageIfExists(request, senderToken, messageId);
+      }
     }
   });
 });
