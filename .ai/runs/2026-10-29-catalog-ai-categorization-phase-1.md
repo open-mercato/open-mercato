@@ -105,9 +105,9 @@ Spec § Implementation Plan → Phase 1, steps 1–11. Read the spec's Decisions
 
 ### Phase 2: Suggestion engine and persistence
 
-- [ ] 2.1 Product state builder
-- [ ] 2.2 Tree walk with batched tournament
-- [ ] 2.3 Suggestion entity, migration and persistence
+- [x] 2.1 Product state builder — 7e49e60e97
+- [x] 2.2 Tree walk with batched tournament — c218b15c49
+- [x] 2.3 Suggestion entity, migration and persistence — 825fbc6ff6
 
 ### Phase 3: Accept / reject
 
