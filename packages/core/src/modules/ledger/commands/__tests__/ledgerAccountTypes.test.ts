@@ -1,8 +1,9 @@
 // Unit tests for `ledger.updateLedgerAccountType` when a type is assigned to
 // a PL group without a number change (#6340 review of 2026-10-26, N2): the
 // type's existing accounts must already start with the type number, or the
-// change is refused. Whether to refuse or to cascade is a domain decision
-// still open (⚠ NEEDS HUMAN CONFIRMATION); these tests pin the refusal.
+// change is refused. Refused rather than cascaded: these accounts have no old
+// prefix to swap, so a cascade would mean inventing numbers (decision recorded
+// in the #5663 spec, Commands → updateLedgerAccountType).
 export {}
 
 import { LedgerAccount, LedgerAccountGroup, LedgerAccountType } from '../../data/entities'
