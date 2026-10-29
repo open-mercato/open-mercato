@@ -15,12 +15,16 @@ import {
 import { DEFAULT_TRACE_CAPTURE_POLICY } from '../lib/trace/capturePolicy'
 import type { TraceCapturePolicy } from '../data/validators'
 
+const DAY_MS = 24 * 60 * 60 * 1000
+const POLICY_UNTIL = new Date(Date.now() + 30 * DAY_MS).toISOString()
+const FORM_UNTIL = new Date(Date.now() + 60 * DAY_MS)
+
 const POLICY: TraceCapturePolicy = {
   level: 'metadata',
   evalLevel: 'full',
   perAgent: {
     'support.triage': { level: 'off' },
-    'claims.assess': { level: 'full', until: '2026-12-01T10:00:00.000Z' },
+    'claims.assess': { level: 'full', until: POLICY_UNTIL },
   },
   retentionDays: 14,
   redactPii: true,
@@ -71,7 +75,7 @@ describe('trace capture settings form mapping', () => {
   })
 
   it('writes until as an ISO datetime and omits it when cleared', () => {
-    const until = new Date('2027-01-02T03:04:05.000Z')
+    const until = FORM_UNTIL
     const form: TraceCaptureSettingsForm = {
       ...baseForm(),
       overrides: [
@@ -83,7 +87,7 @@ describe('trace capture settings form mapping', () => {
     expect(result.ok).toBe(true)
     if (result.ok) {
       expect(result.policy.perAgent).toEqual({
-        'claims.assess': { level: 'full', until: '2027-01-02T03:04:05.000Z' },
+        'claims.assess': { level: 'full', until: FORM_UNTIL.toISOString() },
         'support.triage': { level: 'off' },
       })
     }
