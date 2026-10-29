@@ -1,5 +1,9 @@
+import * as React from 'react'
+import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { parseAiContentSegments } from '../AiMessageContent'
 import { withoutAiRecordImages } from '../imagePolicy'
+import { defaultAiUiPartRegistry } from '../ui-part-registry'
+import '../records/registry'
 
 describe('AI record image policy', () => {
   it.each([
@@ -33,5 +37,23 @@ describe('AI record image policy', () => {
   it('keeps image-free card details', () => {
     const payload = { kind: 'deal' as const, title: 'Visible deal', amount: 100, currency: 'USD' }
     expect(withoutAiRecordImages(payload)).toEqual(payload)
+  })
+
+  it.each([
+    ['product', 'imageUrl'],
+    ['person', 'avatarUrl'],
+    ['company', 'logoUrl'],
+  ])('blocks registered %s UI-part images despite an untrusted kind', (kind, field) => {
+    const componentId = `open-mercato.${kind}-card`
+    const Component = defaultAiUiPartRegistry.resolve(componentId)
+    if (!Component) throw new Error('[internal] Missing record UI-part component')
+    const payload = { name: 'Typed record', [field]: 'https://ai-image-canary.invalid/pixel', kind: 'deal' }
+    const original = { ...payload }
+    const { container, getByText } = renderWithProviders(React.createElement(Component, { componentId, payload }))
+
+    expect(getByText('Typed record')).toBeTruthy()
+    expect(container.querySelector(`[data-ai-record-card="${kind}"]`)).not.toBeNull()
+    expect(container.querySelector('img')).toBeNull()
+    expect(payload).toEqual(original)
   })
 })

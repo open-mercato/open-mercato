@@ -5,6 +5,14 @@ import { fileURLToPath } from 'node:url'
 import { createRequire } from 'node:module'
 
 const canary = 'https://ai-image-canary.invalid/pixel?data=inert'
+const typedParts = [
+  ['product', 'imageUrl'],
+  ['person', 'avatarUrl'],
+  ['company', 'logoUrl'],
+].map(([kind, field]) => ({
+  componentId: `open-mercato.${kind}-card`,
+  payload: { name: `Visible typed ${kind}`, [field]: canary, kind: 'deal' },
+}))
 const content = [
   '**Visible answer**',
   `![Inline image](${canary})`,
@@ -56,12 +64,14 @@ test.beforeAll(async () => {
         import { I18nProvider } from '@open-mercato/shared/lib/i18n/context'
         import { AiChat } from '@open-mercato/ui/ai/AiChat'
         import { AiMessageContent } from '@open-mercato/ui/ai/AiMessageContent'
+        import '@open-mercato/ui/ai/records/registry'
         const content = ${JSON.stringify(content)}
+        const uiParts = ${JSON.stringify(typedParts)}
         createRoot(document.getElementById('root')).render(
           <QueryClientProvider client={new QueryClient()}>
             <I18nProvider locale="en" dict={{}}>
               {location.search === '?chat'
-                ? <AiChat agentId="image-policy.test" conversationId="image-policy" initialMessages={[{ role: 'assistant', content }]} />
+                ? <AiChat agentId="image-policy.test" conversationId="image-policy" initialMessages={[{ role: 'assistant', content }]} uiParts={uiParts} />
                 : <AiMessageContent content={content} />}
             </I18nProvider>
           </QueryClientProvider>
@@ -87,7 +97,7 @@ for (const surface of ['chat', 'standalone']) {
           providers: [],
           allowRuntimeModelOverride: false,
           conversation: { conversationId: 'image-policy', isOwner: true },
-          messages: [{ id: 'answer', role: 'assistant', content, uiParts: [], attachmentIds: [], files: [] }],
+          messages: [{ id: 'answer', role: 'assistant', content, uiParts: typedParts, attachmentIds: [], files: [] }],
         } })
       } else {
         await route.fulfill({ contentType: 'text/html', body: '<div id="root"></div>' })
@@ -113,10 +123,15 @@ for (const surface of ['chat', 'standalone']) {
     await expect(answer.getByText('Visible company 5', { exact: true })).toBeVisible()
     await expect(answer.getByRole('table')).toBeVisible()
     await expect(answer.getByRole('link', { name: 'Ordinary link' })).toHaveAttribute('href', 'https://example.invalid/details')
+    if (surface === 'chat') {
+      for (const kind of ['product', 'person', 'company']) {
+        await expect(page.locator('#root').getByText(`Visible typed ${kind}`, { exact: true })).toHaveCount(2)
+      }
+    }
     await page.waitForLoadState('networkidle')
     expect(errors).toEqual([])
     expect(imageRequests).toEqual([])
-    await expect(answer.locator('img')).toHaveCount(0)
+    await expect(page.locator('#root img')).toHaveCount(0)
     await expect(answer).toContainText('Inline image')
     await expect(answer).toContainText('Reference image')
     const screenshotPath = testInfo.outputPath(`${surface}-image-policy.png`)
