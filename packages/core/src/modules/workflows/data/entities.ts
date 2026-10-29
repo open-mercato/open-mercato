@@ -4,7 +4,7 @@
  * MikroORM entities for workflow engine.
  */
 
-import { OptionalProps } from '@mikro-orm/core'
+import { OptionalProps, raw } from '@mikro-orm/core'
 import { Entity, Index, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
 import type { WorkflowRunOutcome } from '../lib/run-outcome'
 
@@ -436,7 +436,7 @@ export class WorkflowDefinitionDraft {
 @Index({ name: 'workflow_instances_current_step_idx', properties: ['currentStepId', 'status'] })
 @Index({ name: 'workflow_instances_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
 export class WorkflowInstance {
-  [OptionalProps]?: 'retryCount' | 'isDryRun' | 'createdAt' | 'updatedAt' | 'deletedAt'
+  [OptionalProps]?: 'retryCount' | 'isDryRun' | 'waitVersion' | 'createdAt' | 'updatedAt' | 'deletedAt'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -523,6 +523,18 @@ export class WorkflowInstance {
   @Property({ name: 'is_dry_run', type: 'boolean', default: false })
   isDryRun: boolean = false
 
+  /**
+   * Identifies one OCCURRENCE of a wait (#7185). Every write of the row through
+   * the unit of work increments it in SQL (`wait_version + 1`, read back via
+   * RETURNING), and the signal claim compare-and-sets it, so a park, a claim and
+   * a re-park on the same step always carry distinct values — independent of
+   * the wall clock, which can stand still, roll back or skew between workers.
+   * A delivery addressed to one occurrence pins the value it read and can
+   * therefore never consume a later occurrence of the same step.
+   */
+  @Property({ name: 'wait_version', type: 'integer', default: 0, onUpdate: () => raw('wait_version + 1') })
+  waitVersion: number = 0
+
   @Property({ name: 'tenant_id', type: 'uuid' })
   tenantId!: string
 
@@ -532,22 +544,11 @@ export class WorkflowInstance {
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
 
-  /**
-   * Strictly increasing on every write: the signal claim pins the value it read
-   * to tell one occurrence of a wait from the next one on the same step (#7185),
-   * so a re-park landing in the same millisecond must still move it forward.
-   */
-  @Property({ name: 'updated_at', type: Date, onUpdate: (instance: WorkflowInstance) => nextWorkflowInstanceUpdatedAt(instance.updatedAt) })
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
   updatedAt: Date = new Date()
 
   @Property({ name: 'deleted_at', type: Date, nullable: true })
   deletedAt?: Date | null
-}
-
-function nextWorkflowInstanceUpdatedAt(previous: Date | null | undefined): Date {
-  const now = Date.now()
-  if (!(previous instanceof Date) || Number.isNaN(previous.getTime())) return new Date(now)
-  return new Date(Math.max(now, previous.getTime() + 1))
 }
 
 // ============================================================================

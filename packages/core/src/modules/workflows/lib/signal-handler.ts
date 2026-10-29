@@ -4,7 +4,7 @@
  * Receives external signals and resumes workflows waiting for them.
  */
 
-import { EntityManager } from '@mikro-orm/core'
+import { EntityManager, raw } from '@mikro-orm/core'
 import type { EntityManager as PostgreSqlEntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -62,13 +62,13 @@ export interface SendSignalOptions {
   expectedStepId?: string
 
   /**
-   * `updatedAt` the caller observed while the instance was parked. Identifies
+   * `waitVersion` the caller observed while the instance was parked. Identifies
    * the OCCURRENCE of the wait, not just its step: every park and every claim
-   * rewrites `updatedAt`, so a delivery addressed to one occurrence is refused
-   * with `WORKFLOW_NOT_PAUSED` once the instance has looped back and parked on
-   * the same step again.
+   * increments `waitVersion` in SQL, so a delivery addressed to one occurrence
+   * is refused with `WORKFLOW_NOT_PAUSED` once the instance has looped back and
+   * parked on the same step again.
    */
-  expectedUpdatedAt?: Date
+  expectedWaitVersion?: number
 
   /**
    * Tenant/org scope
@@ -103,7 +103,7 @@ export async function sendSignal(
     agentOutcome,
     agentProposalId,
     expectedStepId,
-    expectedUpdatedAt,
+    expectedWaitVersion,
     userId,
     tenantId,
     organizationId,
@@ -223,8 +223,8 @@ export async function sendSignal(
     )
   }
 
-  const observedWaitVersion = expectedUpdatedAt ?? instance.updatedAt
-  if (expectedUpdatedAt !== undefined && !isSameWaitVersion(instance.updatedAt, expectedUpdatedAt)) {
+  const observedWaitVersion = expectedWaitVersion ?? instance.waitVersion
+  if (expectedWaitVersion !== undefined && instance.waitVersion !== expectedWaitVersion) {
     throw new SignalError(
       'Workflow is not paused',
       'WORKFLOW_NOT_PAUSED',
@@ -307,17 +307,17 @@ export async function sendSignal(
     )
   }
 
-  const now = nextWaitVersion(observedWaitVersion)
+  const now = new Date()
 
   // Claim the wait before mutating anything (#7185). Every check above reads a
   // snapshot, so concurrent deliveries of the same signal all pass it; only the
   // conditional UPDATE is atomic, and exactly one delivery wins it. Pinning the
   // validated `currentStepId` stops a stale delivery from consuming a LATER wait
-  // the winner has since parked on, and pinning the observed `updatedAt` stops it
-  // from consuming a later occurrence of the SAME wait once a loop brings the
-  // instance back to it: the claim writes a strictly later `updatedAt` and every
-  // re-park flushes another one. Losers surface as WORKFLOW_NOT_PAUSED, which
-  // the instance signal route already maps to 409.
+  // the winner has since parked on, and pinning the observed `waitVersion` stops
+  // it from consuming a later occurrence of the SAME wait once a loop brings the
+  // instance back to it: the claim increments `waitVersion` in SQL and every
+  // re-park increments it again, whatever the wall clock says. Losers surface as
+  // WORKFLOW_NOT_PAUSED, which the instance signal route already maps to 409.
   const claimed = await em.nativeUpdate(
     WorkflowInstance,
     {
@@ -326,9 +326,9 @@ export async function sendSignal(
       organizationId: instance.organizationId,
       status: 'PAUSED',
       currentStepId: instance.currentStepId,
-      ...waitVersionFilter(observedWaitVersion),
+      waitVersion: observedWaitVersion,
     },
-    { status: 'RUNNING', updatedAt: now },
+    { status: 'RUNNING', updatedAt: now, waitVersion: raw('wait_version + 1') },
   )
   if (claimed === 0) {
     throw new SignalError(
@@ -553,7 +553,7 @@ async function releaseSignalClaim(
         status: 'RUNNING',
         currentStepId: claimedStepId,
       },
-      { status: 'PAUSED', updatedAt: new Date() },
+      { status: 'PAUSED', updatedAt: new Date(), waitVersion: raw('wait_version + 1') },
     )
   } catch (releaseError) {
     logger.error('Failed to release signal claim', { instanceId: instance.id, err: releaseError })
@@ -563,23 +563,6 @@ async function releaseSignalClaim(
       attributes: { instanceId: instance.id, stepId: claimedStepId },
     })
   }
-}
-
-// `updated_at` is stored at microsecond precision but read back as a JS Date
-// (milliseconds, truncated), so an occurrence is matched on its millisecond.
-function waitVersionFilter(observed: Date | null | undefined): { updatedAt?: { $gte: Date; $lt: Date } } {
-  if (!(observed instanceof Date) || Number.isNaN(observed.getTime())) return {}
-  return { updatedAt: { $gte: observed, $lt: new Date(observed.getTime() + 1) } }
-}
-
-function isSameWaitVersion(current: Date | null | undefined, expected: Date): boolean {
-  return current instanceof Date && current.getTime() === expected.getTime()
-}
-
-function nextWaitVersion(observed: Date | null | undefined): Date {
-  const now = Date.now()
-  if (!(observed instanceof Date) || Number.isNaN(observed.getTime())) return new Date(now)
-  return new Date(Math.max(now, observed.getTime() + 1))
 }
 
 export type SendSignalByCorrelationKeyOptions = Omit<SendSignalOptions, 'instanceId'> & { correlationKey: string }
@@ -640,11 +623,11 @@ export async function sendSignalByCorrelationKeyWithResults(
   // re-reads below refresh the identity-mapped entities, and a delivery must
   // only consume the wait it was addressed to, never a later one a concurrent
   // fan-out has already advanced the instance onto — nor a later occurrence of
-  // the same wait it has looped back to, which only `updatedAt` tells apart.
+  // the same wait it has looped back to, which only `waitVersion` tells apart.
   const targets = instances.map((instance) => ({
     id: instance.id,
     currentStepId: instance.currentStepId,
-    updatedAt: instance.updatedAt instanceof Date ? new Date(instance.updatedAt.getTime()) : undefined,
+    waitVersion: instance.waitVersion,
   }))
 
   let signalsProcessed = 0
@@ -655,7 +638,7 @@ export async function sendSignalByCorrelationKeyWithResults(
       await sendSignal(em, container, {
         instanceId: instance.id,
         expectedStepId: instance.currentStepId,
-        expectedUpdatedAt: instance.updatedAt,
+        expectedWaitVersion: instance.waitVersion,
         signalName,
         payload,
         userId,

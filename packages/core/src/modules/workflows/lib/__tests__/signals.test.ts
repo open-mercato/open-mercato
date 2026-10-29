@@ -15,6 +15,7 @@ jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
   getTelemetryRuntime: jest.fn(),
 }))
 
+import { isRaw } from '@mikro-orm/core'
 import {
   findOneWithDecryption,
   findWithDecryption,
@@ -83,6 +84,7 @@ describe('Workflow Signals - Phase 9.1', () => {
     createdAt: new Date(),
     tenantId,
     organizationId,
+    waitVersion: 0,
     updatedAt: new Date(),
   }
 
@@ -667,9 +669,8 @@ describe('Workflow Signals - Phase 9.1', () => {
   })
 
   describe('Same-step loop (#7185 wait occurrence)', () => {
-    type VersionedRow = { status: string; currentStepId: string; updatedAt: number }
-    const parkedAt = new Date('2026-10-11T08:00:00.000Z').getTime()
-    let dateNowSpy: jest.SpyInstance | undefined
+    type VersionedRow = { status: string; currentStepId: string; waitVersion: number }
+    const parkedVersion = 7
 
     const loopDefinition = {
       ...mockDefinition,
@@ -695,8 +696,6 @@ describe('Workflow Signals - Phase 9.1', () => {
       mockExecuteWorkflow.mockReset()
       mockExecuteTransition.mockReset()
       mockFindValidTransitions.mockReset()
-      dateNowSpy?.mockRestore()
-      dateNowSpy = undefined
     })
 
     const deliver = () =>
@@ -710,16 +709,13 @@ describe('Workflow Signals - Phase 9.1', () => {
       })
 
     function matchesClaim(row: VersionedRow, where: Record<string, any>): boolean {
-      if (row.status !== where.status || row.currentStepId !== where.currentStepId) return false
-      const version = where.updatedAt as { $gte: Date; $lt: Date } | undefined
-      if (!version) return true
-      return row.updatedAt >= version.$gte.getTime() && row.updatedAt < version.$lt.getTime()
+      return row.status === where.status && row.currentStepId === where.currentStepId && row.waitVersion === where.waitVersion
     }
 
     function wireLoopingRow(row: VersionedRow, onReparked: () => void) {
       mockFindOneWithDecryption.mockImplementation((async (_em: unknown, entity: unknown) => {
         if (entity === WorkflowInstance) {
-          return { ...mockInstance, status: row.status, currentStepId: row.currentStepId, updatedAt: new Date(row.updatedAt), context: {} }
+          return { ...mockInstance, status: row.status, currentStepId: row.currentStepId, waitVersion: row.waitVersion, context: {} }
         }
         if (entity === WorkflowDefinition) return { ...loopDefinition }
         if (entity === StepInstance) return { ...mockStepInstance }
@@ -735,15 +731,14 @@ describe('Workflow Signals - Phase 9.1', () => {
       mockExecuteWorkflow.mockImplementation(async () => {
         row.currentStepId = 'wait_approval'
         row.status = 'PAUSED'
-        row.updatedAt += 1
+        row.waitVersion += 1
         onReparked()
         return {}
       })
     }
 
     it('refuses a delayed duplicate once the winner has looped back and parked on the same step again', async () => {
-      dateNowSpy = jest.spyOn(Date, 'now').mockReturnValue(parkedAt)
-      const row: VersionedRow = { status: 'PAUSED', currentStepId: 'wait_approval', updatedAt: parkedAt }
+      const row: VersionedRow = { status: 'PAUSED', currentStepId: 'wait_approval', waitVersion: parkedVersion }
       let markReparked: () => void = () => {}
       const reparked = new Promise<void>((resolve) => { markReparked = resolve })
       wireLoopingRow(row, () => markReparked())
@@ -768,7 +763,7 @@ describe('Workflow Signals - Phase 9.1', () => {
         if (claims > 1) await reparked
         if (!matchesClaim(row, where)) return 0
         row.status = data.status
-        row.updatedAt = (data.updatedAt as Date).getTime()
+        row.waitVersion += 1
         return 1
       })
 
@@ -786,15 +781,16 @@ describe('Workflow Signals - Phase 9.1', () => {
       expect(row.currentStepId).toBe('wait_approval')
 
       const [, claimWhere, claimData] = mockEm.nativeUpdate.mock.calls[0]
-      expect(claimWhere.updatedAt).toEqual({ $gte: new Date(parkedAt), $lt: new Date(parkedAt + 1) })
-      expect((claimData.updatedAt as Date).getTime()).toBeGreaterThan(parkedAt)
+      expect(claimWhere.waitVersion).toBe(parkedVersion)
+      expect(isRaw(claimData.waitVersion)).toBe(true)
+      expect(String((claimData.waitVersion as { sql: string }).sql)).toBe('wait_version + 1')
     })
 
     it('fan-out refuses an instance that looped back to the listed wait before its delivery', async () => {
-      const row: VersionedRow = { status: 'PAUSED', currentStepId: 'wait_approval', updatedAt: parkedAt }
+      const row: VersionedRow = { status: 'PAUSED', currentStepId: 'wait_approval', waitVersion: parkedVersion }
       wireLoopingRow(row, () => {})
       mockFindWithDecryption.mockImplementationOnce((async () => {
-        const listed = [{ ...mockInstance, correlationKey: 'loop', status: row.status, currentStepId: row.currentStepId, updatedAt: new Date(row.updatedAt) }]
+        const listed = [{ ...mockInstance, correlationKey: 'loop', status: row.status, currentStepId: row.currentStepId, waitVersion: row.waitVersion }]
         await sendSignal(mockEm, mockContainer, {
           instanceId,
           signalName: 'approval_granted',
@@ -807,7 +803,7 @@ describe('Workflow Signals - Phase 9.1', () => {
       mockEm.nativeUpdate.mockImplementation(async (_entity: unknown, where: Record<string, any>, data: Record<string, any>) => {
         if (!matchesClaim(row, where)) return 0
         row.status = data.status
-        row.updatedAt = (data.updatedAt as Date).getTime()
+        row.waitVersion += 1
         return 1
       })
 
