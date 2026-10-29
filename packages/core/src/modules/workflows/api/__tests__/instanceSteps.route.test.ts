@@ -183,4 +183,20 @@ describe('GET /api/workflows/instances/[id]/steps', () => {
     expect(body.pagination.hasMore).toBe(true)
     expect(body.pagination.total).toBe(250)
   })
+
+  test('clamps an extreme offset before reading step instances', async () => {
+    const response = await listSteps(
+      new NextRequest(`http://localhost/api/workflows/instances/${testInstanceId}/steps?offset=999999999&limit=10`),
+      makeContext(),
+    )
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(mockEm.findAndCount).toHaveBeenCalledWith(
+      StepInstance,
+      expect.objectContaining({ tenantId: testTenantId, organizationId: { $in: [testOrgId] } }),
+      expect.objectContaining({ limit: 10, offset: 100000 }),
+    )
+    expect(body.pagination).toMatchObject({ limit: 10, offset: 100000, hasMore: false })
+  })
 })

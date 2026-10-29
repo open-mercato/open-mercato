@@ -11,6 +11,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { WORKFLOW_LIST_MAX_OFFSET } from '../../../data/pagination'
 import type { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
@@ -76,7 +77,7 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url)
     const status = searchParams.get('status')
-    const page = Math.max(1, parseNumberWithDefault(searchParams.get('page'), 1, { min: 1, integer: true }))
+    const requestedPage = Math.max(1, parseNumberWithDefault(searchParams.get('page'), 1, { min: 1, integer: true }))
     const pageSize = Math.min(
       parseNumberWithDefault(searchParams.get('pageSize'), DEFAULT_PORTAL_TASK_LIMIT, {
         min: 1,
@@ -84,6 +85,8 @@ export async function GET(request: NextRequest) {
       }),
       MAX_PORTAL_TASK_LIMIT,
     )
+
+    const page = Math.min(requestedPage, Math.floor(WORKFLOW_LIST_MAX_OFFSET / pageSize) + 1)
 
     const where: Record<string, unknown> = buildPortalTaskConditions({
       principal: resolved.principal,

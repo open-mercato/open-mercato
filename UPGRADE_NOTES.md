@@ -24,6 +24,12 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.9.0 → 0.9.1 (unreleased)
 
+### Workflow list pagination bounds (#7534)
+
+Workflow definitions, instances, instance events and global events now reject invalid pagination with HTTP 400. Page sizes are integers from 1 to 100; offsets are integers from 0 to 100,000 (including the offset derived from global-events `page`/`pageSize`). Defaults and response fields are unchanged. Existing task, work-inbox, portal-task, step, would-do and failure-queue lists retain their size clamps and fallback behavior, and now clamp offsets to 100,000.
+
+**Client action:** split requests larger than 100 into pages, send whole nonnegative offsets, and narrow filters before reaching 100,000. Handle 400 responses on the four strict list endpoints. **Operator action:** deploy the updated application; no database migration or new configuration is required. Definitions now fetch a small DB window around the requested page instead of materializing its entire prefix. Definitions also use consistent UTF-8 byte ordering (`COLLATE "C"` in PostgreSQL): uppercase names precede lowercase names and accented names follow ASCII. This replaces the mixed database/Node locale ordering, so case/accent positions can change; use server-provided ordering across pages.
+
 ### Bundled Traefik keeps app and collaboration ports private (#7833)
 
 The optional `starters/docker/compose.fullapp.traefik.yml` overlay (and its

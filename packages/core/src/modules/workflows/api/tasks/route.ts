@@ -6,6 +6,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { WORKFLOW_LIST_MAX_OFFSET } from '../../data/pagination'
 import type { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
@@ -86,7 +87,7 @@ export async function GET(request: NextRequest) {
       parseNumberWithDefault(searchParams.get('limit'), DEFAULT_TASK_LIST_LIMIT, { min: 1, integer: true }),
       MAX_TASK_LIST_LIMIT,
     )
-    const offset = parseNumberWithDefault(searchParams.get('offset'), 0, { min: 0, integer: true })
+    const offset = Math.min(parseNumberWithDefault(searchParams.get('offset'), 0, { min: 0, integer: true }), WORKFLOW_LIST_MAX_OFFSET)
 
     // Build where clause with tenant scoping
     const where: any = {

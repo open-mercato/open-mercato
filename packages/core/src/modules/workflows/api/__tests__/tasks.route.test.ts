@@ -172,6 +172,15 @@ describe('GET /api/workflows/tasks', () => {
     expect(body.pagination).toEqual({ total: 0, limit: 100, offset: 0, hasMore: false })
   })
 
+  test('clamps an extreme offset in the database query and pagination response', async () => {
+    const response = await listTasks(new NextRequest('http://localhost/api/workflows/tasks?limit=10&offset=999999999'))
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(mockEm.findAndCount.mock.calls[0][2]).toMatchObject({ limit: 10, offset: 100000 })
+    expect(body.pagination).toMatchObject({ limit: 10, offset: 100000, hasMore: false })
+  })
+
   test('serializes rows so the proposal link reaches the client', async () => {
     mockEm.findAndCount.mockResolvedValue([[makeTask({ formSchema: { proposalId: 'proposal-9' } })], 1])
 

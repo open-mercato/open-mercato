@@ -152,4 +152,15 @@ describe('GET /api/workflows/instances/[id]/would-do', () => {
     const [, , options] = mockEm.findAndCount.mock.calls[0]
     expect(options.limit).toBe(WOULD_DO_PAGE_SIZE_MAX)
   })
+
+  test('clamps an extreme offset before reading simulation report entries', async () => {
+    const response = await getWouldDo(makeRequest('?offset=999999999&limit=10'), makeContext())
+
+    expect(response.status).toBe(200)
+    expect(mockEm.findAndCount).toHaveBeenCalledWith(
+      WorkflowEvent,
+      expect.objectContaining({ workflowInstanceId: testInstanceId, tenantId: testTenantId }),
+      expect.objectContaining({ limit: 10, offset: 100000 }),
+    )
+  })
 })

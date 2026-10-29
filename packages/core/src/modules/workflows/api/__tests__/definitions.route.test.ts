@@ -213,11 +213,10 @@ describe('Workflow Definitions API', () => {
       expect(data.pagination.limit).toBe(20)
       expect(data.pagination.offset).toBe(40)
       expect(data.pagination.hasMore).toBe(true)
-      // Window fetch limits to offset + limit so we can slice client-side after merging code workflows.
       expect(mockEm.find).toHaveBeenCalledWith(
         WorkflowDefinition,
         expect.objectContaining({ tenantId: testTenantId, deletedAt: null }),
-        expect.objectContaining({ limit: 60 }),
+        expect.objectContaining({ limit: 20, offset: 40 }),
       )
     })
 

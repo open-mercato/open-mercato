@@ -179,6 +179,22 @@ describe('GET /api/workflows/instances/failure-queue', () => {
     )
     expect(response.status).toBe(401)
   })
+
+  test('clamps an extreme offset while keeping the grouping scan bounded', async () => {
+    const response = await listFailureQueue(
+      new NextRequest('http://localhost/api/workflows/instances/failure-queue?offset=999999999&limit=10'),
+    )
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(body.data).toEqual([])
+    expect(body.pagination).toMatchObject({ limit: 10, offset: 100000, hasMore: false })
+    expect(mockEm.find).toHaveBeenCalledWith(
+      WorkflowInstance,
+      expect.objectContaining({ tenantId, organizationId: { $in: [orgId] } }),
+      expect.objectContaining({ limit: FAILURE_GROUP_SCAN_LIMIT }),
+    )
+  })
 })
 
 describe('POST /api/workflows/instances/bulk-replay', () => {

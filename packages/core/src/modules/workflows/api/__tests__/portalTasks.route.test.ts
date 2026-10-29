@@ -231,6 +231,19 @@ describe('the list', () => {
       expect.objectContaining({ limit: 100 }),
     )
   })
+
+  test('clamps an extreme page to the last page whose derived offset is bounded', async () => {
+    const response = await runList('?page=999999999&pageSize=30')
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(mockEm.findAndCount).toHaveBeenCalledWith(
+      UserTask,
+      expect.objectContaining({ tenantId: TENANT_ID, organizationId: ORG_ID }),
+      expect.objectContaining({ limit: 30, offset: 99990 }),
+    )
+    expect(body.pagination).toMatchObject({ page: 3334, pageSize: 30 })
+  })
 })
 
 describe('the detail route and its refusals', () => {

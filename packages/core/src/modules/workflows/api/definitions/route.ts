@@ -7,6 +7,8 @@
  */
 
 import { randomUUID } from 'node:crypto'
+import { Buffer } from 'node:buffer'
+import { raw } from '@mikro-orm/core'
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
@@ -19,6 +21,7 @@ import {
   createWorkflowDefinitionInputSchema,
   createWorkflowDefinitionInputCheckedSchema,
   type CreateWorkflowDefinitionApiInput,
+  workflowListPaginationSchema,
 } from '../../data/validators'
 import { serializeWorkflowDefinition, serializeCodeWorkflowDefinition } from './serialize'
 import {
@@ -98,8 +101,14 @@ export async function GET(request: NextRequest) {
     const lifecycle = searchParams.get('lifecycle')
     const versionParam = searchParams.get('version')
     const version = versionParam !== null && /^\d+$/.test(versionParam) ? parseInt(versionParam, 10) : null
-    const limit = parseInt(searchParams.get('limit') || '50')
-    const offset = parseInt(searchParams.get('offset') || '0')
+    const pagination = workflowListPaginationSchema.safeParse({
+      limit: searchParams.get('limit') ?? 50,
+      offset: searchParams.get('offset') ?? undefined,
+    })
+    if (!pagination.success) {
+      return NextResponse.json({ error: pagination.error.message }, { status: 400 })
+    }
+    const { limit, offset } = pagination.data
 
     // Build where clause with tenant scoping
     const where: any = {
@@ -139,20 +148,18 @@ export async function GET(request: NextRequest) {
     // exclude them from the code-only list) without loading all DB rows.
     const enabledFilter = enabled !== null ? enabled === 'true' : null
     const searchLower = search ? search.toLowerCase() : null
-    const allCodeIds = getAllCodeWorkflows().map((cw) => cw.workflowId)
-    const shadowed = allCodeIds.length > 0
-      ? new Set(
-          (
-            await em.find(
-              WorkflowDefinition,
-              { ...where, workflowId: { $in: allCodeIds } },
-              { fields: ['workflowId'] as const },
-            )
-          ).map((d: WorkflowDefinition) => d.workflowId),
-        )
-      : new Set<string>()
+    const codeWorkflows = getAllCodeWorkflows()
+    const shadowed = new Set<string>()
+    for (const codeWorkflow of codeWorkflows) {
+      const matches = await em.find(
+        WorkflowDefinition,
+        { ...where, workflowId: codeWorkflow.workflowId },
+        { fields: ['workflowId'] as const, limit: 1 },
+      )
+      if (matches.length > 0) shadowed.add(codeWorkflow.workflowId)
+    }
 
-    const codeOnly = getAllCodeWorkflows()
+    const codeOnly = codeWorkflows
       .filter((cw) => !shadowed.has(cw.workflowId))
       .filter((cw) => {
         // Code-based definitions are always kind=workflow / lifecycle=published.
@@ -174,23 +181,24 @@ export async function GET(request: NextRequest) {
     const dbCount = await em.count(WorkflowDefinition, where)
     const total = dbCount + codeOnly.length
 
-    // Fetch only the prefix of DB rows we might need to fill the requested
-    // page after merging with the (already-filtered) code-only list.
-    const dbWindowLimit = offset + limit
-    const dbWindow = dbWindowLimit > 0
+    const dbOffset = Math.max(0, offset - codeOnly.length)
+    const dbWindow = offset < total
       ? await em.find(WorkflowDefinition, where, {
-          orderBy: { workflowName: 'ASC' },
-          limit: dbWindowLimit,
+          orderBy: [
+            { [raw((alias) => `${alias}.workflow_name COLLATE "C"`)]: 'ASC' },
+            { id: 'ASC' },
+          ],
+          limit: limit + codeOnly.length,
+          offset: dbOffset,
         })
       : []
 
     const serializedDb = dbWindow.map(serializeWorkflowDefinition)
-
-    const merged = [...serializedDb, ...codeOnly].sort((a, b) =>
-      a.workflowName.localeCompare(b.workflowName),
+    const merged = [...serializedDb, ...codeOnly].sort((left, right) =>
+      Buffer.compare(Buffer.from(left.workflowName), Buffer.from(right.workflowName)),
     )
-
-    const paginated = merged.slice(offset, offset + limit)
+    const pageOffset = offset - dbOffset
+    const paginated = offset < total ? merged.slice(pageOffset, pageOffset + limit) : []
 
     return NextResponse.json({
       data: paginated,
@@ -370,10 +378,15 @@ export const openApi = {
       query: createWorkflowDefinitionInputSchema.pick({ workflowId: true }).extend({
         enabled: z.boolean().optional(),
         search: z.string().optional(),
-        limit: z.number().int().positive().default(50).optional(),
-        offset: z.number().int().min(0).default(0).optional(),
+        limit: workflowListPaginationSchema.shape.limit.default(50),
+        offset: workflowListPaginationSchema.shape.offset,
       }),
       responses: [
+        {
+          status: 400,
+          description: 'Invalid pagination: page size must be an integer from 1 to 100 and offset an integer from 0 to 100000.',
+          schema: z.object({ error: z.string() }),
+        },
         {
           status: 200,
           description: 'List of workflow definitions with pagination',

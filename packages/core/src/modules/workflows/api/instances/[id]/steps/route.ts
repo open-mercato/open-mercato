@@ -11,6 +11,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { WORKFLOW_LIST_MAX_OFFSET } from '../../../../data/pagination'
 import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
@@ -82,7 +83,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
     const { searchParams } = new URL(request.url)
     const requestedLimit = parsePositiveInt(searchParams.get('limit'), STEP_INSTANCE_PAGE_SIZE_MAX)
     const limit = Math.min(Math.max(requestedLimit, 1), STEP_INSTANCE_PAGE_SIZE_MAX)
-    const offset = Math.max(parsePositiveInt(searchParams.get('offset'), 0), 0)
+    const offset = Math.min(Math.max(parsePositiveInt(searchParams.get('offset'), 0), 0), WORKFLOW_LIST_MAX_OFFSET)
 
     // Ordered by when the step was entered so the Gantt and the overlay read the
     // run in execution order. `createdAt` is the tiebreaker because a step
@@ -128,7 +129,7 @@ export const openApi = {
       }),
       query: z.object({
         limit: z.number().int().positive().max(STEP_INSTANCE_PAGE_SIZE_MAX).default(STEP_INSTANCE_PAGE_SIZE_MAX).optional(),
-        offset: z.number().int().min(0).default(0).optional(),
+        offset: z.number().int().min(0).max(WORKFLOW_LIST_MAX_OFFSET).default(0).optional(),
       }),
       responses: [
         {

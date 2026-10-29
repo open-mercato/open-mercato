@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { WORKFLOW_LIST_MAX_OFFSET } from '../data/pagination'
 import { workflowDefinitionDataSchema, workflowDefinitionDraftDataSchema } from '../data/validators'
 
 export const workflowsTag = 'Workflows'
@@ -76,8 +77,8 @@ export const userTaskListQuerySchema = z.object({
   workflowInstanceId: z.string().uuid().optional().describe('Filter by workflow instance ID'),
   overdue: z.coerce.boolean().optional().describe('Filter overdue tasks (true/false)'),
   myTasks: z.coerce.boolean().optional().describe('Show only tasks assigned to or claimable by current user'),
-  limit: z.coerce.number().min(1).max(100).optional().default(50).describe('Number of results (max 100)'),
-  offset: z.coerce.number().min(0).optional().default(0).describe('Pagination offset'),
+  limit: z.coerce.number().int().min(1).max(100).optional().default(50).describe('Number of results (max 100)'),
+  offset: z.coerce.number().int().min(0).max(WORKFLOW_LIST_MAX_OFFSET).optional().default(0).describe('Pagination offset'),
 })
 
 export const paginationSchema = z.object({
@@ -250,8 +251,8 @@ export const workInboxListQuerySchema = z.object({
   myWork: z.coerce.boolean().optional().describe('Only items assigned to, claimed by, or queued to a role of the caller'),
   assignedTo: z.string().optional().describe('Filter by assignee'),
   workflowInstanceId: z.string().uuid().optional().describe('Filter by workflow instance'),
-  limit: z.coerce.number().min(1).max(100).optional().default(50).describe('Number of results (max 100)'),
-  offset: z.coerce.number().min(0).optional().default(0).describe('Pagination offset'),
+  limit: z.coerce.number().int().min(1).max(100).optional().default(50).describe('Number of results (max 100)'),
+  offset: z.coerce.number().int().min(0).max(WORKFLOW_LIST_MAX_OFFSET).optional().default(0).describe('Pagination offset'),
 })
 
 export const workInboxListResponseSchema = z.object({
@@ -300,8 +301,8 @@ export const portalTaskErrorSchema = z
 
 export const portalTaskListQuerySchema = z.object({
   status: z.string().optional().describe('Filter by status (comma-separated for multiple)'),
-  page: z.coerce.number().min(1).optional().default(1).describe('Page number'),
-  pageSize: z.coerce.number().min(1).max(100).optional().default(25).describe('Rows per page (max 100)'),
+  page: z.coerce.number().int().min(1).max(WORKFLOW_LIST_MAX_OFFSET + 1).optional().default(1).describe('Page number'),
+  pageSize: z.coerce.number().int().min(1).max(100).optional().default(25).describe('Rows per page (max 100)'),
 })
 
 export const portalPaginationSchema = z.object({

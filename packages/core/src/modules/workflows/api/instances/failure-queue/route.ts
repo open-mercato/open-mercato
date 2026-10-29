@@ -10,6 +10,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { WORKFLOW_LIST_MAX_OFFSET } from '../../../data/pagination'
 import { z } from 'zod'
 import { raw } from '@mikro-orm/core'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
@@ -83,7 +84,7 @@ export async function GET(request: NextRequest) {
     const errorGroup = searchParams.get('errorGroup')
     const requestedLimit = parsePositiveInt(searchParams.get('limit'), 50)
     const limit = Math.min(Math.max(requestedLimit, 1), FAILURE_QUEUE_PAGE_SIZE_MAX)
-    const offset = Math.max(parsePositiveInt(searchParams.get('offset'), 0), 0)
+    const offset = Math.min(Math.max(parsePositiveInt(searchParams.get('offset'), 0), 0), WORKFLOW_LIST_MAX_OFFSET)
 
     const attentionPath = raw(`(metadata #>> '{attention,reason}')`)
     const where: Record<string, unknown> = {
@@ -164,7 +165,7 @@ export const openApi = {
         workflowId: z.string().optional(),
         errorGroup: z.string().optional().describe('Narrow the list to one normalized error group key.'),
         limit: z.number().int().positive().max(FAILURE_QUEUE_PAGE_SIZE_MAX).default(50).optional(),
-        offset: z.number().int().min(0).default(0).optional(),
+        offset: z.number().int().min(0).max(WORKFLOW_LIST_MAX_OFFSET).default(0).optional(),
       }),
       responses: [
         {
