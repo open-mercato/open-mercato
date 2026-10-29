@@ -68,6 +68,22 @@ test.describe('TC-AI-RUN-TRACE-016: run-object run id and call settings', () => 
     expect(JSON.stringify(body.issues ?? [])).toContain('notARealSetting');
   });
 
+  test('rejects providerOptions over HTTP with 400', async ({ request }) => {
+    const token = await getAuthToken(request, 'superadmin');
+    const response = await apiRequest(request, 'POST', RUN_OBJECT_PATH, {
+      token,
+      data: {
+        agent: OBJECT_AGENT_ID,
+        messages: [{ role: 'user', content: 'Draft a workflow.' }],
+        callSettings: { temperature: 0.2, providerOptions: { openai: { user: 'qa' } } },
+      },
+    });
+    expect(response.status()).toBe(400);
+    const body = await readJson(response);
+    expect(body.code).toBe('validation_error');
+    expect(JSON.stringify(body.issues ?? [])).toContain('providerOptions');
+  });
+
   test('accepts every documented callSettings key', async ({ request }) => {
     const token = await getAuthToken(request, 'superadmin');
     const response = await apiRequest(request, 'POST', RUN_OBJECT_PATH, {
@@ -84,7 +100,6 @@ test.describe('TC-AI-RUN-TRACE-016: run-object run id and call settings', () => 
           stopSequences: ['END'],
           presencePenalty: 0,
           frequencyPenalty: 0,
-          providerOptions: { openai: { user: 'qa' } },
         },
       },
     });
