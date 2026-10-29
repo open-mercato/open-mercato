@@ -5,6 +5,7 @@ import { Calendar, X } from 'lucide-react'
 import { VisuallyHidden } from '@radix-ui/react-visually-hidden'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { LoadingMessage } from '@open-mercato/ui/backend/detail'
 import { extractOptimisticLockConflict } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
@@ -427,7 +428,10 @@ export function CalendarEventEditor({
   const customFields = useCalendarCustomFields(open, E.customers.customer_interaction, selectedDefinition.behavior.customFieldsetIds)
   const injectionWidgets = useInjectionWidgets(INTERACTION_INJECTION_SPOT)
   const canCreateType = isSelectableEventType(catalog.items, selectedTypeKey)
-  const formReady = isEdit || catalog.status === 'ready'
+  // Mount the form only once everything that shapes its fields has loaded, so
+  // the dialog does not paint a short form and then grow when the selected
+  // type's fields and the custom-field group arrive.
+  const formReady = catalog.status === 'ready' && customFields.status !== 'loading'
 
   const handleSubmit = React.useCallback(
     async (values: Record<string, unknown>) => {
@@ -681,8 +685,12 @@ export function CalendarEventEditor({
                 injectionSpotId={INTERACTION_INJECTION_SPOT}
                 onSubmit={handleSubmit}
               />
+            ) : catalog.status === 'error' ? (
+              <CatalogStatusAlert error onRetry={catalog.retry} />
             ) : (
-              <CatalogStatusAlert error={catalog.status === 'error'} onRetry={catalog.retry} />
+              <div className="flex min-h-80 items-center justify-center">
+                <LoadingMessage label={t('customers.calendar.editor.catalogLoading')} />
+              </div>
             )}
           </div>
         </div>

@@ -13,7 +13,7 @@ jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
   getTelemetryRuntime: () => ({ reportError: (...args: unknown[]) => reportErrorMock(...args) }),
 }))
 
-import { eventTypeConfig, eventTypeOptions, isSelectableEventType, selectedEventType, useEventTypeCatalog } from '../useEventTypeCatalog'
+import { clearEventTypeCatalogCache, eventTypeConfig, eventTypeOptions, isSelectableEventType, selectedEventType, useEventTypeCatalog } from '../useEventTypeCatalog'
 
 function scopedType(key: string, order: number, selectable = true): ScopedCalendarEventType {
   return {
@@ -37,6 +37,7 @@ describe('calendar editor scoped type catalog', () => {
   beforeEach(() => {
     readApiResultOrThrowMock.mockReset()
     reportErrorMock.mockReset()
+    clearEventTypeCatalogCache()
   })
 
   it('orders selectable types and keeps an unavailable historical selection out of later choices', () => {
@@ -82,7 +83,7 @@ describe('calendar editor scoped type catalog', () => {
   it('loads once per open and retries after a catalog failure', async () => {
     const error = new Error('unavailable')
     readApiResultOrThrowMock.mockRejectedValueOnce(error)
-      .mockResolvedValueOnce({ items: [scopedType('visit', 10)], fallbackKey: 'meeting' })
+      .mockResolvedValue({ items: [scopedType('visit', 10)], fallbackKey: 'meeting' })
     const { result, rerender } = renderHook(({ open }) => useEventTypeCatalog(open), { initialProps: { open: true } })
     await waitFor(() => expect(result.current.status).toBe('error'))
     expect(readApiResultOrThrowMock).toHaveBeenCalledTimes(1)
@@ -95,7 +96,50 @@ describe('calendar editor scoped type catalog', () => {
     await waitFor(() => expect(result.current.status).toBe('ready'))
     expect(result.current.items[0]?.key).toBe('visit')
     rerender({ open: false })
-    await waitFor(() => expect(result.current.status).toBe('loading'))
+    await act(async () => {})
+    expect(result.current.status).toBe('ready')
     expect(readApiResultOrThrowMock).toHaveBeenCalledTimes(2)
+    rerender({ open: true })
+    await waitFor(() => expect(readApiResultOrThrowMock).toHaveBeenCalledTimes(3))
+  })
+  it('warms the cache while the editor is still closed and does not refetch until it opens', async () => {
+    readApiResultOrThrowMock.mockResolvedValue({ items: [scopedType('visit', 10)], fallbackKey: 'meeting' })
+    const { result, rerender } = renderHook(({ open }) => useEventTypeCatalog(open), { initialProps: { open: false } })
+    await waitFor(() => expect(result.current.status).toBe('ready'))
+    expect(readApiResultOrThrowMock).toHaveBeenCalledTimes(1)
+    rerender({ open: false })
+    await act(async () => {})
+    expect(readApiResultOrThrowMock).toHaveBeenCalledTimes(1)
+    rerender({ open: true })
+    expect(result.current.status).toBe('ready')
+    await waitFor(() => expect(readApiResultOrThrowMock).toHaveBeenCalledTimes(2))
+  })
+
+  it('reopens from the cached catalog and revalidates without re-rendering an unchanged catalog', async () => {
+    const visit = scopedType('visit', 10)
+    readApiResultOrThrowMock.mockResolvedValue({ items: [visit], fallbackKey: 'meeting' })
+    const first = renderHook(({ open }) => useEventTypeCatalog(open), { initialProps: { open: true } })
+    expect(first.result.current.status).toBe('loading')
+    await waitFor(() => expect(first.result.current.status).toBe('ready'))
+    first.unmount()
+
+    const renders: string[] = []
+    const second = renderHook(({ open }) => {
+      const catalog = useEventTypeCatalog(open)
+      renders.push(catalog.status)
+      return catalog
+    }, { initialProps: { open: true } })
+    expect(second.result.current.status).toBe('ready')
+    expect(second.result.current.items[0]?.key).toBe('visit')
+    await waitFor(() => expect(readApiResultOrThrowMock).toHaveBeenCalledTimes(2))
+    await act(async () => {})
+    expect(renders.every((status) => status === 'ready')).toBe(true)
+    expect(renders.length).toBe(1)
+
+    readApiResultOrThrowMock.mockResolvedValue({ items: [visit, scopedType('call', 20)], fallbackKey: 'meeting' })
+    const third = renderHook(({ open }) => useEventTypeCatalog(open), { initialProps: { open: true } })
+    expect(third.result.current.items.map((item) => item.key)).toEqual(['visit'])
+    await waitFor(() => expect(third.result.current.items.map((item) => item.key)).toEqual(['visit', 'call']))
+    expect(third.result.current.status).toBe('ready')
   })
 })

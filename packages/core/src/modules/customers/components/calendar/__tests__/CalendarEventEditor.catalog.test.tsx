@@ -228,6 +228,33 @@ describe('CalendarEventEditor catalog host', () => {
     })
   })
 
+  it('keeps the edit form hidden until the catalog and custom fields are ready', async () => {
+    catalogState = { status: 'loading', items: [] }
+    const item = buildCalendarItem({
+      interactionType: 'visit',
+      raw: { id: 'item-1', interactionType: 'visit', status: 'planned' },
+    })
+    const view = renderWithProviders(
+      <CalendarEventEditor open mode="edit" item={item} typeLabels={{}} onOpenChange={() => {}} onSaved={() => {}} />,
+    )
+    await act(async () => {})
+
+    expect(crudPropsMock).not.toHaveBeenCalled()
+    expect(document.getElementById('customers-calendar-event-editor')).not.toBeInTheDocument()
+    expect(screen.getByText('customers.calendar.editor.catalogLoading')).toBeInTheDocument()
+
+    catalogState = { status: 'ready', items: [visitType] }
+    view.rerender(
+      <CalendarEventEditor open mode="edit" item={item} typeLabels={{}} onOpenChange={() => {}} onSaved={() => {}} />,
+    )
+
+    await waitFor(() => {
+      const props = crudPropsMock.mock.calls.at(-1)?.[0] as Record<string, unknown>
+      expect(props.fields).toEqual([expect.objectContaining({ id: 'cf_visit_notes' })])
+    })
+    expect(screen.queryByText('customers.calendar.editor.catalogLoading')).not.toBeInTheDocument()
+  })
+
   it('saves the chosen timezone and rejects a DST gap without sending a write', async () => {
     catalogState = { status: 'ready', items: [meetingType] }
     renderWithProviders(<CalendarEventEditor open mode="edit" item={buildCalendarItem({ raw: { id: 'item-1', interactionType: 'meeting', status: 'planned', timezone: 'Europe/Warsaw' } })} typeLabels={{}} onOpenChange={() => {}} onSaved={() => {}} />)

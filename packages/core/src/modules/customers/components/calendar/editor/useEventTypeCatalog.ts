@@ -11,21 +11,44 @@ type CatalogState =
   | { status: 'loading' | 'error'; items: readonly ScopedCalendarEventType[] }
   | { status: 'ready'; items: readonly ScopedCalendarEventType[] }
 
+// Last catalog the session loaded. A reopened editor renders straight from it
+// and revalidates in the background, so the form never mounts twice (once
+// without the selected type's fields, once with them) on every open.
+let cachedCatalogItems: readonly ScopedCalendarEventType[] | null = null
+
+export function clearEventTypeCatalogCache(): void {
+  cachedCatalogItems = null
+}
+
+function sameCatalog(left: readonly ScopedCalendarEventType[], right: readonly ScopedCalendarEventType[]): boolean {
+  return left === right || JSON.stringify(left) === JSON.stringify(right)
+}
+
+function catalogStateFromCache(): CatalogState {
+  return cachedCatalogItems ? { status: 'ready', items: cachedCatalogItems } : { status: 'loading', items: [] }
+}
+
 export function useEventTypeCatalog(open: boolean) {
-  const [state, setState] = React.useState<CatalogState>({ status: 'loading', items: [] })
+  const [state, setState] = React.useState<CatalogState>(catalogStateFromCache)
   const [attempt, setAttempt] = React.useState(0)
 
   React.useEffect(() => {
-    if (!open) {
-      setState({ status: 'loading', items: [] })
-      return
-    }
+    // A closed editor warms the cache once; every open revalidates it.
+    if (!open && cachedCatalogItems) return
     let active = true
-    setState({ status: 'loading', items: [] })
+    setState((previous) => {
+      if (cachedCatalogItems) {
+        return previous.status === 'ready' && previous.items === cachedCatalogItems ? previous : { status: 'ready', items: cachedCatalogItems }
+      }
+      return previous.status === 'loading' ? previous : { status: 'loading', items: [] }
+    })
     void readApiResultOrThrow<CalendarEventTypeCatalog>('/api/customers/activity-types')
       .then((catalog) => {
         if (!Array.isArray(catalog.items)) throw new Error('[internal] Invalid activity type catalog')
-        if (active) setState({ status: 'ready', items: catalog.items })
+        const items = cachedCatalogItems && sameCatalog(cachedCatalogItems, catalog.items) ? cachedCatalogItems : catalog.items
+        cachedCatalogItems = items
+        if (!active) return
+        setState((previous) => previous.status === 'ready' && previous.items === items ? previous : { status: 'ready', items })
       })
       .catch((error) => {
         if (!active) return
@@ -33,7 +56,7 @@ export function useEventTypeCatalog(open: boolean) {
           module: 'customers',
           code: 'customers.activity_type_catalog_load_failed',
         })
-        setState({ status: 'error', items: [] })
+        setState((previous) => previous.status === 'ready' ? previous : { status: 'error', items: [] })
       })
     return () => { active = false }
   }, [open, attempt])

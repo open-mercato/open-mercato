@@ -28,18 +28,45 @@ export function validateCalendarCustomValues(values: Record<string, unknown>, de
   })))
 }
 
+type CustomFieldsState = { definitions: CustomFieldDefDto[]; status: 'loading' | 'ready' | 'error' }
+
+// Last structure loaded per entity. Like the type catalog, a reopened editor
+// renders from it and revalidates in the background so the custom-field group
+// does not pop into the form after the first paint.
+const cachedDefinitions = new Map<string, CustomFieldDefDto[]>()
+
+export function clearCalendarCustomFieldsCache(): void {
+  cachedDefinitions.clear()
+}
+
+function sameDefinitions(left: CustomFieldDefDto[], right: CustomFieldDefDto[]): boolean {
+  return left === right || JSON.stringify(left) === JSON.stringify(right)
+}
+
+function customFieldsStateFromCache(entityId: string): CustomFieldsState {
+  const cached = cachedDefinitions.get(entityId)
+  return cached ? { definitions: cached, status: 'ready' } : { definitions: [], status: 'loading' }
+}
+
 export function useCalendarCustomFields(open: boolean, entityId: string, fieldsetIds: readonly string[]) {
-  const [state, setState] = React.useState<{ definitions: CustomFieldDefDto[]; status: 'loading' | 'ready' | 'error' }>({
-    definitions: [], status: 'loading',
-  })
+  const [state, setState] = React.useState<CustomFieldsState>(() => customFieldsStateFromCache(entityId))
   React.useEffect(() => {
-    if (!open) return
+    if (!open && cachedDefinitions.has(entityId)) return
     let active = true
-    setState({ definitions: [], status: 'loading' })
+    setState((previous) => {
+      const cached = cachedDefinitions.get(entityId)
+      if (cached) return previous.status === 'ready' && previous.definitions === cached ? previous : { definitions: cached, status: 'ready' }
+      return previous.status === 'loading' && previous.definitions.length === 0 ? previous : { definitions: [], status: 'loading' }
+    })
     void fetchCustomFieldFormStructure([entityId]).then(({ definitions }) => {
-      if (active) setState({ definitions, status: 'ready' })
+      const cached = cachedDefinitions.get(entityId)
+      const next = cached && sameDefinitions(cached, definitions) ? cached : definitions
+      cachedDefinitions.set(entityId, next)
+      if (!active) return
+      setState((previous) => previous.status === 'ready' && previous.definitions === next ? previous : { definitions: next, status: 'ready' })
     }).catch(() => {
-      if (active) setState({ definitions: [], status: 'error' })
+      if (!active) return
+      setState((previous) => previous.status === 'ready' ? previous : { definitions: [], status: 'error' })
     })
     return () => { active = false }
   }, [open, entityId])
