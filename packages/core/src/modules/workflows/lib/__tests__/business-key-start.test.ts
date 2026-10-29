@@ -50,7 +50,10 @@ const definition = {
   organizationId,
 } as unknown as WorkflowDefinition
 
+let clock = 0
+
 function buildInstance(id: string, status: WorkflowInstanceStatus): WorkflowInstance {
+  clock += 1
   return {
     id,
     definitionId,
@@ -62,7 +65,24 @@ function buildInstance(id: string, status: WorkflowInstanceStatus): WorkflowInst
     businessKey: 'order:42',
     tenantId,
     organizationId,
+    deletedAt: null,
+    createdAt: new Date(Date.UTC(2026, 0, 1, 0, 0, clock)),
   } as unknown as WorkflowInstance
+}
+
+type FilterValue = unknown | { $ne?: unknown; $nin?: unknown[] }
+
+function matchesWhere(row: Record<string, unknown>, where: Record<string, FilterValue>): boolean {
+  return Object.entries(where).every(([key, condition]) => {
+    const value = row[key] ?? null
+    if (condition !== null && typeof condition === 'object' && !(condition instanceof Date)) {
+      const operators = condition as { $ne?: unknown; $nin?: unknown[] }
+      if ('$ne' in operators && value === operators.$ne) return false
+      if (operators.$nin && operators.$nin.includes(value)) return false
+      return true
+    }
+    return value === condition
+  })
 }
 
 type MockEm = {
@@ -75,28 +95,52 @@ type MockEm = {
 
 describe('startOrReuseWorkflow with a business key', () => {
   let em: MockEm
-  let keyedLookups: Array<WorkflowInstance | null>
+  let store: WorkflowInstance[]
+  let pending: WorkflowInstance[]
   let createdData: Array<Record<string, unknown>>
+  let beforeInsert: (() => void) | null
 
   beforeEach(() => {
-    keyedLookups = []
+    store = []
+    pending = []
     createdData = []
+    beforeInsert = null
     em = {
-      findOne: jest.fn(async (entity: unknown) => {
+      findOne: jest.fn(async (entity: unknown, where: unknown) => {
         if (entity === WorkflowDefinition) return definition
-        if (entity === WorkflowInstance) return keyedLookups.length > 0 ? keyedLookups.shift() ?? null : null
-        return null
+        if (entity !== WorkflowInstance) return null
+        const rows = store
+          .filter((row) => matchesWhere(row as unknown as Record<string, unknown>, where as Record<string, FilterValue>))
+          .sort((left, right) => right.createdAt.getTime() - left.createdAt.getTime())
+        return rows[0] ?? null
       }),
       create: jest.fn((entity: unknown, data: unknown) => {
         if (entity === WorkflowInstance) {
           createdData.push(data as Record<string, unknown>)
-          return { id: 'created-instance', ...(data as Record<string, unknown>) }
+          return { id: 'created-instance', deletedAt: null, ...(data as Record<string, unknown>) }
         }
         return { ...(data as Record<string, unknown>) }
       }),
-      persist: jest.fn(function persist(this: unknown) { return em }),
-      flush: jest.fn(async () => undefined),
-      transactional: jest.fn(async (callback) => callback(em)),
+      persist: jest.fn((entity: unknown) => {
+        if ((entity as { businessKey?: unknown })?.businessKey !== undefined) pending.push(entity as WorkflowInstance)
+        return em
+      }),
+      flush: jest.fn(async () => {
+        if (pending.length > 0) {
+          beforeInsert?.()
+          beforeInsert = null
+          store.push(...pending)
+          pending = []
+        }
+      }),
+      transactional: jest.fn(async (callback) => {
+        try {
+          return await callback(em)
+        } catch (error) {
+          store = store.filter((row) => row.id !== 'created-instance')
+          throw error
+        }
+      }),
     }
   })
 
@@ -124,7 +168,7 @@ describe('startOrReuseWorkflow with a business key', () => {
 
   test('returns the open instance holding the key without creating another', async () => {
     const running = buildInstance('running-instance', 'PAUSED')
-    keyedLookups.push(running)
+    store.push(running)
 
     const result = await start({ businessKey: 'order:42', reusePolicy: 'allow_duplicate' })
 
@@ -134,7 +178,7 @@ describe('startOrReuseWorkflow with a business key', () => {
 
   test('reject_duplicate (default) returns an ended instance instead of starting again', async () => {
     const completed = buildInstance('completed-instance', 'COMPLETED')
-    keyedLookups.push(completed)
+    store.push(completed)
 
     const result = await start({ businessKey: 'order:42' })
 
@@ -143,7 +187,7 @@ describe('startOrReuseWorkflow with a business key', () => {
   })
 
   test('allow_duplicate starts a new run once the previous one ended', async () => {
-    keyedLookups.push(buildInstance('completed-instance', 'COMPLETED'))
+    store.push(buildInstance('completed-instance', 'COMPLETED'))
 
     const result = await start({ businessKey: 'order:42', reusePolicy: 'allow_duplicate' })
 
@@ -152,20 +196,55 @@ describe('startOrReuseWorkflow with a business key', () => {
   })
 
   test('allow_duplicate_failed_only reuses the key after a failure but not after a success', async () => {
-    keyedLookups.push(buildInstance('failed-instance', 'FAILED'))
+    store.push(buildInstance('failed-instance', 'FAILED'))
     const afterFailure = await start({ businessKey: 'order:42', reusePolicy: 'allow_duplicate_failed_only' })
     expect(afterFailure.created).toBe(true)
 
+    store.splice(0, store.length)
     const completed = buildInstance('completed-instance', 'COMPLETED')
-    keyedLookups.push(completed)
+    store.push(completed)
     const afterSuccess = await start({ businessKey: 'order:42', reusePolicy: 'allow_duplicate_failed_only' })
     expect(afterSuccess).toEqual({ instance: completed, created: false })
   })
 
+  describe('a retried older run reopens the key after a newer run reused it and completed', () => {
+    let retriedA: WorkflowInstance
+    let completedB: WorkflowInstance
+
+    beforeEach(() => {
+      retriedA = buildInstance('instance-a', 'FAILED')
+      completedB = buildInstance('instance-b', 'COMPLETED')
+      store.push(retriedA, completedB)
+      retriedA.status = 'RUNNING'
+    })
+
+    test.each(['reject_duplicate', 'allow_duplicate', 'allow_duplicate_failed_only'] as const)(
+      '%s returns the running A, never the newer finished B',
+      async (reusePolicy) => {
+        const result = await start({ businessKey: 'order:42', reusePolicy })
+
+        expect(result).toEqual({ instance: retriedA, created: false })
+        expect(createdData).toHaveLength(0)
+      },
+    )
+
+    test('the unique-violation fallback returns the running A, never the newer finished B', async () => {
+      retriedA.status = 'FAILED'
+      em.transactional.mockImplementationOnce(async () => {
+        retriedA.status = 'RUNNING'
+        throw new UniqueConstraintViolationException(new Error('duplicate key value violates unique constraint'))
+      })
+
+      const result = await start({ businessKey: 'order:42', reusePolicy: 'allow_duplicate' })
+
+      expect(result).toEqual({ instance: retriedA, created: false })
+    })
+  })
+
   test('a concurrent winner turns the unique violation into the winner instance', async () => {
     const winner = buildInstance('winner-instance', 'RUNNING')
-    keyedLookups.push(null as unknown as WorkflowInstance, winner)
     em.transactional.mockImplementationOnce(async () => {
+      store.push(winner)
       throw new UniqueConstraintViolationException(new Error('duplicate key value violates unique constraint'))
     })
 
@@ -176,11 +255,14 @@ describe('startOrReuseWorkflow with a business key', () => {
 
   test('a holder that started and ended between the pre-check and the insert rolls the insert back', async () => {
     const endedConcurrently = buildInstance('concurrent-instance', 'COMPLETED')
-    keyedLookups.push(null as unknown as WorkflowInstance, endedConcurrently)
+    beforeInsert = () => {
+      store.push(endedConcurrently)
+    }
 
     const result = await start({ businessKey: 'order:42' })
 
     expect(result).toEqual({ instance: endedConcurrently, created: false })
+    expect(store.map((row) => row.id)).toEqual(['concurrent-instance'])
     expect(em.findOne).toHaveBeenLastCalledWith(
       WorkflowInstance,
       expect.objectContaining({ businessKey: 'order:42', id: { $ne: 'created-instance' } }),
@@ -189,7 +271,9 @@ describe('startOrReuseWorkflow with a business key', () => {
   })
 
   test('the post-insert re-check keeps the new run when the policy allows starting past the holder', async () => {
-    keyedLookups.push(null as unknown as WorkflowInstance, buildInstance('concurrent-instance', 'COMPLETED'))
+    beforeInsert = () => {
+      store.push(buildInstance('concurrent-instance', 'COMPLETED'))
+    }
 
     const result = await start({ businessKey: 'order:42', reusePolicy: 'allow_duplicate' })
 
@@ -224,7 +308,7 @@ describe('startOrReuseWorkflow with a business key', () => {
 
   test('startWorkflow keeps returning the bare instance', async () => {
     const running = buildInstance('running-instance', 'RUNNING')
-    keyedLookups.push(running)
+    store.push(running)
 
     const instance = await workflowExecutor.startWorkflow(em as unknown as EntityManager, {
       workflowId: 'keyed-workflow',

@@ -60,6 +60,50 @@ function buildKeyedTaskDefinitionPayload(stamp: string) {
   }
 }
 
+/**
+ * START → gate → (boom | park | END), routed by `context.mode`: `explode` fails
+ * the run on an activity that cannot succeed, `park` parks it on a signal (an
+ * OPEN instance), anything else completes it.
+ */
+function buildReopenableDefinitionPayload(stamp: string) {
+  const byMode = (mode: string) => ({ operator: 'AND', rules: [{ field: 'mode', operator: '=', value: mode }] })
+  return {
+    workflowId: `qa-wf-bkey-reopen-${stamp}`,
+    workflowName: `QA Business Key Reopen ${stamp}`,
+    version: 1,
+    definition: {
+      steps: [
+        { stepId: 'start', stepName: 'Start', stepType: 'START' },
+        { stepId: 'gate', stepName: 'Gate', stepType: 'AUTOMATED' },
+        {
+          stepId: 'boom',
+          stepName: 'Boom',
+          stepType: 'AUTOMATED',
+          activities: [
+            {
+              activityId: 'boom',
+              activityName: 'Boom',
+              activityType: 'EXECUTE_FUNCTION',
+              config: { functionName: 'qa-nonexistent-function-do-not-register' },
+            },
+          ],
+        },
+        { stepId: 'park', stepName: 'Park', stepType: 'WAIT_FOR_SIGNAL', signalConfig: { signalName: 'qa_bkey_release' } },
+        { stepId: 'end', stepName: 'End', stepType: 'END' },
+      ],
+      transitions: [
+        { transitionId: 'start-to-gate', fromStepId: 'start', toStepId: 'gate', trigger: 'auto' },
+        { transitionId: 'gate-to-boom', fromStepId: 'gate', toStepId: 'boom', trigger: 'auto', priority: 30, condition: byMode('explode') },
+        { transitionId: 'gate-to-park', fromStepId: 'gate', toStepId: 'park', trigger: 'auto', priority: 20, condition: byMode('park') },
+        { transitionId: 'gate-to-end', fromStepId: 'gate', toStepId: 'end', trigger: 'auto', priority: 0 },
+        { transitionId: 'boom-to-end', fromStepId: 'boom', toStepId: 'end', trigger: 'auto' },
+        { transitionId: 'park-to-end', fromStepId: 'park', toStepId: 'end', trigger: 'auto' },
+      ],
+    },
+    enabled: true,
+  }
+}
+
 async function startInstance(
   request: APIRequestContext,
   token: string,
@@ -239,6 +283,70 @@ test.describe('TC-WF-067: workflow instance business key and subject filters', (
       for (const definitionId of definitionIds) {
         await deleteWorkflowDefinitionIfExists(request, token, definitionId)
       }
+    }
+  })
+
+  test('a recovered older run owns its key again after a newer run reused it and completed', async ({ request }) => {
+    test.setTimeout(120_000)
+    const stamp = `${Date.now()}`
+    const token = await getAuthToken(request, 'admin')
+    const payload = buildReopenableDefinitionPayload(stamp)
+    const workflowId = payload.workflowId
+    const businessKey = `order:${stamp}:reopen`
+    const instanceIds = new Set<string>()
+    let definitionId: string | null = null
+
+    try {
+      definitionId = await createWorkflowDefinitionFixture(request, token, payload)
+
+      const runA = await startInstance(request, token, { workflowId, businessKey, initialContext: { mode: 'explode' } })
+      const runAId = runA.body?.data?.instance?.id
+      expect(runA.status, JSON.stringify(runA.body)).toBe(201)
+      instanceIds.add(runAId!)
+      await pollWorkflowInstance(request, token, runAId!, (instance) => instance.status === 'FAILED')
+
+      const runB = await startInstance(request, token, {
+        workflowId,
+        businessKey,
+        reusePolicy: 'allow_duplicate_failed_only',
+        initialContext: { mode: 'complete' },
+      })
+      const runBId = runB.body?.data?.instance?.id
+      expect(runB.status, JSON.stringify(runB.body)).toBe(201)
+      expect(runBId).not.toBe(runAId)
+      instanceIds.add(runBId!)
+      await pollWorkflowInstance(request, token, runBId!, (instance) => instance.status === 'COMPLETED')
+
+      const recover = await apiRequest(
+        request,
+        'POST',
+        `/api/workflows/instances/${encodeURIComponent(runAId!)}/rerun-step`,
+        { token, data: { stepId: 'gate', contextPatch: { mode: 'park' } } },
+      )
+      expect(recover.status(), JSON.stringify(await readJsonSafe(recover))).toBe(200)
+      await pollWorkflowInstance(request, token, runAId!, (instance) => instance.status === 'PAUSED')
+
+      for (const reusePolicy of ['reject_duplicate', 'allow_duplicate', 'allow_duplicate_failed_only'] as const) {
+        const keyed = await startInstance(request, token, {
+          workflowId,
+          businessKey,
+          reusePolicy,
+          initialContext: { mode: 'complete' },
+        })
+        const keyedId = keyed.body?.data?.instance?.id
+        if (keyedId) instanceIds.add(keyedId)
+        expect(keyed.status, `${reusePolicy}: ${JSON.stringify(keyed.body)}`).toBe(200)
+        expect(keyed.body?.data?.created, reusePolicy).toBe(false)
+        expect(keyedId, `${reusePolicy} returns the open A, not the newer finished B`).toBe(runAId)
+      }
+
+      const rows = await listRows<ListedInstance>(request, token, instancesByKey(workflowId, businessKey))
+      expect(rows.map((row) => row.id).sort()).toEqual([runAId, runBId].sort())
+    } finally {
+      for (const instanceId of instanceIds) {
+        await cancelWorkflowInstanceIfExists(request, token, instanceId)
+      }
+      if (definitionId) await deleteWorkflowDefinitionIfExists(request, token, definitionId)
     }
   })
 })

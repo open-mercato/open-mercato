@@ -50,6 +50,7 @@ import { emitWorkflowsEvent } from '../events'
 import { DRY_RUN_EVENT_TYPES } from './dry-run'
 import {
   DEFAULT_WORKFLOW_BUSINESS_KEY_REUSE_POLICY,
+  WORKFLOW_TERMINAL_INSTANCE_STATUSES,
   canStartNewInstanceForBusinessKey,
   normalizeBusinessKey,
   type WorkflowBusinessKeyReusePolicy,
@@ -226,23 +227,35 @@ export async function startWorkflow(
   return instance
 }
 
-async function findLatestInstanceForBusinessKey(
+/**
+ * The instance that owns `businessKey` in its scope.
+ *
+ * An OPEN holder always wins, whatever its age: a failed run that is retried
+ * after a newer run reused its key and completed is the key's live owner, and
+ * a creation-order lookup would hand back the finished newer run instead. Only
+ * when nothing holds the key open does the latest ended run decide the reuse
+ * policy.
+ */
+async function findBusinessKeyHolder(
   em: EntityManager,
   scope: { tenantId: string; organizationId: string; workflowId: string; businessKey: string },
   excludeInstanceId?: string,
 ): Promise<WorkflowInstance | null> {
-  return em.findOne(
+  const where = {
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+    workflowId: scope.workflowId,
+    businessKey: scope.businessKey,
+    deletedAt: null,
+    ...(excludeInstanceId ? { id: { $ne: excludeInstanceId } } : {}),
+  }
+  const openHolder = await em.findOne(
     WorkflowInstance,
-    {
-      tenantId: scope.tenantId,
-      organizationId: scope.organizationId,
-      workflowId: scope.workflowId,
-      businessKey: scope.businessKey,
-      deletedAt: null,
-      ...(excludeInstanceId ? { id: { $ne: excludeInstanceId } } : {}),
-    },
+    { ...where, status: { $nin: [...WORKFLOW_TERMINAL_INSTANCE_STATUSES] } },
     { orderBy: { createdAt: 'DESC' } },
   )
+  if (openHolder) return openHolder
+  return em.findOne(WorkflowInstance, where, { orderBy: { createdAt: 'DESC' } })
 }
 
 class BusinessKeyHeldByEndedInstance extends Error {
@@ -255,8 +268,9 @@ class BusinessKeyHeldByEndedInstance extends Error {
  * Start a workflow instance, or return the one that already owns `businessKey`.
  *
  * Without a key this is exactly the historic `startWorkflow`. With one, the
- * latest instance holding the key is returned unless `reusePolicy` allows a new
- * run after it ended; concurrent starts are arbitrated by the
+ * open instance holding the key is always returned; with none open, the latest
+ * ended one is returned unless `reusePolicy` allows a new run after it ended.
+ * Concurrent starts are arbitrated by the
  * `workflow_instances_business_key_open_uq` partial unique index, and the
  * losing start returns the winner with `created: false`.
  */
@@ -302,7 +316,7 @@ export async function startOrReuseWorkflow(
   // Idempotency comes before definition validation: a redelivered start must
   // get its instance back even if the definition was disabled since.
   if (businessKeyScope) {
-    const existing = await findLatestInstanceForBusinessKey(em, businessKeyScope)
+    const existing = await findBusinessKeyHolder(em, businessKeyScope)
     if (existing && !canStartNewInstanceForBusinessKey(reusePolicy, existing.status)) {
       return { instance: existing, created: false }
     }
@@ -436,7 +450,7 @@ export async function startOrReuseWorkflow(
       instance = await em.transactional(async (trx) => {
         const created = trx.create(WorkflowInstance, instanceData)
         await trx.persist(created).flush()
-        const holder = await findLatestInstanceForBusinessKey(trx, businessKeyScope, created.id)
+        const holder = await findBusinessKeyHolder(trx, businessKeyScope, created.id)
         if (holder && !canStartNewInstanceForBusinessKey(reusePolicy, holder.status)) {
           throw new BusinessKeyHeldByEndedInstance(holder)
         }
@@ -447,7 +461,7 @@ export async function startOrReuseWorkflow(
         return { instance: error.holder, created: false }
       }
       if (!(error instanceof UniqueConstraintViolationException)) throw error
-      const winner = await findLatestInstanceForBusinessKey(em, businessKeyScope)
+      const winner = await findBusinessKeyHolder(em, businessKeyScope)
       if (!winner) throw error
       return { instance: winner, created: false }
     }
