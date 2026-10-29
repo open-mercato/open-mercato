@@ -33,7 +33,7 @@ function EmailPayload({ html }: { html: string }) {
       const source = image.getAttribute('data-channel-remote-src')
       if (source && /^https?:\/\//i.test(source)) {
         image.referrerPolicy = 'no-referrer'
-        image.src = source
+        image.src = source.replace(/[<>"']/g, (character) => `%${character.charCodeAt(0).toString(16)}`)
       }
     }
   }, [remoteImagesAllowed])

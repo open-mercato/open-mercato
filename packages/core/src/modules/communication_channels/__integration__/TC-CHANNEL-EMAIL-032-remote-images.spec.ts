@@ -5,7 +5,7 @@ import { expect, test, type Page } from '@playwright/test'
 import { sanitizeChannelHtml } from '../lib/sanitize-channel-html'
 
 const inlineImage = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'
-const remoteImage = 'https://sender.example/tracking.gif?message=first'
+const remoteImage = 'https://sender.example/tracking.gif?message=first&signature=%2Fsafe%2Btoken%3D'
 let widgetBundle: string
 const moduleDirectory = path.dirname(fileURLToPath(import.meta.url))
 
