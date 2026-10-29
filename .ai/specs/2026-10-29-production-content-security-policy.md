@@ -43,8 +43,11 @@ migration. Existing image/font permissions and attachment sandboxing stay intact
 Stripe.js/Link source declarations live in `gateway-stripe/contentSecurityPolicy`.
 They cover Stripe.js script/frame hosts, API connections, 3DS hooks, and Link.
 Tpay uses server-side requests and a top-level redirect, so needs no new browser
-connection origin. Operators allow other browser SDKs, telemetry collectors,
-and collaboration WebSockets explicitly. Provider credentials stay server-side.
+connection origin. `documents/contentSecurityPolicy` derives only the origin of
+the existing validated collaboration endpoint, keeping its production loopback
+gate intact; CI's explicit loopback WebSocket permission remains narrow.
+Operators allow other browser SDKs, telemetry collectors and custom WebSockets
+explicitly. Provider credentials stay server-side.
 
 ## Data Models and API Contracts
 
@@ -141,3 +144,6 @@ results remain required before calling the implementation merge-ready.
   passing-after component regression and the production Chromium fixture.
 - 2026-10-29: Updated the existing app header/layout suites to exercise emitted
   production CSP and trusted request-nonce propagation rather than config syntax.
+- 2026-10-29: Preserved the existing configured documents collaboration origin
+  through package-owned policy metadata in both configs/proxies; added origin,
+  loopback-gate and real-config regressions without changing CI configuration.

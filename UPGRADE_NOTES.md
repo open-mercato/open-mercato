@@ -11,8 +11,11 @@ and `AppProviders` changes together. Configure additional browser destinations a
 both build and runtime with space-separated `OM_CSP_CONNECT_ORIGINS`,
 `OM_CSP_SCRIPT_ORIGINS`, `OM_CSP_STYLE_ORIGINS`, and `OM_CSP_FRAME_ORIGINS`.
 Only explicit HTTPS origins are accepted; connections also accept WSS origins.
-For example, set `OM_CSP_CONNECT_ORIGINS="wss://collab.example.com https://telemetry.example.com"`
-for an external document collaboration service and browser telemetry collector.
+For example, set `OM_CSP_CONNECT_ORIGINS="wss://custom.example.com https://telemetry.example.com"`
+for a custom module's WebSocket and browser telemetry collector. The documents
+package automatically supplies the origin of its validated
+`NEXT_PUBLIC_DOCUMENTS_COLLAB_URL`, preserving its existing production loopback
+gate (`OM_DOCUMENTS_COLLAB_INTEGRATION=1` only for integration environments).
 Development additionally accepts explicit HTTP/WS origins and keeps its tooling
 exceptions. Stripe.js and Link requirements come from the Stripe package; other
 provider SDKs require their documented origins in the matching variable. Server

@@ -10,6 +10,7 @@ import { tryNormalizeHostname } from '@open-mercato/core/modules/customer_accoun
 import { secretEqual } from '@open-mercato/core/modules/customer_accounts/lib/secretCompare'
 import { createContentSecurityPolicyRequestHeaders } from '@open-mercato/shared/lib/security/contentSecurityPolicy'
 import { stripeContentSecurityPolicy } from '@open-mercato/gateway-stripe/contentSecurityPolicy'
+import { resolveDocumentsCollaborationCspOrigins } from '@open-mercato/documents/contentSecurityPolicy'
 
 const FORCE_HOST_HEADER = 'x-force-host'
 const FORCE_HOST_SECRET_HEADER = 'x-force-host-secret'
@@ -64,6 +65,7 @@ export async function proxy(req: NextRequest) {
   const { requestHeaders, contentSecurityPolicy } = createContentSecurityPolicyRequestHeaders(req.headers, {
     env: process.env,
     ...stripeContentSecurityPolicy,
+    connectOrigins: [...stripeContentSecurityPolicy.connectOrigins, ...resolveDocumentsCollaborationCspOrigins()],
   })
   function withContentSecurityPolicy(response: NextResponse) {
     response.headers.set('Content-Security-Policy', contentSecurityPolicy)

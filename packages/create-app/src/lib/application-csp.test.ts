@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url'
 import { transformSync } from 'esbuild'
 import * as policy from '../../../shared/src/lib/security/contentSecurityPolicy'
 import { stripeContentSecurityPolicy } from '../../../gateway-stripe/src/contentSecurityPolicy'
+import { resolveDocumentsCollaborationCspOrigins } from '../../../documents/src/contentSecurityPolicy'
 
 const require = createRequire(import.meta.url)
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..')
@@ -28,7 +29,40 @@ function loadSource(relativePath: string, dependencies: Record<string, unknown>)
 const sharedDependencies = {
   '@open-mercato/shared/lib/security/contentSecurityPolicy': policy,
   '@open-mercato/gateway-stripe/contentSecurityPolicy': { stripeContentSecurityPolicy },
+  '@open-mercato/documents/contentSecurityPolicy': { resolveDocumentsCollaborationCspOrigins },
 }
+
+test('both configs preserve the explicitly configured documents collaboration origin', async () => {
+  const previous = {
+    NODE_ENV: process.env.NODE_ENV,
+    NEXT_PUBLIC_DOCUMENTS_COLLAB_URL: process.env.NEXT_PUBLIC_DOCUMENTS_COLLAB_URL,
+    OM_DOCUMENTS_COLLAB_INTEGRATION: process.env.OM_DOCUMENTS_COLLAB_INTEGRATION,
+  }
+  try {
+    process.env.NODE_ENV = 'production'
+    for (const endpoint of ['wss://collab.example.com/documents', 'ws://127.0.0.1:4101']) {
+      process.env.NEXT_PUBLIC_DOCUMENTS_COLLAB_URL = endpoint
+      process.env.OM_DOCUMENTS_COLLAB_INTEGRATION = '1'
+      for (const relativePath of ['apps/mercato/next.config.ts', 'packages/create-app/template/next.config.ts']) {
+        const config = loadSource(relativePath, {
+          ...sharedDependencies,
+          './src/lib/dev-origins': { resolveAllowedDevOrigins: () => [] },
+          '@open-mercato/telemetry/nextjs-config': { telemetryServerExternalPackages: [] },
+        }).default as { headers: () => Promise<Array<{ source: string; headers: Array<{ key: string; value: string }> }>> }
+        const definitions = await config.headers()
+        const policy = definitions[0].headers.find((header) => header.key === 'Content-Security-Policy')?.value ?? ''
+        const connections = policy.split('; ').find((directive) => directive.startsWith('connect-src '))?.split(' ') ?? []
+        assert.ok(connections.some((origin) => origin === new URL(endpoint).origin))
+        assert.ok(!connections.some((origin) => ['ws:', 'wss:'].includes(origin)))
+      }
+    }
+  } finally {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key]
+      else process.env[key] = value
+    }
+  }
+})
 
 test('both production configs restrict scripts and connections and preserve the attachment sandbox', async () => {
   const previousEnvironment = process.env.NODE_ENV

@@ -4,11 +4,16 @@ import { resolveAllowedDevOrigins } from './src/lib/dev-origins'
 import { telemetryServerExternalPackages } from '@open-mercato/telemetry/nextjs-config'
 import { createContentSecurityPolicy } from '@open-mercato/shared/lib/security/contentSecurityPolicy'
 import { stripeContentSecurityPolicy } from '@open-mercato/gateway-stripe/contentSecurityPolicy'
+import { resolveDocumentsCollaborationCspOrigins } from '@open-mercato/documents/contentSecurityPolicy'
 
 const isDevelopment = process.env.NODE_ENV !== 'production'
 const allowedDevOrigins = isDevelopment ? resolveAllowedDevOrigins() : []
 
-const contentSecurityPolicy = createContentSecurityPolicy({ env: process.env, ...stripeContentSecurityPolicy })
+const contentSecurityPolicy = createContentSecurityPolicy({
+  env: process.env,
+  ...stripeContentSecurityPolicy,
+  connectOrigins: [...stripeContentSecurityPolicy.connectOrigins, ...resolveDocumentsCollaborationCspOrigins()],
+})
 
 const nextConfig: NextConfig & { agentRules?: boolean } = {
   distDir: '.mercato/next',

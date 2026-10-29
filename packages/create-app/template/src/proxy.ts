@@ -2,11 +2,13 @@ import type { NextRequest } from 'next/server'
 import { NextResponse } from 'next/server'
 import { createContentSecurityPolicyRequestHeaders } from '@open-mercato/shared/lib/security/contentSecurityPolicy'
 import { stripeContentSecurityPolicy } from '@open-mercato/gateway-stripe/contentSecurityPolicy'
+import { resolveDocumentsCollaborationCspOrigins } from '@open-mercato/documents/contentSecurityPolicy'
 
 export function proxy(req: NextRequest) {
   const { requestHeaders, contentSecurityPolicy } = createContentSecurityPolicyRequestHeaders(req.headers, {
     env: process.env,
     ...stripeContentSecurityPolicy,
+    connectOrigins: [...stripeContentSecurityPolicy.connectOrigins, ...resolveDocumentsCollaborationCspOrigins()],
   })
   requestHeaders.set('x-next-url', req.nextUrl.pathname)
   const response = NextResponse.next({ request: { headers: requestHeaders } })
