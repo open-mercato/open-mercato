@@ -327,9 +327,9 @@ const updateLedgerAccountTypeCommand: CommandHandler<LedgerAccountTypeUpdateInpu
         // Moving a type into a PL group without changing its number: every live
         // account of the type must already start with the type number, or the
         // stored data would break the rule `accountNumberFitsType` enforces
-        // everywhere else. The change is refused rather than cascaded.
-        // ⚠ NEEDS HUMAN CONFIRMATION: cascade or block (domain decision; #6340
-        // review of 2026-10-26, N2).
+        // everywhere else. Refused rather than cascaded: these accounts have
+        // no old prefix to swap, so a cascade would mean inventing numbers
+        // (#6340 review of 2026-10-26, N2).
         if (!changesNumber && changesAccountGroup && isPolishGroup(nextGroup)) {
           const accounts = await em.find(LedgerAccount, {
             accountTypeId: record.id,
