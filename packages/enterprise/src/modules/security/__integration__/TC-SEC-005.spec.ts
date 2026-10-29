@@ -81,6 +81,24 @@ test.describe('TC-SEC-005: Enforcement cascade, redirect, and compliance', () =>
     policyIds.push(orgPolicy.body.id)
     orgPolicyId = orgPolicy.body.id
 
+    const overdueUpdate = await fetchJson<{ ok?: boolean }>(
+      request,
+      'PUT',
+      `/api/security/enforcement/${orgPolicyId}`,
+      {
+        token: adminToken,
+        data: {
+          enforcementDeadline: new Date(Date.now() - 60_000).toISOString(),
+          allowedMethods: ['otp_email'],
+          isEnforced: true,
+          tenantId,
+          organizationId,
+          scope: 'organisation',
+        },
+      },
+    )
+    expect(overdueUpdate.status).toBe(200)
+
     enrolledUser = await createUserFixture(request, adminToken)
     userIds.push(enrolledUser.id)
     overdueUser = await createUserFixture(request, adminToken)
@@ -161,24 +179,6 @@ test.describe('TC-SEC-005: Enforcement cascade, redirect, and compliance', () =>
     await enrollOtpEmail(request, enrolledLogin.token)
     await page.goto('/backend')
     await expect(page).toHaveURL(/\/backend$/)
-
-    const overdueUpdate = await fetchJson<{ ok?: boolean }>(
-      request,
-      'PUT',
-      `/api/security/enforcement/${orgPolicyId}`,
-      {
-        token: adminToken,
-        data: {
-          enforcementDeadline: new Date(Date.now() - 60_000).toISOString(),
-          allowedMethods: ['otp_email'],
-          isEnforced: true,
-          tenantId,
-          organizationId,
-          scope: 'organisation',
-        },
-      },
-    )
-    expect(overdueUpdate.status).toBe(200)
 
     const overdueLogin = await loginViaApi(request, overdueUser.email, overdueUser.password)
     await setAuthCookie(page, overdueLogin.token)
