@@ -143,7 +143,8 @@ describe('CustomerInvitationService invitation terminal transitions', () => {
     expect(result?.invitation.acceptedAt).toBeInstanceOf(Date)
     expect(transactionEm.create).toHaveBeenCalledTimes(1)
     expect(transactionEm.flush).toHaveBeenCalledTimes(1)
-    expect(invitation.acceptedAt).toBeNull()
+    expect(result?.invitation).toBe(invitation)
+    expect(invitation.acceptedAt).toBeInstanceOf(Date)
   })
 
   it('propagates transaction failure without marking the original invitation accepted', async () => {

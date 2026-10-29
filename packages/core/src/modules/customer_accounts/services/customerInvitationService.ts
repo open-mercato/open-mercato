@@ -229,7 +229,7 @@ export class CustomerInvitationService {
 
     const passwordHash = await hash(password, BCRYPT_COST)
     try {
-      return await this.em.transactional(async (transactionEm) => {
+      const result = await this.em.transactional(async (transactionEm) => {
         const acceptedAt = new Date()
         const changed = await transactionEm.nativeUpdate(CustomerUserInvitation, {
           id: invitation.id,
@@ -297,8 +297,11 @@ export class CustomerInvitationService {
           }))
         }
         await transactionEm.flush()
-        return { user, invitation: { ...invitation, acceptedAt } }
+        return { user, acceptedAt }
       })
+      if (!result) return null
+      invitation.acceptedAt = result.acceptedAt
+      return { user: result.user, invitation }
     } catch (error) {
       if (isUniqueConstraintViolation(error)) {
         throw new CustomerInvitationEmailConflictError(invitation.email)
