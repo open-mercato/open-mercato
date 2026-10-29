@@ -4,6 +4,16 @@
 **Implementation ownership:** Open Mercato core team members only
 **Related:** `.ai/specs/enterprise/2026-10-22-security-user-mfa-reset-section-adoption.md`
 
+## Open Questions — blocking implementation review (2026-10-29)
+
+**F1 — historical MFA credential scope.** The current-organization method predicate below is not implementation-approved. Enrollment in organization A followed by an authorized move to B leaves an A-scoped method that verification can still use, while a B-scoped reset would miss it. A reset must not report success while a credential covered by the existing reset guarantee remains usable. Target authorization must remain scoped and non-enumerating.
+
+Core maintainers must decide the historical credential selection rule after current-target authorization, including cross-tenant/superadmin moves: tenant plus immutable authorized user id covers intra-tenant history, while cross-tenant history needs an explicit supported policy. This run does not approve a wider credential query or a narrower reset guarantee.
+
+Require real integration fixtures for enroll-A → move-B → authorized reset → old method and recovery credential unusable; denied actor, foreign user, historical tenant/superadmin move, rollback and exact legacy response/event behavior. The MFA section adopter remains blocked on this prerequisite.
+
+This gate takes precedence over the proposed details and historical compliance verdict below. Status: **changes requested; not implementation-ready**. Source: [exact-head specification review](https://github.com/open-mercato/open-mercato/pull/6769#issuecomment-6450602566).
+
 ## TLDR
 
 Harden the existing `security.admin.mfa.reset` command independently of any section-policy UI. The service locks and resets the target user's active MFA methods and unused recovery codes in one transaction, commits before publishing `security.mfa.reset`, and preserves an explicit command-audit and subscriber failure boundary.
@@ -199,6 +209,8 @@ None.
 - **Fully compliant**: Approved — ready for implementation as the MFA section adopter's prerequisite.
 
 ## Changelog
+
+- **2026-10-29:** Record F1 as an unresolved maintainer decision with concrete failure and integration acceptance gates; historical compliance is not implementation approval.
 
 - **2026-10-27:** Kept the typed transaction result private and explicitly preserved the exported `resetUserMfa(...): Promise<void>` service contract.
 - **2026-10-27:** Split MFA reset transaction-held locking and post-commit effect ordering from the section-policy adopter; pinned the existing non-persistent inline logged-and-swallowed notification/email failure boundary without claiming queue retry or exactly-once delivery.

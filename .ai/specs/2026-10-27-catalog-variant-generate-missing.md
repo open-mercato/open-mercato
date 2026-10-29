@@ -5,6 +5,16 @@
 **Depends on:** `.ai/specs/2026-10-27-catalog-variant-combination-claim.md`, `.ai/specs/implemented/2026-05-25-oss-optimistic-locking.md`
 **Related:** `.ai/specs/2026-09-30-catalog-product-form-section-policy.md`
 
+## Open Questions — blocking implementation review (2026-10-29)
+
+**F3 — bounded generation and forward progress.** The eager full-Cartesian enumeration/recomputation below is not implementation-approved. Ten options with ten choices permit ten billion candidates, and the empty-request size limit does not bound server work. A guard rewriting A to B may repeatedly leave A missing and produce duplicate-B skips without progress.
+
+Core maintainers must choose overflow-safe pre-mutation cardinality/attempt/result caps with explicit limit-error semantics, or a bounded resumable protocol with stable progress. Exact limits or continuation contracts are product/resource and API decisions; this run does not invent them. Recompute must terminate even under repeated guard rewrites.
+
+Require at-limit/over-limit/overflow/max-schema cases, zero creates for rejected schemas, bounded attempts/result bytes, repeated A→B guard rewrites and no-progress termination, retry after partial success, and no duplicate side effects. Generation and its section adopter remain blocked.
+
+This gate takes precedence over the proposed details and historical compliance verdict below. Status: **changes requested; not implementation-ready**. Source: [exact-head specification review](https://github.com/open-mercato/open-mercato/pull/6769#issuecomment-6450602566).
+
 ## TLDR
 
 Replace the product edit page's browser-side loop of `catalog.variants.create` calls with one reusable, scoped `catalog.variants.generate_missing` domain operation and ordinary catalog API. The server recomputes missing complete finite combinations in stable code order, delegates every candidate to the landed combination-claim boundary, treats only the typed duplicate as a skip, and preserves the existing ordered partial-success behavior for other failures. This ships independently; the later section-policy adopter only binds its guarded façade to the landed operation.
@@ -207,6 +217,8 @@ None.
 - **Fully compliant**: Approved — independently deployable after the variant-combination claim prerequisite.
 
 ## Changelog
+
+- **2026-10-29:** Record F3 as an unresolved maintainer decision with concrete failure and integration acceptance gates; historical compliance is not implementation approval.
 
 - **2026-10-27:** Corrected generated-variant mutation guards to the canonical `catalog.variant` resource kind and required direct/generator allowlist parity.
 - **2026-10-27:** Split authoritative generate-missing orchestration and its ordinary page/API adoption from the catalog section-policy adopter.

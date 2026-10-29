@@ -5,6 +5,16 @@
 **Scope:** Catalog live variant-combination data integrity
 **Related:** `.ai/specs/2026-10-27-catalog-variant-generate-missing.md`, `.ai/specs/2026-09-30-catalog-product-form-section-policy.md`
 
+## Open Questions — blocking implementation review (2026-10-29)
+
+**F2 — maximum-size indexed combination identity.** The proposed full canonical-text B-tree index below is not implementation-approved. Sixty-four accepted options with 150-character option and choice codes can exceed the PostgreSQL index-entry bound even at combination cardinality one; compression is not a correctness guarantee. The current fully-compliant statement does not clear this storage boundary.
+
+Core maintainers must select a bounded indexed identity with retained canonical data and explicit collision adjudication, or another size-safe storage/claim design. Do not narrow existing accepted option/code inputs or silently treat a digest collision as the same combination. Schema/index design and rollout need approval before implementation.
+
+Require real PostgreSQL maximum-input high-entropy backfill/index/create/update/undo/redo fixtures, collision-injection or equivalent identity-adjudication coverage, and zero lost or conflated combinations. Migration snapshots and staged legacy rollout must match the approved design.
+
+This gate takes precedence over the proposed details and historical compliance verdict below. Status: **changes requested; not implementation-ready**. Source: [exact-head specification review](https://github.com/open-mercato/open-mercato/pull/6769#issuecomment-6450602566).
+
 ## TLDR
 
 Prevent any command, replay, or direct catalog writer from producing two live variants for the same complete finite option combination. A new internal `option_combination_key` stores stable option-code/choice-code identity separately from display labels. One `claimLiveVariantCombinations` seam acquires the scoped parent/schema locks, canonicalizes and lazily keys every resolvable live null-key row, then claims one or a batch of candidate keys in the same transaction as create, option-value update, variant undo/redo, or product-delete undo; a partial unique index is the database backstop. Legacy incomplete or schema-less variants retain current behavior, while ambiguous or duplicate claim-eligible history fails closed until remediated. The later `catalog.variants.generate_missing` operation must use this same boundary rather than relying on an unlocked read-before-loop.
@@ -235,5 +245,7 @@ None.
 - **Fully compliant**: Approved — ready as the catalog section adopter's independently deployable data-integrity prerequisite.
 
 ## Changelog
+
+- **2026-10-29:** Record F2 as an unresolved maintainer decision with concrete failure and integration acceptance gates; historical compliance is not implementation approval.
 
 - **2026-10-27:** Split complete option-combination concurrency enforcement from catalog section-policy adoption; defined persisted code-backed identity, eager and lazy backfill, fail-closed historical remediation, staged dual-write/backfill/index rollout, a shared single/batch claim seam for every variant/product-delete live-state transition, keyed seeding/direct-writer coverage, stable duplicate behavior, schema-rename rules, and contender/undo-redo tests.

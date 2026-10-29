@@ -109,6 +109,14 @@ The DI guard provides the established OSS/enterprise conflict semantics; when lo
 
 All validation and guard checks complete before the first transactional mutation. Custom-field writes, events, audit, cache, and index effects remain outside this atomic boundary as described below.
 
+### 2a. Direct offer update/delete use the same atomic own-version boundary
+
+The existing `PUT /api/catalog/offers` and `DELETE /api/catalog/offers` routes retain their URLs, optional standard optimistic-lock header, request/success shapes, mutation guards, and command ids. Their `catalog.offers.update` and `catalog.offers.delete` providers must enforce the expected offer version inside the write transaction as well. Passing the earlier route guard is not write authorization for a later row version.
+
+Each direct provider loads the current offer by id plus tenant/organization scope, takes the persisted product id from that row, runs `enforceCommandOptimisticLockWithGuards` for `catalog.offer`, and applies the same scoped/version-qualified update or delete and affected-row check specified above. The product id is never taken from an untrusted caller to authorize an existing offer. Successful updates assign and return the fresh version through existing response plumbing. Zero affected rows use the same scoped re-read mismatch-versus-gone algorithm and roll back; losing operations persist no scalar/custom-field change, deletion, action log, event, cache or index success effect. A held write lock from refreshed comparison through commit is an equivalent implementation only with the same adapter/contender proof required above.
+
+When the optional header is absent, or locking is off/excluded for this resource, preserve legacy unversioned behavior and scope predicates; never invent a version from the earlier route read or start requiring a token from legacy callers. Normal versioned direct writers are supported competitors, not out-of-contract writers. Nested and direct paths must use identical token normalization, DI guard behavior and conflict envelopes.
+
 ### 3. One transaction
 
 Refactor `catalog.products.update` so the transaction contains:
@@ -231,7 +239,7 @@ The visible product form does not change. On conflict, the unified record-confli
 
 | Risk | Severity | Mitigation | Residual risk |
 |---|---|---|---|
-| Parent or child check/write race overwrites a direct edit | Critical | Parent `PESSIMISTIC_WRITE` plus in-transaction DI guard; child scope/version-qualified compare-and-swap | Writers outside the product command contract remain unsupported |
+| Parent or child check/write race overwrites a direct edit | Critical | Parent `PESSIMISTIC_WRITE` plus in-transaction DI guard; child scope/version-qualified compare-and-swap | Legacy unversioned/off/excluded callers intentionally remain last-write-wins; versioned direct update/delete are covered by §2a |
 | Partial parent/child writes | Critical | One transaction for parent/offers/categories/tags | Custom fields and external side effects remain post-commit by explicit contract |
 | Cross-scope child lookup | Critical | Tenant/org/parent predicates in one query; isolation integration tests | None accepted |
 | Stale version after success | High | Transaction-consistent values+versions; atomic client replacement | Later writers correctly cause the next save to conflict |
@@ -273,6 +281,7 @@ Making versioned offer changes mandatory for all callers is a future breaking ch
 5. Open the transaction, acquire and refresh the tenant/org-scoped parent with `PESSIMISTIC_WRITE`, run the parent `catalog.product` DI guard there, and only then merge active and hidden leaves. Load all referenced offers in one parent-scoped query and convert missing scoped records with supplied versions through `enforceRecordGoneIsConflict`.
 6. Run `enforceCommandOptimisticLockWithGuards` for every update/delete using `resourceKind: 'catalog.offer'`; test parent and child default-on, `off`, included/excluded allow-list, and enterprise-service conflict propagation.
 7. Apply parent scalars and the planned offer/category/tag work under the held parent lock in one transaction. When child locking is enabled, existing-offer updates/deletes use scope/version-qualified compare-and-swap predicates, update `updated_at` atomically, and require one affected row; zero rows trigger the scoped re-read mismatch-versus-gone algorithm. Explicit off/excluded configurations use scope-only predicates but still advance `updated_at`. Keep custom fields and side effects after successful commit and do not claim they roll back with that transaction.
+7a. Harden existing `catalog.offers.update`/`.delete` provider writes with §2a atomic own-version enforcement; preserve optional-header/off/excluded semantics, direct route shapes and command success effects.
 8. Retain and isolate the old `offers` compatibility branch; assert the new path cannot fall back to channel matching.
 
 ### Phase 3 — client and response
@@ -294,7 +303,7 @@ Making versioned offer changes mandatory for all callers is a future breaking ch
 
 - `PUT /api/catalog/products`: new envelope happy path, every schema failure, stale/missing/wrong-scope child, mixed atomic rollback, exact 409, legacy `offers`.
 - Concurrent `PUT /api/catalog/products`: barrier after the route guard proves the command reloads/guards the parent under its transaction lock and never restores a hidden leaf from the stale request snapshot.
-- `PUT /api/catalog/offers` versus product update: barrier-controlled check/write interleaving proves compare-and-swap conflict.
+- `PUT /api/catalog/offers` and `DELETE /api/catalog/offers` versus nested product update: barrier-controlled tests cover both winning orders for direct update/nested update and direct delete/nested update. Pause the direct provider after its route guard/read at T, let nested CAS commit T→T1, then resume: direct returns the exact mismatch/gone 409 with no losing writes or success effects. Reverse the winner and assert nested rollback includes parent/siblings. Repeat optional-header-absent, off/excluded, wrong tenant/org/product, missing row and enterprise-guard cases with unchanged legacy response contracts.
 - Product edit UI: deletion is not sent separately, capability gates the new request, conflict bar appears once, values and versions refresh together, successive saves work.
 - Frontend contract: no new client boundary/provider/render-time request, one PUT and zero pre-delete requests per versioned save, Strict Mode has no duplicate mutation, browser helper growth stays within the 120-LOC budget, and the product-page chunk delta stays at or below 5 KiB gzip or receives explicit split review.
 
@@ -355,6 +364,8 @@ None.
 - **Fully compliant**: Approved — ready for implementation.
 
 ## Changelog
+
+- **2026-10-29:** Resolve inherited F4: require atomic own-version enforcement at existing direct offer update/delete providers, preserve optional-header compatibility, and test both contender winner orders and losing-side-effect suppression.
 
 - **2026-10-27:** Corrected the product command id and completed the mandatory AGENTS/internal-consistency compliance report.
 - **2026-10-22:** Expanded the follow-up into an implementable atomic protocol: explicit partial-delta envelope, scoped transactional planning, DI-aware guard plus version-qualified writes, transaction-consistent snapshots, exact conflicts, server-first capability negotiation, kill-switch matrix, legacy bridge, and complete integration coverage.

@@ -5,6 +5,16 @@
 **Depends on:** `.ai/specs/2026-10-22-crudform-section-adoption-inventory.md`
 **Related:** `.ai/specs/2026-10-09-crudform-section-adoption-rollout.md`, `.ai/specs/enterprise/2026-10-22-crudform-section-adoption.md`, issue #6686
 
+## Open Questions — blocking implementation review (2026-10-29)
+
+**F5 — stable approval-evidence promotion.** The current-PR exact-head approval plus committed approval evidence below has no stable ready state: approval at A followed by an evidence commit at B makes A stale, and approving B then committing evidence repeats the cycle. Ephemeral check results alone do not resolve this.
+
+Core maintainers must choose either current-PR approval/head evidence derived exclusively into ephemeral output, with aligned committed declarations, or keeping the work unit planned until a separate promotion PR can reference the immutable merged implementation. Align inventory, rollout and verifier before declaring any work unit ready; no approval, stale-head exemption, or architecture choice is supplied here.
+
+Require approval → evidence commit → generation → required-check fixtures that reach a stable accepted state, plus stale approval, wrong head, unavailable provider and generate/commit/clean-check rejection cases. The linked inventory completion claim remains gated on this decision.
+
+This gate takes precedence over the proposed details and historical compliance verdict below. Status: **changes requested; not implementation-ready**. Source: [exact-head specification review](https://github.com/open-mercato/open-mercato/pull/6769#issuecomment-6450602566).
+
 ## TLDR
 
 Resolve and verify the static adoption inventory's review, PR, issue, and external-owner references through the configured tracker provider. A dedicated fail-closed command and required CI job prove exact-head design approval, causal implementation evidence, valid planned/deferred state, and external coordination without placing run-variant status in committed artifacts. This capability is independently deployable after the offline inventory/static gate.
@@ -250,6 +260,8 @@ None.
 - **Fully compliant**: Approved — independently deployable after the static inventory capability.
 
 ## Changelog
+
+- **2026-10-29:** Record F5 as an unresolved maintainer decision with concrete failure and integration acceptance gates; historical compliance is not implementation approval.
 
 ### 2026-10-27 — Mechanical re-review corrections
 
