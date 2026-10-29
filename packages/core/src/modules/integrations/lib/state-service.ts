@@ -85,6 +85,7 @@ export function createIntegrationStateService(em: EntityManager) {
       >,
       scope: IntegrationScope,
     ): Promise<IntegrationState> {
+      await em.flush()
       return em.transactional(async (txEm) => {
         await txEm.execute(STATE_LOCK_SQL, [
           `integrations:state:${scope.tenantId}:${scope.organizationId}:${integrationId}`,

@@ -5,6 +5,7 @@ import {
   INTEGRATION_STATES_SCOPE_UNIQUE,
   Migration20261027090000_integrations,
 } from '../../migrations/Migration20261027090000_integrations'
+import { IntegrationState } from '../../data/entities'
 import { createIntegrationStateService } from '../state-service'
 
 jest.mock('@open-mercato/shared/lib/encryption/kms', () => ({
@@ -201,6 +202,24 @@ describeWithPostgres('integration state upsert against real PostgreSQL', () => {
       await service.upsert(INTEGRATION_ID, { isEnabled: true }, scope)
     })
 
+    expect(await readRows(INTEGRATION_ID, scope)).toEqual([expect.objectContaining({ is_enabled: true })])
+  }, CASE_TIMEOUT_MS)
+
+  it('still flushes the caller pending changes before writing the state', async () => {
+    const scope = createScope()
+    const pendingIntegrationId = `${INTEGRATION_ID}_pending`
+    const callerEm = writers().em.fork()
+    callerEm.persist(
+      callerEm.create(IntegrationState, {
+        integrationId: pendingIntegrationId,
+        organizationId: scope.organizationId,
+        tenantId: scope.tenantId,
+      }),
+    )
+
+    await createIntegrationStateService(callerEm).upsert(INTEGRATION_ID, { isEnabled: true }, scope)
+
+    expect(await readRows(pendingIntegrationId, scope)).toHaveLength(1)
     expect(await readRows(INTEGRATION_ID, scope)).toEqual([expect.objectContaining({ is_enabled: true })])
   }, CASE_TIMEOUT_MS)
 
