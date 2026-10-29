@@ -54,6 +54,13 @@ export async function POST(req: Request) {
   const container = await createRequestContainer()
   const progressService = container.resolve('progressService') as ProgressService
   const orgScope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
+  if (orgScope?.selectionRejected) {
+    return NextResponse.json(responseSchema.parse({
+      ok: false,
+      progressJobId: null,
+      message: 'Your selected organization is no longer available. Please re-select an organization and try again.',
+    }), { status: 422 })
+  }
   const organizationId = orgScope?.selectedId ?? auth.orgId
 
   const progressJob = await progressService.createJob(

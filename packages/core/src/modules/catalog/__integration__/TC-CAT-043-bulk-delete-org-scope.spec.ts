@@ -22,7 +22,7 @@ const PROGRESS_POLL_INTERVAL_MS = 300;
 const PROGRESS_POLL_TIMEOUT_MS = 30_000;
 
 /**
- * TC-CAT-036: Bulk-delete progress job and worker payload stay scoped to the
+ * TC-CAT-043: Bulk-delete progress job and worker payload stay scoped to the
  * organization SELECTED via the header/cookie override, not the caller's home
  * organization (#6523 / PR #6534).
  *
@@ -44,7 +44,7 @@ const PROGRESS_POLL_TIMEOUT_MS = 30_000;
  *   (`ensureOrganizationScope`) once the worker payload correctly carries the
  *   selected organization.
  */
-test.describe('TC-CAT-036: catalog bulk-delete organization scope (#6523)', () => {
+test.describe('TC-CAT-043: catalog bulk-delete organization scope (#6523)', () => {
   test('bulk-delete respects the selected organization, not the caller home org', async ({ request }) => {
     test.slow();
     const stamp = `${Date.now()}-${randomInt(1_000_000)}`;
@@ -65,11 +65,11 @@ test.describe('TC-CAT-036: catalog bulk-delete organization scope (#6523)', () =
       const scope = getTokenScope(superadminToken);
 
       orgAId = await createOrganizationFixture(request, superadminToken, {
-        name: `QA TC-CAT-036 Org A ${stamp}`,
+        name: `QA TC-CAT-043 Org A ${stamp}`,
         tenantId: scope.tenantId,
       });
       orgBId = await createOrganizationFixture(request, superadminToken, {
-        name: `QA TC-CAT-036 Org B ${stamp}`,
+        name: `QA TC-CAT-043 Org B ${stamp}`,
         tenantId: scope.tenantId,
       });
 
@@ -99,7 +99,7 @@ test.describe('TC-CAT-036: catalog bulk-delete organization scope (#6523)', () =
       // P_A lives in the user's home organization (org A) — no selection override needed.
       const productAResponse = await apiRequest(request, 'POST', '/api/catalog/products', {
         token: userToken,
-        data: { title: `QA TC-CAT-036 Product A ${stamp}` },
+        data: { title: `QA TC-CAT-043 Product A ${stamp}` },
       });
       const productABody = await readJsonSafe<CreateResponse>(productAResponse);
       expect(productAResponse.status(), 'creating product A should return 201').toBe(201);
@@ -110,7 +110,7 @@ test.describe('TC-CAT-036: catalog bulk-delete organization scope (#6523)', () =
       const productBResponse = await apiRequestWithSelectedOrg(request, 'POST', '/api/catalog/products', {
         token: userToken,
         selectedOrgId: orgBId,
-        data: { title: `QA TC-CAT-036 Product B ${stamp}` },
+        data: { title: `QA TC-CAT-043 Product B ${stamp}` },
       });
       const productBBody = await readJsonSafe<CreateResponse>(productBResponse);
       expect(productBResponse.status(), 'creating product B (org B selected) should return 201').toBe(201);
@@ -151,9 +151,8 @@ test.describe('TC-CAT-036: catalog bulk-delete organization scope (#6523)', () =
       );
 
       // The progress job is scoped to org B, not the caller's home org (org A), so
-      // it can only be read back with org B selected. Superadmin's `om_selected_org`
-      // override changes `auth.orgId` itself (see `applySuperAdminScope`), letting
-      // the job-detail route's plain `auth.orgId` filter resolve to org B.
+      // it can only be read back with org B selected; the job-detail route scopes
+      // its lookup to the selected organization.
       const jobB = await waitForProgressJob(request, superadminToken, orgBId, jobBId);
       expect(
         jobB.status,
@@ -214,7 +213,6 @@ test.describe('TC-CAT-036: catalog bulk-delete organization scope (#6523)', () =
         productAAfterWrongScopeDeleteBody?.items?.length,
         'product A must survive a bulk-delete request scoped to a different organization',
       ).toBe(1);
-      productAId = null;
     } finally {
       if (userToken && orgBId && productBId) {
         await apiRequestWithSelectedOrg(request, 'DELETE', `/api/catalog/products?id=${encodeURIComponent(productBId)}`, {

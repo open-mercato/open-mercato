@@ -100,4 +100,29 @@ describe('catalog bulk-delete route — organization scoping', () => {
       }),
     )
   })
+
+  it('refuses with 422 when the selected organization was rejected by the resolver', async () => {
+    ;(getAuthFromRequest as jest.Mock).mockResolvedValue({
+      sub: 'user-1',
+      tenantId: 'tenant-1',
+      orgId: 'org-home',
+    })
+    ;(resolveOrganizationScopeForRequest as jest.Mock).mockResolvedValue({
+      selectedId: 'org-home',
+      filterIds: ['org-home'],
+      allowedIds: ['org-home'],
+      tenantId: 'tenant-1',
+      selectionRejected: true,
+    })
+
+    const response = await POST(request({
+      confirm: true,
+      ids: ['11111111-1111-4111-8111-111111111111'],
+      scope: 'selected',
+    }))
+
+    expect(response.status).toBe(422)
+    expect(createJob).not.toHaveBeenCalled()
+    expect(enqueue).not.toHaveBeenCalled()
+  })
 })
