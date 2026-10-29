@@ -24,6 +24,8 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.9.0 → 0.9.1 (unreleased)
 
+<a id="signed-body-limits"></a>
+
 ### Signed Discord interactions and agent traces have finite body limits (#7241)
 
 `POST /api/channel_discord/interactions` and `POST /api/agent_orchestrator/trace/ingest`
