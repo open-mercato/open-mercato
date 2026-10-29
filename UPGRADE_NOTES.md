@@ -24,6 +24,20 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.9.0 → 0.9.1 (unreleased)
 
+### Workflow webhook responses have resource limits (#7814)
+
+Each `CALL_WEBHOOK` attempt now has a 30-second ceiling covering the outbound
+request and response-body consumption, and accepts at most 1 MiB of response
+bytes before UTF-8 decoding and JSON parsing. Earlier activity timeouts still
+apply. Oversized or stalled responses fail the activity and cancel its body;
+the existing retry policy still applies. These limits also apply when no
+activity timeout is configured or a longer timeout was previously configured.
+
+**Workflow author and operator action:** update webhook endpoints that exceed
+these limits to return a small acknowledgement promptly. Move large results or
+long-running processing behind a separate retrieval or asynchronous workflow.
+Existing request configuration and successful response envelopes are unchanged.
+
 ### Bundled Traefik keeps app and collaboration ports private (#7833)
 
 The optional `starters/docker/compose.fullapp.traefik.yml` overlay (and its
