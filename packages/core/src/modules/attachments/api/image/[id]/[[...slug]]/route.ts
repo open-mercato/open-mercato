@@ -13,7 +13,7 @@ import {
   writeThumbnailCache,
 } from '@open-mercato/core/modules/attachments/lib/thumbnailCache'
 import { canRenderInlineAttachment } from '@open-mercato/core/modules/attachments/lib/security'
-import { isSuperAdminAuth } from '@open-mercato/core/modules/attachments/lib/access'
+import { checkAttachmentAccess, isSuperAdminAuth } from '@open-mercato/core/modules/attachments/lib/access'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { attachmentsTag, imageQuerySchema, attachmentErrorSchema } from '../../../openapi'
 import {
@@ -137,7 +137,7 @@ export async function GET(
     return new NextResponse(responseBody, {
       headers: {
         'Content-Type': attachment.mimeType || 'image/jpeg',
-        'Cache-Control': access.protected ? 'private, no-store' : partition.isPublic ? 'public, max-age=3600' : 'private, max-age=60',
+        'Cache-Control': access.protected ? 'private, no-store' : checkAttachmentAccess(null, attachment, partition).ok ? 'public, max-age=3600' : 'private, max-age=60',
         'X-Content-Type-Options': 'nosniff',
       },
     })

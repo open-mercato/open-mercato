@@ -9,7 +9,7 @@ import {
   AttachmentPartition,
 } from "@open-mercato/core/modules/attachments/data/entities";
 import type { EntityManager } from "@mikro-orm/postgresql";
-import { isSuperAdminAuth } from "@open-mercato/core/modules/attachments/lib/access";
+import { checkAttachmentAccess, isSuperAdminAuth } from "@open-mercato/core/modules/attachments/lib/access";
 import { z } from "zod";
 import { attachmentsTag, attachmentErrorSchema } from "../../openapi";
 import {
@@ -93,7 +93,7 @@ export async function GET(
   }
 
   const headers: Record<string, string> = {
-    "Cache-Control": access.protected ? "private, no-store" : partition.isPublic
+    "Cache-Control": access.protected ? "private, no-store" : checkAttachmentAccess(null, attachment, partition).ok
       ? "public, max-age=86400"
       : "private, max-age=60",
     "Content-Security-Policy": "default-src 'none'; sandbox",

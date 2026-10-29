@@ -20,7 +20,7 @@ const mockRead = jest.fn(async () => ({ buffer: Buffer.from('private document te
 const mockResolveDriver = jest.fn(async () => ({ read: mockRead }))
 const mockAttachment = {
   id: 'attachment-1', entityId: 'documents:document', recordId: 'document-1',
-  partitionCode: 'privateAttachments', tenantId: 'tenant-1', organizationId: 'org-1',
+  partitionCode: 'privateAttachments', tenantId: 'tenant-1' as string | null, organizationId: 'org-1' as string | null,
   fileName: 'private.txt', mimeType: 'text/plain', fileSize: 21,
   storagePath: 'private.txt', storageMetadata: {} as Record<string, unknown>,
 }
@@ -121,10 +121,12 @@ it('returns a bounded 504 without storage access on a stalled owner resolver', a
   expect(mockRead).not.toHaveBeenCalled()
 })
 
-describe('protected public response caching', () => {
+describe.each(['scoped', 'global'])('protected public response caching for %s records', (scope) => {
   beforeEach(() => {
     jest.clearAllMocks()
     mockPartition.isPublic = true
+    mockAttachment.tenantId = scope === 'scoped' ? 'tenant-1' : null
+    mockAttachment.organizationId = scope === 'scoped' ? 'org-1' : null
     mockAttachment.entityId = 'documents:document'
     mockAttachment.recordId = 'document-1'
     mockAttachment.storageMetadata = {}
@@ -136,6 +138,8 @@ describe('protected public response caching', () => {
   })
   afterEach(() => {
     mockPartition.isPublic = false
+    mockAttachment.tenantId = 'tenant-1'
+    mockAttachment.organizationId = 'org-1'
     mockAttachment.mimeType = 'text/plain'
   })
 
