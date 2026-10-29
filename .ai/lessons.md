@@ -1,6 +1,6 @@
 # Lessons
 
-This catalog indexes 158 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
+This catalog indexes 159 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
 
 ## How to use this catalog
 
@@ -51,6 +51,7 @@ This catalog indexes 158 focused lessons. Route the task first, then read only r
 
 ### module-data
 
+- [Personal API-key data must fail closed when policy is unavailable](lessons/personal-data-api-keys-must-fail-closed-on-missing-policy.md) — area:module-data,debugging; module:auth,dashboards; topic:access-control,api-keys,failure-states
 - [Materialize locking prune batches before deleting](lessons/materialize-locking-prune-batches.md) — area:module-data,debugging,testing; module:payment_gateways; topic:concurrency,postgresql,retention,data-integrity
 
 - [Authoritative command guards must validate final interceptor input](lessons/authoritative-command-guards-must-validate-final-interceptor-input.md) — area:module-data,architecture,testing; module:example,customers,shared; topic:command-pattern,data-integrity,concurrency,api-interceptors,testing
@@ -211,4 +212,3 @@ This catalog indexes 158 focused lessons. Route the task first, then read only r
 
 - [Credit the author, not the merger, when generating a changelog](lessons/credit-the-author-not-the-merger-in-a-changelog.md) — area:spec-pr,ai-workflow; module:platform; topic:data-integrity,generated-files
 - [Write Open Mercato specifications in English](lessons/write-open-mercato-specifications-in-english.md) — area:spec-pr,ai-workflow; module:platform; topic:specifications,documentation-language
-- [Personal API-key data must fail closed when policy is unavailable](lessons/personal-data-api-keys-must-fail-closed-on-missing-policy.md) — area:module-data,debugging; module:auth,dashboards; topic:access-control,api-keys,failure-states

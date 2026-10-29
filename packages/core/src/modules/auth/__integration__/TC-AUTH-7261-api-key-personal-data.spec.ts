@@ -3,7 +3,7 @@ import { expect, test } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import {
   createOrganizationFixture, createRoleFixture, createUserFixture,
-  deleteOrganizationIfExists, deleteRoleIfExists, deleteUserIfExists, setRoleAclFeatures,
+  setRoleAclFeatures,
 } from '@open-mercato/core/helpers/integration/authFixtures'
 import { customerTestPassword } from '@open-mercato/core/helpers/integration/customerAccountsFixtures'
 import { deleteGeneralEntityIfExists, expectId, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
@@ -105,7 +105,8 @@ test('TC-AUTH-7261: personal API-key data stays within the binding and key permi
         await client.query('update api_keys set tenant_id = $1, organization_id = $2 where id = any($3::uuid[])', [tenants[0], organizations[0], keys.map((key) => key.id)])
       })
       for (const key of keys) {
-        await apiRequest(request, 'DELETE', `/api/api_keys/keys?id=${key.id}`, { token: administrator, headers: { Cookie: cleanupCookie } })
+        const cleanup = await apiRequest(request, 'DELETE', `/api/api_keys/keys?id=${key.id}`, { token: administrator, headers: { Cookie: cleanupCookie } })
+        expect.soft(cleanup.status(), 'API-key fixture cleanup').toBe(200)
       }
     }
     if (userId) {
@@ -113,9 +114,18 @@ test('TC-AUTH-7261: personal API-key data stays within the binding and key permi
         await client.query('delete from dashboard_layouts where user_id = $1 and tenant_id = $2', [userId, tenants[0]])
       })
     }
-    await deleteUserIfExists(request, administrator, userId)
-    for (const roleId of roles.reverse()) await deleteRoleIfExists(request, administrator, roleId)
-    for (const organizationId of organizations.reverse()) await deleteOrganizationIfExists(request, administrator, organizationId)
+    if (userId) {
+      const cleanup = await apiRequest(request, 'DELETE', `/api/auth/users?id=${userId}`, { token: administrator, headers: { Cookie: cleanupCookie } })
+      expect.soft(cleanup.status(), 'user fixture cleanup').toBe(200)
+    }
+    for (const roleId of roles.reverse()) {
+      const cleanup = await apiRequest(request, 'DELETE', `/api/auth/roles?id=${roleId}`, { token: administrator, headers: { Cookie: cleanupCookie } })
+      expect.soft(cleanup.status(), 'role fixture cleanup').toBe(200)
+    }
+    for (const organizationId of organizations.reverse()) {
+      const cleanup = await apiRequest(request, 'DELETE', '/api/directory/organizations', { token: administrator, headers: { Cookie: cleanupCookie }, data: { id: organizationId } })
+      expect.soft(cleanup.status(), 'organization fixture cleanup').toBe(200)
+    }
     for (const tenantId of tenants.reverse()) await deleteGeneralEntityIfExists(request, administrator, '/api/directory/tenants', tenantId)
   }
 })
