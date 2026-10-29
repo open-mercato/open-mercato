@@ -1872,6 +1872,7 @@
   "staff.timesheets.my.status": "상태",
   "staff.timesheets.my.status_open": "열림",
   "staff.timesheets.my.timer.noProjects": "프로젝트를 찾을 수 없습니다",
+  "staff.timesheets.my.timer.noteChangedElsewhere": "이 타이머의 메모가 다른 탭에서 변경되었습니다. 저장하지 않은 텍스트는 유지되며, 저장하면 충돌을 해결하라는 안내가 표시됩니다.",
   "staff.timesheets.my.timer.placeholder": "지금 무슨 작업을 하고 계신가요?",
   "staff.timesheets.my.timer.searchProject": "프로젝트 검색...",
   "staff.timesheets.my.timer.selectProject": "프로젝트",

@@ -1872,6 +1872,7 @@
   "staff.timesheets.my.status": "Status",
   "staff.timesheets.my.status_open": "Otwarta",
   "staff.timesheets.my.timer.noProjects": "Nie znaleziono projektów",
+  "staff.timesheets.my.timer.noteChangedElsewhere": "Notatka tego timera została zmieniona w innej karcie. Twój niezapisany tekst został zachowany; przy zapisie zostaniesz poproszony o rozwiązanie konfliktu.",
   "staff.timesheets.my.timer.placeholder": "Nad czym pracujesz?",
   "staff.timesheets.my.timer.searchProject": "Szukaj projektów...",
   "staff.timesheets.my.timer.selectProject": "Projekt",

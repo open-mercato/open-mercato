@@ -1872,6 +1872,7 @@
   "staff.timesheets.my.status": "Estado",
   "staff.timesheets.my.status_open": "Abierto",
   "staff.timesheets.my.timer.noProjects": "No se encontraron proyectos",
+  "staff.timesheets.my.timer.noteChangedElsewhere": "La nota de este temporizador se cambió en otra pestaña. Tu texto sin guardar se conserva; al guardarlo se te pedirá que resuelvas el conflicto.",
   "staff.timesheets.my.timer.placeholder": "¿En qué estás trabajando?",
   "staff.timesheets.my.timer.searchProject": "Buscar proyectos...",
   "staff.timesheets.my.timer.selectProject": "Proyecto",

@@ -11,6 +11,7 @@ const mockRunStaffMutationGuardAfterSuccess = jest.fn()
 const mockEnforceCommandOptimisticLock = jest.fn()
 const mockLoggerError = jest.fn()
 const mockRunTimesheetInterceptors = jest.fn()
+const mockReportError = jest.fn()
 
 const mockEm = { fork: jest.fn(() => mockEm) }
 
@@ -55,6 +56,10 @@ jest.mock('@open-mercato/shared/lib/logger', () => {
   })
   return { createLogger: jest.fn(() => makeLogger()) }
 })
+
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  getTelemetryRuntime: jest.fn(() => ({ reportError: (...args: unknown[]) => mockReportError(...args) })),
+}))
 
 jest.mock('../../../../lib/timesheets/timesheetPreferenceService', () => ({
   loadTimesheetPreference: jest.fn((...args: unknown[]) => mockLoadTimesheetPreference(...args)),
@@ -338,6 +343,63 @@ describe('staff timesheets my-preferences route', () => {
         'staff.timesheets.my-preferences.afterSuccess failed',
         expect.objectContaining({ err: expect.any(Error) }),
       )
+      expect(mockReportError).toHaveBeenCalledTimes(1)
+      expect(mockReportError).toHaveBeenCalledWith(
+        expect.objectContaining({ message: 'callback exploded' }),
+        { module: 'staff', code: 'staff.timesheet_preference_after_success_failed' },
+      )
+    })
+  })
+
+  describe('unexpected failures reach telemetry', () => {
+    it('reports an unexpected read failure and still answers with the generic 400', async () => {
+      const failure = new Error('database unavailable')
+      mockLoadTimesheetPreference.mockRejectedValueOnce(failure)
+
+      const response = await getHandler(buildGetRequest())
+
+      expect(response.status).toBe(400)
+      await expect(response.json()).resolves.toEqual({ error: 'Failed to load timesheet preference.' })
+      expect(mockReportError).toHaveBeenCalledWith(failure, {
+        module: 'staff',
+        code: 'staff.timesheet_preference_read_failed',
+      })
+    })
+
+    it('reports an unexpected write failure and still answers with the generic 400', async () => {
+      const failure = new Error('upsert failed')
+      mockSaveTimesheetPreference.mockRejectedValueOnce(failure)
+
+      const response = await putHandler(buildPutRequest())
+
+      expect(response.status).toBe(400)
+      await expect(response.json()).resolves.toEqual({ error: 'Failed to save timesheet preference.' })
+      expect(mockReportError).toHaveBeenCalledWith(failure, {
+        module: 'staff',
+        code: 'staff.timesheet_preference_write_failed',
+      })
+    })
+
+    it('does not report expected HTTP outcomes such as an optimistic-lock conflict', async () => {
+      mockEnforceCommandOptimisticLock.mockRejectedValueOnce(
+        new CrudHttpError(409, { error: 'Conflict', code: 'optimistic_lock_conflict' }),
+      )
+
+      const response = await putHandler(buildPutRequest())
+
+      expect(response.status).toBe(409)
+      expect(mockReportError).not.toHaveBeenCalled()
+    })
+
+    it('keeps answering when the telemetry bridge itself throws', async () => {
+      mockLoadTimesheetPreference.mockRejectedValueOnce(new Error('database unavailable'))
+      mockReportError.mockImplementationOnce(() => {
+        throw new Error('telemetry exporter down')
+      })
+
+      const response = await getHandler(buildGetRequest())
+
+      expect(response.status).toBe(400)
     })
   })
 

@@ -1872,6 +1872,7 @@
   "staff.timesheets.my.status": "Status",
   "staff.timesheets.my.status_open": "Open",
   "staff.timesheets.my.timer.noProjects": "No projects found",
+  "staff.timesheets.my.timer.noteChangedElsewhere": "This timer's note was changed in another tab. Your unsaved text is kept; saving it will ask you to resolve the conflict.",
   "staff.timesheets.my.timer.placeholder": "What are you working on?",
   "staff.timesheets.my.timer.searchProject": "Search projects...",
   "staff.timesheets.my.timer.selectProject": "Project",

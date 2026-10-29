@@ -10,6 +10,7 @@ import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { StaffTeamMember } from '../../../data/entities'
@@ -29,6 +30,21 @@ import { readSearchParamsRecord, runTimesheetInterceptors } from '../_shared/wit
 const logger = createLogger('staff')
 
 const RESOURCE_KIND = STAFF_TIME_TRACKING_RESOURCE_KINDS.timesheetPreference
+
+const TIMESHEET_PREFERENCE_ERROR_CODES = {
+  readFailed: 'staff.timesheet_preference_read_failed',
+  writeFailed: 'staff.timesheet_preference_write_failed',
+  afterSuccessFailed: 'staff.timesheet_preference_after_success_failed',
+} as const
+
+type TimesheetPreferenceErrorCode =
+  (typeof TIMESHEET_PREFERENCE_ERROR_CODES)[keyof typeof TIMESHEET_PREFERENCE_ERROR_CODES]
+
+function reportTimesheetPreferenceError(error: unknown, code: TimesheetPreferenceErrorCode): void {
+  try {
+    getTelemetryRuntime()?.reportError(error, { module: 'staff', code })
+  } catch {}
+}
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['staff.timesheets.manage_own'] },
@@ -121,6 +137,7 @@ export async function GET(req: Request) {
       return NextResponse.json(err.body, { status: err.status })
     }
     logger.error('staff.timesheets.my-preferences.get failed', { err })
+    reportTimesheetPreferenceError(err, TIMESHEET_PREFERENCE_ERROR_CODES.readFailed)
     const { translate } = await resolveTranslations()
     return NextResponse.json(
       { error: translate('staff.timesheets.errors.loadPreference', 'Failed to load timesheet preference.') },
@@ -237,6 +254,7 @@ export async function PUT(req: Request) {
         })
       } catch (callbackErr) {
         logger.error('staff.timesheets.my-preferences.afterSuccess failed', { err: callbackErr })
+        reportTimesheetPreferenceError(callbackErr, TIMESHEET_PREFERENCE_ERROR_CODES.afterSuccessFailed)
       }
     }
 
@@ -246,6 +264,7 @@ export async function PUT(req: Request) {
       return NextResponse.json(err.body, { status: err.status })
     }
     logger.error('staff.timesheets.my-preferences.put failed', { err })
+    reportTimesheetPreferenceError(err, TIMESHEET_PREFERENCE_ERROR_CODES.writeFailed)
     const { translate } = await resolveTranslations()
     return NextResponse.json(
       { error: translate('staff.timesheets.errors.savePreference', 'Failed to save timesheet preference.') },
