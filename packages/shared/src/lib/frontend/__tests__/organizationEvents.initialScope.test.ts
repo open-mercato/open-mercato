@@ -19,15 +19,22 @@ describe('organization scope bootstrap', () => {
     document.cookie = 'om_selected_tenant=tenant-one; path=/'
     const events = loadEvents()
     const scope = { organizationId: selectedOrganization === '__all__' ? null : selectedOrganization, tenantId: 'tenant-one' }
-    expect(events.getCurrentOrganizationScope()).toEqual(scope)
+    expect(events.getCurrentOrganizationScope()).toEqual({ organizationId: null, tenantId: null })
     const listener = jest.fn()
     const unsubscribe = events.subscribeOrganizationScopeChanged(listener)
     try {
       events.emitOrganizationScopeChanged(scope)
+      expect(events.getCurrentOrganizationScope()).toEqual(scope)
       expect(listener).toHaveBeenCalledTimes(1)
       expect(events.getCurrentOrganizationScopeVersion()).toBe(0)
       events.emitOrganizationScopeChanged(scope)
       expect(listener).toHaveBeenCalledTimes(1)
+      const nextScope = { organizationId: 'organization-two', tenantId: 'tenant-two' }
+      events.emitOrganizationScopeChanged(nextScope)
+      expect(events.getCurrentOrganizationScope()).toEqual(nextScope)
+      expect(events.getCurrentOrganizationScopeVersion()).toBe(1)
+      expect(listener).toHaveBeenLastCalledWith(nextScope)
+      expect(listener).toHaveBeenCalledTimes(2)
     } finally { unsubscribe() }
   })
 
@@ -57,12 +64,20 @@ describe('organization scope bootstrap', () => {
   ])('handles empty or partial selection cookies %j / %j', (organization, tenant, expected) => {
     document.cookie = `om_selected_org=${organization}; path=/`
     document.cookie = `om_selected_tenant=${tenant}; path=/`
-    expect(loadEvents().getCurrentOrganizationScope()).toEqual(expected)
+    const events = loadEvents()
+    expect(events.getCurrentOrganizationScope()).toEqual({ organizationId: null, tenantId: null })
+    events.emitOrganizationScopeChanged(expected)
+    expect(events.getCurrentOrganizationScope()).toEqual(expected)
+    expect(events.getCurrentOrganizationScopeVersion()).toBe(0)
   })
 
   it('reads encoded selection cookies without rejecting malformed escapes', () => {
     document.cookie = 'om_selected_org=organization%2Done; path=/'
     document.cookie = 'om_selected_tenant=tenant%bad; path=/'
-    expect(loadEvents().getCurrentOrganizationScope()).toEqual({ organizationId: 'organization-one', tenantId: 'tenant%bad' })
+    const events = loadEvents()
+    expect(events.getCurrentOrganizationScope()).toEqual({ organizationId: null, tenantId: null })
+    events.emitOrganizationScopeChanged({ organizationId: 'organization-one', tenantId: 'tenant%bad' })
+    expect(events.getCurrentOrganizationScope()).toEqual({ organizationId: 'organization-one', tenantId: 'tenant%bad' })
+    expect(events.getCurrentOrganizationScopeVersion()).toBe(0)
   })
 })

@@ -21,7 +21,8 @@ function readPersistedScope(): OrganizationScopeChangedDetail {
   }
 }
 
-let currentScope = readPersistedScope()
+const initialPersistedScope = readPersistedScope()
+let currentScope: OrganizationScopeChangedDetail = { organizationId: null, tenantId: null }
 let currentVersion = 0
 let hasEmitted = false
 
@@ -37,9 +38,10 @@ export function emitOrganizationScopeChanged(detail: OrganizationScopeChangedDet
   if (typeof window === 'undefined' || typeof CustomEvent === 'undefined') return
   
   // Detect actual changes
+  const previousScope = hasEmitted ? currentScope : initialPersistedScope
   const hasChanged = 
-    currentScope.organizationId !== detail.organizationId ||
-    currentScope.tenantId !== detail.tenantId
+    previousScope.organizationId !== detail.organizationId ||
+    previousScope.tenantId !== detail.tenantId
   // Guard so the very first emission always syncs subscribers, even when the
   // initial scope matches the default all-orgs `{ null, null }` state.
   const isFirstEmit = !hasEmitted
