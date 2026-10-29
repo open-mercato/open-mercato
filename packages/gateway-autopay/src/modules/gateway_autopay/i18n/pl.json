@@ -1,7 +1,7 @@
 {
   "gateway_autopay.config.gatewayUrl": "Adres inicjacji płatności",
   "gateway_autopay.config.hashAlgorithm": "Algorytm skrótu",
-  "gateway_autopay.config.help": "Zarejestruj własny Serwis Partnera na https://portal.autopay.eu/, żeby otrzymać Service ID, klucz współdzielony i adres bramki, a następnie wpisz je tutaj.",
+  "gateway_autopay.config.help": "Zarejestruj własny Serwis Partnera na https://portal.autopay.eu/, żeby otrzymać Service ID, klucz współdzielony i adres bramki, a następnie wpisz je tutaj. Następnie ustaw adres powrotu swojego Serwisu Partnera na https://<twój-host-sklepu>/api/gateway_autopay/return.",
   "gateway_autopay.config.serviceId": "Identyfikator Serwisu (Service ID)",
   "gateway_autopay.config.sharedKey": "Klucz współdzielony",
   "gateway_autopay.description": "Przyjmuj płatności PLN przez hostowaną stronę Autopay (przelewy, BLIK, karty).",
@@ -19,6 +19,15 @@
   "gateway_autopay.health.gatewayUrlMissing": "Adres inicjowania płatności Autopay nie jest skonfigurowany.",
   "gateway_autopay.health.serviceIdMissing": "Service ID Autopay nie jest skonfigurowane.",
   "gateway_autopay.health.sharedKeyMissing": "Klucz współdzielony Autopay nie jest skonfigurowany.",
+  "gateway_autopay.launch.continue": "Przejdź do Autopay",
+  "gateway_autopay.launch.redirecting": "Przekierowujemy Cię do Autopay, aby dokończyć płatność. Jeśli nic się nie dzieje, użyj przycisku poniżej.",
+  "gateway_autopay.launch.title": "Przekierowanie do Autopay",
+  "gateway_autopay.launch.unavailable": "Ten link do płatności jest nieprawidłowy, wygasł albo płatność nie oczekuje już na realizację. Wróć do sklepu i rozpocznij płatność ponownie.",
+  "gateway_autopay.launch.unavailableTitle": "Link do płatności jest niedostępny",
+  "gateway_autopay.return.done": "Możesz zamknąć to okno i wrócić do sklepu.",
+  "gateway_autopay.return.doneTitle": "Status płatności został zaktualizowany",
+  "gateway_autopay.return.unavailable": "Nie udało się powiązać tego powrotu z płatnością. Wróć do sklepu, aby sprawdzić status płatności.",
+  "gateway_autopay.return.unavailableTitle": "Nie rozpoznano powrotu z płatności",
   "gateway_autopay.tabs.settings": "Ustawienia Autopay",
   "gateway_autopay.title": "Autopay"
 }

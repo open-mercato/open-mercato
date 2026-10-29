@@ -201,9 +201,15 @@ redirect alone).
   operacjach zakończonych błędem jest wysyłana w raporcie następnego dnia
   roboczego" (or via an ISTN with `isRefund=true`, itself a push-notification
   mechanism deferred along with base ITN — see "Why ITN Is Out of Scope").
-  This adapter's `refund()` therefore returns a `pending`-shaped
-  `RefundResult` from the synchronous call and does **not** claim `refunded`
-  until a supported reconciliation source confirms it. `getStatus` is not that
+  This adapter's `refund()` therefore returns an acknowledgment that does
+  **not** claim `refunded`: the unified status stays `captured` (the payment
+  is unchanged), `refundedAmount` is `0`, and the pending refund is reported in
+  `providerData.refundStatus: 'pending'`. A `pending` unified status would be
+  wrong twice over: the payment is not pending, and the payment gateway service
+  compares a completed operation's stored status with the unchanged payment
+  status on replay, so it would answer 409 to a retry of the same operation.
+  Nothing is claimed as settled until a supported reconciliation source
+  confirms it. `getStatus` is not that
   source: `interpretAutopayTransactionStatus` maps payment attempts only and
   never reports a refund outcome. Reconciliation beyond the initial
   accepted-for-processing acknowledgement is out of scope for this spec's MVP
@@ -273,7 +279,7 @@ layout but without a vendor SDK (Autopay has none; requests are hand-built
 | Plain concatenated hash, not HMAC | Confirmed by the documentation's own text and worked examples. |
 | `getStatus`, `cancel`, `refund` implemented for real (not stubs) | All three have confirmed, documented endpoints. |
 | `capture()` returns an explicit unsupported-capability error | Confirmed: no capture endpoint exists outside the out-of-scope card-preauthorization extension. |
-| `refund()` returns a `pending`-shaped result, not `refunded`, from the synchronous call | Confirmed: Autopay processes refunds asynchronously (up to ~30 minutes) and reports failures the next business day or via ISTN. |
+| `refund()` acknowledges without claiming a refund (payment stays `captured`, `refundedAmount` 0, `providerData.refundStatus: 'pending'`) | Confirmed: Autopay processes refunds asynchronously (up to ~30 minutes) and reports failures the next business day or via ISTN. |
 | ITN/push-notification handling deferred to a follow-up spec | The generic webhook route cannot return Autopay's required synchronous, signed `confirmationList` XML body. `getStatus()` covers the MVP without it. |
 | Standard integration package wiring | Credentials, ACL, health, CLI, presets, and descriptors match the established Stripe/Tpay reference pattern. |
 
@@ -282,12 +288,19 @@ layout but without a vendor SDK (Autopay has none; requests are hand-built
 ```text
 existing payment session route/service
   -> gateway_autopay GatewayAdapter.createSession
-  -> build signed redirect form/URL locally (no outbound call)
-  -> store provider session ID (OrderID) + hosted redirect URL
-  -> existing redirect renderer
+  -> build the signed form locally (no outbound call)
+  -> store provider session ID (OrderID), the signed form, a launch token and
+     the shop success/cancel addresses in gatewayMetadata
+  -> redirectUrl = {shop origin}/api/gateway_autopay/launch?o=OrderID&t=token
+  -> existing redirect renderer sends the payer to the launch route
+  -> launch route verifies the token and renders an auto-submitting POST form
+     to the Autopay gateway (no payer data in any URL)
   -> payer completes payment at testpay.autopay.eu
-  -> payer returns; return-redirect hash checked (advisory only)
-  -> existing getPaymentStatus on payer return
+  -> Autopay sends the payer to the Partner Service return address
+     {shop origin}/api/gateway_autopay/return?ServiceID&OrderID&Hash
+  -> return route verifies the return hash with the candidate's own tenant
+     credentials, then calls getPaymentStatus (canonical status) and redirects
+     to the stored success or cancel address
   -> gateway_autopay GatewayAdapter.getStatus
        -> POST {host}/webapi/transactionStatus (BmHeader: pay-bm)
   -> canonical payment status transition/event
@@ -305,12 +318,22 @@ Package responsibilities:
 | `di.ts` | Adapter and health registrations. |
 | `lib/adapters/v1.ts` | `createSession`, `getStatus`, `cancel`, `refund`, explicit unsupported-operation for `capture`, status mapping. |
 | `lib/hash.ts` | Field concatenation + hash computation (SHA256 default, SHA512 configurable), ported in spirit (not copied verbatim) from the already-validated reference implementation in `paytalk/autopay-sandbox/lib/hash.js`. |
-| `lib/autopay-client.ts` | Builds the signed redirect form/URL; calls `transactionStatus`/`transactionCancel`/`transactionRefund`; sandbox vs. production base URL switch (the actual per-partner redirect *path* is issued at onboarding and must never be hardcoded or guessed — only the `host_bramki` origin is fixed/documented). |
+| `lib/autopay-client.ts` | Builds the signed POST form (no URL carries payer data); calls `transactionStatus`/`transactionCancel`/`transactionRefund`; sandbox vs. production base URL switch (the actual per-partner redirect *path* is issued at onboarding and must never be hardcoded or guessed — only the `host_bramki` origin is fixed/documented). |
+| `api/launch/route.ts` | Public GET. Resolves the transaction by OrderID, requires the unguessable launch token, refuses non-pending or expired payments and non-Autopay gateway hosts, and renders the auto-submitting POST form. |
+| `api/return/route.ts` | Public GET. Verifies the return hash per candidate tenant (fail closed unless exactly one verifies), reads the canonical status through the payment gateway service and redirects to the stored success or cancel address — never to an address taken from the request. |
+| `lib/launch.ts`, `lib/public-route.ts`, `lib/return-bridge.ts` | Token, return-target, HTML and signature helpers shared by the two routes. |
+| `lib/error-reporting.ts` | Stable `gateway_autopay.*` codes for the shared telemetry runtime. |
 | `lib/status-map.ts` | Explicit provider status → unified status map, including the multi-transaction interpretation table above. |
 | `health.ts` | Credential presence/format checks. A live check can safely call `transactionStatus` with a known-absent `OrderID` and expect a "not found" response, without creating any real transaction. |
 
-The package does not import core entities, create a public route, register a
-queue worker, or include app/storefront code.
+The package registers two unauthenticated routes (launch and return) and reads
+`GatewayTransaction` for them, because the payer's browser is the caller and
+tenant scope can only come from the stored transaction. It does not register a
+queue worker or include app/storefront code. The launch route needs its own
+`Content-Security-Policy` (`form-action https:`) because the global app policy
+sets `form-action 'self'`; that exception is declared at the Next.js config
+layer for `/api/gateway_autopay/launch` in `apps/mercato/next.config.ts` and
+its create-app template mirror.
 
 ## Data Models
 
@@ -321,8 +344,8 @@ No schema change is required (same as the Tpay spec).
 | `GatewayTransaction.paymentId` | Sent as Autopay `OrderID`. |
 | `GatewayTransaction.providerSessionId` | Stores the Autopay `OrderID` (Autopay's own transaction id, `remoteID`, is only issued once the payer picks a channel and is captured from the first `getStatus`/ITN response — stored in `gatewayMetadata` once known). |
 | `GatewayTransaction.amount` / `currencyCode` | Authoritative expected PLN amount. |
-| `GatewayTransaction.redirectUrl` | Stores the locally-built signed hosted payment URL. |
-| `GatewayTransaction.gatewayMetadata` | Stores bounded non-secret provider status details, including `remoteID` once known. |
+| `GatewayTransaction.redirectUrl` | Stores the launch URL (`/api/gateway_autopay/launch?o=OrderID&t=token`), which carries no payer data. |
+| `GatewayTransaction.gatewayMetadata` | Stores the signed form (`formPost`), the launch grant (`launch`: token and 30-minute expiry), the shop addresses (`returnTargets`) and bounded provider status details, including `remoteID` once known. Encrypted at rest by the payment_gateways encryption map. |
 
 Existing integration credential services encrypt `sharedKey` as a secret
 field. `serviceId` is not secret but is tenant-specific. No payer data, raw
@@ -337,12 +360,14 @@ No new public route is added. The stable session/status API and
 
 - Input: existing `CreateSessionInput`, PLN only, tenant/organization scope
   and encrypted credentials supplied by the canonical service.
-- No provider HTTP request. Output is a locally-signed redirect form/URL
-  built from the confirmed field table above.
+- No provider HTTP request. Output is a locally-signed form built from the
+  confirmed field table above.
 - Output: existing `CreateSessionResult` with `sessionId` = generated
-  `OrderID`, `pending` status, `redirectUrl` pointing at the sandbox host,
-  and bounded provider metadata (echoing the signed field set, minus the
-  hash and shared key).
+  `OrderID`, `pending` status, `redirectUrl` = the launch URL on the shop's own
+  origin (taken from `successUrl`; a relative path when none is supplied), and
+  `providerData` holding `formPost`, `launch` and `returnTargets`.
+- `requiresPayerFields: ['email']` is declared on the descriptor so checkout
+  never publishes a link whose sessions Autopay cannot start.
 
 ### `getStatus`
 
@@ -358,7 +383,8 @@ No new public route is added. The stable session/status API and
 ### `refund`
 
 - Calls `transactionRefund`; returns the existing `RefundResult` shape with
-  `status: 'pending'` (not `refunded`) to reflect Autopay's asynchronous
+  `status: 'captured'` (the payment is unchanged), `refundedAmount: 0` and
+  `providerData.refundStatus: 'pending'` to reflect Autopay's asynchronous
   processing, and documents in `providerData` that the adapter cannot confirm
   the final outcome: `getStatus` does not report refunds, so confirmation needs
   the (deferred) ITN/ISTN capability or Autopay's next-business-day report.
@@ -425,8 +451,9 @@ Rollback disables new Autopay sessions; no migration rollback is required.
 | Session | PLN success, non-PLN rejection, missing-`CustomerEmail` rejection, amount formatting, correct ascending field order, no secret-key leakage into logs or metadata. |
 | Status | Mocked `transactionStatus` responses covering every row of the multi-transaction interpretation table (single success, multiple success, pending-only, failure-only, not-found, >50-transaction limit). |
 | Cancel | Mocked `transactionCancel`: success on `PENDING`, explicit rejection on an already-settled transaction. |
-| Refund | Mocked `transactionRefund`: full refund, partial refund, `TRANSACTION_TOO_OLD_TO_REFUND`, missing-balance rejection — asserting the adapter returns `pending`, never `refunded`, from the synchronous call. |
-| Tenant scope | Two tenants use independent encrypted credentials. |
+| Refund | Mocked `transactionRefund`: full refund, partial refund, `TRANSACTION_TOO_OLD_TO_REFUND`, missing-balance rejection — asserting the adapter acknowledges without claiming a refund (payment `captured`, `refundedAmount` 0, `refundStatus: 'pending'`), and — through the real payment gateway service — that a replay of the same operation returns the recorded acknowledgment without a second provider call. |
+| Tenant scope | Two tenants use independent encrypted credentials. Through the real payment gateway service: a tenant cannot act on another tenant's payment, each tenant's requests are signed with its own Service ID and shared key, and a response signed with another tenant's key is rejected. The return route verifies the signature per candidate and fails closed on zero or several matches. |
+| Launch and return routes | Token validity, expiry, non-pending refusal, gateway-host allowlist, HTML escaping, no-store headers, rate limiting, redirect targets taken only from stored data, and the launch CSP kept identical in the app and template `next.config.ts`. |
 | Integration E2E | Blocked on real sandbox credentials from Autopay partner onboarding (known, pre-existing, non-automatable blocker) — needed for the actual redirect path and a live `transactionStatus` round trip. |
 
 Acceptance for this spec's scope: all hash unit tests pass against the
@@ -472,46 +499,52 @@ deferred until real sandbox credentials exist.
 - **Residual risk:** None for this spec's scope, since it does not implement
   ITN at all.
 
-### Session creation is only wired through the unverified GET transport, and it leaks payer data into the URL
+### Session initiation POST is unverified against a live Autopay sandbox
 
-- **Scenario:** `createSession` builds both a GET-style `redirectUrl` and a
-  `formPost` descriptor (`{ url, method: 'POST', fields }`), because the docs
-  demonstrate initiation as a POST but do not explicitly say GET is rejected.
-  In this repo, only the GET path is actually reachable —
-  `packages/checkout`'s payment page does
-  `window.location.href = result.redirectUrl`, and nothing consumes
-  `providerData.formPost`. That means this provider's one primary feature
-  (starting a hosted session) runs exclusively through the transport this
-  spec itself flags as unverified. If Autopay rejects GET on a real
-  partner-specific gateway URL, every session created by this provider
-  fails. Separately, even if GET works, it puts `CustomerEmail` and `Hash`
-  into the URL — browser history, `Referer` headers on any third-party
-  resource the redirect page loads, and any intermediate proxy/CDN access
-  log — which is a real downgrade from the documented POST regardless of
-  whether Autopay accepts it.
-- **Severity:** High (correctness) / Medium (privacy)
-- **Affected area:** The provider's entire session-creation flow; payer PII
-  exposure in transit.
-- **Mitigation:** None shippable from this repo alone without either (a) one
-  live sandbox session confirming GET is accepted, or (b) wiring a
-  POST-auto-submit transport into `packages/checkout`'s payment page, which
-  is a change to a different module's consumer code that cannot be
-  validated without the same live sandbox access. Both are called out
-  explicitly here rather than silently shipped as if resolved.
-- **Residual risk:** High until one live sandbox session either confirms GET
-  works end to end, or a POST transport is built and verified. This
-  provider should not be enabled for any real tenant before that happens.
+- **Scenario:** Autopay's documentation demonstrates initiation as a form POST
+  to the partner-specific gateway URL. The payer's browser now performs exactly
+  that POST from the launch page, so `CustomerEmail` and `Hash` never appear
+  in a URL, browser history or `Referer` header. What no one has been able to
+  verify is how a real partner-specific gateway behaves for this POST (accepted
+  fields, redirect chain, and whether the page tolerates an auto-submitted
+  form), because no live Autopay Partner Service is available to this
+  contribution.
+- **Severity:** High (correctness) until verified; the privacy exposure of the
+  previous GET redirect is removed.
+- **Affected area:** The provider's entire session-creation flow.
+- **Mitigation:** The launch route only renders a POST to a documented Autopay
+  host, refuses expired tokens and non-pending payments, and sends a strict
+  per-route `Content-Security-Policy`. The app-wide `form-action 'self'` would
+  otherwise block the POST, so the exception is declared for this one route.
+  Payer return is handled by the return route, which verifies the return hash
+  and reads the canonical status instead of trusting the redirect.
+- **Residual risk:** High until one live sandbox session confirms the POST,
+  the redirect chain and the return flow end to end. This provider should not
+  be enabled for any real tenant before that happens.
+
+### Return address must be configured on the Partner Service
+
+- **Scenario:** Autopay returns the payer to the address configured on the
+  Partner Service, not to a per-session address, so a merchant who does not set
+  it to `/api/gateway_autopay/return` sends payers somewhere the shop cannot
+  route back to its own success or cancel page.
+- **Severity:** Medium
+- **Affected area:** Payer return and status refresh.
+- **Mitigation:** The user guide documents the setting; the payment status is
+  also refreshed by any later status poll.
+- **Residual risk:** Low once documented and configured.
 
 ### Async refund has no confirmed final state without polling or ITN
 
-- **Scenario:** A refund is accepted synchronously (`pending`) but fails
+- **Scenario:** A refund is accepted synchronously (reported as pending) but fails
   during Autopay's asynchronous processing; without ITN or a polling job, the
   merchant never learns about the failure except via the next business day's
   report.
 - **Severity:** Medium
 - **Affected area:** Finance reconciliation.
-- **Mitigation:** `refund()` deliberately returns `pending`, not `refunded`,
-  so calling code cannot mistake acceptance for settlement. Final refund
+- **Mitigation:** `refund()` deliberately reports the refund as pending in
+  `providerData.refundStatus` and leaves the payment `captured`, so calling
+  code cannot mistake acceptance for settlement. Final refund
   reconciliation is outside this adapter (`getStatus` does not report refund
   outcomes); it needs ISTN once ITN is built, or the next-business-day report.
 - **Residual risk:** Acceptable for a sandbox-scoped MVP; must be resolved
@@ -596,6 +629,27 @@ would eventually plug into the generic webhook route) is explicitly deferred
 to a follow-up spec and does not block this spec's MVP scope.
 
 ## Changelog
+
+### 2026-10-29
+
+- Replaced the GET redirect (payer email and signature in the URL) with a
+  provider-local launch route that renders an auto-submitting POST form, guarded
+  by an unguessable per-session token that expires after 30 minutes and works
+  only while the payment is pending. Declared the route's CSP exception at the
+  Next.js config layer (app and template).
+- Added the return route: verifies the return hash per candidate tenant, reads
+  the canonical status through the payment gateway service and redirects to the
+  shop success or cancel address stored at session creation.
+- Declared `requiresPayerFields: ['email']` on the descriptor.
+- Changed the refund acknowledgment to keep the payment `captured` with
+  `providerData.refundStatus: 'pending'`, so a replay of the same operation is
+  accepted by the service instead of answering 409.
+- Localized the health-check messages and routed setup, health, CLI, launch and
+  return failures through the shared telemetry runtime.
+- Corrected the refund guidance: `getStatus` never reports refund outcomes.
+- Added service-boundary tests (real payment gateway service, real adapter,
+  mocked HTTP) covering session creation, signed failures and retries,
+  cancellation reconciliation, refund replay and two-tenant isolation.
 
 ### 2026-09-11
 

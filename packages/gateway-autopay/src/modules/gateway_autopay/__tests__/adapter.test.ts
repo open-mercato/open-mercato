@@ -1,67 +1,12 @@
 import { autopayAdapterV1 } from '../lib/adapters/v1'
 import { computeAutopayHash } from '../lib/hash'
 import { deriveMessageId } from '../lib/autopay-client'
+import { cancelResponseXml, refundResponseXml, statusResponseXml, transactionXml } from './support/autopay-xml'
 
 const credentials = {
   serviceId: '2',
   sharedKey: '2test2',
   gatewayUrl: 'https://testpay.autopay.eu/sciezka',
-}
-
-function transactionXml(fields: {
-  orderID: string
-  remoteID: string
-  amount: string
-  currency: string
-  gatewayID?: string
-  paymentDate: string
-  paymentStatus: string
-  paymentStatusDetails?: string
-}): string {
-  return (
-    '<transaction>' +
-    `<orderID>${fields.orderID}</orderID>` +
-    `<remoteID>${fields.remoteID}</remoteID>` +
-    `<amount>${fields.amount}</amount>` +
-    `<currency>${fields.currency}</currency>` +
-    `<gatewayID>${fields.gatewayID ?? ''}</gatewayID>` +
-    `<paymentDate>${fields.paymentDate}</paymentDate>` +
-    `<paymentStatus>${fields.paymentStatus}</paymentStatus>` +
-    `<paymentStatusDetails>${fields.paymentStatusDetails ?? ''}</paymentStatusDetails>` +
-    '</transaction>'
-  )
-}
-
-function statusResponseXml(transactions: Parameters<typeof transactionXml>[0][]): string {
-  const chainFields = ['2', ...transactions.flatMap((t) => [
-    t.orderID, t.remoteID, t.amount, t.currency, t.gatewayID ?? '', t.paymentDate, t.paymentStatus, t.paymentStatusDetails ?? '',
-  ])]
-  const hash = computeAutopayHash(chainFields, '2test2')
-  return (
-    '<?xml version="1.0" encoding="UTF-8"?>' +
-    '<transactionList><serviceID>2</serviceID><transactions>' +
-    transactions.map(transactionXml).join('') +
-    `</transactions><hash>${hash}</hash></transactionList>`
-  )
-}
-
-function cancelResponseXml(opts: { confirmation: string; reason?: string; serviceId?: string; messageId?: string }): string {
-  const serviceId = opts.serviceId ?? '2'
-  const messageId = opts.messageId ?? 'm1'
-  const hash = computeAutopayHash([serviceId, messageId, opts.confirmation, opts.reason], '2test2')
-  return (
-    '<?xml version="1.0"?><transaction>' +
-    `<serviceID>${serviceId}</serviceID><messageID>${messageId}</messageID>` +
-    `<confirmation>${opts.confirmation}</confirmation>` +
-    (opts.reason ? `<reason>${opts.reason}</reason>` : '') +
-    `<hash>${hash}</hash></transaction>`
-  )
-}
-
-function refundResponseXml(opts: { serviceId?: string; messageId: string }): string {
-  const serviceId = opts.serviceId ?? '2'
-  const hash = computeAutopayHash([serviceId, opts.messageId], '2test2')
-  return `<?xml version="1.0"?><transactionRefund><serviceID>${serviceId}</serviceID><messageID>${opts.messageId}</messageID><hash>${hash}</hash></transactionRefund>`
 }
 
 describe('autopayAdapterV1.createSession', () => {
@@ -88,8 +33,78 @@ describe('autopayAdapterV1.createSession', () => {
     })).rejects.toThrow(/customerEmail/)
   })
 
-  it('builds a signed redirect without any outbound HTTP call', async () => {
+  it('builds a signed launch session without any outbound HTTP call', async () => {
     const fetchSpy = jest.spyOn(global, 'fetch')
+    const result = await autopayAdapterV1.createSession({
+      paymentId: '3fa85f64-5717-4562-b3fc-2c963f66afa6',
+      tenantId: 't1',
+      organizationId: 'o1',
+      amount: 1.5,
+      currencyCode: 'PLN',
+      credentials,
+      metadata: { customerEmail: 'buyer@example.com' },
+      successUrl: 'https://shop.example.com/pay/s/success/abc',
+      cancelUrl: 'https://shop.example.com/pay/s/cancel/abc',
+    })
+
+    expect(fetchSpy).not.toHaveBeenCalled()
+    expect(result.status).toBe('pending')
+    expect(result.sessionId).toHaveLength(32)
+    const providerData = result.providerData as {
+      formPost: { url: string; fields: Record<string, string> }
+      launch: { token: string; expiresAt: string }
+      returnTargets: { successUrl: string | null; cancelUrl: string | null }
+    }
+    expect(result.redirectUrl).toBe(
+      `https://shop.example.com/api/gateway_autopay/launch?o=${result.sessionId}&t=${providerData.launch.token}`,
+    )
+    expect(providerData.formPost.url).toBe(credentials.gatewayUrl)
+    expect(providerData.formPost.fields.CustomerEmail).toBe('buyer@example.com')
+    expect(providerData.returnTargets).toEqual({
+      successUrl: 'https://shop.example.com/pay/s/success/abc',
+      cancelUrl: 'https://shop.example.com/pay/s/cancel/abc',
+    })
+    fetchSpy.mockRestore()
+  })
+
+  it('never puts the payer email, the signature or the gateway host in the redirect URL', async () => {
+    const result = await autopayAdapterV1.createSession({
+      paymentId: '3fa85f64-5717-4562-b3fc-2c963f66afa6',
+      tenantId: 't1',
+      organizationId: 'o1',
+      amount: 1.5,
+      currencyCode: 'PLN',
+      credentials,
+      metadata: { customerEmail: 'buyer@example.com' },
+      successUrl: 'https://shop.example.com/pay/s/success/abc',
+    })
+
+    expect(result.redirectUrl).not.toContain('buyer')
+    expect(result.redirectUrl).not.toContain('Hash')
+    expect(result.redirectUrl).not.toContain(new URL(credentials.gatewayUrl).host)
+    expect(new URL(result.redirectUrl as string).searchParams.get('t')).toMatch(/^[A-Za-z0-9_-]{43}$/)
+    expect([...new URL(result.redirectUrl as string).searchParams.keys()].sort()).toEqual(['o', 't'])
+  })
+
+  it('issues a different unguessable launch token for every session', async () => {
+    const input = {
+      paymentId: '3fa85f64-5717-4562-b3fc-2c963f66afa6',
+      tenantId: 't1',
+      organizationId: 'o1',
+      amount: 1.5,
+      currencyCode: 'PLN',
+      credentials,
+      metadata: { customerEmail: 'buyer@example.com' },
+    }
+    const first = await autopayAdapterV1.createSession(input)
+    const second = await autopayAdapterV1.createSession(input)
+
+    const tokens = [first, second].map((session) => (session.providerData as { launch: { token: string } }).launch.token)
+    expect(tokens[0]).not.toBe(tokens[1])
+    expect(tokens[0]).toMatch(/^[A-Za-z0-9_-]{43}$/)
+  })
+
+  it('falls back to a relative launch path when the caller supplies no absolute success URL', async () => {
     const result = await autopayAdapterV1.createSession({
       paymentId: '3fa85f64-5717-4562-b3fc-2c963f66afa6',
       tenantId: 't1',
@@ -100,11 +115,7 @@ describe('autopayAdapterV1.createSession', () => {
       metadata: { customerEmail: 'buyer@example.com' },
     })
 
-    expect(fetchSpy).not.toHaveBeenCalled()
-    expect(result.status).toBe('pending')
-    expect(result.sessionId).toHaveLength(32)
-    expect(result.redirectUrl).toContain(credentials.gatewayUrl)
-    fetchSpy.mockRestore()
+    expect(result.redirectUrl).toMatch(/^\/api\/gateway_autopay\/launch\?o=/)
   })
 })
 
@@ -258,7 +269,7 @@ describe('autopayAdapterV1.cancel', () => {
 describe('autopayAdapterV1.refund', () => {
   afterEach(() => jest.restoreAllMocks())
 
-  it('returns a pending status from the synchronous acknowledgment, never "refunded"', async () => {
+  it('acknowledges without claiming a refund: payment stays captured, nothing refunded, refund pending in providerData', async () => {
     const messageId = deriveMessageId('refund-op-1')
     const xml = refundResponseXml({ messageId })
     jest.spyOn(global, 'fetch').mockResolvedValue(new Response(xml, { status: 200 }))
@@ -271,8 +282,10 @@ describe('autopayAdapterV1.refund', () => {
       idempotencyKey: 'refund-op-1',
     })
 
-    expect(result.status).toBe('pending')
+    expect(result.status).toBe('captured')
+    expect(result.refundedAmount).toBe(0)
     expect(result.refundId).toBe(messageId)
+    expect(result.providerData).toMatchObject({ refundStatus: 'pending', requestedAmount: 1.5, acknowledged: true })
   })
 
   it('resolves the remoteId itself via transactionStatus when the caller does not supply metadata.remoteId — the real gateway service never does', async () => {
@@ -288,7 +301,8 @@ describe('autopayAdapterV1.refund', () => {
     })
 
     const result = await autopayAdapterV1.refund({ sessionId: '100', amount: 1.5, credentials })
-    expect(result.status).toBe('pending')
+    expect(result.status).toBe('captured')
+    expect(result.providerData).toMatchObject({ refundStatus: 'pending' })
   })
 
   it('fails closed when self-resolving remoteId finds no captured transaction', async () => {

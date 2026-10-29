@@ -15,6 +15,7 @@ import type {
   UnifiedPaymentStatus,
 } from '@open-mercato/shared/modules/payment_gateways/types'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { buildLaunchPath, createLaunchGrant, readHttpUrl, resolveLaunchUrl } from '../launch'
 import {
   buildSessionRequest,
   cancelTransaction,
@@ -137,15 +138,19 @@ export const autopayAdapterV1: GatewayAdapter = {
       customerEmail,
     })
 
-    const { Hash: _hash, ...fieldsWithoutHash } = session.fields
+    const launch = createLaunchGrant()
 
     return {
       sessionId: orderId,
       status: 'pending',
-      redirectUrl: session.redirectUrl,
+      redirectUrl: resolveLaunchUrl(buildLaunchPath(orderId, launch.token), input.successUrl),
       providerData: {
         formPost: session.formPost,
-        fields: fieldsWithoutHash,
+        launch,
+        returnTargets: {
+          successUrl: readHttpUrl(input.successUrl),
+          cancelUrl: readHttpUrl(input.cancelUrl),
+        },
       },
     }
   },
@@ -171,11 +176,16 @@ export const autopayAdapterV1: GatewayAdapter = {
     return {
       refundId: result.messageId,
       // Autopay processes refunds asynchronously (docs: up to ~30 minutes,
-      // failures reported the next business day). The synchronous
-      // acknowledgment is never treated as final settlement.
-      status: 'pending' as UnifiedPaymentStatus,
-      refundedAmount: input.amount ?? 0,
+      // failures reported the next business day), so the acknowledgment is not
+      // a settled refund: nothing is refunded yet and the payment stays
+      // `captured`. Reporting `pending` here would make the service reject a
+      // replay of this operation, because it compares the stored result status
+      // with the unchanged payment status.
+      status: 'captured' as UnifiedPaymentStatus,
+      refundedAmount: 0,
       providerData: {
+        refundStatus: 'pending',
+        requestedAmount: input.amount ?? null,
         acknowledged: result.acknowledged,
         note: 'Autopay processes refunds asynchronously and getStatus does not report refund outcomes, so this adapter cannot confirm the final result.',
       },

@@ -42,6 +42,18 @@ Switch to the **Health** tab and click **Run Check**. Open Mercato probes Autopa
 
 If the check fails, double-check that the Payment Initiation URL's host matches exactly `https://testpay.autopay.eu` or `https://pay.autopay.eu`, and that the shared key matches what Autopay issued for that Service ID.
 
+## Step 3 — Set the return address
+
+After paying, Autopay sends the payer back to the return address configured on your Partner Service, appending `ServiceID`, `OrderID` and a signed `Hash`. Open Mercato ships a return page for this: it verifies the signature, reads the real payment status from Autopay, and sends the payer to the matching shop page (success or cancel).
+
+Set the return address of your Autopay Partner Service to:
+
+```text
+https://<your-shop-host>/api/gateway_autopay/return
+```
+
+Replace `<your-shop-host>` with the public host of your Open Mercato app. If you cannot find this setting in the Autopay portal, ask Autopay to set it for your Service. Without it, payers return to whatever address Autopay has on file and the shop's own success and cancel pages are not reached automatically.
+
 ## Optional env preconfiguration
 
 If your deployment already knows the Autopay credentials, you can preconfigure the integration automatically instead of filling the credentials form manually after every fresh install.
@@ -65,7 +77,7 @@ yarn mercato gateway_autopay configure-from-env --tenant <tenantId> --org <organ
 
 ## What this integration does
 
-- Creates a hosted-redirect PLN payment session — the payer completes payment on Autopay's own page (bank transfer, BLIK, cards), then returns to your store.
+- Creates a hosted-redirect PLN payment session. The payer is sent to a short page on your own host (`/api/gateway_autopay/launch`) that forwards them to Autopay with a signed POST, so their email address never appears in a link. The payer completes payment on Autopay's own page (bank transfer, BLIK, cards), then returns to your store through the [return address](#step-3--set-the-return-address). The launch link works for 30 minutes and only while the payment is still pending.
 - Reads payment status by actively querying Autopay's `transactionStatus` API (used on the payer's return, or any time you want to check).
 - Cancels a session that has not been paid yet.
 - Requests a refund on an already-settled session (see the note below — this is asynchronous).
@@ -75,7 +87,7 @@ yarn mercato gateway_autopay configure-from-env --tenant <tenantId> --org <organ
 - **PLN only.** Other currencies are not supported by this package.
 - **No push notifications (ITN) yet.** Autopay can notify Open Mercato the moment a payment completes, but this requires the merchant's endpoint to reply with a specific, provider-signed XML body that Open Mercato's generic webhook route does not yet produce. Until that follow-up ships, status is read by actively calling `transactionStatus` (on payer return, or via your own polling) rather than by push.
 - **No separate capture step.** Autopay settles immediately when the payer completes the redirect — there is nothing to capture afterward.
-- **Refunds are asynchronous.** A refund request is acknowledged immediately, but Autopay processes it in the background (documented as up to ~30 minutes). Open Mercato reports the refund as pending and does not confirm the final outcome: a status check reports the original payment, not the refund. A refund that fails during Autopay's processing is reported by Autopay in its next-business-day report, so reconcile refunds there until a push-notification follow-up exists. Refunds also require your Autopay Partner Service to have settlement balance enabled — confirm this with Autopay if a refund is rejected unexpectedly.
+- **Refunds are asynchronous.** A refund request is acknowledged immediately, but Autopay processes it in the background (documented as up to ~30 minutes). Open Mercato records the request as acknowledged: the payment stays `captured`, nothing is counted as refunded yet, and `providerData.refundStatus` is `pending`. It does not confirm the final outcome, because a status check reports the original payment, not the refund. A refund that fails during Autopay's processing is reported by Autopay in its next-business-day report, so reconcile refunds there until a push-notification follow-up exists. Refunds also require your Autopay Partner Service to have settlement balance enabled — confirm this with Autopay if a refund is rejected unexpectedly.
 - **Sandbox testing needs your own Autopay sandbox registration.** There is no shared/demo account — see [Before you start](#before-you-start).
 
 ## Programmatic usage

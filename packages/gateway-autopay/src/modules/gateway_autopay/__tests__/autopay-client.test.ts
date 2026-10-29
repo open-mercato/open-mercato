@@ -69,7 +69,8 @@ describe('buildSessionRequest', () => {
     expect(result.fields.GatewayID).toBeUndefined()
     expect(result.formPost.url).toBe(credentials.gatewayUrl)
     expect(result.formPost.method).toBe('POST')
-    expect(result.redirectUrl.startsWith(`${credentials.gatewayUrl}?`)).toBe(true)
+    expect(result.formPost.fields).toEqual(result.fields)
+    expect(result).not.toHaveProperty('redirectUrl')
   })
 
   it('includes optional fields in the confirmed ascending order when provided', () => {

@@ -92,7 +92,6 @@ export interface BuildSessionRequestInput {
 }
 
 export interface BuildSessionRequestResult {
-  redirectUrl: string
   formPost: { url: string; method: 'POST'; fields: Record<string, string> }
   fields: Record<string, string>
 }
@@ -100,18 +99,10 @@ export interface BuildSessionRequestResult {
 /**
  * Builds the signed field set for session initiation. No outbound HTTP call
  * is made — Autopay's own docs (§ "Sposób rozpoczęcia transakcji") describe
- * this as a browser-submitted HTTPS call to the partner-specific gatewayUrl,
- * demonstrated in the docs as a POST. This also returns a GET-style
- * `redirectUrl` as a defensive fallback, since the docs do not explicitly
- * state that GET is rejected — but no consumer in this repo currently wires
- * up `formPost` (checkout only does `window.location.href = redirectUrl`),
- * so today this provider's entire session-creation flow depends on the GET
- * transport this comment itself flags as unverified. GET also puts
- * `CustomerEmail` and `Hash` in the URL (browser history, referrer headers,
- * intermediate logs) — a real downgrade from the documented POST. Both the
- * transport choice and this privacy exposure need to be settled with one
- * live sandbox session before this provider is enabled for any tenant; see
- * the spec's Risks section.
+ * this as a browser-submitted HTTPS POST to the partner-specific gatewayUrl.
+ * The payer's browser performs that POST from the provider-local launch page
+ * (`api/launch/[orderId]/[token]`), so `CustomerEmail` and `Hash` never
+ * appear in a URL.
  */
 export function buildSessionRequest(input: BuildSessionRequestInput): BuildSessionRequestResult {
   const { credentials } = input
@@ -133,9 +124,7 @@ export function buildSessionRequest(input: BuildSessionRequestInput): BuildSessi
   }
   fields.Hash = signedHash
 
-  const query = new URLSearchParams(fields).toString()
   return {
-    redirectUrl: `${credentials.gatewayUrl}?${query}`,
     formPost: { url: credentials.gatewayUrl, method: 'POST', fields },
     fields,
   }
