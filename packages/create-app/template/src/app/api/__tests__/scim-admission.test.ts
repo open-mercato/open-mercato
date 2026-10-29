@@ -1,3 +1,4 @@
+import { createCacheService } from '@open-mercato/cache/service'
 import { NextRequest } from 'next/server'
 import { findApiRouteManifestMatch } from '@open-mercato/shared/modules/registry'
 import { getCachedRateLimiterService } from '@open-mercato/core/bootstrap'
@@ -93,9 +94,11 @@ describe('SCIM admission through the API dispatcher', () => {
     find.mockImplementation(async (entity: unknown) => entity === ApiKey ? [{ keyHash: 'known-hash' }] : [])
     findOne.mockResolvedValue(null)
     const em = { find, findOne } as unknown as EntityManager
-    const tokenService = new ScimTokenService(em)
+    const cache = createCacheService({ strategy: 'memory' })
+    const tokenService = new ScimTokenService(em, cache)
     jest.mocked(createRequestContainer).mockResolvedValue({
       resolve: (name: string) => {
+        if (name === 'cache') return cache
         if (name === 'em') return em
         if (name === 'scimTokenService') return tokenService
         if (name === 'scimService') return { listUsers }
@@ -149,24 +152,28 @@ describe('SCIM admission through the API dispatcher', () => {
     expect(createRequestContainer).not.toHaveBeenCalled()
   })
 
-  it('admits a real active SCIM token through the dispatcher after the default unknown-token bucket is exhausted', async () => {
-    for (let index = 0; index < 10; index++) expect((await dispatch(operations[0], index)).status).toBe(401)
-    expect((await dispatch(operations[0], 10)).status).toBe(429)
+  it('isolates a verified SCIM bearer from active-prefix forgeries before generic credential work', async () => {
     const rawToken = `omscim_${'a'.repeat(64)}`
-    findOne.mockImplementation(async (entity: unknown) => entity === ScimToken
-      ? { id: 'active-token' }
-      : { id: 'config-1', organizationId: 'org-1', tenantId: 'tenant-1', isActive: true, jitEnabled: false })
+    const wrongSuffix = `${rawToken.slice(0, 12)}${'c'.repeat(59)}`
+    findOne.mockResolvedValue({ id: 'config-1', organizationId: 'org-1', tenantId: 'tenant-1', isActive: true, jitEnabled: false })
     find.mockImplementation(async (entity: unknown) => entity === ApiKey
       ? [{ keyHash: 'known-hash' }]
-      : [{ tokenHash: 'scim-hash', ssoConfigId: 'config-1', organizationId: 'org-1', tenantId: 'tenant-1' }])
-    mockCompare.mockImplementation(async (_rawToken: string, tokenHash: string) => tokenHash === 'scim-hash')
+      : [{ id: 'active-token', tokenHash: 'scim-hash', ssoConfigId: 'config-1', organizationId: 'org-1', tenantId: 'tenant-1' }])
+    mockCompare.mockImplementation(async (raw: string, tokenHash: string) => raw === rawToken && tokenHash === 'scim-hash')
     listUsers.mockResolvedValue({ Resources: [], totalResults: 0 })
-
-    const response = await dispatch(operations[0], 11, usersRoute, 'route-file', rawToken)
-
-    expect(response.status).toBe(200)
-    expect(listUsers).toHaveBeenCalledWith(null, 1, 100, expect.objectContaining({ organizationId: 'org-1', tenantId: 'tenant-1' }), 'http://localhost')
-    expect(findOne.mock.calls.filter(([entity]) => entity === ScimToken)).toHaveLength(1)
+    expect((await dispatch(operations[0], 0, usersRoute, 'route-file', rawToken)).status).toBe(200)
+    jest.advanceTimersByTime(1001)
+    for (let index = 0; index < 10; index++) expect((await dispatch(operations[0], index + 1, usersRoute, 'route-file', wrongSuffix)).status).toBe(401)
+    find.mockClear()
+    mockCompare.mockClear()
+    expect((await dispatch(operations[0], 11, usersRoute, 'route-file', wrongSuffix)).status).toBe(429)
+    expect(find).not.toHaveBeenCalled()
+    expect(mockCompare).not.toHaveBeenCalled()
+    const consume = jest.spyOn(limiter, 'consume')
+    expect((await dispatch(operations[0], 12, usersRoute, 'route-file', rawToken)).status).toBe(200)
+    expect(consume).toHaveBeenCalledTimes(1)
+    expect(listUsers).toHaveBeenLastCalledWith(null, 1, 100, expect.objectContaining({ organizationId: 'org-1', tenantId: 'tenant-1' }), 'http://localhost')
+    expect(findOne.mock.calls.filter(([entity]) => entity === ScimToken)).toHaveLength(0)
     expect(mockCompare).toHaveBeenCalledWith(rawToken, 'scim-hash')
   })
 

@@ -1,4 +1,9 @@
 import { randomBytes } from 'node:crypto'
+import type { CacheStrategy } from '@open-mercato/cache'
+import { runWithCacheTenant } from '@open-mercato/cache'
+import { readRateLimitConfig } from '@open-mercato/shared/lib/ratelimit/config'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
+import { SCIM_ADMISSION_TTL_MS, scimAdmissionCacheKey, scimAdmissionTokenTag } from '../lib/scim-admission-cache'
 import type { RequiredEntityData } from '@mikro-orm/core'
 import { EntityManager } from '@mikro-orm/postgresql'
 import { hash, compare } from 'bcryptjs'
@@ -26,7 +31,7 @@ export interface ScimTokenCreateResult {
 }
 
 export class ScimTokenService {
-  constructor(private em: EntityManager) {}
+  constructor(private em: EntityManager, private cache?: CacheStrategy) {}
 
   async generateToken(
     ssoConfigId: string,
@@ -84,6 +89,20 @@ export class ScimTokenService {
     for (const candidate of candidates) {
       const isValid = await compare(rawToken, candidate.tokenHash)
       if (isValid) {
+        const cache = this.cache
+        if (cache && readRateLimitConfig().enabled) {
+          try {
+            await runWithCacheTenant(null, () => cache.set(
+              scimAdmissionCacheKey(rawToken),
+              `token:${candidate.tenantId ?? 'global'}:${candidate.organizationId}:${candidate.id}`,
+              { ttl: SCIM_ADMISSION_TTL_MS, tags: [scimAdmissionTokenTag(candidate.id)] },
+            ))
+          } catch (error) {
+            try {
+              getTelemetryRuntime()?.reportError(error, { module: 'sso', code: 'sso.scim_admission_cache_write_failed' })
+            } catch {}
+          }
+        }
         return {
           ssoConfigId: candidate.ssoConfigId,
           organizationId: candidate.organizationId,
@@ -104,6 +123,10 @@ export class ScimTokenService {
 
     token.isActive = false
     await this.em.flush()
+    const cache = this.cache
+    if (cache) {
+      await runWithCacheTenant(null, () => cache.deleteByTags([scimAdmissionTokenTag(token.id)]))
+    }
   }
 
   async listTokens(ssoConfigId: string, scope: SsoAdminScope): Promise<ScimTokenPublic[]> {

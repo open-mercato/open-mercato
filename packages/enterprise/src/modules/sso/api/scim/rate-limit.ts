@@ -1,8 +1,6 @@
-import { createHash } from 'node:crypto'
-import type { EntityManager } from '@mikro-orm/postgresql'
+import type { CacheStrategy } from '@open-mercato/cache'
 import { getCachedRateLimiterService } from '@open-mercato/core/bootstrap'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { readEndpointRateLimitConfig, readRateLimitConfig } from '@open-mercato/shared/lib/ratelimit/config'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
@@ -16,7 +14,7 @@ import {
   RATE_LIMIT_UNAVAILABLE_FALLBACK,
 } from '@open-mercato/shared/lib/ratelimit/helpers'
 import { buildScimError, scimJson } from '../../lib/scim-response'
-import { ScimToken } from '../../data/entities'
+import { readScimAdmissionKey } from '../../lib/scim-admission-cache'
 
 const admissions = new WeakMap<Request, Promise<Response | null>>()
 
@@ -69,17 +67,13 @@ async function resolveScimRateLimitKey(req: Request, clientIp: string | null): P
   if (new URL(req.url).pathname.replace(/\/+$/, '').endsWith('/sso/scim/v2/ServiceProviderConfig')) {
     return `discovery:${clientIp ?? RATE_LIMIT_FALLBACK_KEY}`
   }
-  if (clientIp) return clientIp
-
   const authorization = req.headers.get('authorization')
   const rawToken = authorization?.startsWith('Bearer ') ? authorization.slice(7) : ''
-  if (!/^omscim_[0-9a-f]{64}$/.test(rawToken)) return RATE_LIMIT_FALLBACK_KEY
-
-  const tokenPrefix = rawToken.slice(0, 12)
-  const container = await createRequestContainer()
-  const em = container.resolve<EntityManager>('em')
-  const activeToken = await findOneWithDecryption(em, ScimToken, { tokenPrefix, isActive: true }, { fields: ['id'] })
-  return activeToken
-    ? `token:${createHash('sha256').update(tokenPrefix).digest('hex')}`
-    : RATE_LIMIT_FALLBACK_KEY
+  if (/^omscim_[0-9a-f]{64}$/.test(rawToken)) {
+    const container = await createRequestContainer()
+    const cache = container.resolve<CacheStrategy>('cache')
+    const verifiedKey = await readScimAdmissionKey(cache, rawToken)
+    if (verifiedKey) return verifiedKey
+  }
+  return clientIp ?? RATE_LIMIT_FALLBACK_KEY
 }

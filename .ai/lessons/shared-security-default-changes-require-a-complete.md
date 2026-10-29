@@ -1,6 +1,6 @@
 ---
 title: "Shared security-default changes require a complete consumer audit"
-modules: ["shared","auth","cache","events","example","create_app"]
+modules: ["shared","auth","cache","events","example","create_app","sso","api_keys"]
 areas: ["integration","testing","module-data"]
 topics: ["access-control","data-scoping","events","testing"]
 ---
@@ -14,6 +14,8 @@ topics: ["access-control","data-scoping","events","testing"]
 **Rule**: When changing a shared security default, enumerate every production call site and remove local overrides that bypass the contract. Centralize repeated key derivation in the owning module and add tests for direct, one-proxy, multi-proxy, and fallback behavior.
 
 **Applies to**: shared auth, rate-limit, origin, session, encryption, and tenant-scoping helpers and every module that consumes them.
+
+- 2026-10-29 · sso: enumerable public token prefixes must never select private admission budgets; remember only fully verified complete-bearer fingerprints in the shared DI cache, invalidate on revoke, and test wrong-suffix exhaustion alongside independent verified-tenant budgets.
 
 - 2026-10-28 · sso/api_keys: handler-only SCIM limiter tests missed generic API-key bcrypt before dispatch admission → exercise the production dispatcher and real credential verifiers with instrumented DB/bcrypt boundaries; exhausted requests must skip every credential path, and admitted requests must consume one quota point.
 
