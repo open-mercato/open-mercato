@@ -367,15 +367,20 @@ describe('customers deals map route', () => {
     )
   })
 
-  it('still returns 401 when neither auth.orgId nor the resolved scope yields any organization', async () => {
-    // The fix relaxes the early guard, but the downstream empty-scope guard must keep failing closed:
-    // no concrete org AND an empty resolved scope = no visibility = 401 (no data leak).
-    getAuthMock.mockResolvedValueOnce({ sub: userId, tenantId, orgId: undefined })
-    resolveScopeMock.mockResolvedValueOnce({ tenantId, filterIds: [] })
+  it('returns an empty page for an explicit empty scope even when auth has a home organization', async () => {
+    resolveScopeMock.mockResolvedValueOnce({ tenantId, selectedId: null, filterIds: [], allowedIds: [] })
 
     const response = await GET(new Request('http://localhost/api/customers/deals/map'))
 
-    expect(response.status).toBe(401)
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({
+      items: [],
+      total: 0,
+      page: 1,
+      pageSize: 100,
+      totalPages: 0,
+    })
+    expect(findWithDecryptionMock).not.toHaveBeenCalled()
     expect(queryMock).not.toHaveBeenCalled()
   })
 

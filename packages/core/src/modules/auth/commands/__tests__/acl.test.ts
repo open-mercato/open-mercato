@@ -32,10 +32,17 @@ jest.mock('@open-mercato/shared/lib/logger', () => ({
 // is covered by the encryption suite.
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: async (
-    em: { findOne: (entity: unknown, where: unknown) => Promise<unknown> },
+    em: { findOne: (entity: unknown, where: unknown, options?: unknown) => Promise<unknown> },
     entity: unknown,
     where: unknown,
-  ) => em.findOne(entity, where),
+    options?: unknown,
+  ) => em.findOne(entity, where, options),
+  findWithDecryption: async (
+    em: { find: (entity: unknown, where: unknown, options?: unknown) => Promise<unknown[]> },
+    entity: unknown,
+    where: unknown,
+    options?: unknown,
+  ) => em.find(entity, where, options),
 }))
 
 import '@open-mercato/core/modules/auth/commands/acl'
@@ -121,10 +128,13 @@ describe('auth ACL audit commands', () => {
 
     const em = {
       fork: () => em,
-      findOne: async (entity: unknown, where: unknown) => {
+      find: async () => [],
+      findOne: async (entity: unknown, where: unknown, queryOptions?: { lockMode?: unknown }) => {
         if (entity === Role || entity === User) {
-          targetFilters.push(where)
-          if (options.failTargetLookup) throw new Error('target lookup failed')
+          if (!queryOptions?.lockMode) {
+            targetFilters.push(where)
+            if (options.failTargetLookup) throw new Error('target lookup failed')
+          }
           // `undefined` means "use the default row"; an explicit `null` is the
           // out-of-scope target the lookup must not resolve.
           const row = entity === Role

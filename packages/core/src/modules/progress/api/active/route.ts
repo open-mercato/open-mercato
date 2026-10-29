@@ -1,8 +1,11 @@
 import { NextResponse } from 'next/server'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import type { ProgressJob } from '../../data/entities'
+import {
+  hasReadableProgressScope,
+  resolveProgressRequestScope,
+} from '../requestScope'
 
 const routeMetadata = {
   GET: { requireAuth: true, requireFeatures: ['progress.view'] },
@@ -18,12 +21,18 @@ export async function GET(req: Request) {
 
   const container = await createRequestContainer()
   const progressService = container.resolve('progressService') as import('../../lib/progressService').ProgressService
-  const orgScope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
-  const organizationId = orgScope?.selectedId ?? auth.orgId
+  const scope = await resolveProgressRequestScope(container, auth, req)
+  if (!hasReadableProgressScope(scope)) {
+    return NextResponse.json({ active: [], recentlyCompleted: [] })
+  }
 
-  const ctx = { tenantId: auth.tenantId, organizationId }
+  const ctx = {
+    tenantId: scope.tenantId,
+    organizationId: scope.selectedId,
+    organizationIds: scope.filterIds,
+  }
 
-  await progressService.markStaleJobsFailed(auth.tenantId, undefined, organizationId)
+  await progressService.markStaleJobsFailed(scope.tenantId, undefined, scope.selectedId, scope.filterIds)
 
   const [jobs, recentlyCompleted] = await Promise.all([
     progressService.getActiveJobs(ctx),

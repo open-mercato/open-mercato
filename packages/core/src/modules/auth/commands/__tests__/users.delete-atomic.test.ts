@@ -82,7 +82,16 @@ describe('auth.users.delete atomic cascade (issue #2339)', () => {
       },
       find: async () => [],
       findOne: async (entity: unknown) => (entity === User
-        ? { id: userId, organizationId: 'org-1', tenantId: 'tenant-1', deletedAt: null }
+        ? {
+            id: userId,
+            email: 'user@example.com',
+            organizationId: 'org-1',
+            tenantId: 'tenant-1',
+            passwordHash: null,
+            name: null,
+            isConfirmed: true,
+            deletedAt: null,
+          }
         : null),
       remove: () => undefined,
       persist: () => ({ flush: async () => undefined }),
@@ -96,7 +105,15 @@ describe('auth.users.delete atomic cascade (issue #2339)', () => {
       resolve: (token: string) => {
         if (token === 'em') return em
         if (token === 'dataEngine') return dataEngine
-        // rbacService / cache are resolved by invalidateUserCache inside a try/catch
+        if (token === 'rbacService') {
+          return {
+            invalidateUserCache: jest.fn(async () => undefined),
+            userHasAllFeatures: jest.fn(async () => true),
+            userHasAllFeaturesWithEntityManager: jest.fn(async () => true),
+            loadAcl: jest.fn(async () => ({ isSuperAdmin: true, features: ['*'], organizations: null })),
+            loadAclWithEntityManager: jest.fn(async () => ({ isSuperAdmin: true, features: ['*'], organizations: null })),
+          }
+        }
         throw new Error(`Unexpected dependency: ${token}`)
       },
     }
@@ -157,7 +174,17 @@ describe('auth.users.delete atomic cascade (issue #2339)', () => {
     await handler.undo!({
       logEntry: {
         resourceId: userId,
-        snapshotAfter: { id: userId, tenantId: 'tenant-1', organizationId: 'org-1', custom: {} },
+        snapshotAfter: {
+          id: userId,
+          email: 'user@example.com',
+          tenantId: 'tenant-1',
+          organizationId: 'org-1',
+          passwordHash: null,
+          name: null,
+          isConfirmed: true,
+          roles: [],
+          acls: [],
+        },
       } as any,
       ctx: makeCtx(em, dataEngine),
     })

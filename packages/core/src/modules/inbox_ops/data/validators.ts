@@ -297,8 +297,9 @@ const ACTION_PAYLOAD_SCHEMAS: Record<string, z.ZodType> = {
 export function validateActionPayloadForType(
   actionType: string,
   payload: Record<string, unknown>,
+  registeredSchema?: z.ZodType,
 ): { success: true } | { success: false; error: string } {
-  const schema = ACTION_PAYLOAD_SCHEMAS[actionType]
+  const schema = registeredSchema ?? ACTION_PAYLOAD_SCHEMAS[actionType]
   if (!schema) {
     return { success: true }
   }

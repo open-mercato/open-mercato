@@ -11,7 +11,7 @@ import { DEFAULT_OPENCODE_BASE_IMAGE, DEFAULT_PORTS, resolveStackPorts } from '.
 import { addEnvValue, readEnvValue, setEnvValue } from '../env-file.mjs'
 import { ensureLlmProvider, syncProviderConfigToAppEnv } from '../providers.mjs'
 import { ensureWindowsUtf8Console, resolveSpawnCommand } from '../spawn.mjs'
-import { StepBlocked, buildToolchainStep, clearConvergenceState, databaseIsInitialized, listMigrationModules, migrationsFingerprint, probePostgresCredentials, readAppliedMigrationModules, resolveOpencodeBaseImage, runSteps } from '../steps.mjs'
+import { StepBlocked, buildToolchainStep, clearConvergenceState, databaseIsInitialized, listMigrationModules, migrationsFingerprint, probePostgresCredentials, readAppliedMigrationModules, resolveOpencodeBaseImage, runSteps, workspaceBuildStep } from '../steps.mjs'
 import { ensureEnvFiles } from '../env-setup.mjs'
 import { removeLeftoverComposeResources } from '../infra.mjs'
 import { checkBuildToolchain, defenderExclusionCovers, detectHostGateway, hostIpCandidates } from '../doctor.mjs'
@@ -358,6 +358,29 @@ test('buildToolchainStep warns instead of blocking when the workspace install al
   // A pending lockfile change re-arms the hard block.
   fs.writeFileSync(path.join(repo, 'yarn.lock'), 'changed\n')
   await assert.rejects(() => buildToolchainStep.check(ctx), (error) => error instanceof StepBlocked)
+})
+
+test('workspaceBuildStep rebuilds packages after generate, like the root yarn build', async () => {
+  const calls = []
+  await workspaceBuildStep.apply({ repoRoot: makeFakeRepo(), runYarnImpl: (_ctx, args) => calls.push(args.join(' ')) })
+  assert.deepEqual(calls, ['build:packages', 'generate', 'build:packages'])
+})
+
+test('workspaceBuildStep only converges once core dist/generated exists, not just the cli binary', async () => {
+  const repo = makeFakeRepo()
+  const ctx = { repoRoot: repo }
+  const writeArtifact = (...segments) => {
+    fs.mkdirSync(path.join(repo, ...segments.slice(0, -1)), { recursive: true })
+    fs.writeFileSync(path.join(repo, ...segments), '')
+  }
+
+  writeArtifact('packages', 'cli', 'dist', 'bin.js')
+  assert.equal((await workspaceBuildStep.check(ctx)).ok, false)
+
+  writeArtifact('packages', 'core', 'dist', 'generated', 'entities.ids.generated.js')
+  assert.equal((await workspaceBuildStep.check(ctx)).ok, true)
+
+  assert.equal((await workspaceBuildStep.check({ ...ctx, installChanged: true })).ok, false)
 })
 
 test('removeLeftoverComposeResources sweeps fixed-name containers and volumes down cannot see', () => {

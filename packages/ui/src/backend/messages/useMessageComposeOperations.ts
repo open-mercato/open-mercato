@@ -39,6 +39,11 @@ type ComposeOperationParams = {
   body: string
   bodyFormat: 'text' | 'markdown'
   sendViaEmail: boolean
+  /**
+   * Chosen alternative sender, or empty for the platform sender. Sent only on a
+   * real send: a draft is not delivered, so routing it is meaningless.
+   */
+  senderChannelId: string
   contextObject: MessageComposerContextObject | null
   defaultValues: MessageComposerProps['defaultValues']
   contextActionOptions: Array<{ id: string; label: string }>
@@ -142,7 +147,10 @@ function buildComposePayload(
     sourceEntityId: sourceEntityId ?? undefined,
     objects: contextObjects,
     attachmentIds: input.attachmentIds.length > 0 ? input.attachmentIds : undefined,
-    sendViaEmail: publicMessage ? true : params.sendViaEmail,
+    sendViaEmail: params.sendViaEmail,
+    senderChannelId: !input.isDraft && publicMessage && params.senderChannelId
+      ? params.senderChannelId
+      : undefined,
     isDraft: input.isDraft,
   }
 }

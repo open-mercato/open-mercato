@@ -101,6 +101,105 @@ test('scanText catches throw / createCrudFormError / toast literals while honour
   )
 })
 
+test('scanText flags English CrudHttpError bodies and skips translated, internal and non-literal ones', () => {
+  const text = [
+    "throw new CrudHttpError(422, { error: 'This link has active transactions and cannot be edited' })",
+    'throw new CrudHttpError(400, { error: `Invalid target payload for queue ${queue}` })',
+    "throw new CrudHttpError(status, { error: \"Record not found\", code: 'missing' })",
+    "throw new CrudHttpError(400, { error: '[internal] redo snapshot unavailable' })",
+    "throw new CrudHttpError(403, { error: translate('checkout.errors.locked', 'Link is locked') })",
+    "throw new CrudHttpError(403, { error: t('checkout.errors.locked') })",
+    'throw new CrudHttpError(404, { error: message })',
+    "throw new CrudHttpError(404, { error: 'checkout.errors.notFound' })",
+    "throw new CrudHttpError(401, { error: 'Unauthorized' })",
+  ].join('\n')
+
+  const findings = scanText(text, { file: 'backend/commands/links.ts' })
+  assert.deepEqual(
+    findings.map((f) => `${f.kind}:${f.line}:${f.value}`),
+    [
+      'crud-http-error:1:This link has active transactions and cannot be edited',
+      'crud-http-error:2:Invalid target payload for queue ${queue}',
+      'crud-http-error:3:Record not found',
+    ],
+  )
+})
+
+test('scanText flags English messages passed to the shared CrudHttpError helpers', () => {
+  const text = [
+    "throw notFound('Checkout link not found')",
+    "throw conflict('Notification action already executed')",
+    "throw forbidden(`Access to ${resource} denied`)",
+    "const link = assertFound(await em.findOne(CheckoutLink, { id }), 'Checkout link not found')",
+    "throw notFound('[internal] link snapshot missing')",
+    "throw forbidden(translate('checkout.errors.forbidden', 'Access denied'))",
+    'throw conflict(message)',
+    "throw badRequest('uom.unit_not_found')",
+    "const record = assertFound(row, 'checkout.errors.notFound')",
+    "const deal = assertFound(await em.findOne(Deal, { id }), translate('customers.errors.deal_not_found', 'Deal not found'))",
+    "const deal = assertFound(row, t('customers.errors.deal_not_found'))",
+    'notFound()',
+    "router.notFound('Page is missing')",
+  ].join('\n')
+
+  const findings = scanText(text, { file: 'backend/commands/links.ts' })
+  assert.deepEqual(
+    findings.map((f) => `${f.kind}:${f.line}:${f.value}`),
+    [
+      'crud-http-error:1:Checkout link not found',
+      'crud-http-error:2:Notification action already executed',
+      'crud-http-error:3:Access to ${resource} denied',
+      'crud-http-error:4:Checkout link not found',
+    ],
+  )
+})
+
+test('looksEnglishPhrase rejects single-dot and interpolated i18n keys', () => {
+  assert.equal(looksEnglishPhrase('uom.unit_not_found'), false)
+  assert.equal(looksEnglishPhrase('eudr.errors.${result.errorKey}'), false)
+  assert.equal(looksEnglishPhrase('Unit not found.'), true)
+})
+
+test('scanText flags English NextResponse.json / Response.json error bodies once each', () => {
+  const text = [
+    "return NextResponse.json({ error: 'Invalid company id' }, { status: 400 })",
+    "return Response.json({ error: 'Webhook signature mismatch' }, { status: 401 })",
+    'return NextResponse.json({ error: `Unknown provider ${provider}` }, { status: 404 })',
+    "return NextResponse.json({ error: '[internal] container not ready' }, { status: 500 })",
+    "return NextResponse.json({ error: translate('customers.errors.invalidId', 'Invalid id') }, { status: 400 })",
+    "return NextResponse.json({ error: t('customers.errors.invalidId') }, { status: 400 })",
+    'return NextResponse.json({ error: reason }, { status: 400 })',
+    "return NextResponse.json({ error: 'customers.errors.invalidId' }, { status: 400 })",
+    "return NextResponse.json({ ok: true, error: 'Not a leading key' })",
+  ].join('\n')
+
+  const findings = scanText(text, { file: 'api/companies/route.ts' })
+  assert.deepEqual(
+    findings.map((f) => `${f.kind}:${f.line}:${f.value}`),
+    [
+      'json-error-response:1:Invalid company id',
+      'json-error-response:2:Webhook signature mismatch',
+      'json-error-response:3:Unknown provider ${provider}',
+    ],
+  )
+})
+
+test('allowlist kind filter applies to the CrudHttpError and JSON error body kinds', () => {
+  const matchers = buildAllowlistMatchers({
+    entries: [{ kind: HARDCODED_KINDS.jsonErrorResponse, reason: 'machine-facing webhook endpoint' }],
+  })
+  const findings = scanText(
+    [
+      "return NextResponse.json({ error: 'Webhook signature mismatch' }, { status: 401 })",
+      "throw new CrudHttpError(422, { error: 'Link is locked for editing' })",
+    ].join('\n'),
+    { file: 'api/webhook/route.ts' },
+  )
+  const { kept, allowlisted } = filterFindings(findings, matchers)
+  assert.deepEqual(kept.map((f) => f.kind), [HARDCODED_KINDS.crudHttpError])
+  assert.deepEqual(allowlisted.map(({ finding }) => finding.kind), [HARDCODED_KINDS.jsonErrorResponse])
+})
+
 test('scanLine reports column metadata so report rows are actionable', () => {
   const findings = scanLine('  <p>Privacy Policy</p>', { file: 'frontend/legal.tsx', lineNumber: 7 })
   assert.equal(findings.length, 1)

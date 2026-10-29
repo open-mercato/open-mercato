@@ -1,7 +1,7 @@
 /**
  * @jest-environment jsdom
  */
-import { fireEvent, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { ActivitiesSection as CustomerActivitiesSection } from '../ActivitiesSection'
 
@@ -372,5 +372,82 @@ describe('Customer ActivitiesSection wrapper', () => {
     })
     // …but the two legacy page fetches must overlap (parallel), not run one-at-a-time.
     expect(legacyMaxInFlight).toBeGreaterThanOrEqual(2)
+  })
+
+  describe('mark done', () => {
+    const plannedActivity = sampleActivity({
+      id: 'activity-1',
+      interactionType: 'call',
+      title: 'Follow-up call',
+      status: 'planned',
+      scheduledAt: '2026-04-02T09:00:00.000Z',
+      occurredAt: null,
+    })
+
+    const latestOnMarkDone = () => {
+      const calls = activityTimelineMock.mock.calls as unknown as Array<[{ onMarkDone?: (id: string) => Promise<void> }]>
+      const onMarkDone = calls[calls.length - 1]?.[0]?.onMarkDone
+      if (!onMarkDone) throw new Error('[internal] ActivityTimeline rendered without onMarkDone')
+      return onMarkDone
+    }
+
+    const renderSection = async (overrides: Record<string, unknown>) => {
+      readApiResultOrThrowMock.mockResolvedValue({ items: [plannedActivity] })
+      renderWithProviders(
+        <CustomerActivitiesSection
+          entityId="deal-entity-1"
+          useCanonicalInteractions
+          addActionLabel="Log activity"
+          emptyState={{ title: 'No activities logged yet', actionLabel: 'Log activity' }}
+          {...overrides}
+        />,
+      )
+      await waitFor(() => {
+        expect(readApiResultOrThrowMock).toHaveBeenCalled()
+      })
+    }
+
+    it('notifies the parent after marking an activity done so sibling panels refresh', async () => {
+      const runGuardedMutation = jest.fn(async (operation: () => Promise<unknown>) => operation())
+      const onDataRefresh = jest.fn(async () => undefined)
+      await renderSection({ runGuardedMutation, onDataRefresh })
+
+      await act(async () => {
+        await latestOnMarkDone()('activity-1')
+      })
+
+      expect(runGuardedMutation).toHaveBeenCalledTimes(1)
+      expect(onDataRefresh).toHaveBeenCalledTimes(1)
+      expect(runGuardedMutation.mock.invocationCallOrder[0]).toBeLessThan(onDataRefresh.mock.invocationCallOrder[0])
+    })
+
+    it('does not notify the parent when marking done fails', async () => {
+      const runGuardedMutation = jest.fn(async () => {
+        throw new Error('[internal] complete failed')
+      })
+      const onDataRefresh = jest.fn()
+      await renderSection({ runGuardedMutation, onDataRefresh })
+
+      await act(async () => {
+        await latestOnMarkDone()('activity-1')
+      })
+
+      expect(runGuardedMutation).toHaveBeenCalledTimes(1)
+      expect(onDataRefresh).not.toHaveBeenCalled()
+    })
+
+    it('keeps the completed state when the parent refresh fails', async () => {
+      const runGuardedMutation = jest.fn(async (operation: () => Promise<unknown>) => operation())
+      const onDataRefresh = jest.fn(async () => {
+        throw new Error('[internal] parent reload failed')
+      })
+      await renderSection({ runGuardedMutation, onDataRefresh })
+
+      await act(async () => {
+        await latestOnMarkDone()('activity-1')
+      })
+
+      expect(onDataRefresh).toHaveBeenCalledTimes(1)
+    })
   })
 })

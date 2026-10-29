@@ -2,7 +2,6 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { FilterQuery } from '@mikro-orm/core'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
@@ -13,6 +12,12 @@ import {
   createPagedListResponseSchema,
 } from '../openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { buildProgressOrganizationFilter } from '../../lib/organizationScope'
+import {
+  hasReadableProgressScope,
+  hasWritableProgressScope,
+  resolveProgressRequestScope,
+} from '../requestScope'
 
 const logger = createLogger('progress').child({ component: 'jobs' })
 
@@ -88,16 +93,16 @@ export async function GET(req: Request) {
 
   const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
-  const orgScope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
-  const organizationId = orgScope?.selectedId ?? auth.orgId
-
+  const scope = await resolveProgressRequestScope(container, auth, req)
   const { status, jobType, parentJobId, includeCompleted, completedSince, page, pageSize, search, sortField, sortDir } = parsed.data
-  const filter: FilterQuery<ProgressJob> = {
-    tenantId: auth.tenantId,
+
+  if (!hasReadableProgressScope(scope)) {
+    return NextResponse.json({ items: [], total: 0, page, pageSize, totalPages: 1 })
   }
 
-  if (organizationId) {
-    filter.organizationId = organizationId
+  const filter: Record<string, unknown> = {
+    tenantId: scope.tenantId,
+    ...buildProgressOrganizationFilter({ organizationIds: scope.filterIds }),
   }
 
   if (status) {
@@ -132,7 +137,7 @@ export async function GET(req: Request) {
     orderBy.createdAt = 'DESC'
   }
 
-  const [rows, total] = await em.findAndCount(ProgressJob, filter, {
+  const [rows, total] = await em.findAndCount(ProgressJob, filter as FilterQuery<ProgressJob>, {
     orderBy,
     limit: pageSize,
     offset: (page - 1) * pageSize,
@@ -158,11 +163,16 @@ export async function POST(req: Request) {
 
     const container = await createRequestContainer()
     const progressService = container.resolve('progressService') as import('../../lib/progressService').ProgressService
-    const orgScope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
+    const scope = await resolveProgressRequestScope(container, auth, req)
+    const hasConcreteCreateTarget = scope.selectedId !== null || scope.filterIds === null
+    if (!hasWritableProgressScope(scope) || !hasConcreteCreateTarget) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
 
     const job = await progressService.createJob(parsed.data, {
-      tenantId: auth.tenantId,
-      organizationId: orgScope?.selectedId ?? auth.orgId,
+      tenantId: scope.tenantId,
+      organizationId: scope.selectedId ?? auth.orgId ?? null,
+      organizationIds: scope.filterIds,
       userId: auth.sub,
     })
 

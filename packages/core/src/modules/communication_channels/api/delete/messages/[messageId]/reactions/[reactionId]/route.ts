@@ -4,6 +4,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import {
   COMMUNICATION_CHANNELS_TOGGLE_OUTBOUND_REACTION_COMMAND_ID,
   type ToggleOutboundReactionInput,
@@ -33,6 +34,14 @@ type RouteContext = {
   } | null
 }
 
+async function reactionNotFoundResponse(): Promise<Response> {
+  const { translate } = await resolveTranslations()
+  return NextResponse.json(
+    { error: translate('communication_channels.errors.reactionNotFound', 'Reaction not found') },
+    { status: 404 },
+  )
+}
+
 export async function DELETE(_req: Request, context: RouteContext): Promise<Response> {
   const { messageId, reactionId } = await context.params
   if (
@@ -50,6 +59,20 @@ export async function DELETE(_req: Request, context: RouteContext): Promise<Resp
   }
 
   const container = await createRequestContainer()
+
+  const guard = await validateRouteMutationGuard({
+    container,
+    req: _req,
+    auth,
+    input: {
+      resourceKind: 'communication_channels.message',
+      resourceId: messageId,
+      operation: 'custom',
+      mutationPayload: { reactionId, action: 'remove' },
+    },
+  })
+  if ('response' in guard) return guard.response
+
   const em = (container.resolve('em') as EntityManager).fork()
   const reaction = await findOneWithDecryption(
     em,
@@ -64,21 +87,8 @@ export async function DELETE(_req: Request, context: RouteContext): Promise<Resp
     { tenantId: auth.tenantId, organizationId: auth.orgId ?? null },
   )
   if (!reaction) {
-    return NextResponse.json({ error: 'Reaction not found' }, { status: 404 })
+    return reactionNotFoundResponse()
   }
-
-  const guard = await validateRouteMutationGuard({
-    container,
-    req: _req,
-    auth,
-    input: {
-      resourceKind: 'communication_channels.message',
-      resourceId: messageId,
-      operation: 'custom',
-      mutationPayload: { reactionId, emoji: reaction.emoji, action: 'remove' },
-    },
-  })
-  if ('response' in guard) return guard.response
 
   const commandBus = container.resolve('commandBus') as CommandBus
   const input: ToggleOutboundReactionInput = {
@@ -107,13 +117,8 @@ export async function DELETE(_req: Request, context: RouteContext): Promise<Resp
     },
   })
 
-  if (result.status === 'noop') {
-    return NextResponse.json({ error: result.reason }, { status: 404 })
-  }
-  if (result.status === 'not_owner') {
-    // The command's ownership gate runs before the remove branch too — surface it
-    // as 403 (matching the POST reactions route) rather than a false 204 success.
-    return NextResponse.json({ error: result.reason }, { status: 403 })
+  if (result.status === 'noop' || result.status === 'not_owner' || result.status === 'not_found') {
+    return reactionNotFoundResponse()
   }
   if (result.status === 'no_channel_link') {
     return NextResponse.json({ error: result.reason }, { status: 409 })
@@ -133,8 +138,7 @@ export const openApi = {
         { status: 204, description: 'Reaction removed' },
         { status: 400, description: 'Invalid params' },
         { status: 401, description: 'Unauthorized' },
-        { status: 403, description: 'Channel is owned by another user' },
-        { status: 404, description: 'Reaction not found or not owned by current user' },
+        { status: 404, description: 'Reaction not found or not accessible' },
         { status: 409, description: 'Message not channel-linked' },
       ],
     },

@@ -1,4 +1,5 @@
 {
+  "notifications.categories.record_locks": "Blokowanie rekordów",
   "record_locks.banner.active_users_label": "Aktywni użytkownicy",
   "record_locks.banner.contention_notice": "Inny użytkownik otworzył ten rekord, gdy go edytujesz. Przy zapisie może wystąpić konflikt.",
   "record_locks.banner.local_machine": "lokalna maszyna",

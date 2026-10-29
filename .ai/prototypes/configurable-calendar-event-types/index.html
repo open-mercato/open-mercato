@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="en" data-prototype-id="configurable-calendar-event-types">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Configurable Calendar Event Types — interactive backend prototype</title>
+<link rel="stylesheet" href="tokens.css" />
+<link rel="stylesheet" href="components.css" />
+<link rel="stylesheet" href="screens.css" />
+<link rel="stylesheet" href="prototype.css" />
+</head>
+<body>
+<svg width="0" height="0" class="sprite" aria-hidden="true"><defs>
+<symbol id="ic-home" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 22V12h6v10"/></symbol>
+<symbol id="ic-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol>
+<symbol id="ic-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5v14"/></symbol>
+<symbol id="ic-calendar" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></symbol>
+<symbol id="ic-settings" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.09a2 2 0 0 1-1-1.74v-.51a2 2 0 0 1 1-1.73l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></symbol>
+<symbol id="ic-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></symbol>
+<symbol id="ic-bell" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10 21h4"/></symbol>
+<symbol id="ic-edit" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4z"/></symbol>
+<symbol id="ic-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m20 6-11 11-5-5"/></symbol>
+<symbol id="ic-warn" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m21.7 18-8-14a2 2 0 0 0-3.5 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.7-3zM12 9v4M12 17h.01"/></symbol>
+<symbol id="ic-module" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m12 2 8 4.5v9L12 20l-8-4.5v-9zM12 11l8-4.5M12 11 4 6.5M12 11v9"/></symbol>
+<symbol id="ic-refresh" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 7h-5V2M4 17h5v5M20 7a9 9 0 0 0-15 3M4 17a9 9 0 0 0 15-3"/></symbol>
+<symbol id="ic-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></symbol>
+<symbol id="ic-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M6.3 17.7l-1.4 1.4M19.1 4.9l-1.4 1.4"/></symbol>
+</defs></svg>
+
+<div class="doc-toolbar">
+  <strong>Configurable calendar event types</strong>
+  <nav class="screen-nav" aria-label="Prototype screens">
+    <a href="#s1">1 Manager</a><a href="#s2">2 Configure</a><a href="#s3">3 Event editor</a>
+    <a href="#s4">4 Type switch</a><a href="#s5">5 Module panel</a><a href="#s6">6 States</a>
+  </nav>
+  <button class="btn btn-outline btn-sm" id="theme-toggle" type="button"><svg><use href="#ic-sun"/></svg> Theme</button>
+</div>
+
+<div class="doc">
+<header class="doc-head">
+  <h1>Configurable Calendar Event Types — review prototype</h1>
+  <p class="muted doc-summary">An end-to-end proposal for issue #6684, spanning the linked administrator-configuration and module-extension specs. All records are synthetic. Use Presentation mode for click-through review or Comment mode to pin feedback.</p>
+</header>
+
+<section class="screen" id="s1">
+  <div class="screen-meta"><h2>1. Activity type manager</h2><p>One authoritative settings surface shows behavior, provenance, and override state.</p><div class="screen-refs"><span class="ref">US-A1</span><span class="ref">TC-CET-001</span></div></div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/config/customers#customer-dictionary-activity-types</span></div>
+    <div class="app">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span><span>Open Mercato</span></div>
+        <div class="sidebar-search"><svg><use href="#ic-search"/></svg> Search settings</div>
+        <nav class="sidebar-nav"><div class="nav-group">Settings</div><div class="nav-items">
+          <span class="nav-item"><svg><use href="#ic-home"/></svg> General</span>
+          <span class="nav-item active"><svg><use href="#ic-settings"/></svg> Customers</span>
+          <a class="nav-item" href="#s3" data-goto="s3"><svg><use href="#ic-calendar"/></svg> Open calendar</a>
+        </div></nav>
+      </aside>
+      <div class="main">
+        <header class="topbar"><div class="crumbs"><span>Settings</span><svg><use href="#ic-chevron"/></svg><span class="here">Customers</span></div><div class="topbar-right"><button class="icon-btn" aria-label="Notifications"><svg><use href="#ic-bell"/></svg></button><span class="avatar">AN</span></div></header>
+        <main class="page">
+          <div class="page-head"><div><h1 class="t-page-title">Customer dictionaries</h1><p>Manage reusable CRM values and their form behavior.</p></div><button class="btn btn-primary" data-goto="s2"><svg><use href="#ic-plus"/></svg> New activity type</button></div>
+          <div class="tabs"><button>Statuses</button><button>Sources</button><button aria-selected="true">Activity types <span class="tab-count">8</span></button><button>Deal reasons</button></div>
+          <div class="alert alert-info"><svg><use href="#ic-settings"/></svg><div><div class="alert-title">This is the authoritative activity-type configuration</div><div class="t-hint">Calendar Customization links here instead of maintaining a second list.</div></div></div>
+          <div class="dt">
+            <div class="dt-head"><div class="dt-head-row"><div><h3 class="t-table-title">Activity types</h3><span class="t-hint">Core, custom, and module-provided definitions resolve together.</span></div><div class="dt-head-actions"><input class="input dt-search" aria-label="Search activity types" placeholder="Search activity types" /><button class="btn btn-outline">Source: All</button></div></div></div>
+            <div class="scroll-x"><table class="table">
+              <thead><tr><th>Type</th><th>Source</th><th>Base semantics</th><th>Form behavior</th><th>Status</th><th></th></tr></thead>
+              <tbody>
+                <tr><td><div class="type-cell"><span class="type-icon type-meeting"><svg><use href="#ic-calendar"/></svg></span><div><strong>Meeting</strong><div class="t-hint t-mono">meeting</div></div></div></td><td><span class="badge badge-neutral">Core</span></td><td>Meeting</td><td>End time · Attendees · Location · Recurrence</td><td><span class="badge badge-success"><span class="dot"></span>Selectable</span></td><td><button class="btn btn-ghost btn-sm" data-goto="s2"><svg><use href="#ic-edit"/></svg> Configure</button></td></tr>
+                <tr><td><div class="type-cell"><span class="type-icon type-visit"><svg><use href="#ic-module"/></svg></span><div><strong>Site visit</strong><div class="t-hint t-mono">site-visit</div></div></div></td><td><span class="badge badge-info">HRM module</span></td><td>Event</td><td>2 fieldsets · Custom panel</td><td><span class="badge badge-success"><span class="dot"></span>Selectable</span></td><td><button class="btn btn-ghost btn-sm" data-goto="s2"><svg><use href="#ic-edit"/></svg> Configure</button></td></tr>
+                <tr><td><div class="type-cell"><span class="type-icon type-custom"><svg><use href="#ic-calendar"/></svg></span><div><strong>Property inspection</strong><div class="t-hint t-mono">property-inspection</div></div></div></td><td><span class="badge badge-pink">Custom</span></td><td>Meeting</td><td>1 fieldset · No recurrence</td><td><span class="badge badge-success"><span class="dot"></span>Selectable</span></td><td><button class="btn btn-ghost btn-sm" data-goto="s2"><svg><use href="#ic-edit"/></svg> Configure</button></td></tr>
+                <tr><td><div class="type-cell"><span class="type-icon"><svg><use href="#ic-calendar"/></svg></span><div><strong>Note</strong><div class="t-hint t-mono">note</div></div></div></td><td><span class="badge badge-neutral">Core</span></td><td>Note</td><td>Description only</td><td><span class="badge badge-warning">Hidden by HRM</span></td><td><button class="btn btn-ghost btn-sm" data-goto="s6">View state</button></td></tr>
+              </tbody>
+            </table></div>
+            <div class="dt-foot"><span class="t-hint">4 shown · 8 effective definitions</span><button class="btn btn-outline btn-sm" data-goto="s6">Review edge states</button></div>
+          </div>
+        </main>
+        <footer class="app-foot"><span>v1.0.0</span><span>Configuration changes use optimistic locking</span></footer>
+      </div>
+    </div>
+  </div>
+  <div class="notes"><div class="note"><b>1</b><span>Deleting a local override reveals the lower-precedence core or module definition; it never rewrites interactions.</span></div><div class="note"><b>2</b><span>Source badges make last-wins registry and inheritance behavior observable.</span></div></div>
+</section>
+
+<section class="screen" id="s2">
+  <div class="screen-meta"><h2>2. Configure Site visit</h2><p>A bounded CrudForm edits appearance, core behavior, and existing custom-field fieldsets.</p><div class="screen-refs"><span class="ref">US-A1</span><span class="ref">Q3 bounded configuration</span></div></div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/config/customers#activity-type-site-visit</span></div>
+    <div class="app app-taller modal-scrim">
+      <aside class="sidebar muted-shell"><div class="sidebar-brand"><span class="brand-mark">OM</span> Open Mercato</div><nav class="sidebar-nav"><span class="nav-item active">Customers</span></nav></aside>
+      <div class="main muted-shell"><header class="topbar"><span>Customer dictionaries</span></header><main class="page"><div class="page-head"><h1 class="t-page-title">Activity types</h1></div></main></div>
+      <div class="modal modal-wide">
+        <div class="modal-head between"><div><h2 class="t-section">Configure Site visit</h2><p class="muted modal-subtitle">Local override of HRM module definition</p></div><span class="badge badge-info"><svg><use href="#ic-module"/></svg> HRM module</span></div>
+        <div class="modal-body">
+          <div class="alert alert-info"><svg><use href="#ic-module"/></svg><div><div class="alert-title">Module-provided type</div><div class="t-hint">Saving creates an organization override. Resetting reveals the HRM definition.</div></div></div>
+          <div class="config-grid">
+            <div class="form-group"><div class="title">Appearance</div><div class="form-grid form-grid-2">
+              <div class="field"><label>Label <span class="req">*</span></label><input class="input" value="Site visit" /></div>
+              <div class="field"><label>Stable key</label><input class="input t-mono" value="site-visit" disabled /></div>
+              <div class="field"><label>Base semantics</label><select class="select"><option>Event</option></select></div>
+              <div class="field"><label>Order</label><input class="input" value="35" /></div>
+            </div><div class="setting-row"><div><strong>Selectable for new events</strong><div class="t-hint">Historical records remain available if disabled.</div></div><button class="switch" aria-checked="true" aria-label="Selectable"></button></div></div>
+            <div class="form-group"><div class="title">Form behavior</div><div class="desc">Only supported core semantics can be configured.</div>
+              <div class="toggle-grid">
+                <label class="toggle-card"><button class="check" aria-checked="true"><svg><use href="#ic-check"/></svg></button><span><strong>End time</strong><small>Show start and end</small></span></label>
+                <label class="toggle-card"><button class="check" aria-checked="false"><svg><use href="#ic-check"/></svg></button><span><strong>All day</strong><small>Hide for site visits</small></span></label>
+                <label class="toggle-card"><button class="check" aria-checked="true"><svg><use href="#ic-check"/></svg></button><span><strong>Location</strong><small>Physical address</small></span></label>
+                <label class="toggle-card"><button class="check" aria-checked="true"><svg><use href="#ic-check"/></svg></button><span><strong>Attendees</strong><small>Customers and staff</small></span></label>
+                <label class="toggle-card"><button class="check" aria-checked="false"><svg><use href="#ic-check"/></svg></button><span><strong>Recurrence</strong><small>Not applicable</small></span></label>
+                <label class="toggle-card"><button class="check" aria-checked="true"><svg><use href="#ic-check"/></svg></button><span><strong>Priority</strong><small>Normal, high, urgent</small></span></label>
+              </div>
+            </div>
+            <div class="form-group"><div class="between"><div><div class="title">Custom-field fieldsets</div><div class="t-hint">For customers.customer_interaction</div></div><button class="btn btn-outline btn-sm"><svg><use href="#ic-plus"/></svg> Add fieldset</button></div>
+              <div class="fieldset-list"><div class="fieldset-row"><div><strong>Visit details</strong><div class="t-hint">Access instructions · Visit outcome</div></div><span class="badge badge-neutral">2 fields</span></div><div class="fieldset-row"><div><strong>Travel &amp; safety</strong><div class="t-hint">Travel time · Safety briefing</div></div><span class="badge badge-neutral">2 fields</span></div></div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-foot between"><button class="btn btn-ghost">Reset override</button><div class="row"><button class="btn btn-outline" data-goto="s1">Cancel</button><button class="btn btn-outline" data-goto="s3">Preview in editor</button><button class="btn btn-primary" data-goto="s1">Save changes <span class="kbd">⌘↵</span></button></div></div>
+      </div>
+    </div>
+  </div>
+  <div class="notes"><div class="note"><b>1</b><span>Appearance and behavior share one dictionary-row version and one undo record.</span></div><div class="note"><b>2</b><span>Arbitrary labels, validation code, and executable UI are intentionally out of scope.</span></div></div>
+</section>
+
+<section class="screen" id="s3">
+  <div class="screen-meta"><h2>3. Calendar event editor</h2><p>The configured Site visit definition drives the existing single CrudForm host.</p><div class="screen-refs"><span class="ref">US-A2</span><span class="ref">TC-CET-001</span></div></div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/calendar?new=1</span></div>
+    <div class="app app-taller drawer-scrim">
+      <aside class="sidebar muted-shell"><div class="sidebar-brand"><span class="brand-mark">OM</span> Open Mercato</div><nav class="sidebar-nav"><span class="nav-item active"><svg><use href="#ic-calendar"/></svg> Calendar</span></nav></aside>
+      <div class="main muted-shell"><header class="topbar"><span>September 2026</span></header><main class="page calendar-bg"><div class="calendar-grid"></div></main></div>
+      <div class="drawer editor-drawer">
+        <div class="drawer-head"><div class="grow"><h2 class="t-section">New calendar event</h2><p class="muted modal-subtitle">Fields adapt to the selected activity type.</p></div><button class="btn btn-ghost btn-sm" data-goto="s1">Close</button></div>
+        <div class="drawer-body">
+          <div class="field"><label>Activity type</label><div class="type-picker">
+            <button><span class="type-dot"></span>Meeting</button>
+            <button aria-selected="true"><span class="type-dot type-dot-visit"></span>Site visit</button>
+            <button data-goto="s4">Note</button>
+            <button>Task</button>
+          </div></div>
+          <div class="alert alert-info"><svg><use href="#ic-module"/></svg><div><div class="alert-title">Site visit · HRM module</div><div class="t-hint">Uses Event semantics with your organization override.</div></div></div>
+          <div class="form-group"><div class="title">Event details</div><div class="field"><label>Subject <span class="req">*</span></label><input class="input" value="Northwind warehouse walkthrough" /></div><div class="form-grid form-grid-2"><div class="field"><label>Starts</label><input class="input" value="Sep 30, 2026 · 10:00" /></div><div class="field"><label>Ends</label><input class="input" value="Sep 30, 2026 · 11:30" /></div></div><div class="field"><label>Location</label><input class="input" value="14 Harbour Lane, London" /></div><div class="field"><label>Attendees</label><div class="input row"><span class="avatar avatar-sm">NB</span><span>Nicole Barnes</span><span class="chip">Alex Morgan ×</span></div></div></div>
+          <div class="form-group"><div class="between"><div class="title">Visit details</div><span class="badge badge-neutral">Configured fieldset</span></div><div class="field"><label>Access instructions</label><textarea class="textarea">Check in at the north gate and ask for facilities.</textarea></div><div class="field"><label>Expected outcome</label><select class="select"><option>Requirements walkthrough</option></select></div></div>
+          <button class="btn btn-outline" data-goto="s5"><svg><use href="#ic-module"/></svg> Preview module-owned panel</button>
+        </div>
+        <div class="drawer-foot"><button class="btn btn-outline" data-goto="s1">Cancel</button><button class="btn btn-primary">Create event <span class="kbd">⌘↵</span></button></div>
+      </div>
+    </div>
+  </div>
+  <div class="notes"><div class="note"><b>1</b><span>Hidden values are omitted on create and rejected server-side if a custom client sends them.</span></div><div class="note"><b>2</b><span>The selected key site-visit round-trips unchanged.</span></div></div>
+</section>
+
+<section class="screen" id="s4">
+  <div class="screen-meta"><h2>4. Destructive type-switch confirmation</h2><p>A typed 409 and client preview converge on the same explicit list of values to clear.</p><div class="screen-refs"><span class="ref">US-A3</span><span class="ref">TC-CET-002</span></div></div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/calendar?edit=synthetic-visit</span></div>
+    <div class="app app-tall modal-scrim">
+      <aside class="sidebar muted-shell"><div class="sidebar-brand"><span class="brand-mark">OM</span> Open Mercato</div></aside><div class="main muted-shell"><header class="topbar"><span>Calendar</span></header><main class="page"></main></div>
+      <div class="modal confirm-modal">
+        <div class="modal-head"><div class="warning-icon"><svg><use href="#ic-warn"/></svg></div><h2 class="t-section confirm-title">Switch to Note?</h2><p class="muted">Note does not support several values already entered for this Site visit.</p></div>
+        <div class="modal-body">
+          <div class="clear-list"><div class="clear-row"><span>Location</span><strong>14 Harbour Lane, London</strong></div><div class="clear-row"><span>Attendees</span><strong>2 people</strong></div><div class="clear-row"><span>End time</span><strong>Sep 30 · 11:30</strong></div><div class="clear-row"><span>Visit details</span><strong>2 custom values</strong></div></div>
+          <div class="alert alert-warning"><svg><use href="#ic-warn"/></svg><div><div class="alert-title">These values will be cleared</div><div class="t-hint">You can undo the saved change from the interaction history.</div></div></div>
+        </div>
+        <div class="modal-foot"><button class="btn btn-outline" data-goto="s3">Keep Site visit</button><button class="btn btn-destructive" data-goto="s1">Clear values and switch</button></div>
+      </div>
+    </div>
+  </div>
+  <div class="notes"><div class="note"><b>1</b><span>A stale updatedAt conflict is checked before this dialog so users never confirm against obsolete data.</span></div><div class="note"><b>2</b><span>Cancel preserves the draft; confirm atomically snapshots and clears core plus custom fields.</span></div></div>
+</section>
+
+<section class="screen" id="s5">
+  <div class="screen-meta"><h2>5. Module-owned custom panel</h2><p>HRM wraps the standard panel while CrudForm keeps submission, locking, and injected fields.</p><div class="screen-refs"><span class="ref">US-B3</span><span class="ref">TC-CETE-003</span></div></div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/calendar?new=site-visit&amp;panel=hrm</span></div>
+    <div class="app app-taller drawer-scrim">
+      <aside class="sidebar muted-shell"><div class="sidebar-brand"><span class="brand-mark">OM</span> Open Mercato</div><nav class="sidebar-nav"><span class="nav-item active">Calendar</span></nav></aside>
+      <div class="main muted-shell"><header class="topbar"><span>Calendar</span></header><main class="page"></main></div>
+      <div class="drawer editor-drawer">
+        <div class="drawer-head"><div class="grow"><h2 class="t-section">New Site visit</h2><p class="muted modal-subtitle">Standard event editor with HRM extension</p></div><span class="badge badge-info"><svg><use href="#ic-module"/></svg> Wrapped by HRM</span></div>
+        <div class="drawer-body">
+          <div class="alert alert-info"><svg><use href="#ic-module"/></svg><div><div class="alert-title">Visit protocol panel</div><div class="t-hint">Provided by HRM through the shared event-type panel handle.</div></div></div>
+          <div class="form-group"><div class="title">Standard event fields</div><div class="field"><label>Subject</label><input class="input" value="Northwind warehouse walkthrough" /></div><div class="form-grid form-grid-2"><div class="field"><label>Starts</label><input class="input" value="Sep 30 · 10:00" /></div><div class="field"><label>Ends</label><input class="input" value="Sep 30 · 11:30" /></div></div></div>
+          <div class="module-panel"><div class="module-panel-head"><div class="row"><span class="type-icon type-visit"><svg><use href="#ic-module"/></svg></span><div><strong>HRM visit protocol</strong><div class="t-hint">section:customers.calendar-event-editor.type-panel</div></div></div><span class="badge badge-success">Extension active</span></div>
+            <div class="form-grid form-grid-2"><div class="field"><label>Assigned field team</label><select class="select"><option>Facilities East</option></select></div><div class="field"><label>Safety briefing</label><select class="select"><option>Required on arrival</option></select></div></div>
+            <div class="field"><label>Visit checklist</label><div class="checklist"><label><button class="check" aria-checked="true"><svg><use href="#ic-check"/></svg></button> Confirm access contact</label><label><button class="check" aria-checked="false"><svg><use href="#ic-check"/></svg></button> Bring protective equipment</label></div></div>
+          </div>
+          <div class="alert alert-warning"><svg><use href="#ic-lock"/></svg><div><div class="alert-title">Host safety remains active</div><div class="t-hint">The module panel can set sanctioned fields, but it receives no submit or raw network callback.</div></div></div>
+        </div>
+        <div class="drawer-foot"><button class="btn btn-outline" data-goto="s3">Back to default panel</button><button class="btn btn-primary">Create event <span class="kbd">⌘↵</span></button></div>
+      </div>
+    </div>
+  </div>
+  <div class="notes"><div class="note"><b>1</b><span>A render failure falls back to the default panel without discarding form values.</span></div><div class="note"><b>2</b><span>Durable module data belongs in custom fields or a module-owned extension entity linked by ID.</span></div></div>
+</section>
+
+<section class="screen" id="s6">
+  <div class="screen-meta"><h2>6. Permission and resilience states</h2><p>The implementation must make access, load failure, and empty custom state explicit.</p><div class="screen-refs"><span class="ref">Cross-cutting AC</span><span class="ref">Failure modes</span></div></div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">state inventory</span></div>
+    <div class="state-board">
+      <article class="state-card"><div class="state-icon"><svg><use href="#ic-lock"/></svg></div><h3>No settings access</h3><p class="muted">Only users with Customers settings management can configure activity types.</p><button class="btn btn-outline" disabled>New activity type</button></article>
+      <article class="state-card"><div class="state-icon state-icon-error"><svg><use href="#ic-warn"/></svg></div><h3>Configuration unavailable</h3><p class="muted">The shipped type catalog remains usable while the scoped configuration reloads.</p><button class="btn btn-outline"><svg><use href="#ic-refresh"/></svg> Retry</button></article>
+      <article class="state-card"><div class="state-icon"><svg><use href="#ic-calendar"/></svg></div><h3>No custom types yet</h3><p class="muted">The six core activity types are ready. Create a type for an organization-specific workflow.</p><button class="btn btn-primary" data-goto="s2"><svg><use href="#ic-plus"/></svg> New activity type</button></article>
+      <article class="state-card"><div class="state-icon state-icon-warning"><svg><use href="#ic-warn"/></svg></div><h3>Historical type unavailable</h3><p class="muted">Field visit legacy is no longer selectable. The stored key and values are preserved.</p><span class="badge badge-warning">Compatibility fallback</span></article>
+    </div>
+  </div>
+  <div class="notes"><div class="note"><b>1</b><span>Catalog errors never reuse another tenant or organization cache entry.</span></div><div class="note"><b>2</b><span>No-access users can still use calendar interactions when their existing interaction grants permit it.</span></div></div>
+</section>
+</div>
+
+<script>
+(function () {
+  var button = document.getElementById('theme-toggle');
+  button.addEventListener('click', function () {
+    document.documentElement.classList.toggle('dark');
+  });
+})();
+</script>
+<script src="comments.js"></script>
+<script src="prototype.js"></script>
+</body>
+</html>

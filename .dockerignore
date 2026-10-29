@@ -27,9 +27,8 @@ apps/mercato/.mercato/generated
 packages/core/generated
 
 # Local development files
-.env
-.env.local
-.env.*.local
+**/.env*
+!**/.env.example
 *.log
 tmp
 .queue

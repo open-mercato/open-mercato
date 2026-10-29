@@ -17,6 +17,7 @@
  */
 
 import { generateObject } from 'ai'
+import { z } from 'zod'
 import { AiModelFactoryError } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/model-factory'
 import * as llmProvider from '../lib/llmProvider'
 import { extractionOutputSchema } from '../data/validators'
@@ -102,6 +103,29 @@ describe('inbox_ops llmProvider shim', () => {
     expect(result.object).toBe(FAKE_EXTRACTION_OBJECT)
     expect(result.totalTokens).toBe(123)
     expect(result.modelWithProvider).toBe('anthropic/claude-haiku-fake')
+  })
+
+  it('opts extraction out of OpenAI strict structured outputs (#6287)', async () => {
+    const resolveModel = jest.fn(() => ({
+      model: { __kind: 'openai-model' },
+      modelId: 'gpt-5-mini',
+      providerId: 'openai',
+      source: 'env_default' as const,
+    }))
+    llmProvider.__inboxOpsLlmProviderInternal.createModelFactory = (() => ({
+      resolveModel,
+    })) as unknown as typeof originalFactory
+    llmProvider.__inboxOpsLlmProviderInternal.createContainer =
+      (() => ({})) as unknown as typeof originalContainer
+
+    await llmProvider.runExtractionWithConfiguredProvider({
+      systemPrompt: 's',
+      userPrompt: 'u',
+      timeoutMs: 1000,
+    })
+
+    const generateCall = (generateObject as jest.Mock).mock.calls[0][0]
+    expect(generateCall.providerOptions).toEqual({ openai: { strictJsonSchema: false } })
   })
 
   it('forwards the same model instance the factory produces', async () => {
@@ -213,6 +237,36 @@ describe('inbox_ops llmProvider shim', () => {
       if (prev === undefined) delete process.env.OM_AI_PROVIDER
       else process.env.OM_AI_PROVIDER = prev
     }
+  })
+})
+
+describe('extractionOutputSchema vs OpenAI strict structured outputs', () => {
+  type JsonSchemaNode = {
+    properties?: Record<string, JsonSchemaNode>
+    required?: string[]
+    items?: JsonSchemaNode
+    anyOf?: JsonSchemaNode[]
+  }
+
+  const collectNonRequiredKeys = (node: JsonSchemaNode, path: string): string[] => {
+    const own = node.properties
+      ? Object.keys(node.properties)
+          .filter((key) => !(node.required ?? []).includes(key))
+          .map((key) => `${path}.${key}`)
+      : []
+    const nested = [
+      ...Object.entries(node.properties ?? {}).flatMap(([key, child]) =>
+        collectNonRequiredKeys(child, `${path}.${key}`),
+      ),
+      ...(node.items ? collectNonRequiredKeys(node.items, `${path}[]`) : []),
+      ...(node.anyOf ?? []).flatMap((variant) => collectNonRequiredKeys(variant, path)),
+    ]
+    return [...own, ...nested]
+  }
+
+  it('declares optional keys, which is why extraction must keep strictJsonSchema disabled', () => {
+    const jsonSchema = z.toJSONSchema(extractionOutputSchema, { io: 'output' }) as JsonSchemaNode
+    expect(collectNonRequiredKeys(jsonSchema, '$')).toContain('$.proposedActions[].requiredFeature')
   })
 })
 

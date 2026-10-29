@@ -73,6 +73,17 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'auth', from: '@open-mercato/core' },
   { id: 'directory', from: '@open-mercato/core' },
   { id: 'customers', from: '@open-mercato/core' },
+  // customer_groups (Release 2 part 1 — .ai/specs/2026-08-14-customer-groups-and-b2b-terms.md
+  // §14 Phase 1-2). The package ships with the scaffold but stays disabled by default:
+  // enabling it here makes the scaffold ship the module's fact-sheet, which the
+  // `every module fact-sheet a scaffold ships is required by at least one catalog case`
+  // guard (packages/create-app/src/lib/module-facts-build.test.ts) then requires a
+  // dedicated AI-harness case for — authoring one means running the full
+  // om-refresh-standalone-harness / om-evolve-harness workflow (live agentic release-suite
+  // evaluation, a knowledge-change manifest, etc.), which is its own explicitly-authorized
+  // task, not a one-line edit. Enabling is therefore a maintainer call about that harness
+  // work, same as channel_discord's byte-budget call below.
+  // { id: 'customer_groups', from: '@open-mercato/core' },
   { id: 'perspectives', from: '@open-mercato/core' },
   { id: 'entities', from: '@open-mercato/core' },
   { id: 'configs', from: '@open-mercato/core' },
@@ -83,6 +94,45 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'sales', from: '@open-mercato/core' },
   { id: 'warranty_claims', from: '@open-mercato/core' },
   { id: 'wms', from: '@open-mercato/core' },
+  // Availability contract, policy module, and provider registry (Phase 1+2).
+  // Ships with the scaffold but stays commented out in the template until
+  // standalone-harness coverage lands: no case in
+  // packages/create-app/agentic/shared/ai/harness/cases.json lists
+  // .ai/guides/modules/availability/index.md in context.required, so enabling it
+  // here trips packages/create-app/src/lib/module-facts-build.test.ts ('every
+  // module fact-sheet a scaffold ships is required by at least one catalog
+  // case'). Run the om-refresh-standalone-harness skill to add that coverage,
+  // then enable it in the template.
+  // { id: 'availability', from: '@open-mercato/core' },
+  // Ecommerce store module (.ai/specs/SPEC-029-2026-02-17-ecommerce-storefront-module.md).
+  // Stays commented out with customer_groups, which it requires, and availability, which it
+  // integrates with when enabled, until
+  // the module-sets `commerce` preset (.ai/specs/2026-09-29-module-sets-for-standalone-apps.md
+  // Phase 3) enables the suite together with its standalone-harness coverage.
+  // { id: 'ecommerce', from: '@open-mercato/core' },
+  // Promotions engine (.ai/specs/SPEC-055-2026-02-23-promotions-module.md Phases 1-3):
+  // rule-condition trees, promotional codes, and cart effect resolution. Stays commented out
+  // with customer_groups and ecommerce above until
+  // the module-sets `commerce` preset (.ai/specs/2026-09-29-module-sets-for-standalone-apps.md
+  // Phase 3) enables the suite together with its standalone-harness coverage: no case in
+  // packages/create-app/agentic/shared/ai/harness/cases.json lists
+  // .ai/guides/modules/promotions/index.md in context.required, so enabling it here trips
+  // packages/create-app/src/lib/module-facts-build.test.ts ('every module fact-sheet a
+  // scaffold ships is required by at least one catalog case'). Run the
+  // om-refresh-standalone-harness skill to add that coverage, then enable it in the template.
+  // { id: 'promotions', from: '@open-mercato/core' },
+  // Channel-agnostic basket module (.ai/specs/2026-08-14-cart-module.md Phases 1-3): priced
+  // lines, promotions, totals, and token-bound public access. Requires catalog, sales,
+  // customer_groups and promotions (packages/core/src/modules/cart/index.ts's own
+  // `requires`). Stays commented out with customer_groups and promotions above until
+  // the module-sets `commerce` preset (.ai/specs/2026-09-29-module-sets-for-standalone-apps.md
+  // Phase 3) enables the suite together with its standalone-harness coverage: no case in
+  // packages/create-app/agentic/shared/ai/harness/cases.json lists
+  // .ai/guides/modules/cart/index.md in context.required, so enabling it here trips
+  // packages/create-app/src/lib/module-facts-build.test.ts ('every module fact-sheet a
+  // scaffold ships is required by at least one catalog case'). Run the
+  // om-refresh-standalone-harness skill to add that coverage, then enable it in the template.
+  // { id: 'cart', from: '@open-mercato/core' },
   { id: 'api_keys', from: '@open-mercato/core' },
   { id: 'devices', from: '@open-mercato/core' },
   { id: 'dictionaries', from: '@open-mercato/core' },
@@ -122,6 +172,12 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'checkout', from: '@open-mercato/checkout' },
   { id: 'documents', from: '@open-mercato/documents' },
   { id: 'gateway_stripe', from: '@open-mercato/gateway-stripe' },
+  // Tpay payment gateway (.ai/specs/2026-08-01-tpay-hosted-pln-payment-sessions.md).
+  // The package ships with the scaffold as an opt-in provider. Enabling it by
+  // default makes the scaffold ship the module's fact-sheet, which then needs an
+  // AI-harness evaluation case (packages/create-app/src/lib/module-facts-build.test.ts),
+  // so enabling is a maintainer call, not a one-line edit.
+  // { id: 'gateway_tpay', from: '@open-mercato/gateway-tpay' },
   // Per-user email channels for the Communications Hub (SPEC-045d / email
   // integration spec). Each provider package registers its `ChannelAdapter`
   // at import time via `setup.ts`; the hub picks them up by `providerKey`.
@@ -149,10 +205,34 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'sync_akeneo', from: '@open-mercato/sync-akeneo' },
   { id: 'tillio', from: '@open-mercato/tillio' },
   { id: 'shipping_carriers', from: '@open-mercato/core' },
+  // InPost shipping carrier provider for the shipping_carriers hub. It stays
+  // disabled in the scaffold for the same reason as forms below: a module enabled
+  // in the template ships a generated fact sheet that the standalone AI harness
+  // must cover with an evaluation case (src/lib/module-facts-build.test.ts), so
+  // enabling it is a maintainer call that follows
+  // .ai/skills/om-refresh-standalone-harness/SKILL.md. Install
+  // @open-mercato/carrier-inpost and uncomment the line to use it.
+  // { id: 'carrier_inpost', from: '@open-mercato/carrier-inpost' },
   { id: 'eudr', from: '@open-mercato/core' },
   { id: 'webhooks', from: '@open-mercato/webhooks' },
+  // Same-origin OTLP proxy for browser RUM spans; inert unless
+  // TELEMETRY_BROWSER_ENABLED is set alongside an active telemetry backend.
+  { id: 'telemetry', from: '@open-mercato/telemetry' },
   { id: 'customer_accounts', from: '@open-mercato/core' },
   { id: 'portal', from: '@open-mercato/core' },
+  // Audit-grade questionnaire/form primitive. The module ships with the scaffold
+  // but stays disabled by default, because enabling it here is a governed change
+  // rather than a one-line edit: a module enabled in the template gets a
+  // generated fact sheet, which `selectModuleFactSheets` then requires an
+  // evaluation case for in the standalone AI harness
+  // (src/lib/module-facts-build.test.ts, 'every default-controller module fact is
+  // exercised by the evaluation catalog'). Adding that case means re-pinning the
+  // catalog count in cases.schema.json, validators.json, two test literals and
+  // three docs, and re-running the live `harness:release` certification whose
+  // results those docs record — see
+  // .ai/skills/om-refresh-standalone-harness/SKILL.md step 9. Enabling is
+  // therefore a maintainer call that follows that skill.
+  // { id: 'forms', from: '@open-mercato/core' },
   { id: 'ratelimit_probe', from: '@app' },
 ]
 
