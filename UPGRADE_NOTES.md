@@ -42,6 +42,12 @@ directly must provide it with `tenantEncryptionService`. Missing dependencies or
 failed policy lookup skip the vector write. Restore policy access and reindex any
 records skipped during an outage.
 
+When `TENANT_DATA_ENCRYPTION=false`, the policy service cannot read live
+declarations. Person/company vector writes are therefore skipped entirely;
+fulltext/token indexing continues. Turning encryption off does not authorize
+exporting fields classified by retained encryption maps. Re-enable policy access
+and reindex to restore these vectors. Encryption-at-rest toggle behavior is unchanged.
+
 Deploy the fix to every app and indexing worker before rebuilding. Existing
 embeddings and stored presenters are **not automatically removed** by this code
 change. For every affected tenant and organization scope:

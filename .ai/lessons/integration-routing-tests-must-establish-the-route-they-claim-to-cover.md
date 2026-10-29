@@ -16,3 +16,5 @@ topics: ["async-indexing","polling","query-index","route-coverage","embedding-pr
 **Applies to**: search indexing, background projections, cache-backed routing, async event handlers, and integration tests that claim to cover a specific execution path.
 
 **Search privacy correction (#7826)**: Passing by-ID provider-boundary tests did not cover the exported bulk API, which skipped safe source construction. Exercise every supported single/batch/bulk entry point and inject source errors, null/empty outputs, scoped encryption additions, and policy lookup failures. Capture both embedding-provider inputs and storage writes; a successful source-builder unit test cannot prove that every consuming path uses it.
+
+Use the real policy service in boundary regressions, with fake persistence/KMS/provider dependencies. A mocked getter returning an empty list hid that the real encryption toggle short-circuited policy reads; successful resolution did not prove that declarations were available. Cover feature-toggle and runtime-health states separately.

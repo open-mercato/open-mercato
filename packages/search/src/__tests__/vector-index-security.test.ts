@@ -3,7 +3,8 @@ import type { EmbeddingService } from '../vector/services/embedding'
 import type { VectorDriver, VectorDriverDocument } from '../vector/types'
 import type { VectorModuleConfig } from '@open-mercato/shared/modules/vector'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
-import type { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
+import { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import { searchConfig as customersSearchConfig } from '@open-mercato/core/modules/customers/search'
 import { searchConfig as accountsSearchConfig } from '@open-mercato/core/modules/customer_accounts/search'
 import { SearchIndexer } from '../indexer/search-indexer'
@@ -59,6 +60,7 @@ function createCustomerIndexer(args: {
   embeddingService: EmbeddingService
   queryEngine: QueryEngine
   encryptionService?: Pick<TenantDataEncryptionService, 'getEncryptedFieldNames'>
+  otherStrategy?: SearchStrategy
 }): SearchIndexer {
   const container = createContainer()
   container.register({
@@ -68,6 +70,7 @@ function createCustomerIndexer(args: {
     tenantEncryptionService: asValue(args.encryptionService ?? { getEncryptedFieldNames: async () => [] }),
   })
   registerSearchModule(container, { skipTokens: true, skipFulltext: true, moduleConfigs: [customersSearchConfig, accountsSearchConfig] })
+  if (args.otherStrategy) container.resolve<SearchService>('searchService').registerStrategy(args.otherStrategy)
   return container.resolve<SearchIndexer>('searchIndexer')
 }
 
@@ -171,6 +174,54 @@ describe('VectorIndexService default source field protection (issue #2716)', () 
 })
 
 describe('Customer vector privacy at provider and storage boundaries (issue #7826)', () => {
+  it.each(['true', 'false'].flatMap((toggle) => ['single', 'by-id', 'batch', 'bulk'].map((mode) => ({ toggle, mode }))))(
+    'protects real-service live declarations with encryption $toggle through $mode indexing', async ({ toggle, mode }) => {
+      const previousToggle = process.env.TENANT_DATA_ENCRYPTION
+      try {
+        process.env.TENANT_DATA_ENCRYPTION = 'true'
+        const execute = jest.fn(async (_sql: string, params?: readonly unknown[]) => [{
+          entity_id: params?.[0], tenant_id: 'tenant-privacy', organization_id: 'org-privacy',
+          fields_json: [{ field: params?.[0] === 'customers:customer_company_profile' ? 'size_bucket' : 'status' }],
+        }])
+        const encryptionService = new TenantDataEncryptionService({ execute } as unknown as EntityManager, {
+          kms: { isHealthy: () => false, getTenantDek: async () => null, createTenantDek: async () => null },
+        })
+        await expect(encryptionService.getEncryptedFieldNames('customers:customer_company_profile', 'tenant-privacy', 'org-privacy', { ignoreRuntimeHealth: true })).resolves.toEqual(['size_bucket'])
+        execute.mockClear()
+        process.env.TENANT_DATA_ENCRYPTION = toggle
+        const driver = createDriver()
+        const captured: CapturedEmbeddingInput = { value: null }
+        const otherIndex = jest.fn(async () => {})
+        const record = { id: 'real-policy-company', entity_id: 'real-policy-entity', size_bucket: 'private-size' }
+        const indexer = createCustomerIndexer({
+          driver, embeddingService: createEmbeddingService(captured), encryptionService,
+          queryEngine: { query: async (entityId: string) => ({ items: [entityId === 'customers:customer_entity' ? { id: 'real-policy-entity', status: 'private-status' } : record], total: 1 }) } as QueryEngine,
+          otherStrategy: { id: 'fulltext', name: 'Fake fulltext', priority: 1, ensureReady: async () => {}, isAvailable: async () => true, search: async () => [], index: otherIndex, delete: async () => {} },
+        })
+        const params = { entityId: 'customers:customer_company_profile', recordId: record.id, tenantId: 'tenant-privacy', organizationId: 'org-privacy' }
+        if (mode === 'single') await indexer.indexRecord({ ...params, record })
+        if (mode === 'by-id') await indexer.indexRecordById(params)
+        if (mode === 'batch') await indexer.indexRecordsById({ ...params, items: [params] })
+        if (mode === 'bulk') await indexer.bulkIndexRecords([{ ...params, record }])
+        if (toggle === 'false') {
+          expect(captured.value).toBeNull()
+          expect(driver.upsertCalls).toHaveLength(0)
+          expect(execute).not.toHaveBeenCalled()
+        } else {
+          expect(captured.value).not.toBeNull()
+          expect(driver.upsertCalls).toHaveLength(1)
+          expect(JSON.stringify(captured.value)).not.toContain('private-')
+          expect(execute).toHaveBeenCalled()
+          for (const [, policyParams] of execute.mock.calls) expect(policyParams).toEqual(expect.arrayContaining(['tenant-privacy', 'org-privacy']))
+        }
+        expect(otherIndex).toHaveBeenCalledTimes(1)
+      } finally {
+        if (previousToggle === undefined) delete process.env.TENANT_DATA_ENCRYPTION
+        else process.env.TENANT_DATA_ENCRYPTION = previousToggle
+      }
+    },
+  )
+
   it.each(['protected-scope', 'other-scope', 'tenant-wide', 'related-scope'])('applies live profile and related-entity declarations for the trusted %s', async (scope) => {
     const driver = createDriver()
     const captured: CapturedEmbeddingInput = { value: null }

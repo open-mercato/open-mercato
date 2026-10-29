@@ -12,6 +12,7 @@ import { CUSTOMER_INTERACTION_TASK_SOURCE, EXAMPLE_TODO_SOURCE } from './lib/int
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { defaultEncryptionMaps } from './encryption'
 import type { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
+import { isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encryption/toggles'
 
 const logger = createLogger('customers')
 
@@ -421,6 +422,9 @@ function normalizeSearchFieldKey(key: string): string {
 }
 
 async function resolveProfileEncryptedFields(ctx: SearchContext, kind: CustomerProfileKind, entity: Record<string, unknown> | null): Promise<string[]> {
+  if (!isTenantDataEncryptionEnabled()) {
+    throw new Error('[internal] Customer vector indexing requires available encryption declarations')
+  }
   const container = ctx.container as { resolve?: (name: string) => unknown } | undefined
   if (typeof container?.resolve !== 'function') {
     throw new Error('[internal] Customer search encryption policy container is unavailable')

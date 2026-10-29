@@ -89,8 +89,11 @@ profile and related customer entity, union it with module defaults, and normaliz
 field aliases before exclusion. Search DI supplies the existing `container` context
 to source callbacks. Tenant-wide indexing also unions organization declarations
 from the loaded profile/related rows; row scope never replaces the trusted tenant
-or weakens the context's exclusions. A missing policy dependency or failed lookup skips vector
-writes. Related customer contact details and arbitrary record/custom-field fallback
+or weakens the context's exclusions. A missing policy dependency or failed lookup
+skips vector writes. Person/company vector writes are also skipped when `TENANT_DATA_ENCRYPTION`
+is disabled, because the real policy service returns no declarations in that state.
+Encryption-at-rest behavior is unchanged; other search strategies continue.
+Related customer contact details and arbitrary record/custom-field fallback
 serialization are excluded. Customer-account source text uses the account ID;
 email stays hash-only. Presenters retain permitted display names but no contact
 email or phone, and source checksums use only the resulting safe source/presenter.
@@ -105,6 +108,8 @@ with single-record indexing. Configured source errors, null, and empty text skip
 vector embedding rather than activating raw-field fallback; other strategies still
 run. Provider-boundary tests exercise these cases through single, by-ID, queued
 batch, and bulk paths, plus scoped live encryption additions and lookup failures.
+Real-service regressions cover the encryption toggle both on and off, with an
+unhealthy fake KMS, active scoped declarations, and captured provider/write boundaries.
 Read-time presenter fallback also applies `fieldPolicy` after formatter failures.
 Direct builder tests
 cover aliases, sparse records, policy precedence, and nested values. Legacy service
@@ -283,6 +288,8 @@ Memoization is per engine instance; engines are constructed per request (`create
 - **Phase 4 (when implemented)**: `yarn workspace @open-mercato/shared test` + `yarn workspace @open-mercato/core test`; the four probe-count tests from #4723 pass without modification; new `BasicQueryEngine` parity and memoization tests as listed in B.4; no integration tests required (no API/DB/UI surface changes — same exemption #4723 claims).
 
 ## Changelog
+
+- 2026-10-29 — Made person/company vector sources fail closed when the encryption toggle disables declaration lookup; added real-service coverage for active maps across four indexing entry points and documented the skipped-vector behavior.
 
 - 2026-10-28 — Closed independent-review gaps for #7826: scoped live encryption declarations, config-aware bulk sources, fail-closed source errors/null/empty text, and protected read-time presenter fallback.
 
