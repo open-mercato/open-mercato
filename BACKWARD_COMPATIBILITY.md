@@ -603,18 +603,6 @@ Spec: [`.ai/specs/2026-09-08-error-reporting-policy.md`](.ai/specs/2026-09-08-er
 
 **Migration path for existing modules**: none for first-party code. Third-party modules must not register an integration or bundle id that ends in `__oauth_grant` (see `UPGRADE_NOTES.md`).
 
-## Scoped Attachment Byte Cache Policy (2026-10-29)
+## #7220
 
-Issue [#7220](https://github.com/open-mercato/open-mercato/issues/7220) intentionally
-tightens HTTP cache headers without changing attachment authorization:
-
-| Surface | Change | Classification |
-|---------|--------|----------------|
-| File/image byte response cache policy | Scoped records in public partitions now return `private, max-age=60`, including superadmin reads. Public caching requires the existing anonymous access check to succeed | Intentional security hardening; downstream shared caches must honor origin policy |
-| Global public / private partition bytes | Anonymous global public files retain `public, max-age=86400`; images retain `public, max-age=3600`. Private partitions retain `private, max-age=60` | Behavior-preserving |
-| URLs, methods, response bodies/formats, auth/owner policy, types, schema, events, DI keys, ACL features | Unchanged | No contract shape change |
-
-**Operator action:** purge old scoped file and image responses, including every
-URL/query variant, from shared caches on deployment. The corrected origin header
-does not invalidate existing public copies. See `UPGRADE_NOTES.md` for rollout
-guidance. No compatibility bridge retains the unsafe cache policy.
+[Cache fix](UPGRADE_NOTES.md)
