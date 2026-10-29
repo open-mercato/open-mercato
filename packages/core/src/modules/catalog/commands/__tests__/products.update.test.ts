@@ -464,4 +464,51 @@ describe('catalog.products.update', () => {
     expect(em.remove).not.toHaveBeenCalledWith(categoryAssignment)
     expect(em.remove).not.toHaveBeenCalledWith(tagAssignment)
   })
+
+  it('invalidates the offers list cache alias on update so a stale offers list is not served after the write (#7721)', async () => {
+    let updateCommand: unknown
+    jest.isolateModules(() => {
+      require('../products')
+      updateCommand = registerCommand.mock.calls.find(([cmd]) => cmd.id === 'catalog.products.update')?.[0]
+    })
+    expect(updateCommand).toBeDefined()
+
+    const baseSnapshot = {
+      id: '11111111-1111-4111-8111-111111111111',
+      organizationId: '22222222-2222-4222-8222-222222222222',
+      tenantId: '33333333-3333-4333-8333-333333333333',
+      gtuCodes: [],
+      offers: [],
+      tags: [],
+      categoryIds: [],
+      custom: null,
+    }
+
+    const log = await (
+      updateCommand as {
+        buildLog: (args: {
+          snapshots: { before?: unknown; after?: unknown }
+        }) => Promise<{ context?: { cacheAliases?: string[] } } | null>
+      }
+    ).buildLog({
+      snapshots: {
+        before: baseSnapshot,
+        after: {
+          ...baseSnapshot,
+          offers: [
+            {
+              id: 'offer-1',
+              channelId: 'channel-1',
+              title: 'New offer',
+              isActive: true,
+            },
+          ],
+        },
+      },
+    })
+
+    expect(log?.context?.cacheAliases).toEqual(
+      expect.arrayContaining(['catalog.offer']),
+    )
+  })
 })

@@ -6,6 +6,7 @@ const parseUploadBody = jest.fn()
 const enforcePublicRateLimit = jest.fn(async () => null)
 const readUpload = jest.fn()
 const ensureSnapshot = jest.fn()
+const readSnapshotForViewer = jest.fn()
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: (...args: unknown[]) => createRequestContainer(...args),
@@ -56,7 +57,7 @@ describe('Forms public attachment routes', () => {
       resolve: (name: string) => {
         if (name === 'em') return {}
         if (name === 'formsAttachmentService') return { readUpload, storeUpload: jest.fn() }
-        if (name === 'formsPdfSnapshotService') return { ensureSnapshot }
+        if (name === 'formsPdfSnapshotService') return { ensureSnapshot, readSnapshotForViewer }
         throw new Error(`[internal] unexpected dependency ${name}`)
       },
     })
@@ -98,7 +99,8 @@ describe('Forms public attachment routes', () => {
 
   it('sets the same download policy on generated PDF snapshots', async () => {
     resolveRuntimePrincipal.mockResolvedValue(principal)
-    ensureSnapshot.mockResolvedValue({
+    readSnapshotForViewer.mockResolvedValue({
+      attachmentId: null,
       filename: 'submission.pdf',
       contentType: 'application/pdf',
       bytes: Buffer.from('%PDF-test'),

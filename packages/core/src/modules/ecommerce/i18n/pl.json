@@ -91,7 +91,7 @@
   "ecommerce.backend.store.channels.edit.title": "Edytuj powiązanie kanału",
   "ecommerce.backend.store.channels.empty.description": "Powiąż kanał sprzedaży i ustaw go jako domyślny. Bez domyślnego powiązania kanału sklep nie może obsługiwać żądań.",
   "ecommerce.backend.store.channels.empty.title": "Nie powiązano jeszcze kanału sprzedaży",
-  "ecommerce.backend.store.channels.entityPlural": "powiązania kanałów",
+  "ecommerce.backend.store.channels.entityPlural": "powiązań kanałów",
   "ecommerce.backend.store.channels.errors.create": "Nie udało się dodać powiązania kanału.",
   "ecommerce.backend.store.channels.errors.delete": "Nie udało się usunąć powiązania kanału.",
   "ecommerce.backend.store.channels.errors.load": "Nie udało się wczytać powiązań kanałów.",
@@ -160,7 +160,7 @@
   "ecommerce.backend.store.domains.edit.title": "Edytuj powiązanie domeny",
   "ecommerce.backend.store.domains.empty.description": "Powiąż aktywną domenę, opcjonalnie z prefiksem ścieżki, aby sklep był dostępny.",
   "ecommerce.backend.store.domains.empty.title": "Brak powiązanych domen",
-  "ecommerce.backend.store.domains.entityPlural": "powiązania domen",
+  "ecommerce.backend.store.domains.entityPlural": "powiązań domen",
   "ecommerce.backend.store.domains.errors.create": "Nie udało się dodać powiązania domeny.",
   "ecommerce.backend.store.domains.errors.delete": "Nie udało się usunąć powiązania domeny.",
   "ecommerce.backend.store.domains.errors.load": "Nie udało się wczytać powiązań domen.",
@@ -337,5 +337,6 @@
   "ecommerce.validation.pathPrefixInvalid": "Prefiks ścieżki może zawierać tylko małe litery, cyfry, myślniki i ukośniki, np. /shop.",
   "ecommerce.validation.slugInvalid": "Slug może zawierać tylko małe litery, cyfry i pojedyncze myślniki między nimi.",
   "ecommerce.validation.urlInvalid": "Podaj prawidłowy adres URL http(s) lub ścieżkę zaczynającą się od /.",
-  "notifications.categories.ecommerce": "E-commerce"
+  "notifications.categories.ecommerce": "E-commerce",
+  "search.entityType.ecommerce.ecommerce_store": "Sklep"
 }
