@@ -47,10 +47,18 @@ export type ReceiveAsnLineTarget = {
   expectedQty: number
   receivedQty: number
   lotNumber?: string | null
+  serialNumbers?: string[] | null
   targetStagingLocationId?: string | null
   variantLabel?: string | null
   updatedAt?: string | null
   asnUpdatedAt?: string | null
+}
+
+export function parseReceiveSerialNumbers(value: string): string[] {
+  return value
+    .split(/[\n,]/)
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0)
 }
 
 type ReceiveAsnLineDialogProps = {
@@ -115,6 +123,7 @@ export function ReceiveAsnLineDialog({
   const [qcStatus, setQcStatus] = React.useState<'passed' | 'failed'>('passed')
   const [targetStagingLocationId, setTargetStagingLocationId] = React.useState('')
   const [lotNumber, setLotNumber] = React.useState('')
+  const [serialNumbersText, setSerialNumbersText] = React.useState('')
   const [rejectionReason, setRejectionReason] = React.useState('')
   const [fieldErrors, setFieldErrors] = React.useState<Record<string, string>>({})
   const [submitting, setSubmitting] = React.useState(false)
@@ -134,6 +143,7 @@ export function ReceiveAsnLineDialog({
     setQcStatus('passed')
     setTargetStagingLocationId(line.targetStagingLocationId?.trim() || '')
     setLotNumber(line.lotNumber?.trim() || '')
+    setSerialNumbersText((line.serialNumbers ?? []).map((value) => value.trim()).filter(Boolean).join('\n'))
     setRejectionReason('')
     setFieldErrors({})
     setSubmitting(false)
@@ -164,14 +174,31 @@ export function ReceiveAsnLineDialog({
         lotNumber: lotNumber.trim() || undefined,
         rejectionReason: rejectionReason.trim() || undefined,
       })
+      const serialNumbers = parseReceiveSerialNumbers(serialNumbersText)
+      const nextErrors: Record<string, string> = {}
       if (!parsed.success) {
-        const nextErrors: Record<string, string> = {}
         for (const issue of parsed.error.issues) {
           const key = String(issue.path[0] ?? 'form')
           if (!nextErrors[key]) {
             nextErrors[key] = t(issue.message, issue.message)
           }
         }
+      }
+      if (serialNumbers.length > 0) {
+        const uniqueSerials = new Set(serialNumbers)
+        if (uniqueSerials.size !== serialNumbers.length) {
+          nextErrors.serialNumbers = t(
+            'wms.backend.asns.receive.errors.duplicateSerial',
+            'Duplicate serial numbers are not allowed.',
+          )
+        } else if (parsed.success && serialNumbers.length !== parsed.data.receivedQty) {
+          nextErrors.serialNumbers = t(
+            'wms.backend.asns.receive.errors.serialCount',
+            'Serial count must match the received quantity.',
+          )
+        }
+      }
+      if (!parsed.success || nextErrors.serialNumbers) {
         setFieldErrors(nextErrors)
         return
       }
@@ -192,6 +219,7 @@ export function ReceiveAsnLineDialog({
         payload.targetStagingLocationId = parsed.data.targetStagingLocationId
       }
       if (parsed.data.lotNumber) payload.lotNumber = parsed.data.lotNumber
+      if (serialNumbers.length > 0) payload.serialNumbers = serialNumbers
       if (parsed.data.rejectionReason) payload.rejectionReason = parsed.data.rejectionReason
 
       try {
@@ -304,6 +332,7 @@ export function ReceiveAsnLineDialog({
       receivedQty,
       rejectionReason,
       runMutation,
+      serialNumbersText,
       t,
       targetStagingLocationId,
     ],
@@ -430,6 +459,27 @@ export function ReceiveAsnLineDialog({
                 />
               </FormField>
             )}
+
+            <FormField
+              label={t('wms.backend.asns.receive.form.serialNumbers', 'Serial numbers')}
+              error={fieldErrors.serialNumbers}
+              description={t(
+                'wms.backend.asns.receive.form.serialNumbersHint',
+                'One per line. The count must match the received quantity.',
+              )}
+            >
+              <Textarea
+                value={serialNumbersText}
+                onChange={(event) => setSerialNumbersText(event.target.value)}
+                disabled={submitting}
+                rows={3}
+                placeholder={t(
+                  'wms.backend.asns.receive.form.serialNumbersPlaceholder',
+                  'Enter one serial number per line',
+                )}
+                data-testid="receive-asn-serials"
+              />
+            </FormField>
 
             <FormField
               label={t('wms.backend.asns.receive.form.lotNumber', 'Lot number')}

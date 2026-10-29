@@ -18,6 +18,14 @@ jest.mock('../../lib/wmsIntegrationToggles', () => ({
   resolveWmsIntegrationToggleEnabled: jest.fn(),
 }))
 
+const mockReportError = jest.fn()
+
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  getTelemetryRuntime: () => ({
+    reportError: (...args: unknown[]) => mockReportError(...args),
+  }),
+}))
+
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveWmsIntegrationToggleEnabled } from '../../lib/wmsIntegrationToggles'
 import handle, { buildProcurementGoodsReceiptSourceKey } from '../procurement-goods-receipt-created'
@@ -32,6 +40,7 @@ describe('procurement-goods-receipt-created subscriber', () => {
     findOneWithDecryptionMock.mockReset()
     resolveToggleMock.mockReset()
     execute.mockClear()
+    mockReportError.mockClear()
   })
 
   function createCtx() {
@@ -188,6 +197,34 @@ describe('procurement-goods-receipt-created subscriber', () => {
         input: expect.objectContaining({ sourceKey }),
       }),
     )
+    expect(mockReportError).not.toHaveBeenCalled()
+  })
+
+  it('rethrows a transient create failure and succeeds once on redelivery', async () => {
+    resolveToggleMock.mockResolvedValue(true)
+    findOneWithDecryptionMock.mockResolvedValue(null)
+    const transient = new Error('connection reset')
+    execute.mockRejectedValueOnce(transient).mockResolvedValueOnce({ result: { asnId: 'asn-1' } })
+    const payload = {
+      id: goodsReceiptId,
+      warehouseId: '11111111-1111-4111-8111-111111111111',
+      tenantId: '22222222-2222-4222-8222-222222222222',
+      organizationId: '33333333-3333-4333-8333-333333333333',
+    }
+
+    await expect(handle(payload, createCtx())).rejects.toBe(transient)
+    expect(mockReportError).toHaveBeenCalledWith(
+      transient,
+      expect.objectContaining({
+        module: 'wms',
+        code: 'wms.procurement_goods_receipt_asn_create_failed',
+        attributes: { goodsReceiptId },
+      }),
+    )
+
+    await expect(handle(payload, createCtx())).resolves.toBeUndefined()
+    expect(execute).toHaveBeenCalledTimes(2)
+    expect(mockReportError).toHaveBeenCalledTimes(1)
   })
 
   it('uses free-form referenceNumber for display but still keys uniqueness on goods receipt id', async () => {

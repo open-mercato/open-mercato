@@ -2,7 +2,7 @@
 
 import { LockMode } from '@mikro-orm/core'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
-import { PutawayTask } from '../../data/entities'
+import { PutawayTask, WarehouseLocation } from '../../data/entities'
 import { emitWmsEvent } from '../../events'
 import { buildPutawayCompleteReferenceId } from '../../lib/putaway'
 
@@ -170,6 +170,74 @@ describe('wms.putaway-tasks.complete event emit', () => {
     expect(buildPutawayCompleteReferenceId(TASK_ID)).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
     )
+  })
+
+  it('completes one serial task and retries without a second move', async () => {
+    const em = createEm()
+    const ctx = createCtx(em)
+    const task = openTask({ quantity: '1', serialNumber: 'S1', status: 'open' })
+    const sibling = openTask({
+      id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      quantity: '1',
+      serialNumber: 'S2',
+      status: 'open',
+    })
+
+    findOneWithDecryption.mockImplementation(async (_em, entity, where) => {
+      if (entity === PutawayTask) return task
+      if (entity === WarehouseLocation) {
+        const id = String((where as { id?: string }).id)
+        return {
+          id,
+          tenantId: TENANT,
+          organizationId: ORG,
+          warehouse: { id: '55555555-5555-4555-8555-555555555555' },
+          isActive: true,
+          type: id === task.sourceLocationId ? 'staging' : 'bin',
+        }
+      }
+      return null
+    })
+    findPutawayCompleteMovementByReference.mockResolvedValue(null)
+    applyInventoryMoveInTransaction.mockResolvedValue({
+      movementId: MOVEMENT_ID,
+      warehouseId: '55555555-5555-4555-8555-555555555555',
+      catalogVariantId: task.catalogVariantId,
+      quantity: 1,
+      tenantId: TENANT,
+      organizationId: ORG,
+      movementEntity: { id: MOVEMENT_ID, quantity: '1' },
+      balances: [],
+      idempotentReplay: false,
+    })
+
+    const handler = commandRegistry.get('wms.putaway-tasks.complete')
+    const input = {
+      organizationId: ORG,
+      tenantId: TENANT,
+      id: TASK_ID,
+      targetLocationId: TARGET_LOC,
+      confirmedQuantity: 1,
+      performedBy: USER_ID,
+    }
+    const result = await handler!.execute(input, ctx as never)
+
+    expect(result).toEqual({ taskId: TASK_ID, movementId: MOVEMENT_ID })
+    expect(applyInventoryMoveInTransaction).toHaveBeenCalledWith(
+      em,
+      expect.anything(),
+      expect.objectContaining({ serialNumber: 'S1', quantity: 1 }),
+    )
+    expect(task.status).toBe('done')
+    expect(sibling.status).toBe('open')
+
+    findPutawayCompleteMovementByReference.mockResolvedValue({
+      id: MOVEMENT_ID,
+      quantity: '1',
+      catalogVariantId: task.catalogVariantId,
+    })
+    await handler!.execute(input, ctx as never)
+    expect(applyInventoryMoveInTransaction).toHaveBeenCalledTimes(1)
   })
 
   it('refuses operator complete when task is not assigned to them', async () => {

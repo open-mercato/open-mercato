@@ -10,6 +10,7 @@ export type AsnReceivingLineRow = {
   expected_qty?: string | number | null
   received_qty?: string | number | null
   lot_number?: string | null
+  serial_numbers?: string[] | null
   qc_status?: string | null
   target_staging_location_id?: string | null
   rejection_reason?: string | null

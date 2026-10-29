@@ -3,7 +3,7 @@
 import { LockMode } from '@mikro-orm/core'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { PutawayTask } from '../../data/entities'
+import { InventoryBalance, PutawayTask, WarehouseLocation } from '../../data/entities'
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: async () => ({
@@ -554,6 +554,183 @@ describe('wms.putaway-tasks.update undo', () => {
       expect(em.flush).not.toHaveBeenCalled()
     },
   )
+})
+
+describe('wms.putaway-tasks.update source-bucket capacity', () => {
+  const LOC_A = '66666666-6666-4666-8666-666666666666'
+  const LOC_B = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
+  const WAREHOUSE_ID = '55555555-5555-4555-8555-555555555555'
+  const VARIANT_A = '77777777-7777-4777-8777-777777777777'
+  const VARIANT_B = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
+  const LOT_B = 'ffffffff-ffff-4fff-8fff-ffffffffffff'
+
+  beforeAll(async () => {
+    await import('../putaway')
+  })
+
+  beforeEach(() => {
+    findOneWithDecryption.mockReset()
+    findWithDecryption.mockReset()
+  })
+
+  function location(id: string) {
+    return {
+      id,
+      tenantId: TENANT,
+      organizationId: ORG,
+      warehouse: { id: WAREHOUSE_ID },
+      isActive: true,
+      type: 'bin',
+    }
+  }
+
+  function balance(onHand: string) {
+    return {
+      tenantId: TENANT,
+      organizationId: ORG,
+      quantityOnHand: onHand,
+      quantityReserved: '0',
+      quantityAllocated: '0',
+    }
+  }
+
+  function peer(quantity: string) {
+    return { id: 'peer-task', quantity }
+  }
+
+  function beforeSnapshot(overrides: Record<string, unknown> = {}) {
+    return {
+      id: TASK_ID,
+      organizationId: ORG,
+      tenantId: TENANT,
+      warehouseId: WAREHOUSE_ID,
+      sourceLocationId: LOC_A,
+      targetLocationId: null,
+      catalogVariantId: VARIANT_A,
+      lotId: null,
+      quantity: '5',
+      status: 'open',
+      assignedTo: null,
+      priority: 5,
+      metadata: null,
+      createdAt: '2026-08-01T00:00:00.000Z',
+      updatedAt: '2026-08-01T00:00:00.000Z',
+      ...overrides,
+    }
+  }
+
+  it.each([
+    ['source location', { sourceLocationId: LOC_B }],
+    ['variant', { catalogVariantId: VARIANT_B }],
+    ['lot', { lotId: LOT_B }],
+  ] as const)('rejects an unchanged quantity when the %s bucket is fully committed', async (_label, patch) => {
+    const em = createEm()
+    const ctx = createCtx(em)
+    const task = openTask({ sourceLocationId: LOC_A, quantity: '5' })
+    findOneWithDecryption.mockImplementation(async (_em, entity, where, options) => {
+      if (entity === PutawayTask) return task
+      if (entity === WarehouseLocation) return location(String((where as { id?: string }).id))
+      if (entity === InventoryBalance) {
+        expect(options).toEqual({ lockMode: LockMode.PESSIMISTIC_WRITE })
+        expect((where as { serialNumber?: string | null }).serialNumber).toBeNull()
+        return balance('5')
+      }
+      return null
+    })
+    findWithDecryption.mockResolvedValue([peer('5')])
+
+    const handler = commandRegistry.get('wms.putaway-tasks.update')
+    await expect(handler!.execute({ id: TASK_ID, ...patch }, ctx as never)).rejects.toMatchObject({
+      status: 409,
+      body: { error: 'insufficient_stock' },
+    } satisfies Partial<CrudHttpError>)
+
+    expect(task.sourceLocationId).toBe(LOC_A)
+    expect(task.catalogVariantId).toBe(VARIANT_A)
+    expect(task.lotId).toBeNull()
+    expect(task.quantity).toBe('5')
+    expect(em.flush).not.toHaveBeenCalled()
+  })
+
+  it('accepts a source move when the destination bucket has room', async () => {
+    const em = createEm()
+    const ctx = createCtx(em)
+    const task = openTask({ sourceLocationId: LOC_A, quantity: '5' })
+    findOneWithDecryption.mockImplementation(async (_em, entity, where, options) => {
+      if (entity === PutawayTask) return task
+      if (entity === WarehouseLocation) return location(String((where as { id?: string }).id))
+      if (entity === InventoryBalance) {
+        expect(options).toEqual({ lockMode: LockMode.PESSIMISTIC_WRITE })
+        expect((where as { location?: string }).location).toBe(LOC_B)
+        return balance('10')
+      }
+      return null
+    })
+    findWithDecryption.mockResolvedValue([])
+
+    const handler = commandRegistry.get('wms.putaway-tasks.update')
+    await handler!.execute({ id: TASK_ID, sourceLocationId: LOC_B }, ctx as never)
+
+    expect(task.sourceLocationId).toBe(LOC_B)
+    expect(task.quantity).toBe('5')
+    expect(em.flush).toHaveBeenCalled()
+  })
+
+  it('rejects undo that restores a fully committed prior bucket', async () => {
+    const em = createEm()
+    const ctx = createCtx(em)
+    const task = openTask({ sourceLocationId: LOC_B, quantity: '5' })
+    findOneWithDecryption.mockImplementation(async (_em, entity, _where, options) => {
+      if (entity === PutawayTask) return task
+      if (entity === InventoryBalance) {
+        expect(options).toEqual({ lockMode: LockMode.PESSIMISTIC_WRITE })
+        return balance('5')
+      }
+      return null
+    })
+    findWithDecryption.mockResolvedValue([peer('5')])
+
+    const handler = commandRegistry.get('wms.putaway-tasks.update')
+    await expect(
+      handler!.undo!({
+        logEntry: {
+          commandPayload: { undo: { before: beforeSnapshot({ sourceLocationId: LOC_A, quantity: '5' }) } },
+        } as never,
+        ctx: ctx as never,
+      }),
+    ).rejects.toMatchObject({ status: 409, body: { error: 'insufficient_stock' } })
+
+    expect(task.sourceLocationId).toBe(LOC_B)
+    expect(em.flush).not.toHaveBeenCalled()
+  })
+
+  it('rejects undo that restores a larger quantity than the bucket can cover', async () => {
+    const em = createEm()
+    const ctx = createCtx(em)
+    const task = openTask({ quantity: '5' })
+    findOneWithDecryption.mockImplementation(async (_em, entity, _where, options) => {
+      if (entity === PutawayTask) return task
+      if (entity === InventoryBalance) {
+        expect(options).toEqual({ lockMode: LockMode.PESSIMISTIC_WRITE })
+        return balance('5')
+      }
+      return null
+    })
+    findWithDecryption.mockResolvedValue([])
+
+    const handler = commandRegistry.get('wms.putaway-tasks.update')
+    await expect(
+      handler!.undo!({
+        logEntry: {
+          commandPayload: { undo: { before: beforeSnapshot({ quantity: '9' }) } },
+        } as never,
+        ctx: ctx as never,
+      }),
+    ).rejects.toMatchObject({ status: 409, body: { error: 'insufficient_stock' } })
+
+    expect(task.quantity).toBe('5')
+    expect(em.flush).not.toHaveBeenCalled()
+  })
 })
 
 describe('wms.putaway-tasks.create staging availability', () => {

@@ -274,6 +274,17 @@ describe('asnReceiving QC helpers', () => {
     expect(buildAsnReceivePutawayKey({ attemptKey: next.attemptKey })).not.toBe(firstPutaway)
   })
 
+  it('gives each serial its own putaway key and keeps the blank-serial key stable', () => {
+    const attemptKey = 'attempt-serial'
+    const aggregate = buildAsnReceivePutawayKey({ attemptKey })
+    const blank = buildAsnReceivePutawayKey({ attemptKey, serialNumber: '   ' })
+    const first = buildAsnReceivePutawayKey({ attemptKey, serialNumber: 'S1' })
+    const second = buildAsnReceivePutawayKey({ attemptKey, serialNumber: 'S2' })
+    expect(blank).toBe(aggregate)
+    expect(first).not.toBe(aggregate)
+    expect(second).not.toBe(first)
+  })
+
   it('matches putaway metadata by putawayKey (column putaway_key is the indexed lookup)', () => {
     const attempt = resolveAsnReceiveAttempt({
       lineId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',

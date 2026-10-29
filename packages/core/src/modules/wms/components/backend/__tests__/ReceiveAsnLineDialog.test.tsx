@@ -195,4 +195,55 @@ describe('ReceiveAsnLineDialog', () => {
     expect(mockApiCall).toHaveBeenCalledTimes(2)
     expect(mockApiCall.mock.calls[1][1].headers[OPTIMISTIC_LOCK_HEADER_NAME]).toBe(freshUpdatedAt)
   })
+
+  it('forwards trimmed serials stored on the line', async () => {
+    mockApiCall.mockResolvedValue({
+      ok: true,
+      status: 200,
+      result: { ok: true, receivedQty: 2 },
+      response: new Response(null, { status: 200 }),
+    })
+    render(
+      <ReceiveAsnLineDialog
+        open
+        onOpenChange={jest.fn()}
+        access={access}
+        asnId="11111111-1111-1111-1111-111111111111"
+        warehouseId="22222222-2222-2222-2222-222222222222"
+        line={{
+          ...line,
+          expectedQty: 2,
+          receivedQty: 0,
+          serialNumbers: [' S1 ', 'S2'],
+        }}
+      />,
+    )
+
+    const serials = screen.getByTestId('receive-asn-serials') as HTMLTextAreaElement
+    expect(serials.value).toBe('S1\nS2')
+    fireEvent.click(screen.getByTestId('receive-asn-submit'))
+
+    await waitFor(() => expect(mockApiCall).toHaveBeenCalledTimes(1))
+    const body = JSON.parse(String(mockApiCall.mock.calls[0][1].body)) as { serialNumbers?: string[] }
+    expect(body.serialNumbers).toEqual(['S1', 'S2'])
+  })
+
+  it('rejects duplicate serials without submitting', async () => {
+    render(
+      <ReceiveAsnLineDialog
+        open
+        onOpenChange={jest.fn()}
+        access={access}
+        asnId="11111111-1111-1111-1111-111111111111"
+        warehouseId="22222222-2222-2222-2222-222222222222"
+        line={{ ...line, expectedQty: 2, receivedQty: 0 }}
+      />,
+    )
+
+    fireEvent.change(screen.getByTestId('receive-asn-serials'), { target: { value: 'S1\nS1' } })
+    fireEvent.click(screen.getByTestId('receive-asn-submit'))
+
+    expect(await screen.findByText('Duplicate serial numbers are not allowed.')).toBeTruthy()
+    expect(mockApiCall).not.toHaveBeenCalled()
+  })
 })

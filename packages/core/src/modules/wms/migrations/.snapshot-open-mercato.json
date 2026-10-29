@@ -3699,6 +3699,22 @@
           "enumItems": [],
           "mappedType": "uuid"
         },
+        "serial_number": {
+          "name": "serial_number",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "text"
+        },
         "quantity": {
           "name": "quantity",
           "type": "numeric(16,4)",

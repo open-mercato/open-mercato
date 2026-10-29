@@ -197,6 +197,7 @@ Indexes required:
 - `target_location_id`: UUID
 - `catalog_variant_id`: UUID
 - `lot_id`: UUID nullable
+- `serial_number`: text nullable — set on a quantity-one task created for one serial-tracked receipt unit; null on aggregate (non-serial) tasks. Completion copies it into the inventory move. Residual tasks copy the parent value. Availability checks filter this serial, or explicit null for aggregate tasks.
 - `quantity`: numeric
 - `status`: `open | in_progress | done | cancelled`
 - `assigned_to`: UUID nullable
@@ -233,12 +234,12 @@ Mirror new IDs in `setup.ts` / `lib/roleFeatures.ts` and run `yarn mercato auth 
 ### Data Integrity Rules
 
 1. `ReceivingLine.received_qty` may be lower or higher than `expected_qty`, but over-receipts must be explicit.
-2. **QC `passed` only:** write `InventoryMovement` (`type: receipt`) + update `InventoryBalance` at the staging/dock location; then auto-create an open `PutawayTask` (MVP: target may be null until complete confirms it).
+2. **QC `passed` only:** write `InventoryMovement` (`type: receipt`) + update `InventoryBalance` at the staging/dock location; then auto-create an open `PutawayTask` (MVP: target may be null until complete confirms it). Serial-tracked receipts create **one quantity-one task per distinct serial** (`serial_number` set, putaway key includes the serial). Duplicate normalized serials (trim, no case-fold) are rejected with `422 duplicate_serial` **before any write**. Non-serial receipts stay one aggregate task with the legacy putaway key.
 3. **QC `failed`:** persist line QC state + emit `wms.inventory.receipt_qc_failed`; **do not** increase available balances; **do not** create putaway tasks. Dedicated quarantine location routing is **deferred**.
 4. **QC transitions are one-way after the first decision** (`assertAsnQcTransition`): `pending → passed|failed` and same-status re-entry (idempotent retry) are allowed; `passed ↔ failed` is rejected with `422 invalid_qc_transition`. This is intentional for MVP so a QC-fail cannot silently become stock and a QC-pass cannot be quietly demoted after ledger/putaway side effects.
    - **Operator recovery (mistaken QC fail):** do not flip the line — physically rework/quarantine as needed, then create a **new** receiving line (or a new ASN) for re-inspection and receive that line with QC pass. Close the original ASN with `closeWhenShort` when short/failed qty should not block close.
    - **Operator recovery (mistaken QC pass):** stock/putaway may already exist — reverse via inventory adjust / putaway cancel+complete residual paths; do not attempt to rewrite QC on the original line.
-5. Putaway completion moves stock staging → storage via explicit `InventoryMovement` (`type: putaway`).
+5. Putaway completion moves stock staging → storage via explicit `InventoryMovement` (`type: putaway`). The move uses the task's `serial_number` (the complete request has no client serial field). A null serial looks up the aggregate bucket.
 6. Locations with `type = staging` or `type = dock` may hold inbound stock; reservation (`listCandidateBalances` / sales availability) **excludes** those location types so ASN receive re-eval cannot claim staging stock and block putaway. Stock becomes reservable after putaway into storage (bin/slot/…). Later phases must not treat staging/dock as pick-preferred unless configured.
 7. Directed putaway **rules** (fixed/dynamic slotting from #388) are **out of MVP** — operators confirm `targetLocationId` on complete; rules engine is a follow-up.
 
@@ -288,7 +289,7 @@ Member routes:
   "asnUpdatedAt": "2026-08-22T12:00:00.000Z"
 }
 ```
-- Errors: `409 invalid_receipt_state`, `422 tracking_required`, `422 invalid_qc_transition`, `422 target_received_qty_required`
+- Errors: `409 invalid_receipt_state`, `422 tracking_required`, `422 duplicate_serial`, `422 invalid_qc_transition`, `422 target_received_qty_required`
 
 #### Complete ASN
 - `POST /api/wms/asns/:id/complete`
@@ -574,6 +575,16 @@ None.
 - See pre-implement analysis: `.ai/specs/analysis/ANALYSIS-2026-08-12-wms-phase-2-inbound-putaway.md`
 
 ## Changelog
+
+### 2026-10-29 (rev 47) — review: serial putaway identity, receipt guards, putaway capacity
+- Reject duplicate trimmed serials on ASN receive with `422 duplicate_serial` before stock, line, or putaway writes
+- ASN create undo guards and soft-deletes every active receiving line under the ASN lock, including lines added after create
+- Serial receipts create one quantity-one `PutawayTask` per serial (`serial_number` column, migration `Migration20261029120000`); complete moves that serial bucket. Receive dialog forwards stored serials
+- Putaway update and its undo re-check source availability when the bucket changes or quantity increases, excluding the current task
+- Already-at-target putaway recreate locks the source balance before reading commitments and holds it through insert
+- Procurement goods-receipt subscriber rethrows unexpected ASN create failures (`reportError` + persistent retry); unique-key races stay idempotent
+- ASN delete undo payload stores the line ids actually deleted under the lock, not the prepare-time snapshot
+- Assign putaway dialog stays open on a handled optimistic-lock conflict and retries with the refreshed token
 
 ### 2026-09-15 (rev 46) — pkarw Majors: custom-route org pass-through + reservable-order re-eval
 - `executeWmsCustomPostRoute`: pass through body `organizationId` when present and validate with `ensureOrganizationScope`; session/auth org is only the default when body omits it (no silent multi-org overwrite). `tenantId` still always from auth. Scan resolve/receive/putaway keep session-only resolve by forcing session org before this helper.

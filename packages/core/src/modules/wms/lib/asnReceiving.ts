@@ -157,8 +157,15 @@ export function buildAsnReceiveReferenceId(input: {
   )
 }
 
-export function buildAsnReceivePutawayKey(input: { attemptKey: string }): string {
-  return buildStableUuid(['wms:asn-receive-putaway', input.attemptKey].join(':'))
+export function buildAsnReceivePutawayKey(input: {
+  attemptKey: string
+  serialNumber?: string | null
+}): string {
+  const serialNumber = input.serialNumber?.trim() ?? ''
+  const parts = ['wms:asn-receive-putaway', input.attemptKey]
+  // Blank serial keeps the legacy attempt key so non-serial retries still find the original task.
+  if (serialNumber.length > 0) parts.push(serialNumber)
+  return buildStableUuid(parts.join(':'))
 }
 
 export function putawayMetadataMatchesKey(

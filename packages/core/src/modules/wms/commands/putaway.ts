@@ -281,11 +281,13 @@ async function requireAvailableBalanceQuantity(
     sourceLocationId: string
     catalogVariantId: string
     lotId?: string | null
+    serialNumber?: string | null
     quantity: number
   },
   scope: Scope,
   options?: { lock?: boolean; excludeTaskId?: string },
 ) {
+  const serialNumber = input.serialNumber?.trim() ? input.serialNumber.trim() : null
   const balance = await findOneWithDecryption(
     em,
     InventoryBalance,
@@ -294,6 +296,7 @@ async function requireAvailableBalanceQuantity(
       location: input.sourceLocationId,
       catalogVariantId: input.catalogVariantId,
       lot: input.lotId ?? null,
+      serialNumber,
       deletedAt: null,
     },
     options?.lock ? { lockMode: LockMode.PESSIMISTIC_WRITE } : undefined,
@@ -316,6 +319,7 @@ async function requireAvailableBalanceQuantity(
       sourceLocationId: input.sourceLocationId,
       catalogVariantId: input.catalogVariantId,
       lotId: input.lotId ?? null,
+      serialNumber,
       status: { $in: ['open', 'in_progress'] },
       deletedAt: null,
     },
@@ -374,10 +378,71 @@ async function buildCrudLog(
   }
 }
 
+type PutawaySourceBucket = {
+  warehouseId: string
+  sourceLocationId: string
+  catalogVariantId: string
+  lotId: string | null
+  serialNumber: string | null
+}
+
+function readPutawaySourceBucket(task: PutawayTask): PutawaySourceBucket {
+  const warehouseId = typeof task.warehouse === 'string' ? task.warehouse : task.warehouse.id
+  const serialNumber = task.serialNumber?.trim() ?? ''
+  return {
+    warehouseId,
+    sourceLocationId: task.sourceLocationId,
+    catalogVariantId: task.catalogVariantId,
+    lotId: task.lotId ?? null,
+    serialNumber: serialNumber.length > 0 ? serialNumber : null,
+  }
+}
+
+function samePutawaySourceBucket(left: PutawaySourceBucket, right: PutawaySourceBucket): boolean {
+  return (
+    left.warehouseId === right.warehouseId &&
+    left.sourceLocationId === right.sourceLocationId &&
+    left.catalogVariantId === right.catalogVariantId &&
+    (left.lotId ?? null) === (right.lotId ?? null) &&
+    (left.serialNumber ?? null) === (right.serialNumber ?? null)
+  )
+}
+
+async function assertResultingPutawayCapacity(
+  em: EntityManager,
+  ctx: CommandRuntimeContext,
+  scope: Scope,
+  input: {
+    previous: PutawaySourceBucket
+    next: PutawaySourceBucket
+    previousQuantity: number
+    nextQuantity: number
+    excludeTaskId: string
+  },
+): Promise<void> {
+  const bucketChanged = !samePutawaySourceBucket(input.previous, input.next)
+  const quantityIncreased = input.nextQuantity > input.previousQuantity + 0.000001
+  if (!bucketChanged && !quantityIncreased) return
+  await requireAvailableBalanceQuantity(
+    em,
+    ctx,
+    {
+      warehouseId: input.next.warehouseId,
+      sourceLocationId: input.next.sourceLocationId,
+      catalogVariantId: input.next.catalogVariantId,
+      lotId: input.next.lotId,
+      serialNumber: input.next.serialNumber,
+      quantity: input.nextQuantity,
+    },
+    scope,
+    { lock: true, excludeTaskId: input.excludeTaskId },
+  )
+}
+
 async function createOpenPutawayTask(
   em: EntityManager,
   ctx: CommandRuntimeContext,
-  input: PutawayTaskCreateInput & { putawayKey?: string | null },
+  input: PutawayTaskCreateInput & { putawayKey?: string | null; serialNumber?: string | null },
 ): Promise<PutawayTask> {
   const scope = resolveScope(ctx, input)
   await requireWarehouse(em, ctx, input.warehouseId, scope)
@@ -393,6 +458,7 @@ async function createOpenPutawayTask(
     targetLocationId: input.targetLocationId ?? null,
     catalogVariantId: input.catalogVariantId,
     lotId: input.lotId ?? null,
+    serialNumber: input.serialNumber?.trim() ? input.serialNumber.trim() : null,
     quantity: toNumericString(input.quantity),
     status: 'open',
     assignedTo: input.assignedTo ?? null,
@@ -438,6 +504,7 @@ async function ensureResidualPutawayTask(
       targetLocationId: null,
       catalogVariantId: input.parent.catalogVariantId,
       lotId: input.parent.lotId,
+      serialNumber: input.parent.serialNumber ?? null,
       quantity: input.residual,
       assignedTo: input.parent.assignedTo,
       priority: input.parent.priority,
@@ -544,52 +611,46 @@ const updatePutawayTaskCommand: CommandHandler<PutawayTaskUpdateInput, { taskId:
       if (locked.status === 'done' || locked.status === 'cancelled') {
         throw new CrudHttpError(409, { error: 'invalid_putaway_state' })
       }
-      const warehouseId =
-        input.warehouseId ??
-        (typeof locked.warehouse === 'string' ? locked.warehouse : locked.warehouse.id)
+      const previousBucket = readPutawaySourceBucket(locked)
+      const nextBucket: PutawaySourceBucket = {
+        warehouseId: input.warehouseId ?? previousBucket.warehouseId,
+        sourceLocationId: input.sourceLocationId ?? previousBucket.sourceLocationId,
+        catalogVariantId: input.catalogVariantId ?? previousBucket.catalogVariantId,
+        lotId: input.lotId !== undefined ? input.lotId : previousBucket.lotId,
+        serialNumber: previousBucket.serialNumber,
+      }
+      const previousQty = toNumber(locked.quantity)
+      const nextQty = input.quantity !== undefined ? Number(input.quantity) : previousQty
       const taskScope = resolveScope(ctx, {
         tenantId: locked.tenantId,
         organizationId: locked.organizationId,
       })
       if (input.warehouseId) {
         await requireWarehouse(trx, ctx, input.warehouseId, taskScope)
-        locked.warehouse = trx.getReference(Warehouse, input.warehouseId)
       }
       if (input.sourceLocationId) {
-        await requireActiveLocation(trx, ctx, input.sourceLocationId, warehouseId, taskScope)
-        locked.sourceLocationId = input.sourceLocationId
+        await requireActiveLocation(trx, ctx, input.sourceLocationId, nextBucket.warehouseId, taskScope)
       }
-      if (input.targetLocationId !== undefined) {
-        if (input.targetLocationId) {
-          await requireActiveLocation(trx, ctx, input.targetLocationId, warehouseId, taskScope)
-        }
-        locked.targetLocationId = input.targetLocationId
+      if (input.targetLocationId) {
+        await requireActiveLocation(trx, ctx, input.targetLocationId, nextBucket.warehouseId, taskScope)
       }
+      // Bucket moves oversubscribe even when quantity is omitted or unchanged.
+      // Validate before assigning so a rejection leaves the locked row untouched.
+      await assertResultingPutawayCapacity(trx, ctx, taskScope, {
+        previous: previousBucket,
+        next: nextBucket,
+        previousQuantity: previousQty,
+        nextQuantity: nextQty,
+        excludeTaskId: locked.id,
+      })
+      if (input.warehouseId) {
+        locked.warehouse = trx.getReference(Warehouse, input.warehouseId)
+      }
+      if (input.sourceLocationId) locked.sourceLocationId = input.sourceLocationId
+      if (input.targetLocationId !== undefined) locked.targetLocationId = input.targetLocationId
       if (input.catalogVariantId !== undefined) locked.catalogVariantId = input.catalogVariantId
       if (input.lotId !== undefined) locked.lotId = input.lotId
-      if (input.quantity !== undefined) {
-        const nextQty = Number(input.quantity)
-        const sourceLocationId = input.sourceLocationId ?? locked.sourceLocationId
-        const catalogVariantId = input.catalogVariantId ?? locked.catalogVariantId
-        const lotId = input.lotId !== undefined ? input.lotId : locked.lotId
-        // Raising qty must not oversubscribe staging vs peer open/in_progress tasks.
-        if (nextQty > toNumber(locked.quantity) + 0.000001) {
-          await requireAvailableBalanceQuantity(
-            trx,
-            ctx,
-            {
-              warehouseId,
-              sourceLocationId,
-              catalogVariantId,
-              lotId,
-              quantity: nextQty,
-            },
-            taskScope,
-            { lock: true, excludeTaskId: locked.id },
-          )
-        }
-        locked.quantity = toNumericString(input.quantity)
-      }
+      if (input.quantity !== undefined) locked.quantity = toNumericString(input.quantity)
       if (input.priority !== undefined) locked.priority = input.priority
       if (input.metadata !== undefined) locked.metadata = toJsonValue(input.metadata) ?? null
       await trx.flush()
@@ -617,6 +678,21 @@ const updatePutawayTaskCommand: CommandHandler<PutawayTaskUpdateInput, { taskId:
       if (before.status === 'done' || before.status === 'cancelled') {
         throw new CrudHttpError(409, { error: 'invalid_putaway_state' })
       }
+      const previousBucket = readPutawaySourceBucket(locked)
+      const restoredBucket: PutawaySourceBucket = {
+        warehouseId: before.warehouseId,
+        sourceLocationId: before.sourceLocationId,
+        catalogVariantId: before.catalogVariantId,
+        lotId: before.lotId ?? null,
+        serialNumber: previousBucket.serialNumber,
+      }
+      await assertResultingPutawayCapacity(trx, ctx, scope, {
+        previous: previousBucket,
+        next: restoredBucket,
+        previousQuantity: toNumber(locked.quantity),
+        nextQuantity: toNumber(before.quantity),
+        excludeTaskId: locked.id,
+      })
       locked.warehouse = trx.getReference(Warehouse, before.warehouseId)
       locked.sourceLocationId = before.sourceLocationId
       locked.targetLocationId = before.targetLocationId
@@ -976,6 +1052,7 @@ const completePutawayTaskCommand: CommandHandler<
         toLocationId: input.targetLocationId,
         catalogVariantId: task.catalogVariantId,
         lotId: input.lotId ?? task.lotId ?? undefined,
+        serialNumber: task.serialNumber?.trim() || undefined,
         quantity: input.confirmedQuantity,
         type: 'putaway',
         reason: input.reason ?? 'Putaway task completion',

@@ -804,11 +804,66 @@ describe('wms.asns.delete guards', () => {
     const handler = commandRegistry.get('wms.asns.delete')
     const result = await handler!.execute!({ id: ASN_ID }, ctx as never)
 
-    expect(result).toEqual({ asnId: ASN_ID })
+    expect(result).toEqual({ asnId: ASN_ID, lineIds: [LINE_ID] })
     expect(asn.deletedAt).toBeInstanceOf(Date)
     expect(line.deletedAt).toBeInstanceOf(Date)
     expect(em.transactional).toHaveBeenCalled()
     expect(em.flush).toHaveBeenCalled()
+  })
+
+  it('undo restores a child created after prepare, including an initially empty ASN', async () => {
+    const lineBId = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
+    const cases = [
+      { label: 'existing child', prepareLines: () => [pendingLine()], extraId: lineBId },
+      { label: 'initially empty', prepareLines: () => [] as ReturnType<typeof pendingLine>[], extraId: lineBId },
+    ]
+    for (const testCase of cases) {
+      const em = createEm()
+      const ctx = createCtx(em)
+      const asn = draftAsn()
+      const lineA = pendingLine()
+      const lineB = pendingLine({ id: testCase.extraId })
+      let prepared = false
+      findOneWithDecryption.mockImplementation(async (_em, entity) => {
+        if (entity === Asn) return asn
+        return null
+      })
+      findWithDecryption.mockImplementation(async (_em, entity, where) => {
+        if (entity !== ReceivingLine) return []
+        const pool = prepared ? [lineA, lineB].filter((line) => testCase.prepareLines().length > 0 || line.id === lineB.id) : testCase.prepareLines()
+        const ids = (where as { id?: { $in?: string[] } } | undefined)?.id?.$in
+        if (ids) return pool.filter((line) => ids.includes(line.id))
+        return pool.filter((line) => line.deletedAt == null)
+      })
+      em.getConnection = jest.fn(() => ({
+        execute: jest.fn(async () => []),
+      }))
+
+      const handler = commandRegistry.get('wms.asns.delete')
+      const snapshots = await handler!.prepare!({ id: ASN_ID }, ctx as never)
+      prepared = true
+      asn.deletedAt = null
+      lineA.deletedAt = null
+      lineB.deletedAt = null
+      const result = await handler!.execute!({ id: ASN_ID }, ctx as never)
+      const expectedIds = testCase.prepareLines().length > 0 ? [LINE_ID, lineBId] : [lineBId]
+      expect(result).toEqual({ asnId: ASN_ID, lineIds: expectedIds })
+      const log = await handler!.buildLog!({
+        input: { id: ASN_ID },
+        result,
+        snapshots,
+        ctx: ctx as never,
+      } as never)
+      expect((log.payload as { undo: { lineIds: string[] } }).undo.lineIds).toEqual(expectedIds)
+      expect((snapshots as { lineIds: string[] }).lineIds).not.toEqual(expectedIds)
+
+      await handler!.undo!({
+        logEntry: { commandPayload: log.payload } as never,
+        ctx: ctx as never,
+      })
+      if (testCase.prepareLines().length > 0) expect(lineA.deletedAt).toBeNull()
+      expect(lineB.deletedAt).toBeNull()
+    }
   })
 
   it('re-checks line activity under ASN pessimistic lock before soft-delete', async () => {
@@ -2187,7 +2242,7 @@ describe('wms.asns.create undo', () => {
     expect(findWithDecryption).toHaveBeenCalledWith(
       em,
       ReceivingLine,
-      { id: { $in: [LINE_ID] }, asn: ASN_ID, deletedAt: null },
+      { asn: ASN_ID, deletedAt: null },
       undefined,
       { tenantId: TENANT, organizationId: ORG },
     )
@@ -2209,6 +2264,146 @@ describe('wms.asns.create undo', () => {
         identifiers: { id: LINE_ID, organizationId: ORG, tenantId: TENANT },
       }),
     )
+  })
+
+  it('undo soft-deletes a receiving line added after create', async () => {
+    const laterLineId = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
+    const em = createEm()
+    const ctx = createCtx(em)
+    const asn = {
+      id: ASN_ID,
+      tenantId: TENANT,
+      organizationId: ORG,
+      warehouse: { id: WH_ID },
+      status: 'in_transit',
+      deletedAt: null as Date | null,
+    }
+    const original = {
+      id: LINE_ID,
+      receivedQty: '0',
+      qcStatus: 'pending',
+      deletedAt: null as Date | null,
+    }
+    const later = {
+      id: laterLineId,
+      receivedQty: '0',
+      qcStatus: 'pending',
+      deletedAt: null as Date | null,
+    }
+    findOneWithDecryption.mockImplementation(async (_em, entity) => {
+      if (entity === Asn) return asn
+      return null
+    })
+    findWithDecryption.mockImplementation(async (_em, entity) => {
+      if (entity === ReceivingLine) return [original, later]
+      return []
+    })
+
+    const handler = commandRegistry.get('wms.asns.create')
+    await handler!.undo!({
+      logEntry: {
+        commandPayload: {
+          undo: {
+            after: {
+              id: ASN_ID,
+              organizationId: ORG,
+              tenantId: TENANT,
+              warehouseId: WH_ID,
+              vendorId: null,
+              status: 'draft',
+              expectedAt: '2026-08-20T00:00:00.000Z',
+              referenceNumber: null,
+              notes: null,
+              metadata: null,
+              createdAt: '2026-08-01T00:00:00.000Z',
+              updatedAt: '2026-08-01T00:00:00.000Z',
+            },
+            lineIds: [LINE_ID],
+          },
+        },
+      } as never,
+      ctx: ctx as never,
+    })
+
+    expect(asn.deletedAt).toBeInstanceOf(Date)
+    expect(original.deletedAt).toBeInstanceOf(Date)
+    expect(later.deletedAt).toBeInstanceOf(Date)
+    expect(findWithDecryption).toHaveBeenCalledWith(
+      em,
+      ReceivingLine,
+      { asn: ASN_ID, deletedAt: null },
+      undefined,
+      { tenantId: TENANT, organizationId: ORG },
+    )
+  })
+
+  it('refuses create undo when a later line has receipt activity', async () => {
+    const laterLineId = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
+    const em = createEm()
+    const ctx = createCtx(em)
+    const asn = {
+      id: ASN_ID,
+      tenantId: TENANT,
+      organizationId: ORG,
+      warehouse: { id: WH_ID },
+      status: 'in_transit',
+      deletedAt: null as Date | null,
+    }
+    const original = {
+      id: LINE_ID,
+      receivedQty: '0',
+      qcStatus: 'pending',
+      deletedAt: null as Date | null,
+    }
+    const later = {
+      id: laterLineId,
+      receivedQty: '2',
+      qcStatus: 'passed',
+      deletedAt: null as Date | null,
+    }
+    findOneWithDecryption.mockImplementation(async (_em, entity) => {
+      if (entity === Asn) return asn
+      return null
+    })
+    findWithDecryption.mockImplementation(async (_em, entity) => {
+      if (entity === ReceivingLine) return [original, later]
+      return []
+    })
+
+    const handler = commandRegistry.get('wms.asns.create')
+    await expect(
+      handler!.undo!({
+        logEntry: {
+          commandPayload: {
+            undo: {
+              after: {
+                id: ASN_ID,
+                organizationId: ORG,
+                tenantId: TENANT,
+                warehouseId: WH_ID,
+                vendorId: null,
+                status: 'draft',
+                expectedAt: '2026-08-20T00:00:00.000Z',
+                referenceNumber: null,
+                notes: null,
+                metadata: null,
+                createdAt: '2026-08-01T00:00:00.000Z',
+                updatedAt: '2026-08-01T00:00:00.000Z',
+              },
+              lineIds: [LINE_ID],
+            },
+          },
+        } as never,
+        ctx: ctx as never,
+      }),
+    ).rejects.toMatchObject({
+      status: 409,
+      body: { error: 'invalid_receipt_state' },
+    })
+    expect(asn.deletedAt).toBeNull()
+    expect(original.deletedAt).toBeNull()
+    expect(later.deletedAt).toBeNull()
+    expect(em.flush).not.toHaveBeenCalled()
   })
 
   it('refuses undo when ASN is already received', async () => {

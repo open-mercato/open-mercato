@@ -410,8 +410,13 @@ async function resolveUncommittedStagingPutawayQuantity(
     sourceLocationId: string
     catalogVariantId: string
     lotId: string | null
+    serialNumber?: string | null
   },
+  options?: { lock?: boolean },
 ): Promise<{ remaining: number; openTasks: PutawayTask[] } | null> {
+  const serialNumber = input.serialNumber?.trim() ? input.serialNumber.trim() : null
+  // Same row lock as requireAvailableBalanceQuantity(..., { lock: true }). Hold it
+  // through the caller's task insert — the lock lives until this transaction ends.
   const balance = await findOneWithDecryption(
     em,
     InventoryBalance,
@@ -420,9 +425,10 @@ async function resolveUncommittedStagingPutawayQuantity(
       location: input.sourceLocationId,
       catalogVariantId: input.catalogVariantId,
       lot: input.lotId ?? null,
+      serialNumber,
       deletedAt: null,
     },
-    undefined,
+    options?.lock ? { lockMode: LockMode.PESSIMISTIC_WRITE } : undefined,
     scope,
   )
   if (!balance) return null
@@ -434,6 +440,7 @@ async function resolveUncommittedStagingPutawayQuantity(
       sourceLocationId: input.sourceLocationId,
       catalogVariantId: input.catalogVariantId,
       lotId: input.lotId ?? null,
+      serialNumber,
       status: { $in: ['open', 'in_progress'] },
       deletedAt: null,
     },
@@ -461,6 +468,7 @@ async function findOrCreatePutawayForReceipt(
     catalogVariantId: string
     lotId: string | null
     quantity: number
+    serialNumber?: string | null
     asnId: string
     lineId: string
     metadata?: Record<string, unknown> | null
@@ -476,6 +484,7 @@ async function findOrCreatePutawayForReceipt(
     targetLocationId: null,
     catalogVariantId: input.catalogVariantId,
     lotId: input.lotId,
+    serialNumber: input.serialNumber?.trim() ? input.serialNumber.trim() : null,
     quantity: toNumericString(input.quantity),
     status: 'open',
     assignedTo: null,
@@ -487,6 +496,7 @@ async function findOrCreatePutawayForReceipt(
       receivingLineId: input.lineId,
       putawayKey,
       source: 'asn_receive',
+      ...(input.serialNumber?.trim() ? { serialNumber: input.serialNumber.trim() } : {}),
     } as JsonValue,
   })
   try {
@@ -585,6 +595,22 @@ async function hasOpenPutawayForAsn(
 function resolveSerialNumbers(input: AsnReceiveLineInput): string[] {
   if (!input.serialNumbers?.length) return []
   return input.serialNumbers.map((value) => value.trim()).filter((value) => value.length > 0)
+}
+
+function normalizeStoredSerials(values: string[] | null | undefined): string[] {
+  if (!values?.length) return []
+  return values.map((value) => value.trim()).filter((value) => value.length > 0)
+}
+
+/** Reject repeated serials after trim. Callers must not collapse the list and still advance qty. */
+function assertUniqueSerialNumbers(serialNumbers: string[]): void {
+  const seen = new Set<string>()
+  for (const serialNumber of serialNumbers) {
+    if (seen.has(serialNumber)) {
+      throw new CrudHttpError(422, { error: 'duplicate_serial' })
+    }
+    seen.add(serialNumber)
+  }
 }
 
 async function emitAsnSideEffects(
@@ -729,23 +755,15 @@ const createAsnCommand: CommandHandler<AsnCreateInput, { asnId: string; lineIds:
     const locked = await withLockedAsn(em, ctx, after.id, scope, async (asn, trx) => {
       // Refuse soft-delete undo after receipt/complete (same floor as delete execute).
       assertAsnMutable(asn)
-      const lineIds = Array.isArray(payload?.lineIds) ? payload.lineIds : []
-      const lines =
-        lineIds.length > 0
-          ? await findWithDecryption(
-              trx,
-              ReceivingLine,
-              { id: { $in: lineIds }, asn: asn.id, deletedAt: null },
-              undefined,
-              scope,
-            )
-          : await findWithDecryption(
-              trx,
-              ReceivingLine,
-              { asn: asn.id, deletedAt: null },
-              undefined,
-              scope,
-            )
+      // Lines added after create share this ASN. The create log's lineIds are only
+      // the original set — guard and cascade every active line under the ASN lock.
+      const lines = await findWithDecryption(
+        trx,
+        ReceivingLine,
+        { asn: asn.id, deletedAt: null },
+        undefined,
+        scope,
+      )
       if (hasAsnDeleteBlockingLineActivity(lines)) {
         throw new CrudHttpError(409, { error: 'invalid_receipt_state' })
       }
@@ -913,7 +931,7 @@ const updateAsnCommand: CommandHandler<AsnUpdateInput, { asnId: string }> = {
   },
 }
 
-const deleteAsnCommand: CommandHandler<{ id: string }, { asnId: string }> = {
+const deleteAsnCommand: CommandHandler<{ id: string }, { asnId: string; lineIds: string[] }> = {
   id: 'wms.asns.delete',
   async prepare(rawInput, ctx) {
     const id = requireId((rawInput as { id?: string } | null)?.id, 'ASN')
@@ -974,7 +992,7 @@ const deleteAsnCommand: CommandHandler<{ id: string }, { asnId: string }> = {
       asns: [{ entity: locked.asn, action: 'deleted' }],
       lines: locked.lines.map((entity) => ({ entity, action: 'deleted' as const })),
     })
-    return { asnId: locked.asn.id }
+    return { asnId: locked.asn.id, lineIds: locked.lines.map((line) => line.id) }
   },
   undo: async ({ logEntry, ctx }) => {
     const payload = extractUndoPayload<{
@@ -1047,11 +1065,14 @@ const deleteAsnCommand: CommandHandler<{ id: string }, { asnId: string }> = {
       WMS_ASN_RESOURCE,
     )
     const before = snapshots?.before as AsnSnapshot | undefined
-    const lineIds = (snapshots as { lineIds?: string[] } | undefined)?.lineIds
+    // Execute re-queries under the ASN lock. Persist that set, not prepare's snapshot:
+    // line create does not bump the ASN version, so a child inserted after prepare is
+    // deleted here and must be the undo payload.
+    const lineIds = result?.lineIds ?? []
     return {
       ...base,
       snapshotBefore: before,
-      payload: { undo: { before, lineIds: lineIds ?? [] } },
+      payload: { undo: { before, lineIds } },
     }
   },
 }
@@ -1392,6 +1413,100 @@ const deleteReceivingLineCommand: CommandHandler<{ id: string }, { lineId: strin
   },
 }
 
+type ReceiptPutawayLink = { task: PutawayTask; created: boolean }
+
+async function ensureSerialReceiptPutaways(
+  trx: EntityManager,
+  scope: Scope,
+  input: {
+    attemptKey: string
+    serialNumbers: string[]
+    recreateWhenMissing: boolean
+    warehouseId: string
+    sourceLocationId: string
+    catalogVariantId: string
+    lotId: string | null
+    asnId: string
+    lineId: string
+    metadata?: Record<string, unknown> | null
+  },
+): Promise<ReceiptPutawayLink[]> {
+  const links: ReceiptPutawayLink[] = []
+  for (const serialNumber of input.serialNumbers) {
+    const putawayKey = buildAsnReceivePutawayKey({
+      attemptKey: input.attemptKey,
+      serialNumber,
+    })
+    const existing = await findExistingPutawayForReceipt(trx, scope, putawayKey)
+    if (existing) {
+      links.push({ task: existing, created: false })
+      continue
+    }
+    let lotId = input.lotId
+    if (input.recreateWhenMissing) {
+      const cancelled = lotId == null ? await findCancelledPutawayForReceipt(trx, scope, putawayKey) : null
+      if (lotId == null) lotId = cancelled?.lotId ?? null
+      const availability = await resolveUncommittedStagingPutawayQuantity(
+        trx,
+        scope,
+        {
+          warehouseId: input.warehouseId,
+          sourceLocationId: input.sourceLocationId,
+          catalogVariantId: input.catalogVariantId,
+          lotId,
+          serialNumber,
+        },
+        { lock: true },
+      )
+      const canCreate =
+        availability != null &&
+        shouldRecreatePutawayOnAlreadyAtTarget({
+          requestedQuantity: 1,
+          remainingAvailable: availability.remaining,
+        })
+      if (!canCreate) {
+        const covering = availability
+          ? selectCoveringOpenPutawayTask(
+              availability.openTasks.map((task) => ({
+                task,
+                quantity: toNumber(task.quantity),
+              })),
+              1,
+            )
+          : null
+        if (covering) links.push({ task: covering.task, created: false })
+        continue
+      }
+    }
+    links.push(
+      await findOrCreatePutawayForReceipt(trx, scope, putawayKey, {
+        warehouseId: input.warehouseId,
+        sourceLocationId: input.sourceLocationId,
+        catalogVariantId: input.catalogVariantId,
+        lotId,
+        quantity: 1,
+        serialNumber,
+        asnId: input.asnId,
+        lineId: input.lineId,
+        metadata: input.metadata ?? null,
+      }),
+    )
+  }
+  return links
+}
+
+async function emitCreatedReceiptPutaways(
+  ctx: CommandRuntimeContext,
+  scope: Scope,
+  putaways: ReceiptPutawayLink[],
+  warehouseId: string,
+): Promise<void> {
+  for (const entry of putaways) {
+    if (!entry.created) continue
+    await emitAsnReceivePutawayCreatedSideEffects(ctx, scope, entry.task, warehouseId)
+  }
+}
+
 type ReceiveAsnLineResult = {
   movementIds: string[]
   putawayTaskIds: string[]
@@ -1412,6 +1527,7 @@ const receiveAsnLineCommand: CommandHandler<AsnReceiveLineInput, ReceiveAsnLineR
     const rootEm = resolveEm(ctx)
     const scope = resolveScope(ctx, input)
     const serialNumbers = resolveSerialNumbers(input)
+    assertUniqueSerialNumbers(serialNumbers)
 
     // QC-fail: audit-only path (no stock). Still serialize on ASN/line row locks.
     if (!shouldWriteStockOnQcPass(input.qcStatus)) {
@@ -1538,8 +1654,7 @@ const receiveAsnLineCommand: CommandHandler<AsnReceiveLineInput, ReceiveAsnLineR
 
     type QcPassOutcome = {
       movementResults: InventoryReceiveMutationResult[]
-      putaway: PutawayTask | null
-      putawayCreated: boolean
+      putaways: ReceiptPutawayLink[]
       lineUpdated: boolean
       asn: Asn
       line: ReceivingLine
@@ -1548,7 +1663,6 @@ const receiveAsnLineCommand: CommandHandler<AsnReceiveLineInput, ReceiveAsnLineR
       receivingStarted: boolean
       applyQty: number
       alreadyAtTarget: boolean
-      existingPutawayId: string | null
       currentReceivedQty: number
     }
 
@@ -1601,31 +1715,69 @@ const receiveAsnLineCommand: CommandHandler<AsnReceiveLineInput, ReceiveAsnLineR
       })
       const previousStatus = asn.status
       const receivingStarted = asn.status === 'draft' || asn.status === 'in_transit'
-      const putawayKey = buildAsnReceivePutawayKey({ attemptKey: attempt.attemptKey })
-      const existingPutaway = await findExistingPutawayForReceipt(trx, scope, putawayKey)
+      const aggregatePutawayKey = buildAsnReceivePutawayKey({ attemptKey: attempt.attemptKey })
       const alreadyAtTarget = attempt.applyQty <= 0.000001
+      const trackedSerials =
+        serialNumbers.length > 0 ? serialNumbers : normalizeStoredSerials(line.serialNumbers)
+      const putawayShared = {
+        attemptKey: attempt.attemptKey,
+        warehouseId,
+        sourceLocationId: input.targetStagingLocationId!,
+        catalogVariantId: line.catalogVariantId,
+        asnId: asn.id,
+        lineId: line.id,
+        metadata: input.metadata ?? null,
+      }
 
       if (alreadyAtTarget) {
         // Cancel clears putaway_key; identical absolute-target retry must recreate
         // so staging stock is not left without a queue task — but only when
-        // uncommitted staging qty remains. If a manual putaway already covers
-        // the bucket, reuse that open task instead of oversubscribing.
-        let putaway = existingPutaway
-        let putawayCreated = false
-        if (shouldEnsurePutawayOnAlreadyAtTarget(existingPutaway)) {
-          const cancelled = await findCancelledPutawayForReceipt(trx, scope, putawayKey)
+        // uncommitted staging qty remains. Lock the source balance before reading
+        // commitments and hold it through insert (same lock as manual create).
+        if (trackedSerials.length > 0) {
+          const putaways = await ensureSerialReceiptPutaways(trx, scope, {
+            ...putawayShared,
+            serialNumbers: trackedSerials,
+            recreateWhenMissing: true,
+            lotId: input.lotId ?? null,
+          })
+          return {
+            movementResults: [],
+            putaways,
+            lineUpdated: false,
+            asn,
+            line,
+            warehouseId,
+            previousStatus,
+            receivingStarted,
+            applyQty: 0,
+            alreadyAtTarget: true,
+            currentReceivedQty: toNumber(line.receivedQty),
+          }
+        }
+        const existingPutaway = await findExistingPutawayForReceipt(trx, scope, aggregatePutawayKey)
+        const putaways: ReceiptPutawayLink[] = []
+        if (existingPutaway) {
+          putaways.push({ task: existingPutaway, created: false })
+        } else if (shouldEnsurePutawayOnAlreadyAtTarget(existingPutaway)) {
+          const cancelled = await findCancelledPutawayForReceipt(trx, scope, aggregatePutawayKey)
           const lotId = input.lotId ?? cancelled?.lotId ?? null
           const quantity = resolvePutawayQuantityForAlreadyAtTargetRetry({
             cancelledTaskQuantity: cancelled ? toNumber(cancelled.quantity) : null,
             absoluteTargetQty: attempt.targetReceivedQty,
           })
           if (quantity > 0.000001) {
-            const availability = await resolveUncommittedStagingPutawayQuantity(trx, scope, {
-              warehouseId,
-              sourceLocationId: input.targetStagingLocationId!,
-              catalogVariantId: line.catalogVariantId,
-              lotId,
-            })
+            const availability = await resolveUncommittedStagingPutawayQuantity(
+              trx,
+              scope,
+              {
+                warehouseId,
+                sourceLocationId: input.targetStagingLocationId!,
+                catalogVariantId: line.catalogVariantId,
+                lotId,
+              },
+              { lock: true },
+            )
             if (
               availability &&
               shouldRecreatePutawayOnAlreadyAtTarget({
@@ -1633,33 +1785,33 @@ const receiveAsnLineCommand: CommandHandler<AsnReceiveLineInput, ReceiveAsnLineR
                 remainingAvailable: availability.remaining,
               })
             ) {
-              const putawayResult = await findOrCreatePutawayForReceipt(trx, scope, putawayKey, {
-                warehouseId,
-                sourceLocationId: input.targetStagingLocationId!,
-                catalogVariantId: line.catalogVariantId,
-                lotId,
-                quantity,
-                asnId: asn.id,
-                lineId: line.id,
-                metadata: input.metadata ?? null,
-              })
-              putaway = putawayResult.task
-              putawayCreated = putawayResult.created
+              putaways.push(
+                await findOrCreatePutawayForReceipt(trx, scope, aggregatePutawayKey, {
+                  warehouseId,
+                  sourceLocationId: input.targetStagingLocationId!,
+                  catalogVariantId: line.catalogVariantId,
+                  lotId,
+                  quantity,
+                  asnId: asn.id,
+                  lineId: line.id,
+                  metadata: input.metadata ?? null,
+                }),
+              )
             } else if (availability) {
-              putaway = selectCoveringOpenPutawayTask(
+              const covering = selectCoveringOpenPutawayTask(
                 availability.openTasks.map((task) => ({
                   task,
                   quantity: toNumber(task.quantity),
                 })),
                 quantity,
-              )?.task ?? null
+              )
+              if (covering) putaways.push({ task: covering.task, created: false })
             }
           }
         }
         return {
           movementResults: [],
-          putaway,
-          putawayCreated,
+          putaways,
           lineUpdated: false,
           asn,
           line,
@@ -1668,7 +1820,6 @@ const receiveAsnLineCommand: CommandHandler<AsnReceiveLineInput, ReceiveAsnLineR
           receivingStarted,
           applyQty: 0,
           alreadyAtTarget: true,
-          existingPutawayId: putaway?.id ?? null,
           currentReceivedQty: toNumber(line.receivedQty),
         }
       }
@@ -1679,6 +1830,10 @@ const receiveAsnLineCommand: CommandHandler<AsnReceiveLineInput, ReceiveAsnLineR
 
       const movementResults: InventoryReceiveMutationResult[] = []
       const receiveOnce = async (quantity: number, serialNumber?: string) => {
+        const movementPutawayKey = buildAsnReceivePutawayKey({
+          attemptKey: attempt.attemptKey,
+          serialNumber,
+        })
         const receiveInput: InventoryReceiveInput = {
           organizationId: scope.organizationId,
           tenantId: scope.tenantId,
@@ -1702,7 +1857,7 @@ const receiveAsnLineCommand: CommandHandler<AsnReceiveLineInput, ReceiveAsnLineR
             asnId: asn.id,
             asnReferenceNumber: asn.referenceNumber ?? null,
             receivingLineId: line.id,
-            putawayKey,
+            putawayKey: movementPutawayKey,
             source: 'asn_receive',
           },
         }
@@ -1720,16 +1875,26 @@ const receiveAsnLineCommand: CommandHandler<AsnReceiveLineInput, ReceiveAsnLineR
       const lotId =
         input.lotId ?? movementResults.find((result) => result.lotId)?.lotId ?? null
 
-      const putawayResult = await findOrCreatePutawayForReceipt(trx, scope, putawayKey, {
-        warehouseId,
-        sourceLocationId: input.targetStagingLocationId!,
-        catalogVariantId: line.catalogVariantId,
-        lotId,
-        quantity: attempt.applyQty,
-        asnId: asn.id,
-        lineId: line.id,
-        metadata: input.metadata ?? null,
-      })
+      const putaways =
+        serialNumbers.length > 0
+          ? await ensureSerialReceiptPutaways(trx, scope, {
+              ...putawayShared,
+              serialNumbers,
+              recreateWhenMissing: false,
+              lotId,
+            })
+          : [
+              await findOrCreatePutawayForReceipt(trx, scope, aggregatePutawayKey, {
+                warehouseId,
+                sourceLocationId: input.targetStagingLocationId!,
+                catalogVariantId: line.catalogVariantId,
+                lotId,
+                quantity: attempt.applyQty,
+                asnId: asn.id,
+                lineId: line.id,
+                metadata: input.metadata ?? null,
+              }),
+            ]
 
       const currentReceived = toNumber(line.receivedQty)
       let lineUpdated = false
@@ -1752,8 +1917,7 @@ const receiveAsnLineCommand: CommandHandler<AsnReceiveLineInput, ReceiveAsnLineR
 
       return {
         movementResults,
-        putaway: putawayResult.task,
-        putawayCreated: putawayResult.created,
+        putaways,
         lineUpdated,
         asn,
         line,
@@ -1762,23 +1926,15 @@ const receiveAsnLineCommand: CommandHandler<AsnReceiveLineInput, ReceiveAsnLineR
         receivingStarted,
         applyQty: attempt.applyQty,
         alreadyAtTarget: false,
-        existingPutawayId: existingPutaway?.id ?? null,
         currentReceivedQty: toNumber(line.receivedQty),
       }
     })
 
     if (outcome.alreadyAtTarget) {
-      if (outcome.putawayCreated && outcome.putaway) {
-        await emitAsnReceivePutawayCreatedSideEffects(
-          ctx,
-          scope,
-          outcome.putaway,
-          outcome.warehouseId,
-        )
-      }
+      await emitCreatedReceiptPutaways(ctx, scope, outcome.putaways, outcome.warehouseId)
       return {
         movementIds: [],
-        putawayTaskIds: outcome.putaway?.id ? [outcome.putaway.id] : [],
+        putawayTaskIds: outcome.putaways.map((entry) => entry.task.id),
         lineId: outcome.line.id,
         asnId: outcome.asn.id,
         receivedQty: outcome.currentReceivedQty,
@@ -1790,14 +1946,7 @@ const receiveAsnLineCommand: CommandHandler<AsnReceiveLineInput, ReceiveAsnLineR
       await emitInventoryReceiveSideEffects(ctx, movementResult)
     }
 
-    if (outcome.putawayCreated && outcome.putaway) {
-      await emitAsnReceivePutawayCreatedSideEffects(
-        ctx,
-        scope,
-        outcome.putaway,
-        outcome.warehouseId,
-      )
-    }
+    await emitCreatedReceiptPutaways(ctx, scope, outcome.putaways, outcome.warehouseId)
 
     if (outcome.lineUpdated) {
       await emitAsnSideEffects(ctx, {
@@ -1826,13 +1975,13 @@ const receiveAsnLineCommand: CommandHandler<AsnReceiveLineInput, ReceiveAsnLineR
       }).catch(() => undefined)
     }
 
-    if (!outcome.putaway) {
+    if (outcome.putaways.length === 0) {
       throw new CrudHttpError(500, { error: '[internal] putaway missing after QC-pass receive' })
     }
 
     return {
       movementIds: outcome.movementResults.map((result) => result.movementId),
-      putawayTaskIds: [outcome.putaway.id],
+      putawayTaskIds: outcome.putaways.map((entry) => entry.task.id),
       lineId: outcome.line.id,
       asnId: outcome.asn.id,
       receivedQty: toNumber(outcome.line.receivedQty),

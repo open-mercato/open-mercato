@@ -152,6 +152,7 @@ export function AssignPutawayTaskDialog({
       setFieldErrors({})
       setSubmitting(true)
 
+      let conflictHandled = false
       try {
         await runMutation({
           operation: async () => {
@@ -188,6 +189,7 @@ export function AssignPutawayTaskDialog({
                 })
               ) {
                 refreshLockFromConflict()
+                conflictHandled = true
                 return {}
               }
               await raiseCrudError(
@@ -200,6 +202,7 @@ export function AssignPutawayTaskDialog({
           context: mutationContext,
           mutationPayload: { assignedTo: parsed.data.assignedTo },
         })
+        if (conflictHandled) return
         flash(t('wms.backend.putaway.flash.assigned', 'Putaway task assigned'), 'success')
         onSuccess?.()
         closeDialog()

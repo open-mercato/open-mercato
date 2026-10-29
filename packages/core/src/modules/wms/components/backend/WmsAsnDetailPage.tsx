@@ -209,6 +209,7 @@ export default function WmsAsnDetailPage({ asnId }: { asnId: string }) {
       expectedQty: toNumber(line.expected_qty),
       receivedQty: toNumber(line.received_qty),
       lotNumber: line.lot_number,
+      serialNumbers: line.serial_numbers,
       targetStagingLocationId: line.target_staging_location_id,
       variantLabel: line.catalog_variant_id
         ? labelCache[line.catalog_variant_id] ?? line.catalog_variant_id

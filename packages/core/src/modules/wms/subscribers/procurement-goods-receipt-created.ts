@@ -4,6 +4,7 @@ import type { FeatureTogglesService } from '@open-mercato/core/modules/feature_t
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { Asn } from '../data/entities'
 import { resolveWmsIntegrationToggleEnabled } from '../lib/wmsIntegrationToggles'
 
@@ -226,6 +227,12 @@ export default async function handle(payload: GoodsReceiptCreatedPayload, ctx: S
   } catch (err) {
     // Concurrent duplicate events: unique (organization_id, source_key) wins; loser is idempotent.
     if (isUniqueConstraintError(err)) return
-    logger.warn('procurement goods receipt ASN create failed', { err, goodsReceiptId })
+    logger.error('procurement goods receipt ASN create failed', { err, goodsReceiptId })
+    getTelemetryRuntime()?.reportError(err, {
+      module: 'wms',
+      code: 'wms.procurement_goods_receipt_asn_create_failed',
+      attributes: { goodsReceiptId },
+    })
+    throw err
   }
 }

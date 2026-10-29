@@ -548,6 +548,7 @@ export class PutawayTask extends WmsScopedEntity {
     | WmsOptionalProps
     | 'targetLocationId'
     | 'lotId'
+    | 'serialNumber'
     | 'assignedTo'
     | 'priority'
     | 'status'
@@ -567,6 +568,10 @@ export class PutawayTask extends WmsScopedEntity {
 
   @Property({ name: 'lot_id', type: 'uuid', nullable: true })
   lotId?: string | null
+
+  /** Set on quantity-one tasks created for a serial-tracked receipt. Null for aggregate tasks. */
+  @Property({ name: 'serial_number', type: 'text', nullable: true })
+  serialNumber?: string | null
 
   @Property({ type: 'numeric', precision: 16, scale: 4 })
   quantity!: string
