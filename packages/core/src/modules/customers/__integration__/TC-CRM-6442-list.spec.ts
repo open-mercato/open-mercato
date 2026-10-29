@@ -13,9 +13,7 @@ import {
   setRoleAclFeatures,
 } from '@open-mercato/core/modules/core/__integration__/helpers/authFixtures';
 import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api';
-import { bootstrapFromAppRoot } from '@open-mercato/shared/lib/bootstrap/dynamicLoader';
-import { createRequestContainer } from '@open-mercato/shared/lib/di/container';
-import { createQueue } from '@open-mercato/queue';
+import { drainIntegrationQueue } from '@open-mercato/core/helpers/integration/queue';
 
 const POLL_INTERVAL_MS = 200;
 const POLL_TIMEOUT_MS = 30_000;
@@ -29,40 +27,6 @@ const APP_QUEUE_BASE_DIR = path.resolve(APP_ROOT, '.mercato/queue');
 
 if (!TEST_APP_ROOT) {
   process.env.QUEUE_BASE_DIR = APP_QUEUE_BASE_DIR;
-}
-
-/**
- * Drains the local file-based queue in-process. CI's integration harness does not start worker
- * processes, so without this the bulk owner job stays `pending` forever. Mirrors TC-CRM-069,
- * which documents the full rationale.
- */
-async function drainQueue(queueName: string): Promise<number> {
-  const data = await bootstrapFromAppRoot(APP_ROOT);
-  const worker = data.modules
-    .flatMap((module) => module.workers ?? [])
-    .find((entry) => entry.queue === queueName);
-  if (!worker) return 0;
-
-  const container = await createRequestContainer();
-  const queue = createQueue(queueName, 'local', { baseDir: APP_QUEUE_BASE_DIR, concurrency: 1 });
-  const resolve = <T = unknown>(name: string): T => container.resolve(name) as T;
-
-  try {
-    let processedJobs = 0;
-    while (true) {
-      const result = await queue.process(
-        async (job, ctx) => {
-          await Promise.resolve(worker.handler(job, { ...ctx, resolve }));
-        },
-        { limit: 100 },
-      );
-      const handled = result.processed + result.failed;
-      processedJobs += handled;
-      if (handled === 0) return processedJobs;
-    }
-  } finally {
-    await queue.close();
-  }
 }
 
 async function ownerOf(request: Parameters<typeof apiRequest>[0], token: string, dealId: string): Promise<string | null> {
@@ -154,7 +118,7 @@ test.describe('CRM deal owner — deals list bulk reassignment', () => {
     // The list relies on this id to track the job in the top bar.
     expect((body as { progressJobId?: string | null })?.progressJobId).toBeTruthy();
 
-    await drainQueue(BULK_OWNER_QUEUE);
+    await drainIntegrationQueue(BULK_OWNER_QUEUE, { appRoot: APP_ROOT });
 
     const deadline = Date.now() + POLL_TIMEOUT_MS;
     let owners: Array<string | null> = [];
