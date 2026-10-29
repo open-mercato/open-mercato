@@ -19,6 +19,10 @@ styles and its meta policy. Validate nonce syntax before interpolating it into
 HTML, preserve legacy helper callers with an optional argument, and verify actual
 computed styles in a browser under the parent's enforcing CSP.
 
+Exercise emitted headers in existing regression suites instead of parsing how a
+configuration string is constructed. Root-layout tests also need a scoped request
+header mock once nonce propagation reads Next's `headers()` API.
+
 Evidence: issue #7264 / PR #8220; `StoreBrandingPreview.tsx` and
 `buildBrandingPreviewDocument` in the ecommerce module; failing-before/passing-after
 helper and component tests; `TC-ECOM-CSP-001.spec.ts`; production Next.js/Chromium

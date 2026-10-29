@@ -139,3 +139,5 @@ results remain required before calling the implementation merge-ready.
   added validated nonce propagation and unit/component/browser regression coverage.
   Its second finding, blocked demo keyframes, is covered by a failing-before /
   passing-after component regression and the production Chromium fixture.
+- 2026-10-29: Updated the existing app header/layout suites to exercise emitted
+  production CSP and trusted request-nonce propagation rather than config syntax.
