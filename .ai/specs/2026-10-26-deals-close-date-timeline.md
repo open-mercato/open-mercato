@@ -16,7 +16,7 @@
 
 **Concerns:**
 - `customer_deals.expected_close_at` is `timestamptz` with no index. Bucketing is pinned to the UTC calendar date, and window queries rely on the `(organization_id, tenant_id)` index plus a range filter. The endpoint has a documented ceiling (see Risks).
-- This is the first deals view with real saved views. The Kanban's saved-views section was a stub and was removed from `CustomizeViewDialog.tsx` (the dialog itself remains), so this spec defines the payload contract.
+- The deals **List** already has saved views through the DataTable's perspectives (`tableId: customers.deals.list`), but its payload is the DataTable shape (columns, sorting, filter values). The Kanban and Map have none (the Kanban's saved-views stub was removed from `CustomizeViewDialog.tsx`; the dialog itself remains). The timeline is the first non-table deals view with saved views, so this spec defines its own payload contract.
 
 ## 📝 Overview
 
@@ -56,6 +56,7 @@ Sales reps and managers plan around *when* deals close. The Deals area shows tha
 4. **The undated link.** `dealListQuerySchema` gains an additive `hasExpectedCloseAt` boolean, honoured by `buildDealListFilters`. The List page reads it from the URL, using the same pattern as `needsAttention`.
    - The List page restores only `search`, `personId`/`companyId`, `needsAttention` and the advanced-filter tree (`filter[...]`) from the URL; plain `status`, `ownerUserId` and `pipelineId` are ignored.
    - The link is therefore built by a shared helper, `buildDealsListHref(timelineFilters)`, which encodes Status, Owner and Pipeline as an advanced-filter tree, using the tree serializer the List page already deserializes. Search, people and companies go as plain params.
+   - When `excludeClosed` is in effect (no Status filter chosen), the helper emits a `status` **`is_none_of`** condition over the same closed set the endpoint uses (`CLOSED_DEAL_STATUS_LIST` expanded through `expandDealStatusAliases`). The `select` operator set in `packages/shared/src/lib/query/advanced-filter.ts` supports it, and the List already exposes `status` as an advanced-filter field. Without it, closed undated deals would appear in the List while `undatedCount` excludes them.
    - This makes the List rows match `undatedCount`.
 
 ### Design Decisions
@@ -68,9 +69,9 @@ Sales reps and managers plan around *when* deals close. The Deals area shows tha
 | **Cell popover is a paged mode of the timeline endpoint** | The list API can't express the popover. `expectedCloseAtTo` is inclusive (`$lte`), so a deal at a bucket boundary would appear in two cells. `ownerUserId` drops `__unassigned`, so the Unassigned popover would return every owner's deals. Cell mode reuses the same filter path and bucket arithmetic, so the popover matches the cell's `total` whenever the column isn't truncated. In a truncated column the grid shows "More…" without a number, and the popover's exact total is authoritative. |
 | **Weeks start on Monday (ISO), whatever the locale (Q3a)** | Matches the prototype and keeps bucket keys stable for saved views and URLs. Locale-dependent weeks would also make server buckets depend on the client. |
 | **Bucketing by the UTC calendar date of `expected_close_at`** | The column is `timestamptz`. The deal form submits `YYYY-MM-DD`, which is coerced to UTC midnight. `dealsMetrics` already uses UTC quarter windows for the same reason. |
-| **Writes reuse `PUT /api/customers/deals`** | `customers.deals.update` already does optimistic locking, audit and undo, and emits events. A dedicated reschedule endpoint would duplicate it. |
+| **Writes reuse `PUT /api/customers/deals`** | The route already enforces optimistic locking (in the CRUD factory and mutation-guard layer, `shared/lib/crud/factory.ts`), and the `customers.deals.update` command already does audit and undo, and emits events. A dedicated reschedule endpoint would duplicate it. |
 | **Undo comes from `LastOperationBanner`**, not a timeline-specific Undo | The shell already offers Undo for the last command through its audit-log undo token. A second Undo control would be inconsistent with the Kanban. |
-| **Saved views via `perspectives` (Q4b)** | The module stores per-user views by `tableId`, and `settings.filters` is a free-form record, so timeline state fits with no schema change. The Kanban never shipped saved views. |
+| **Saved views via `perspectives` (Q4b)** | The module stores per-user views by `tableId`, and `settings.filters` is a free-form record, so timeline state fits with no schema change. The List already uses perspectives through the DataTable; the Kanban and Map never shipped saved views. The timeline doesn't reuse the List's payload, because that shape describes table columns, sorting and the advanced-filter tree, none of which exist on the board, while the timeline needs `groupBy` and `bucket`, which the table has no slot for. |
 | **The window position is not saved** | A saved view is "My Q4 review", not "the week of Oct 19". Views always reopen anchored on today. The URL carries `from` so a link can be shared. |
 | **New `TimelineDealCard`** instead of a prop variant of `DealCard` | `DealCard` carries quick actions, an activity badge, days-in-stage and bulk selection. A compact sibling avoids regression risk on the Kanban. Shared tone classes and formatting helpers are reused. |
 | **Stage-lane metadata is gated on `customers.pipelines.view`** | With the feature, stage lanes include empty stages, their order, the tone from `customer_dictionary_entries.color` (the Kanban's source) and the pipeline name. Without it, lanes derive only from the deals in the window, labelled with the deal's own `pipelineStage` text (already visible to `customers.deals.view` users), in a neutral tone, and grouped by `pipelineId` without a name. No pipeline metadata leaks beyond the existing gate. |
@@ -129,7 +130,7 @@ The approved story map in `.ai/prototypes/deals-close-timeline/REQUIREMENTS.md` 
 - **Server/client boundary:** the page and components are client components, like every deals backend page. The only server addition is the route, plus the additive list filter.
 - **`"use client"` ledger:** `timeline/page.tsx` and the components under `timeline/components/`. There are no provider or shell changes.
 - **Events and commands:** none new. Reschedules ride `customers.deals.update`, which already emits the deal-updated event, writes the audit log and invalidates caches.
-- **Bundle:** `@dnd-kit/core` is already used by the Kanban. No new dependencies.
+- **Bundle:** `@dnd-kit/core` is already used by the Kanban, so there is no new dependency for the product. It currently resolves in `core` only through hoisting from `ui`/`enterprise`, so Phase 2 declares it in `packages/core/package.json` (same version range as `ui`) instead of relying on hoisting.
 
 ## 📝 Data Models
 
@@ -137,7 +138,7 @@ No new entities and no migrations.
 
 ### Used as-is
 - **`CustomerDeal` (`customer_deals`):** `id`, `title` (**encrypted**, `encryption.ts`, so reads go through `findWithDecryption`), `status`, `pipelineId`, `pipelineStageId`, `valueAmount`, `valueCurrency`, `probability`, `expectedCloseAt` (**`timestamptz`, nullable, not indexed**), `ownerUserId`, `updatedAt` (lock version), plus org/tenant scope and soft delete.
-- **`CustomerDealCompanyLink` → company `CustomerEntity`:** supplies the card's primary company label. The first linked company by link creation is used, matching the Map endpoint's company ordering. Decrypted via `findWithDecryption`.
+- **`CustomerDealCompanyLink` → company `CustomerEntity`:** supplies the card's primary company label. The first linked company by link creation is used: the link query sets an explicit `orderBy: { createdAt: 'asc', id: 'asc' }` on `CustomerDealCompanyLink`, so the card label is deterministic (the Map endpoint's link fetch has no `orderBy`, so it can't be relied on for this). Decrypted via `findWithDecryption`.
 - **Pipeline stages and `customer_dictionary_entries.color`:** supply the label, order and tone for stage lanes when `groupBy=stage` and the caller has `customers.pipelines.view`. This is the same source and org/tenant scoping as the Kanban (`pipeline/page.tsx`).
 - **`perspectives` rows:** saved views. One row per user view, `tableId = 'customers.deals.timeline'`, stored in the existing table.
 
@@ -171,6 +172,8 @@ No new entities and no migrations.
 - **Metadata:** `{ GET: { requireAuth: true, requireFeatures: ['customers.deals.view'] } }`
 - **Query (zod, defined in the route file like the Map route, derived from `dealListQuerySchema`; this avoids `data/validators.ts` importing from an API route):**
   - **Filter subset reused from `dealListQuerySchema`:** `search`, `status[]`, `pipelineId[]`, `ownerUserId[]`, `personId[]`, `companyId[]`, `valueCurrency[]`. Repeated and comma-joined values are parsed with `readQueryParamList`, as in the Map route.
+  - **Dropped params:** `dealListQuerySchema` is `.passthrough()`, so the route builds the object passed to `buildDealListFilters` from the parsed subset above only. Close-date params (`expectedCloseAtFrom`/`To`, `hasExpectedCloseAt`), `isOverdue`, and the advanced-filter tree (`filter[...]`) never reach the builder; the window bounds close dates.
+  - **Merging with the builder's output:** `buildDealListFilters` can already set `filters.expected_close_at` and `filters.status`. The per-column `[from, to)` window (`$gte`/`$lt`) and the `excludeClosed` `$nin` are **merged** into the existing operator objects for those keys (or wrapped in `$and` when an operator would collide), never assigned over them. A unit test asserts that a `status` filter from the builder survives `excludeClosed` and that the window doesn't replace a builder-set `expected_close_at` condition.
   - **`bucket`:** `'week' | 'month' | 'quarter'`, default `'week'`.
   - **`from`:** `YYYY-MM-DD`. Defaults to the start of the bucket before the current one: last week, the current month, or the current quarter. Any value is aligned down to its bucket start.
   - **`columns`:** integer 1–8, default 5 for weeks and 4 for months and quarters.
@@ -196,7 +199,7 @@ No new entities and no migrations.
       "column": 1, "total": 5,
       "items": [{
         "id": "uuid", "title": "LIMS migration", "status": "open",
-        "valueAmount": 91000, "valueCurrency": "EUR", "probability": 65,
+        "valueAmount": 91000, "valueCurrency": "EUR", "probability": 65, // valueAmount: number | null
         "expectedCloseAt": "2026-11-02",              // UTC calendar date
         "pipelineId": "uuid", "pipelineStageId": "uuid",
         "ownerUserId": "uuid|null", "updatedAt": "2026-10-23T09:12:44.120Z",
@@ -207,7 +210,8 @@ No new entities and no migrations.
   "overdueBefore": { "count": 3, "latestExpectedCloseAt": "2026-10-14" }, // open deals before `from` and before today
   "undatedCount": 12,                                  // matching deals with expected_close_at IS NULL
   "adjacent": { "previous": "2026-10-14", "next": null }, // nearest matching close dates outside the window
-  "truncated": false                                   // any column hit TIMELINE_COLUMN_CAP (300)
+  "truncated": false,                                  // any column hit TIMELINE_COLUMN_CAP (300)
+  "cardsTruncated": false                              // heavy pass hit TIMELINE_RESPONSE_CARD_CAP (240)
 }
 ```
 
@@ -217,6 +221,7 @@ No new entities and no migrations.
   - **Owner lanes:** owners with at least one matching deal in the window, plus every owner explicitly selected in the `ownerUserId` filter (even with zero deals). The client sorts them by resolved name; owners it can't resolve (beyond the staff lookup's 100-member page, or without `customers.roles.view`) show a generic "Owner" label with initials from the id and sort last, before `__unassigned`, which always comes last. In a truncated column, an owner whose deals all fall beyond the cap has no lane until the filters are narrowed; the truncation alert says so.
   - **Stage lanes (with `customers.pipelines.view`):** every stage of the selected pipeline(s) in pipeline order, empty ones included. With several or all pipelines they are grouped by `pipelineId`, with the pipeline name.
   - **Stage lanes (without it):** only stages that have deals in the window, ordered by label, with no pipeline name.
+- **`valueAmount` wire type:** `number | null`. The entity stores `numeric(14,2)` as `string | null`; the projection converts it with `toFiniteNumberOrNull`, exactly as the Map endpoint does (`api/deals/map/route.ts`), and the response zod schema declares `z.number().nullable()`.
 - **Cell items** are ordered by `expectedCloseAt` ascending, then `id`. Neither `title` (encrypted, so sorting would force decrypting every candidate) nor value (amounts in different currencies aren't comparable) is used.
 - **Stage-lane gating** is checked inside the route with `rbacService.userHasAllFeatures(userId, ['customers.pipelines.view'], scope)`, which honours wildcard grants.
 - **Multi-organization caveat (inherited):** `buildDealListFilters` resolves the People/Companies, `needsAttention` and stuck-deal filters against `ctx.auth.orgId` (`api/deals/route.ts:410-453`). Under "All organizations" those specific filters narrow to a single organization, exactly as they do on the List, Kanban and Map today. The timeline inherits this and doesn't fix it; fixing it belongs in `buildDealListFilters` for all views.
@@ -244,7 +249,7 @@ No new entities and no migrations.
 
 ## 📝 Internationalization (i18n)
 
-All four locales (`en`, `pl`, `de`, `es`) go in `packages/core/src/modules/customers/i18n/*.json`:
+All five customers locales (`en`, `pl`, `de`, `es`, `ko`) go in `packages/core/src/modules/customers/i18n/*.json`:
 
 - **Labels:** `customers.deals.kanban.view.timeline` is the tab label ("Timeline"). `customers.nav.deals.timeline` is the page title and breadcrumb ("Deals Timeline").
 - **`customers.deals.timeline.*`:**
@@ -262,10 +267,10 @@ All four locales (`en`, `pl`, `de`, `es`) go in `packages/core/src/modules/custo
 
 The prototype in `.ai/prototypes/deals-close-timeline/index.html` (screens s1–s16) is the visual reference. It must be implemented with DS tokens and primitives. Only behaviour that the prototype can't show unambiguously is specified here.
 
-- **Page scaffold:** mirrors `map/page.tsx`:
+- **Page scaffold:** mirrors `map/page.tsx`, plus the Kanban's "New deal" button:
   - breadcrumb Deals → Deals Timeline;
   - an `h1` and a `SearchInput` (`w-64`);
-  - "New deal" (`customers.deals.manage` only), linking to `/backend/customers/deals/create?returnTo=/backend/customers/deals/timeline`;
+  - "New deal" (`customers.deals.manage` only, as on the Kanban, `pipeline/page.tsx`; the Map has none), linking to `/backend/customers/deals/create?returnTo=/backend/customers/deals/timeline`;
   - `ViewTabsRow`, resolved through the component registry (`VIEW_TABS_ROW_COMPONENT_ID`).
 - **Filter bar:** `FilterBarRow` with `StatusFilterPopover` (empty by default, as on the Kanban and Map; closed deals are hidden by the endpoint's `excludeClosed` until a status is chosen), `PipelineFilterPopover`, and `EntityFilterPopover` for Owner, People and Companies. There is **no** `CloseDateFilterPopover`, because the window already bounds close dates, and no `SortByPopover`, because the order is by date.
 - **Saved views row:** chips for the user's `perspectives` (`ViewChip`), "Save view" (`NewViewForm`) and delete. It is hidden without `perspectives.use`. Saving, renaming (a POST with `perspectiveId`) and deleting are non-`CrudForm` writes, so each goes through `useGuardedMutation(...).runMutation` with `retryLastMutation` (customers `AGENTS.md` rule 6). Rename and delete send `buildOptimisticLockHeader(perspective.updatedAt)`. A `409` with `code: 'duplicate_name'` shows an inline name error in `NewViewForm`; any other `409` goes to `surfaceRecordConflict` and reloads the view list. Role defaults and sharing are out of scope for v1.
@@ -280,7 +285,7 @@ The prototype in `.ai/prototypes/deals-close-timeline/index.html` (screens s1–
   - the current column is tinted with the `accent-indigo` alpha tokens and shows a "This week/month/quarter" pill;
   - cells hold up to `perCell` cards, then a "+N more" button that opens `TimelineCellPopover`;
   - the "{n} overdue before {date}" button (status-error tokens) sits above the lanes and moves `from` to the bucket containing `overdueBefore.latestExpectedCloseAt`;
-  - the footer has the stage legend and the undated link (`buildDealsListHref({ ...activeFilters, hasExpectedCloseAt: false })`, so the List shows exactly the counted deals).
+  - the footer has the stage legend and the undated link (`buildDealsListHref({ ...activeFilters, excludeClosed, hasExpectedCloseAt: false })`; with `excludeClosed` the helper adds the `status is_none_of` closed-set condition, so the List shows exactly the counted deals).
 - **`TimelineDealCard`** (compact `DealCard`, about 4.5rem tall):
   - row 1: the title (truncated) and a probability pill;
   - row 2: the value (`formatCurrency`) and the close date with a calendar icon. Overdue dates (an open deal per `lib/dealStatus.ts`, with a date before today) use status-error tokens and a warning icon, as on `DealCard`;
@@ -370,14 +375,14 @@ The prototype in `.ai/prototypes/deals-close-timeline/index.html` (screens s1–
 4. **`api/deals/timeline/route.ts`:**
    - metadata, auth and scope scaffold (copied from `api/deals/map`);
    - `buildDealListFilters` called once, then one light pass per column with a half-open `[from, to)` filter and the `excludeClosed` condition, using internal query-engine paging (`pageSize` 100) up to `TIMELINE_COLUMN_CAP` (300), sorted by `expected_close_at` and `id`, with the engine's `total` as the column total;
-   - grouping, then the heavy pass for the top `perCell` ids per cell: deal rows and company labels through `findWithDecryption`;
+   - grouping, then the heavy pass for the top `perCell` ids per cell, filled lane by lane in display order up to `TIMELINE_RESPONSE_CARD_CAP` (240): deal rows and company labels (link `orderBy: { createdAt: 'asc', id: 'asc' }`) through `findWithDecryption`;
    - stage lanes, with the metadata gated in-route via `rbacService.userHasAllFeatures` (wildcard-aware) on `customers.pipelines.view` and tones from `customer_dictionary_entries.color`, plus per-pipeline `__nostage:<pipelineId>` lanes;
    - side queries (`overdueBefore`, `undatedCount`, `adjacent`) using the helpers' closed-set exclusion and the UTC date;
    - cell mode;
    - an explicit snake_case→camelCase projection, and the `openApi` export.
    - Unit tests (`api/deals/timeline/__tests__/route.test.ts`) cover:
      - grouping and counts;
-     - perCell truncation;
+     - perCell truncation, and the response card cap (`cardsTruncated`, exact `total` on emptied cells);
      - ordering inside a cell;
      - the owner lane rules (selected owner with zero deals, `__unassigned` last);
      - stage lanes including empty stages;
@@ -399,15 +404,15 @@ The prototype in `.ai/prototypes/deals-close-timeline/index.html` (screens s1–
    - Owner names come from `fetchAssignableStaffMembers` (as on the Kanban). The helper takes no header option, so the call is wrapped in `withScopedApiRequestHeaders({ 'x-om-forbidden-redirect': '0' }, …)` and any error falls back to the generic "Owner" label. The same fallback applies when an owner isn't on the first page.
 7. **Saved views:** `TimelineSavedViews.tsx`, built on the perspectives API (`/api/perspectives/customers.deals.timeline`) and the `ViewChip`/`NewViewForm` primitives. Saving, renaming and deleting go through `useGuardedMutation`, with the lock header and the `duplicate_name`/conflict handling described in UI/UX. Applying a view sets the filters, `groupBy` and `bucket` and resets `from`. Unit tests cover payload parse and fallback.
 8. **Undated link:**
-   - `lib/dealsListHref.ts` provides `buildDealsListHref(filters)`, which encodes Status, Owner and Pipeline into the advanced-filter tree with the serializer `deals/page.tsx` already deserializes, and passes search, people and companies as plain params;
+   - `lib/dealsListHref.ts` provides `buildDealsListHref(filters)`, which encodes Status, Owner and Pipeline into the advanced-filter tree with the serializer `deals/page.tsx` already deserializes, encodes `excludeClosed` as a `status is_none_of` condition over the helpers' closed set (only when no Status is chosen), and passes search, people and companies as plain params;
    - the List page reads `hasExpectedCloseAt` from the URL and renders it as a removable chip;
-   - a unit test checks the round trip: `buildDealsListHref` → List URL hydration → the same filter set.
-9. **i18n** keys in all four locales, then `yarn generate` and `yarn i18n:check-sync`.
+   - a unit test checks the round trip: `buildDealsListHref` → List URL hydration → the same filter set, both with a chosen Status and with `excludeClosed` (the hydrated tree holds the `status is_none_of` closed-set condition, including the `won`/`loose` aliases).
+9. **i18n** keys in all five locales (`en`, `pl`, `de`, `es`, `ko`), then `yarn generate` and `yarn i18n:check-sync`.
 10. **Integration tests** TC-CRM-TL-001 (API) and TC-CRM-TL-002 (UI, read-only) — see Integration Test Coverage. Final IDs follow the repo's next free `TC-CRM-*` numbers at implementation time.
 
 ### Phase 2: rescheduling
 
-11. **Drag:** wire `@dnd-kit` (`PointerSensor` and `KeyboardSensor`) into `DealsTimelineBoard`, with drop targets limited to the source lane and computation through `shiftCloseDate`. Add the ghost, target highlight and tooltip, Esc to cancel, and a no-op on the origin column.
+11. **Drag:** declare `@dnd-kit/core` in `packages/core/package.json`, then wire `@dnd-kit` (`PointerSensor` and `KeyboardSensor`) into `DealsTimelineBoard`, with drop targets limited to the source lane and computation through `shiftCloseDate`. Add the ghost, target highlight and tooltip, Esc to cancel, and a no-op on the origin column.
 12. **Reschedule mutation:** `useRescheduleDeal.ts`, which:
     - updates the query cache optimistically;
     - sends `PUT /api/customers/deals` inside `useGuardedMutation(...).runMutation` with `withScopedApiRequestHeaders(buildOptimisticLockHeader(updatedAt), …)` and passes `retryLastMutation` in the injection context;
@@ -431,11 +436,12 @@ The prototype in `.ai/prototypes/deals-close-timeline/index.html` (screens s1–
 | `packages/core/src/modules/customers/backend/customers/deals/timeline/page.meta.ts`, `page.tsx` | Create | 1 |
 | `packages/core/src/modules/customers/backend/customers/deals/timeline/components/*` | Create | 1–2 |
 | `packages/core/src/modules/customers/backend/customers/deals/page.tsx` | Modify (`hasExpectedCloseAt` URL filter) | 1 |
-| `packages/core/src/modules/customers/i18n/{en,pl,de,es}.json` | Modify | 1–2 |
+| `packages/core/src/modules/customers/i18n/{en,pl,de,es,ko}.json` | Modify | 1–2 |
 | `packages/core/src/modules/customers/__integration__/TC-CRM-TL-00{1,2,3}.spec.ts` | Create | 1–2 |
 | `UPGRADE_NOTES.md` | Modify (informational `visibleViews` note) | 1 |
 | `packages/core/src/modules/customers/lib/dealsListHref.ts` (+ `__tests__`) | Create (undated link builder) | 1 |
 | `BACKWARD_COMPATIBILITY.md` | Modify (`KanbanView` additive-only row) | 1 |
+| `packages/core/package.json` | Modify (declare `@dnd-kit/core`, already hoisted) | 2 |
 
 ### Testing Strategy
 
@@ -462,7 +468,7 @@ The specs are self-contained Playwright tests. Fixtures come from `packages/core
 2. A fixture deal closing this week renders as a card in the "This week" column of its owner's lane, showing title, value and close date.
 3. Switching Columns to Month and Group by to Stage updates the URL, and the card moves to the matching cell.
 4. A cell with more than three deals shows "+N more", and the popover lists every deal of the cell.
-5. With a unique search token in the fixture deals' titles and that token in the timeline search, clicking the undated link opens the List with the "no close date" chip and the same search. It shows exactly the fixture's undated deal, so other tests' data can't interfere.
+5. With a unique search token in the fixture deals' titles and that token in the timeline search, the fixtures include an open undated deal and a closed (`win`) undated deal. The undated link shows a count of 1, and clicking it opens the List with the "no close date" chip, the same search and the closed-set status condition. It shows exactly the open undated deal; the closed one is absent. The unique token keeps other tests' data out.
 6. Saving a view, reloading, and applying the view restores Group by, Columns and filters (perspectives round trip).
 
 **TC-CRM-TL-003: Rescheduling (UI, Phase 2)**
@@ -474,7 +480,7 @@ The specs are self-contained Playwright tests. Fixtures come from `packages/core
 ## 📝 Risks & Impact Review
 
 ### Data Integrity Failures
-The only write is the existing `customers.deals.update` command, which keeps its optimistic locking, audit trail, undo and events. A failed write rolls the optimistic move back, so it never leaves a lingering visual state. The endpoint is read-only.
+The only write is the existing `PUT /api/customers/deals` route: its CRUD factory layer keeps the optimistic locking, and the `customers.deals.update` command keeps its audit trail, undo and events. A failed write rolls the optimistic move back, so it never leaves a lingering visual state. The endpoint is read-only.
 
 ### Cascading Failures & Side Effects
 Reschedules emit the existing deal-updated event. Subscribers, notifications and indexing behave exactly as for a form edit. If the timeline endpoint fails, only this page is affected (`ErrorMessage` with retry).
@@ -486,7 +492,7 @@ Every pass and side query goes through the Map route's scope resolution. Company
 There are no migrations; the routes and the param are additive. Rolling back means removing the page and route, and saved timeline perspectives become inert rows.
 
 ### Operational Risks
-Endpoint cost: the filter build runs once. Each column is up to 3 OFFSET pages of 100, and each page re-runs the engine's count probe, so the worst case is 8 columns × 6 queries = 48 light queries. The default (5 week columns over open deals) is typically 5 pages and 5 count probes. On top of that come the heavy pass (at most `lanes × columns × perCell` deals), stage lookups and three small side queries. Cell mode costs one paged query. Phase 1 profiles the worst case on a seeded 10k-deal tenant (`OM_PROFILE=customers.*`). If it exceeds the deals-list p95, the follow-up is a grouped count through the query engine, not a raised cap.
+Endpoint cost: the filter build runs once. Each column is up to 3 OFFSET pages of 100, and each page re-runs the engine's count probe, so the worst case is 8 columns × 6 queries = 48 light queries. The default (5 week columns over open deals) is typically 5 pages and 5 count probes. On top of that come the heavy pass, stage lookups and three small side queries. Lanes are unbounded, so `lanes × columns × perCell` is bounded only by the light-pass cap: the heavy pass is capped at `TIMELINE_RESPONSE_CARD_CAP` (240 = 8 columns × 3 × 10) decrypted cards per response. Cells beyond the cap return `items: []` with their exact `total`, render as "+N more" and load through cell mode, and the response sets `cardsTruncated: true`. Without the cap the worst case would be 8 × 300 = 2,400 decrypted rows and rendered cards (for example stage grouping across all pipelines). Cell mode costs one paged query. Phase 1 profiles the worst case on a seeded 10k-deal tenant (`OM_PROFILE=customers.*`). If it exceeds the deals-list p95, the follow-up is a grouped count through the query engine, not a raised cap.
 
 ### Risk Register
 
@@ -553,7 +559,7 @@ Endpoint cost: the filter build runs once. Each column is up to 3 OFFSET pages o
 | core AGENTS.md | ACL boundaries respected | Compliant | Stage and pipeline metadata gated on `customers.pipelines.view`; degraded lanes otherwise |
 | core AGENTS.md | No cross-module ORM relations | Compliant | Customers-only, plus the perspectives HTTP API |
 | root AGENTS.md | `apiCall`/`readApiResultOrThrow`, no raw `fetch` | Compliant | Specified for all client calls |
-| root AGENTS.md | No hard-coded strings; `pageSize ≤ 100` | Compliant | i18n ×4; popover and light-pass paging at 100 |
+| root AGENTS.md | No hard-coded strings; `pageSize ≤ 100` | Compliant | i18n ×5; popover and light-pass paging at 100 |
 | DS rules | Status tokens; no arbitrary values or `dark:` overrides | Compliant | Tone maps from `Lane.tsx`; prototype verified token-only |
 | Dialog rules | Cmd/Ctrl+Enter submit, Escape cancel | Compliant | `ChangeCloseDateDialog` |
 | BACKWARD_COMPATIBILITY.md | Additive changes only | Compliant | Route, page, param, union widening; UPGRADE note |
@@ -575,7 +581,7 @@ Draft, ready for review. No non-compliant items.
   - Q1: one spec in two phases.
   - Q2: a new aggregated endpoint.
   - Q3: ISO Monday weeks.
-  - Q4: saved views via `perspectives`. The Kanban has none today, so the timeline defines the payload.
+  - Q4: saved views via `perspectives`. The Kanban and Map have none today and the List's DataTable payload doesn't fit a board, so the timeline defines its own payload.
   - Q5: an additive `hasExpectedCloseAt` list filter.
   - Q6: the spec ships on PR #7999.
 - Adversarial review response (changes requested; 0 critical, 3 high, 7 medium, 6 low; all addressed):
@@ -611,3 +617,16 @@ Draft, ready for review. No non-compliant items.
 - Deviations from the prototype, made during research:
   - Undo uses the shell's `LastOperationBanner` instead of a timeline-specific Undo flash.
   - Bucketing uses the UTC calendar date, because `expected_close_at` is `timestamptz`.
+
+### 2026-10-29
+- Specification review on PR #7999 (changes requested; 2 medium, 7 low, 1 nit; all addressed):
+  - **M1:** `buildDealsListHref` carries `excludeClosed` as a `status is_none_of` closed-set condition; TL-002 §5 adds a closed undated fixture asserted absent; the round-trip test covers it.
+  - **M2:** i18n lists all five customers locales, including `ko`.
+  - **L1:** saved-views wording corrected (the List already uses DataTable perspectives) and the separate payload justified.
+  - **L2:** explicit `orderBy: { createdAt, id }` for the primary company link.
+  - **L3:** the timeline route drops close-date, overdue and advanced-tree params, and merges the window and `$nin` into the builder's operator objects.
+  - **L4:** heavy pass capped at `TIMELINE_RESPONSE_CARD_CAP` (240) with `cardsTruncated`.
+  - **L5:** `valueAmount` pinned to `number | null`, as in the Map endpoint.
+  - **L6:** "New deal" referenced from the Kanban, not the Map.
+  - **L7:** Phase 2 declares `@dnd-kit/core` in `packages/core/package.json`.
+  - **Nit:** optimistic locking attributed to the CRUD factory/mutation-guard layer of `PUT /api/customers/deals`.
