@@ -1,8 +1,8 @@
 import { Migration } from '@mikro-orm/migrations';
 
-export class Migration20261014082519_payment_gateways extends Migration {
+export class Migration20261029222135_payment_gateways extends Migration {
 
-  override name = 'Migration20261014082519';
+  override name = 'Migration20261029222135';
 
   override up(): void | Promise<void> {
     this.addSql(`alter table "gateway_payment_operations" alter column "reserved_amount" type numeric using ("reserved_amount"::numeric);`);

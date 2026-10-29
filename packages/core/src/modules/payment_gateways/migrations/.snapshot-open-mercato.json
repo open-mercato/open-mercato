@@ -548,6 +548,19 @@
         },
         {
           "columnNames": [
+            "tenant_id",
+            "organization_id",
+            "updated_at",
+            "id"
+          ],
+          "composite": true,
+          "constraint": false,
+          "keyName": "gateway_session_initializations_retention_idx",
+          "primary": false,
+          "unique": false
+        },
+        {
+          "columnNames": [
             "operation_key",
             "provider_key",
             "organization_id",
