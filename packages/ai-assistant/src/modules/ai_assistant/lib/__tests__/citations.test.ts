@@ -19,6 +19,15 @@ import {
 } from '../citations'
 import { createToolUiPartBuffer, mergeUiPartsIntoToolResult } from '../tool-ui-parts'
 import * as publicEntry from '../../../../index'
+import {
+  NON_STRING_CITATION_HREFS,
+  SAFE_CITATION_HREFS,
+  UNSAFE_CITATION_HREFS,
+} from '@open-mercato/ui/ai/citations/__tests__/href-safety-cases'
+import {
+  AI_CITATIONS_COMPONENT_ID as UI_CITATIONS_COMPONENT_ID,
+  isSafeCitationHref,
+} from '@open-mercato/ui/ai/citations/registry'
 
 describe('isSafeHref', () => {
   it.each([
@@ -61,6 +70,24 @@ describe('isSafeHref', () => {
     expect(isSafeHref(undefined)).toBe(false)
     expect(isSafeHref(null)).toBe(false)
     expect(isSafeHref(42)).toBe(false)
+  })
+})
+
+describe('isSafeHref parity with the client-side check in @open-mercato/ui', () => {
+  it.each([...SAFE_CITATION_HREFS, ...UNSAFE_CITATION_HREFS, ...NON_STRING_CITATION_HREFS])(
+    'agrees on %p',
+    (href) => {
+      expect(isSafeHref(href)).toBe(isSafeCitationHref(href))
+    },
+  )
+
+  it('accepts every shared safe href and rejects every shared unsafe href', () => {
+    for (const href of SAFE_CITATION_HREFS) expect(isSafeHref(href)).toBe(true)
+    for (const href of UNSAFE_CITATION_HREFS) expect(isSafeHref(href)).toBe(false)
+  })
+
+  it('uses the same citations component id as the client', () => {
+    expect(UI_CITATIONS_COMPONENT_ID).toBe(AI_CITATIONS_COMPONENT_ID)
   })
 })
 

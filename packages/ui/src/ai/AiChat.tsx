@@ -65,6 +65,7 @@ import {
   type AiUiPartComponentId,
   type AiUiPartRegistry,
 } from './ui-part-registry'
+import { mergeConsecutiveCitationParts } from './citations/merge'
 import {
   useAiChat,
   type AiAgentTaskSnapshot,
@@ -989,7 +990,7 @@ function MessageUiParts({
 }) {
   return (
     <div className="mt-2 flex flex-col gap-2" data-ai-message-ui-parts="">
-      {parts.map((part) => (
+      {mergeConsecutiveCitationParts(parts).map((part) => (
         <AiUiPartRenderer
           key={part.key}
           part={{

@@ -64,10 +64,30 @@ export {
 } from './ui-part-registry'
 export { PendingPhase3Placeholder } from './ui-parts/pending-phase3-placeholder'
 export {
+  AI_CITATIONS_COMPONENT_ID,
+  registerCitationResolver,
+  unregisterCitationResolver,
+  getCitationResolver,
+  listCitationResolverKinds,
+  resolveCitation,
+  fallbackCitation,
+  isSafeCitationHref,
+  isExternalCitationHref,
+  resetCitationResolversForTests,
+  type AiCitationRef,
+  type AiCitationsPartPayload,
+  type CitationResolver,
+  type CitationResolverResult,
+  type ResolvedCitation,
+  type ResolvedCitationStep,
+} from './citations/registry'
+export { mergeConsecutiveCitationParts, readCitationsPayload } from './citations/merge'
+export {
   MutationPreviewCard,
   FieldDiffCard,
   ConfirmationCard,
   MutationResultCard,
+  CitationsPart,
   AI_MUTATION_APPROVAL_CARDS,
   useAiPendingActionPolling,
   confirmPendingAction,
