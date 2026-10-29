@@ -108,12 +108,15 @@ test.describe('TC-SALES-7782: Document extension host contributors', () => {
               Widget: ({ context, data }: {
                 context: { kind: string; documentId: string; organizationId: string | null; tenantId: string | null; resourceKind: string; resourceId: string; record: { id: string }; retryLastMutation: unknown }
                 data: { id: string }
-              }) => [
+              }) => ({
+                $$typeof: Symbol.for('react.transitional.element'), type: 'p', key: null,
+                props: { 'data-testid': contribution.id, children: [
                 contribution.id, context.kind, context.documentId,
                 context.organizationId, context.tenantId,
                 context.resourceKind, context.resourceId,
                 context.record.id, data.id, typeof context.retryLastMutation,
-              ].join('|'),
+              ].join('|') },
+              }),
             } }),
           }))
           const table = Object.fromEntries(contributions.map((contribution) => [contribution.spot, contribution.id]))
@@ -150,7 +153,9 @@ test.describe('TC-SALES-7782: Document extension host contributors', () => {
             record?.organizationId, record?.tenantId,
             `sales.${kind}`, documentId, documentId, documentId, 'function',
           ].join('|')
-          await expect(main.getByText(expected, { exact: true })).toBeVisible()
+          const widget = main.getByTestId(`qa.sales.${kind}.${surface}`)
+          await expect(widget).toBeVisible()
+          await expect(widget).toHaveText(expected)
         }
         await expect(main.getByText(new RegExp(`^qa\\.sales\\.${kind === 'order' ? 'quote' : 'order'}\\.`))).toHaveCount(0)
         await expect(main.getByRole('button', { name: /^Status / })).toBeVisible()
