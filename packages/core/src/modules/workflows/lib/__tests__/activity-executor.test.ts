@@ -1490,6 +1490,31 @@ describe('Activity Executor (Unit Tests)', () => {
       }
     })
 
+    test.each([{ timeoutMs: 120000 }, { timeout: 'PT2M' }])(
+      'honors a configured timeout longer than the default: %p',
+      async (timeout) => {
+        jest.useFakeTimers()
+        ;(global.fetch as jest.Mock).mockImplementation(() => new Promise<Response>((resolve) => {
+          setTimeout(() => resolve(new Response('complete')), 60000)
+        }))
+        const originalAllowPrivate = process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS
+        process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS = '1'
+        try {
+          const pending = activityExecutor.executeActivity(
+            mockEm, mockContainer, { ...webhookActivity, ...timeout }, mockContext,
+          )
+
+          await jest.advanceTimersByTimeAsync(60000)
+
+          expect(await pending).toMatchObject({ success: true, output: { result: 'complete' } })
+          expect(jest.getTimerCount()).toBe(0)
+        } finally {
+          if (originalAllowPrivate === undefined) delete process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS
+          else process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS = originalAllowPrivate
+        }
+      },
+    )
+
     test.each(['application/json', 'text/plain'])(
       'rejects oversized streamed %s responses even with an understated Content-Length',
       async (contentType) => {

@@ -382,7 +382,7 @@ export async function enqueueActivity(
     workflowContext,
     stepContext,
     retryPolicy: activity.retryPolicy,
-    timeoutMs: activity.timeoutMs,
+    timeoutMs: resolveActivityTimeoutMs(activity),
     tenantId: workflowInstance.tenantId,
     organizationId: workflowInstance.organizationId,
     userId: context.userId,
@@ -851,6 +851,7 @@ async function executeActivityByType(
     em: em as PostgreSqlEntityManager,
     container,
     signal,
+    timeoutMs: resolveActivityTimeoutMs(activity),
   })
 }
 
@@ -1215,6 +1216,7 @@ export type CallWebhookDeps = {
   allowPrivate?: boolean
   fetchImpl?: typeof fetch
   signal?: AbortSignal
+  timeoutMs?: number
 }
 
 const WEBHOOK_TIMEOUT_MS = 30_000
@@ -1323,7 +1325,7 @@ export async function executeCallWebhook(
     } finally {
       void response?.body?.cancel().catch(() => undefined)
     }
-  }, WEBHOOK_TIMEOUT_MS)
+  }, deps.timeoutMs && deps.timeoutMs > 0 ? deps.timeoutMs : WEBHOOK_TIMEOUT_MS)
 }
 
 /**

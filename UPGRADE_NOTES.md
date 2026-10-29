@@ -26,17 +26,36 @@ most of the patterns listed below in a user's codebase.
 
 ### Workflow webhook responses have resource limits (#7814)
 
-Each `CALL_WEBHOOK` attempt now has a 30-second ceiling covering the outbound
-request and response-body consumption, and accepts at most 1 MiB of response
-bytes before UTF-8 decoding and JSON parsing. Earlier activity timeouts still
-apply. Oversized or stalled responses fail the activity and cancel its body;
-the existing retry policy still applies. These limits also apply when no
-activity timeout is configured or a longer timeout was previously configured.
+Each `CALL_WEBHOOK` attempt now defaults to a 30-second deadline covering the
+outbound request and response-body consumption. Explicit activity timeouts
+(`timeoutMs` or the legacy `timeout` duration) remain authoritative, including
+values longer than 30 seconds, in both synchronous and queued execution. Every
+attempt accepts at most 1 MiB of response bytes before UTF-8 decoding and JSON
+parsing. Oversized or stalled responses fail the activity and cancel its body;
+the existing retry policy still applies.
 
 **Workflow author and operator action:** update webhook endpoints that exceed
-these limits to return a small acknowledgement promptly. Move large results or
-long-running processing behind a separate retrieval or asynchronous workflow.
+the byte limit to return a small acknowledgement promptly. Configure an explicit
+activity timeout for a slower endpoint, and move large results behind a separate
+retrieval or asynchronous workflow.
 Existing request configuration and successful response envelopes are unchanged.
+
+### Scoped attachment bytes no longer advertise shared caching (#7220)
+
+The attachment file and image byte routes now return `Cache-Control: private,
+max-age=60` for tenant- or organization-scoped records, including records in a
+public partition and reads by superadmins. Only records that the existing origin
+access policy permits anonymously retain public caching (global public files:
+86400 seconds; global public images: 3600 seconds). Private partitions keep their
+existing private cache policy. URLs, byte formats, and authorization are unchanged.
+
+**Operator action:** purge previously cached scoped attachment responses from
+CDNs, reverse proxies, and other shared HTTP caches when deploying this fix.
+Include both `/api/attachments/file/*` (including download query variants) and
+`/api/attachments/image/*` (all slugs, sizes, crop options, and query variants).
+Changing origin headers cannot invalidate copies already stored with the old
+public TTL. Check cache rules honor origin `private` and do not force-cache these
+routes. No database or module-code migration is required.
 
 ### Bundled Traefik keeps app and collaboration ports private (#7833)
 
