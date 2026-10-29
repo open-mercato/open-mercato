@@ -607,7 +607,7 @@ Spec: [`.ai/specs/2026-09-08-error-reporting-policy.md`](.ai/specs/2026-09-08-er
 
 ## Attachment owner access (2026-10-01, #6726)
 
-STABLE HTTP/service BREAK (403/404/504): org-wide protected-file access bypasses Documents sharing; a bridge would keep disclosure reachable. Unrelated owners stay unchanged; discovery/schema are additive. Clients/operators: [migration](UPGRADE_NOTES.md#documents-attachments-enforce-owner-permissions-at-host-urls-6726); [spec](.ai/specs/2026-10-01-attachment-access-resolvers.md). Named human waiver pending; blocks merge.
+STABLE HTTP/service BREAK (403/404/504), Documents only: org-wide files bypass sharing; bridging would retain disclosure. Discovery/schema additive. [Migration](UPGRADE_NOTES.md#documents-attachments-enforce-owner-permissions-at-host-urls-6726); [spec](.ai/specs/2026-10-01-attachment-access-resolvers.md). [@haxiorz: steps 1–3 waived; migration acknowledged](https://github.com/open-mercato/open-mercato/pull/6829#issuecomment-6505350022).
 
 ## #7220
 

@@ -79,9 +79,10 @@ callback, and a named required provider cannot be replaced by an unrelated wildc
 block affected host endpoints at the deployment boundary before any emergency binary rollback.
 Dropping policy data is not a supported security rollback.
 
-This intentional tightening is covered by the pending Emergency Security Exception described
-in `BACKWARD_COMPATIBILITY.md` and [design PR #6828](https://github.com/open-mercato/open-mercato/pull/6828).
-A named human maintainer acknowledgment is required before merge.
+This intentional tightening uses the Emergency Security Exception described in
+`BACKWARD_COMPATIBILITY.md` and [design PR #6828](https://github.com/open-mercato/open-mercato/pull/6828).
+Human maintainer @haxiorz [approved the steps 1–3 waiver and acknowledged the client/operator migration](https://github.com/open-mercato/open-mercato/pull/6829#issuecomment-6505350022)
+on 2026-10-29. Independent review, QA and CI remain separate merge gates.
 
 ### Scoped attachment bytes no longer advertise shared caching (#7220)
 
