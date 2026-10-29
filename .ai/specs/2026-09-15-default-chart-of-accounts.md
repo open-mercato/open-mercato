@@ -196,7 +196,7 @@ schema or command change.
 | A new standalone module (e.g. `chart_of_accounts_templates`) owning this command | Rejected — see Design Decisions, "Extends `ledger` directly." No new entity, no independent consumer other than the one admin button; a new module would add a dependency-boundary crossing this feature doesn't need. |
 | Wire the import into the organization-creation/onboarding wizard in Phase 1, matching how ERPNext, enova365, and Symfonia all surface a chart-of-accounts choice at setup time | Deferred to Phase 2, not rejected — see Design Decisions, "Opt-in only, never automatic," and Out of Scope. Kept deliberately visible per explicit instruction rather than dropped: every other module in this family ships a manual trigger in Phase 1 and defers onboarding/automation integration to Phase 2, and wiring a new choice into org-creation UI is a larger, separate piece of work this document's narrow scope shouldn't have to own in one pass. |
 | A JSON seed file or an admin-editable "chart of accounts template" entity instead of hardcoded TypeScript data | Rejected for Phase 1 — see Design Decisions, "Hardcoded Polish template data." Matches the existing `seedPolishAccountGroups` precedent; a genuinely editable/parametrized template (by business type, the way enova365/Symfonia offer) is a real Phase 2 feature, not a data-format choice to make speculatively now. |
-| Merge into an existing non-empty chart of accounts (skip duplicates by slug, or upsert) instead of refusing to run | Rejected — see Design Decisions, "Refuses to run against a non-empty chart of accounts." Defining a correct merge semantics against an already-customized chart is a real, harder problem this document doesn't need to solve to be useful; a clean empty-chart precondition sidesteps it entirely. |
+| Merge into an existing non-empty chart of accounts (skip duplicates by number, or upsert) instead of refusing to run | Rejected — see Design Decisions, "Refuses to run against a non-empty chart of accounts." Defining a correct merge semantics against an already-customized chart is a real, harder problem this document doesn't need to solve to be useful; a clean empty-chart precondition sidesteps it entirely. |
 
 ## Architecture
 
@@ -206,15 +206,17 @@ No new entities. This document writes only into the three entities GL
 core engine (#5663) already owns and this document treats as
 authoritative: `LedgerAccountGroup` (read-only here — every row this
 document creates links to an `accountGroupId` GL core engine already
-seeded via `seedPolishAccountGroups`; this document never creates or
-modifies a `LedgerAccountGroup` row), `LedgerAccountType` (created by
+seeded via `seedPolishAccountGroups`; whether the import may seed missing
+groups itself is Open Question OQ-R1), `LedgerAccountType` (created by
 this document's command, using the same shape `createLedgerAccountType`
-already validates: `slug`, `name`, `normalBalance`, optional
-`parentAccountTypeId`, optional `accountGroupId`), and `LedgerAccount`
+already validates in #6340, `ledgerAccountTypeCreateSchema`: `number`,
+`name`, `normalBalance`, optional `accountGroupId`), and `LedgerAccount`
 (created by this document's command, using the same shape
-`createLedgerAccount` already validates: `slug`, `accountTypeId`,
-optional `parentAccountId`, optional `description`). No migration, no
-schema change.
+`createLedgerAccount` already validates, `ledgerAccountCreateSchema`:
+`number`, `accountTypeId`, optional `currencyId`, optional `description`).
+The chart is flat: neither entity has a parent column (#6340,
+`Migration20261013090000`, which renamed `slug` to `number` and dropped the
+hierarchy). No migration, no schema change.
 
 ### Access Control
 
@@ -269,18 +271,22 @@ document adds.
   If those aren't seeded for the caller's organization yet, the command
   throws a 409 conflict (`ledger.errors.chartOfAccountsGroupsNotSeeded`)
   without writing anything, instead of importing a type with a
-  dangling `accountGroupId`. Defensive only — `setup.ts`'s
-  `seedDefaults` always seeds zespoły 0-8 before a tenant can reach
-  this command, so this should be unreachable in practice (PR #6137
-  review, m2 — previously undocumented).
+  dangling `accountGroupId`. *(Corrected 2026-10-29, PR #6137 re-review,
+  R1.)* This is not unreachable: #6340 seeds the groups only in
+  `setup.ts`'s `seedDefaults` (`mercato init`, the `seed:defaults` CLI
+  command, self-service onboarding), and an organization created in
+  Directory does not run that hook, so every import there ends in this
+  409. Where the groups should come from is Open Question OQ-R1.
 - **Concurrent imports**: two simultaneous calls against the same
   empty chart of accounts can both pass the precondition check above
   before either writes. The database's own partial unique indexes
-  (`ledger_account_types_scope_slug_unique` /
-  `ledger_accounts_scope_slug_unique`, `(organization_id, tenant_id,
-  slug) where deleted_at is null`, #6340) stop the loser from writing a
-  duplicate set of rows — its `flush` fails on a slug unique violation
-  instead. The command catches that specific violation
+  (`ledger_account_types_scope_number_unique` /
+  `ledger_accounts_scope_number_unique`, `(organization_id, tenant_id,
+  number) where deleted_at is null`, renamed from `*_scope_slug_unique`
+  by #6340's `Migration20261013090000`) stop the loser from writing a
+  duplicate set of rows — its `flush` fails on a number unique violation
+  instead. The violation must be recognized by these index names; one
+  that still names `*_scope_slug_unique` misses it and lets a 500 through. The command catches that specific violation
   (`isUniqueViolation`, matching `postJournalEntry.ts`'s own use of the
   same helper) and re-throws a 409 conflict of its own
   (`ledger.errors.chartOfAccountsImportConflict` — deliberately a
@@ -292,14 +298,21 @@ document adds.
   attempts").
 - **Validation**: every hardcoded template row is validated once
   through the same `data/validators.ts` schemas
-  `createLedgerAccountType`/`createLedgerAccount` already use — no new
-  validation rules (see Design Decisions, "One command, one
-  transaction, one undo").
-- **Write**: inserts every `LedgerAccountType` row first (in an order
-  that satisfies each row's own `parentAccountTypeId`/`accountGroupId`
-  reference), then every `LedgerAccount` row (satisfying
-  `accountTypeId`/`parentAccountId`), inside one `withAtomicFlush`
-  transaction.
+  `createLedgerAccountType`/`createLedgerAccount` already use, **and**
+  through the PL numbering rules those commands apply on top of the
+  schemas (`lib/accountNumbering.ts` in #6340): a type in a PL group has a
+  three-digit `number` whose first digit is the group's `code`
+  (`checkTypeNumber`), and an account under such a type has a `number`
+  that starts with the type's `number` (`accountNumberFitsType`). A
+  template row that breaks either rule fails the import before anything is
+  written. *(Added 2026-10-29, PR #6137 re-review, R4: schema-only
+  validation let a row through that the single-row commands would reject.
+  The rules are #6340's and #5663's, not new ones; all 42 types and 46
+  accounts of the template satisfy them.)*
+- **Write**: inserts every `LedgerAccountType` row first (each linked to
+  its zespół's `accountGroupId`), then every `LedgerAccount` row (each
+  linked to its `accountTypeId`), inside one `withAtomicFlush`
+  transaction. The chart is flat, so there is no parent ordering.
 - **Undo**: records every created id in its own `buildLog` payload
   (`{ undo: { createdAccountTypeIds, createdAccountIds } }`). Before
   soft-deleting anything, `undo` checks the same two guards ordinary
@@ -319,7 +332,10 @@ document adds.
   same content-idempotent undo contract JELD's own write command
   already established (see
   `2026-09-06-journal-entry-line-dimension.md`, Design Decisions, "Undo
-  contract").
+  contract"). *(2026-10-29, PR #6137 re-review, R2.)* As written, the
+  guards and the soft-delete are not required to run under one lock, so a
+  posting can commit between the check and the delete and be left on a
+  soft-deleted account. The locking requirement is Open Question OQ-R2.
 - **Permission**: `ledger.accounts.manage`.
 
 ### Events
@@ -348,12 +364,17 @@ existing `backend/ledger/accounts/page.tsx` (alongside the existing
 "create account"/"create account type" actions), gated by
 `ledger.accounts.manage` — hidden entirely for a viewer who only has
 `ledger.accounts.view`. The button is **offered only while the chart of
-accounts has no accounts** (**changed 2026-10-16, PR #6439 review, point 1**):
-before, it was always shown and a click on a non-empty chart ended in the 409.
-The page takes this from its last *unsearched* list load, so a search with no
-hits does not bring the button back, and it stays hidden until the first load
-has answered. (A chart with account types but no accounts still shows the
-button and the click ends in the 409, because the list only sees accounts.)
+accounts has no accounts and no account types** (**changed 2026-10-16, PR
+#6439 review, point 1; account types added 2026-10-29, PR #6137 re-review,
+R3**): before, it was always shown and a click on a non-empty chart ended in
+the 409. The page reads both unfiltered totals, the accounts total from its
+last *unsearched* list load and the account-types total from
+`GET /api/ledger/account-types?pageSize=1`, and shows the button only when
+both are zero, so a search with no hits does not bring the button back. It
+stays hidden until both reads have answered. A chart with account types but
+no accounts, a normal intermediate state when building a chart by hand, does
+not show the button, matching the server, which refuses either nonzero
+total.
 The confirmation text takes its row counts from the template data
 (`{{typeCount}}` / `{{accountCount}}`) instead of carrying literal numbers in
 each locale file, so it cannot drift from what the import creates. On success,
@@ -372,7 +393,7 @@ small business's transactions to post real journal entries, not a
 complete professional plan kont. Every code below is illustrative, per
 the knowledge base's own "account numbers are illustrative, never
 literal" convention (§2) — nothing in this codebase parses or depends
-on any of these specific `slug` values; they exist so an imported
+on any of these specific `number` values; they exist so an imported
 account is recognizable to a Polish bookkeeper, not so other code can
 match against them. Each `LedgerAccountType`'s `accountGroupId` links
 to the `LedgerAccountGroup` row GL core engine already seeded for that
@@ -380,7 +401,7 @@ zespół (`jurisdiction: 'PL'`, `code` matching the zespół number).
 
 **Zespół 0 — Aktywa trwałe:**
 
-| `LedgerAccountType` (`slug` / `name` / `normalBalance`) | Child `LedgerAccount` rows |
+| `LedgerAccountType` (`number` / `name` / `normalBalance`) | Child `LedgerAccount` rows (`number` + `description`) |
 | --- | --- |
 | `010` / Środki trwałe / DEBIT | `010-1` Budynki i lokale; `010-2` Maszyny i urządzenia techniczne; `010-3` Środki transportu |
 | `020` / Wartości niematerialne i prawne / DEBIT | `020-1` Licencje i oprogramowanie |
@@ -576,8 +597,8 @@ every other route in this module.
 | 401 | `{ "error": "..." }` | Not authenticated. |
 | 403 | `{ "error": "...", "requiredFeatures": ["ledger.accounts.manage"] }` | Caller lacks `ledger.accounts.manage` (framework-level `requireFeatures` rejection, before the route handler runs). |
 | 409 | `{ "error": "..." }`, translated `ledger.errors.chartOfAccountsNotEmpty` | Chart of accounts already has account types and/or accounts. |
-| 409 | `{ "error": "..." }`, translated `ledger.errors.chartOfAccountsGroupsNotSeeded` | The org's PL account groups aren't seeded yet (defensive; should be unreachable). |
-| 409 | `{ "error": "..." }`, translated `ledger.errors.chartOfAccountsImportConflict` | A concurrent import lost the unique-slug race (see Risks & Impact Review, "Concurrent import attempts"). |
+| 409 | `{ "error": "..." }`, translated `ledger.errors.chartOfAccountsGroupsNotSeeded` | The org's PL account groups aren't seeded yet. Reachable for every organization created in Directory after setup (corrected 2026-10-29, R1); see Open Question OQ-R1. |
+| 409 | `{ "error": "..." }`, translated `ledger.errors.chartOfAccountsImportConflict` | A concurrent import lost the unique-number race (see Risks & Impact Review, "Concurrent import attempts"). |
 
 (PR #6137 review, m2 — this section previously named the route but
 gave no request/response contract, read directly from `route.ts`'s own
@@ -712,10 +733,13 @@ after them.
    `backend/ledger/accounts/page.tsx`, wired to call the new command
    and refresh the page's existing `DataTable` on success, surfacing
    the command's own refusal message on the precondition failure.
-5. Confirm the API Contracts open validation point (whether a new thin
-   route is needed to trigger the command from the button, or an
-   existing generic mechanism already covers it) and implement
-   whichever applies.
+5. Add the thin custom write route
+   `POST /api/ledger/accounts/import-default-chart-of-accounts`
+   (`api/accounts/import-default-chart-of-accounts/route.ts`, gated by
+   `ledger.accounts.manage`) that the button calls. The earlier open point
+   (a new route or an existing generic mechanism) is resolved: no generic
+   "run this command" endpoint exists, so the route follows
+   `api/fiscal-periods/[id]/lock/route.ts` (see File Manifest).
 
 ## File Manifest
 
@@ -755,7 +779,8 @@ after them.
 - **Refuses to run against a non-empty chart of accounts**: seed one
   `LedgerAccountType` or `LedgerAccount` row (including a soft-deleted
   scenario as the negative case — see below), call the command, assert
-  it fails validation and writes nothing.
+  it is refused with 409 (`ledger.errors.chartOfAccountsNotEmpty`) and
+  writes nothing.
 - **Soft-deleted rows don't block the import**: seed only
   soft-deleted (`deletedAt` set) `LedgerAccountType`/`LedgerAccount`
   rows, call the command, assert it succeeds and imports the full
@@ -763,8 +788,15 @@ after them.
 - **Happy path creates the full template**: call the command against
   an empty chart of accounts, assert exactly 42 `LedgerAccountType`
   rows and 46 `LedgerAccount` rows are created, each correctly linked
-  to its `accountGroupId`/`accountTypeId`/`parentAccountTypeId`/
-  `parentAccountId`.
+  to its `accountGroupId`/`accountTypeId`, every type `number` three
+  digits starting with its zespół's code and every account `number`
+  starting with its type's `number`.
+- **A template row that breaks a PL numbering rule fails the import**
+  (added 2026-10-29, R4): with a template that contains one such row, the
+  command is rejected before any write and the chart stays empty.
+- **Types-only chart** (added 2026-10-29, R3): with one account type and
+  no accounts, the command is refused with 409
+  (`ledger.errors.chartOfAccountsNotEmpty`) and writes nothing.
 - **Undo restores empty state**: call the command, then its `undo`,
   assert the chart of accounts returns to zero non-deleted
   `LedgerAccountType`/`LedgerAccount` rows.
@@ -812,7 +844,7 @@ conventions (`.ai/qa/AGENTS.md`: self-contained fixtures, cleaned up in
 
 - **API happy path**: `POST /api/ledger/accounts/import-default-chart-of-accounts`
   against a fresh, empty organization returns 200 with
-  `{ ok: true, createdAccountTypeCount: 42, createdAccountCount: 46 }`.
+  `{ ok: true, createdAccountTypeCount: 42, createdAccountCount: 46 }`. The organization is created through Directory after initial setup (no `seedDefaults`), so this case also proves OQ-R1's answer; until OQ-R1 is implemented it ends in 409 `chartOfAccountsGroupsNotSeeded` (added 2026-10-29, R1).
 - **409 on a non-empty chart of accounts**: seed one account first,
   call the route again, assert 409 with the translated
   `ledger.errors.chartOfAccountsNotEmpty` refusal message in the
@@ -824,6 +856,10 @@ conventions (`.ai/qa/AGENTS.md`: self-contained fixtures, cleaned up in
   full reload.
 - **403 without `ledger.accounts.manage`**: call the route as a
   principal whose role has only `ledger.accounts.view`, assert 403.
+- **Types-only chart** (added 2026-10-29, R3): create one account type
+  and no account; `POST` returns 409 with the
+  `ledger.errors.chartOfAccountsNotEmpty` message, and the accounts page
+  does not show the import button.
 - **UI path**: the button is absent entirely for a view-only principal
   (`ledger.accounts.view` only); for a principal with
   `ledger.accounts.manage`, clicking it, confirming the dialog, and
@@ -877,9 +913,9 @@ conventions (`.ai/qa/AGENTS.md`: self-contained fixtures, cleaned up in
 - **Affected area:** The losing request's response only — not data
   integrity: see Mitigation.
 - **Mitigation:** The database's own partial unique indexes
-  (`ledger_account_types_scope_slug_unique` /
-  `ledger_accounts_scope_slug_unique`, #6340) prevent a duplicate set
-  of rows; the loser's `flush` fails on a slug unique violation
+  (`ledger_account_types_scope_number_unique` /
+  `ledger_accounts_scope_number_unique`, #6340) prevent a duplicate set
+  of rows; the loser's `flush` fails on a number unique violation
   instead. The command catches that violation and re-throws its own
   409 refusal (`ledger.errors.chartOfAccountsImportConflict` — a
   distinct key from the precondition check's own
@@ -892,6 +928,78 @@ conventions (`.ai/qa/AGENTS.md`: self-contained fixtures, cleaned up in
   the implementation did let that violation surface as a raw 500).
 - **Residual risk:** Acceptable for an admin-triggered, low-frequency
   action; not worth a dedicated locking mechanism in Phase 1.
+
+### Undo races a posting against an imported account
+
+- **Scenario:** `undo` checks that no imported account has posted lines,
+  a posting to one of them commits, and `undo` then soft-deletes the
+  account. The posted lines reference a soft-deleted account, and no
+  database constraint stops it.
+- **Severity:** High.
+- **Affected area:** Ledger integrity of the organization that undoes an
+  import while postings run.
+- **Mitigation:** See Open Question OQ-R2 (working decision: one
+  transaction that locks the imported rows in a fixed order, runs both
+  guards and soft-deletes, plus an executable undo-versus-post contender
+  test).
+- **Residual risk:** Open until OQ-R2 is confirmed and implemented in #6439.
+
+### Import in an organization created after setup
+
+- **Scenario:** An organization created in Directory has no PL account
+  groups, because only `seedDefaults` creates them. Every import there
+  ends in 409 `chartOfAccountsGroupsNotSeeded`, and the button is offered
+  anyway.
+- **Severity:** High (the feature does not work for these organizations).
+- **Affected area:** Every organization created after initial setup.
+- **Mitigation:** See Open Question OQ-R1.
+- **Residual risk:** Open until OQ-R1 is confirmed and implemented.
+
+## Open Questions (PR #6137 re-review of 2026-10-29)
+
+Both are architecture questions; each has a working decision so the
+implementation (#6439) can proceed, marked **⚠ NEEDS HUMAN CONFIRMATION**
+until an architecture owner confirms or replaces it.
+
+### OQ-R1 — where PL account groups come from in organizations created after setup
+
+- **Facts.** #6340 (`setup.ts:13`, head `c47359dd18`) seeds the groups
+  only through `seedDefaults`. Organizations created in Directory
+  (`POST /api/directory/organizations`) do not run that hook, and no
+  ledger subscriber on organization creation exists. #6439's fixture
+  `seedAccountGroupInDb` exists because "a throwaway organization created
+  by a spec does not get the seeded Polish groups".
+- **Options.** (a) The import calls the ledger-owned, idempotent
+  `seedPolishAccountGroups(em, scope)` inside its own transaction before
+  the precondition check. (b) `ledger` provisions the groups whenever an
+  organization is created (a subscriber or hook, which belongs with
+  #6340).
+- **Working decision ⚠ NEEDS HUMAN CONFIRMATION.** (a): the import seeds
+  missing groups itself. It only creates the codes that are missing, so
+  it is safe to repeat, and the change stays inside the import. The
+  "this document never creates a `LedgerAccountGroup` row" claim and the
+  `chartOfAccountsGroupsNotSeeded` error would then go. A happy-path test
+  for an organization created after initial setup is required either way.
+
+### OQ-R2 — undo and delete atomic against posting
+
+- **Facts.** #6340's `deleteLedgerAccount` holds `PESSIMISTIC_WRITE` on
+  the account through check and delete, and `postJournalEntry` takes
+  `PESSIMISTIC_READ` (`for share`) on the accounts it posts to, in id
+  order; the lock order everywhere in #6340 is type → accounts by id.
+  #6439 runs its undo guards as plain counts before a separate write
+  transaction (`importDefaultChartOfAccounts.ts:367-388`, then `:393`).
+- **Working decision ⚠ NEEDS HUMAN CONFIRMATION.** `undo` runs in one
+  transaction that locks the imported account types and then the
+  imported accounts with `PESSIMISTIC_WRITE`, each in id order (matching
+  #6340's type → accounts order), evaluates both guards with that
+  transaction's entity manager, soft-deletes, and only then commits. A
+  posting that arrives during undo waits, and is then refused because the
+  account is deleted; an undo that arrives during a posting waits and is
+  then refused by the posted-entries guard. Required tests: an executable
+  undo-versus-post contender test on a real second connection (the
+  two-connection harness of #6340's lock-protocol integration test), in
+  addition to the two sequential refusal tests.
 
 ### No impact on existing modules
 
@@ -975,9 +1083,42 @@ no new tagging mechanism, no new control-account pattern, no new
 event declaration (the import raises the existing CRUD events, see Events);
 nothing to add to §2.
 
-**Verdict:** Fully compliant. Implementation complete (#6439, OM-16 to OM-20); this document has since been updated post-implementation and through two rounds of external review (see Changelog) — no longer a first draft.
+**Verdict:** Not yet fully compliant (refreshed 2026-10-29): Open Questions OQ-R1 (group provisioning for organizations created after setup) and OQ-R2 (undo atomic against posting) carry working decisions marked ⚠ NEEDS HUMAN CONFIRMATION, and #6439 does not implement them yet. The rest is implemented (#6439, OM-16 to OM-20) and updated through three rounds of external review (see Changelog).
 
 ## Changelog
+
+### 2026-10-29 — PR #6137 re-review (@haxiorz, `5693531745`): R1–R4 and the changelog order
+
+- **R1** (major). The claim that missing PL groups are unreachable is
+  corrected: organizations created in Directory have none. Where they
+  should come from is Open Question OQ-R1, with a working decision (the
+  import seeds missing groups itself), ⚠ NEEDS HUMAN CONFIRMATION. Risk
+  added.
+- **R2** (major). Undo against posting: Open Question OQ-R2, with a
+  working decision (one transaction, `PESSIMISTIC_WRITE` on the imported
+  types then accounts in id order, guards and soft-delete under the
+  locks, an executable contender test), ⚠ NEEDS HUMAN CONFIRMATION. Risk
+  added.
+- **R3** (minor). The import button is offered only when both the
+  account and the account-type totals are zero, and stays hidden until
+  both reads have answered; types-only command, API and UI cases added.
+- **R4** (minor). Entities, Commands (Write, Validation, Concurrent
+  imports), Data Models, API Contracts, Risks and Testing use #6340's flat
+  model: `number` instead of `slug`, no `parentAccountTypeId` /
+  `parentAccountId`, indexes `*_scope_number_unique`. Validation requires
+  the PL numbering rules (`checkTypeNumber`, `accountNumberFitsType`); the
+  template satisfies them (42 types, 46 accounts, checked 2026-10-29).
+  The non-empty-chart test asserts 409, and step 5 names the thin POST
+  route.
+- **N1** (nit). Changelog entries are back in newest-first order.
+
+### 2026-10-23 — account currency of the foreign-currency bank account
+
+- `LedgerAccount` has an optional `currencyId` (#5663, 2026-10-23). The import
+  does not set it, including on `130-2`; the account currency is set later and
+  is immutable once the account has posted lines. No change to the template,
+  the command or its permissions. Marked ⚠ as an autonomous default. Not yet
+  reviewed by a maintainer.
 
 ### 2026-10-16 — PR #6439 review (@lchrusciel): template 42/46, zespół 5, events, button
 
@@ -1015,6 +1156,13 @@ only two zespół 5 types (`550`, `552`) and stays "representative, not
 exhaustive" — a deliberate decision, not a gap; the Posting Rules settings
 page tells the user when the chart has no account of class 4 or class 5 at all.
 (The sign of 490 is a team decision, see Data Models.)
+
+### 2026-10-12 (cont. — sign of 490 closed as a team decision)
+
+The ⚠ marker on the `CREDIT` sign of `490` is replaced by an explicit note that
+it is a team decision: the Act does not prescribe account numbers or normal
+balances, and the sign follows the engine's posting direction (the engine credits
+`490` for every class 4 posting). No external accounting source was consulted.
 
 ### 2026-09-28 (cont. — M2, m1, m2, m3, m4, and all four PR #6137 review nits resolved)
 
@@ -1254,18 +1402,3 @@ completed and already closed in Jira, not new requirements.
   Tier 2/Tier 3 citation entries for Kieso Illustration 3.9 and Hay p.
   119, new Tier 4 real-system entry, dated Changelog entry) — see that
   document's own Changelog for the mirrored entry.
-
-### 2026-10-12 (cont. — sign of 490 closed as a team decision)
-
-The ⚠ marker on the `CREDIT` sign of `490` is replaced by an explicit note that
-it is a team decision: the Act does not prescribe account numbers or normal
-balances, and the sign follows the engine's posting direction (the engine credits
-`490` for every class 4 posting). No external accounting source was consulted.
-
-### 2026-10-23 — account currency of the foreign-currency bank account
-
-- `LedgerAccount` has an optional `currencyId` (#5663, 2026-10-23). The import
-  does not set it, including on `130-2`; the account currency is set later and
-  is immutable once the account has posted lines. No change to the template,
-  the command or its permissions. Marked ⚠ as an autonomous default. Not yet
-  reviewed by a maintainer.
