@@ -17,6 +17,8 @@ topics: ["events","testing","workers","hydration","component-overrides","timers"
 
 `TC-CRM-6442-list` timed out with a closed request context before its first owner read-back could finish. Its trace showed 30.4 seconds between a successful enqueue response and the first read-back attempt: a private in-process bootstrap/queue drain exhausted the 20-second test budget. Reuse `drainIntegrationQueue` so managed-worker tests observe queue completion without starting another consumer or cold bootstrapping the app.
 
+`TC-AUTH-050` passed every saved-role prefill assertion, but its retry trace from CI run `40886868719` exhausted the 20-second test budget during fixture teardown. The user deletion took 3.9 seconds; serial deletion of 25 independent roles then ran past the deadline and left fixtures behind. Delete the dependent user first, then await the independent role deletions together. Keep all role-label assertions and the shared timeout unchanged; a screenshot showing the expected label is not evidence of a failed prefill.
+
 `TC-PHONE-HUB-006` correctly observed a cache miss after command-side invalidation but intermittently received an empty list because its `q` filter depended on asynchronously populated full-text tokens. The cache behavior was synchronous; record discoverability was not. A run-unique exact `providerKey` filter keeps the three cache reads identical while removing the unrelated search-index readiness race.
 
 For the cart pool-starvation counterexample and transaction-release rule, see [Cart contention retries must release connections](cart-contention-retries-must-release-connections.md).

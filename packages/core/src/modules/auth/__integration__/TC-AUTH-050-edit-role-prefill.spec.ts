@@ -49,9 +49,7 @@ test.describe('TC-AUTH-050: User edit hydrates saved role tags', () => {
       await expect(rolesField).not.toContainText(selectedRoleId)
     } finally {
       await deleteUserIfExists(request, token, userId)
-      for (const roleId of roleIds.reverse()) {
-        await deleteRoleIfExists(request, token, roleId)
-      }
+      await Promise.all(roleIds.map((roleId) => deleteRoleIfExists(request, token, roleId)))
     }
   })
 })
