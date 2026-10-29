@@ -103,7 +103,7 @@ All four steps ship together; no intermediate phase is independently deployable 
 
 ### Testing Strategy
 
-- Migration SQL: verify deterministic ranking, live-row predicates, index names, and rollback statements.
+- Migration PostgreSQL regression: `auth/migrations/__tests__/Migration20260828120000_auth.integration.test.ts` starts a disposable PostgreSQL16 container, builds isolated schemas, executes actual `up()`/`down()` SQL, and checks updated/null-updated/creation/id ordering, pre-revoked history/payload retention, tenant separation, second-live-row rejection, revoked-history acceptance, repeated-up stability, and index-only rollback without grant reactivation. Run explicitly with `OM_PG_INTEGRATION=1 node node_modules/jest/bin/jest.js --config packages/core/jest.config.cjs --runInBand --runTestsByPath packages/core/src/modules/auth/migrations/__tests__/Migration20260828120000_auth.integration.test.ts`; the ordinary fast Jest pass skips Docker-backed tests unless opted in, matching the existing integrations PostgreSQL suite convention.
 - Unit: direct/role super-admin grants, foreign-tenant grants, soft-deleted ACLs, soft-deleted assignments, soft-deleted roles, API-key ACLs, deterministic selection, and target protection.
 - Route: user/role ACL GET and PUT queries must carry `deletedAt: null`; role list protection must do the same.
 - Command: user and role snapshots must exclude revoked ACL history so undo cannot reactivate it or violate the new indexes.
@@ -189,6 +189,8 @@ None.
 **Fully compliant: Approved — ready for implementation.**
 
 ## Changelog
+
+- **2026-10-29:** Add self-contained real-PostgreSQL migration up/down regression for duplicate remediation, all ordering tie-breakers, live-row uniqueness, historical payload/tenant preservation, idempotent rerun and irreversible-revocation rollback semantics. No migration or runtime behavior changed.
 
 ### 2026-10-27
 
