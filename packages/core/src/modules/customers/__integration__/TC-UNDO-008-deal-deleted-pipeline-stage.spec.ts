@@ -78,26 +78,31 @@ async function createDealOk(
   return { dealId: dealId as string, logId: operation.logId, undoToken: operation.undoToken }
 }
 
-async function setupPipeline(request: APIRequestContext, token: string, stamp: number) {
+type FixtureIds = { dealId: string | null; stageIds: string[]; pipelineId: string | null }
+
+function emptyFixtureIds(): FixtureIds {
+  return { dealId: null, stageIds: [], pipelineId: null }
+}
+
+async function setupPipeline(request: APIRequestContext, token: string, stamp: number, ids: FixtureIds) {
   const pipelineId = await createPipelineFixture(request, token, { name: `TC-UNDO-008 Pipeline ${stamp}` })
+  ids.pipelineId = pipelineId
   const doomedStageId = await createPipelineStageFixture(request, token, {
     pipelineId,
     label: `TC-UNDO-008 Doomed ${stamp}`,
     order: 0,
   })
+  ids.stageIds.push(doomedStageId)
   const keptStageId = await createPipelineStageFixture(request, token, {
     pipelineId,
     label: `TC-UNDO-008 Kept ${stamp}`,
     order: 1,
   })
+  ids.stageIds.push(keptStageId)
   return { pipelineId, doomedStageId, keptStageId }
 }
 
-async function cleanup(
-  request: APIRequestContext,
-  token: string,
-  ids: { dealId: string | null; stageIds: string[]; pipelineId: string | null },
-): Promise<void> {
+async function cleanup(request: APIRequestContext, token: string, ids: FixtureIds): Promise<void> {
   await deleteEntityIfExists(request, token, DEALS, ids.dealId)
   for (const stageId of ids.stageIds) await deleteEntityByBody(request, token, STAGES, stageId)
   await deleteEntityByBody(request, token, PIPELINES, ids.pipelineId)
@@ -111,11 +116,9 @@ test.describe('TC-UNDO-008 deal undo/redo with a deleted pipeline stage', () => 
   test('update undo clears the stage instead of restoring the deleted one, and the deal stays editable', async ({ request }) => {
     const token = await getAuthToken(request, 'admin')
     const stamp = Date.now()
-    const ids = { dealId: null as string | null, stageIds: [] as string[], pipelineId: null as string | null }
+    const ids = emptyFixtureIds()
     try {
-      const { pipelineId, doomedStageId, keptStageId } = await setupPipeline(request, token, stamp)
-      ids.pipelineId = pipelineId
-      ids.stageIds.push(doomedStageId, keptStageId)
+      const { pipelineId, doomedStageId, keptStageId } = await setupPipeline(request, token, stamp, ids)
 
       const created = await createDealOk(request, token, {
         title: `TC-UNDO-008 Update ${stamp}`,
@@ -175,11 +178,9 @@ test.describe('TC-UNDO-008 deal undo/redo with a deleted pipeline stage', () => 
   test('delete undo restores the deal without the deleted stage', async ({ request }) => {
     const token = await getAuthToken(request, 'admin')
     const stamp = Date.now()
-    const ids = { dealId: null as string | null, stageIds: [] as string[], pipelineId: null as string | null }
+    const ids = emptyFixtureIds()
     try {
-      const { pipelineId, doomedStageId, keptStageId } = await setupPipeline(request, token, stamp)
-      ids.pipelineId = pipelineId
-      ids.stageIds.push(doomedStageId, keptStageId)
+      const { pipelineId, doomedStageId, keptStageId } = await setupPipeline(request, token, stamp, ids)
 
       const created = await createDealOk(request, token, {
         title: `TC-UNDO-008 Delete ${stamp}`,
@@ -209,11 +210,9 @@ test.describe('TC-UNDO-008 deal undo/redo with a deleted pipeline stage', () => 
   test('create redo re-creates the deal without the deleted stage', async ({ request }) => {
     const token = await getAuthToken(request, 'admin')
     const stamp = Date.now()
-    const ids = { dealId: null as string | null, stageIds: [] as string[], pipelineId: null as string | null }
+    const ids = emptyFixtureIds()
     try {
-      const { pipelineId, doomedStageId, keptStageId } = await setupPipeline(request, token, stamp)
-      ids.pipelineId = pipelineId
-      ids.stageIds.push(doomedStageId, keptStageId)
+      const { pipelineId, doomedStageId, keptStageId } = await setupPipeline(request, token, stamp, ids)
 
       const created = await createDealOk(request, token, {
         title: `TC-UNDO-008 Redo ${stamp}`,

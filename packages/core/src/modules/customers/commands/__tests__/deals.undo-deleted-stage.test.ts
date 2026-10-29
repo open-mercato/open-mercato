@@ -5,15 +5,19 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
 }))
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
-  findWithDecryption: (emInstance: any, entity: unknown, filters: unknown, opts?: unknown) =>
+  findWithDecryption: (emInstance: FinderEm, entity: unknown, filters: unknown, opts?: unknown) =>
     emInstance.find(entity, filters, opts),
-  findOneWithDecryption: (emInstance: any, entity: unknown, filters: unknown, opts?: unknown) =>
+  findOneWithDecryption: (emInstance: FinderEm, entity: unknown, filters: unknown, opts?: unknown) =>
     emInstance.findOne(entity, filters, opts),
 }))
 
 import '@open-mercato/core/modules/customers/commands'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
-import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
+import type {
+  CommandHandler,
+  CommandRuntimeContext,
+  CommandUndoLogEntry,
+} from '@open-mercato/shared/lib/commands'
 import {
   CustomerDeal,
   CustomerDealStageTransition,
@@ -60,22 +64,55 @@ function dealSnapshot(pipelineStageId: string | null, pipelineStage: string | nu
   }
 }
 
+type FinderEm = {
+  find: (entity: unknown, filters: unknown, opts?: unknown) => unknown
+  findOne: (entity: unknown, filters: unknown, opts?: unknown) => unknown
+}
+
+type MockEm = {
+  findOne: jest.Mock
+  find: jest.Mock
+  nativeDelete: jest.Mock
+  create: jest.Mock
+  persist: jest.Mock
+  flush: jest.Mock
+  transactional: jest.Mock
+  begin: jest.Mock
+  commit: jest.Mock
+  rollback: jest.Mock
+  getReference: jest.Mock
+  remove: jest.Mock
+  fork: jest.Mock
+}
+
+type DealFixture = ReturnType<typeof dealSnapshot>['deal'] & {
+  createdAt: Date
+  updatedAt: Date
+  deletedAt: Date | null
+  people: never[]
+  companies: never[]
+  activities: never[]
+  comments: never[]
+  stageTransitions: never[]
+}
+
 function makeDeal(): CustomerDeal {
-  return {
+  const fixture: DealFixture = {
     ...dealSnapshot(CURRENT_STAGE_ID, 'Negotiation').deal,
     createdAt: new Date('2026-04-10T08:00:00.000Z'),
     updatedAt: new Date('2026-04-10T08:00:00.000Z'),
     deletedAt: null,
-    people: [] as any,
-    companies: [] as any,
-    activities: [] as any,
-    comments: [] as any,
-    stageTransitions: [] as any,
-  } as CustomerDeal
+    people: [],
+    companies: [],
+    activities: [],
+    comments: [],
+    stageTransitions: [],
+  }
+  return fixture as unknown as CustomerDeal
 }
 
-function makeEm(existingDeal: CustomerDeal | null) {
-  const em: any = {
+function makeEm(existingDeal: CustomerDeal | null): MockEm {
+  const em: MockEm = {
     findOne: jest.fn(async (ctor: unknown, where: Record<string, unknown>) => {
       if (ctor === CustomerDeal) return existingDeal && where.id === existingDeal.id ? existingDeal : null
       if (ctor === CustomerPipelineStage) return liveStages.get(where.id as string) ?? null
@@ -92,12 +129,12 @@ function makeEm(existingDeal: CustomerDeal | null) {
     rollback: jest.fn().mockResolvedValue(undefined),
     getReference: jest.fn((_ctor: unknown, id: string) => ({ id })),
     remove: jest.fn(),
+    fork: jest.fn(() => em),
   }
-  em.fork = jest.fn(() => em)
   return em
 }
 
-function makeCtx(em: unknown): CommandRuntimeContext {
+function makeCtx(em: MockEm): CommandRuntimeContext {
   const queue: unknown[] = []
   const engine: Record<string, jest.Mock> = {
     setCustomFields: jest.fn(async () => {}),
@@ -109,25 +146,32 @@ function makeCtx(em: unknown): CommandRuntimeContext {
   engine.flushOrmEntityChanges = jest.fn(async () => {
     while (queue.length > 0) await engine.emitOrmEntityEvent(queue.shift())
   })
+  const container: Pick<CommandRuntimeContext['container'], 'resolve'> = {
+    resolve: <T>(token: string | symbol): T => {
+      if (token === 'em') return em as T
+      if (token === 'dataEngine') return engine as T
+      if (token === 'eventBus') return undefined as T
+      throw new Error(`[internal] Unexpected dependency: ${String(token)}`)
+    },
+  }
   return {
-    container: {
-      resolve: (token: string) => {
-        if (token === 'em') return em
-        if (token === 'dataEngine') return engine
-        if (token === 'eventBus') return undefined
-        throw new Error(`Unexpected dependency: ${token}`)
-      },
-    } as any,
-    auth: { sub: '550e8400-e29b-41d4-a716-446655440099', tenantId: 'tenant-1', orgId: 'org-1' } as any,
+    container: container as CommandRuntimeContext['container'],
+    auth: { sub: '550e8400-e29b-41d4-a716-446655440099', tenantId: 'tenant-1', orgId: 'org-1' },
     selectedOrganizationId: 'org-1',
     organizationScope: null,
     organizationIds: null,
-    request: undefined as any,
   }
 }
 
-function createdOf(em: { create: jest.Mock }, ctor: unknown): Record<string, unknown>[] {
-  return em.create.mock.calls.filter(([entity]) => entity === ctor).map(([, payload]) => payload)
+function createdOf(em: MockEm, ctor: unknown): Record<string, unknown>[] {
+  const calls: Array<[unknown, Record<string, unknown>]> = em.create.mock.calls
+  return calls.filter(([entity]) => entity === ctor).map(([, payload]) => payload)
+}
+
+type ReplayParams = Parameters<NonNullable<CommandHandler['undo']>>[0]
+
+function replayParams(em: MockEm, logEntry: CommandUndoLogEntry): ReplayParams {
+  return { input: undefined, ctx: makeCtx(em), logEntry }
 }
 
 function handler(id: string): CommandHandler {
@@ -147,10 +191,7 @@ describe('deal undo/redo with a since-deleted pipeline stage', () => {
     const before = dealSnapshot(DELETED_STAGE_ID, 'Discovery')
     const after = dealSnapshot(CURRENT_STAGE_ID, 'Negotiation')
 
-    await handler('customers.deals.update').undo!({
-      logEntry: { resourceId: DEAL_ID, commandPayload: { undo: { before, after } } },
-      ctx: makeCtx(em),
-    } as any)
+    await handler('customers.deals.update').undo!(replayParams(em, { resourceId: DEAL_ID, commandPayload: { undo: { before, after } } }))
 
     expect(deal.pipelineStageId).toBeNull()
     expect(deal.pipelineId).toBe(PIPELINE_ID)
@@ -165,10 +206,7 @@ describe('deal undo/redo with a since-deleted pipeline stage', () => {
     const before = dealSnapshot(LIVE_STAGE_ID, 'Proposal')
     const after = dealSnapshot(CURRENT_STAGE_ID, 'Negotiation')
 
-    await handler('customers.deals.update').undo!({
-      logEntry: { resourceId: DEAL_ID, commandPayload: { undo: { before, after } } },
-      ctx: makeCtx(em),
-    } as any)
+    await handler('customers.deals.update').undo!(replayParams(em, { resourceId: DEAL_ID, commandPayload: { undo: { before, after } } }))
 
     expect(deal.pipelineStageId).toBe(LIVE_STAGE_ID)
     expect(deal.pipelineId).toBe(PIPELINE_ID)
@@ -182,10 +220,7 @@ describe('deal undo/redo with a since-deleted pipeline stage', () => {
     const before = dealSnapshot(DELETED_STAGE_ID, 'Discovery')
     const after = dealSnapshot(CURRENT_STAGE_ID, 'Negotiation')
 
-    await handler('customers.deals.update').undo!({
-      logEntry: { resourceId: DEAL_ID, commandPayload: { undo: { before, after } } },
-      ctx: makeCtx(em),
-    } as any)
+    await handler('customers.deals.update').undo!(replayParams(em, { resourceId: DEAL_ID, commandPayload: { undo: { before, after } } }))
 
     const [created] = createdOf(em, CustomerDeal)
     expect(created).toEqual(expect.objectContaining({ id: DEAL_ID, pipelineId: PIPELINE_ID, pipelineStageId: null }))
@@ -196,10 +231,7 @@ describe('deal undo/redo with a since-deleted pipeline stage', () => {
     const em = makeEm(null)
     const after = dealSnapshot(DELETED_STAGE_ID, 'Discovery')
 
-    await handler('customers.deals.create').redo!({
-      logEntry: { resourceId: DEAL_ID, commandPayload: { undo: { after } } },
-      ctx: makeCtx(em),
-    } as any)
+    await handler('customers.deals.create').redo!(replayParams(em, { resourceId: DEAL_ID, commandPayload: { undo: { after } } }))
 
     const [created] = createdOf(em, CustomerDeal)
     expect(created).toEqual(expect.objectContaining({ id: DEAL_ID, pipelineId: PIPELINE_ID, pipelineStageId: null }))
@@ -209,10 +241,7 @@ describe('deal undo/redo with a since-deleted pipeline stage', () => {
     const em = makeEm(null)
     const after = dealSnapshot(LIVE_STAGE_ID, 'Proposal')
 
-    await handler('customers.deals.create').redo!({
-      logEntry: { resourceId: DEAL_ID, commandPayload: { undo: { after } } },
-      ctx: makeCtx(em),
-    } as any)
+    await handler('customers.deals.create').redo!(replayParams(em, { resourceId: DEAL_ID, commandPayload: { undo: { after } } }))
 
     const [created] = createdOf(em, CustomerDeal)
     expect(created).toEqual(expect.objectContaining({ pipelineStageId: LIVE_STAGE_ID }))
@@ -222,10 +251,7 @@ describe('deal undo/redo with a since-deleted pipeline stage', () => {
     const em = makeEm(null)
     const before = dealSnapshot(DELETED_STAGE_ID, 'Discovery')
 
-    await handler('customers.deals.delete').undo!({
-      logEntry: { resourceId: DEAL_ID, commandPayload: { undo: { before } } },
-      ctx: makeCtx(em),
-    } as any)
+    await handler('customers.deals.delete').undo!(replayParams(em, { resourceId: DEAL_ID, commandPayload: { undo: { before } } }))
 
     const [created] = createdOf(em, CustomerDeal)
     expect(created).toEqual(expect.objectContaining({ id: DEAL_ID, pipelineId: PIPELINE_ID, pipelineStageId: null }))
@@ -235,10 +261,7 @@ describe('deal undo/redo with a since-deleted pipeline stage', () => {
     const em = makeEm(null)
     const before = dealSnapshot(LIVE_STAGE_ID, 'Proposal')
 
-    await handler('customers.deals.delete').undo!({
-      logEntry: { resourceId: DEAL_ID, commandPayload: { undo: { before } } },
-      ctx: makeCtx(em),
-    } as any)
+    await handler('customers.deals.delete').undo!(replayParams(em, { resourceId: DEAL_ID, commandPayload: { undo: { before } } }))
 
     const [created] = createdOf(em, CustomerDeal)
     expect(created).toEqual(expect.objectContaining({ pipelineStageId: LIVE_STAGE_ID }))
