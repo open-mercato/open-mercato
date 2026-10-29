@@ -3637,7 +3637,6 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
       APP_URL: applicationBaseUrl,
       NEXT_PUBLIC_APP_URL: applicationBaseUrl,
       PLATFORM_PORTAL_BASE_URL: applicationBaseUrl,
-      JWT_SECRET: jwtSecret,
       OM_SECURITY_MFA_SETUP_SECRET: process.env.OM_SECURITY_MFA_SETUP_SECRET ?? 'om-ephemeral-integration-mfa-setup-secret',
     // The forms module refuses its DEV-ONLY deterministic KMS adapter under
     // NODE_ENV=production (which is how this app runs), so without a master key
