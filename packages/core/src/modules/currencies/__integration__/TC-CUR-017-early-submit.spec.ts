@@ -19,9 +19,9 @@ test('TC-CUR-017: First currency save succeeds before organization scope initial
     await login(page, 'admin')
     await page.goto('/backend/currencies/create')
     await expect(page.getByRole('heading', { name: 'Create Currency', exact: true })).toBeVisible()
-    await page.getByRole('textbox', { name: 'US Dollar', exact: true }).fill('QA Immediate Currency')
+    await page.getByRole('textbox', { name: 'Currency Name *', exact: true }).fill('QA Immediate Currency')
     for (let attempt = 0; attempt < 8; attempt += 1) {
-      await page.getByRole('textbox', { name: 'USD', exact: true }).fill(generateUniqueCurrencyCode())
+      await page.getByRole('textbox', { name: 'Currency Code *', exact: true }).fill(generateUniqueCurrencyCode())
       const created = page.waitForResponse((response) =>
         response.request().method() === 'POST' && new URL(response.url()).pathname === '/api/currencies/currencies',
       )
