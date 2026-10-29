@@ -613,4 +613,4 @@ Spec: [`.ai/specs/2026-09-08-error-reporting-policy.md`](.ai/specs/2026-09-08-er
 (STABLE §7) return 413 above 1 MiB/`OM_WEBHOOK_MAX_BODY_BYTES`. Unlimited pre-auth
 reads cause memory exhaustion; a bridge preserves it. Clients reduce/split and
 re-sign; operators align ingress caps. [Migration](UPGRADE_NOTES.md#signed-body-limits).
-Human maintainer waiver acknowledgment is required before merge.
+@haxiorz [waived steps 1–3 and acknowledged migration](https://github.com/open-mercato/open-mercato/pull/8233#issuecomment-6506241518).

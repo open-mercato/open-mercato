@@ -731,8 +731,9 @@ an exact-limit body continues through the existing signature and interaction pat
 
 Accepting unlimited bodies is itself the unauthenticated memory-exhaustion vulnerability,
 so an unlimited compatibility bridge would preserve the exploit. This is the narrow
-emergency security exception recorded in `BACKWARD_COMPATIBILITY.md`; a named human
-maintainer must acknowledge the waiver before merge. Route URLs, signature format,
+emergency security exception recorded in `BACKWARD_COMPATIBILITY.md`. On 2026-10-29,
+[@haxiorz approved the steps 1–3 waiver and acknowledged the client/operator migration](https://github.com/open-mercato/open-mercato/pull/8233#issuecomment-6506241518).
+Independent review and QA remain required. Route URLs, signature format,
 tenant resolution, and accepted-payload responses remain unchanged. No schema migration,
 credential rotation, or stored-data remediation is needed.
 
@@ -1197,6 +1198,10 @@ rule 3), and no variant should be considered done without it.
 ---
 
 ## Changelog
+
+### 2026-10-29 — Signed-body waiver acknowledgment
+
+- Recorded @haxiorz’s explicit steps 1–3 waiver and client/operator migration acknowledgment for #8233; review, CI, and QA gates remain.
 
 ### 2026-10-29 — Bound public signed interaction bodies (#7241)
 

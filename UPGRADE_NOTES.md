@@ -45,8 +45,10 @@ payloads will continue to fail.
 payloads exceed 1 MiB, set an appropriate finite `OM_WEBHOOK_MAX_BODY_BYTES` after
 considering memory/concurrency and its effect on other shared bounded webhook readers.
 No unlimited mode, database migration, credential rotation, or stored-data repair is
-required. The emergency security exception requires named human maintainer sign-off:
-preserving unlimited acceptance would preserve unauthenticated memory exhaustion.
+required. Preserving unlimited acceptance would preserve unauthenticated memory
+exhaustion. On 2026-10-29, [@haxiorz approved the emergency waiver of deprecation
+steps 1–3 and acknowledged these client/operator migrations](https://github.com/open-mercato/open-mercato/pull/8233#issuecomment-6506241518).
+This acknowledgment does not grant QA approval, independent review, or merge authorization.
 See the [Discord migration section](.ai/specs/2026-06-19-discord-communication-channel-integration.md)
 and [trace migration section](.ai/specs/enterprise/agent-orchestrator/next/2026-06-19-agent-trace-eval-capture.md).
 
