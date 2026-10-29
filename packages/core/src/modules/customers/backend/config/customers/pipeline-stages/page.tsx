@@ -691,7 +691,7 @@ export default function PipelineStagesPage() {
                     step={1}
                     inputMode="numeric"
                     value={stageDefaultProbability}
-                    onChange={(e) => setStageDefaultProbability(e.target.value)}
+                    onChange={(event) => setStageDefaultProbability(event.target.value)}
                     placeholder={t('customers.pipelines.stageForm.defaultProbabilityPlaceholder', 'e.g. 40')}
                   />
                   <p className="text-xs text-muted-foreground">

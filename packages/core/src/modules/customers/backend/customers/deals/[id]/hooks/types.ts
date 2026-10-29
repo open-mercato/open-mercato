@@ -61,6 +61,7 @@ export type DealDetailPayload = {
   } | null
   pipelineStages: PipelineStageInfo[]
   pipelineName: string | null
+  pipelineStageProbabilitiesEnabled?: boolean
   stageTransitions: StageTransitionInfo[]
   owner: { id: string; name: string; email: string } | null
 }

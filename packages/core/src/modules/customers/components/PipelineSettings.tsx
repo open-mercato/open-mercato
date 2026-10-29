@@ -716,7 +716,7 @@ export default function PipelineSettings(): React.ReactElement {
                   step={1}
                   inputMode="numeric"
                   value={stageForm.defaultProbability}
-                  onChange={(e) => setStageForm((prev) => ({ ...prev, defaultProbability: e.target.value }))}
+                  onChange={(event) => setStageForm((prev) => ({ ...prev, defaultProbability: event.target.value }))}
                   placeholder={t('customers.pipelines.stageForm.defaultProbabilityPlaceholder', 'e.g. 40')}
                 />
                 <p className="text-xs text-muted-foreground">

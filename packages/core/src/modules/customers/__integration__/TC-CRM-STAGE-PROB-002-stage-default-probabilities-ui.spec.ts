@@ -27,8 +27,7 @@ const STAGES = '/api/customers/pipeline-stages'
 const DEALS = '/api/customers/deals'
 
 type Fixtures = {
-  enabledPipelineId: string | null
-  disabledPipelineId: string | null
+  pipelineIds: string[]
   stageIds: string[]
   dealIds: string[]
 }
@@ -44,6 +43,7 @@ async function configurePipeline(
   input: { name: string; enabled: boolean; stages: Array<{ label: string; defaultProbability: number | null }> },
 ): Promise<{ pipelineId: string; stageIds: string[] }> {
   const pipelineId = await createPipelineFixture(request, token, { name: input.name })
+  fixtures.pipelineIds.push(pipelineId)
   const stageIds: string[] = []
   for (const [order, stage] of input.stages.entries()) {
     const stageId = await createPipelineStageFixture(request, token, { pipelineId, label: stage.label, order })
@@ -138,7 +138,7 @@ test.describe('TC-CRM-STAGE-PROB-002: stage default probabilities in the deal UI
     const enabledName = `QA STAGE-PROB-002 On ${stamp}`
     const disabledName = `QA STAGE-PROB-002 Off ${stamp}`
     const label = (name: string) => `${name} ${stamp}`
-    const fixtures: Fixtures = { enabledPipelineId: null, disabledPipelineId: null, stageIds: [], dealIds: [] }
+    const fixtures: Fixtures = { pipelineIds: [], stageIds: [], dealIds: [] }
 
     try {
       const enabled = await configurePipeline(request, token, fixtures, {
@@ -151,7 +151,6 @@ test.describe('TC-CRM-STAGE-PROB-002: stage default probabilities in the deal UI
           { label: label('Parked'), defaultProbability: 0 },
         ],
       })
-      fixtures.enabledPipelineId = enabled.pipelineId
       const disabled = await configurePipeline(request, token, fixtures, {
         name: disabledName,
         enabled: false,
@@ -160,7 +159,6 @@ test.describe('TC-CRM-STAGE-PROB-002: stage default probabilities in the deal UI
           { label: label('Closing'), defaultProbability: 90 },
         ],
       })
-      fixtures.disabledPipelineId = disabled.pipelineId
 
       const enabledDealId = await createDealFixture(request, token, {
         title: `QA STAGE-PROB-002 Deal On ${stamp}`,
@@ -246,8 +244,7 @@ test.describe('TC-CRM-STAGE-PROB-002: stage default probabilities in the deal UI
     } finally {
       for (const dealId of fixtures.dealIds) await deleteEntityIfExists(request, token, DEALS, dealId)
       for (const stageId of fixtures.stageIds) await deleteEntityByBody(request, token, STAGES, stageId)
-      await deleteEntityByBody(request, token, PIPELINES, fixtures.enabledPipelineId)
-      await deleteEntityByBody(request, token, PIPELINES, fixtures.disabledPipelineId)
+      for (const pipelineId of fixtures.pipelineIds) await deleteEntityByBody(request, token, PIPELINES, pipelineId)
     }
   })
 })

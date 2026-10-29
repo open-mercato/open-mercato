@@ -368,6 +368,7 @@ function createDealPayload(closureOutcome: 'won' | 'lost' | null = null) {
       { id: 'stage-1', label: 'Discovery', order: 1, color: '#2563eb', icon: 'search' },
     ],
     pipelineName: 'Enterprise pipeline',
+    pipelineStageProbabilitiesEnabled: true,
     stageTransitions: [
       {
         stageId: 'stage-1',
@@ -538,7 +539,7 @@ describe('DealDetailPage', () => {
 
     expect(dealFormMock).toHaveBeenLastCalledWith(expect.objectContaining({
       initialPipelineOptions: [
-        { id: 'pipeline-1', name: 'Enterprise pipeline', isDefault: false },
+        { id: 'pipeline-1', name: 'Enterprise pipeline', isDefault: false, stageProbabilitiesEnabled: true },
       ],
       initialPipelineStageOptions: [
         { id: 'stage-1', label: 'Discovery', order: 1, color: '#2563eb', icon: 'search' },

@@ -850,6 +850,7 @@ export async function GET(request: Request, context: { params?: Record<string, u
       }
     }),
     pipelineName: pipeline?.name ?? null,
+    pipelineStageProbabilitiesEnabled: pipeline?.stageProbabilitiesEnabled === true,
     stageTransitions: stageTransitionPayload,
     owner: ownerPayload,
   }
@@ -943,6 +944,7 @@ const dealDetailResponseSchema = z.object({
     email: z.string().nullable(),
   }),
   pipelineStages: z.array(pipelineStageInfoSchema),
+  pipelineStageProbabilitiesEnabled: z.boolean(),
   stageTransitions: z.array(stageTransitionInfoSchema),
   owner: z.object({
     id: z.string().uuid(),

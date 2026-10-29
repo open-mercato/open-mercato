@@ -89,7 +89,7 @@ All changes are additive. Field names are optional on write and always present o
 | `POST/PUT /api/customers/pipelines` | optional `stageProbabilitiesEnabled: boolean` |
 | `GET /api/customers/pipeline-stages` | item gains `defaultProbability: number \| null` |
 | `POST/PUT /api/customers/pipeline-stages` | optional `defaultProbability: int 0..100 \| null` (`null` clears) |
-| `GET /api/customers/deals/:id` | each `pipelineStages[]` item gains `defaultProbability: number \| null` (seeds the edit form) |
+| `GET /api/customers/deals/:id` | each `pipelineStages[]` item gains `defaultProbability: number \| null`, and the payload gains `pipelineStageProbabilitiesEnabled: boolean`. Both seed the edit form, so stage defaults apply before (or without) `GET /api/customers/pipelines` |
 | `POST/PUT /api/customers/deals` | No schema change. When `probability` is omitted and the deal enters a stage with an effective default, the response record and the persisted row carry that default. |
 
 ## UI
@@ -168,3 +168,7 @@ Browser verification: the settings UI, Kanban drag, the deal detail stepper, and
 - 2026-10-26: Review follow-up (PR #7792).
   - Added `TC-CRM-STAGE-PROB-002` for the deal edit form, create page, and Kanban quick-add prefill paths.
   - Added migration SQL and real-Postgres round-trip tests. The core `test:pg-integration` script now also covers `customers/migrations`.
+- 2026-10-29: Review follow-up (PR #7792).
+  - The deal detail response now carries `pipelineStageProbabilitiesEnabled`, and the detail page seeds it into `DealForm`. Before this, a stage change made before `GET /api/customers/pipelines` resolved (or for roles without `customers.pipelines.view`, which get a 403 there) kept the old probability and saved it as an override.
+  - Added `DealForm` regressions for pending and forbidden pipeline metadata, for a manual edit surviving late metadata, and for an opted-out seed.
+  - `TC-CRM-STAGE-PROB-002` records pipeline fixture IDs as soon as they are created, so a failed setup step no longer leaves a pipeline behind.
