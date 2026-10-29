@@ -12,7 +12,7 @@ import {
 import { DefaultDataEngine, type DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
-import { CustomerInteraction, CustomerEntity } from '../data/entities'
+import { CustomerActivity, CustomerInteraction, CustomerEntity } from '../data/entities'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
 import {
   interactionCreateSchema,
@@ -59,6 +59,7 @@ import { clearInapplicableCoreFields, findInapplicableCoreFields, omitHiddenCore
 import { calendarEventTypes, type CalendarEventTypeBehavior } from '../calendar-event-types'
 import { canonicalCalendarTimezone } from '../lib/calendar/timezone'
 import { findInteractionUserInScope, requireInteractionUsersInScope } from '../lib/interactionUsers'
+import { CUSTOMER_INTERACTION_ACTIVITY_ADAPTER_SOURCE } from '../lib/interactionCompatibility'
 
 const logger = createLogger('customers')
 
@@ -577,10 +578,21 @@ const createInteractionCommand: CommandHandler<InteractionCreateInput, { interac
       ensureTenantScope(ctx, entity.tenantId)
       ensureOrganizationScope(ctx, entity.organizationId)
 
-      await requireInteractionUsersInScope(trx, entity, parsed)
-      const normalizedAuthor = defaultAuthor && await findInteractionUserInScope(trx, defaultAuthor, entity)
-        ? defaultAuthor
+      const legacyActivity = parsed.id && parsed.source === CUSTOMER_INTERACTION_ACTIVITY_ADAPTER_SOURCE
+        ? await findOneWithDecryption(trx, CustomerActivity, {
+          id: parsed.id,
+          entity: entity.id,
+          tenantId: entity.tenantId,
+          organizationId: entity.organizationId,
+        }, undefined, entity)
         : null
+      const preservesHistoricalAuthor = !!legacyActivity && parsed.authorUserId === legacyActivity.authorUserId
+      await requireInteractionUsersInScope(trx, entity, parsed, legacyActivity ?? {})
+      const normalizedAuthor = preservesHistoricalAuthor
+        ? legacyActivity.authorUserId ?? null
+        : defaultAuthor && await findInteractionUserInScope(trx, defaultAuthor, entity)
+          ? defaultAuthor
+          : null
 
       if (parsed.dealId) {
         await requireDealInScope(trx, parsed.dealId, entity.tenantId, entity.organizationId)
@@ -882,7 +894,7 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
       })
 
       await ensureInteractionPrivacyChangeAccess(ctx, interaction, parsed)
-      await requireInteractionUsersInScope(trx, interaction, parsed)
+      await requireInteractionUsersInScope(trx, interaction, parsed, interaction)
 
       const nextType = parsed.interactionType ?? interaction.interactionType
       const changingType = nextType !== interaction.interactionType

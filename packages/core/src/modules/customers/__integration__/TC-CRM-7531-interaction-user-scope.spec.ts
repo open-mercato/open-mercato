@@ -166,6 +166,56 @@ test('TC-CRM-7531: legacy activity create and update reject foreign authors', as
   })
 })
 
+test('TC-CRM-7531: offboarded authors survive legacy promotion and unchanged updates without becoming assignable', async ({ request }) => {
+  await withFixtures(request, async ({ actor, home, marker, local, sibling, create }) => {
+    const entityId = await create(home, '/api/customers/people', { firstName: 'History', lastName: marker, displayName: marker })
+    const canonicalId = await create(home, INTERACTIONS, { entityId, interactionType: 'note', title: marker, authorUserId: local.id, ownerUserId: local.id })
+    const liveId = await create(home, INTERACTIONS, { entityId, interactionType: 'note', title: marker, authorUserId: sibling.id, ownerUserId: sibling.id })
+    const legacyIds = [randomUUID(), randomUUID(), randomUUID()]
+    try {
+      await withClient(async (client) => {
+        const offboarded = await client.query(
+          'update users set deleted_at = now() where id = $1 and tenant_id = $2 and organization_id = $3 and deleted_at is null returning id',
+          [local.id, actor.tenantId, actor.organizationId],
+        )
+        expect(offboarded.rowCount, 'only the owned historical author should be soft-deleted').toBe(1)
+        for (const id of legacyIds) {
+          await client.query(
+            'insert into customer_activities (id, tenant_id, organization_id, entity_id, activity_type, subject, author_user_id, created_at, updated_at) values ($1, $2, $3, $4, $5, $6, $7, now(), now())',
+            [id, actor.tenantId, actor.organizationId, entityId, 'note', marker, local.id],
+          )
+        }
+      })
+      const unchanged = await scopedRequest(request, actor, 'PUT', INTERACTIONS, { id: canonicalId, title: `${marker}-edited`, authorUserId: local.id, ownerUserId: local.id })
+      expect(unchanged.status(), 'resending historical references should allow an unrelated edit').toBe(200)
+      for (const field of ['authorUserId', 'ownerUserId']) {
+        const rejected = await scopedRequest(request, actor, 'PUT', INTERACTIONS, { id: liveId, [field]: local.id })
+        expect(rejected.status(), 'offboarded users remain unavailable for new assignments').toBe(400)
+      }
+      for (const [index, path] of [ACTIVITIES, INTERACTIONS].entries()) {
+        const id = legacyIds[index]
+        const updated = await scopedRequest(request, actor, 'PUT', path, {
+          id, authorUserId: local.id, ...(path === ACTIVITIES ? { subject: `${marker}-promoted` } : { title: `${marker}-promoted` }),
+        })
+        expect(updated.status(), 'legacy rows with offboarded authors should be editable through both APIs').toBe(200)
+        const item = (await listItems(request, actor, `${INTERACTIONS}?entityId=${entityId}&limit=100`)).find((row) => row.id === id)
+        expect(item, 'promotion must preserve historical attribution').toMatchObject({ authorUserId: local.id, authorName: local.name, authorEmail: local.email, title: `${marker}-promoted` })
+        const deleted = await scopedRequest(request, actor, 'DELETE', `${path}?id=${id}`, { id })
+        expect(deleted.status(), 'promoted activities remain deletable').toBe(200)
+      }
+      const deleted = await scopedRequest(request, actor, 'DELETE', `${ACTIVITIES}?id=${legacyIds[2]}`, { id: legacyIds[2] })
+      expect(deleted.status(), 'deleting an unpromoted activity should accept its historical author').toBe(200)
+    } finally {
+      await withClient(async (client) => {
+        await client.query('delete from customer_interactions where id = any($1::uuid[]) and tenant_id = $2 and organization_id = $3', [legacyIds, actor.tenantId, actor.organizationId])
+        await client.query('delete from customer_activities where id = any($1::uuid[]) and tenant_id = $2 and organization_id = $3', [legacyIds, actor.tenantId, actor.organizationId])
+        const restored = await client.query('update users set deleted_at = null where id = $1 and tenant_id = $2 and organization_id = $3', [local.id, actor.tenantId, actor.organizationId])
+        expect(restored.rowCount, 'restore the owned user for normal fixture cleanup').toBe(1)
+      })
+    }
+  })
+})
+
 for (const entityKind of ['people', 'companies'] as const) {
   test(`TC-CRM-7531: ${entityKind} reads hide foreign profiles on poisoned canonical and historical activity rows`, async ({ request }) => {
     await withFixtures(request, async ({ actor, home, marker, local, sibling, foreign, create }) => {

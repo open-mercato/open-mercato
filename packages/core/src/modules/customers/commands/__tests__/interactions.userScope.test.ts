@@ -9,6 +9,11 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
     em.findOne(entity, filters),
 }))
 
+jest.mock('@open-mercato/shared/lib/crud/custom-fields', () => ({
+  ...jest.requireActual('@open-mercato/shared/lib/crud/custom-fields'),
+  loadCustomFieldValues: jest.fn(async () => ({})),
+}))
+
 jest.mock('@open-mercato/shared/lib/commands/customFieldSnapshots', () => ({
   ...jest.requireActual('@open-mercato/shared/lib/commands/customFieldSnapshots'),
   loadCustomFieldSnapshot: jest.fn(async () => ({})),
@@ -48,7 +53,9 @@ import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import { emitCrudSideEffects, emitCrudUndoSideEffects } from '@open-mercato/shared/lib/commands/helpers'
 import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
-import { CustomerEntity, CustomerInteraction } from '../../data/entities'
+import { CustomerActivity, CustomerEntity, CustomerInteraction } from '../../data/entities'
+import { ensureCanonicalActivityBridge } from '../../lib/legacyActivityBridge'
+import { CUSTOMER_INTERACTION_ACTIVITY_ADAPTER_SOURCE } from '../../lib/interactionCompatibility'
 import { listGrantsForViewerOnPerson, listSharedChannelIds } from '../../lib/conversationShares'
 import '../interactions'
 import '../activities'
@@ -107,7 +114,8 @@ function createInteraction(overrides: Partial<CustomerInteraction> = {}): Custom
   } as CustomerInteraction
 }
 
-function createHarness(interaction = createInteraction(), authOverrides: Record<string, unknown> | null = {}) {
+function createHarness(interaction = createInteraction(), authOverrides: Record<string, unknown> | null = {}, legacyActivity: CustomerActivity | null = null) {
+  let canonicalExists = !legacyActivity
   const users = [
     { id: AUTHOR_ID, tenantId: TENANT_ID, organizationId: ORGANIZATION_ID, deletedAt: null },
     { id: VIEWER_ID, tenantId: TENANT_ID, organizationId: ORGANIZATION_ID, deletedAt: null },
@@ -121,7 +129,12 @@ function createHarness(interaction = createInteraction(), authOverrides: Record<
         const user = users.find((candidate) => candidate.id === filters.id && candidate.tenantId === filters.tenantId && (filters.organizationId === undefined || candidate.organizationId === filters.organizationId) && (filters.deletedAt === undefined || candidate.deletedAt === filters.deletedAt))
         return user ?? null
       }
-      if (entity === CustomerInteraction) return filters.id === interaction.id ? interaction : null
+      if (entity === CustomerActivity) {
+        return legacyActivity && filters.id === legacyActivity.id && filters.tenantId === legacyActivity.tenantId && filters.organizationId === legacyActivity.organizationId && filters.entity === (typeof legacyActivity.entity === 'string' ? legacyActivity.entity : legacyActivity.entity.id)
+          ? legacyActivity
+          : null
+      }
+      if (entity === CustomerInteraction) return canonicalExists && filters.id === interaction.id ? interaction : null
       if (entity === CustomerEntity) {
         return { id: filters.id, kind: 'person', tenantId: TENANT_ID, organizationId: ORGANIZATION_ID }
       }
@@ -129,7 +142,12 @@ function createHarness(interaction = createInteraction(), authOverrides: Record<
     }),
     find: jest.fn(async () => []),
     flush: jest.fn(async () => undefined),
-    persist: jest.fn(),
+    persist: jest.fn((values: CustomerInteraction) => {
+      if (legacyActivity) {
+        Object.assign(interaction, values)
+        canonicalExists = true
+      }
+    }),
     remove: jest.fn(),
     create: jest.fn((_entity: unknown, values: Record<string, unknown>) => values),
     isInTransaction: () => false,
@@ -217,6 +235,72 @@ describe('interaction user reference scope (#7531)', () => {
       expect(interaction).toEqual(original)
       expect(em.flush).not.toHaveBeenCalled()
       expect(emitCrudSideEffects).not.toHaveBeenCalled()
+    })
+  })
+
+  describe.each(['authorUserId', 'ownerUserId'] as const)('unchanged historical %s', (field) => {
+    it('permits resending an offboarded reference while editing another field', async () => {
+      const { interaction, ctx } = createHarness(createInteraction({ [field]: DELETED_USER_ID }))
+      await handler('interactions.update').execute({ id: INTERACTION_ID, title: 'Edited history', [field]: DELETED_USER_ID }, ctx)
+      expect(interaction).toMatchObject({ title: 'Edited history', [field]: DELETED_USER_ID })
+    })
+
+    it.each([['foreign tenant', OTHER_PERSON_ID], ['missing', MISSING_USER_ID]])('still rejects an unchanged %s reference', async (_reason, userId) => {
+      const { interaction, ctx, em } = createHarness(createInteraction({ [field]: userId }))
+      await expect(handler('interactions.update').execute({ id: INTERACTION_ID, title: 'Must not persist', [field]: userId }, ctx)).rejects.toMatchObject({ status: 400 })
+      expect(interaction.title).toBe('Private message')
+      expect(em.flush).not.toHaveBeenCalled()
+    })
+  })
+
+  it('does not reuse a historical author exception for a newly assigned owner', async () => {
+    const { ctx, em } = createHarness(createInteraction({ authorUserId: DELETED_USER_ID }))
+    await expect(handler('interactions.update').execute({ id: INTERACTION_ID, authorUserId: DELETED_USER_ID, ownerUserId: DELETED_USER_ID }, ctx)).rejects.toMatchObject({ status: 400 })
+    expect(em.flush).not.toHaveBeenCalled()
+  })
+
+  describe('legacy activity promotion', () => {
+    function legacyActivity(authorUserId: string): CustomerActivity {
+      return {
+        id: INTERACTION_ID, tenantId: TENANT_ID, organizationId: ORGANIZATION_ID,
+        entity: { id: PERSON_ID }, authorUserId, activityType: 'note', subject: 'Legacy history',
+        body: null, occurredAt: null, deal: null,
+      } as CustomerActivity
+    }
+
+    it('preserves an offboarded author through bridge, update and delete', async () => {
+      const activity = legacyActivity(DELETED_USER_ID)
+      const { interaction, ctx, em } = createHarness(undefined, {}, activity)
+      const commandBus = {
+        execute: jest.fn(async (commandId: string, options: { input: unknown; ctx: CommandRuntimeContext }) =>
+          handler(commandId.replace('customers.', '')).execute(options.input, options.ctx)),
+      } as unknown as Parameters<typeof ensureCanonicalActivityBridge>[1]
+      await ensureCanonicalActivityBridge(em as unknown as Parameters<typeof ensureCanonicalActivityBridge>[0], commandBus, ctx, activity)
+      expect(em.findOne).toHaveBeenCalledWith(CustomerActivity, { id: INTERACTION_ID, entity: PERSON_ID, tenantId: TENANT_ID, organizationId: ORGANIZATION_ID })
+      expect(interaction.authorUserId).toBe(DELETED_USER_ID)
+      await handler('interactions.update').execute({ id: INTERACTION_ID, title: 'Updated history', authorUserId: DELETED_USER_ID }, ctx)
+      expect(interaction).toMatchObject({ title: 'Updated history', authorUserId: DELETED_USER_ID })
+      await handler('interactions.delete').execute({ id: INTERACTION_ID }, ctx)
+      expect(interaction.deletedAt).toBeInstanceOf(Date)
+      expect(em.flush).toHaveBeenCalled()
+    })
+
+    it.each([['foreign tenant', OTHER_PERSON_ID], ['missing', MISSING_USER_ID]])('rejects a stored historical %s author', async (_reason, authorUserId) => {
+      const { ctx, em } = createHarness(undefined, {}, legacyActivity(authorUserId))
+      await expect(handler('interactions.create').execute({
+        id: INTERACTION_ID, tenantId: TENANT_ID, organizationId: ORGANIZATION_ID, entityId: PERSON_ID,
+        interactionType: 'note', source: CUSTOMER_INTERACTION_ACTIVITY_ADAPTER_SOURCE, authorUserId,
+      }, ctx)).rejects.toMatchObject({ status: 400 })
+      expect(em.persist).not.toHaveBeenCalled()
+    })
+
+    it.each(['no legacy row', 'different stored author'])('rejects a deleted new assignment with an adapter source and %s', async (scenario) => {
+      const { ctx, em } = createHarness(undefined, {}, scenario === 'no legacy row' ? null : legacyActivity(AUTHOR_ID))
+      await expect(handler('interactions.create').execute({
+        id: INTERACTION_ID, tenantId: TENANT_ID, organizationId: ORGANIZATION_ID, entityId: PERSON_ID,
+        interactionType: 'note', source: CUSTOMER_INTERACTION_ACTIVITY_ADAPTER_SOURCE, authorUserId: DELETED_USER_ID,
+      }, ctx)).rejects.toMatchObject({ status: 400 })
+      expect(em.persist).not.toHaveBeenCalled()
     })
   })
 

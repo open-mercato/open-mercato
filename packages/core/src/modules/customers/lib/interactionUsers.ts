@@ -24,12 +24,13 @@ export async function findInteractionUserInScope(
   em: EntityManager,
   userId: string,
   scope: InteractionUserScope,
+  options: { includeDeleted?: boolean } = {},
 ): Promise<User | null> {
   if (!scope.tenantId || !scope.organizationId) return null
   return findOneWithDecryption(em, User, {
     id: userId,
     tenantId: scope.tenantId,
-    deletedAt: null,
+    ...(options.includeDeleted ? {} : { deletedAt: null }),
   }, undefined, scope)
 }
 
@@ -37,10 +38,12 @@ export async function requireInteractionUsersInScope(
   em: EntityManager,
   scope: InteractionUserScope,
   references: InteractionUserReferences,
+  previousReferences: InteractionUserReferences = {},
 ): Promise<void> {
-  const userIds = new Set([references.authorUserId, references.ownerUserId].filter((value): value is string => !!value))
-  for (const userId of userIds) {
-    if (await findInteractionUserInScope(em, userId, scope)) continue
+  for (const field of ['authorUserId', 'ownerUserId'] as const) {
+    const userId = references[field]
+    if (!userId) continue
+    if (await findInteractionUserInScope(em, userId, scope, { includeDeleted: userId === previousReferences[field] })) continue
     const { translate } = await resolveTranslations()
     throw new CrudHttpError(400, { error: translate('auth.users.form.errors.notFound', 'User not found') })
   }
