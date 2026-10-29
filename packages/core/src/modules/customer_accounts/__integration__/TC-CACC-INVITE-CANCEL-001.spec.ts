@@ -114,7 +114,7 @@ test.describe('TC-CACC-INVITE-CANCEL-001: staff withdrawal of pending invitation
     }
   })
 
-  test('allows staff to dismiss the confirmation and then cancel from the CRM person widget', async ({ page, request }) => {
+  test('allows staff to dismiss the confirmation and then cancel from the CRM person widget', async ({ page, request }, testInfo) => {
     test.slow()
     const adminToken = await getAuthToken(request, 'admin')
     let roleId: string | null = null
@@ -136,10 +136,12 @@ test.describe('TC-CACC-INVITE-CANCEL-001: staff withdrawal of pending invitation
       await login(page, 'admin')
       await page.goto(`/backend/customers/people-v2/${personId}`)
       await expect(page.getByText('Invitation pending', { exact: true })).toBeVisible()
+      await page.screenshot({ path: testInfo.outputPath('pending-invitation.png'), fullPage: true })
       await page.getByRole('button', { name: 'Cancel invitation', exact: true }).click()
       const dialog = page.getByRole('alertdialog', { name: 'Cancel invitation?' })
       await expect(dialog).toBeVisible()
       await expect(dialog.getByText(email, { exact: false })).toBeVisible()
+      await page.screenshot({ path: testInfo.outputPath('cancellation-confirmation.png'), fullPage: true })
       await page.keyboard.press('Escape')
       await expect(dialog).not.toBeVisible()
       expect((await invitationState(invitation.id)).cancelled_at).toBeNull()
@@ -151,6 +153,7 @@ test.describe('TC-CACC-INVITE-CANCEL-001: staff withdrawal of pending invitation
       await expect(page.getByText('Invitation pending', { exact: true })).not.toBeVisible()
       await expect(page.getByRole('button', { name: 'Invite to Portal', exact: true })).toBeVisible()
       expect((await invitationState(invitation.id)).cancelled_at).not.toBeNull()
+      await page.screenshot({ path: testInfo.outputPath('invitation-cancelled.png'), fullPage: true })
     } finally {
       await deleteInvitations(invitationIds)
       await deleteEntityIfExists(request, adminToken, '/api/customers/people', personId)
