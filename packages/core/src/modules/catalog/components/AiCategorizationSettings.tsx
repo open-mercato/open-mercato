@@ -113,6 +113,9 @@ export function AiCategorizationSettings() {
     setSettings(nextSettings)
     setSaving(true)
     try {
+      // optimistic-lock-exempt: tenant-scoped module-config toggle (single
+      // settings row via moduleConfigService), not a versioned editable entity —
+      // no updated_at to lock against and no lost-update concern for this admin preference.
       const call = await apiCall('/api/catalog/ai-categorization/settings', {
         method: 'PUT',
         headers: { 'content-type': 'application/json' },

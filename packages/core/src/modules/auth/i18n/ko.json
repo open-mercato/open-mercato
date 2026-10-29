@@ -81,6 +81,7 @@
   "auth.acl.features.cart.proposals.author": "Author proposal carts",
   "auth.acl.features.cart.proposals.view": "View proposal carts",
   "auth.acl.features.cart.settings.manage": "Manage cart settings",
+  "auth.acl.features.catalog.ai_categorization.use": "Use AI category suggestions",
   "auth.acl.features.catalog.categories.manage": "Manage catalog categories",
   "auth.acl.features.catalog.categories.view": "View catalog categories",
   "auth.acl.features.catalog.price_history.view": "카탈로그 가격 이력 보기",

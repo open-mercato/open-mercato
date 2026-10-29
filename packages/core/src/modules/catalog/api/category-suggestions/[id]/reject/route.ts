@@ -5,6 +5,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveActiveOrganizationId, organizationScopeRequiredResponse } from '@open-mercato/shared/lib/auth/organizationScope'
 import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { CatalogCategorizationService } from '../../../../lib/aiCategorization/categorizationService'
@@ -66,6 +67,10 @@ export async function POST(req: Request, routeContext: RouteContext) {
   } catch (err) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
+    }
+    const interceptorRejection = getCommandInterceptorHttpRejection(err)
+    if (interceptorRejection) {
+      return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
     }
     logger.error('catalog.ai_categorization.category_suggestions.reject.POST Unexpected error', { err })
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
