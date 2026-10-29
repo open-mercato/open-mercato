@@ -33,6 +33,13 @@ export {
   AI_ASSISTANT_VIEW_FEATURE,
 } from './useAiAssistantAvailable'
 export {
+  AI_ASSISTANT_RUNS_VIEW_FEATURE,
+  buildAiRunTraceHref,
+  readRunIdFromLoopTrace,
+  readRunIdFromMessageMetadata,
+  useCanViewAiRunTrace,
+} from './run-trace-link'
+export {
   useAiShortcuts,
   type UseAiShortcutsOptions,
   type UseAiShortcutsResult,

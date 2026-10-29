@@ -698,5 +698,13 @@
   "ai_assistant.usage.steps": "Kroki",
   "ai_assistant.usage.title": "Statystyki użycia tokenów",
   "ai_assistant.usage.to": "Do",
-  "notifications.categories.ai_assistant": "Asystent AI"
+  "notifications.categories.ai_assistant": "Asystent AI",
+  "ui.ai.loopTrace.noSteps": "Brak zarejestrowanych kroków.",
+  "ui.ai.loopTrace.step": "Krok {index}",
+  "ui.ai.loopTrace.steps": "Kroki: {count}",
+  "ui.ai.loopTrace.text": "Tekst",
+  "ui.ai.loopTrace.title": "Ślad pętli",
+  "ui.ai.loopTrace.tokens": "{count} tok.",
+  "ui.ai.loopTrace.toolCalls": "Wywołania narzędzi",
+  "ui.ai.loopTrace.toolError": "błąd: {code}"
 }

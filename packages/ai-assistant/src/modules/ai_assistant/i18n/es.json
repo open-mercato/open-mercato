@@ -698,5 +698,13 @@
   "ai_assistant.usage.steps": "Pasos",
   "ai_assistant.usage.title": "Estadísticas de uso de tokens",
   "ai_assistant.usage.to": "Hasta",
-  "notifications.categories.ai_assistant": "Asistente de IA"
+  "notifications.categories.ai_assistant": "Asistente de IA",
+  "ui.ai.loopTrace.noSteps": "No se registraron pasos.",
+  "ui.ai.loopTrace.step": "Paso {index}",
+  "ui.ai.loopTrace.steps": "{count} pasos",
+  "ui.ai.loopTrace.text": "Texto",
+  "ui.ai.loopTrace.title": "Traza del bucle",
+  "ui.ai.loopTrace.tokens": "{count} tok",
+  "ui.ai.loopTrace.toolCalls": "Llamadas a herramientas",
+  "ui.ai.loopTrace.toolError": "error: {code}"
 }

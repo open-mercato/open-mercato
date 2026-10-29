@@ -698,5 +698,13 @@
   "ai_assistant.usage.steps": "Schritte",
   "ai_assistant.usage.title": "Token-Nutzungsstatistik",
   "ai_assistant.usage.to": "Bis",
-  "notifications.categories.ai_assistant": "KI-Assistent"
+  "notifications.categories.ai_assistant": "KI-Assistent",
+  "ui.ai.loopTrace.noSteps": "Keine Schritte aufgezeichnet.",
+  "ui.ai.loopTrace.step": "Schritt {index}",
+  "ui.ai.loopTrace.steps": "{count} Schritte",
+  "ui.ai.loopTrace.text": "Text",
+  "ui.ai.loopTrace.title": "Schleifen-Trace",
+  "ui.ai.loopTrace.tokens": "{count} Tok.",
+  "ui.ai.loopTrace.toolCalls": "Tool-Aufrufe",
+  "ui.ai.loopTrace.toolError": "Fehler: {code}"
 }
