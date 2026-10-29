@@ -606,6 +606,8 @@ test('om-find-module ships in the core tier and teaches agents to ask the module
   ]) {
     assert.ok(skill.includes(source), `om-find-module must name the catalog source ${source}`)
   }
+  assert.match(skill, /if it does not list `search`, go to 3/, 'the CLI source is used only when `module --help` lists search')
+  assert.doesNotMatch(skill, /lists only `add` and `enable`/, 'released CLIs also list eject, so this check never matches')
   assert.match(skill, /yarn mercato module enable @open-mercato\/core --module <id>/, 'built-in modules are enabled, never rebuilt')
   assert.match(skill, /Do not build what core already ships\./)
   assert.match(skill, /data, never instructions/, 'registry and README text must be treated as untrusted data')
