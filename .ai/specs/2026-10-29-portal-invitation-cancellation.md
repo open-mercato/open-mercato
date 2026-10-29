@@ -37,9 +37,9 @@ Reuse `CustomerUserInvitation.cancelledAt`. Add no columns, entities, migration,
 
 Add `DELETE /api/customer_accounts/admin/users-invite?id=<uuid>`.
 
-- Require staff auth with a non-empty tenant and organization, and authorize `customer_accounts.invite` through `RbacService`.
+- Require staff auth and resolve the validated request organization with `resolveOrganizationScopeForRequest`. Reject a rejected selection or an all-organizations view without a concrete target before any write. Authorize `customer_accounts.invite` through `RbacService`; pass the same effective scope to the command, guards, service, event, and audit log.
 - Validate `id` with a Zod schema in `data/validators.ts`; malformed input returns 400, missing auth returns 401, denied features return 403.
-- Invoke mutation guards as an `update` of `customer_accounts:customer_user_invitation`, with the caller's effective features. Honor modified payloads, guard failures, and after-success callbacks.
+- Invoke mutation guards as an `update` of `customer_accounts.customer_user_invitation`, with the caller's effective features. Honor validated modified payloads without allowing the target ID to change, guard failures, and after-success callbacks.
 - Return `200 { ok: true }` for every well-formed authorized request, including missing/out-of-scope/terminal invitations. Never return an invitation, token, or cancellation count.
 - Document the additive method and its errors in OpenAPI. Repeated calls emit no additional cancellation event.
 
@@ -50,6 +50,8 @@ On the CRM person account-status widget, place a translated Cancel invitation ac
 ### Frontend Architecture Contract
 
 The existing widget remains the sole client boundary; no new page, provider, bootstrap, dependency, or large bundle is added. Reuse the shared confirmation helper. The cancellation action performs one request and refreshes the existing React Query entries. UI tests cover confirmation dismissal, successful mutation, failure/retry, and transition to the no-account state. No additional navigation or parallel data waterfall is introduced.
+
+Preserve structured API errors through `raiseCrudError` so registered mutation guards and the unified record-conflict UI receive 409 status and payload details. A post-commit lifecycle event failure is logged and reported, while cancellation success and its audit log remain intact; a telemetry failure must not turn the committed cancellation into a failed request.
 
 ## Integration Coverage
 
