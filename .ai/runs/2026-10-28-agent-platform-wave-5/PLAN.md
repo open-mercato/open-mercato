@@ -62,7 +62,7 @@
 | 4 | 4.4 | Add the run compare API | dispatch:capable | done | c50777d98 |
 | 4 | 4.5 | Add Request and Response tabs to model calls | dispatch:capable | done | 7a2904b85 |
 | 4 | 4.6 | Add the run compare dialog and run-level copy | dispatch | done | d2069757e |
-| 4 | 4.7 | Cover compare and trace tabs with integration tests | dispatch | todo | — |
+| 4 | 4.7 | Cover compare and trace tabs with integration tests | dispatch | done | pending |
 | 5 | 5.1 | Add the chat run ACL features and query validators | dispatch:cheap | todo | — |
 | 5 | 5.2 | Add the chat runs API | dispatch:capable | todo | — |
 | 5 | 5.3 | Add the chat runs list and detail pages | dispatch | todo | — |

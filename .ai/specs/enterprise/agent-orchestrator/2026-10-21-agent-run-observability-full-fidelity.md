@@ -601,3 +601,20 @@ Phase 0 spike results (installed `ai` 7.0.83, `@ai-sdk/provider` 4.0.8, pinned `
   - **Retention enumerates keys from the database, not by listing storage:** `list` cannot know the deployment `pathPrefix`. The worker scans spans and bundles created in `[cutoff − 7 days, cutoff)`, so a bucket lifecycle rule is the documented backstop for missed days.
   - **`includeProviderBody` stays a no-op:** the AI SDK start event carries no raw provider body.
   - **The existing kinds** (`output`, `tool_request`, `tool_response`, `raw_output`) keep answering 502 when the object is missing; only the content kinds use 410.
+
+### 2026-10-29
+- Phase 4 implemented (agent platform wave 5):
+  - `POST /trace/ingest` accepts per-span `llm` blocks and a run `manifest`. At `full` the ingest command offloads `request` / `response` through the native content builders; below `full` the bodies are dropped. The manifest becomes a `run.manifest` span with `om.invoker.kind = "integration"`.
+  - The OpenCode runner reads `message.updated` and `step-finish` off the SSE stream and emits one `llm` span per assistant message (`fidelity = reported`). Cost comes from the reported USD `cost` (`pricing_source = 'reported'`), and the manifest gains `om.model.resolved` / `om.provider`.
+  - Tool-side knowledge and retrieval reach the run through the optional `mcpToolExecutionObserver` DI hook around MCP HTTP tool execution. AO binds the run from the session token and writes an idempotent `tool.observation` system span, which OpenCode ingest folds into the manifest `om.knowledge`.
+  - `GET /runs/:id/compare?with&step` (`lib/trace/runCompare.ts`, `lib/trace/contentArtifactAccess.ts`), the Request/Response tabs (`LlmStepPanels`), the "Compare with…" dialog (`RunCompareDialog`) and the "Copy run" menu are in place.
+  - Integration coverage: `TC-AGENT-TRACE-007` covers compare without `view_content` (metadata diff only), out-of-scope runs (404), the system-prompt line diff with `view_content`, and the trace tabs and compare dialog in the browser, both with stored content and at the `metadata` level (not captured, metadata-only diff).
+- Deviations:
+  - **TC-AGENT-TRACE-007 ingests two runs instead of running an agent twice around a prompt override.** The two HMAC-ingested runs differ in one system-prompt line. The test environment has no scripted LLM provider, so a native run cannot be relied on. Content cases skip when the deployment ceiling is below `full`, when storage is unavailable, or when the test process cannot sign ingests.
+  - **Ingested manifests leave out facts the adapter did not report** (definition hash, agent source) instead of inventing them.
+  - **The OpenCode reconstructed request is written on the first message span only.** It is the sent message with the session token redacted, plus the agent instructions. Later message spans carry only the assistant text.
+  - **Tool observation uses a DI hook, not the shared collector.** MCP tools run in the `mcp:serve-http` process, outside the runner's async context. The hook is a no-op when unregistered, and a failing hook never breaks or repeats the tool call. It also binds audit correlation, so OpenCode tool writes now carry `agentRunId`.
+  - **Compare aligns steps by index:** `step` is the n-th `llm` span by sequence. The content diff is returned only when both sides read `ok`, and each side reports its own `contentStatus` (`ok`, `expired`, `unavailable`, `not_captured`, `forbidden`). An invalid query answers 422.
+  - **The default compare target is the re-run source, else the previous run of the same agent.** "Same subject" is not matched. Finding the previous run needed a new additive `createdBefore` filter on `GET /runs`.
+  - **Long message lists are not virtualized:** the Request tab renders the first 200 messages with a "show more" control, so no new dependency is needed.
+  - **"Copy run" with content fetches the artifacts at click time,** four at a time, and only when the caller holds `trace.view_content`.
