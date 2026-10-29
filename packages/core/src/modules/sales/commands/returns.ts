@@ -19,6 +19,7 @@ import { SalesOrder, SalesOrderAdjustment, SalesOrderLine, SalesReturn, SalesRet
 import { mapOrderLineEntityToSnapshot } from '../lib/lineSnapshots'
 import { loadShippedQuantityByLine } from '../lib/shipments/snapshots'
 import { computeAvailableReturnQuantity } from '../lib/returnQuantity'
+import { assertOrderRecurrenceUnlocked } from '../lib/recurringOrderGuard'
 import {
   returnCreateSchema,
   returnUpdateSchema,
@@ -324,6 +325,7 @@ async function reverseReturnEffects(
     { tenantId: snapshot.tenantId, organizationId: snapshot.organizationId },
   )
   if (!order) return
+  await assertOrderRecurrenceUnlocked(em, order)
 
   let lines: SalesOrderLine[] = []
   await withAtomicFlush(
@@ -439,6 +441,7 @@ async function restoreReturnEffects(
           throw notFound(translate('sales.returns.orderMissing', 'Order not found.'))
         }
         ensureSameScope(order, snapshot.organizationId, snapshot.tenantId)
+        await assertOrderRecurrenceUnlocked(em, order)
 
         const orderLines = await findWithDecryption(
           em,
@@ -632,6 +635,7 @@ const createReturnCommand: CommandHandler<ReturnCreateInput, { returnId: string 
       }
       ensureSameScope(order, input.organizationId, input.tenantId)
       await enforceSalesDocumentOptimisticLock(ctx, order, SALES_RESOURCE_KIND_ORDER)
+      await assertOrderRecurrenceUnlocked(tx, order)
 
       const orderLines = await findWithDecryption(
         tx,

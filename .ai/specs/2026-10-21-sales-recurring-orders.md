@@ -114,7 +114,7 @@ Order lines and order-level adjustments describe **one period's charge**; the or
 - The order recurrence is `scheduled` until its first invoice, then `active`.
 
 ### What is locked (R5, R10)
-Once a recurrence has an issued period, these are refused with `409 recurring_order_locked`: `sales.orders.update` changes to currency, channel, customer, tax info or methods; `sales.orders.lines.upsert/delete`; `sales.orders.adjustments.upsert/delete`; recurrence set/replace/remove. Setting the order's status to `canceled` or `on_hold` is refused with `409 recurring_order_use_cancel` while the recurrence is `scheduled`, `active` or `cancelling`. `sales.orders.delete` is refused with `409 recurring_order_invoiced` while any period exists — checked under the recurrence row lock; an order with an unbilled recurrence is deleted together with it.
+Once a recurrence has an issued period, these are refused with `409 recurring_order_locked`: `sales.orders.update` changes to currency, channel, customer, tax info or methods; `sales.orders.lines.upsert/delete`; `sales.orders.adjustments.upsert/delete`; `sales.returns.create` and `sales.returns.delete`, including undo and redo of a return, because a return adds or removes credit adjustments and recalculates the order total; recurrence set/replace/remove. Money goes back to the customer of an invoiced recurring order through a credit memo instead (the Phase 3 cancel settlement, or a manual credit memo). Setting the order's status to `canceled` or `on_hold` is refused with `409 recurring_order_use_cancel` while the recurrence is `scheduled`, `active` or `cancelling`. `sales.orders.delete` is refused with `409 recurring_order_invoiced` while any period exists — checked under the recurrence row lock; an order with an unbilled recurrence is deleted together with it.
 
 ### Invoicing (R2)
 The worker selects recurrences with `status in (scheduled, active, cancelling)` and `next_invoice_on ≤ today`, oldest first, across organizations. For each due period, **one transaction**:
@@ -258,3 +258,10 @@ Invoice numbers come from the existing number generator, whose Postgres sequence
   - Until Phase 3, an unbilled recurring order cannot be set to canceled or on hold; the way out is removing its recurrence or deleting the order.
   - Line references in this spec to `documents.ts` are approximate: `convert_to_order` handles `ctx.transactionalEm` at `const callerEm = ctx.transactionalEm` (~6814) and `return runConversion(callerEm)` (~7168) as of this phase.
   - Integration coverage: TC-SALES-045 (create, update, convert and the start-date guards), TC-SALES-046 (locks and status guards), TC-SALES-047 (UI).
+
+### 2026-10-29
+- From the review of #8008:
+  - Returns are locked like line and adjustment edits: `sales.returns.create`, `sales.returns.delete`, and the undo and redo of a return are refused with `409 recurring_order_locked` once the order has an issued period. A return changes the order total through credit adjustments, which R5 forbids after billing starts. Header-only edits (`sales.returns.update`) are still allowed.
+  - The undo staleness check compares the recurrence without `scheduleVersion`. Each undo bumps the version on purpose, so comparing it made the next undo in a chain fail as stale. Schedule, status, next period and cancellation fields are still compared.
+  - The migration was checked by rolling it down and up on a migrated database: down drops the three tables and leaves existing sales data unchanged; up restores the same tables, unique constraints and foreign keys.
+  - Integration coverage: TC-SALES-046 adds a return on a locked order (create, delete and undo refused, order total unchanged) and two edits undone in sequence.
