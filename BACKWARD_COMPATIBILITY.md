@@ -529,9 +529,9 @@ Spec: [`.ai/specs/2026-09-08-error-reporting-policy.md`](.ai/specs/2026-09-08-er
 
 ### 2026-10-01 — Passkey enrollment (#6800)
 
-STABLE `PUT /api/security/mfa/provider/passkey`: accepting caller public keys after a disclosed challenge is the exploit; a bridge preserves it. **Named human maintainer waiver acknowledgment pending; blocks merge.**
+STABLE `PUT /api/security/mfa/provider/passkey`: unverified keys bypass verification; a bridge preserves the exploit. [@haxiorz approved waiver/migration](https://github.com/open-mercato/open-mercato/pull/6824#issuecomment-6505351158).
 
-Clients send WebAuthn responses; operators audit stored-key provenance and re-enroll with recovery. [Spec](.ai/specs/enterprise/2026-10-01-passkey-enrollment-require-webauthn-attestation.md); [migration](UPGRADE_NOTES.md#080--090-2026-10-09).
+Clients use WebAuthn; operators audit key provenance, re-enroll with recovery. [Spec](.ai/specs/enterprise/2026-10-01-passkey-enrollment-require-webauthn-attestation.md); [migration](UPGRADE_NOTES.md#080--090-2026-10-09).
 
 ## Atomic Auth Command Replay (2026-10-04)
 

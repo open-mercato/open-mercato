@@ -1,6 +1,6 @@
 # Require WebAuthn Registration Verification for Passkey Enrollment
 
-> Status: Implemented on the fix branch; validation in progress — named human maintainer security-exception approval required before merge.
+> Status: Implemented on the fix branch; human security-exception acknowledgment recorded. Current-head CI and independent review remain required before merge.
 > Issue: [#6800](https://github.com/open-mercato/open-mercato/issues/6800), following [#5296](https://github.com/open-mercato/open-mercato/issues/5296).
 
 ## TLDR
@@ -44,7 +44,7 @@ The generic route's top-level provider-payload envelope fallback remains support
 
 ## Migration & Backward Compatibility
 
-The PUT request payload is a **STABLE** API contract. This removal requests the Emergency Security Exception in `BACKWARD_COMPATIBILITY.md`: continued acceptance of the old shape is the vulnerability, so a bridge cannot close it. Only staging/deprecation/bridge steps are waived; this spec, client/operator upgrade instructions, a dated compatibility entry, the `security` label and named human maintainer acknowledgment are mandatory. **Human waiver acknowledgment is pending and blocks merge. An automated review cannot supply it.**
+The PUT request payload is a **STABLE** API contract. This removal uses the Emergency Security Exception in `BACKWARD_COMPATIBILITY.md`: continued acceptance of the old shape is the vulnerability, so a bridge cannot close it. Only staging/deprecation/bridge steps are waived; this spec, client/operator upgrade instructions, a dated compatibility entry, the `security` label and named human maintainer acknowledgment are mandatory. **Human maintainer @haxiorz explicitly approved the waiver and acknowledged the client/operator migrations on [2026-10-29](https://github.com/open-mercato/open-mercato/pull/6824#issuecomment-6505351158).** That acknowledgment grants no QA, independent code-review approval or merge authorization.
 
 Clients using the shortcut must request registration options, run `navigator.credentials.create` (or the existing SimpleWebAuthn browser helper), serialize the returned registration credential, and submit `{ response, label? }`. The shipped UI already uses that path. Update test fixtures that supplied fake public keys. No raw `publicKey` confirmation flag is retained.
 
@@ -70,7 +70,7 @@ Implement the provider/schema and service error boundary after capturing failing
 
 ## Final Compliance Report
 
-The change is limited to the enterprise security module, its tests, and required security migration documentation. No OSS behavior, tenant scope, stored credential format, feature grant, migration, dependency, protected pipeline policy or UI governance file changes. The public request narrowing is deliberate and cannot merge until a named human maintainer acknowledges the documented waiver. Independent scope review found no additional capability or contract expansion. Focused regression evidence: the unchanged implementation failed six new checks (including the legacy route returning 200 and malformed payloads returning 500); after the fix, 52 focused tests passed, including the real-crypto assertion suite. The full enterprise suite passed 2,004 tests before the final synchronous-provider regression and workspace type checking passed all 38 tasks. Complete gate, live browser and exact-head CI results belong in the PR evidence; their completion and the human waiver must not be inferred from this document.
+The change is limited to the enterprise security module, its tests, and required security migration documentation. No OSS behavior, tenant scope, stored credential format, feature grant, migration, dependency, protected pipeline policy or UI governance file changes. The public request narrowing is deliberate; the named human maintainer acknowledgment is linked above. Independent scope review found no additional capability or contract expansion. Focused regression evidence: the unchanged implementation failed six new checks (including the legacy route returning 200 and malformed payloads returning 500); after the fix, 52 focused tests passed, including the real-crypto assertion suite. The full enterprise suite passed 2,004 tests before the final synchronous-provider regression and workspace type checking passed all 38 tasks. Complete gate, live browser and exact-head CI results belong in the PR evidence; their completion must not be inferred from this document.
 
 ## Changelog
 
@@ -79,3 +79,4 @@ The change is limited to the enterprise security module, its tests, and required
 - 2026-10-01: Implemented the response-only confirmation and localized validation boundary; added real route regressions, two-authenticator integration coverage, and migration disclosures. Independent scope review completed; human waiver remains pending.
 - 2026-10-01: Self-review found an invocation-time validation edge case; reproduced it, switched to `try/catch`, and verified synchronous and asynchronous provider failures with no activation. Final focused tests: 52 passed.
 - 2026-10-01: Live Chromium rejected the ephemeral loopback IP as a WebAuthn RP domain. The passkey test now uses the same server through `localhost` for browser and ceremony API requests; production origin checks are unchanged.
+- 2026-10-29: Recorded @haxiorz's explicit human waiver and client/operator migration acknowledgment; current-head CI and independent review remain required.

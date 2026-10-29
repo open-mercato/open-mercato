@@ -53,7 +53,7 @@ Conflicts may combine main's error-reporting requirements with the provider's lo
 
 ### Phase 3: Human merge gates
 
-- [ ] 3.1 Obtain named human maintainer acknowledgment of the Emergency Security Exception
+- [x] 3.1 Obtain named human maintainer acknowledgment of the Emergency Security Exception — [@haxiorz, 2026-10-29](https://github.com/open-mercato/open-mercato/pull/6824#issuecomment-6505351158); explicitly approved the waiver and acknowledged client/operator migrations
 - [ ] 3.2 Author confirms the outstanding CLA declaration if still required
 
 ## Remediation evidence
@@ -109,3 +109,9 @@ Corrected the merged lesson catalog to its actual160 records; the native checker
 The batch review identified that the independently prepared checkout and CLI entries add232 and228 bytes to the same document. Their exact combined text reproduced an OMH-057 overflow of376 bytes; the separator savings cannot be counted three times. Removed only cell-edge padding from the first four existing tables (78rows,552bytes). The complete parsed Markdown AST, all21tables/cells/alignment, every disclosure and the exception policy are identical before/after this formatting change.
 
 Both the actual native compatibility regression and five-case measurements pass for the own document (OMH-057114052/114688) and the combined three-entry document (114512/114688). Other PR entries were temporary test input and are absent from this branch. All existing caps, contexts, assertions and production source remain unchanged.
+
+### Human acknowledgment — 2026-10-29
+
+The named human maintainer acknowledgment linked in step 3.1 supersedes this run's historical pending-waiver statements. @haxiorz explicitly approved the Emergency Security Exception for removing unverified passkey enrollment and acknowledged the disclosed client/operator migrations. The dated compatibility entry and specification now cite that decision. Runtime, context caps and historical QA evidence are unchanged; current-head CI and independent re-review remain required. This records the human decision and grants no automated approval or merge permission.
+
+The native compatibility-context regression passes (1/1; local runner, existing installed dependencies, no install). The compatibility document is two bytes smaller; every byte outside the dated passkey entry is unchanged. CI on preceding head `d1185420` passed in run `40895118299`, with conditional skips reported separately. The documentation commit still requires fresh CI.
