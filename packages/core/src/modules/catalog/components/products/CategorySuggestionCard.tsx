@@ -7,6 +7,7 @@ import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider'
@@ -149,7 +150,9 @@ export function CategorySuggestionCard({
               headers: { 'content-type': 'application/json' },
               body: JSON.stringify({ categoryId, makeMain }),
             })
-            if (!call.ok || !call.result) throw new Error('[internal] accept category suggestion failed')
+            if (!call.ok || !call.result) {
+              return raiseCrudError(call.response, t('catalog.products.create.organize.aiSuggestion.errors.accept', 'Failed to accept the category suggestion. Please try again.'))
+            }
             return call.result
           },
         ),
@@ -161,6 +164,10 @@ export function CategorySuggestionCard({
       flash(t('catalog.products.create.organize.aiSuggestion.accepted', 'Category accepted.'), 'success')
     } catch (err) {
       logger.error('catalog.products.create.organize.aiSuggestion.accept failed', { err })
+      const message = err instanceof Error
+        ? err.message
+        : t('catalog.products.create.organize.aiSuggestion.errors.accept', 'Failed to accept the category suggestion. Please try again.')
+      flash(message, 'error')
     } finally {
       setBusy(false)
     }
@@ -175,7 +182,9 @@ export function CategorySuggestionCard({
           buildOptimisticLockHeader(suggestion.updatedAt),
           async () => {
             const call = await apiCall(`/api/catalog/category-suggestions/${suggestion.id}/reject`, { method: 'POST' })
-            if (!call.ok) throw new Error('[internal] reject category suggestion failed')
+            if (!call.ok) {
+              await raiseCrudError(call.response, t('catalog.products.create.organize.aiSuggestion.errors.reject', 'Failed to reject the category suggestion. Please try again.'))
+            }
             return call.result
           },
         ),
@@ -185,6 +194,10 @@ export function CategorySuggestionCard({
       flash(t('catalog.products.create.organize.aiSuggestion.rejected', 'Suggestion rejected.'), 'success')
     } catch (err) {
       logger.error('catalog.products.create.organize.aiSuggestion.reject failed', { err })
+      const message = err instanceof Error
+        ? err.message
+        : t('catalog.products.create.organize.aiSuggestion.errors.reject', 'Failed to reject the category suggestion. Please try again.')
+      flash(message, 'error')
     } finally {
       setBusy(false)
     }
