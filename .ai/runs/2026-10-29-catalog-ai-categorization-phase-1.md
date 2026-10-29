@@ -100,8 +100,8 @@ Spec § Implementation Plan → Phase 1, steps 1–11. Read the spec's Decisions
 ### Phase 1: Settings and availability gate
 
 - [x] 1.1 Settings contract and helper — cfe0e258b9
-- [ ] 1.2 Port type and categorization service status
-- [ ] 1.3 Settings API and settings UI
+- [x] 1.2 Port type and categorization service status — 2ba8aa6ddb
+- [x] 1.3 Settings API and settings UI — 6faae308c0
 
 ### Phase 2: Suggestion engine and persistence
 
