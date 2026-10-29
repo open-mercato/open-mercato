@@ -111,9 +111,9 @@ Spec § Implementation Plan → Phase 1, steps 1–11. Read the spec's Decisions
 
 ### Phase 3: Accept / reject
 
-- [ ] 3.1 Extract the category assignment helper
-- [ ] 3.2 Accept / reject commands, events and ACL
-- [ ] 3.3 API routes
+- [x] 3.1 Extract the category assignment helper — 49b289ade3
+- [x] 3.2 Accept / reject commands, events and ACL — 49b289ade3
+- [x] 3.3 API routes — 077ab4d29b
 
 ### Phase 4: Product page and verification
 
