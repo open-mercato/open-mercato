@@ -305,11 +305,11 @@ export const CROSS_PACKAGE_EXCEPTIONS = [
     reason: 'Reads nothing outside packages/cli — every `packages/...` literal is joined against a per-test mkdtemp fixture root, never the repo.',
   },
   {
-    path: 'packages/create-app/src/lib/apply-starter-preset.test.ts',
-    reason: 'Already unfiltered — the "Check create-app template parity" CI step runs the whole create-mercato-app suite (#3779).',
+    path: 'packages/create-app/src/lib/application-csp.test.ts',
+    reason: 'Already unfiltered — the "Check create-app template parity" CI step runs the whole create-mercato-app suite (#3779). It executes both app/template Next configs and proxies through node:test, so it does not belong in the Jest-based guard runner.',
   },
   {
-    path: 'packages/create-app/src/lib/application-csp.test.ts',
+    path: 'packages/create-app/src/lib/apply-starter-preset.test.ts',
     reason: 'Already unfiltered — the "Check create-app template parity" CI step runs the whole create-mercato-app suite (#3779).',
   },
   {
