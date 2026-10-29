@@ -429,6 +429,34 @@ describe('resolveBuyerContext', () => {
     )
   })
 
+  it('bypasses the 60s cache and re-resolves identity and groups when fresh is true (D-R4-22)', async () => {
+    const harness = createHarness({
+      users: [user('cu-1', 'person-1', 'company-1')],
+      groupsByCustomer: { 'person-1': { groupIds: ['group-vip'] } },
+    })
+    mockedAuth.mockResolvedValue(sessionFor('cu-1'))
+
+    const first = await resolveBuyerContext(harness.container, resolvedStore(), request())
+    const callsAfterFirst = {
+      findOne: harness.findOne.mock.calls.length,
+      groups: harness.customerGroupsService.resolveGroups.mock.calls.length,
+    }
+    const fresh = await resolveBuyerContext(harness.container, resolvedStore(), request(), { fresh: true })
+
+    expect(fresh).toEqual(first)
+    expect(harness.findOne.mock.calls.length).toBeGreaterThan(callsAfterFirst.findOne)
+    expect(harness.customerGroupsService.resolveGroups.mock.calls.length).toBeGreaterThan(callsAfterFirst.groups)
+
+    const callsAfterFresh = {
+      findOne: harness.findOne.mock.calls.length,
+      groups: harness.customerGroupsService.resolveGroups.mock.calls.length,
+    }
+    const cachedAgain = await resolveBuyerContext(harness.container, resolvedStore(), request())
+    expect(cachedAgain).toEqual(first)
+    expect(harness.findOne.mock.calls.length).toBe(callsAfterFresh.findOne)
+    expect(harness.customerGroupsService.resolveGroups.mock.calls.length).toBe(callsAfterFresh.groups)
+  })
+
   it('caches anonymous buyers under the anonymous segment with default group tags', async () => {
     const harness = createHarness()
 
