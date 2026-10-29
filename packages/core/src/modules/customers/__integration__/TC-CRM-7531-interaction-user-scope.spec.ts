@@ -25,6 +25,7 @@ type Fixtures = {
   actor: Scope
   home: Scope
   local: UserFixture
+  sibling: UserFixture
   foreign: UserFixture[]
   create: (scope: Scope, path: string, input: Record<string, unknown>) => Promise<string>
 }
@@ -75,7 +76,7 @@ async function withFixtures(request: APIRequestContext, run: (fixtures: Fixtures
     const local = await createUser(home, 'local')
     const sibling = await createUser({ token: superadminToken, tenantId: context.tenantId, organizationId: siblingOrganizationId }, 'sibling')
     const foreign = await createUser({ token: superadminToken, tenantId, organizationId: foreignOrganizationId }, 'foreign')
-    await run({ marker, actor, home, local, foreign: [sibling, foreign], create })
+    await run({ marker, actor, home, local, sibling, foreign: [foreign], create })
   } finally {
     const errors: string[] = []
     for (const record of records.reverse()) {
@@ -101,7 +102,7 @@ async function listItems(request: APIRequestContext, scope: Scope, path: string)
 for (const field of ['authorUserId', 'ownerUserId'] as const) {
   test(`TC-CRM-7531: canonical ${field} rejects foreign users and permits same-scope references and clearing`, async ({ request }) => {
     await withFixtures(request, async (fixtures) => {
-      const { actor, home, marker, local, foreign, create } = fixtures
+      const { actor, home, marker, local, sibling, foreign, create } = fixtures
       const entityId = await create(home, '/api/customers/people', { firstName: 'Scope', lastName: marker, displayName: marker })
       const input = { entityId, interactionType: 'note', title: marker, authorUserId: local.id, ownerUserId: local.id }
       const interactionId = await create(home, INTERACTIONS, input)
@@ -122,6 +123,11 @@ for (const field of ['authorUserId', 'ownerUserId'] as const) {
       const after = (await listItems(request, actor, path)).find((item) => item.id === interactionId)
       expect(after, 'rejected updates should not change the interaction').toEqual(before)
 
+      const siblingInteractionId = await create(home, INTERACTIONS, { ...input, [field]: sibling.id })
+      expect((await listItems(request, actor, path)).find((item) => item.id === siblingInteractionId)?.[field], 'same-tenant cross-organization references remain valid').toBe(sibling.id)
+      const siblingUpdate = await scopedRequest(request, actor, 'PUT', INTERACTIONS, { id: interactionId, [field]: sibling.id })
+      expect(siblingUpdate.status(), 'same-tenant users from another organization remain assignable').toBe(200)
+      expect((await listItems(request, actor, path)).find((item) => item.id === interactionId)?.[field]).toBe(sibling.id)
       const accepted = await scopedRequest(request, actor, 'PUT', INTERACTIONS, { id: interactionId, [field]: local.id })
       expect(accepted.status(), 'a same-scope user remains assignable').toBe(200)
       const cleared = await scopedRequest(request, actor, 'PUT', INTERACTIONS, { id: interactionId, [field]: null })
@@ -133,7 +139,7 @@ for (const field of ['authorUserId', 'ownerUserId'] as const) {
 }
 
 test('TC-CRM-7531: legacy activity create and update reject foreign authors', async ({ request }) => {
-  await withFixtures(request, async ({ actor, home, marker, local, foreign, create }) => {
+  await withFixtures(request, async ({ actor, home, marker, local, sibling, foreign, create }) => {
     const entityId = await create(home, '/api/customers/people', { firstName: 'Scope', lastName: marker, displayName: marker })
     const input = { entityId, activityType: 'note', subject: marker, authorUserId: local.id }
     const interactionId = await create(home, ACTIVITIES, input)
@@ -151,6 +157,10 @@ test('TC-CRM-7531: legacy activity create and update reject foreign authors', as
       expect(rejectedUpdate.status(), 'legacy update should reject an unavailable author').toBe(400)
     }
     expect((await listItems(request, actor, path)).find((item) => item.id === interactionId)).toEqual(before)
+    const siblingInteractionId = await create(home, ACTIVITIES, { ...input, authorUserId: sibling.id })
+    expect((await listItems(request, actor, path)).find((item) => item.id === siblingInteractionId)).toMatchObject({ authorName: sibling.name, authorEmail: sibling.email })
+    const siblingUpdate = await scopedRequest(request, actor, 'PUT', ACTIVITIES, { id: interactionId, authorUserId: sibling.id })
+    expect(siblingUpdate.status(), 'legacy updates should accept a same-tenant author from another organization').toBe(200)
     const accepted = await scopedRequest(request, actor, 'PUT', ACTIVITIES, { id: interactionId, authorUserId: local.id })
     expect(accepted.status(), 'legacy updates should accept a same-scope author').toBe(200)
   })
@@ -158,13 +168,20 @@ test('TC-CRM-7531: legacy activity create and update reject foreign authors', as
 
 for (const entityKind of ['people', 'companies'] as const) {
   test(`TC-CRM-7531: ${entityKind} reads hide foreign profiles on poisoned canonical and historical activity rows`, async ({ request }) => {
-    await withFixtures(request, async ({ actor, home, marker, local, foreign, create }) => {
+    await withFixtures(request, async ({ actor, home, marker, local, sibling, foreign, create }) => {
       const entityId = await create(home, `/api/customers/${entityKind}`, {
         displayName: marker, ...(entityKind === 'people' ? { firstName: 'Scope', lastName: marker } : {}),
       })
       const legacyIds: string[] = []
       const poisonedIds: string[] = []
       const validId = await create(home, ACTIVITIES, { entityId, activityType: 'note', subject: `${marker}-valid`, authorUserId: local.id })
+      const siblingId = await create(home, ACTIVITIES, { entityId, activityType: 'note', subject: `${marker}-sibling`, authorUserId: sibling.id })
+      const offboarded = { name: `${marker}-offboarded`, email: `${marker}-offboarded@example.com` }
+      const offboardedUserId = await create(home, '/api/auth/users', { ...offboarded, password: 'StrongSecret123!', tenantId: actor.tenantId, organizationId: actor.organizationId })
+      const offboardedId = await create(home, ACTIVITIES, { entityId, activityType: 'note', subject: `${marker}-history`, authorUserId: offboardedUserId })
+      const offboardedResponse = await scopedRequest(request, home, 'DELETE', `/api/auth/users?id=${offboardedUserId}`, { id: offboardedUserId })
+      expect(offboardedResponse.status(), 'the historical author fixture should be soft-deleted').toBe(200)
+
       try {
         for (const user of foreign) {
           const canonicalId = await create(home, ACTIVITIES, { entityId, activityType: 'note', subject: marker, authorUserId: local.id })
@@ -192,6 +209,8 @@ for (const entityKind of ['people', 'companies'] as const) {
           expect(rows.find((item) => item.id === validId), 'same-scope profile enrichment remains available').toMatchObject({
             authorName: local.name, authorEmail: local.email,
           })
+          expect(rows.find((item) => item.id === siblingId), 'same-tenant cross-organization attribution remains readable').toMatchObject({ authorName: sibling.name, authorEmail: sibling.email })
+          expect(rows.find((item) => item.id === offboardedId), 'offboarded authors retain historical attribution').toMatchObject({ authorName: offboarded.name, authorEmail: offboarded.email })
           for (const item of rows.filter((item) => poisonedIds.includes(item.id))) {
             expect(item, `foreign profile on ${item.id} should be unavailable`).toMatchObject({ authorName: null, authorEmail: null })
           }

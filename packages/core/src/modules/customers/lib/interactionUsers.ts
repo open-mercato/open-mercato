@@ -29,7 +29,6 @@ export async function findInteractionUserInScope(
   return findOneWithDecryption(em, User, {
     id: userId,
     tenantId: scope.tenantId,
-    organizationId: scope.organizationId,
     deletedAt: null,
   }, undefined, scope)
 }
@@ -68,8 +67,6 @@ export async function loadInteractionAuthors(
     const users = await findWithDecryption(em, User, {
       id: { $in: Array.from(userIds) },
       tenantId,
-      organizationId,
-      deletedAt: null,
     }, undefined, scope)
     for (const user of users) {
       profiles.set(interactionUserKey(scope, user.id), { name: user.name ?? null, email: user.email ?? null })

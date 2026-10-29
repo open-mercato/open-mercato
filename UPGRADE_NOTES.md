@@ -24,13 +24,13 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.9.0 → 0.9.1 (unreleased)
 
-### Customer interaction authors and owners must belong to the record's scope (#7531)
+### Customer interaction authors and owners must belong to the record's tenant (#7531)
 
-Canonical interaction writes, legacy activity adapters, and undo/redo restoration now reject explicit author/owner user IDs outside the interaction's exact tenant and organization, including missing and deleted users, with a generic `400` user-not-found response. Users without a tenant or organization are also unavailable as explicit references. Valid author normalization and superadmin delegation remain supported. An implicit actor outside the selected scope is stored as a null author, allowing cross-scope administration to continue.
+Canonical interaction writes and legacy activity adapters now reject explicit foreign-tenant, missing, or deleted author/owner IDs with a generic `400` user-not-found response. Same-tenant users from another home organization remain valid references, including an implicit actor working in another organization. Author normalization, valid superadmin delegation, and existing record-level organization/privacy authorization are preserved.
 
-**Client action:** supply same-scope author/owner IDs, or clear optional references with null on canonical updates. Omitted update fields keep their previous values. Existing routes and response fields remain available; historical invalid references now produce null author names and emails on canonical/legacy lists and customer detail reads.
+**Client action:** supply live same-tenant author/owner IDs for new assignments, or clear optional references with null on canonical updates. Omitted update fields keep their previous values. Routes and response fields remain available. Historical same-tenant profiles remain readable across organizations and after soft deletion; foreign-tenant or missing profiles return null names and emails.
 
-**Operator action:** audit historical author/owner references and clear or replace invalid IDs with live users from the record's tenant and organization before replaying affected command history or promoting legacy activities. Invalid snapshot restoration and legacy promotion fail rather than copying a foreign reference. No schema migration or automatic data rewrite is required. See [the interactions specification](.ai/specs/implemented/SPEC-046b-2026-02-27-customers-interactions-unification.md#migration--backward-compatibility--interaction-users-7531).
+**Operator action:** audit foreign-tenant or missing author/owner references before replaying affected command history. Snapshot restoration permits a same-tenant author or owner who was soft-deleted after the original write; offboarding does not require rewriting historical attribution. Invalid snapshot restoration and legacy promotion fail rather than copying a foreign-tenant reference. No schema migration or automatic data rewrite is required. See [the interactions specification](.ai/specs/implemented/SPEC-046b-2026-02-27-customers-interactions-unification.md#migration--backward-compatibility--interaction-users-7531).
 
 ### Bundled Traefik keeps app and collaboration ports private (#7833)
 

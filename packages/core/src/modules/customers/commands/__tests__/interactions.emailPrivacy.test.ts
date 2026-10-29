@@ -108,7 +108,7 @@ function createInteraction(overrides: Partial<CustomerInteraction> = {}): Custom
 function createHarness(interaction = createInteraction(), authOverrides: Record<string, unknown> | null = {}) {
   const em = {
     findOne: jest.fn(async (entity: unknown, filters: Record<string, unknown>) => {
-      if (entity === User && [AUTHOR_ID, VIEWER_ID].includes(String(filters.id)) && filters.tenantId === TENANT_ID && filters.organizationId === ORGANIZATION_ID && filters.deletedAt === null) {
+      if (entity === User && [AUTHOR_ID, VIEWER_ID].includes(String(filters.id)) && filters.tenantId === TENANT_ID && (filters.organizationId === undefined || filters.organizationId === ORGANIZATION_ID) && (filters.deletedAt === undefined || filters.deletedAt === null)) {
         return { id: filters.id, tenantId: TENANT_ID, organizationId: ORGANIZATION_ID, deletedAt: null }
       }
       if (entity === CustomerInteraction) return filters.id === interaction.id ? interaction : null

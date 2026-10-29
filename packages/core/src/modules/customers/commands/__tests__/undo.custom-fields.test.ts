@@ -741,7 +741,7 @@ describe('customers commands undo custom fields', () => {
             deletedAt: null,
           } as any
         }
-        if (ctor === User && where.id === 'user-1' && where.tenantId === 'tenant-1' && where.organizationId === 'org-1' && where.deletedAt === null) {
+        if (ctor === User && where.id === 'user-1' && where.tenantId === 'tenant-1' && (where.organizationId === undefined || where.organizationId === 'org-1') && (where.deletedAt === undefined || where.deletedAt === null)) {
           return { id: 'user-1', tenantId: 'tenant-1', organizationId: 'org-1', deletedAt: null }
         }
         return null
@@ -1144,7 +1144,7 @@ describe('customers commands undo custom fields', () => {
     const findOne = jest.fn(async (ctor, where: any) => {
       if (ctor === CustomerEntity && where.id === entity.id) return entity
       if (ctor === CustomerInteraction && where.id === 'todo-1') return null
-      if (ctor === User && where.id === 'user-1' && where.tenantId === 'tenant-1' && where.organizationId === 'org-1' && where.deletedAt === null) {
+      if (ctor === User && where.id === 'user-1' && where.tenantId === 'tenant-1' && (where.organizationId === undefined || where.organizationId === 'org-1') && (where.deletedAt === undefined || where.deletedAt === null)) {
         return { id: 'user-1', tenantId: 'tenant-1', organizationId: 'org-1', deletedAt: null }
       }
       return null

@@ -13,6 +13,7 @@ import { DefaultDataEngine, type DataEngine } from '@open-mercato/shared/lib/dat
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { CustomerInteraction, CustomerEntity } from '../data/entities'
+import { User } from '@open-mercato/core/modules/auth/data/entities'
 import {
   interactionCreateSchema,
   interactionUpdateSchema,
@@ -38,7 +39,7 @@ import {
   loadCustomFieldSnapshot,
   buildCustomFieldResetMap,
 } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
-import { CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
+import { badRequest, CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
 import { enforceRecordGoneIsConflict, enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { CrudIndexerConfig, CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
@@ -206,7 +207,16 @@ async function ensureInteractionRestoreAccess(
     await ensureInteractionPrivacyChangeAccess(ctx, current, { ...restored, visibility: restored.visibility ?? null })
   }
   await ensureInteractionMutationAccess(ctx, em, { ...restored, channelId: current?.channelId })
-  await requireInteractionUsersInScope(em, restored, restored)
+  const userIds = new Set([restored.authorUserId, restored.ownerUserId].filter((value): value is string => !!value))
+  for (const userId of userIds) {
+    const user = await findOneWithDecryption(em, User, {
+      id: userId,
+      tenantId: restored.tenantId,
+    }, undefined, { tenantId: restored.tenantId, organizationId: restored.organizationId })
+    if (user) continue
+    const { translate } = await resolveTranslations()
+    throw badRequest(translate('auth.users.form.errors.notFound', 'User not found'))
+  }
 }
 
 async function loadInteractionSnapshot(em: EntityManager, id: string, ctx?: CommandRuntimeContext): Promise<InteractionSnapshot | null> {

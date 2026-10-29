@@ -168,13 +168,14 @@ describe('GET /api/customers/companies/[id] — parallel enrichment (issue #3203
     expect(maxInFlight).toBeGreaterThanOrEqual(2)
   })
 
-  it('keeps historical activity authors within the company tenant and organization', async () => {
+  it('preserves same-tenant cross-organization and offboarded authors on companies details', async () => {
     const { CustomerActivity } = await import('../../../../data/entities')
     const { User } = await import('@open-mercato/core/modules/auth/data/entities')
     const authors = [
       { id: 'local-author', tenantId: 'tenant-1', organizationId: 'org-1', deletedAt: null, name: 'Local author', email: 'local@example.com' },
       { id: 'foreign-author', tenantId: 'tenant-2', organizationId: 'org-2', deletedAt: null, name: 'Foreign author', email: 'foreign@example.com' },
       { id: 'other-org-author', tenantId: 'tenant-1', organizationId: 'org-2', deletedAt: null, name: 'Other org author', email: 'other-org@example.com' },
+      { id: 'deleted-author', tenantId: 'tenant-1', organizationId: 'org-2', deletedAt: new Date(), name: 'Offboarded author', email: 'offboarded@example.com' },
     ]
     mockFindWithDecryption.mockImplementation(async (_em: unknown, entity: unknown, where: Record<string, unknown>) => {
       if (entity === CustomerActivity) return authors.map((author) => ({
@@ -198,11 +199,12 @@ describe('GET /api/customers/companies/[id] — parallel enrichment (issue #3203
     expect(response.status).toBe(200)
     expect(body.activities).toEqual(expect.arrayContaining([
       expect.objectContaining({ authorUserId: 'local-author', authorName: 'Local author', authorEmail: 'local@example.com' }),
+      expect.objectContaining({ authorUserId: 'deleted-author', authorName: 'Offboarded author', authorEmail: 'offboarded@example.com' }),
       expect.objectContaining({ authorUserId: 'foreign-author', authorName: null, authorEmail: null }),
-      expect.objectContaining({ authorUserId: 'other-org-author', authorName: null, authorEmail: null }),
+      expect.objectContaining({ authorUserId: 'other-org-author', authorName: 'Other org author', authorEmail: 'other-org@example.com' }),
     ]))
     expect(mockFindWithDecryption).toHaveBeenCalledWith(mockEm, User, expect.objectContaining({
-      tenantId: 'tenant-1', organizationId: 'org-1', deletedAt: null,
+      tenantId: 'tenant-1',
     }), {}, { tenantId: 'tenant-1', organizationId: 'org-1' })
   })
 })

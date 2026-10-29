@@ -773,8 +773,6 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
       const users = await findWithDecryption(em, User, {
         id: { $in: Array.from(authorIds) },
         tenantId: person.tenantId,
-        organizationId: person.organizationId,
-        deletedAt: null,
       }, {}, { tenantId: person.tenantId, organizationId: person.organizationId })
       userMap = new Map(
         users.map((user) => [

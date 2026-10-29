@@ -29,11 +29,13 @@ jest.mock('../../../lib/interactionReadModel', () => ({
 const users = [
   { id: 'parent-author', tenantId: 'tenant-1', organizationId: 'org-parent', deletedAt: null, name: 'Parent author', email: 'parent@example.com' },
   { id: 'child-author', tenantId: 'tenant-1', organizationId: 'org-child', deletedAt: null, name: 'Child author', email: 'child@example.com' },
+  { id: 'deleted-author', tenantId: 'tenant-1', organizationId: 'org-child', deletedAt: new Date(), name: 'Offboarded author', email: 'offboarded@example.com' },
   { id: 'foreign-author', tenantId: 'tenant-2', organizationId: 'foreign-org', deletedAt: null, name: 'Foreign author', email: 'foreign@example.com' },
 ]
 
 const rows = [
   { id: 'valid-parent', organizationId: 'org-parent', authorUserId: 'parent-author' },
+  { id: 'historical-deleted', organizationId: 'org-parent', authorUserId: 'deleted-author' },
   { id: 'valid-child', organizationId: 'org-child', authorUserId: 'child-author' },
   { id: 'poisoned-child-reference', organizationId: 'org-parent', authorUserId: 'child-author' },
   { id: 'poisoned-tenant-reference', organizationId: 'org-parent', authorUserId: 'foreign-author' },
@@ -77,8 +79,9 @@ describe('legacy activity author enrichment uses each stored row scope', () => {
     expect(response.status).toBe(200)
     expect(body.items).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: 'valid-parent', authorName: 'Parent author', authorEmail: 'parent@example.com' }),
+      expect.objectContaining({ id: 'historical-deleted', authorName: 'Offboarded author', authorEmail: 'offboarded@example.com' }),
       expect.objectContaining({ id: 'valid-child', authorName: 'Child author', authorEmail: 'child@example.com' }),
-      expect.objectContaining({ id: 'poisoned-child-reference', authorName: null, authorEmail: null }),
+      expect.objectContaining({ id: 'poisoned-child-reference', authorName: 'Child author', authorEmail: 'child@example.com' }),
       expect.objectContaining({ id: 'poisoned-tenant-reference', authorName: null, authorEmail: null }),
     ]))
     for (const item of body.items) {
@@ -86,7 +89,7 @@ describe('legacy activity author enrichment uses each stored row scope', () => {
       expect(item).not.toHaveProperty('organizationId')
     }
     expect(mockEm.find).toHaveBeenCalledWith(User, expect.objectContaining({
-      tenantId: 'tenant-1', organizationId: 'org-child', deletedAt: null,
+      tenantId: 'tenant-1',
     }))
   })
 })

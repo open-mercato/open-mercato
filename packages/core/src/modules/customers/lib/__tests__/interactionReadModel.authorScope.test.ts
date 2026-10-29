@@ -38,7 +38,7 @@ function makeInteraction(id: string, authorUserId: string, rowOrganizationId: st
 }
 
 describe('canonical interaction author scope', () => {
-  it('does not expose foreign, deleted, or unavailable authors and isolates rows in a multi-organization page', async () => {
+  it('preserves same-tenant cross-organization and offboarded authors while hiding foreign or unavailable profiles', async () => {
     const em = {
       find: jest.fn(async (entity: unknown, where: Record<string, unknown>) => {
         if (entity !== User) return []
@@ -74,11 +74,13 @@ describe('canonical interaction author scope', () => {
     expect(result.find((item) => item.id === 'valid-other-org')).toMatchObject({
       authorName: 'Other org author', authorEmail: 'other-org@example.com',
     })
-    for (const id of ['poisoned-other-org', 'poisoned-foreign-tenant', 'deleted', 'missing', 'missing-scope']) {
+    expect(result.find((item) => item.id === 'poisoned-other-org')).toMatchObject({ authorName: 'Other org author', authorEmail: 'other-org@example.com' })
+    expect(result.find((item) => item.id === 'deleted')).toMatchObject({ authorName: 'Deleted author', authorEmail: 'deleted@example.com' })
+    for (const id of ['poisoned-foreign-tenant', 'missing', 'missing-scope']) {
       expect(result.find((item) => item.id === id)).toMatchObject({ authorName: null, authorEmail: null })
     }
     expect(em.find).toHaveBeenCalledWith(User, expect.objectContaining({
-      tenantId, organizationId, deletedAt: null,
+      tenantId,
     }))
   })
 })

@@ -143,7 +143,7 @@ describe('activities decorateActivityItems deal scope (#2117)', () => {
     expect(em.find).not.toHaveBeenCalled()
   })
 
-  it('scopes author lookup by tenant, organization, and live user status', async () => {
+  it('scopes historical author lookup by tenant while retaining organization-qualified result keys', async () => {
     mockFindWithDecryption.mockResolvedValue([{ id: 'author-1', name: 'Local author', email: 'local@example.com' }])
     const em = { find: jest.fn() }
     const scope = { tenantId: 'tenant-1', organizationId: 'org-1' }
@@ -157,8 +157,6 @@ describe('activities decorateActivityItems deal scope (#2117)', () => {
     expect(mockFindWithDecryption).toHaveBeenCalledWith(em, User, {
       id: { $in: ['author-1'] },
       tenantId: 'tenant-1',
-      organizationId: 'org-1',
-      deletedAt: null,
     }, undefined, scope)
     expect(em.find).not.toHaveBeenCalled()
     expect(result[0]).toMatchObject({ authorName: 'Local author', authorEmail: 'local@example.com' })

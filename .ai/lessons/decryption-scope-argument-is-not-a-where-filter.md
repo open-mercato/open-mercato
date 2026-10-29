@@ -2,7 +2,7 @@
 title: "The decryption `scope` argument is not a WHERE filter"
 modules: ["warranty_claims","shared","customers"]
 areas: ["module-data","architecture","testing"]
-topics: ["data-scoping","access-control","command-pattern","row-locking","reference-integrity"]
+topics: ["data-scoping","access-control","command-pattern","row-locking","reference-integrity","historical-attribution"]
 ---
 
 # The decryption `scope` argument is not a WHERE filter
@@ -15,7 +15,7 @@ topics: ["data-scoping","access-control","command-pattern","row-locking","refere
 
 **Locking reads**: Apply the authorized scope predicates before a pessimistic lock is acquired. A scope check after `findOneWithDecryption(..., { id }, { lockMode })` can prevent mutation while still selecting and locking a foreign record. Test the execute path's query predicates as well as rejection, and carry the same authorized scope into transaction-bound undo snapshot loaders.
 
-**Multi-organization enrichment (#7531)**: Build author lookup predicates from each authorized row's own tenant and organization, including descendant and all-organization views. Key batched results by scope plus user ID; a user-ID-only map can resolve a poisoned reference through another organization's valid row. A missing selected organization does not mean an authorized row lacks organization scope. Cover both all-organization reads and valid descendant authors alongside poisoned references.
+**Multi-organization enrichment (#7531)**: Scope each referenced entity according to its own model. User profiles belong to a tenant and may have a different home organization from an authorized customer record; do not equate those organizations or drop legitimate attribution. Keep tenant predicates and record-scope-qualified keys for batched author enrichment. Separate live-user validation for new assignments from historical reads and snapshot restoration: soft deletion must not erase prior attribution or prevent undo. Test HQ/Branch authors, offboarded users through all replay paths, all-organization/descendant views, and foreign-tenant poisoned references.
 
 **Applies to**: Command handlers, action endpoints, subscribers, enrichers, and any loader that reads an entity by id or FK outside a `makeCrudRoute` factory.
 

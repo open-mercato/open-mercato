@@ -118,7 +118,7 @@ function createHarness(interaction = createInteraction(), authOverrides: Record<
   const em = {
     findOne: jest.fn(async (entity: unknown, filters: Record<string, unknown>) => {
       if (entity === User) {
-        const user = users.find((candidate) => candidate.id === filters.id && candidate.tenantId === filters.tenantId && candidate.organizationId === filters.organizationId && candidate.deletedAt === filters.deletedAt)
+        const user = users.find((candidate) => candidate.id === filters.id && candidate.tenantId === filters.tenantId && (filters.organizationId === undefined || candidate.organizationId === filters.organizationId) && (filters.deletedAt === undefined || candidate.deletedAt === filters.deletedAt))
         return user ?? null
       }
       if (entity === CustomerInteraction) return filters.id === interaction.id ? interaction : null
@@ -160,7 +160,7 @@ function createHarness(interaction = createInteraction(), authOverrides: Record<
       },
     },
   } as unknown as CommandRuntimeContext
-  return { interaction, em, ctx, emitEvent }
+  return { interaction, em, ctx, emitEvent, users }
 }
 
 function handler(operation: string): CommandHandler {
@@ -191,7 +191,6 @@ beforeEach(() => {
 
 const invalidUsers = [
   ['foreign tenant', OTHER_PERSON_ID],
-  ['foreign organization', CHANNEL_ID],
   ['deleted', DELETED_USER_ID],
   ['missing', MISSING_USER_ID],
 ]
@@ -229,7 +228,48 @@ describe('interaction user reference scope (#7531)', () => {
     }, ctx)
     expect(em.persist).toHaveBeenCalledWith(expect.objectContaining({ authorUserId: AUTHOR_ID, ownerUserId: VIEWER_ID }))
     expect(em.findOne).toHaveBeenCalledWith(User, {
-      id: AUTHOR_ID, tenantId: TENANT_ID, organizationId: ORGANIZATION_ID, deletedAt: null,
+      id: AUTHOR_ID, tenantId: TENANT_ID, deletedAt: null,
+    })
+  })
+
+
+  it.each(['authorUserId', 'ownerUserId'])('accepts a same-tenant user from another organization as explicit %s', async (field) => {
+    const { interaction, em, ctx } = createHarness(undefined, { isSuperAdmin: true })
+    await handler('interactions.create').execute({
+      tenantId: TENANT_ID, organizationId: ORGANIZATION_ID, entityId: PERSON_ID,
+      interactionType: 'note', [field]: CHANNEL_ID,
+    }, ctx)
+    expect(em.persist).toHaveBeenCalledWith(expect.objectContaining({ [field]: CHANNEL_ID }))
+    await handler('interactions.update').execute({ id: INTERACTION_ID, [field]: CHANNEL_ID }, ctx)
+    expect(interaction[field as 'authorUserId' | 'ownerUserId']).toBe(CHANNEL_ID)
+  })
+
+  it('keeps the implicit actor when their home organization differs from the selected record', async () => {
+    const { em, ctx, users } = createHarness()
+    users.find((user) => user.id === VIEWER_ID)!.organizationId = CHANNEL_ID
+    await handler('interactions.create').execute({
+      tenantId: TENANT_ID, organizationId: ORGANIZATION_ID, entityId: PERSON_ID, interactionType: 'note',
+    }, ctx)
+    expect(em.persist).toHaveBeenCalledWith(expect.objectContaining({ authorUserId: VIEWER_ID }))
+  })
+
+  describe.each(['authorUserId', 'ownerUserId'])('historical %s', (field) => {
+    it.each([['offboarded', DELETED_USER_ID], ['another organization', CHANNEL_ID]])('restores an author from %s through update undo, delete undo and create redo', async (_kind, userId) => {
+      for (const operation of ['interactions.update', 'interactions.delete', 'interactions.create']) {
+        const { interaction, em, ctx } = createHarness()
+        const snapshot = historicalSnapshot(interaction, { [field]: userId })
+        const command = handler(operation)
+        if (operation === 'interactions.create') {
+          interaction.deletedAt = new Date()
+          await command.redo!({ input: {}, ctx, logEntry: { snapshotAfter: snapshot } as never })
+          expect(interaction[field as 'authorUserId' | 'ownerUserId']).toBe(userId)
+          expect(interaction.deletedAt).toBeNull()
+        } else {
+          await command.undo!({ input: {}, ctx, logEntry: { commandPayload: { undo: { before: snapshot } } } as never })
+          expect(interaction[field as 'authorUserId' | 'ownerUserId']).toBe(userId)
+        }
+        expect(em.flush).toHaveBeenCalled()
+      }
     })
   })
 
