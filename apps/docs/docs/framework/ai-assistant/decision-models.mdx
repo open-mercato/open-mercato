@@ -1,0 +1,276 @@
+---
+title: Decision Models
+description: A provider-neutral port for decision models — typed questions in, typed answers with probability distributions out — configured from env and resolved soft-optionally through the decisionModelService DI service.
+---
+
+# Decision Models
+
+A **decision model** takes application state plus a set of typed questions and returns a
+typed answer **with a probability distribution** for each question, instead of prose. An
+example is TypeSafe's Jev (`typesafe/jev-1.13`), served through the OpenRouter Decisions API.
+
+Use a decision model when a module needs to "pick one of these options", "rate this on a
+scale" or "answer yes/no", and wants model-native probabilities rather than the
+self-reported confidence of an LLM structured-output call. Use the regular
+[LLM providers](./overview) for generating text, chatting or calling tools.
+
+The `ai-assistant` package ships a **decision model port**:
+
+- provider-neutral types in `@open-mercato/shared/lib/ai/decision-model` (types only);
+- a DI service, `decisionModelService`, registered by the `ai_assistant` module;
+- an `openrouter` adapter and a test-only `fixture` adapter, selected from env.
+
+There is **no LLM fallback**: when no decision model is configured, the port reports itself
+as unavailable.
+
+:::warning Experimental
+The whole surface is `@experimental` for one minor release because the vendor endpoint is
+`/alpha/`. `DecisionAnswer['type']` and `DecisionErrorCode` are **open unions** — they may
+gain members, so every `switch` over them MUST keep a `default` branch.
+:::
+
+## Question types
+
+| Type | You send | You get back |
+|------|----------|--------------|
+| `choice` | `instructions` + ordered `options: [{ key, criteria }]` (2–64, unique keys) | `value` (the chosen key), `probabilities: [{ key, probability }]` in request order, `confidence` (number or `null`) |
+| `score` | `instructions` + ordered `levels: string[]` (2–16) | `level` (argmax index into `levels`), `value` (probability-weighted position in `[0, levels.length - 1]`), `probabilities: [{ level, probability }]` in level order, `confidence` |
+| `binary` | `instructions` + `criteria: { true, false }` | `probability` = **P(true)**, the probability that `criteria.true` holds. There is no separate confidence |
+
+A request carries 1–8 named questions (names match `^[A-Za-z0-9_-]{1,64}$`), the `state`
+(any JSON-serializable value) and an optional `sessionId` (an opaque, pseudonymous id up to
+256 characters, e.g. a workflow instance id — never a user identifier). Instructions are
+limited to 4 000 characters and each criterion to 500.
+
+`choice` and `score` probabilities are validated to sum to 1 ± 0.02 and then normalized to
+exactly 1. A response that misses a requested key or level, adds an unknown one, selects a
+key that was not requested, or carries a probability outside `[0, 1]` is rejected as
+`invalid_response` — the port never guesses.
+
+## Configuration
+
+Decision models are configured only through env. Unset `OM_DECISION_PROVIDER` means no
+decision model.
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `OM_DECISION_PROVIDER` | unset | Adapter id: `openrouter`, or `fixture` for tests. |
+| `OM_DECISION_MODEL` | unset | Default model id, e.g. `typesafe/jev-1.13`. |
+| `OM_DECISION_<MODULE>_MODEL` | unset | Per-module model override; wins over `OM_DECISION_MODEL` for the `moduleId` passed to the service. `<MODULE>` is the module id upper-cased with every non-alphanumeric character replaced by `_` — `workflows` → `OM_DECISION_WORKFLOWS_MODEL`, `sales_quotes` → `OM_DECISION_SALES_QUOTES_MODEL`. |
+| `OPENROUTER_API_KEY` | unset | Credentials for the `openrouter` adapter (shared with the OpenRouter LLM preset). |
+| `OM_DECISION_OPENROUTER_BASE_URL` | `https://openrouter.ai/api` | Base URL for decision calls; requests go to `<base>/alpha/decisions`. |
+| `OM_DECISION_MAX_INPUT_TOKENS` | `24000` | Upper bound on the estimated tokens of the serialized `state` + `questions`. Larger requests fail with `payload_too_large` before any network call. |
+| `OM_DECISION_FIXTURE_ENABLED` | unset | Enables the `fixture` adapter. See [Testing with the fixture adapter](#testing-with-the-fixture-adapter). |
+
+`OM_DECISION_OPENROUTER_BASE_URL` is deliberately separate from `OPENROUTER_BASE_URL`: the
+latter carries the LLM preset's `/api/v1` base, and reusing it would send decision calls to
+`/api/v1/alpha/decisions`. Setting `OPENROUTER_BASE_URL` for chat has no effect on decisions.
+
+```bash
+OM_DECISION_PROVIDER=openrouter
+OM_DECISION_MODEL=typesafe/jev-1.13
+# OM_DECISION_WORKFLOWS_MODEL=typesafe/jev-1.13
+# OPENROUTER_API_KEY is read from the OpenRouter LLM block
+```
+
+### Availability reasons
+
+`getAvailability({ moduleId })` returns `{ available: true, provider, model }` or
+`{ available: false, reason }`:
+
+| Reason | When |
+|--------|------|
+| `not_configured` | `OM_DECISION_PROVIDER` is unset or empty. |
+| `unknown_provider` | `OM_DECISION_PROVIDER` names an adapter that is not registered. |
+| `fixture_disabled` | `OM_DECISION_PROVIDER=fixture`, but the fixture adapter is not enabled (missing opt-in or `NODE_ENV=production`). |
+| `credentials_missing` | The adapter is not configured (for `openrouter`: `OPENROUTER_API_KEY` is unset). |
+| `model_missing` | Neither `OM_DECISION_<MODULE>_MODEL` nor `OM_DECISION_MODEL` is set. |
+
+## Using the port from a module
+
+Treat the decision model as an **optional** dependency: resolve `decisionModelService`
+inside `try/catch` (the `ai_assistant` module may be disabled), check availability, and
+degrade gracefully. Import only the types from `shared`; the service interface lives in
+`ai-assistant`, so declare the small structural type you need locally.
+
+```ts
+import type { AwilixContainer } from 'awilix'
+import type {
+  DecisionErrorCode,
+  DecisionRequest,
+  DecisionResult,
+} from '@open-mercato/shared/lib/ai/decision-model'
+
+type DecideOutcome =
+  | { ok: true; result: DecisionResult }
+  | { ok: false; error: { code: DecisionErrorCode; message: string; httpStatus?: number } }
+
+type DecisionModelServiceLike = {
+  getAvailability(input?: { moduleId?: string }): { available: boolean; reason?: string }
+  decide(input: {
+    request: DecisionRequest
+    moduleId?: string
+    timeoutMs?: number
+    signal?: AbortSignal
+  }): Promise<DecideOutcome>
+}
+
+function tryResolveDecisionModel(container: AwilixContainer): DecisionModelServiceLike | undefined {
+  try {
+    return container.resolve<DecisionModelServiceLike>('decisionModelService')
+  } catch {
+    return undefined
+  }
+}
+
+export async function triageTicket(container: AwilixContainer, ticket: { subject: string; body: string }) {
+  const decisions = tryResolveDecisionModel(container)
+  if (!decisions || !decisions.getAvailability({ moduleId: 'support' }).available) {
+    return { status: 'skipped' as const }
+  }
+
+  const request: DecisionRequest = {
+    state: { subject: ticket.subject, body: ticket.body },
+    questions: {
+      queue: {
+        type: 'choice',
+        instructions: 'Which queue should handle this ticket?',
+        options: [
+          { key: 'billing', criteria: 'Invoices, payments, refunds' },
+          { key: 'shipping', criteria: 'Delivery status, carriers, damaged parcels' },
+          { key: 'other', criteria: 'Anything else' },
+        ],
+      },
+      urgency: {
+        type: 'score',
+        instructions: 'How urgent is this ticket?',
+        levels: ['Can wait', 'Normal', 'Urgent', 'Critical'],
+      },
+      angry: {
+        type: 'binary',
+        instructions: 'Is the customer upset?',
+        criteria: { true: 'The customer is upset or angry', false: 'The customer is calm' },
+      },
+    },
+  }
+
+  const outcome = await decisions.decide({ request, moduleId: 'support', timeoutMs: 3000 })
+  if (!outcome.ok) {
+    switch (outcome.error.code) {
+      case 'timeout':
+      case 'rate_limited':
+        return { status: 'retry_later' as const }
+      case 'unavailable':
+      case 'insufficient_credits':
+        return { status: 'skipped' as const }
+      default:
+        return { status: 'failed' as const, code: outcome.error.code }
+    }
+  }
+
+  const { answers, usage } = outcome.result
+  const queue = answers.queue
+  const urgency = answers.urgency
+  const angry = answers.angry
+  return {
+    status: 'decided' as const,
+    queue: queue?.type === 'choice' ? queue.value : null,
+    queueProbabilities: queue?.type === 'choice' ? queue.probabilities : [],
+    urgencyLevel: urgency?.type === 'score' ? urgency.level : null,
+    urgencyExpected: urgency?.type === 'score' ? urgency.value : null,
+    angry: angry?.type === 'binary' ? angry.probability >= 0.8 : null,
+    costUsd: usage.costUsd,
+  }
+}
+```
+
+Reading the answers:
+
+- **`choice`** — `probabilities` is an array in the exact order of `options`. Threshold on
+  the top entry (or the margin to the runner-up) rather than on `confidence`, which may be
+  `null`.
+- **`score`** — `level` is the index of the most likely level in `levels`; `value` is the
+  expected position (e.g. `2.4` on a 4-level scale), useful for ranking. `probabilities` is
+  ordered by level index.
+- **`binary`** — `probability` is P(true). Pick your own threshold; `0.5` is not a safe
+  default for consequential actions.
+
+`decide` **never throws or rejects** — every failure, including a throwing adapter or
+unserializable state, comes back as `{ ok: false, error }`. `timeoutMs` defaults to 5 000 ms,
+is clamped to a maximum of 30 000 ms, and a missing or non-positive value uses the default.
+Pass `signal` to cancel from the caller side. The returned `result.durationMs` is measured by
+the port.
+
+## Error codes
+
+| Code | When | OpenRouter HTTP status |
+|------|------|------------------------|
+| `unavailable` | No adapter resolves (see [availability reasons](#availability-reasons)), `OPENROUTER_API_KEY` is missing at call time, or the model id is unknown. | 404 |
+| `invalid_request` | The request fails validation, or `state` cannot be serialized (circular references, `BigInt`). | 400, 422 |
+| `auth` | The provider rejected the credentials. | 401, 403 |
+| `insufficient_credits` | Provider credits are exhausted. | 402 |
+| `rate_limited` | Provider rate limit reached. | 429 |
+| `payload_too_large` | The estimated input exceeds `OM_DECISION_MAX_INPUT_TOKENS`, or the provider rejected the size. | 413 |
+| `timeout` | The port's timeout fired, or the provider timed out. | 524 |
+| `aborted` | The caller's `signal` was aborted (before or during the call). | — |
+| `provider_error` | Any other HTTP status (5xx, 529, …), a non-JSON or malformed response body, or an unexpected failure. Reported through `reportError`. | other |
+| `invalid_response` | The answers fail validation (missing question, wrong type, key/level set mismatch, probability outside `[0, 1]`, sum outside 1 ± 0.02). Reported through `reportError`. | — |
+
+`error.message` is a fixed, generic English string per code; vendor error messages are never
+surfaced. `error.httpStatus` is set when the failure came from an HTTP response. Map codes to
+your own localized messages.
+
+## Testing with the fixture adapter
+
+The `fixture` adapter answers deterministically without any network call. It requires a
+**double opt-in**: it is registered only when `OM_DECISION_FIXTURE_ENABLED` is a truthy
+token (e.g. `1` or `true`) **and** `NODE_ENV` is not `production`, and it is used only when
+`OM_DECISION_PROVIDER=fixture`. Without the opt-in, availability reports `fixture_disabled`,
+so a misconfigured staging host cannot silently serve fake answers.
+
+```bash
+OM_DECISION_FIXTURE_ENABLED=1
+OM_DECISION_PROVIDER=fixture
+OM_DECISION_MODEL=fixture
+```
+
+Rules:
+
+- **`choice`** — the first option (in request order) whose key appears as a whole word,
+  case-insensitively, in the JSON-serialized `state` gets probability 1 and `confidence` 1;
+  the others get 0. With no match, the distribution is uniform, `value` is the first option
+  and `confidence` is `1 / options.length`.
+- **`score`** — a uniform distribution; `level` is `0` and `confidence` is
+  `1 / levels.length`.
+- **`binary`** — `probability` is `0.5`.
+- `usage` fields are all `null`; `provider` is `fixture` and `model` echoes the configured id.
+
+This lets consumer tests exercise both the confident and the low-confidence paths by
+putting (or omitting) an option key in the state.
+
+## Caveats and data flow
+
+- **Option order matters.** Current decision models are order-sensitive. The port preserves
+  your `options` and `levels` order end to end (the OpenRouter request body is serialized by
+  hand so integer-like keys are not reordered), so keep a stable, deliberate order.
+- **Prefer probabilities over confidence.** `confidence` is whatever the vendor reports and
+  may be `null`; the normalized `probabilities` are the signal to threshold on.
+- **Context can flip decisions.** Text in `state` can steer the answer. Treat `state` from
+  end users as untrusted: the consumer owns prompt-injection mitigation (field allowlists,
+  human review for consequential actions). The port does not claim to provide it.
+- **`state` leaves the platform.** With the `openrouter` adapter, `state`, instructions and
+  criteria are sent to OpenRouter and its upstream model vendor. Minimize and allowlist the
+  fields you send, and make sure a data processing agreement covers that flow for your
+  tenants' data.
+- **What the port does not do with your data:** it never logs or persists `state`,
+  instructions, criteria or `sessionId`, and it never sends the vendor `user` field. Each
+  call logs only `{ provider, model, durationMs, usage, questionCount, outcomeCodes }`. When
+  a distribution summing to within 1 ± 0.02 is normalized, a debug line adds the question
+  name and the original sum.
+- **No retries.** The port makes one attempt; on `rate_limited`, `timeout` or
+  `provider_error` the consumer decides whether and when to retry.
+- **Cost tracking.** `result.usage` carries `inputTokens`, `outputTokens` and `costUsd`
+  as reported by the provider (`null` when not reported).
+
+See the spec `.ai/specs/2026-10-06-ai-decision-model-port.md` for the full design, edge
+cases and risk register.
