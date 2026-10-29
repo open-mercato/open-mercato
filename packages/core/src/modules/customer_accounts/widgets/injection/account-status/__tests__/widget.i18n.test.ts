@@ -21,6 +21,12 @@ const DESCRIPTION_KEY = 'customer_accounts.widgets.accountStatus.description'
 
 const INVITE_KEYS = [
   'customer_accounts.widgets.invite.button',
+  'customer_accounts.widgets.invite.cancel.button',
+  'customer_accounts.widgets.invite.cancel.title',
+  'customer_accounts.widgets.invite.cancel.description',
+  'customer_accounts.widgets.invite.cancel.confirm',
+  'customer_accounts.widgets.invite.cancel.success',
+  'customer_accounts.widgets.invite.cancel.error',
   'customer_accounts.widgets.invite.displayName',
   'customer_accounts.widgets.invite.error.emailRequired',
   'customer_accounts.widgets.invite.error.failed',
@@ -35,6 +41,8 @@ const INVITE_KEYS = [
 // (invite.roles is excluded: "Roles" is a valid Spanish spelling.)
 const MUST_DIFFER_KEYS = [
   'customer_accounts.widgets.invite.button',
+  'customer_accounts.widgets.invite.cancel.button',
+  'customer_accounts.widgets.invite.cancel.description',
   'customer_accounts.widgets.invite.error.emailRequired',
   'customer_accounts.widgets.invite.error.failed',
   'customer_accounts.widgets.invite.error.roleRequired',

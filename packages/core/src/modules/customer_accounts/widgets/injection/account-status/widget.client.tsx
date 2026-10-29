@@ -4,6 +4,7 @@ import React from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
@@ -259,6 +260,13 @@ export default function AccountStatusWidget({ context }: AccountStatusProps) {
   const queryClient = useQueryClient()
   const personEntityId = context?.recordId
   const [showInviteForm, setShowInviteForm] = React.useState(false)
+  const [isCancellingInvitation, setIsCancellingInvitation] = React.useState(false)
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
+  const { runMutation, retryLastMutation } = useGuardedMutation<{
+    entityType: string
+    invitationId: string
+    retryLastMutation: () => Promise<boolean>
+  }>({ contextId: 'customer_accounts:account-status-cancel-invitation' })
 
   const { data, isLoading } = useQuery({
     queryKey: ['customer-account-status', personEntityId],
@@ -325,6 +333,46 @@ export default function AccountStatusWidget({ context }: AccountStatusProps) {
     queryClient.invalidateQueries({ queryKey: ['customer-account-pending-invitation', personEntityId] })
   }
 
+  async function handleCancelInvitation() {
+    if (!pendingInvitation || isCancellingInvitation) return
+    const invitation = pendingInvitation
+    setIsCancellingInvitation(true)
+    try {
+      const confirmed = await confirm({
+        title: t('customer_accounts.widgets.invite.cancel.title', 'Cancel invitation?'),
+        text: t('customer_accounts.widgets.invite.cancel.description', 'Cancel the invitation for {email}? The invitation link will stop working.', { email: invitation.email }),
+        confirmText: t('customer_accounts.widgets.invite.cancel.confirm', 'Cancel invitation'),
+        cancelText: t('common.cancel', 'Cancel'),
+        variant: 'destructive',
+      })
+      if (!confirmed) return
+
+      await runMutation({
+        context: {
+          entityType: 'customer_accounts.customer_user_invitation',
+          invitationId: invitation.id,
+          retryLastMutation,
+        },
+        mutationPayload: { id: invitation.id },
+        operation: async () => {
+          const call = await apiCall<{ ok: boolean }>(
+            `/api/customer_accounts/admin/users-invite?id=${encodeURIComponent(invitation.id)}`,
+            { method: 'DELETE' },
+          )
+          if (!call.ok) {
+            throw new Error(t('customer_accounts.widgets.invite.cancel.error', 'Failed to cancel invitation'))
+          }
+          flash(t('customer_accounts.widgets.invite.cancel.success', 'Invitation cancelled'), 'success')
+          handleInviteSuccess()
+        },
+      })
+    } catch {
+      flash(t('customer_accounts.widgets.invite.cancel.error', 'Failed to cancel invitation'), 'error')
+    } finally {
+      setIsCancellingInvitation(false)
+    }
+  }
+
   if (isLoading) {
     return <div className="text-sm text-muted-foreground">{t('common.loading', 'Loading...')}</div>
   }
@@ -332,6 +380,7 @@ export default function AccountStatusWidget({ context }: AccountStatusProps) {
   if (!data) {
     return (
       <div className="rounded-md border p-3">
+        {ConfirmDialogElement}
         <div className="text-sm font-medium mb-1">{t('customer_accounts.widgets.accountStatus', 'Portal Account')}</div>
         {isResolvingInvitation ? (
           <div className="text-sm text-muted-foreground">{t('common.loading', 'Loading...')}</div>
@@ -356,17 +405,29 @@ export default function AccountStatusWidget({ context }: AccountStatusProps) {
           <div className="text-sm text-muted-foreground">{t('customer_accounts.widgets.noAccount', 'No portal account linked')}</div>
         )}
         {!showInviteForm && personEntityId && !isResolvingInvitation && (
-          <div className="mt-2">
+          <div className="mt-2 flex flex-wrap gap-2">
             <Button
               type="button"
               variant="outline"
               size="sm"
               onClick={() => setShowInviteForm(true)}
+              disabled={isCancellingInvitation}
             >
               {pendingInvitation
                 ? t('customer_accounts.widgets.invite.resend', 'Resend invitation')
                 : t('customer_accounts.widgets.invite.button', 'Invite to Portal')}
             </Button>
+            {pendingInvitation && (
+              <Button
+                type="button"
+                variant="destructive-outline"
+                size="sm"
+                onClick={handleCancelInvitation}
+                disabled={isCancellingInvitation}
+              >
+                {t('customer_accounts.widgets.invite.cancel.button', 'Cancel invitation')}
+              </Button>
+            )}
           </div>
         )}
         {showInviteForm && personEntityId && (
@@ -383,6 +444,7 @@ export default function AccountStatusWidget({ context }: AccountStatusProps) {
 
   return (
     <div className="rounded-md border p-3">
+      {ConfirmDialogElement}
       <div className="text-sm font-medium mb-2">{t('customer_accounts.widgets.accountStatus', 'Portal Account')}</div>
       <div className="space-y-1 text-sm">
         <div className="flex justify-between">
