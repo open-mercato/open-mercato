@@ -38,7 +38,7 @@ Posting "paid 500 PLN for internet from company bank account":
    mbankAccount, credit: 500 }`.
 2. Command reads the `FiscalPeriod` covering `operationDate` with a `for share` lock (so a concurrent `lockFiscalPeriod`, which takes `for update`, cannot close it between this check and the insert), rejects before any write if no period covers that date or if the period is `isLocked`, then validates `SUM(debit) === SUM(credit)` for the whole entry, rejecting if not.
 3. Command atomically allocates the next `sequenceNumber` for this
-   `(tenant_id, organization_id)` from `journal_entry_sequence` (the
+   `(tenant_id, organization_id)` from `journal_entry_sequences` (the
    counter table introduced in Build order step 1 — full mechanics
    below, under "Don't use a native Postgres `SEQUENCE`"), in the
    same transaction as the insert (so a failed post doesn't burn a
@@ -64,7 +64,7 @@ steps 1–2 (entities/migration, ACL/setup) have to exist before
 anything else compiles or is reachable. High-level shape:
 
 1. Entities + migration (incl. `FiscalPeriod`, the balance-check
-   trigger and the `journal_entry_sequence` counter table — read the
+   trigger and the `journal_entry_sequences` counter table — read the
    two pitfalls below, `Currency` and `SEQUENCE`, before you write
    this migration)
 2. `acl.ts` (six features) + `setup.ts`
@@ -89,8 +89,11 @@ anything else compiles or is reachable. High-level shape:
 - **Resolve a line's currency and rate when you write, never when you
   read.** Each line carries its own currency, rate and original-currency
   amount, so one entry can mix currencies and still balances in the base
-  currency. A line that omits them takes the header's values at write
-  time; the stored column is never null, because a read-time "null means
+  currency. A line may borrow the header's rate only when it is in the
+  header's currency and the header rate is not null; every other line
+  without a rate is rejected (full rules: full spec → Design decisions,
+  "How a line's currency, rate and original amount are resolved"). The
+  stored column is never null, because a read-time "null means
   the header" rule silently mislabels a line left unset in a mixed entry.
 - **`sequenceNumber` is per `(tenant_id, organization_id)`, not per
   tenant.** Two organizations under the same tenant each start their
@@ -102,9 +105,9 @@ anything else compiles or is reachable. High-level shape:
   legal requirement (Art. 14 ust. 2 Ustawy o rachunkowości, continuous
   numbering — full legal rationale in the full spec's Design
   decisions) forbids. Use the counter-row pattern instead: a
-  `journal_entry_sequence(tenant_id, organization_id, next_value)`
+  `journal_entry_sequences(organization_id, tenant_id, next_value)`
   table, incremented atomically in the same transaction as the entry
-  insert via `INSERT ... ON CONFLICT (tenant_id, organization_id) DO
+  insert via `INSERT ... ON CONFLICT (organization_id, tenant_id) DO
   UPDATE SET next_value = next_value + 1 RETURNING next_value - 1`
   (exact DDL: full spec → Migration).
 - **`JournalEntry`/`JournalEntryLine` never get `updated_at` or an
@@ -122,7 +125,7 @@ anything else compiles or is reachable. High-level shape:
   closing-entry generator (identifying result accounts, computing the
   transfer to Retained Earnings); that stays out of scope.
 - **Posting and reversal have no caller in the UI this phase.** `postJournalEntry`/`reverseJournalEntry` are called in-process (a script, or another module's subscriber), there is no route or form for either, and the command bus does not check `ledger.entries.post` — don't write a test that expects a 403 from a command. The feature is declared for the route a later phase adds.
-- **Three rules are serialized in the database, not by read-before-write.** The period lock is `for share` in `postJournalEntry` against `for update` in lock/unlock; overlapping periods are serialized by an advisory lock in `createFiscalPeriod`; one reversal per entry is a partial unique index. Each has a concurrency test in the spec's Testing Strategy.
+- **Three rules are serialized in the database, not by read-before-write.** The period lock is `for share` in `postJournalEntry` against `for update` in lock/unlock; overlapping periods are serialized by an advisory lock in `createFiscalPeriod`; one reversal per entry is a partial unique index. Only the overlap rule has an executable concurrency test today (`TC-GL-004`); the concurrent tests for lock vs. post and for a double reversal are deferred, as is the concurrent `sequenceNumber` test, until a real-Postgres Jest suite exists (spec → Testing Strategy, #7207).
 - **`page.meta.ts` requires one exact feature, never `ledger.*`.** `matchFeature` expands wildcards on the granted side only, so `ledger.*` would lock the `employee` role out of every page. List pages require `view`, create/edit pages require `manage`.
 - **No `getAccountBalance` this phase.** Don't add a
   balance-calculation query or a `.../balance` route — explicitly out
