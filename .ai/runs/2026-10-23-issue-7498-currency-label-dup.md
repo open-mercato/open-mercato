@@ -46,12 +46,12 @@ Browser fixtures must be isolated by organization/tenant and cleaned up. Fork wo
 
 - [x] 2.1 Type the create-field selector mock using exported props/options and typed React imports — 4c310d84f6
 - [x] 2.2 Add DealForm currency callback regression for labels, selected text, ordering, and submitted codes; prove it catches reverting only that call site — 4c310d84f6
-- [ ] 2.3 Add self-contained browser selection/save/reopen coverage for both deal form variants with fixture cleanup
+- [x] 2.3 Add self-contained browser selection/save/reopen coverage for both deal form variants with fixture cleanup — 56ef29b6cd
 
 ### Phase 3: Verify and report
 
-- [ ] 3.1 Run targeted component/browser verification and capture available UI evidence
-- [ ] 3.2 Run the configured full validation gate and document any maintainer-only CI execution blocker
+- [x] 3.1 Run targeted component/browser verification and capture available UI evidence — 56ef29b6cd
+- [x] 3.2 Run the configured full validation gate and document any maintainer-only CI execution blocker — results recorded below (gate not green)
 - [ ] 3.3 Run om-auto-review-pr with autofix, update PR evidence, and hand off remaining manual QA
 
 ## Validation
@@ -60,4 +60,9 @@ Select the Docker/local runner according to `.ai/docs/agent-instructions.md` whe
 
 ## Handoff
 
-Component review changes landed in 4c310d84f6. Ten focused suites / 34 tests pass. Temporarily restoring only the old DealForm label expression causes both new mode cases to fail on duplicated USD/JPY labels; the production fix was restored afterward. Browser coverage and full gate remain in progress.
+Component review changes landed in 4c310d84f6. Ten focused suites / 34 tests pass. Temporarily restoring only the old DealForm label expression causes both new mode cases to fail on duplicated USD/JPY labels; the production fix was restored afterward. Browser regression landed in 56ef29b6cd. The preceding session ran `yarn test:integration:ephemeral TC-CRM-7498` in isolated Docker + Playwright Chromium: one test passed (8.3 seconds of test steps), with no failures, skips, or flaky results. The saved report and screenshots were checked on 2026-10-29. Both selectors preserve ordering and exact labels; POST saves USD, PUT saves JPY, and API reads plus reopening confirm persistence. On this resume, local build → generate → build, translation sync/usage, typecheck, and template parity passed. The full unit run encountered a SIGSEGV in the staff timesheets-projects-billing-fields Jest worker; that suite passed separately with --runInBand (10 tests). The full unit gate failed: core finished with 2359 passing suites, one worker crash, and two skipped suites (22447 passing tests, 18 skipped). The changed helper and both selector test suites passed. The final app build passed. The full gate remains unsuccessful despite the isolated staff suite passing; required GitHub checks must still run and pass. All three GitHub workflows at 56ef29b6cd require maintainer approval (action_required). Screenshots accepted by the user are attached at https://github.com/open-mercato/open-mercato/pull/7523#issuecomment-6493124302. Code self-review found no further actionable code findings, but this author account cannot supply an independent approving review. Preserve changes-requested and needs-qa until the reviewer and QA sign off.
+
+
+### Remaining handoff (2026-10-29)
+
+Step 3.3 remains pending because this author account cannot submit an independent approval, GitHub workflows require maintainer execution approval, and needs-qa lacks qa-approved. Code self-review found no further actionable source findings. Do not rerun the browser regression solely to recreate evidence: its saved report and accepted screenshots are already published. Resolve the full-suite worker failure or obtain an authoritative passing CI run, then request independent review and QA approval. No merge was attempted.
