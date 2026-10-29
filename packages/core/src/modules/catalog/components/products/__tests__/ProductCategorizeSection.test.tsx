@@ -2,7 +2,7 @@
  * @jest-environment jsdom
  */
 import * as React from 'react'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { ProductCategorizeSection } from '../ProductCategorizeSection'
 import type { ProductFormValues } from '../productForm'
 
@@ -183,5 +183,27 @@ describe('ProductCategorizeSection', () => {
     expect(screen.getByTestId('tags-input-Search categories')).toHaveAttribute('data-value', '')
     expect(screen.getByTestId('tags-input-Pick channels')).toHaveAttribute('data-value', '')
     expect(screen.getByTestId('tags-input-Add tag and press Enter')).toHaveAttribute('data-value', '')
+  })
+
+  it('does not render the AI category suggestion card without a productId (draft product)', () => {
+    render(
+      <ProductCategorizeSection values={createDefaultValues()} setValue={jest.fn()} errors={{}} />,
+    )
+    expect(screen.queryByText('AI category suggestion')).not.toBeInTheDocument()
+  })
+
+  it('does not render the AI category suggestion card without catalog.ai_categorization.use (no BackendChromeProvider payload)', async () => {
+    mockReadApiResultOrThrow.mockResolvedValue({ effective: false, items: [] })
+    render(
+      <ProductCategorizeSection
+        values={createDefaultValues()}
+        setValue={jest.fn()}
+        errors={{}}
+        productId="product-1"
+      />,
+    )
+    await waitFor(() => {
+      expect(screen.queryByText('AI category suggestion')).not.toBeInTheDocument()
+    })
   })
 })
