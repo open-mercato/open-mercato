@@ -32,7 +32,8 @@ Classify any cross-package policy regression test in `scripts/repo-wide-guards.m
 The create-app suite already runs unfiltered in its parity step, so register that
 existing coverage instead of leaving the new audit unclassified. If an endpoint
 passes its legacy URL validator but cannot safely become a CSP source, emit a
-configuration warning without logging the endpoint, credentials or query string.
+configuration warning once per process without logging the endpoint, credentials
+or query string; a proxy can evaluate the helper on every page request.
 
 Evidence: issue #7264 / PR #8220; `StoreBrandingPreview.tsx` and
 `buildBrandingPreviewDocument` in the ecommerce module; failing-before/passing-after

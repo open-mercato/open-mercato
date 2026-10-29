@@ -1,5 +1,9 @@
-import { createLogger } from '@open-mercato/shared/lib/logger'
-import { resolveDocumentsCollaborationCspOrigins } from '../../../contentSecurityPolicy'
+const mockWarn = jest.fn()
+jest.mock('@open-mercato/shared/lib/logger', () => ({
+  createLogger: () => ({ warn: mockWarn }),
+}))
+
+let resolveDocumentsCollaborationCspOrigins: typeof import('../../../contentSecurityPolicy').resolveDocumentsCollaborationCspOrigins
 
 function configure(environment: Record<string, string | undefined>) {
   jest.replaceProperty(process, 'env', {
@@ -12,7 +16,10 @@ function configure(environment: Record<string, string | undefined>) {
 }
 
 beforeEach(() => {
-  jest.spyOn(createLogger('documents:csp'), 'warn').mockImplementation(() => {})
+  jest.resetModules()
+  mockWarn.mockClear()
+  const policy = require('../../../contentSecurityPolicy') as typeof import('../../../contentSecurityPolicy')
+  resolveDocumentsCollaborationCspOrigins = policy.resolveDocumentsCollaborationCspOrigins
 })
 
 afterEach(() => jest.restoreAllMocks())
@@ -45,9 +52,18 @@ it.each([undefined, 'invalid', 'https://collab.example.com', 'wss://collab.examp
 it.each(['wss://collab_internal.example.com/documents?token=private', 'wss://user:private@collab.example.com'])('warns without disclosing an excluded configured endpoint', (endpoint) => {
   configure({ NEXT_PUBLIC_DOCUMENTS_COLLAB_URL: endpoint })
   expect(resolveDocumentsCollaborationCspOrigins()).toEqual([])
-  expect(createLogger('documents:csp').warn).toHaveBeenCalledTimes(1)
-  expect(createLogger('documents:csp').warn).toHaveBeenCalledWith(
+  expect(mockWarn).toHaveBeenCalledTimes(1)
+  expect(mockWarn).toHaveBeenCalledWith(
     '[internal] Collaboration endpoint excluded from CSP; use a credential-free DNS or IPv6 URL',
     { configuration: 'NEXT_PUBLIC_DOCUMENTS_COLLAB_URL' },
   )
+})
+
+it('warns once across repeated requests and excluded endpoint changes', () => {
+  configure({ NEXT_PUBLIC_DOCUMENTS_COLLAB_URL: 'wss://collab_internal.example.com/documents' })
+  expect(resolveDocumentsCollaborationCspOrigins()).toEqual([])
+  expect(resolveDocumentsCollaborationCspOrigins()).toEqual([])
+  configure({ NEXT_PUBLIC_DOCUMENTS_COLLAB_URL: 'wss://user:private@collab.example.com' })
+  expect(resolveDocumentsCollaborationCspOrigins()).toEqual([])
+  expect(mockWarn).toHaveBeenCalledTimes(1)
 })

@@ -149,4 +149,5 @@ results remain required before calling the implementation merge-ready.
   loopback-gate and real-config regressions without changing CI configuration.
 - 2026-10-29: Registered cross-package CSP regression coverage in the existing
   create-app parity exception manifest and added a redacted warning when a
-  configured collaboration endpoint cannot safely become a CSP source.
+  configured collaboration endpoint cannot safely become a CSP source. A
+  re-review bounds that warning to once per process, including repeated proxy calls.
