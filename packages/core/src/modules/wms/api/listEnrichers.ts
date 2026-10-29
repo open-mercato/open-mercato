@@ -267,6 +267,44 @@ export async function attachInventoryProfileCatalogLabelsToListItems(
 }
 
 // ---------------------------------------------------------------------------
+// Customers (ASN vendors)
+// ---------------------------------------------------------------------------
+
+type CustomerLookupRow = LookupRow & { display_name?: string | null }
+
+const CUSTOMER_FIELDS = ['id', 'display_name']
+
+/**
+ * Decorate list items with `vendor_name` when they carry a `vendor_id` column
+ * referencing `customers.customer_entity` by UUID only (no ORM cross-module
+ * relations). Mutates `payload.items` in place.
+ */
+export async function attachVendorLabelsToListItems(
+  payload: AnyListPayload,
+  ctx: CrudCtx,
+): Promise<void> {
+  const items = Array.isArray(payload?.items) ? payload.items : []
+  if (items.length === 0) return
+  const ids = uniqueIdsFromKeys(items, ['vendor_id'])
+  if (ids.length === 0) return
+  const map = (await batchLoadById(
+    ctx,
+    E.customers.customer_entity,
+    ids,
+    CUSTOMER_FIELDS,
+    'vendor',
+  )) as Map<string, CustomerLookupRow>
+  if (map.size === 0) return
+  for (const item of items) {
+    const id = item?.vendor_id
+    if (typeof id !== 'string' || !id) continue
+    const row = map.get(id)
+    if (!row) continue
+    decorateOnce(item, 'vendor_name', row.display_name ?? null)
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Reservation sources
 // ---------------------------------------------------------------------------
 
