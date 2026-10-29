@@ -147,3 +147,6 @@ results remain required before calling the implementation merge-ready.
 - 2026-10-29: Preserved the existing configured documents collaboration origin
   through package-owned policy metadata in both configs/proxies; added origin,
   loopback-gate and real-config regressions without changing CI configuration.
+- 2026-10-29: Registered cross-package CSP regression coverage in the existing
+  create-app parity exception manifest and added a redacted warning when a
+  configured collaboration endpoint cannot safely become a CSP source.

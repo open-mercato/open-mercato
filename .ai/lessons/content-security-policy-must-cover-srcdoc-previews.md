@@ -28,6 +28,12 @@ validator and production/test gates, then allow only its parsed origin. Requirin
 a second allowlist setting for an already configured collaboration endpoint can
 silently break that supported connection, including explicit loopback CI flows.
 
+Classify any cross-package policy regression test in `scripts/repo-wide-guards.mjs`.
+The create-app suite already runs unfiltered in its parity step, so register that
+existing coverage instead of leaving the new audit unclassified. If an endpoint
+passes its legacy URL validator but cannot safely become a CSP source, emit a
+configuration warning without logging the endpoint, credentials or query string.
+
 Evidence: issue #7264 / PR #8220; `StoreBrandingPreview.tsx` and
 `buildBrandingPreviewDocument` in the ecommerce module; failing-before/passing-after
 helper and component tests; `TC-ECOM-CSP-001.spec.ts`; production Next.js/Chromium

@@ -1,3 +1,4 @@
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { resolveDocumentsCollaborationCspOrigins } from '../../../contentSecurityPolicy'
 
 function configure(environment: Record<string, string | undefined>) {
@@ -9,6 +10,10 @@ function configure(environment: Record<string, string | undefined>) {
     ...environment,
   })
 }
+
+beforeEach(() => {
+  jest.spyOn(createLogger('documents:csp'), 'warn').mockImplementation(() => {})
+})
 
 afterEach(() => jest.restoreAllMocks())
 
@@ -35,4 +40,14 @@ it('keeps configured development websocket endpoints working', () => {
 it.each([undefined, 'invalid', 'https://collab.example.com', 'wss://collab.example.com;script-src', 'wss://user:demo@collab.example.com'])('does not add missing, invalid or unsafe endpoint %s', (endpoint) => {
   configure({ NEXT_PUBLIC_DOCUMENTS_COLLAB_URL: endpoint })
   expect(resolveDocumentsCollaborationCspOrigins()).toEqual([])
+})
+
+it.each(['wss://collab_internal.example.com/documents?token=private', 'wss://user:private@collab.example.com'])('warns without disclosing an excluded configured endpoint', (endpoint) => {
+  configure({ NEXT_PUBLIC_DOCUMENTS_COLLAB_URL: endpoint })
+  expect(resolveDocumentsCollaborationCspOrigins()).toEqual([])
+  expect(createLogger('documents:csp').warn).toHaveBeenCalledTimes(1)
+  expect(createLogger('documents:csp').warn).toHaveBeenCalledWith(
+    '[internal] Collaboration endpoint excluded from CSP; use a credential-free DNS or IPv6 URL',
+    { configuration: 'NEXT_PUBLIC_DOCUMENTS_COLLAB_URL' },
+  )
 })
