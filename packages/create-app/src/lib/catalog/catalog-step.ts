@@ -174,6 +174,17 @@ function requirementHint(requires: string): string {
   return `install ${requires} first`
 }
 
+/**
+ * Why a module verified on the line has no command there. The catalog gives one per line for a new classic app only, so
+ * a line whose classic app already ships the module has none for the other presets.
+ */
+function withoutLineInstallText(name: string, entries: readonly CatalogModule[], line: string): string {
+  if (entries.some((entry) => entry.inPresets.includes(line))) {
+    return `${name} is verified on ${line}, where a new classic app already ships it, and the module catalog has no install command for other presets on ${line}. Add it later from ${MODULES_SITE_URL}.`
+  }
+  return `${name} is verified on ${line}, but the module catalog gives no install command for ${line}. Add it later from ${MODULES_SITE_URL}.`
+}
+
 type CatalogContext = {
   line: string
   lines: readonly string[]
@@ -193,7 +204,7 @@ function reportSelection(selection: CatalogSelection, context: CatalogContext, o
     if (inApp.length > 0) {
       for (const entry of inApp) options.log(alreadyInAppText(entry, line, context.lines, options.presetModuleIds === null))
     } else if (findCatalogModules(request, context.withoutLineInstall).length > 0) {
-      options.warn(`${request} is verified on ${line}, but the module catalog gives no install command for ${line} yet. Add it later from ${MODULES_SITE_URL}.`)
+      options.warn(withoutLineInstallText(request, findCatalogModules(request, context.withoutLineInstall), line))
     } else if (core && (options.presetModuleIds === null || options.presetModuleIds.includes(core.id))) {
       options.log(`${core.id} is built into Open Mercato core and the preset already enables it.`)
     } else if (core) {
@@ -269,9 +280,16 @@ export async function runCatalogStep(options: CatalogStepOptions): Promise<Catal
     if (!options.ask) {
       options.warn(PICKER_NEEDS_TERMINAL)
     } else {
-      if (withoutLineInstall.length > 0) {
+      const inClassic = withoutLineInstall.filter((entry) => entry.inPresets.includes(line))
+      const noCommand = withoutLineInstall.filter((entry) => !entry.inPresets.includes(line))
+      if (inClassic.length > 0) {
         options.warn(
-          `Left out of the list: ${withoutLineInstall.map((entry) => entry.id).join(', ')}. The module catalog verifies them on ${line} but gives no install command for ${line} yet.`,
+          `Left out of the list: ${inClassic.map((entry) => entry.id).join(', ')}. A new classic app on ${line} already ships them, and the module catalog has no install command for other presets on ${line}.`,
+        )
+      }
+      if (noCommand.length > 0) {
+        options.warn(
+          `Left out of the list: ${noCommand.map((entry) => entry.id).join(', ')}. The module catalog verifies them on ${line} but gives no install command for ${line}.`,
         )
       }
       if (selectable.length === 0) {
@@ -292,7 +310,10 @@ export async function runCatalogStep(options: CatalogStepOptions): Promise<Catal
     }
   }
   if (requests.length === 0 && picked.length === 0) return EMPTY_RESULT
-  const selection = resolveCatalogSelection(requests, selectable, options.presetModuleIds, picked)
+  const selection = resolveCatalogSelection(requests, selectable, options.presetModuleIds, picked, {
+    coreModuleIds: fetched.index.modules.filter((entry) => entry.source === 'core').map((entry) => entry.id),
+    presetModules: options.presetModuleIds === null ? null : (options.presetModules ?? null),
+  })
   reportSelection(
     selection,
     { line, lines: fetched.index.lines, all: fetched.index.modules, inApp, withoutLineInstall, warningFor },

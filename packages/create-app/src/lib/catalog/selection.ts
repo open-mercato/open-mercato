@@ -19,6 +19,15 @@ export type CatalogSelection = {
   unmetRequires: { id: string; requires: string }[]
 }
 
+export type PresetModule = { id: string; from: string }
+
+export type SelectionContext = {
+  /** Module IDs the catalog lists as built into Open Mercato core (`source: 'core'`). */
+  coreModuleIds?: readonly string[]
+  /** Modules a preset other than classic registers, with their packages; absent or null for classic. */
+  presetModules?: readonly PresetModule[] | null
+}
+
 export function parseModulesFlag(value: string): string[] {
   const items = value
     .split(',')
@@ -30,6 +39,14 @@ export function parseModulesFlag(value: string): string[] {
 const sameName = (left: string, right: string) => left.trim().toLowerCase() === right.trim().toLowerCase()
 
 const moduleKey = (entry: CatalogModule) => `${entry.from}#${entry.id}`
+
+const CORE_PREFIX = /^core:/i
+
+/** The core module ID a `requires` entry names (`<id>` of a core module, or `core:<id>`), or null. */
+function coreRequirement(requirement: string, coreModuleIds: readonly string[]): string | null {
+  if (CORE_PREFIX.test(requirement)) return requirement.replace(CORE_PREFIX, '').trim()
+  return coreModuleIds.some((id) => sameName(id, requirement)) ? requirement.trim() : null
+}
 
 /**
  * Modules matching a `--modules` item by ID, npm name, locator (`npm:<name>`) or `<npm name>:<module id>`, the form
@@ -56,6 +73,7 @@ export function resolveCatalogSelection(
   selectable: readonly CatalogModule[],
   presetModuleIds: readonly string[] | null,
   picked: readonly CatalogModule[] = [],
+  context: SelectionContext = {},
 ): CatalogSelection {
   const selected: SelectedModule[] = []
   const unknown: string[] = []
@@ -90,12 +108,25 @@ export function resolveCatalogSelection(
   }
   for (const entry of picked) addTarget(entry)
 
+  const coreModuleIds = context.coreModuleIds ?? []
+  const presetModules = context.presetModules ?? []
+  // A requirement is a module ID, or the npm name of a package the preset registers modules from.
+  const enabledInPreset = (requirement: string) =>
+    presetModuleIds === null ||
+    presetModuleIds.some((id) => sameName(id, requirement)) ||
+    presetModules.some((module) => sameName(module.from.replace(/^npm:/i, ''), requirement.replace(/^npm:/i, '')))
+
   const visit = (entry: CatalogModule, reason: SelectedModule['reason'], trail: Set<string>) => {
     const key = moduleKey(entry)
     if (trail.has(key)) return
     trail.add(key)
-    for (const requirement of entry.requires) {
-      let matches = findCatalogModules(requirement, selectable).filter((candidate) => moduleKey(candidate) !== key)
+    for (const requires of entry.requires) {
+      // A core module is satisfied by core, never by a package that replaces it, unless the user asked for that one.
+      const core = coreRequirement(requires, coreModuleIds)
+      const requirement = core ?? requires
+      let matches = findCatalogModules(requirement, core === null ? selectable : targets).filter(
+        (candidate) => moduleKey(candidate) !== key,
+      )
       if (new Set(matches.map((match) => match.from)).size > 1) {
         // Packages that share a module id: only the one the user asked for can satisfy the requirement.
         const wanted = matches.filter((match) => targets.some((target) => moduleKey(target) === moduleKey(match)))
@@ -111,8 +142,7 @@ export function resolveCatalogSelection(
         for (const match of matches) visit(match, 'required', trail)
         continue
       }
-      const enabledInPreset = presetModuleIds === null || presetModuleIds.includes(requirement)
-      if (!enabledInPreset && !unmetRequires.some((item) => item.id === entry.id && item.requires === requirement)) {
+      if (!enabledInPreset(requirement) && !unmetRequires.some((item) => item.id === entry.id && item.requires === requirement)) {
         unmetRequires.push({ id: entry.id, requires: requirement })
       }
     }

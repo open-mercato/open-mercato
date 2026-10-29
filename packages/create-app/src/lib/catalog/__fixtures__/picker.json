@@ -47,9 +47,15 @@
         "kind": "osi"
       },
       "tier": "listed",
-      "verifiedOn": [],
+      "verifiedOn": [
+        "0.9",
+        "next"
+      ],
       "install": "yarn mercato module add @fullstackhouse/open-mercato-data-sync-durable@0.6.0 --allow-third-party",
-      "installByLine": {}
+      "installByLine": {
+        "0.9": "yarn mercato module add @fullstackhouse/open-mercato-data-sync-durable@0.6.0 --allow-third-party",
+        "next": "yarn mercato module add @fullstackhouse/open-mercato-data-sync-durable@0.6.0 --allow-third-party"
+      }
     },
     {
       "id": "durable_work",

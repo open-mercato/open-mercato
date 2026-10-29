@@ -31,11 +31,13 @@ import {
   type CatalogStepOptions,
 } from './catalog-step.js'
 import type { PickerIndex } from './types.js'
+import { resolvePreset } from '../apply-starter-preset.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const fixture = (): unknown => JSON.parse(readFileSync(join(__dirname, '__fixtures__', 'picker.json'), 'utf8'))
 const index = parsePickerIndex(fixture()) as PickerIndex
 const KSEF_NEXT = 'yarn mercato module add @fastwhitecat/integration-ksef-direct@0.1.7 --allow-third-party'
+const DURABLE_SYNC = 'yarn mercato module add @fullstackhouse/open-mercato-data-sync-durable@0.6.0 --allow-third-party'
 
 /** The fixture with ksef verified on `next` in an older version than on the latest line. */
 function fixtureWithNextVersion(): Record<string, unknown> {
@@ -144,9 +146,9 @@ test('catalogLineFor maps create-mercato-app versions to catalog lines', () => {
 test('selectableModules offers only non-core modules verified on the line', () => {
   assert.deepEqual(
     selectableModules(index, '0.9').map((entry) => entry.id),
-    ['integration_ksef_direct', 'durable_work', 'gateway_stripe'],
+    ['integration_ksef_direct', 'data_sync', 'durable_work', 'gateway_stripe'],
   )
-  assert.deepEqual(selectableModules(index, 'next').map((entry) => entry.id), ['integration_ksef_direct'])
+  assert.deepEqual(selectableModules(index, 'next').map((entry) => entry.id), ['integration_ksef_direct', 'data_sync'])
   assert.deepEqual(selectableModules(index, null), [])
 })
 
@@ -158,7 +160,7 @@ test('installCommandFor pins the version verified on the line of the app', () =>
   assert.equal(installCommandFor(ksef, '0.8', withNext.lines), null)
   assert.deepEqual(
     selectableModules(withNext, 'next').map((entry) => entry.install),
-    [KSEF_NEXT],
+    [KSEF_NEXT, DURABLE_SYNC],
   )
 })
 
@@ -168,9 +170,9 @@ test('without installByLine only the latest line gets the catalog install comman
   assert.equal(ksef.installByLine, null)
   assert.equal(installCommandFor(ksef, '0.9', legacy.lines), ksef.install)
   assert.equal(installCommandFor(ksef, 'next', legacy.lines), null)
-  assert.deepEqual(selectableModules(legacy, '0.9').map((entry) => entry.id), ['integration_ksef_direct', 'durable_work', 'gateway_stripe'])
+  assert.deepEqual(selectableModules(legacy, '0.9').map((entry) => entry.id), ['integration_ksef_direct', 'data_sync', 'durable_work', 'gateway_stripe'])
   assert.deepEqual(selectableModules(legacy, 'next'), [])
-  assert.deepEqual(modulesWithoutLineInstall(legacy, 'next').map((entry) => entry.id), ['integration_ksef_direct'])
+  assert.deepEqual(modulesWithoutLineInstall(legacy, 'next').map((entry) => entry.id), ['integration_ksef_direct', 'data_sync'])
   assert.deepEqual(modulesWithoutLineInstall(legacy, '0.9'), [])
 })
 
@@ -348,7 +350,7 @@ test('runCatalogStep leaves out a module without an install command for a line o
   })
   assert.deepEqual(await runCatalogStep(requested.options), { commands: [], selectionFile: null, commandWarnings: {} })
   assert.deepEqual(requested.warnings, [
-    'integration_ksef_direct is verified on next, but the module catalog gives no install command for next yet. Add it later from https://modules.openmercato.com.',
+    'integration_ksef_direct is verified on next, but the module catalog gives no install command for next. Add it later from https://modules.openmercato.com.',
   ])
 
   const picker = stepOptions({
@@ -361,7 +363,7 @@ test('runCatalogStep leaves out a module without an install command for a line o
   })
   assert.deepEqual(await runCatalogStep(picker.options), { commands: [], selectionFile: null, commandWarnings: {} })
   assert.deepEqual(picker.warnings, [
-    'Left out of the list: integration_ksef_direct. The module catalog verifies them on next but gives no install command for next yet.',
+    'Left out of the list: integration_ksef_direct, data_sync. The module catalog verifies them on next but gives no install command for next.',
   ])
 })
 
@@ -403,7 +405,7 @@ test('runCatalogStep points core module ids to module enable instead of a packag
 
 test('runCatalogStep runs the interactive picker with the license and level of every module', async () => {
   const questions: string[] = []
-  const answers = ['9', '3']
+  const answers = ['9', '4']
   const { options, logs, warnings } = stepOptions({
     picker: true,
     ask: async (question) => {
@@ -414,9 +416,9 @@ test('runCatalogStep runs the interactive picker with the license and level of e
   const result = await runCatalogStep(options)
   assert.deepEqual(result.commands, ['yarn mercato module add @open-mercato/gateway-stripe@0.9.0'])
   assert.equal(questions.length, 2)
-  assert.ok(warnings.some((line) => line.includes('9 is not on the list (1-3).')))
+  assert.ok(warnings.some((line) => line.includes('9 is not on the list (1-4).')))
   assert.ok(logs.some((line) => line.includes('1. integration_ksef_direct  KSeF Integration  (third-party · MIT · verified on 0.9)')))
-  assert.ok(logs.some((line) => line.includes('3. gateway_stripe')))
+  assert.ok(logs.some((line) => line.includes('4. gateway_stripe')))
   assert.ok(!warnings.some((line) => line.includes('Warning:')))
 })
 
@@ -628,7 +630,8 @@ test('runCatalogStep leaves modules a new classic app has out of the picker', as
   const { options, logs } = stepOptions({ picker: true, presetModuleIds: null, ask: async () => '' })
   await runCatalogStep(options)
   assert.ok(logs.some((line) => line.includes('1. integration_ksef_direct')))
-  assert.ok(logs.some((line) => line.includes('2. durable_work')))
+  assert.ok(logs.some((line) => line.includes('2. data_sync')))
+  assert.ok(logs.some((line) => line.includes('3. durable_work')))
   assert.ok(!logs.some((line) => line.includes('gateway_stripe')))
   assert.ok(logs.includes('   Not listed: 1 catalog module the app already registers in src/modules.ts.'))
 })
@@ -763,4 +766,161 @@ test('parsePickerIndex strips control characters from catalog text before it rea
   entry.installByLine = { '0.8\u0007': SHIPMENT }
   const parsedKeys = (parsePickerIndex(keyed) as PickerIndex).modules.find((item) => item.id === 'shipment_tracking')!
   assert.deepEqual(parsedKeys.installByLine, { '0.8 ': SHIPMENT })
+})
+
+const SHOPIFY = 'yarn mercato module add @northbound-run/sync-shopify@0.5.0 --allow-third-party'
+const CLOUDFLARE = 'yarn mercato module add @open-mercato/search-cloudflare@0.9.0'
+const RESEND = 'yarn mercato module add @open-mercato/channel-resend@0.9.0'
+const STRIPE = 'yarn mercato module add @open-mercato/gateway-stripe@0.9.0'
+
+/**
+ * The fixture with catalog rows whose `requires` name a core module (sync_shopify needs data_sync, which a durable
+ * package replaces) or a package by npm name (search_cloudflare, channel_resend), as picker.json publishes them, and
+ * with gateway_stripe verified on every line, where a new classic app already ships it.
+ */
+function fixtureWithRequirements(syncRequires: string[] = ['integrations', 'data_sync']): Record<string, unknown> {
+  const body = fixture() as { modules: Record<string, unknown>[] }
+  const license = { spdx: 'MIT', kind: 'osi' }
+  body.modules.push(
+    {
+      id: 'sync_shopify',
+      from: '@northbound-run/sync-shopify',
+      title: 'Shopify Sync',
+      description: 'Imports Shopify products and orders through data sync.',
+      requires: syncRequires,
+      source: 'third-party',
+      locator: 'npm:@northbound-run/sync-shopify',
+      license,
+      tier: 'listed',
+      verifiedOn: ['0.9', 'next'],
+      install: SHOPIFY,
+      installByLine: { '0.9': SHOPIFY, next: SHOPIFY },
+    },
+    {
+      id: 'search_cloudflare',
+      from: '@open-mercato/search-cloudflare',
+      title: 'Cloudflare Search',
+      description: 'Vector search on Cloudflare.',
+      requires: ['search', '@open-mercato/search'],
+      source: 'official',
+      locator: 'npm:@open-mercato/search-cloudflare',
+      license,
+      tier: 'verified',
+      verifiedOn: ['0.9'],
+      install: CLOUDFLARE,
+      installByLine: { '0.9': CLOUDFLARE },
+    },
+    {
+      id: 'channel_resend',
+      from: '@open-mercato/channel-resend',
+      title: 'Resend Channel',
+      description: 'Sends email through Resend.',
+      requires: ['communication_channels', '@open-mercato/ai-assistant'],
+      source: 'official',
+      locator: 'npm:@open-mercato/channel-resend',
+      license,
+      tier: 'verified',
+      verifiedOn: ['0.9'],
+      install: RESEND,
+      installByLine: {},
+      inPresets: ['0.8', '0.9', 'next'],
+    },
+  )
+  const stripe = body.modules.find((entry) => entry.id === 'gateway_stripe') as Record<string, unknown>
+  stripe.verifiedOn = ['0.8', '0.9', 'next']
+  return body
+}
+
+const presetOptions = (presetId: string) => {
+  const preset = resolvePreset(presetId)
+  return { presetModuleIds: preset.modules.map((entry) => entry.id), presetModules: preset.modules }
+}
+
+const withRequirements = (overrides: Partial<CatalogStepOptions> = {}, body = () => fixtureWithRequirements()) =>
+  stepOptions({ fetchImpl: fakeFetch(['ok'], body).fetchImpl, ...overrides })
+
+test('runCatalogStep keeps a core requirement on core instead of planning the package that replaces it', async () => {
+  const { options, warnings } = withRequirements({ requested: ['sync_shopify'], presetModuleIds: null })
+  const result = await runCatalogStep(options)
+  assert.deepEqual(result.commands, [SHOPIFY])
+  const saved = JSON.parse(readFileSync(result.selectionFile ?? '', 'utf8'))
+  assert.deepEqual(saved.modules.map((entry: { from: string }) => entry.from), ['@northbound-run/sync-shopify'])
+  assert.ok(!result.commands.some((command) => command.includes('@fullstackhouse')))
+  assert.deepEqual(warnings, [])
+})
+
+test('runCatalogStep plans the package that replaces a core requirement when the user asks for it', async () => {
+  const { options, logs } = withRequirements({
+    requested: ['sync_shopify', '@fullstackhouse/open-mercato-data-sync-durable'],
+    presetModuleIds: null,
+  })
+  assert.deepEqual((await runCatalogStep(options)).commands, [WORK_A, DURABLE_SYNC, SHOPIFY])
+  assert.ok(logs.some((line) => line.startsWith('  data_sync from @fullstackhouse/open-mercato-data-sync-durable')))
+})
+
+test('runCatalogStep warns that a preset lacks a core requirement and plans no package for it', async () => {
+  const { options, warnings } = withRequirements({ requested: ['sync_shopify'], ...presetOptions('crm') })
+  assert.deepEqual((await runCatalogStep(options)).commands, [SHOPIFY])
+  assert.deepEqual(warnings, [
+    'sync_shopify requires data_sync, which the preset does not enable: yarn mercato module enable @open-mercato/core --module data_sync',
+  ])
+})
+
+test('resolveCatalogSelection reads a core requirement written as core:<id> too', () => {
+  const parsed = parsePickerIndex(fixtureWithRequirements(['integrations', 'core:data_sync'])) as PickerIndex
+  const selectable = selectableModules(parsed, '0.9')
+  const coreModuleIds = parsed.modules.filter((entry) => entry.source === 'core').map((entry) => entry.id)
+  const classic = resolveCatalogSelection(['sync_shopify'], selectable, null, [], { coreModuleIds })
+  assert.deepEqual(installCommands(classic), [SHOPIFY])
+  const crm = resolveCatalogSelection(['sync_shopify'], selectable, ['auth', 'integrations'], [], { coreModuleIds })
+  assert.deepEqual(crm.unmetRequires, [{ id: 'sync_shopify', requires: 'data_sync' }])
+  assert.deepEqual(installCommands(crm), [SHOPIFY])
+})
+
+test('runCatalogStep tells a preset other than classic why an older line or next has no command', async () => {
+  for (const version of ['0.8.2', '0.10.1-develop.7583.1.0c886d0a14']) {
+    const line = version === '0.8.2' ? '0.8' : 'next'
+    const requested = withRequirements({ version, requested: ['gateway_stripe'], ...presetOptions('crm') })
+    assert.deepEqual(await runCatalogStep(requested.options), { commands: [], selectionFile: null, commandWarnings: {} })
+    assert.deepEqual(requested.warnings, [
+      `gateway_stripe is verified on ${line}, where a new classic app already ships it, and the module catalog has no install command for other presets on ${line}. Add it later from https://modules.openmercato.com.`,
+    ])
+    assert.ok(!requested.warnings.some((warning) => warning.includes(' yet')))
+
+    const picker = withRequirements({ version, picker: true, ask: async () => '', ...presetOptions('empty') })
+    await runCatalogStep(picker.options)
+    assert.ok(
+      picker.warnings.includes(
+        `Left out of the list: gateway_stripe. A new classic app on ${line} already ships them, and the module catalog has no install command for other presets on ${line}.`,
+      ),
+    )
+  }
+  const latest = withRequirements({ requested: ['gateway_stripe'], ...presetOptions('crm') })
+  assert.deepEqual((await runCatalogStep(latest.options)).commands, [STRIPE])
+})
+
+test('runCatalogStep checks a requirement named by npm name against the packages the preset registers', async () => {
+  for (const presetId of ['crm', 'empty']) {
+    const search = withRequirements({ requested: ['search_cloudflare'], ...presetOptions(presetId) })
+    assert.deepEqual((await runCatalogStep(search.options)).commands, [CLOUDFLARE])
+    assert.deepEqual(search.warnings, [])
+  }
+  const parsed = parsePickerIndex(fixtureWithRequirements()) as PickerIndex
+  const crm = presetOptions('crm')
+  assert.deepEqual(
+    resolveCatalogSelection(['search_cloudflare'], selectableModules(parsed, '0.9'), crm.presetModuleIds, [], crm).unmetRequires,
+    [],
+  )
+
+  const resendInCrm = withRequirements({ requested: ['channel_resend'], ...presetOptions('crm') })
+  assert.deepEqual((await runCatalogStep(resendInCrm.options)).commands, [RESEND])
+  assert.deepEqual(resendInCrm.warnings, [])
+
+  const resendInEmpty = withRequirements({ requested: ['channel_resend'], ...presetOptions('empty') })
+  assert.deepEqual((await runCatalogStep(resendInEmpty.options)).commands, [RESEND])
+  assert.ok(
+    resendInEmpty.warnings.includes(
+      'channel_resend requires @open-mercato/ai-assistant, which the preset does not enable: install @open-mercato/ai-assistant first',
+    ),
+  )
 })

@@ -191,8 +191,10 @@ Fetch contract (`fetch-catalog.ts`):
   line is the latest one (`lines[0]`, the catalog lists the latest line first). `install` pins the version
   verified on the latest line, so an app on an older line or on `next` never gets it: a module verified on that
   line without a command for it is left out with a notice (`Left out of the list: ...` in the picker,
-  `<id> is verified on <line>, but the module catalog gives no install command for <line> yet.` for
-  `--modules`).
+  `<id> is verified on <line>, but the module catalog gives no install command for <line>.` for
+  `--modules`). The catalog fills `installByLine` for a new classic app only, so a line whose classic app
+  already ships the module (`inPresets`) has no command for the other presets; the notice says so for a
+  preset other than classic. A per-line command for those presets waits for a catalog change.
 - Selectable = `source !== 'core'`, `verifiedOn` contains the line and the line has an install command; the
   item carries that command as its `install`. Core modules are the presets' job
   (Phase 2); a core ID passed to `--modules` is answered with its `module enable` command, or "the preset
@@ -271,6 +273,10 @@ Phase 1 (`resolveCatalogSelection` in `src/lib/catalog/selection.ts`):
   (`reason: 'required'`), so commands run deepest first; cycles are cut by a visited set. A requirement that
   modules of several packages satisfy is taken from the package the user asked for, and is otherwise reported
   as ambiguous with none of them planned.
+- A requirement naming a core module (an ID the catalog lists with `source: 'core'`, or `core:<id>`) stays on
+  core: it is satisfied only by a package the user requested or picked (a drop-in replacement such as a durable
+  `data_sync`), never by a package found among the selectable ones, and is otherwise checked against the preset.
+- A requirement given as an npm name is met when the preset registers a module from that package.
 - A requirement that is not a selectable module and not enabled by the preset is reported with its fix
   (`yarn mercato module enable @open-mercato/core --module <id>` for a module ID). With the `classic` preset
   (template `modules.ts`) the preset set is not resolved and core requirements are assumed present; the
@@ -414,7 +420,9 @@ the `build.mjs` snapshot step, `scripts/lib/official-modules.mjs` `generatedPath
 - `fetchPickerCatalog`: default URL, `OM_MODULES_PICKER_URL`, retry after a network error and after a 5xx,
   no retry after a 404, unsupported body, hanging request cut by the timeout.
 - `resolveCatalogSelection`: ID, npm name and locator matches; unknown and unverified requests; required
-  catalog modules first; unmet core requirements against the preset; `classic` preset; a module ID two
+  catalog modules first; unmet core requirements against the preset; a core requirement never resolved to a
+  replacement package unless requested, also as `core:<id>`; npm-name requirements met by the preset's packages;
+  `classic` preset; a module ID two
   packages share (picking the second package plans its command, the bare ID is ambiguous, each npm name
   resolves, a shared requirement comes only from the package asked for; when one of the packages has several
   modules, every suggested item plans exactly one module, and `<npm name>:<module id>` selects it).
@@ -490,3 +498,7 @@ _None outstanding._ The 2026-06-09 decisions on catalog source and official-modu
   advice can no longer send the user between the module ID and the npm name.
 - 2026-10-28: The picker and the plan show the catalog's route-collision warning (`conflictsWith` / `warning`,
   for example `shipment_tracking` next to the built-in `webhooks` route). Entries without it print as before.
+- 2026-10-29: A core requirement (for example `data_sync` of `sync_shopify`) is no longer planned as a
+  third-party drop-in package unless the user asks for that package; an npm-name requirement is checked against
+  the packages the preset registers; a preset other than classic on an older line or on `next` is told that a
+  new classic app ships the module there and the catalog has no command for other presets.

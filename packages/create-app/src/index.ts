@@ -13,7 +13,7 @@ import {
   validateSlug,
 } from './lib/ready-apps.js'
 import { applyStarterPreset, resolvePreset } from './lib/apply-starter-preset.js'
-import { runCatalogStep, type CatalogStepResult } from './lib/catalog/catalog-step.js'
+import { runCatalogStep, type CatalogStepOptions, type CatalogStepResult } from './lib/catalog/catalog-step.js'
 import { parseModulesFlag } from './lib/catalog/selection.js'
 import { DEFAULT_PRESET_ID, VALID_PRESET_IDS } from './lib/starter-presets.js'
 import { runAgenticSetup, parseAgentsValue } from './setup/wizard.js'
@@ -23,7 +23,7 @@ const packageJson = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'
 const PACKAGE_VERSION: string = packageJson.version
 const TEMPLATE_DIR = join(__dirname, '..', 'template')
 
-interface Options {
+export interface Options {
   app?: string
   appUrl?: string
   preset?: string
@@ -109,7 +109,7 @@ function requireOptionValue(args: string[], index: number, flag: string): string
   return value
 }
 
-function parseArgs(args: string[]): { appName: string | null; options: Options } {
+export function parseArgs(args: string[]): { appName: string | null; options: Options } {
   const options: Options = {
     app: undefined,
     appUrl: undefined,
@@ -523,7 +523,9 @@ export function printCatalogNextSteps(catalogCommands: string[], commandWarnings
   console.log('')
 }
 
-type CatalogPlan = Pick<CatalogStepResult, 'commands' | 'commandWarnings'>
+export type CatalogPlan = Pick<CatalogStepResult, 'commands' | 'commandWarnings'>
+
+export type CatalogStepRunner = (options: CatalogStepOptions) => Promise<CatalogStepResult>
 
 function printTemplateNextSteps(
   appName: string,
@@ -600,12 +602,15 @@ function printGitHubSyncInstructions(gitResult: GitInitializationResult): void {
   console.log('')
 }
 
-async function maybeRunCatalogStep(
+/** Runs the catalog step only when --modules or --module-picker was passed; without them the catalog is never fetched. */
+export async function maybeRunCatalogStep(
   targetDir: string,
   presetId: string,
   requested: string[] | null,
   picker: boolean,
+  run: CatalogStepRunner = runCatalogStep,
 ): Promise<CatalogPlan> {
+  if (requested === null && !picker) return { commands: [], commandWarnings: {} }
   const preset = resolvePreset(presetId)
   const presetModuleIds = preset.isClassic ? null : preset.modules.map((entry) => entry.id)
   const interactive = picker && Boolean(process.stdin.isTTY && process.stdout.isTTY)
@@ -616,7 +621,7 @@ async function maybeRunCatalogStep(
     : null
 
   try {
-    const result = await runCatalogStep({
+    const result = await run({
       targetDir,
       version: PACKAGE_VERSION,
       requested,
@@ -713,10 +718,9 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
     applyStarterPreset(presetId, targetDir)
   }
 
-  let catalogPlan: CatalogPlan = { commands: [], commandWarnings: {} }
-  if (!readyAppSource && (requestedCatalogModules !== null || options.modulePicker)) {
-    catalogPlan = await maybeRunCatalogStep(targetDir, presetId, requestedCatalogModules, options.modulePicker)
-  }
+  const catalogPlan: CatalogPlan = readyAppSource
+    ? { commands: [], commandWarnings: {} }
+    : await maybeRunCatalogStep(targetDir, presetId, requestedCatalogModules, options.modulePicker)
 
   console.log(pc.green('Success!') + ` Created ${pc.bold(appName)}`)
   console.log('')
