@@ -311,7 +311,7 @@ describe('channel_discord ai-auto-reply subscriber — routing', () => {
     expect(commandBus.execute).not.toHaveBeenCalled()
   })
 
-  it('(retry) passes the same inbound-derived idempotency key to every auto-send compose', async () => {
+  it('(retry) derives a stable idempotency key for the auto-send compose from the inbound message', async () => {
     const { ctx, commandBus } = makeCtx({ aiPresent: true })
     for (let attempt = 0; attempt < 2; attempt += 1) {
       findOne.mockResolvedValueOnce(channelRow()).mockResolvedValueOnce(messageRow('What are your opening hours?'))
