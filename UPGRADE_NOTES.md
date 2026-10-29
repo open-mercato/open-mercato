@@ -24,15 +24,21 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.9.0 → 0.9.1 (unreleased)
 
-### Sales quote enrichment and document injection hosts (#7782, #7783)
+### Workflow webhook responses have resource limits (#7814)
 
-Sales quote header reads now run registered response enrichers for `sales:sales_quote`, including the list endpoint and its `?id=` detail read path. Order-only enrichers remain targeted to `sales:sales_order`; URLs, native response fields, and document calculations are unchanged.
+Each `CALL_WEBHOOK` attempt now defaults to a 30-second deadline covering the
+outbound request and response-body consumption. Explicit activity timeouts
+(`timeoutMs` or the legacy `timeout` duration) remain authoritative, including
+values longer than 30 seconds, in both synchronous and queued execution. Every
+attempt accepts at most 1 MiB of response bytes before UTF-8 decoding and JSON
+parsing. Oversized or stalled responses fail the activity and cancel its body;
+the existing retry policy still applies.
 
-**Action for extension authors:** review existing quote-targeted and wildcard enrichers that may previously have been dormant. They must add namespaced, scoped data, enforce their declared feature gates, and retain safe timeout/fallback and cache behavior. No database migration is needed.
-
-The four advertised `detail:sales.{order|quote}:{stage-bar|closure}` IDs now mount real render-widget hosts on the Sales document page. Existing registrations for these IDs may begin rendering after upgrade. Their context follows the document detail host (`kind`, `record`, `formId`, `resourceKind`, `resourceId`, `retryLastMutation`) plus `documentId`, `organizationId`, and `tenantId` from the scoped record, with current document data and the standard local data-change callback. Contributors persist their own data through authorized, guarded APIs; the hosts do not introduce native status/closure mutations or automatically save contributed fields. Empty hosts show no placeholder UI.
-
-**Action for widget authors:** check feature gates and order/quote assumptions before enabling previously dormant widgets. Existing tabs/details/shipping IDs and native document behavior remain available.
+**Workflow author and operator action:** update webhook endpoints that exceed
+the byte limit to return a small acknowledgement promptly. Configure an explicit
+activity timeout for a slower endpoint, and move large results behind a separate
+retrieval or asynchronous workflow.
+Existing request configuration and successful response envelopes are unchanged.
 
 ### Scoped attachment bytes no longer advertise shared caching (#7220)
 
@@ -536,6 +542,16 @@ the same check, for at most three hops. Any other redirect fails with
 **Action for operators:** fix any workflow definition whose `CALL_API` endpoint hard-codes a
 different scheme (for example `http://` while `APP_URL` is `https://`) or a non-`/api/` path. Use a
 relative `/api/...` path or `{{env.APP_URL}}/api/...` instead.
+
+### Sales quote enrichment and document injection hosts (#7782, #7783)
+
+Sales quote header reads now run registered response enrichers for `sales:sales_quote`, including the list endpoint and its `?id=` detail read path. Order-only enrichers remain targeted to `sales:sales_order`; URLs, native response fields, and document calculations are unchanged.
+
+**Action for extension authors:** review existing quote-targeted and wildcard enrichers that may previously have been dormant. They must add namespaced, scoped data, enforce their declared feature gates, and retain safe timeout/fallback and cache behavior. No database migration is needed.
+
+The four advertised `detail:sales.{order|quote}:{stage-bar|closure}` IDs now mount real render-widget hosts on the Sales document page. Existing registrations for these IDs may begin rendering after upgrade. Their context follows the document detail host (`kind`, `record`, `formId`, `resourceKind`, `resourceId`, `retryLastMutation`) plus `documentId`, `organizationId`, and `tenantId` from the scoped record, with current document data and the standard local data-change callback. Contributors persist their own data through authorized, guarded APIs; the hosts do not introduce native status/closure mutations or automatically save contributed fields. Empty hosts show no placeholder UI.
+
+**Action for widget authors:** check feature gates and order/quote assumptions before enabling previously dormant widgets. Existing tabs/details/shipping IDs and native document behavior remain available.
 
 ## 0.8.0 → 0.9.0 (2026-10-09)
 
@@ -1671,6 +1687,40 @@ fallback path). Downstream code that assumed a non-null team-member id must bran
 **Existing tenants:** default CRM roles now include `auth.users.list` so owner pickers work without
 the `staff` module. Run `yarn mercato auth sync-role-acls` (or your app's equivalent) so existing
 admin/employee roles pick up the grant.
+
+### WMS `wms.inventory.reserve` excludes staging/dock balances
+
+`wms.inventory.reserve` (and sales-order reservation automation that feeds it) no longer treats
+inventory sitting on `staging` or `dock` locations as reservable pick candidates. Those locations
+hold inbound stock until putaway completes; reserving them blocked putaway and overstated Available
+in sales/WMS widgets.
+
+When only staging/dock quantity remains for a variant, reserve returns the same `409` body as a true
+shortage: `{ error: 'insufficient_stock' }`. Callers that previously reserved straight off receive
+staging must either wait for putaway into storage (or another reservable location type) or retype
+stock into a reservable location before calling reserve.
+
+**Action for module authors:** treat `insufficient_stock` after inbound receive as a possible
+"not yet put away" signal when balances still sit on staging/dock; do not assume every on-hand qty
+is reservable.
+
+### WMS custom POST routes honor body `organizationId` when allowed
+
+`executeWmsCustomPostRoute` (shared by WMS inventory/ASN/putaway custom write routes such as
+`POST /api/wms/inventory/receive`, ASN receive/complete, putaway complete/assign/…) used to
+**silently overwrite** request-body `organizationId` with the session-selected / auth org.
+Multi-org callers that sent a different allowed org therefore mutated the selected org instead.
+
+It now:
+- passes through body `organizationId` when present and validates it with `ensureOrganizationScope`
+  (allowed org ids / Pattern C) — disallowed orgs return `403`
+- defaults to the session-selected / auth org only when the body omits `organizationId`
+- still always takes `tenantId` from auth (never from the body)
+
+**Action for module authors:** if a client relied on the old overwrite (sending org B while
+expecting writes in selected org A), stop sending `organizationId` or send org A explicitly.
+Barcode scan resolve/receive/putaway routes keep their session-only resolve policy and still
+force session org onto the body before this helper runs.
 
 ### `Locale` is now derived from an augmentable `LocaleRegistry` (no action required)
 
