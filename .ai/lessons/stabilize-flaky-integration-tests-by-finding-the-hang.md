@@ -1,6 +1,6 @@
 ---
 title: "Stabilize flaky integration tests by finding the hang, not by raising the timeout"
-modules: ["events","queue","ui","auth","example","record_locks","warranty_claims","customers","phone_calls","search","cache","query_index","sales","sync_excel","workflows"]
+modules: ["events","queue","ui","auth","example","record_locks","warranty_claims","customers","phone_calls","search","cache","query_index","sales","sync_excel","workflows","forms"]
 areas: ["integration","testing","backend-ui"]
 topics: ["events","testing","workers","hydration","component-overrides","timers"]
 ---
@@ -8,6 +8,8 @@ topics: ["events","testing","workers","hydration","component-overrides","timers"
 # Stabilize flaky integration tests by finding the hang, not by raising the timeout
 
 **Context**: `TC-CUR-004` ("Set Base Currency from UI") failed ~1/60 in the `ephemeral-integration` CI shards with `Test timeout of 30000ms exceeded` plus a secondary `apiRequestContext.fetch: Target page, context or browser has been closed` reported from the `finally` teardown.
+
+`TC-FORMS-UI-001` changed a live admin page's cookies to an employee session while admin list and navigation requests were still running. An in-flight timesheet request returned 401 after the cookie swap, scheduling the shared client's auth-session refresh; that redirect aborted employee navigation with `ERR_ABORTED`, although the captured page already rendered the employee's Access Denied state. Use a separate browser context for the second identity and close it in teardown; keep the admin positive-list assertions, employee API 403, explicit denial, and absence of form data. Do not swallow navigation errors or relax authorization assertions.
 
 `TC-WC-023` failed after successfully receiving and quarantining a claim line because it required the emitted event to remain in the local queue file. The ephemeral harness runs queue workers concurrently, and the local strategy removes completed jobs, so queue residency was a race rather than durable evidence of emission. The stable assertion accepts either a still-queued job or the command's durable `line_received` quarantine timeline record.
 
