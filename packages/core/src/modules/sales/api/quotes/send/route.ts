@@ -230,6 +230,7 @@ export async function POST(req: Request) {
       react: QuoteSentEmail({ url, copy }),
       tenantId: quote.tenantId,
       organizationId: quote.organizationId,
+      delivery: 'sync',
     })
 
     if (guardResult.afterSuccessCallbacks.length) {

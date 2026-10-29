@@ -13,6 +13,11 @@ jest.mock('../queue', () => {
   }
 })
 
+const reportErrorMock = jest.fn()
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  getTelemetryRuntime: () => ({ reportError: reportErrorMock }),
+}))
+
 type CreatedRow = Record<string, unknown>
 
 function buildContainer() {
@@ -63,6 +68,7 @@ describe('system email queue helpers', () => {
     delete process.env.OM_SYSTEM_EMAIL_RETRY_BASE_MS
     enqueueMock.mockReset()
     enqueueMock.mockResolvedValue('job-1')
+    reportErrorMock.mockClear()
   })
 
   afterEach(() => {
@@ -123,7 +129,8 @@ describe('system email queue helpers', () => {
 
   it('closes the row as failed and rethrows when the enqueue fails', async () => {
     const { container, created, flush } = buildContainer()
-    enqueueMock.mockRejectedValueOnce(new Error('queue down'))
+    const error = new Error('queue down')
+    enqueueMock.mockRejectedValueOnce(error)
 
     await expect(enqueueSystemEmailDelivery(container as never, payload, body)).rejects.toThrow('queue down')
 
@@ -136,6 +143,7 @@ describe('system email queue helpers', () => {
       attachments: null,
     }))
     expect(flush).toHaveBeenCalledTimes(2)
+    expect(reportErrorMock).toHaveBeenCalledWith(error, expect.objectContaining({ module: 'communication_channels' }))
   })
 
   it('refuses a tenantless payload', async () => {

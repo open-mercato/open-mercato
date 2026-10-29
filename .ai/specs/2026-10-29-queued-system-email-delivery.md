@@ -176,7 +176,7 @@ Unit tests: mode resolution (env × per-call × tenantless), backoff schedule an
 | One-time links leak through the queue backend (local file queue, Redis) | High | security | job payload is `{ deliveryId, scope, attempt }` only; unit test asserts no body fields in the payload | none |
 | Secrets persist in the DB after delivery | High | security | encryption map on content fields; purge on `sent`/`failed` | ciphertext exists for the retry window only |
 | Duplicate send after a crash between provider accept and status write | Medium | delivery | documented at-least-once; status written immediately after send | rare duplicate email |
-| Caller relied on a thrown error to inform the user (e.g. "could not send invite") | Medium | UX | opt-in mode; per-call `delivery: 'sync'`; callers that need it are listed during implementation review | operator must opt in knowingly |
+| Caller relied on a thrown error to inform the user (e.g. "could not send invite") | Medium | UX | opt-in mode; per-call `delivery: 'sync'` on the callers that surface send failures: `auth/api/users/resend-invite` (`invite_email_failed` warning) and `sales/api/quotes/send` (400). All other callers are fire-and-forget today | operator must opt in knowingly |
 | Queue worker not running → mail silently queued forever | Medium | ops | document that `queued` requires workers (`yarn mercato queue worker` / auto-spawn); `pending` rows remain inspectable | depends on deployment |
 | Encryption disabled / no KMS on the instance | Low | security | same posture as `channel_ingest_dead_letters`; purge still applies | plaintext during the retry window |
 | Large attachments bloat rows | Low | storage | purge on terminal status; existing callers send small PDFs only | — |
@@ -203,3 +203,4 @@ Backward compatibility: no contract surface is removed or changed; the default m
 
 - 2026-10-29 — Initial draft.
 - 2026-10-29 — Implemented: entity + migration (with encryption map backfill), queue, worker, per-call `delivery` option, env docs, test-seed hooks, unit and integration tests. Added `OM_SYSTEM_EMAIL_RETRY_BASE_MS`; integration coverage moved to the test-seed endpoint because the delivery mode is instance-wide.
+- 2026-10-29 — Review: resend-invite and quote send pin `delivery: 'sync'`; an enqueue failure now reaches `reportError`.

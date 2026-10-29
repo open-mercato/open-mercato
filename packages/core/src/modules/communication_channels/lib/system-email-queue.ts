@@ -1,6 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import type { ResolvedEmailPayload } from '@open-mercato/shared/lib/email/send'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { SystemEmailDelivery } from '../data/entities'
 import { COMMUNICATION_CHANNELS_QUEUES, getCommunicationChannelsQueue } from './queue'
 import type { SystemEmailBody } from './system-email'
@@ -106,6 +107,10 @@ export async function enqueueSystemEmailDelivery(
     delivery.lastError = truncateSystemEmailError(error instanceof Error ? error.message : String(error))
     purgeSystemEmailDeliveryContent(delivery)
     await em.flush()
+    getTelemetryRuntime()?.reportError(error, {
+      module: 'communication_channels',
+      code: 'communication_channels.system_email_enqueue_failed',
+    })
     throw error
   }
   return delivery.id

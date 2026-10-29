@@ -721,6 +721,7 @@ describe('send - commits send-state before email delivery (fix: #2336, supersede
     const res = await sendQuote(makeRequest({ quoteId: quote.id, validForDays: 14 }))
     // A failed email surfaces as an error to the caller so they know the customer was not notified...
     expect(res.status).toBe(400)
+    expect(sendEmail).toHaveBeenCalledWith(expect.objectContaining({ delivery: 'sync' }))
     // ...but the acceptance token was already committed durably before the email, so the send-state is NOT rolled back.
     expect(mockEm.transactional).toHaveBeenCalled()
     expect(quote.status).toBe('sent')
