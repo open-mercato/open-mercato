@@ -7,6 +7,8 @@ export const features = [
   { id: 'wms.manage_reservations', title: 'Manage inventory reservations', module: 'wms' },
   { id: 'wms.adjust_inventory', title: 'Adjust and move inventory', module: 'wms' },
   { id: 'wms.receive_inventory', title: 'Receive inbound inventory', module: 'wms' },
+  { id: 'wms.manage_asn', title: 'Manage ASNs and receiving lines', module: 'wms' },
+  { id: 'wms.manage_putaway', title: 'Manage putaway tasks', module: 'wms' },
   { id: 'wms.cycle_count', title: 'Run cycle counts', module: 'wms' },
   { id: 'wms.import', title: 'Import inventory from CSV', module: 'wms' },
 ]
