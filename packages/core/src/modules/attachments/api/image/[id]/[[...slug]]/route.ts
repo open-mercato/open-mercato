@@ -136,7 +136,7 @@ export async function GET(
     return new NextResponse(responseBody, {
       headers: {
         'Content-Type': attachment.mimeType || 'image/jpeg',
-        'Cache-Control': partition.isPublic ? 'public, max-age=3600' : 'private, max-age=60',
+        'Cache-Control': checkAttachmentAccess(null, attachment, partition).ok ? 'public, max-age=3600' : 'private, max-age=60',
         'X-Content-Type-Options': 'nosniff',
       },
     })
