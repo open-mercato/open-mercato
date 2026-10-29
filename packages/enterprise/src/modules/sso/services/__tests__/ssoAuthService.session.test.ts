@@ -3,6 +3,7 @@ import { User, Session } from '@open-mercato/core/modules/auth/data/entities'
 import { lockAuthorizationUserRows } from '@open-mercato/core/modules/auth/lib/authorizationStateLocks'
 import { AuthSessionRejectedError } from '@open-mercato/core/modules/auth/lib/sessionEligibility'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { Tenant } from '@open-mercato/core/modules/directory/data/entities'
 import { SsoUserDeactivation } from '../../data/entities'
 import { SsoAuthService } from '../ssoAuthService'
 
@@ -12,7 +13,7 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({ findOneWithDecryp
 const user = { id: 'user-1', tenantId: 'tenant-1', organizationId: 'org-1' } as User
 const expiresAt = new Date(Date.now() + 60_000)
 
-function fixture(markerConfigId: string | null = null, userExists = true) {
+function fixture(markerConfigId: string | null = null, userExists = true, tenantActive = true) {
   let locked = false
   const managedUser = { ...user } as User
   const txEm = {
@@ -28,6 +29,7 @@ function fixture(markerConfigId: string | null = null, userExists = true) {
   jest.mocked(findOneWithDecryption).mockImplementation(async (_em, entity, where) => {
     if (!locked) throw new Error('[internal] Eligibility must be read after the parent lock')
     if (entity === User) return userExists ? managedUser : null
+    if (entity === Tenant) return tenantActive ? { id: user.tenantId } as Tenant : null
     if (entity === SsoUserDeactivation) {
       const filters = where as Record<string, unknown>
       return markerConfigId && filters.tenantId === user.tenantId
@@ -54,10 +56,20 @@ describe('atomic SSO-aware session issuance', () => {
     expect(findOneWithDecryption).toHaveBeenCalledWith(txEm, User,
       { id: 'user-1', tenantId: 'tenant-1', organizationId: 'org-1', deletedAt: null },
       { refresh: true }, { tenantId: 'tenant-1', organizationId: 'org-1' })
+    expect(findOneWithDecryption).toHaveBeenCalledWith(txEm, Tenant,
+      { id: 'tenant-1', isActive: true, deletedAt: null }, { fields: ['id'], refresh: true })
     expect(txEm.create).toHaveBeenCalledWith(Session, expect.objectContaining({ user: managedUser, expiresAt }))
     expect(txEm.persist).toHaveBeenCalledWith(result.session)
     expect(txEm.flush).toHaveBeenCalledTimes(1)
     expect(result.token).toBeTruthy()
+  })
+
+  it('preserves tenant denial inside the SSO session transaction', async () => {
+    const { service, txEm } = fixture(null, true, false)
+
+    await expect(service.createSession(user, expiresAt)).rejects.toThrow('[internal] Tenant is not available for authentication')
+    expect(txEm.create).not.toHaveBeenCalled()
+    expect(txEm.persist).not.toHaveBeenCalled()
   })
 
   it('denies deactivation observed at final issuance without inserting a session', async () => {
