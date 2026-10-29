@@ -44,6 +44,23 @@ payload change is required. Module authors should use canonical scoped authoriza
 must not rely on nested wildcards being filtered out. The notification design is tracked
 in [PR #7618](https://github.com/open-mercato/open-mercato/pull/7618).
 
+### Scoped attachment bytes no longer advertise shared caching (#7220)
+
+The attachment file and image byte routes now return `Cache-Control: private,
+max-age=60` for tenant- or organization-scoped records, including records in a
+public partition and reads by superadmins. Only records that the existing origin
+access policy permits anonymously retain public caching (global public files:
+86400 seconds; global public images: 3600 seconds). Private partitions keep their
+existing private cache policy. URLs, byte formats, and authorization are unchanged.
+
+**Operator action:** purge previously cached scoped attachment responses from
+CDNs, reverse proxies, and other shared HTTP caches when deploying this fix.
+Include both `/api/attachments/file/*` (including download query variants) and
+`/api/attachments/image/*` (all slugs, sizes, crop options, and query variants).
+Changing origin headers cannot invalidate copies already stored with the old
+public TTL. Check cache rules honor origin `private` and do not force-cache these
+routes. No database or module-code migration is required.
+
 ### Bundled Traefik keeps app and collaboration ports private (#7833)
 
 The optional `starters/docker/compose.fullapp.traefik.yml` overlay (and its
@@ -718,6 +735,26 @@ The bulk delete is also recorded in the action log under that user.
 and `scope.userId`. A job missing any of them now fails before deleting anything instead of running
 without a tenant check. `POST /api/catalog/bulk-delete` already sends all three, so no action is
 needed if you only use the API.
+
+### Customer portal password-reset and magic-link requests now send email (#5959)
+
+`POST /api/customer_accounts/password/reset-request` and `POST /api/customer_accounts/magic-link/request`
+used to mint a single-use token and emit `customer_accounts.password_reset.requested` /
+`customer_accounts.magic_link.requested` without ever delivering it — no subscriber consumed those
+events, and the raw token was discarded. Both routes now email the link directly through `sendEmail`
+(the same path portal invitations use): password reset links to `/<orgSlug>/portal/reset-password`,
+and magic links to a new `/<orgSlug>/portal/magic-link` page that redeems the token when the user
+clicks "Sign in". Responses stay `200 { ok: true }` in every case, and the events are still emitted
+with unchanged payloads.
+
+**Action for operators:** configure an email sender (`NOTIFICATIONS_EMAIL_FROM`, `EMAIL_FROM` or
+`ADMIN_EMAIL`) and transport if portal customers should receive these messages; without one the send
+fails, is logged and reported (`customer_accounts.password_reset_email_failed` /
+`customer_accounts.magic_link_email_failed`), and the request still answers `200`.
+
+**Action for module authors:** none, unless your app wraps these two routes (an API interceptor or a
+proxy endpoint) to mint and deliver its own link alongside the call — remove that delivery, or
+customers will receive two emails per request.
 
 ### Redoing an `auth.users.create` no longer restores the account's password
 
