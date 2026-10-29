@@ -18,3 +18,21 @@ test('production runner includes the app runtime CLI launcher', () => {
     'the production runner must copy the app scripts directory',
   )
 })
+
+for (const composeFile of [
+  'starters/docker/compose.fullapp.yml',
+  'starters/docker/compose.fullapp.dev.yml',
+  'docker-compose.fullapp.yml',
+  'docker-compose.fullapp.dev.yml',
+  'packages/create-app/template/docker-compose.fullapp.yml',
+  'packages/create-app/template/docker-compose.fullapp.dev.yml',
+]) {
+  test(`${composeFile} leaves missing bootstrap passwords empty for CLI validation`, () => {
+    const content = fs.readFileSync(path.join(repositoryRoot, composeFile), 'utf8')
+    const assignments = content.match(/^\s*OM_INIT_SUPERADMIN_PASSWORD:.*$/gm) ?? []
+    assert.ok(assignments.length > 0)
+    for (const assignment of assignments) {
+      assert.match(assignment.trim(), /^OM_INIT_SUPERADMIN_PASSWORD: \$\{OM_INIT_SUPERADMIN_PASSWORD:-\}$/)
+    }
+  })
+}

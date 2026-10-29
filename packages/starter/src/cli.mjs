@@ -23,6 +23,7 @@ import readline from 'node:readline'
 
 import { detectDocker, resolveRepoRoot, runCompose, runStreamingSync, spawnStreaming } from './compose.mjs'
 import { readEnvValue } from './env-file.mjs'
+import { formatSuperadminSignIn } from './env-setup.mjs'
 import { FULLAPP_DEV_COMPOSE_FILE, STARTER_STATE_DIR, resolveStackPorts, stackUrls } from './constants.mjs'
 import { loadCompanyConfig } from './company.mjs'
 import { printDoctorReport, runDoctor } from './doctor.mjs'
@@ -188,7 +189,7 @@ async function commandUp(flags) {
   console.log(`  App:      ${color.cyan(urls.app)}   ${color.dim('(login page appears once the app finishes booting)')}`)
   console.log(`  MCP:      ${color.cyan(urls.mcp)}`)
   console.log(`  OpenCode: ${color.cyan(`http://127.0.0.1:${ports.opencode}`)}`)
-  console.log(color.dim(`  Superadmin sign-in: ${readEnvValue(path.join(repoRoot, '.env'), 'OM_INIT_SUPERADMIN_EMAIL')?.trim() || 'superadmin@acme.com'} / ${readEnvValue(path.join(repoRoot, '.env'), 'OM_INIT_SUPERADMIN_PASSWORD')?.trim() || 'secret'}`))
+  console.log(color.dim(formatSuperadminSignIn(repoRoot)))
   console.log(color.dim('  Stop: Ctrl+C (infra containers keep running; `stop` shuts everything down)'))
   console.log('')
 
@@ -243,9 +244,8 @@ async function commandUpDocker(ctx, flags) {
   }
   console.log('')
   console.log(color.bold(color.green('Stack is up.')))
-  const superEmail = readEnvValue(path.join(repoRoot, '.env'), 'OM_INIT_SUPERADMIN_EMAIL')?.trim() || 'superadmin@acme.com'
-  const superPassword = readEnvValue(path.join(repoRoot, '.env'), 'OM_INIT_SUPERADMIN_PASSWORD')?.trim() || 'secret'
-  console.log(`  App:      ${color.cyan(urls.app)}  ${color.dim(`(sign in: ${superEmail} / ${superPassword})`)}`)
+  console.log(`  App:      ${color.cyan(urls.app)}`)
+  console.log(color.dim(formatSuperadminSignIn(repoRoot)))
   console.log(`  OpenCode: ${color.cyan(`http://127.0.0.1:${ports.opencode}`)}`)
   console.log(color.dim('  Manage it with the stop / status / logs subcommands.'))
 }

@@ -2,7 +2,7 @@ import type { ChildProcess, StdioOptions } from 'node:child_process'
 import { spawnSync } from 'node:child_process'
 import { createServer } from 'node:net'
 import { existsSync, readFileSync } from 'node:fs'
-import { mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { createHash, randomBytes } from 'node:crypto'
 import path from 'node:path'
 import { createInterface, type Interface } from 'node:readline/promises'
@@ -14,6 +14,7 @@ import { resolveEnvironment } from '../resolver'
 import { resolveSpawnCommand } from '../spawn'
 import { discoverIntegrationSpecFiles as discoverIntegrationSpecFilesShared } from './integration-discovery'
 import { resolveDockerHostFromContext, runCommandAndCapture } from './runtime-utils'
+import { resolveEphemeralSuperadminPassword } from './bootstrap-password'
 
 type EphemeralRuntimeOptions = {
   verbose: boolean
@@ -287,6 +288,7 @@ const appNextConfigPath = resolveFirstExistingPath(
 const APP_MODULES_CHECKSUM_PATH = path.join(appDirectory, '.mercato', 'generated', 'modules.generated.checksum')
 const PROJECT_SUPPORTS_PACKAGE_BUILDS = typeof projectScripts['build:packages'] === 'string'
 const EPHEMERAL_ENV_FILE_PATH = path.join(projectRootDirectory, '.ai', 'qa', 'ephemeral-env.json')
+const EPHEMERAL_SUPERADMIN_PASSWORD_PATH = path.join(projectRootDirectory, '.ai', 'qa', 'ephemeral-superadmin-password')
 const EPHEMERAL_ENV_LOCK_PATH = path.join(projectRootDirectory, '.ai', 'qa', 'ephemeral-env.lock')
 const LEGACY_EPHEMERAL_ENV_FILE_PATH = path.join(projectRootDirectory, '.ai', 'qa', 'ephemeral-env.md')
 const EPHEMERAL_BUILD_CACHE_STATE_PATH = path.join(projectRootDirectory, '.ai', 'qa', 'ephemeral-build-cache.json')
@@ -1317,7 +1319,14 @@ export async function writeEphemeralEnvironmentState(input: {
   queueBaseDir: string
   logPrefix: string
   captureScreenshots: boolean
+  superadminPassword?: string
 }): Promise<void> {
+  if (input.superadminPassword !== undefined) {
+    await writeFile(EPHEMERAL_SUPERADMIN_PASSWORD_PATH, input.superadminPassword, { encoding: 'utf8', mode: 0o600 })
+    await chmod(EPHEMERAL_SUPERADMIN_PASSWORD_PATH, 0o600)
+  } else {
+    await rm(EPHEMERAL_SUPERADMIN_PASSWORD_PATH, { force: true })
+  }
   const content: EphemeralEnvironmentState = {
     status: 'running',
     baseUrl: input.baseUrl,
@@ -1328,11 +1337,17 @@ export async function writeEphemeralEnvironmentState(input: {
     captureScreenshots: input.captureScreenshots,
     startedAt: new Date().toISOString(),
   }
-  await writeFile(EPHEMERAL_ENV_FILE_PATH, `${JSON.stringify(content, null, 2)}\n`, 'utf8')
+  try {
+    await writeFile(EPHEMERAL_ENV_FILE_PATH, `${JSON.stringify(content, null, 2)}\n`, 'utf8')
+  } catch (error: unknown) {
+    await rm(EPHEMERAL_SUPERADMIN_PASSWORD_PATH, { force: true })
+    throw error
+  }
 }
 
 export async function clearEphemeralEnvironmentState(): Promise<void> {
   await rm(EPHEMERAL_ENV_FILE_PATH, { force: true })
+  await rm(EPHEMERAL_SUPERADMIN_PASSWORD_PATH, { force: true })
   await rm(LEGACY_EPHEMERAL_ENV_FILE_PATH, { force: true })
 }
 
@@ -2163,7 +2178,12 @@ function buildReusableEnvironment(
 ): NodeJS.ProcessEnv {
   const enterpriseModulesFlag = process.env.OM_ENABLE_ENTERPRISE_MODULES ?? 'false'
   const privateAttachmentsRoot = resolvePrivateAttachmentsRootForQueueBaseDir(queueBaseDir)
+  const superadminPassword = process.env.OM_INIT_SUPERADMIN_PASSWORD
+    ?? (existsSync(EPHEMERAL_SUPERADMIN_PASSWORD_PATH)
+      ? readFileSync(EPHEMERAL_SUPERADMIN_PASSWORD_PATH, 'utf8')
+      : undefined)
   return buildEnvironment({
+    OM_INIT_SUPERADMIN_PASSWORD: superadminPassword,
     DATABASE_URL: databaseUrl,
     BASE_URL: baseUrl,
     APP_URL: baseUrl,
@@ -3580,6 +3600,7 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
     FORMS_ENCRYPTION_MASTER_KEY: process.env.FORMS_ENCRYPTION_MASTER_KEY
       ?? '6f6d2d657068656d6572616c2d696e746567726174696f6e2d666f726d732d31',
       NODE_ENV: 'production',
+      OM_INIT_SUPERADMIN_PASSWORD: resolveEphemeralSuperadminPassword(),
       // See the auth-probe block above: pin derived-user passwords to the
       // documented 'secret' so the ephemeral login probe converges under
       // NODE_ENV=production.
@@ -3719,8 +3740,11 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
             console.error(`[${options.logPrefix}] Failed to terminate the application process tree:`, error)
           }
         }
-        await databaseContainer.stop()
-        await clearEphemeralEnvironmentState()
+        try {
+          await databaseContainer.stop()
+        } finally {
+          await clearEphemeralEnvironmentState()
+        }
       } finally {
         await runtimeLock.release()
         shutdownHandlers?.dispose()
@@ -3848,6 +3872,7 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
         queueBaseDir: EPHEMERAL_QUEUE_BASE_DIR,
         logPrefix: options.logPrefix,
         captureScreenshots: options.captureScreenshots,
+        superadminPassword: commandEnvironment.OM_INIT_SUPERADMIN_PASSWORD,
       })
       return {
         baseUrl: applicationBaseUrl,

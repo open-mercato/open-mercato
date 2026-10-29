@@ -602,3 +602,21 @@ Spec: [`.ai/specs/2026-09-08-error-reporting-policy.md`](.ai/specs/2026-09-08-er
 | Event IDs, database schema, ACL features, notification types, AI agent and tool IDs, CLI commands | No change | ✓ n/a |
 
 **Migration path for existing modules**: none for first-party code. Third-party modules must not register an integration or bundle id that ends in `__oauth_grant` (see `UPGRADE_NOTES.md`).
+
+---
+
+## Unique Bootstrap Superadmin Password (2026-10-29)
+
+Issue [#7809](https://github.com/open-mercato/open-mercato/issues/7809) removes predictable privileged credentials from `mercato init` and the starter/generated-app full-app Compose flows. The [specification](.ai/specs/2026-10-29-unique-bootstrap-superadmin-password.md#migration--backward-compatibility) records the scope and validation requirements.
+
+| Surface | Change | Classification |
+|---------|--------|----------------|
+| CLI initialization credential behavior | `mercato init` / `yarn initialize` require an explicit superadmin password through `--password` or `OM_INIT_SUPERADMIN_PASSWORD`; missing, empty, known-placeholder, and policy-invalid values fail before initialization side effects. Init policy-bypass aliases no longer disable that validation. | Intentional security narrowing of CLI behavior; emergency security exception requires human sign-off |
+| Full-app Compose environment defaults | Starter, generated-app, development, and legacy root variants pass through an empty value when unset instead of supplying `password`. | Removal of a vulnerable bootstrap default; normal initialized restart/migration paths remain available |
+| Cross-platform starter environment setup | New environment files receive a unique generated superadmin password instead of `secret`; the app environment receives the same value. Existing values and company defaults remain unchanged. | Intentional security narrowing of the generated credential default; no automatic rotation |
+| Starter success summaries and new environment files | Hybrid and Docker startup summaries show the email and credential-file location instead of a password. Newly created environment files use `0600` permissions on POSIX systems; existing permissions remain unchanged. | Credential-disclosure hardening; retrieve credentials locally from the environment files |
+| API routes, response shapes, database schema, event IDs, ACL features, DI names, and standalone `auth setup` behavior | Unchanged | No contract change |
+
+**Qualifying argument:** a bridge preserving the predictable fallback or the init password-policy bypass would continue to permit the same insecure privileged-account provisioning. Removing those branches is the narrowest change that closes issue #7809; no flag or environment toggle retains them. The ordinary deprecation protocol's steps 1–3 are therefore proposed for waiver. The `security` label and approval from a **named human maintainer explicitly acknowledging this waiver are still required before merge**; this entry records no such approval.
+
+**Migration path:** operators must supply a unique policy-compliant `OM_INIT_SUPERADMIN_PASSWORD` or explicit `--password` for initialization and deliberate reinstall. Client scripts must stop relying on defaults or init bypass flags and handle validation failure. Already-initialized deployments can restart and migrate normally without the bootstrap password. Existing stored passwords are not changed; review privileged accounts created with earlier defaults and rotate suspect credentials through existing account-management or password-reset flows. Full operator and client actions are recorded in [`UPGRADE_NOTES.md`](UPGRADE_NOTES.md#initialization-requires-a-unique-superadmin-password-7809).

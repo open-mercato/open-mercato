@@ -4,6 +4,8 @@ import { access, copyFile, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { constants as fsConstants, existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { parseEnv } from 'node:util'
+import { resolveEphemeralSuperadminPassword } from '../packages/cli/src/lib/testing/bootstrap-password'
 import {
   assertNode24Runtime,
   getFreePort,
@@ -971,7 +973,7 @@ async function waitForDevServerReady(baseUrl: string): Promise<boolean> {
   return false
 }
 
-async function startDevServer(port: number, postgres: EphemeralPostgresHandle): Promise<number> {
+async function startDevServer(port: number, postgres: EphemeralPostgresHandle, superadminPassword: string): Promise<number> {
   const loopbackUrl = `http://127.0.0.1:${port}`
   const publicBaseUrl = resolveDevBaseUrl(process.env, {
     actualPort: port,
@@ -981,6 +983,7 @@ async function startDevServer(port: number, postgres: EphemeralPostgresHandle): 
   const backendUrl = `${baseUrl}/backend`
   const devEnvironment = {
     ...process.env,
+    OM_INIT_SUPERADMIN_PASSWORD: superadminPassword,
     PORT: String(port),
     DATABASE_URL: postgres.databaseUrl,
     APP_URL: publicBaseUrl,
@@ -1175,6 +1178,10 @@ async function main(): Promise<void> {
 
     const initEnvironment = {
       ...process.env,
+      OM_INIT_SUPERADMIN_PASSWORD: resolveEphemeralSuperadminPassword({
+        ...parseEnv(await readFile(envPath, 'utf8')),
+        ...process.env,
+      }),
       DATABASE_URL: postgres.databaseUrl,
       APP_URL: baseUrl,
       NEXT_PUBLIC_APP_URL: baseUrl,
@@ -1200,7 +1207,7 @@ async function main(): Promise<void> {
     }
 
     console.log(`[dev:ephemeral] Starting development runtime on ${baseUrl}/backend`)
-    const exitCode = await startDevServer(port, postgres)
+    const exitCode = await startDevServer(port, postgres, initEnvironment.OM_INIT_SUPERADMIN_PASSWORD)
     await shutdown(exitCode)
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)

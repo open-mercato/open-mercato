@@ -1,5 +1,37 @@
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { randomBytes } from 'node:crypto'
+import { getPasswordPolicy, validatePassword } from '@open-mercato/shared/lib/auth/passwordPolicy'
+
+const BOOTSTRAP_PASSWORD_PLACEHOLDERS = new Set([
+  'password',
+  'secret',
+  'changeme',
+  'change-me',
+  'change_me',
+  'changeit',
+  'password123',
+  'password123!',
+  'secret123!',
+  'changeme123!',
+])
+
+export function resolveInitSuperadminPassword(args: string[], env: NodeJS.ProcessEnv = process.env): string {
+  const passwordArg = args.find((arg) => arg.startsWith('--password='))
+  const password = passwordArg === undefined
+    ? env.OM_INIT_SUPERADMIN_PASSWORD
+    : passwordArg.slice('--password='.length)
+
+  if (!password?.trim()) {
+    throw new Error('A unique superadmin password is required. Set OM_INIT_SUPERADMIN_PASSWORD or pass --password=<password>.')
+  }
+  if (BOOTSTRAP_PASSWORD_PLACEHOLDERS.has(password.trim().toLowerCase())) {
+    throw new Error('The superadmin password is a known placeholder. Choose a unique password for this deployment.')
+  }
+  if (!validatePassword(password, getPasswordPolicy(env)).ok) {
+    throw new Error('The superadmin password does not meet the configured password policy (OM_PASSWORD_*).')
+  }
+  return password
+}
 
 type EnvReader = (key: string) => string | undefined
 
