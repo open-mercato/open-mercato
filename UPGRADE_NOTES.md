@@ -24,6 +24,21 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.9.0 → 0.9.1 (unreleased)
 
+### Organization create undo retains a tombstone (#7663)
+
+Undoing organization creation now sets `deleted_at`, deactivates the row and
+detaches its parent instead of physically removing it. Redo restores the same
+organization and preserves its original creation time. The tombstone reserves
+its slug under the existing tenant-wide unique constraint; creating another
+organization with that name uses the usual numeric slug suffix.
+
+Consumers that inspect raw organization rows must exclude soft-deleted records
+when listing active organizations. Supported list APIs already do so. No schema
+migration is required. Existing replay logs remain readable; recreation restores
+creation time from the stored after-snapshot when available. A historical log
+that lacks that timestamp cannot recover the original time. Rolling back the
+code does not remove tombstones or release their slugs.
+
 ### Bundled Traefik keeps app and collaboration ports private (#7833)
 
 The optional `starters/docker/compose.fullapp.traefik.yml` overlay (and its
