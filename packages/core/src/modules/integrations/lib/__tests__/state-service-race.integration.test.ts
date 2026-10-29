@@ -184,6 +184,26 @@ describeWithPostgres('integration state upsert against real PostgreSQL', () => {
     expect(await readRows(INTEGRATION_ID, scope)).toEqual([])
   }, CASE_TIMEOUT_MS)
 
+  it('joins the caller transaction through a context-bound request entity manager', async () => {
+    const scope = createScope()
+    const requestEm = harness().em.fork({ useContext: true })
+    const service = createIntegrationStateService(requestEm)
+    await expect(
+      requestEm.transactional(async () => {
+        await service.upsert(INTEGRATION_ID, { isEnabled: true }, scope)
+        throw new Error('[internal] caller rollback')
+      }),
+    ).rejects.toThrow('[internal] caller rollback')
+
+    expect(await readRows(INTEGRATION_ID, scope)).toEqual([])
+
+    await requestEm.transactional(async () => {
+      await service.upsert(INTEGRATION_ID, { isEnabled: true }, scope)
+    })
+
+    expect(await readRows(INTEGRATION_ID, scope)).toEqual([expect.objectContaining({ is_enabled: true })])
+  }, CASE_TIMEOUT_MS)
+
   it('hands the written values back to a caller that read the state first', async () => {
     const scope = createScope()
     await createIntegrationStateService(writers().em.fork()).upsert(INTEGRATION_ID, { apiVersion: 'v1' }, scope)
