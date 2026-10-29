@@ -38,6 +38,7 @@ import {
 import { staffTimeEntryCrudEvents } from '../../../../lib/crud'
 import { emitStaffEvent } from '../../../../events'
 import { invalidateStaffTimeEntryCache } from '../../../../lib/timesheets/timeEntryCacheInvalidation'
+import { localizeValidationIssues } from '../../../../lib/validationIssues'
 import {
   STAFF_TIME_TRACKING_RESOURCE_KINDS,
   runStaffMutationGuardAfterSuccess,
@@ -114,7 +115,7 @@ export async function POST(req: Request) {
 
     const parsed = staffTimeEntryBulkSaveSchema.safeParse(session.body)
     if (!parsed.success) {
-      const errors = parsed.error.issues.map((issue) => ({
+      const errors = localizeValidationIssues(parsed.error.issues, translate).map((issue) => ({
         path: issue.path.join('.'),
         message: issue.message,
       }))

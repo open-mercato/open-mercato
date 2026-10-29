@@ -295,7 +295,7 @@ const projectCodeSchema = z.string().min(1).max(50).regex(/^[a-zA-Z0-9-]+$/)
 const moneyAmountSchema = z
   .union([z.number(), z.string()])
   .refine((value) => isDecimalInput(value) && !toDecimal(value).lt(0), {
-    message: 'Expected a non-negative amount.',
+    message: 'staff.validation.nonNegativeAmount',
   })
   .transform((value) => decimalToNumber(value))
 const timeProjectBudgetKindSchema = z.enum(['none', 'hours', 'amount'])
@@ -325,7 +325,7 @@ const numericAmountSchema = z
     if (!numericAmountPattern.test(raw) || !isDecimalInput(raw)) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: 'Expected a non-negative amount.',
+        message: 'staff.validation.nonNegativeAmount',
       })
       return z.NEVER
     }

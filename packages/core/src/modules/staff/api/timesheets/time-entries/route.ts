@@ -43,6 +43,7 @@ import { resolveFeatureAccess } from '../../../lib/time-tracking/featureAccess'
 import { MANAGE_PROJECTS_FEATURE, resolveProjectAccess, type ProjectAccess } from '../../../lib/time-tracking/access'
 import { readTimeTrackingSettings } from '../../../lib/time-tracking/settings'
 import { decorateTimeEntryRows } from '../../../lib/timesheets/timeEntryDecoration'
+import { parseWithLocalizedIssues } from '../../../lib/validationIssues'
 import { createStaffCrudOpenApi, createPagedListResponseSchema, defaultOkResponseSchema } from '../../openapi'
 
 const logger = createLogger('staff').child({ component: 'api/timesheets/time-entries' })
@@ -433,7 +434,11 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        return withExactAmounts(parseScopedCommandInput(staffTimeEntryCreateSchema, raw ?? {}, ctx, translate), raw, TIME_ENTRY_MONEY_FIELDS)
+        return withExactAmounts(
+          parseWithLocalizedIssues(() => parseScopedCommandInput(staffTimeEntryCreateSchema, raw ?? {}, ctx, translate), translate),
+          raw,
+          TIME_ENTRY_MONEY_FIELDS,
+        )
       },
       response: ({ result }) => ({ id: result?.timeEntryId ?? null }),
       status: 201,
@@ -443,7 +448,11 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        return withExactAmounts(parseScopedCommandInput(staffTimeEntryUpdateSchema, raw ?? {}, ctx, translate), raw, TIME_ENTRY_MONEY_FIELDS)
+        return withExactAmounts(
+          parseWithLocalizedIssues(() => parseScopedCommandInput(staffTimeEntryUpdateSchema, raw ?? {}, ctx, translate), translate),
+          raw,
+          TIME_ENTRY_MONEY_FIELDS,
+        )
       },
       response: () => ({ ok: true }),
     },
