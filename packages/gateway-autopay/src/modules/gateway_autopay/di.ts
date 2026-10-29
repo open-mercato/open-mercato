@@ -13,6 +13,7 @@ export function register(container: AppContainer) {
   registerPaymentGatewayDescriptor({
     providerKey: 'autopay',
     label: 'Autopay',
+    requiresPayerFields: ['email'],
     sessionConfig: {
       supportedCurrencies: ['PLN'],
       defaultRendererKey: 'autopay.hosted_redirect',

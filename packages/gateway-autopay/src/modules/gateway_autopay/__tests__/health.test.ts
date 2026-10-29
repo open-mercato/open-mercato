@@ -1,3 +1,8 @@
+import {
+  registerTelemetryRuntime,
+  resetTelemetryRuntime,
+  type TelemetryRuntime,
+} from '@open-mercato/shared/lib/telemetry/runtime'
 import { autopayHealthCheck } from '../lib/health'
 import { computeAutopayHash } from '../lib/hash'
 
@@ -8,7 +13,10 @@ const credentials = {
 }
 
 describe('autopayHealthCheck', () => {
-  afterEach(() => jest.restoreAllMocks())
+  afterEach(() => {
+    jest.restoreAllMocks()
+    resetTelemetryRuntime()
+  })
 
   it('reports healthy for a zero-transaction response with no reason', async () => {
     const hash = computeAutopayHash(['2'], '2test2')
@@ -57,10 +65,48 @@ describe('autopayHealthCheck', () => {
     expect(result.status).toBe('unhealthy')
   })
 
-  it('reports unhealthy when credentials are incomplete', async () => {
+  it('reports unhealthy with a localized message when credentials are incomplete', async () => {
     const result = await autopayHealthCheck.check({ serviceId: '2' })
     expect(result.status).toBe('unhealthy')
-    expect(result.message).toMatch(/sharedKey/)
+    expect(result.message).toBe('Autopay Shared Key is not configured.')
+    expect(result.details).toMatchObject({ missingCredential: 'sharedKey' })
+  })
+
+  it('does not report an expected missing-credential state as an error', async () => {
+    const reportError = jest.fn()
+    registerTelemetryRuntime({ reportError } as unknown as TelemetryRuntime)
+
+    await autopayHealthCheck.check({ serviceId: '2' })
+
+    expect(reportError).not.toHaveBeenCalled()
+  })
+
+  it('reports a failed probe through telemetry with a stable code and keeps the raw diagnostic out of the message', async () => {
+    const reportError = jest.fn()
+    registerTelemetryRuntime({ reportError } as unknown as TelemetryRuntime)
+    jest.spyOn(global, 'fetch').mockRejectedValue(new Error('socket hang up (testpay.autopay.eu)'))
+
+    const result = await autopayHealthCheck.check(credentials)
+
+    expect(result.status).toBe('unhealthy')
+    expect(result.message).not.toContain('socket hang up')
+    expect(result.details).toMatchObject({ error: expect.stringContaining('socket hang up') })
+    expect(reportError).toHaveBeenCalledTimes(1)
+    expect(reportError).toHaveBeenCalledWith(expect.any(Error), {
+      module: 'gateway_autopay',
+      code: 'gateway_autopay.health_check_failed',
+    })
+  })
+
+  it('still answers when the telemetry sink itself throws', async () => {
+    registerTelemetryRuntime({
+      reportError: () => { throw new Error('sink down') },
+    } as unknown as TelemetryRuntime)
+    jest.spyOn(global, 'fetch').mockRejectedValue(new Error('network down'))
+
+    const result = await autopayHealthCheck.check(credentials)
+
+    expect(result.status).toBe('unhealthy')
   })
 
   it('reports unhealthy for an unrecognized gateway host', async () => {

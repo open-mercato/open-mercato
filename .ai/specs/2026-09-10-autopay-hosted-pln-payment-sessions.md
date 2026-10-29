@@ -203,10 +203,12 @@ redirect alone).
   mechanism deferred along with base ITN — see "Why ITN Is Out of Scope").
   This adapter's `refund()` therefore returns a `pending`-shaped
   `RefundResult` from the synchronous call and does **not** claim `refunded`
-  until a subsequent `getStatus`/reconciliation confirms it — reconciliation
-  beyond the initial accepted-for-processing acknowledgement is out of scope
-  for this spec's MVP and should be a fast-follow once ITN (or a polling
-  reconciliation job) exists.
+  until a supported reconciliation source confirms it. `getStatus` is not that
+  source: `interpretAutopayTransactionStatus` maps payment attempts only and
+  never reports a refund outcome. Reconciliation beyond the initial
+  accepted-for-processing acknowledgement is out of scope for this spec's MVP
+  and needs ISTN with `isRefund=true` (once ITN exists) or Autopay's
+  next-business-day report.
 - There is also a `transactionRefund/v3` (JSON, richer partial/marketplace
   support) — out of scope; the v1 form-urlencoded endpoint already covers
   full and partial refunds for a single-seller integration.
@@ -357,8 +359,9 @@ No new public route is added. The stable session/status API and
 
 - Calls `transactionRefund`; returns the existing `RefundResult` shape with
   `status: 'pending'` (not `refunded`) to reflect Autopay's asynchronous
-  processing, and documents in `providerData` that final confirmation needs a
-  follow-up `getStatus` call or the (deferred) ITN/ISTN capability.
+  processing, and documents in `providerData` that the adapter cannot confirm
+  the final outcome: `getStatus` does not report refunds, so confirmation needs
+  the (deferred) ITN/ISTN capability or Autopay's next-business-day report.
 
 ### `capture`
 
@@ -508,9 +511,9 @@ deferred until real sandbox credentials exist.
 - **Severity:** Medium
 - **Affected area:** Finance reconciliation.
 - **Mitigation:** `refund()` deliberately returns `pending`, not `refunded`,
-  so calling code cannot mistake acceptance for settlement. Follow-up
-  reconciliation (polling `getStatus`, or ITN once built) is called out as a
-  fast-follow.
+  so calling code cannot mistake acceptance for settlement. Final refund
+  reconciliation is outside this adapter (`getStatus` does not report refund
+  outcomes); it needs ISTN once ITN is built, or the next-business-day report.
 - **Residual risk:** Acceptable for a sandbox-scoped MVP; must be resolved
   before any production rollout.
 

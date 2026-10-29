@@ -1,10 +1,41 @@
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { queryTransactionStatus, resolveApiHost, type AutopayCredentials } from './autopay-client'
+import { reportAutopayError } from './error-reporting'
 
 export interface HealthCheckResult {
   status: 'healthy' | 'unhealthy'
   message: string
   details: Record<string, unknown>
   checkedAt: Date
+}
+
+type MissingCredentialField = 'serviceId' | 'sharedKey' | 'gatewayUrl'
+
+const MISSING_CREDENTIAL_MESSAGES: Record<MissingCredentialField, { key: string; fallback: string }> = {
+  serviceId: {
+    key: 'gateway_autopay.health.serviceIdMissing',
+    fallback: 'Autopay Service ID is not configured.',
+  },
+  sharedKey: {
+    key: 'gateway_autopay.health.sharedKeyMissing',
+    fallback: 'Autopay Shared Key is not configured.',
+  },
+  gatewayUrl: {
+    key: 'gateway_autopay.health.gatewayUrlMissing',
+    fallback: 'Autopay Payment Initiation URL is not configured.',
+  },
+}
+
+class MissingCredentialError extends Error {
+  constructor(readonly field: MissingCredentialField) {
+    super(`[internal] ${field} is not configured`)
+  }
+}
+
+function readRequiredCredential(credentials: Record<string, unknown>, field: MissingCredentialField): string {
+  const value = credentials[field]
+  if (typeof value !== 'string' || !value) throw new MissingCredentialError(field)
+  return value
 }
 
 export const autopayHealthCheck = {
@@ -21,15 +52,16 @@ export const autopayHealthCheck = {
    * hash all validated correctly, which is all this check claims. It still
    * throws (and this reports `unhealthy`) for a genuine failure: wrong
    * host, network error, or a response that fails hash verification.
+   *
+   * The displayed `message` is always localized static text; the raw
+   * diagnostic stays in `details.error` for operators.
    */
   async check(credentials: Record<string, unknown>): Promise<HealthCheckResult> {
+    const { t } = await resolveTranslations()
     try {
-      const serviceId = credentials.serviceId
-      const sharedKey = credentials.sharedKey
-      const gatewayUrl = credentials.gatewayUrl
-      if (typeof serviceId !== 'string' || !serviceId) throw new Error('serviceId is not configured')
-      if (typeof sharedKey !== 'string' || !sharedKey) throw new Error('sharedKey is not configured')
-      if (typeof gatewayUrl !== 'string' || !gatewayUrl) throw new Error('gatewayUrl is not configured')
+      const serviceId = readRequiredCredential(credentials, 'serviceId')
+      const sharedKey = readRequiredCredential(credentials, 'sharedKey')
+      const gatewayUrl = readRequiredCredential(credentials, 'gatewayUrl')
 
       const host = resolveApiHost(gatewayUrl)
       const probeCredentials: AutopayCredentials = {
@@ -43,16 +75,29 @@ export const autopayHealthCheck = {
 
       return {
         status: 'healthy',
-        message: `Connected to Autopay (${host})`,
+        message: t('gateway_autopay.health.connected', 'Connected to Autopay ({host})', { host }),
         details: { host, probedTransactions: transactions.length },
         checkedAt: new Date(),
       }
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Unknown error'
+      const diagnostic = err instanceof Error ? err.message : 'Unknown error'
+      if (err instanceof MissingCredentialError) {
+        const { key, fallback } = MISSING_CREDENTIAL_MESSAGES[err.field]
+        return {
+          status: 'unhealthy',
+          message: t(key, fallback),
+          details: { error: diagnostic, missingCredential: err.field },
+          checkedAt: new Date(),
+        }
+      }
+      reportAutopayError(err, 'gateway_autopay.health_check_failed')
       return {
         status: 'unhealthy',
-        message: `Autopay connection failed: ${message}`,
-        details: { error: message },
+        message: t(
+          'gateway_autopay.health.connectionFailed',
+          'Autopay connection failed. Check the Service ID, shared key and payment initiation URL, then try again.',
+        ),
+        details: { error: diagnostic },
         checkedAt: new Date(),
       }
     }

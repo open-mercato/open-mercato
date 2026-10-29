@@ -14,6 +14,11 @@
   "gateway_autopay.errors.refundPending": "The refund request was accepted by Autopay and is being processed. Check back shortly to confirm it completed.",
   "gateway_autopay.feature.configure": "Configure Autopay settings",
   "gateway_autopay.feature.view": "View Autopay configuration",
+  "gateway_autopay.health.connected": "Connected to Autopay ({host})",
+  "gateway_autopay.health.connectionFailed": "Autopay connection failed. Check the Service ID, shared key and payment initiation URL, then try again.",
+  "gateway_autopay.health.gatewayUrlMissing": "Autopay Payment Initiation URL is not configured.",
+  "gateway_autopay.health.serviceIdMissing": "Autopay Service ID is not configured.",
+  "gateway_autopay.health.sharedKeyMissing": "Autopay Shared Key is not configured.",
   "gateway_autopay.tabs.settings": "Autopay settings",
   "gateway_autopay.title": "Autopay"
 }

@@ -4,6 +4,7 @@ import type { CredentialsService } from '@open-mercato/core/modules/integrations
 import type { IntegrationLogService } from '@open-mercato/core/modules/integrations/lib/log-service'
 import type { IntegrationStateService } from '@open-mercato/core/modules/integrations/lib/state-service'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+import { reportAutopayError } from './lib/error-reporting'
 import { applyAutopayEnvPreset, readAutopayEnvPreset } from './lib/preset'
 
 /**
@@ -104,6 +105,7 @@ const configureFromEnvCommand: ModuleCli = {
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown Autopay preset error'
       console.error(`[gateway_autopay] ${message}`)
+      reportAutopayError(error, 'gateway_autopay.cli_configure_failed')
       process.exitCode = 1
     } finally {
       const disposable = container as unknown as { dispose?: () => Promise<void> }

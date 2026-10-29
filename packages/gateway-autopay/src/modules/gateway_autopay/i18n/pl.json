@@ -14,6 +14,11 @@
   "gateway_autopay.errors.refundPending": "Zlecenie zwrotu zostało przyjęte przez Autopay i jest przetwarzane. Sprawdź status ponownie za chwilę.",
   "gateway_autopay.feature.configure": "Konfiguracja ustawień Autopay",
   "gateway_autopay.feature.view": "Podgląd konfiguracji Autopay",
+  "gateway_autopay.health.connected": "Połączono z Autopay ({host})",
+  "gateway_autopay.health.connectionFailed": "Nie udało się połączyć z Autopay. Sprawdź Service ID, klucz współdzielony i adres inicjowania płatności, a następnie spróbuj ponownie.",
+  "gateway_autopay.health.gatewayUrlMissing": "Adres inicjowania płatności Autopay nie jest skonfigurowany.",
+  "gateway_autopay.health.serviceIdMissing": "Service ID Autopay nie jest skonfigurowane.",
+  "gateway_autopay.health.sharedKeyMissing": "Klucz współdzielony Autopay nie jest skonfigurowany.",
   "gateway_autopay.tabs.settings": "Ustawienia Autopay",
   "gateway_autopay.title": "Autopay"
 }

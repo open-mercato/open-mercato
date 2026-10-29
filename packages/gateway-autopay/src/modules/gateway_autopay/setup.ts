@@ -3,6 +3,7 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import { createCredentialsService } from '@open-mercato/core/modules/integrations/lib/credentials-service'
 import { createIntegrationLogService } from '@open-mercato/core/modules/integrations/lib/log-service'
 import { createIntegrationStateService } from '@open-mercato/core/modules/integrations/lib/state-service'
+import { reportAutopayError } from './lib/error-reporting'
 import { applyAutopayEnvPreset } from './lib/preset'
 
 const logger = createLogger('gateway_autopay')
@@ -23,6 +24,7 @@ export const setup: ModuleSetupConfig = {
       })
     } catch (error) {
       logger.warn('Failed to apply env preset during tenant setup', { err: error })
+      reportAutopayError(error, 'gateway_autopay.setup_preset_failed')
     }
   },
 }
