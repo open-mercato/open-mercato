@@ -13,7 +13,7 @@ import type { TranslateWithFallbackFn } from '@open-mercato/shared/lib/i18n/tran
 import { JournalEntry, JournalEntryLine } from '../data/entities'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { reverseJournalEntrySchema, type ReverseJournalEntryInput } from '../data/validators'
-import { isComposedPostingCall, runPostJournalEntry, withPostingTransaction, type JournalEntryPostCore, type PostJournalEntryResult } from './postJournalEntry'
+import { isComposedPostingCall, runPostJournalEntry, toPostedLine, withPostingTransaction, type JournalEntryPostCore, type PostJournalEntryResult } from './postJournalEntry'
 import { emitLedgerEvent } from '../events'
 
 type Scope = { organizationId: string; tenantId: string }
@@ -216,24 +216,14 @@ const reverseJournalEntryCommand: CommandHandler<ReverseJournalEntryInput, PostJ
         tenantId: input.tenantId,
         referenceType: 'journal_entry',
         referenceId: input.journalEntryId,
-        lines: result.lines.map((line) => ({
-          id: line.id,
-          accountId: line.accountId,
-          debit: line.debit,
-          credit: line.credit,
-        })),
+        lines: result.lines.map(toPostedLine),
       }).catch(() => undefined)
     }
 
     return {
       journalEntryId: result.journalEntryId,
       sequenceNumber: result.sequenceNumber,
-      lines: result.lines.map((line) => ({
-        id: line.id,
-        accountId: line.accountId,
-        debit: line.debit,
-        credit: line.credit,
-      })),
+      lines: result.lines.map(toPostedLine),
     }
   },
   buildLog: async ({ input, result, ctx }) => {

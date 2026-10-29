@@ -81,3 +81,25 @@ Feature: Currency, exchange rate and original amount on every journal entry line
       | bank_usd | USD      | 4.00000000 | 100.00   |
       | expense  | PLN      | 1          | 30.00    |
       | payable  | EUR      | 4.30000000 | 100.00   |
+
+  Scenario: The posted event carries each line's currency, rate and original amount
+    When I post on its own transaction an entry with header currency "EUR" and rate "4.30000000" and lines:
+      | account | side   | amount | currency | rate       | original |
+      | expense | debit  | 430.00 | PLN      |            |          |
+      | payable | credit | 430.00 | EUR      | 4.30000000 | 100.00   |
+    Then the posted event for that entry carries these lines:
+      | account | side   | amount | currency | rate       | original |
+      | expense | debit  | 430.00 | PLN      | 1          | 430.00   |
+      | payable | credit | 430.00 | EUR      | 4.30000000 | 100.00   |
+
+  Scenario: The posted event of a reversal carries each line's currency, rate and original amount
+    Given I have posted an entry with header currency "EUR" and rate "4.30000000" and lines:
+      | account | side   | amount | currency | rate       | original |
+      | expense | debit  | 430.00 | PLN      |            |          |
+      | payable | credit | 430.00 | EUR      | 4.30000000 | 100.00   |
+    When I reverse that entry on its own transaction with the same operation date
+    Then the posted event for that entry carries these lines:
+      | account | side   | amount | currency | rate       | original |
+      | expense | credit | 430.00 | PLN      | 1          | 430.00   |
+      | payable | debit  | 430.00 | EUR      | 4.30000000 | 100.00   |
+

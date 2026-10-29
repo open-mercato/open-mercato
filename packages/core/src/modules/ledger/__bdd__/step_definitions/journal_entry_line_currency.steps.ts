@@ -12,6 +12,7 @@ import '../../commands/postJournalEntry'
 import '../../commands/reverseJournalEntry'
 import { FiscalPeriod, JournalEntryLine, LedgerAccount } from '../../data/entities'
 import { Currency } from '@open-mercato/core/modules/currencies/data/entities'
+import { setGlobalEventBus } from '@open-mercato/shared/modules/events'
 import {
   buildCommandContext,
   captureRejection,
@@ -32,6 +33,13 @@ let accountIds: Record<string, string>
 let outcome: PostJournalEntryResult | null
 let rejection: unknown
 let postedEntryId: string
+
+type PostedEventLine = { accountId: string; debit: string; credit: string; currencyId: string; exchangeRate: string; amountCurrency: string }
+type PostedEvent = { journalEntryId: string; type: string; lines: PostedEventLine[] }
+
+// Records every `ledger.journal_entry.posted` emitted through the module event
+// factory, so a scenario can check the payload the commands actually send.
+let postedEvents: PostedEvent[] = []
 
 function seedCurrency(target: FakeEntityManager, code: string, isBase: boolean): string {
   const id = newId()
@@ -57,6 +65,12 @@ Given(
   'a ledger with base currency {string}, foreign currencies {string} and {string}, and an open fiscal period for October 2026',
   function (base: string, foreignA: string, foreignB: string) {
     em = setActiveEm(new FakeEntityManager())
+    postedEvents = []
+    setGlobalEventBus({
+      emit: async (eventId: string, payload: unknown) => {
+        if (eventId === 'ledger.journal_entry.posted') postedEvents.push(payload as PostedEvent)
+      },
+    })
     currencyIds = {
       [base]: seedCurrency(em, base, true),
       [foreignA]: seedCurrency(em, foreignA, false),
@@ -188,4 +202,51 @@ Then('the post is rejected with status 422 because the original amount and rate 
 
 Then('the post is rejected with status 422 because the line currency differs from its account', function () {
   assertRejected(/differs from its account/i)
+})
+
+// The shared command context sets `transactionalEm`, which makes the posting
+// commands treat the call as composed and leave the event to the caller. These
+// two steps run the commands on their own transaction instead, so the commands
+// emit `ledger.journal_entry.posted` themselves, as they do behind a route.
+function standaloneContext() {
+  return { ...buildCommandContext(em), transactionalEm: undefined } as ReturnType<typeof buildCommandContext>
+}
+
+When(
+  'I post on its own transaction an entry with header currency {string} and rate {string} and lines:',
+  async function (headerCurrency: string, headerRate: string, table: DataTable) {
+    const input = buildInput(headerCurrency, headerRate, table)
+    outcome = null
+    rejection = await captureRejection(async () => {
+      outcome = await executeCommand<PostJournalEntryResult>('ledger.postJournalEntry', input, standaloneContext())
+    })
+  },
+)
+
+When('I reverse that entry on its own transaction with the same operation date', async function () {
+  outcome = null
+  rejection = await captureRejection(async () => {
+    outcome = await executeCommand<PostJournalEntryResult>(
+      'ledger.reverseJournalEntry',
+      { organizationId: ORG_ID, tenantId: TENANT_ID, journalEntryId: postedEntryId, operationDate: OPERATION_DATE },
+      standaloneContext(),
+    )
+  })
+})
+
+Then('the posted event for that entry carries these lines:', async function (table: DataTable) {
+  assert.strictEqual(rejection, null, `expected the command to succeed, but it rejected with ${String(rejection)}`)
+  await new Promise((resolve) => setImmediate(resolve))
+  const event = postedEvents.find((candidate) => candidate.journalEntryId === outcome!.journalEntryId)
+  assert.ok(event, 'no ledger.journal_entry.posted event for that entry')
+  const expected = table.hashes()
+  assert.strictEqual(event!.lines.length, expected.length, `expected ${expected.length} event lines, got ${event!.lines.length}`)
+  for (const row of expected) {
+    const line: PostedEventLine | undefined = event!.lines.find((candidate) => candidate.accountId === accountIds[row.account])
+    assert.ok(line, `no event line for account "${row.account}"`)
+    assert.strictEqual(Number(line![row.side as 'debit' | 'credit']), Number(row.amount), `account "${row.account}": wrong ${row.side}`)
+    assert.strictEqual(line!.currencyId, currencyIds[row.currency], `account "${row.account}": wrong currency`)
+    assert.strictEqual(Number(line!.exchangeRate), Number(row.rate), `account "${row.account}": wrong rate`)
+    assert.strictEqual(Number(line!.amountCurrency), Number(row.original), `account "${row.account}": wrong original amount`)
+  }
 })

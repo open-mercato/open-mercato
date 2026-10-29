@@ -44,7 +44,32 @@ export type PostJournalEntryResult = {
   // command to create. A plain serializable shape, not the
   // `JournalEntryLine` entities themselves (`PostRunResult` below is the
   // internal type that still carries those).
-  lines: Array<{ id: string; accountId: string; debit: string; credit: string }>
+  lines: PostedLine[]
+}
+
+// One posted line as the result and the `ledger.journal_entry.posted` payload
+// carry it: the base-currency amounts plus the line's own currency, rate and
+// original amount (#5663, OQ-2), all numeric strings like the entity columns.
+export type PostedLine = {
+  id: string
+  accountId: string
+  debit: string
+  credit: string
+  currencyId: string
+  exchangeRate: string
+  amountCurrency: string
+}
+
+export function toPostedLine(line: JournalEntryLine): PostedLine {
+  return {
+    id: line.id,
+    accountId: line.accountId,
+    debit: line.debit,
+    credit: line.credit,
+    currencyId: line.currencyId,
+    exchangeRate: line.exchangeRate,
+    amountCurrency: line.amountCurrency,
+  }
 }
 
 type Scope = { organizationId: string; tenantId: string }
@@ -499,12 +524,7 @@ export async function emitPostedEvent(input: JournalEntryPostCore, result: PostR
     tenantId: input.tenantId,
     referenceType: input.referenceType ?? null,
     referenceId: input.referenceId ?? null,
-    lines: result.lines.map((line) => ({
-      id: line.id,
-      accountId: line.accountId,
-      debit: line.debit,
-      credit: line.credit,
-    })),
+    lines: result.lines.map(toPostedLine),
   })
 }
 
@@ -535,12 +555,7 @@ const postJournalEntryCommand: CommandHandler<PostJournalEntryInput, PostJournal
     return {
       journalEntryId: result.journalEntryId,
       sequenceNumber: result.sequenceNumber,
-      lines: result.lines.map((line) => ({
-        id: line.id,
-        accountId: line.accountId,
-        debit: line.debit,
-        credit: line.credit,
-      })),
+      lines: result.lines.map(toPostedLine),
     }
   },
   buildLog: async ({ input, result, ctx }) => {

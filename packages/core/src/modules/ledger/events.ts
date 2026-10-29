@@ -89,7 +89,15 @@ export type LedgerJournalEntryPostedPayload = {
   tenantId: string
   referenceType: string | null
   referenceId: string | null
-  lines: { id: string; accountId: string; debit: string; credit: string }[]
+  lines: {
+    id: string
+    accountId: string
+    debit: string
+    credit: string
+    currencyId: string
+    exchangeRate: string
+    amountCurrency: string
+  }[]
 }
 
 export default eventsConfig
