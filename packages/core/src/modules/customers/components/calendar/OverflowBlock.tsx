@@ -89,9 +89,9 @@ export function OverflowBlock({
             range: rangeLabel,
           })}
           className={cn(
-            'pointer-events-auto absolute h-auto flex-col items-start justify-start gap-0.5 overflow-hidden rounded-md border border-border bg-card px-2 pt-1 pb-2 text-start outline-none hover:bg-muted/50',
+            'pointer-events-auto absolute h-auto flex-col items-start justify-start gap-0.5 overflow-hidden rounded-md border border-border bg-muted px-2 pt-1 pb-2 text-start outline-none hover:border-foreground/30',
             conflicted && 'ring-1 ring-status-warning-icon',
-            open && 'z-30 shadow-md ring-2 ring-foreground',
+            open && 'z-30 shadow-md ring-2 ring-primary/40',
             highlighted && 'motion-safe:animate-pulse',
             conflicted || highlighted || open ? 'z-30' : 'z-10',
             'focus-visible:z-30 focus-visible:ring-2 focus-visible:ring-ring',

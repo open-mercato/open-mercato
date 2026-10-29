@@ -175,7 +175,7 @@ const AllDayChip = React.forwardRef<HTMLButtonElement, AllDayChipProps>(function
         'h-auto w-full min-w-0 justify-start rounded-sm px-2 py-0.5 text-start hover:bg-muted/70',
         tone.surfaceClassName,
         conflicted && 'ring-1 ring-status-warning-icon',
-        selected && 'shadow-md ring-2 ring-foreground',
+        selected && 'shadow-md ring-2 ring-primary/40',
         highlighted && 'motion-safe:animate-pulse',
         'focus-visible:ring-2 focus-visible:ring-ring',
         className,

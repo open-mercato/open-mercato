@@ -187,7 +187,7 @@ export const EventBlock = React.forwardRef<HTMLButtonElement, EventBlockProps>(f
         height >= SHOW_TIME_MIN_HEIGHT_PX ? 'py-1 sm:py-2' : 'py-0.5 sm:py-1',
         tone.surfaceClassName,
         conflicted && 'ring-1 ring-status-warning-icon',
-        selected && 'shadow-md ring-2 ring-foreground',
+        selected && 'shadow-md ring-2 ring-primary/40',
         highlighted && 'motion-safe:animate-pulse',
         conflicted || highlighted || selected ? 'z-30' : 'z-10',
         'focus-visible:z-30 focus-visible:ring-2 focus-visible:ring-ring',
