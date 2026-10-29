@@ -65,7 +65,7 @@
 | 4 | 4.7 | Cover compare and trace tabs with integration tests | dispatch | done | 9d6ae05fa |
 | 5 | 5.1 | Add the chat run ACL features and query validators | dispatch:cheap | done | pending |
 | 5 | 5.2 | Add the chat runs API | dispatch:capable | done | pending |
-| 5 | 5.3 | Add the chat runs list and detail pages | dispatch | todo | — |
+| 5 | 5.3 | Add the chat runs list and detail pages | dispatch | done | pending |
 | 5 | 5.4 | Link chat messages to their run trace | dispatch | todo | — |
 | 5 | 5.5 | Cover the chat runs API and pages with integration tests | dispatch | todo | — |
 | 6 | 6.1 | Add emitCitations and carry citations in tool output | dispatch:capable | todo | — |

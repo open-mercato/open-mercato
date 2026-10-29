@@ -4,6 +4,10 @@
     "reason": "GET /api/ai_assistant/ai/actions counts with findAndCountWithDecryption (data/repositories/AiPendingActionRepository.ts:335) \u2014 an exact total, not a capped query-engine count; the response schema has no totalIsCapped field to forward"
   },
   {
+    "file": "packages/ai-assistant/src/modules/ai_assistant/backend/config/ai-assistant/runs/AiRunsListPageClient.tsx",
+    "reason": "GET /api/ai_assistant/ai/runs counts with findAndCountWithDecryption (lib/agent-run-access.ts listAgentRunPage) \u2014 an exact total, not a capped query-engine count; the response schema has no totalIsCapped field to forward"
+  },
+  {
     "file": "packages/core/src/modules/dictionaries/components/DictionaryTable.tsx",
     "reason": "entries arrive as a prop; total derives from the locally filtered array"
   },
