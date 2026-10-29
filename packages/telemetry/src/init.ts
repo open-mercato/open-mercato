@@ -129,6 +129,12 @@ export async function shutdownTelemetry(): Promise<void> {
     try {
       await initializing
     } catch (err) {
+      try {
+        reportError(err, {
+          module: 'telemetry',
+          code: 'telemetry.initialization_failed',
+        })
+      } catch {}
       logger.warn('Telemetry initialization failed before shutdown', { err })
     }
   }
