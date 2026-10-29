@@ -87,19 +87,20 @@ describe('cancel invitation command', () => {
     expect(await cancelInvitationCommand.buildLog?.({ input: { id }, result, ctx, snapshots: {} })).toMatchObject({ resourceId: id })
   })
 
-  it('uses the validated selected organization for the write, event, and audit', async () => {
+  it('ignores selected organization overrides for the write, event, and audit', async () => {
     const selectedId = '77777777-7777-4777-8777-777777777777'
     const selectedContext = { ...ctx, selectedOrganizationId: selectedId, organizationScope: { tenantId, selectedId, filterIds: [selectedId], allowedIds: [organizationId, selectedId] } }
     const result = await cancelInvitationCommand.execute({ id }, selectedContext)
-    expect(mockCancel).toHaveBeenCalledWith(id, { tenantId, organizationId: selectedId })
-    expect(mockAuthorized).toHaveBeenCalledWith('staff', ['customer_accounts.invite'], { tenantId, organizationId: selectedId })
-    expect(mockEmit).toHaveBeenCalledWith('customer_accounts.invitation.cancelled', { invitationId: id, tenantId, organizationId: selectedId })
-    expect(await cancelInvitationCommand.buildLog?.({ input: { id }, result, ctx: selectedContext, snapshots: {} })).toMatchObject({ tenantId, organizationId: selectedId })
+    expect(mockCancel).toHaveBeenCalledWith(id, { tenantId, organizationId })
+    expect(mockAuthorized).toHaveBeenCalledWith('staff', ['customer_accounts.invite'], { tenantId, organizationId })
+    expect(mockEmit).toHaveBeenCalledWith('customer_accounts.invitation.cancelled', { invitationId: id, tenantId, organizationId })
+    expect(await cancelInvitationCommand.buildLog?.({ input: { id }, result, ctx: selectedContext, snapshots: {} })).toMatchObject({ tenantId, organizationId, resourceKind: 'customer_accounts:customer_user_invitation' })
+    expect(mockResolveScope).not.toHaveBeenCalled()
   })
 
-  it('rejects invalid explicit scope even when its fallback matches the home organization', async () => {
-    const rejectedContext = { ...ctx, organizationScope: { tenantId, selectedId: organizationId, filterIds: [organizationId], allowedIds: [organizationId], selectionRejected: true } }
-    await expect(cancelInvitationCommand.execute({ id }, rejectedContext)).rejects.toMatchObject({ status: 403 })
+  it.each([{ sub: 'staff', tenantId: null, orgId: organizationId }, { sub: 'staff', tenantId, orgId: null }])('rejects incomplete authenticated scope despite a supplied organization context', async (auth) => {
+    const selectedContext = { ...ctx, auth, organizationScope: { tenantId, selectedId: organizationId, filterIds: [organizationId], allowedIds: [organizationId] } }
+    await expect(cancelInvitationCommand.execute({ id }, selectedContext)).rejects.toMatchObject({ status: 403 })
     expect(mockCancel).not.toHaveBeenCalled()
   })
 

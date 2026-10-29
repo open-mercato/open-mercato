@@ -2,7 +2,7 @@
 title: "Organization-scoped routes must resolve request selection and reject invalid explicit writes"
 modules: ["entities","directory","auth","customer_accounts"]
 areas: ["module-data","integration","debugging"]
-topics: ["data-scoping","access-control","route-coverage"]
+topics: ["data-scoping","access-control","route-coverage","backward-compatibility"]
 ---
 
 # Organization-scoped routes must resolve request selection and reject invalid explicit writes
@@ -15,4 +15,4 @@ topics: ["data-scoping","access-control","route-coverage"]
 
 **Applies to**: custom APIs, configuration records, cache keys, mutation guards, and integration fixtures that exercise organization selection.
 
-**Lifecycle command evidence**: Staff invitation cancellation (#7275) must pass the resolved `organizationScope` and `selectedOrganizationId` into its command. The service call, event, and audit log must all use that effective scope. Re-reading `auth.orgId` in the command would silently redirect a validated request back to the user's home organization. Cover an allowed secondary organization, a rejected explicit selection, and an all-organizations view without a concrete write target.
+**Compatibility boundary**: A new method on an existing route must keep the same organization contract as its sibling methods unless a route-wide migration is explicitly approved. The staff invitation GET/POST route uses authenticated `tenantId`/`orgId`; its additive cancellation DELETE, guard, command, event and audit must use that same scope. A selected-organization cookie must not retarget only cancellation while listing and resend still use the authenticated organization. Cover a real differing selection cookie and direct command context overrides; keep generic selected-scope resolution for routes that already expose that contract.

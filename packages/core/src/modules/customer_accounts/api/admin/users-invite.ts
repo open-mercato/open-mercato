@@ -24,7 +24,6 @@ import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { CancelInvitationResult } from '../../commands/invitations'
-import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 
 const logger = createLogger('customer_accounts').child({ component: 'admin-users-invite' })
 
@@ -262,13 +261,12 @@ export async function DELETE(req: Request) {
     return NextResponse.json({ ok: false, error: translate('customer_accounts.errors.cancelInvitationAuth') }, { status: 401 })
   }
 
-  const container = await createRequestContainer()
-  const organizationScope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
-  if (organizationScope.selectionRejected || !organizationScope.tenantId || !organizationScope.selectedId) {
+  if (!auth.tenantId || !auth.orgId) {
     return NextResponse.json({ ok: false, error: translate('customer_accounts.errors.cancelInvitationPermission') }, { status: 403 })
   }
+  const container = await createRequestContainer()
   const rbacService = container.resolve('rbacService') as RbacService
-  const scope = { tenantId: organizationScope.tenantId, organizationId: organizationScope.selectedId }
+  const scope = { tenantId: auth.tenantId, organizationId: auth.orgId }
   if (!await rbacService.userHasAllFeatures(auth.sub, ['customer_accounts.invite'], scope)) {
     return NextResponse.json({ ok: false, error: translate('customer_accounts.errors.cancelInvitationPermission') }, { status: 403 })
   }
@@ -284,7 +282,7 @@ export async function DELETE(req: Request) {
     req,
     auth: { userId: auth.sub, ...scope, userFeatures },
     input: {
-      resourceKind: 'customer_accounts.customer_user_invitation',
+      resourceKind: 'customer_accounts:customer_user_invitation',
       resourceId: parsed.data.id,
       operation: 'update',
       mutationPayload: parsed.data,
@@ -303,7 +301,7 @@ export async function DELETE(req: Request) {
     ctx: {
       container,
       auth,
-      organizationScope,
+      organizationScope: { tenantId: scope.tenantId, selectedId: scope.organizationId, filterIds: [scope.organizationId], allowedIds: [scope.organizationId] },
       selectedOrganizationId: scope.organizationId,
       organizationIds: [scope.organizationId],
       request: req,

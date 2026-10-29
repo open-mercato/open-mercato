@@ -11,10 +11,13 @@ const mockExecute = jest.fn()
 const mockGuards = jest.fn()
 const mockAfterSuccess = jest.fn()
 const mockResolveScope = jest.fn()
+const mockEmit = jest.fn()
+let mockRealInvitationService: CustomerInvitationService | undefined
 const mockContainer = {
   resolve: jest.fn((name: string) => {
     if (name === 'rbacService') return { userHasAllFeatures: mockUserHasAllFeatures, getGrantedFeatures: mockGetGrantedFeatures }
     if (name === 'commandBus') return { execute: mockExecute }
+    if (name === 'customerInvitationService') return mockRealInvitationService
     return null
   }),
 }
@@ -32,6 +35,14 @@ jest.mock('@open-mercato/core/modules/customer_accounts/lib/rateLimiter', () => 
 jest.mock('@open-mercato/core/modules/customer_accounts/lib/rateLimitIdentifier', () => ({ readNormalizedEmailFromJsonRequest: jest.fn() }))
 jest.mock('@open-mercato/core/modules/customer_accounts/lib/invitationEmail', () => ({ sendCustomerInvitationEmail: jest.fn() }))
 
+jest.mock('@open-mercato/shared/lib/commands', () => ({ registerCommand: jest.fn() }))
+jest.mock('@open-mercato/core/modules/customer_accounts/events', () => ({ emitCustomerAccountsEvent: (...args: unknown[]) => mockEmit(...args) }))
+
+import type { EntityManager } from '@mikro-orm/postgresql'
+import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
+import type { CancelInvitationInput } from '../../../data/validators'
+import { CustomerInvitationService } from '../../../services/customerInvitationService'
+import { cancelInvitationCommand } from '../../../commands/invitations'
 import { DELETE, metadata, openApi } from '../users-invite'
 
 function makeRequest(id: string | null = invitationId) {
@@ -41,6 +52,8 @@ function makeRequest(id: string | null = invitationId) {
 describe('admin invitation cancellation', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    mockRealInvitationService = undefined
+    mockEmit.mockResolvedValue(undefined)
     mockGetAuthFromRequest.mockResolvedValue({ sub: staffUserId, tenantId, orgId: organizationId })
     mockResolveScope.mockImplementation(async ({ auth }: { auth: { tenantId: string | null; orgId: string | null } }) => ({
       tenantId: auth.tenantId, selectedId: auth.orgId, allowedIds: auth.orgId ? [auth.orgId] : [], filterIds: auth.orgId ? [auth.orgId] : [],
@@ -77,36 +90,20 @@ describe('admin invitation cancellation', () => {
     expect(mockExecute).not.toHaveBeenCalled()
   })
 
-  it('uses the validated selected organization for authorization, guards, and command context', async () => {
-    const selectedId = '77777777-7777-4777-8777-777777777777'
-    const organizationScope = { tenantId, selectedId, allowedIds: [organizationId, selectedId], filterIds: [selectedId] }
-    mockResolveScope.mockResolvedValue(organizationScope)
+  it.each(['77777777-7777-4777-8777-777777777777', '__all__', 'invalid'])('keeps the authenticated invitation scope when the selection cookie is %s', async (selectedId) => {
     const request = new Request(`http://localhost/api/customer_accounts/admin/users-invite?id=${invitationId}`, {
       method: 'DELETE', headers: { cookie: `om_selected_org=${selectedId}` },
     })
+    mockResolveScope.mockResolvedValue({ tenantId, selectedId, allowedIds: [organizationId, selectedId], filterIds: [selectedId] })
     expect((await DELETE(request)).status).toBe(200)
-    expect(mockResolveScope).toHaveBeenCalledWith({ container: mockContainer, auth: { sub: staffUserId, tenantId, orgId: organizationId }, request })
-    expect(mockUserHasAllFeatures).toHaveBeenCalledWith(staffUserId, ['customer_accounts.invite'], { tenantId, organizationId: selectedId })
+    expect(mockResolveScope).not.toHaveBeenCalled()
+    expect(mockUserHasAllFeatures).toHaveBeenCalledWith(staffUserId, ['customer_accounts.invite'], { tenantId, organizationId })
     expect(mockGuards).toHaveBeenCalledWith(expect.objectContaining({
-      auth: expect.objectContaining({ tenantId, organizationId: selectedId }),
+      auth: expect.objectContaining({ tenantId, organizationId }),
     }))
     expect(mockExecute).toHaveBeenCalledWith('customer_accounts.invitation.cancel', expect.objectContaining({
-      ctx: expect.objectContaining({ organizationScope, selectedOrganizationId: selectedId, organizationIds: [selectedId] }),
+      ctx: expect.objectContaining({ selectedOrganizationId: organizationId, organizationIds: [organizationId] }),
     }))
-  })
-
-  it('rejects an explicit invalid selection instead of falling back to the home organization', async () => {
-    mockResolveScope.mockResolvedValue({ tenantId, selectedId: organizationId, allowedIds: [organizationId], filterIds: [organizationId], selectionRejected: true })
-    expect((await DELETE(makeRequest())).status).toBe(403)
-    expect(mockGuards).not.toHaveBeenCalled()
-    expect(mockExecute).not.toHaveBeenCalled()
-  })
-
-  it('rejects an all-organizations selection without a concrete write scope', async () => {
-    mockResolveScope.mockResolvedValue({ tenantId, selectedId: null, allowedIds: null, filterIds: null })
-    expect((await DELETE(makeRequest())).status).toBe(403)
-    expect(mockGuards).not.toHaveBeenCalled()
-    expect(mockExecute).not.toHaveBeenCalled()
   })
 
   it.each([null, 'invalid'])('rejects malformed or missing invitation identifiers', async (id) => {
@@ -119,7 +116,7 @@ describe('admin invitation cancellation', () => {
     await DELETE(makeRequest())
     expect(mockGuards).toHaveBeenCalledWith(expect.objectContaining({
       auth: { userId: staffUserId, tenantId, organizationId, userFeatures: ['customer_accounts.*'] },
-      input: { resourceKind: 'customer_accounts.customer_user_invitation', resourceId: invitationId, operation: 'update', mutationPayload: { id: invitationId } },
+      input: { resourceKind: 'customer_accounts:customer_user_invitation', resourceId: invitationId, operation: 'update', mutationPayload: { id: invitationId } },
     }))
   })
 
@@ -130,6 +127,53 @@ describe('admin invitation cancellation', () => {
     expect(await response.json()).toEqual({ error: 'locked' })
     expect(mockExecute).not.toHaveBeenCalled()
     expect(mockAfterSuccess).not.toHaveBeenCalled()
+  })
+
+  it('keeps a differing selection cookie out of the real guard, command, service, event, and audit scope', async () => {
+    const selectedId = '77777777-7777-4777-8777-777777777777'
+    const row = { id: invitationId, tenantId, organizationId, cancelledAt: null as Date | null }
+    const nativeUpdate = jest.fn(async (_entity: unknown, where: { id: string; tenantId: string; organizationId: string }, update: { cancelledAt: Date }) => {
+      if (where.id !== row.id || where.tenantId !== row.tenantId || where.organizationId !== row.organizationId) return 0
+      row.cancelledAt = update.cancelledAt
+      return 1
+    })
+    mockRealInvitationService = new CustomerInvitationService({ nativeUpdate } as unknown as EntityManager)
+    mockResolveScope.mockResolvedValue({ tenantId, selectedId, allowedIds: [organizationId, selectedId], filterIds: [selectedId] })
+    const { runRouteMutationGuards } = jest.requireActual<typeof import('@open-mercato/shared/lib/crud/route-mutation-guard')>('@open-mercato/shared/lib/crud/route-mutation-guard')
+    mockGuards.mockImplementationOnce(runRouteMutationGuards)
+    mockExecute.mockImplementationOnce(async (_command: string, { input, ctx }: { input: CancelInvitationInput; ctx: CommandRuntimeContext }) => {
+      const result = await cancelInvitationCommand.execute(input, ctx)
+      const log = await cancelInvitationCommand.buildLog?.({ input, result, ctx, snapshots: {} })
+      expect(log).toMatchObject({ tenantId, organizationId, resourceKind: 'customer_accounts:customer_user_invitation', resourceId: invitationId, replayable: false })
+      return { result }
+    })
+    const request = new Request(`http://localhost/api/customer_accounts/admin/users-invite?id=${invitationId}`, { method: 'DELETE', headers: { cookie: `om_selected_org=${selectedId}` } })
+    expect((await DELETE(request)).status).toBe(200)
+    expect(row.cancelledAt).toBeInstanceOf(Date)
+    expect(nativeUpdate).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ id: invitationId, tenantId, organizationId }), { cancelledAt: expect.any(Date) })
+    expect(mockEmit).toHaveBeenCalledWith('customer_accounts.invitation.cancelled', { invitationId, tenantId, organizationId })
+    expect(mockUserHasAllFeatures.mock.calls.every((call) => call[2].organizationId === organizationId)).toBe(true)
+    expect(mockGuards).toHaveBeenCalledWith(expect.objectContaining({ auth: expect.objectContaining({ tenantId, organizationId }), input: expect.objectContaining({ resourceKind: 'customer_accounts:customer_user_invitation' }) }))
+  })
+
+  it('runs a registered invitation guard before the cancellation command', async () => {
+    const { registerMutationGuards } = jest.requireActual<typeof import('@open-mercato/shared/lib/crud/mutation-guard-store')>('@open-mercato/shared/lib/crud/mutation-guard-store')
+    const { runRouteMutationGuards } = jest.requireActual<typeof import('@open-mercato/shared/lib/crud/route-mutation-guard')>('@open-mercato/shared/lib/crud/route-mutation-guard')
+    const validate = jest.fn(async () => ({ ok: false, status: 409, body: { error: 'invitation locked' } }))
+    registerMutationGuards([{ moduleId: 'customer_accounts', guards: [{
+      id: 'customer_accounts.invitation-test', targetEntity: 'customer_accounts:customer_user_invitation', operations: ['update'], validate,
+    }] }])
+    mockGuards.mockImplementationOnce(runRouteMutationGuards)
+    try {
+      const response = await DELETE(makeRequest())
+      expect(response.status).toBe(409)
+      expect(await response.json()).toEqual({ error: 'invitation locked' })
+      expect(validate).toHaveBeenCalledWith(expect.objectContaining({ resourceId: invitationId, tenantId, organizationId }))
+      expect(mockExecute).not.toHaveBeenCalled()
+      expect(mockAfterSuccess).not.toHaveBeenCalled()
+    } finally {
+      registerMutationGuards([])
+    }
   })
 
   it('rejects guard transformations that change the guarded record', async () => {

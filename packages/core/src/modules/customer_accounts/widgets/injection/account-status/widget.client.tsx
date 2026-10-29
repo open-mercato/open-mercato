@@ -4,6 +4,8 @@ import React from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
+import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider'
+import { hasFeature } from '@open-mercato/shared/security/features'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -259,6 +261,8 @@ function InviteForm({
 export default function AccountStatusWidget({ context }: AccountStatusProps) {
   const t = useT()
   const queryClient = useQueryClient()
+  const { payload: chromePayload, isReady: chromeReady } = useBackendChrome()
+  const canCancelInvitation = chromeReady && hasFeature(chromePayload?.grantedFeatures, 'customer_accounts.invite')
   const personEntityId = context?.recordId
   const [showInviteForm, setShowInviteForm] = React.useState(false)
   const [isCancellingInvitation, setIsCancellingInvitation] = React.useState(false)
@@ -335,7 +339,7 @@ export default function AccountStatusWidget({ context }: AccountStatusProps) {
   }
 
   async function handleCancelInvitation() {
-    if (!pendingInvitation || isCancellingInvitation) return
+    if (!pendingInvitation || isCancellingInvitation || !canCancelInvitation) return
     const invitation = pendingInvitation
     setIsCancellingInvitation(true)
     try {
@@ -350,7 +354,7 @@ export default function AccountStatusWidget({ context }: AccountStatusProps) {
 
       await runMutation({
         context: {
-          entityType: 'customer_accounts.customer_user_invitation',
+          entityType: 'customer_accounts:customer_user_invitation',
           invitationId: invitation.id,
           retryLastMutation,
         },
@@ -418,7 +422,7 @@ export default function AccountStatusWidget({ context }: AccountStatusProps) {
                 ? t('customer_accounts.widgets.invite.resend', 'Resend invitation')
                 : t('customer_accounts.widgets.invite.button', 'Invite to Portal')}
             </Button>
-            {pendingInvitation && (
+            {pendingInvitation && canCancelInvitation && (
               <Button
                 type="button"
                 variant="destructive-outline"

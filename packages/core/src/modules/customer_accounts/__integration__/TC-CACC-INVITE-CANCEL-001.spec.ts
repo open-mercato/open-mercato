@@ -26,7 +26,7 @@ type CapturedEmail = { to?: string; links?: string[] }
 type InvitationState = { cancelled_at: Date | null; accepted_at: Date | null; email_hash: string }
 const endpoint = '/api/customer_accounts/admin/users-invite'
 
-async function capturedToken(email: string): Promise<string> {
+async function capturedToken(email: string, excludedToken?: string): Promise<string> {
   let token: string | undefined
   await expect.poll(async () => {
     const path = process.env.OM_TEST_EMAIL_CAPTURE_PATH?.trim() || join(process.cwd(), '.ai', 'qa', 'email-capture.jsonl')
@@ -40,7 +40,7 @@ async function capturedToken(email: string): Promise<string> {
       .flatMap((entry) => entry.links ?? [])
       .filter((link) => link.includes('/portal/invite?token='))
       .map((link) => new URL(link).searchParams.get('token') ?? undefined)
-      .find((value) => Boolean(value))
+      .find((value) => Boolean(value) && value !== excludedToken)
     return Boolean(token)
   }, { timeout: 10_000, message: 'The invitation email should be captured' }).toBe(true)
   if (!token) throw new Error('[internal] Captured invitation token is missing')
@@ -200,6 +200,89 @@ test.describe('TC-CACC-INVITE-CANCEL-001: staff withdrawal of pending invitation
       ))
       expect(Number(users.rows[0].count)).toBe(0)
     } finally {
+      await deleteInvitations(invitationIds)
+      await deleteCustomerRoleFixture(request, adminToken, roleId)
+    }
+  })
+
+  test('cancels the authenticated organization invitation when the selected organization cookie differs', async ({ request }) => {
+    const adminToken = await getAuthToken(request, 'admin')
+    const scope = getTokenContext(adminToken)
+    let roleId: string | null = null
+    let otherOrgId: string | null = null
+    const invitationIds: string[] = []
+    try {
+      roleId = (await createCustomerRoleFixture(request, adminToken)).id
+      const invitation = await createInvitation(request, adminToken, roleId)
+      invitationIds.push(invitation.id)
+      otherOrgId = await createOrganizationInDb({ name: `Cancellation cookie ${uniqueSuffix()}`, tenantId: scope.tenantId })
+      const headers = { cookie: `om_selected_org=${otherOrgId}` }
+      const listing = await apiRequest(request, 'GET', `${endpoint}?email=${encodeURIComponent(invitation.email)}`, { token: adminToken, headers })
+      expect(listing.status()).toBe(200)
+      expect((await listing.json() as { items: Array<{ id: string }> }).items.map((item) => item.id)).toContain(invitation.id)
+      const response = await apiRequest(request, 'DELETE', `${endpoint}?id=${invitation.id}`, { token: adminToken, headers })
+      expect(response.status()).toBe(200)
+      expect(await response.json()).toEqual({ ok: true })
+      expect((await invitationState(invitation.id)).cancelled_at).not.toBeNull()
+      const pending = await apiRequest(request, 'GET', `${endpoint}?email=${encodeURIComponent(invitation.email)}`, { token: adminToken, headers })
+      expect((await pending.json() as { items: unknown[] }).items).toEqual([])
+    } finally {
+      await deleteInvitations(invitationIds)
+      await deleteCustomerRoleFixture(request, adminToken, roleId)
+      await deleteOrganizationInDb(otherOrgId)
+    }
+  })
+
+  test('does not rotate an invitation cancelled while its resend waits for the database row lock', async ({ request }) => {
+    const adminToken = await getAuthToken(request, 'admin')
+    let roleId: string | null = null
+    let acceptedUserId: string | null = null
+    const invitationIds: string[] = []
+    try {
+      roleId = (await createCustomerRoleFixture(request, adminToken)).id
+      const invitation = await createInvitation(request, adminToken, roleId)
+      invitationIds.push(invitation.id)
+      const originalToken = await capturedToken(invitation.email)
+      const before = await withClient(async (client) => (await client.query<{ token: string; expires_at: Date }>(
+        'select token, expires_at from customer_user_invitations where id = $1', [invitation.id],
+      )).rows[0])
+      const response = await withClient(async (client) => {
+        await client.query('begin')
+        let committed = false
+        let resend: ReturnType<typeof apiRequest> | undefined
+        try {
+          const { rows: [{ pid }] } = await client.query<{ pid: number }>('select pg_backend_pid() as pid')
+          await client.query('select id from customer_user_invitations where id = $1 for update', [invitation.id])
+          resend = apiRequest(request, 'POST', endpoint, { token: adminToken, data: { email: invitation.email, roleIds: [roleId] }, retryTransport: false })
+          await expect.poll(async () => withClient(async (observer) => {
+            const result = await observer.query<{ count: string }>('select count(*) from pg_stat_activity where $1 = any(pg_blocking_pids(pid))', [pid])
+            return Number(result.rows[0].count)
+          })).toBeGreaterThan(0)
+          await client.query('update customer_user_invitations set cancelled_at = now() where id = $1 and accepted_at is null and cancelled_at is null', [invitation.id])
+          await client.query('commit')
+          committed = true
+          return await resend
+        } finally {
+          if (!committed) await client.query('rollback')
+          await resend?.catch(() => undefined)
+        }
+      })
+      expect(response.status()).toBe(201)
+      const replacement = (await response.json() as { invitation: { id: string } }).invitation
+      invitationIds.push(replacement.id)
+      expect(replacement.id).not.toBe(invitation.id)
+      expect((await invitationState(invitation.id)).cancelled_at).not.toBeNull()
+      const after = await withClient(async (client) => (await client.query<{ token: string; expires_at: Date }>(
+        'select token, expires_at from customer_user_invitations where id = $1', [invitation.id],
+      )).rows[0])
+      expect(after.token === before.token, 'the cancelled token verifier is unchanged').toBe(true)
+      expect(after.expires_at).toEqual(before.expires_at)
+      const token = await capturedToken(invitation.email, originalToken)
+      const acceptance = await request.post('/api/customer_accounts/invitations/accept', { data: { token, password: customerTestPassword(), displayName: 'Resent after cancellation' } })
+      expect(acceptance.status()).toBe(201)
+      acceptedUserId = (await acceptance.json() as { user: { id: string } }).user.id
+    } finally {
+      await deleteCustomerUserFixture(request, adminToken, acceptedUserId)
       await deleteInvitations(invitationIds)
       await deleteCustomerRoleFixture(request, adminToken, roleId)
     }

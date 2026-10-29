@@ -4,7 +4,6 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
-import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import type { CustomerInvitationService } from '../services/customerInvitationService'
 import { cancelInvitationSchema, type CancelInvitationInput } from '../data/validators'
 import { emitCustomerAccountsEvent } from '../events'
@@ -23,16 +22,10 @@ export const cancelInvitationCommand: CommandHandler<CancelInvitationInput, Canc
     if (!auth?.sub) {
       throw new CrudHttpError(401, { error: translate('customer_accounts.errors.cancelInvitationAuth') })
     }
-    const organizationScope = ctx.organizationScope ?? await resolveOrganizationScopeForRequest({
-      container: ctx.container,
-      auth,
-      request: ctx.request,
-      selectedId: ctx.request ? undefined : ctx.selectedOrganizationId ?? undefined,
-    })
-    if (organizationScope.selectionRejected || !organizationScope.tenantId || !organizationScope.selectedId) {
+    if (!auth.tenantId || !auth.orgId) {
       throw new CrudHttpError(403, { error: translate('customer_accounts.errors.cancelInvitationPermission') })
     }
-    const scope = { tenantId: organizationScope.tenantId, organizationId: organizationScope.selectedId }
+    const scope = { tenantId: auth.tenantId, organizationId: auth.orgId }
     const rbacService = ctx.container.resolve('rbacService') as RbacService
     if (!await rbacService.userHasAllFeatures(auth.sub, ['customer_accounts.invite'], scope)) {
       throw new CrudHttpError(403, { error: translate('customer_accounts.errors.cancelInvitationPermission') })
@@ -61,7 +54,7 @@ export const cancelInvitationCommand: CommandHandler<CancelInvitationInput, Canc
     const { translate } = await resolveTranslations()
     return {
       replayable: false,
-      resourceKind: 'customer_accounts.customer_user_invitation',
+      resourceKind: 'customer_accounts:customer_user_invitation',
       resourceId: input.id,
       tenantId: result.tenantId,
       organizationId: result.organizationId,

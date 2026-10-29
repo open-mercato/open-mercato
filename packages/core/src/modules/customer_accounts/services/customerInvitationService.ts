@@ -1,4 +1,4 @@
-import { UniqueConstraintViolationException } from '@mikro-orm/core'
+import { LockMode, UniqueConstraintViolationException, type RequiredEntityData } from '@mikro-orm/core'
 import { EntityManager } from '@mikro-orm/postgresql'
 import { hash } from 'bcryptjs'
 import {
@@ -98,72 +98,74 @@ export class CustomerInvitationService {
     const expiresAt = new Date(Date.now() + INVITATION_TTL_MS)
     const tokenHashed = hashToken(token)
 
-    // Dedupe: reuse an existing pending (not accepted, not cancelled, unexpired)
-    // invitation for the same recipient instead of inserting a new row. This caps
-    // row/token growth and keeps a single live token per concurrently-pending
-    // (tenant, organization, email) tuple.
-    const existing = await findOneWithDecryption(
-      this.em,
-      CustomerUserInvitation,
-      {
+    return this.em.transactional(async (transactionEm) => {
+      // Dedupe: reuse an existing pending (not accepted, not cancelled, unexpired)
+      // invitation for the same recipient instead of inserting a new row. This caps
+      // row/token growth and keeps a single live token per concurrently-pending
+      // (tenant, organization, email) tuple.
+      const existing = await findOneWithDecryption(
+        transactionEm,
+        CustomerUserInvitation,
+        {
+          tenantId: scope.tenantId,
+          organizationId: scope.organizationId,
+          emailHash,
+          acceptedAt: null,
+          cancelledAt: null,
+          expiresAt: { $gt: new Date() },
+        },
+        { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
+        { tenantId: scope.tenantId, organizationId: scope.organizationId },
+      )
+
+      if (existing && !existing.acceptedAt && !existing.cancelledAt && existing.expiresAt.getTime() > Date.now()) {
+        const rollbackState: CustomerInvitationRollbackState = {
+          email: existing.email,
+          token: existing.token,
+          customerEntityId: existing.customerEntityId ?? null,
+          personEntityId: existing.personEntityId ?? null,
+          roleIdsJson: [...(existing.roleIdsJson ?? [])],
+          invitedByUserId: existing.invitedByUserId ?? null,
+          invitedByCustomerUserId: existing.invitedByCustomerUserId ?? null,
+          displayName: existing.displayName ?? null,
+          expiresAt: new Date(existing.expiresAt),
+        }
+        existing.email = normalizedEmail
+        existing.token = tokenHashed
+        existing.customerEntityId = options.customerEntityId || null
+        // Keep the CRM person link and the recipient's display name when the
+        // re-invite does not carry them: the portal invite route and the admin users
+        // page only ever know the company, so overwriting with null would strip an
+        // invitation raised from a person card off that person's account-status card
+        // and drop the personalization from the invitation email (#5499).
+        existing.personEntityId = options.personEntityId || existing.personEntityId || null
+        existing.roleIdsJson = options.roleIds
+        existing.invitedByUserId = options.invitedByUserId || null
+        existing.invitedByCustomerUserId = options.invitedByCustomerUserId || null
+        existing.displayName = options.displayName || existing.displayName || null
+        existing.expiresAt = expiresAt
+        await transactionEm.flush()
+        return { invitation: existing, rawToken: token, reused: true, rollbackState }
+      }
+
+      const invitation = transactionEm.create(CustomerUserInvitation, {
         tenantId: scope.tenantId,
         organizationId: scope.organizationId,
+        email: normalizedEmail,
         emailHash,
-        acceptedAt: null,
-        cancelledAt: null,
-        expiresAt: { $gt: new Date() },
-      } as any,
-      undefined,
-      { tenantId: scope.tenantId, organizationId: scope.organizationId },
-    )
-
-    if (existing) {
-      const rollbackState: CustomerInvitationRollbackState = {
-        email: existing.email,
-        token: existing.token,
-        customerEntityId: existing.customerEntityId ?? null,
-        personEntityId: existing.personEntityId ?? null,
-        roleIdsJson: [...(existing.roleIdsJson ?? [])],
-        invitedByUserId: existing.invitedByUserId ?? null,
-        invitedByCustomerUserId: existing.invitedByCustomerUserId ?? null,
-        displayName: existing.displayName ?? null,
-        expiresAt: new Date(existing.expiresAt),
-      }
-      existing.email = normalizedEmail
-      existing.token = tokenHashed
-      existing.customerEntityId = options.customerEntityId || null
-      // Keep the CRM person link and the recipient's display name when the
-      // re-invite does not carry them: the portal invite route and the admin users
-      // page only ever know the company, so overwriting with null would strip an
-      // invitation raised from a person card off that person's account-status card
-      // and drop the personalization from the invitation email (#5499).
-      existing.personEntityId = options.personEntityId || existing.personEntityId || null
-      existing.roleIdsJson = options.roleIds
-      existing.invitedByUserId = options.invitedByUserId || null
-      existing.invitedByCustomerUserId = options.invitedByCustomerUserId || null
-      existing.displayName = options.displayName || existing.displayName || null
-      existing.expiresAt = expiresAt
-      await this.em.flush()
-      return { invitation: existing, rawToken: token, reused: true, rollbackState }
-    }
-
-    const invitation = this.em.create(CustomerUserInvitation, {
-      tenantId: scope.tenantId,
-      organizationId: scope.organizationId,
-      email: normalizedEmail,
-      emailHash,
-      token: tokenHashed,
-      customerEntityId: options.customerEntityId || null,
-      personEntityId: options.personEntityId || null,
-      roleIdsJson: options.roleIds,
-      invitedByUserId: options.invitedByUserId || null,
-      invitedByCustomerUserId: options.invitedByCustomerUserId || null,
-      displayName: options.displayName || null,
-      expiresAt,
-      createdAt: new Date(),
-    } as any) as CustomerUserInvitation
-    await this.em.persist(invitation).flush()
-    return { invitation, rawToken: token, reused: false, rollbackState: null }
+        token: tokenHashed,
+        customerEntityId: options.customerEntityId || null,
+        personEntityId: options.personEntityId || null,
+        roleIdsJson: options.roleIds,
+        invitedByUserId: options.invitedByUserId || null,
+        invitedByCustomerUserId: options.invitedByCustomerUserId || null,
+        displayName: options.displayName || null,
+        expiresAt,
+        createdAt: new Date(),
+      } as RequiredEntityData<CustomerUserInvitation>)
+      await transactionEm.persist(invitation).flush()
+      return { invitation, rawToken: token, reused: false, rollbackState: null }
+    })
   }
 
   async rollbackInvitation(
