@@ -52,6 +52,7 @@
   "sync_akeneo.discovery.locales": "Lokalizacje",
   "sync_akeneo.discovery.priceKinds": "Rodzaje cen katalogowych",
   "sync_akeneo.discovery.rediscovered": "Pola Akeneo odświeżone i brakujące mapowania dodane.",
+  "sync_akeneo.errors.mediaStorageRejected": "Magazyn załączników odrzucił plik multimedialny Akeneo {code} ({reason}).",
   "sync_akeneo.feature.configure": "Konfiguracja ustawień synchronizacji Akeneo",
   "sync_akeneo.feature.view": "Podgląd konfiguracji synchronizacji Akeneo",
   "sync_akeneo.firstImport.action": "Uruchom pierwszy pełny import",
