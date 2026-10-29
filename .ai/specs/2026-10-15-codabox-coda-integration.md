@@ -41,22 +41,58 @@ Bank-statement reconciliation is a **future optional consumer** of Codabox outpu
 - **Cash & Bank Management** (issue #6055; @mikoajp's comment on #7256 names it as the intended statement owner) — proposed `createBankStatement` command. Its referenced spec file and an implemented consumer are **not present** at this head.
 - **Finance module** (`SPEC-024`, status: Specification) — planned reconciliation, not implemented.
 
-The command signature suggested in the #7256 discussion is a **design proposal, not an available runtime API**, and must not be treated as callable prior art:
+The command signature in the Cash & Bank Management spec (#6055) is still a **spec-level design, not an available runtime API** — that spec is unmerged and the command is not implemented — so it must not be treated as callable prior art. As confirmed in the #7443 review it is:
 
 ```
-// PROPOSED (not implemented) — Cash & Bank Management #6055
+// SPEC-LEVEL (not implemented) — Cash & Bank Management #6055
 createBankStatement({ bankAccountId, statementDate, openingBalance, closingBalance,
   lines: [{ lineDate, amount, description }] })
+// requires feature: cash_bank_management.statements.manage
+// rejects an unknown bankAccountId; stores lines unmatched
 ```
 
-**Handoff model (consumer-owned, soft-optional).** Following the cross-module optional-integration convention, the *consumer* owns the glue: when Cash & Bank (or finance) ships, it subscribes to the Codabox `codabox.statement.ingested` event (or reads the module's internal statement API) and calls its own `createBankStatement`. The Codabox module does **not** hard-require, import, or unconditionally resolve a downstream service. If no consumer is present, Codabox stores and exposes statements on its own rows and the event is simply unconsumed — nothing fails, nothing is lost. The mapping concerns below (dedup, account→`bankAccountId`) therefore sit at the consumer boundary; v1 owns dedup for its own store, and account mapping becomes relevant only when a consumer that needs `bankAccountId` exists.
+**Handoff model (consumer-owned, soft-optional).** Following the cross-module optional-integration convention, the *consumer* owns the glue: when Cash & Bank (or finance) ships, it subscribes to the Codabox `codabox.statement.ingested` event **and/or** reads the module's internal statement API, resolves the account, and calls its own `createBankStatement` under `cash_bank_management.statements.manage`. The Codabox module does **not** hard-require, import, or unconditionally resolve a downstream service. If no consumer is present, Codabox stores and exposes statements on its own rows and the event is simply unconsumed — nothing fails, nothing is lost. The mapping concerns (dedup, account→`bankAccountId`) sit at the consumer boundary; v1 owns dedup for its own store and publishes the identifiers the consumer needs to do its own dedup and account lookup. The exact event payload and read-API cursor contract — settled with the Cash & Bank reviewers — are defined in **Downstream Consumer Contract** below.
 
 ### Mapping CODA onto a future statement command
 
-When a downstream consumer with a `createBankStatement`-style command exists, two seams (both flagged in review, both open) must be settled at that boundary:
+When a downstream consumer with a `createBankStatement`-style command exists, two seams (flagged in review) are settled at that boundary; the concrete payload/API shape is in **Downstream Consumer Contract** below.
 
-- **Idempotency / duplicate-statement guard.** v1 already enforces uniqueness in its own store on the durable document identity (see Durable Ingestion), so re-fetches are no-ops regardless of any downstream consumer. If a future `createBankStatement` has no dedup of its own, the consumer-side handoff keys off the same identity so it cannot double-import.
-- **Account-number → `bankAccountId` mapping.** A CODA file identifies the account by its bank account number (IBAN); a `createBankStatement`-style command needs an internal `bankAccountId`. This mapping belongs to the **consumer** (Cash & Bank / finance), which owns `BankAccount`. v1 does not resolve `bankAccountId` and does not need one — it stores the raw account number as delivered. When a consumer ships, it resolves the number to its own `BankAccount` via an explicit, tenant-scoped mapping and surfaces an actionable error on an unresolved account rather than silently dropping.
+- **Idempotency / duplicate-statement guard.** v1 enforces uniqueness in its own store on the durable document identity (see Durable Ingestion), so re-fetches are no-ops regardless of any downstream consumer. Cash & Bank plans to add an optional external id, unique per source and bank account, so a repeated `createBankStatement` is a no-op on their side too. v1 therefore **publishes a stable CODA-document id** (the same identity it dedupes on) in both the event and the read API, so the consumer can key its own external id off it. This makes event-or-pull redelivery (point 2 below) safe: a repeated ingest is harmless end-to-end.
+- **Account-number → `bankAccountId` mapping.** A CODA file identifies the account by its IBAN; a `createBankStatement`-style command needs an internal `bankAccountId`. This mapping belongs to the **consumer** (Cash & Bank / finance), which owns `BankAccount`. v1 does not resolve `bankAccountId` and does not need one. Two consumer-side details confirmed in review shape what v1 must publish: (a) one IBAN can back several bank accounts (e.g. one per currency), so the lookup needs **IBAN + statement currency**, not IBAN alone; (b) the consumer stores the account number encrypted and looks it up by a deterministic hash. v1 therefore emits the **normalised IBAN** and the **statement currency**; the consumer derives its own hash and resolves the account. On zero or multiple matches the consumer rejects and reports rather than guessing — v1 does not need to know the outcome.
+
+### Downstream Consumer Contract (settled with Cash & Bank review)
+
+This is the stable handoff surface a reconciliation consumer (Cash & Bank #6055, or the planned finance module) depends on. It is **additive** — Codabox owns and versions it; the consumer reads it. Codabox still works with no consumer present.
+
+**Two delivery channels, both idempotent.** The consumer may use either or both; a repeated or lost delivery is harmless because every statement carries a stable id and the consumer dedupes on it.
+
+1. **Event (trigger):** `codabox.statement.ingested`, emitted after the store commit (and after the feed-offset ack, so an event never references a statement that isn't durably stored). Events can be lost or redelivered; treat the event as a hint to pull, not the source of truth.
+2. **Read API (source of truth):** list statements since an opaque cursor (`?since=<cursor>&limit=<n>`, `limit` ≤ 100), tenant-scoped and gated by `codabox.statements.view`. Returns statements in ingestion order with the same payload as the event plus the next cursor, so a consumer that missed events reconciles by replaying from its last cursor.
+
+**Statement payload (event and read API share one shape).** Field set confirmed with the reviewers:
+
+```
+{
+  codaboxDocumentId,        // stable CODA-document id — the identity v1 dedupes on; consumer's external-id key
+  connectionId,             // owning Codabox connection (org-scoped)
+  tenantId, organizationId, // trusted binding scope (from the connection, never from the file)
+  accountIban,              // normalised IBAN — consumer resolves bankAccountId from (accountIban, currency)
+  currency,                 // statement currency — required for the IBAN→account lookup (one IBAN, many accounts)
+  statementDate,
+  openingBalance, closingBalance,
+  lines: [{
+    valueDate,              // bank value date
+    bookingDate,            // = lineDate for createBankStatement
+    amount,                 // signed
+    description,
+    counterpartyAccount?,   // counterparty IBAN/account, when present
+    counterpartyName?,      // when present
+    structuredCommunication? // structured/free communication, when present
+  }]
+}
+```
+
+Rationale from review: Cash & Bank's line today is `{ lineDate, amount, description }`. The extra fields (`valueDate`, `counterpartyAccount`, `counterpartyName`, `structuredCommunication`) are forward-looking for automatic matching; until the consumer models them it folds them into `description`, so emitting them now costs nothing and avoids a later contract bump. `bookingDate` maps to the consumer's `lineDate`. No statement content appears in cursors, run parameters, or logs (see Statement Payload Protection) — the cursor is the opaque `feed_offset` only; this contract is a read surface, not the cursor.
 
 ### Authorization layers
 
@@ -111,7 +147,7 @@ This is a **business blocker, not a technical one.** The Codabox Connect API is 
 
 v1 does **not** depend on any finance or Cash & Bank module. The only hard prerequisite is Codabox partner onboarding (above); v1 ships as self-contained raw-CODA retrieval/storage/exposure. Neither the Cash & Bank Management spec (#6055) nor an implemented `createBankStatement` consumer exists at this head, and the finance module (`SPEC-024`) is planned, not implemented — so neither is available prior art to depend on.
 
-If a stronger coupling is ever desired (Codabox pushing directly into a statement store rather than the consumer pulling), that would make the consumer's implementation and its ingestion contract an **additional, explicit prerequisite** — call it out and align then. v1 deliberately avoids that by using the consumer-owned, soft-optional handoff (see Downstream Consumer). When Cash & Bank or finance ships, confirm with its owners: the real command signature, whether CODA is a supported source (its roadmap lists Phase 1 manual / Phase 2 MT940·CAMT·BAI2 with CODA not yet listed), and consumer-side ownership of account→`bankAccountId` mapping.
+If a stronger coupling is ever desired (Codabox pushing directly into a statement store rather than the consumer pulling), that would make the consumer's implementation and its ingestion contract an **additional, explicit prerequisite** — call it out and align then. v1 deliberately avoids that by using the consumer-owned, soft-optional handoff (see Downstream Consumer Contract). The #7443 review settled the command signature (`createBankStatement({ bankAccountId, statementDate, openingBalance, closingBalance, lines })` under `cash_bank_management.statements.manage`, rejecting unknown `bankAccountId`, storing lines unmatched), the dedup approach (consumer adds an optional external id keyed off our stable `codaboxDocumentId`), the account mapping (consumer resolves `bankAccountId` from our `accountIban` + `currency`), and the phasing (CODA-via-Codabox becomes a named external source in Cash & Bank's Phase 2, which is today a one-line deferral in that spec's Out-of-scope section, not a scheduled feature; the spec is unmerged and no date is committed). Both specs are design-level until Cash & Bank is merged and the command implemented, so v1 still calls no runtime API — it only publishes the contract above. Parsing stays in the Codabox module, so Cash & Bank does not need a CODA parser before this lands.
 
 ## Risks & Impact Review
 
@@ -130,14 +166,16 @@ If a stronger coupling is ever desired (Codabox pushing directly into a statemen
 | Raw statement bytes exposed via a public/global file path. | High | Data exposure (banking data at rest) | Store raw CODA files through `attachmentService` on a private, fully-scoped partition (`assertAttachmentScopeInvariant`, never `is_public`/global); gate every read through `checkAttachmentAccess`; download route requires `codabox.files.download` + owning-connection scope. | Depends on never adding a read path that bypasses `checkAttachmentAccess`. |
 | Sensitive statement metadata stored plaintext or leaked in diagnostics. | High | Data exposure | Encrypt sensitive metadata fields via `encryption.ts` maps + `findWithDecryption`; keep statement content out of cursors, run parameters, and logs (opaque identifiers only). | Inherits the shared tenant-encryption threat model; disabled-encryption mode stores plaintext (see Credentials). |
 | Building v1 against a finance / Cash & Bank consumer that does not exist yet (SPEC-024 is planned; #6055 spec and `createBankStatement` absent at this head). | High | Architecture / scope | v1 is self-contained (own store + exposure) and treats reconciliation as a future optional consumer with a consumer-owned soft-optional handoff; no hard dependency, no call to an unavailable API. | If a consumer later wants push-style ingestion, its implementation + contract become an explicit prerequisite to align then. |
-| Account number cannot be mapped to a `BankAccount` (consumer-side, future). | Medium | Reconciliation correctness (downstream) | Mapping is owned by the consumer when it ships; v1 stores the raw account number and does not need `bankAccountId`. | Deferred to the consumer; not a v1 concern. |
+| Account number cannot be mapped to a `BankAccount` (consumer-side, future). | Medium | Reconciliation correctness (downstream) | Mapping is owned by the consumer when it ships; v1 publishes normalised `accountIban` + `currency` so the consumer can resolve the right account when one IBAN backs several accounts (per-currency), and derive its own deterministic hash for an encrypted lookup. On zero/multiple matches the consumer rejects and reports. | Deferred to the consumer; not a v1 concern. |
+| Downstream event lost or redelivered (reconciliation misses or double-imports a statement). | Medium | Reconciliation correctness (downstream) | Dual channel: `codabox.statement.ingested` as a trigger plus a cursor-based read API as source of truth; every statement carries a stable `codaboxDocumentId` the consumer dedupes on, so a lost event is recovered by replaying from the cursor and a redelivery is a no-op. | Consumer must implement its own external-id dedup keyed off `codaboxDocumentId`. |
 
 ## Final Compliance Report
 
 - New opt-in module package only; no changes to core required.
 - No core API route, DB schema, or DI contract changes.
 - v1 is self-contained: Codabox stores retrieved CODA files + parsed metadata on its own tenant-scoped rows and exposes them; no dependency on a finance or Cash & Bank module (neither exists at this head).
-- Reconciliation is a future optional consumer via a consumer-owned soft-optional handoff (event / internal API); Codabox never hard-requires, imports, or unconditionally resolves a downstream service, and degrades to "store + expose only" when none is present. No direct cross-module ORM relationship.
+- Reconciliation is a future optional consumer via a consumer-owned soft-optional handoff; Codabox never hard-requires, imports, or unconditionally resolves a downstream service, and degrades to "store + expose only" when none is present. No direct cross-module ORM relationship.
+- Downstream Consumer Contract settled with Cash & Bank review (#7443): dual idempotent channels (`codabox.statement.ingested` event as trigger + cursor-based read API gated by `codabox.statements.view` as source of truth); a stable `codaboxDocumentId` on every statement so redelivery/loss is safe; normalised `accountIban` + `currency` so the consumer resolves `bankAccountId` (one IBAN may back several per-currency accounts) via its own encrypted/hashed lookup; line fields carry `valueDate`/`bookingDate`, counterparty account+name, and structured communication for later auto-matching. The contract is additive and Codabox-owned; v1 calls no consumer runtime API.
 - Credentials reuse the shared `integrationCredentialsService` unchanged: encrypted when enabled, fail-closed when unavailable, plaintext when the operator has disabled encryption (opt-out honored, warned in the UI). No change to the global credentials contract for this provider.
 - All entities and routes are tenant-scoped; no cross-tenant exposure; no direct cross-module ORM relationships.
 - Each remote Codabox company/feed is bound to one trusted `(tenantId, organizationId)` via a module-owned connection entity; fetch scope derives from that binding, never from the CODA file or request input. Consent `Allowed` is necessary but not sufficient — the binding must also resolve to the acting organization.
@@ -148,24 +186,30 @@ If a stronger coupling is ever desired (Codabox pushing directly into a statemen
 - Mixed-feed safety: v1 stops at the first non-CODA entry rather than acknowledging-and-skipping, so filtering to CODA never consumes unrelated deliveries.
 - Statement payload (not just credentials) protected at rest: raw CODA files stored via `attachmentService` on a private, fully-scoped partition (`assertAttachmentScopeInvariant`, never `is_public`/global, read only through `checkAttachmentAccess`); sensitive metadata encrypted via `encryption.ts` maps + `findWithDecryption`; download gated by `codabox.files.download` + owning-connection scope; bounded retention with `releaseScoped()` deletion. No statement content in cursors, run parameters, or logs.
 - v1 scope limited to CODA; SODA/CARO/e-invoices explicitly deferred.
-- No external runtime dependency in v1. The `createBankStatement` command named in the #7256 discussion is a design proposal, not an available API, and is not called by v1. Any future consumer coupling confirms the real signature and CODA support with that module's owners at that time.
-- To be completed at implementation time: final entity columns, validators, exact route paths, ACL feature ids, the CODA durable-identity dedup definition, the module's own statement read/download surface, and integration coverage for all affected API/UI paths.
+- No external runtime dependency in v1. Cash & Bank's `createBankStatement` is spec-level (unmerged, not implemented) and is not called by v1 — v1 only publishes the Downstream Consumer Contract above. CODA-via-Codabox is slated to become a named external source in Cash & Bank's Phase 2, which today is a one-line deferral in that spec, not a scheduled feature; no date is committed on either side.
+- To be completed at implementation time: final entity columns, validators, exact route paths, ACL feature ids, the CODA durable-identity dedup definition (the `codaboxDocumentId` derivation published in the contract), the read-API cursor/pagination details, and integration coverage for all affected API/UI paths.
 
 ## Coordination with a future reconciliation consumer
 
-Codabox v1 is self-contained: it retrieves, stores, and exposes CODA statements on its own rows and does **not** depend on Cash & Bank. Reconciliation is a future optional consumer — when Cash & Bank ships, it would subscribe to `codabox.statement.ingested` (or read our internal statement API) and call its own `createBankStatement`. The consumer owns that glue and the account→`bankAccountId` mapping; we own dedup for our own store.
+Codabox v1 is self-contained: it retrieves, stores, and exposes CODA statements on its own rows and does **not** depend on Cash & Bank. Reconciliation is a future optional consumer — when Cash & Bank ships, it subscribes to `codabox.statement.ingested` and/or reads our cursor-based statement API and calls its own `createBankStatement`. The consumer owns that glue, the account→`bankAccountId` mapping, and its own external-id dedup; we own dedup for our own store and publish the stable identifiers the consumer needs. The concrete payload and API shape is the **Downstream Consumer Contract** above.
 
-To confirm when that module lands (not a v1 blocker):
+Settled with the Cash & Bank reviewers (#7443 ↔ #6055), to be mirrored into the Cash & Bank spec's Phase 2 external-source section when that spec is updated:
 
-1. The real `createBankStatement` signature (the `{ bankAccountId, statementDate, openingBalance, closingBalance, lines }` shape from the #7256 thread is a proposal, not something we call yet).
-2. Whether CODA is a supported source — the roadmap lists Phase 1 manual / Phase 2 MT940·CAMT·BAI2 with CODA not yet listed.
-3. That the consumer owns account→`bankAccountId` mapping and its own duplicate rejection.
+1. **Signature.** `createBankStatement({ bankAccountId, statementDate, openingBalance, closingBalance, lines: { lineDate, amount, description }[] })`, requires `cash_bank_management.statements.manage`, rejects an unknown `bankAccountId`, stores lines unmatched. Spec-level, not implemented — v1 does not call it.
+2. **Event or pull.** Both: `codabox.statement.ingested` as the trigger and our read API (list statements since a cursor) as the source of truth, which is safe because repeated ingest is harmless (stable `codaboxDocumentId` dedup).
+3. **Dedup.** Cash & Bank adds an optional external id, unique per source + bank account; our event and API carry the stable `codaboxDocumentId` to key it off.
+4. **Account mapping.** Consumer resolves `bankAccountId` from our normalised `accountIban` + `currency` (one IBAN can back several per-currency accounts) via a deterministic hash over its encrypted account number; zero/multiple matches → reject and report.
+5. **Line fields.** Beyond `lineDate`/`amount`/`description`, we also emit counterparty account + name, structured communication, and value date; the consumer keeps them for later auto-matching and folds them into `description` until then.
+6. **Phasing.** CODA-via-Codabox becomes a named external source in Cash & Bank's Phase 2 (today a single Out-of-scope line, no import contract, spec unmerged). No date or scope commitment before that spec is agreed. Parsing stays in the Codabox module, so Cash & Bank needs no CODA parser.
+
+These update the three "to confirm" items the integration spec previously listed (signature, mapping, duplicates). The Cash & Bank spec is to be updated by its owners to add the Phase 2 external-source contract.
 
 Separately, the hard blocker still stands: implementation can't start until Open Mercato is approved as a Codabox Connect partner and credentials are issued.
 
 ## References
 
-- Future optional consumer (planned, not implemented at this head) — Cash & Bank Management: issue #6055 / @mikoajp's comment on #7256; proposed `createBankStatement` command (design proposal, not an available API)
+- This integration spec PR: #7443 (carries the Downstream Consumer Contract; the previously-listed signature/mapping/duplicates "to confirm" items are settled here)
+- Future optional consumer (spec-level, not implemented at this head) — Cash & Bank Management: issue/PR #6055 (bank reconciliation, FX, AR/AP settlement); `createBankStatement` is spec-level design, not an available API; CODA-via-Codabox to be added as a Phase 2 external source by its owners
 - Future optional consumer (planned) — finance module: `.ai/specs/SPEC-024-2026-02-11-financial-module.md` (status: Specification)
 - Prior art — encrypted credentials pattern: `.ai/specs/implemented/2026-05-29-integrations-credentials-encryption-fail-closed.md`
 - Prior art — integration module layout: `packages/sync-akeneo/`
@@ -177,3 +221,4 @@ Separately, the hard blocker still stands: implementation can't start until Open
 
 - 2026-10-18 — Revised per design review (unpublished draft): v1 is now self-contained raw-CODA retrieval/storage/exposure, with reconciliation (Cash & Bank #6055 / planned finance module) as a future optional, consumer-owned soft-optional handoff rather than a dependency. Added a V2 two-tier credential + connection model binding each remote company/feed to one trusted tenant+organization, corrected the credential-storage claim to the real enabled/disabled/unavailable behavior, specified durable ingestion against the ordered feed (commit-before-advance, durable document identity, crash replay, mixed-feed policy, `data_sync` lifecycle), and defined statement-payload protection at rest (private `attachmentService` partition, encrypted metadata, scoped download).
 - 2026-10-15 — Initial draft spec for the opt-in Codabox CODA integration module (v1: CODA only).
+- 2026-10-29 — Settled the downstream handoff with the Cash & Bank reviewers (#7443 ↔ #6055) and added a **Downstream Consumer Contract** section: dual idempotent channels (`codabox.statement.ingested` event + cursor-based read API gated by `codabox.statements.view`), a stable `codaboxDocumentId` on every statement for consumer-side external-id dedup, normalised `accountIban` + `currency` so the consumer resolves `bankAccountId` (one IBAN may back several per-currency accounts via a deterministic hash over its encrypted account number), and forward-looking line fields (value date, booking date, counterparty account + name, structured communication). Recorded Cash & Bank's spec-level `createBankStatement` signature and `cash_bank_management.statements.manage` gate, and the phasing (CODA becomes a Phase 2 external source in the unmerged Cash & Bank spec; no date committed; parsing stays in Codabox). Updated the Mapping, Downstream Consumer, risk, compliance, coordination, and references sections; the three previously-open "to confirm" items (signature, mapping, duplicates) are now settled.
