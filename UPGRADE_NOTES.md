@@ -24,6 +24,21 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.9.0 → 0.9.1 (unreleased)
 
+### Organization create undo retains a tombstone (#7663)
+
+Undoing organization creation now sets `deleted_at`, deactivates the row and
+detaches its parent instead of physically removing it. Redo restores the same
+organization and preserves its original creation time. The tombstone reserves
+its slug under the existing tenant-wide unique constraint; creating another
+organization with that name uses the usual numeric slug suffix.
+
+Consumers that inspect raw organization rows must exclude soft-deleted records
+when listing active organizations. Supported list APIs already do so. No schema
+migration is required. Existing replay logs remain readable; recreation restores
+creation time from the stored after-snapshot when available. A historical log
+that lacks that timestamp cannot recover the original time. Rolling back the
+code does not remove tombstones or release their slugs.
+
 ### Cart line contention returns retryable 503 (#8072)
 
 `POST /api/cart/current/lines` and `POST /api/cart/current/lines/bulk` release pooled connections while waiting for the existing cart transaction lock. If contention lasts for the 15-second wait budget, they now return `503` with `code: "cart_busy"`, a localized `error`, `Retry-After: 1` and `Cache-Control: no-store`. This response is issued only after an unsuccessful pre-mutation lock attempt has rolled back; no line mutation or successful idempotency response was recorded.
