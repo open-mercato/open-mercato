@@ -6,6 +6,7 @@ import {
   parseSelectedOrganizationCookie,
   parseSelectedTenantCookie,
 } from '@open-mercato/core/modules/directory/utils/scopeCookies'
+import type { ResolvedProjectAccessScope } from './projectAccessScopeHeaders'
 
 export type ProjectAccessScope = {
   projectId: string | null
@@ -18,11 +19,14 @@ export type ProjectAccessScopeState = {
   scopeKey: string
   /** Reads the scope cookies again, so it also catches a change that has not been rendered yet. */
   isCurrentScope: () => boolean
+  resolvedScope: ResolvedProjectAccessScope | null
+  resolveScope: (scope: ResolvedProjectAccessScope | null) => void
 }
 
 type ProjectAccessScopeBinding = {
   scope: ProjectAccessScope
   generation: number
+  resolvedScope: ResolvedProjectAccessScope | null
 }
 
 export function readProjectAccessScope(timeProjectId?: string | null): ProjectAccessScope {
@@ -34,23 +38,16 @@ export function readProjectAccessScope(timeProjectId?: string | null): ProjectAc
   }
 }
 
-/**
- * Returns the scope `current` continues, or `null` when it is a different scope.
- *
- * A fresh session has no scope cookies: the server resolves each request from the session, and
- * the organization switcher then persists that resolved scope. An absent cookie therefore takes
- * the first value written over it. Any other difference is a new scope — another project, or an
- * explicit value that is replaced or cleared.
- */
 export function bindProjectAccessScope(
   bound: ProjectAccessScope,
   current: ProjectAccessScope,
+  resolvedScope?: ResolvedProjectAccessScope | null,
 ): ProjectAccessScope | null {
-  const continues = (boundValue: string | null, currentValue: string | null) =>
-    boundValue === null || boundValue === currentValue
+  const continues = (boundValue: string | null, currentValue: string | null, resolvedValue?: string) =>
+    boundValue === currentValue || (boundValue === null && currentValue === resolvedValue)
   if (bound.projectId !== current.projectId) return null
-  if (!continues(bound.tenantId, current.tenantId)) return null
-  if (!continues(bound.organizationId, current.organizationId)) return null
+  if (!continues(bound.tenantId, current.tenantId, resolvedScope?.tenantId)) return null
+  if (!continues(bound.organizationId, current.organizationId, resolvedScope?.organizationId)) return null
   return current
 }
 
@@ -64,23 +61,42 @@ function rebindProjectAccessScope(
   binding: ProjectAccessScopeBinding,
   current: ProjectAccessScope,
 ): ProjectAccessScopeBinding {
-  const continued = bindProjectAccessScope(binding.scope, current)
-  if (!continued) return { scope: current, generation: binding.generation + 1 }
+  const continued = bindProjectAccessScope(binding.scope, current, binding.resolvedScope)
+  if (!continued) return { scope: current, generation: binding.generation + 1, resolvedScope: null }
   if (isSameProjectAccessScope(continued, binding.scope)) return binding
-  return { scope: continued, generation: binding.generation }
+  return { ...binding, scope: continued }
 }
 
-export function useProjectAccessScope(timeProjectId?: string | null): ProjectAccessScopeState {
+export function useProjectAccessScope(
+  timeProjectId?: string | null,
+  initialResolvedScope?: ResolvedProjectAccessScope | null,
+): ProjectAccessScopeState {
   useOrganizationScopeVersion()
   const current = readProjectAccessScope(timeProjectId)
-  const [binding, setBinding] = React.useState<ProjectAccessScopeBinding>(() => ({ scope: current, generation: 0 }))
+  const [binding, setBinding] = React.useState<ProjectAccessScopeBinding>(() => ({
+    scope: current,
+    generation: 0,
+    resolvedScope: initialResolvedScope ?? null,
+  }))
   const nextBinding = rebindProjectAccessScope(binding, current)
   if (nextBinding !== binding) setBinding(nextBinding)
-  const boundScope = React.useRef(nextBinding.scope)
-  boundScope.current = nextBinding.scope
-  const isCurrentScope = React.useCallback(
-    () => bindProjectAccessScope(boundScope.current, readProjectAccessScope(timeProjectId)) !== null,
-    [timeProjectId],
-  )
-  return { scopeKey: String(nextBinding.generation), isCurrentScope }
+  const boundScope = React.useRef(nextBinding)
+  boundScope.current = nextBinding
+  const generation = nextBinding.generation
+  const isCurrentScope = React.useCallback(() => {
+    const active = boundScope.current
+    return active.generation === generation
+      && bindProjectAccessScope(active.scope, readProjectAccessScope(timeProjectId), active.resolvedScope) !== null
+  }, [generation, timeProjectId])
+  const resolveScope = React.useCallback((resolvedScope: ResolvedProjectAccessScope | null) => {
+    setBinding((previous) => {
+      if (previous.generation !== generation) return previous
+      if (!bindProjectAccessScope(previous.scope, readProjectAccessScope(timeProjectId), resolvedScope)) return previous
+      const changed = previous.resolvedScope !== null && resolvedScope !== null
+        && (previous.resolvedScope.tenantId !== resolvedScope.tenantId
+          || previous.resolvedScope.organizationId !== resolvedScope.organizationId)
+      return { ...previous, resolvedScope, generation: previous.generation + (changed ? 1 : 0) }
+    })
+  }, [generation, timeProjectId])
+  return { scopeKey: String(generation), isCurrentScope, resolvedScope: nextBinding.resolvedScope, resolveScope }
 }

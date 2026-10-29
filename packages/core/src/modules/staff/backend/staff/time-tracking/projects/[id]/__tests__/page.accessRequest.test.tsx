@@ -85,7 +85,7 @@ jest.mock('@open-mercato/ui/backend/CrudForm', () => ({
   },
 }))
 
-const denied = { ok: false, status: 404, result: { reason: 'no_project_access' }, response: {} }
+const denied = { ok: false, status: 404, result: { reason: 'no_project_access' }, response: { headers: new Headers({ 'x-om-project-scope-tenant-id': 'tenant-a', 'x-om-project-scope-organization-id': 'org-a' }) } }
 const apiCallMock = jest.mocked(apiCall)
 const requestMock = jest.mocked(apiCallOrThrow)
 
@@ -182,6 +182,65 @@ describe.each([
     expect(await screen.findByRole('button', { name: 'Request sent' })).toBeDisabled()
   })
 
+  it('resets on cookie hydration when the response provides no resolved scope', async () => {
+    clearScope()
+    apiCallMock.mockImplementation(async (url) => url.toString().includes('/time-projects?')
+      ? { ...denied, response: {} }
+      : { ok: true, status: 200, result: { items: [] }, response: {} } as never)
+    const { refresh } = renderProject()
+    await sendRequest()
+    const reload = deferred<typeof denied>()
+    apiCallMock.mockImplementation(async (url) => url.toString().includes('/time-projects?') ? reload.promise : {} as never)
+    setScope()
+    mockScopeVersion += 1
+    refresh()
+    expect(screen.queryByRole('button', { name: 'Request sent' })).not.toBeInTheDocument()
+    expect(screen.getByText('Loading project...')).toBeInTheDocument()
+    await act(async () => { reload.resolve(denied) })
+    expect(await screen.findByRole('button', { name: 'Request access' })).toBeEnabled()
+  })
+
+  it.each(['organization', 'tenant'])('resets acknowledgement when the first persisted %s differs from the resolved scope', async (changed) => {
+    clearScope()
+    const { refresh } = renderProject()
+    await sendRequest()
+    const reload = deferred<typeof denied>()
+    apiCallMock.mockImplementation(async (url) => url.toString().includes('/time-projects?') ? reload.promise : {} as never)
+    setScope(changed === 'organization' ? 'org-b' : 'org-a', changed === 'tenant' ? 'tenant-b' : 'tenant-a')
+    mockScopeVersion += 1
+    refresh()
+    expect(screen.queryByRole('button', { name: 'Request sent' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Request access' })).not.toBeInTheDocument()
+    expect(screen.getByText('Loading project...')).toBeInTheDocument()
+    await act(async () => { reload.resolve(denied) })
+    expect(await screen.findByRole('button', { name: 'Request access' })).toBeEnabled()
+  })
+
+  it.each(['organization', 'tenant'])('does not submit a fresh-session guard after a first different %s cookie is written, before render', async (changed) => {
+    clearScope()
+    const guard = deferred<void>()
+    mockGuard = guard.promise
+    renderProject()
+    fireEvent.click(await screen.findByRole('button', { name: 'Request access' }))
+    setScope(changed === 'organization' ? 'org-b' : 'org-a', changed === 'tenant' ? 'tenant-b' : 'tenant-a')
+    await act(async () => { guard.resolve() })
+    expect(requestMock).not.toHaveBeenCalled()
+    expect(flash).not.toHaveBeenCalled()
+  })
+
+  it.each(['organization', 'tenant'])('ignores a fresh-session POST completion after a first different %s cookie is written, before render', async (changed) => {
+    clearScope()
+    const request = deferred<never>()
+    requestMock.mockReturnValue(request.promise)
+    renderProject()
+    fireEvent.click(await screen.findByRole('button', { name: 'Request access' }))
+    await waitFor(() => expect(requestMock).toHaveBeenCalledTimes(1))
+    setScope(changed === 'organization' ? 'org-b' : 'org-a', changed === 'tenant' ? 'tenant-b' : 'tenant-a')
+    await act(async () => { request.resolve({} as never) })
+    expect(flash).not.toHaveBeenCalled()
+    expect(screen.queryByRole('button', { name: 'Request sent' })).not.toBeInTheDocument()
+  })
+
   it('resets the acknowledgement when the scope a fresh session persisted later changes', async () => {
     clearScope()
     const { refresh } = renderProject()
@@ -276,7 +335,7 @@ describe('edit project form scope refresh', () => {
     ok: true,
     status: 200,
     result: { items: [{ id: PROJECT_ID, name: 'Apollo', code: 'APL', status: 'active' }] },
-    response: {},
+    response: denied.response,
   }
 
   function renderProject() {

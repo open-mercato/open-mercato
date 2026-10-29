@@ -32,6 +32,7 @@ import { KpiCard, Sparkline } from '@open-mercato/ui/backend/charts'
 import { ProjectTeamDrawer } from '../../../../../lib/time-tracking-ui/ProjectTeamDrawer'
 import { NoProjectAccess } from '../../../../../lib/time-tracking-ui/NoProjectAccess'
 import { useProjectAccessScope } from '../../../../../lib/time-tracking-ui/projectAccessScope'
+import { readResolvedProjectAccessScope } from '../../../../../lib/time-tracking-ui/projectAccessScopeHeaders'
 import { ProjectBudgetCell } from '../../../../../lib/timesheets-projects-ui/ProjectBudgetCell'
 import { computeBudgetBurn } from '../../../../../lib/timesheets-projects/budgetBurn'
 import { resolveProjectColorHex } from '../../../../../lib/timesheets-ui/colors'
@@ -169,7 +170,7 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
   const projectId = params?.id
   const t = useT()
   const scopeVersion = useOrganizationScopeVersion()
-  const { scopeKey: projectAccessScopeKey } = useProjectAccessScope(projectId)
+  const { scopeKey: projectAccessScopeKey, resolvedScope, resolveScope } = useProjectAccessScope(projectId)
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const router = useRouter()
   const pathname = usePathname()
@@ -396,6 +397,7 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
         const call = await apiCall<ProjectResponse>(
           `/api/staff/timesheets/time-projects?${queryParams.toString()}`,
         )
+        if (!cancelled) resolveScope(readResolvedProjectAccessScope(call.response))
         // Screen 17: the route answers 404 with this discriminator for a project
         // the caller is not a member of, without naming it.
         if (call.status === 404 && readDenialReason(call.result) === NO_PROJECT_ACCESS_REASON) {
@@ -427,7 +429,7 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
     }
     loadProject()
     return () => { cancelled = true }
-  }, [projectId, t, scopeVersion, projectAccessScopeKey])
+  }, [projectId, t, scopeVersion, projectAccessScopeKey, resolveScope])
 
   // --- Load employees with name resolution ---
   const loadEmployees = React.useCallback(async () => {
@@ -665,7 +667,7 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
   // resolving late) keeps the guard mounted instead of resetting a request the
   // user has just sent.
   if (accessDenied) {
-    return <NoProjectAccess timeProjectId={projectId} />
+    return <NoProjectAccess timeProjectId={projectId} resolvedScope={resolvedScope} />
   }
 
   if (loading || loadedScopeKey !== projectAccessScopeKey) {

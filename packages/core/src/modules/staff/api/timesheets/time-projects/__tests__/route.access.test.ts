@@ -121,7 +121,7 @@ jest.mock('@open-mercato/shared/lib/auth/server', () => ({
 }))
 
 jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => ({
-  resolveOrganizationScopeForRequest: jest.fn(async () => null),
+  resolveOrganizationScopeForRequest: jest.fn(async () => ({ tenantId: tenantA, selectedId: organizationId, allowedIds: [organizationId], filterIds: [organizationId] })),
 }))
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
@@ -139,6 +139,8 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
 }))
 
 import { GET, NO_PROJECT_ACCESS_REASON } from '../route'
+import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { PROJECT_SCOPE_TENANT_HEADER, PROJECT_SCOPE_ORGANIZATION_HEADER } from '../../../../lib/time-tracking-ui/projectAccessScopeHeaders'
 
 const listRequest = (params: Record<string, string> = {}) => {
   const url = new URL('http://localhost/api/staff/timesheets/time-projects')
@@ -267,6 +269,20 @@ describe('time-projects list route project access scoping', () => {
       expect(raw).not.toContain(foreignProjectId)
     })
 
+    it('reports the actual request scope instead of session defaults or untrusted query values', async () => {
+      const selectedOrganization = '88888888-8888-4888-8888-888888888888'
+      jest.mocked(resolveOrganizationScopeForRequest).mockResolvedValueOnce({
+        tenantId: tenantB,
+        selectedId: selectedOrganization,
+      } as never)
+      const response = await GET(listRequest({ ids: foreignProjectId, tenantId: tenantA, organizationId }))
+
+      expect(response.status).toBe(404)
+      expect(response.headers.get(PROJECT_SCOPE_TENANT_HEADER)).toBe(tenantB)
+      expect(response.headers.get(PROJECT_SCOPE_ORGANIZATION_HEADER)).toBe(selectedOrganization)
+      expect(await response.text()).not.toContain(PROJECT_NAME)
+    })
+
     it('applies the same denial to the ?id= spelling', async () => {
       const response = await GET(listRequest({ id: foreignProjectId }))
 
@@ -289,6 +305,8 @@ describe('time-projects list route project access scoping', () => {
 
       expect(response.status).toBe(200)
       expect(crudGet).toHaveBeenCalledTimes(1)
+      expect(response.headers.get(PROJECT_SCOPE_TENANT_HEADER)).toBe(tenantA)
+      expect(response.headers.get(PROJECT_SCOPE_ORGANIZATION_HEADER)).toBe(organizationId)
     })
 
     it('serves any project to a canManageAll caller', async () => {
@@ -332,6 +350,24 @@ describe('time-projects list route project access scoping', () => {
       expect(response.status).toBe(404)
       expect(((await response.json()) as { reason?: string }).reason).toBe(NO_PROJECT_ACCESS_REASON)
       expect(crudGet).not.toHaveBeenCalled()
+    })
+
+    it('omits scope metadata when the directory scope cannot be resolved', async () => {
+      jest.mocked(resolveOrganizationScopeForRequest).mockRejectedValueOnce(new Error('[internal] scope unavailable'))
+      const response = await GET(listRequest({ ids: memberProjectId }))
+
+      expect(response.status).toBe(404)
+      expect(response.headers.get(PROJECT_SCOPE_TENANT_HEADER)).toBeNull()
+      expect(response.headers.get(PROJECT_SCOPE_ORGANIZATION_HEADER)).toBeNull()
+    })
+
+    it('omits scope metadata when only a session fallback is available', async () => {
+      jest.mocked(resolveOrganizationScopeForRequest).mockResolvedValueOnce(null as never)
+      const response = await GET(listRequest({ ids: foreignProjectId }))
+
+      expect(response.status).toBe(404)
+      expect(response.headers.get(PROJECT_SCOPE_TENANT_HEADER)).toBeNull()
+      expect(response.headers.get(PROJECT_SCOPE_ORGANIZATION_HEADER)).toBeNull()
     })
 
     it('resolves access once per request and reuses it for the list filters', async () => {

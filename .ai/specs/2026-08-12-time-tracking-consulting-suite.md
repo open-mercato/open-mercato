@@ -575,6 +575,7 @@ Regression coverage: `api/timesheets/reports/[id]/export/__tests__/route.test.ts
 | `rollup.loggedMinutes` | parent with no children, parent with children, child in isolation, soft-deleted child excluded |
 | `projectCode.derive` | diacritics (`Łódź → LODZ`), 20-char word-boundary cap, collision suffixing, name that slugifies to empty |
 | `overlap.findOverlaps` | touching edges (not an overlap), containment, partial, excludeId, **a span crossing midnight against one on the following day** |
+| Project access scope hydration | Preserve acknowledgement for absent cookies only when their first values match the server-resolved scope; reject different first tenant/org values, deferred guards and late POST completions before render; preserve explicit-change, cookie-clear, project-change and unmount resets |
 | `access.resolveProjectAccess` | manage-all, membership-only, no membership, inactive membership |
 | Report totals | grouping variants, non-billable separate vs excluded, already-reported excluded vs opted in, frozen-vs-live divergence after a settings change |
 
@@ -598,7 +599,7 @@ Regression coverage: `api/timesheets/reports/[id]/export/__tests__/route.test.ts
 | TC-TT-014 | 14 | Preview totals; export leaves entries unlocked |
 | TC-TT-015 | 15 | Close locks; unlock demands a reason and records history |
 | TC-TT-016 | 16 | Settings save; retro-rounding skips locked entries |
-| TC-TT-017 | 17 | Non-member hitting a project URL gets the guard state, not a 403 dump |
+| TC-TT-017 | 17 | Non-member hitting a project URL gets the guard state, not a 403 dump; seeded-cookie and cleared-cookie bootstrap preserve acknowledgement and the persisted cookies match the server-resolved scope headers |
 | TC-TT-018 | — | **Lock gate**: a locked entry resists the form, the inline cell, the bulk grid save, and duplicate |
 | TC-TT-019 | — | **Tenant isolation**: no route leaks tasks, entries or reports across tenants |
 | TC-TT-020 | 6, 7 | **Rollup**: hours logged on a child appear in the parent's card, its column header and the project total; nesting a subtask under a subtask is rejected |
@@ -631,6 +632,8 @@ Regression coverage: `api/timesheets/reports/[id]/export/__tests__/route.test.ts
 ---
 
 ## Migration & Backward Compatibility
+
+`GET /api/staff/timesheets/time-projects?ids=<id>` (also `?id=`) adds optional `x-om-project-scope-tenant-id` and `x-om-project-scope-organization-id` response headers on resolved reads and denials. Values come from the existing directory request-scope resolver used for access decisions, never query parameters or an assumed session default. Unresolved scope omits both. Existing status codes and response bodies are unchanged; older clients can ignore the headers. Without both headers, clients conservatively reset on cookie hydration. No database or operator migration is required.
 
 Reviewed against [`BACKWARD_COMPATIBILITY.md`](../../BACKWARD_COMPATIBILITY.md)'s 13 contract surfaces:
 
@@ -709,6 +712,7 @@ Every question the requirements left open — each one traced to the mockup note
 
 | Date | Change |
 |---|---|
+| 2026-10-29 | #6821: bind fresh-session access acknowledgement to optional server-resolved request-scope headers; preserve matching hydration and reject first differing tenant/organization cookies, deferred writes and late completions. |
 | 2026-10-26 | #7834: redact monetary group/line values before the export serializer registry and omit money from built-in PDF/CSV/XLSX for callers without `staff.timesheets.rates.view`. Preserve amounts for authorized callers using `showRates: false`; add handler/serializer and scope regressions plus self-contained live CSV/PDF API coverage in TC-TT-026. |
 | 2026-10-07 | D-12 extended with an entry-date bound (#6988, split from #6987): time-entry writes also require the entry date to fall inside the granting assignment window (plus grace), and the grid bulk save (`POST /api/staff/timesheets/time-entries/bulk`), which previously checked no membership at all, now enforces the same rule and refuses the batch with 403. Right to write remains today-based. |
 | 2026-10-14 | QA follow-ups on #6998 (#7393, #7394): each bulk 403 `errors[]` item now also carries the payload row `index` and the `date` it refers to (additive). The timesheet grid shows the server's reason and marks the refused cell instead of a generic toast, and the List-view quick add, Duplicate and description edit show the reason too. A grid save that stored some cells before a later cell was refused now drops the stored cells from the pending set and reloads, so retrying never creates them a second time. TC-STAFF-028 and TC-STAFF-029 cover both in the browser. |

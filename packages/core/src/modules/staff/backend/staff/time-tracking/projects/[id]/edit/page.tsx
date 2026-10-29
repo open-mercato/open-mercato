@@ -16,6 +16,7 @@ import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/u
 import { DEFAULT_BUDGET_WARN_AT_PERCENT, type ProjectBudgetKind } from '../../../../../../lib/time-tracking-ui/ProjectFormSections'
 import { NoProjectAccess } from '../../../../../../lib/time-tracking-ui/NoProjectAccess'
 import { useProjectAccessScope } from '../../../../../../lib/time-tracking-ui/projectAccessScope'
+import { readResolvedProjectAccessScope, type ResolvedProjectAccessScope } from '../../../../../../lib/time-tracking-ui/projectAccessScopeHeaders'
 import {
   buildProjectPayload,
   createProjectFormFields,
@@ -37,7 +38,7 @@ const NO_PROJECT_ACCESS_REASON = 'no_project_access'
 
 /** Thrown by the loader so the caller can branch on the guard state. */
 class ProjectAccessDeniedError extends Error {
-  constructor() {
+  constructor(readonly resolvedScope: ResolvedProjectAccessScope | null) {
     super('[internal] no project access')
     this.name = 'ProjectAccessDeniedError'
   }
@@ -106,7 +107,7 @@ export default function TimeTrackingProjectEditPage({ params }: { params?: { id?
   const t = useT()
   const router = useRouter()
   const scopeVersion = useOrganizationScopeVersion()
-  const { scopeKey: projectAccessScopeKey } = useProjectAccessScope(projectId)
+  const { scopeKey: projectAccessScopeKey, resolvedScope, resolveScope } = useProjectAccessScope(projectId)
 
   const [initialValues, setInitialValues] = React.useState<ProjectFormValues | null>(null)
   const [loading, setLoading] = React.useState(true)
@@ -116,18 +117,18 @@ export default function TimeTrackingProjectEditPage({ params }: { params?: { id?
   const [loadedScopeKey, setLoadedScopeKey] = React.useState<string | null>(null)
   const accessDenied = accessDeniedScopeKey === projectAccessScopeKey
 
-  const fetchProject = React.useCallback(async (): Promise<ProjectRecord | null> => {
+  const fetchProject = React.useCallback(async (): Promise<{ record: ProjectRecord | null; scope: ResolvedProjectAccessScope | null }> => {
     const call = await apiCall<{ items?: ProjectRecord[]; reason?: unknown }>(
       `/api/staff/timesheets/time-projects?ids=${projectId}&pageSize=1`,
     )
     if (call.status === 404 && call.result?.reason === NO_PROJECT_ACCESS_REASON) {
-      throw new ProjectAccessDeniedError()
+      throw new ProjectAccessDeniedError(readResolvedProjectAccessScope(call.response))
     }
     if (!call.ok) {
       throw new Error(t('staff.timesheets.projects.errors.load', 'Failed to load project.'))
     }
     const record = Array.isArray(call.result?.items) ? call.result.items[0] : null
-    return record ?? null
+    return { record: record ?? null, scope: readResolvedProjectAccessScope(call.response) }
   }, [projectId, t])
 
   /**
@@ -140,7 +141,7 @@ export default function TimeTrackingProjectEditPage({ params }: { params?: { id?
   const handleCurrencyChanged = React.useCallback(() => {
     if (!projectId) return
     void fetchProject()
-      .then((record) => { if (record) setInitialValues(toValues(record)) })
+      .then(({ record }) => { if (record) setInitialValues(toValues(record)) })
       .catch(() => {
         // Best effort: the optimistic-lock conflict bar remains the backstop.
       })
@@ -184,7 +185,8 @@ export default function TimeTrackingProjectEditPage({ params }: { params?: { id?
         setLoading(false)
       }
       try {
-        const record = await fetchProject()
+        const { record, scope } = await fetchProject()
+        if (!cancelled) resolveScope(scope)
         if (!record) {
           settle({ isNotFound: true })
           return
@@ -192,6 +194,7 @@ export default function TimeTrackingProjectEditPage({ params }: { params?: { id?
         settle({ values: toValues(record) })
       } catch (err) {
         if (err instanceof ProjectAccessDeniedError) {
+          if (!cancelled) resolveScope(err.resolvedScope)
           settle({ accessDenied: true })
           return
         }
@@ -204,7 +207,7 @@ export default function TimeTrackingProjectEditPage({ params }: { params?: { id?
     }
     load()
     return () => { cancelled = true }
-  }, [projectId, fetchProject, scopeVersion, t, projectAccessScopeKey])
+  }, [projectId, fetchProject, scopeVersion, t, projectAccessScopeKey, resolveScope])
 
   if (!accessDenied && (loading || loadedScopeKey !== projectAccessScopeKey)) {
     return <Page><PageBody><LoadingMessage label={t('staff.timesheets.projects.loading', 'Loading project...')} /></PageBody></Page>
@@ -213,7 +216,7 @@ export default function TimeTrackingProjectEditPage({ params }: { params?: { id?
   // Screen 17 — the caller may not open this project. Same guard state the
   // detail page renders; it names neither the customer nor the project.
   if (accessDenied) {
-    return <NoProjectAccess timeProjectId={projectId} />
+    return <NoProjectAccess timeProjectId={projectId} resolvedScope={resolvedScope} />
   }
 
   if (isNotFound) {

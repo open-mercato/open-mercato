@@ -79,7 +79,17 @@ test.describe('TC-TT-017: No access to a project', () => {
             await route.continue()
           })
         }
+        const deniedRead = page.waitForResponse((response) =>
+          response.url().includes('/api/staff/timesheets/time-projects?')
+          && response.url().includes(project!.id),
+        )
         await page.goto(`/backend/staff/time-tracking/projects/${project.id}`, { waitUntil: 'domcontentloaded' })
+        const deniedResponse = await deniedRead
+        expect(deniedResponse.status()).toBe(404)
+        const resolvedTenant = deniedResponse.headers()['x-om-project-scope-tenant-id']
+        const resolvedOrganization = deniedResponse.headers()['x-om-project-scope-organization-id']
+        expect(resolvedTenant).toBeTruthy()
+        expect(resolvedOrganization).toBeTruthy()
 
         // Screen 17 — a readable state, not a raw failure.
         await expect(page.getByText('You do not have access to this project')).toBeVisible({ timeout: 30_000 })
@@ -131,6 +141,9 @@ test.describe('TC-TT-017: No access to a project', () => {
               .poll(async () => (await page.context().cookies()).some((cookie) => cookie.name === 'om_selected_org'))
               .toBe(true)
           }
+          const scopeCookies = await page.context().cookies()
+          expect(scopeCookies.find((cookie) => cookie.name === 'om_selected_tenant')?.value).toBe(resolvedTenant)
+          expect(scopeCookies.find((cookie) => cookie.name === 'om_selected_org')?.value).toBe(resolvedOrganization)
           await expect(page.getByRole('button', { name: 'Request sent' })).toBeDisabled()
         }
         await expect(page.getByText('Could not send the access request.')).toHaveCount(0)
