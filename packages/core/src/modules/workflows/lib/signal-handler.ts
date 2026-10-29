@@ -23,6 +23,7 @@ import {
 } from './outcome-routing'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 
 const logger = createLogger('workflows')
 
@@ -649,15 +650,49 @@ export async function sendSignalByCorrelationKeyWithResults(
     } catch (error) {
       // Log error but continue processing other instances
       logger.error('Failed to send signal to instance', { instanceId: instance.id, err: error })
+      if (!isExpectedSignalRefusal(error)) {
+        getTelemetryRuntime()?.reportError(error, {
+          module: 'workflows',
+          code: 'workflows.signal_fanout_delivery_failed',
+          attributes: {
+            instanceId: instance.id,
+            stepId: instance.currentStepId,
+            signalName,
+            ...(error instanceof SignalError ? { signalErrorCode: error.code } : {}),
+          },
+        })
+      }
       // Only a SignalError's message is a deliberate, caller-safe description;
       // anything else may carry internals and is reported generically.
       failures.push(
         error instanceof SignalError
           ? { instanceId: instance.id, code: error.code, message: error.message }
-          : { instanceId: instance.id, code: 'SIGNAL_DELIVERY_FAILED', message: 'Failed to deliver signal' },
+          : { instanceId: instance.id, code: SIGNAL_DELIVERY_FAILED_CODE, message: await resolveDeliveryFailedMessage() },
       )
     }
   }
 
   return { count: signalsProcessed, failures }
+}
+
+export const SIGNAL_DELIVERY_FAILED_CODE = 'SIGNAL_DELIVERY_FAILED'
+
+// Refusals that describe the instance's state at delivery time (a concurrent
+// delivery won, the run moved on). They are outcomes, not faults, so they are
+// returned to the caller without reaching error reporting.
+const EXPECTED_SIGNAL_REFUSAL_CODES = new Set([
+  'INSTANCE_NOT_FOUND',
+  'WORKFLOW_NOT_PAUSED',
+  'NOT_WAITING_FOR_SIGNAL',
+  'SIGNAL_NAME_MISMATCH',
+  'NO_BRANCH_AWAITING_SIGNAL',
+])
+
+function isExpectedSignalRefusal(error: unknown): boolean {
+  return error instanceof SignalError && EXPECTED_SIGNAL_REFUSAL_CODES.has(error.code)
+}
+
+async function resolveDeliveryFailedMessage(): Promise<string> {
+  const { translate } = await resolveTranslations()
+  return translate('workflows.signals.errors.deliveryFailed', 'Failed to deliver signal')
 }

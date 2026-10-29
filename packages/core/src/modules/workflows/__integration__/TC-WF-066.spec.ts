@@ -23,7 +23,8 @@ import {
  * the correlation route), and a correlation-key delivery never consumes a later wait an
  * instance was moved onto by a concurrent delivery — even one waiting for the same signal.
  * A duplicate that loses the race also never consumes a LATER occurrence of the same wait,
- * when a loop brings the instance back to it before the duplicate's claim runs.
+ * when a loop brings the instance back to it before the duplicate's claim runs, and each
+ * re-park of that loop wait (a fresh `wait_version`) is consumed by exactly the next delivery.
  */
 const SIGNAL_NAME = 'approval'
 
@@ -204,6 +205,40 @@ test.describe('TC-WF-066: concurrent signal delivery (#7185)', () => {
       const reparked = await pollWorkflowInstance(request, token, instanceId, (i) => i.status === 'PAUSED' && i.currentStepId === 'wait')
       expect(reparked?.currentStepId, 'the loop parks the instance on the same wait again').toBe('wait')
       expect(await countSignalReceived(request, token, instanceId), 'the new occurrence of the wait is still open').toBe(1)
+    } finally {
+      await cancelWorkflowInstanceIfExists(request, token, instanceId)
+      await deleteWorkflowDefinitionIfExists(request, token, definitionId)
+    }
+  })
+
+  test('every re-park of a same-step loop wait opens a fresh occurrence for the next delivery', async ({ request }) => {
+    const token = await getAuthToken(request, 'admin')
+    const timestamp = Date.now()
+    const defPayload = buildLoopingSignalDefinitionPayload(timestamp)
+    let definitionId: string | null = null
+    let instanceId: string | null = null
+
+    try {
+      definitionId = await createWorkflowDefinitionFixture(request, token, defPayload)
+      instanceId = await startWorkflowInstanceFixture(request, token, {
+        workflowId: defPayload.workflowId,
+        correlationKey: `qa-sequential-loop-${timestamp}`,
+      })
+      const targetId = instanceId
+      for (let occurrence = 1; occurrence <= 3; occurrence += 1) {
+        const parked = await pollWorkflowInstance(request, token, targetId, (i) => i.status === 'PAUSED' && i.currentStepId === 'wait')
+        expect(parked?.currentStepId, `occurrence ${occurrence} parks on the loop wait`).toBe('wait')
+        const response = await apiRequest(request, 'POST', `/api/workflows/instances/${encodeURIComponent(targetId)}/signal`, {
+          token,
+          data: { signalName: SIGNAL_NAME, payload: { occurrence } },
+        })
+        expect(response.status(), `occurrence ${occurrence} is delivered`).toBe(200)
+        await expect
+          .poll(() => countSignalReceived(request, token, targetId), { message: `occurrence ${occurrence} is recorded once` })
+          .toBe(occurrence)
+      }
+      const reparked = await pollWorkflowInstance(request, token, targetId, (i) => i.status === 'PAUSED' && i.currentStepId === 'wait')
+      expect(reparked?.currentStepId).toBe('wait')
     } finally {
       await cancelWorkflowInstanceIfExists(request, token, instanceId)
       await deleteWorkflowDefinitionIfExists(request, token, definitionId)

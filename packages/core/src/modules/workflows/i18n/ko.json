@@ -1590,6 +1590,7 @@
   "workflows.selectors.workflow.close": "Close workflow picker",
   "workflows.signals.awaiting": "신호 대기 중",
   "workflows.signals.correlationKey": "상관 키",
+  "workflows.signals.errors.deliveryFailed": "신호를 전달하지 못했습니다",
   "workflows.signals.payload": "신호 페이로드",
   "workflows.signals.plural": "신호",
   "workflows.signals.received": "신호가 수신되었습니다",

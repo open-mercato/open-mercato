@@ -1590,6 +1590,7 @@
   "workflows.selectors.workflow.close": "Cerrar el selector de flujos",
   "workflows.signals.awaiting": "Esperando senal",
   "workflows.signals.correlationKey": "Clave de correlacion",
+  "workflows.signals.errors.deliveryFailed": "No se pudo entregar la señal",
   "workflows.signals.payload": "Carga de la senal",
   "workflows.signals.plural": "Senales",
   "workflows.signals.received": "Senal recibida",

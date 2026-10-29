@@ -957,6 +957,94 @@ describe('Workflow Signals - Phase 9.1', () => {
         { instanceId: 'instance-3', code: 'SIGNAL_DELIVERY_FAILED', message: 'Failed to deliver signal' },
       ])
     })
+
+    it('reports an unexpected fan-out failure through the telemetry runtime and keeps delivering', async () => {
+      const mockReportError = jest.fn()
+      ;(getTelemetryRuntime as jest.Mock).mockReturnValue({ reportError: mockReportError })
+      const instance1 = { ...mockInstance, id: 'instance-1', correlationKey: 'batch-004' }
+      const instance2 = { ...mockInstance, id: 'instance-2', correlationKey: 'batch-004' }
+      const instance3 = { ...mockInstance, id: 'instance-3', correlationKey: 'batch-004' }
+
+      mockFindWithDecryption.mockResolvedValueOnce([instance1, instance2, instance3] as any)
+      mockFindOneWithDecryption
+        .mockResolvedValueOnce({ ...instance1 } as any)
+        .mockResolvedValueOnce({ ...mockDefinition } as any)
+        .mockResolvedValueOnce({ ...mockStepInstance, workflowInstanceId: 'instance-1' } as any)
+        .mockResolvedValueOnce({ ...instance2 } as any)
+        .mockResolvedValueOnce({ ...mockDefinition } as any)
+        .mockResolvedValueOnce({ ...instance3 } as any)
+        .mockResolvedValueOnce({ ...mockDefinition } as any)
+        .mockResolvedValueOnce({ ...mockStepInstance, workflowInstanceId: 'instance-3' } as any)
+      const flushError = new Error('deadlock detected')
+      mockExitStep.mockRejectedValueOnce(flushError)
+      // instance-2 loses its claim: an expected refusal, not a fault
+      mockEm.nativeUpdate.mockResolvedValueOnce(1).mockResolvedValueOnce(0)
+
+      let result: Awaited<ReturnType<typeof sendSignalByCorrelationKeyWithResults>>
+      try {
+        result = await sendSignalByCorrelationKeyWithResults(mockEm, mockContainer, {
+          correlationKey: 'batch-004',
+          signalName: 'approval_granted',
+          userId,
+          tenantId,
+          organizationId,
+        })
+      } finally {
+        ;(getTelemetryRuntime as jest.Mock).mockReset()
+      }
+
+      expect(result.count).toBe(1)
+      expect(result.failures).toEqual([
+        { instanceId: 'instance-1', code: 'SIGNAL_DELIVERY_FAILED', message: 'Failed to deliver signal' },
+        { instanceId: 'instance-2', code: 'WORKFLOW_NOT_PAUSED', message: 'Workflow is not paused' },
+      ])
+      expect(mockExecuteWorkflow).toHaveBeenCalledTimes(1)
+      expect(mockReportError).toHaveBeenCalledTimes(1)
+      expect(mockReportError).toHaveBeenCalledWith(flushError, {
+        module: 'workflows',
+        code: 'workflows.signal_fanout_delivery_failed',
+        attributes: { instanceId: 'instance-1', stepId: 'wait_approval', signalName: 'approval_granted' },
+      })
+    })
+
+    it('reports a SignalError fault such as TRANSITION_FAILED but returns its caller-safe message', async () => {
+      const mockReportError = jest.fn()
+      ;(getTelemetryRuntime as jest.Mock).mockReturnValue({ reportError: mockReportError })
+      const instance1 = { ...mockInstance, id: 'instance-1', correlationKey: 'batch-005' }
+      mockFindWithDecryption.mockResolvedValueOnce([instance1] as any)
+      mockFindOneWithDecryption
+        .mockResolvedValueOnce({ ...instance1 } as any)
+        .mockResolvedValueOnce({ ...mockDefinition } as any)
+        .mockResolvedValueOnce({ ...mockStepInstance, workflowInstanceId: 'instance-1' } as any)
+      mockExecuteTransition.mockResolvedValueOnce({ success: false, error: 'guard rejected' })
+
+      let result: Awaited<ReturnType<typeof sendSignalByCorrelationKeyWithResults>>
+      try {
+        result = await sendSignalByCorrelationKeyWithResults(mockEm, mockContainer, {
+          correlationKey: 'batch-005',
+          signalName: 'approval_granted',
+          userId,
+          tenantId,
+          organizationId,
+        })
+      } finally {
+        ;(getTelemetryRuntime as jest.Mock).mockReset()
+      }
+
+      expect(result.failures).toEqual([
+        { instanceId: 'instance-1', code: 'TRANSITION_FAILED', message: 'Transition failed after signal' },
+      ])
+      expect(mockReportError).toHaveBeenCalledWith(expect.any(SignalError), {
+        module: 'workflows',
+        code: 'workflows.signal_fanout_delivery_failed',
+        attributes: {
+          instanceId: 'instance-1',
+          stepId: 'wait_approval',
+          signalName: 'approval_granted',
+          signalErrorCode: 'TRANSITION_FAILED',
+        },
+      })
+    })
   })
 
   describe('Multi-tenant Isolation', () => {
