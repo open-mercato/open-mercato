@@ -374,8 +374,9 @@ validation still run independently on every authorized HTTP hop.
 outcome's optional `code: 'domain_blocked'` discriminator are additive. Domain-denied redirects
 retain the existing `web_fetch` error code `domain_blocked`. The adapter contract advances to
 version 2 while still accepting version 1 adapters;
-existing adapters need no source changes. A custom HTTP client must invoke a supplied assertion
-before the initial request and every redirect. The engine also checks final URLs defensively.
+existing adapters need no source changes. A custom HTTP client must await a supplied assertion
+before DNS and transmission for the initial request and every redirect; synchronous and async
+assertions are supported. The engine also checks final URLs defensively.
 
 When either agent domain list is nonempty, page reads use guarded HTTP only: automatic rendering
 does not escalate, and `render: 'always'` returns a blocked outcome. Browser page navigation

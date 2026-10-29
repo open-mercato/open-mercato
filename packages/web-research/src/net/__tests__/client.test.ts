@@ -111,6 +111,46 @@ describe('http client against a real server', () => {
     expect(received).toEqual([`allowed.test:${port}/start`])
   })
 
+  it.each(['initial request', 'redirect'])(
+    'awaits asynchronous authorization before %s DNS resolution or socket egress',
+    async (stage) => {
+      const received: string[] = []
+      const { port } = track(
+        await listen((req, res) => {
+          received.push(`${req.headers.host}${req.url}`)
+          if (req.url === '/start') {
+            res.writeHead(302, { location: `http://denied.test:${port}/admin` })
+          }
+          res.end('denied content')
+        }),
+      )
+      const lookup = jest.fn(async () => [{ address: '127.0.0.1', family: 4 }])
+      const http = createHttpClient({ lookup, allowPrivateHosts: ['allowed.test', 'denied.test'] })
+      const authorization = Promise.withResolvers<void>()
+      const authorizationStarted = Promise.withResolvers<void>()
+      const initialUrl = stage === 'redirect' ? `http://allowed.test:${port}/start` : `http://denied.test:${port}/admin`
+      const response = http.request(initialUrl, {
+        assertUrlAllowed: (url) => {
+          if (new URL(url).hostname !== 'denied.test') return
+          authorizationStarted.resolve()
+          return authorization.promise
+        },
+      })
+      const rejection = expect(response).rejects.toMatchObject({ code: 'blocked' })
+
+      await authorizationStarted.promise
+
+      expect(lookup.mock.calls).toEqual(stage === 'redirect' ? [['allowed.test']] : [])
+      expect(received).toEqual(stage === 'redirect' ? [`allowed.test:${port}/start`] : [])
+
+      authorization.reject(new WebResearchError('blocked', 'domain not allowed'))
+      await rejection
+
+      expect(lookup.mock.calls).toEqual(stage === 'redirect' ? [['allowed.test']] : [])
+      expect(received).toEqual(stage === 'redirect' ? [`allowed.test:${port}/start`] : [])
+    },
+  )
+
   it('preserves permitted redirects and reports their final URL', async () => {
     const { origin } = track(
       await listen((req, res) => {
@@ -123,7 +163,7 @@ describe('http client against a real server', () => {
         res.end('permitted content')
       }),
     )
-    const assertUrlAllowed = jest.fn()
+    const assertUrlAllowed = jest.fn(async () => {})
 
     const response = await client().request(`${origin}/start`, { assertUrlAllowed })
 

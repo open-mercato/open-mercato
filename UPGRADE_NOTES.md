@@ -40,8 +40,9 @@ No cache purge or database migration is needed.
 
 **Adapter author action:** existing contract version 1 adapters remain supported
 by contract version 2. Custom HTTP clients must honor the new optional
-`HttpRequestInit.assertUrlAllowed(url)` callback before initial requests and every
-redirect. No tool input or result-field migration is required.
+`HttpRequestInit.assertUrlAllowed(url)` callback, awaiting synchronous or async
+assertions before DNS and transmission for initial requests and every redirect.
+No tool input or result-field migration is required.
 
 ### Workflow webhook responses have resource limits (#7814)
 
