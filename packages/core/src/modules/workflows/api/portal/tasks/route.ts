@@ -86,7 +86,10 @@ export async function GET(request: NextRequest) {
       MAX_PORTAL_TASK_LIMIT,
     )
 
-    const page = Math.min(requestedPage, Math.floor(WORKFLOW_LIST_MAX_OFFSET / pageSize) + 1)
+    const page = requestedPage
+    if ((page - 1) * pageSize > WORKFLOW_LIST_MAX_OFFSET) {
+      return NextResponse.json({ ok: false, error: '[internal] Requested offset exceeds the workflow list limit' }, { status: 400 })
+    }
 
     const where: Record<string, unknown> = buildPortalTaskConditions({
       principal: resolved.principal,

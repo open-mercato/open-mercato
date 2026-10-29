@@ -83,7 +83,10 @@ export async function GET(request: NextRequest, context: RouteContext) {
     const { searchParams } = new URL(request.url)
     const requestedLimit = parsePositiveInt(searchParams.get('limit'), STEP_INSTANCE_PAGE_SIZE_MAX)
     const limit = Math.min(Math.max(requestedLimit, 1), STEP_INSTANCE_PAGE_SIZE_MAX)
-    const offset = Math.min(Math.max(parsePositiveInt(searchParams.get('offset'), 0), 0), WORKFLOW_LIST_MAX_OFFSET)
+    const offset = Math.max(parsePositiveInt(searchParams.get('offset'), 0), 0)
+    if (offset > WORKFLOW_LIST_MAX_OFFSET) {
+      return NextResponse.json({ error: '[internal] Requested offset exceeds the workflow list limit' }, { status: 400 })
+    }
 
     // Ordered by when the step was entered so the Gantt and the overlay read the
     // run in execution order. `createdAt` is the tiebreaker because a step

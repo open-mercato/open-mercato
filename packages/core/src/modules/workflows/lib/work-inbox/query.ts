@@ -6,7 +6,6 @@
  * database. The route only supplies the caller scope.
  */
 
-import { WORKFLOW_LIST_MAX_OFFSET } from '../../data/pagination'
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import { parseNumberWithDefault } from '@open-mercato/shared/lib/number'
 import { parseCommaSeparatedList, trimToUndefined } from '@open-mercato/shared/lib/string'
@@ -98,7 +97,7 @@ export function parseWorkInboxQuery(searchParams: URLSearchParams, now: Date): W
     assignedTo: trimToUndefined(searchParams.get('assignedTo')) ?? null,
     workflowInstanceId: trimToUndefined(searchParams.get('workflowInstanceId')) ?? null,
     limit,
-    offset: Math.min(parseNumberWithDefault(searchParams.get('offset'), 0, { min: 0, integer: true }), WORKFLOW_LIST_MAX_OFFSET),
+    offset: parseNumberWithDefault(searchParams.get('offset'), 0, { min: 0, integer: true }),
     now,
   }
 }

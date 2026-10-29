@@ -184,9 +184,19 @@ describe('GET /api/workflows/instances/[id]/steps', () => {
     expect(body.pagination.total).toBe(250)
   })
 
-  test('clamps an extreme offset before reading step instances', async () => {
+  test.each([100001, 100050, 999999999])('rejects offset %i before reading step instances', async (offset) => {
     const response = await listSteps(
-      new NextRequest(`http://localhost/api/workflows/instances/${testInstanceId}/steps?offset=999999999&limit=10`),
+      new NextRequest(`http://localhost/api/workflows/instances/${testInstanceId}/steps?offset=${offset}&limit=10`),
+      makeContext(),
+    )
+    expect(response.status).toBe(400)
+    expect(await response.json()).toHaveProperty('error')
+    expect(mockEm.findAndCount).not.toHaveBeenCalled()
+  })
+
+  test('accepts the maximum offset before reading step instances', async () => {
+    const response = await listSteps(
+      new NextRequest(`http://localhost/api/workflows/instances/${testInstanceId}/steps?offset=100000&limit=10`),
       makeContext(),
     )
     const body = await response.json()

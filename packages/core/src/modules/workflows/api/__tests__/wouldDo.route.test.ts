@@ -153,8 +153,15 @@ describe('GET /api/workflows/instances/[id]/would-do', () => {
     expect(options.limit).toBe(WOULD_DO_PAGE_SIZE_MAX)
   })
 
-  test('clamps an extreme offset before reading simulation report entries', async () => {
-    const response = await getWouldDo(makeRequest('?offset=999999999&limit=10'), makeContext())
+  test.each([100001, 100050, 999999999])('rejects offset %i before reading simulation report entries', async (offset) => {
+    const response = await getWouldDo(makeRequest(`?offset=${offset}&limit=10`), makeContext())
+    expect(response.status).toBe(400)
+    expect(await response.json()).toHaveProperty('error')
+    expect(mockEm.findAndCount).not.toHaveBeenCalled()
+  })
+
+  test('accepts the maximum offset before reading simulation report entries', async () => {
+    const response = await getWouldDo(makeRequest('?offset=100000&limit=10'), makeContext())
 
     expect(response.status).toBe(200)
     expect(mockEm.findAndCount).toHaveBeenCalledWith(

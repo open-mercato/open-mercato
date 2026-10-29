@@ -180,9 +180,19 @@ describe('GET /api/workflows/instances/failure-queue', () => {
     expect(response.status).toBe(401)
   })
 
-  test('clamps an extreme offset while keeping the grouping scan bounded', async () => {
+  test.each([100001, 100050, 999999999])('rejects offset %i without scanning or counting another page', async (offset) => {
     const response = await listFailureQueue(
-      new NextRequest('http://localhost/api/workflows/instances/failure-queue?offset=999999999&limit=10'),
+      new NextRequest(`http://localhost/api/workflows/instances/failure-queue?offset=${offset}&limit=10`),
+    )
+    expect(response.status).toBe(400)
+    expect(await response.json()).toHaveProperty('error')
+    expect(mockEm.find).not.toHaveBeenCalled()
+    expect(mockEm.count).not.toHaveBeenCalled()
+  })
+
+  test('accepts the maximum offset while keeping the grouping scan bounded', async () => {
+    const response = await listFailureQueue(
+      new NextRequest('http://localhost/api/workflows/instances/failure-queue?offset=100000&limit=10'),
     )
     const body = await response.json()
 

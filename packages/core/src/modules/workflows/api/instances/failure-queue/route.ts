@@ -84,7 +84,10 @@ export async function GET(request: NextRequest) {
     const errorGroup = searchParams.get('errorGroup')
     const requestedLimit = parsePositiveInt(searchParams.get('limit'), 50)
     const limit = Math.min(Math.max(requestedLimit, 1), FAILURE_QUEUE_PAGE_SIZE_MAX)
-    const offset = Math.min(Math.max(parsePositiveInt(searchParams.get('offset'), 0), 0), WORKFLOW_LIST_MAX_OFFSET)
+    const offset = Math.max(parsePositiveInt(searchParams.get('offset'), 0), 0)
+    if (offset > WORKFLOW_LIST_MAX_OFFSET) {
+      return NextResponse.json({ error: '[internal] Requested offset exceeds the workflow list limit' }, { status: 400 })
+    }
 
     const attentionPath = raw(`(metadata #>> '{attention,reason}')`)
     const where: Record<string, unknown> = {

@@ -87,7 +87,10 @@ export async function GET(request: NextRequest) {
       parseNumberWithDefault(searchParams.get('limit'), DEFAULT_TASK_LIST_LIMIT, { min: 1, integer: true }),
       MAX_TASK_LIST_LIMIT,
     )
-    const offset = Math.min(parseNumberWithDefault(searchParams.get('offset'), 0, { min: 0, integer: true }), WORKFLOW_LIST_MAX_OFFSET)
+    const offset = parseNumberWithDefault(searchParams.get('offset'), 0, { min: 0, integer: true })
+    if (offset > WORKFLOW_LIST_MAX_OFFSET) {
+      return NextResponse.json({ error: '[internal] Requested offset exceeds the workflow list limit' }, { status: 400 })
+    }
 
     // Build where clause with tenant scoping
     const where: any = {

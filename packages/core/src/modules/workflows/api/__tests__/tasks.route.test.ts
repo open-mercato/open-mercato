@@ -172,8 +172,15 @@ describe('GET /api/workflows/tasks', () => {
     expect(body.pagination).toEqual({ total: 0, limit: 100, offset: 0, hasMore: false })
   })
 
-  test('clamps an extreme offset in the database query and pagination response', async () => {
-    const response = await listTasks(new NextRequest('http://localhost/api/workflows/tasks?limit=10&offset=999999999'))
+  test.each([100001, 100050, 999999999])('rejects offset %i without reading a substituted page', async (offset) => {
+    const response = await listTasks(new NextRequest(`http://localhost/api/workflows/tasks?limit=10&offset=${offset}`))
+    expect(response.status).toBe(400)
+    expect(await response.json()).toHaveProperty('error')
+    expect(mockEm.findAndCount).not.toHaveBeenCalled()
+  })
+
+  test('accepts the maximum offset without changing the requested page', async () => {
+    const response = await listTasks(new NextRequest('http://localhost/api/workflows/tasks?limit=10&offset=100000'))
     const body = await response.json()
 
     expect(response.status).toBe(200)
