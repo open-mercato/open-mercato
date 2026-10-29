@@ -16,6 +16,7 @@ import { runCustomRouteAfterInterceptors } from '@open-mercato/shared/lib/crud/c
 import { sanitizeRedirectPath } from '@open-mercato/core/modules/auth/lib/safeRedirect'
 import { getAppBaseUrl } from '@open-mercato/shared/lib/url'
 import { handleAuthRouteError } from '@open-mercato/core/modules/auth/api/routeError'
+import { isStaffTenantActive } from '@open-mercato/core/modules/auth/lib/tenantEligibility'
 
 const loginRateLimitConfig = readEndpointRateLimitConfig('LOGIN', {
   points: 5, duration: 60, blockDuration: 60, keyPrefix: 'login',
@@ -143,13 +144,15 @@ async function handleLoginRequest(req: Request) {
   // wrong-password, and multi-tenant cases return an identical 401 with
   // identical latency.
   const ok = await auth.verifyPassword(user, parsed.data.password)
-  if (!user || !ok || user.isConfirmed === false) {
+  const tenantActive = user ? await isStaffTenantActive(container.resolve('em'), user.tenantId) : false
+  if (!user || !ok || user.isConfirmed === false || !tenantActive) {
     // The 401 body stays identical for every branch so the response never reveals
     // which one fired. `reason` goes to the audit stream instead, where separating a
     // deactivated account from a mistyped password is the whole point — otherwise
     // repeated attempts against a disabled account look like ordinary fat-fingering.
     let reason: string
     if (user && user.isConfirmed === false) reason = 'account_deactivated'
+    else if (user && !tenantActive) reason = 'tenant_unavailable'
     else if (user?.passwordHash) reason = 'invalid_password'
     else reason = 'invalid_credentials'
     void emitAuthEvent('auth.login.failed', { email: parsed.data.email, reason }).catch(() => undefined)
