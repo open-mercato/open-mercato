@@ -191,6 +191,8 @@ To reach **any** endpoint from MCP, use the two Code Mode meta-tools — `search
 
 `execute` runs in a `node:vm` sandbox: `fetch`, `require`, `process`, and `fs` are blocked, there is a 30-second timeout, and a maximum of 50 API calls per execution. Between `search` and `execute`, the entire documented API surface is reachable from MCP — via code, not via one-tool-per-route.
 
+Code Mode's `api.request({ method, path, query, body })` does not follow HTTP redirects, including redirects within the application. A redirect returns `{ success: false, statusCode: 307, error: "API redirect 307 blocked" }` with the actual 3xx status. Redirect headers and bodies are omitted so credentials, request bodies, and sensitive redirect URLs cannot reach another endpoint or the model. Call the intended documented API path directly; browser flows such as SSO login must run in the browser.
+
 :::note Tools vs agents
 
 MCP serves **tools, not agents**. The typed AI agents (`defineAiAgent` definitions such as `catalog.catalog_assistant`, `catalog.merchandising_assistant`, and the customers agents) are a **separate in-app surface** served by the Next.js app at `POST /api/ai_assistant/ai/chat?agent=<module>.<agent>` and listed at `GET /api/ai_assistant/ai/agents`. The MCP server does **not** expose agents as a connectable surface — you cannot "run an agent" end-to-end over MCP.
