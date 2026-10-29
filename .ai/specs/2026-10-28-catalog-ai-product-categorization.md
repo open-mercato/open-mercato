@@ -1,6 +1,6 @@
 # Catalog AI Product Categorization
 
-> Status: **Draft — design-only spec.** Hard dependency: the decision model port (spec `2026-10-06-ai-decision-model-port.md`, merged as #7464). Its implementation is upstream PR **#7553**, approved and queued for merge, not yet merged. Implementation of this spec MUST NOT start before #7553 is on the base branch.
+> Status: **Ready for implementation (Phase 1).** Hard dependency: the decision model port (spec `2026-10-06-ai-decision-model-port.md`, merged as #7464). Its implementation, upstream PR **#7553**, merged on 2026-10-29 (`9d41ec411`) and is on the base branch.
 
 ## 📝 TLDR
 
@@ -42,7 +42,7 @@ Each phase ships on its own. Auto-apply is the only part that writes without a h
 | D2 | **Apply mode:** a per-tenant setting `applyMode: 'suggest' \| 'auto_apply'`, default `suggest`. `auto_apply` writes the category when path confidence ≥ `autoApplyThreshold`, **only for products with no category assigned** and only in runs started by a user (manual or bulk). In every other case the run stores a suggestion. |
 | D3 | **Settings storage:** one `module_configs` row, `catalog` / `ai_categorization`, tenant-scoped, read and written through `moduleConfigService`. This is the pattern used for `unit_price_display_enabled` (`api/settings/route.ts`) and `omnibus`. |
 | D4 | **Large trees:** walk the tree level by level (see the tree walk below). The 64-option port limit applies per level, not per tree. |
-| D5 | **One category per suggestion.** When the product has **no** categories, an accepted suggestion becomes its only category. When it already has some, the suggestion is **appended last** by default. The storefront uses the first category as the main one (breadcrumb, `ecommerce/lib/storefrontDetail.ts:497`), so appending leaves the storefront unchanged. The operator can tick **"Make it the main category"** to put it first. |
+| D5 | **One category per suggestion.** When the product has **no** categories, an accepted suggestion becomes its only category. When it already has some, the suggestion is **appended last** by default. The storefront uses the first category as the main one (breadcrumb, `primaryCategory = main.categories[0]` in `ecommerce/lib/storefrontDetail.ts`), so appending leaves the storefront unchanged. The operator can tick **"Make it the main category"** to put it first. |
 | D6 | **Model input:** `title`, `subtitle`, `description`, `sku`, `productType`, tag labels, option-schema option names and values, and the product's custom field values. Anything excluded under D9 is not sent. |
 | D7 | **Suggestions are persisted** per product in a new `catalog_product_category_suggestions` table. At most one `pending` suggestion per product: a new successful run supersedes the old one. |
 | D8 | **Consumer only:** the port ships in #7553. This spec adds no code to `ai-assistant` or `shared`. |
@@ -56,8 +56,8 @@ Each phase ships on its own. Auto-apply is the only part that writes without a h
 categories = live, active categories of product.organizationId (one query, hierarchy via computeHierarchyForCategories)
 level = roots, sorted; path = []; joint = 1
 loop:
-  options = level (+ "__none" at root, "__here" below root)
-  p, pick = askLevel(options)          // one request, see tournament
+  options = level (+ "__none" at root, "__here" below root; the sentinel is always the last option)
+  p, pick = askLevel(options)          // one or two requests, see tournament
   if pick == "__none" or (path empty and p < 0.35) → no_match
   if pick == "__here" or p < 0.35 → stop (suggest last element of path; joint unchanged)
   path.push(pick); joint *= p
@@ -69,7 +69,10 @@ loop:
 
 **Rules:**
 - **Low probability:** a level pick with p < 0.35 ends the walk at the parent. At the root, that means `no_match`.
-- **Tournament for wide levels:** a level with more than 63 children (one slot is reserved for `__here` / `__none`) is split into chunks of 63, in stable order, and **all chunk questions go in one request**. The port allows 8 questions per request, so one request covers up to 504 children. Wider levels → `no_match` with reason `level_too_wide`, logged. Chunk winners then meet in a final question. The level's probability is **p(winner in its chunk) × p(winner in the final)**. This is a conservative lower bound, so the tournament cannot inflate confidence.
+- **Tournament for wide levels:** a level with up to 63 children is one question (children + sentinel ≤ 64 options). A level with more than 63 children is split, in stable order, into `k = ceil(n / 63)` chunks of **near-equal size** (sizes differ by at most 1). Every chunk then has at least 32 options, so no chunk falls below the port's minimum of 2 options. **All chunk questions go in one request.** The port allows 8 questions per request, so one request covers up to 504 children. Wider levels → `no_match` with reason `level_too_wide`, logged.
+  - Chunk questions carry **no sentinel**. The chunk winners then meet in a final question (second request) that holds the `k` winners plus the level's sentinel as the last option.
+  - If the final picks the sentinel, the level is treated as a sentinel pick (`no_match` at root, stop at the parent below root).
+  - The level's probability is **p(winner in its chunk) × p(winner in the final)**. This is a conservative lower bound, so the tournament cannot inflate confidence. The 0.35 stop rule compares against this product.
 - **Option keys and criteria:** keys are category UUIDs, which match the port's `^[A-Za-z0-9_-]{1,64}$`. Criteria = `pathLabel` + `description`, truncated to 500 chars. The model sees names and paths, not bare ids.
 - **Order:** options are sorted by name (`localeCompare`, locale `en`), then by id. The port preserves order and Jev is order-sensitive, so runs stay comparable.
 - **Time budget:**
@@ -183,7 +186,7 @@ All routes are tenant/org scoped from the auth context, zod-validated in `data/v
 ### Commands (undoable, one action-log entry each)
 
 - **`catalog.category_suggestions.accept`** owns the category write. It does **not** nest `catalog.products.update`.
-  1. Validates that the chosen category is live, active, and in the product's organization. `syncCategoryAssignments` does not check `deletedAt` (`commands/products.ts:902-906`), so this check is required.
+  1. Validates that the chosen category is live, active, and in the product's organization. `syncCategoryAssignments` (`commands/products.ts`) filters categories by organization and tenant but not by `deletedAt` / `isActive`, so this check is required.
   2. Reads the current `categoryIds` (snapshot `before`), computes `after` per D5, and writes the assignments through a small exported helper extracted from `syncCategoryAssignments`. Behavior and position semantics are unchanged.
   3. Emits the product `updated` side effects (event + indexer) via `emitCrudSideEffects`.
   4. Sets the suggestion to `accepted` (or `auto_applied`), with `reviewedBy` and `reviewedAt`.
@@ -209,7 +212,7 @@ All routes are tenant/org scoped from the auth context, zod-validated in `data/v
 ## 📝 UI/UX
 
 **Settings → Module Configs → Catalog:** a new `AiCategorizationSettings` section, the fourth on `backend/config/catalog/page.tsx`.
-- **When unavailable:** an `Alert` (info) shows the reason (`not_installed`, `not_configured`, `credentials_missing`, …), mapped to an i18n hint that names `OM_DECISION_PROVIDER`, `OM_DECISION_MODEL` and optionally `OM_DECISION_CATALOG_MODEL`. The switch is **disabled, not hidden**.
+- **When unavailable:** an `Alert` (info) shows the reason, mapped to an i18n hint that names `OM_DECISION_PROVIDER`, `OM_DECISION_MODEL` and optionally `OM_DECISION_CATALOG_MODEL`. The switch is **disabled, not hidden**. Reasons with their own i18n key: `not_installed` (catalog-side), and the port's `not_configured`, `unknown_provider`, `fixture_disabled`, `credentials_missing`, `model_missing`. Any other reason falls back to a generic hint, because the port's reason union is open.
 - **When available:** an "Enable AI category suggestions" switch, plus a disclosure of the fields sent to the decision-model provider (D6/D9).
 - **Phase 3:** apply mode (radio) and a threshold input (0.50–0.99) that is shown only for `auto_apply`.
 - **Phase 4:** a "Suggest a category for newly created products" switch.
@@ -244,6 +247,7 @@ All routes are tenant/org scoped from the auth context, zod-validated in `data/v
 | Decision model removed from env after enabling | `effective` becomes false. Buttons disappear, the API returns 409, the worker stops at the next product, and settings show the alert. `enabled: true` is kept, so the feature resumes when the env is fixed. |
 | `ai-assistant` not installed | `reason: 'not_installed'`. The feature is never offered. Catalog boots normally. |
 | Port error on a single run (`timeout`, `rate_limited`, `provider_error`, `invalid_response`) | No row is written, and the existing pending suggestion stays. A flash message shows the code. |
+| Any other port error code (`unavailable`, `invalid_request`, `aborted`, or a code added later) | Same as above: `outcome: 'error'` with that code, and the UI shows a generic error message. `aborted` from the inline budget signal is reported as `timeout`. |
 | `insufficient_credits` / `auth` in bulk | The job fails fast with that code. Products already processed keep their suggestions. |
 | `rate_limited` in bulk | One retry for that product after 2 s, then it counts as failed and the job continues. |
 | `payload_too_large` | State is pre-trimmed: description to 4 000 chars, each custom field value to 500 chars, at most 50 custom fields. If it is still too large, one retry without description and custom fields, then an error. |
@@ -289,19 +293,22 @@ All routes are tenant/org scoped from the auth context, zod-validated in `data/v
 2. **Status + soft resolve:** `catalogCategorizationService.getStatus` in `di.ts`, using `tryResolve('decisionModelService')`. Unit tests: not installed, each unavailable reason, and enabled-but-unavailable → `effective: false`.
 3. **Settings API + UI:** `GET/PUT /api/catalog/ai-categorization/settings` (422 rule, mutation guards, OpenAPI); the `AiCategorizationSettings` section (alert, switch, disclosure); i18n keys in every catalog locale.
 4. **State builder:** `buildProductState` (D6/D9), with trimming. Unit tests: encrypted custom fields and encryption-map columns excluded, limits applied, no user data.
-5. **Tree walk:** `suggest()` with `__none` / `__here`, the 0.35 stop, the batched tournament with its conservative probability, joint confidence, the shared budget with per-call `timeoutMs`, stable ordering, and org-scoped live/active categories. Unit tests use a stub `DecisionModelService`: deep path, early stop, root `no_match`, a level with 130 children (one batched request), a level wider than 504, and every port error code mapped to `outcome: 'error'`.
+5. **Tree walk:** `suggest()` with `__none` / `__here`, the 0.35 stop, the batched tournament with its conservative probability, joint confidence, the shared budget with per-call `timeoutMs`, stable ordering, and org-scoped live/active categories. Unit tests use a stub `DecisionModelService`: deep path, early stop, root `no_match`, a level with 127 children (three chunks of 43/42/42 in one request, then a final), a level wider than 504, the final question picking the sentinel, and every port error code mapped to `outcome: 'error'` (including an unknown code).
 6. **Entity + migration:** `CatalogProductCategorySuggestion` with the partial unique index. Run `yarn db:generate`, keep only this migration, update the snapshot. Persistence: supersede + insert in one transaction with the product row lock; unique violation → 409. Unit tests for the supersede rules.
 7. **Category helper extraction:** move the assignment-writing core of `syncCategoryAssignments` into an exported helper, with no behavior change. Existing product command tests must stay green.
 8. **Commands + events + ACL:** `catalog.category_suggestions.accept` / `.reject` (liveness check, D5 merge with `makeMain`, category-only undo, the superseded-on-undo rule, optimistic lock on the suggestion), the three events, and `catalog.ai_categorization.use`. Unit tests: empty product → only category; existing categories → appended last; `makeMain` → first; undo restores exactly `before.categoryIds` and touches no other product field.
 9. **Routes:** single-product suggest, list (with `categoryLive` and a filter for soft-deleted products), accept, reject, all behind the `effective` gate. OpenAPI.
 10. **Product page card:** in `ProductCategorizeSection`, gated by status + feature. `useGuardedMutation` + optimistic-lock header; form `categoryIds` / `updatedAt` sync after accept; dirty-field guard; flash messages on errors; DS tokens.
-11. **Integration tests** (Playwright, self-contained fixtures, env `OM_DECISION_PROVIDER=fixture`, `OM_DECISION_MODEL=fixture`, `OM_DECISION_FIXTURE_ENABLED=1`). The fixture adapter picks the first option whose key appears as a whole word in the state. So the product description must contain the UUID of **every category on the expected path** (root, child, …), and nothing else from the tree.
-    - TC: settings PUT `enabled: true` with the decision model env unset → 422.
+11. **Integration tests** (Playwright, self-contained fixtures, env `OM_DECISION_PROVIDER=fixture`, `OM_DECISION_MODEL=fixture`, `OM_DECISION_FIXTURE_ENABLED=1`).
+    - **Fixture behavior** (`ai-assistant/.../decision-adapters/fixture.ts`): it picks the first option, in option order, whose key appears as a whole word in the serialized state, with p = 1. When nothing matches, it picks the **first** option with p = 1/n. So the product description must contain the UUID of **every category on the expected path** (root, child, …), and nothing else from the tree. To force a sentinel, put the literal token `__none` (root) or `__here` (below root) in the description. Because the sentinel is the last option, it only wins when no category key matches at that level.
+    - **Gating:** the test folder declares `requiredEnvVars: ['OM_DECISION_PROVIDER', 'OM_DECISION_MODEL', 'OM_DECISION_FIXTURE_ENABLED']` (`.ai/qa/AGENTS.md` → Conditional Metadata), and each test skips unless `OM_DECISION_PROVIDER === 'fixture'`, so a real provider is never called.
     - TC: enable → suggest (product with no categories) → pending → accept → `categoryIds == [suggested]` → undo → `categoryIds == []` and suggestion `pending`.
     - TC: product with categories → accept → suggestion appended last; with `makeMain` → first.
+    - TC: description with only `__none` → `no_match`; root UUID + `__here` → suggestion is the root.
     - TC: reject; second accept on the same suggestion → 409; accept for a soft-deleted category → 422.
     - TC: feature disabled → suggest route 409, card not rendered.
-    - Before Phase 1 merges, confirm that the CI integration env can set the fixture variables (`.ai/qa/AGENTS.md`). If it cannot, raise it as a blocker.
+    - The "PUT `enabled: true` with no decision model → 422" case cannot run in a fixture-env process. It is a route unit test with a stub `decisionModelService` returning `available: false`.
+    - **CI:** as of 2026-10-29, `.github/workflows/ci.yml` sets no `OM_DECISION_*` variable, so the gated folder is skipped in CI. Adding the three variables to the integration job is a pipeline change that needs maintainer approval (root `AGENTS.md` → Ask First). The implementation PR proposes it in its description and does not edit `ci.yml` itself.
 
 ### Phase 2
 
@@ -350,3 +357,10 @@ All routes are tenant/org scoped from the auth context, zod-validated in `data/v
   - auto-apply split into Phase 3;
   - `sync_excel` claim removed;
   - Akeneo re-sync caveat added.
+- 2026-10-29: Checked against the merged port (#7553, `9d41ec411`):
+  - status → ready for implementation;
+  - tournament chunks are near-equal in size and carry no sentinel, because the port requires 2–64 options per question;
+  - the sentinel is always the last option;
+  - full list of availability reasons and port error codes, with an open-union fallback;
+  - integration tests document the fixture adapter's behavior, are env-gated, and move the 422 case to a route unit test; CI env needs maintainer approval;
+  - line-number references replaced with symbol names.
