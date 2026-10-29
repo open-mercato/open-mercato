@@ -325,7 +325,7 @@ earlier wording put all of it on `Contractor`; the snapshot itself holds
 only the masked account) — denormalizing it onto
 `JournalEntryLine` doesn't reduce the sensitivity, so it needs its own
 `defaultEncryptionMaps` entry: `{ entityId: 'ledger:journal_entry_line',
-fields: [{ field: 'contractor_snapshot' }] }` (the `ModuleEncryptionMap` shape #6340 uses). See Open Questions, OQ-1, for how this column meets the append-only trigger. Whole-`json`-column encryption is
+fields: [{ field: 'contractor_snapshot' }] }` (the `ModuleEncryptionMap` shape #6340 uses). How this column meets the append-only trigger is decided in OQ-1 (Decisions on the review of 2026-10-26). Whole-`json`-column encryption is
 already a precedented pattern in this codebase, not something new
 being invented here — `messages:message.action_data`/`action_result`
 (also `type: 'json'` columns) are declared exactly this way in
@@ -594,9 +594,12 @@ was wrong for computer-kept books.) Art. 23 ust. 1 adds that books kept by
 computer must use procedures that protect an entry against destruction,
 modification or hiding. The append-only triggers on `journal_entries` and
 `journal_entry_lines` (see Migration) are that protection, so the statutory
-rule and the database enforce the same thing.
+rule and the database enforce the same thing. The one exception is an
+`UPDATE` of a line that changes only `contractor_snapshot` (key rotation,
+turning encryption on, clearing after the retention period); see OQ-1,
+Decisions on the review of 2026-10-26.
 
-**Multi-currency: every line carries its own currency, rate and original-currency amount; the entry balances in the base currency.** *(Changed 2026-10-23. The earlier text fixed one currency per entry through the header.)* A `JournalEntryLine` has `currencyId`, `exchangeRate` and `amountCurrency` next to the base-currency `debit`/`credit`, so one entry can mix currencies, for example an EUR invoice paid from a USD bank account in a PLN-based tenant. Balance validation runs only in the base-currency `debit`/`credit` columns (`SUM(debit) = SUM(credit)`), unchanged. The header's `currencyId`/`exchangeRate` stay as the currency and rate of the source document and are the default for a line that omits its own. `postJournalEntry` resolves that default **when it writes**, so a stored line never has a null currency or rate. A read-time "null means the header" rule would be wrong for a line left unset inside an entry that mixes currencies: it would be silently read as the header's currency. A base-currency line stores the base currency, rate `1` and an `amountCurrency` equal to its `debit` or `credit`. `exchangeRate` is base-currency units per one unit of the line's currency, the same direction as on the header, and is stored as given: a rate with more than 8 decimal places is rejected on posting, not rounded. How this precision relates to #7324 and the Money spec (#7795) is open; see Open Questions, OQ-3. `amountCurrency` stays an unsigned magnitude; the side is the `debit`/`credit` column.
+**Multi-currency: every line carries its own currency, rate and original-currency amount; the entry balances in the base currency.** *(Changed 2026-10-23. The earlier text fixed one currency per entry through the header.)* A `JournalEntryLine` has `currencyId`, `exchangeRate` and `amountCurrency` next to the base-currency `debit`/`credit`, so one entry can mix currencies, for example an EUR invoice paid from a USD bank account in a PLN-based tenant. Balance validation runs only in the base-currency `debit`/`credit` columns (`SUM(debit) = SUM(credit)`), unchanged. The header's `currencyId`/`exchangeRate` stay as the currency and rate of the source document and are the default for a line that omits its own. `postJournalEntry` resolves that default **when it writes**, so a stored line never has a null currency or rate. A read-time "null means the header" rule would be wrong for a line left unset inside an entry that mixes currencies: it would be silently read as the header's currency. A base-currency line stores the base currency, rate `1` and an `amountCurrency` equal to its `debit` or `credit`. `exchangeRate` is base-currency units per one unit of the line's currency, the same direction as on the header, and is stored as given: a rate with more than 8 decimal places is rejected on posting, not rounded. This precision is a deliberate exception to the Money spec (#7795) until #7324 merges: the caller rounds the rate to 8 dp half-up and derives the base amount from the stored rate (OQ-3, Decisions on the review of 2026-10-26). `amountCurrency` stays an unsigned magnitude; the side is the `debit`/`credit` column.
 
 **How a line's currency, rate and original amount are resolved when posting (2026-10-26, as implemented in #6340, `lib/lineCurrency.ts` `resolveLineCurrency` and `commands/postJournalEntry.ts`).** The base currency is the organization's `currencies.Currency` row with `isBase = true` (not deleted); a post for an organization without one is rejected with 422 (`ledger.errors.baseCurrencyNotConfigured`) before anything is written. For each line: the currency is the line's own `currencyId`, else the header's. The rate is the line's own `exchangeRate` when given; otherwise `1` when the line's currency is the base currency; otherwise the header's `exchangeRate`, but only when the line's currency equals the header's and the header rate is not null. Every other case is rejected with 422 (`ledger.errors.lineExchangeRateMissing`): a line that sets a currency other than the header's without its own rate (no rate of another currency is ever borrowed), and a line in a foreign header currency whose header rate is null. A rate of zero or less is rejected (`lineExchangeRateNotPositive`), and so is a base-currency line with a rate other than `1` (`lineBaseCurrencyRateNotOne`). The original amount is the line's `amountCurrency` when given; for a base-currency line it defaults to its `debit` or `credit`; a foreign-currency line without one is rejected (`lineAmountCurrencyMissing`).
 
@@ -1118,7 +1121,13 @@ on `journal_entries` (`journal_entries_reference_idx`) backs the `referenceType`
   entries (the invariant the Testing Strategy checks); **added
   2026-10-12:** `number` is validated against the group (PL), cannot
   change once any account of the type has posted lines, and a change
-  carries the type's accounts along to the new prefix. Requires
+  carries the type's accounts along to the new prefix. Moving a type into a
+  PL group without changing its number is refused with 409
+  (`ledger.errors.accountTypeGroupAccountsPrefix`) when any live account
+  of the type has a number that does not start with the type number. The
+  accounts are not renumbered: there is no old prefix to swap, so a
+  cascade would mean inventing numbers. The type is frozen once it has
+  posted lines, so the blocked accounts never have posted lines. Requires
   `ledger.accounts.manage`.
 
 ### Events (`events.ts`)
@@ -1152,9 +1161,13 @@ on `journal_entries` (`journal_entries_reference_idx`) backs the `referenceType`
   'REVERSAL', operationDate: string, organizationId: string,
   tenantId: string, referenceType: string | null, referenceId: string
   | null, lines: { id: string, accountId: string, debit: string,
-  credit: string }[] }` — enough for an idempotent subscriber to act
-  without a second read back to `ledger` (`JournalEntryLine.debit`/
-  `credit` as numeric strings, matching the entity's own column type). The line currency fields are not in the payload yet; see Open Questions, OQ-2.
+  credit: string, currencyId: string, exchangeRate: string,
+  amountCurrency: string }[] }` — enough for an idempotent subscriber to act
+  without a second read back to `ledger` (`debit`, `credit`,
+  `exchangeRate` and `amountCurrency` as numeric strings, matching the
+  entity's own column types). The three line currency fields were added
+  2026-10-29 (OQ-2, Decisions on the review of 2026-10-26); #6340 does not
+  emit them yet.
   `createModuleEvents`'s required `entity`/`category` fields: `entity:
   'journal_entry'`, `category: 'lifecycle'` (checked against the
   category values other modules actually use — `crud` / `custom` /
@@ -1675,32 +1688,30 @@ backfilled from each entry's header, and the append-only triggers on
 for the statement. `LedgerAccount.currencyId` is nullable, so it needs no
 backfill.
 
-## Open Questions (review of 2026-10-26, added 2026-10-29)
+## Decisions on the review of 2026-10-26 (OQ-1 to OQ-3)
 
-Three findings of the 2026-10-26 re-review (@wojciechszyjka, PR #5663, head `d65bbf17b`) need a decision this document does not take on its own. Each has a working decision so the implementation can proceed, marked **⚠ NEEDS HUMAN CONFIRMATION** until a domain or architecture owner confirms or replaces it.
+Three findings of the 2026-10-26 re-review (@wojciechszyjka, PR #5663, head `d65bbf17b`) were first recorded as open questions (2026-10-29) and are settled below by the author after checking the code and the statute text. Owner confirmation was not requested.
 
 ### OQ-1 — encrypted `contractorSnapshot` under the append-only trigger, and the retention basis
 
 - **Facts.** `contractor_snapshot` is in `defaultEncryptionMaps` (`encryption.ts`, `{ field: 'contractor_snapshot' }`). `journal_entry_lines_append_only` (#6340, `Migration20260922093649`) raises on every `UPDATE` or `DELETE` of a line. `mercato entities rotate-encryption-key` (`packages/core/src/modules/entities/cli.ts:675`) re-keys rows with a plain `update … set <col> = ? where "<pk>" = ?`, and the same command encrypts plaintext rows when run without `--old-key`. Once Accounts Payable writes snapshots, key rotation, and turning encryption on for a tenant that already has lines, both abort on the trigger.
-- **Architecture question.** Should the trigger let through an `UPDATE` that changes only `contractor_snapshot`, or should the spec describe an operational procedure (for example, disabling the trigger inside a maintenance transaction) instead?
-- **Working decision ⚠ NEEDS HUMAN CONFIRMATION.** The trigger allows an `UPDATE` in which every column except `contractor_snapshot` is unchanged (`IS NOT DISTINCT FROM` the old row). Every other `UPDATE` and every `DELETE` still raises. Tests: re-keying a posted line succeeds, and a change to any other column of a posted line still raises.
-- **Domain question.** What legal basis keeps the snapshot (a counterparty's name, tax id and masked account) after the data subject asks for erasure? Candidates, **not verified against the text in this pass**: the archiving periods of art. 74 UoR, and art. 17 ust. 3 lit. b RODO (processing required by a legal obligation). Neither is cited in the knowledge base yet.
-- **Working decision ⚠ NEEDS HUMAN CONFIRMATION.** A snapshot on a posted line is not erased while the books it belongs to must be kept. The legal basis is to be named by the domain owner before Accounts Payable starts writing snapshots.
+- **Decision.** The `journal_entry_lines_append_only` trigger function allows an `UPDATE` only if every column except `contractor_snapshot` is unchanged (`to_jsonb(new) - 'contractor_snapshot' is not distinct from to_jsonb(old) - 'contractor_snapshot'`); every other `UPDATE` and every `DELETE` still raises. Checked: `mercato entities rotate-encryption-key` (`packages/core/src/modules/entities/cli.ts:675`, `992`, `1263`) re-keys with a plain `UPDATE` of the encrypted column only, and the trigger blocks it. A maintenance-transaction procedure is rejected: `Migration20261023110000` lifts the trigger only for a one-off backfill, and a runtime CLI should not need `ALTER TABLE` rights on a table whose guarantee must hold at all times.
+- **Retention basis.** The snapshot sits on a journal line, which belongs to the accounting books; books are kept for at least 5 years counted from the beginning of the year following the financial year (art. 74 ust. 2 pkt 1 and ust. 3 of the Accounting Act, text checked 2026-10-29). Within that period an erasure request is refused for the snapshot on a posted line (art. 17(3)(b) GDPR, processing required by a legal obligation). After the period the snapshot may be set to `NULL`, which the trigger exception allows because only that column changes; the erasure procedure itself is out of scope.
+- **Note.** That a snapshot counts as part of the books is the author's interpretation, not a legal opinion. Art. 17(3)(b) GDPR was checked only against a secondary source; the EUR-Lex text could not be retrieved in this pass.
 
 ### OQ-2 — currency fields in the `ledger.journal_entry.posted` payload
 
-- **Facts.** The payload (Architecture → Events) lists lines as `{ id, accountId, debit, credit }` and calls this enough to act without reading back. Since 2026-10-23 every line also has `currencyId`, `exchangeRate` and `amountCurrency`, and the Posting Rules Engine copies them from the source line. A mirroring subscriber cannot meet the account-currency rule or the tolerance from the current payload. #6340 at `c47359dd18` emits the same four fields (`commands/postJournalEntry.ts`, `PostJournalEntryResult.lines`).
-- **Architecture question.** Should the event carry the line currency fields, or should subscribers read the lines back?
-- **Working decision ⚠ NEEDS HUMAN CONFIRMATION.** Add `currencyId: string`, `exchangeRate: string` and `amountCurrency: string` (numeric strings, like `debit`/`credit`) to every payload line, for both `postJournalEntry` and `reverseJournalEntry`. The change is additive. If confirmed, #6340 has to emit them too.
+- **Facts.** The payload (Architecture → Events) listed lines as `{ id, accountId, debit, credit }` and called this enough to act without reading back. Since 2026-10-23 every line also has `currencyId`, `exchangeRate` and `amountCurrency`, and the Posting Rules Engine copies them from the source line. A mirroring subscriber cannot meet the account-currency rule or the tolerance from that payload. #6340 at `c47359dd18` emits the same four fields (`commands/postJournalEntry.ts`, `PostJournalEntryResult.lines`).
+- **Decision.** Add `currencyId`, `exchangeRate` and `amountCurrency` (numeric strings like `debit`/`credit`) to every line in the `ledger.journal_entry.posted` payload, for `postJournalEntry` and `reverseJournalEntry`. Additive; the lines carry these columns since 2026-10-23 and a mirroring subscriber (Posting Rules Engine) cannot apply the account-currency rule or the tolerance without them. The module is not merged, so no consumer breaks. #6340 emits only `{ id, accountId, debit, credit }` at the moment (`events.ts`, `LedgerJournalEntryPostedPayload`) and needs a follow-up change.
 
 ### OQ-3 — rate and amount precision against the Money spec (#7795) and #7324
 
 - **What this spec says.** `exchangeRate` is `numeric(18,8)` on the header and the lines, and a rate with more than 8 decimal places is rejected, not rounded. `debit`, `credit` and `amountCurrency` are `numeric(19,4)`. The tolerance is `0.5 × 10^−d`, where `d` is the base currency's decimal places, capped at 4.
 - **What #7324 says** (`2026-10-08-arbitrary-precision-money-and-fx.md`, PR open at `d46a8daac615`, not merged). Money and FX columns become unconstrained `numeric`. `exchange_rates.rate` and `sales_orders.exchange_rate` go from `numeric(18,8)` to `numeric`, and a rate "is no longer limited to eight fractional digits" (D1, API contract). FX division runs at 50 decimal places (D5). A stored amount derived by division is rounded to `max(4, currency.decimalPlaces)` (D4). The stated reason is that 8 decimal places truncate small rates: 1 IDR ≈ `0.000056` USD keeps at most 4 significant digits at 8 dp.
-- **What #7795 says** (`2026-10-22-money-value-object.md`, merged 2026-10-26 as a spec; on `main` at `9cb1f164c4` there is no `packages/shared/src/lib/money/` or `lib/decimal.ts` yet, because it depends on #7324). New monetary values use `Money`/`Currency`, are stored through `MoneyColumns` (`<prefix>amount` unconstrained `numeric`, `<prefix>currency_code`, `<prefix>currency_decimal_places`), and nothing rounds implicitly: `convertMoney(m, rate, target, rounding)` takes an explicit `MoneyRounding`. It applies to new code only. This spec references neither.
+- **What #7795 says** (`2026-10-22-money-value-object.md`, merged 2026-10-26 as a spec; on `main` at `9cb1f164c4` there is no `packages/shared/src/lib/money/` or `lib/decimal.ts` yet, because it depends on #7324). New monetary values use `Money`/`Currency`, are stored through `MoneyColumns` (`<prefix>amount` unconstrained `numeric`, `<prefix>currency_code`, `<prefix>currency_decimal_places`), and nothing rounds implicitly: `convertMoney(m, rate, target, rounding)` takes an explicit `MoneyRounding`. It applies to new code only. Before 2026-10-29 this spec referenced neither.
 - **The difference in numbers.** A rate rounded half-up to 8 dp is off by up to `5 × 10^−9` base units per foreign unit. With a 2-dp base currency, the tolerance is `0.005`. Above `0.005 / 5 × 10^−9 = 1,000,000` foreign units, a base amount computed from the unrounded rate can fall outside the tolerance against the stored 8-dp rate; the reviewer's example is 1e9 IDR × a 5e-9 rate error ≈ 5 PLN. Going the other way, a caller with an exact rate of more than 8 dp is rejected outright. `amountCurrency` at 4 dp also cannot hold a currency with more decimals (BTC uses 8), which #7324 sets out to support.
 - **Options.** (A) Align with #7324 and #7795: unconstrained `numeric` rates and amounts, explicit `MoneyRounding`, and possibly `MoneyColumns`. That depends on #7324 merging, and `MoneyColumns` stores a currency code and decimal places, while this spec stores `currencyId`. (B) Record a deliberate exception: keep `numeric(18,8)` and `numeric(19,4)`, with a rounding rule — the caller rounds the rate to 8 dp half-up and derives the base amount from the rounded rate, rounded half-up to `d` places. (C) Widen the tolerance to `½ unit + amountCurrency × 5 × 10^−9`, raised in the #6340 review of 2026-10-26 as a decision for this spec.
-- **Working decision ⚠ NEEDS HUMAN CONFIRMATION.** (B) until #7324 merges, documented here as a deliberate exception to #7795. Revisit (A) once the decimal toolkit and `MoneyColumns` exist on `main`. The column and contract choice is an architecture question. The rounding rule for the rate and the base amount, and whether (C) is acceptable, are domain questions.
+- **Decision.** Option (B) until #7324 merges, recorded as a deliberate exception to #7795: keep `numeric(18,8)` for rates and `numeric(19,4)` for amounts; the caller rounds the rate to 8 decimal places half-up and derives the base amount from that rounded (stored) rate, rounded half-up to the base currency's `d` places; the tolerance stays `0.5 × 10^−d` (option (C) is not adopted, because computing from the stored rate removes the gap it would compensate). Revisit (A) once the decimal toolkit and `MoneyColumns` exist on `main`.
 
 ## Out of scope (tracked separately)
 
@@ -2996,3 +3007,11 @@ code. Not yet reviewed by a maintainer.
 - **Integration coverage.** Testing Strategy gains the key UI paths (chart of accounts, journal list and detail, fiscal periods), required by `.ai/specs/AGENTS.md`. #6340 at `c47359dd18` has API tests only, so these are still to be written.
 - **Encryption map.** The example now uses the real shape, `fields: [{ field: 'contractor_snapshot' }]`.
 - **Findings 1–3 (Medium).** Recorded as Open Questions OQ-1 (snapshot re-keying under the append-only trigger, and the retention basis), OQ-2 (line currency fields in the event payload) and OQ-3 (precision against #7795 and #7324, with the numbers). Each has a working decision marked ⚠ NEEDS HUMAN CONFIRMATION. None of them is decided here.
+
+### 2026-10-29 (cont.) — OQ-1 to OQ-3 settled
+
+- OQ-1 to OQ-3 settled by the author after checking code and statute text; owner confirmation not requested. The section "Open Questions" is now "Decisions on the review of 2026-10-26 (OQ-1 to OQ-3)".
+- **OQ-1.** The append-only trigger lets through an `UPDATE` that changes only `contractor_snapshot`; retention basis art. 74 ust. 2 pkt 1 and ust. 3 of the Accounting Act; art. 17(3)(b) GDPR checked only against a secondary source. Design decisions (art. 23 ust. 1 paragraph) mention the exception.
+- **OQ-2.** The `ledger.journal_entry.posted` payload lines gain `currencyId`, `exchangeRate` and `amountCurrency`; #6340 needs a follow-up change.
+- **OQ-3.** Option (B) until #7324 merges, as a deliberate exception to #7795, with the rounding rule; option (C) not adopted.
+- **N2 of the #6340 review (settled by the author).** Moving a type into a PL group without changing its number is refused with 409 (`ledger.errors.accountTypeGroupAccountsPrefix`) when a live account of the type does not start with the type number, not cascaded, because those accounts have no old prefix to swap (Commands, `updateLedgerAccountType`).
