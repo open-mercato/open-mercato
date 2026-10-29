@@ -62,7 +62,7 @@ const dictionaries = Object.fromEntries(LOCALES.map((locale) => [locale, loadLoc
 >
 
 describe('customer_accounts invite widget i18n (#3953)', () => {
-  const allKeys = [...INVITE_KEYS, DESCRIPTION_KEY]
+  const allKeys = [...INVITE_KEYS, DESCRIPTION_KEY, 'customer_accounts.actions.cancelInvitation']
 
   it('defines every invite key and the description key in all locales', () => {
     for (const locale of LOCALES) {

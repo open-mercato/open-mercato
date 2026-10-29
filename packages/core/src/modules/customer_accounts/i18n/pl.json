@@ -1,4 +1,5 @@
 {
+  "customer_accounts.actions.cancelInvitation": "Anuluj zaproszenie do portalu",
   "customer_accounts.admin.actions.activate": "Aktywuj",
   "customer_accounts.admin.actions.createUser": "Utwórz użytkownika",
   "customer_accounts.admin.actions.deactivate": "Dezaktywuj",

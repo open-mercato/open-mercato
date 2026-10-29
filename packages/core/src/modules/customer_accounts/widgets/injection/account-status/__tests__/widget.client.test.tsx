@@ -374,7 +374,12 @@ describe('customer_accounts AccountStatusWidget invite form', () => {
   })
 
   it('keeps a failed cancellation visible and allows retry', async () => {
-    mockApiCall.mockResolvedValueOnce({ ok: false, status: 500, result: { error: 'unavailable' } } as never)
+    mockApiCall.mockResolvedValueOnce({
+      ok: false,
+      status: 500,
+      result: { error: 'unavailable' },
+      response: new Response(JSON.stringify({ error: 'unavailable' }), { status: 500 }),
+    } as never)
     mockApiCall.mockResolvedValueOnce({ ok: true, status: 200, result: { ok: true } } as never)
     renderPendingInvitation()
 
@@ -393,5 +398,36 @@ describe('customer_accounts AccountStatusWidget invite form', () => {
 
     await waitFor(() => expect(flashMock).toHaveBeenCalledWith('Invitation cancelled', 'success'))
     expect(mockApiCall).toHaveBeenCalledTimes(2)
+  })
+
+  it('preserves a cancellation conflict response for guarded mutation conflict handling', async () => {
+    const conflict = {
+      error: 'The invitation changed. Reload and try again.',
+      code: 'optimistic_lock_conflict',
+      entityId: 'customer_accounts.customer_user_invitation',
+      recordId: 'invitation-1',
+      actualUpdatedAt: '2026-10-29T15:00:00.000Z',
+    }
+    mockApiCall.mockResolvedValueOnce({
+      ok: false,
+      status: 409,
+      result: conflict,
+      response: new Response(JSON.stringify(conflict), { status: 409 }),
+    } as never)
+    renderPendingInvitation()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel invitation' }))
+    const dialog = await screen.findByRole('alertdialog', { name: 'Cancel invitation?' })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel invitation' }))
+
+    await waitFor(() => expect(mockRunMutation).toHaveBeenCalledTimes(1))
+    await expect(mockRunMutation.mock.results[0].value).rejects.toMatchObject({
+      ...conflict,
+      status: 409,
+      raw: JSON.stringify(conflict),
+    })
+    expect(mockInvalidateQueries).not.toHaveBeenCalled()
+    expect(flashMock).not.toHaveBeenCalledWith('Invitation cancelled', 'success')
+    expect(screen.getByText('Invitation pending')).toBeInTheDocument()
   })
 })

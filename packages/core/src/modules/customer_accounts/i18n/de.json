@@ -1,4 +1,5 @@
 {
+  "customer_accounts.actions.cancelInvitation": "Portaleinladung widerrufen",
   "customer_accounts.admin.actions.activate": "Activate",
   "customer_accounts.admin.actions.createUser": "Benutzer erstellen",
   "customer_accounts.admin.actions.deactivate": "Deactivate",

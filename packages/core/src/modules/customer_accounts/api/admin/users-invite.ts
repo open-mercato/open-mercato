@@ -6,7 +6,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { CustomerInvitationService } from '@open-mercato/core/modules/customer_accounts/services/customerInvitationService'
 import { emitCustomerAccountsEvent } from '@open-mercato/core/modules/customer_accounts/events'
-import { inviteUserSchema } from '@open-mercato/core/modules/customer_accounts/data/validators'
+import { inviteUserSchema, cancelInvitationSchema, type CancelInvitationInput } from '@open-mercato/core/modules/customer_accounts/data/validators'
 import { isOwnedCompanyEntity, isOwnedPersonEntity, resolveOwnedCompanyForPerson } from '@open-mercato/core/modules/customer_accounts/lib/customerEntityOwnership'
 import { rateLimitErrorSchema } from '@open-mercato/shared/lib/ratelimit/helpers'
 import {
@@ -23,8 +23,8 @@ import { lookupHashCandidates } from '@open-mercato/shared/lib/encryption/aes'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { cancelInvitationSchema, type CancelInvitationInput } from '../../data/validators'
 import type { CancelInvitationResult } from '../../commands/invitations'
+import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 
 const logger = createLogger('customer_accounts').child({ component: 'admin-users-invite' })
 
@@ -258,13 +258,17 @@ export async function POST(req: Request) {
 export async function DELETE(req: Request) {
   const { translate } = await resolveTranslations()
   const auth = await getAuthFromRequest(req)
-  if (!auth?.tenantId || !auth.orgId) {
+  if (!auth) {
     return NextResponse.json({ ok: false, error: translate('customer_accounts.errors.cancelInvitationAuth') }, { status: 401 })
   }
 
   const container = await createRequestContainer()
+  const organizationScope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
+  if (organizationScope.selectionRejected || !organizationScope.tenantId || !organizationScope.selectedId) {
+    return NextResponse.json({ ok: false, error: translate('customer_accounts.errors.cancelInvitationPermission') }, { status: 403 })
+  }
   const rbacService = container.resolve('rbacService') as RbacService
-  const scope = { tenantId: auth.tenantId, organizationId: auth.orgId }
+  const scope = { tenantId: organizationScope.tenantId, organizationId: organizationScope.selectedId }
   if (!await rbacService.userHasAllFeatures(auth.sub, ['customer_accounts.invite'], scope)) {
     return NextResponse.json({ ok: false, error: translate('customer_accounts.errors.cancelInvitationPermission') }, { status: 403 })
   }
@@ -299,9 +303,9 @@ export async function DELETE(req: Request) {
     ctx: {
       container,
       auth,
-      organizationScope: null,
-      selectedOrganizationId: auth.orgId,
-      organizationIds: [auth.orgId],
+      organizationScope,
+      selectedOrganizationId: scope.organizationId,
+      organizationIds: [scope.organizationId],
       request: req,
     },
   })
@@ -383,8 +387,8 @@ const cancelMethodDoc: OpenApiMethodDoc = {
   responses: [{ status: 200, description: 'Cancellation processed', schema: z.object({ ok: z.literal(true) }) }],
   errors: [
     { status: 400, description: 'Invalid invitation identifier', schema: errorSchema },
-    { status: 401, description: 'Not authenticated or scope missing', schema: errorSchema },
-    { status: 403, description: 'Insufficient permissions', schema: errorSchema },
+    { status: 401, description: 'Not authenticated', schema: errorSchema },
+    { status: 403, description: 'Insufficient permissions or organization selection rejected', schema: errorSchema },
     { status: 409, description: 'Mutation blocked by a registered guard', schema: errorSchema },
     { status: 422, description: 'Mutation rejected by a registered guard', schema: errorSchema },
   ],

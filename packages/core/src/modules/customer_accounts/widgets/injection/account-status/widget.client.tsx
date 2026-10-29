@@ -3,6 +3,7 @@
 import React from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -360,7 +361,7 @@ export default function AccountStatusWidget({ context }: AccountStatusProps) {
             { method: 'DELETE' },
           )
           if (!call.ok) {
-            throw new Error(t('customer_accounts.widgets.invite.cancel.error', 'Failed to cancel invitation'))
+            await raiseCrudError(call.response, t('customer_accounts.widgets.invite.cancel.error', 'Failed to cancel invitation'))
           }
           flash(t('customer_accounts.widgets.invite.cancel.success', 'Invitation cancelled'), 'success')
           handleInviteSuccess()

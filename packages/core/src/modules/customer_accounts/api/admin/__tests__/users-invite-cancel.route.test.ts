@@ -10,6 +10,7 @@ const mockGetGrantedFeatures = jest.fn()
 const mockExecute = jest.fn()
 const mockGuards = jest.fn()
 const mockAfterSuccess = jest.fn()
+const mockResolveScope = jest.fn()
 const mockContainer = {
   resolve: jest.fn((name: string) => {
     if (name === 'rbacService') return { userHasAllFeatures: mockUserHasAllFeatures, getGrantedFeatures: mockGetGrantedFeatures }
@@ -22,6 +23,9 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({ createRequestContain
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({ getAuthFromRequest: (...args: unknown[]) => mockGetAuthFromRequest(...args) }))
 jest.mock('@open-mercato/shared/lib/crud/route-mutation-guard', () => ({ runRouteMutationGuards: (...args: unknown[]) => mockGuards(...args) }))
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({ resolveTranslations: async () => ({ translate: (key: string) => key }) }))
+jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => ({
+  resolveOrganizationScopeForRequest: (...args: unknown[]) => mockResolveScope(...args),
+}))
 jest.mock('@open-mercato/core/modules/customer_accounts/lib/rateLimiter', () => ({
   checkAuthRateLimit: jest.fn(), customerInviteIpRateLimitConfig: {}, customerInviteRateLimitConfig: {},
 }))
@@ -38,6 +42,9 @@ describe('admin invitation cancellation', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     mockGetAuthFromRequest.mockResolvedValue({ sub: staffUserId, tenantId, orgId: organizationId })
+    mockResolveScope.mockImplementation(async ({ auth }: { auth: { tenantId: string | null; orgId: string | null } }) => ({
+      tenantId: auth.tenantId, selectedId: auth.orgId, allowedIds: auth.orgId ? [auth.orgId] : [], filterIds: auth.orgId ? [auth.orgId] : [],
+    }))
     mockUserHasAllFeatures.mockResolvedValue(true)
     mockGetGrantedFeatures.mockResolvedValue(['customer_accounts.*'])
     mockExecute.mockResolvedValue({ result: { cancelled: true } })
@@ -58,7 +65,7 @@ describe('admin invitation cancellation', () => {
 
   it.each([null, { sub: staffUserId, tenantId: null, orgId: organizationId }, { sub: staffUserId, tenantId, orgId: null }])('rejects missing authentication or scope', async (auth) => {
     mockGetAuthFromRequest.mockResolvedValue(auth)
-    expect((await DELETE(makeRequest())).status).toBe(401)
+    expect((await DELETE(makeRequest())).status).toBe(auth ? 403 : 401)
     expect(mockExecute).not.toHaveBeenCalled()
     expect(mockGuards).not.toHaveBeenCalled()
   })
@@ -67,6 +74,38 @@ describe('admin invitation cancellation', () => {
     mockUserHasAllFeatures.mockResolvedValue(false)
     expect((await DELETE(makeRequest())).status).toBe(403)
     expect(mockUserHasAllFeatures).toHaveBeenCalledWith(staffUserId, ['customer_accounts.invite'], { tenantId, organizationId })
+    expect(mockExecute).not.toHaveBeenCalled()
+  })
+
+  it('uses the validated selected organization for authorization, guards, and command context', async () => {
+    const selectedId = '77777777-7777-4777-8777-777777777777'
+    const organizationScope = { tenantId, selectedId, allowedIds: [organizationId, selectedId], filterIds: [selectedId] }
+    mockResolveScope.mockResolvedValue(organizationScope)
+    const request = new Request(`http://localhost/api/customer_accounts/admin/users-invite?id=${invitationId}`, {
+      method: 'DELETE', headers: { cookie: `om_selected_org=${selectedId}` },
+    })
+    expect((await DELETE(request)).status).toBe(200)
+    expect(mockResolveScope).toHaveBeenCalledWith({ container: mockContainer, auth: { sub: staffUserId, tenantId, orgId: organizationId }, request })
+    expect(mockUserHasAllFeatures).toHaveBeenCalledWith(staffUserId, ['customer_accounts.invite'], { tenantId, organizationId: selectedId })
+    expect(mockGuards).toHaveBeenCalledWith(expect.objectContaining({
+      auth: expect.objectContaining({ tenantId, organizationId: selectedId }),
+    }))
+    expect(mockExecute).toHaveBeenCalledWith('customer_accounts.invitation.cancel', expect.objectContaining({
+      ctx: expect.objectContaining({ organizationScope, selectedOrganizationId: selectedId, organizationIds: [selectedId] }),
+    }))
+  })
+
+  it('rejects an explicit invalid selection instead of falling back to the home organization', async () => {
+    mockResolveScope.mockResolvedValue({ tenantId, selectedId: organizationId, allowedIds: [organizationId], filterIds: [organizationId], selectionRejected: true })
+    expect((await DELETE(makeRequest())).status).toBe(403)
+    expect(mockGuards).not.toHaveBeenCalled()
+    expect(mockExecute).not.toHaveBeenCalled()
+  })
+
+  it('rejects an all-organizations selection without a concrete write scope', async () => {
+    mockResolveScope.mockResolvedValue({ tenantId, selectedId: null, allowedIds: null, filterIds: null })
+    expect((await DELETE(makeRequest())).status).toBe(403)
+    expect(mockGuards).not.toHaveBeenCalled()
     expect(mockExecute).not.toHaveBeenCalled()
   })
 
