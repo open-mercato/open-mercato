@@ -325,6 +325,7 @@ covers the route rather than the command:
 
 - an explicit "All organizations" selection is refused before any guard or
   command runs, and a payload `organizationId` cannot override it (#6458),
+- a rejected or deleted selected organization returns `422 organization_selection_invalid` before guards or commands, without clearing the selection cookie (#8015); route and HTTP regressions cover append, update and delete-only batches,
 - a batch writes under the resolved selected organization,
 - a registered mutation guard that rejects stops the command from executing, and
   its status and body reach the caller,
@@ -411,6 +412,10 @@ call rather than this change's.
 - No new production dependency.
 
 ## Changelog
+
+### 2026-10-29 — Reject invalid organization selections
+
+Carried the focused #8015 fix from #8029, preserving its author. The batch route now matches the per-line refusal when the scope resolver rejects a selected organization; valid selections and the existing All-organizations refusal are unchanged.
 
 ### 2026-10-16
 
