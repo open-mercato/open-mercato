@@ -281,6 +281,88 @@ describe('wms inventory reserve command', () => {
     expect(expiredBalance.quantityReserved).toBe('0')
   })
 
+  it('skips staging and dock balances so inbound stock cannot be reserved before putaway', async () => {
+    const em = createEm()
+
+    const stagingBalance = makeBalance({
+      id: 'balance-staging',
+      location: { id: LOCATION_A, type: 'staging' },
+      quantityOnHand: '20',
+      quantityReserved: '0',
+    })
+    const dockBalance = makeBalance({
+      id: 'balance-dock',
+      location: { id: LOCATION_B, type: 'dock' },
+      quantityOnHand: '20',
+      quantityReserved: '0',
+    })
+
+    findOneWithDecryption.mockImplementation((_em: unknown, entity: unknown) => {
+      if (entity === Warehouse) return { id: WAREHOUSE_ID, tenantId: TENANT, organizationId: ORG }
+      if (entity === InventoryReservation) return null
+      if (entity === ProductInventoryProfile) return null
+      return null
+    })
+
+    findWithDecryption.mockImplementation((_em: unknown, entity: unknown) => {
+      if (entity === InventoryBalance) return [stagingBalance, dockBalance]
+      if (entity === InventoryMovement) return []
+      return []
+    })
+
+    const handler = commandRegistry.get('wms.inventory.reserve')
+    await expect(
+      handler!.execute!(makeReserveInput({ quantity: 5 }), createCtx(em)),
+    ).rejects.toMatchObject({
+      status: 409,
+      body: { error: 'insufficient_stock' },
+    } satisfies Partial<CrudHttpError>)
+
+    expect(stagingBalance.quantityReserved).toBe('0')
+    expect(dockBalance.quantityReserved).toBe('0')
+  })
+
+  it('reserves from storage after skipping staging peers for the same variant', async () => {
+    const em = createEm()
+
+    const stagingBalance = makeBalance({
+      id: 'balance-staging',
+      location: { id: LOCATION_A, type: 'staging' },
+      quantityOnHand: '20',
+      quantityReserved: '0',
+    })
+    const binBalance = makeBalance({
+      id: 'balance-bin',
+      location: { id: LOCATION_B, type: 'bin' },
+      quantityOnHand: '10',
+      quantityReserved: '0',
+    })
+
+    findOneWithDecryption.mockImplementation((_em: unknown, entity: unknown, where: Record<string, unknown>) => {
+      if (entity === Warehouse) return { id: WAREHOUSE_ID, tenantId: TENANT, organizationId: ORG }
+      if (entity === InventoryReservation) return null
+      if (entity === ProductInventoryProfile) return null
+      if (entity === InventoryBalance) {
+        if (where?.location === LOCATION_B) return binBalance
+        if (where?.location === LOCATION_A) return stagingBalance
+      }
+      return null
+    })
+
+    findWithDecryption.mockImplementation((_em: unknown, entity: unknown) => {
+      if (entity === InventoryBalance) return [stagingBalance, binBalance]
+      if (entity === InventoryMovement) return []
+      return []
+    })
+
+    const handler = commandRegistry.get('wms.inventory.reserve')
+    const result = await handler!.execute!(makeReserveInput({ quantity: 5 }), createCtx(em))
+
+    expect(result).toMatchObject({ reservationId: expect.any(String) })
+    expect(stagingBalance.quantityReserved).toBe('0')
+    expect(Number(binBalance.quantityReserved)).toBe(5)
+  })
+
   it('returns the existing reservation without mutating balances on idempotent replay', async () => {
     const em = createEm()
     const existingReservation = makeReservation()
