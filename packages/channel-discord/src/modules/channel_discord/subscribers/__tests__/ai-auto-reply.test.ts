@@ -334,11 +334,11 @@ describe('channel_discord ai-auto-reply subscriber — routing', () => {
     const [, where] = forked.count.mock.calls[0]
     expect(where).toEqual({
       tenantId: 't-1',
+      organizationId: 'o-1',
       $or: [
         { idempotencyKey: 'channel_discord:ai-auto-reply:m-1' },
         {
           type: CHANNEL_DISCORD_AI_PROPOSAL_MESSAGE_TYPE,
-          organizationId: 'o-1',
           sourceEntityType: CHANNEL_DISCORD_AI_PROPOSAL_SOURCE_ENTITY_TYPE,
           sourceEntityId: 'm-1',
           senderUserId: { $in: ['system-user-id', '00000000-0000-0000-0000-000000000000'] },
@@ -348,14 +348,24 @@ describe('channel_discord ai-auto-reply subscriber — routing', () => {
     expect(JSON.stringify(where)).not.toContain('deletedAt')
   })
 
-  it('(retry) files no second proposal for an inbound message that already has one', async () => {
-    findOne.mockResolvedValueOnce(channelRow()).mockResolvedValueOnce(messageRow('I want a refund on my order'))
-    const { ctx, commandBus } = makeCtx({ aiPresent: true, threadAssignee: 'agent-user-1', alreadyHandled: true })
+  it('(retry) the already-handled check matches the proposal the first run files', async () => {
+    findOne
+      .mockResolvedValueOnce(channelRow())
+      .mockResolvedValueOnce(messageRow('I want a refund on my order'))
+      .mockResolvedValueOnce(channelRow())
+    const { ctx, commandBus, forked } = makeCtx({ aiPresent: true, threadAssignee: 'agent-user-1' })
 
     await handler(basePayload, ctx)
 
-    expect(aiMod.runAiAgentObject).not.toHaveBeenCalled()
-    expect(commandBus.execute).not.toHaveBeenCalled()
+    const [, args] = commandBus.execute.mock.calls[0]
+    const [, where] = forked.count.mock.calls[0]
+    const proposalMatch = where.$or[1]
+    expect(args.input.type).toBe(proposalMatch.type)
+    expect(args.input.sourceEntityType).toBe(proposalMatch.sourceEntityType)
+    expect(args.input.sourceEntityId).toBe(proposalMatch.sourceEntityId)
+    expect(proposalMatch.senderUserId.$in).toContain(args.input.userId)
+    expect(args.input.tenantId).toBe(where.tenantId)
+    expect(args.input.organizationId).toBe(where.organizationId)
   })
 
   it('(retry check fails) degrades to a no-op — no model call, no send', async () => {

@@ -299,9 +299,9 @@ async function draftAndRoute(args: {
  * The events worker retries a job when ANY persistent subscriber on the event
  * fails, re-running the ones that already succeeded. A retry must neither post
  * the reply again nor file a second proposal, so an inbound message that already
- * has this subscriber's reply or proposal is left alone — soft-deleted ones
- * included, because undoing the stored row cannot recall what was posted. The
- * bot sender is matched with its sentinel fallback too, since the bot-user
+ * has this subscriber's reply or proposal is left alone. Soft-deleted rows count
+ * too: an undone reply was still posted, and a removed proposal must not come
+ * back on a retry. The bot sender is matched with its sentinel fallback too, since the bot-user
  * lookup degrades to the sentinel on a transient error.
  */
 async function wasAlreadyHandled(params: {
@@ -314,11 +314,11 @@ async function wasAlreadyHandled(params: {
   const { em, scope, inboundMessageId, autoReplyKey, botUserId } = params
   const existing = await em.count(Message, {
     tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
     $or: [
       { idempotencyKey: autoReplyKey },
       {
         type: CHANNEL_DISCORD_AI_PROPOSAL_MESSAGE_TYPE,
-        organizationId: scope.organizationId,
         sourceEntityType: CHANNEL_DISCORD_AI_PROPOSAL_SOURCE_ENTITY_TYPE,
         sourceEntityId: inboundMessageId,
         senderUserId: { $in: [botUserId, COMMUNICATION_CHANNELS_SYSTEM_USER_ID] },
