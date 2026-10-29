@@ -55,6 +55,7 @@ test.describe('TC-SHIP-020: Ambiguous signed webhook shipments', () => {
       expect(uniqueResponse.status()).toBe(202)
       expect(await readJsonSafe(uniqueResponse)).toEqual({ received: true, queued: true })
       await expect.poll(() => hasCarrierWebhookClaimInDb(acceptedEventId, 'mock_carrier')).toBe(true)
+      await expect.poll(async () => (await getCarrierShipmentRowFromDb(shipmentIds[0]))?.unifiedStatus).toBe('delivered')
     } finally {
       await deleteCarrierWebhookClaimsInDb([rejectedEventId, acceptedEventId])
       for (const shipmentId of shipmentIds) await deleteCarrierShipmentInDb(shipmentId)
