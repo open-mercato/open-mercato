@@ -1290,6 +1290,8 @@
   "sales.orders.detail.title": "Order details",
   "sales.orders.edit_addresses_blocked": "Addresses cannot be changed for the current status.",
   "sales.orders.edit_customer_blocked": "Customer cannot be changed for the current status.",
+  "sales.orders.errors.cancel_has_payments": "This order has payments that were not refunded. Refund them before cancelling the order.",
+  "sales.orders.errors.cancel_has_shipments": "This order has shipments. Cancel or return them before cancelling the order.",
   "sales.orders.form.general": "General",
   "sales.orders.form.invoices": "Invoices",
   "sales.orders.form.lines": "Line Items",

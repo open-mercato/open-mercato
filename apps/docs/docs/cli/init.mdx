@@ -9,7 +9,7 @@ The `yarn initialize` script wraps the Open Mercato CLI `mercato init` command a
 ## Usage
 
 ```bash
-yarn initialize [--org=<name>] [--email=<address>] [--password=<value>] [--roles=<csv>] [--skip-password-policy] [--no-examples] [--stresstest] [--lite] [-n <count>] [--count=<count>] [--reinstall|-r]
+yarn initialize [--org=<name>] [--email=<address>] [--password=<value>] [--roles=<csv>] [--skip-password-policy] [--no-examples] [--no-demo-users] [--stresstest] [--lite] [-n <count>] [--count=<count>] [--reinstall|-r]
 ```
 
 Ensure `DATABASE_URL` points to the Postgres instance you want to initialize before running the command.
@@ -24,6 +24,7 @@ Ensure `DATABASE_URL` points to the Postgres instance you want to initialize bef
 | `--roles` | Comma-separated list of roles ensured before user creation. | `superadmin,admin,employee` |
 | `--skip-password-policy` | Skip password policy validation during `auth setup` (useful for demo defaults like `secret`). | off |
 | `--no-examples` | Skip demo CRM seeders (companies, people, deals, activities, todos). Alias: `--no-exampls`. | off |
+| `--no-demo-users` | Skip seeding the derived `admin@…`/`employee@…` demo accounts — only the `--email` superadmin account is created. | off |
 | `--stresstest` | Generate a high-volume synthetic CRM dataset (contacts, companies, deals, activities, notes) in addition to the curated examples. | off |
 | `--lite` | When paired with `--stresstest`, skips deals, activities, notes, and custom fields for faster high-volume contact generation. | off |
 | `-n`, `--count`, `--stress-count`, `--stresstest-count` | Number of synthetic contacts to create when `--stresstest` is enabled. | `6000` |
@@ -43,7 +44,7 @@ When you omit CLI flags, the init flow will read environment defaults for the se
 | `OM_INIT_EMPLOYEE_PASSWORD` | Employee account password override. When unset, a random 16-char base64url password is generated and surfaced in the init summary. | _(randomly generated)_ |
 | `OM_INIT_GENERATE_RANDOM_PASSWORD` | **Deprecated, no-op.** Random derived passwords are now the unconditional default when overrides are unset; setting the flag prints a one-time deprecation warning and is otherwise ignored. | _(unused)_ |
 
-`yarn initialize` passes `--include-demo-users` to `mercato auth setup` so the derived `admin@…` / `employee@…` demo accounts are seeded as part of the dev/demo bootstrap. Standalone callers of `mercato auth setup` must opt in themselves; without that flag, no demo accounts are seeded.
+`yarn initialize` passes `--include-demo-users` to `mercato auth setup` so the derived `admin@…` / `employee@…` demo accounts are seeded as part of the dev/demo bootstrap. Standalone callers of `mercato auth setup` must opt in themselves; without that flag, no demo accounts are seeded. Pass `--no-demo-users` to `mercato init`/`yarn initialize` to skip them too — for example on a production bootstrap where only the `--email` superadmin account should exist.
 
 ## What the Command Does
 
