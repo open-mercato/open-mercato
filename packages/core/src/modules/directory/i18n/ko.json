@@ -36,6 +36,7 @@
   "directory.nav.tenants.create": "테넌트 생성",
   "directory.organizations.common.none": "—",
   "directory.organizations.errors.deleteFailed": "조직 삭제에 실패했습니다",
+  "directory.organizations.errors.invalidQuery": "잘못된 쿼리입니다",
   "directory.organizations.errors.orgIdRequired": "조직 식별자는 필수입니다",
   "directory.organizations.errors.tenantRequired": "슈퍼 관리자는 테넌트 선택이 필요합니다",
   "directory.organizations.flash.created": "조직이 생성되었습니다",

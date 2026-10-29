@@ -20,6 +20,10 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: (...args: unknown[]) => createRequestContainer(...args),
 }))
 
+jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
+  findOneWithDecryption: (_manager: unknown, ...args: unknown[]) => emFindOne(...args),
+}))
+
 jest.mock('@open-mercato/core/modules/auth/lib/sessionIntegrity', () => ({
   resolveCanonicalStaffAuthContext: jest.fn(async (_em: unknown, auth: unknown) => auth),
 }))
@@ -234,6 +238,7 @@ describe('resolveApiKeyAuth caching + lastUsedAt debounce', () => {
       lastUsedAt: null,
     })
     emFindOne.mockImplementation(async (_entity: unknown, where: Record<string, unknown>) => {
+      if (where.id === 'tenant-1' && where.isActive === true) return { id: 'tenant-1' }
       if (where.id === 'creator-1') {
         return { id: 'creator-1', tenantId: 'tenant-1', organizationId: 'org-1' }
       }
@@ -267,6 +272,7 @@ describe('resolveApiKeyAuth caching + lastUsedAt debounce', () => {
       lastUsedAt: null,
     })
     emFindOne.mockImplementation(async (_entity: unknown, where: Record<string, unknown>) => {
+      if (where.id === 'tenant-1' && where.isActive === true) return { id: 'tenant-1' }
       if (where.id === 'creator-1') {
         return { id: 'creator-1', tenantId: 'tenant-1', organizationId: 'org-2' }
       }
@@ -295,6 +301,7 @@ describe('resolveApiKeyAuth caching + lastUsedAt debounce', () => {
       lastUsedAt: null,
     })
     emFindOne.mockImplementation(async (_entity: unknown, where: Record<string, unknown>) => {
+      if (where.id === 'tenant-1' && where.isActive === true) return { id: 'tenant-1' }
       if (where.id === 'session-user-1') {
         return { id: 'session-user-1', tenantId: 'tenant-1', organizationId: 'user-org' }
       }
@@ -321,6 +328,10 @@ describe('resolveApiKeyAuth caching + lastUsedAt debounce', () => {
       createdBy: 'creator-1',
       expiresAt: null,
       lastUsedAt: null,
+    })
+    emFindOne.mockImplementation(async (_entity: unknown, where: Record<string, unknown>) => {
+      if (where.id === 'tenant-1' && where.isActive === true) return { id: 'tenant-1' }
+      return null
     })
 
     await expect(
@@ -365,6 +376,105 @@ describe('resolveApiKeyAuth caching + lastUsedAt debounce', () => {
     getSharedApiKeyAuthCache().invalidateByKeyId('key-invalidate')
     await getAuthFromRequest(buildRequest('secret-invalidate'))
     expect(findApiKeyBySecret).toHaveBeenCalledTimes(2)
+  })
+
+  describe.each(['unbound', 'creator-bound', 'session-bound'] as const)('%s tenant liveness', (binding) => {
+    let tenant: { id: string; isActive: boolean; deletedAt: Date | null } | null
+
+    beforeEach(async () => {
+      const [{ Tenant }, { User }] = await Promise.all([
+        import('@open-mercato/core/modules/directory/data/entities'),
+        import('@open-mercato/core/modules/auth/data/entities'),
+      ])
+      tenant = { id: 'tenant-1', isActive: true, deletedAt: null }
+      findApiKeyBySecret.mockResolvedValue({
+        id: 'key-tenant-liveness',
+        name: 'tenant liveness',
+        tenantId: 'tenant-1',
+        organizationId: null,
+        rolesJson: [],
+        sessionToken: binding === 'session-bound' ? 'session-marker' : null,
+        sessionUserId: binding === 'session-bound' ? 'key-owner' : null,
+        sessionSecretEncrypted: null,
+        opencodeSessionId: null,
+        createdBy: binding === 'unbound' ? null : 'key-owner',
+        expiresAt: null,
+        lastUsedAt: null,
+      })
+      emFindOne.mockImplementation(async (entity: unknown, where: Record<string, unknown>) => {
+        if (entity === Tenant) {
+          return tenant && where.id === tenant.id && where.isActive === tenant.isActive && where.deletedAt === tenant.deletedAt
+            ? tenant
+            : null
+        }
+        if (entity === User && where.id === 'key-owner') {
+          return { id: 'key-owner', tenantId: 'tenant-1', organizationId: null }
+        }
+        return null
+      })
+    })
+
+    function setTenantState(state: 'active' | 'inactive' | 'deleted' | 'missing') {
+      tenant = state === 'missing'
+        ? null
+        : { id: 'tenant-1', isActive: state !== 'inactive', deletedAt: state === 'deleted' ? new Date() : null }
+    }
+
+    it.each(['active', 'inactive', 'deleted', 'missing'] as const)('authenticates only an active existing tenant (%s)', async (state) => {
+      const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+      setTenantState(state)
+
+      const auth = await getAuthFromRequest(buildRequest('tenant-liveness-secret'))
+
+      if (state === 'active') {
+        expect(auth).toMatchObject({ keyId: 'key-tenant-liveness', tenantId: 'tenant-1' })
+      } else {
+        expect(auth).toBeNull()
+        expect(emPersist).not.toHaveBeenCalled()
+      }
+    })
+
+    it.each(['inactive', 'deleted', 'missing'] as const)('rejects a cached key immediately after its tenant becomes %s', async (state) => {
+      const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+      await expect(getAuthFromRequest(buildRequest('tenant-liveness-secret'))).resolves.toMatchObject({
+        keyId: 'key-tenant-liveness',
+      })
+      setTenantState(state)
+
+      await expect(getAuthFromRequest(buildRequest('tenant-liveness-secret'))).resolves.toBeNull()
+
+      expect(findApiKeyBySecret).toHaveBeenCalledTimes(1)
+    })
+
+    it('rechecks an active tenant while retaining the cached secret lookup', async () => {
+      const { Tenant } = await import('@open-mercato/core/modules/directory/data/entities')
+      const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+      const first = await getAuthFromRequest(buildRequest('tenant-liveness-secret'))
+
+      await expect(getAuthFromRequest(buildRequest('tenant-liveness-secret'))).resolves.toEqual(first)
+
+      expect(first).toMatchObject({ keyId: 'key-tenant-liveness' })
+      expect(findApiKeyBySecret).toHaveBeenCalledTimes(1)
+      expect(emFindOne).toHaveBeenCalledWith(Tenant, { id: 'tenant-1', deletedAt: null, isActive: true })
+      expect(emFindOne.mock.calls.filter((call) => call[0] === Tenant)).toHaveLength(2)
+    })
+
+    it('reports cached tenant-check database unavailability without poisoning the cache', async () => {
+      const { resolveAuthFromRequestDetailed } = await import('@open-mercato/shared/lib/auth/server')
+      await expect(resolveAuthFromRequestDetailed(buildRequest('tenant-liveness-secret'))).resolves.toMatchObject({
+        status: 'authenticated',
+      })
+      emFindOne.mockRejectedValueOnce(Object.assign(new Error('connection unavailable'), { code: '53300' }))
+
+      await expect(resolveAuthFromRequestDetailed(buildRequest('tenant-liveness-secret'))).resolves.toEqual({
+        auth: null,
+        status: 'error',
+      })
+      await expect(resolveAuthFromRequestDetailed(buildRequest('tenant-liveness-secret'))).resolves.toMatchObject({
+        status: 'authenticated',
+      })
+      expect(findApiKeyBySecret).toHaveBeenCalledTimes(1)
+    })
   })
 
   describe('super-admin bit stays bounded by the effective key scope', () => {

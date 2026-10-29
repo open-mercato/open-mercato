@@ -382,7 +382,7 @@ export async function enqueueActivity(
     workflowContext,
     stepContext,
     retryPolicy: activity.retryPolicy,
-    timeoutMs: activity.timeoutMs,
+    timeoutMs: resolveActivityTimeoutMs(activity),
     tenantId: workflowInstance.tenantId,
     organizationId: workflowInstance.organizationId,
     userId: context.userId,
@@ -851,6 +851,7 @@ async function executeActivityByType(
     em: em as PostgreSqlEntityManager,
     container,
     signal,
+    timeoutMs: resolveActivityTimeoutMs(activity),
   })
 }
 
@@ -1215,6 +1216,38 @@ export type CallWebhookDeps = {
   allowPrivate?: boolean
   fetchImpl?: typeof fetch
   signal?: AbortSignal
+  timeoutMs?: number
+}
+
+const WEBHOOK_TIMEOUT_MS = 30_000
+const WEBHOOK_MAX_RESPONSE_BYTES = 1024 * 1024
+
+async function readWebhookResponse(response: Response, signal: AbortSignal): Promise<string> {
+  const declaredLength = Number(response.headers.get('content-length'))
+  if (declaredLength > WEBHOOK_MAX_RESPONSE_BYTES) {
+    throw new Error(`[internal] CALL_WEBHOOK response exceeds ${WEBHOOK_MAX_RESPONSE_BYTES} bytes`)
+  }
+  if (!response.body) return ''
+
+  const reader = response.body.getReader()
+  const chunks: Uint8Array[] = []
+  let totalBytes = 0
+  try {
+    for (;;) {
+      throwIfAborted(signal)
+      const { done, value } = await raceAbortable(reader.read(), signal)
+      if (done) break
+      totalBytes += value.byteLength
+      if (totalBytes > WEBHOOK_MAX_RESPONSE_BYTES) {
+        throw new Error(`[internal] CALL_WEBHOOK response exceeds ${WEBHOOK_MAX_RESPONSE_BYTES} bytes`)
+      }
+      chunks.push(value)
+    }
+    return new TextDecoder().decode(Buffer.concat(chunks, totalBytes))
+  } finally {
+    void reader.cancel().catch(() => undefined)
+    reader.releaseLock()
+  }
 }
 
 export async function executeCallWebhook(
@@ -1234,67 +1267,65 @@ export async function executeCallWebhook(
 
   const allowPrivate = deps.allowPrivate ?? isAllowPrivateWorkflowWebhookUrlsEnabled()
 
-  let response: Response
-  try {
-    response = await safeOutboundFetch(
-      url,
-      {
-        method,
-        headers: {
-          'Content-Type': 'application/json',
-          ...headers,
+  return executeWithTimeout(async (deadlineSignal) => {
+    const signal = deps.signal
+      ? AbortSignal.any([deadlineSignal, deps.signal])
+      : deadlineSignal
+    throwIfAborted(signal)
+
+    let response: Response | undefined
+    try {
+      response = await raceAbortable(safeOutboundFetch(
+        url,
+        {
+          method,
+          headers: {
+            'Content-Type': 'application/json',
+            ...headers,
+          },
+          body: body !== undefined && body !== null ? JSON.stringify(body) : undefined,
+          redirect: 'manual',
+          signal,
         },
-        body: body !== undefined && body !== null ? JSON.stringify(body) : undefined,
-        redirect: 'manual',
-        signal: deps.signal,
-      },
-      {
-        subject: 'Workflow webhook URL',
-        allowPrivate,
-        lookupHost: deps.lookupHost,
-        fetchImpl: deps.fetchImpl,
-      },
-    )
-  } catch (error) {
-    if (error instanceof UnsafeOutboundUrlError) {
-      throw new Error(
-        `CALL_WEBHOOK rejected unsafe URL (reason=${error.reason}): ${error.message}`
-      )
+        {
+          subject: 'Workflow webhook URL',
+          allowPrivate,
+          lookupHost: deps.lookupHost,
+          fetchImpl: deps.fetchImpl,
+        },
+      ), signal)
+
+      if (response.status >= 300 && response.status < 400) {
+        const location = response.headers.get('location')
+        throw new Error(
+          `CALL_WEBHOOK refused to follow redirect ${response.status} to ${
+            location ?? '(no Location header)'
+          }`
+        )
+      }
+
+      const text = await readWebhookResponse(response, signal)
+      const contentType = response.headers.get('content-type')
+      const result: unknown = contentType?.includes('application/json') ? JSON.parse(text) : text
+
+      if (!response.ok) {
+        throw new Error(
+          `Webhook request failed with status ${response.status}: ${JSON.stringify(result)}`
+        )
+      }
+
+      return { status: response.status, statusText: response.statusText, result }
+    } catch (error) {
+      if (error instanceof UnsafeOutboundUrlError) {
+        throw new Error(
+          `CALL_WEBHOOK rejected unsafe URL (reason=${error.reason}): ${error.message}`
+        )
+      }
+      throw error
+    } finally {
+      void response?.body?.cancel().catch(() => undefined)
     }
-    throw error
-  }
-
-  if (response.status >= 300 && response.status < 400) {
-    const location = response.headers.get('location')
-    throw new Error(
-      `CALL_WEBHOOK refused to follow redirect ${response.status} to ${
-        location ?? '(no Location header)'
-      }`
-    )
-  }
-
-  // Parse response
-  let result: any
-  const contentType = response.headers.get('content-type')
-
-  if (contentType && contentType.includes('application/json')) {
-    result = await response.json()
-  } else {
-    result = await response.text()
-  }
-
-  // Check for HTTP errors
-  if (!response.ok) {
-    throw new Error(
-      `Webhook request failed with status ${response.status}: ${JSON.stringify(result)}`
-    )
-  }
-
-  return {
-    status: response.status,
-    statusText: response.statusText,
-    result,
-  }
+  }, deps.timeoutMs && deps.timeoutMs > 0 ? deps.timeoutMs : WEBHOOK_TIMEOUT_MS)
 }
 
 /**

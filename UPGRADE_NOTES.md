@@ -24,6 +24,39 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.9.0 → 0.9.1 (unreleased)
 
+### Workflow webhook responses have resource limits (#7814)
+
+Each `CALL_WEBHOOK` attempt now defaults to a 30-second deadline covering the
+outbound request and response-body consumption. Explicit activity timeouts
+(`timeoutMs` or the legacy `timeout` duration) remain authoritative, including
+values longer than 30 seconds, in both synchronous and queued execution. Every
+attempt accepts at most 1 MiB of response bytes before UTF-8 decoding and JSON
+parsing. Oversized or stalled responses fail the activity and cancel its body;
+the existing retry policy still applies.
+
+**Workflow author and operator action:** update webhook endpoints that exceed
+the byte limit to return a small acknowledgement promptly. Configure an explicit
+activity timeout for a slower endpoint, and move large results behind a separate
+retrieval or asynchronous workflow.
+Existing request configuration and successful response envelopes are unchanged.
+
+### Scoped attachment bytes no longer advertise shared caching (#7220)
+
+The attachment file and image byte routes now return `Cache-Control: private,
+max-age=60` for tenant- or organization-scoped records, including records in a
+public partition and reads by superadmins. Only records that the existing origin
+access policy permits anonymously retain public caching (global public files:
+86400 seconds; global public images: 3600 seconds). Private partitions keep their
+existing private cache policy. URLs, byte formats, and authorization are unchanged.
+
+**Operator action:** purge previously cached scoped attachment responses from
+CDNs, reverse proxies, and other shared HTTP caches when deploying this fix.
+Include both `/api/attachments/file/*` (including download query variants) and
+`/api/attachments/image/*` (all slugs, sizes, crop options, and query variants).
+Changing origin headers cannot invalidate copies already stored with the old
+public TTL. Check cache rules honor origin `private` and do not force-cache these
+routes. No database or module-code migration is required.
+
 ### Bundled Traefik keeps app and collaboration ports private (#7833)
 
 The optional `starters/docker/compose.fullapp.traefik.yml` overlay (and its
@@ -698,6 +731,26 @@ The bulk delete is also recorded in the action log under that user.
 and `scope.userId`. A job missing any of them now fails before deleting anything instead of running
 without a tenant check. `POST /api/catalog/bulk-delete` already sends all three, so no action is
 needed if you only use the API.
+
+### Customer portal password-reset and magic-link requests now send email (#5959)
+
+`POST /api/customer_accounts/password/reset-request` and `POST /api/customer_accounts/magic-link/request`
+used to mint a single-use token and emit `customer_accounts.password_reset.requested` /
+`customer_accounts.magic_link.requested` without ever delivering it — no subscriber consumed those
+events, and the raw token was discarded. Both routes now email the link directly through `sendEmail`
+(the same path portal invitations use): password reset links to `/<orgSlug>/portal/reset-password`,
+and magic links to a new `/<orgSlug>/portal/magic-link` page that redeems the token when the user
+clicks "Sign in". Responses stay `200 { ok: true }` in every case, and the events are still emitted
+with unchanged payloads.
+
+**Action for operators:** configure an email sender (`NOTIFICATIONS_EMAIL_FROM`, `EMAIL_FROM` or
+`ADMIN_EMAIL`) and transport if portal customers should receive these messages; without one the send
+fails, is logged and reported (`customer_accounts.password_reset_email_failed` /
+`customer_accounts.magic_link_email_failed`), and the request still answers `200`.
+
+**Action for module authors:** none, unless your app wraps these two routes (an API interceptor or a
+proxy endpoint) to mint and deliver its own link alongside the call — remove that delivery, or
+customers will receive two emails per request.
 
 ### Redoing an `auth.users.create` no longer restores the account's password
 
@@ -1624,6 +1677,40 @@ fallback path). Downstream code that assumed a non-null team-member id must bran
 **Existing tenants:** default CRM roles now include `auth.users.list` so owner pickers work without
 the `staff` module. Run `yarn mercato auth sync-role-acls` (or your app's equivalent) so existing
 admin/employee roles pick up the grant.
+
+### WMS `wms.inventory.reserve` excludes staging/dock balances
+
+`wms.inventory.reserve` (and sales-order reservation automation that feeds it) no longer treats
+inventory sitting on `staging` or `dock` locations as reservable pick candidates. Those locations
+hold inbound stock until putaway completes; reserving them blocked putaway and overstated Available
+in sales/WMS widgets.
+
+When only staging/dock quantity remains for a variant, reserve returns the same `409` body as a true
+shortage: `{ error: 'insufficient_stock' }`. Callers that previously reserved straight off receive
+staging must either wait for putaway into storage (or another reservable location type) or retype
+stock into a reservable location before calling reserve.
+
+**Action for module authors:** treat `insufficient_stock` after inbound receive as a possible
+"not yet put away" signal when balances still sit on staging/dock; do not assume every on-hand qty
+is reservable.
+
+### WMS custom POST routes honor body `organizationId` when allowed
+
+`executeWmsCustomPostRoute` (shared by WMS inventory/ASN/putaway custom write routes such as
+`POST /api/wms/inventory/receive`, ASN receive/complete, putaway complete/assign/…) used to
+**silently overwrite** request-body `organizationId` with the session-selected / auth org.
+Multi-org callers that sent a different allowed org therefore mutated the selected org instead.
+
+It now:
+- passes through body `organizationId` when present and validates it with `ensureOrganizationScope`
+  (allowed org ids / Pattern C) — disallowed orgs return `403`
+- defaults to the session-selected / auth org only when the body omits `organizationId`
+- still always takes `tenantId` from auth (never from the body)
+
+**Action for module authors:** if a client relied on the old overwrite (sending org B while
+expecting writes in selected org A), stop sending `organizationId` or send org A explicitly.
+Barcode scan resolve/receive/putaway routes keep their session-only resolve policy and still
+force session org onto the body before this helper runs.
 
 ### `Locale` is now derived from an augmentable `LocaleRegistry` (no action required)
 
