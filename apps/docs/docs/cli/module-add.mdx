@@ -6,7 +6,7 @@ description: Installs and registers an Open Mercato module package, official or 
 
 `yarn mercato module add` fetches a module package from npm, auto-discovers the module it contains, registers it in your app's `src/modules.ts`, and runs the code generators. It is the primary command for adding pre-built modules published under the `@open-mercato/*` scope. Third-party packages that follow the same module conventions can be installed too by passing `--allow-third-party`. If the package is already installed, [`mercato module enable`](./module-enable) supports the same optional `--eject` flow without reinstalling dependencies.
 
-To find a module package, search [modules.openmercato.com](https://modules.openmercato.com): every module page shows the exact `module add` command for the version the catalog recommends. See [Modules catalog](/framework/modules/official-modules).
+To find a module package, search [modules.openmercato.com](https://modules.openmercato.com): every module page shows the exact install command for the version the catalog recommends (libraries and adapters install with `yarn add` and `yarn generate`, not `module add`). See [Modules catalog](/framework/modules/official-modules).
 
 To create and publish a reusable package from your own standalone app, see [Publishing Custom Modules](/framework/modules/publishing-custom-modules). That guide also covers installing a module directly from GitHub with Yarn followed by `module enable`.
 
