@@ -17,7 +17,11 @@ import {
   fetchBalance,
   toNumber,
 } from './helpers/wmsFixtures'
-import { waitForInventoryMutationScope, WMS_IMPORT_FEATURES } from './helpers/wmsUi'
+import {
+  inventoryOperationsSection,
+  waitForInventoryMutationScope,
+  WMS_IMPORT_FEATURES,
+} from './helpers/wmsUi'
 
 export const integrationMeta = {
   dependsOnModules: ['wms', 'catalog'],
@@ -94,7 +98,7 @@ test.describe('TC-WMS-IMPORT-UI-001: Inventory CSV import UI', () => {
       await page.goto('/backend/wms/inventory')
       await waitForInventoryMutationScope(page)
 
-      await page.getByRole('button', { name: 'Import CSV' }).click()
+      await inventoryOperationsSection(page).getByRole('button', { name: 'Import CSV' }).click()
       const importDialog = page.getByRole('dialog').filter({ hasText: /Import CSV/i }).first()
       await expect(importDialog).toBeVisible()
 
