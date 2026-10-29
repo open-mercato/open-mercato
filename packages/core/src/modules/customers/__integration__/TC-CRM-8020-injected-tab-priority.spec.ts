@@ -44,7 +44,7 @@ for (const kind of ['company', 'person', 'deal'] as const) {
           { id: 'omitted', title: 'QA Omitted' },
           { id: 'zero', title: 'QA Zero', priority: 0 },
           { id: 'negative', title: 'QA Negative', priority: -100 },
-          { id: 'unavailable', title: 'QA Unavailable', priority: 2000, requiredModules: ['qa_absent_module'] },
+          { id: 'unavailable', title: 'QA Unavailable', priority: 2000, requiredModules: Array.of('qa_absent_module') },
         ]
         const widgets = definitions.map((definition) => {
           const metadata = {
