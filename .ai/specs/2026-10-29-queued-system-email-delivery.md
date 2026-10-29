@@ -1,6 +1,6 @@
 # Queued System Email Delivery with Retry
 
-- **Status:** Draft — ready for review
+- **Status:** Implemented — pending review
 - **Issue:** [#8186](https://github.com/open-mercato/open-mercato/issues/8186)
 - **Related:** [#5693](https://github.com/open-mercato/open-mercato/issues/5693) (queue signup mail to close the timing oracle), [#6185](https://github.com/open-mercato/open-mercato/pull/6185) (SMTP provider), [`2026-06-03-pluggable-email-providers.md`](./2026-06-03-pluggable-email-providers.md), [`2026-08-04-system-scoped-encryption-key-contract.md`](./2026-08-04-system-scoped-encryption-key-contract.md)
 - **Scope:** OSS — `packages/shared` (email façade), `packages/core/src/modules/communication_channels`
@@ -78,7 +78,8 @@ Rendering happens **before** enqueueing because a `React.ReactElement` is not se
 The conversation worker's `computeBackoffMs` (1 s base, 60 s cap) is tuned for chat-like latency and would exhaust all attempts within a minute — too short to outlive a provider incident. System email gets its own schedule:
 
 - `OM_SYSTEM_EMAIL_MAX_ATTEMPTS` — default `8`, clamped to `1..20`.
-- Delay before attempt *n+1*: `min(30 s × 2^(n−1), 30 min)` + up to 10 % jitter → cumulative window ≈ 2 h with defaults.
+- `OM_SYSTEM_EMAIL_RETRY_BASE_MS` — default `30000`; the integration harness sets `500` so retry specs finish quickly.
+- Delay before attempt *n+1*: `min(base × 2^(n−1), 30 min)` + up to 10 % jitter → cumulative window ≈ 2 h with defaults.
 
 Re-enqueue uses `queue.enqueue(payload, { delayMs })`, exactly like `outbound-delivery.ts`. The worker never throws on a recorded failure (avoids the queue's own retry stacking on top); it rethrows only when it cannot even record the outcome (DB failure), mirroring the existing worker's dead-letter rule.
 
@@ -98,13 +99,14 @@ Content fields (`recipient`, `subject`, `html_body`, `text_body`, `attachments`,
 |---|---|
 | `lib/system-email.ts` | Extract `prepareSystemEmailBody(payload)` (= today's `resolveEmailBody`) and `deliverSystemEmail(container, payload, body)` (channel + credentials resolution + `convertOutbound` + `sendMessage`). `sendSystemEmail` keeps its signature and becomes the mode dispatcher. |
 | `lib/system-email-delivery-mode.ts` (new) | `resolveSystemEmailDeliveryMode(payload)` — env + per-call override + tenantless rule. |
-| `lib/system-email-queue.ts` (new) | `enqueueSystemEmailDelivery(container, payload, body)` — persist row, enqueue job. `computeSystemEmailBackoffMs(attempt)`, `resolveSystemEmailMaxAttempts()`. |
+| `lib/system-email-queue.ts` (new) | `enqueueSystemEmailDelivery(container, payload, body)` — persist row, enqueue job; if the enqueue throws, the row is closed as `failed` (content purged) and the error is rethrown so the caller sees the same failure as a synchronous send. `computeSystemEmailBackoffMs(attempt)`, `resolveSystemEmailMaxAttempts()`, `purgeSystemEmailDeliveryContent(row)`. |
 | `lib/queue.ts` | Add `systemEmail: 'communication-channels-system-email'` to `COMMUNICATION_CHANNELS_QUEUES`. |
 | `workers/system-email-delivery.ts` (new) | Worker described above; `metadata = { queue, id: 'communication_channels:system-email-delivery', concurrency: 5 }`. |
 | `data/entities.ts` | `SystemEmailDelivery` entity. |
 | `encryption.ts` | Encryption map entry for the content fields. |
 | `events.ts` | `communication_channels.system_email.delivery_failed`. |
-| `migrations/` | One migration creating `system_email_deliveries` + snapshot update. |
+| `migrations/` | One migration creating `system_email_deliveries`, plus `buildEncryptionMapBackfillSql` for the new map so tenants created before this release also encrypt the content columns; snapshot updated. |
+| `lib/test-seed.ts`, `api/post/test-seed/route.ts` | Test-only (gated by `OM_ENABLE_TEST_CHANNEL_SEEDING`): subject markers that make the stub adapter fail, and `queue-system-email` / `inspect-system-email-delivery` actions. |
 
 `di.ts` keeps registering the same `EmailTransport`; no DI key changes.
 
@@ -129,7 +131,7 @@ Concurrency 5 keeps the module's added pool usage well inside the queue connecti
 | `from_address` | text | sender is instance/tenant config, not end-user PII |
 | `from_is_instance_default` | boolean | preserves today's tenant-sender precedence |
 | `reply_to` | text, null | **encrypted**; purged |
-| `provider_key` | text, null | filled on first attempt, for diagnostics |
+| `provider_key` | text, null | the configured provider before each attempt, replaced by the provider actually used on success |
 | `last_error` | text, null | classified message, truncated to 1000 chars, never body content |
 | `sent_at` | timestamptz, null | |
 | `created_at`, `updated_at` | timestamptz | `updated_at` per platform convention |
@@ -147,18 +149,25 @@ No HTTP routes are added or changed.
 | `SendEmailOptions` / `ResolvedEmailPayload` (`@open-mercato/shared/lib/email/send`) | new optional `delivery` field | additive |
 | Event `communication_channels.system_email.delivery_failed` | new; payload `{ deliveryId, tenantId, organizationId, providerKey, attempts, error }` — no recipient, no body | additive |
 | Queue `communication-channels-system-email`, worker id `communication_channels:system-email-delivery` | new | additive |
-| Env `OM_SYSTEM_EMAIL_DELIVERY`, `OM_SYSTEM_EMAIL_MAX_ATTEMPTS` | new, documented in `apps/mercato/.env.example` and mirrored into the create-app template | additive |
+| Env `OM_SYSTEM_EMAIL_DELIVERY`, `OM_SYSTEM_EMAIL_MAX_ATTEMPTS`, `OM_SYSTEM_EMAIL_RETRY_BASE_MS` | new, documented in `apps/mercato/.env.example` and mirrored into the create-app template | additive |
 | `sendSystemEmail(container, payload)` | signature unchanged | — |
 
 ## Integration Coverage
 
-- **TC-CHANNEL-SYSEMAIL-001** — queued mode, happy path: with `OM_SYSTEM_EMAIL_DELIVERY=queued` and the test-seed provider, trigger a password reset via `POST /api/auth/reset`; assert the email is captured and the delivery row ends `sent` with content purged.
-- **TC-CHANNEL-SYSEMAIL-002** — transient failure then success: the test-seed adapter fails the first attempt with a transient error; assert a second attempt delivers and `attempts = 2`.
-- **TC-CHANNEL-SYSEMAIL-003** — permanent failure: the adapter returns a non-transient failure; assert one attempt, status `failed`, content purged, `delivery_failed` emitted.
-- Failure injection for 002/003: the test-seed adapter (`lib/test-seed.ts`) gains a test-only failure script, active only when `OM_ENABLE_TEST_CHANNEL_SEEDING` is set (same gate as the adapter itself), so the integration harness can request "fail the next N sends transiently / permanently" without a network provider.
-- Default mode regression: existing email-dependent suites (auth reset/invite, notifications) run unchanged with the env unset.
+The instance-wide mode is an env switch shared by every spec, so queued delivery is driven through the test-seed endpoint instead of flipping the env for the whole suite:
 
-Unit tests: mode resolution (env × per-call × tenantless), backoff schedule and clamping, worker state machine (idempotent skip, retry, exhaust, permanent, record-failure rethrow), purge on terminal status, payload never containing body fields.
+- `POST /api/communication_channels/test-seed` `{ action: 'queue-system-email', to, subject, text }` runs the same `prepareSystemEmailBody` + `enqueueSystemEmailDelivery` path as `sendEmail({ delivery: 'queued' })` for the caller's tenant and returns `deliveryId`.
+- `{ action: 'inspect-system-email-delivery', deliveryId }` returns `status`, `attempts`, `providerKey`, `lastError`, `sentAt` and `hasContent` — never the recipient or body.
+- The test-seed adapter fails on purpose when the subject carries `[test-seed:fail-transient-once]` (first send fails with a transient error, later sends succeed; state is a marker file next to the capture log because the worker may run in another process) or `[test-seed:fail-permanent]` (every send is rejected).
+
+**TC-CHANNEL-SYSEMAIL-001** (`communication_channels/__integration__/`) covers, in one flow:
+1. happy path — the worker delivers on the first attempt, the email is captured in the tenant scope, content is purged;
+2. transient failure — the second attempt delivers (`attempts = 2`), content purged;
+3. permanent failure — one attempt, status `failed`, content purged, nothing captured.
+
+Existing email suites (`TC-AUTH-EMAIL-001`, `TC-CUSTOMER-EMAIL-001`, `TC-CHKT-EMAIL-001`) run unchanged in the default mode.
+
+Unit tests: mode resolution (env × per-call × tenantless), backoff schedule and clamping, enqueue (job payload holds the id only, enqueue failure closes the row), worker state machine (scope-bound load, idempotent skip, success + purge, transient re-enqueue, permanent failure with event + `reportError`, exhausted attempts, rethrow when the outcome cannot be recorded), queued vs per-call sync dispatch in `sendSystemEmail`, and the test-seed failure markers.
 
 ## Risks & Impact Review
 
@@ -193,3 +202,4 @@ Backward compatibility: no contract surface is removed or changed; the default m
 ## Changelog
 
 - 2026-10-29 — Initial draft.
+- 2026-10-29 — Implemented: entity + migration (with encryption map backfill), queue, worker, per-call `delivery` option, env docs, test-seed hooks, unit and integration tests. Added `OM_SYSTEM_EMAIL_RETRY_BASE_MS`; integration coverage moved to the test-seed endpoint because the delivery mode is instance-wide.

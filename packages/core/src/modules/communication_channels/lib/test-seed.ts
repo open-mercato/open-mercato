@@ -1,5 +1,5 @@
 import { appendFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
-import { timingSafeEqual } from 'node:crypto'
+import { createHash, timingSafeEqual } from 'node:crypto'
 import path from 'node:path'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type {
@@ -271,6 +271,32 @@ export async function listTestSeedCapturedMessages(
   )
 }
 
+/**
+ * Subject markers that make the stub fail on purpose, so the integration harness can drive the
+ * queued system email retry path without a real provider. `fail-transient-once` fails the first send
+ * of a given subject with a transient error and lets later attempts through; the state lives in a
+ * file next to the capture log because the delivery worker may run in another process.
+ */
+export const TEST_SEED_FAIL_TRANSIENT_ONCE_MARKER = '[test-seed:fail-transient-once]'
+export const TEST_SEED_FAIL_PERMANENT_MARKER = '[test-seed:fail-permanent]'
+
+async function resolveInjectedSendFailure(subject: unknown): Promise<string | null> {
+  if (typeof subject !== 'string') return null
+  if (subject.includes(TEST_SEED_FAIL_PERMANENT_MARKER)) {
+    return 'Recipient address rejected (test-seed injected permanent failure)'
+  }
+  if (!subject.includes(TEST_SEED_FAIL_TRANSIENT_ONCE_MARKER)) return null
+  const markerDir = path.join(path.dirname(resolveCapturePath()), 'test-seed-send-failures')
+  const markerPath = path.join(markerDir, createHash('sha256').update(subject).digest('hex'))
+  await mkdir(markerDir, { recursive: true })
+  try {
+    await writeFile(markerPath, new Date().toISOString(), { encoding: 'utf8', flag: 'wx' })
+  } catch {
+    return null
+  }
+  return 'Service unavailable (test-seed injected transient failure)'
+}
+
 async function captureTestSeedMessage(record: TestSeedCapturedMessage): Promise<void> {
   const capturePath = resolveCapturePath()
   await mkdir(path.dirname(capturePath), { recursive: true })
@@ -301,6 +327,10 @@ class TestSeedChannelAdapter implements ChannelAdapter {
   readonly capabilities = testSeedCapabilities
 
   async sendMessage(input: SendMessageInput): Promise<SendMessageResult> {
+    const injectedFailure = await resolveInjectedSendFailure(input.metadata?.subject)
+    if (injectedFailure) {
+      return { externalMessageId: '', conversationId: input.conversationId, status: 'failed', error: injectedFailure }
+    }
     // Synthesize a deterministic-looking RFC2822-style message id; never touches
     // the network. The delivery worker persists this as the external message id.
     const externalMessageId = `test-seed-${Date.now()}-${Math.random().toString(16).slice(2, 10)}@test-seed.local`

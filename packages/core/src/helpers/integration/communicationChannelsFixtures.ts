@@ -401,3 +401,76 @@ export async function deleteChannelIfExists(
     { token },
   ).catch(() => undefined);
 }
+
+export type SystemEmailDeliveryState = {
+  id: string;
+  status: 'pending' | 'sent' | 'failed';
+  attempts: number;
+  providerKey: string | null;
+  lastError: string | null;
+  sentAt: string | null;
+  hasContent: boolean;
+};
+
+/**
+ * Queue a system email through the queued delivery path (`OM_SYSTEM_EMAIL_DELIVERY=queued`) for the
+ * caller's tenant and return the delivery row id. Put a test-seed failure marker
+ * (`[test-seed:fail-transient-once]`, `[test-seed:fail-permanent]`) in `subject` to drive retries.
+ */
+export async function queueSystemEmail(
+  request: APIRequestContext,
+  token: string,
+  input: { to: string; subject: string; text: string },
+): Promise<string> {
+  const response = await apiRequest(request, 'POST', TEST_SEED_PATH, {
+    token,
+    data: { action: 'queue-system-email', ...input },
+  });
+  expect(
+    response.status(),
+    'POST /api/communication_channels/test-seed (queue-system-email) should return 201',
+  ).toBe(201);
+  const body = await readJsonSafe<{ deliveryId?: string }>(response);
+  return expectId(body?.deliveryId, 'queue-system-email response should include deliveryId');
+}
+
+export async function inspectSystemEmailDelivery(
+  request: APIRequestContext,
+  token: string,
+  deliveryId: string,
+): Promise<SystemEmailDeliveryState> {
+  const response = await apiRequest(request, 'POST', TEST_SEED_PATH, {
+    token,
+    data: { action: 'inspect-system-email-delivery', deliveryId },
+  });
+  expect(
+    response.status(),
+    'POST /api/communication_channels/test-seed (inspect-system-email-delivery) should return 200',
+  ).toBe(200);
+  const body = await readJsonSafe<SystemEmailDeliveryState>(response);
+  if (!body) throw new Error('[internal] inspect-system-email-delivery returned no body');
+  return body;
+}
+
+export async function waitForSystemEmailDeliveryStatus(
+  request: APIRequestContext,
+  token: string,
+  deliveryId: string,
+  status: SystemEmailDeliveryState['status'],
+  options: { timeoutMs?: number; intervalMs?: number } = {},
+): Promise<SystemEmailDeliveryState> {
+  const timeoutMs = options.timeoutMs ?? 30_000;
+  const intervalMs = options.intervalMs ?? 500;
+  const deadline = Date.now() + timeoutMs;
+  let last = await inspectSystemEmailDelivery(request, token, deliveryId);
+  while (last.status !== status && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+    last = await inspectSystemEmailDelivery(request, token, deliveryId);
+  }
+  if (last.status !== status) {
+    throw new Error(
+      `Timed out waiting for system email delivery ${deliveryId} to reach '${status}'. Last state: ${JSON.stringify(last)}`,
+    );
+  }
+  return last;
+}

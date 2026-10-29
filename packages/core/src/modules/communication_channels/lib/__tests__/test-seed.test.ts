@@ -1,4 +1,4 @@
-import { rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import {
@@ -6,6 +6,8 @@ import {
   TEST_EMAIL_CAPTURE_ACCESS_TOKEN_ENV,
   TEST_EMAIL_CAPTURE_CORRELATION_TOKEN_ENV,
   TEST_SEED_CHAT_PROVIDER_KEY,
+  TEST_SEED_FAIL_PERMANENT_MARKER,
+  TEST_SEED_FAIL_TRANSIENT_ONCE_MARKER,
   TEST_SEED_PROVIDER_KEY,
   clearTestSeedCapturedMessages,
   ensureTestSeedAdapterRegistered,
@@ -294,5 +296,51 @@ describe('test-seed email capture scoping', () => {
       systemRecipient: 'target@example.test',
       captureCorrelationToken: 'd'.repeat(64),
     })).resolves.toEqual([])
+  })
+})
+
+describe('test-seed injected send failures', () => {
+  const originalCapturePath = process.env.OM_TEST_SYSTEM_EMAIL_CAPTURE_PATH
+  const originalFlag = process.env[TEST_CHANNEL_SEEDING_ENV]
+  let captureDir: string
+
+  beforeEach(async () => {
+    captureDir = await mkdtemp(path.join(tmpdir(), 'open-mercato-test-seed-failures-'))
+    process.env.OM_TEST_SYSTEM_EMAIL_CAPTURE_PATH = path.join(captureDir, 'capture.jsonl')
+    process.env[TEST_CHANNEL_SEEDING_ENV] = 'on'
+    clearChannelAdapters()
+    ensureTestSeedAdapterRegistered()
+  })
+
+  afterEach(async () => {
+    await rm(captureDir, { recursive: true, force: true })
+    if (originalCapturePath === undefined) delete process.env.OM_TEST_SYSTEM_EMAIL_CAPTURE_PATH
+    else process.env.OM_TEST_SYSTEM_EMAIL_CAPTURE_PATH = originalCapturePath
+    if (originalFlag === undefined) delete process.env[TEST_CHANNEL_SEEDING_ENV]
+    else process.env[TEST_CHANNEL_SEEDING_ENV] = originalFlag
+    clearChannelAdapters()
+  })
+
+  function send(subject: string) {
+    return getChannelAdapter(TEST_SEED_PROVIDER_KEY)!.sendMessage({
+      content: { text: 'hi', bodyFormat: 'text' },
+      credentials: {},
+      scope: { tenantId: 't', organizationId: 'o' },
+      metadata: { subject },
+    })
+  }
+
+  it('fails the first send of a transient-once subject and lets the retry through', async () => {
+    const subject = `Retry me ${TEST_SEED_FAIL_TRANSIENT_ONCE_MARKER}`
+    const first = await send(subject)
+    expect(first.status).toBe('failed')
+    expect(first.error).toMatch(/service unavailable/i)
+    expect((await send(subject)).status).toBe('sent')
+  })
+
+  it('always fails a permanent-failure subject', async () => {
+    const subject = `Reject me ${TEST_SEED_FAIL_PERMANENT_MARKER}`
+    expect((await send(subject)).status).toBe('failed')
+    expect((await send(subject)).error).toMatch(/rejected/i)
   })
 })

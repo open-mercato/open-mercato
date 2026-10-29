@@ -60,6 +60,11 @@ export const COMMUNICATION_CHANNELS_QUEUES = {
    * Spec C § Phase C4 — Renewal cron queues (daily / 2h cadence).
    */
   gmailRenewWatch: 'communication-channels-gmail-renew-watch',
+  /**
+   * Queued system email delivery (`OM_SYSTEM_EMAIL_DELIVERY=queued`). One job per
+   * `system_email_deliveries` row; the payload carries the row id only.
+   */
+  systemEmail: 'communication-channels-system-email',
 } as const
 
 export type CommunicationChannelsQueueName =
