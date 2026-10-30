@@ -22,6 +22,8 @@ A generic `experiment.json` declares `schemaVersion: 1`, `id`, `name`, `status`,
 
 Artifact JSON is explicitly referenced inside the registered root and may provide visible response text, bounded generated text-file contents and tool metadata. IDs are data, never filesystem paths. Legacy `summary.json` plus existing local `agent-output/`, `generated-files/` and `evidence/` artifacts are read without resolving evaluator `changedPaths` against external targets.
 
+Optional producer metrics include actual input/output/total token counters, output tokens per second, sample timestamp and measurement window. The UI updates throughput with live snapshots, labels unavailable or stale measurements explicitly, and never estimates tokens from character/chunk counts. Numeric metrics must be finite and non-negative.
+
 ## API contracts
 - `GET /api/experiments`: experiment summaries, metadata, lane counts and active state.
 - `GET /api/experiments/:id`: normalized cases and outcomes for one registered run.

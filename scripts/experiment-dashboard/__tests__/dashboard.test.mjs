@@ -3,7 +3,9 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
+import http from 'node:http'
 import { startDashboardServer } from '../server.mjs'
+import { parseArgs, extractFoundations } from '../cli.mjs'
 import { loadExperiment, loadCaseDetail } from '../adapters.mjs'
 
 async function fixture(run) {
@@ -173,13 +175,84 @@ test('loopback server rejects unregistered paths, hostile origins/hosts and writ
   try {
     assert.equal((await fetch(server.url)).status, 200)
     assert.equal((await fetch(server.url + 'api/experiments', { headers: { Origin: 'https://evil.invalid' } })).status, 403)
-    assert.equal((await fetch(server.url + 'api/experiments', { headers: { Host: 'evil.invalid' } })).status, 403)
+    assert.equal(await new Promise((resolve, reject) => { const request = http.get(server.url + 'api/experiments', { headers: { Host: 'evil.invalid' } }, response => { response.resume(); resolve(response.statusCode) }); request.on('error', reject) }), 403)
     assert.equal((await fetch(server.url + 'api/experiments', { method: 'POST' })).status, 405)
     assert.equal((await fetch(server.url + 'secrets.txt')).status, 404)
     assert.equal((await fetch(server.url + 'api/experiments/not-registered')).status, 404)
     assert.equal((await fetch(server.url + '%2e%2e%2fexperiment.json')).status, 404)
+    const crossSite = headers => new Promise((resolve, reject) => { const request = http.get(server.url, { headers }, response => { response.resume(); resolve(response.statusCode) }); request.on('error', reject) })
+    assert.equal(await crossSite({ 'Sec-Fetch-Site': 'cross-site', 'Sec-Fetch-Mode': 'navigate', 'Sec-Fetch-Dest': 'document' }), 200)
+    assert.equal(await crossSite({ 'Sec-Fetch-Site': 'cross-site', 'Sec-Fetch-Mode': 'cors', 'Sec-Fetch-Dest': 'script' }), 403)
+    assert.equal(await crossSite({ 'Sec-Fetch-Site': 'cross-site', 'Sec-Fetch-Mode': 'navigate', 'Sec-Fetch-Dest': 'document', Origin: 'https://evil.invalid' }), 403)
     const response = await fetch(server.url)
     assert.equal(response.headers.get('cache-control'), 'no-store')
     assert.match(response.headers.get('content-security-policy'), /object-src 'none'/)
   } finally { await server.close() }
 }))
+
+
+test('producer token metrics retain their actual scope and do not estimate missing throughput', () => fixture(async root => {
+  const run = snapshot()
+  await write(root, 'experiment.json', run)
+  assert.deepEqual((await loadExperiment(root)).metrics, { availability: 'not-reported' })
+  run.metrics = { inputTokens: 100, outputTokens: 50, generationSeconds: 2, sampledAt: new Date().toISOString(), measurementKind: 'completed-response' }
+  run.active[0].metrics = { tokensPerSecond: 24.5, outputTokens: 49, windowSeconds: 2, measurementKind: 'live' }
+  await write(root, 'experiment.json', run)
+  const loaded = await loadExperiment(root)
+  assert.equal(loaded.metrics.outputTokensPerSecond, 25)
+  assert.equal(loaded.metrics.rateSource, 'counter-generation-time')
+  assert.equal(loaded.metrics.measurementKind, 'completed-response')
+  assert.equal(loaded.active[0].metrics.tokensPerSecond, 24.5)
+  assert.equal(loaded.active[0].metrics.measurementKind, 'live')
+  run.metrics = { outputTokens: 0 }
+  await write(root, 'experiment.json', run)
+  assert.equal((await loadExperiment(root)).metrics.outputTokensPerSecond, undefined)
+  run.metrics = { tokensPerSecond: -1 }
+  await write(root, 'experiment.json', run)
+  assert.equal((await loadExperiment(root)).status, 'error')
+  run.metrics = { tokensPerSecond: null }
+  await write(root, 'experiment.json', run)
+  assert.equal((await loadExperiment(root)).status, 'error')
+}))
+
+
+test('legacy metrics companions update independently and stale completed-response samples stay labelled', () => fixture(async root => {
+  await write(root, 'summary.json', { status: 'running', cases: { one: { title: 'Case', check: { status: 'running' } } } })
+  await write(root, 'metrics.json', { metrics: { outputTokens: 30, generationSeconds: 2, measurementKind: 'completed-response', rateSource: 'output-counter/response-duration', sampledAt: '2020-01-01T00:00:00Z' } })
+  const first = await loadExperiment(root)
+  assert.equal(first.metrics.outputTokensPerSecond, 15)
+  assert.equal(first.metrics.measurementKind, 'completed-response')
+  assert.equal(first.metrics.rateSource, 'output-counter/response-duration')
+  assert.equal(first.metrics.stale, true)
+  await write(root, 'metrics.json', { metrics: { tokensPerSecond: 21, measurementKind: 'live' }, updatedAt: new Date().toISOString() })
+  assert.equal((await loadExperiment(root)).metrics.tokensPerSecond, 21)
+  await write(root, 'metrics.json', { metrics: { outputTokens: 0, generationSeconds: 3, measurementKind: 'live' } })
+  assert.equal((await loadExperiment(root)).metrics.outputTokensPerSecond, undefined)
+}))
+
+test('symlinked registered roots and hardlinked artifacts are not exposed', () => fixture(async root => {
+  const real = path.join(root, 'real'), link = path.join(root, 'link')
+  await write(real, 'experiment.json', snapshot())
+  await fs.symlink(real, link)
+  assert.equal((await loadExperiment(link)).status, 'error')
+  const run = snapshot()
+  run.cases[0].lanes['quality/品質'].artifactIds = ['hardlink']
+  await write(real, 'experiment.json', run)
+  await write(root, 'secret.json', { responses: [{ text: 'HARDLINK_SECRET' }] })
+  await fs.mkdir(path.join(real, 'artifacts'))
+  await fs.link(path.join(root, 'secret.json'), path.join(real, 'artifacts/hardlink.json'))
+  assert.doesNotMatch(JSON.stringify(await loadCaseDetail(real, 'case/α', 'quality/品質')), /HARDLINK_SECRET/)
+}))
+
+
+test('CLI requires explicit registrations and emits only authoritative foundation blocks', () => {
+  assert.throws(() => parseArgs([]), /explicit/)
+  assert.throws(() => parseArgs(['--experiment', '.', '--host', '0.0.0.0']), /Use --experiment/)
+  assert.throws(() => parseArgs(['--experiment', '.', '--port', '65536']), /port/)
+  assert.equal(parseArgs(['--experiment', '.', '--experiment', '..', '--port', '0']).experiments.length, 2)
+  const tokens = extractFoundations('@import "do-not-copy.css";\n:root { --background: white; }\n.dark { --background: black; }\n.secret { color: red; }')
+  assert.match(tokens, /:root/)
+  assert.match(tokens, /\.dark/)
+  assert.doesNotMatch(tokens, /do-not-copy|secret/)
+  assert.throws(() => extractFoundations(':root { --broken: true;'), /Unterminated/)
+})
