@@ -49,6 +49,7 @@ This creates a `my-store/` directory with the full application template, includi
 | `--preset <id>` | Select `classic`, `empty`, `crm`, or `wms` without the preset prompt. |
 | `--agents <list>` | Install the standalone AI harness non-interactively for `claude-code`, `codex`, `cursor`, a comma-separated subset, `all`, or `none`. |
 | `--skip-agentic-setup` | Skip the AI setup wizard; equivalent to `--agents none`. |
+| `--ci <github\|none>` | Scaffold GitHub Actions workflows (`github`, the default) or skip them (`none`). The provider-neutral `yarn ci` gate is scaffolded either way. Not supported with `--app` or `--app-url`. See [Continuous integration](#continuous-integration). |
 | `--registry <url>` | Use a custom npm registry for `@open-mercato` packages. |
 | `--verdaccio` | Shorthand for `--registry http://localhost:4873` (local Verdaccio). |
 | `--help`, `-h` | Show usage information. |
@@ -188,6 +189,81 @@ yarn dev --database-name=temp_run --no-update-env  # only injects DATABASE_URL i
 Set `OM_DEV_DATABASE_NAME` / `OM_DEV_DATABASE_UPDATE_ENV` for non-interactive automation. Without the flag, `yarn setup` and `yarn dev` keep their current behavior — no prompt, no `.env` mutation.
 
 Navigate to `http://localhost:3000/backend` and sign in with the credentials printed by `yarn initialize`.
+
+## Continuous integration
+
+Every new app ships a quality gate that runs the same way on your machine and on any CI provider, plus two GitHub Actions workflows: one calls the gate, the other runs the app's own integration tests.
+
+| Scaffolded file | What it does |
+| --- | --- |
+| `scripts/ci.mjs` + the `yarn ci` script | Runs `generate` → `typecheck` → `lint` → `ds:check` → `test` → `build` in order, stops at the first failing step and names it. Plain Node with no dependencies. |
+| `.github/workflows/ci.yml` | Runs `yarn ci` on every pull request and on every push to `main`. A newer push to the same pull request cancels the run in progress. |
+| `.github/workflows/integration.yml` | Runs the app's own Playwright integration specs on every pull request, and on demand from the Actions tab. See [Integration tests workflow](#integration-tests-workflow). |
+
+Run the gate locally before you push:
+
+```bash
+yarn ci
+```
+
+### Commit `yarn.lock` before the first push
+
+The workflow installs with `yarn install --immutable`, so it needs the real lockfile. Run `yarn install` (or `yarn setup`) once and commit the resulting `yarn.lock` before you push the repository for the first time. If you forget, the workflow's first step, `node scripts/ci.mjs --check-lockfile`, fails with a message that tells you to do exactly that, instead of a less obvious Yarn error.
+
+### Environment in CI
+
+`.env` is gitignored, so a CI checkout has none. When `.env` is missing, `yarn ci` copies `.env.example` to `.env`; it never overwrites an existing `.env`. The gate needs no secrets and no repository variables, and the workflow only requests `contents: read` permission, so pull requests from forks need nothing extra.
+
+### Choose a runner
+
+The workflow runs on `ubuntu-latest` by default. To use a different runner without editing the file, set the **repository variable** `OM_CI_RUNS_ON` (Settings → Secrets and variables → Actions → Variables) to a single runner label, for example `self-hosted` or a larger hosted runner. A multi-label array such as `[self-hosted, linux, x64]` cannot be expressed through the variable; edit `runs-on` in `ci.yml` instead.
+
+Pull requests opened from another repository, such as a fork, always run on `ubuntu-latest`, whatever `OM_CI_RUNS_ON` says. Pull requests between branches of your own repository use the variable, even when that repository is itself a fork.
+
+:::warning Self-hosted runners on public repositories
+Code from a pull request runs on the runner that executes the workflow. The fork guard above keeps fork pull requests on GitHub-hosted runners, but if you edit `runs-on` yourself, do not send pull requests from untrusted contributors to a self-hosted runner.
+:::
+
+### Memory
+
+The gate is sized for a standard GitHub-hosted Linux runner (2 vCPU, 7 GB RAM); `typecheck` alone peaks at about 6.5 GB. Next.js normally type-checks again during `next build`, and that second pass does not fit in 7 GB next to the compiled app. Because `typecheck` has already passed, `yarn ci` runs its `build` step with `OM_SKIP_NEXT_BUILD_TYPECHECK=1`, which makes `next.config.ts` skip that second check (`typescript.ignoreBuildErrors`). `yarn ci` also sets `OM_NEXT_BUILD_NODE_OPTIONS=--max-old-space-size=4096`, which the template's `build` script appends after its 8 GB default heap: with the 8 GB ceiling a cold build lets the heap grow until a 7 GB runner kills it. The same flag turns off Turbopack's build cache (`experimental.turbopackFileSystemCacheForBuild`): a CI build starts cold and throws the cache away, and writing it keeps the compiler's memory alive while Next generates pages. A plain `yarn build` still type-checks, keeps the 8 GB default and keeps the build cache.
+
+### Integration tests workflow
+
+`integration.yml` installs dependencies, prepares `.env` with `node scripts/ci.mjs --prepare-env`, installs Chromium, and runs `yarn test:integration:ephemeral --app-only`. That command boots a disposable Postgres container and a built copy of the app, then runs only the specs your app owns. The platform specs inside `node_modules/@open-mercato/*` are skipped (see [`--app-only`](../cli/test-integration#app-owned-specs-only)).
+
+- **Where specs go:** `src/modules/<module>/__integration__/*.spec.ts`. A new app has none, so the workflow prints `No app-owned integration specs found` and passes after install without starting Docker.
+- **Memory:** the test step sets the same `OM_SKIP_NEXT_BUILD_TYPECHECK=1` and `OM_NEXT_BUILD_NODE_OPTIONS=--max-old-space-size=4096` that `yarn ci` uses for its build (see [Memory](#memory)), so the app build fits a 7 GB runner. `ci.yml` type-checks the same commit.
+- **Docker:** the ephemeral environment needs a Docker daemon. GitHub's `ubuntu-latest` runners have one; a self-hosted runner must have Docker installed and usable by the runner user.
+- **Runner:** set the repository variable `OM_CI_INTEGRATION_RUNS_ON` to pick a runner for this workflow only. Without it, the workflow uses `OM_CI_RUNS_ON`, then `ubuntu-latest`. Pull requests from forks always run on `ubuntu-latest`.
+- **Failures:** the Playwright results in `.ai/qa/test-results` are uploaded as the `playwright-report` artifact when the run fails.
+- **Cost:** once your app has specs, each run builds the app and boots Postgres before testing, which takes several minutes of Actions time per pull request push on top of `ci.yml`. To spend less, change the `on:` block. For example, keep only `workflow_dispatch:` to run it by hand, or replace `pull_request:` with `push: { branches: [main] }` to run it after merging.
+
+### The files are yours
+
+After scaffolding, `scripts/ci.mjs`, `.github/workflows/ci.yml` and `.github/workflows/integration.yml` belong to your project: add steps, change triggers, or change the default branch in `ci.yml` if yours is not `main`. Each workflow's header comment records the `create-mercato-app` version that generated it, so you can diff it against a fresh scaffold of a newer version when you upgrade. No Open Mercato command rewrites these files, including `yarn mercato agentic:init --force` and `--update-harness`.
+
+### Opt out, or use another CI provider
+
+Pass `--ci none` to skip the GitHub Actions workflows. You still get `scripts/ci.mjs` and `yarn ci`. On GitLab CI, Bitbucket Pipelines or any other provider, mirror the workflow's steps on a Node 24 image:
+
+```bash
+corepack enable
+node scripts/ci.mjs --check-lockfile
+yarn install --immutable
+yarn ci
+```
+
+### Add CI to an existing app
+
+Apps scaffolded before CI was added do not get it automatically. Scaffold a throwaway app with the same `create-mercato-app` version as your app and copy these into your project:
+
+- `scripts/ci.mjs`
+- the `"ci": "node ./scripts/ci.mjs"` entry in `package.json` `scripts`
+- the `build` script in `package.json`: it must append `${OM_NEXT_BUILD_NODE_OPTIONS:-}` after its `--max-old-space-size` flag (for example `NODE_OPTIONS="--max-old-space-size=8192 ${OM_NEXT_BUILD_NODE_OPTIONS:-}"`), otherwise `yarn ci` cannot lower the build heap and the build runs out of memory on a 7 GB runner
+- the `isCiGateBuild` constant in `next.config.ts` and the two settings that use it (`typescript.ignoreBuildErrors` and `experimental.turbopackFileSystemCacheForBuild`)
+- `.github/workflows/ci.yml`
+- `.github/workflows/integration.yml` (needs a `@open-mercato/cli` version that supports `mercato test:integration --app-only`)
 
 ## Test create-mercato-app locally from the monorepo
 
@@ -411,6 +487,7 @@ The project includes a starter integration test at `src/modules/auth/__integrati
 | `yarn reinstall` | Drop everything and re-bootstrap from scratch. |
 | `yarn test` | Run the test suite. |
 | `yarn lint` | Lint the codebase. |
+| `yarn ci` | Run the quality gate (generate, typecheck, lint, ds:check, test, build). See [Continuous integration](#continuous-integration). |
 
 ## Add a custom module
 

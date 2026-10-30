@@ -32,6 +32,7 @@ const INTEGRATION_META_DEPENDENCY_KEYS = ['dependsOnModules', 'requiredModules',
 const INTEGRATION_META_REQUIRED_ENV_KEYS = ['requiredEnvVars', 'requiresEnvVars'] as const
 const INTEGRATION_META_REQUIRED_ANY_ENV_KEYS = ['requiredAnyEnvVars', 'requiresAnyEnvVars'] as const
 const DEFAULT_OVERLAY_ROOT = 'packages/enterprise'
+export const APP_ONLY_INTEGRATION_ENV_VAR = 'OM_INTEGRATION_APP_ONLY'
 
 export function normalizePath(filePath: string): string {
   return filePath.split(path.sep).join('/')
@@ -44,6 +45,15 @@ function normalizeModuleId(moduleId: string): string {
 function isEnterpriseModulesEnabled(): boolean {
   const rawValue = process.env.OM_ENABLE_ENTERPRISE_MODULES?.trim().toLowerCase()
   return rawValue === 'true' || rawValue === '1' || rawValue === 'yes' || rawValue === 'on'
+}
+
+function isAppOnlyDiscoveryEnabled(): boolean {
+  const rawValue = process.env[APP_ONLY_INTEGRATION_ENV_VAR]?.trim().toLowerCase()
+  return rawValue === 'true' || rawValue === '1' || rawValue === 'yes' || rawValue === 'on'
+}
+
+export function isAppOwnedIntegrationSpecPath(relativePath: string): boolean {
+  return !normalizePath(relativePath).split('/').includes('node_modules')
 }
 
 function collectNamedDirectories(rootPath: string, directoryName: string): string[] {
@@ -396,11 +406,12 @@ export function discoverIntegrationSpecFiles(projectRoot: string, legacyIntegrat
   const discoveredByPath = new Map<string, IntegrationSpecDiscoveryItem>()
   const overlayRoot = resolveOverlayRootPath()
   const enterpriseEnabled = isEnterpriseModulesEnabled()
+  const appOnly = isAppOnlyDiscoveryEnabled()
   const discoveryRoots = [
     path.join(projectRoot, 'src', 'modules'),
     path.join(projectRoot, 'apps'),
     path.join(projectRoot, 'packages'),
-    path.join(projectRoot, 'node_modules', '@open-mercato'),
+    ...(appOnly ? [] : [path.join(projectRoot, 'node_modules', '@open-mercato')]),
   ]
 
   for (const specFile of collectSpecFilesFromDirectory(legacyIntegrationRoot)) {
@@ -432,6 +443,7 @@ export function discoverIntegrationSpecFiles(projectRoot: string, legacyIntegrat
   }
 
   const discovered = Array.from(discoveredByPath.values())
+    .filter((file) => !appOnly || isAppOwnedIntegrationSpecPath(file.path))
   const enabledModules = resolveEnabledModuleIds(projectRoot)
   const enabledModuleNames = new Set<string>()
   for (const file of discovered) {
