@@ -1,0 +1,115 @@
+{
+  "runId": "a07e1f63-8201-editor",
+  "mode": "pr",
+  "target": {
+    "prNumber": 8201,
+    "title": "Created dates on customer lists",
+    "branch": "carry/pr-6448-ready",
+    "headSha": "07f4d18bd52fdbba4ef6baa1087718f109337dc5"
+  },
+  "verdict": "PASS",
+  "environment": {
+    "baseUrl": "http://127.0.0.1:43925",
+    "role": "admin",
+    "startedByThisRepo": true,
+    "browserProvider": "playwright",
+    "startedAt": "2026-10-30T05:33:17Z"
+  },
+  "scenario": [
+    {
+      "step": 1,
+      "priority": "P1",
+      "action": "Load the companies list with an owned long-name company",
+      "expected": "Owned record and Created column render",
+      "observed": "Owned record and Created column render",
+      "result": "PASS",
+      "screenshot": "01-default.png"
+    },
+    {
+      "step": 2,
+      "priority": "P1",
+      "action": "Apply Recently created and reopen the actual editor",
+      "expected": "Operator displays is after and the calendar date remains editable",
+      "observed": "Operator displays is after and the calendar date remains editable",
+      "result": "PASS",
+      "screenshot": "02-preset-reopened.png"
+    },
+    {
+      "step": 3,
+      "priority": "P1",
+      "action": "Open the real operator dropdown",
+      "expected": "The current is after value is present as a selectable option",
+      "observed": "The current is after value is present as a selectable option",
+      "result": "PASS",
+      "screenshot": "03-operator-options.png"
+    },
+    {
+      "step": 4,
+      "priority": "P1",
+      "action": "Reselect the operator, close with Escape and reload/reopen",
+      "expected": "Operator and date persist through URL serialization and reload",
+      "observed": "Operator and date persist through URL serialization and reload",
+      "result": "PASS",
+      "screenshot": "04-reloaded.png"
+    },
+    {
+      "step": 5,
+      "priority": "P1",
+      "action": "View the reopened preset at 390px",
+      "expected": "Operator and editable calendar date remain accessible at narrow width",
+      "observed": "Operator and editable calendar date remain accessible at narrow width",
+      "result": "PASS",
+      "screenshot": "05-mobile-editor.png"
+    },
+    {
+      "step": 6,
+      "priority": "P1",
+      "action": "Search a unique absent marker",
+      "expected": "The empty list state renders without stale fixture rows",
+      "observed": "The empty list state renders without stale fixture rows",
+      "result": "PASS",
+      "screenshot": "06-empty.png"
+    },
+    {
+      "step": 7,
+      "priority": "P1",
+      "action": "Hold the list response while cold-loading the route",
+      "expected": "Useful heading and loading state render before data resolves",
+      "observed": "Useful heading and loading state render before data resolves",
+      "result": "PASS",
+      "screenshot": "07-loading.png"
+    },
+    {
+      "step": 8,
+      "priority": "P1",
+      "action": "Render a controlled HTTP 500 list response",
+      "expected": "The failure message is visible",
+      "observed": "Controlled rendering check passed; this does not prove server authorization",
+      "result": "PASS",
+      "screenshot": "08-http-500.png"
+    },
+    {
+      "step": 9,
+      "priority": "P1",
+      "action": "Render a controlled HTTP 403 list response",
+      "expected": "The failure message is visible",
+      "observed": "Controlled rendering check passed; this does not prove server authorization",
+      "result": "PASS",
+      "screenshot": "08-http-403.png"
+    }
+  ],
+  "hasUiTest": true,
+  "timing": {
+    "coldHeadingMs": 622
+  },
+  "notes": [
+    "Fresh production build of the exact published head.",
+    "Controlled HTTP 500/403 responses test rendering only; real API integration coverage is reported separately.",
+    "Owned API fixture deleted and absence verified in finally.",
+    "Evidence only; no QA approval granted.",
+    "New committed real-editor native regression passed in4.6s through the repository CLI with supported customers module filter.",
+    "Three exploratory harness corrections are documented in report.md; product code, native assertions, shared timeouts/retries and checks were unchanged.",
+    "One exploratory leftover after a route-handler exception was deleted and absence verified.",
+    "The screenshot may catch dropdown enter animation; native pointer-selection assertions and keyboard selection independently verify the option."
+  ]
+}
