@@ -75,6 +75,8 @@ export const SKIP_REASON = {
   noModelFactory: 'no_model_factory',
   /** The config is fine; the run simply lacks the input this scorer reads. */
   notApplicable: 'not_applicable',
+  /** An `llm_judge` config names a `rubricRef` the rubric library cannot resolve. */
+  unknownRubric: 'unknown_rubric',
 } as const
 
 export type SkipReason = (typeof SKIP_REASON)[keyof typeof SKIP_REASON]
@@ -128,9 +130,10 @@ export type ScorerField =
        * Autocomplete source. `tool` offers the tool names actually registered in
        * this deployment: an assertion that names a tool the agent cannot call is
        * silently unsatisfiable, and nothing else in the form would catch it.
+       * `rubric` offers the rubric library keys the agent can reference.
        * Suggestions only — a name from an agent not currently loaded is still typeable.
        */
-      suggest?: 'tool'
+      suggest?: 'tool' | 'rubric'
     }
   | {
       name: string

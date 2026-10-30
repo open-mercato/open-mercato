@@ -19,7 +19,8 @@ import {
   resolveSnapshotPin,
   type EvalSetManifest,
 } from '../lib/eval/manifest'
-import { manifestFromFile, validateEvalSetFile } from '../lib/eval/evalSetFile'
+import { collectEvalSetFileRubricRefs, manifestFromFile, validateEvalSetFile } from '../lib/eval/evalSetFile'
+import { ensureRubricLibrary } from '../lib/eval/rubrics'
 import { evalSetSnapshotSchema, type EvalSetSnapshot } from '../data/validators'
 import { aiAgentCallSettingsSchema } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/agent-call-contract'
 import { EVAL_RUN_SUMMARY_KEY, buildEvalRunSettings } from '../lib/eval/evalRunSettings'
@@ -154,6 +155,7 @@ const startEvalRunCommand: CommandHandler<StartEvalRunCommandInput, StartEvalRun
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const scope = { tenantId: input.tenantId, organizationId: input.organizationId }
 
+    if (input.evalSet !== undefined) await ensureRubricLibrary(collectEvalSetFileRubricRefs(input.evalSet))
     const pinned = input.evalSet !== undefined
       ? freezeFileEvalSet(input.evalSet, input.agentDefinitionId)
       : input.snapshot

@@ -1,6 +1,5 @@
 import { z } from 'zod'
 import { canonicalJson } from './canonicalInputKey'
-import { normalizeJudgeRubric } from './judgeRubric'
 import {
   EVAL_SET_FORMAT,
   EVAL_SET_FORMAT_VERSION,
@@ -13,8 +12,10 @@ import {
   type EvalSetManifest,
   type EvalSetManifestAssertion,
   type EvalSetManifestCase,
+  frozenJudgeRubric,
 } from './manifest'
 import { getScorerDefinition, parseScorerConfig } from './registry'
+import { collectRubricRefs, readRubricRef, resolveRubricRef } from './rubrics'
 import type { Json } from './types'
 
 export const SUPPORTED_EVAL_SET_FORMAT_VERSIONS: ReadonlyArray<number> = [EVAL_SET_FORMAT_VERSION]
@@ -32,6 +33,7 @@ export const EVAL_SET_FILE_ISSUE = {
   unknownScorer: 'unknown_scorer',
   scorerTypeMismatch: 'scorer_type_mismatch',
   invalidScorerConfig: 'invalid_scorer_config',
+  unknownRubric: 'unknown_rubric',
   judgeGate: 'judge_gate_refused',
   unknownAssertionRef: 'unknown_assertion_ref',
   duplicateAssertionRef: 'duplicate_assertion_ref',
@@ -184,7 +186,7 @@ function duplicateKeyIssues(keys: ReadonlyArray<string>, pathPrefix: string, lab
   return issues
 }
 
-function assertionIssues(assertion: EvalSetFileAssertion, index: number): EvalSetFileIssue[] {
+function assertionIssues(agentId: string, assertion: EvalSetFileAssertion, index: number): EvalSetFileIssue[] {
   const path = `assertions.${index}`
   const definition = getScorerDefinition(assertion.scorerKey)
   if (!definition) {
@@ -216,6 +218,15 @@ function assertionIssues(assertion: EvalSetFileAssertion, index: number): EvalSe
     for (const issue of parsed.issues) {
       issues.push({ code: EVAL_SET_FILE_ISSUE.invalidScorerConfig, path: `${path}.config`, message: issue })
     }
+    return issues
+  }
+  const rubricRef = definition.kind === 'llm_judge' ? readRubricRef(assertion.config) : null
+  if (rubricRef && !resolveRubricRef(agentId, rubricRef)) {
+    issues.push({
+      code: EVAL_SET_FILE_ISSUE.unknownRubric,
+      path: `${path}.config.rubricRef`,
+      message: `rubric "${rubricRef}" is neither declared by agent "${agentId}" nor built in`,
+    })
   }
   return issues
 }
@@ -248,6 +259,14 @@ function caseRefIssues(
       return
     }
     if (!ref.configOverride || !getScorerDefinition(assertion.scorerKey)) return
+    if (ref.configOverride.rubricRef !== undefined) {
+      issues.push({
+        code: EVAL_SET_FILE_ISSUE.invalidScorerConfig,
+        path: `${path}.configOverride.rubricRef`,
+        message: 'a case override cannot change rubricRef; declare a separate assertion instead',
+      })
+      return
+    }
     const merged = { ...(assertion.config ?? {}), ...ref.configOverride }
     const parsed = parseScorerConfig(assertion.scorerKey, merged, 'write')
     if (!parsed.ok) {
@@ -306,10 +325,19 @@ export function validateEvalSetFile(
       'cases',
       'case',
     ),
-    ...file.assertions.flatMap((assertion, index) => assertionIssues(assertion, index)),
+    ...file.assertions.flatMap((assertion, index) => assertionIssues(file.agentId, assertion, index)),
     ...file.cases.flatMap((entry, index) => caseRefIssues(entry, index, assertionsByKey)),
   ]
   return issues.length > 0 ? { ok: false, issues } : { ok: true, file }
+}
+
+/**
+ * Every `rubricRef` a raw (not yet validated) eval-set file names, so async
+ * callers can load agent rubrics before the synchronous validation runs.
+ */
+export function collectEvalSetFileRubricRefs(raw: unknown): string[] {
+  if (!isRecord(raw) || !Array.isArray(raw.assertions)) return []
+  return collectRubricRefs(raw.assertions.map((assertion) => (isRecord(assertion) ? assertion.config : null)))
 }
 
 export function parseEvalSetFile(raw: unknown, options: { maxBytes?: number } = {}): EvalSetFile {
@@ -332,7 +360,7 @@ function manifestAssertionFromFile(agentId: string, assertion: EvalSetFileAssert
     config,
   }
   if (type !== 'llm_judge') return frozen
-  const rubric = normalizeJudgeRubric(config, assertion.title)
+  const rubric = frozenJudgeRubric(config, agentId, assertion.title)
   return rubric ? { ...frozen, rubric } : frozen
 }
 

@@ -81,7 +81,7 @@
 | 7 | 7.7 | Forward modelSettings and eval callSettings | dispatch | done | pending |
 | 7 | 7.8 | Record and replay tool fixtures in eval runs | dispatch:capable | done | pending |
 | 7 | 7.9 | Fill the eval report environment block | dispatch | done | pending |
-| 7 | 7.10 | Add the rubric library and rubricRef | dispatch | todo | — |
+| 7 | 7.10 | Add the rubric library and rubricRef | dispatch | done | pending |
 | 7 | 7.11 | Document the eval CI recipe | dispatch:cheap | todo | — |
 | 7 | 7.12 | Cover eval-set import, export and settings with integration tests | dispatch | todo | — |
 | 8 | 8.1 | Update the roadmap and upgrade notes for wave 5 | inline | todo | — |

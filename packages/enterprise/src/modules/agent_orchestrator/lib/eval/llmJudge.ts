@@ -10,12 +10,12 @@ import {
   buildJudgePrompt,
   buildVerdictSchema,
   meetsThreshold,
-  normalizeJudgeRubric,
   scoreVerdict,
   type JudgeRubric,
 } from './judgeRubric'
 import { withRuntimeAuditWrite } from '../identity/agentWriteScope'
 import { resolveEffectiveAssertions, type EvalCaseAssertionRef } from './assertionResolution'
+import { collectRubricRefs, ensureRubricLibrary, resolveJudgeRubric, type JudgeRubricResolution } from './rubrics'
 
 export const judgeVerdictSchema = z.object({
   /** `null` means the judge skipped — excluded from aggregation, never a failure. */
@@ -73,8 +73,8 @@ export function createModelJudge(container: AwilixContainer): JudgeFn {
   }
 }
 
-function rubricFor(assertion: AgentEvalAssertion, config: unknown = assertion.config): JudgeRubric | null {
-  return normalizeJudgeRubric(config, assertion.description?.trim() || assertion.title)
+function rubricFor(agentId: string, assertion: AgentEvalAssertion, config: unknown): JudgeRubricResolution {
+  return resolveJudgeRubric(config, { agentId, fallbackText: assertion.description?.trim() || assertion.title })
 }
 
 export type RunLlmJudgeResult = { judged: number; skipped: number }
@@ -98,6 +98,8 @@ export type FrozenJudgeAssertion = {
   key: string
   severity: 'gate' | 'warn'
   rubric: JudgeRubric | null
+  /** Recorded as `evidence.reason` when `rubric` is null; defaults to `invalid_config`. */
+  skipReason?: 'invalid_config' | 'unknown_rubric'
 }
 
 export type JudgeCaseLinkage = {
@@ -134,12 +136,13 @@ async function liveJudgeTargets(
         configError: Boolean(entry.configError),
       }))
     : assertions.map((assertion) => ({ assertion, config: assertion.config, configError: false }))
-  return entries.map(({ assertion, config, configError }) => ({
-    id: assertion.id,
-    key: assertion.key,
-    severity: assertion.severity,
-    rubric: configError ? null : rubricFor(assertion, config),
-  }))
+  await ensureRubricLibrary(collectRubricRefs(entries.map((entry) => entry.config)))
+  return entries.map(({ assertion, config, configError }): FrozenJudgeAssertion => {
+    const base = { id: assertion.id, key: assertion.key, severity: assertion.severity }
+    if (configError) return { ...base, rubric: null }
+    const resolution = rubricFor(agentId, assertion, config)
+    return resolution.ok ? { ...base, rubric: resolution.rubric } : { ...base, rubric: null, skipReason: resolution.reason }
+  })
 }
 
 /**
@@ -197,7 +200,7 @@ export async function runLlmJudgeForRun(
           passed: null,
           score: null,
           severity: 'warn',
-          evidence: { reason: 'invalid_config' },
+          evidence: { reason: assertion.skipReason ?? 'invalid_config' },
         }),
       )
       skipped += 1

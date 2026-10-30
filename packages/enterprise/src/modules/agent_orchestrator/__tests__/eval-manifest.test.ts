@@ -13,6 +13,9 @@ import {
   uuidV5,
   type EvalSetManifest,
 } from '../lib/eval/manifest'
+import { parseAgentEvalRubrics, registerAgentRubrics } from '../lib/eval/rubrics'
+
+jest.mock('../lib/sdk/defineAgent', () => ({ ensureAgentsLoaded: jest.fn(async () => undefined) }))
 
 const SCOPE = { tenantId: '11111111-1111-4111-8111-111111111111', organizationId: '22222222-2222-4222-8222-222222222222' }
 const OTHER_SCOPE = { tenantId: '33333333-3333-4333-8333-333333333333', organizationId: '44444444-4444-4444-8444-444444444444' }
@@ -190,6 +193,47 @@ describe('eval-set manifest', () => {
     reversedSeed.set(AgentEvalCase, [...(reversedSeed.get(AgentEvalCase) ?? [])].reverse())
     reversedSeed.set(AgentEvalAssertion, [...(reversedSeed.get(AgentEvalAssertion) ?? [])].reverse())
     expect((await freezeManifest(createFakeEm(reversedSeed), SCOPE, { agentId: AGENT })).version).toBe(version)
+  })
+
+  it('freezes a rubricRef into the agent rubric body, so a library edit changes the hash', async () => {
+    const rubricSeed = () => {
+      const seed = baseSeed()
+      seed.set(AgentEvalAssertion, [
+        ...(seed.get(AgentEvalAssertion) ?? []).slice(0, 1),
+        assertion(ASSERT_JUDGE, 'rationale', {
+          scorerKey: 'llm_judge',
+          type: 'llm_judge',
+          severity: 'warn',
+          appliesTo: '*',
+          config: { rubricRef: 'house_style' },
+        }),
+      ])
+      return seed
+    }
+    const define = (promptTemplate: string) =>
+      registerAgentRubrics(
+        AGENT,
+        parseAgentEvalRubrics(AGENT, {
+          house_style: { promptTemplate, scoring: { kind: 'binary', passDescription: 'Yes.', failDescription: 'No.' } },
+        }),
+      )
+    try {
+      define('House style v1.')
+      const first = await freezeManifest(createFakeEm(rubricSeed()), SCOPE, { agentId: AGENT })
+      const judge = first.manifest.assertions.find((entry) => entry.key === 'rationale')
+      expect(judge?.config).toEqual({ rubricRef: 'house_style' })
+      expect(judge?.rubric?.promptTemplate).toBe('House style v1.')
+
+      define('House style v2.')
+      const second = await freezeManifest(createFakeEm(rubricSeed()), SCOPE, { agentId: AGENT })
+      expect(second.version).not.toBe(first.version)
+
+      registerAgentRubrics(AGENT, undefined)
+      const unknown = await freezeManifest(createFakeEm(rubricSeed()), SCOPE, { agentId: AGENT })
+      expect(unknown.manifest.assertions.find((entry) => entry.key === 'rationale')?.rubric).toBeUndefined()
+    } finally {
+      registerAgentRubrics(AGENT, undefined)
+    }
   })
 
   it('editing a case, an assertion or a rubric body changes the hash', async () => {

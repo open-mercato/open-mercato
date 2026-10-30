@@ -2,6 +2,7 @@ import { z } from 'zod'
 import type { ScorerDefinition } from '../types'
 import { skipped } from '../types'
 import { judgeRubricSchema } from '../judgeRubric'
+import { rubricKeySchema, rubricTuningShape } from '../rubrics'
 import { baseConfigSchema } from './shared'
 
 const I18N = 'agent_orchestrator.evalAssertions.scorer'
@@ -18,6 +19,7 @@ const I18N = 'agent_orchestrator.evalAssertions.scorer'
  * equivalent binary rubric at evaluation time.
  */
 const judgeConfig = z.union([
+  baseConfigSchema.extend({ rubricRef: z.string().min(1), ...rubricTuningShape }),
   judgeRubricSchema.and(baseConfigSchema),
   baseConfigSchema.extend({ rubric: z.string().optional() }),
 ])
@@ -31,10 +33,15 @@ const judgeConfig = z.union([
  *
  * Discriminating on which key is PRESENT — mirroring `normalizeJudgeRubric` —
  * routes a full rubric to the strict schema while still accepting the legacy form.
+ * The third shape, `{ rubricRef }`, names a library rubric (`lib/eval/rubrics`)
+ * plus optional tuning; it cannot be mixed with an inline rubric. Whether the ref
+ * exists depends on the agent, so callers that know it check that separately.
  */
+const noRubricRef = z.object({ rubricRef: z.never().optional() })
 const judgeWriteConfig = z.union([
-  baseConfigSchema.extend({ rubric: z.string().min(1) }),
-  judgeRubricSchema.and(baseConfigSchema),
+  baseConfigSchema.extend({ rubricRef: rubricKeySchema, ...rubricTuningShape }).strict(),
+  baseConfigSchema.extend({ rubric: z.string().min(1) }).and(noRubricRef),
+  judgeRubricSchema.and(baseConfigSchema).and(noRubricRef),
 ])
 export type JudgeConfig = z.infer<typeof judgeConfig>
 
@@ -60,12 +67,18 @@ export const llmJudge: ScorerDefinition<JudgeConfig> = {
   writeConfigSchema: judgeWriteConfig,
   fields: [
     {
+      name: 'rubricRef',
+      kind: 'text',
+      labelKey: `${I18N}.llm_judge.field.rubricRef`,
+      hintKey: `${I18N}.llm_judge.field.rubricRef.hint`,
+      suggest: 'rubric',
+    },
+    {
       name: 'promptTemplate',
       kind: 'textarea',
       labelKey: `${I18N}.llm_judge.field.rubric`,
       hintKey: `${I18N}.llm_judge.field.rubric.hint`,
       placeholderKey: `${I18N}.llm_judge.field.rubric.placeholder`,
-      required: true,
     },
     {
       name: 'threshold',

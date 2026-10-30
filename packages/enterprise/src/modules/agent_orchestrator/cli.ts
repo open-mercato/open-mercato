@@ -40,6 +40,7 @@ import {
 } from './lib/eval/evalSetFileIo'
 import { stringifyEvalSetFile, type EvalSetTextFormat } from './lib/eval/evalSetYaml'
 import { EvalSetUnresolvedError, resolveSnapshotPin } from './lib/eval/manifest'
+import { collectRubricRefs, ensureAgentRubricsLoaded, ensureRubricLibrary } from './lib/eval/rubrics'
 import { buildEvalReport } from './lib/eval/report/buildEvalReport'
 import { buildEvalErrorReport, type BuildEvalErrorReportInput } from './lib/eval/report/errorReport'
 import { renderEvalReportJunit } from './lib/eval/report/renderJunit'
@@ -767,6 +768,7 @@ const evalGate: ModuleCli = {
     let casesVersion: string | null = null
     let evalSetDir: string | null = null
     if (casesPath !== undefined) {
+      await ensureAgentRubricsLoaded()
       const read = readEvalSetFile(casesPath)
       if (!read.ok) {
         console.error(`Invalid eval set file ${read.resolvedPath}:`)
@@ -1024,6 +1026,7 @@ async function runEvalSetExport(rest: string[]): Promise<void> {
     const container = await createRequestContainer()
     const em = (container.resolve('em') as EntityManager).fork()
     const pinned = await resolveSnapshotPin(em, scope, agentDefinitionId, snapshot)
+    await ensureRubricLibrary(collectRubricRefs(pinned.manifest.assertions.map((assertion) => assertion.config)))
     exported = evalSetFileForExport(pinned.manifest)
     version = pinned.version
   } catch (error) {
@@ -1073,7 +1076,7 @@ async function runEvalSetExport(rest: string[]): Promise<void> {
   )
 }
 
-function runEvalSetValidate(rest: string[]): void {
+async function runEvalSetValidate(rest: string[]): Promise<void> {
   const positional = rest[0] !== undefined && !rest[0].startsWith('-') ? rest[0] : undefined
   const args = parseArgs(positional === undefined ? rest : rest.slice(1))
   const filePath = positional ?? args.file
@@ -1082,6 +1085,7 @@ function runEvalSetValidate(rest: string[]): void {
     process.exitCode = 2
     return
   }
+  await ensureAgentRubricsLoaded()
   const read = readEvalSetFile(filePath)
   if (!read.ok) {
     console.error(`Invalid eval set file ${read.resolvedPath}:`)
@@ -1131,7 +1135,7 @@ const evalSet: ModuleCli = {
       return
     }
     if (subcommand === 'validate') {
-      runEvalSetValidate(subRest)
+      await runEvalSetValidate(subRest)
       return
     }
     console.error(EVAL_SET_USAGE)

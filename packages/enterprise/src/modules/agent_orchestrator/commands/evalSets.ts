@@ -17,6 +17,7 @@ import {
 } from '../data/entities'
 import { canonicalInputKey, canonicalJson } from '../lib/eval/canonicalInputKey'
 import {
+  collectEvalSetFileRubricRefs,
   EVAL_SET_FILE_ISSUE,
   manifestFromFile,
   validateEvalSetFile,
@@ -28,6 +29,7 @@ import {
 import { EVAL_SET_IMPORT_FEATURES, hasEvalSetFeatures } from '../lib/eval/evalSetAccess'
 import { deterministicCaseId, EvalSetTooLargeError } from '../lib/eval/manifest'
 import { getScorerDefinition } from '../lib/eval/registry'
+import { ensureRubricLibrary } from '../lib/eval/rubrics'
 
 export const IMPORT_EVAL_SET_COMMAND_ID = 'agent_orchestrator.evalSets.import'
 export const EVAL_SET_RESOURCE_KIND = 'agent_orchestrator.eval_set'
@@ -243,6 +245,7 @@ export const importEvalSetCommand: CommandHandler<ImportEvalSetCommandInput, Imp
     const input = importEvalSetCommandSchema.parse(rawInput)
     const scope = { tenantId: input.tenantId, organizationId: input.organizationId }
     assertScopeMatchesActor(ctx, scope)
+    await ensureRubricLibrary(collectEvalSetFileRubricRefs(input.file))
     const { file, version } = parseEvalSetFileForImport(input.file)
     const agentId = file.agentId
     const approverId = input.approve ? (input.userId ?? null) : null

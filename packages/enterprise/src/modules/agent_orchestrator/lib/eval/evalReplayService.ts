@@ -286,6 +286,7 @@ function judgeLinkageFor(source: ReplaySource, evalCaseRunId: string): JudgeCase
         key: entry.assertion.key,
         severity: entry.assertion.severity,
         rubric: entry.configError ? null : entry.rubric,
+        ...(!entry.configError && entry.rubricSkipReason ? { skipReason: entry.rubricSkipReason } : {}),
       })),
   }
 }

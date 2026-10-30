@@ -8,6 +8,14 @@ import { EVAL_SET_SNAPSHOT_LATEST, evalCaseAssertionRefSchema, type EvalSetSnaps
 import { parseCaseAssertionRefs, resolveEffectiveAssertions } from './assertionResolution'
 import { canonicalInputKey, canonicalJson } from './canonicalInputKey'
 import { judgeRubricSchema, normalizeJudgeRubric, type JudgeRubric } from './judgeRubric'
+import {
+  applyRubricTuning,
+  collectRubricRefs,
+  ensureRubricLibrary,
+  readRubricRef,
+  resolveJudgeRubric,
+  UNKNOWN_RUBRIC,
+} from './rubrics'
 import { parseScorerConfig, resolveScorerKey } from './registry'
 import type { Json } from './types'
 
@@ -175,7 +183,22 @@ export function hashManifest(manifest: EvalSetManifest): string {
   return `sha256:${canonicalInputKey(normalizeManifest(manifest))}`
 }
 
-function manifestAssertionFrom(assertion: AgentEvalAssertion, scorerKey: string): EvalSetManifestAssertion {
+/**
+ * Freezes the rubric a judge assertion runs with. A `{ rubricRef }` config is
+ * resolved through the library for this agent here, so the manifest carries the
+ * rubric body and a later library edit yields a new hash instead of silently
+ * changing what a pinned dataset measures. An unknown ref freezes no rubric.
+ */
+export function frozenJudgeRubric(config: unknown, agentId: string, fallbackText: string): JudgeRubric | null {
+  const resolution = resolveJudgeRubric(config, { agentId, fallbackText })
+  return resolution.ok ? resolution.rubric : null
+}
+
+function manifestAssertionFrom(
+  assertion: AgentEvalAssertion,
+  scorerKey: string,
+  agentId: string,
+): EvalSetManifestAssertion {
   const frozen: EvalSetManifestAssertion = {
     id: assertion.id,
     key: assertion.key,
@@ -186,7 +209,7 @@ function manifestAssertionFrom(assertion: AgentEvalAssertion, scorerKey: string)
     config: toJson(assertion.config ?? {}),
   }
   if (assertion.type !== 'llm_judge') return frozen
-  const rubric = normalizeJudgeRubric(assertion.config, assertion.description?.trim() || assertion.title)
+  const rubric = frozenJudgeRubric(assertion.config, agentId, assertion.description?.trim() || assertion.title)
   return rubric ? { ...frozen, rubric } : frozen
 }
 
@@ -229,6 +252,7 @@ export async function freezeManifest(
     scope,
   )
   const effective = resolveEffectiveAssertions(assertions, [])
+  await ensureRubricLibrary(collectRubricRefs(effective.map((entry) => entry.assertion.config)))
 
   const manifest = normalizeManifest({
     format: EVAL_SET_FORMAT,
@@ -236,7 +260,7 @@ export async function freezeManifest(
     agentId,
     label: options.label ?? null,
     source: 'db',
-    assertions: effective.map((entry) => manifestAssertionFrom(entry.assertion, entry.scorerKey)),
+    assertions: effective.map((entry) => manifestAssertionFrom(entry.assertion, entry.scorerKey, agentId)),
     cases: cases.map(manifestCaseFrom),
   })
   assertManifestWithinCap(manifest, options.maxBytes ?? resolveEvalSetMaxBytes())
@@ -440,12 +464,32 @@ export type ResolvedManifestAssertion = {
   config: unknown
   rubric: JudgeRubric | null
   configError?: string[]
+  rubricSkipReason?: typeof UNKNOWN_RUBRIC | 'invalid_config'
 }
 
-function frozenRubric(assertion: EvalSetManifestAssertion, config: unknown, overridden: boolean): JudgeRubric | null {
-  if (assertion.type !== 'llm_judge') return null
-  if (!overridden && assertion.rubric) return assertion.rubric
-  return normalizeJudgeRubric(config, assertion.rubric?.promptTemplate ?? assertion.title)
+type FrozenRubricResult = { rubric: JudgeRubric | null; skipReason?: typeof UNKNOWN_RUBRIC | 'invalid_config' }
+
+/**
+ * Reads the rubric frozen into the manifest. A `rubricRef` assertion never
+ * re-resolves against the live library: it uses the frozen body (with a case
+ * override's tuning applied) or skips as `unknown_rubric` when nothing was
+ * frozen. A case override may tune a referenced rubric but not swap the ref.
+ */
+function frozenRubric(assertion: EvalSetManifestAssertion, config: unknown, overridden: boolean): FrozenRubricResult {
+  if (assertion.type !== 'llm_judge') return { rubric: null }
+  const baseRef = readRubricRef(assertion.config)
+  const effectiveRef = readRubricRef(config)
+  if (baseRef) {
+    if (!assertion.rubric) return { rubric: null, skipReason: UNKNOWN_RUBRIC }
+    if (!overridden) return { rubric: assertion.rubric }
+    if (effectiveRef !== baseRef) return { rubric: null, skipReason: 'invalid_config' }
+    const tuned = applyRubricTuning(assertion.rubric, config)
+    return tuned ? { rubric: tuned } : { rubric: null, skipReason: 'invalid_config' }
+  }
+  if (effectiveRef) return { rubric: null, skipReason: 'invalid_config' }
+  if (!overridden && assertion.rubric) return { rubric: assertion.rubric }
+  const rubric = normalizeJudgeRubric(config, assertion.rubric?.promptTemplate ?? assertion.title)
+  return rubric ? { rubric } : { rubric: null, skipReason: 'invalid_config' }
 }
 
 export function resolveManifestCaseAssertions(
@@ -470,7 +514,13 @@ export function resolveManifestCaseAssertions(
         continue
       }
     }
-    resolved.push({ assertion, config, rubric: frozenRubric(assertion, config, Boolean(override)) })
+    const frozen = frozenRubric(assertion, config, Boolean(override))
+    resolved.push({
+      assertion,
+      config,
+      rubric: frozen.rubric,
+      ...(frozen.skipReason ? { rubricSkipReason: frozen.skipReason } : {}),
+    })
   }
   return resolved
 }

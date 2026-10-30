@@ -24,6 +24,8 @@ import {
 import { parseAgentIntegrityRules, parseAgentUntrustedInputs } from '../guardrails/integrity/declaration'
 import { buildUntrustedInputInstruction } from '../guardrails/integrity/untrustedInput'
 import { getSkillEntry } from './defineSkill'
+import type { JudgeRubric } from '../eval/judgeRubric'
+import { parseAgentEvalRubrics, registerAgentRubrics, type JudgeRubricInput } from '../eval/rubrics'
 export {
   registerIntegrityChecker,
   type IntegrityCheckerFn,
@@ -188,6 +190,14 @@ export interface DefineAgentInput {
    * `AgentRegistryEntry.untrustedInputs`. Additive/BC-safe: omitted means no screen.
    */
   untrustedInputs?: UntrustedInputDeclInput[]
+  /**
+   * Named judge rubrics this agent's `llm_judge` assertions can reference with
+   * `{ "rubricRef": "<key>" }` (spec `2026-10-21-eval-reports-and-reproducible-regression`
+   * → Rubric library). An agent rubric shadows a built-in of the same key.
+   * Validated at registration; stored parsed on `AgentRegistryEntry.evalRubrics`.
+   * Additive/BC-safe: omitted means only the built-in rubrics resolve.
+   */
+  evalRubrics?: Record<string, JudgeRubricInput>
 }
 
 /**
@@ -263,6 +273,8 @@ export interface AgentRegistryEntry {
   integrity?: IntegrityRule[]
   /** Parsed untrusted input declarations (see DefineAgentInput); undefined when the agent declares none. */
   untrustedInputs?: UntrustedInputDecl[]
+  /** Parsed judge rubrics (see DefineAgentInput); undefined when the agent declares none. */
+  evalRubrics?: Record<string, JudgeRubric>
   /** File-plane opt-in (#12). OpenCode file agents only; undefined for native agents. */
   files?: FileAgentFilesConfig
   /**
@@ -326,6 +338,7 @@ export function defineAgent(input: DefineAgentInput): AiAgentDefinition {
   const integrity = parseAgentIntegrityRules(input.id, input.result.schema, input.integrity, { effectiveTools })
   const untrustedInputs = parseAgentUntrustedInputs(input.id, input.untrustedInputs)
   const modelSettings = parseAgentModelSettings(input.id, input.modelSettings)
+  const evalRubrics = parseAgentEvalRubrics(input.id, input.evalRubrics)
 
   registry.set(input.id, {
     id: input.id,
@@ -354,7 +367,9 @@ export function defineAgent(input: DefineAgentInput): AiAgentDefinition {
     principal,
     integrity,
     untrustedInputs,
+    ...(evalRubrics ? { evalRubrics } : {}),
   })
+  registerAgentRubrics(input.id, evalRubrics)
   const skillSections = resolvedSkills.map(
     (skill) => `## Skill: ${skill.label}\n${skill.instructions}`,
   )

@@ -15,6 +15,7 @@ import { EVAL_SET_EXPORT_FEATURES, hasEvalSetFeatures } from '../../../../lib/ev
 import { evalSetFileForExport } from '../../../../lib/eval/evalSetFileIo'
 import { stringifyEvalSetFile, type EvalSetTextFormat } from '../../../../lib/eval/evalSetYaml'
 import { EvalSetTooLargeError, EvalSetUnresolvedError, resolveSnapshotPin } from '../../../../lib/eval/manifest'
+import { collectRubricRefs, ensureRubricLibrary } from '../../../../lib/eval/rubrics'
 import { agentOrchestratorTag } from '../../../openapi'
 
 /**
@@ -95,6 +96,7 @@ export async function GET(req: Request, ctx: RouteContext) {
     throw err
   }
 
+  await ensureRubricLibrary(collectRubricRefs(pinned.manifest.assertions.map((assertion) => assertion.config)))
   const exported = evalSetFileForExport(pinned.manifest)
   if (!exported.ok) {
     return NextResponse.json(
