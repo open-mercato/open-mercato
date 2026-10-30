@@ -5,7 +5,7 @@ import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixt
 import { deleteCatalogProductIfExists } from '@open-mercato/core/helpers/integration/catalogFixtures'
 
 /**
- * TC-CAT-043: changing a code block's language or deleting a code block in
+ * TC-CAT-045: changing a code block's language or deleting a code block in
  * the markdown editor is saved without the user needing to type anything
  * else first (QA NO-GO on PR #7036 / #6997, repro steps from @droalina,
  * tracked as issue #7469).
@@ -32,7 +32,7 @@ async function readProductDescription(
   return String((item as Record<string, unknown>).description ?? '')
 }
 
-test.describe('TC-CAT-043: markdown code block edits are saved', () => {
+test.describe('TC-CAT-045: markdown code block edits are saved', () => {
   test('changing a code block language from the dropdown is saved without typing afterward', async ({ page, request }) => {
     test.slow()
     const stamp = Date.now()
@@ -51,8 +51,8 @@ test.describe('TC-CAT-043: markdown code block edits are saved', () => {
       const response = await apiRequest(request, 'POST', '/api/catalog/products', {
         token,
         data: {
-          title: `QA CAT-043 lang ${stamp}`,
-          sku: `qa-cat-043-lang-${stamp}`,
+          title: `QA CAT-045 lang ${stamp}`,
+          sku: `qa-cat-045-lang-${stamp}`,
           description,
           metadata: { __useMarkdown: true },
         },
@@ -120,8 +120,8 @@ test.describe('TC-CAT-043: markdown code block edits are saved', () => {
       const response = await apiRequest(request, 'POST', '/api/catalog/products', {
         token,
         data: {
-          title: `QA CAT-043 del ${stamp}`,
-          sku: `qa-cat-043-del-${stamp}`,
+          title: `QA CAT-045 del ${stamp}`,
+          sku: `qa-cat-045-del-${stamp}`,
           description,
           metadata: { __useMarkdown: true },
         },
