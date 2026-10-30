@@ -108,6 +108,53 @@ describe('messages validators', () => {
     })
   })
 
+  describe('server-supplied sentAt (#6095)', () => {
+    const inboundBase = {
+      subject: 'Subject',
+      body: 'Body',
+      visibility: 'public' as const,
+      externalEmail: 'sender@example.com',
+      recipients: [],
+    }
+
+    it('accepts a Date as the provider timestamp', () => {
+      const sentAt = new Date('2026-06-16T08:30:00Z')
+      const result = composeMessageSchema.safeParse({ ...inboundBase, sentAt })
+
+      expect(result.success).toBe(true)
+      expect(result.data?.sentAt).toEqual(sentAt)
+    })
+
+    it('coerces an ISO string into a Date', () => {
+      const result = composeMessageSchema.safeParse({
+        ...inboundBase,
+        sentAt: '2026-06-16T08:30:00.000Z',
+      })
+
+      expect(result.success).toBe(true)
+      expect(result.data?.sentAt).toEqual(new Date('2026-06-16T08:30:00.000Z'))
+    })
+
+    it('rejects an unparsable timestamp', () => {
+      const result = composeMessageSchema.safeParse({ ...inboundBase, sentAt: 'yesterday' })
+
+      expect(result.success).toBe(false)
+      expect(result.error?.issues.some((issue) => issue.path[0] === 'sentAt')).toBe(true)
+    })
+
+    it('is not part of the client-facing compose contract', () => {
+      // A caller of POST /api/messages must not be able to backdate a message;
+      // only channel ingest, which knows when the provider received it, sets it.
+      const result = composeMessageRequestSchema.safeParse({
+        ...inboundBase,
+        sentAt: '2020-01-01T00:00:00.000Z',
+      })
+
+      expect(result.success).toBe(true)
+      expect((result.data as Record<string, unknown>).sentAt).toBeUndefined()
+    })
+  })
+
   describe('recipients on a channel-ingested public message (#6093)', () => {
     const ingestedBase = {
       subject: 'Re: Quote #123',

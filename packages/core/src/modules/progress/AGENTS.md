@@ -88,6 +88,8 @@ Use stable, grep-friendly ids:
 |----------|--------|---------|
 | `OM_PROGRESS_BROADCAST_MIN_INTERVAL_MS` | Coalesces intermediate `progress.job.updated` broadcasts per job: the service emits only when this many ms elapsed since the last broadcast **or** `progressPercent` advanced by ≥1; sub-threshold updates buffer in memory. Keeps bulk workers from firing one serialized `pg_notify` roundtrip + tenant-wide SSE fan-out per record. Persistence is throttled independently: heartbeats reach the database at least every `HEARTBEAT_INTERVAL_MS` (5s) regardless of this knob, so no value can starve the 60s `STALE_JOB_TIMEOUT_SECONDS` sweep. Terminal events (`created`/`started`/`completed`/`failed`/`cancelled`) are never throttled. Set to `0` to restore per-record emission (tests/debugging). | `250` |
 
+This knob stays service-local: it buffers persistence alongside the broadcast, which the generic mechanism does not. For any OTHER bulk-written browser event, declare `broadcastCoalescing: true` instead — see `packages/events/AGENTS.md` → Coalescing browser deliveries.
+
 ## Concurrency Semantics (multi-instance safe)
 
 `progressService` is safe to run across many app/worker instances. Do not reintroduce read-modify-write transitions:

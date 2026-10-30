@@ -5,47 +5,103 @@ import * as React from 'react'
 import { act, fireEvent, screen } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { DateTimeFields } from '../DateTimeFields'
-import type { ScheduleFieldId } from '../fieldConfig'
+import { FIELD_VISIBILITY, type ActivityType, type ScheduleFieldId } from '../fieldConfig'
 
-const VISIBLE_FIELDS: ScheduleFieldId[] = ['date', 'startTime', 'duration']
+describe('DateTimeFields — per-type date requiredness (#5941)', () => {
+  function renderFields(activityType: ActivityType, date: string) {
+    return renderWithProviders(
+      <DateTimeFields
+        visible={FIELD_VISIBILITY[activityType]}
+        activityType={activityType}
+        date={date}
+        setDate={() => {}}
+        startTime=""
+        setStartTime={() => {}}
+        duration={30}
+        setDuration={() => {}}
+        allDay={false}
+        setAllDay={() => {}}
+        recurrenceEnabled={false}
+        setRecurrenceEnabled={() => {}}
+        recurrenceDays={[false, false, false, false, false, false, false]}
+        toggleRecurrenceDay={() => {}}
+        recurrenceEndType="never"
+        setRecurrenceEndType={() => {}}
+        recurrenceCount={8}
+        setRecurrenceCount={() => {}}
+        recurrenceEndDate=""
+        setRecurrenceEndDate={() => {}}
+      />,
+    )
+  }
 
-function renderFields(locale: string) {
-  return renderWithProviders(
-    <DateTimeFields
-      visible={new Set(VISIBLE_FIELDS)}
-      activityType="meeting"
-      date="2026-01-15"
-      setDate={() => {}}
-      startTime="14:30"
-      setStartTime={() => {}}
-      duration={30}
-      setDuration={() => {}}
-      allDay={false}
-      setAllDay={() => {}}
-      recurrenceEnabled={false}
-      setRecurrenceEnabled={() => {}}
-      recurrenceDays={[false, false, false, false, false, false, false]}
-      toggleRecurrenceDay={() => {}}
-      recurrenceEndType="never"
-      setRecurrenceEndType={() => {}}
-      recurrenceCount={1}
-      setRecurrenceCount={() => {}}
-      recurrenceEndDate=""
-      setRecurrenceEndDate={() => {}}
-    />,
-    { locale },
-  )
-}
+  function dateTrigger(container: HTMLElement): HTMLElement {
+    const trigger = container.querySelector('[data-slot="date-picker-trigger"]')
+    if (!trigger) throw new Error('[internal] date picker trigger not rendered')
+    return trigger as HTMLElement
+  }
 
-async function openDatePicker() {
-  const trigger = document.querySelector('[data-slot="date-picker-trigger"]')
-  if (!trigger) throw new Error('DatePicker trigger not found')
-  await act(async () => {
-    fireEvent.click(trigger as HTMLElement)
+  it('does not demand a due date from a task, so a backlog item stays valid while blank', () => {
+    const { container } = renderFields('task', '')
+
+    expect(screen.queryByText('Date is required')).not.toBeInTheDocument()
+    expect(screen.queryByText('Time is required')).not.toBeInTheDocument()
+    expect(dateTrigger(container)).not.toHaveAttribute('aria-required')
   })
-}
+
+  it('still demands a date from a calendar-bound meeting', () => {
+    const { container } = renderFields('meeting', '')
+
+    expect(screen.getByText('Date is required')).toBeInTheDocument()
+    expect(dateTrigger(container)).toHaveAttribute('aria-required', 'true')
+  })
+
+  it('drops the required error once the meeting has a date', () => {
+    renderFields('meeting', '2026-05-15')
+
+    expect(screen.queryByText('Date is required')).not.toBeInTheDocument()
+  })
+})
 
 describe('DateTimeFields — pickers follow the app locale', () => {
+  const VISIBLE_FIELDS: ScheduleFieldId[] = ['date', 'startTime', 'duration']
+
+  function renderFields(locale: string) {
+    return renderWithProviders(
+      <DateTimeFields
+        visible={new Set(VISIBLE_FIELDS)}
+        activityType="meeting"
+        date="2026-01-15"
+        setDate={() => {}}
+        startTime="14:30"
+        setStartTime={() => {}}
+        duration={30}
+        setDuration={() => {}}
+        allDay={false}
+        setAllDay={() => {}}
+        recurrenceEnabled={false}
+        setRecurrenceEnabled={() => {}}
+        recurrenceDays={[false, false, false, false, false, false, false]}
+        toggleRecurrenceDay={() => {}}
+        recurrenceEndType="never"
+        setRecurrenceEndType={() => {}}
+        recurrenceCount={1}
+        setRecurrenceCount={() => {}}
+        recurrenceEndDate=""
+        setRecurrenceEndDate={() => {}}
+      />,
+      { locale },
+    )
+  }
+
+  async function openDatePicker() {
+    const trigger = document.querySelector('[data-slot="date-picker-trigger"]')
+    if (!trigger) throw new Error('DatePicker trigger not found')
+    await act(async () => {
+      fireEvent.click(trigger as HTMLElement)
+    })
+  }
+
   // 2025-12-29 is a Monday and 2025-12-28 the Sunday before it, so the first cell of the
   // January 2026 grid says which day the calendar treats as the start of the week.
   it('renders the calendar in the app locale rather than the picker default', async () => {

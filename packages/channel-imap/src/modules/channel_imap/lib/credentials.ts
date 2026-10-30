@@ -19,8 +19,10 @@ import { isInternalHost } from '@open-mercato/shared/lib/host-pinning'
  * resolves — or is DNS-rebound — to a private address; that gap is closed at
  * connect time by `resolveSafeHostAddress` (`host-pinning.ts`), which resolves
  * the host, rejects any internal resolved address, and pins the connection to the
- * validated IP. Operators with a genuinely private IMAP host set
- * `OM_CHANNEL_IMAP_ALLOW_INTERNAL_HOSTS=true`.
+ * validated IP. The shared classifier also rejects the obfuscated encodings that
+ * exist to evade such filters (IPv4-mapped / NAT64 / 6to4 / IPv4-compatible IPv6
+ * embedding an internal IPv4, decimal/hex/octal/short-form IPv4). Operators
+ * with a genuinely private IMAP host set `OM_CHANNEL_IMAP_ALLOW_INTERNAL_HOSTS=true`.
  */
 export { isInternalHost } from '@open-mercato/shared/lib/host-pinning'
 

@@ -85,6 +85,7 @@
   "notifications.settings.types.saveSuccess": "알림 유형 설정이 저장되었습니다",
   "notifications.settings.types.title": "유형별 전송 채널",
   "notifications.settings.types.typeColumn": "알림 유형",
+  "notifications.settings.types.uncategorized": "기타 알림",
   "notifications.title": "알림",
   "notifications.toast.actionError": "작업을 실행하지 못했습니다",
   "notifications.toast.actionSuccess": "작업이 성공적으로 완료되었습니다",

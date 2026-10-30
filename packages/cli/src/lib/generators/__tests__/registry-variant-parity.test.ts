@@ -263,6 +263,22 @@ describe('module registry variant parity', () => {
     expect(carriesRuntime).toEqual(registryFiles.map((fileName) => [fileName, true, false]))
   })
 
+  // The IIFE `namespaceFallback` emits narrows `unknown` to `{}`. That satisfies `setup`, whose
+  // every member is optional, but `ModuleRuntime.start` is required — so without a cast the three
+  // namespace-lookup registries fail `tsc` the moment any module ships a runtime.ts. `generate`
+  // stays green either way, which is what let this ship.
+  it('casts the emitted runtime, so its required `start` does not break typecheck', () => {
+    const namespaceLookupRegistries = [
+      'modules.app.generated.ts',
+      'modules.bootstrap.generated.ts',
+      'modules.cli.generated.ts',
+    ]
+
+    for (const fileName of namespaceLookupRegistries) {
+      expect(readGenerated(fileName)).toContain("as Module['runtime']")
+    }
+  })
+
   describe('known, intentional divergences', () => {
     it('only the main variant carries eager api handlers and the cli entry point', () => {
       expect(mainVariant.get('orders')!.has('apis')).toBe(true)

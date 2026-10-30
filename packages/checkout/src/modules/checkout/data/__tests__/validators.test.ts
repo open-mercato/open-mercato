@@ -98,6 +98,24 @@ describe('checkout validators', () => {
     expect(result.gatewayProviderKey).toBeNull()
   })
 
+  test.each([
+    ['updateLinkSchema', updateLinkSchema],
+    ['updateTemplateSchema', updateTemplateSchema],
+  ])('%s leaves omitted defaulted fields out of a partial update (issue #7127)', (_name, schema) => {
+    const result = schema.parse({ id: TEMPLATE_ID, logoAttachmentId: null })
+
+    expect(result).toStrictEqual({ id: TEMPLATE_ID, logoAttachmentId: null })
+  })
+
+  test.each([
+    ['updateLinkSchema', updateLinkSchema],
+    ['updateTemplateSchema', updateTemplateSchema],
+  ])('%s still honours explicitly sent defaulted fields', (_name, schema) => {
+    const result = schema.parse({ id: TEMPLATE_ID, themeMode: 'dark', sendStartEmail: false })
+
+    expect(result).toStrictEqual({ id: TEMPLATE_ID, themeMode: 'dark', sendStartEmail: false })
+  })
+
   test('createTemplateSchema still rejects a null gatewayProviderKey', () => {
     expect(() =>
       createTemplateSchema.parse({

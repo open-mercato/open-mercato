@@ -766,6 +766,18 @@
           "unique": false
         },
         {
+          "keyName": "cf_values_entity_record_key_idx",
+          "columnNames": [
+            "entity_id",
+            "record_id",
+            "field_key"
+          ],
+          "composite": true,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
+        {
           "keyName": "custom_field_values_pkey",
           "columnNames": [
             "id"

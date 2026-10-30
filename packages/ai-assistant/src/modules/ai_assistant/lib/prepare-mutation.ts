@@ -68,6 +68,12 @@ export interface PrepareMutationContext extends AiChatRequestContext {
 export interface PrepareMutationResult {
   uiPart: AiUiPart
   pendingAction: AiPendingAction
+  /**
+   * True when `pendingAction` is an existing row the repository returned
+   * as-is (still `pending`, or `confirmed`/`executing` because the
+   * mutation already ran) instead of a freshly inserted row.
+   */
+  reused: boolean
 }
 
 const MUTATION_PREVIEW_CARD_COMPONENT_ID = 'mutation-preview-card'
@@ -168,12 +174,15 @@ function computeFieldDiff(
   before: Record<string, unknown>,
   after: Record<string, unknown>,
   display?: AiToolFieldDiffDisplayHints,
+  options?: { keys?: Iterable<string> },
 ): AiPendingActionFieldDiff[] {
   const diff: AiPendingActionFieldDiff[] = []
-  const keys = new Set<string>([
-    ...Object.keys(before ?? {}),
-    ...Object.keys(after ?? {}),
-  ])
+  const keys = options?.keys
+    ? new Set<string>(options.keys)
+    : new Set<string>([
+        ...Object.keys(before ?? {}),
+        ...Object.keys(after ?? {}),
+      ])
   for (const field of keys) {
     const beforeValue = before ? before[field] : undefined
     const afterValue = after ? after[field] : undefined
@@ -247,6 +256,15 @@ function matchBatchPatch(
   return {}
 }
 
+function fallbackPatchDiffKeys(
+  patch: Record<string, unknown>,
+  before: Record<string, unknown>,
+): string[] {
+  return Object.keys(patch ?? {}).filter((key) =>
+    Object.prototype.hasOwnProperty.call(before ?? {}, key),
+  )
+}
+
 function normalizeAttachmentIds(args: Record<string, unknown>): string[] {
   const raw = args?.attachmentIds
   if (!Array.isArray(raw)) return []
@@ -289,8 +307,14 @@ async function buildSingleRecordDiff(
       sideEffectsSummary: null,
     }
   }
+  const hasExplicitAfter = before.after != null
   const patch = before.after ?? extractPatchFromArgs(input.toolCallArgs)
-  const fieldDiff = computeFieldDiff(before.before, patch, before.display)
+  const fieldDiff = computeFieldDiff(
+    before.before,
+    patch,
+    before.display,
+    hasExplicitAfter ? undefined : { keys: fallbackPatchDiffKeys(patch, before.before) },
+  )
   return {
     fieldDiff,
     targetEntityType: before.entityType,
@@ -331,12 +355,18 @@ async function buildBatchRecords(
     }
   }
   const diffs: AiPendingActionRecordDiff[] = rows.map((row) => {
+    const hasExplicitAfter = row.after != null
     const patch = row.after ?? matchBatchPatch(input.toolCallArgs, row.recordId)
     return {
       recordId: row.recordId,
       entityType: row.entityType,
       label: row.label,
-      fieldDiff: computeFieldDiff(row.before, patch, row.display),
+      fieldDiff: computeFieldDiff(
+        row.before,
+        patch,
+        row.display,
+        hasExplicitAfter ? undefined : { keys: fallbackPatchDiffKeys(patch, row.before) },
+      ),
       recordVersion: row.recordVersion ?? null,
     }
   })
@@ -419,7 +449,7 @@ export async function prepareMutation(
     normalizedInput,
   })
 
-  const pendingAction = await repo.create(
+  const { row: pendingAction, reused } = await repo.create(
     {
       agentId: agent.id,
       toolName: tool.name,
@@ -453,7 +483,7 @@ export async function prepareMutation(
     },
   }
 
-  return { uiPart, pendingAction }
+  return { uiPart, pendingAction, reused }
 }
 
 export const MUTATION_PREVIEW_CARD_COMPONENT = MUTATION_PREVIEW_CARD_COMPONENT_ID

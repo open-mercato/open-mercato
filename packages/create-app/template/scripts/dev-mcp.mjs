@@ -86,6 +86,17 @@ export function looksLikeMissingKeyOwner(outputLines = []) {
   )
 }
 
+// The CLI dispatcher exits 1 with `Module not found: "ai_assistant"` when the
+// app intentionally omits the module (empty/wms starter presets). That is a
+// configuration state, not a transient startup failure, so it must not be retried.
+export function looksLikeMissingAiAssistantModule(outputLines = []) {
+  return outputLines.some((line) => /Module not found: "ai_assistant"(?![\w-])/.test(String(line)))
+}
+
+export function shouldRetryMcpProvisioning(outputLines = []) {
+  return !looksLikeMissingAiAssistantModule(outputLines)
+}
+
 export function isKeyRotationOutput(outputLines = []) {
   return outputLines.some((line) => String(line).includes('New key created'))
 }

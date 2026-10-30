@@ -2,13 +2,16 @@
 
 import * as React from 'react'
 import { useQuery } from '@tanstack/react-query'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
+import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { ErrorMessage, LoadingMessage } from '@open-mercato/ui/backend/detail'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
+import { extensionPoints } from '@open-mercato/core/modules/staff/extension-points'
 import { sumTaskLoggedMinutes } from '../timesheets-tasks/taskHoursTotals'
 import {
   BOARD_PAGE_SIZE,
@@ -121,6 +124,85 @@ export function TaskListView({
     onSummaryChange?.(summary)
   }, [onSummaryChange, summary])
 
+  const columns = React.useMemo<ColumnDef<BoardTask>[]>(
+    () => [
+      {
+        accessorKey: 'reference',
+        header: t('staff.time_tracking.board.list.columns.reference', 'Ref.'),
+        cell: ({ row }) => (
+          <span className="text-xs tabular-nums text-muted-foreground">
+            {row.original.reference ?? '—'}
+          </span>
+        ),
+      },
+      {
+        accessorKey: 'title',
+        header: t('staff.time_tracking.board.list.columns.title', 'Task'),
+        cell: ({ row }) => (
+          <span data-task-row={row.original.id}>
+            <Button
+              type="button"
+              variant="link"
+              size="2xs"
+              onClick={() => onOpenTask(row.original.id)}
+              className="h-auto px-0 text-left text-sm font-semibold text-foreground"
+            >
+              {row.original.title}
+            </Button>
+          </span>
+        ),
+      },
+      {
+        id: 'status',
+        header: t('staff.time_tracking.board.list.columns.status', 'Status'),
+        cell: ({ row }) =>
+          row.original.taskStatusId ? statusNames.get(row.original.taskStatusId) ?? '—' : '—',
+      },
+      {
+        id: 'assignee',
+        header: t('staff.time_tracking.board.list.columns.assignee', 'Assignee'),
+        cell: ({ row }) =>
+          row.original.assigneeStaffMemberId
+            ? assigneeNames.data?.get(row.original.assigneeStaffMemberId) ??
+              t('staff.time_tracking.board.card.unassigned', 'Unassigned')
+            : t('staff.time_tracking.board.card.unassigned', 'Unassigned'),
+      },
+      {
+        id: 'tags',
+        header: t('staff.time_tracking.board.list.columns.tags', 'Tags'),
+        cell: ({ row }) => (
+          <span className="flex flex-wrap gap-1">
+            {row.original.tagIds.map((tagId) => {
+              // Same rule as the board card: a tag whose label has not
+              // arrived yet is skipped, never drawn as its raw id.
+              const label = tagLabels.data?.get(tagId)
+              if (!label) return null
+              return (
+                <Badge key={tagId} variant="neutral" size="sm">
+                  {label}
+                </Badge>
+              )
+            })}
+          </span>
+        ),
+      },
+      {
+        id: 'hours',
+        header: () => (
+          <span className="block text-right">
+            {t('staff.time_tracking.board.list.columns.hours', 'Logged')}
+          </span>
+        ),
+        cell: ({ row }) => (
+          <span className="block text-right font-semibold tabular-nums text-foreground">
+            {formatBoardMinutes(row.original.loggedMinutes)}
+          </span>
+        ),
+      },
+    ],
+    [assigneeNames.data, onOpenTask, statusNames, t, tagLabels.data],
+  )
+
   if (tasksQuery.isLoading) {
     return <LoadingMessage label={t('staff.time_tracking.board.loading', 'Loading the board…')} />
   }
@@ -155,85 +237,13 @@ export function TaskListView({
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="overflow-x-auto rounded-lg border border-border">
-        <table className="w-full border-collapse text-sm" data-testid="board-task-list">
-          <caption className="sr-only">
-            {t('staff.time_tracking.board.list.caption', 'Tasks')}
-          </caption>
-          <thead>
-            <tr className="border-b border-border bg-muted/40 text-left">
-              <th scope="col" className="px-3 py-2.5 font-semibold text-muted-foreground">
-                {t('staff.time_tracking.board.list.columns.reference', 'Ref.')}
-              </th>
-              <th scope="col" className="px-3 py-2.5 font-semibold text-muted-foreground">
-                {t('staff.time_tracking.board.list.columns.title', 'Task')}
-              </th>
-              <th scope="col" className="px-3 py-2.5 font-semibold text-muted-foreground">
-                {t('staff.time_tracking.board.list.columns.status', 'Status')}
-              </th>
-              <th scope="col" className="px-3 py-2.5 font-semibold text-muted-foreground">
-                {t('staff.time_tracking.board.list.columns.assignee', 'Assignee')}
-              </th>
-              <th scope="col" className="px-3 py-2.5 font-semibold text-muted-foreground">
-                {t('staff.time_tracking.board.list.columns.tags', 'Tags')}
-              </th>
-              <th scope="col" className="px-3 py-2.5 text-right font-semibold text-muted-foreground">
-                {t('staff.time_tracking.board.list.columns.hours', 'Logged')}
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {tasks.map((task) => (
-              <tr
-                key={task.id}
-                data-task-row={task.id}
-                className="border-b border-border last:border-b-0 hover:bg-muted/40"
-              >
-                <td className="px-3 py-2.5 text-xs tabular-nums text-muted-foreground">
-                  {task.reference ?? '—'}
-                </td>
-                <td className="px-3 py-2.5">
-                  <Button
-                    type="button"
-                    variant="link"
-                    size="2xs"
-                    onClick={() => onOpenTask(task.id)}
-                    className="h-auto px-0 text-left text-sm font-semibold text-foreground"
-                  >
-                    {task.title}
-                  </Button>
-                </td>
-                <td className="px-3 py-2.5 text-muted-foreground">
-                  {task.taskStatusId ? statusNames.get(task.taskStatusId) ?? '—' : '—'}
-                </td>
-                <td className="px-3 py-2.5 text-muted-foreground">
-                  {task.assigneeStaffMemberId
-                    ? assigneeNames.data?.get(task.assigneeStaffMemberId) ??
-                      t('staff.time_tracking.board.card.unassigned', 'Unassigned')
-                    : t('staff.time_tracking.board.card.unassigned', 'Unassigned')}
-                </td>
-                <td className="px-3 py-2.5">
-                  <span className="flex flex-wrap gap-1">
-                    {task.tagIds.map((tagId) => {
-                      // Same rule as the board card: a tag whose label has not
-                      // arrived yet is skipped, never drawn as its raw id.
-                      const label = tagLabels.data?.get(tagId)
-                      if (!label) return null
-                      return (
-                        <Badge key={tagId} variant="neutral" size="sm">
-                          {label}
-                        </Badge>
-                      )
-                    })}
-                  </span>
-                </td>
-                <td className="px-3 py-2.5 text-right font-semibold tabular-nums text-foreground">
-                  {formatBoardMinutes(task.loggedMinutes)}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      <div data-testid="board-task-list">
+        <DataTable<BoardTask>
+          extensionTableId={extensionPoints.hosts.taskBoardListViewTable.tableId}
+          disableRowClick
+          columns={columns}
+          data={tasks}
+        />
       </div>
 
       {remaining > 0 ? (

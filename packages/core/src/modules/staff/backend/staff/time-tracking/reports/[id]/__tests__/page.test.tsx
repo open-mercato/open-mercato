@@ -10,10 +10,16 @@
  */
 import * as React from 'react'
 import { render, screen, waitFor } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import TimeTrackingReportDetailPage from '../page'
+
+function renderWithQueryClient(children: React.ReactElement) {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })
+  return render(<QueryClientProvider client={queryClient}>{children}</QueryClientProvider>)
+}
 
 const REPORT_ID = '88888888-8888-4888-8888-888888888888'
 
@@ -35,7 +41,10 @@ const mockTranslate = (
 
 let mockSearchParams = new URLSearchParams('')
 
-jest.mock('@open-mercato/shared/lib/i18n/context', () => ({ useT: () => mockTranslate }))
+jest.mock('@open-mercato/shared/lib/i18n/context', () => {
+  const actual = jest.requireActual('@open-mercato/shared/lib/i18n/context')
+  return { ...actual, useT: () => mockTranslate, useLocale: () => 'en' }
+})
 
 jest.mock('next/navigation', () => ({
   useRouter: () => ({ push: jest.fn(), replace: jest.fn() }),
@@ -69,7 +78,7 @@ const mockReadApiResultOrThrow = readApiResultOrThrow as jest.MockedFunction<typ
 const mockUseBackendChrome = useBackendChrome as jest.MockedFunction<typeof useBackendChrome>
 const mockUseConfirmDialog = useConfirmDialog as jest.MockedFunction<typeof useConfirmDialog>
 
-function sheetPayload(status: 'draft' | 'closed') {
+function sheetPayload(status: 'draft' | 'closed', rows: Array<Record<string, unknown>> = [], rowCount = 2) {
   return {
     report: {
       id: REPORT_ID,
@@ -95,18 +104,26 @@ function sheetPayload(status: 'draft' | 'closed') {
     totals: { entryCount: 2, billableMinutes: 120, nonbillableMinutes: 0, totalAmount: 200 },
     alreadyReportedCount: 0,
     alreadyReportedMinutes: 0,
-    rows: [],
-    rowCount: 2,
+    rows,
+    rowCount,
     rowsTruncated: false,
     events: [],
   }
 }
 
-function renderPage(options: { status: 'draft' | 'closed'; features: string[]; search: string }) {
+function renderPage(options: {
+  status: 'draft' | 'closed'
+  features: string[]
+  search: string
+  rows?: Array<Record<string, unknown>>
+  rowCount?: number
+}) {
   mockSearchParams = new URLSearchParams(options.search)
   mockUseBackendChrome.mockReturnValue({ payload: { grantedFeatures: options.features } } as never)
-  mockReadApiResultOrThrow.mockImplementation(async () => sheetPayload(options.status) as never)
-  return render(<TimeTrackingReportDetailPage params={{ id: REPORT_ID }} />)
+  mockReadApiResultOrThrow.mockImplementation(
+    async () => sheetPayload(options.status, options.rows, options.rowCount) as never,
+  )
+  return renderWithQueryClient(<TimeTrackingReportDetailPage params={{ id: REPORT_ID }} />)
 }
 
 const UNLOCK_FEATURES = ['staff.timesheets.reports.unlock', 'staff.timesheets.rates.view']
@@ -148,5 +165,44 @@ describe('report detail — ?unlock=1 deep link', () => {
     await waitFor(() => expect(screen.getByTestId('report-sheet')).toBeInTheDocument())
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Unlock entries/ })).toBeInTheDocument()
+  })
+})
+
+describe('report detail — locked entries table', () => {
+  it('renders locked rows in the DataTable for a closed report', async () => {
+    renderPage({
+      status: 'closed',
+      features: UNLOCK_FEATURES,
+      search: '',
+      rows: [
+        {
+          entryId: 'entry-1',
+          date: '2026-08-05',
+          projectName: 'Apollo',
+          taskLabel: 'Fix the bug',
+          personLabel: 'Ada Lovelace',
+          description: '',
+          minutes: 60,
+          rawMinutes: 60,
+          hours: '1:00',
+          isBillable: true,
+          rate: 100,
+          amount: 100,
+          hasOverride: false,
+        },
+      ],
+      rowCount: 1,
+    })
+
+    expect(await screen.findByText('Fix the bug')).toBeInTheDocument()
+    expect(screen.getByText('Ada Lovelace')).toBeInTheDocument()
+    expect(screen.getByText('1:00')).toBeInTheDocument()
+  })
+
+  it('renders no locked-entries table for a draft report', async () => {
+    renderPage({ status: 'draft', features: UNLOCK_FEATURES, search: '' })
+
+    await waitFor(() => expect(screen.getByTestId('report-sheet')).toBeInTheDocument())
+    expect(screen.queryByText('Locked entries')).not.toBeInTheDocument()
   })
 })

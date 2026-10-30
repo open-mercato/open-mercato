@@ -27,6 +27,16 @@ export type EmailThreadMessage = {
   direction: EmailThreadDirection
   fromName: string | null
   fromEmail: string | null
+  /**
+   * True when the viewer wrote this message — the only thing that earns a "You"
+   * label. Outbound direction alone does NOT imply authorship: a shared
+   * conversation or team mailbox puts a colleague's sent mail in this list, and
+   * labelling that "You" attributes their email to the reader. Optional and
+   * fail-safe: omitted (or false) renders the sender identity instead.
+   */
+  authoredByViewer?: boolean
+  /** Display label of the sending colleague, when the viewer is not the author. */
+  authorName?: string | null
   to: string[]
   cc: string[]
   subject: string | null
@@ -259,6 +269,16 @@ function EmailMessageCard({
   const fromLabel = message.fromName
     ? `${message.fromName}${message.fromEmail ? ` <${message.fromEmail}>` : ''}`
     : message.fromEmail ?? t('ui.email.threads.unknownParticipant', 'Unknown sender')
+  // Outbound mail carries no `from` address, so a colleague's message falls back
+  // to their resolved name and then to a generic label — never to "You", which
+  // would credit the reader with an email they did not send.
+  const senderLabel = isOutbound
+    ? message.authoredByViewer
+      ? t('ui.email.threads.you', 'You')
+      : message.authorName?.trim() ||
+        message.fromEmail ||
+        t('ui.email.threads.teammate', 'A teammate')
+    : fromLabel
   return (
     <div
       className={`min-w-0 rounded-md border border-border p-3 ${isOutbound ? 'bg-accent' : 'bg-muted'}`}
@@ -272,7 +292,7 @@ function EmailMessageCard({
               <ArrowDownLeft className="h-3.5 w-3.5 shrink-0" />
             )}
             <span className="min-w-0 break-words font-medium text-foreground">
-              {isOutbound ? t('ui.email.threads.you', 'You') : fromLabel}
+              {senderLabel}
             </span>
           </div>
           {message.to.length > 0 ? (
