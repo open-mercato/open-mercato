@@ -1,6 +1,8 @@
 # Local Qwen 27B coding results — canonical-context Round 5
 
-This complete fourteen-case experiment is **running**. Runtime source: `0395f6246d13fac742fdd72df59aa22f3d8bdd49`; run `ac37befc-5efe-486e-a2f3-c37d437d446e`, started 2026-10-30 at 19:17:57 UTC. Model `qwen3.8:27b-mlx`, Pi 1.4.0, Ollama 0.40.8, sequential disposable targets.
+**Paused by user request.** A graceful stop is requested after active OMH-027. This report is the five-completed-case checkpoint; the producer may finish the active case after handoff. No later case should start. [Resume handoff](../runs/2026-10-30-qwen-coding-harness-recovery-handoff.md).
+
+This fourteen-case experiment was **running at the saved checkpoint**. Runtime source: `0395f6246d13fac742fdd72df59aa22f3d8bdd49`; run `ac37befc-5efe-486e-a2f3-c37d437d446e`, started 2026-10-30 at 19:17:57 UTC. Model `qwen3.8:27b-mlx`, Pi 1.4.0, Ollama 0.40.8, sequential disposable targets.
 
 The operator timeout is 1,200 seconds per attempt, compared with 600 in earlier experiments. Model, transport, sampling and grading remain unchanged. Source and time-budget changes are disclosed together; this is not an isolated causal comparison. Original evidence and all earlier experiments remain frozen.
 

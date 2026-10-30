@@ -1,6 +1,8 @@
 # Qwen coding harness recovery
 
 ## Goal
+
+**Paused by user request.** [Resumable handoff](2026-10-30-qwen-coding-harness-recovery-handoff.md). Graceful stop requested after active OMH-027; no new case should start. All remaining acceptance steps stay open.
 Explain every task from the stopped local Qwen 27B experiment, correct demonstrated shared harness defects in the fewest authoritative owners, make all fourteen selected OMH cases pass without weakening checks, then make PR #8262 merge-ready without merging it. Preserve honest first-attempt and repair-trial evidence.
 
 Source doc: .ai/specs/2026-10-30-coding-harness-contract-recovery.md

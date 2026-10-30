@@ -1073,6 +1073,130 @@ function hasCall(facts, ...names) {
   return names.some((name) => (facts.calls.get(name) ?? 0) > 0)
 }
 
+function lexicalBindingNames(ts, statements, parameters = []) {
+  const names = new Set()
+  const add = (name) => {
+    if (ts.isIdentifier(name)) names.add(name.text)
+    else if (ts.isObjectBindingPattern(name) || ts.isArrayBindingPattern(name)) {
+      for (const element of name.elements) if (ts.isBindingElement(element)) add(element.name)
+    }
+  }
+  for (const parameter of parameters) add(parameter.name)
+  for (const statement of statements) {
+    if (ts.isVariableStatement(statement)) for (const declaration of statement.declarationList.declarations) add(declaration.name)
+    else if ((ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement) || ts.isEnumDeclaration(statement)) && statement.name) add(statement.name)
+  }
+  return names
+}
+
+function checkoutRouteUsesRegistryWrapper(ts, root) {
+  const file = path.join(root, 'src/modules/library/api/books/checkout/route.ts')
+  if (!safeTargetEntry(root, file)?.isFile()) return false
+  const facts = collectFacts(ts, [file])
+  const handler = facts.exportedFunctionNodes.get('POST')
+  if (!handler?.body || !ts.isBlock(handler.body) || !handler.parameters[0] || !ts.isIdentifier(handler.parameters[0].name)) return false
+  const request = handler.parameters[0].name.text
+  const imports = new Map()
+  for (const statement of handler.getSourceFile().statements) {
+    if (!ts.isImportDeclaration(statement) || statement.importClause?.isTypeOnly) continue
+    const bindings = statement.importClause?.namedBindings
+    if (!bindings || !ts.isNamedImports(bindings)) continue
+    for (const binding of bindings.elements) {
+      if (!binding.isTypeOnly) imports.set(binding.name.text, { name: binding.propertyName?.text ?? binding.name.text, source: statement.moduleSpecifier.text })
+    }
+  }
+  const statements = [...handler.body.statements]
+  const localBindings = lexicalBindingNames(ts, [...handler.getSourceFile().statements, ...statements], handler.parameters)
+  const variables = new Map()
+  for (const statement of statements) {
+    if (!ts.isVariableStatement(statement) || !(statement.declarationList.flags & ts.NodeFlags.Const)) continue
+    for (const declaration of statement.declarationList.declarations) {
+      if (ts.isIdentifier(declaration.name) && declaration.initializer) {
+        if (variables.has(declaration.name.text)) return false
+        variables.set(declaration.name.text, declaration.initializer)
+      }
+    }
+  }
+  const local = { variableExpressions: variables }
+  const importedCall = (node, name, source) => {
+    if (!node || !ts.isCallExpression(node) || !ts.isIdentifier(node.expression)) return false
+    const binding = imports.get(node.expression.text)
+    return binding?.name === name && binding.source === source && !localBindings.has(node.expression.text)
+  }
+  const awaitedCall = (node) => {
+    const value = unwrapExpression(ts, node)
+    return value && ts.isAwaitExpression(value) ? unwrapExpression(ts, value.expression) : undefined
+  }
+  const authNames = new Set([...variables].filter(([, value]) => {
+    const call = awaitedCall(value)
+    return importedCall(call, 'getAuthFromRequest', '@open-mercato/shared/lib/auth/server')
+      && call.arguments.length === 1 && ts.isIdentifier(call.arguments[0]) && call.arguments[0].text === request
+  }).map(([name]) => name))
+  const trustedAuthField = (node, field, seen = new Set()) => {
+    const value = resolveExpression(ts, local, node)
+    if (!value || seen.has(value)) return undefined
+    const nextSeen = new Set([...seen, value])
+    if (ts.isCallExpression(value) && ts.isIdentifier(value.expression) && value.expression.text === 'String' && value.arguments.length === 1
+      && !imports.has('String') && !facts.variableExpressions.has('String') && !facts.functionNodes.has('String')
+      && !localBindings.has('String')) {
+      return trustedAuthField(value.arguments[0], field, nextSeen)
+    }
+    if (!ts.isPropertyAccessExpression(value)) return undefined
+    if (ts.isIdentifier(value.expression) && authNames.has(value.expression.text) && value.name.text === field) return value.expression.text
+    const owner = resolveExpression(ts, local, value.expression)
+    return owner && ts.isObjectLiteralExpression(owner)
+      ? trustedAuthField(propertyExpression(ts, local, owner, value.name.text), field, nextSeen)
+      : undefined
+  }
+  const staticObject = (node) => node && ts.isObjectLiteralExpression(node)
+    && node.properties.every((property) => (ts.isPropertyAssignment(property) || ts.isShorthandPropertyAssignment(property)) && !ts.isComputedPropertyName(property.name))
+    && new Set(node.properties.map((property) => propertyName(ts, property.name))).size === node.properties.length
+  for (const [index, statement] of statements.entries()) {
+    if (!ts.isVariableStatement(statement) || !(statement.declarationList.flags & ts.NodeFlags.Const)) continue
+    for (const declaration of statement.declarationList.declarations) {
+      if (!ts.isIdentifier(declaration.name)) continue
+      const call = awaitedCall(declaration.initializer)
+      if (!importedCall(call, 'runRouteMutationGuards', '@open-mercato/shared/lib/crud/route-mutation-guard') || call.arguments.length !== 1) continue
+      const options = resolveExpression(ts, local, call.arguments[0])
+      const req = propertyExpression(ts, local, options, 'req')
+      const container = awaitedCall(propertyExpression(ts, local, options, 'container'))
+      const auth = propertyExpression(ts, local, options, 'auth')
+      const input = propertyExpression(ts, local, options, 'input')
+      const user = trustedAuthField(propertyExpression(ts, local, auth, 'userId'), 'sub')
+      if (!staticObject(options) || !staticObject(auth) || !staticObject(input)
+        || !user || user !== trustedAuthField(propertyExpression(ts, local, auth, 'tenantId'), 'tenantId')
+        || user !== trustedAuthField(propertyExpression(ts, local, auth, 'organizationId'), 'orgId')
+        || !req || !ts.isIdentifier(req) || req.text !== request
+        || !importedCall(container, 'createRequestContainer', '@open-mercato/shared/lib/di/container')
+        || container.arguments.length !== 0
+        || !/^library[.:]/.test(objectPropertyString(ts, local, input, 'resourceKind') ?? '')
+        || !['custom', 'update'].includes(objectPropertyString(ts, local, input, 'operation'))) continue
+      const guardName = declaration.name.text
+      const blocked = statements[index + 1]
+      if (!blocked || !ts.isIfStatement(blocked)) continue
+      const condition = unwrapExpression(ts, blocked.expression)
+      const checked = condition && ts.isPrefixUnaryExpression(condition) && condition.operator === ts.SyntaxKind.ExclamationToken
+        ? unwrapExpression(ts, condition.operand) : undefined
+      let rejection = blocked.thenStatement
+      if (ts.isBlock(rejection) && rejection.statements.length === 1) rejection = rejection.statements[0]
+      const response = ts.isReturnStatement(rejection) ? unwrapExpression(ts, rejection.expression) : undefined
+      if (!checked || !ts.isPropertyAccessExpression(checked) || checked.name.text !== 'ok'
+        || !ts.isIdentifier(checked.expression) || checked.expression.text !== guardName
+        || !response || !ts.isPropertyAccessExpression(response) || response.name.text !== 'response'
+        || !ts.isIdentifier(response.expression) || response.expression.text !== guardName) continue
+      const priorStatements = statements.slice(0, index)
+      if (priorStatements.some((node) => ts.isReturnStatement(node) || ts.isThrowStatement(node))) continue
+      const priorFacts = priorStatements.map((node) => collectFunctionFact(ts, node, { skipNestedFunctions: true }))
+      if (priorFacts.some((fact) => fact.binaryOperators.has(ts.SyntaxKind.EqualsToken))) continue
+      const prior = priorFacts.flatMap((fact) => [...fact.calls])
+      if (prior.some((name) => ['execute', 'flush', 'persist', 'remove', 'nativeUpdate', 'nativeDelete', 'withAtomicFlush', 'runCrudCommandWrite', 'emitCrudSideEffects'].includes(name))) continue
+      const subsequent = statements.slice(index + 2).flatMap((node) => [...collectFunctionFact(ts, node, { skipNestedFunctions: true }).calls])
+      if (subsequent.includes(`${guardName}.runAfterSuccess`)) return true
+    }
+  }
+  return false
+}
+
 function hasOnlyEnabledTests(facts) {
   return facts.forbiddenTestModifiers.size === 0
 }
@@ -1596,12 +1720,109 @@ function defaultExportExpression(ts, facts, file) {
   return assignment ? resolveExpression(ts, facts, assignment.expression) : undefined
 }
 
+function inertUiContext(ts, source, render) {
+  const variables = new Map()
+  const renderStatements = render?.body && ts.isBlock(render.body) ? [...render.body.statements] : []
+  const statements = [...source.statements, ...renderStatements]
+  for (const scope of [source.statements, renderStatements]) {
+    for (const name of lexicalBindingNames(ts, scope)) variables.delete(name)
+    for (const statement of scope) {
+      if (!ts.isVariableStatement(statement) || !(statement.declarationList.flags & ts.NodeFlags.Const)) continue
+      for (const declaration of statement.declarationList.declarations) {
+        if (ts.isIdentifier(declaration.name) && declaration.initializer) variables.set(declaration.name.text, declaration.initializer)
+      }
+    }
+  }
+  const imports = new Map()
+  for (const statement of source.statements) {
+    if (!ts.isImportDeclaration(statement) || statement.importClause?.isTypeOnly) continue
+    const clause = statement.importClause
+    if (clause?.name) imports.set(clause.name.text, { imported: 'default', source: statement.moduleSpecifier.text })
+    if (clause?.namedBindings && ts.isNamedImports(clause.namedBindings)) {
+      for (const binding of clause.namedBindings.elements) {
+        if (!binding.isTypeOnly) imports.set(binding.name.text, { imported: binding.propertyName?.text ?? binding.name.text, source: statement.moduleSpecifier.text })
+      }
+    }
+  }
+  const parameters = lexicalBindingNames(ts, [], render?.parameters ?? [])
+  const localBindings = lexicalBindingNames(ts, statements, render?.parameters ?? [])
+  return { source, variables, imports, parameters, localBindings }
+}
+
+function inertUiValue(ts, node, context, load, seen = new Set()) {
+  const expression = unwrapExpression(ts, node)
+  if (!expression || seen.has(expression) || seen.size > 256) return undefined
+  const nextSeen = new Set([...seen, expression])
+  if (ts.isStringLiteralLike(expression)) return expression.text
+  if (ts.isIdentifier(expression)) {
+    if (context.parameters.has(expression.text)) return undefined
+    const local = context.variables.get(expression.text)
+    if (local) return inertUiValue(ts, local, context, load, nextSeen)
+    if (context.localBindings.has(expression.text)) return undefined
+    const binding = context.imports.get(expression.text)
+    if (!binding?.source.startsWith('.')) return undefined
+    const imported = load(context.source.fileName, binding.source)
+    if (!imported) return undefined
+    if (binding.imported === 'default') {
+      const assignment = imported.source.statements.find((statement) => ts.isExportAssignment(statement) && !statement.isExportEquals)
+      return assignment ? inertUiValue(ts, assignment.expression, imported, load, nextSeen) : undefined
+    }
+    const declaration = imported.source.statements.find((statement) => ts.isVariableStatement(statement)
+      && statement.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword)
+      && statement.declarationList.declarations.some((entry) => ts.isIdentifier(entry.name) && entry.name.text === binding.imported))
+    return declaration ? inertUiValue(ts, imported.variables.get(binding.imported), imported, load, nextSeen) : undefined
+  }
+  if (ts.isPropertyAccessExpression(expression)) {
+    const owner = inertUiValue(ts, expression.expression, context, load, nextSeen)
+    return owner instanceof Map ? owner.get(expression.name.text) : undefined
+  }
+  if (ts.isCallExpression(expression) && ts.isIdentifier(expression.expression) && expression.arguments.length === 1) {
+    const name = expression.expression.text
+    const binding = context.imports.get(name)
+    return binding?.source === '@open-mercato/shared/modules/widgets/extension-points'
+      && ['defineModuleExtensionPoints', 'dataTableExtensionHost'].includes(binding.imported)
+      && !context.localBindings.has(name)
+      ? inertUiValue(ts, expression.arguments[0], context, load, nextSeen) : undefined
+  }
+  if (!ts.isObjectLiteralExpression(expression)) return undefined
+  const result = new Map()
+  for (const property of expression.properties) {
+    if (!(ts.isPropertyAssignment(property) || ts.isShorthandPropertyAssignment(property)) || ts.isComputedPropertyName(property.name)) return undefined
+    const name = propertyName(ts, property.name)
+    if (!name || result.has(name)) return undefined
+    result.set(name, inertUiValue(ts, ts.isPropertyAssignment(property) ? property.initializer : property.name, context, load, nextSeen))
+  }
+  return result
+}
+
 function renderedUiContract(ts, root, backendFiles) {
   const moduleRoot = path.join(root, 'src/modules/library')
   const pending = backendFiles.filter((file) => file.endsWith('/page.tsx')).map((file) => ({ file, name: 'default' }))
   const visited = new Set()
-  const result = { jsxTags: new Set(), jsxAttributes: new Set(), calls: new Set(), failure: null }
+  const result = { jsxTags: new Set(), jsxAttributes: new Set(), calls: new Set(), tablePerspectiveId: false, failure: null }
   let bytes = 0
+  const valueSources = new Map()
+  const loadValueSource = (from, specifier) => {
+    const base = path.resolve(path.dirname(from), specifier)
+    const relative = path.relative(moduleRoot, base)
+    if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+      result.failure = 'rendered table metadata import escapes the case module'
+      return undefined
+    }
+    const file = ['', '.ts', '.tsx', '/index.ts', '/index.tsx'].map((suffix) => base + suffix)
+      .find((candidate) => isTypeScriptSource(candidate) && safeTargetEntry(root, candidate)?.isFile())
+    if (!file) return undefined
+    if (!valueSources.has(file)) {
+      const stat = safeTargetEntry(root, file)
+      bytes += stat.size
+      if (visited.size + valueSources.size + 1 > 64 || bytes > 512 * 1024) {
+        result.failure = 'rendered component source budget exceeded'
+        return undefined
+      }
+      valueSources.set(file, inertUiContext(ts, ts.createSourceFile(file, fs.readFileSync(file, 'utf8'), ts.ScriptTarget.Latest, true), undefined))
+    }
+    return valueSources.get(file)
+  }
   while (pending.length) {
     const { file, name } = pending.pop()
     const key = `${file}:${name}`
@@ -1612,7 +1833,7 @@ function renderedUiContract(ts, root, backendFiles) {
     const stat = safeTargetEntry(root, file)
     if (!stat?.isFile()) return { ...result, failure: 'rendered component source is missing' }
     bytes += stat.size
-    if (visited.size > 64 || bytes > 512 * 1024) return { ...result, failure: 'rendered component source budget exceeded' }
+    if (visited.size + valueSources.size > 64 || bytes > 512 * 1024) return { ...result, failure: 'rendered component source budget exceeded' }
     const source = ts.createSourceFile(file, fs.readFileSync(file, 'utf8'), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
     const local = collectFacts(ts, [file])
     let render = name === 'default'
@@ -1623,6 +1844,7 @@ function renderedUiContract(ts, root, backendFiles) {
       render = exported && ts.isIdentifier(exported) ? local.functionNodes.get(exported.text) : exported
     }
     if (!render || !ts.isFunctionLike(render)) return { ...result, failure: 'rendered import does not resolve to an exported component' }
+    const inert = inertUiContext(ts, source, render)
     const reached = functionContractFacts(ts, local, render, { skipNestedFunctions: true })
     const callbackImports = new Set()
     const reactImports = new Set()
@@ -1646,6 +1868,18 @@ function renderedUiContract(ts, root, backendFiles) {
     const isUnshadowedImport = (name) => !parameterBindings.has(name) && !local.variableExpressions.has(name) && !local.functionNodes.has(name)
     const visitBindings = (node) => {
       if (node !== render && ts.isFunctionLike(node)) return
+      if ((ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) && ts.isIdentifier(node.tagName)) {
+        const name = node.tagName.text
+        const binding = inert.imports.get(name)
+        const perspectives = node.attributes.properties.filter((attribute) => ts.isJsxAttribute(attribute) && attribute.name.text === 'perspective')
+        if (binding?.imported === 'DataTable' && binding.source === '@open-mercato/ui/backend/DataTable' && isUnshadowedImport(name)
+          && perspectives.length === 1 && !node.attributes.properties.some((attribute) => ts.isJsxSpreadAttribute(attribute))) {
+          const initializer = perspectives[0].initializer
+          const perspective = initializer && ts.isJsxExpression(initializer) ? inertUiValue(ts, initializer.expression, inert, loadValueSource) : undefined
+          const tableId = perspective instanceof Map ? perspective.get('tableId') : undefined
+          if (typeof tableId === 'string' && tableId.trim()) result.tablePerspectiveId = true
+        }
+      }
       if (ts.isJsxAttribute(node) && node.initializer && ts.isJsxExpression(node.initializer)) {
         const expression = node.initializer.expression
         let handler = expression && ts.isIdentifier(expression) ? local.functionNodes.get(expression.text) : expression
@@ -1665,6 +1899,7 @@ function renderedUiContract(ts, root, backendFiles) {
       ts.forEachChild(node, visitBindings)
     }
     visitBindings(render)
+    if (result.failure) return result
     for (const fact of reached) {
       for (const tag of fact.jsxTags) result.jsxTags.add(tag)
       for (const attribute of fact.jsxAttributes) result.jsxAttributes.add(attribute)
@@ -2277,7 +2512,7 @@ function caseChecks(ts, caseId, facts, root, sourceFiles) {
       ]
     case 'OMH-012':
       return [
-        check('command.guards', hasCall(facts, 'runMutationGuards'), 'a runMutationGuards call'),
+        check('command.guards', hasCall(facts, 'runMutationGuards') || checkoutRouteUsesRegistryWrapper(ts, root), 'a runMutationGuards call or a connected scoped runRouteMutationGuards checkout handler'),
         check('command.atomic', hasCall(facts, 'withAtomicFlush'), 'a withAtomicFlush call'),
         check('command.effects', hasCall(facts, 'emitCrudSideEffects'), 'an emitCrudSideEffects call'),
       ]
@@ -2285,7 +2520,7 @@ function caseChecks(ts, caseId, facts, root, sourceFiles) {
       const rendered = renderedUiContract(ts, root, sourceFiles)
       return [
         check('ui.rendered-source', rendered.failure === null, rendered.failure ?? 'rendered component sources resolve within case bounds'),
-        check('ui.table', rendered.jsxTags.has('DataTable') && rendered.jsxAttributes.has('extensionTableId'), 'a rendered DataTable uses extensionTableId'),
+        check('ui.table', rendered.tablePerspectiveId || (rendered.jsxTags.has('DataTable') && rendered.jsxAttributes.has('extensionTableId')), 'a rendered DataTable uses perspective.tableId or extensionTableId'),
         check('ui.form', rendered.jsxTags.has('CrudForm') && rendered.jsxAttributes.has('initialValues'), 'a rendered CrudForm uses initialValues'),
         check('ui.conflict', rendered.calls.has('surfaceRecordConflict'), 'a rendered UI handler reaches surfaceRecordConflict'),
       ]
