@@ -615,3 +615,14 @@ None. One ask-first item (generated descriptor field) is open; the YAML dependen
   - `GET /eval-runs` list items gain `eval_set_version` and `manifest_hash` (pointer only).
   - Pinned reports show the frozen case `name` / `input` / `expected`. An unresolved manifest falls back to live values with an `eval_set_unresolved` warning in `baseline.warnings`.
   - Editing an approved case demotes it to draft (existing behavior). A pinned replay still uses the frozen content.
+
+### 2026-10-30
+- Phases 3-5 implemented so far (agent platform wave 5, Steps 7.1-7.11): eval-set files (JSON and YAML) with `eval-set validate` / `eval-set export` and `eval --cases`, the import and export APIs, tool fixture record/replay, call settings and the filled report environment block, the rubric library with `rubricRef`, and the CI recipe in `apps/docs/docs/framework/ai-assistant/agent-eval-ci.mdx`.
+- Deviations and clarifications:
+  - A file refuses `gate` on `llm_judge` assertions. Export downgrades them to `warn` and reports the keys on CLI stderr or in the `x-om-eval-set-downgraded` header.
+  - Cases reference assertions by assertion key. Undeclared refs are dropped on export.
+  - Files run through the gate command, the CLI and the import API. HTTP `POST /eval-runs` is unchanged for files. File cases count as approved. Repeat runs reuse the first run's stored manifest.
+  - Eval-set import has no optimistic lock, caps the body at twice the file cap, demotes an approved case to draft on a content change unless the import approves it, emits no per-case created events, has no dry run and does not import fixtures.
+  - The tool replay seam gains an additive `observeMiss`. Fixtures are CLI-only, written as `0600` files; a `--replay` directory wins over per-case fixtures; with `--repeat` only trial 0 is recorded; OpenCode agents are unsupported.
+  - There are no per-case `callSettings`. Report `modelSettings` come from the definition read at build time (not stored per run, no DDL) and `providerOptions` are never included (flag only). `seed honored` is derived from the llm spans of the run tree.
+  - File-agent rubric files are deferred. A per-case override may tune a rubric but cannot change its `rubricRef`.
