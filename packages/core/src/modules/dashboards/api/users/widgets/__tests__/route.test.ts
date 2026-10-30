@@ -1,3 +1,10 @@
+import { registerMutationGuards } from '@open-mercato/shared/lib/crud/mutation-guard-store'
+import type {
+  MutationGuard,
+  MutationGuardAfterInput,
+  MutationGuardInput,
+} from '@open-mercato/shared/lib/crud/mutation-guard-registry'
+
 const tenantId = '11111111-1111-4111-8111-111111111111'
 const organizationId = '22222222-2222-4222-8222-222222222222'
 const adminUserId = '33333333-3333-4333-8333-333333333333'
@@ -13,9 +20,10 @@ const em = {
   flush: jest.fn(),
 }
 
-const rbac = { loadAcl: jest.fn() }
+const rbac = { loadAcl: jest.fn(), userHasAllFeatures: jest.fn(), getGrantedFeatures: jest.fn() }
 
 const container = {
+  hasRegistration: (name: string) => name === 'em' || name === 'rbacService',
   resolve: jest.fn((name: string) => {
     if (name === 'em') return em
     if (name === 'rbacService') return rbac
@@ -23,8 +31,19 @@ const container = {
   }),
 }
 
-const validateCrudMutationGuardMock = jest.fn()
-const runCrudMutationGuardAfterSuccessMock = jest.fn()
+const guardValidateMock = jest.fn<Promise<{ ok: boolean; status?: number; body?: Record<string, unknown>; shouldRunAfterSuccess?: boolean; metadata?: Record<string, unknown> }>, [MutationGuardInput]>()
+const guardAfterSuccessMock = jest.fn<Promise<void>, [MutationGuardAfterInput]>()
+
+const testGuard: MutationGuard = {
+  id: 'test.dashboards-user-widgets-guard',
+  targetEntity: 'dashboards.userWidgets',
+  operations: ['update'],
+  validate: (input) => guardValidateMock(input),
+  afterSuccess: (input) => guardAfterSuccessMock(input),
+}
+
+registerMutationGuards([{ moduleId: 'test', guards: [testGuard] }])
+
 const getAuthFromRequestMock = jest.fn()
 const resolveOrganizationScopeForRequestMock = jest.fn()
 
@@ -34,11 +53,6 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
 
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   getAuthFromRequest: (...args: unknown[]) => getAuthFromRequestMock(...args),
-}))
-
-jest.mock('@open-mercato/shared/lib/crud/mutation-guard', () => ({
-  validateCrudMutationGuard: (...args: unknown[]) => validateCrudMutationGuardMock(...args),
-  runCrudMutationGuardAfterSuccess: (...args: unknown[]) => runCrudMutationGuardAfterSuccessMock(...args),
 }))
 
 jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => ({
@@ -67,45 +81,108 @@ function buildGetRequest(): Request {
 }
 
 describe('dashboards user widgets route mutation guard', () => {
+  const targetOrgId = '99999999-9999-4999-8999-999999999999'
+
   beforeEach(() => {
     jest.clearAllMocks()
+    em.findOne.mockReset()
     em.flush.mockResolvedValue(undefined)
     em.remove.mockReturnValue({ flush: jest.fn().mockResolvedValue(undefined) })
     em.create.mockImplementation((_entity: unknown, payload: Record<string, unknown>) => ({ id: 'rec', ...payload }))
     rbac.loadAcl.mockResolvedValue({ isSuperAdmin: true, features: [] })
-    em.findOne.mockResolvedValue({ id: targetUserId, tenantId })
+    rbac.userHasAllFeatures.mockResolvedValue(true)
+    rbac.getGrantedFeatures.mockResolvedValue([assignFeature])
     getAuthFromRequestMock.mockResolvedValue({ sub: adminUserId, tenantId, orgId: organizationId })
-    validateCrudMutationGuardMock.mockResolvedValue({ ok: true, shouldRunAfterSuccess: true, metadata: { token: 'guard' } })
-    runCrudMutationGuardAfterSuccessMock.mockResolvedValue(undefined)
+    guardValidateMock.mockResolvedValue({ ok: true, shouldRunAfterSuccess: true, metadata: { token: 'guard' } })
+    guardAfterSuccessMock.mockResolvedValue(undefined)
   })
 
-  it('short-circuits the write when the mutation guard blocks the request', async () => {
-    validateCrudMutationGuardMock.mockResolvedValue({ ok: false, status: 409, body: { error: 'conflict' } })
+  it('short-circuits the write when a registry mutation guard blocks the request', async () => {
+    em.findOne.mockResolvedValueOnce({ id: targetUserId, tenantId, organizationId: targetOrgId })
+    guardValidateMock.mockResolvedValue({ ok: false, status: 423, body: { error: 'locked' } })
 
     const response = await PUT(buildRequest({ userId: targetUserId, mode: 'override', widgetIds: ['sales-summary'] }))
 
-    expect(response.status).toBe(409)
-    expect(await response.json()).toEqual({ error: 'conflict' })
-    expect(validateCrudMutationGuardMock).toHaveBeenCalledWith(
-      container,
+    expect(response.status).toBe(423)
+    expect(await response.json()).toEqual({ error: 'locked' })
+    expect(guardValidateMock).toHaveBeenCalledWith(
       expect.objectContaining({ resourceKind: 'dashboards.userWidgets', resourceId: targetUserId, operation: 'update' }),
     )
+    expect(em.findOne).toHaveBeenCalledTimes(1)
+    expect(em.persist).not.toHaveBeenCalled()
     expect(em.flush).not.toHaveBeenCalled()
-    expect(runCrudMutationGuardAfterSuccessMock).not.toHaveBeenCalled()
+    expect(guardAfterSuccessMock).not.toHaveBeenCalled()
   })
 
-  it('runs the after-success hook after a successful write', async () => {
-    em.findOne.mockResolvedValueOnce({ id: targetUserId, tenantId })
+  it('evaluates the guards in the target user scope with the caller identity', async () => {
+    em.findOne.mockResolvedValueOnce({ id: targetUserId, tenantId, organizationId: targetOrgId })
     em.findOne.mockResolvedValueOnce(null)
 
     const response = await PUT(buildRequest({ userId: targetUserId, mode: 'override', widgetIds: ['sales-summary'] }))
 
     expect(response.status).toBe(200)
-    expect(em.flush).toHaveBeenCalled()
-    expect(runCrudMutationGuardAfterSuccessMock).toHaveBeenCalledWith(
-      container,
-      expect.objectContaining({ resourceKind: 'dashboards.userWidgets', resourceId: targetUserId, operation: 'update' }),
-    )
+    expect(rbac.getGrantedFeatures).toHaveBeenCalledWith(adminUserId, { tenantId, organizationId: targetOrgId })
+    expect(guardValidateMock).toHaveBeenCalledWith(expect.objectContaining({
+      tenantId,
+      organizationId: targetOrgId,
+      userId: adminUserId,
+      resourceKind: 'dashboards.userWidgets',
+      resourceId: targetUserId,
+      operation: 'update',
+      mutationPayload: { userId: targetUserId, mode: 'override', widgetIds: ['sales-summary'] },
+    }))
+  })
+
+  it('runs the after-success callback in the target user scope after the write is flushed', async () => {
+    em.findOne.mockResolvedValueOnce({ id: targetUserId, tenantId, organizationId: targetOrgId })
+    em.findOne.mockResolvedValueOnce(null)
+
+    const response = await PUT(buildRequest({ userId: targetUserId, mode: 'override', widgetIds: ['sales-summary'] }))
+
+    expect(response.status).toBe(200)
+    expect(guardAfterSuccessMock).toHaveBeenCalledWith(expect.objectContaining({
+      tenantId,
+      organizationId: targetOrgId,
+      userId: adminUserId,
+      resourceKind: 'dashboards.userWidgets',
+      resourceId: targetUserId,
+      operation: 'update',
+      metadata: { token: 'guard' },
+    }))
+    expect(em.flush.mock.invocationCallOrder[0]).toBeLessThan(guardAfterSuccessMock.mock.invocationCallOrder[0])
+  })
+
+  it('runs the after-success callback after removing the override on inherit', async () => {
+    const existing = { id: 'rec', userId: targetUserId, tenantId, organizationId: targetOrgId, mode: 'override' }
+    const removeFlush = jest.fn().mockResolvedValue(undefined)
+    em.remove.mockReturnValue({ flush: removeFlush })
+    em.findOne.mockResolvedValueOnce({ id: targetUserId, tenantId, organizationId: targetOrgId })
+    em.findOne.mockResolvedValueOnce(existing)
+
+    const response = await PUT(buildRequest({ userId: targetUserId, mode: 'inherit', widgetIds: [] }))
+
+    expect(response.status).toBe(200)
+    expect(guardAfterSuccessMock).toHaveBeenCalledWith(expect.objectContaining({ tenantId, organizationId: targetOrgId }))
+    expect(removeFlush.mock.invocationCallOrder[0]).toBeLessThan(guardAfterSuccessMock.mock.invocationCallOrder[0])
+  })
+
+  it('evaluates the guards in the target tenant for a tenant-less superadmin', async () => {
+    getAuthFromRequestMock.mockResolvedValue({ sub: adminUserId, tenantId: null, orgId: null })
+    em.findOne.mockResolvedValueOnce({ id: targetUserId, tenantId: foreignTenantId, organizationId: targetOrgId })
+    em.findOne.mockResolvedValueOnce(null)
+
+    const response = await PUT(buildRequest({ userId: targetUserId, mode: 'override', widgetIds: ['sales-summary'] }))
+
+    expect(response.status).toBe(200)
+    expect(guardValidateMock).toHaveBeenCalledWith(expect.objectContaining({
+      tenantId: foreignTenantId,
+      organizationId: targetOrgId,
+      userId: adminUserId,
+    }))
+    expect(guardAfterSuccessMock).toHaveBeenCalledWith(expect.objectContaining({
+      tenantId: foreignTenantId,
+      organizationId: targetOrgId,
+    }))
   })
 })
 
@@ -116,8 +193,10 @@ describe('dashboards user widgets route tenant ownership', () => {
     em.flush.mockResolvedValue(undefined)
     em.remove.mockReturnValue({ flush: jest.fn().mockResolvedValue(undefined) })
     em.create.mockImplementation((_entity: unknown, payload: Record<string, unknown>) => ({ id: 'rec', ...payload }))
-    validateCrudMutationGuardMock.mockResolvedValue({ ok: true, shouldRunAfterSuccess: true, metadata: { token: 'guard' } })
-    runCrudMutationGuardAfterSuccessMock.mockResolvedValue(undefined)
+    rbac.userHasAllFeatures.mockResolvedValue(true)
+    rbac.getGrantedFeatures.mockResolvedValue([assignFeature])
+    guardValidateMock.mockResolvedValue({ ok: true, shouldRunAfterSuccess: true, metadata: { token: 'guard' } })
+    guardAfterSuccessMock.mockResolvedValue(undefined)
   })
 
   it('rejects a null-tenant non-superadmin write instead of writing across tenants', async () => {
@@ -128,7 +207,7 @@ describe('dashboards user widgets route tenant ownership', () => {
     const response = await PUT(buildRequest({ userId: targetUserId, mode: 'override', widgetIds: ['sales-summary'] }))
 
     expect(response.status).toBe(403)
-    expect(validateCrudMutationGuardMock).not.toHaveBeenCalled()
+    expect(guardValidateMock).not.toHaveBeenCalled()
     expect(em.persist).not.toHaveBeenCalled()
     expect(em.flush).not.toHaveBeenCalled()
   })
@@ -177,8 +256,10 @@ describe('dashboards user widgets route target record scope', () => {
     em.flush.mockResolvedValue(undefined)
     em.remove.mockReturnValue({ flush: jest.fn().mockResolvedValue(undefined) })
     em.create.mockImplementation((_entity: unknown, payload: Record<string, unknown>) => ({ id: 'rec', ...payload }))
-    validateCrudMutationGuardMock.mockResolvedValue({ ok: true, shouldRunAfterSuccess: false, metadata: null })
-    runCrudMutationGuardAfterSuccessMock.mockResolvedValue(undefined)
+    rbac.userHasAllFeatures.mockResolvedValue(true)
+    rbac.getGrantedFeatures.mockResolvedValue([assignFeature])
+    guardValidateMock.mockResolvedValue({ ok: true })
+    guardAfterSuccessMock.mockResolvedValue(undefined)
     resolveOrganizationScopeForRequestMock.mockResolvedValue({ selectedId: null, filterIds: null, allowedIds: null, tenantId })
   })
 
@@ -274,7 +355,7 @@ describe('dashboards user widgets route target record scope', () => {
     const response = await PUT(buildRequest({ userId: targetUserId, mode: 'override', widgetIds: ['sales-summary'] }))
 
     expect(response.status).toBe(403)
-    expect(validateCrudMutationGuardMock).not.toHaveBeenCalled()
+    expect(guardValidateMock).not.toHaveBeenCalled()
     expect(em.create).not.toHaveBeenCalled()
     expect(em.flush).not.toHaveBeenCalled()
   })
@@ -326,5 +407,71 @@ describe('dashboards user widgets route target record scope', () => {
 
     expect(response.status).toBe(200)
     expect(resolveOrganizationScopeForRequestMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('dashboards user widgets route target-organization feature grant', () => {
+  const targetOrgId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    em.findOne.mockReset()
+    em.flush.mockResolvedValue(undefined)
+    em.create.mockImplementation((_entity: unknown, payload: Record<string, unknown>) => ({ id: 'rec', ...payload }))
+    getAuthFromRequestMock.mockResolvedValue({ sub: adminUserId, tenantId, orgId: organizationId })
+    rbac.loadAcl.mockResolvedValue({ isSuperAdmin: false, features: [assignFeature] })
+    rbac.getGrantedFeatures.mockResolvedValue([assignFeature])
+    rbac.userHasAllFeatures.mockImplementation(
+      async (_userId: string, _required: string[], scope: { tenantId: string | null; organizationId: string | null }) =>
+        scope.tenantId === tenantId && scope.organizationId === organizationId,
+    )
+    resolveOrganizationScopeForRequestMock.mockResolvedValue({
+      selectedId: organizationId,
+      filterIds: [organizationId, targetOrgId],
+      allowedIds: [organizationId, targetOrgId],
+      tenantId,
+    })
+    guardValidateMock.mockResolvedValue({ ok: true })
+    guardAfterSuccessMock.mockResolvedValue(undefined)
+  })
+
+  it('rejects a read when the assign feature is granted only in the caller organization', async () => {
+    em.findOne.mockResolvedValueOnce({ id: targetUserId, tenantId, organizationId: targetOrgId })
+
+    const response = await GET(buildGetRequest())
+
+    expect(response.status).toBe(403)
+    expect(rbac.userHasAllFeatures).toHaveBeenCalledWith(adminUserId, [assignFeature], { tenantId, organizationId: targetOrgId })
+    expect(em.findOne).toHaveBeenCalledTimes(1)
+  })
+
+  it('rejects a write when the assign feature is granted only in the caller organization', async () => {
+    em.findOne.mockResolvedValueOnce({ id: targetUserId, tenantId, organizationId: targetOrgId })
+
+    const response = await PUT(buildRequest({ userId: targetUserId, mode: 'override', widgetIds: ['sales-summary'] }))
+
+    expect(response.status).toBe(403)
+    expect(rbac.userHasAllFeatures).toHaveBeenCalledWith(adminUserId, [assignFeature], { tenantId, organizationId: targetOrgId })
+    expect(guardValidateMock).not.toHaveBeenCalled()
+    expect(em.persist).not.toHaveBeenCalled()
+    expect(em.flush).not.toHaveBeenCalled()
+  })
+
+  it('allows a read and a write when the assign feature is granted in the target organization', async () => {
+    em.find.mockResolvedValue([])
+    em.findOne.mockResolvedValue(null)
+    em.findOne.mockResolvedValueOnce({ id: targetUserId, tenantId, organizationId })
+
+    const readResponse = await GET(buildGetRequest())
+    expect(readResponse.status).toBe(200)
+
+    em.findOne.mockResolvedValueOnce({ id: targetUserId, tenantId, organizationId })
+    const writeResponse = await PUT(buildRequest({ userId: targetUserId, mode: 'override', widgetIds: ['sales-summary'] }))
+
+    expect(writeResponse.status).toBe(200)
+    expect(em.create).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ tenantId, organizationId }),
+    )
   })
 })

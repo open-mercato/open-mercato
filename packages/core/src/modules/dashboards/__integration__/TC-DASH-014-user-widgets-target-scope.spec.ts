@@ -26,8 +26,9 @@ import {
  * an admin edited a same-tenant user who belongs to another organization the call answered 200,
  * but the row landed under the admin's organization, so the target's own dashboard never saw it.
  * Keying the row by the target also means organization visibility must gate the assignment: an
- * assigner restricted to some organizations gets 403 for users outside them, and users of another
- * tenant stay hidden behind 404.
+ * assigner restricted to some organizations gets 403 for users outside them, an assigner whose
+ * `dashboards.admin.assign-widgets` grant is limited to one organization gets 403 for users of the
+ * others, and users of another tenant stay hidden behind 404.
  */
 
 type DashboardLayoutState = {
@@ -42,7 +43,9 @@ type WidgetAssignmentResponse = {
   scope?: { tenantId?: string | null; organizationId?: string | null }
 }
 
-type Actor = { roleId: string | null; userId: string | null; token: string }
+type Actor = { roleIds: string[]; userId: string | null; token: string }
+
+type RoleGrant = { features: string[]; organizations: string[] | null }
 
 const BASE_DASHBOARD_FEATURES = [
   'dashboards.view',
@@ -67,24 +70,37 @@ function uniqueId(prefix: string): string {
 
 async function createActor(
   request: APIRequestContext,
-  input: { superadminToken: string; tenantId: string; organizationId: string; prefix: string; features: string[] },
+  input: {
+    superadminToken: string
+    tenantId: string
+    organizationId: string
+    prefix: string
+    features?: string[]
+    grants?: RoleGrant[]
+  },
 ): Promise<Actor> {
   const id = uniqueId(input.prefix)
-  const roleName = `qa_dash_${id.replace(/-/g, '_')}`
   const email = `${id}@dashboards.example.com`
   const password = 'Valid1!Pass'
-  const actor: Actor = { roleId: null, userId: null, token: '' }
-  actor.roleId = await createRoleFixture(request, input.superadminToken, { name: roleName, tenantId: input.tenantId })
-  await setRoleAclFeatures(request, input.superadminToken, {
-    roleId: actor.roleId,
-    features: input.features,
-    organizations: null,
-  })
+  const actor: Actor = { roleIds: [], userId: null, token: '' }
+  const grants = input.grants ?? [{ features: input.features ?? [], organizations: null }]
+  const roleNames: string[] = []
+  for (const [index, grant] of grants.entries()) {
+    const roleName = `qa_dash_${id.replace(/-/g, '_')}_${index}`
+    const roleId = await createRoleFixture(request, input.superadminToken, { name: roleName, tenantId: input.tenantId })
+    actor.roleIds.push(roleId)
+    roleNames.push(roleName)
+    await setRoleAclFeatures(request, input.superadminToken, {
+      roleId,
+      features: grant.features,
+      organizations: grant.organizations,
+    })
+  }
   actor.userId = await createUserFixture(request, input.superadminToken, {
     email,
     password,
     organizationId: input.organizationId,
-    roles: [roleName],
+    roles: roleNames,
     name: `QA Dash ${input.prefix}`,
   })
   actor.token = await getAuthToken(request, email, password)
@@ -94,7 +110,9 @@ async function createActor(
 async function cleanupActor(request: APIRequestContext, superadminToken: string | null, actor: Actor | null): Promise<void> {
   if (!actor) return
   await deleteUserIfExists(request, superadminToken, actor.userId)
-  await deleteRoleIfExists(request, superadminToken, actor.roleId)
+  for (const roleId of actor.roleIds) {
+    await deleteRoleIfExists(request, superadminToken, roleId)
+  }
 }
 
 async function readLayout(request: APIRequestContext, token: string): Promise<DashboardLayoutState> {
@@ -313,6 +331,78 @@ test.describe('TC-DASH-014: user widget overrides follow the target user scope',
       await cleanupActor(request, superadminToken, target)
       await deleteOrganizationIfExists(request, superadminToken, foreignOrgId)
       await deleteGeneralEntityIfExists(request, superadminToken, '/api/directory/tenants', foreignTenantId)
+    }
+  })
+
+  test('TC-DASH-014-4: an assign grant limited to the assigner organization does not cover a visible user in another one', async ({ request }) => {
+    const adminToken = await getAuthToken(request, 'admin')
+    const superadminToken = await getAuthToken(request, 'superadmin')
+    const scope = getTokenScope(adminToken)
+    let targetOrgId: string | null = null
+    let target: Actor | null = null
+    let assigner: Actor | null = null
+
+    try {
+      targetOrgId = await createOrganizationFixture(request, superadminToken, {
+        name: uniqueId('QA TC-DASH-014 grant org'),
+        tenantId: scope.tenantId,
+      })
+      target = await createActor(request, {
+        superadminToken,
+        tenantId: scope.tenantId,
+        organizationId: targetOrgId,
+        prefix: 'tc-dash-014-grant-target',
+        features: BASE_DASHBOARD_FEATURES,
+      })
+      assigner = await createActor(request, {
+        superadminToken,
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+        prefix: 'tc-dash-014-grant-assigner',
+        grants: [
+          { features: BASE_DASHBOARD_FEATURES, organizations: null },
+          { features: ['dashboards.admin.assign-widgets'], organizations: [scope.organizationId] },
+        ],
+      })
+
+      const before = await readLayout(request, target.token)
+      const beforeWidgetIds = before.allowedWidgetIds ?? []
+      expect(beforeWidgetIds.length).toBeGreaterThanOrEqual(2)
+
+      const putResponse = await apiRequest(request, 'PUT', API.userWidgets, {
+        token: assigner.token,
+        data: { userId: target.userId, mode: 'override', widgetIds: [beforeWidgetIds[0]] },
+      })
+      expect(putResponse.status()).toBe(403)
+
+      const getResponse = await apiRequest(
+        request,
+        'GET',
+        `${API.userWidgets}?userId=${encodeURIComponent(target.userId ?? '')}`,
+        { token: assigner.token },
+      )
+      expect(getResponse.status()).toBe(403)
+
+      const after = await readLayout(request, target.token)
+      expect(after.allowedWidgetIds).toEqual(beforeWidgetIds)
+
+      const ownOrgPeer = await apiRequest(
+        request,
+        'GET',
+        `${API.userWidgets}?userId=${encodeURIComponent(assigner.userId ?? '')}`,
+        { token: assigner.token },
+      )
+      expect(ownOrgPeer.status(), 'the same grant still covers users of the assigner organization').toBe(200)
+    } finally {
+      if (target?.userId) {
+        await apiRequest(request, 'PUT', API.userWidgets, {
+          token: adminToken,
+          data: { userId: target.userId, mode: 'inherit', widgetIds: [] },
+        }).catch(() => undefined)
+      }
+      await cleanupActor(request, superadminToken, assigner)
+      await cleanupActor(request, superadminToken, target)
+      await deleteOrganizationIfExists(request, superadminToken, targetOrgId)
     }
   })
 })

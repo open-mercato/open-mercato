@@ -192,13 +192,16 @@ A user's widget override (`DashboardUserWidgets`) is keyed by `(userId, target.t
 | Non-superadmin, unrestricted organization visibility | Same tenant | Allowed |
 | Non-superadmin, restricted organization visibility | Organization outside the visible set, or no organization | `403` |
 | Superadmin | User of the session tenant (`GET` also accepts a `tenantId` query); any tenant when the session has none | Allowed, no organization check |
+| Any caller | Organization where the caller's role grants do not include `dashboards.admin.assign-widgets` | `403` |
 
-The organization check matches `assertActorCanAccessUserTarget` in the auth module, which answers `403` for the same users on the user ACL routes.
+The organization check matches `assertActorCanAccessUserTarget` in the auth module, which answers `403` for the same users on the user ACL routes. After the target is resolved, the feature is checked again with `rbacService.userHasAllFeatures` in the target's tenant and organization, so a grant limited to one organization does not extend to users of other visible organizations.
+
+PUT runs the mutation guards through `runRouteMutationGuards` (registry guards plus the legacy guard service), with the target's tenant and organization and the caller's user id. Their after-success callbacks run after the write is flushed.
 
 #### Migration & Backward Compatibility
 
 - Before this change the row was keyed by the caller's session scope. Overrides saved for a user in another organization or tenant answered `200` but never applied. They now apply.
-- New `403` on GET and PUT for non-superadmin callers whose organization visibility excludes the target's organization. Before, both answered `200`. There is no bridge: keeping the old behaviour would let a restricted assigner change the dashboard of users in organizations they cannot see, now that the override takes effect.
+- New `403` on GET and PUT for non-superadmin callers whose organization visibility excludes the target's organization, and for callers whose `dashboards.admin.assign-widgets` grant does not cover the target's organization. Before, both answered `200`. There is no bridge: keeping the old behaviour would let a restricted assigner change the dashboard of users in organizations they cannot see, now that the override takes effect.
 - Rows saved under the wrong scope are not migrated. They are ignored unless the target user later moves into that organization, when the stale override would apply. Operators can delete them from `dashboard_user_widgets`.
 - No schema, event, ACL feature or response field changes. `resolveWidgetAssignmentTargetAccess` gains an optional `allowedOrganizationIds` parameter; callers that omit it, such as the role widgets route, behave as before.
 
@@ -586,7 +589,7 @@ curl -H "Authorization: Bearer <token>" \
 ## Changelog
 
 ### 2026-10-28
-- Documented the user widget override scope: rows are keyed by the target user's own tenant and organization, and restricted assigners need organization visibility of the target.
+- Documented the user widget override scope: rows are keyed by the target user's own tenant and organization, and restricted assigners need organization visibility of the target and the assign feature in the target's organization. PUT mutation guards run in the target's scope.
 
 ### 2026-01-29
 - Documented `lazyDashboardWidget` usage to avoid importing client components during CLI discovery.
