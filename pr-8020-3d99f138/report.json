@@ -1,18 +1,27 @@
 {
-  "runId": "3d99f138-resume",
+  "runId": "3d99f138-final",
   "mode": "pr",
   "target": {
     "prNumber": 8020,
     "title": "Contributed CRM detail-tab priority",
     "branch": "cez-b-8020",
-    "headSha": "fb73acf5393b22522ce6d0110d074ebbcd5dd5bf"
+    "headSha": "2c8bc77da65e8727ea58d6bd47c2e968bbc8ff6a"
   },
   "verdict": "PASS",
   "environment": {
     "baseUrl": "http://127.0.0.1:5001",
     "role": "admin and self-created restricted principal",
     "startedByThisRepo": true,
-    "browserProvider": "playwright"
+    "browserProvider": "playwright",
+    "headSha": "2c8bc77da65e8727ea58d6bd47c2e968bbc8ff6a",
+    "startedAt": "2026-10-30T01:45:24.179Z",
+    "provenance": {
+      "sourceCapturedAt": "2026-10-30T01:40:43.583Z",
+      "runtimeStartedAt": "2026-10-30T01:45:24.179Z",
+      "buildCompletedAt": "2026-10-30T01:45:15.564Z",
+      "sourceFingerprint": "fb11d9f7601e0b0ea629143f143567f119ad7a95fffabcce3615231a7411f9dc",
+      "generation": "d04ec764-cbd0-4010-a2c3-ad9c6033d77b"
+    }
   },
   "scenario": [
     {
@@ -129,6 +138,7 @@
     "Production app build and authenticated readiness passed at the tested head.",
     "Controlled HTTP500/403 requests verify rendering only; absent UUID and feature-limited principal checks use real responses.",
     "The limited principal also receives an auxiliary admin-only denial toast; public company tab remains usable and restricted tab absent. This is not a claim that every auxiliary widget is authorized for that role.",
-    "Evidence-only; no independent review or risk-high QA approval granted."
+    "Evidence-only; no independent review or risk-high QA approval granted.",
+    "Fresh execution at the final local latest-main integration. Captured immutable prepared head before launch; live owner/worktree/start and source checks, cold readiness and warm reuse PASS. No publication or QA approval."
   ]
 }
