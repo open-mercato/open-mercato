@@ -227,6 +227,39 @@ Changing origin headers cannot invalidate copies already stored with the old
 public TTL. Check cache rules honor origin `private` and do not force-cache these
 routes. No database or module-code migration is required.
 
+### Auth ACL live-row canonicalization
+
+Only live ACL rows and live role memberships now grant authorization. A super-admin grant must belong to the user's own tenant. Users whose `users.tenant_id` is NULL no longer obtain global super-admin access from legacy ACL rows; assign an owning tenant and a valid live grant before deploying, especially if that user is your only platform administrator. Foreign-tenant super-admin rows no longer confer super-admin access.
+
+The migration keeps the most recently changed live ACL row per user/tenant or role/tenant (then creation time and id as tie-breakers) and soft-deletes duplicates. Features present only in a superseded role ACL stop being unioned; user ACL resolution may select a different row than the previously unordered read. Review and reconcile intended grants before upgrading. Historical rows remain available for audit; rolling back the indexes does not reactivate them.
+
+Operators should run these read-only audits before deployment:
+
+```sql
+select id from users where tenant_id is null and deleted_at is null;
+
+select 'user' as principal_kind, acl.id, acl.user_id as principal_id,
+       acl.tenant_id as grant_tenant_id, principal.tenant_id as owner_tenant_id
+from user_acls acl join users principal on principal.id = acl.user_id
+where acl.deleted_at is null and acl.is_super_admin = true
+  and acl.tenant_id is distinct from principal.tenant_id
+union all
+select 'role', acl.id, acl.role_id, acl.tenant_id, principal.tenant_id
+from role_acls acl join roles principal on principal.id = acl.role_id
+where acl.deleted_at is null and acl.is_super_admin = true
+  and acl.tenant_id is distinct from principal.tenant_id;
+
+select 'user' as principal_kind, user_id as principal_id, tenant_id, count(*)
+from user_acls where deleted_at is null
+group by user_id, tenant_id having count(*) > 1
+union all
+select 'role', role_id, tenant_id, count(*)
+from role_acls where deleted_at is null
+group by role_id, tenant_id having count(*) > 1;
+```
+
+Drain old application instances when deploying the migration and reader changes together. Restarting clears process-local ACL caches, but a shared cache can retain old grants for up to the configured RBAC TTL (five minutes by default); invalidate shared RBAC cache entries or wait out that TTL before treating revocations as effective. Module authors must filter current ACL and membership reads by `deletedAt: null`, keep parent authorization-state locks around writes, and preserve historical rows for audit.
+
 ### Bundled Traefik keeps app and collaboration ports private (#7833)
 
 The optional `starters/docker/compose.fullapp.traefik.yml` overlay (and its
