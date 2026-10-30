@@ -200,6 +200,19 @@ export {
   type AiUiPartQueue,
 } from './modules/ai_assistant/lib/agent-tools'
 
+// Tool record/replay seam for reproducible eval runs
+export {
+  withToolReplayContext,
+  getToolReplayContext,
+  computeToolArgsKey,
+  ToolReplayError,
+  type ToolReplayContext,
+  type ToolReplayFixture,
+  type ToolReplayMiss,
+  type ToolReplayMissReason,
+  type ToolReplayErrorCode,
+} from './modules/ai_assistant/lib/llm-adapters/tool-replay-context'
+
 // In-process API operation runner (Phase 1 of API-backed AI tool DRY refactor)
 export {
   createAiApiOperationRunner,

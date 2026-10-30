@@ -24,6 +24,11 @@ import { resolveAgentRunMutationPolicyOverride } from './agent-channel-policy'
 import type { McpMutationMode } from './mcp-exposure'
 import type { AiPendingActionChannel } from './pending-action-types'
 import type { ToolCallTiming, ToolCallTimings } from './loop-step-extraction'
+import {
+  buildRecordedToolFixture,
+  emitRecordedToolFixture,
+  resolveToolReplayDecision,
+} from './llm-adapters/tool-replay-context'
 
 const logger = createLogger('ai_assistant')
 
@@ -286,7 +291,20 @@ function adaptToolToAiSdk(
 ): Tool<unknown, unknown> {
   const safeSchema = toSafeZodSchema(tool.inputSchema as ZodType)
   const handlerContext = buildToolHandlerContext(ctx, container, tool)
-  const runToolCall = async (args: unknown): Promise<string> => {
+  const runToolCall = async (args: unknown, toolCallId: string | null): Promise<string> => {
+    const replayDecision = resolveToolReplayDecision({
+      toolName: tool.name,
+      args,
+      isMutation: tool.isMutation === true,
+      toolCallId,
+    })
+    if (replayDecision.kind === 'replay') {
+      const recordedError = replayDecision.fixture.error
+      if (recordedError) {
+        throw new Error(`Tool "${tool.name}" failed: ${recordedError.message}`)
+      }
+      return formatToolResult(replayDecision.fixture.output)
+    }
     // Per-call gating decision. Under `destructive-confirm-required`,
     // tools with a predicate `isDestructive(args)` may flip per call —
     // e.g. comment delete gates while comment create runs direct.
@@ -356,9 +374,16 @@ function adaptToolToAiSdk(
       if (!execResult.success) {
         throw new Error(execResult.error || 'Tool execution failed')
       }
-      return formatToolResult(mergeUiPartsIntoToolResult(execResult.result, uiPartBuffer.drain()))
+      const output = mergeUiPartsIntoToolResult(execResult.result, uiPartBuffer.drain())
+      if (replayDecision.kind === 'record') {
+        emitRecordedToolFixture(replayDecision.sink, buildRecordedToolFixture(replayDecision.call, { output }))
+      }
+      return formatToolResult(output)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
+      if (replayDecision.kind === 'record') {
+        emitRecordedToolFixture(replayDecision.sink, buildRecordedToolFixture(replayDecision.call, { error: message }))
+      }
       throw new Error(`Tool "${tool.name}" failed: ${message}`)
     }
   }
@@ -367,11 +392,11 @@ function adaptToolToAiSdk(
     inputSchema: safeSchema,
     execute: async (args: unknown, options?: { toolCallId?: unknown }) => {
       const toolCallId = readExecuteToolCallId(options)
-      if (!toolCallId) return runToolCall(args)
+      if (!toolCallId) return runToolCall(args, null)
       const timing: ToolCallTiming = { startedAt: Date.now() }
       toolCallTimings.set(toolCallId, timing)
       try {
-        return await runToolCall(args)
+        return await runToolCall(args, toolCallId)
       } finally {
         timing.endedAt = Date.now()
       }
