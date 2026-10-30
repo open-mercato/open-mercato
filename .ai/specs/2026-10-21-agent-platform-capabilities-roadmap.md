@@ -309,3 +309,14 @@ The divergence is deliberate and stated in both specs: chat turns are short conv
 - Found and fixed while verifying: module-config cache entries were scoped by the caller's cache tenant, so background workers read settings up to 60 s stale (affected the new policies and the existing auto-approval policy).
 - Next: wave 5 (Observability P3–P4, Chat P3–P4, Integrity P3–P5, Identity P2–P4, Eval P3–P5), best split into about three PRs.
 
+### 2026-10-30
+- Wave 5 implemented on one PR (#8099, the user chose one PR over the suggested three), stacked on wave 4:
+  - Integrity P3–P5: `abstain_or_review` with review routing (`run.review_requested`), held auto-approvals, untrusted-input fields, integrity surfaces; closes F10–F12 except OpenCode, which runs integrity rules on the submitted outcome only.
+  - Identity P2–P4: public OAuth identity routes, declarative principals and `principals:sync` (F7), `intersect` tool ACL (F8 for eval replay stays caller-mode), run-to-action audit correlation via `action_logs.correlation_keys`.
+  - Observability P3–P4: redacted content capture with retention and `trace.view_content` (F19–F21), ingest of `llm`/`manifest`, OpenCode per-message spans, MCP tool observation, run compare API and dialog, Request/Response tabs.
+  - Chat P3–P4: chat runs API/pages and chat links (F18 fixed by implementing `ctx.uiParts`), `emitCitations`, citation registry, persisted run citations and Sources.
+  - Eval P3–P5: eval-set file format and YAML (`yaml` dependency), file-manifest runs, CLI and import/export APIs, tool record/replay seam and fixtures, `modelSettings`/`callSettings`, report environment, rubric library.
+- Before wave 5 continued, the whole stack (#7794 → #8099) was brought up to date with `main` by merging forward wave by wave; two latent test bugs surfaced and were fixed on the wave that owned them (TC-AI-RUN-TRACE-016 on wave 2, a time-bomb date on wave 4).
+- Integration gaps that remain environment-bound: real model runs (no scripted provider) and content cases needing a storage integration; `TC-AGENT-EVAL-REPLAY-001` deferred for the same reason.
+- Next: wave 6 — OTel P2 (content events, hand-encoded OTLP protobuf, per-tenant endpoints) and DocStructure P4 (per-section search behind a new `SearchEntityConfig.shouldIndex` hook), one PR (user decision, 2026-10-29). OTel P3 becomes its own spec.
+
