@@ -123,11 +123,13 @@ test.describe('TC-CHANNEL-API-009: reaction routes mask other users\' personal m
       channelId = seeded.channelId
       const reactionId = await addReaction(request, ownerToken, seeded.messageId)
 
-      await login(page, 'admin')
-      await page.context().addCookies([{ name: 'locale', value: 'pl', url: baseURL ?? 'http://localhost:3000' }])
       // The scenario is a stale reaction bar: keep live events from refreshing the
       // page before the click, so the refusal path is exercised deterministically.
+      // Install the route before login, which opens the app and starts the event
+      // stream before the message-detail navigation.
       await page.route('**/api/events/stream**', (route) => route.abort())
+      await login(page, 'admin')
+      await page.context().addCookies([{ name: 'locale', value: 'pl', url: baseURL ?? 'http://localhost:3000' }])
       await page.goto(`/backend/messages/${seeded.messageId}`)
       const reactionButton = page.getByRole('button', { name: /👍/ })
       await expect(reactionButton).toBeVisible()
