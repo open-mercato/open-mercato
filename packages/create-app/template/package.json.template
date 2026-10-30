@@ -62,6 +62,7 @@
     "@open-mercato/channel-fcm": "{{PACKAGE_VERSION}}",
     "@open-mercato/channel-resend": "{{PACKAGE_VERSION}}",
     "@open-mercato/channel-ses": "{{PACKAGE_VERSION}}",
+    "@open-mercato/channel-smtp": "{{PACKAGE_VERSION}}",
     "@open-mercato/checkout": "{{PACKAGE_VERSION}}",
     "@open-mercato/cli": "{{PACKAGE_VERSION}}",
     "@open-mercato/content": "{{PACKAGE_VERSION}}",
