@@ -10,6 +10,7 @@ import {
 import { generateSecureToken, hashToken } from '@open-mercato/core/modules/customer_accounts/lib/tokenGenerator'
 import { hashForLookup, lookupHashCandidates } from '@open-mercato/shared/lib/encryption/aes'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { isCustomerTenantActive } from '@open-mercato/core/modules/customer_accounts/lib/tenantEligibility'
 
 const BCRYPT_COST = 10
 const INVITATION_TTL_MS = 72 * 60 * 60 * 1000 // 72 hours
@@ -207,6 +208,7 @@ export class CustomerInvitationService {
   ): Promise<{ user: CustomerUser; invitation: CustomerUserInvitation } | null> {
     const invitation = await this.findByToken(token)
     if (!invitation) return null
+    if (!(await isCustomerTenantActive(this.em, invitation.tenantId))) return null
 
     const emailHash = hashForLookup(invitation.email)
 
