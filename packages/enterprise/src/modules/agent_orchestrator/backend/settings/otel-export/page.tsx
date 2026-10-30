@@ -41,12 +41,15 @@ import {
 import {
   addAllowlistAgent,
   canAddAllowlistAgent,
+  canEditContentMode,
+  classifyOtelExportSaveError,
   formSignature,
   formToSettings,
   parseOtelExportSettingsResponse,
   parseOtelExportTestResponse,
   removeAllowlistAgent,
   settingsToForm,
+  type OtelExportContentMode,
   type OtelExportDeploymentView,
   type OtelExportHealthView,
   type OtelExportSettingsForm,
@@ -94,7 +97,9 @@ export default function OtelExportSettingsPage() {
   })
 
   const { payload: chromePayload } = useBackendChrome()
-  const canManage = hasFeature(chromePayload?.grantedFeatures, 'agent_orchestrator.agents.manage')
+  const granted = chromePayload?.grantedFeatures
+  const canManage = hasFeature(granted, 'agent_orchestrator.agents.manage')
+  const canViewContent = hasFeature(granted, 'agent_orchestrator.trace.view_content')
 
   const applyResponse = React.useCallback((value: unknown): boolean => {
     const parsed = parseOtelExportSettingsResponse(value)
@@ -174,7 +179,21 @@ export default function OtelExportSettingsPage() {
       flash(t('agent_orchestrator.settings.otelExport.saved', 'Saved.'), 'success')
     } catch (error) {
       if (!surfaceRecordConflict(error, t, { onRefresh: () => void load() })) {
-        flash(t('agent_orchestrator.settings.otelExport.saveError', 'Could not save the OTel export settings.'), 'error')
+        const kind = classifyOtelExportSaveError(error, result.settings.content)
+        flash(
+          kind === 'contentForbidden'
+            ? t(
+                'agent_orchestrator.settings.otelExport.contentRequiresViewContent',
+                'Exporting prompts and responses needs access to trace content.',
+              )
+            : kind === 'contentNotAllowed'
+              ? t(
+                  'agent_orchestrator.settings.otelExport.contentNotAllowed',
+                  'This installation does not allow exporting prompts and responses.',
+                )
+              : t('agent_orchestrator.settings.otelExport.saveError', 'Could not save the OTel export settings.'),
+          'error',
+        )
       }
     } finally {
       setIsSaving(false)
@@ -238,6 +257,11 @@ export default function OtelExportSettingsPage() {
   const lastSuccess = formatDateTime(health.lastSuccessAt, locale)
   const lastError = formatDateTime(health.lastErrorAt, locale)
   const neverLabel = t('agent_orchestrator.settings.otelExport.health.never', 'Never')
+  const contentEditable = canEditContentMode({
+    canManage,
+    canViewContent,
+    contentAllowed: deployment.contentAllowed,
+  })
 
   return (
     <Page>
@@ -354,7 +378,7 @@ export default function OtelExportSettingsPage() {
               <CardDescription>
                 {t(
                   'agent_orchestrator.settings.otelExport.settingsHint',
-                  'Exported traces carry models, timings, token usage, cost and outcomes — never prompts or responses.',
+                  'Exported traces carry models, timings, token usage, cost and outcomes. Prompts and responses are added only with content export.',
                 )}
               </CardDescription>
             </CardHeader>
@@ -401,7 +425,11 @@ export default function OtelExportSettingsPage() {
 
               <div className="space-y-1.5 sm:max-w-sm">
                 <Label>{t('agent_orchestrator.settings.otelExport.content', 'Content')}</Label>
-                <Select value={form.content} disabled>
+                <Select
+                  value={form.content}
+                  disabled={!contentEditable}
+                  onValueChange={(next) => update({ content: next as OtelExportContentMode })}
+                >
                   <SelectTrigger aria-label={t('agent_orchestrator.settings.otelExport.content', 'Content')}>
                     <SelectValue />
                   </SelectTrigger>
@@ -417,10 +445,54 @@ export default function OtelExportSettingsPage() {
                 <p className="text-xs text-muted-foreground">
                   {t(
                     'agent_orchestrator.settings.otelExport.contentHint',
-                    'Exporting prompts and responses arrives with a later release.',
+                    'Prompts and responses are exported only when the operator allows content export for this installation.',
                   )}
                 </p>
+                {canManage && deployment.contentAllowed && !canViewContent ? (
+                  <p className="text-xs text-muted-foreground">
+                    {t(
+                      'agent_orchestrator.settings.otelExport.contentRequiresViewContent',
+                      'Exporting prompts and responses needs access to trace content.',
+                    )}
+                  </p>
+                ) : null}
               </div>
+
+              {form.content === 'full' ? (
+                <Alert status="warning" style="light">
+                  <AlertTitle>
+                    {t('agent_orchestrator.settings.otelExport.contentWarningTitle', 'Prompts and responses leave this system')}
+                  </AlertTitle>
+                  <AlertDescription>
+                    <p>
+                      {t(
+                        'agent_orchestrator.settings.otelExport.contentWarning',
+                        'Prompts, responses and tool data are sent to the collector configured for this installation. They are sent only for runs where all three locks hold:',
+                      )}
+                    </p>
+                    <ul className="mt-1 list-disc space-y-0.5 pl-5">
+                      <li>
+                        {t(
+                          'agent_orchestrator.settings.otelExport.contentLock.deployment',
+                          'The operator allows content export for this installation.',
+                        )}
+                      </li>
+                      <li>
+                        {t(
+                          'agent_orchestrator.settings.otelExport.contentLock.tenant',
+                          'This tenant exports metadata and content.',
+                        )}
+                      </li>
+                      <li>
+                        {t(
+                          'agent_orchestrator.settings.otelExport.contentLock.run',
+                          'The run was captured at the full trace level.',
+                        )}
+                      </li>
+                    </ul>
+                  </AlertDescription>
+                </Alert>
+              ) : null}
 
               <div className="space-y-3">
                 <div>

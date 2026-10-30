@@ -1,6 +1,8 @@
 import {
   addAllowlistAgent,
   canAddAllowlistAgent,
+  canEditContentMode,
+  classifyOtelExportSaveError,
   formSignature,
   formToSettings,
   parseOtelExportSettingsResponse,
@@ -87,5 +89,28 @@ describe('otel export settings form mapping', () => {
       errorCode: null,
     })
     expect(parseOtelExportTestResponse({ ok: 'yes' })).toBeNull()
+  })
+
+  it('enables the content mode only when every lock the editor controls is open', () => {
+    const cases: Array<[boolean, boolean, boolean, boolean]> = [
+      [true, true, true, true],
+      [false, true, true, false],
+      [true, false, true, false],
+      [true, true, false, false],
+      [false, false, false, false],
+    ]
+    for (const [canManage, canViewContent, contentAllowed, expected] of cases) {
+      expect(canEditContentMode({ canManage, canViewContent, contentAllowed })).toBe(expected)
+    }
+  })
+
+  it('classifies content save errors by status only for content exports', () => {
+    expect(classifyOtelExportSaveError({ status: 403 }, 'full')).toBe('contentForbidden')
+    expect(classifyOtelExportSaveError({ status: 422 }, 'full')).toBe('contentNotAllowed')
+    expect(classifyOtelExportSaveError({ status: 500 }, 'full')).toBe('generic')
+    expect(classifyOtelExportSaveError(new Error('boom'), 'full')).toBe('generic')
+    expect(classifyOtelExportSaveError({ status: '422' }, 'full')).toBe('generic')
+    expect(classifyOtelExportSaveError({ status: 403 }, 'none')).toBe('generic')
+    expect(classifyOtelExportSaveError(null, 'full')).toBe('generic')
   })
 })

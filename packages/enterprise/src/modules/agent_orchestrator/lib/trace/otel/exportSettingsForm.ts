@@ -128,3 +128,36 @@ export function formSignature(form: OtelExportSettingsForm): string {
     agentAllowlist: normalizeAllowlist(form.agentAllowlist),
   })
 }
+
+export type OtelExportContentAccess = {
+  canManage: boolean
+  canViewContent: boolean
+  contentAllowed: boolean
+}
+
+/**
+ * Content export needs the deployment to allow it and the editor to hold both
+ * agent management and trace content access; the server enforces the same.
+ */
+export function canEditContentMode(access: OtelExportContentAccess): boolean {
+  return access.canManage && access.canViewContent && access.contentAllowed
+}
+
+export type OtelExportSaveErrorKind = 'contentForbidden' | 'contentNotAllowed' | 'generic'
+
+function readErrorStatus(error: unknown): number | null {
+  if (typeof error !== 'object' || error === null || !('status' in error)) return null
+  const status = (error as { status: unknown }).status
+  return typeof status === 'number' ? status : null
+}
+
+export function classifyOtelExportSaveError(
+  error: unknown,
+  content: OtelExportContentMode,
+): OtelExportSaveErrorKind {
+  if (content !== 'full') return 'generic'
+  const status = readErrorStatus(error)
+  if (status === 403) return 'contentForbidden'
+  if (status === 422) return 'contentNotAllowed'
+  return 'generic'
+}
