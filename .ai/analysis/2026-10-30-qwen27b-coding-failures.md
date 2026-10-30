@@ -29,7 +29,7 @@ Raw private captures remain local. Early 009/011/012/014 attempts have retained 
 
 ## Shared owners and protected checks
 
-Prefer four existing authoritative owners: the case/context catalog, evaluator prompt/preparation, writable structural oracles and fixture seed catalog. Supporting regression tests and generated inventories are required; do not add one prose rule per observed failure.
+Four existing runtime owners carry the fixes: the case/context catalog, evaluator prompt/preparation, writable structural oracles and fixture seed catalog. A validation-discovered CLI cache defect also requires its external build-input declaration. Supporting regression tests and generated inventories are required; do not add one prose rule per observed failure.
 
 - Writable self-reads are already permitted and excluded from instruction budgets. Unexpected selectedContext entries in 029/031 are model/protocol violations; clarify instruction/fact-only bookkeeping without broadening the security allowlist.
 - Reference delivery must use existing exact, readable source capabilities and preserve QA-only, unrelated-source, traversal and credential denials.
@@ -61,7 +61,45 @@ Hashes identify the local sanitized evaluator record and retained generated-file
 
 ## Validation status
 
-Source-policy regressions and the frozen-target attribution below have run. No repaired model attempt or complete generated app is claimed to pass. Required follow-up includes the coherent/packed scaffold and knowledge gates, fresh local-model attempts, and eligible generated-code/release checks. Unavailable certified lanes remain blockers, not implied passes.
+The first recovery experiment is stopped; a fresh explicit-context experiment is being prepared. Full-case results and implementation-oracle results are recorded separately; neither is a complete release certificate. The frozen-target attribution below remains historical evidence.
+
+The true-base knowledge controller passes at source commit `0692dbed268fe2b11d435ba1802d78e8bb2b6005`, against `fd7c06569bd5fa282716b28e1375d2ddb2cc1eea`. Each focused test is overlaid alone onto the base, and the same test runs against the complete fixed tree:
+
+| Focused regression | Base exit | Fixed exit |
+|---|---:|---:|
+| Coding reference grants and context bounds | 1 | 0 |
+| Seed paths and bounded installed-context delivery | 1 | 0 |
+| Current typed interceptor seed | 1 | 0 |
+| Connected writable AST contracts | 1 | 0 |
+| Actual Turbo cache invalidation and restored output | 1 | 0 |
+
+The reproducible authored input is [2026-10-30-qwen-harness-knowledge-change.json](2026-10-30-qwen-harness-knowledge-change.json). Raw controller output remains local because it contains the actual executable's machine path; the explicitly [sanitized version 3 result summary](2026-10-30-qwen-harness-knowledge-result-summary.json) SHA-256 is `f131e753c005a5c9d00b86568dfe56ec4cbaf03f4c38801998da5d8e4aefcfca`. Earlier source-bound controller results remain retained. A retained intermediate controller attempt failed because an inherited Mise shim could not launch the contained fake Node executable; rerunning with the actual Node 26 binary first in PATH passed without source or check changes.
+
+Fresh packed and clean Verdaccio scaffolds pass generation, typechecking and the selected deterministic 14/14 at both `f40d9e798` and `0692dbed2`, through separate controllers and physical dependencies. The latest controller was fetched from a dedicated temporary registry/cache: all 43 archive integrities match, 41 archives remain unchanged and the CLI/create-app archives carry the new evaluator. Five authority hashes match across seven source/emitted/installed surfaces, including the actual wizard and CLI refresh. All fourteen deliberately broken fixtures fail their before oracle; all fourteen actual writable prompt/framework preparations pass, covering 22 declared source references without new grants or retained raw prompts. The dedicated registry service was removed after validation. The sanitized packed-validation summary SHA-256 is `1ecc7da08eb6ee393100d7806fd8c5590c4109ae6c6b812b2cda8cd08dcd1265`.
+
+The complete deterministic catalog remains 236/240, with unchanged budget deficits in OMH-008/082/153/155. Their caps were not changed.
+
+Normal cached builds exposed another delivery defect: the CLI restored an older embedded harness because sibling knowledge sources were absent from its Turbo inputs. The exact copied authority inputs are now declared, and both actual restored-output tests and normal source/create-app/CLI hash parity pass. Caching remains enabled.
+
+The full release command was attempted from the coherent controller and stopped with exit 2 before model execution: macOS lacks the isolated-loopback lane that requires Linux/Bubblewrap. The experimental Pi transport and missing certified lanes remain explicit limits. Repository-wide validation is being rerun after the cache correction.
+
+## First recovery experiment
+
+Source `f40d9e798` was tested through the same local Pi/Ollama transport and 600-second invocation limit. This experiment is stopped and retained separately from the original and the next experiment. Five completed tasks failed their full canonical case; OMH-011 passed its implementation oracle, which is a narrower result.
+
+| Case | Full case | Implementation oracle | Attempts / corrections | Remaining observed cause |
+|---|---|---|---|---|
+| OMH-009 | Fail | Fail | 1 / 0 | Canonical examples were read successfully; unsupported Vitest import and extra testing route remain. |
+| OMH-011 | Fail | Pass | 1 / 0 | Generated code passed structural/type checks; source-owner read order, a refused undeclared read, and extra testing route failed the complete case. |
+| OMH-012 | Fail | Fail | 1 / 0 | Timeout with wrong APIs/signature, missing guards and atomic flush, and untrusted header-derived scope. Correct seed and permitted command example were read. |
+| OMH-014 | Fail | Fail | 1 / 0 | Timeout, invalid table/conflict wiring and TypeScript failures. Exact permitted UI examples were never attempted. |
+| OMH-026 | Fail | Fail | 2 / 1 | Final timeout and incomplete/incorrect enricher/save implementation. A transport parsing defect caused the one unnecessary correction. |
+| OMH-027 | Operator-interrupted | Ungraded | — | Stopped to supersede the known adapter and context defects. |
+| OMH-029/031/042/045/049/054/057/060 | Not run | Not run | — | Pending when the experiment stopped. |
+
+The transport defect is outside the shipped harness: the last visible OMH-026 response contained a 329-byte prose prefix followed by a multiline JSON object. The object validates against the unchanged routing-response schema, but the old adapter recognized only whole-text, fenced or single-line objects. Its failure to extract this object triggered the evaluator's correction policy. The separate Round 2 adapter handles bounded top-level JSON containers and passes 11/11 synthetic positive/negative controls, compared with the old parser's 4/11. It does not repair values, unwrap nested answers or replace later invalid payloads with earlier valid ones. No original or Round 1 score is changed, and no first-attempt code pass is inferred without a retained implementation attestation.
+
+The Round 1 observations justify one further shared context change in `0692dbed2`: project the already-declared instruction-to-source references into exact owner/source/access metadata, and disclose the immutable baseline package's real test script with a content hash. This addresses guessing and missed references without embedding expected routing answers, adding read permissions or counting metadata as an observed read. The 351 focused tests pass; read-only prompt bytes remain unchanged. Timed inference in Round 1 overlapped repository validation and installation, so its throughput and timeout counts do not establish isolated model performance or causal improvement.
 
 ## Offline attribution on the frozen generated targets
 

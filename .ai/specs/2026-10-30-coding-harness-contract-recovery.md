@@ -10,12 +10,13 @@ Related intent: `2026-07-24-standalone-ai-development-harness`, `2026-08-01-stan
 
 ## Proposed solution and architecture
 - Case catalog: declare the exact existing readable example capabilities/facts required by each affected branch. Permit only necessary exact registry writes. Calibrate bounds from mandatory closure measurements; do not widen them to hide optional or unrelated reads.
-- Evaluator: distinguish coding from read-only routing prompts, disclose bounded safe seeded source paths, require preserving and repairing their ABI, and make instruction/fact selectedContext accounting unambiguous. Read-only prompts retain their behavior.
+- Evaluator: distinguish coding from read-only routing prompts, disclose bounded safe seeded source paths, require preserving and repairing their ABI, and make instruction/fact selectedContext accounting unambiguous. Resolve declared source references into exact instruction-owner/source/access metadata and disclose the immutable baseline app's test script, bounded and hashed. Metadata neither grants access nor substitutes for observed tool reads. Read-only prompts retain their behavior.
 - Prepared installed context: admit exact manifests/searches and bounded relevant production sources. Reject unsafe, QA-only or infeasible mandatory evidence before launching inference. Preserve version/source provenance and all real successful-read requirements.
 - Structural oracle: follow bounded reachable UI components and recognize real exported enricher/contribution/override/interceptor/agent/workflow shapes. Reuse existing helpers and behavioral probes; reject orphan/dead/comment-only and wrong-scope substitutes.
 - Fixture seed: express a deliberately incorrect behavior through the current typed interceptor contract rather than teaching an obsolete API. The before-fail requirement remains.
+- Cached delivery: declare the exact external knowledge inputs copied by the CLI builder, retaining caching and the existing create-app dependency edge. A normal cached build must deliver the same harness bytes as the authoritative sources.
 
-Each independent assertion has one primary owner. Case declarations select existing source capabilities; implementation checks belong to the oracle; trusted seed disclosure and prepared-context bounds belong to the evaluator. Tests and inventory/doc synchronization support those owners.
+Each independent assertion has one primary owner. Case declarations select existing source capabilities; implementation checks belong to the oracle; trusted seed disclosure and prepared-context bounds belong to the evaluator. The build-input declaration owns cached packaging of those unchanged knowledge owners. Tests and inventory/doc synchronization support them.
 
 ## Data models and API contracts
 No production data model or application HTTP API changes. Existing case metadata and source-reference inventories remain authoritative; avoid introducing parallel schemas or provider-specific preconfiguration. Preserve result statuses, oracle IDs, trace safety, first-attempt provenance and stopped/interrupted distinctions. Any optional internal helper export is additive and testable.
@@ -25,7 +26,9 @@ No production data model or application HTTP API changes. Existing case metadata
 - Exact seed hints for OMH-012/045/054/057/060, no directory discovery or oracle leakage; unchanged sidecars still fail behavior.
 - Positive current-API structural controls and negative orphan/comment/dead helper/unregistered/wrong-scope controls for OMH-014/026/027/029/031/049/054.
 - Prepared-context synthetic packages with production and QA matches, oversized instructions, unsafe evidence and byte-budget preflight.
+- Coding-only source metadata with exact capability checks, writable registry versus read-only example roles, no expected routing answers, safe baseline script extraction, and byte-identical read-only prompt controls.
 - Fresh coherent classic/codex scaffold and applicable packed/Verdaccio surface; emitted/source/link/hash parity; deterministic catalog and knowledge-change controller.
+- Real Turbo cache restoration before and after a copied-authority mutation, unchanged-input cache-hit controls, and transitive create-app hash/output freshness.
 - Separate fresh local Qwen attempts for all fourteen observed tasks. Run target generate/typecheck/lint/build, smallest generated tests and isolated judgment for eligible results. Full release certification requires the supported runner and platform lanes; explicitly report unavailable gates.
 
 ## Migration and backward compatibility
