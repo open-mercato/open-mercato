@@ -231,6 +231,27 @@ describe('TimerBar — Stop does not depend on the note save', () => {
     expect(flashMock).toHaveBeenCalledWith(expect.stringContaining('Timer stopped, but'), 'warning')
   })
 
+  it('clears the conflict bar a note conflict raised while stopping', async () => {
+    const conflict = Object.assign(new Error('conflict'), { status: 409, body: { code: 'optimistic_lock_conflict' } })
+    apiCallOrThrowMock.mockImplementation(async (url: string, init?: { method?: string }) => {
+      if (url === NOTES_URL && init?.method === 'PUT') throw conflict
+      if (String(url).endsWith('/timer-stop')) stopTimerOnServer()
+      return { ok: true, result: { ok: true } }
+    })
+
+    renderTimerBar()
+    await waitFor(() => expect(noteInput()).toHaveValue('Build task'))
+
+    fireEvent.change(noteInput(), { target: { value: 'Stale draft' } })
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Stop timer' }))
+    })
+
+    await waitFor(() => expect(stopCalls()).toHaveLength(1))
+    expect(surfaceRecordConflictMock).not.toHaveBeenCalled()
+    expect(dismissRecordConflictMock).toHaveBeenCalled()
+  })
+
   it('surfaces a note failure that happens while stopping only once, as the stop warning', async () => {
     let rejectNoteSave: (error: unknown) => void = () => undefined
     apiCallOrThrowMock.mockImplementation((url: string, init?: { method?: string }) => {

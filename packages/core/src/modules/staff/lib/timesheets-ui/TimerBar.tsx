@@ -24,7 +24,7 @@ import { useActiveTimesheetTimer } from './useActiveTimesheetTimer'
 import { useTimesheetPreference } from './useTimesheetPreference'
 import { resolveSeedProjectId } from './resolveSeedProjectId'
 import { startTimerEntry } from './startTimer'
-import { isRecordLockedError, resolveTimerActionError } from './timerErrors'
+import { isConflictError, isRecordLockedError, resolveTimerActionError } from './timerErrors'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('staff')
@@ -588,7 +588,9 @@ function DefaultTimerBar({
       if (noteOutcome.ok) {
         setDescription('')
       } else {
-        if (noteConflictSurfacedRef.current) {
+        // The conflict bar this note raised (here, or by the guarded mutation for
+        // any 409) offers a Refresh for a timer that is no longer running.
+        if (noteConflictSurfacedRef.current || isConflictError(noteOutcome.error)) {
           noteConflictSurfacedRef.current = false
           dismissRecordConflict()
         }

@@ -230,6 +230,7 @@ test.describe('TC-STAFF-051: Timer note edited in two windows with record locks 
         .not.toBeNull()
       await expect(windowX.getByPlaceholder('What are you working on?')).toHaveValue(draftX)
       await expect(windowX.getByRole('button', { name: /start timer/i })).toBeVisible()
+      await expect(windowX.getByTestId('record-conflict-banner')).toHaveCount(0)
       expect((await entryOf())?.notes ?? null).toBe(fromY)
       await windowY.close()
     } finally {

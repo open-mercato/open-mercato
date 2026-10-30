@@ -36,3 +36,8 @@ export function isRecordLockedError(err: unknown): boolean {
   const body = candidate.body
   return Boolean(body && typeof body === 'object' && (body as { code?: unknown }).code === 'record_locked')
 }
+
+/** True for an HTTP 409: an optimistic-lock or record-lock conflict on the entry. */
+export function isConflictError(err: unknown): boolean {
+  return Boolean(err && typeof err === 'object' && (err as { status?: unknown }).status === 409)
+}
