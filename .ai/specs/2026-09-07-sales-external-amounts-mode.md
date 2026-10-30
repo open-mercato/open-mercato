@@ -1,8 +1,9 @@
 # Sales `external` amounts — an opt-in mode for documents priced elsewhere
 
-Status: **proposed — decision requested.** [#6092](https://github.com/open-mercato/open-mercato/pull/6092)
-implements it on the answers § Decision Requested recommends; those answers become decisions only when a
-maintainer records them in § Decision Record, which stays empty until then.
+Status: **decisions recorded — implementation under review.**
+[#8216](https://github.com/open-mercato/open-mercato/pull/8216) carries forward the implementation from
+[#6092](https://github.com/open-mercato/open-mercato/pull/6092). § Decision Record adopts the recommended
+defaults already implemented and tested; independent code review and required QA approval still gate merge.
 Scope: `packages/core/src/modules/sales/{lib/calculations.ts,lib/types.ts,lib/lineSnapshots.ts,commands/documents.ts,commands/returns.ts,data/entities.ts,data/validators.ts,components/documents/*}`
 Related: [#5644](https://github.com/open-mercato/open-mercato/issues/5644), [#5707](https://github.com/open-mercato/open-mercato/pull/5707),
 [#5853](https://github.com/open-mercato/open-mercato/issues/5853), [#3757](https://github.com/open-mercato/open-mercato/issues/3757),
@@ -34,14 +35,10 @@ backfill.
 
 ## Overview
 
-Two questions need maintainer sign-off before an implementation PR exists, because both add a persisted
-contract surface: whether the mode is worth a column at all (§ Proposed Solution 1), and what a command
-that would rewrite an external document's header must do (§ Proposed Solution 6). Everything else follows
-mechanically.
-
-This is spec-only, on the same route
-[`2026-08-07-sales-line-discount-amount-contract.md`](2026-08-07-sales-line-discount-amount-contract.md)
-took: the contract is agreed first, the code follows in a separate change.
+§ Decision Record adopts a persisted, order-only opt-in mode, returns that preserve an external order's
+header, and live calculator registries whose caller-owned amounts are re-applied afterwards. These are
+the defaults already implemented in the PR. Callers that keep `computed` retain their existing behavior;
+quotes remain outside this mode. The implementation remains subject to normal review and QA gates.
 
 ## Problem Statement
 
@@ -1068,10 +1065,10 @@ Contract-surface classification: see § Migration & Backward Compatibility.
 
 ## Decision Requested
 
-Three questions need a maintainer answer before the implementation in
-[#6092](https://github.com/open-mercato/open-mercato/pull/6092) merges. Each changes what the code has to
-do; none can be deferred to review. Merging #6092 as it stands adopts the answers listed under *What #6092
-assumes* below, so the answers belong in § Decision Record in the same PR or immediately after it.
+The three choices below explain the alternatives evaluated for the implementation originally opened in
+[#6092](https://github.com/open-mercato/open-mercato/pull/6092). The recommended answers are adopted in
+§ Decision Record for [#8216](https://github.com/open-mercato/open-mercato/pull/8216); the alternatives
+remain documented so reviewers can assess their costs.
 
 | # | decision | if rejected |
 |---|---|---|
@@ -1090,11 +1087,10 @@ works for a cart, which is not yet an order and can sit un-orderable. An order t
 has no equivalent state, and a header total that is transiently absent on a legally filed document is worse
 than either alternative above. Hence reject-or-preserve, not invalidate.
 
-### What #6092 assumes, pending an answer
+### Adopted implementation choices
 
-[#6092](https://github.com/open-mercato/open-mercato/pull/6092) implements the recommended answer to each
-question so the choice can be judged in code rather than in prose. None of these is a decision: each names
-the one place it is isolated to, so a different answer is a bounded change rather than a redesign.
+The implementation follows the recommended answer to each question, as recorded below. Each choice
+names the place where it is isolated, so reviewers can assess the behavior against the code and tests.
 
 1. **Persisted columns — yes.** Quotes stay excluded, per § 1. *Isolated to:* the two `@Property`
    declarations in `data/entities.ts` and one migration.
@@ -1109,10 +1105,42 @@ the one place it is isolated to, so a different answer is a bounded change rathe
 
 ## Decision Record
 
-*Empty pending maintainer sign-off. Record decisions here in the style of
-[`2026-08-07-sales-line-discount-amount-contract.md`](2026-08-07-sales-line-discount-amount-contract.md)
-§ Decision Record: one subsection per decision, stating what was decided, what follows from it for the
-implementation, and what it leaves open.*
+Recorded by automation for @pkarw on 2026-10-30 under delegated authority to choose reasonable defaults.
+The choices preserve the recommended behavior already implemented and tested in #8216. This record does
+not grant independent review or QA approval.
+
+### D1 — persist the mode for orders and order lines
+
+Adopt § Proposed Solution 1: `sales_orders.totals_mode` and `sales_order_lines.amounts_mode` are
+persisted `computed` | `external` values with `computed` defaults. Persisted authority survives sibling
+writes and read/recalculate cycles, which a request-only flag cannot guarantee. Existing callers keep
+computed behavior, and existing rows require no backfill beyond the defaulted migration.
+
+Quotes remain excluded. Extending this mode to quotes would require its own schema, validation and
+conversion coverage; it is not implied by adopting the order mode. The existing completeness and
+document/line mode invariants remain binding.
+
+### D2 — returns preserve an external order's header
+
+Adopt § Proposed Solution 6: return create/delete and their undo/redo paths record their normal return
+effects while leaving caller-owned external header amounts unchanged. Refusing returns would remove a
+supported mirrored-order workflow; silently recomputing the header would violate the mode's authority
+contract. Computed orders retain their existing recalculation behavior.
+
+The operator-surprise risk remains explicit: recording a return does not revise the external monetary
+header. A caller must supply revised source amounts or deliberately switch the document back to computed
+mode when that is the desired accounting action. This does not introduce credit-document mirroring or
+change payment/refund ownership, permissions, concurrency checks or the confirmation flow.
+
+### D3 — keep registries live and re-apply caller-owned amounts
+
+Adopt § Proposed Solution 3 and 4: line and document calculator registries still run, then the external
+amount fields are re-applied. Existing hooks can retain non-amount work without gaining authority over
+caller-asserted money. Suppressing the registries would also suppress those existing extension effects.
+
+The registered-calculator regression tests must continue proving that a hook returning conflicting
+amounts cannot overwrite external values. Computed-mode registry behavior and public extension points
+remain unchanged; broader hook suppression is not part of this decision.
 
 ## Implementation Plan
 
@@ -1136,6 +1164,13 @@ the #5707 warning's suppression is asserted **against the logger**, because § O
 positional rather than gated.
 
 ## Changelog
+
+### 2026-10-30
+
+- Recorded the delegated defaults for the three product decisions, matching the implemented and tested
+  order-only mode, return-header preservation and registry re-application behavior.
+- Replaced stale spec-only/pending-decision status with implementation-review status. Normal independent
+  review and required QA approval remain in force; no runtime behavior or public contract was changed.
 
 ### 2026-10-19
 
