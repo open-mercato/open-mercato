@@ -1333,7 +1333,7 @@
   "agent_orchestrator.settings.otelExport.integrationEnabled": "Aktiviert",
   "agent_orchestrator.settings.otelExport.integrationHint": "Die Integration enthält den Endpunkt und die Zugangsdaten dieser Organisation. Traces werden nur gesendet, solange sie konfiguriert und aktiviert ist; andernfalls werden sie nicht exportiert.",
   "agent_orchestrator.settings.otelExport.integrationLink": "Integrationseinstellungen öffnen",
-  "agent_orchestrator.settings.otelExport.integrationState": "Integration",
+  "agent_orchestrator.settings.otelExport.integrationState": "Integrationsstatus",
   "agent_orchestrator.settings.otelExport.loadError": "Die OTel-Exporteinstellungen konnten nicht geladen werden.",
   "agent_orchestrator.settings.otelExport.loading": "OTel-Exporteinstellungen werden geladen…",
   "agent_orchestrator.settings.otelExport.notConfigured": "Nicht konfiguriert",

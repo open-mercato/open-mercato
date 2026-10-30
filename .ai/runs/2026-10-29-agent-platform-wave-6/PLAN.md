@@ -34,6 +34,7 @@
 | 3 | 3.2 | Vet tenant OTLP endpoints and pin their addresses | dispatch:capable | done | a318ca824 |
 | 3 | 3.3 | Resolve the export destination per run | dispatch:capable | done | pending |
 | 3 | 3.4 | Pick the export destination on the settings page | dispatch | done | pending |
+| 3 | 3.4-review-fix | Allow the integrations detail route and translate the German integration-state label | inline | done | pending |
 | 3 | 3.5 | Cover content, protobuf and tenant endpoints with integration tests | dispatch | done | pending |
 | 3 | 3.6 | Document OTel export phase 2 and mirror env vars | dispatch:cheap | done | pending |
 | 4 | 4.1 | Add a shouldIndex hook to search entity configs | dispatch:capable | done | pending |
