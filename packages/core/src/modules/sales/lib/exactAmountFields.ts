@@ -1,4 +1,5 @@
 import { withExactAmounts, withExactListAmounts } from '@open-mercato/shared/lib/decimal'
+import { EXTERNAL_HEADER_FIELDS } from './calculations'
 
 export const LINE_EXACT_AMOUNT_FIELDS = [
   'unitPriceNet',
@@ -53,7 +54,7 @@ function withExactList<T extends ParsedRecord>(
  * the command still sees every digit.
  */
 export function withExactDocumentInput<T extends ParsedRecord>(parsed: T, raw: unknown): T {
-  const withRate = withExactAmounts(parsed, raw, ['exchangeRate'] as const)
+  const withRate = withExactAmounts(parsed, raw, ['exchangeRate', ...EXTERNAL_HEADER_FIELDS] as const)
   const withLines = withExactList(withRate, raw, 'lines', LINE_EXACT_AMOUNT_FIELDS)
   return withExactList(withLines, raw, 'adjustments', ADJUSTMENT_EXACT_AMOUNT_FIELDS)
 }
@@ -63,8 +64,16 @@ export function withExactInvoiceInput<T extends ParsedRecord>(parsed: T, raw: un
   return withExactList(withTotals, raw, 'lines', LINE_EXACT_AMOUNT_FIELDS)
 }
 
+/** Attaches exact strings to the header totals a line write on an external order restates. */
+export function withExactOrderTotalsInput<T extends ParsedRecord>(parsed: T, raw: unknown): T {
+  const totals = parsed.orderTotals
+  if (!totals || typeof totals !== 'object') return parsed
+  const rawTotals = raw && typeof raw === 'object' ? (raw as ParsedRecord).orderTotals : undefined
+  return { ...parsed, orderTotals: withExactAmounts(totals as ParsedRecord, rawTotals, EXTERNAL_HEADER_FIELDS) }
+}
+
 export function withExactLineInput<T extends ParsedRecord>(parsed: T, raw: unknown): T {
-  return withExactAmounts(parsed, raw, LINE_EXACT_AMOUNT_FIELDS)
+  return withExactOrderTotalsInput(withExactAmounts(parsed, raw, LINE_EXACT_AMOUNT_FIELDS), raw)
 }
 
 export function withExactAdjustmentInput<T extends ParsedRecord>(parsed: T, raw: unknown): T {

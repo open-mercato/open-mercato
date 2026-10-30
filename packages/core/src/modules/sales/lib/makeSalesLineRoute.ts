@@ -17,7 +17,7 @@ import {
   defaultOkResponseSchema,
 } from '../api/openapi'
 import { withScopedPayload } from '../api/utils'
-import { withExactLineInput } from './exactAmountFields'
+import { withExactLineInput, withExactOrderTotalsInput } from './exactAmountFields'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- MikroORM entity class constructor
 type EntityClass = new (...args: any[]) => unknown
@@ -275,9 +275,8 @@ export function makeSalesLineRoute(config: SalesLineRouteConfig) {
         schema: rawBodySchema,
         mapInput: async ({ raw, ctx }: { raw: unknown; ctx: CrudCtx }) => {
           const { translate } = await resolveTranslations()
-          const payload = deleteSchema.parse(
-            withScopedPayload(resolveRawBody(raw) ?? {}, ctx, translate),
-          )
+          const scoped = withScopedPayload(resolveRawBody(raw) ?? {}, ctx, translate)
+          const payload = withExactOrderTotalsInput(deleteSchema.parse(scoped), scoped)
           if (!payload.id || !payload[parentFkParam]) {
             throw new CrudHttpError(400, {
               error: translate(
