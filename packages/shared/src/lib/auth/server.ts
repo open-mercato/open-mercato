@@ -18,7 +18,7 @@ const TENANT_COOKIE_NAME = 'om_selected_tenant'
 const ORGANIZATION_COOKIE_NAME = 'om_selected_org'
 const ALL_ORGANIZATIONS_COOKIE_VALUE = '__all__'
 const SUPERADMIN_ROLE = 'superadmin'
-const apiKeySessionBindings = new WeakMap<NonNullable<AuthContext>, boolean>()
+const regularApiKeyAuthContexts = new WeakSet<object>()
 
 export type AuthContext = {
   sub: string
@@ -192,44 +192,37 @@ function applySuperAdminScope(
 async function resolveApiKeyAuth(secret: string): Promise<AuthContext> {
   if (!secret) return null
   const cache = getSharedApiKeyAuthCache()
-  let cached = cache.get(secret) as AuthContext | undefined
+  const cached = cache.get(secret)
   if (cached === null) return null
-  const cachedSessionBinding = cached ? apiKeySessionBindings.get(cached) : undefined
-  if (cached && cachedSessionBinding === undefined) cached = undefined
-  if (cached && !cached.tenantId && !cachedSessionBinding) return cached
+  const verifiedSessionKeyId = cached?.sessionBound === true && typeof cached.keyId === 'string'
+    ? cached.keyId
+    : null
+  const cachedAuth = cached && !verifiedSessionKeyId && regularApiKeyAuthContexts.has(cached)
+    ? cached as Exclude<AuthContext, null>
+    : null
+  if (cachedAuth && !cachedAuth.tenantId) return cachedAuth
   try {
     const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
     const container = await createRequestContainer()
     const em = (container.resolve('em') as EntityManager)
     const { Organization, Tenant } = await import('@open-mercato/core/modules/directory/data/entities')
-    const { Role, RoleAcl, User } = await import('@open-mercato/core/modules/auth/data/entities')
-    if (cached) {
-      if (cached.tenantId) {
-        const tenant = await findOneWithDecryption(em, Tenant, { id: cached.tenantId, deletedAt: null, isActive: true })
-        if (!tenant) {
-          cache.setMiss(secret)
-          return null
-        }
+    if (cachedAuth?.tenantId) {
+      const tenant = await findOneWithDecryption(em, Tenant, { id: cachedAuth.tenantId, deletedAt: null, isActive: true })
+      if (!tenant) {
+        cache.setMiss(secret)
+        return null
       }
-      if (cachedSessionBinding) {
-        const user = cached.userId ? await findOneWithDecryption(em, User, {
-          id: cached.userId,
-          tenantId: cached.tenantId,
-          organizationId: cached.orgId,
-          deletedAt: null,
-          isConfirmed: true,
-        }, { refresh: true }) : null
-        if (!user) {
-          cache.setMiss(secret)
-          return null
-        }
-      }
-      return cached
+      return cachedAuth
     }
     const { findApiKeyBySecret } = await import('@open-mercato/core/modules/api_keys/services/apiKeyService')
+    const { ApiKey } = await import('@open-mercato/core/modules/api_keys/data/entities')
+    const { isSessionBoundApiKey, resolveApiKeyRoleIds } = await import('@open-mercato/core/modules/api_keys/services/sessionKeyRoles')
+    const { Role, RoleAcl, User } = await import('@open-mercato/core/modules/auth/data/entities')
 
-    const record = await findApiKeyBySecret(em, secret)
-    if (!record) {
+    const record = verifiedSessionKeyId
+      ? await findOneWithDecryption(em, ApiKey, { id: verifiedSessionKeyId, deletedAt: null })
+      : await findApiKeyBySecret(em, secret)
+    if (!record || (record.expiresAt && record.expiresAt.getTime() <= Date.now())) {
       cache.setMiss(secret)
       return null
     }
@@ -241,9 +234,8 @@ async function resolveApiKeyAuth(secret: string): Promise<AuthContext> {
       }
     }
 
-    const roleIds = Array.isArray(record.rolesJson)
-      ? record.rolesJson.filter((value): value is string => typeof value === 'string' && value.length > 0)
-      : []
+    const isSessionBoundKey = isSessionBoundApiKey(record) || Boolean(record.sessionToken)
+    const roleIds = await resolveApiKeyRoleIds(em, record)
     const roles = roleIds.length
       ? await em.find(Role, { id: { $in: roleIds }, deletedAt: null })
       : []
@@ -292,15 +284,8 @@ async function resolveApiKeyAuth(secret: string): Promise<AuthContext> {
     // creator's concrete organization when validating the wider key scope.
     // Keep every session marker fail-closed so a malformed session key cannot
     // fall back to the regular key path and escape its user/scope binding.
-    const isSessionBoundKey = Boolean(
-      record.sessionTokenHash
-      || record.sessionToken
-      || record.sessionUserId
-      || record.sessionSecretEncrypted
-      || record.opencodeSessionId
-    )
     const actualUserId = isSessionBoundKey
-      ? record.sessionUserId ?? null
+      ? record.sessionUserId?.trim() || null
       : record.createdBy ?? null
 
     if (isSessionBoundKey && !actualUserId) {
@@ -312,7 +297,11 @@ async function resolveApiKeyAuth(secret: string): Promise<AuthContext> {
       const user = await findOneWithDecryption(em, User, {
         id: actualUserId,
         deletedAt: null,
-        ...(isSessionBoundKey ? { isConfirmed: true } : {}),
+        ...(isSessionBoundKey ? {
+          isConfirmed: true,
+          tenantId: record.tenantId ?? null,
+          organizationId: record.organizationId ?? null,
+        } : {}),
       }, { refresh: true })
       if (!user) {
         cache.setMiss(secret)
@@ -352,8 +341,12 @@ async function resolveApiKeyAuth(secret: string): Promise<AuthContext> {
       keyName: record.name,
       ...(actualUserId ? { userId: actualUserId } : {}),
     }
-    apiKeySessionBindings.set(auth, isSessionBoundKey)
-    cache.setSuccess(secret, auth, record.expiresAt ? record.expiresAt.getTime() : null)
+    if (!isSessionBoundKey) {
+      regularApiKeyAuthContexts.add(auth)
+      cache.setSuccess(secret, auth, record.expiresAt ? record.expiresAt.getTime() : null)
+    } else if (!verifiedSessionKeyId) {
+      cache.setSuccess(secret, { keyId: record.id, sessionBound: true }, record.expiresAt ? record.expiresAt.getTime() : null)
+    }
     return auth
   } catch (err) {
     // A transient DB failure (pool exhausted, `max_connections` reached, DB

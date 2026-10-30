@@ -18,7 +18,7 @@ Require an existing, confirmed, non-deleted session owner on both cold resolutio
 
 ## Architecture
 
-The resolver keeps a private weak map from cached auth objects to their session classification. No classification field enters the returned principal or public cache interface. Unknown cached objects take the full key-resolution path, including after module reload. Each process reads the current owner from the database rather than relying on process-local invalidation events. Owner reads use the encryption-aware helper with `refresh: true`, avoiding stale ORM identity-map state. Bcrypt/key resolution and last-used debounce remain cached; tenant checks remain intact. Transient database failures preserve the existing retryable resolution status and do not poison successful cache entries.
+The resolver preserves the verified session-key identity cache introduced by #8034: session hits reload the live key and intersect issued roles with current owner roles before returning an auth context. Owner confirmation and exact scope are checked on that same cold/warm path. Regular cached auth objects are recognized through a private weak set; unknown cached objects take the full key-resolution path, including after module reload. No classification field enters the returned principal or public cache interface. Each process reads the current owner from the database rather than relying on process-local invalidation events. Owner reads use the encryption-aware helper with `refresh: true`, avoiding stale ORM identity-map state. Bcrypt/key resolution and last-used debounce remain cached; tenant checks remain intact. Transient database failures preserve the existing retryable resolution status and do not poison successful cache entries.
 
 ## Data Models
 
@@ -77,3 +77,5 @@ The automated-verification exemption in `.ai/docs/pr-workflow.md` applies: no UI
 - 2026-10-30: Defined and implemented the scoped session-owner revocation fix and regression coverage for #7223.
 - 2026-10-30: Reconciled historical local validation limits with successful hosted API/CI evidence and recorded the automated-verification QA basis.
 - 2026-10-30: Integrated the landed main test-mock fix and session-token hashing; retained legacy marker rejection, expanded hashed-marker coverage, and aligned HTTP fixtures with hashed storage.
+
+- 2026-10-30: Integrated #8034 live session-key/role revalidation with owner confirmation, preserved unknown-cache fallback and hashed/legacy classification, and adapted fixtures to the verified-key cache. Local conflict validation passed all 237 shared auth tests in 10 suites, plus 27 API-key role-revocation/token-hash tests in 3 suites. Both TC-AUTH-071 HTTP cases passed at the preceding head; the conflict-resolved head requires fresh CI.
