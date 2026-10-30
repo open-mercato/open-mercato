@@ -136,10 +136,17 @@ export async function refreshActiveTimesheetTimer(
   queryClient: QueryClient,
   staffMemberId?: string | null,
 ): Promise<ActiveTimesheetTimer> {
-  return queryClient.fetchQuery({
-    ...activeTimesheetTimerQueryOptions(staffMemberId),
-    staleTime: 0,
-  })
+  const freshQuery = { ...activeTimesheetTimerQueryOptions(staffMemberId), staleTime: 0 }
+  // Callers refresh right after a write and must see it, but `fetchQuery` joins a
+  // fetch already in flight: a 30s background refetch that started before the
+  // write returned the pre-write entry, so the TimerBar reverted its note and
+  // kept a stale version, and its next save raised a false conflict (#8236).
+  // Let that fetch settle, then read again. Cancelling it instead would reject
+  // a concurrent refresh that is waiting on the same fetch.
+  if (queryClient.isFetching({ queryKey: activeTimesheetTimerQueryKey() }) > 0) {
+    await queryClient.fetchQuery(freshQuery).catch(() => undefined)
+  }
+  return queryClient.fetchQuery(freshQuery)
 }
 
 export function useActiveTimesheetTimer(

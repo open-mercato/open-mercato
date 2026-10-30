@@ -247,3 +247,43 @@ describe('bulk save: zeroing an entry cascades to its segments', () => {
     expect(open.deletedAt).toBeNull()
   })
 })
+
+describe('bulk save: an entry deleted after the pre-check', () => {
+  // The pre-check reads the entry outside the transaction; a DELETE that commits
+  // before the row lock is taken leaves the locked re-read empty. The row must not
+  // fall through to the create branch (a zeroed cell then created a 0-minute
+  // entry), and the batch must not pretend the vanished entry was saved.
+  function lockedReadFindsNoEntry() {
+    const tableImplementation = mockFindWithDecryption.getMockImplementation()
+    mockFindWithDecryption.mockImplementation(async (...args: unknown[]) => {
+      const options = args[3] as { lockMode?: unknown } | undefined
+      if (options?.lockMode !== undefined) return []
+      return tableImplementation ? tableImplementation(...args) : []
+    })
+  }
+
+  test('a zeroed cell is a no-op instead of creating a 0-minute entry', async () => {
+    segments = []
+    lockedReadFindsNoEntry()
+    const em = (globalThis as Record<string, unknown>).__testEm as Record<string, jest.Mock>
+
+    const { POST } = await import('../bulk/route')
+    const res = await POST(bulkRequest(0))
+
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual(expect.objectContaining({ created: 0, updated: 0, deleted: 0 }))
+    expect(em.create).not.toHaveBeenCalled()
+  })
+
+  test('a non-zero cell is refused like any other stale entry id', async () => {
+    segments = []
+    lockedReadFindsNoEntry()
+    const em = (globalThis as Record<string, unknown>).__testEm as Record<string, jest.Mock>
+
+    const { POST } = await import('../bulk/route')
+    const res = await POST(bulkRequest(45))
+
+    expect(res.status).toBe(422)
+    expect(em.create).not.toHaveBeenCalled()
+  })
+})

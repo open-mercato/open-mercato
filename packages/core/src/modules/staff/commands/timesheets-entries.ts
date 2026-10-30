@@ -1552,8 +1552,8 @@ const stopTimerCommand: CommandHandler<StaffTimeEntryStopTimerInput, StopTimerRe
       // Reopening a stopped timer makes it running again, so the
       // single-active-timer invariant (#2855) has to hold afterwards. If the
       // staff member started another timer in the meantime, refuse rather than
-      // leave them with two running entries. The shared undo endpoint collapses
-      // this to an opaque 400 today; 409 is still the correct internal signal.
+      // leave them with two running entries. The shared undo endpoint passes
+      // this 409 through to the caller.
       const otherRunningEntry = await findOneWithDecryption(
         trx,
         StaffTimeEntry,
@@ -2099,7 +2099,19 @@ const updateTimeEntryCommand: CommandHandler<StaffTimeEntryUpdateInput, { timeEn
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const entry = await em.findOne(StaffTimeEntry, scopedStaffSnapshotWhere(before.id, staffSnapshotScopeFromSnapshot(before)))
     if (!entry) return
-    assertTimeEntryUnlocked(entry, (await resolveTranslations()).translate)
+    const { translate } = await resolveTranslations()
+    assertTimeEntryUnlocked(entry, translate)
+    // An entry deleted since the edit (a zeroed grid cell, which has no undo of
+    // its own, or a delete) keeps its segments deleted. Restoring the edit would
+    // write `deletedAt: null` and revive the entry without them, so refuse.
+    if (entry.deletedAt) {
+      throw new CrudHttpError(409, {
+        error: translate(
+          'staff.timesheets.errors.undoEntryDeleted',
+          'This time entry has been deleted since, so the change cannot be undone.',
+        ),
+      })
+    }
     entry.date = before.date as unknown as Date
     entry.durationMinutes = before.durationMinutes
     entry.roundedMinutes = before.roundedMinutes ?? null

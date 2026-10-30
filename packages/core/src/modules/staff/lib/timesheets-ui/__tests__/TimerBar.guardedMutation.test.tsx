@@ -85,8 +85,6 @@ describe('TimerBar guarded mutations', () => {
     await waitFor(() => expect(mockRunMutation).toHaveBeenCalledTimes(1))
     expect(mockRunMutation).toHaveBeenCalledWith(expect.objectContaining({
       context: expect.objectContaining({
-        resourceKind: 'staff.timesheets.time_entry',
-        resourceId: 'staff-1',
         staffMemberId: 'staff-1',
         action: 'timer-start',
         retryLastMutation: mockRetryLastMutation,
@@ -96,6 +94,9 @@ describe('TimerBar guarded mutations', () => {
         timeProjectId: 'project-1',
       }),
     }))
+    const startContext = (mockRunMutation.mock.calls[0] as unknown as [{ context: Record<string, unknown> }])[0].context
+    expect(startContext).not.toHaveProperty('resourceKind')
+    expect(startContext).not.toHaveProperty('resourceId')
     expect(mockApiCallOrThrow).toHaveBeenCalledWith(
       '/api/staff/timesheets/time-entries/start-timer',
       expect.objectContaining({ method: 'POST' }),
@@ -150,9 +151,8 @@ describe('TimerBar guarded mutations', () => {
     await waitFor(() => expect(mockRunMutation).toHaveBeenCalledTimes(1))
     expect(mockRunMutation).toHaveBeenCalledWith(expect.objectContaining({
       context: expect.objectContaining({
-        resourceKind: 'staff.timesheets.time_entry',
-        resourceId: 'entry-1',
         staffMemberId: 'staff-1',
+        action: 'timer-stop',
         retryLastMutation: mockRetryLastMutation,
       }),
       mutationPayload: {

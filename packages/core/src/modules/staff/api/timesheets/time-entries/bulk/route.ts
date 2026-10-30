@@ -526,6 +526,23 @@ export async function POST(req: Request) {
             updated++
             changes.push({ action: 'updated', entity: existing })
           }
+        } else if (entry.id) {
+          // Passed the pre-check, then deleted before the row lock was taken. A
+          // zeroed cell already has what it asked for; any other value would
+          // otherwise fall through to the create branch and save onto a new
+          // entry the user never asked for (a 0-minute one for a zeroed cell).
+          if (entry.durationMinutes === 0) continue
+          throw new CrudHttpError(422, {
+            ok: false,
+            errors: [{
+              path: 'entries[].id',
+              message: translate(
+                'staff.timesheets.errors.entryNotFound',
+                'Time entry not found, deleted, or not owned by you.',
+              ),
+              value: entry.id,
+            }],
+          })
         } else {
           const now = new Date()
           const newEntry = trx.create(StaffTimeEntry, {

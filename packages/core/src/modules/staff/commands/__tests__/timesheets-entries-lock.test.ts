@@ -480,6 +480,29 @@ describe('staff timesheets lock gate (T4.2 / TC-TT-018)', () => {
       expect(em.flush).toHaveBeenCalled()
     })
 
+    it('refuses to undo an edit of an entry deleted since, instead of reviving it without its segments', async () => {
+      // Zeroing the grid cell soft-deletes the entry and cascades to its segments,
+      // with no undo of its own. Restoring the edit's `before` snapshot wrote
+      // `deletedAt: null` and brought the entry back while its segments stayed
+      // deleted, so a timer entry lost its clock history.
+      const { update, entities } = await loadCommands()
+      const deletedAt = new Date('2026-07-05T00:00:00.000Z')
+      const entry = entryRow({ deletedAt, notes: 'Edited' })
+      const world: World = { projects: [projectRow()], entries: [entry], created: [] }
+      const em = makeEm(world, entities)
+      const { ctx } = makeCtx(em)
+      const before = snapshotOf(entryRow({ notes: 'Original' }))
+
+      const error = await update
+        .undo({ input: {}, ctx, logEntry: { commandPayload: { undo: { before } } } })
+        .catch((err) => err)
+
+      expect(error).toMatchObject({ status: 409 })
+      expect(entry.deletedAt).toBe(deletedAt)
+      expect(entry.notes).toBe('Edited')
+      expect(em.flush).not.toHaveBeenCalled()
+    })
+
     it.each([
       ['create', (cmd: Loaded) => cmd.create],
       ['start_timer', (cmd: Loaded) => cmd.startTimer],

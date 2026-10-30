@@ -11,7 +11,7 @@ import { SimpleTooltip } from '@open-mercato/ui/primitives/tooltip'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { apiCallOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
-import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
+import { dismissRecordConflict, surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
@@ -24,7 +24,7 @@ import { useActiveTimesheetTimer } from './useActiveTimesheetTimer'
 import { useTimesheetPreference } from './useTimesheetPreference'
 import { resolveSeedProjectId } from './resolveSeedProjectId'
 import { startTimerEntry } from './startTimer'
-import { resolveTimerActionError } from './timerErrors'
+import { isRecordLockedError, resolveTimerActionError } from './timerErrors'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('staff')
@@ -51,14 +51,23 @@ type TimerBarProps = {
 
 const TIMER_MUTATION_CONTEXT_ID = 'staff-timesheets-timer-bar'
 
+// The timer's writes are one-shot and carry no record-lock resource on purpose.
+// A resource makes the enterprise record-lock widget treat this bar as an editing
+// session: it takes a lock after every write that nothing heartbeats or releases,
+// sends that stale lock's base with later writes, and keeps a conflict in client
+// state with no dialog here to resolve it — which blocked every note save and
+// Stop until reload (#8236). The server still applies record locks and the
+// `updated_at` check to every one of these writes.
 type TimerMutationContext = {
   formId: string
-  resourceKind: string
-  resourceId: string
   staffMemberId: string | null
   action: 'timer-create' | 'timer-start' | 'timer-stop' | 'timer-notes'
   retryLastMutation: () => Promise<boolean>
 }
+
+type NoteSaveOutcome = { ok: true } | { ok: false; error: unknown }
+
+const NOTE_SAVED: NoteSaveOutcome = { ok: true }
 
 function formatElapsed(seconds: number): string {
   const h = Math.floor(seconds / 3600)
@@ -109,7 +118,10 @@ function DefaultTimerBar({
   const startRequestedRef = useRef(false)
   const noteEntryIdRef = useRef<string | null>(null)
   const surfacedRemoteNoteVersionRef = useRef<string | null>(null)
-  const pendingNoteSaveRef = useRef<Promise<boolean> | null>(null)
+  const adoptingLatestNoteRef = useRef(false)
+  const noteConflictSurfacedRef = useRef(false)
+  const stopInProgressRef = useRef(false)
+  const pendingNoteSaveRef = useRef<Promise<NoteSaveOutcome> | null>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const hasSeededRef = useRef(false)
@@ -190,6 +202,10 @@ function DefaultTimerBar({
   // draft against the refetched version would silently overwrite the other tab's
   // note; keeping the old version lets the save hit the optimistic-lock conflict
   // bar instead. A note changed elsewhere is surfaced once per remote version.
+  // When the refetched note is still the one the draft started from, only the
+  // version moved (typically this bar's own save, seen by a later refetch), so the
+  // draft moves onto it: keeping the old version reported the user's own save back
+  // as "changed by someone else" (#8236).
   // The latest field values are read through refs so typing does not re-run this.
   useEffect(() => {
     if (!activeTimer.running || !activeTimer.entryId) {
@@ -211,8 +227,17 @@ function DefaultTimerBar({
       return
     }
     if (hasUnsavedEdit && isSameEntry) {
-      const remoteNoteChanged = (remoteNotes ?? '').trim() !== persistedDescriptionRef.current.trim()
-      if (remoteNoteChanged && surfacedRemoteNoteVersionRef.current !== remoteVersion) {
+      const remoteNote = (remoteNotes ?? '').trim()
+      if (remoteNote === persistedDescriptionRef.current.trim()) {
+        setNoteBaseVersion(remoteVersion)
+        return
+      }
+      if (remoteNote === descriptionRef.current.trim()) {
+        setPersistedDescription(remoteNotes ?? '')
+        setNoteBaseVersion(remoteVersion)
+        return
+      }
+      if (!adoptingLatestNoteRef.current && surfacedRemoteNoteVersionRef.current !== remoteVersion) {
         surfacedRemoteNoteVersionRef.current = remoteVersion
         flash(
           t(
@@ -342,8 +367,6 @@ function DefaultTimerBar({
         operation: () => startTimerEntry(startPayload),
         context: {
           formId: TIMER_MUTATION_CONTEXT_ID,
-          resourceKind: 'staff.timesheets.time_entry',
-          resourceId: staffMemberId,
           staffMemberId,
           action: 'timer-start',
           retryLastMutation,
@@ -373,11 +396,76 @@ function DefaultTimerBar({
     }
   }
 
+  // Refresh on the conflict bar loads the entry's latest note and version and keeps
+  // what the user typed: the draft is saved against the latest version on the next
+  // Enter, and the note saved elsewhere is shown so overwriting it is a choice.
+  const adoptLatestNote = useCallback((entryId: string) => {
+    noteConflictSurfacedRef.current = false
+    adoptingLatestNoteRef.current = true
+    void refreshActiveTimer()
+      .then((latest) => {
+        if (!latest.running || latest.entryId !== entryId) return
+        const latestNote = latest.notes ?? ''
+        surfacedRemoteNoteVersionRef.current = latest.updatedAt ?? null
+        setPersistedDescription(latestNote)
+        setNoteBaseVersion(latest.updatedAt ?? null)
+        if (descriptionRef.current.trim() === latestNote.trim()) {
+          setDescription(latestNote)
+          return
+        }
+        flash(
+          t(
+            'staff.timesheets.my.timer.noteRefreshedDraftKept',
+            'Loaded the latest version of this timer. Its saved note is now "{note}". Your text is still in the field: press Enter to save it instead.',
+            { note: latestNote },
+          ),
+          'info',
+        )
+      })
+      .catch((refreshErr: unknown) => {
+        logger.warn('staff.timesheets.timer.refreshAfterNoteConflictFailed', { err: refreshErr })
+      })
+      .finally(() => {
+        adoptingLatestNoteRef.current = false
+      })
+  }, [refreshActiveTimer, t])
+
+  const surfaceNoteSaveError = useCallback((error: unknown, entryId: string) => {
+    if (isRecordLockedError(error)) {
+      flash(
+        t(
+          'staff.timesheets.my.timer.noteLocked',
+          'Someone else is editing this time entry, so the note was not saved. Your text is kept in the field: try again in a moment.',
+        ),
+        'error',
+      )
+      return
+    }
+    const surfaced = surfaceRecordConflict(error, t, {
+      title: t('staff.timesheets.my.timer.noteConflictTitle', 'Timer note changed elsewhere'),
+      onRefresh: () => adoptLatestNote(entryId),
+    })
+    if (surfaced) {
+      noteConflictSurfacedRef.current = true
+      return
+    }
+    flash(
+      resolveTimerActionError(
+        error,
+        t(
+          'staff.timesheets.my.timer.noteSaveError',
+          'Could not save the timer note. Your text is kept in the field: press Enter to try again.',
+        ),
+      ),
+      'error',
+    )
+  }, [adoptLatestNote, t])
+
   const persistRunningDescription = useCallback(async (
     entryId: string,
     normalizedDescription: string,
     expectedUpdatedAt: string | null,
-  ) => {
+  ): Promise<NoteSaveOutcome> => {
     setIsSavingDescription(true)
     try {
       const notesPayload = { id: entryId, notes: normalizedDescription || null }
@@ -392,8 +480,6 @@ function DefaultTimerBar({
           ),
         context: {
           formId: TIMER_MUTATION_CONTEXT_ID,
-          resourceKind: 'staff.timesheets.time_entry',
-          resourceId: entryId,
           staffMemberId,
           action: 'timer-notes',
           retryLastMutation,
@@ -406,54 +492,39 @@ function DefaultTimerBar({
       await refreshActiveTimer().catch((refreshErr: unknown) => {
         logger.warn('staff.timesheets.timer.refreshAfterNoteSaveFailed', { err: refreshErr })
       })
-      return true
-    } catch (err) {
-      const surfaced = surfaceRecordConflict(err, t, {
-        // Refreshing is the user choosing the other tab's note over their draft, so
-        // the refetched note and version are adopted explicitly — the sync effect
-        // alone would keep protecting the still-dirty draft of the same entry.
-        onRefresh: () => {
-          void refreshActiveTimer()
-            .then((latest) => {
-              if (!latest.running || latest.entryId !== entryId) return
-              setDescription(latest.notes ?? '')
-              setPersistedDescription(latest.notes ?? '')
-              setNoteBaseVersion(latest.updatedAt ?? null)
-            })
-            .catch((refreshErr: unknown) => {
-              logger.warn('staff.timesheets.timer.refreshAfterNoteConflictFailed', { err: refreshErr })
-            })
-        },
-      })
-      if (!surfaced) {
-        flash(
-          resolveTimerActionError(err, t('staff.timesheets.my.errors.save', 'Failed to save timesheets.')),
-          'error',
-        )
-      }
-      return false
+      return NOTE_SAVED
+    } catch (error) {
+      return { ok: false, error }
     } finally {
       setIsSavingDescription(false)
     }
-  }, [runMutation, staffMemberId, retryLastMutation, refreshActiveTimer, t])
+  }, [runMutation, staffMemberId, retryLastMutation, refreshActiveTimer])
 
-  const saveRunningDescription = useCallback((): Promise<boolean> => {
+  const saveRunningDescription = useCallback((): Promise<NoteSaveOutcome> => {
     // Clicking Stop right after editing the note fires the input's blur save and
     // then `handleStop`'s own save, both closing over the same not-yet-updated
     // baseline. Joining the save already in flight keeps that to one write.
     if (pendingNoteSaveRef.current) return pendingNoteSaveRef.current
-    if (!activeEntryId) return Promise.resolve(true)
+    if (!activeEntryId) return Promise.resolve(NOTE_SAVED)
 
     const normalizedDescription = description.trim()
     const normalizedPersistedDescription = persistedDescription.trim()
-    if (normalizedDescription === normalizedPersistedDescription) return Promise.resolve(true)
+    if (normalizedDescription === normalizedPersistedDescription) return Promise.resolve(NOTE_SAVED)
 
-    const pending = persistRunningDescription(activeEntryId, normalizedDescription, noteBaseVersion).finally(() => {
-      pendingNoteSaveRef.current = null
-    })
+    const entryId = activeEntryId
+    // A failure is surfaced here, once, however many callers joined the save —
+    // unless Stop is running: it stops the timer anyway and reports the note itself.
+    const pending = persistRunningDescription(entryId, normalizedDescription, noteBaseVersion)
+      .then((outcome) => {
+        if (!outcome.ok && !stopInProgressRef.current) surfaceNoteSaveError(outcome.error, entryId)
+        return outcome
+      })
+      .finally(() => {
+        pendingNoteSaveRef.current = null
+      })
     pendingNoteSaveRef.current = pending
     return pending
-  }, [activeEntryId, noteBaseVersion, description, persistedDescription, persistRunningDescription])
+  }, [activeEntryId, noteBaseVersion, description, persistedDescription, persistRunningDescription, surfaceNoteSaveError])
 
   useEffect(() => {
     if (!hasPendingNoteSync || !isRunning || !activeEntryId) return
@@ -461,52 +532,80 @@ function DefaultTimerBar({
     void saveRunningDescription()
   }, [hasPendingNoteSync, isRunning, activeEntryId, saveRunningDescription])
 
+  // The note and the stop are separate writes, and Stop always tries the stop.
+  // A note that cannot be saved (a conflict, a record lock, a blocked or failed
+  // request) used to cancel the stop, which left the timer running in every
+  // window (#8236). Now the timer stops, the typed text stays in the field, and
+  // the user is told the note was not saved onto the stopped entry.
   const handleStop = async () => {
     if (!activeEntryId) return
 
+    const entryId = activeEntryId
+    stopInProgressRef.current = true
     setIsStopping(true)
     try {
-      // A failed note save already flashed its error; stopping anyway would bury
-      // the unsaved note behind a stopped timer.
-      if (!(await saveRunningDescription())) return
+      const noteOutcome = await saveRunningDescription()
       const stopPayload = {
-        id: activeEntryId,
+        id: entryId,
         action: 'timer-stop',
         staffMemberId,
       }
-      await runMutation({
-        operation: () =>
-          apiCallOrThrow(
-            `/api/staff/timesheets/time-entries/${activeEntryId}/timer-stop`,
-            { method: 'POST' },
-          ),
-        context: {
-          formId: TIMER_MUTATION_CONTEXT_ID,
-          resourceKind: 'staff.timesheets.time_entry',
-          resourceId: activeEntryId,
-          staffMemberId,
-          action: 'timer-stop',
-          retryLastMutation,
-        },
-        mutationPayload: stopPayload,
-      })
+      try {
+        await runMutation({
+          operation: () =>
+            apiCallOrThrow(
+              `/api/staff/timesheets/time-entries/${entryId}/timer-stop`,
+              { method: 'POST' },
+            ),
+          context: {
+            formId: TIMER_MUTATION_CONTEXT_ID,
+            staffMemberId,
+            action: 'timer-stop',
+            retryLastMutation,
+          },
+          mutationPayload: stopPayload,
+        })
+      } catch (err) {
+        if (!noteOutcome.ok) surfaceNoteSaveError(noteOutcome.error, entryId)
+        flash(
+          isRecordLockedError(err)
+            ? t(
+                'staff.timesheets.my.timer.stopLocked',
+                'Someone else is editing this time entry, so the timer was not stopped. Try again in a moment.',
+              )
+            : resolveTimerActionError(err, t('staff.timesheets.my.timer.stopError', 'Failed to stop timer')),
+          'error',
+        )
+        return
+      }
 
-      // The note belonged to the entry that just stopped, and it has been saved
-      // onto it by `saveRunningDescription` above. Leaving it in the field made
-      // the NEXT start send it again — `handleStart` posts `notes: description ||
-      // null` — so a fresh timer silently inherited and persisted the previous
-      // task's note. Both halves are cleared: the field, and the baseline the
-      // unsaved-edit check compares against.
-      setDescription('')
+      // A saved note belongs to the entry that just stopped. Left in the field it
+      // was sent again by the NEXT start (`notes: description || null`), so a fresh
+      // timer silently inherited the previous task's note; both the field and the
+      // baseline the unsaved-edit check compares against are cleared. A note that
+      // was NOT saved stays in the field, visibly, with a warning.
       setPersistedDescription('')
-      await activeTimer.refresh()
+      if (noteOutcome.ok) {
+        setDescription('')
+      } else {
+        if (noteConflictSurfacedRef.current) {
+          noteConflictSurfacedRef.current = false
+          dismissRecordConflict()
+        }
+        flash(
+          t(
+            'staff.timesheets.my.timer.stoppedNoteNotSaved',
+            'Timer stopped, but your note could not be saved to it. The text is kept in the note field so you can add it to the entry.',
+          ),
+          'warning',
+        )
+      }
+      await activeTimer.refresh().catch((refreshErr: unknown) => {
+        logger.warn('staff.timesheets.timer.refreshAfterStopFailed', { err: refreshErr })
+      })
       onTimerStopped()
-    } catch (err) {
-      flash(
-        resolveTimerActionError(err, t('staff.timesheets.my.timer.stopError', 'Failed to stop timer')),
-        'error',
-      )
     } finally {
+      stopInProgressRef.current = false
       setIsStopping(false)
     }
   }

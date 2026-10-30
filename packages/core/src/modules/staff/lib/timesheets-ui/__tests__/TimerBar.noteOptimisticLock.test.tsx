@@ -82,7 +82,11 @@ jest.mock('../useTimesheetPreference', () => ({
 }))
 
 jest.mock('@open-mercato/shared/lib/i18n/context', () => {
-  const translate = (_key: string, fallback?: string) => fallback ?? _key
+  const translate = (_key: string, fallback?: string, params?: Record<string, string>) =>
+    Object.entries(params ?? {}).reduce(
+      (text, [name, value]) => text.replace(`{${name}}`, value),
+      fallback ?? _key,
+    )
   return { useT: () => translate }
 })
 
@@ -94,7 +98,10 @@ jest.mock('@open-mercato/ui/backend/injection/useGuardedMutation', () => ({
 }))
 
 jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({ flash: jest.fn() }))
-jest.mock('@open-mercato/ui/backend/conflicts', () => ({ surfaceRecordConflict: jest.fn(() => false) }))
+jest.mock('@open-mercato/ui/backend/conflicts', () => ({
+  surfaceRecordConflict: jest.fn(() => false),
+  dismissRecordConflict: jest.fn(),
+}))
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   apiCall: jest.fn(),
   apiCallOrThrow: jest.fn(),
@@ -173,7 +180,7 @@ describe('TimerBar — running-note save uses optimistic locking', () => {
     expect(mockRefresh).not.toHaveBeenCalled()
   })
 
-  it('adopts the other tab\'s note and version once the user refreshes from the conflict bar', async () => {
+  it('keeps the typed text when the user refreshes from the conflict bar, and saves it against the latest version', async () => {
     const remoteVersion = '2026-01-01T08:05:00.000Z'
     const conflict = Object.assign(new Error('conflict'), { status: 409 })
     apiCallOrThrowMock.mockRejectedValue(conflict)
@@ -195,18 +202,83 @@ describe('TimerBar — running-note save uses optimistic locking', () => {
     expect(withScopedHeadersMock).toHaveBeenCalledWith(buildOptimisticLockHeader(ENTRY_VERSION), expect.any(Function))
 
     const [, , options] = surfaceRecordConflictMock.mock.calls[0] as [unknown, unknown, { onRefresh: () => void }]
+    flashMock.mockClear()
     await act(async () => {
       options.onRefresh()
     })
 
-    await waitFor(() => expect(noteInput()).toHaveValue('Edited in another tab'))
+    await waitFor(() => expect(flashMock).toHaveBeenCalledWith(expect.stringContaining('Edited in another tab'), 'info'))
+    expect(noteInput()).toHaveValue('My unsaved draft')
+
     apiCallOrThrowMock.mockResolvedValue({ ok: true, result: { ok: true } })
-    fireEvent.change(noteInput(), { target: { value: 'Edited in another tab, then here' } })
+    await act(async () => {
+      fireEvent.keyDown(noteInput(), { key: 'Enter' })
+    })
+    await waitFor(() => expect(notesPutCalls()).toHaveLength(2))
+    expect(JSON.parse(String((notesPutCalls()[1][1] as { body: string }).body))).toEqual({
+      id: 'entry-1',
+      notes: 'My unsaved draft',
+    })
+    expect(withScopedHeadersMock).toHaveBeenLastCalledWith(buildOptimisticLockHeader(remoteVersion), expect.any(Function))
+  })
+
+  it('adopts the latest note quietly on refresh when it already matches the typed text', async () => {
+    const remoteVersion = '2026-01-01T08:05:00.000Z'
+    const conflict = Object.assign(new Error('conflict'), { status: 409 })
+    apiCallOrThrowMock.mockRejectedValue(conflict)
+    surfaceRecordConflictMock.mockReturnValue(true)
+
+    renderTimerBar()
+    await waitFor(() => expect(noteInput()).toHaveValue('Build task'))
+
+    fireEvent.change(noteInput(), { target: { value: 'Same words' } })
     await act(async () => {
       fireEvent.blur(noteInput())
     })
+    await waitFor(() => expect(surfaceRecordConflictMock).toHaveBeenCalledTimes(1))
+
+    act(() => mockTimerStore.set({ notes: 'Same words', updatedAt: remoteVersion }))
+    flashMock.mockClear()
+    const [, , options] = surfaceRecordConflictMock.mock.calls[0] as [unknown, unknown, { onRefresh: () => void }]
+    await act(async () => {
+      options.onRefresh()
+    })
+
+    expect(noteInput()).toHaveValue('Same words')
+    expect(flashMock).not.toHaveBeenCalled()
+    await act(async () => {
+      fireEvent.blur(noteInput())
+    })
+    expect(notesPutCalls()).toHaveLength(1)
+  })
+
+  it('does not raise a false conflict when its own save is only seen by a later refetch', async () => {
+    const savedVersion = '2026-01-01T08:01:00.000Z'
+    apiCallOrThrowMock.mockResolvedValue({ ok: true, result: { ok: true } })
+    mockRefresh.mockRejectedValueOnce(new Error('timeout'))
+
+    renderTimerBar()
+    await waitFor(() => expect(noteInput()).toHaveValue('Build task'))
+
+    fireEvent.change(noteInput(), { target: { value: 'First edit' } })
+    await act(async () => {
+      fireEvent.keyDown(noteInput(), { key: 'Enter' })
+    })
+    await waitFor(() => expect(notesPutCalls()).toHaveLength(1))
+    await waitFor(() => expect(noteInput()).not.toBeDisabled())
+
+    fireEvent.change(noteInput(), { target: { value: 'First edit, then more' } })
+    act(() => mockTimerStore.set({ notes: 'First edit', updatedAt: savedVersion }))
+    await act(async () => {})
+
+    expect(flashMock).not.toHaveBeenCalled()
+    expect(noteInput()).toHaveValue('First edit, then more')
+
+    await act(async () => {
+      fireEvent.keyDown(noteInput(), { key: 'Enter' })
+    })
     await waitFor(() => expect(notesPutCalls()).toHaveLength(2))
-    expect(withScopedHeadersMock).toHaveBeenLastCalledWith(buildOptimisticLockHeader(remoteVersion), expect.any(Function))
+    expect(withScopedHeadersMock).toHaveBeenLastCalledWith(buildOptimisticLockHeader(savedVersion), expect.any(Function))
   })
 
   it('falls back to the error flash when the failure is not a version conflict', async () => {

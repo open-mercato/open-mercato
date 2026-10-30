@@ -123,10 +123,6 @@ function notesPutCalls() {
   )
 }
 
-function stopCalls() {
-  return apiCallOrThrowMock.mock.calls.filter(([url]) => String(url).endsWith('/timer-stop'))
-}
-
 function runningTimer(notes: string | null): Partial<MockTimerState> {
   return {
     running: true,
@@ -239,25 +235,5 @@ describe('TimerBar — note typed while a start is in flight', () => {
     await act(async () => {})
     expect(notesPutCalls()).toHaveLength(0)
     expect(startTimerEntryMock).not.toHaveBeenCalled()
-  })
-
-  it('does not stop the timer when saving the edited note fails', async () => {
-    mockTimerStore.state = { ...IDLE_TIMER, ...runningTimer('Build task') } as MockTimerState
-    apiCallOrThrowMock.mockImplementation(async (url: string, init?: { method?: string }) => {
-      if (url === NOTES_URL && init?.method === 'PUT') throw new Error('network down')
-      return { ok: true, result: { ok: true } }
-    })
-
-    renderTimerBar()
-    await waitFor(() => expect(noteInput()).toHaveValue('Build task'))
-
-    fireEvent.change(noteInput(), { target: { value: 'Unsaved follow-up' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Stop timer' }))
-
-    await waitFor(() => expect(flashMock).toHaveBeenCalledWith(expect.anything(), 'error'))
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Stop timer' })).not.toBeDisabled())
-    expect(notesPutCalls()).toHaveLength(1)
-    expect(stopCalls()).toHaveLength(0)
-    expect(noteInput()).toHaveValue('Unsaved follow-up')
   })
 })

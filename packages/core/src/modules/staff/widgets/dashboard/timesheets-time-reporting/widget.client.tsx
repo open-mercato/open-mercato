@@ -20,10 +20,11 @@ type ProjectOption = { id: string; name: string; code: string | null }
 
 const TIMER_WIDGET_MUTATION_CONTEXT_ID = 'staff-timesheets-time-reporting-widget'
 
+// No record-lock resource on these one-shot writes, for the same reason as the
+// TimerBar's (#8236): it would open a record-lock editing session nothing here
+// heartbeats, releases or resolves. The server still guards every write.
 type TimerWidgetMutationContext = {
   formId: string
-  resourceKind: string
-  resourceId: string
   staffMemberId: string
   action: 'timer-create' | 'timer-start' | 'timer-stop'
   retryLastMutation: () => Promise<boolean>
@@ -222,8 +223,6 @@ const TimeReportingWidget: React.FC<DashboardWidgetComponentProps<TimeReportingS
         operation: () => startTimerEntry(startPayload),
         context: {
           formId: TIMER_WIDGET_MUTATION_CONTEXT_ID,
-          resourceKind: 'staff.timesheets.time_entry',
-          resourceId: staffMemberId,
           staffMemberId,
           action: 'timer-start',
           retryLastMutation,
@@ -263,8 +262,6 @@ const TimeReportingWidget: React.FC<DashboardWidgetComponentProps<TimeReportingS
           apiCall(`/api/staff/timesheets/time-entries/${activeEntryId}/timer-stop`, { method: 'POST' }),
         context: {
           formId: TIMER_WIDGET_MUTATION_CONTEXT_ID,
-          resourceKind: 'staff.timesheets.time_entry',
-          resourceId: activeEntryId,
           staffMemberId,
           action: 'timer-stop',
           retryLastMutation,
