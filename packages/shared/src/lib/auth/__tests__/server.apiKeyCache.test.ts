@@ -7,6 +7,7 @@ const emFind = jest.fn()
 const emFindOne = jest.fn()
 const emPersist = jest.fn()
 const emFlush = jest.fn()
+const findWithDecryption = jest.fn()
 
 jest.mock('next/headers', () => ({
   cookies: async () => ({ get: () => undefined }),
@@ -28,10 +29,20 @@ jest.mock('@open-mercato/core/modules/api_keys/services/apiKeyService', () => ({
   findApiKeyBySecret: (...args: unknown[]) => findApiKeyBySecret(...args),
 }))
 
+jest.mock('@open-mercato/core/modules/api_keys/data/entities', () => ({
+  ApiKey: class {},
+}))
+
 jest.mock('@open-mercato/core/modules/auth/data/entities', () => ({
   Role: class {},
   RoleAcl: class {},
   User: class {},
+  UserRole: class {},
+}))
+
+jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
+  findWithDecryption: (...args: unknown[]) => findWithDecryption(...args),
+  findOneWithDecryption: (_manager: unknown, ...args: unknown[]) => emFindOne(...args),
 }))
 
 jest.mock('@open-mercato/core/modules/directory/data/entities', () => ({
@@ -57,6 +68,7 @@ describe('resolveApiKeyAuth caching + lastUsedAt debounce', () => {
     })
     emFind.mockResolvedValue([])
     emFindOne.mockResolvedValue(null)
+    findWithDecryption.mockResolvedValue([])
     emPersist.mockReturnValue(undefined)
     emFlush.mockResolvedValue(undefined)
     const { resetSharedApiKeyAuthCacheForTests } = await import('@open-mercato/shared/lib/auth/apiKeyAuthCache')
@@ -91,7 +103,142 @@ describe('resolveApiKeyAuth caching + lastUsedAt debounce', () => {
     expect(second).toEqual(first)
     expect(third).toEqual(first)
     expect(findApiKeyBySecret).toHaveBeenCalledTimes(1)
+    expect(findWithDecryption).not.toHaveBeenCalled()
     expect(emFlush).toHaveBeenCalledTimes(1)
+  })
+
+  it('immediately removes revoked session roles and super-admin status while retaining issued roles still held', async () => {
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    const { getSharedApiKeyAuthCache } = await import('@open-mercato/shared/lib/auth/apiKeyAuthCache')
+    const { Role, RoleAcl, User } = await import('@open-mercato/core/modules/auth/data/entities')
+    const { Tenant } = await import('@open-mercato/core/modules/directory/data/entities')
+    const { ApiKey } = await import('@open-mercato/core/modules/api_keys/data/entities')
+    const secret = 'session-role-revocation-secret'
+    let currentRoleIds = ['role-super', 'role-reader']
+    const record = {
+      id: 'key-session-revocation',
+      name: 'session role revocation',
+      tenantId: 'tenant-1',
+      organizationId: null,
+      rolesJson: ['role-super', 'role-reader'],
+      sessionTokenHash: 'sess_role_revocation',
+      sessionUserId: 'session-user-1',
+      createdBy: 'session-user-1',
+      expiresAt: new Date(Date.now() + 120 * 60_000),
+    }
+    findApiKeyBySecret.mockResolvedValue(record)
+    findWithDecryption.mockImplementation(async () => currentRoleIds.map((roleId) => ({ role: { id: roleId } })))
+    emFindOne.mockImplementation(async (entity: unknown) => {
+      if (entity === ApiKey) return record
+      if (entity === User) return {
+        id: 'session-user-1',
+        tenantId: 'tenant-1',
+        organizationId: null,
+      }
+      if (entity === Tenant) return { id: 'tenant-1', isActive: true, deletedAt: null }
+      return null
+    })
+    emFind.mockImplementation(async (entity: unknown, where: Record<string, unknown>) => {
+      if (entity === Role) {
+        const roleIds = (where.id as { $in: string[] }).$in
+        return roleIds.map((roleId) => ({
+          id: roleId,
+          name: roleId === 'role-super' ? 'superadmin' : roleId === 'role-reader' ? 'employee' : 'new-role',
+        }))
+      }
+      if (entity === RoleAcl && (where.role as { $in: string[] }).$in.includes('role-super')) {
+        return [{ isSuperAdmin: true, organizationsJson: null }]
+      }
+      return []
+    })
+
+    await expect(getAuthFromRequest(buildRequest(secret))).resolves.toMatchObject({
+      roles: ['superadmin', 'employee'],
+      isSuperAdmin: true,
+    })
+    await expect(getAuthFromRequest(buildRequest(secret))).resolves.toMatchObject({ isSuperAdmin: true })
+
+    currentRoleIds = ['role-reader', 'role-new']
+
+    for (const requestNumber of [1, 2]) {
+      await expect(getAuthFromRequest(buildRequest(secret))).resolves.toMatchObject({
+        roles: ['employee'],
+        isSuperAdmin: false,
+        userId: 'session-user-1',
+      })
+      expect(getSharedApiKeyAuthCache().get(secret)).toEqual({ keyId: record.id, sessionBound: true })
+      expect(findApiKeyBySecret).toHaveBeenCalledTimes(1)
+      expect(emFindOne.mock.calls.filter(([entity]) => entity === ApiKey)).toHaveLength(1 + requestNumber)
+    }
+    expect(findWithDecryption).toHaveBeenCalledTimes(4)
+    expect(emFlush).toHaveBeenCalledTimes(1)
+  })
+
+  it.each(['deleted key', 'expired key', 'deleted owner', 'changed tenant', 'changed organization'])(
+    'rejects a cached session identity after %s',
+    async (change) => {
+      const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+      const { ApiKey } = await import('@open-mercato/core/modules/api_keys/data/entities')
+      const { User } = await import('@open-mercato/core/modules/auth/data/entities')
+      const { Tenant } = await import('@open-mercato/core/modules/directory/data/entities')
+      const record = {
+        id: 'key-live-session', name: 'session', tenantId: 'tenant-1', organizationId: null,
+        rolesJson: [], sessionUserId: 'owner-1', expiresAt: new Date(Date.now() + 60_000),
+      }
+      const owner = { id: 'owner-1', tenantId: 'tenant-1', organizationId: null as string | null }
+      let keyDeleted = false
+      let ownerDeleted = false
+      findApiKeyBySecret.mockResolvedValue(record)
+      emFindOne.mockImplementation(async (entity: unknown) => {
+        if (entity === ApiKey) return keyDeleted ? null : record
+        if (entity === User) return ownerDeleted ? null : owner
+        if (entity === Tenant) return { id: 'tenant-1', isActive: true, deletedAt: null }
+        return null
+      })
+      await expect(getAuthFromRequest(buildRequest('live-session-secret'))).resolves.toMatchObject({ keyId: record.id })
+
+      if (change === 'deleted key') keyDeleted = true
+      if (change === 'expired key') record.expiresAt = new Date(Date.now() - 1)
+      if (change === 'deleted owner') ownerDeleted = true
+      if (change === 'changed tenant') owner.tenantId = 'tenant-other'
+      if (change === 'changed organization') owner.organizationId = 'org-other'
+
+      await expect(getAuthFromRequest(buildRequest('live-session-secret'))).resolves.toBeNull()
+      expect(findApiKeyBySecret).toHaveBeenCalledTimes(1)
+      expect(emFindOne).toHaveBeenCalledWith(ApiKey, { id: record.id, deletedAt: null })
+    },
+  )
+
+  it('does not extend verified session-secret caching on a cache hit', async () => {
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    const { ApiKey } = await import('@open-mercato/core/modules/api_keys/data/entities')
+    const { User } = await import('@open-mercato/core/modules/auth/data/entities')
+    const { Tenant } = await import('@open-mercato/core/modules/directory/data/entities')
+    const now = jest.spyOn(Date, 'now')
+    const startedAt = Date.now()
+    const record = {
+      id: 'key-session-ttl', name: 'session', tenantId: 'tenant-1', organizationId: null,
+      rolesJson: [], sessionUserId: 'owner-1', expiresAt: new Date(startedAt + 120_000),
+    }
+    findApiKeyBySecret.mockResolvedValue(record)
+    emFindOne.mockImplementation(async (entity: unknown) => {
+      if (entity === ApiKey) return record
+      if (entity === User) return { id: 'owner-1', tenantId: 'tenant-1', organizationId: null }
+      if (entity === Tenant) return { id: 'tenant-1', isActive: true, deletedAt: null }
+      return null
+    })
+    try {
+      now.mockReturnValue(startedAt)
+      await getAuthFromRequest(buildRequest('session-ttl-secret'))
+      now.mockReturnValue(startedAt + 20_000)
+      await getAuthFromRequest(buildRequest('session-ttl-secret'))
+      expect(findApiKeyBySecret).toHaveBeenCalledTimes(1)
+      now.mockReturnValue(startedAt + 30_001)
+      await getAuthFromRequest(buildRequest('session-ttl-secret'))
+      expect(findApiKeyBySecret).toHaveBeenCalledTimes(2)
+    } finally {
+      now.mockRestore()
+    }
   })
 
   it('retains the creator identity for a regular tenant-scoped key', async () => {
@@ -102,7 +249,7 @@ describe('resolveApiKeyAuth caching + lastUsedAt debounce', () => {
       tenantId: 'tenant-1',
       organizationId: null,
       rolesJson: [],
-      sessionToken: null,
+      sessionTokenHash: null,
       sessionUserId: null,
       sessionSecretEncrypted: null,
       opencodeSessionId: null,
@@ -144,7 +291,7 @@ describe('resolveApiKeyAuth caching + lastUsedAt debounce', () => {
       tenantId: 'tenant-1',
       organizationId: null,
       rolesJson: [],
-      sessionToken: null,
+      sessionTokenHash: null,
       sessionUserId: null,
       sessionSecretEncrypted: null,
       opencodeSessionId: null,
@@ -170,7 +317,7 @@ describe('resolveApiKeyAuth caching + lastUsedAt debounce', () => {
       tenantId: 'tenant-1',
       organizationId: null,
       rolesJson: [],
-      sessionToken: null,
+      sessionTokenHash: null,
       sessionUserId: null,
       sessionSecretEncrypted: null,
       opencodeSessionId: null,
@@ -199,7 +346,7 @@ describe('resolveApiKeyAuth caching + lastUsedAt debounce', () => {
       tenantId: 'tenant-1',
       organizationId: null,
       rolesJson: [],
-      sessionToken: null,
+      sessionTokenHash: null,
       sessionUserId: null,
       sessionSecretEncrypted: null,
       opencodeSessionId: null,
@@ -225,7 +372,7 @@ describe('resolveApiKeyAuth caching + lastUsedAt debounce', () => {
       tenantId: 'tenant-1',
       organizationId: 'org-1',
       rolesJson: [],
-      sessionToken: null,
+      sessionTokenHash: null,
       sessionUserId: null,
       sessionSecretEncrypted: null,
       opencodeSessionId: null,
@@ -234,6 +381,7 @@ describe('resolveApiKeyAuth caching + lastUsedAt debounce', () => {
       lastUsedAt: null,
     })
     emFindOne.mockImplementation(async (_entity: unknown, where: Record<string, unknown>) => {
+      if (where.id === 'tenant-1' && where.isActive === true) return { id: 'tenant-1' }
       if (where.id === 'creator-1') {
         return { id: 'creator-1', tenantId: 'tenant-1', organizationId: 'org-1' }
       }
@@ -258,7 +406,7 @@ describe('resolveApiKeyAuth caching + lastUsedAt debounce', () => {
       tenantId: 'tenant-1',
       organizationId: 'org-1',
       rolesJson: [],
-      sessionToken: null,
+      sessionTokenHash: null,
       sessionUserId: null,
       sessionSecretEncrypted: null,
       opencodeSessionId: null,
@@ -267,6 +415,7 @@ describe('resolveApiKeyAuth caching + lastUsedAt debounce', () => {
       lastUsedAt: null,
     })
     emFindOne.mockImplementation(async (_entity: unknown, where: Record<string, unknown>) => {
+      if (where.id === 'tenant-1' && where.isActive === true) return { id: 'tenant-1' }
       if (where.id === 'creator-1') {
         return { id: 'creator-1', tenantId: 'tenant-1', organizationId: 'org-2' }
       }
@@ -286,7 +435,7 @@ describe('resolveApiKeyAuth caching + lastUsedAt debounce', () => {
       tenantId: 'tenant-1',
       organizationId: null,
       rolesJson: [],
-      sessionToken: 'sess_123',
+      sessionTokenHash: 'sess_123',
       sessionUserId: 'session-user-1',
       sessionSecretEncrypted: null,
       opencodeSessionId: null,
@@ -295,6 +444,7 @@ describe('resolveApiKeyAuth caching + lastUsedAt debounce', () => {
       lastUsedAt: null,
     })
     emFindOne.mockImplementation(async (_entity: unknown, where: Record<string, unknown>) => {
+      if (where.id === 'tenant-1' && where.isActive === true) return { id: 'tenant-1' }
       if (where.id === 'session-user-1') {
         return { id: 'session-user-1', tenantId: 'tenant-1', organizationId: 'user-org' }
       }
@@ -306,7 +456,7 @@ describe('resolveApiKeyAuth caching + lastUsedAt debounce', () => {
     ).resolves.toBeNull()
   })
 
-  it('fails closed when a row has session markers but no bound session user', async () => {
+  it.each([null, '', ' '])('fails closed when a row has session markers and owner %p', async (sessionUserId) => {
     const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
     findApiKeyBySecret.mockResolvedValue({
       id: 'key-malformed-session',
@@ -314,13 +464,17 @@ describe('resolveApiKeyAuth caching + lastUsedAt debounce', () => {
       tenantId: 'tenant-1',
       organizationId: null,
       rolesJson: [],
-      sessionToken: 'sess_missing_user',
-      sessionUserId: null,
+      sessionTokenHash: 'sess_missing_user',
+      sessionUserId,
       sessionSecretEncrypted: null,
       opencodeSessionId: null,
       createdBy: 'creator-1',
       expiresAt: null,
       lastUsedAt: null,
+    })
+    emFindOne.mockImplementation(async (_entity: unknown, where: Record<string, unknown>) => {
+      if (where.id === 'tenant-1' && where.isActive === true) return { id: 'tenant-1' }
+      return null
     })
 
     await expect(
@@ -367,6 +521,108 @@ describe('resolveApiKeyAuth caching + lastUsedAt debounce', () => {
     expect(findApiKeyBySecret).toHaveBeenCalledTimes(2)
   })
 
+  describe.each(['unbound', 'creator-bound', 'session-bound'] as const)('%s tenant liveness', (binding) => {
+    let tenant: { id: string; isActive: boolean; deletedAt: Date | null } | null
+
+    beforeEach(async () => {
+      const [{ Tenant }, { User }, { ApiKey }] = await Promise.all([
+        import('@open-mercato/core/modules/directory/data/entities'),
+        import('@open-mercato/core/modules/auth/data/entities'),
+        import('@open-mercato/core/modules/api_keys/data/entities'),
+      ])
+      tenant = { id: 'tenant-1', isActive: true, deletedAt: null }
+      const keyRecord = {
+        id: 'key-tenant-liveness',
+        name: 'tenant liveness',
+        tenantId: 'tenant-1',
+        organizationId: null,
+        rolesJson: [],
+        sessionTokenHash: binding === 'session-bound' ? 'session-marker' : null,
+        sessionUserId: binding === 'session-bound' ? 'key-owner' : null,
+        sessionSecretEncrypted: null,
+        opencodeSessionId: null,
+        createdBy: binding === 'unbound' ? null : 'key-owner',
+        expiresAt: null,
+        lastUsedAt: null,
+      }
+      findApiKeyBySecret.mockResolvedValue(keyRecord)
+      emFindOne.mockImplementation(async (entity: unknown, where: Record<string, unknown>) => {
+        if (entity === ApiKey && where.id === keyRecord.id) return keyRecord
+        if (entity === Tenant) {
+          return tenant && where.id === tenant.id && where.isActive === tenant.isActive && where.deletedAt === tenant.deletedAt
+            ? tenant
+            : null
+        }
+        if (entity === User && where.id === 'key-owner') {
+          return { id: 'key-owner', tenantId: 'tenant-1', organizationId: null }
+        }
+        return null
+      })
+    })
+
+    function setTenantState(state: 'active' | 'inactive' | 'deleted' | 'missing') {
+      tenant = state === 'missing'
+        ? null
+        : { id: 'tenant-1', isActive: state !== 'inactive', deletedAt: state === 'deleted' ? new Date() : null }
+    }
+
+    it.each(['active', 'inactive', 'deleted', 'missing'] as const)('authenticates only an active existing tenant (%s)', async (state) => {
+      const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+      setTenantState(state)
+
+      const auth = await getAuthFromRequest(buildRequest('tenant-liveness-secret'))
+
+      if (state === 'active') {
+        expect(auth).toMatchObject({ keyId: 'key-tenant-liveness', tenantId: 'tenant-1' })
+      } else {
+        expect(auth).toBeNull()
+        expect(emPersist).not.toHaveBeenCalled()
+      }
+    })
+
+    it.each(['inactive', 'deleted', 'missing'] as const)('rejects a cached key immediately after its tenant becomes %s', async (state) => {
+      const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+      await expect(getAuthFromRequest(buildRequest('tenant-liveness-secret'))).resolves.toMatchObject({
+        keyId: 'key-tenant-liveness',
+      })
+      setTenantState(state)
+
+      await expect(getAuthFromRequest(buildRequest('tenant-liveness-secret'))).resolves.toBeNull()
+
+      expect(findApiKeyBySecret).toHaveBeenCalledTimes(1)
+    })
+
+    it('rechecks an active tenant while retaining the cached secret lookup', async () => {
+      const { Tenant } = await import('@open-mercato/core/modules/directory/data/entities')
+      const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+      const first = await getAuthFromRequest(buildRequest('tenant-liveness-secret'))
+
+      await expect(getAuthFromRequest(buildRequest('tenant-liveness-secret'))).resolves.toEqual(first)
+
+      expect(first).toMatchObject({ keyId: 'key-tenant-liveness' })
+      expect(findApiKeyBySecret).toHaveBeenCalledTimes(1)
+      expect(emFindOne).toHaveBeenCalledWith(Tenant, { id: 'tenant-1', deletedAt: null, isActive: true })
+      expect(emFindOne.mock.calls.filter((call) => call[0] === Tenant)).toHaveLength(2)
+    })
+
+    it('reports cached tenant-check database unavailability without poisoning the cache', async () => {
+      const { resolveAuthFromRequestDetailed } = await import('@open-mercato/shared/lib/auth/server')
+      await expect(resolveAuthFromRequestDetailed(buildRequest('tenant-liveness-secret'))).resolves.toMatchObject({
+        status: 'authenticated',
+      })
+      emFindOne.mockRejectedValueOnce(Object.assign(new Error('connection unavailable'), { code: '53300' }))
+
+      await expect(resolveAuthFromRequestDetailed(buildRequest('tenant-liveness-secret'))).resolves.toEqual({
+        auth: null,
+        status: 'error',
+      })
+      await expect(resolveAuthFromRequestDetailed(buildRequest('tenant-liveness-secret'))).resolves.toMatchObject({
+        status: 'authenticated',
+      })
+      expect(findApiKeyBySecret).toHaveBeenCalledTimes(1)
+    })
+  })
+
   describe('super-admin bit stays bounded by the effective key scope', () => {
     async function resolveWithSuperAdminRole(input: {
       secret: string
@@ -389,7 +645,7 @@ describe('resolveApiKeyAuth caching + lastUsedAt debounce', () => {
         tenantId: 'tenant-1',
         organizationId: input.keyOrganizationId,
         rolesJson: ['role-super'],
-        sessionToken: null,
+        sessionTokenHash: null,
         sessionUserId: null,
         sessionSecretEncrypted: null,
         opencodeSessionId: null,
