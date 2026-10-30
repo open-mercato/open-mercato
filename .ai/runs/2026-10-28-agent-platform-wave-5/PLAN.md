@@ -83,6 +83,7 @@
 | 7 | 7.9 | Fill the eval report environment block | dispatch | done | pending |
 | 7 | 7.10 | Add the rubric library and rubricRef | dispatch | done | pending |
 | 7 | 7.10-review-fix | Use explicit sort comparators in the eval-set YAML and rubric helpers | inline | done | pending |
+| 1 | 1.11-review-fix-2 | Expect the translated guardrail kind label in TC-AGENT-UXC-006 | inline | done | pending |
 | 7 | 7.11 | Document the eval CI recipe | dispatch:cheap | todo | — |
 | 7 | 7.12 | Cover eval-set import, export and settings with integration tests | dispatch | todo | — |
 | 8 | 8.1 | Update the roadmap and upgrade notes for wave 5 | inline | todo | — |
