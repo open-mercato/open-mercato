@@ -24,7 +24,7 @@ Source doc: .ai/specs/2026-10-30-experiment-dashboard.md
 - Stored agent output is untrusted; never execute it or treat generated source as HTML.
 - A result directory cannot establish process liveness or missing responses; require explicit live snapshots and mark unavailable data.
 - Skill changes may require the harness knowledge-change gate and certified Linux lanes. Any unavailable gate remains a documented blocker, never a claimed pass.
-- Whole-repository checks may expose unrelated baseline/environment failures; retain exact evidence and keep the PR draft if required checks cannot complete.
+- Whole-repository checks expose a macOS/Node 26 sandbox package-config denial: the full retry fails 13 create-app harness tests, with a representative failure reproduced at the pinned base using the same dependencies and unchanged built assets. Keep the PR draft until the full gate passes; do not weaken sandbox or grading rules.
 
 ## Progress
 
@@ -51,7 +51,7 @@ Local runner: package build, 21 focused tests, strict tooling typecheck and the 
 
 ### Phase 4: Workflow knowledge
 
-Skill tiers/discovery, local-only installation, frontmatter/pointers, template exercises and inspect-only invocation passed. The knowledge controller passed at c059d48f9 against a11f57298: both focused files failed with base-plus-test-only (exit 1) and passed on head (exit 0); authoritative hashes were rechecked. A fresh current scaffold deterministic check passed 236/240: existing context ceilings fail for OMH-008 (45,340/45,056 bytes), OMH-082/153/155 (69,669/69,632). Emitted harness/template/CLI sources are unchanged from the base. This is a validation limit, not a passing release gate.
+Skill tiers/discovery, local-only installation, frontmatter/pointers, template exercises and inspect-only invocation passed. The knowledge controller passed at final tool code 089041133 against a11f57298: both focused files failed with base-plus-test-only (exit 1) and passed on head (exit 0); authoritative hashes were rechecked. A fresh current scaffold deterministic check passed 236/240: existing context ceilings fail for OMH-008 (45,340/45,056 bytes), OMH-082/153/155 (69,669/69,632). Emitted harness/template/CLI sources are unchanged from the base. This is a validation limit, not a passing release gate.
 
 Post-implementation regression: stable path-based file identities preserve the selected file when producers insert or reorder generated files; failure-first coverage and all 22 focused tests pass. — c059d48f9
 
@@ -60,6 +60,12 @@ Post-implementation regression: stable path-based file identities preserve the s
 
 ### Phase 5: Publication
 
+Runner: local. Ordered package build, generation, package rebuild, translation sync/usage, repository typecheck and production app build passed. The initial full test run hit one unchanged CrudForm timing assertion; its isolated retry and all 302 UI suites pass. The full retry finishes 50/51 Turbo tasks but fails 13 create-app harness tests (968 pass, 13 fail, 5 skipped), with a macOS/Node 26 parent package-config read denial before the fake runner executes. A representative test reproduces that denial at base a11f57298 with the same dependency tree and unchanged emitted assets. Step 5.1 remains open; resume with `om-auto-continue-pr 8259` in a compatible environment or after the baseline blocker is resolved.
+
+Authoritative review fixed inherited-property lane IDs, mixed target-count notices and live TPS expiry while offline. Screenshot feedback then refined tabs, count badges, controls, normal capture copy and response typography. Re-review at 089041133 found no remaining verified dashboard defect. Final targeted evidence: 23 focused tests, strict tool typecheck, 3 real-Chrome integrations and the knowledge controller pass; all 26 authoritative source hashes were rechecked. GitHub rejected author self-review, so independent approval and manual QA remain required. No further CI monitoring is scheduled by this run.
+
+Evidence: [verification and synthetic screenshots](https://github.com/open-mercato/open-mercato/pull/8259#issuecomment-6523096680), [review](https://github.com/open-mercato/open-mercato/pull/8259#issuecomment-6523317962), [handoff](https://github.com/open-mercato/open-mercato/pull/8259#issuecomment-6523799894).
+
 - [ ] 5.1 Run the ordered validation gate and resolve relevant failures.
-- [ ] 5.2 Complete authoritative automated review and fixes.
-- [ ] 5.3 Publish the final PR evidence and handoff.
+- [x] 5.2 Complete authoritative automated review and fixes. — 089041133
+- [x] 5.3 Publish the final PR evidence and handoff. — de1657f1b
