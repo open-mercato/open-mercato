@@ -267,7 +267,7 @@ async function ensureDatabaseExists(dbUrl: string): Promise<boolean> {
 
     console.log(`   Database "${dbName}" does not exist. Attempting to create it...`)
     try {
-      await adminClient.query(`CREATE DATABASE "${dbName.replace(/"/g, '')}"`)
+      await adminClient.query(`CREATE DATABASE ${quotePostgresIdentifier(dbName)}`)
       console.log(`   Database "${dbName}" created successfully.`)
       return true
     } catch (createError: unknown) {
