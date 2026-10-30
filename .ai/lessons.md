@@ -1,6 +1,6 @@
 # Lessons
 
-This catalog indexes 162 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
+This catalog indexes 163 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
 
 ## How to use this catalog
 
@@ -88,6 +88,7 @@ This catalog indexes 162 focused lessons. Route the task first, then read only r
 - [Empty collection scopes need an explicit semantic predicate](lessons/empty-collection-scopes-need-an-explicit-semantic-predicate.md) — area:backend-ui,module-data,testing; module:auth; topic:access-control,data-scoping,route-coverage
 - [PostgreSQL partial unique indexes are not constraints](lessons/postgresql-partial-unique-indexes-are-not-constraints.md) — area:module-data,debugging; module:platform; topic:data-integrity,data-scoping,testing
 - [Preserve Turbopack compiler cache during greenfield dev warmup](lessons/preserve-turbopack-compiler-cache-during-greenfield-dev.md) — area:module-data,architecture,debugging; module:cache,auth,create_app; topic:dev-runtime,runtime-startup,template-sync
+- [Propagate async undo refusals before snapshot access](lessons/propagate-async-undo-refusals-before-snapshot-access.md) — area:module-data,testing,debugging; module:warranty_claims; topic:command-pattern,undo,async-control-flow,typecheck
 - [Projection updates that change indexed parent fields must emit query-index upserts](lessons/projection-updates-that-change-indexed-parent-fields.md) — area:module-data,debugging; module:query_index,customers,events; topic:command-pattern,events,filters
 - [Query-index custom-field cardinality comes from definitions, not row count](lessons/query-index-custom-field-cardinality-comes-from.md) — area:module-data,umes,backend-ui; module:entities,query_index,search; topic:custom-fields,data-scoping,query-index
 - [makeCrudRoute `sortField` must be `z.string()` + `sortFieldMap`, not a strict enum](lessons/makecrudroute-sortfield-is-a-string-with-a-sortfieldmap.md) — area:module-data,backend-ui; module:eudr,customers; topic:crud-factory,query-index
