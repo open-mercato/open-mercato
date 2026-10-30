@@ -23,6 +23,7 @@
 | Phase | Step | Title | Exec | Status | Commit |
 |-------|------|-------|------|--------|--------|
 | 1 | 1.1 | Accept content export in the OTel settings when the deployment allows it | dispatch | done | pending |
+| 1 | 1.1-review-fix | Accept content export in TC-AGENT-OTEL-001 when the deployment allows it | inline | done | pending |
 | 1 | 1.2 | Map LLM content artifacts to GenAI message attributes | dispatch:capable | done | pending |
 | 1 | 1.3 | Load a run's content artifacts for export | dispatch:capable | done | pending |
 | 1 | 1.4 | Emit content events on exported chat and tool spans | dispatch:capable | done | pending |

@@ -24,7 +24,7 @@ import {
  *   view: flags only, never the endpoint URL, the exporter headers or the
  *   trace link template.
  * - PUT round-trips with optimistic locking (a stale version is rejected with
- *   409), refuses `content: 'full'` with 422 while the deployment denies content
+ *   409), refuses `content: 'full'` with 422 while the deployment denies content (and accepts it for an admin when `OM_AGENT_OTEL_EXPORT_CONTENT=allow`)
  *   export, and refuses a writer without `agents.manage` with 403.
  * - The test-span endpoint returns 409 `otel_export_disabled` when the deployment
  *   switch is off. When the app runs with export on (endpoint
@@ -112,7 +112,20 @@ test.describe('TC-AGENT-OTEL-001: OTel export settings and test span', () => {
         { enabled: true, content: 'full', exportUserIds: false },
         afterStale.updatedAt,
       )
-      expect(fullContent.status(), await fullContent.text()).toBe(422)
+      if (afterStale.deployment?.contentAllowed) {
+        expect(fullContent.status(), 'an admin may opt in once the deployment allows content').toBe(200)
+        const optedIn = await readOtelSettings(request, adminToken)
+        expect(optedIn.settings?.content).toBe('full')
+        const optedOut = await saveOtelSettings(
+          request,
+          adminToken,
+          { enabled: false, content: 'none', exportUserIds: true },
+          optedIn.updatedAt,
+        )
+        expect(optedOut.status(), await optedOut.text()).toBe(200)
+      } else {
+        expect(fullContent.status(), await fullContent.text()).toBe(422)
+      }
 
       const invalid = await apiRequest(request, 'PUT', OTEL_SETTINGS_PATH, {
         token: adminToken,
