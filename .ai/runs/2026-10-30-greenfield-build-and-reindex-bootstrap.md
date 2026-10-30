@@ -39,7 +39,7 @@ Shared build cleanup affects every package: preserve outputs owned by other sour
 
 ### Phase 2: Prepare migration reindex dependencies
 
-- [ ] 2.1 Port lazy application bootstrap and migration reindex regression tests
+- [x] 2.1 Port lazy application bootstrap and migration reindex regression tests — 9b4eb2fa1
 
 ### Phase 3: Verify and publish
 
