@@ -36,7 +36,19 @@ const CORE_TENANT_GLOBAL_ENTITY_TYPES: readonly string[] = [
   'feature_toggles:feature_toggle',
 ]
 
-const tenantGlobalEntityTypes = new Set<string>(CORE_TENANT_GLOBAL_ENTITY_TYPES)
+const TENANT_GLOBAL_ENTITY_TYPES_KEY = Symbol.for('@open-mercato/query-index/tenant-global-entity-types')
+
+type GlobalWithTenantGlobalEntityTypes = typeof globalThis & {
+  [TENANT_GLOBAL_ENTITY_TYPES_KEY]?: Set<string>
+}
+
+function getTenantGlobalEntityTypes(): Set<string> {
+  const scope = globalThis as GlobalWithTenantGlobalEntityTypes
+  if (!scope[TENANT_GLOBAL_ENTITY_TYPES_KEY]) {
+    scope[TENANT_GLOBAL_ENTITY_TYPES_KEY] = new Set<string>(CORE_TENANT_GLOBAL_ENTITY_TYPES)
+  }
+  return scope[TENANT_GLOBAL_ENTITY_TYPES_KEY]
+}
 
 function normalize(entityType: string): string {
   return String(entityType || '').trim()
@@ -56,6 +68,7 @@ function normalize(entityType: string): string {
  * cross-tenant search result.
  */
 export function registerTenantGlobalEntityTypes(...entityTypes: string[]): void {
+  const tenantGlobalEntityTypes = getTenantGlobalEntityTypes()
   for (const entityType of entityTypes) {
     const normalized = normalize(entityType)
     if (normalized) tenantGlobalEntityTypes.add(normalized)
@@ -64,16 +77,17 @@ export function registerTenantGlobalEntityTypes(...entityTypes: string[]): void 
 
 /** True when a table with no `tenant_id` column may be swept by a tenant-scoped reindex. */
 export function isTenantGlobalEntityType(entityType: string): boolean {
-  return tenantGlobalEntityTypes.has(normalize(entityType))
+  return getTenantGlobalEntityTypes().has(normalize(entityType))
 }
 
 /** The current allowlist, for diagnostics and tests. */
 export function listTenantGlobalEntityTypes(): string[] {
-  return Array.from(tenantGlobalEntityTypes)
+  return Array.from(getTenantGlobalEntityTypes())
 }
 
 /** Test-only: drop every registration and restore this package's own entries. */
 export function resetTenantGlobalEntityTypes(): void {
+  const tenantGlobalEntityTypes = getTenantGlobalEntityTypes()
   tenantGlobalEntityTypes.clear()
   for (const entityType of CORE_TENANT_GLOBAL_ENTITY_TYPES) tenantGlobalEntityTypes.add(entityType)
 }

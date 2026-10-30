@@ -97,6 +97,8 @@ query for the previous owner returned the same three hits with `presenter: null`
 
 ## Design
 
+Catalogue declarations use typed process-wide storage under a stable `Symbol.for` key. Bootstrap, request and worker module instances share registrations; reset mutates the same set and restores core seeds.
+
 Three pieces, in the order they depend on each other.
 
 ### 1. Reader — the branch the organization axis already has
@@ -225,6 +227,8 @@ organization branch would have removed catalogue hits from every selected-organi
 search. §4 adds it.
 
 ## Testing
+
+- `query_index/lib/__tests__/tenant-global.registry.test.ts` loads distinct module instances and verifies registration, normalization and reset visibility across them.
 
 - `packages/search/src/__tests__/tenant-global-read-scope.test.ts` — both readers are
   asserted in one file because they are only correct together: a hit the strategy returns
