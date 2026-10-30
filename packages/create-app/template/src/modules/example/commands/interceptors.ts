@@ -1,5 +1,6 @@
 import type { CommandInterceptor } from '@open-mercato/shared/lib/commands/command-interceptor'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { visitAvailabilityInterceptors } from '../lib/visitAvailabilityGuard'
 
 const logger = createLogger('example').child({ interceptor: 'audit-logging' })
 
@@ -41,4 +42,4 @@ const todoUpdateInterceptor: CommandInterceptor = {
   },
 }
 
-export const interceptors: CommandInterceptor[] = [auditLoggingInterceptor, todoUpdateInterceptor]
+export const interceptors: CommandInterceptor[] = [auditLoggingInterceptor, todoUpdateInterceptor, ...visitAvailabilityInterceptors]

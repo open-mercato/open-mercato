@@ -4,6 +4,7 @@ import { isMfaPendingJwtPayload, verifyJwt } from './jwt'
 import { isMfaPendingAccessAllowed } from './mfaPendingAccess'
 import { getSharedApiKeyAuthCache } from './apiKeyAuthCache'
 import { isTransientDbError } from '@open-mercato/shared/lib/db/pg-errors'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 function readRequestPathname(req: Request): string | null {
   try {
@@ -190,20 +191,36 @@ function applySuperAdminScope(
 async function resolveApiKeyAuth(secret: string): Promise<AuthContext> {
   if (!secret) return null
   const cache = getSharedApiKeyAuthCache()
-  const cached = cache.get(secret)
-  if (cached !== undefined) return cached as AuthContext
+  const cached = cache.get(secret) as AuthContext | undefined
+  if (cached === null) return null
+  if (cached && !cached.tenantId) return cached
   try {
     const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
     const container = await createRequestContainer()
     const em = (container.resolve('em') as EntityManager)
+    const { Organization, Tenant } = await import('@open-mercato/core/modules/directory/data/entities')
+    if (cached?.tenantId) {
+      const tenant = await findOneWithDecryption(em, Tenant, { id: cached.tenantId, deletedAt: null, isActive: true })
+      if (!tenant) {
+        cache.setMiss(secret)
+        return null
+      }
+      return cached
+    }
     const { findApiKeyBySecret } = await import('@open-mercato/core/modules/api_keys/services/apiKeyService')
     const { Role, RoleAcl, User } = await import('@open-mercato/core/modules/auth/data/entities')
-    const { Organization, Tenant } = await import('@open-mercato/core/modules/directory/data/entities')
 
     const record = await findApiKeyBySecret(em, secret)
     if (!record) {
       cache.setMiss(secret)
       return null
+    }
+    if (record.tenantId) {
+      const tenant = await findOneWithDecryption(em, Tenant, { id: record.tenantId, deletedAt: null, isActive: true })
+      if (!tenant) {
+        cache.setMiss(secret)
+        return null
+      }
     }
 
     const roleIds = Array.isArray(record.rolesJson)
@@ -288,13 +305,6 @@ async function resolveApiKeyAuth(secret: string): Promise<AuthContext> {
         return null
       }
     } else {
-      if (record.tenantId) {
-        const tenant = await em.findOne(Tenant, { id: record.tenantId, deletedAt: null, isActive: true })
-        if (!tenant) {
-          cache.setMiss(secret)
-          return null
-        }
-      }
       if (record.organizationId) {
         const organization = await em.findOne(Organization, { id: record.organizationId, deletedAt: null, isActive: true })
         if (!organization) {
@@ -413,7 +423,7 @@ export async function resolveAuthFromRequestDetailed(req: Request): Promise<Auth
   if (authHeader.toLowerCase().startsWith('bearer ')) token = authHeader.slice(7).trim()
   if (!token) {
     const match = cookieHeader.match(/(?:^|;\s*)auth_token=([^;]+)/)
-    if (match) token = decodeURIComponent(match[1])
+    if (match) token = decodeCookieValue(match[1]) ?? undefined
   }
   if (token) {
     try {

@@ -70,6 +70,22 @@ test.describe('TC-AVAIL-003: Availability admin UI', () => {
     }
   })
 
+  test('creating a policy under "All organizations" tells the user to pick an organization (#7080)', async ({ page }) => {
+    const baseUrl = process.env.BASE_URL || 'http://localhost:3000'
+    await login(page, 'admin')
+    await page.context().addCookies([{ name: 'om_selected_org', value: '__all__', url: baseUrl, sameSite: 'Lax' }])
+    await page.goto('/backend/availability/policies/create')
+
+    await fillControlledInput(page.locator('#availability-policy-product-id'), '00000000-0000-4000-8000-000000007080')
+    await fillControlledInput(page.locator('[data-crud-field-id="lowStockThreshold"] input').first(), '3')
+    await page.getByRole('button', { name: /create policy/i }).first().click()
+
+    await expect(
+      page.getByText('Select a specific organization in the header before creating a policy.').first(),
+    ).toBeVisible({ timeout: 15_000 })
+    await expect(page).toHaveURL(/\/backend\/availability\/policies\/create/)
+  })
+
   test('a view-only role sees the form as read-only with no Save action', async ({ page, request }) => {
     const adminToken = await getAuthToken(request, 'admin')
     const stamp = Date.now()

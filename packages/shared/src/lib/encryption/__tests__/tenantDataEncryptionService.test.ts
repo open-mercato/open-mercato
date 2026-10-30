@@ -883,3 +883,26 @@ describe('TenantDataEncryptionService map read failures (issue #6334)', () => {
     expect(execute).toHaveBeenCalledTimes(2)
   })
 })
+
+describe('TenantDataEncryptionService transaction-aware map reads', () => {
+  it('prefers the EntityManager executor over the bare connection', async () => {
+    const entityId = 'test:transaction_aware_map_read'
+    const execute = jest.fn(async () => [{
+      entity_id: entityId,
+      fields_json: [{ field: 'display_name' }],
+    }])
+    const bareExecute = jest.fn(async () => {
+      throw new Error('bare connection must not be used')
+    })
+    const service = new TenantDataEncryptionService({
+      execute,
+      getConnection: () => ({ execute: bareExecute }),
+    } as never)
+    jest.spyOn(service, 'isEnabled').mockReturnValue(true)
+
+    await expect(service.getEncryptedFieldNames(entityId, 'tenant-transaction', 'org-transaction'))
+      .resolves.toEqual(['display_name'])
+    expect(execute).toHaveBeenCalled()
+    expect(bareExecute).not.toHaveBeenCalled()
+  })
+})

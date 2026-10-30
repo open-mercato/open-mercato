@@ -20,9 +20,9 @@ Tracking issue: [#2588](https://github.com/open-mercato/open-mercato/issues/2588
 |---|---|---|
 | `baseline` | Every PR, including forks | Static gates plus affected integration specs that are not explicitly marked extended |
 | `extended` | Non-fork PR with `extended-integration` label | Baseline plus tagged expensive regression suites such as undo, CrudForm matrix, optimistic-lock matrix, custom fields, queue/realtime, long request tests |
-| `full` | Pushes to `develop`/`main`, shared fail-closed paths, every PR targeting `main` | All monorepo integration specs, sharded, with coverage |
+| `full` | Pushes to `main` and `release/v*`, shared fail-closed paths | All monorepo integration specs, sharded, with coverage |
 | `standalone-sentinel` | Trusted PRs touching standalone-impact paths | Minimal installed-package/create-app smoke coverage |
-| `standalone-full` | Develop snapshot/release pipeline, release PRs to `main`, and PRs explicitly dispatched with `NPM Snapshot Preview` | Full standalone app integration coverage |
+| `standalone-full` | The snapshot pipeline (pushes to `main`) and PRs explicitly dispatched with `NPM Snapshot Preview` | Full standalone app integration coverage |
 
 ## Maintainer Label
 

@@ -212,6 +212,7 @@ Module code resolves services by name from the Awilix container. Renaming a DI r
 - MUST NOT change the interface of a resolved service in a breaking way
 - MAY add new DI registrations freely
 - MAY add optional methods to existing service interfaces
+- `calendarEventTypeRegistry` (Customers): the registration key and the `upsert`, `replace`, `patch`, `remove`, `removeSource`, and `snapshot` operations are STABLE additive contracts. Contributor modules may resolve it softly when Customers is optional.
 
 ### 10. ACL Feature IDs (FROZEN)
 
@@ -556,3 +557,52 @@ Spec: [`.ai/specs/2026-09-08-error-reporting-policy.md`](.ai/specs/2026-09-08-er
 | Database schema, event IDs, ACL features, DI names, CLI commands | No change | ✓ n/a |
 
 **Migration path for existing modules**: send `parentId: null` / `childIds: []` where clearing is intended. Trees flattened before the upgrade are not repaired (see UPGRADE_NOTES.md).
+
+---
+
+## Staff Logout Runs Without A Valid Access Token (2026-10-13)
+
+`POST /api/auth/logout` answered `401` before its handler ran once the access token expired, so the remember-me session was never revoked ([#7225](https://github.com/open-mercato/open-mercato/issues/7225)). It now declares `requireAuth: false`, like the portal logout:
+
+| Surface | Change | Classification |
+|---------|--------|----------------|
+| API route gating | `requireAuth` `true` → `false`; the handler revokes only the sessions its own cookies identify | ⚠️ Narrow relaxation: missing/unverifiable token or no cookie got `401`, now `307` (UPGRADE_NOTES.md) |
+| URL, method, response shape | Unchanged | ✓ n/a |
+| `auth.logout` event | Emitted only for a verified staff `auth_token` (now incl. MFA-pending); `session_token`-only revocation emits none | ✓ No ID or payload change |
+| Database schema, ACL features, DI names, CLI commands | No change | ✓ n/a |
+
+**Migration path for existing modules**: none. A client that read a logout `401` as "already signed out" gets the redirect instead.
+
+## Discord AI Proposals (2026-10-13)
+
+[Waiver](UPGRADE_NOTES.md#discord-proposals)
+
+---
+
+## OAuth2 Grant Lifecycle Core (2026-10-12)
+
+[`.ai/specs/2026-10-01-oauth2-grant-lifecycle-core.md`](.ai/specs/2026-10-01-oauth2-grant-lifecycle-core.md) (parent: [`.ai/specs/2026-09-27-app-spec-oauth2-grant-lifecycle.md`](.ai/specs/2026-09-27-app-spec-oauth2-grant-lifecycle.md) §10.1) adds a tenant-level OAuth2 grant core to `integrations` that no existing integration uses yet. **All changes are additive** except the reserved `__oauth_grant` suffix, an intentional security narrowing that no first-party integration or bundle id hits. Developer guide: `apps/docs/docs/framework/modules/integrations-oauth-grants.mdx`.
+
+| Surface | Change | Classification |
+|---------|--------|----------------|
+| Import paths (§4) | New `@open-mercato/shared/lib/db/advisoryLock` (explicit `exports` entry); `@open-mercato/core/modules/integrations/lib/oauth/{token-endpoint,pkce,authorization,redirect,resource-challenge,descriptor,grant-service,health}` and `…/lib/oauth/testing/fakeAuthorizationServer` — exactly these files, no directory index. Every path, plus `…/lib/credentials-service`, `…/lib/log-service` and the hub's `…/communication_channels/lib/oauth-state`, is verified against the built `dist` by `scripts/check-oauth-publish-shape.mjs` in CI | ✓ ADDITIVE (new import paths) |
+| Type definitions (§2) | New `OAuthProviderDescriptor`, `OAuthGrantOwner`, `OAuthTokenEndpointResponse`, `OAuthClientAuthMethod`, the grant-service result and inspection types (the inspection carries no token), `AdvisoryLockOptions` (`waitDeadlineMs`, `maxConcurrentHolders`); the `FakeAuthorizationServer` handle with its options, `FakeInjection` and `FakeRotationMode`; error classes `OAuthGrantError`, `OAuthDescriptorError`, `AdvisoryLockUnavailableError` (`reason: AdvisoryLockUnavailableReason` = `'deadline' \| 'transient_db' \| 'commit_unknown'`); closed unions (`OAuthTokenFailure`, `OAuthConnectFailure`, `OAuthConnectionState`, `OAuthUnavailableReason`, …) that are additive-only, so consumers keep a default branch. `IntegrationOAuthGrantService` is a type to call, not to implement: adding a method is additive. Optional `IntegrationDetailPageConfig.connectTabId`. `CredentialsService`, `IntegrationLogService` and `IntegrationCredentialFieldOauth` are unchanged apart from `@internal` options | ✓ ADDITIVE (new types; optional fields) |
+| Function signatures (§3) | New `withAdvisoryXactLock`, `createPkcePair`, `buildAuthorizationUrl`, `exchangeAuthorizationCode`, `resolveOAuthRedirectUri`, `classifyResourceChallenge`, `mapInspectionToHealth` with `OAUTH_HEALTH_CODES`, `startFakeAuthorizationServer` with the methods of the handle it returns (`issueAuthorizationCode`, `inject`, `revokeAuthorization`, `reset`, `counters`, `requests`, `issuedTokens`, `close`) and the `IntegrationOAuthGrantService` methods | ✓ ADDITIVE (new functions) |
+| DI service names (§9) | New scoped `integrationOAuthGrantService`. Contract note: inside the grant lock the service builds its credentials and log services from the core factories, so DI overrides of `integrationCredentialsService` don't apply to grant rows | ✓ ADDITIVE |
+| API routes (§7) | `GET /api/integrations/:id` gains the nullable `oauthGrant: { status: 'active' \| 'invalidated' \| 'unavailable' } \| null` (always present; `null` without a live grant) and returns `integration.detailPage.connectTabId` | ✓ ADDITIVE (response fields) |
+| Widget injection context (§6) | Spot IDs unchanged; the `integrations.detail.v1` context gains the optional `detail.oauthGrant` and `integration.detailPage.connectTabId` | ✓ ADDITIVE (context fields) |
+| Log and health codes | Log codes `integrations.oauth_*` and the `OAUTH_HEALTH_CODES` values with `OAuthHealthCode` | ✓ ADDITIVE; STABLE once released, additive-only |
+| Persisted formats | The grant row id `<integrationId>__oauth_grant`; the blob `version`; the lock key `oauth_grant:<integrationId>:<tenantId>:<organizationId>:<userId or ->` and its mapping `pg_try_advisory_xact_lock(hashtextextended(key, 0))`; `resourceKind` `integrations.oauth_grant`; the `Symbol.for` brands `@open-mercato/shared:AdvisoryLockUnavailableError`, `@open-mercato/core:OAuthGrantError` and `@open-mercato/core:OAuthDescriptorError` that keep `instanceof` reliable across module copies. The codes `integrations.oauth_disconnected` and `integrations.oauth_revocation_{pending,confirmed,failed,unsupported,skipped_reconnected,skipped_invalidated}` with their `disconnectId` payload key are read back to derive `lastDisconnect`; the per-process holder-slot registry `globalThis.__openMercatoAdvisoryLockSlots__` is shared by every `@open-mercato/shared` instance | The lock key, its mapping and the brand keys FROZEN for every existing Grant Owner (processes of two versions must exclude each other during a rolling deploy); everything else ADDITIVE-ONLY |
+| External dependency | Provider routes import the hub-owned `@open-mercato/core/modules/communication_channels/lib/oauth-state`: `createOAuthState`, `verifyOAuthState`, `consumeOAuthStateOnce`, `OAuthStatePayload`, `OAuthStateConsumeStore` and `OAuthStateError` (its `code` values additive-only, `replay` included) are documented as STABLE; the path's other exports are not covered | ✓ No change to the path (now a documented STABLE import) |
+| Testing contract | With `OM_ENABLE_TEST_OAUTH_GRANTS` on (or outside production), a descriptor may use `http:` endpoints on a loopback host (`localhost`, `127.0.0.1`, `[::1]`), so a provider's test seam can point its descriptor at an in-process fake; otherwise endpoints are `https:` | STABLE; the flag itself enables nothing else for providers |
+| API routes (§7): `GET` / `PUT /api/integrations/:id/credentials` | Answer 404 for any id ending in `__oauth_grant`, also when an integration with that id is registered (I4: grant secrets never reach the admin credentials API) | ⚠️ Intentional security narrowing only (no first-party integration id ends in the suffix) |
+| Function behaviour (§3, §9): `resolve()` and `resolveUpdatedAt()` of `createCredentialsService` / DI `integrationCredentialsService` | Don't fall through to a `bundleId` ending in `__oauth_grant`, for every caller (integration list and detail GETs, the credentials route, the health service, data_sync); the grant service's Client Configuration read skips it too | ⚠️ Intentional security narrowing only (I4, I7; no first-party bundle id ends in the suffix) |
+| Explicitly not covered (`@internal`) | `createIntegrationOAuthGrantService`, `IntegrationOAuthGrantServiceDeps`, `requestTokenEndpoint`, `revokeToken`, `OAuthTokenEndpointError` with `OAuthTokenEndpointErrorKind` and its brand, `OAUTH_RESPONSE_MAX_BYTES`, `OAuthClientCredentials`, `OAuthInvalidatedReason`, `oauthProviderDescriptorSchema`, `resolveOAuthProviderDescriptor`, `AdvisoryLockOptions.onWait` with `AdvisoryLockWaitResult`, `isTransientLockDbError` (`@open-mercato/shared/lib/db/pg-errors`), the third parameter `{ kms }` of `createCredentialsService`, `CredentialsWriteOptions.ensureEncryptionMap`, `eraseIntegrationCredentials`, `readCredentialRowLayered`, `LayeredCredentialRead`, `isReservedOAuthGrantId`, `bundleFallthroughId`, `findLatestIntegrationLogsByCodes`, and every export of `lib/oauth/{grant-blob,pin-tenant-dek,error-brand}` | Not a contract surface; may change without the deprecation protocol |
+| Not contracts | The test-only route `POST /api/integrations/test-oauth-grants`, its helper `@open-mercato/core/helpers/integration/oauthGrantTestRoute`, the flag `OM_ENABLE_TEST_OAUTH_GRANTS` (apart from the testing contract above) and the `test_oauth_grant` integration (like `test-seed`) | n/a |
+| Event IDs, database schema, ACL features, notification types, AI agent and tool IDs, CLI commands | No change | ✓ n/a |
+
+**Migration path for existing modules**: none for first-party code. Third-party modules must not register an integration or bundle id that ends in `__oauth_grant` (see `UPGRADE_NOTES.md`).
+
+## #7220
+
+[Cache fix](UPGRADE_NOTES.md)

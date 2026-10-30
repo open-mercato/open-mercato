@@ -1,0 +1,19 @@
+{
+  "carrier_inpost.config.action.configureCredentials": "Skonfiguruj dane uwierzytelniające",
+  "carrier_inpost.config.credential.apiToken": "Token API (Bearer) — z InPost Managera → API → Tokeny",
+  "carrier_inpost.config.credential.organizationId": "ID organizacji — UUID widoczny w adresie URL InPost Managera po /organizations/",
+  "carrier_inpost.config.help": "Skonfiguruj token API InPost i identyfikator organizacji w danych uwierzytelniających integracji. Dostępne usługi: paczkomaty (standardowy i ekspres) oraz kurier.",
+  "carrier_inpost.config.requiredCredentials": "Wymagane dane uwierzytelniające:",
+  "carrier_inpost.description": "Wysyłaj paczki przez paczkomaty InPost i kuriera z śledzeniem w czasie rzeczywistym.",
+  "carrier_inpost.feature.configure": "Konfiguracja ustawień InPost",
+  "carrier_inpost.feature.view": "Podgląd konfiguracji InPost",
+  "carrier_inpost.tabs.settings": "Ustawienia InPost",
+  "carrier_inpost.title": "InPost",
+  "carrier_inpost.tracking.errorFetch": "Nie udało się pobrać informacji o śledzeniu",
+  "carrier_inpost.tracking.errorLoadShipments": "Nie udało się załadować przesyłek",
+  "carrier_inpost.tracking.loading": "Wczytywanie śledzenia...",
+  "carrier_inpost.tracking.noEvents": "Brak zdarzeń śledzenia.",
+  "carrier_inpost.tracking.noShipment": "Nie znaleziono przesyłki InPost dla tego zamówienia.",
+  "carrier_inpost.tracking.title": "Śledzenie InPost",
+  "carrier_inpost.tracking.trackingNumber": "Numer śledzenia"
+}
