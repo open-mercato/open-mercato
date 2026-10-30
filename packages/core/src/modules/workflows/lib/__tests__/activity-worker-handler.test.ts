@@ -33,6 +33,11 @@ import type { WorkflowActivityJob, WorkflowActivityJobActivity } from '../activi
 
 const mockLogWorkflowEvent = logWorkflowEvent as jest.MockedFunction<typeof logWorkflowEvent>
 
+const slowCooperativeState = {
+  capturedSignal: undefined as AbortSignal | undefined,
+  cancelled: false,
+}
+
 registerActivityType({
   id: 'TEST_NOT_ASYNC',
   icon: 'Ban',
@@ -41,6 +46,25 @@ registerActivityType({
   form: [],
   execute: async () => ({ ok: true }),
   async: { capable: false, reason: 'requiresRequestScope' },
+})
+
+registerActivityType({
+  id: 'TEST_SLOW_COOPERATIVE',
+  icon: 'Clock',
+  i18nKey: 'workflows.activities.types.TEST_SLOW_COOPERATIVE',
+  configSchema: z.object({}),
+  form: [],
+  execute: async (_config, _ctx, deps) =>
+    new Promise((resolve, reject) => {
+      slowCooperativeState.capturedSignal = deps.signal
+      const timerId = setTimeout(() => resolve({ ok: true }), 500)
+      deps.signal?.addEventListener('abort', () => {
+        clearTimeout(timerId)
+        slowCooperativeState.cancelled = true
+        reject(new DOMException('The operation was aborted', 'AbortError'))
+      })
+    }),
+  async: { capable: true },
 })
 
 describe('Activity Worker Handler (registry dispatch)', () => {
@@ -72,6 +96,8 @@ describe('Activity Worker Handler (registry dispatch)', () => {
 
   beforeEach(() => {
     jest.clearAllMocks()
+    slowCooperativeState.capturedSignal = undefined
+    slowCooperativeState.cancelled = false
 
     mockInstance = {
       id: 'instance-1',
@@ -199,5 +225,61 @@ describe('Activity Worker Handler (registry dispatch)', () => {
     await expect(
       handler(makeJob(makePayload({ activityType: 'UNKNOWN_TYPE' })), jobCtx)
     ).rejects.toThrow('Unsupported activity type: UNKNOWN_TYPE')
+  })
+
+  test('aborts a slow activity when timeoutMs elapses (#5148 worker path)', async () => {
+    const handler = createActivityWorkerHandler(mockEm, mockContainer)
+
+    await expect(
+      handler(
+        makeJob(
+          makePayload({
+            activityType: 'TEST_SLOW_COOPERATIVE',
+            timeoutMs: 20,
+          })
+        ),
+        jobCtx
+      )
+    ).rejects.toThrow(/Activity timeout after 20ms/)
+
+    expect(slowCooperativeState.capturedSignal?.aborted).toBe(true)
+    expect(slowCooperativeState.cancelled).toBe(true)
+    expect(mockLogWorkflowEvent).toHaveBeenCalledWith(
+      mockEm,
+      expect.objectContaining({ eventType: 'ACTIVITY_FAILED' })
+    )
+  })
+
+  test('honors a webhook timeout longer than the 30-second default in the worker', async () => {
+    jest.useFakeTimers()
+    const originalFetch = global.fetch
+    const originalAllowPrivate = process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS
+    process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS = '1'
+    global.fetch = jest.fn(() => new Promise<Response>((resolve) => {
+      setTimeout(() => resolve(new Response('complete')), 60000)
+    }))
+    try {
+      const handler = createActivityWorkerHandler(mockEm, mockContainer)
+      const pending = handler(makeJob(makePayload({
+        activityType: 'CALL_WEBHOOK',
+        activityConfig: { url: 'https://example.com/webhook' },
+        timeoutMs: 120000,
+      })), jobCtx)
+      const assertion = expect(pending).resolves.toBeUndefined()
+
+      await jest.advanceTimersByTimeAsync(60000)
+
+      await assertion
+      expect(mockLogWorkflowEvent).toHaveBeenCalledWith(mockEm, expect.objectContaining({
+        eventType: 'ACTIVITY_COMPLETED',
+        eventData: expect.objectContaining({ output: expect.objectContaining({ result: 'complete' }) }),
+      }))
+      expect(jest.getTimerCount()).toBe(0)
+    } finally {
+      global.fetch = originalFetch
+      if (originalAllowPrivate === undefined) delete process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS
+      else process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS = originalAllowPrivate
+      jest.useRealTimers()
+    }
   })
 })

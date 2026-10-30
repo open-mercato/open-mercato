@@ -28,7 +28,7 @@ Describe what actually happened, including screenshots or logs if helpful.
 
 ## Environment
 
-- Branch: `develop` / other?
+- Version or branch: `main` / `release/vX.Y.x` / npm version?
 - Module or area:
 - Browser/Runtime:
 

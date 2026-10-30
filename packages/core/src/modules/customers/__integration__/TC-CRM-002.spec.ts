@@ -5,18 +5,26 @@ import { fileURLToPath } from 'node:url';
 import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth';
 import { deleteEntityIfExists } from '@open-mercato/core/modules/core/__integration__/helpers/crmFixtures';
 import { getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api';
-import { CUSTOMER_URL_INVALID_MESSAGE_KEY } from '@open-mercato/core/modules/customers/data/validators';
+import {
+  CUSTOMER_EMAIL_INVALID_MESSAGE_KEY,
+  CUSTOMER_URL_INVALID_MESSAGE_KEY,
+} from '@open-mercato/core/modules/customers/data/validators';
 
-// The URL validator emits an i18n key that CrudForm resolves through `t(key, key)`,
+// The email and URL validators emit i18n keys that CrudForm resolves through `t(key, key)`,
 // so the rendered text is whatever en.json maps that key to.
 const integrationDirectory = path.dirname(fileURLToPath(import.meta.url));
 const englishCustomers = JSON.parse(
   readFileSync(path.join(integrationDirectory, '../i18n/en.json'), 'utf8'),
 ) as Record<string, string>;
-const invalidUrlMessage = englishCustomers[CUSTOMER_URL_INVALID_MESSAGE_KEY];
-if (!invalidUrlMessage) {
-  throw new Error(`[internal] en.json is missing "${CUSTOMER_URL_INVALID_MESSAGE_KEY}"`);
+function englishMessage(key: string): string {
+  const message = englishCustomers[key];
+  if (!message) {
+    throw new Error(`[internal] en.json is missing "${key}"`);
+  }
+  return message;
 }
+const invalidEmailMessage = englishMessage(CUSTOMER_EMAIL_INVALID_MESSAGE_KEY);
+const invalidUrlMessage = englishMessage(CUSTOMER_URL_INVALID_MESSAGE_KEY);
 
 async function safeFill(page: Page, locator: Locator, value: string): Promise<void> {
   await expect(locator).toBeVisible({ timeout: 15_000 });
@@ -77,7 +85,7 @@ test.describe('TC-CRM-002: Company Creation Validation Errors', () => {
       await safeFill(page, websiteInput, 'notaurl');
       await submitBtn.click();
 
-      await expect(page.getByText('Invalid email address')).toBeVisible();
+      await expect(page.getByText(invalidEmailMessage)).toBeVisible();
       await expect(page.getByText(invalidUrlMessage)).toBeVisible();
       // Wait for the form to leave its submitting state before the second safeFill chain;
       // otherwise the inputs may briefly ignore keystrokes while the validation re-render

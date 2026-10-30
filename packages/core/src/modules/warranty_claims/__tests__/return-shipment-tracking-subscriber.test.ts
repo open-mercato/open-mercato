@@ -216,6 +216,20 @@ function makeTransitionCommandContext(): CommandRuntimeContext {
   }
 }
 
+function makeSystemActorTransitionContext(): CommandRuntimeContext {
+  const base = makeTransitionCommandContext()
+  return {
+    ...base,
+    auth: null,
+    organizationScope: {
+      selectedId: ORG_ID,
+      filterIds: null,
+      allowedIds: null,
+      tenantId: TENANT_ID,
+    },
+  }
+}
+
 beforeEach(() => {
   mockLoggerDebug.mockReset()
   mockLoggerWarn.mockReset()
@@ -294,7 +308,13 @@ describe('warranty claim return-shipment tracking subscriber', () => {
         systemNote: SYSTEM_NOTE,
       },
       ctx: expect.objectContaining({
-        auth: { sub: SYSTEM_USER_ID, tenantId: TENANT_ID, orgId: ORG_ID },
+        auth: null,
+        organizationScope: {
+          selectedId: ORG_ID,
+          filterIds: null,
+          allowedIds: null,
+          tenantId: TENANT_ID,
+        },
         selectedOrganizationId: ORG_ID,
         organizationIds: [ORG_ID],
         systemActor: true,
@@ -414,6 +434,35 @@ describe('warranty claim transition system note', () => {
         to: 'received',
         systemNote: SYSTEM_NOTE,
       },
+    })
+  })
+
+  test('attributes a system-actor transition to no user instead of a non-existent actor id', async () => {
+    mockTransitionClaim = {
+      id: CLAIM_ID,
+      tenantId: TENANT_ID,
+      organizationId: ORG_ID,
+      claimNumber: 'WTY-000001',
+      claimType: 'warranty',
+      status: 'awaiting_return',
+      customerId: null,
+      externalRef: null,
+      awaitingStaffReply: false,
+      slaPausedAt: null,
+      updatedAt: new Date(),
+      deletedAt: null,
+    } as WarrantyClaim
+
+    await transitionClaimCommand.execute({
+      id: CLAIM_ID,
+      toStatus: 'received',
+      systemNote: SYSTEM_NOTE,
+    }, makeSystemActorTransitionContext())
+
+    expect(mockTimelineEvents).toHaveLength(1)
+    expect(mockTimelineEvents[0]).toMatchObject({
+      kind: 'status_changed',
+      actorUserId: null,
     })
   })
 })

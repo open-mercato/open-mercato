@@ -55,7 +55,7 @@ test.describe('TC-WC-031: over-claim quantity guards', () => {
       })
       const inlineOverBody = await readJsonSafe<{ error?: string }>(inlineOverResponse)
       expect(inlineOverResponse.status(), `inline over-claim should 400: ${JSON.stringify(inlineOverBody)}`).toBe(400)
-      expect(inlineOverBody?.error ?? '').toContain('qtyExceedsOrdered')
+      expect(inlineOverBody?.error ?? '').toContain('Claimed quantity exceeds the quantity sold on the linked order line.')
 
       const duplicateRowsResponse = await apiRequest(request, 'POST', '/api/warranty_claims', {
         token,
@@ -66,7 +66,7 @@ test.describe('TC-WC-031: over-claim quantity guards', () => {
       })
       const duplicateRowsBody = await readJsonSafe<{ error?: string }>(duplicateRowsResponse)
       expect(duplicateRowsResponse.status(), `same-claim duplicate rows summing over sold should 400: ${JSON.stringify(duplicateRowsBody)}`).toBe(400)
-      expect(duplicateRowsBody?.error ?? '').toContain('qtyExceedsOrdered')
+      expect(duplicateRowsBody?.error ?? '').toContain('Claimed quantity exceeds the quantity sold on the linked order line.')
 
       const claim = await createClaimFixture(request, token, claimBody(orderId, stamp, [{ orderLineId, qtyClaimed: 1 }]))
       claimId = claim.id ?? null
@@ -81,7 +81,7 @@ test.describe('TC-WC-031: over-claim quantity guards', () => {
       }, claim.updatedAt)
       const lineOverBody = await readJsonSafe<{ error?: string }>(lineOverResponse)
       expect(lineOverResponse.status(), `appending a line that pushes the claim over sold qty should 400: ${JSON.stringify(lineOverBody)}`).toBe(400)
-      expect(lineOverBody?.error ?? '').toContain('qtyExceedsOrdered')
+      expect(lineOverBody?.error ?? '').toContain('Claimed quantity exceeds the quantity sold on the linked order line.')
 
       const withinResponse = await createClaimLine(request, token, {
         claimId: claim.id,

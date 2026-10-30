@@ -30,6 +30,11 @@ import {
   CustomerTodoLink,
 } from '../../data/entities'
 import { CustomFieldDef } from '@open-mercato/core/modules/entities/data/entities'
+import {
+  registerCoreInjectionTables,
+  registerCoreInjectionWidgets,
+  registerEnabledModuleIds,
+} from '@open-mercato/shared/modules/widgets/injection-loader'
 // Todo type removed - example package no longer exists
 type Todo = {
   id: string
@@ -100,6 +105,8 @@ function createMockContext(deps: {
           return em
         case 'dataEngine':
           return engine
+        case 'organizationHierarchyService':
+          return { resolveAncestorIds: async () => [] }
         default:
           throw new Error(`Unexpected dependency: ${token}`)
       }
@@ -121,6 +128,11 @@ function createMockContext(deps: {
 }
 
 describe('customers commands undo custom fields', () => {
+  beforeAll(() => {
+    registerCoreInjectionWidgets([])
+    registerCoreInjectionTables([])
+    registerEnabledModuleIds(['customers'])
+  })
   afterEach(() => {
     jest.clearAllMocks()
   })

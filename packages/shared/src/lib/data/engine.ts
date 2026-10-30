@@ -98,6 +98,9 @@ export interface DataEngine {
     tenantId?: string | null
     values: Record<string, string | number | boolean | null | undefined | Array<string | number | boolean | null | undefined>>
     notify?: boolean // default true -> emit '<module>.<entity>.updated'
+    // Forwarded to `setRecordCustomFields` — see its doc for when a caller must pass
+    // true (a recordId that is not unique across organizations for this entityId).
+    pinOrganizationId?: boolean
   }): Promise<void>
 
   // Storage for user-defined entities (doc-based)
@@ -287,6 +290,7 @@ export class DefaultDataEngine implements DataEngine {
       tenantId,
       values: sanitizedValues,
       encryptionService,
+      pinOrganizationId: opts.pinOrganizationId === true,
     })
     if (opts.notify !== false) {
       let bus: EventBus | null = null
@@ -473,6 +477,10 @@ export class DefaultDataEngine implements DataEngine {
         tenantId: tenantId,
         values: normalizeCustomFieldValues(sanitizedValues),
         notify: opts.notify, // defaults to true
+        // custom_entities_storage upserts on (entity_type, entity_id, organization_id),
+        // so `id` is unique only within this organization, not across organizations —
+        // pin the reconciling delete/lookup to this organization (#6034 review).
+        pinOrganizationId: true,
       })
     }
 
@@ -544,6 +552,10 @@ export class DefaultDataEngine implements DataEngine {
         tenantId: tenantId,
         values: normalizeCustomFieldValues(sanitizedValues),
         notify: opts.notify, // defaults to true
+        // custom_entities_storage upserts on (entity_type, entity_id, organization_id),
+        // so `id` is unique only within this organization, not across organizations —
+        // pin the reconciling delete/lookup to this organization (#6034 review).
+        pinOrganizationId: true,
       })
     }
   }

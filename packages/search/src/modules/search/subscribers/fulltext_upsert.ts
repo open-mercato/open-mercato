@@ -37,7 +37,8 @@ export default async function handle(payload: Payload, ctx: HandlerContext) {
   // Resolve missing scope from DB if needed (same pattern as vector_upsert.ts)
   if ((organizationId == null || tenantId == null) && em) {
     try {
-      const db = em.getKysely()
+      const lookupEm = typeof em.fork === 'function' ? em.fork() : em
+      const db = lookupEm.getKysely()
       const table = resolveEntityTableName(em, entityType)
       const row = await db
         .selectFrom(table as any)

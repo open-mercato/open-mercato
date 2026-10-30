@@ -151,7 +151,11 @@ export async function executePendingActionCancel(
   const executionResult: AiPendingActionExecutionResult = {
     error: {
       code: 'cancelled_by_user',
-      message: trimmedReason.length > 0 ? trimmedReason : 'Cancelled by user',
+      // Left empty when no reason is supplied: this is surfaced as a
+      // neutral "proposal cancelled" message in the client, which
+      // supplies its own localized default copy (see MutationResultCard)
+      // instead of a hardcoded English string.
+      message: trimmedReason,
     },
   }
 

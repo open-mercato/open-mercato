@@ -32,6 +32,10 @@ Route first; never probe unmatched context.
 
 Broad: `yarn generate && yarn typecheck && yarn lint && yarn ds:check && yarn test && yarn build`; integration: `yarn test:integration:ephemeral`. Never migrate to validate.
 
+## Production Deployment
+
+Route production deployment, go-live, or security-readiness work to `architecture` and read `.ai/guides/production-deployment.md`. During routing, do not open `.env*`; the guide carries the safe configuration inventory. During the later readiness review, inspect only names and comments in the checked-in `.env.example`; never read or report live `.env` values. Ask before touching credentials, billable infrastructure, or a live deployment.
+
 ## Three-Axis Context Assembler
 
 Routes are additive: ownership says WHO; other axes say WHAT. Select every match.
@@ -68,6 +72,7 @@ Match every work-unit row; OPEN its skill before selection.
 
 | Route | Work unit | Skill/context |
 |---|---|---|
+| `architecture` | Scaffold a module starter, publish, or link an app module | `.ai/guides/module-tool.md`; implementation also loads `om-module-scaffold` |
 | `architecture` | Explain/choose module, UMES, package, eject | architecture; `om-help` for an unresolved or comparative choice across these mechanisms |
 | `module-data` | Business slice or multi-seam domain/API/command fix | MUST load `om-module-scaffold` + its exact `.ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md` key, which resolves units inside the slice, not ownership — an ownership/capability outline adds `architecture` |
 | `spec-pr` | Spec/plan | Axis 3; phases+integration coverage (`integration-coverage`); no domain routes |

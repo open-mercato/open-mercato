@@ -228,4 +228,115 @@ describe('buildReportSheet', () => {
     expect(byDay.totals.totalAmount).toBe(byTask.totals.totalAmount)
     expect(byDay.grouping).toBe('project_day')
   })
+
+  /**
+   * D-5: the opt-in lets a later report re-include an hour an earlier report
+   * already froze, so one entry can carry a freeze record in two closed reports.
+   * Each of them still has to render exactly what it froze.
+   */
+  describe('an hour two closed reports quote', () => {
+    const LATER_REPORT_ID = 'report-2'
+
+    function freezeRow(reportId: string, overrides: Record<string, unknown> = {}) {
+      return {
+        id: `freeze-${reportId}`,
+        reportId,
+        timeEntryId: 'e1',
+        tenantId: TENANT_ID,
+        organizationId: ORG_ID,
+        frozenRawMinutes: 600,
+        frozenRoundedMinutes: 600,
+        frozenRateAmount: '320.0000',
+        frozenCurrencyCode: 'PLN',
+        frozenAmount: '3200.00',
+        frozenIsBillable: true,
+        ...overrides,
+      }
+    }
+
+    const earlier = reportRow({
+      status: 'closed',
+      reference: 'RAP-2026-0041',
+      closedAt: new Date('2026-07-01T10:00:00.000Z'),
+    })
+    const later = reportRow({
+      id: LATER_REPORT_ID,
+      status: 'closed',
+      reference: 'RAP-2026-0042',
+      includeAlreadyReported: true,
+      closedAt: new Date('2026-07-05T10:00:00.000Z'),
+    })
+
+    function sharedEm(freezes: Array<Record<string, unknown>>, reports: StaffTimeReport[] = [earlier, later]) {
+      return makeEm(
+        new Map<unknown, Array<Record<string, unknown>>>([
+          [StaffTimeProject, [project]],
+          [StaffTimeEntry, [liveEntry]],
+          [StaffTimeTask, []],
+          [StaffTimeReportEntry, freezes],
+          [StaffTimeReport, reports as unknown as Array<Record<string, unknown>>],
+        ]),
+      )
+    }
+
+    // The freeze rows come back in whatever order the database likes, so both orders are pinned.
+    it.each([
+      ['the earlier report’s record is read first', [freezeRow(REPORT_ID), freezeRow(LATER_REPORT_ID)]],
+      ['the later report’s record is read first', [freezeRow(LATER_REPORT_ID), freezeRow(REPORT_ID)]],
+    ])('keeps the hour on both sheets when %s', async (_label, freezes) => {
+      const em = sharedEm(freezes)
+
+      for (const closedReport of [earlier, later]) {
+        const sheet = await buildReportSheet({
+          em,
+          scope: { tenantId: TENANT_ID, organizationId: ORG_ID },
+          report: closedReport,
+          timeProjectIds: [PROJECT_ID],
+          labels,
+        })
+
+        expect(sheet.entries.map((entry) => entry.id)).toEqual(['e1'])
+        expect(sheet.entries[0].frozen?.reportId).toBe(closedReport.id)
+        expect(sheet.totals.entryCount).toBe(1)
+        expect(sheet.totals.billableMinutes).toBe(600)
+        expect(sheet.totals.totalAmount).toBe(3200)
+        expect(sheet.totals.alreadyReportedCount).toBe(0)
+      }
+    })
+
+    it('renders each closed report from its own record, not the other report’s', async () => {
+      const em = sharedEm([
+        freezeRow(REPORT_ID),
+        freezeRow(LATER_REPORT_ID, { frozenRoundedMinutes: 300, frozenAmount: '1600.00' }),
+      ])
+      const base = { em, scope: { tenantId: TENANT_ID, organizationId: ORG_ID }, timeProjectIds: [PROJECT_ID], labels }
+
+      const earlierSheet = await buildReportSheet({ ...base, report: earlier })
+      const laterSheet = await buildReportSheet({ ...base, report: later })
+
+      expect(earlierSheet.totals.totalAmount).toBe(3200)
+      expect(laterSheet.totals.totalAmount).toBe(1600)
+      expect(laterSheet.totals.billableMinutes).toBe(300)
+    })
+
+    it.each([
+      ['the earlier report’s record is read first', [freezeRow(REPORT_ID), freezeRow(LATER_REPORT_ID)]],
+      ['the later report’s record is read first', [freezeRow(LATER_REPORT_ID), freezeRow(REPORT_ID)]],
+    ])('names the report that closed first as the source for a new draft when %s', async (_label, freezes) => {
+      const draft = reportRow({ id: 'report-3' })
+      const sheet = await buildReportSheet({
+        em: sharedEm(freezes, [earlier, later, draft]),
+        scope: { tenantId: TENANT_ID, organizationId: ORG_ID },
+        report: draft,
+        timeProjectIds: [PROJECT_ID],
+        labels,
+      })
+
+      expect(sheet.totals.entryCount).toBe(0)
+      expect(sheet.totals.alreadyReportedCount).toBe(1)
+      expect(sheet.totals.alreadyReportedIn).toEqual([
+        expect.objectContaining({ reportId: REPORT_ID, reference: 'RAP-2026-0041', entryCount: 1 }),
+      ])
+    })
+  })
 })

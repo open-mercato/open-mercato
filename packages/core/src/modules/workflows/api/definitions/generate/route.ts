@@ -40,6 +40,7 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { getDeclaredEvents } from '@open-mercato/shared/modules/events'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import type { WorkflowDefinitionData } from '../../../data/entities'
 import {
   transitionTriggerSchema,
@@ -69,6 +70,7 @@ import { evaluateWorkflowDefinition } from '../../../lib/definition-evaluation'
 import { listWorkflowFunctions } from '../../../lib/workflow-function-registry'
 import { listWorkflowSafeCommands } from '../../../lib/workflow-safe-commands'
 import { workflowsTag, workflowErrorSchema } from '../../openapi'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
 const logger = createLogger('workflows')
 
@@ -150,7 +152,7 @@ export async function POST(request: NextRequest) {
 
     const scope = await resolveOrganizationScopeForRequest({ container, auth, request })
     const tenantId = auth.tenantId
-    const organizationId = scope?.selectedId ?? auth.orgId ?? null
+    const organizationId = resolveSingleOrganizationIdOrDeny(scope, auth) ?? null
 
     if (!tenantId) {
       return NextResponse.json({ error: 'Missing tenant context' }, { status: 400 })
@@ -304,6 +306,7 @@ export async function POST(request: NextRequest) {
       warningCount: evaluation.warningCount,
     })
   } catch (error) {
+    if (isCrudHttpError(error)) return NextResponse.json(error.body, { status: error.status })
     logger.error('Error generating workflow definition draft', { err: error })
     return NextResponse.json({ error: 'Failed to generate workflow draft' }, { status: 500 })
   }
