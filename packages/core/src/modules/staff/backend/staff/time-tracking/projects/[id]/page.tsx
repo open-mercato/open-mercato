@@ -447,7 +447,7 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
       const payload = await readApiResultOrThrow<EmployeesResponse>(
         `/api/staff/timesheets/time-projects/${projectId}/employees?page=1&pageSize=100`,
         undefined,
-        { errorMessage: t('staff.timesheets.projects.employees.empty', 'No employees assigned yet.'), fallback: { items: [], total: 0 } },
+        { errorMessage: translateRef.current('staff.timesheets.projects.employees.empty', 'No employees assigned yet.'), fallback: { items: [], total: 0 } },
       )
       const items = Array.isArray(payload.items) ? payload.items : []
 
@@ -496,7 +496,7 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
     } finally {
       setEmployeesLoading(false)
     }
-  }, [projectId, accessDenied, t])
+  }, [projectId, accessDenied])
 
   React.useEffect(() => {
     void loadEmployees()
