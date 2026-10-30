@@ -188,6 +188,8 @@
   "attachments.partitions.table.title": "제목",
   "attachments.partitions.table.visibility": "공개 범위",
   "attachments.partitions.title": "첨부 파일 파티션",
+  "attachments.search.badge.section": "섹션",
+  "attachments.search.fallback.title": "문서 섹션",
   "attachments.storage.nav.title": "저장소",
   "attachments.structure.actions.extract": "구조 추출",
   "attachments.structure.actions.loadMore": "더 불러오기",

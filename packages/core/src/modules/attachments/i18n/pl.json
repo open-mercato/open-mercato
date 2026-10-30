@@ -188,6 +188,8 @@
   "attachments.partitions.table.title": "Tytuł",
   "attachments.partitions.table.visibility": "Widoczność",
   "attachments.partitions.title": "Partycje załączników",
+  "attachments.search.badge.section": "Sekcja",
+  "attachments.search.fallback.title": "Sekcja dokumentu",
   "attachments.storage.nav.title": "Magazyn",
   "attachments.structure.actions.extract": "Wyodrębnij strukturę",
   "attachments.structure.actions.loadMore": "Wczytaj więcej",
