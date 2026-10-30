@@ -1,0 +1,130 @@
+{
+  "skill": "om-auto-qa-pr",
+  "mode": "evidence-only",
+  "pr": 8020,
+  "head": "082660dc1e11e31170bb6251dce8a04bffef3b22",
+  "mainHead": "666ed40a1887e3076adaf49c6a75257f32d392cf",
+  "verdict": "PASS",
+  "nativePassed": 16,
+  "skipped": 0,
+  "flaky": 0,
+  "finishedAt": "2026-10-30T21:17:49.085288+00:00",
+  "cases": [
+    {
+      "source": "packages/core/src/modules/catalog/__integration__/TC-CAT-044-markdown-code-block.spec.ts",
+      "title": "product description with fenced and tagged code blocks loads in rich-text mode",
+      "result": "PASS",
+      "durationMs": 5083
+    },
+    {
+      "source": "packages/core/src/modules/catalog/__integration__/TC-CAT-045-markdown-code-block-save.spec.ts",
+      "title": "changing a code block language from the dropdown is saved without typing afterward",
+      "result": "PASS",
+      "durationMs": 4732
+    },
+    {
+      "source": "packages/core/src/modules/catalog/__integration__/TC-CAT-045-markdown-code-block-save.spec.ts",
+      "title": "deleting a code block with the trash icon is saved without typing afterward",
+      "result": "PASS",
+      "durationMs": 4593
+    },
+    {
+      "source": "packages/core/src/modules/communication_channels/__integration__/TC-CHANNEL-API-009.spec.ts",
+      "title": "a non-owner gets the same 404 as for an unknown message or reaction",
+      "result": "PASS",
+      "durationMs": 641
+    },
+    {
+      "source": "packages/core/src/modules/communication_channels/__integration__/TC-CHANNEL-API-009.spec.ts",
+      "title": "the reaction bar shows the localized refusal to the mailbox owner",
+      "result": "PASS",
+      "durationMs": 2786
+    },
+    {
+      "source": "packages/core/src/modules/customers/__integration__/TC-CRM-8020-injected-tab-priority.spec.ts",
+      "title": "TC-CRM-8020: company detail orders contributed tabs without changing its default",
+      "result": "PASS",
+      "durationMs": 4134
+    },
+    {
+      "source": "packages/core/src/modules/customers/__integration__/TC-CRM-8020-injected-tab-priority.spec.ts",
+      "title": "TC-CRM-8020: person detail orders contributed tabs without changing its default",
+      "result": "PASS",
+      "durationMs": 4446
+    },
+    {
+      "source": "packages/core/src/modules/customers/__integration__/TC-CRM-8020-injected-tab-priority.spec.ts",
+      "title": "TC-CRM-8020: deal detail orders contributed tabs without changing its default",
+      "result": "PASS",
+      "durationMs": 3170
+    },
+    {
+      "source": "packages/core/src/modules/customers/__integration__/TC-CRM-UMES-PRIORITY-001.spec.ts",
+      "title": "people loads, saves and reloads native and owning-module fields",
+      "result": "PASS",
+      "durationMs": 4923
+    },
+    {
+      "source": "packages/core/src/modules/customers/__integration__/TC-CRM-UMES-PRIORITY-001.spec.ts",
+      "title": "companies loads, saves and reloads native and owning-module fields",
+      "result": "PASS",
+      "durationMs": 4208
+    },
+    {
+      "source": "packages/core/src/modules/customers/__integration__/TC-CRM-UMES-PRIORITY-001.spec.ts",
+      "title": "deals loads, saves and reloads native and owning-module fields",
+      "result": "PASS",
+      "durationMs": 4195
+    },
+    {
+      "source": "packages/core/src/modules/customers/__integration__/TC-CRM-UMES-PRIORITY-002.spec.ts",
+      "title": "TC-CRM-UMES-PRIORITY-002: Owning-module failure remains visible after native save",
+      "result": "PASS",
+      "durationMs": 3507
+    },
+    {
+      "source": "packages/core/src/modules/customers/__integration__/TC-CRM-UMES-PRIORITY-002.spec.ts",
+      "title": "TC-CRM-UMES-PRIORITY-002: Create failure feedback survives the successful native redirect",
+      "result": "PASS",
+      "durationMs": 2787
+    },
+    {
+      "source": "packages/core/src/modules/customers/__integration__/TC-CRM-UMES-SIDEBAR-001.spec.ts",
+      "title": "TC-CRM-UMES-SIDEBAR-001: person external IDs remain fresh and fit the responsive sidebar",
+      "result": "PASS",
+      "durationMs": 5424
+    },
+    {
+      "source": "packages/core/src/modules/customers/__integration__/TC-CRM-UMES-SIDEBAR-001.spec.ts",
+      "title": "TC-CRM-UMES-SIDEBAR-001: company external IDs remain fresh and fit the responsive sidebar",
+      "result": "PASS",
+      "durationMs": 5250
+    },
+    {
+      "source": "packages/core/src/modules/customers/__integration__/TC-CRM-UMES-SIDEBAR-001.spec.ts",
+      "title": "TC-CRM-UMES-SIDEBAR-001: deal external IDs remain fresh and fit the responsive sidebar",
+      "result": "PASS",
+      "durationMs": 4882
+    }
+  ],
+  "images": [
+    "reaction-refusal-pl.png",
+    "company-priority-desktop.png",
+    "company-priority-mobile.png",
+    "person-priority-desktop.png",
+    "person-priority-mobile.png",
+    "deal-priority-desktop.png",
+    "deal-priority-mobile.png",
+    "person-reloaded-fields.png",
+    "company-reloaded-fields.png",
+    "deal-reloaded-fields.png"
+  ],
+  "notes": [
+    "Fresh evidence-only OSS run on this exact published head, including main666ed40a (created-at lists, staff team assignment and shared rich-text fixes). All cases passed once, zero retries/skips; original assertions/timeouts/checks unchanged.",
+    "Real production app and disposable PostgreSQL were provisioned by the generated test-environment entrypoint. Fixtures have test-owned cleanup. The environment is stopped; no enterprise runtime exercise or human QA signoff is claimed.",
+    "The PR feature code is byte-identical across this clean main merge. Shared new-base integration was validated on082660dc with354focused core/shared/UI tests, package builds, generation and typechecks before publication. This is separate from this PR\u2019s required current-head GitHub CI.",
+    "Three rich-text cases prove fenced/tagged code blocks load and language-change/deletion saves without additional typing. Their automatic final screenshots scrolled to unrelated panels and are omitted from the curated visual evidence; assertions are in the actual executed case list.",
+    "The13customer/channel cases cover contributed-tab priority/defaults/ties/negative/absent-module behavior, real native/owning-module save+reload, controlled module-failure feedback, responsive external-ID freshness and real localized stale-reaction404 refusal. Stale-read snapshot and controlled failures are explicit test fixtures.",
+    "Representative priority/mobile, reloaded native fields and Polish refusal captures were visually inspected. Historical complete screenshots and failure-feedback captures remain linked in the previous QA report; no old screenshot is presented as this head."
+  ]
+}
