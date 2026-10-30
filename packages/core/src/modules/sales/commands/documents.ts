@@ -84,7 +84,9 @@ import {
   orderCreateSchema,
   ORDER_PAYMENT_LEDGER_WARNING_CODE,
   resolveSuppliedOrderPaymentLedgerFields,
+  amountsModeSchema,
   orderLineCreateSchema,
+  orderHeaderTotalsSchema,
   orderAdjustmentCreateSchema,
   invoiceCreateSchema,
   invoiceUpdateSchema,
@@ -131,9 +133,11 @@ import type {
   ShippingMethodContext,
 } from "../lib/providers";
 import {
+  type SalesAmountsMode,
   type SalesLineSnapshot,
   type SalesLineUomSnapshot,
   type SalesAdjustmentDraft,
+  type SalesDocumentAmounts,
   type SalesLineCalculationResult,
   type SalesDocumentCalculationResult,
 } from "../lib/types";
@@ -144,6 +148,18 @@ import {
   resolveUpsertTotalsOrigin,
   resolveUpsertCalculatedAmounts,
 } from "../lib/lineSnapshots";
+import {
+  assertAmountsModeUnsupportedOnQuote,
+  assertExternalHeaderComplete,
+  assertExternalLineComplete,
+  assertUniformAmountsMode,
+  buildExternalHeaderTotals,
+  hasAnySuppliedHeaderTotal,
+  readPersistedHeaderTotals,
+  refuseOnExternalOrder,
+  requireOrderTotalsForExternalWrite,
+} from "../lib/externalAmounts";
+import { isExternalAmountsMode } from "../lib/calculations";
 import { loadShippedQuantityByLine } from "../lib/shipments/snapshots";
 import { resolveDictionaryEntryValue, resolveCachedDictionaryEntryValue } from "../lib/dictionaries";
 import { assertOrderCanBeCancelled, isCancelledOrderStatus } from "../lib/orderCancellationGuard";
@@ -391,6 +407,7 @@ type OrderGraphSnapshot = {
     outstandingAmount: string;
     totalsSnapshot: Record<string, unknown> | null;
     lineItemCount: number;
+    totalsMode: SalesAmountsMode;
   };
   lines: OrderLineSnapshot[];
   adjustments: OrderAdjustmentSnapshot[];
@@ -431,6 +448,7 @@ type OrderLineSnapshot = {
   taxAmount: string;
   totalNetAmount: string;
   totalGrossAmount: string;
+  amountsMode: SalesAmountsMode;
   configuration: Record<string, unknown> | null;
   promotionCode: string | null;
   promotionSnapshot: Record<string, unknown> | null;
@@ -605,7 +623,7 @@ const addressSnapshotSchema = z
 // is 0 — and would turn a clear into a written zero.
 const exchangeRateSchema = z.coerce.number().min(0);
 
-export const documentUpdateSchema = z
+const documentUpdateFieldsSchema = z
   .object({
     id: z.string().uuid(),
     customerEntityId: z.string().uuid().nullable().optional(),
@@ -653,43 +671,63 @@ export const documentUpdateSchema = z
     tags: z.array(z.string().uuid()).optional(),
     customFields: z.record(z.string(), z.unknown()).optional(),
     customFieldSetId: z.string().uuid().nullable().optional(),
-  })
-  .refine(
-    (input) =>
-      typeof input.currencyCode === "string" ||
-      input.placedAt !== undefined ||
-      input.expectedDeliveryAt !== undefined ||
-      input.channelId !== undefined ||
-      input.statusEntryId !== undefined ||
-      input.exchangeRate !== undefined ||
-      input.paymentStatusEntryId !== undefined ||
-      input.fulfillmentStatusEntryId !== undefined ||
-      input.shippingAddressId !== undefined ||
-      input.billingAddressId !== undefined ||
-      input.customerEntityId !== undefined ||
-      input.customerContactId !== undefined ||
-      input.customerSnapshot !== undefined ||
-      input.metadata !== undefined ||
-      input.customerReference !== undefined ||
-      input.externalReference !== undefined ||
-      input.comment !== undefined ||
-      input.comments !== undefined ||
-      input.internalNotes !== undefined ||
-      input.orderNumber !== undefined ||
-      input.quoteNumber !== undefined ||
-      input.shippingAddressSnapshot !== undefined ||
-      input.billingAddressSnapshot !== undefined ||
-      input.shippingMethodId !== undefined ||
-      input.shippingMethodCode !== undefined ||
-      input.shippingMethodSnapshot !== undefined ||
-      input.paymentMethodId !== undefined ||
-      input.paymentMethodCode !== undefined ||
-      input.paymentMethodSnapshot !== undefined ||
-      input.tags !== undefined ||
-      input.customFields !== undefined ||
-      input.customFieldSetId !== undefined,
-    { message: "update_payload_empty" },
+    totalsMode: amountsModeSchema.optional(),
+    ...orderHeaderTotalsSchema.shape,
+  });
+
+type DocumentUpdateFields = z.infer<typeof documentUpdateFieldsSchema>;
+
+function carriesDocumentEdit(input: DocumentUpdateFields): boolean {
+  return (
+    typeof input.currencyCode === "string" ||
+    input.placedAt !== undefined ||
+    input.expectedDeliveryAt !== undefined ||
+    input.channelId !== undefined ||
+    input.statusEntryId !== undefined ||
+    input.exchangeRate !== undefined ||
+    input.paymentStatusEntryId !== undefined ||
+    input.fulfillmentStatusEntryId !== undefined ||
+    input.shippingAddressId !== undefined ||
+    input.billingAddressId !== undefined ||
+    input.customerEntityId !== undefined ||
+    input.customerContactId !== undefined ||
+    input.customerSnapshot !== undefined ||
+    input.metadata !== undefined ||
+    input.customerReference !== undefined ||
+    input.externalReference !== undefined ||
+    input.comment !== undefined ||
+    input.comments !== undefined ||
+    input.internalNotes !== undefined ||
+    input.orderNumber !== undefined ||
+    input.quoteNumber !== undefined ||
+    input.shippingAddressSnapshot !== undefined ||
+    input.billingAddressSnapshot !== undefined ||
+    input.shippingMethodId !== undefined ||
+    input.shippingMethodCode !== undefined ||
+    input.shippingMethodSnapshot !== undefined ||
+    input.paymentMethodId !== undefined ||
+    input.paymentMethodCode !== undefined ||
+    input.paymentMethodSnapshot !== undefined ||
+    input.tags !== undefined ||
+    input.customFields !== undefined ||
+    input.customFieldSetId !== undefined
   );
+}
+
+// The route cannot see an order's persisted mode, so it lets header totals count
+// as an edit; each command re-applies `documentEditSchema` once it can. An empty
+// update must not reach a quote: execution reverts a `sent` quote to draft.
+export const documentUpdateSchema = documentUpdateFieldsSchema.refine(
+  (input) =>
+    carriesDocumentEdit(input) ||
+    input.totalsMode !== undefined ||
+    hasAnySuppliedHeaderTotal(input),
+  { message: "update_payload_empty" },
+);
+
+const documentEditSchema = documentUpdateFieldsSchema.refine(carriesDocumentEdit, {
+  message: "update_payload_empty",
+});
 
 export type DocumentUpdateInput = z.infer<typeof documentUpdateSchema>;
 
@@ -2050,6 +2088,7 @@ async function loadOrderSnapshot(
         ? cloneJson(order.totalsSnapshot)
         : null,
       lineItemCount: order.lineItemCount,
+      totalsMode: order.totalsMode ?? "computed",
     },
     lines: lines.map((line) => ({
       id: line.id,
@@ -2083,6 +2122,7 @@ async function loadOrderSnapshot(
       taxAmount: line.taxAmount,
       totalNetAmount: line.totalNetAmount,
       totalGrossAmount: line.totalGrossAmount,
+      amountsMode: line.amountsMode ?? "computed",
       configuration: line.configuration ? cloneJson(line.configuration) : null,
       promotionCode: line.promotionCode ?? null,
       promotionSnapshot: line.promotionSnapshot
@@ -3125,6 +3165,7 @@ function createLineSnapshotFromInput(
       "customFields" in line && line.customFields
         ? cloneJson((line as any).customFields)
         : null,
+    amountsMode: (line as { amountsMode?: SalesAmountsMode | null }).amountsMode ?? null,
   };
 }
 
@@ -3164,7 +3205,12 @@ function convertLineCalculationToEntityInput(
   index: number,
 ) {
   const line = lineResult.line;
-  return reconcileLinePersistedTotals({
+  // The gross-derived net repair heals core-owned rows; on an external line a
+  // zero net is the caller's figure, not a defect to correct.
+  const persistTotals = isExternalAmountsMode(line.amountsMode)
+    ? <T,>(payload: T): T => payload
+    : reconcileLinePersistedTotals;
+  return persistTotals({
     lineNumber: line.lineNumber ?? index + 1,
     kind: line.kind ?? "product",
     statusEntryId: sourceLine.statusEntryId ?? null,
@@ -3202,6 +3248,8 @@ function convertLineCalculationToEntityInput(
     taxAmount: toNumericString(lineResult.taxAmount) ?? "0",
     totalNetAmount: toNumericString(lineResult.netAmount) ?? "0",
     totalGrossAmount: toNumericString(lineResult.grossAmount) ?? "0",
+    // Conditional: this converter also serves quote lines, which have no column.
+    ...(line.amountsMode ? { amountsMode: line.amountsMode } : {}),
     configuration: line.configuration ? cloneJson(line.configuration) : null,
     promotionCode: line.promotionCode ?? null,
     promotionSnapshot: sourceLine.promotionSnapshot
@@ -3696,6 +3744,25 @@ function applyOrderTotals(
   order.lineItemCount = lineCount;
 }
 
+function applyOrderLineAmountsFromCalculation(params: {
+  em: EntityManager;
+  lines: SalesOrderLine[];
+  calculation: SalesDocumentCalculationResult;
+  amountsMode: SalesAmountsMode;
+}): void {
+  const { em, lines, calculation, amountsMode } = params;
+  lines.forEach((line, index) => {
+    const result = calculation.lines[index];
+    if (!result) return;
+    line.amountsMode = amountsMode;
+    line.discountAmount = toNumericString(result.discountAmount) ?? "0";
+    line.taxAmount = toNumericString(result.taxAmount) ?? "0";
+    line.totalNetAmount = toNumericString(result.netAmount) ?? "0";
+    line.totalGrossAmount = toNumericString(result.grossAmount) ?? "0";
+    em.persist(line);
+  });
+}
+
 function normalizePaymentTotal(value: unknown): number {
   if (typeof value === "number" && Number.isFinite(value))
     return Math.max(value, 0);
@@ -4070,6 +4137,9 @@ function applyOrderSnapshot(
     ? cloneJson(snapshot.totalsSnapshot)
     : null;
   order.lineItemCount = snapshot.lineItemCount;
+  // Restored with the amounts, never separately: the lines come back with their
+  // own mode, so omitting this leaves a mixed document the next write recomputes.
+  order.totalsMode = snapshot.totalsMode ?? "computed";
 }
 
 async function assertQuoteGraphUndoCurrent(
@@ -4745,6 +4815,7 @@ async function restoreOrderGraph(
         ? cloneJson(snapshot.order.totalsSnapshot)
         : null,
       lineItemCount: snapshot.order.lineItemCount,
+      totalsMode: snapshot.order.totalsMode ?? "computed",
       createdAt: new Date(),
       updatedAt: new Date(),
     });
@@ -4855,10 +4926,14 @@ async function restoreOrderGraph(
       discountPercent: line.discountPercent,
       taxRate: line.taxRate,
       taxAmount: line.taxAmount,
-      totalNetAmount: toNumericString(
-        deriveLineNetFromGross(line.totalNetAmount, line.totalGrossAmount, line.taxRate),
-      ),
+      // Not repaired from gross: an external line's net is the caller's figure.
+      totalNetAmount: isExternalAmountsMode(line.amountsMode)
+        ? line.totalNetAmount
+        : toNumericString(
+            deriveLineNetFromGross(line.totalNetAmount, line.totalGrossAmount, line.taxRate),
+          ),
       totalGrossAmount: line.totalGrossAmount,
+      amountsMode: line.amountsMode ?? "computed",
       configuration: line.configuration ? cloneJson(line.configuration) : null,
       promotionCode: line.promotionCode ?? null,
       promotionSnapshot: line.promotionSnapshot
@@ -5158,6 +5233,7 @@ const createQuoteCommand: CommandHandler<
       updatedAt: new Date(),
     });
 
+    await assertAmountsModeUnsupportedOnQuote(parsed.lines ?? []);
     const lineInputs = (parsed.lines ?? []).map((line, index) =>
       quoteLineCreateSchema.parse({
         ...line,
@@ -5798,6 +5874,8 @@ const updateQuoteCommand: CommandHandler<
   },
   async execute(rawInput, ctx) {
     const parsed = documentUpdateSchema.parse(rawInput ?? {});
+    await assertAmountsModeUnsupportedOnQuote([parsed]);
+    documentEditSchema.parse(rawInput ?? {});
     const em = (ctx.container.resolve("em") as EntityManager).fork();
     let quote!: SalesQuote;
     let totalsEvent: TotalsCalculatedPayload | null = null;
@@ -6072,6 +6150,10 @@ const updateOrderCommand: CommandHandler<
     const em = (ctx.container.resolve("em") as EntityManager).fork();
     let order!: SalesOrder;
     let previousStatus: string | null = null;
+    let nextTotalsMode: SalesAmountsMode = "computed";
+    let totalsModeChanged = false;
+    let externalHeaderSupplied = false;
+    let suppliedTotals: Partial<SalesDocumentAmounts> | null = null;
     let statusChangeNote: SalesNote | null = null;
     let totalsEvent: TotalsCalculatedPayload | null = null;
     const shouldRecalculateTotals =
@@ -6091,6 +6173,22 @@ const updateOrderCommand: CommandHandler<
       [
         async () => {
           order = await lockOrderForTotalsWrite(em, ctx, parsed.id, "Sales order not found");
+          const currentTotalsMode: SalesAmountsMode = order.totalsMode ?? "computed";
+          nextTotalsMode = parsed.totalsMode ?? currentTotalsMode;
+          totalsModeChanged = nextTotalsMode !== currentTotalsMode;
+          externalHeaderSupplied =
+            isExternalAmountsMode(nextTotalsMode) && hasAnySuppliedHeaderTotal(parsed);
+          if (!totalsModeChanged && !externalHeaderSupplied) {
+            documentEditSchema.parse(rawInput ?? {});
+          }
+          if (isExternalAmountsMode(nextTotalsMode) && (totalsModeChanged || externalHeaderSupplied)) {
+            await requireOrderTotalsForExternalWrite(parsed);
+          }
+          suppliedTotals = isExternalAmountsMode(nextTotalsMode)
+            ? externalHeaderSupplied
+              ? buildExternalHeaderTotals(parsed)
+              : readPersistedHeaderTotals(order)
+            : null;
           previousStatus = normalizeStatusValue(order.status);
           if (parsed.statusEntryId && !isCancelledOrderStatus(previousStatus)) {
             const requestedStatus = normalizeStatusValue(
@@ -6116,7 +6214,7 @@ const updateOrderCommand: CommandHandler<
         // `em.find` lines/adjustments or appendOrderStatusChangeNote queries
         // reset the changeset (see SPEC-018).
         async () => {
-          if (shouldRecalculateTotals) {
+          if (shouldRecalculateTotals || totalsModeChanged || externalHeaderSupplied) {
             const [existingLines, adjustments] = await Promise.all([
               em.find(
                 SalesOrderLine,
@@ -6130,10 +6228,17 @@ const updateOrderCommand: CommandHandler<
               ),
             ]);
             const lineSnapshots = existingLines.map(mapOrderLineEntityToSnapshot);
+            // Leaving external: the stored tax and gross are the source's figures,
+            // and the computed path honours both verbatim while it re-derives net,
+            // so they must be re-derived too or net + tax ≠ gross (#7925).
+            const leavingExternal =
+              totalsModeChanged && !isExternalAmountsMode(nextTotalsMode);
             const calcLines = lineSnapshots.map((line, index) =>
               createLineSnapshotFromInput(
                 {
                   ...line,
+                  ...(leavingExternal ? { taxAmount: null, totalGrossAmount: null } : {}),
+                  amountsMode: nextTotalsMode,
                   organizationId: order.organizationId,
                   tenantId: order.tenantId,
                   orderId: order.id,
@@ -6168,6 +6273,8 @@ const updateOrderCommand: CommandHandler<
                 adjustments: adjustmentDrafts,
                 context: calculationContext,
                 existingTotals: resolveExistingPaymentTotals(order),
+                totalsMode: nextTotalsMode,
+                suppliedTotals,
               });
             const adjustmentInputs = adjustmentDrafts.map((adj, index) => ({
               organizationId: order.organizationId,
@@ -6192,6 +6299,15 @@ const updateOrderCommand: CommandHandler<
               calculation,
               adjustmentInputs,
             );
+            if (totalsModeChanged) {
+              applyOrderLineAmountsFromCalculation({
+                em,
+                lines: existingLines,
+                calculation,
+                amountsMode: nextTotalsMode,
+              });
+              order.totalsMode = nextTotalsMode;
+            }
             applyOrderTotals(order, calculation.totals, calculation.lines.length);
             totalsEvent = buildTotalsCalculatedPayload("order", order, calculation);
           }
@@ -6530,7 +6646,23 @@ const createOrderCommand: CommandHandler<
         )
       : null;
 
-    const lineSnapshots: SalesLineSnapshot[] = normalizedLineInputs.map(
+    const totalsMode: SalesAmountsMode = parsed.totalsMode ?? "computed";
+    await assertUniformAmountsMode(totalsMode, normalizedLineInputs);
+    const modedLineInputs = normalizedLineInputs.map((line) => ({
+      ...line,
+      amountsMode: totalsMode,
+    }));
+    if (isExternalAmountsMode(totalsMode)) {
+      await assertExternalHeaderComplete(parsed);
+      for (const [index, line] of modedLineInputs.entries()) {
+        await assertExternalLineComplete(line, line.lineNumber ?? index + 1);
+      }
+    }
+    order.totalsMode = totalsMode;
+    const suppliedTotals: Partial<SalesDocumentAmounts> | null = isExternalAmountsMode(totalsMode)
+      ? buildExternalHeaderTotals(parsed)
+      : null;
+    const lineSnapshots: SalesLineSnapshot[] = modedLineInputs.map(
       (line, index) =>
         createLineSnapshotFromInput(line, line.lineNumber ?? index + 1),
     );
@@ -6557,6 +6689,8 @@ const createOrderCommand: CommandHandler<
       adjustments: adjustmentDrafts,
       context: calculationContext,
       existingTotals: resolveExistingPaymentTotals(order),
+      totalsMode,
+      suppliedTotals,
     });
 
     let eventBus: EventBus | null = null;
@@ -6573,7 +6707,7 @@ const createOrderCommand: CommandHandler<
       [
         async () => {
           em.persist(order);
-          await replaceOrderLines(em, order, calculation, normalizedLineInputs);
+          await replaceOrderLines(em, order, calculation, modedLineInputs);
           await replaceOrderAdjustments(
             em,
             order,
@@ -7412,13 +7546,17 @@ const convertQuoteToOrderCommand: CommandHandler<
   },
 };
 
+// Nested rather than spread flat: a line payload already has a `totalNetAmount`
+// that means the line's, not the document's.
 const orderLineUpsertSchema = orderLineCreateSchema.extend({
   id: z.string().uuid().optional(),
+  orderTotals: orderHeaderTotalsSchema.optional(),
 });
 
 const orderLineDeleteSchema = z.object({
   id: z.string().uuid(),
   orderId: z.string().uuid(),
+  orderTotals: orderHeaderTotalsSchema.optional(),
 });
 
 const quoteLineUpsertSchema = quoteLineCreateSchema.extend({
@@ -7715,6 +7853,14 @@ const orderLineUpsertCommand: CommandHandler<
       const existingSnapshot = parsed.id
         ? (lineSnapshots.find((line) => line.id === parsed.id) ?? null)
         : null;
+      const totalsMode: SalesAmountsMode = order.totalsMode ?? "computed";
+      await assertUniformAmountsMode(totalsMode, [parsed]);
+      if (isExternalAmountsMode(totalsMode)) {
+        await requireOrderTotalsForExternalWrite(parsed.orderTotals);
+      }
+      const suppliedTotals: Partial<SalesDocumentAmounts> | null = isExternalAmountsMode(totalsMode)
+        ? buildExternalHeaderTotals(parsed.orderTotals)
+        : null;
       await assertOrderAcceptsNewLine(order, existingSnapshot);
       await assertShippedOrderLineEditable(em, order, existingSnapshot, parsed);
       const priceMode =
@@ -7728,6 +7874,7 @@ const orderLineUpsertCommand: CommandHandler<
       let unitPriceGross =
         parsed.unitPriceGross ?? existingSnapshot?.unitPriceGross ?? null;
       let taxRate = parsed.taxRate ?? existingSnapshot?.taxRate ?? null;
+      const unitPriceSupplied = unitPriceNet !== null || unitPriceGross !== null;
       if (priceMode && (unitPriceNet === null || unitPriceGross === null)) {
         let taxService: TaxCalculationService | null = null;
         try {
@@ -7863,11 +8010,25 @@ const orderLineUpsertCommand: CommandHandler<
           parsed.customFields && typeof parsed.customFields === "object"
             ? cloneJson(parsed.customFields)
             : ((existingSnapshot as any)?.customFields ?? null),
+        amountsMode: totalsMode,
       };
       Object.assign(
         updatedSnapshot,
         resolveUpsertCalculatedAmounts(parsed, updatedSnapshot, existingSnapshot),
       );
+      // After the line above, never before: tax and gross only exist once it runs,
+      // and it nulls them when pricing changed, which an external line must restate.
+      // The unit price is checked as resolved, not as defaulted to zero above,
+      // and a price the tax service derived from no source price counts as absent.
+      if (isExternalAmountsMode(totalsMode)) {
+        await assertExternalLineComplete(
+          {
+            ...(updatedSnapshot as Record<string, unknown>),
+            unitPriceNet: unitPriceSupplied ? unitPriceNet : null,
+          },
+          updatedSnapshot.lineNumber ?? 1,
+        );
+      }
       (updatedSnapshot as any).statusEntryId = statusEntryId;
       (updatedSnapshot as any).catalogSnapshot =
         parsed.catalogSnapshot ??
@@ -7920,6 +8081,8 @@ const orderLineUpsertCommand: CommandHandler<
         adjustments: adjustmentDrafts,
         context: calculationContext,
         existingTotals: resolveExistingPaymentTotals(order),
+        totalsMode,
+        suppliedTotals,
       });
       await applyOrderLineResults({
         em,
@@ -8017,6 +8180,13 @@ const orderLineDeleteCommand: CommandHandler<
           ),
         });
       }
+      const totalsMode: SalesAmountsMode = order.totalsMode ?? "computed";
+      if (isExternalAmountsMode(totalsMode)) {
+        await requireOrderTotalsForExternalWrite(parsed.orderTotals);
+      }
+      const suppliedTotals: Partial<SalesDocumentAmounts> | null = isExternalAmountsMode(totalsMode)
+        ? buildExternalHeaderTotals(parsed.orderTotals)
+        : null;
       const sourceInputs = filtered.map((line, index) => ({
         ...mapOrderLineEntityToSnapshot(line),
         statusEntryId: line.statusEntryId ?? null,
@@ -8054,6 +8224,8 @@ const orderLineDeleteCommand: CommandHandler<
         adjustments: adjustmentDrafts,
         context: calculationContext,
         existingTotals: resolveExistingPaymentTotals(order),
+        totalsMode,
+        suppliedTotals,
       });
       await applyOrderLineResults({
         em,
@@ -8108,6 +8280,7 @@ const quoteLineUpsertCommand: CommandHandler<
   async execute(input, ctx) {
     const rawBody = (input?.body as Record<string, unknown> | undefined) ?? {};
     const parsed = quoteLineUpsertSchema.parse(rawBody);
+    await assertAmountsModeUnsupportedOnQuote([parsed]);
     return writeLockedQuoteGraph(input, ctx, parsed.quoteId, "Sales quote not found", async (em, quote) => {
       const [existingLines, adjustments] = await Promise.all([
         em.find(SalesQuoteLine, { quote }, { orderBy: { lineNumber: "asc" } }),
@@ -8484,6 +8657,7 @@ const orderAdjustmentUpsertCommand: CommandHandler<
       (input?.body as Record<string, unknown> | undefined) ?? {},
     );
     return writeLockedOrderGraph(input, ctx, parsed.orderId, "Sales order not found", async (em, order) => {
+      if (isExternalAmountsMode(order.totalsMode ?? "computed")) await refuseOnExternalOrder();
       if (parsed.scope === "line") {
         throw new CrudHttpError(400, {
           error: "Line-scoped adjustments are not supported yet.",
@@ -8730,6 +8904,7 @@ const orderAdjustmentDeleteCommand: CommandHandler<
       (input?.body as Record<string, unknown> | undefined) ?? {},
     );
     return writeLockedOrderGraph(input, ctx, parsed.orderId, "Sales order not found", async (em, order) => {
+      if (isExternalAmountsMode(order.totalsMode ?? "computed")) await refuseOnExternalOrder();
       const [existingLines, adjustments] = await Promise.all([
         em.find(SalesOrderLine, { order }, { orderBy: { lineNumber: "asc" } }),
         em.find(
