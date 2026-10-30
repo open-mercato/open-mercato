@@ -81,8 +81,11 @@ for pkg_dir in $PACKAGES; do
   fi
 
   if [ -f "package.tgz" ]; then
-    if npm publish "package.tgz" --access public --tag "$TAG" --provenance 2>&1; then
+    if "$ROOT_DIR/scripts/ci/npm-retry-on-provenance-conflict.sh" \
+      npm publish "package.tgz" --access public --tag "$TAG" --provenance; then
       echo "    ✓ Published"
+    elif npm view "$PKG_NAME@$PKG_VERSION" version >/dev/null 2>&1; then
+      echo "    ✓ Published (registry accepted the package before the client failed)"
     else
       echo "    ✗ Failed to publish"
       FAILED+=("$PKG_NAME")
