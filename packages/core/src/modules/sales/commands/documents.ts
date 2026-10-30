@@ -3234,7 +3234,9 @@ function convertLineCalculationToEntityInput(
     unitPriceNet:
       toNumericString(
         line.unitPriceNet ??
-          lineResult.netAmount / Math.max(line.quantity || 1, 1),
+          (line.unitPriceGross !== null && line.unitPriceGross !== undefined
+            ? deriveLineNetFromGross(null, line.unitPriceGross, line.taxRate)
+            : lineResult.netAmount / Math.max(line.quantity || 1, 1)),
       ) ?? "0",
     unitPriceGross:
       toNumericString(
