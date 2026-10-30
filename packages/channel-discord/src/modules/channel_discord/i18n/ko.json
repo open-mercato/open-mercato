@@ -34,6 +34,8 @@
   "channel_discord.aiAutoReply.widget.truncated": "최근 채널만 표시됩니다. 나머지는 채널 목록에서 채널을 열어 설정하세요.",
   "channel_discord.aiProposal.actions.approve": "승인하고 전송",
   "channel_discord.aiProposal.actions.dismiss": "무시",
+  "channel_discord.aiProposal.errors.sourceMessageNotFound": "이 제안이 답변하는 대화가 더 이상 존재하지 않습니다.",
+  "channel_discord.aiProposal.errors.sourceMessageUnreadable": "이 제안이 답변하는 대화를 더 이상 읽을 수 없습니다.",
   "channel_discord.aiProposal.messageType": "제안된 Discord 답장",
   "channel_discord.connect.blocked": "유효성 검사로 인해 연결이 차단되었습니다",
   "channel_discord.connect.button": "Discord 연결",

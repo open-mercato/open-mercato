@@ -4,7 +4,7 @@ import { expect, test } from '@playwright/test'
 import { getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
 import { readJsonSafe } from '@open-mercato/core/modules/core/__integration__/helpers/generalFixtures'
 import {
-  cancelThenDeleteClaimIfPossible,
+  cleanupReceivingClaimFixture,
   createClaimFixture,
   listClaimLines,
   readClaimEvents,
@@ -16,6 +16,7 @@ import {
   saveWarrantyClaimSettings,
   submitAndExpect,
   transitionAndExpect,
+  updateClaimLine,
   uniqueLabel,
   type WarrantyClaimSettingsResult,
 } from './helpers'
@@ -149,6 +150,16 @@ test.describe('TC-WC-023: warranty claim quarantine receiving', () => {
       const heldLine = await readClaimLine(request, adminToken, claim.id!, line.id!)
       expect(heldLine.conditionGrade).toBe('D')
       expect(heldLine.quarantineStatus).toBe('held')
+      expect(heldLine.disposition).toBeNull()
+      const heldEditResponse = await updateClaimLine(request, adminToken, {
+        id: line.id,
+        claimId: claim.id,
+        disposition: heldLine.disposition,
+        inspectionNotes: `Edited while held ${stamp}`,
+      }, heldLine.updatedAt)
+      expect(heldEditResponse.status(), 'a quarantined return should remain editable').toBe(200)
+      const editedHeldLine = await readClaimLine(request, adminToken, claim.id!, line.id!)
+      expect(editedHeldLine.inspectionNotes).toBe(`Edited while held ${stamp}`)
       const [queuedEvents, claimEvents] = await Promise.all([
         readQueuedEventJobs(),
         readClaimEvents(request, adminToken, claim.id!),
@@ -184,7 +195,7 @@ test.describe('TC-WC-023: warranty claim quarantine receiving', () => {
         'POST',
         '/api/warranty_claims/receiving',
         adminToken,
-        { lineId: line.id, action: 'release', updatedAt: heldLine.updatedAt },
+        { lineId: line.id, action: 'release', updatedAt: editedHeldLine.updatedAt },
       )
       const releaseBody = await readJsonSafe<{ ok?: boolean; lineId?: string | null }>(releaseResponse)
       expect(releaseResponse.status(), `quarantine release should return 200: ${JSON.stringify(releaseBody)}`).toBe(200)
@@ -192,9 +203,20 @@ test.describe('TC-WC-023: warranty claim quarantine receiving', () => {
 
       const releasedLine = await readClaimLine(request, adminToken, claim.id!, line.id!)
       expect(releasedLine.quarantineStatus).toBe('released')
+      const releasedEditResponse = await updateClaimLine(request, adminToken, {
+        id: line.id,
+        claimId: claim.id,
+        disposition: releasedLine.disposition,
+        inspectionNotes: `Edited after release ${stamp}`,
+      }, releasedLine.updatedAt)
+      expect(releasedEditResponse.status(), 'a released return should remain editable').toBe(200)
+      const editedReleasedLine = await readClaimLine(request, adminToken, claim.id!, line.id!)
+      expect(editedReleasedLine.inspectionNotes).toBe(`Edited after release ${stamp}`)
+      expect(editedReleasedLine.conditionGrade).toBe('D')
+      expect(editedReleasedLine.disposition).toBeNull()
     } finally {
       await restoreWarrantyClaimSettings(request, adminToken, settingsBefore)
-      await cancelThenDeleteClaimIfPossible(request, adminToken, claimId)
+      await cleanupReceivingClaimFixture(request, adminToken, claimId)
     }
   })
 })

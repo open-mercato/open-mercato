@@ -869,6 +869,20 @@ Validation steps:
 5. Emit `inbox_ops.email.received` event.
 6. Return `200 OK` immediately.
 
+#### Custom webhook admission and verified quotas (#7600)
+
+`POST /api/inbox_ops/webhook/inbound` bounds settings lookups with two fixed admission buckets. A fresh custom signature that verifies against `INBOX_OPS_WEBHOOK_SECRET` uses a bucket identified by that secret's fingerprint; other fresh custom signatures share one unverified bucket. Recipient addresses, request bodies, and signatures never create new admission buckets. Each bucket uses the existing limits of 10/minute, 100/hour, and 1000/day, including the process-local fallback when cache resolution, reads, or writes fail.
+
+After admission, the encrypted settings lookup determines the required secret. An inbox-specific secret remains authoritative; the global secret is accepted only when the inbox has no dedicated secret or no inbox matches. Only a successful final HMAC check charges the separate verified custom quota, followed by the resolved tenant quota when settings exist. The verified quota uses a new internal cache namespace so counters previously polluted by invalid signatures do not carry over. Resend retains its existing signature verification and quota path.
+
+Only signatures that verify against the global secret consume its admission bucket, and only signatures that pass final inbox-bound authentication consume the verified custom quota. A residual availability constraint remains: dedicated-secret signatures are indistinguishable from invalid signatures before the settings lookup, so saturating unverified admission can delay those requests. Providers should honor the existing `429` and `Retry-After` response; this fix does not guarantee dedicated-secret availability under a sustained admission flood.
+
+Handler integration coverage in `api/webhook/__tests__/inbound.test.ts` uses the real limiter to exercise rotating forged requests followed by valid mail for another tenant, shared/missing/failing caches, verified quota exhaustion across global and dedicated secrets, and rejection of global signatures for dedicated-secret inboxes. Persistence and event dependencies are isolated; a live deployment load test is separate evidence.
+
+#### Migration & Backward Compatibility
+
+No client or database migration is required. The URL, method, signature headers, response bodies, status codes, public helper signatures, and configured quota values remain unchanged. Invalid signatures now consume admission capacity rather than verified capacity; dedicated-secret traffic shares the bounded unverified admission capacity until its secret can be resolved. Existing tenant-secret precedence, unknown-inbox responses, cache fallback, and `Retry-After` behavior remain supported. Internal verified counters start fresh on upgrade.
+
 ### 9.3 Key API Contract Details
 
 **GET `/api/inbox-ops/proposals`**
@@ -1913,6 +1927,10 @@ No parallel provider stack is introduced for InboxOps. The worker reuses the exi
 ---
 
 ## Changelog
+
+### 2026-10-18
+
+- **Custom webhook quota isolation** (#7600): separate bounded pre-lookup admission from the verified custom quota, preserve tenant-secret precedence and cache fallback, and add handler integration regressions for forged floods and authenticated throttling. Document the remaining admission constraint for dedicated-secret traffic.
 
 ### 2026-09-21
 

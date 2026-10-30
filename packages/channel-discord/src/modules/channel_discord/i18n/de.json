@@ -34,6 +34,8 @@
   "channel_discord.aiAutoReply.widget.truncated": "Es werden nur die neuesten Kanäle angezeigt. Öffnen Sie die übrigen über die Kanalliste, um sie zu konfigurieren.",
   "channel_discord.aiProposal.actions.approve": "Freigeben und senden",
   "channel_discord.aiProposal.actions.dismiss": "Verwerfen",
+  "channel_discord.aiProposal.errors.sourceMessageNotFound": "Die Unterhaltung, auf die dieser Vorschlag antwortet, existiert nicht mehr.",
+  "channel_discord.aiProposal.errors.sourceMessageUnreadable": "Du kannst die Unterhaltung, auf die dieser Vorschlag antwortet, nicht mehr lesen.",
   "channel_discord.aiProposal.messageType": "Vorgeschlagene Discord-Antwort",
   "channel_discord.connect.blocked": "Verbindung durch Validierung blockiert",
   "channel_discord.connect.button": "Discord verbinden",
