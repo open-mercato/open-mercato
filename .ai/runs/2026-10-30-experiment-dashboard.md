@@ -38,12 +38,12 @@ PR: #8259
 
 ### Phase 2: Reusable server
 
-- [ ] 2.1 Implement generic and existing-result adapters with derived totals.
-- [ ] 2.2 Implement safe loopback APIs, artifact access and CLI/build integration.
+- [x] 2.1 Implement generic and existing-result adapters with derived totals. — a22e37130
+- [x] 2.2 Implement safe loopback APIs, artifact access and CLI/build integration. — a22e37130
 
 ### Phase 3: React dashboard
 
-- [ ] 3.1 Build experiment overview and live progress/filtering.
+- [ ] 3.1 Build experiment overview and live progress/filtering and measured token throughput.
 - [ ] 3.2 Build response, generated-file and evaluator detail views.
 - [ ] 3.3 Verify browser interactions and producer updates with evidence.
 
