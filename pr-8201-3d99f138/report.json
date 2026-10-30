@@ -1,18 +1,27 @@
 {
-  "runId": "3d99f138-resume",
+  "runId": "3d99f138-final",
   "mode": "pr",
   "target": {
     "prNumber": 8201,
     "title": "Created dates on customer lists",
     "branch": "cez-b-8201",
-    "headSha": "8815b4405dc86bbc6039aa4e3b74717ed6627e7b"
+    "headSha": "b5dd71dd2fb8aa6b3489aab9f824146031b6fd1d"
   },
   "verdict": "PASS",
   "environment": {
     "baseUrl": "http://127.0.0.1:5001",
     "role": "admin",
     "startedByThisRepo": true,
-    "browserProvider": "playwright"
+    "browserProvider": "playwright",
+    "headSha": "b5dd71dd2fb8aa6b3489aab9f824146031b6fd1d",
+    "startedAt": "2026-10-30T01:37:45.270Z",
+    "provenance": {
+      "sourceCapturedAt": "2026-10-30T01:33:02.044Z",
+      "runtimeStartedAt": "2026-10-30T01:37:45.270Z",
+      "buildCompletedAt": "2026-10-30T01:37:34.854Z",
+      "sourceFingerprint": "3329a40e0820d856efd20daf501ae1275a0f5231ef717f82bdd5fd92a795d37f",
+      "generation": "994d93be-3f41-4da0-89fe-9da56d27b19a"
+    }
   },
   "scenario": [
     {
@@ -160,6 +169,9 @@
     "Cold shell appeared in539ms while list data was deliberately held; no hard latency threshold asserted.",
     "Fixtures created via API and deleted in finally; timestamp fixtures scoped to own tenant/organization and IDs.",
     "Representative desktop/DST/error and both final mobile screenshots visually inspected; all reported PNGs nonempty.",
-    "Initial exploratory fixture trailing whitespace and header-only mobile scroll were corrected in the QA harness; no product source or test assertion weakened."
-  ]
+    "Initial exploratory fixture trailing whitespace and header-only mobile scroll were corrected in the QA harness; no product source or test assertion weakened.",
+    "No shared/evidence branch pushed; no QA approval applied.",
+    "Fresh execution at the final local latest-main integration. Captured immutable prepared head before launch; live owner/worktree/start and source checks, cold readiness and warm reuse PASS. No publication or QA approval."
+  ],
+  "nativeUiEvidence": []
 }
