@@ -423,6 +423,11 @@ export class WorkflowDefinitionDraft {
 // Entity: WorkflowInstance
 // ============================================================================
 
+// Column references in an UPDATE's SET read the row as it was BEFORE the
+// statement; the two parameters carry the values this write leaves behind.
+const waitVersionOnUpdateSql =
+  `wait_version + case when status = 'PAUSED' and ? = 'PAUSED' and current_step_id is not distinct from ? then 0 else 1 end`
+
 /**
  * WorkflowInstance entity
  *
@@ -524,15 +529,16 @@ export class WorkflowInstance {
   isDryRun: boolean = false
 
   /**
-   * Identifies one OCCURRENCE of a wait (#7185). Every write of the row through
-   * the unit of work increments it in SQL (`wait_version + 1`, read back via
-   * RETURNING), and the signal claim compare-and-sets it, so a park, a claim and
-   * a re-park on the same step always carry distinct values — independent of
-   * the wall clock, which can stand still, roll back or skew between workers.
-   * A delivery addressed to one occurrence pins the value it read and can
-   * therefore never consume a later occurrence of the same step.
+   * Identifies one OCCURRENCE of a wait (#7185). A unit-of-work write increments
+   * it in SQL unless the row was PAUSED and stays PAUSED on the same step — a
+   * metadata, context or timestamp edit of a parked run is not a new occurrence
+   * and must not invalidate a delivery addressed to it. The signal claim
+   * compare-and-sets it, so a park, a claim and a re-park on the same step always
+   * carry distinct values — independent of the wall clock, which can stand
+   * still, roll back or skew between workers. The comparison runs in SQL against
+   * the row's current state, never a possibly stale in-memory copy.
    */
-  @Property({ name: 'wait_version', type: 'integer', default: 0, onUpdate: () => raw('wait_version + 1') })
+  @Property({ name: 'wait_version', type: 'integer', default: 0, onUpdate: (instance: WorkflowInstance) => raw(waitVersionOnUpdateSql, [instance.status, instance.currentStepId]) })
   waitVersion: number = 0
 
   @Property({ name: 'tenant_id', type: 'uuid' })

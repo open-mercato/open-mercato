@@ -224,6 +224,41 @@ maybe('WAIT_FOR_SIGNAL occurrence identity against PostgreSQL (#7185)', () => {
     expect(reparked).toBeGreaterThan(claimed)
   })
 
+  it('delivers exactly once when a metadata-only write lands between the read and the claim', async () => {
+    const instanceId = await seedParkedInstance()
+    const parked = (await orm.em.fork().findOneOrFail(WorkflowInstance, { id: instanceId })).waitVersion
+
+    const deliveryReachedClaim = deferred()
+    const releaseDelivery = deferred()
+    const deliveryEm = withGatedClaim(await preloadedEm(instanceId), async () => {
+      deliveryReachedClaim.resolve()
+      await releaseDelivery.promise
+    })
+    const delivery = deliver(deliveryEm, instanceId).then(
+      () => null,
+      (error: unknown) => error,
+    )
+    await deliveryReachedClaim.promise
+
+    const writerEm = orm.em.fork()
+    const parkedRow = await writerEm.findOneOrFail(WorkflowInstance, { id: instanceId })
+    parkedRow.metadata = { ...(parkedRow.metadata ?? {}), attention: { reason: 'DISPOSITION_SLA_BREACH', stepId: WAIT_STEP } }
+    parkedRow.updatedAt = new Date()
+    await writerEm.flush()
+    const afterMetadataWrite = await orm.em.fork().findOneOrFail(WorkflowInstance, { id: instanceId })
+    expect(afterMetadataWrite.status).toBe('PAUSED')
+    expect(afterMetadataWrite.waitVersion).toBe(parked)
+
+    releaseDelivery.resolve()
+    expect(await delivery).toBeNull()
+
+    expect(await countSignalReceived(instanceId)).toBe(1)
+    const final = await orm.em.fork().findOneOrFail(WorkflowInstance, { id: instanceId })
+    expect(final.status).toBe('RUNNING')
+    expect(final.waitVersion).toBeGreaterThan(parked)
+    expect((final.metadata as Record<string, unknown> | null)?.attention).toBeDefined()
+  })
+
   it('still delivers to the new occurrence when the caller reads it after the re-park', async () => {
     const instanceId = await seedParkedInstance()
     await deliver(orm.em.fork(), instanceId)

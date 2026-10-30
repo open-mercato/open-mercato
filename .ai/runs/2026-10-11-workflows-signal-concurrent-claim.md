@@ -62,3 +62,9 @@ PR: #7190
 
 - [x] 4.1 Replace the `updated_at` wait pin with an SQL-incremented `wait_version` column (migration + snapshot, real-Postgres regression) — 6857797d1
 - [x] 4.2 Report unexpected fan-out failures through the telemetry runtime and localize the generic delivery failure — b31dac0d4
+
+### Phase 5: Maintainer review 5708461639
+
+- [x] 5.1 Keep `wait_version` for writes that leave a parked run parked on the same step (metadata-only write no longer loses the signal)
+- [x] 5.2 Isolate telemetry reporting failures from the fan-out loop and the claim release
+- [x] 5.3 Spec with Migration & Backward Compatibility section, plus migration up/down/up PostgreSQL regression

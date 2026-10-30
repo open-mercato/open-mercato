@@ -558,11 +558,23 @@ async function releaseSignalClaim(
     )
   } catch (releaseError) {
     logger.error('Failed to release signal claim', { instanceId: instance.id, err: releaseError })
-    getTelemetryRuntime()?.reportError(releaseError, {
-      module: 'workflows',
+    reportSignalError(releaseError, {
       code: 'workflows.signal_claim_release_failed',
       attributes: { instanceId: instance.id, stepId: claimedStepId },
     })
+  }
+}
+
+// Reporting is best-effort: a throwing telemetry runtime must neither stop a
+// fan-out mid-loop nor replace the delivery error a caller is about to see.
+function reportSignalError(
+  error: unknown,
+  report: { code: string; attributes: Record<string, string | number | boolean | undefined> },
+): void {
+  try {
+    getTelemetryRuntime()?.reportError(error, { module: 'workflows', ...report })
+  } catch (reportingError) {
+    logger.warn('Failed to report signal error', { code: report.code, err: reportingError })
   }
 }
 
@@ -651,8 +663,7 @@ export async function sendSignalByCorrelationKeyWithResults(
       // Log error but continue processing other instances
       logger.error('Failed to send signal to instance', { instanceId: instance.id, err: error })
       if (!isExpectedSignalRefusal(error)) {
-        getTelemetryRuntime()?.reportError(error, {
-          module: 'workflows',
+        reportSignalError(error, {
           code: 'workflows.signal_fanout_delivery_failed',
           attributes: {
             instanceId: instance.id,

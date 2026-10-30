@@ -666,6 +666,29 @@ describe('Workflow Signals - Phase 9.1', () => {
         attributes: { instanceId, stepId: 'wait_approval' },
       })
     })
+
+    it('rethrows the original delivery error when reporting the failed release also throws', async () => {
+      const mockReportError = jest.fn(() => {
+        throw new Error('telemetry exporter down')
+      })
+      ;(getTelemetryRuntime as jest.Mock).mockReturnValue({ reportError: mockReportError })
+      mockFindOneWithDecryption.mockImplementation((async (_em: unknown, entity: unknown) => {
+        if (entity === WorkflowInstance) return { ...mockInstance, context: { ...mockInstance.context } }
+        if (entity === WorkflowDefinition) return { ...mockDefinition }
+        if (entity === StepInstance) return { ...mockStepInstance }
+        return null
+      }) as any)
+      mockEm.nativeUpdate.mockResolvedValueOnce(1).mockRejectedValueOnce(new Error('connection reset'))
+      mockLogWorkflowEvent.mockRejectedValueOnce(new Error('flush failed'))
+
+      try {
+        await expect(deliver()).rejects.toThrow('flush failed')
+      } finally {
+        ;(getTelemetryRuntime as jest.Mock).mockReset()
+      }
+
+      expect(mockReportError).toHaveBeenCalledTimes(1)
+    })
   })
 
   describe('Same-step loop (#7185 wait occurrence)', () => {
@@ -1005,6 +1028,45 @@ describe('Workflow Signals - Phase 9.1', () => {
         code: 'workflows.signal_fanout_delivery_failed',
         attributes: { instanceId: 'instance-1', stepId: 'wait_approval', signalName: 'approval_granted' },
       })
+    })
+
+    it('keeps delivering with the original failure result when the telemetry runtime throws', async () => {
+      const mockReportError = jest.fn(() => {
+        throw new Error('telemetry exporter down')
+      })
+      ;(getTelemetryRuntime as jest.Mock).mockReturnValue({ reportError: mockReportError })
+      const instance1 = { ...mockInstance, id: 'instance-1', correlationKey: 'batch-006' }
+      const instance2 = { ...mockInstance, id: 'instance-2', correlationKey: 'batch-006' }
+
+      mockFindWithDecryption.mockResolvedValueOnce([instance1, instance2] as any)
+      mockFindOneWithDecryption
+        .mockResolvedValueOnce({ ...instance1 } as any)
+        .mockResolvedValueOnce({ ...mockDefinition } as any)
+        .mockResolvedValueOnce({ ...mockStepInstance, workflowInstanceId: 'instance-1' } as any)
+        .mockResolvedValueOnce({ ...instance2 } as any)
+        .mockResolvedValueOnce({ ...mockDefinition } as any)
+        .mockResolvedValueOnce({ ...mockStepInstance, workflowInstanceId: 'instance-2' } as any)
+      mockExitStep.mockRejectedValueOnce(new Error('deadlock detected'))
+
+      let result: Awaited<ReturnType<typeof sendSignalByCorrelationKeyWithResults>>
+      try {
+        result = await sendSignalByCorrelationKeyWithResults(mockEm, mockContainer, {
+          correlationKey: 'batch-006',
+          signalName: 'approval_granted',
+          userId,
+          tenantId,
+          organizationId,
+        })
+      } finally {
+        ;(getTelemetryRuntime as jest.Mock).mockReset()
+      }
+
+      expect(mockReportError).toHaveBeenCalledTimes(1)
+      expect(result.count).toBe(1)
+      expect(result.failures).toEqual([
+        { instanceId: 'instance-1', code: 'SIGNAL_DELIVERY_FAILED', message: 'Failed to deliver signal' },
+      ])
+      expect(mockExecuteWorkflow).toHaveBeenCalledTimes(1)
     })
 
     it('reports a SignalError fault such as TRANSITION_FAILED but returns its caller-safe message', async () => {
