@@ -31,6 +31,7 @@ describePostgres('custom entity encrypted document ordering and filtering in Pos
     try {
       process.env.TENANT_DATA_ENCRYPTION = 'yes'
       process.env.ENTITIES_BACKCOMPAT_EAV_FOR_CUSTOM = 'no'
+      delete process.env.OM_ENCRYPTED_SORT_MAX_ROWS
       await admin.query(`create schema "${schema}"`)
       await sql`create table custom_entities_storage (
         id uuid primary key default gen_random_uuid(),

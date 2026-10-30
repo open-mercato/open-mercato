@@ -76,6 +76,13 @@ describePostgres('custom entity encryption in PostgreSQL JSONB (#7810)', () => {
         filters: { secret: '123' }, page: { page: 1, pageSize: 10 },
       })
       expect(result.items).toEqual([{ id: recordId, secret: '123', title: 'Visible' }])
+      for (const scope of [{ tenantId: randomUUID(), organizationId }, { tenantId, organizationId: randomUUID() }]) {
+        const outOfScope = await queryEngine.query(entityId, {
+          forceCustomEntityStorage: true, ...scope, fields: ['id', 'secret'], filters: { secret: '123' },
+        })
+        expect(outOfScope.items).toEqual([])
+        expect(outOfScope.total).toBe(0)
+      }
       await db.updateTable('custom_entities_storage').set({ doc: { ...stored.doc, tags: ['red', 'blue'] } }).execute()
       const scopedResult = await queryEngine.query(entityId, {
         forceCustomEntityStorage: true, tenantId, organizationId, fields: ['id', 'secret'],
