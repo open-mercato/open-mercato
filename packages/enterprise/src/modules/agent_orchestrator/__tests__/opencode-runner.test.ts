@@ -286,9 +286,10 @@ describe('OpenCodeAgentRunner (integration, fake client)', () => {
     // Spans are derived 1:1 from tool calls, so this run produced none — and a
     // run with no span is unauditable, which `dispositionService` reads as
     // `trace_incomplete` and holds for a human however confident the agent was.
-    expect(payload.spans).toHaveLength(1)
-    expect(payload.spans![0].kind).toBe('llm')
-    expect(Date.parse(payload.spans![0].startedAt)).not.toBeNaN()
+    const stepSpans = (payload.spans ?? []).filter((span) => span.kind !== 'system')
+    expect(stepSpans).toHaveLength(1)
+    expect(stepSpans[0].kind).toBe('llm')
+    expect(Date.parse(stepSpans[0].startedAt)).not.toBeNaN()
   })
 
   it('stamps the declared model (alongside runtime) on runs.create so the cockpit can show/filter runs by model', async () => {

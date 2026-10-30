@@ -5,8 +5,21 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { z } from 'zod'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { AgentEvalCase, AgentEvalCaseRun, AgentEvalSuiteRun } from '../data/entities'
 import { aggregateSuiteRun, compareToBaseline, resolveBaselineSuiteRun } from '../lib/eval/evalReplayService'
+import {
+  EVAL_SET_SUMMARY_KEY,
+  EvalSetTooLargeError,
+  EvalSetUnresolvedError,
+  buildEvalSetPointer,
+  findEvalSetCarrier,
+  freezeManifest,
+  mergeSuiteSummary,
+  resolveSnapshotPin,
+  type EvalSetManifest,
+} from '../lib/eval/manifest'
+import { evalSetSnapshotSchema, type EvalSetSnapshot } from '../data/validators'
 import { emitAgentOrchestratorEvent } from '../events'
 
 /**
@@ -22,16 +35,60 @@ const startEvalRunCommandSchema = z.object({
   tenantId: z.string().uuid(),
   organizationId: z.string().uuid(),
   agentDefinitionId: z.string().min(1).max(100),
-  evalCaseIds: z.array(z.string().uuid()).min(1),
+  evalCaseIds: z.array(z.string().uuid()).min(1).optional(),
+  snapshot: evalSetSnapshotSchema.optional(),
   repeatCount: z.number().int().min(1).max(20).default(1),
   trigger: z.enum(['manual', 'ci', 'scheduled']).default('manual'),
   judgeMayGate: z.boolean().default(true),
   releaseId: z.string().uuid().nullable().optional(),
   evalSetVersion: z.string().max(100).nullable().optional(),
   triggeredBy: z.string().max(100).nullable().optional(),
+}).superRefine((value, ctx) => {
+  if (!value.snapshot && !value.evalCaseIds) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['evalCaseIds'], message: 'evalCaseIds is required without snapshot' })
+  }
+  if (value.snapshot && value.evalSetVersion) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['evalSetVersion'], message: 'evalSetVersion cannot be combined with snapshot' })
+  }
 })
 export type StartEvalRunCommandInput = z.infer<typeof startEvalRunCommandSchema>
 export type StartEvalRunCommandResult = { suiteRunId: string; caseRunCount: number }
+
+async function freezeEvalSet(
+  em: EntityManager,
+  scope: { tenantId: string; organizationId: string },
+  agentId: string,
+  pin: { snapshot: EvalSetSnapshot } | { label: string | null },
+): Promise<{ manifest: EvalSetManifest; version: string }> {
+  try {
+    if ('snapshot' in pin) return await resolveSnapshotPin(em, scope, agentId, pin.snapshot)
+    return await freezeManifest(em, scope, { agentId, label: pin.label })
+  } catch (error) {
+    if (error instanceof EvalSetUnresolvedError) {
+      throw new CrudHttpError(404, {
+        error: '[internal] eval set snapshot not found for this agent',
+        code: error.code,
+        snapshot: error.snapshot,
+      })
+    }
+    if (error instanceof EvalSetTooLargeError) {
+      throw new CrudHttpError(422, {
+        error: '[internal] eval set manifest exceeds the size limit',
+        code: error.code,
+        bytes: error.bytes,
+        maxBytes: error.maxBytes,
+      })
+    }
+    throw error
+  }
+}
+
+function selectManifestCaseIds(manifest: EvalSetManifest, requested: string[] | undefined): string[] {
+  const manifestIds = manifest.cases.map((entry) => entry.id)
+  if (!requested) return manifestIds
+  const wanted = new Set(requested)
+  return manifestIds.filter((id) => wanted.has(id))
+}
 
 /**
  * Creates the suite run plus one PENDING case run per (case × trial). The pending
@@ -45,20 +102,28 @@ const startEvalRunCommand: CommandHandler<StartEvalRunCommandInput, StartEvalRun
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const scope = { tenantId: input.tenantId, organizationId: input.organizationId }
 
+    const pinned = input.snapshot
+      ? await freezeEvalSet(em, scope, input.agentDefinitionId, { snapshot: input.snapshot })
+      : null
+
     // Only approved cases are replayable: a draft has not been reviewed, so its
     // expected value cannot be trusted as a regression baseline.
-    const cases = await em.find(AgentEvalCase, {
-      ...scope,
-      id: { $in: input.evalCaseIds },
-      agentDefinitionId: input.agentDefinitionId,
-      status: 'approved',
-      deletedAt: null,
-    })
-    if (!cases.length) {
+    const caseIds = pinned
+      ? selectManifestCaseIds(pinned.manifest, input.evalCaseIds)
+      : (
+          await em.find(AgentEvalCase, {
+            ...scope,
+            id: { $in: input.evalCaseIds ?? [] },
+            agentDefinitionId: input.agentDefinitionId,
+            status: 'approved',
+            deletedAt: null,
+          })
+        ).map((evalCase) => evalCase.id)
+    if (!caseIds.length) {
       throw new CrudHttpError(422, { error: '[internal] no approved eval cases matched for this agent' })
     }
 
-    const caseRunCount = cases.length * input.repeatCount
+    const caseRunCount = caseIds.length * input.repeatCount
     if (caseRunCount > MAX_CASE_RUNS_PER_SUITE) {
       throw new CrudHttpError(422, {
         error: '[internal] eval run exceeds the per-suite case limit',
@@ -66,6 +131,11 @@ const startEvalRunCommand: CommandHandler<StartEvalRunCommandInput, StartEvalRun
         limit: MAX_CASE_RUNS_PER_SUITE,
       })
     }
+
+    const frozen =
+      pinned ?? (await freezeEvalSet(em, scope, input.agentDefinitionId, { label: input.evalSetVersion ?? null }))
+    const evalSetVersion = pinned ? pinned.version : input.evalSetVersion ?? null
+    const carrierSuiteRunId = await findEvalSetCarrier(em, scope, input.agentDefinitionId, frozen.version)
 
     // Pre-generate the PK. `id` is `defaultRaw: gen_random_uuid()`, so Postgres
     // assigns it at INSERT and it does NOT exist on the entity before flush —
@@ -83,8 +153,16 @@ const startEvalRunCommand: CommandHandler<StartEvalRunCommandInput, StartEvalRun
       judgeMayGate: input.judgeMayGate,
       repeatCount: input.repeatCount,
       caseCount: caseRunCount,
-      evalSetVersion: input.evalSetVersion ?? null,
+      evalSetVersion,
       triggeredBy: input.triggeredBy ?? null,
+      summary: {
+        [EVAL_SET_SUMMARY_KEY]: buildEvalSetPointer({
+          manifest: frozen.manifest,
+          version: frozen.version,
+          suiteRunId,
+          carrierSuiteRunId,
+        }),
+      },
     })
 
     await withAtomicFlush(
@@ -92,13 +170,13 @@ const startEvalRunCommand: CommandHandler<StartEvalRunCommandInput, StartEvalRun
       [
         () => {
           em.persist(suiteRun)
-          for (const evalCase of cases) {
+          for (const evalCaseId of caseIds) {
             for (let trialIndex = 0; trialIndex < input.repeatCount; trialIndex += 1) {
               em.persist(
                 em.create(AgentEvalCaseRun, {
                   ...scope,
                   suiteRunId,
-                  evalCaseId: evalCase.id,
+                  evalCaseId,
                   trialIndex,
                   status: 'pending',
                 }),
@@ -151,7 +229,13 @@ const completeEvalRunCommand: CommandHandler<CompleteEvalRunCommandInput, Comple
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const scope = { tenantId: input.tenantId, organizationId: input.organizationId }
 
-    const suiteRun = await em.findOne(AgentEvalSuiteRun, { id: input.suiteRunId, ...scope })
+    const suiteRun = await findOneWithDecryption(
+      em,
+      AgentEvalSuiteRun,
+      { id: input.suiteRunId, ...scope },
+      undefined,
+      scope,
+    )
     if (!suiteRun) throw new CrudHttpError(404, { error: '[internal] eval suite run not found' })
 
     // Idempotent: completing an already-terminal run is a no-op — but it must
@@ -193,7 +277,9 @@ const completeEvalRunCommand: CommandHandler<CompleteEvalRunCommandInput, Comple
           suiteRun.errorCount = aggregate.errorCount
           suiteRun.passScore = aggregate.passScore
           suiteRun.scoreVariance = aggregate.scoreVariance
-          suiteRun.summary = { ...aggregate.summary, __judgeDeltas: comparison.judgeDeltas }
+          suiteRun.summary = mergeSuiteSummary(suiteRun.summary, aggregate.summary, {
+            __judgeDeltas: comparison.judgeDeltas,
+          })
           suiteRun.baselineSuiteRunId = comparison.baselineSuiteRunId
           suiteRun.safetyRegressions = comparison.safetyRegressions.length ? comparison.safetyRegressions : null
           suiteRun.finishedAt = new Date()

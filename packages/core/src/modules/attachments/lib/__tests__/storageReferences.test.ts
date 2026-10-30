@@ -1,10 +1,21 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { Attachment } from '../../data/entities'
+import { purgeDocumentStructure } from '../documentStructure/purge'
 import {
   listAttachmentStorageReferences,
   removeAttachmentRecord,
   resolveAttachmentStorageRelease,
 } from '../storageReferences'
+
+jest.mock('../documentStructure/purge', () => ({
+  purgeDocumentStructure: jest.fn(async () => ({ extractionCount: 1, sectionCount: 3 })),
+}))
+
+const purgeMock = jest.mocked(purgeDocumentStructure)
+
+beforeEach(() => {
+  purgeMock.mockClear()
+})
 
 function createEntityManager(lockedIds: string[], options: { inTransaction?: boolean } = {}) {
   let inTransaction = options.inTransaction ?? false
@@ -29,6 +40,8 @@ function createEntityManager(lockedIds: string[], options: { inTransaction?: boo
 
 const attachment = {
   id: 'attachment-1',
+  tenantId: 'tenant-1',
+  organizationId: 'org-1',
   partitionCode: 'productsMedia',
   storagePath: 'org/tenant/shared.png',
 } as Attachment
@@ -87,5 +100,53 @@ describe('removeAttachmentRecord', () => {
 
     expect(removal).toEqual({ removed: false, releaseStorage: false })
     expect(em.remove).not.toHaveBeenCalled()
+    expect(purgeMock).not.toHaveBeenCalled()
+  })
+
+  it('purges the document structure of the removed row inside its transaction for every caller', async () => {
+    const { em } = createEntityManager(['attachment-1'])
+
+    const removal = await removeAttachmentRecord(em as unknown as EntityManager, attachment)
+
+    expect(removal).toEqual({ removed: true, releaseStorage: true })
+    expect(purgeMock).toHaveBeenCalledTimes(1)
+    expect(purgeMock).toHaveBeenCalledWith(
+      em,
+      { attachmentId: 'attachment-1', tenantId: 'tenant-1', organizationId: 'org-1' },
+      { flush: false },
+    )
+    const purgeOrder = purgeMock.mock.invocationCallOrder[0]
+    expect(purgeOrder).toBeGreaterThan(em.begin.mock.invocationCallOrder[0])
+    expect(purgeOrder).toBeLessThan(em.remove.mock.invocationCallOrder[0])
+    expect(purgeOrder).toBeLessThan(em.commit.mock.invocationCallOrder[0])
+  })
+
+  it('purges only the removed row while the shared stored object stays for the other reference', async () => {
+    const { em } = createEntityManager(['attachment-1', 'attachment-copy'])
+
+    const removal = await removeAttachmentRecord(em as unknown as EntityManager, attachment)
+
+    expect(removal).toEqual({ removed: true, releaseStorage: false })
+    expect(purgeMock).toHaveBeenCalledTimes(1)
+    expect(purgeMock.mock.calls[0][1]).toEqual(expect.objectContaining({ attachmentId: 'attachment-1' }))
+  })
+
+  it('runs caller work after the purge in the same transaction', async () => {
+    const { em } = createEntityManager(['attachment-1'])
+    const beforeRemove = jest.fn(async () => undefined)
+
+    await removeAttachmentRecord(em as unknown as EntityManager, attachment, { beforeRemove })
+
+    expect(beforeRemove).toHaveBeenCalledTimes(1)
+    expect(beforeRemove.mock.invocationCallOrder[0]).toBeGreaterThan(purgeMock.mock.invocationCallOrder[0])
+    expect(beforeRemove.mock.invocationCallOrder[0]).toBeLessThan(em.commit.mock.invocationCallOrder[0])
+  })
+
+  it('does not purge when the transaction refuses an ambient one', async () => {
+    const { em } = createEntityManager(['attachment-1'], { inTransaction: true })
+
+    await expect(removeAttachmentRecord(em as unknown as EntityManager, attachment)).rejects.toThrow('[internal]')
+
+    expect(purgeMock).not.toHaveBeenCalled()
   })
 })

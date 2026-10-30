@@ -778,6 +778,10 @@ export type GuardrailKind =
   | 'schema'
   | 'moderation'
   | 'tool_scope'
+  | 'evidence_quote'
+  | 'reference_exists'
+  | 'tool_consulted'
+  | 'custom_integrity'
 
 export type GuardrailResult = 'pass' | 'warn' | 'block'
 
@@ -875,7 +879,7 @@ export class AgentGuardrailSet {
   @Property({ name: 'version', type: 'varchar', length: 64 })
   version!: string
 
-  /** The grounding policy body. Shape enforced by Zod in data/validators.ts. */
+  /** The set body (`grounding` or `integrity`). Shape enforced by Zod `agentGuardrailSetBodySchema` in data/validators.ts. */
   @Property({ name: 'body', type: 'jsonb' })
   body!: unknown
 

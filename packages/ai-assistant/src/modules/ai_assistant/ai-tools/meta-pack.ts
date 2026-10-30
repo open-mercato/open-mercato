@@ -8,10 +8,14 @@
  * crash if `ai-agents.generated.ts` has not been emitted yet.
  */
 import { z } from 'zod'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AiAgentDefinition } from '../lib/ai-agent-definition'
 import { listAgents, getAgent, loadAgentRegistry } from '../lib/agent-registry'
 import { hasRequiredFeatures } from '../lib/auth'
 import { defineAiTool } from '../lib/ai-tool-definition'
+import { AiPendingActionRepository } from '../data/repositories/AiPendingActionRepository'
+import { serializePendingActionForClient } from '../lib/pending-action-client'
+import { AI_PENDING_ACTION_APPROVE_FEATURE } from '../lib/pending-action-types'
 import {
   TASK_PLAN_DETAIL_MAX_CHARS,
   TASK_PLAN_ID_MAX_CHARS,
@@ -214,10 +218,54 @@ const updateTaskPlanTool = defineAiTool({
   },
 })
 
+const getPendingActionInput = z.object({
+  pendingActionId: z.string().trim().pipe(z.guid('pendingActionId must be a UUID')),
+})
+
+const getPendingActionTool = defineAiTool({
+  name: 'ai_assistant.get_pending_action',
+  displayName: 'Get pending action',
+  description:
+    'Return the current approval status of a pending AI action (status, expiresAt, resolvedAt, executionResult, failedRecords). Poll it after a write was queued for approval.',
+  inputSchema: getPendingActionInput,
+  requiredFeatures: ['ai_assistant.view'],
+  tags: ['read', 'meta', 'pending-action'],
+  isMutation: false,
+  handler: async (rawInput, ctx) => {
+    const input = getPendingActionInput.parse(rawInput)
+    const notFoundMessage = `Pending action "${input.pendingActionId}" is not accessible to the caller.`
+    if (!ctx.tenantId || !ctx.userId) throw new Error(notFoundMessage)
+    const em = ctx.container.resolve<EntityManager>('em')
+    const repo = new AiPendingActionRepository(em)
+    const row = await repo.getByIdForApprover(
+      input.pendingActionId,
+      { tenantId: ctx.tenantId, organizationId: ctx.organizationId ?? null },
+      {
+        userId: ctx.userId,
+        canApproveAny: hasRequiredFeatures(
+          [AI_PENDING_ACTION_APPROVE_FEATURE],
+          ctx.userFeatures,
+          ctx.isSuperAdmin,
+        ),
+      },
+    )
+    if (!row) throw new Error(notFoundMessage)
+    const serialized = serializePendingActionForClient(row)
+    return {
+      status: serialized.status,
+      expiresAt: serialized.expiresAt,
+      resolvedAt: serialized.resolvedAt,
+      ...(serialized.executionResult ? { executionResult: serialized.executionResult } : {}),
+      ...(serialized.failedRecords ? { failedRecords: serialized.failedRecords } : {}),
+    }
+  },
+})
+
 export const metaAiTools = [
   listAgentsTool,
   describeAgentTool,
   updateTaskPlanTool,
+  getPendingActionTool,
 ]
 
 export default metaAiTools

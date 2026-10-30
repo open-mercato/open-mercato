@@ -10,7 +10,7 @@ import {
   resolveGroundingSet,
 } from '../lib/guardrails/groundingSets'
 import { syncGroundingSets, resolveCurrentGroundingSet } from '../lib/guardrails/syncGroundingSets'
-import { guardrailSetBodySchema, type CitableSource, type GuardrailSetBody } from '../data/validators'
+import { groundingSetBodySchema, type CitableSource, type GuardrailSetBody } from '../data/validators'
 
 /**
  * In-memory EntityManager fake (mirrors guardrails-output.test.ts) covering the
@@ -207,7 +207,7 @@ describe('grounding set versioning (content-hash, YAML→DB idempotent sync)', (
   it('editing a set body produces a new content-hash version', () => {
     const base = resolveGroundingSet(CAPABILITY)!
     const v1 = guardrailSetVersionFor(base)
-    const edited: GuardrailSetBody = guardrailSetBodySchema.parse({ ...base, missingCitation: 'warn' })
+    const edited: GuardrailSetBody = groundingSetBodySchema.parse({ ...base, missingCitation: 'warn' })
     const v2 = guardrailSetVersionFor(edited)
     expect(v1).not.toBe(v2)
     // Stable: re-hashing the same body yields the same version.

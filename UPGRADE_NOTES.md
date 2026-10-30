@@ -600,6 +600,48 @@ the same check, for at most three hops. Any other redirect fails with
 different scheme (for example `http://` while `APP_URL` is `https://`) or a non-`/api/` path. Use a
 relative `/api/...` path or `{{env.APP_URL}}/api/...` instead.
 
+### MCP: filtered `tools/list`, owner-scoped pending actions, and `OM_MCP_MUTATION_MODE`
+
+Spec: [`.ai/specs/2026-10-21-mcp-tool-exposure-parity-and-audit.md`](.ai/specs/2026-10-21-mcp-tool-exposure-parity-and-audit.md). Docs: `apps/docs/docs/framework/ai-assistant/mcp.mdx` → "Exposure, audit and mutation modes".
+
+**`tools/list` on `mercato ai_assistant mcp:serve-http` is ACL-filtered.** It used to list every registered tool and check ACL only on `tools/call`. It now lists only the tools that pass the new exposure config (`OM_MCP_TOOL_ALLOWLIST`, `OM_MCP_TOOL_DENYLIST`, `OM_MCP_AGENT_TOOLS`, `--tools`, `--exclude-tools`, `--no-agent-tools`) **and** the list principal's ACL: the session user when the request carries `x-om-session-token`, otherwise the server API key's ACL. A server key with no features now lists only `context_whoami`. **Action:** clients that discover tools with a featureless server key should send `x-om-session-token: <sess_…>` (the same token they pass as `_sessionToken`), or grant the key the roles they need. Check the effective set with `yarn mercato ai_assistant mcp:list-tools --as-api-key <secret>`.
+
+**Pending AI actions are scoped to their owner.** Before this release `GET /api/ai_assistant/ai/actions/:id`, `/confirm` and `/cancel` checked only `ai_assistant.view` plus tenant/organization, so any user in the same tenant and organization with that feature could read, confirm, or cancel another user's pending action. Now chat rows (`channel = 'agent'`) are reachable only by the user who created them, and MCP / `/tools/execute` rows (`channel = 'mcp' | 'tools-api'`) by their creator or a user holding the new `ai_assistant.pending_actions.approve` feature. Everyone else gets `404 pending_action_not_found`. **Action:** none for the chat UI (users only ever act on their own rows); custom integrations that confirmed other users' actions through these routes must act as the creator.
+
+**New `ai_pending_actions` columns (additive).** `Migration20261022130536_ai_assistant` adds `channel text not null default 'agent'`, `api_key_id uuid null`, `correlation_id text null` and an index on `(tenant_id, organization_id, status, channel, created_at)`. Existing rows read as `agent`. Run `yarn db:migrate`.
+
+**`OM_MCP_MUTATION_MODE` (`direct` | `deny` | `approval`).** Applies to `isMutation` tools called over the three MCP servers and `POST /api/ai_assistant/tools/execute`. Unset keeps `direct`, which is today's behaviour, so nothing changes until you set it; an invalid value falls back to `direct` with a warning. `deny` hides mutation tools and refuses calls with `MUTATION_REQUIRES_APPROVAL` (`403` on `/tools/execute`). `approval` queues the write as a pending action (`202 { success: true, status: "pending_approval", pendingActionId, expiresAt }` on `/tools/execute`) that a human approves on **Pending AI actions** (`/backend/config/ai-assistant/pending-actions`); rows expire after `OM_MCP_PENDING_ACTION_TTL_SECONDS` (default `86400`). **Recommendation:** set `OM_MCP_MUTATION_MODE=approval` in production when MCP clients or `/tools/execute` callers can reach write tools.
+
+**New ACL feature `ai_assistant.pending_actions.approve`**, granted to `admin` through `setup.ts` `defaultRoleFeatures`. New tenants get it automatically. **Action for existing tenants:** run `yarn mercato auth sync-role-acls` (idempotent, additive) so admins can approve MCP pending actions.
+
+**Audit.** Every MCP `tools/call` and `/tools/execute` call now writes an `access_logs` row of kind `ai_assistant.mcp_tool_call` (argument names only, never values). These rows follow the non-core retention window; add the kind to `AUDIT_LOGS_CORE_RESOURCE_KINDS_EXTRA` to keep them longer.
+
+### AI agent runs are now recorded, and `tool-loop-agent` agents receive their system prompt
+
+**Run recording.** ai-assistant now writes one record per agent run to three new encrypted tables: `ai_agent_runs`, `ai_agent_run_steps` and `ai_agent_run_tool_calls`. This covers chat, `run-object` and internal callers of `runAiAgentText` / `runAiAgentObject`. The tables come from migration `Migration20261026192929_ai_assistant`, which `yarn db:migrate` applies.
+
+- **Capture env vars:** `OM_AI_RUN_TRACE_CAPTURE` (`full` by default, or `metadata` / `off`), `OM_AI_RUN_TRACE_CAPTURE_PROMPT` and `OM_AI_RUN_TRACE_MAX_PAYLOAD_BYTES`.
+- **Retention:** a daily `ai-agent-run-prune` worker deletes runs after `AI_AGENT_RUNS_RETENTION_DAYS` (30). On existing tenants, refresh the structural cache so the schedule registers.
+- **Action for custom runners** that call `runAiAgentText` / `runAiAgentObject` and persist their own trace: pass `trace: { persist: false }`, or each run is recorded twice. The Agent Orchestrator native runner already does this.
+
+**`tool-loop-agent` system prompt.** Agents with `executionEngine: 'tool-loop-agent'` previously ran without their composed system prompt. They now receive it, so their responses can change. Re-check any prompt-level workaround you added to compensate.
+
+### Agent invoke permission, AO agent dispatch from ai-assistant, agent tools and output integrity
+
+Specs: [`.ai/specs/2026-10-21-mcp-tool-exposure-parity-and-audit.md`](.ai/specs/2026-10-21-mcp-tool-exposure-parity-and-audit.md) (Phase 4), [`.ai/specs/enterprise/agent-orchestrator/2026-10-21-agent-invocation-access-and-identity-binding.md`](.ai/specs/enterprise/agent-orchestrator/2026-10-21-agent-invocation-access-and-identity-binding.md) (Phases 1 and 5), [`.ai/specs/enterprise/agent-orchestrator/2026-10-21-output-integrity-guardrails.md`](.ai/specs/enterprise/agent-orchestrator/2026-10-21-output-integrity-guardrails.md) (Phases 1–2), [`.ai/specs/2026-10-21-document-structure-extraction.md`](.ai/specs/2026-10-21-document-structure-extraction.md) (Phase 3). Docs: `apps/docs/docs/framework/ai-assistant/mcp.mdx` → "Agent tools".
+
+**Agent Orchestrator agents can require features to be invoked.** An agent that declares `requiredFeatures` (in `defineAgent` or `AGENT.md` frontmatter) is now checked in `AgentRuntimeService.run()` for every entry point: the run and rerun routes (`403 { code: 'agent_invoke_denied' }`), `delegate_agent` (`{ ok: false, error: 'agent_invoke_denied' }`), workflow `INVOKE_AGENT` steps, eval replays, ai-assistant `run-object` and agent tools. Agents that declare nothing behave as before. `GET /api/agent_orchestrator/agents` now lists only agents the caller can invoke unless the caller holds `agent_orchestrator.agents.manage`; items gain `invocable`, and managers also receive each item's `requiredFeatures` (other callers never see feature names). The bundled example agent `support.ticket_triage` now requires `agent_orchestrator.agents.view`. **Action:** if an agent you ship starts declaring `requiredFeatures`, make sure the roles that run it (and workflow grants that invoke it — saving such a workflow now returns a `warnings` entry `agent_invoke_not_covered`) hold those features. `OM_AGENT_INVOKE_ENFORCEMENT=off` turns the check into a logged warning while you adjust roles.
+
+**`POST /api/ai_assistant/ai/run-object` runs Agent Orchestrator agents through the orchestrator.** It previously ran them as plain ai-assistant agents, outside `agentRuntime.run()` (no `AgentRun`, guardrails or trace). They now go through the `aiAgentRunDispatcher` port: the response keeps `{ object, finishReason, usage }`, returns `runId: null` and adds `agentRunId`, and a caller without the agent's features gets `403 agent_features_denied`. **Action:** callers that read `runId` for these agents should read `agentRunId`.
+
+**Agents as tools.** `defineAgentTool` and `defineAiAgent({ mcpTool })` (from `@open-mercato/ai-assistant`) publish an object-mode agent as one tool for chat, MCP and `/tools/execute`; MCP results carry `structuredContent: { result, agentId, runId, agentRunId }`. `OM_MCP_AGENT_TOOLS=off` hides them.
+
+**Agent-token door (opt-in).** `POST /api/agent_orchestrator/agent-api/agents/:id/run` accepts bearer agent tokens when `OM_AGENT_API_ENABLED=true` (404 otherwise), rate-limited by `RATE_LIMIT_AGENT_ORCH_AGENT_API_RUN_*`.
+
+**Output integrity (opt-in per agent).** Agents can declare `integrity` rules (`evidence_quote`, `reference_exists`, `tool_consulted`, `custom`); the native runner then checks and may drop, repair, flag or block the structured output before it is stored or turned into a proposal. Agents without `integrity` are unchanged. Reference resolvers implement the type-only contract `@open-mercato/shared/lib/ai/referenceResolver` and register in DI as `agentReferenceResolver:<id>`; custom checkers register with `registerIntegrityChecker`. `OM_AGENT_INTEGRITY=off` records checks without changing outputs (shadow mode). `guardrailSetBodySchema` keeps validating grounding sets; read stored set bodies, which may now be integrity sets, with the new `agentGuardrailSetBodySchema`.
+
+**Fixed:** `GET /api/agent_orchestrator/guardrail-checks` and `GET /api/agent_orchestrator/context-bundles` returned `500 DATABASE_ERROR` on every request; they now list rows.
+
 ## 0.8.0 → 0.9.0 (2026-10-09)
 
 ### `POST /api/auth/logout` no longer requires a valid access token (#7225)

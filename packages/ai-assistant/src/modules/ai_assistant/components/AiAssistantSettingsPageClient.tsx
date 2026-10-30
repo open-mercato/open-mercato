@@ -14,6 +14,7 @@ import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuarde
 import { useAiAssistantVisibility } from '../../../frontend/hooks/useAiAssistantVisibility'
 import McpConfigDialog from './McpConfigDialog'
 import SessionKeyDialog from './SessionKeyDialog'
+import { McpExposureSection } from './McpExposureSection'
 
 type OpenCodeHealthResponse = {
   status: 'ok' | 'error'
@@ -835,6 +836,8 @@ function AiAssistantSettingsContent({
         open={sessionKeyOpen}
         onOpenChange={setSessionKeyOpen}
       />
+
+      <McpExposureSection />
 
       <div className="rounded-lg border bg-card p-6">
         <button

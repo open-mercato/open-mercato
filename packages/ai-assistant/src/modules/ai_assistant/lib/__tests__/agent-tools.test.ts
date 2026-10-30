@@ -1,3 +1,26 @@
+jest.mock('@open-mercato/shared/lib/di/container', () => ({
+  createRequestContainer: jest.fn(async () => ({
+    resolve: () => null,
+  })),
+}))
+
+jest.mock('../tool-executor', () => ({
+  executeTool: jest.fn(async (name: string, args: unknown, context: unknown) => {
+    const { toolRegistry: registry } = await import('../tool-registry')
+    const registered = registry.getTool(name)
+    if (!registered) {
+      return { success: false, error: `Tool "${name}" not found` }
+    }
+    try {
+      const result = await registered.handler(args as never, context as never)
+      return { success: true, result }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      return { success: false, error: message }
+    }
+  }),
+}))
+
 import { z } from 'zod'
 import type { AiAgentDefinition } from '../ai-agent-definition'
 import type { AiToolDefinition } from '../types'
@@ -187,5 +210,116 @@ describe('resolveAiAgentTools', () => {
     // Tool never registered -> policy gate returns tool_unknown -> warn + skip.
     expect(result.tools).toEqual({})
     expect(warnSpy).toHaveBeenCalled()
+  })
+
+  describe('tool call timings', () => {
+    type ExecutableTool = {
+      execute: (args: unknown, options?: { toolCallId?: string; messages?: unknown[] }) => Promise<unknown>
+    }
+
+    async function resolveWithTools(tools: AiToolDefinition[]) {
+      for (const definition of tools) {
+        registerMcpTool(definition, { moduleId: 'customers' })
+      }
+      seedAgentRegistryForTests([
+        makeAgent({
+          id: 'customers.assistant',
+          moduleId: 'customers',
+          allowedTools: tools.map((definition) => definition.name),
+        }),
+      ])
+      return resolveAiAgentTools({ agentId: 'customers.assistant', authContext: baseAuth })
+    }
+
+    function executable(tools: Record<string, unknown>, name: string): ExecutableTool {
+      return tools[name] as ExecutableTool
+    }
+
+    it('starts with an empty timings map', async () => {
+      const result = await resolveWithTools([makeTool({ name: 'customers.list_people' })])
+      expect(result.toolCallTimings.size).toBe(0)
+    })
+
+    it('records start and end for a tool call keyed by toolCallId', async () => {
+      const result = await resolveWithTools([makeTool({ name: 'customers.list_people' })])
+      await executable(result.tools, 'customers__list_people').execute(
+        {},
+        { toolCallId: 'call-1', messages: [] },
+      )
+      const timing = result.toolCallTimings.get('call-1')
+      expect(timing).toBeDefined()
+      expect(typeof timing?.startedAt).toBe('number')
+      expect(typeof timing?.endedAt).toBe('number')
+      expect((timing?.endedAt ?? 0) >= (timing?.startedAt ?? Infinity)).toBe(true)
+    })
+
+    it('records the end timestamp when the tool throws', async () => {
+      const result = await resolveWithTools([
+        makeTool({
+          name: 'customers.list_people',
+          handler: async () => {
+            throw new Error('boom')
+          },
+        }),
+      ])
+      await expect(
+        executable(result.tools, 'customers__list_people').execute(
+          {},
+          { toolCallId: 'call-err', messages: [] },
+        ),
+      ).rejects.toThrow('boom')
+      const timing = result.toolCallTimings.get('call-err')
+      expect(typeof timing?.startedAt).toBe('number')
+      expect(typeof timing?.endedAt).toBe('number')
+    })
+
+    it('keeps separate entries for concurrent calls in one step', async () => {
+      const releases: Array<() => void> = []
+      const result = await resolveWithTools([
+        makeTool({
+          name: 'customers.list_people',
+          handler: () =>
+            new Promise((resolve) => {
+              releases.push(() => resolve({ ok: true }))
+            }),
+        }),
+        makeTool({ name: 'customers.get_person' }),
+      ])
+      const slowCall = executable(result.tools, 'customers__list_people').execute(
+        {},
+        { toolCallId: 'call-a', messages: [] },
+      )
+      await executable(result.tools, 'customers__get_person').execute(
+        {},
+        { toolCallId: 'call-b', messages: [] },
+      )
+      await new Promise((resolve) => setImmediate(resolve))
+      expect(result.toolCallTimings.get('call-a')?.endedAt).toBeUndefined()
+      expect(typeof result.toolCallTimings.get('call-b')?.endedAt).toBe('number')
+      releases.forEach((release) => release())
+      await slowCall
+      expect(typeof result.toolCallTimings.get('call-a')?.endedAt).toBe('number')
+      expect(result.toolCallTimings.size).toBe(2)
+    })
+
+    it('records nothing and does not crash when no toolCallId is provided', async () => {
+      const result = await resolveWithTools([makeTool({ name: 'customers.list_people' })])
+      await expect(
+        executable(result.tools, 'customers__list_people').execute({}),
+      ).resolves.toBeDefined()
+      expect(result.toolCallTimings.size).toBe(0)
+    })
+
+    it('does not share timings between separate resolutions', async () => {
+      const first = await resolveWithTools([makeTool({ name: 'customers.list_people' })])
+      toolRegistry.clear()
+      const second = await resolveWithTools([makeTool({ name: 'customers.list_people' })])
+      await executable(first.tools, 'customers__list_people').execute(
+        {},
+        { toolCallId: 'call-1', messages: [] },
+      )
+      expect(first.toolCallTimings.has('call-1')).toBe(true)
+      expect(second.toolCallTimings.size).toBe(0)
+    })
   })
 })

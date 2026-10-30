@@ -7,7 +7,7 @@ import {
   createPagedListResponseSchema,
 } from '../openapi'
 
-const ENTITY_TYPE = 'agent_orchestrator:guardrail_check'
+const ENTITY_TYPE = 'agent_orchestrator:agent_guardrail_check'
 
 const routeMetadata = {
   GET: { requireAuth: true, requireFeatures: ['agent_orchestrator.guardrail.read'] },

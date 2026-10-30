@@ -4,11 +4,20 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { listAgentEntries, ensureAgentsLoaded } from '../../lib/sdk/defineAgent'
 import { resolveAgentOutcomeJsonSchema } from '../../lib/sdk/agentOutcomeContract'
 import { getAgentPresentationMaps } from '../../lib/settings/agentSettings'
 import { AGENT_ICON_NAMES } from '../../data/agentIcons'
 import { agentTypeSchema } from '../../data/validators'
+import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
+import {
+  isAgentInvocable,
+  isAgentInvokeEnforcementEnabled,
+  loadInvokerAcl,
+  type InvokerAcl,
+} from '../../lib/access/agentInvokeAccess'
+import { invokerFromAuth } from '../../lib/access/invokeDenial'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['agent_orchestrator.agents.view'] },
@@ -27,6 +36,10 @@ const agentItemSchema = z.object({
   runtime: z.enum(['in-process', 'native', 'opencode', 'external']),
   tools: z.array(z.string()),
   skills: z.array(z.string()),
+  // Declared invoke features — returned to agents.manage holders only; feature
+  // names are never echoed to other callers.
+  requiredFeatures: z.array(z.string()).optional(),
+  invocable: z.boolean(),
   label: z.string(),
   description: z.string(),
   // Per-tenant presentation icon (lucide name) overriding the initials avatar
@@ -62,6 +75,8 @@ const agentListResponseSchema = z.object({
 
 const errorSchema = z.object({ error: z.string() })
 
+const AGENTS_MANAGE_FEATURE = 'agent_orchestrator.agents.manage'
+
 export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -85,22 +100,41 @@ export async function GET(req: Request) {
     }
   }
 
-  const items = listAgentEntries().map((entry) => ({
-    id: entry.id,
-    resultKind: entry.resultKind,
-    agentType: entry.agentType ?? null,
-    allowedActions: entry.allowedActions ? [...entry.allowedActions] : null,
-    runtime: entry.runtime,
-    tools: entry.tools,
-    skills: entry.skills,
-    label: entry.label,
-    description: entry.description,
-    icon: iconByAgent.get(entry.id) ?? null,
-    tags: tagsByAgent.get(entry.id) ?? [],
-    sampleInput: entry.sampleInput,
-    outcomeSchema: resolveAgentOutcomeJsonSchema(entry),
-    facts: entry.facts,
-  }))
+  const entries = listAgentEntries()
+  const needsAcl = entries.some((entry) => (entry.requiredFeatures ?? []).length > 0)
+  let acl: InvokerAcl | null = null
+  if (needsAcl) {
+    const container = await createRequestContainer()
+    const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
+    acl = await loadInvokerAcl(container, invokerFromAuth(auth), {
+      tenantId: auth.tenantId ?? null,
+      organizationId: scope?.selectedId ?? null,
+    })
+  }
+  const enforcementEnabled = isAgentInvokeEnforcementEnabled()
+  const isManager = acl !== null && authorizeFeatures([AGENTS_MANAGE_FEATURE], { grantedFeatures: acl.features, unrestricted: acl.isSuperAdmin })
+
+  const items = entries
+    .map((entry) => ({ entry, invocable: !enforcementEnabled || isAgentInvocable(entry, acl) }))
+    .filter(({ invocable }) => invocable || isManager)
+    .map(({ entry, invocable }) => ({
+      id: entry.id,
+      resultKind: entry.resultKind,
+      agentType: entry.agentType ?? null,
+      allowedActions: entry.allowedActions ? [...entry.allowedActions] : null,
+      runtime: entry.runtime,
+      tools: entry.tools,
+      skills: entry.skills,
+      ...(isManager ? { requiredFeatures: entry.requiredFeatures ? [...entry.requiredFeatures] : [] } : {}),
+      invocable,
+      label: entry.label,
+      description: entry.description,
+      icon: iconByAgent.get(entry.id) ?? null,
+      tags: tagsByAgent.get(entry.id) ?? [],
+      sampleInput: entry.sampleInput,
+      outcomeSchema: resolveAgentOutcomeJsonSchema(entry),
+      facts: entry.facts,
+    }))
   return NextResponse.json({ items })
 }
 
@@ -111,7 +145,7 @@ export const openApi: OpenApiRouteDoc = {
     GET: {
       summary: 'List registered agents',
       description:
-        'Returns the in-module agent registry (id, result kind, declared agent type, narrowed action vocabulary, tools, skills, label, description, OUTCOME JSON-Schema) for agents declared via defineAgent or the file-agent conventions, merged with the tenant presentation overrides (icon, tags).',
+        'Returns the in-module agent registry (id, result kind, declared agent type, narrowed action vocabulary, tools, skills, label, description, OUTCOME JSON-Schema) for agents declared via defineAgent or the file-agent conventions, merged with the tenant presentation overrides (icon, tags). Each item carries whether the caller may invoke it; callers holding agent_orchestrator.agents.manage also receive the declared requiredFeatures of each agent, while other callers only receive the agents they may invoke and never the feature names.',
       responses: [
         { status: 200, description: 'Registered agents', schema: agentListResponseSchema },
       ],

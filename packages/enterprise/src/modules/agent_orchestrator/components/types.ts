@@ -129,6 +129,7 @@ export type SpanView = {
   endedAt: string | null
   durationMs: number | null
   status: string | null
+  attributes: unknown
 }
 
 export type ToolCallView = {
@@ -238,6 +239,8 @@ export type AgentView = {
   tags: string[]
   tools: string[]
   skills: string[]
+  requiredFeatures: string[]
+  invocable: boolean
   /** Optional example input for the Playground "Insert sample" button. */
   sampleInput?: unknown
   /** Optional declared Caseload facts (from the agent's FACTS.json / defineAgent). */
@@ -487,6 +490,7 @@ export function mapSpan(item: Record<string, unknown>): SpanView | null {
     endedAt: asString(item.ended_at) ?? asString(item.endedAt),
     durationMs: asNumber(item.duration_ms) ?? asNumber(item.durationMs),
     status: asString(item.status),
+    attributes: item.attributes ?? null,
   }
 }
 
@@ -635,6 +639,10 @@ export function mapAgent(item: Record<string, unknown>): AgentView | null {
     tags: normalizeAgentTags(item.tags),
     tools: Array.isArray(item.tools) ? item.tools.filter((tool): tool is string => typeof tool === 'string') : [],
     skills: Array.isArray(item.skills) ? item.skills.filter((skill): skill is string => typeof skill === 'string') : [],
+    requiredFeatures: Array.isArray(item.requiredFeatures)
+      ? item.requiredFeatures.filter((feature): feature is string => typeof feature === 'string')
+      : [],
+    invocable: item.invocable !== false,
     sampleInput: item.sampleInput,
     facts: mapAgentFacts(item.facts),
   }

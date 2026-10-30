@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AgentTokenUsage } from './lib/tokens/types'
 import {
@@ -15,7 +16,13 @@ import {
   type AgentSpanKind,
 } from './data/entities'
 import { recomputeProcessInstance } from './lib/processes/processProjection'
+import { evalSetSnapshotSchema } from './data/validators'
 import { runEvalGate } from './lib/eval/evalGate'
+import { buildEvalReport } from './lib/eval/report/buildEvalReport'
+import { buildEvalErrorReport, type BuildEvalErrorReportInput } from './lib/eval/report/errorReport'
+import { renderEvalReportJunit } from './lib/eval/report/renderJunit'
+import { renderEvalReportMarkdown } from './lib/eval/report/renderMarkdown'
+import type { EvalReport } from './lib/eval/report/reportSchema'
 
 function parseArgs(args: string[]): Record<string, string> {
   const result: Record<string, string> = {}
@@ -528,12 +535,78 @@ const seedDemo: ModuleCli = {
   },
 }
 
+const EVAL_REPORT_FORMATS = ['json', 'md', 'junit'] as const
+type EvalReportFormat = (typeof EVAL_REPORT_FORMATS)[number]
+const DEFAULT_EVAL_REPORT_FORMATS: EvalReportFormat[] = ['json', 'md']
+const EVAL_REPORT_FILE_NAMES: Record<EvalReportFormat, string> = {
+  json: 'report.json',
+  md: 'report.md',
+  junit: 'junit.xml',
+}
+const EVAL_GATE_USAGE =
+  'Usage: mercato agent_orchestrator eval --agent <agentId> --tenant <tenantId> --org <organizationId> [--release <id>] [--eval-set-version <v> | --snapshot <sha256:...|latest>] [--require-snapshot true] [--baseline <suiteRunId>] [--repeat <n>] [--gate true] [--report <dir>] [--format json,md,junit] [--include-payloads true] [--fail-on-flaky true] [--min-pass-score <0..1>]\n' +
+  '  --tenant/--org fall back to OM_EVAL_TENANT_ID/OM_EVAL_ORG_ID.'
+
+function isEvalReportFormat(value: string): value is EvalReportFormat {
+  return (EVAL_REPORT_FORMATS as readonly string[]).includes(value)
+}
+
+function parseEvalReportFormats(raw: string | undefined): EvalReportFormat[] | null {
+  if (raw === undefined) return DEFAULT_EVAL_REPORT_FORMATS
+  const tokens = raw.split(',').map((token) => token.trim().toLowerCase()).filter(Boolean)
+  if (!tokens.length || !tokens.every(isEvalReportFormat)) return null
+  return Array.from(new Set(tokens))
+}
+
+function parseOptionalBooleanFlag(raw: string | undefined): boolean | null {
+  if (raw === undefined) return false
+  return parseBooleanToken(raw)
+}
+
+function parseMinPassScore(raw: string | undefined): number | null | undefined {
+  if (raw === undefined) return undefined
+  const value = Number(raw)
+  if (raw.trim() === '' || !Number.isFinite(value) || value < 0 || value > 1) return null
+  return value
+}
+
+function renderEvalReport(report: EvalReport, format: EvalReportFormat): string {
+  if (format === 'md') return renderEvalReportMarkdown(report)
+  if (format === 'junit') return renderEvalReportJunit(report)
+  return `${JSON.stringify(report, null, 2)}\n`
+}
+
+function writeEvalReportFiles(dir: string, report: EvalReport, formats: EvalReportFormat[]): string[] {
+  const resolved = path.resolve(dir)
+  fs.mkdirSync(resolved, { recursive: true })
+  return formats.map((format) => {
+    const filePath = path.join(resolved, EVAL_REPORT_FILE_NAMES[format])
+    fs.writeFileSync(filePath, renderEvalReport(report, format), 'utf8')
+    return filePath
+  })
+}
+
+function errorMessageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+function writeEvalErrorReport(dir: string, input: BuildEvalErrorReportInput): void {
+  try {
+    const written = writeEvalReportFiles(dir, buildEvalErrorReport(input), ['json'])
+    console.error(`Error report: ${written.join(', ')}`)
+  } catch (writeError) {
+    console.error(`Could not write the error report: ${errorMessageOf(writeError)}`)
+  }
+}
+
 /**
  * Regression gate over an agent's approved eval cases.
  *
  *   yarn mercato agent_orchestrator eval --agent <agentId> --tenant <id> --org <id> \
- *     [--release <id>] [--eval-set-version <v>] [--baseline <suiteRunId>] \
- *     [--repeat <n>] [--gate true]
+ *     [--release <id>] [--eval-set-version <v> | --snapshot <sha256:...|latest>] \
+ *     [--require-snapshot true] [--baseline <suiteRunId>] \
+ *     [--repeat <n>] [--gate true] [--report <dir>] [--format json,md,junit] \
+ *     [--include-payloads true] [--fail-on-flaky true] [--min-pass-score <0..1>]
  *
  * A thin wrapper over the SAME library the workbench uses — one scorer registry,
  * one replay engine, no second implementation to drift. With `--gate true` the
@@ -544,17 +617,30 @@ const seedDemo: ModuleCli = {
  * pinned dataset the verdict is not reproducible, so it must not read as a gate
  * result — and `--gate true` on an advisory run is refused rather than silently
  * passing.
+ *
+ * `--snapshot latest` freezes the current dataset and pins its manifest hash;
+ * `--snapshot sha256:<hex>` replays a stored manifest, so the run (and its
+ * baseline) is tied to the identical dataset. `--require-snapshot true` refuses
+ * label-only pins and unpinned runs with exit 2.
+ *
+ * Exit codes: 0 passed or report-only; 1 gate failed (stored outcome, or narrowed
+ * by `--fail-on-flaky`/`--min-pass-score`, or the run threw under `--gate true`);
+ * 2 usage/environment error, advisory run refused, label pin refused under
+ * `--require-snapshot true`, or report not writable.
+ * Report files are written BEFORE the exit code is set; when the run throws, a
+ * minimal `report.json` with `status: 'error'` is written instead. The narrowing
+ * flags apply only under `--gate true` and can never widen a failure into a pass.
  */
 const evalGate: ModuleCli = {
   command: 'eval',
   async run(rest: string[]) {
     const args = parseArgs(rest)
     const agentDefinitionId = args.agent
-    const tenantId = args.tenant
-    const organizationId = args.org
+    const tenantId = args.tenant || process.env.OM_EVAL_TENANT_ID || undefined
+    const organizationId = args.org || process.env.OM_EVAL_ORG_ID || undefined
 
     if (!agentDefinitionId || !tenantId || !organizationId) {
-      console.error('Usage: mercato agent_orchestrator eval --agent <agentId> --tenant <tenantId> --org <organizationId> [--release <id>] [--eval-set-version <v>] [--baseline <suiteRunId>] [--repeat <n>] [--gate true]')
+      console.error(EVAL_GATE_USAGE)
       process.exitCode = 2
       return
     }
@@ -567,21 +653,80 @@ const evalGate: ModuleCli = {
       return
     }
 
+    const reportDir = args.report
+    const formats = parseEvalReportFormats(args.format)
+    if (!formats) {
+      console.error(`--format must be a comma-separated list of: ${EVAL_REPORT_FORMATS.join(', ')}`)
+      process.exitCode = 2
+      return
+    }
+    if (args.format !== undefined && !reportDir) {
+      console.error('--format requires --report <dir>')
+      process.exitCode = 2
+      return
+    }
+    const includePayloads = parseOptionalBooleanFlag(args['include-payloads'])
+    const failOnFlaky = parseOptionalBooleanFlag(args['fail-on-flaky'])
+    if (includePayloads === null || failOnFlaky === null) {
+      console.error('--include-payloads and --fail-on-flaky take true or false')
+      process.exitCode = 2
+      return
+    }
+    const minPassScore = parseMinPassScore(args['min-pass-score'])
+    if (minPassScore === null) {
+      console.error('--min-pass-score must be a number between 0 and 1')
+      process.exitCode = 2
+      return
+    }
+
+    const requireSnapshot = parseOptionalBooleanFlag(args['require-snapshot'])
+    if (requireSnapshot === null) {
+      console.error('--require-snapshot takes true or false')
+      process.exitCode = 2
+      return
+    }
+    const rawSnapshot = args.snapshot
+    const parsedSnapshot = rawSnapshot === undefined ? null : evalSetSnapshotSchema.safeParse(rawSnapshot)
+    if (parsedSnapshot && !parsedSnapshot.success) {
+      console.error('--snapshot must be "latest" or sha256:<64 lowercase hex>')
+      process.exitCode = 2
+      return
+    }
+    const snapshot = parsedSnapshot?.success ? parsedSnapshot.data : undefined
+    if (snapshot && args['eval-set-version'] !== undefined) {
+      console.error('--snapshot and --eval-set-version are mutually exclusive: pin either a frozen manifest or a label')
+      process.exitCode = 2
+      return
+    }
+    if (requireSnapshot && !snapshot) {
+      console.error(
+        'Refusing a run without a frozen snapshot under --require-snapshot true: pass --snapshot <sha256:...|latest> instead of a label pin.',
+      )
+      process.exitCode = 2
+      return
+    }
+
+    const scope = { tenantId, organizationId }
+    const releaseId = args.release ?? null
+    const evalSetVersion = snapshot ?? args['eval-set-version'] ?? null
+    const errorReportInput = { agentDefinitionId, releaseId, evalSetVersion, repeatCount }
+
     const container = await createRequestContainer()
     let result: Awaited<ReturnType<typeof runEvalGate>>
     try {
       result = await runEvalGate(container, {
         agentDefinitionId,
-        releaseId: args.release ?? null,
-        evalSetVersion: args['eval-set-version'] ?? null,
+        releaseId,
+        ...(snapshot ? { snapshot } : { evalSetVersion }),
         baselineSuiteRunId: args.baseline ?? null,
         repeatCount,
-        scope: { tenantId, organizationId },
+        scope,
         triggeredBy: 'ci',
       })
     } catch (error) {
-      console.error(error instanceof Error ? error.message : String(error))
-      // A gate that could not run is NOT a pass.
+      const message = errorMessageOf(error)
+      console.error(message)
+      if (reportDir) writeEvalErrorReport(reportDir, { ...errorReportInput, message })
       process.exitCode = gate ? 1 : 2
       return
     }
@@ -599,17 +744,62 @@ const evalGate: ModuleCli = {
       for (const key of result.safetyRegressions) console.log(`  - ${key}`)
     }
 
-    if (!gate) return
+    let report: EvalReport | null = null
+    let reportFailed = false
+    if (reportDir || (gate && failOnFlaky)) {
+      try {
+        const em = (container.resolve('em') as EntityManager).fork()
+        report = await buildEvalReport(em, scope, result.suiteRunId, { includePayloads })
+        if (!report) throw new Error(`[internal] eval suite run ${result.suiteRunId} is not in scope`)
+      } catch (error) {
+        const message = errorMessageOf(error)
+        console.error(`Could not build the eval report: ${message}`)
+        reportFailed = true
+        if (reportDir) {
+          writeEvalErrorReport(reportDir, { ...errorReportInput, suiteRunId: result.suiteRunId, message })
+        }
+      }
+    }
+    if (report && reportDir) {
+      try {
+        const written = writeEvalReportFiles(reportDir, report, formats)
+        console.log(`Report:      ${written.join(', ')}`)
+      } catch (error) {
+        console.error(`Could not write the eval report to ${reportDir}: ${errorMessageOf(error)}`)
+        reportFailed = true
+      }
+    }
+
+    if (!gate) {
+      if (reportFailed) process.exitCode = 2
+      return
+    }
 
     if (result.outcome === 'advisory') {
       console.error('')
-      console.error('Refusing to gate on an advisory run: pass --eval-set-version to pin the dataset, or drop --gate.')
+      console.error('Refusing to gate on an advisory run: pass --snapshot or --eval-set-version to pin the dataset, or drop --gate.')
       process.exitCode = 2
       return
     }
     if (result.outcome === 'failed') {
       process.exitCode = 1
+      return
     }
+    if (minPassScore !== undefined && (result.passScore === null || result.passScore < minPassScore)) {
+      console.error('')
+      console.error(
+        `Pass score ${result.passScore === null ? 'n/a' : result.passScore.toFixed(3)} is below --min-pass-score ${minPassScore}.`,
+      )
+      process.exitCode = 1
+      return
+    }
+    if (failOnFlaky && report && report.totals.flakyCases > 0) {
+      console.error('')
+      console.error(`${report.totals.flakyCases} flaky case(s) with --fail-on-flaky true.`)
+      process.exitCode = 1
+      return
+    }
+    if (reportFailed) process.exitCode = 2
   },
 }
 
