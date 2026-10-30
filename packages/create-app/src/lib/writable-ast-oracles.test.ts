@@ -1012,7 +1012,10 @@ export const openApi = { methods: {} }
 })
 
 function writeRecoverySources(root: string, sources: Record<string, string>) {
+  const compiler: typeof import('typescript-standalone') = require('typescript-standalone')
   for (const [relative, source] of Object.entries(sources)) {
+    const parsed = compiler.createSourceFile(relative, source, compiler.ScriptTarget.Latest, true)
+    assert.equal((parsed as typeof parsed & { parseDiagnostics: readonly unknown[] }).parseDiagnostics.length, 0, `invalid recovery fixture ${relative}`)
     const destination = path.join(root, relative)
     fs.mkdirSync(path.dirname(destination), { recursive: true })
     fs.writeFileSync(destination, source)
@@ -1065,20 +1068,26 @@ const recoveryNegatives: Array<{ caseId: string; label: string; mutate: (sources
   { caseId: 'OMH-014', label: 'unused component import', mutate: sources => ({ ...sources, 'src/modules/library/backend/books/page.tsx': "import { Books } from '../../components/Books'\nexport default function Page() { return <div /> }" }) },
   { caseId: 'OMH-014', label: 'import escaping the case module', mutate: sources => ({ ...sources, 'src/modules/library/backend/books/page.tsx': "import { Books } from '../../../other/Books'\nexport default function Page() { return <Books /> }", 'src/modules/other/Books.tsx': sources['src/modules/library/components/Books.tsx'] }) },
   { caseId: 'OMH-014', label: 'nonexistent rendered import', mutate: sources => ({ ...sources, 'src/modules/library/backend/books/page.tsx': "import { Books } from '../../components/Missing'\nexport default function Page() { return <Books /> }" }) },
+  { caseId: 'OMH-026', label: 'empty registered enricher', mutate: sources => ({ ...sources, 'src/modules/app_customizations/data/enrichers.ts': "import type { ResponseEnricher } from '@open-mercato/shared/lib/crud/response-enricher'\nexport const enrichers: ResponseEnricher[] = [{ id: 'empty', targetEntity: 'customers.person', async enrichMany() { return [] } }]" }) },
   { caseId: 'OMH-026', label: 'disconnected enrichMany call', mutate: sources => ({ ...sources, 'src/modules/app_customizations/data/enrichers.ts': "function unused() { enrichMany([]) }\nexport const enrichers = []" }) },
   { caseId: 'OMH-026', label: 'unexported enricher', mutate: sources => Object.fromEntries(Object.entries(sources).map(([file, source]) => [file, source.replace('export const enrichers', 'const enrichers')])) },
   { caseId: 'OMH-027', label: 'disconnected typed widget', mutate: sources => ({ ...sources, 'src/modules/app_customizations/widgets/injection-table.ts': "export const injectionTable = { 'data-table:customers.people:columns': { widgetId: 'other.widget' } }; const options = { extensionTableId: 'customers.people' }" }) },
   { caseId: 'OMH-027', label: 'nonmountable base host', mutate: sources => Object.fromEntries(Object.entries(sources).map(([file, source]) => [file, source.replace('data-table:customers.people:columns', 'data-table:')])) },
   { caseId: 'OMH-027', label: 'missing widget default export', mutate: sources => Object.fromEntries(Object.entries(sources).map(([file, source]) => [file, source.replace('export default widget', 'export const unused = widget')])) },
+  { caseId: 'OMH-029', label: 'unimported same-named overrides', mutate: sources => ({ ...sources, 'src/modules/app_customizations/aaa-empty.ts': 'export const overrides = {}', 'src/modules.ts': sources['src/modules.ts'].replace('./modules/app_customizations/overrides', './modules/app_customizations/aaa-empty') }) },
   { caseId: 'OMH-029', label: 'disconnected page map', mutate: sources => ({ ...sources, 'src/modules.ts': "export const enabledModules = [{ id: 'app_customizations', from: '@app' }]" }) },
   { caseId: 'OMH-029', label: 'singular page property', mutate: sources => Object.fromEntries(Object.entries(sources).map(([file, source]) => [file, source.replace('pages:', 'page:')])) },
+  { caseId: 'OMH-029', label: 'nonfunction page loader', mutate: sources => Object.fromEntries(Object.entries(sources).map(([file, source]) => [file, source.replace("'/backend/example/reports': null", "'/backend/example/reports': { load: 'not-a-loader' }")])) },
   { caseId: 'OMH-029', label: 'invented replace URL', mutate: sources => Object.fromEntries(Object.entries(sources).map(([file, source]) => [file, source.replace("'/backend/example/reports': null", "'/backend/example/reports': { replace: '/backend/other' }")])) },
+  { caseId: 'OMH-031', label: 'unused imported type with untyped registry', mutate: sources => Object.fromEntries(Object.entries(sources).map(([file, source]) => [file, source.replace('interceptors: ApiInterceptor[]', 'interceptors')])) },
+  { caseId: 'OMH-031', label: 'metadata read without before handoff', mutate: sources => Object.fromEntries(Object.entries(sources).map(([file, source]) => [file, source.replace(/}\s*\]$/, ', async after(request, response, context) { return { merge: { approved: context.metadata?.approved } } } }]')])) },
   { caseId: 'OMH-031', label: 'untrusted request scope', mutate: sources => Object.fromEntries(Object.entries(sources).map(([file, source]) => [file, source.replaceAll('context.tenantId', 'request.body?.tenantId').replaceAll('context.organizationId', 'request.body?.organizationId')])) },
   { caseId: 'OMH-031', label: 'obsolete match shape', mutate: sources => Object.fromEntries(Object.entries(sources).map(([file, source]) => [file, source.replace("targetRoute: 'customers/people', methods: ['GET']", "match: { path: '/api/customers/people', methods: ['GET'] }")])) },
   { caseId: 'OMH-031', label: 'orphan typed interceptor', mutate: sources => Object.fromEntries(Object.entries(sources).map(([file, source]) => [file, source.replace('export const interceptors', 'const interceptors')])) },
   { caseId: 'OMH-049', label: 'unregistered agent in dead helper', mutate: sources => ({ 'src/modules/library/ai-agents.ts': "function unused() { return defineAiAgent({ provider: 'x', model: 'x', allowedTools: [], requiredFeatures: [] }) }; export const aiAgents = []" }) },
   { caseId: 'OMH-049', label: 'obsolete provider model options', mutate: sources => Object.fromEntries(Object.entries(sources).map(([file, source]) => [file, source.replace('defaultProvider:', 'provider:').replace('defaultModel:', 'model:')])) },
   { caseId: 'OMH-054', label: 'dead fetch header helper', mutate: () => ({ 'src/modules/automation/workflows/call-api.ts': "export async function callApiActivity(input, effects) { return effects.post(input.url, { idempotencyKey: input.idempotencyKey }) }\nfunction unused() { transaction(); fetch('CALL_API', { headers: { 'Idempotency-Key': 'fake' } }) }" }) },
+  { caseId: 'OMH-054', label: 'dead arrow effects helper', mutate: () => ({ 'src/modules/automation/workflows/call-api.ts': "export async function callApiActivity(input, effects) { const unused = async () => { const key = await effects.reserveIdempotency(input.idempotencyKey); return effects.transaction(() => effects.post(input.url, { idempotencyKey: key })) }; return undefined }" }) },
   { caseId: 'OMH-054', label: 'post uses unreserved key', mutate: sources => Object.fromEntries(Object.entries(sources).map(([file, source]) => [file, source.replace('idempotencyKey: key', 'idempotencyKey: input.idempotencyKey')])) },
 ]
 for (const { caseId, label, mutate } of recoveryNegatives) {
@@ -1090,3 +1099,34 @@ for (const { caseId, label, mutate } of recoveryNegatives) {
     } finally { fs.rmSync(root, { recursive: true, force: true }) }
   })
 }
+
+
+test('recovery OMH-014 bounds cycles, component count and rendered source bytes', () => {
+  const root = stageTarget('src/fixture.ts', 'export {}')
+  try {
+    writeRecoverySources(root, {
+      'src/modules/library/backend/books/page.tsx': "import { Books } from '../../components/Books'\nexport default function Page() { return <Books /> }",
+      'src/modules/library/components/Books.tsx': "import { Loop } from './Loop'\nexport function Books() { return <Loop /> }",
+      'src/modules/library/components/Loop.tsx': "import { Books } from './Books'\nexport function Loop() { return <Books /> }",
+    })
+    assert.equal(runOracle(root, 'before', process.env, 'OMH-014').parsed.passed, false)
+    writeRecoverySources(root, recoveryFixtures['OMH-014'])
+    fs.appendFileSync(path.join(root, 'src/modules/library/components/Books.tsx'), '\n/*' + 'x'.repeat(512 * 1024) + '*/')
+    assert.equal(runOracle(root, 'before', process.env, 'OMH-014').parsed.passed, false)
+    const parts = Array.from({ length: 64 }, (_, index) => `Part${index}`)
+    writeRecoverySources(root, {
+      ...recoveryFixtures['OMH-014'],
+      'src/modules/library/backend/books/page.tsx': parts.map(name => `import { ${name} } from '../../components/${name}'`).join('\n') + "\nimport { Books } from '../../components/Books'\nexport default function Page() { return <><Books />" + parts.map(name => `<${name} />`).join('') + '</> }',
+      ...Object.fromEntries(parts.map(name => [`src/modules/library/components/${name}.tsx`, `export function ${name}() { return <div /> }`])),
+    })
+    assert.equal(runOracle(root, 'before', process.env, 'OMH-014').parsed.passed, false)
+  } finally { fs.rmSync(root, { recursive: true, force: true }) }
+})
+
+test('recovery OMH-031 permits explicit metadata handoff when after consumes it', () => {
+  const root = stageTarget('src/fixture.ts', 'export {}')
+  try {
+    writeRecoverySources(root, Object.fromEntries(Object.entries(recoveryFixtures['OMH-031']).map(([file, source]) => [file, source.replace('return { ok: true, query:', 'return { ok: true, metadata: { approved: true }, query:').replace(/}\s*\]$/, ', async after(request, response, context) { return { merge: { approved: context.metadata?.approved } } } }]') ])))
+    assert.equal(runOracle(root, 'before', process.env, 'OMH-031').parsed.passed, true)
+  } finally { fs.rmSync(root, { recursive: true, force: true }) }
+})
