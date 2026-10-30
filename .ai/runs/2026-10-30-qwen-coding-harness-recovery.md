@@ -44,7 +44,7 @@ Fail-before evidence: evaluator delivery tests 6 fail / 2 control pass (existing
 
 Coding context tests: 13 pass, including all 49 writable seed declarations and protected resume fixture. Source-policy tests: 30 pass, including real MCP trace accounting and actual installed adapter/descriptor preparation.
 
-Structural and typed-seed final focused validation: 65 tests pass; real typecheck/behavior gates remain unchanged.
+Structural and typed-seed validation initially passed 65 tests. Review added malformed-output exit classification, exact example entrypoint disclosure and bound React callback regressions. The full read-policy sync suite passes 66 tests; separate example bounds cover the complete declared surface without raising writable routing budgets. Real typecheck/behavior gates remain unchanged.
 
 ### Phase 3: Evaluation evidence
 - [ ] 3.1 Verify deterministic, emitted/packed scaffold and knowledge-change gates.

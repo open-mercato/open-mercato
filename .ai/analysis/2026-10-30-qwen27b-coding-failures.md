@@ -6,6 +6,8 @@ The user stopped the experiment. There are **13 completed coding failures and on
 
 Model `qwen3.8:27b-mlx`, Pi 1.4.0, Ollama 0.40.8, local macOS arm64; sequential fresh processes with a 600-second ceiling. A local-only temporary transport uses the existing Claude CLI slot to invoke Pi; no Claude inference or official Pi-runner certification is implied. The local-source framework scaffold is version 0.10.0, originally recorded against repository `a2be0f1ab`. New work is based on `fd7c06569bd5fa282716b28e1375d2ddb2cc1eea`. The relevant original case, oracle and inspected examples are unchanged except unrelated OMH-039 SMTP coverage in the newer catalog.
 
+The local Ollama tag is not an independent upstream release attestation: its server metadata reports family/architecture `qwen3_5`, 27.8B parameters, NVFP4 weights and a 262,144-token context length. These identify the current local artifact; they do not establish that quantization caused any particular failure. Declared server sampling defaults are not proof of effective per-request overrides. Fresh comparisons preserve the original transport and model selector.
+
 Raw private captures remain local. Early 009/011/012/014 attempts have retained generated code and structured evidence but no original visible prose. Diagnostics in stored evaluator violations are truncated, so generated sources and exact installed contracts were also inspected.
 
 | Case | Real output / model failure | Demonstrated harness defect or delivery gap | Smallest proposed correction |
@@ -59,4 +61,37 @@ Hashes identify the local sanitized evaluator record and retained generated-file
 
 ## Validation status
 
-Analysis only at this checkpoint. No fixed case or generated app is claimed to pass. Required follow-up: fail-before/head-pass semantic tests, bounded context consistency, fresh coherent/packed scaffold, actual affected local-model reruns and eligible generated-code/release checks. Unavailable certified lanes remain blockers, not implied passes.
+Source-policy regressions and the frozen-target attribution below have run. No repaired model attempt or complete generated app is claimed to pass. Required follow-up includes the coherent/packed scaffold and knowledge gates, fresh local-model attempts, and eligible generated-code/release checks. Unavailable certified lanes remain blockers, not implied passes.
+
+## Offline attribution on the frozen generated targets
+
+Replayed the unchanged retained source through the legacy and corrected structural oracles, deliberately using `--phase before` for structural-only checks. This avoids executing target scripts or writing build caches; it is not a new before-edit model attempt. Existing isolated behavior probes were also replayed where configured. The original typecheck diagnostics remain historical evidence and were not rerun. No historical score is changed.
+
+| Case | Corrected structural replay | Unchanged behavior / remaining evidence |
+|---|---|---|
+| OMH-009 | Structural checks already passed before this repair. | Original entity typecheck failure remains recorded. |
+| OMH-011 | Structural checks already passed before this repair. | Original CRUD typecheck failure remains recorded. |
+| OMH-012 | `command.guards` still fails. | Original typecheck failure remains recorded. |
+| OMH-014 | Invalid exit 2: retained rendered-component import cannot be resolved. | No completed comparable check set; do not count the old UI complaints as removed. Original typecheck failure remains recorded. |
+| OMH-026 | `umes.enricher` still fails. | Original typecheck failure remains recorded. |
+| OMH-027 | `umes.table-id` still fails under the corrected contribution predicate. | Original typecheck failure remains recorded. |
+| OMH-029 | `umes.page-override` still fails. | Original typecheck failure remains recorded. |
+| OMH-031 | `umes.interceptor-scope` still fails. | No typecheck failure diagnostic was recorded; this replay does not imply a fresh typecheck pass. |
+| OMH-042 | `provider.adapter` and `provider.effects` still fail. | Original typecheck failure remains recorded. |
+| OMH-045 | `rest.url` and `rest.retry` still fail at the unchanged canonical client. | Retry response/count/cursor and private-endpoint probes still fail. Original typecheck failure remains recorded. |
+| OMH-049 | Expected agent artifact and source are still missing. | Original typecheck failure remains recorded. |
+| OMH-054 | Obsolete `workflow.activity` and `workflow.idempotency` complaints disappear; structural checks now pass. | `idempotency-survives-rollback` and `reservation-precedes-transaction` still fail at the unchanged canonical activity. Original typecheck failure remains recorded. |
+| OMH-057 | `regression.fail-closed` still fails at the unchanged canonical route. | All four scope/query behavior probes still fail. Original typecheck failure remains recorded. |
+| OMH-060 | Interrupted task; unchanged seeded baseline still fails `regression.atomic`. | `rolls-back-all-phases` still fails. Excluded from completed-failure attribution. |
+
+All fourteen independently computed target source/config fingerprints were identical before and after replay. The original stopped summary hash was also checked before and after. No generator, target build/lint/test/typecheck, model process, or original-report writer ran. The isolated replay removes an artificial structural requirement for OMH-054 while retaining meaningful behavior failures; it establishes no complete implementation pass.
+
+Content-free evidence pins this specific replay, including OMH-014's invalid classification before authoritative review:
+
+- Legacy structural oracle SHA-256: `b8035e423fac9db8d0e779d4bd339a148d4d25f34265297567b74cad3cc489b5`.
+- Corrected structural oracle SHA-256: `ea015b409bef16fec9b747168d08eb31f8094173e6af1adfe24e22acfba7c392`.
+- Unchanged behavior oracle SHA-256: `96a5f781527555b7ef61ed6ea6a656b70f0b2ce4afd9325e0494bb22a36f0e65`.
+- Ignored machine replay report SHA-256: `88a47a66efb2189e82d6ff01364decf401d4b42b218e61b0baae2299a2e7d48f`.
+- Ignored sanitized table and per-case before/after fingerprint report SHA-256: `fb9be412edebe3491e34f42147315fb4e3204b42deaa1407c6362ce7d529d085`.
+
+Raw per-case results and complete before/after fingerprints remain local. No generated code, private response, credential, environment value, or absolute machine path is included here.

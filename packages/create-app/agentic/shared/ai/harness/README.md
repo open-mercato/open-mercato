@@ -1,5 +1,9 @@
 # Agent harness evaluations
 
+Example-root declaring cases (19): `OMH-009`, `OMH-011`, `OMH-012`, `OMH-014`, `OMH-026`, `OMH-027`, `OMH-031`, `OMH-042`, `OMH-049`, `OMH-181`, `OMH-203`, `OMH-219`, `OMH-220`, `OMH-221`, `OMH-222`, `OMH-223`, `OMH-225`, `OMH-226`, `OMH-238`.
+
+Writable example-root declarers (11): `OMH-009`, `OMH-011`, `OMH-012`, `OMH-014`, `OMH-026`, `OMH-027`, `OMH-031`, `OMH-042`, `OMH-049`, `OMH-181`, `OMH-223`.
+
 `cases.json` is the 240-case standalone-app contract. Run `yarn harness:validate --all` for the deterministic gate. Live routing uses a fresh read-only process per case:
 
 `OMH-238` routes Customers calendar add/remove/patch requests to `.ai/guides/customers-calendar.md`, exact installed Customers definitions, and the bounded canonical `umes.customers.calendar-event-types` example. It preserves historical records, generic shared components, and warnings when optional staff/resources integrations are unavailable.

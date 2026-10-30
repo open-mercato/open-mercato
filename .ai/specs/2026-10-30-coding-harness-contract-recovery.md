@@ -41,7 +41,7 @@ No published runtime import, CLI, event, database, ACL, DI or widget contract is
 | Existing Node26/macOS sandbox failures block repository gate | Medium | Reproduce baseline; preserve confinement and report blocker | Draft may require compatible validation environment |
 
 ## Implementation and final compliance
-Execution: `.ai/runs/2026-10-30-qwen-coding-harness-recovery.md`. Analysis complete; implementation and validation pending. Follow the knowledge-contract nine-step process and authoritative review before declaring completion.
+Execution: `.ai/runs/2026-10-30-qwen-coding-harness-recovery.md`. Analysis and shared implementation complete; fresh-model, knowledge/release and final validation evidence pending. Follow the knowledge-contract nine-step process and authoritative review before declaring completion.
 
 ## Changelog
 - 2026-10-30: Recorded stopped-run evidence, smallest-owner repair design, protected checks and before/after validation requirements.

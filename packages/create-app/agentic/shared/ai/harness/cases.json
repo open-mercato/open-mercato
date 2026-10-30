@@ -657,15 +657,16 @@
         {
           "root": "src/modules/example",
           "entrypoints": [
-            "README.md"
+            "README.md",
+            "references/surface-map.md"
           ],
           "allowedCapabilityIds": [
             "data.entities",
             "data.validators",
             "data.migrations"
           ],
-          "maxFiles": 7,
-          "maxBytes": 36864
+          "maxFiles": 9,
+          "maxBytes": 208896
         }
       ]
     },
@@ -846,14 +847,15 @@
         {
           "root": "src/modules/example",
           "entrypoints": [
-            "README.md"
+            "README.md",
+            "references/surface-map.md"
           ],
           "allowedCapabilityIds": [
             "api.crud-query-engine-custom-fields",
             "api.openapi"
           ],
-          "maxFiles": 3,
-          "maxBytes": 24576
+          "maxFiles": 5,
+          "maxBytes": 196608
         }
       ]
     },
@@ -958,13 +960,14 @@
         {
           "root": "src/modules/example",
           "entrypoints": [
-            "README.md"
+            "README.md",
+            "references/surface-map.md"
           ],
           "allowedCapabilityIds": [
             "commands.write"
           ],
-          "maxFiles": 2,
-          "maxBytes": 32768
+          "maxFiles": 4,
+          "maxBytes": 204800
         }
       ]
     },
@@ -1153,7 +1156,8 @@
         {
           "root": "src/modules/example",
           "entrypoints": [
-            "README.md"
+            "README.md",
+            "references/surface-map.md"
           ],
           "allowedCapabilityIds": [
             "ui.page-shell",
@@ -1161,8 +1165,8 @@
             "ui.form-create",
             "ui.form-edit"
           ],
-          "maxFiles": 12,
-          "maxBytes": 33792
+          "maxFiles": 14,
+          "maxBytes": 205824
         }
       ]
     },
@@ -2116,7 +2120,8 @@
         {
           "root": "src/modules/example",
           "entrypoints": [
-            "README.md"
+            "README.md",
+            "references/surface-map.md"
           ],
           "allowedCapabilityIds": [
             "umes.response-enricher",
@@ -2124,8 +2129,8 @@
             "umes.injection.crud-form-field",
             "umes.injection-table"
           ],
-          "maxFiles": 5,
-          "maxBytes": 21504
+          "maxFiles": 7,
+          "maxBytes": 193536
         }
       ]
     },
@@ -2242,7 +2247,8 @@
         {
           "root": "src/modules/example",
           "entrypoints": [
-            "README.md"
+            "README.md",
+            "references/surface-map.md"
           ],
           "allowedCapabilityIds": [
             "umes.injection.datatable-column",
@@ -2251,8 +2257,8 @@
             "umes.injection.datatable-bulk-action",
             "umes.injection-table"
           ],
-          "maxFiles": 6,
-          "maxBytes": 16384
+          "maxFiles": 8,
+          "maxBytes": 188416
         }
       ]
     },
@@ -2621,13 +2627,14 @@
         {
           "root": "src/modules/example",
           "entrypoints": [
-            "README.md"
+            "README.md",
+            "references/surface-map.md"
           ],
           "allowedCapabilityIds": [
             "api.interceptors"
           ],
-          "maxFiles": 2,
-          "maxBytes": 11264
+          "maxFiles": 4,
+          "maxBytes": 183296
         }
       ]
     },
@@ -3491,15 +3498,16 @@
         {
           "root": "src/modules/example",
           "entrypoints": [
-            "README.md"
+            "README.md",
+            "references/surface-map.md"
           ],
           "allowedCapabilityIds": [
             "module.acl-features",
             "module.setup-role-features",
             "module.di-registration"
           ],
-          "maxFiles": 6,
-          "maxBytes": 26624
+          "maxFiles": 8,
+          "maxBytes": 198656
         }
       ]
     },
@@ -4081,15 +4089,16 @@
         {
           "root": "src/modules/example",
           "entrypoints": [
-            "README.md"
+            "README.md",
+            "references/surface-map.md"
           ],
           "allowedCapabilityIds": [
             "ai.agent",
             "ai.tool-pack",
             "module.acl-features"
           ],
-          "maxFiles": 4,
-          "maxBytes": 24576
+          "maxFiles": 6,
+          "maxBytes": 196608
         }
       ]
     },

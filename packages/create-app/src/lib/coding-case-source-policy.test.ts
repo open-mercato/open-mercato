@@ -15,6 +15,7 @@ import { generateCodex } from '../setup/tools/codex.js'
 type ExampleRoot = { root: string; entrypoints: string[]; allowedCapabilityIds: string[]; maxFiles: number; maxBytes: number }
 type CodingCase = {
   id: string
+  evaluationKind: string
   context: { required: string[]; allowedExtra?: string[]; sourceReferenceIds?: string[]; exampleRoots?: ExampleRoot[] }
   requiredSkills: string[]
   allowedWrites: string[]
@@ -143,6 +144,7 @@ function mandatoryClosure(root: string, record: CodingCase) {
   }
   for (const declaration of record.context.exampleRoots ?? []) {
     for (const filename of declaration.entrypoints) sourceFiles.add(`${declaration.root}/${filename}`)
+    sourceFiles.add(`${declaration.root}/references/surface-inventory.json`)
     for (const capabilityId of declaration.allowedCapabilityIds) {
       const capability = surfaces.find(capability => capability.capabilityId === capabilityId)
       assert.equal(capability?.readStatus, 'readable', `${record.id}: non-readable capability ${capabilityId}`)
@@ -152,7 +154,14 @@ function mandatoryClosure(root: string, record: CodingCase) {
   const size = (filename: string) => fs.statSync(path.join(root, filename)).size
   const initial = [...instructions].filter(initialContext)
   const files = new Set([...instructions, ...sourceFiles])
-  return { initialFiles: initial.length, initialBytes: initial.reduce((total, filename) => total + size(filename), 0), totalBytes: [...files].reduce((total, filename) => total + size(filename), 0), sourceFiles: [...sourceFiles], sourceBytes: [...sourceFiles].reduce((total, filename) => total + size(filename), 0) }
+  const rootMeasurements = (record.context.exampleRoots ?? []).map(declaration => {
+    const rootSources = [...sourceFiles].filter(filename => filename.startsWith(`${declaration.root}/`))
+    return { files: rootSources.length, bytes: rootSources.reduce((total, filename) => total + size(filename), 0), maxFiles: declaration.maxFiles, maxBytes: declaration.maxBytes }
+  })
+  const initialBytes = initial.reduce((total, filename) => total + size(filename), 0)
+  const writable = ['implementation', 'regression'].includes(record.evaluationKind)
+  const routingFiles = writable ? instructions : files
+  return { initialFiles: initial.length, initialBytes, totalBytes: [...routingFiles].reduce((total, filename) => total + size(filename), 0), modelAvailableBytes: [...files].reduce((total, filename) => total + size(filename), 0), sourceFiles: [...sourceFiles], sourceBytes: [...sourceFiles].reduce((total, filename) => total + size(filename), 0), rootMeasurements }
 }
 
 for (const [id, expected] of Object.entries(expectedSources)) {
@@ -167,13 +176,15 @@ for (const [id, expected] of Object.entries(expectedSources)) {
       assert.deepEqual(evaluator.validateExampleReadPolicyDeclaration(record, root), [])
       const owners = (record.context.sourceReferenceIds ?? []).map(referenceId => references.find(reference => reference.referenceId === referenceId)?.originAsset).filter((filename): filename is string => Boolean(filename))
       const entrypoints = (record.context.exampleRoots ?? []).flatMap(declaration => declaration.entrypoints.map(filename => `${declaration.root}/${filename}`))
-      const trace = evaluator.evaluateExampleReadPolicy({ caseRecord: record, appRoot: root, reads: [...new Set([...owners, ...entrypoints, ...exact])].map(filename => ({ path: filename })) })
+      const maps = ['src/modules/example/references/surface-map.md', 'src/modules/example/references/surface-inventory.json']
+      const trace = evaluator.evaluateExampleReadPolicy({ caseRecord: record, appRoot: root, reads: [...new Set([...owners, ...entrypoints, ...maps, ...exact])].map(filename => ({ path: filename })) })
       assert.equal(trace.firstViolation, null)
       const unrelated = id === 'OMH-049' ? 'src/modules/example/commands/todos.ts' : 'src/modules/example/ai-agents.ts'
       const denied = [unrelated, 'src/modules/example/lib/__tests__/mock-gateway-adapter.test.ts', 'src/private.ts', '../outside.ts', '.env']
-      const replies = toolCalls(root, record, [...exact, ...denied].map(filename => ({ name: 'read', arguments: { path: filename } })))
-      for (const reply of replies.slice(0, exact.length)) assert.notEqual(reply.result.isError, true)
-      for (const reply of replies.slice(exact.length)) assert.equal(reply.result.isError, true)
+      const readable = [...new Set([...entrypoints, ...maps, ...exact])]
+      const replies = toolCalls(root, record, [...readable, ...denied].map(filename => ({ name: 'read', arguments: { path: filename } })))
+      for (const reply of replies.slice(0, readable.length)) assert.notEqual(reply.result.isError, true)
+      for (const reply of replies.slice(readable.length)) assert.equal(reply.result.isError, true)
       assert.doesNotMatch(JSON.stringify(replies), /private-source-marker|private-environment-marker|private-qa-marker/)
     } finally { fs.rmSync(root, { recursive: true, force: true }) }
   })
@@ -218,15 +229,19 @@ test('successful declared example reads retain separate reference accounting fro
 })
 
 for (const id of affected) {
-  test(`${id} mandatory instruction, skill and exact example closure fits its declared bounds`, context => {
+  test(`${id} mandatory instructions and the full declared example closure fit their bounds`, context => {
     const root = stageApp()
     try {
       const record = codingCase(id)
       const measured = mandatoryClosure(root, record)
-      context.diagnostic(JSON.stringify({ id, initialFiles: measured.initialFiles, initialBytes: measured.initialBytes, totalBytes: measured.totalBytes, sourceFiles: measured.sourceFiles.length, sourceBytes: measured.sourceBytes, limits: [record.maxContextFiles, record.maxInitialContextBytes, record.maxTotalContextBytes] }))
+      context.diagnostic(JSON.stringify({ id, initialFiles: measured.initialFiles, initialBytes: measured.initialBytes, routingBytes: measured.totalBytes, modelAvailableBytes: measured.modelAvailableBytes, sourceFiles: measured.sourceFiles.length, sourceBytes: measured.sourceBytes, rootMeasurements: measured.rootMeasurements, limits: [record.maxContextFiles, record.maxInitialContextBytes, record.maxTotalContextBytes] }))
       assert.ok(measured.initialFiles <= record.maxContextFiles, `${id} initial files ${measured.initialFiles}/${record.maxContextFiles}`)
       assert.ok(measured.initialBytes <= record.maxInitialContextBytes, `${id} initial bytes ${measured.initialBytes}/${record.maxInitialContextBytes}`)
       assert.ok(measured.totalBytes <= record.maxTotalContextBytes, `${id} total bytes ${measured.totalBytes}/${record.maxTotalContextBytes}; exact source bytes ${measured.sourceBytes}`)
+      for (const root of measured.rootMeasurements) {
+        assert.ok(root.files <= root.maxFiles, `${id} full declared root files ${root.files}/${root.maxFiles}`)
+        assert.ok(root.bytes <= root.maxBytes, `${id} full declared root bytes ${root.bytes}/${root.maxBytes}`)
+      }
       assert.ok(record.maxInitialContextBytes <= 98_304 && record.maxTotalContextBytes <= 1_048_576)
     } finally { fs.rmSync(root, { recursive: true, force: true }) }
   })
