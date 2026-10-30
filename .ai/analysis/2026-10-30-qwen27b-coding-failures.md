@@ -61,6 +61,8 @@ Hashes identify the local sanitized evaluator record and retained generated-file
 
 ## Validation status
 
+[Round 5 complete-cohort results](2026-10-30-qwen27b-round5-results.md) are live on the corrected source. OMH-009 is the first canonical and implementation pass (one attempt, no correction); thirteen cases remain in progress/pending. Broader generated-app checks wait until the model batch completes.
+
 [Round 4 per-case results](2026-10-30-qwen27b-round4-results.md) track the complete fourteen-case rerun, including narrower implementation outcomes and content-free evidence hashes.
 
 The first three recovery experiments are stopped. The fourth complete fourteen-case run started at 17:34:54 UTC on 2026-10-30, frozen to source `b478b301e4ee3af3e78380a6e4df0c398ee95617`, after all preparation and repository checks passed. Full-case results and implementation-oracle results are recorded separately; neither is a complete release certificate. The frozen-target attribution below remains historical evidence.
