@@ -10,3 +10,8 @@
 ## 2026-10-30T10:40:53Z — checkpoint 1
 - Steps 1.1–3.2 landed via executors (1.2, 1.3, 1.4, 2.1, 3.2 capable tier). Decisions worth review: the otelExport command now itself requires trace.view_content for content: full (incl. undo); tool args/results only export when a tool span carries gen_ai.tool.call.id, which native/OpenCode runs don't record yet; protobuf ints beyond signed 64-bit go as decimal strings; integration category 'other' with English labels.
 - Checkpoint 1: static + unit + build:app pass; AO integration 95 passed / 13 skipped / 0 failed after 1.1-review-fix and the full documented OTel env.
+
+## 2026-10-30T12:03:05Z — checkpoint 2
+- Steps 3.3–4.6 landed via executors (3.3, 4.1, 4.2, 4.3, 4.5 capable tier; 3.6 cheap tier — landed as two commits). Fix: 3.4-review-fix (route-link + locale guards).
+- Decisions worth review: per-tenant destination fails closed with five error codes (incl. deployment_unconfigured); `shouldIndex` also gates the query_index token writer; `releaseScoped(flush:false)` returns a search-only cleanup callback; tenant partitions fan out across all of the tenant's orgs.
+- Checkpoint 2: static + unit + build:app pass after the fix; integration 150 passed / 15 skipped / 0 failed.

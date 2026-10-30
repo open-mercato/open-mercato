@@ -32,17 +32,17 @@
 | 2 | 2.2 | Send OTLP over http/protobuf | dispatch | done | bd3594e8d |
 | 3 | 3.1 | Declare the OTLP export integration | dispatch | done | b2db8e528 |
 | 3 | 3.2 | Vet tenant OTLP endpoints and pin their addresses | dispatch:capable | done | a318ca824 |
-| 3 | 3.3 | Resolve the export destination per run | dispatch:capable | done | pending |
-| 3 | 3.4 | Pick the export destination on the settings page | dispatch | done | pending |
-| 3 | 3.4-review-fix | Allow the integrations detail route and translate the German integration-state label | inline | done | pending |
-| 3 | 3.5 | Cover content, protobuf and tenant endpoints with integration tests | dispatch | done | pending |
-| 3 | 3.6 | Document OTel export phase 2 and mirror env vars | dispatch:cheap | done | pending |
-| 4 | 4.1 | Add a shouldIndex hook to search entity configs | dispatch:capable | done | pending |
-| 4 | 4.2 | Declare the document section search entity | dispatch:capable | done | pending |
-| 4 | 4.3 | Add section search sync jobs to the structure queue | dispatch:capable | done | pending |
-| 4 | 4.4 | Index sections when an extraction completes | dispatch | done | pending |
-| 4 | 4.5 | Remove section search records when structure is purged | dispatch:capable | done | pending |
-| 4 | 4.6 | Sync section search when a partition toggles indexing | dispatch | done | pending |
+| 3 | 3.3 | Resolve the export destination per run | dispatch:capable | done | 9f3526961 |
+| 3 | 3.4 | Pick the export destination on the settings page | dispatch | done | 01c71a2cf |
+| 3 | 3.4-review-fix | Allow the integrations detail route and translate the German integration-state label | inline | done | 0a725e423 |
+| 3 | 3.5 | Cover content, protobuf and tenant endpoints with integration tests | dispatch | done | b6982cc6c |
+| 3 | 3.6 | Document OTel export phase 2 and mirror env vars | dispatch:cheap | done | 3f511daaf |
+| 4 | 4.1 | Add a shouldIndex hook to search entity configs | dispatch:capable | done | 72dfa65a3 |
+| 4 | 4.2 | Declare the document section search entity | dispatch:capable | done | 41f07f599 |
+| 4 | 4.3 | Add section search sync jobs to the structure queue | dispatch:capable | done | a0e473ab6 |
+| 4 | 4.4 | Index sections when an extraction completes | dispatch | done | c9992711e |
+| 4 | 4.5 | Remove section search records when structure is purged | dispatch:capable | done | 66786b7e7 |
+| 4 | 4.6 | Sync section search when a partition toggles indexing | dispatch | done | 08e0c9cf0 |
 | 4 | 4.7 | Emit attachment citations from get_document_sections | dispatch | todo | — |
 | 4 | 4.8 | Cover section search with integration tests | dispatch | todo | — |
 | 4 | 4.9 | Document section search | dispatch:cheap | todo | — |

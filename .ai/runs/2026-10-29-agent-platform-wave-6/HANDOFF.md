@@ -1,16 +1,16 @@
 # Handoff — 2026-10-29-agent-platform-wave-6
 
-**Last updated:** 2026-10-30T10:40:53Z
+**Last updated:** 2026-10-30T12:03:05Z
 **Branch:** feat/agent-platform-wave-6 (stacked on feat/agent-platform-wave-5)
 **PR:** https://github.com/open-mercato/open-mercato/pull/8251 (draft; claimed)
-**Current phase/step:** Phase 3 Step 3.3 (first `todo` row)
-**Last commit:** cf8fc9019 — test(agent_orchestrator): accept content export in TC-AGENT-OTEL-001 when the deployment allows it
+**Current phase/step:** Phase 4 Step 4.7 (first `todo` row)
+**Last commit:** 0a725e423 — fix(agent_orchestrator): satisfy the route-link and locale guards for the OTel destination UI
 
 ## What just happened
-- Steps 1.1–3.2 landed (OTel content export, OTLP protobuf, export integration, tenant endpoint vetting/pinning); checkpoint 1 green (see checkpoint-1-checks.md).
+- Steps 1.1–4.6 landed; checkpoints 1 and 2 green (see checkpoint-*-checks.md).
 
 ## Next concrete action
-- Steps 3.3 (per-run destination), 3.4 (settings destination picker), 3.5 (OTEL-003/004 integration), 3.6 (docs + env mirrors), then Phase 4 (section search).
+- Steps 4.7 (attachment citations), 4.8 (TC-ATT-STRUCT-006 section search integration), 4.9 (docs), 5.1 (close), then the final gate and the review pass.
 
 ## Blockers / open questions
 - none. User preferences: auto-continue (no 20-Step pauses), checkpoints every 10+ Steps.
