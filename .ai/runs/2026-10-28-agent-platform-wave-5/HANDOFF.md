@@ -1,18 +1,19 @@
 # Handoff — 2026-10-28-agent-platform-wave-5
 
-**Last updated:** 2026-10-30T05:14:45Z
+**Last updated:** 2026-10-30T09:19:29Z
 **Branch:** feat/agent-platform-wave-5
-**PR:** https://github.com/open-mercato/open-mercato/pull/8099 (draft; `do-not-merge` at the user's request)
-**Current phase/step:** Phase 7 Step 7.11 (first `todo` row)
-**Last commit:** 239d0230f — test(agent_orchestrator): expect the translated guardrail kind label in TC-AGENT-UXC-006
+**PR:** https://github.com/open-mercato/open-mercato/pull/8099 (ready; `do-not-merge` at the user's request; lock released)
+**Current phase/step:** complete — every Tasks row done; final gate passed
+**Last commit:** 1d42639dd — docs: note that agentPrincipalService.resolve skips disabled principals
 
 ## What just happened
 - 2026-10-29: branch brought up to date with `main` through the wave chain; checkpoint 4 green.
 - 2026-10-29/30: Phase 5 (Chat P3, 5.1–5.5) and Phase 6 (Chat P4, 6.1–6.4) landed; wave-4 head merged in (TC-AI-RUN-TRACE-016 fix); checkpoint 5 green (see checkpoint-5-checks.md).
 
 ## Next concrete action
-- Steps 7.11 (eval CI recipe docs) and 7.12 (eval-set import/export/settings integration tests), then 8.1 close (roadmap, UPGRADE_NOTES incl. `yaml` dep, `OM_AGENT_EVAL_TOOL_FIXTURE_MAX_BYTES` env mirror, ACL sync), then the final gate (full validation + full integration suite + DS pass), then om-auto-review-pr --autofix.
-- Decisions to carry into 8.1 / the PR summary are collected in the session scratchpad notes and in each spec changelog; the eval spec changelog (Phase 3–5) is still to write (7.11/8.1).
+- None for this run. Merge order: #7794 → #8011 → #8018 → #8061 → #8099, each after review + QA (`needs-qa`) and lifting `do-not-merge`.
+- Follow-ups from the review (minor): content-retention rescans the oldest 10k rows; non-transactional principal provisioning; org-visible conversation run access; workflow proposalId trust; replayed tools skip requiredFeatures; two catches without reportError; eval-set export file mode; unbounded \$in in agent-run-access.
+- Wave 6 (OTel P2 + DocStructure P4) is planned separately and stacks on this branch.
 
 ## Blockers / open questions
 - none. User preferences: auto-continue, checkpoints every 10+ Steps.

@@ -55,3 +55,9 @@
 - Steps 7.1–7.10 landed via executors (7.2 cheap tier; 7.3, 7.5, 7.6, 7.8 capable tier). New production dependency `yaml` 2.9.0 in @open-mercato/enterprise (approved for Phase 7).
 - Fixes: 7.10-review-fix (explicit sort comparators), 1.11-review-fix-2 (UXC-006 expected the raw guardrail kind).
 - Checkpoint 6: static + unit + build:app pass after the fixes; integration 113 passed / 18 skipped / 1 failed → fixed, UXC 8/8.
+
+## 2026-10-30T09:19:29Z — complete
+- Steps 7.11, 7.12, 8.1 landed; checkpoint-free tail verified by the final gate.
+- Stack re-synced with `main` (docs registry count conflict on wave 1, merged forward), module-facts caps re-measured.
+- Review (delegated, wave-5 commits only): 1 major + 1 minor fixed; follow-ups listed in the review comment.
+- Final gate passed; PR CI integration 15/15 shards green on `1d42639dd`. Status: complete. PR marked ready, `do-not-merge` kept, lock released.
