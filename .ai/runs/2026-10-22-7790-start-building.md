@@ -73,10 +73,16 @@ Local mode, turbo concurrency 2, `NODE_OPTIONS=--max-old-space-size=6144`: `buil
 
 ### Phase 5: Combined Cezar control (2026-10-30 user request)
 
-- [ ] 5.1 Combine the Cezar action and agent dropdown with hover, keyboard and touch access; mirror the standalone template and add regression coverage
+- [x] 5.1 Combine the Cezar action and agent dropdown with hover, keyboard and touch access; mirror the standalone template and add regression coverage — 2f868afc23
 - [ ] 5.2 Run the configured validation gate and authoritative om-auto-review-pr autofix pass
 - [ ] 5.3 Run om-auto-qa-pr with screenshots and publish the outcome
 
 ## Resume scope (2026-10-30)
 
 The operator requested one **Start building with Cezar** control: clicking its label invokes the existing Cezar action, while hovering exposes the existing other-agent options. A dedicated dropdown toggle also supports touch and keyboard users. Preserve startup availability for Cezar and readiness gating for other agents. No launcher, security header, endpoint, dependency or production behavior changes. The user explicitly authorized autonomous continuation after the other-assignee ownership check; the override is documented on the PR.
+
+### Resume validation notes (2026-10-30)
+
+- Merged current `main` in 2429e7381c; resolved both next.config conflicts by preserving the incoming Autopay launch policy in the shared phase-aware header builder. Added phase regression coverage (28 app/header tests pass).
+- Runner: local. Use `TMPDIR=/tmp` on this host so tsx IPC socket paths fit the platform limit; the normal pre-commit translation/template checks pass with that setting.
+- Targeted splash tests: 110 pass. Preliminary Chromium verification: 17 scenario steps pass, including startup/default/hover, keyboard focus across polls, Cezar and Codex HTTP actions with stub launchers, duplicate launch, empty/unavailable/busy/error/disabled, mobile, template, locales and alternate theme. Final evidence will identify the reviewed head.
