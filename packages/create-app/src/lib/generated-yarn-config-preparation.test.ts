@@ -48,6 +48,10 @@ test('canonical target preparation rejects modified policy and executable, unkno
     config.replace('  - "@open-mercato/*"', '  - "@open-mercato/*"\n  - "third-party/*"'),
     config.replace('  - "@open-mercato/*"', '  - "${PREAPPROVED_PACKAGES}"'),
     config.replace('nodeLinker: node-modules', 'nodeLinker: pnp'),
+    config.replace('npmMinimalAgeGate: 5d', 'npmMinimalAgeGate: 5d\nnpmMinimalAgeGate: 0'),
+    config.replace('npmMinimalAgeGate: 5d', 'npmMinimalAgeGate: &age 5d'),
+    config.replace('npmMinimalAgeGate: 5d', 'npmMinimalAgeGate: !!str 5d'),
+    config.replace('npmMinimalAgeGate: 5d', 'npmMinimalAgeGate: 5d # altered value'),
     `${config}\nenableScripts: true\n`,
     `${config}\nyarnPath: "./untrusted-yarn.cjs"\n`,
     `${config}\nplugins:\n  - path: "./plugin.cjs"\n`,
@@ -55,9 +59,15 @@ test('canonical target preparation rejects modified policy and executable, unkno
     `${config}\nnpmAuthToken: "fixture-auth-token"\n`,
     config.replace('https://registry.example.com/npm', 'https://fixture-user:fixture-auth-token@registry.example.com/npm'),
     config.replace('https://registry.example.com/npm', 'https://registry.example.com/npm?token=fixture-auth-token'),
+    config.replace('https://registry.example.com/npm', 'https://registry.example.com/npm#fixture-auth-token'),
     config.replace('https://registry.example.com/npm', 'https://registry.example.com/${REGISTRY_PATH}'),
     config.replace('https://registry.example.com/npm', '${REGISTRY_URL}'),
+    config.replace('https://registry.example.com/npm', 'https://${REGISTRY_HOST}/npm'),
+    config.replace('    npmMinimalAgeGate: 0', '    npmMinimalAgeGate: 0\n  other-scope:\n    npmRegistryServer: "https://registry.example.com/npm"'),
     `${config}\nunsafeHttpWhitelist:\n  - "*"\n`,
+    `${generatedConfig('http://127.0.0.1:63255')}\nunsafeHttpWhitelist:\n  - "unapproved.example.com"\n`,
+    `${config}\0`,
+    `${config}\n# ${'x'.repeat(16_384)}\n`,
   ]
   for (const candidate of unsafe) {
     withController(candidate, (controller, prepareRoot) => {
