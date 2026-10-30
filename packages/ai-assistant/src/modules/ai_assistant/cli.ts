@@ -51,6 +51,48 @@ function parseArgs(rest: string[]): Record<string, string | boolean> {
   return args
 }
 
+type CliArgs = Record<string, string | boolean>
+
+const EXPOSURE_FLAG_KEYS = ['tools', 'exclude-tools', 'mutation-mode', 'no-agent-tools'] as const
+
+const EXPOSURE_HELP_LINES = [
+  'Exposure options (override OM_MCP_* env vars):',
+  '  --tools <csv>           Allowlist of tool names or prefix globs (e.g. customers.*,search)',
+  '  --exclude-tools <csv>   Denylist of tool names or prefix globs',
+  '  --mutation-mode <mode>  direct | deny | approval (default: OM_MCP_MUTATION_MODE, then direct)',
+  '  --no-agent-tools        Hide tools that wrap AI agents',
+]
+
+type ExposureCliArgsResult = { ok: true; cliArgs: CliArgs } | { ok: false; error: string }
+
+async function readExposureCliArgs(args: CliArgs): Promise<ExposureCliArgsResult> {
+  const cliArgs: CliArgs = {}
+  for (const key of EXPOSURE_FLAG_KEYS) {
+    const value = args[key]
+    if (value !== undefined) cliArgs[key] = value
+  }
+  const rawMode = cliArgs['mutation-mode']
+  if (rawMode === undefined) return { ok: true, cliArgs }
+  const { MCP_MUTATION_MODES, isMcpMutationMode } = await import('./lib/mcp-exposure')
+  const normalizedMode = typeof rawMode === 'string' ? rawMode.trim().toLowerCase() : ''
+  if (!isMcpMutationMode(normalizedMode)) {
+    const shown = typeof rawMode === 'string' ? `"${rawMode}"` : '(missing value)'
+    return {
+      ok: false,
+      error: `Invalid --mutation-mode ${shown}. Allowed values: ${MCP_MUTATION_MODES.join(', ')}.`,
+    }
+  }
+  cliArgs['mutation-mode'] = normalizedMode
+  return { ok: true, cliArgs }
+}
+
+function printExposureError(command: string, error: string): void {
+  console.error(`[${command}] ${error}`)
+  console.error('')
+  for (const line of EXPOSURE_HELP_LINES) console.error(line)
+  process.exitCode = 1
+}
+
 const mcpServe: ModuleCli = {
   command: 'mcp:serve',
   async run(rest) {
@@ -70,6 +112,11 @@ const mcpServe: ModuleCli = {
     const allowUnauthenticatedSuperadmin =
       args['allow-unauthenticated-superadmin'] === true ||
       args['allow-unauthenticated-superadmin'] === 'true'
+    const exposure = await readExposureCliArgs(args)
+    if (!exposure.ok) {
+      printExposureError('mcp:serve', exposure.error)
+      return
+    }
 
     // Either API key or tenant is required
     if (!apiKey && !tenantId) {
@@ -90,11 +137,14 @@ const mcpServe: ModuleCli = {
       console.error('                       DEV/TEST ONLY: run as superadmin with no per-user ACL when')
       console.error('                       no --user (and no --api-key) is supplied. Never use in production.')
       console.error('')
+      for (const line of EXPOSURE_HELP_LINES) console.error(line)
+      console.error('')
       console.error('Examples:')
       console.error('  OPEN_MERCATO_API_KEY=omk_xxxx.yyyy... mercato ai_assistant mcp:serve')
       console.error('  mercato ai_assistant mcp:serve --api-key omk_xxxx.yyyy...')
       console.error('  mercato ai_assistant mcp:serve --tenant 123e4567-e89b-12d3-a456-426614174000 --user <user-id>')
       console.error('  mercato ai_assistant mcp:serve --tenant 123e4567-e89b-12d3-a456-426614174000 --allow-unauthenticated-superadmin')
+      console.error('  mercato ai_assistant mcp:serve --tools "customers.*,search" --mutation-mode deny')
       return
     }
 
@@ -112,6 +162,7 @@ const mcpServe: ModuleCli = {
         },
         container,
         apiKeySecret: apiKey,
+        cliArgs: exposure.cliArgs,
       })
     } else {
       await runMcpServer({
@@ -127,6 +178,7 @@ const mcpServe: ModuleCli = {
           userId,
         },
         allowUnauthenticatedSuperadmin,
+        cliArgs: exposure.cliArgs,
       })
     }
   },
@@ -138,9 +190,24 @@ const mcpServeHttp: ModuleCli = {
   command: 'mcp:serve-http',
   async run(rest) {
     const args = parseArgs(rest)
+    if (args.help === true) {
+      console.error('Usage: mercato ai_assistant mcp:serve-http [options]')
+      console.error('')
+      console.error('Options:')
+      console.error(`  --port <port>           HTTP port (default ${MCP_DEFAULT_PORT})`)
+      console.error('  --debug                 Enable debug logging')
+      console.error('')
+      for (const line of EXPOSURE_HELP_LINES) console.error(line)
+      return
+    }
     const portArg = parseInt(String(args.port ?? ''), 10)
     const port = !portArg || isNaN(portArg) ? MCP_DEFAULT_PORT : portArg
     const debug = args.debug === true || args.debug === 'true'
+    const exposure = await readExposureCliArgs(args)
+    if (!exposure.ok) {
+      printExposureError('mcp:serve-http', exposure.error)
+      return
+    }
 
     await ensureBootstrap()
     const container = await createRequestContainer()
@@ -155,6 +222,7 @@ const mcpServeHttp: ModuleCli = {
       },
       container,
       port,
+      cliArgs: exposure.cliArgs,
     })
   },
 }
@@ -214,6 +282,30 @@ const listTools: ModuleCli = {
   async run(rest) {
     const args = parseArgs(rest)
     const verbose = args.verbose === true || args.verbose === 'true'
+    if (args.help === true) {
+      console.error('Usage: mercato ai_assistant mcp:list-tools [options]')
+      console.error('')
+      console.error('Options:')
+      console.error('  --verbose               Print descriptions and required features')
+      console.error('  --effective             Apply the MCP exposure config (OM_MCP_* env + flags below)')
+      console.error('  --as-api-key <secret>   Also apply the ACL of this API key, as mcp:serve-http does')
+      console.error('                          (implies --effective; the secret is never printed)')
+      console.error('')
+      for (const line of EXPOSURE_HELP_LINES) console.error(line)
+      return
+    }
+    const apiKeyArg = args['as-api-key']
+    if (apiKeyArg === true || (typeof apiKeyArg === 'string' && !apiKeyArg.trim())) {
+      printExposureError('mcp:list-tools', '--as-api-key requires an API key secret.')
+      return
+    }
+    const apiKeySecret = typeof apiKeyArg === 'string' ? apiKeyArg.trim() : null
+    const effective = args.effective === true || args.effective === 'true' || apiKeySecret !== null
+    const exposure = effective ? await readExposureCliArgs(args) : null
+    if (exposure && !exposure.ok) {
+      printExposureError('mcp:list-tools', exposure.error)
+      return
+    }
 
     // Ensure bootstrap runs so modules are registered for API discovery
     await ensureBootstrap()
@@ -223,15 +315,53 @@ const listTools: ModuleCli = {
 
     const { getToolRegistry } = await import('./lib/tool-registry')
     const registry = getToolRegistry()
-    const toolNames = registry.listToolNames()
+    let toolNames = registry.listToolNames()
+
+    if (exposure) {
+      const {
+        collectMcpExposureWarnings,
+        describeMcpExposureConfig,
+        filterToolsForCaller,
+        isToolExposed,
+        resolveMcpExposureConfig,
+      } = await import('./lib/mcp-exposure')
+      const exposureConfig = resolveMcpExposureConfig(process.env, exposure.cliArgs)
+      for (const warning of collectMcpExposureWarnings(process.env)) {
+        console.error(`[mcp:list-tools] WARN ${warning}`)
+      }
+      const allTools = Array.from(registry.getTools().values())
+      let effectiveTools = allTools.filter((tool) => isToolExposed(tool, exposureConfig))
+      if (apiKeySecret) {
+        const container = await createRequestContainer()
+        const { resolveApiKeyListCaller } = await import('./lib/http-server')
+        const caller = await resolveApiKeyListCaller(container, apiKeySecret)
+        if (!caller) {
+          console.error('[mcp:list-tools] Invalid or expired API key')
+          process.exitCode = 1
+          return
+        }
+        effectiveTools = filterToolsForCaller(allTools, exposureConfig, caller)
+      }
+      console.log(`\nExposure config: ${JSON.stringify(describeMcpExposureConfig(exposureConfig, allTools))}`)
+      console.log(`Principal: ${apiKeySecret ? 'api key ACL' : 'none (exposure config only)'}`)
+      toolNames = effectiveTools.map((tool) => tool.name)
+    }
 
     if (toolNames.length === 0) {
+      if (exposure) {
+        console.log('\nNo MCP tools are exposed for this configuration.\n')
+        return
+      }
       console.log('\nNo MCP tools registered.')
       console.log('Tools can be registered by modules using registerMcpTool().\n')
       return
     }
 
-    console.log(`\nRegistered MCP Tools (${toolNames.length}):\n`)
+    console.log(
+      exposure
+        ? `\nEffective MCP Tools (${toolNames.length} of ${registry.listToolNames().length}):\n`
+        : `\nRegistered MCP Tools (${toolNames.length}):\n`,
+    )
 
     // Group tools by module
     const byModule = new Map<string, string[]>()
@@ -329,7 +459,7 @@ const runPendingActionCleanup: ModuleCli = {
     )
 
     const em = container.resolve<import('@mikro-orm/postgresql').EntityManager>('em')
-    const summary = await runCleanup({ em })
+    const summary = await runCleanup({ em, container })
 
     console.log('[ai-pending-action-cleanup] Sweep complete:', summary)
   },

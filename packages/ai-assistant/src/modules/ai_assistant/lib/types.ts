@@ -1,5 +1,6 @@
 import type { z } from 'zod'
 import type { AwilixContainer } from 'awilix'
+import type { McpExposureConfig } from './mcp-exposure'
 
 /**
  * Execution context for MCP tool calls.
@@ -36,6 +37,18 @@ export interface McpToolContext {
    * refused with a conflict instead of being overwritten.
    */
   expectedRecordVersions?: Readonly<Record<string, string>>
+  /**
+   * Set when the handler runs on behalf of a confirmed pending action so the
+   * write can be correlated with the original request and its requester.
+   */
+  auditCorrelation?: McpToolAuditCorrelation
+}
+
+export interface McpToolAuditCorrelation {
+  correlationId: string | null
+  apiKeyId: string | null
+  pendingActionId: string
+  requestedByUserId: string
 }
 
 /**
@@ -175,6 +188,35 @@ export interface AiToolDefinition<TInput = unknown, TOutput = unknown>
   maxCallsPerTurn?: number
   /** Declares the tool can receive resolved attachment parts at runtime. */
   supportsAttachments?: boolean
+  /** MCP channel controls. Omitted = exposed (today's behaviour). */
+  mcp?: AiToolMcpOptions
+  /** Identifies the agent the tool runs (set by agent-tool synthesis). */
+  agentRef?: AiToolAgentRef
+}
+
+/**
+ * MCP channel controls for an AI tool.
+ */
+export interface AiToolMcpOptions {
+  /** Set to `false` to hide the tool from MCP servers. Defaults to exposed. */
+  expose?: boolean
+  /**
+   * How a mutation tool behaves when `OM_MCP_MUTATION_MODE=approval`.
+   * `'queue'` (default) queues a pending action for approval; `'refuse'` hides
+   * the tool from `tools/list` and rejects calls on the mcp/tools-api channels
+   * because an approved execution could not reproduce it meaningfully.
+   */
+  approvalMode?: 'queue' | 'refuse'
+  /** Optional output schema advertised as MCP `outputSchema`. */
+  outputSchema?: z.ZodTypeAny
+}
+
+/**
+ * Reference to the agent a synthesized agent tool runs.
+ */
+export interface AiToolAgentRef {
+  agentId: string
+  engine: 'ai-assistant' | 'dispatcher'
 }
 
 /**
@@ -236,6 +278,8 @@ export interface McpServerOptions {
    * instead of silently escalating to superadmin. NEVER enable in production.
    */
   allowUnauthenticatedSuperadmin?: boolean
+  exposureConfig?: McpExposureConfig
+  cliArgs?: Record<string, unknown>
 }
 
 /**
@@ -245,7 +289,14 @@ export interface ToolExecutionResult {
   success: boolean
   result?: unknown
   error?: string
-  errorCode?: 'NOT_FOUND' | 'UNAUTHORIZED' | 'VALIDATION_ERROR' | 'EXECUTION_ERROR'
+  errorCode?:
+    | 'NOT_FOUND'
+    | 'UNAUTHORIZED'
+    | 'VALIDATION_ERROR'
+    | 'EXECUTION_ERROR'
+    | 'MUTATION_REQUIRES_APPROVAL'
+    | 'MUTATION_REQUESTER_UNRESOLVED'
+  pendingApproval?: { pendingActionId: string; expiresAt: string }
 }
 
 // =============================================================================

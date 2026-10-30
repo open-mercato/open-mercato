@@ -127,6 +127,8 @@
   "attachments.partitions.errors.s3Disabled": "This partition uses S3, but S3 is disabled. Set OM_ENABLE_STORAGE_S3=true and restart the app.",
   "attachments.partitions.errors.s3EnvPrefixRequired": "Credentials env prefix is required when using a separate credentials source.",
   "attachments.partitions.errors.save": "Failed to save partition.",
+  "attachments.partitions.extractDocumentStructure.help": "Parse uploaded PDF and DOCX files into an outline of chapters, sections and clauses with page references.",
+  "attachments.partitions.extractDocumentStructure.label": "Extract document structure",
   "attachments.partitions.form.codeLabel": "Code",
   "attachments.partitions.form.codePlaceholder": "e.g. marketingAssets",
   "attachments.partitions.form.descriptionLabel": "Description",
@@ -162,6 +164,9 @@
   "attachments.partitions.form.storageDriverS3DisabledHelp": "S3 is disabled. Set OM_ENABLE_STORAGE_S3=true and restart to enable S3 partitions.",
   "attachments.partitions.form.titleLabel": "Title",
   "attachments.partitions.form.titlePlaceholder": "e.g. Marketing assets",
+  "attachments.partitions.indexDocumentSections.help": "Make each extracted section searchable on its own. Requires document structure extraction.",
+  "attachments.partitions.indexDocumentSections.label": "Index document sections in search",
+  "attachments.partitions.indexDocumentSections.warning": "Section text is sent to the fulltext and vector search stores in plaintext, even when tenant data encryption is enabled. Do not enable this for partitions holding personal or confidential data.",
   "attachments.partitions.locked.description": "Attachment partitions are managed by environment defaults while demo or onboarding mode is enabled.",
   "attachments.partitions.locked.hint": "Update the environment variables below to re-enable in-app configuration.",
   "attachments.partitions.locked.title": "Partition settings locked",
@@ -181,5 +186,11 @@
   "attachments.partitions.table.title": "Title",
   "attachments.partitions.table.visibility": "Visibility",
   "attachments.partitions.title": "Attachment partitions",
-  "attachments.storage.nav.title": "Storage"
+  "attachments.storage.nav.title": "Storage",
+  "attachments.structure.audit.current": "Document structure already current",
+  "attachments.structure.audit.requested": "Document structure extraction requested",
+  "attachments.structure.errors.invalidRequest": "Invalid request",
+  "attachments.structure.errors.notFound": "Attachment not found",
+  "attachments.structure.errors.tooLarge": "The file is too large for document structure extraction.",
+  "attachments.structure.errors.unsupportedType": "This file type does not support document structure extraction."
 }

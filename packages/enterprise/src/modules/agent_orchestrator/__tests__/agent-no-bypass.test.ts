@@ -4,11 +4,26 @@ import {
   withAuditedCommand,
   getAgentActorScope,
   isAuditedCommandActive,
+  withRuntimeAuditWrite,
+  isRuntimeAuditWriteActive,
 } from '../lib/identity/agentWriteScope'
 import {
   AgentKindNoBypassSubscriber,
   AgentWriteBypassError,
+  isRuntimeAuditEntity,
 } from '../lib/identity/agentNoBypassSubscriber'
+import {
+  AgentContextBundle,
+  AgentEvalResult,
+  AgentGuardrailCheck,
+  AgentPrincipal,
+  AgentProposal,
+  AgentRun,
+  AgentRunArtifact,
+  AgentRunSession,
+  AgentSpan,
+  AgentToolCall,
+} from '../data/entities'
 
 const AGENT_USER = 'agent-user-1'
 const HUMAN = 'human-1'
@@ -19,6 +34,37 @@ function fakeEventArgs(entityName = 'SomeEntity'): EventArgs<unknown> {
     meta: { className: entityName },
   } as unknown as EventArgs<unknown>
 }
+
+type EntityClass = abstract new (...args: never[]) => object
+
+function entityEventArgs(entityClass: EntityClass, changedFields?: Record<string, unknown>): EventArgs<unknown> {
+  return {
+    entity: Object.create(entityClass.prototype),
+    meta: { className: entityClass.name, class: entityClass },
+    ...(changedFields ? { changeSet: { payload: changedFields } } : {}),
+  } as unknown as EventArgs<unknown>
+}
+
+const TRACE_RUN_UPDATE = {
+  inputTokens: 70,
+  outputTokens: 20,
+  latencyMs: 120,
+  model: 'test-model',
+  updatedAt: new Date(),
+}
+
+const RUNTIME_AUDIT_CLASSES: EntityClass[] = [
+  AgentGuardrailCheck,
+  AgentContextBundle,
+  AgentSpan,
+  AgentToolCall,
+  AgentEvalResult,
+  AgentRunArtifact,
+  AgentRunSession,
+  AgentRun,
+]
+
+const NON_RUN_RUNTIME_AUDIT_CLASSES = RUNTIME_AUDIT_CLASSES.filter((entityClass) => entityClass !== AgentRun)
 
 /**
  * Release-gate test (Wave 4 Phase 3, layer B-a) — backstops the no-bypass
@@ -100,6 +146,145 @@ describe('agent no-bypass enforcement (three-layer)', () => {
       // throw, `threw` becomes false and this assertion fails — the invariant is
       // backstopped in CI.
       expect(threw).toBe(true)
+    })
+  })
+
+  describe('runtime-audit write scope (AO runtime-audit entity allowlist)', () => {
+    const subscriber = new AgentKindNoBypassSubscriber()
+
+    it('binds the runtime-audit scope and clears it after', async () => {
+      expect(isRuntimeAuditWriteActive()).toBe(false)
+      await withRuntimeAuditWrite(async () => {
+        expect(isRuntimeAuditWriteActive()).toBe(true)
+      })
+      expect(isRuntimeAuditWriteActive()).toBe(false)
+    })
+
+    it('identifies allowlisted entities by class reference and rejects others', () => {
+      for (const entityClass of RUNTIME_AUDIT_CLASSES) {
+        expect(isRuntimeAuditEntity(entityEventArgs(entityClass))).toBe(true)
+      }
+      expect(isRuntimeAuditEntity(entityEventArgs(AgentProposal))).toBe(false)
+      expect(isRuntimeAuditEntity(entityEventArgs(AgentPrincipal))).toBe(false)
+      expect(isRuntimeAuditEntity(fakeEventArgs('SalesOrder'))).toBe(false)
+    })
+
+    it('does not match allowlisted entities by className alone', () => {
+      expect(isRuntimeAuditEntity(fakeEventArgs('AgentSpan'))).toBe(false)
+      expect(isRuntimeAuditEntity(fakeEventArgs('AgentRun'))).toBe(false)
+    })
+
+    it('lets allowlisted create/update/delete pass inside the scope under an agent actor', async () => {
+      await withAgentActor({ agentUserId: AGENT_USER, onBehalfOfUserId: HUMAN }, async () => {
+        await withRuntimeAuditWrite(async () => {
+          for (const entityClass of NON_RUN_RUNTIME_AUDIT_CLASSES) {
+            expect(() => subscriber.beforeCreate(entityEventArgs(entityClass))).not.toThrow()
+            expect(() => subscriber.beforeUpdate(entityEventArgs(entityClass))).not.toThrow()
+            expect(() => subscriber.beforeDelete(entityEventArgs(entityClass))).not.toThrow()
+          }
+        })
+      })
+    })
+
+    it('lets an AgentRun update touching only trace/usage/eval fields pass inside the scope', async () => {
+      await withAgentActor({ agentUserId: AGENT_USER, onBehalfOfUserId: HUMAN }, async () => {
+        await withRuntimeAuditWrite(async () => {
+          expect(() => subscriber.beforeUpdate(entityEventArgs(AgentRun, TRACE_RUN_UPDATE))).not.toThrow()
+          const costAndEval = {
+            costMinor: 12,
+            currency: 'USD',
+            evalScore: 1,
+            evalPassed: true,
+            goldenCaseId: null,
+            goldenPassed: null,
+          }
+          expect(() => subscriber.beforeUpdate(entityEventArgs(AgentRun, costAndEval))).not.toThrow()
+        })
+      })
+    })
+
+    it('THROWS for an AgentRun create, delete or disposition/output update inside the scope', async () => {
+      await withAgentActor({ agentUserId: AGENT_USER, onBehalfOfUserId: HUMAN }, async () => {
+        await withRuntimeAuditWrite(async () => {
+          expect(() => subscriber.beforeCreate(entityEventArgs(AgentRun, TRACE_RUN_UPDATE))).toThrow(AgentWriteBypassError)
+          expect(() => subscriber.beforeDelete(entityEventArgs(AgentRun))).toThrow(AgentWriteBypassError)
+          expect(() => subscriber.beforeUpdate(entityEventArgs(AgentRun))).toThrow(AgentWriteBypassError)
+          for (const field of ['status', 'output', 'proposalId', 'agentId', 'confidence', 'completedAt']) {
+            expect(() =>
+              subscriber.beforeUpdate(entityEventArgs(AgentRun, { ...TRACE_RUN_UPDATE, [field]: 'tampered' })),
+            ).toThrow(AgentWriteBypassError)
+          }
+        })
+      })
+    })
+
+    it('still THROWS for a domain or non-allowlisted AO entity inside the scope', async () => {
+      await withAgentActor({ agentUserId: AGENT_USER }, async () => {
+        await withRuntimeAuditWrite(async () => {
+          expect(() => subscriber.beforeCreate(fakeEventArgs('SalesOrder'))).toThrow(AgentWriteBypassError)
+          expect(() => subscriber.beforeUpdate(fakeEventArgs('SalesOrder'))).toThrow(AgentWriteBypassError)
+          expect(() => subscriber.beforeCreate(entityEventArgs(AgentProposal))).toThrow(AgentWriteBypassError)
+          expect(() => subscriber.beforeUpdate(entityEventArgs(AgentPrincipal))).toThrow(AgentWriteBypassError)
+        })
+      })
+    })
+
+    it('fails a mixed flush (allowlisted + domain) on the domain entity', async () => {
+      await withAgentActor({ agentUserId: AGENT_USER }, async () => {
+        await withRuntimeAuditWrite(async () => {
+          const flush = () => {
+            subscriber.beforeCreate(entityEventArgs(AgentSpan))
+            subscriber.beforeUpdate(entityEventArgs(AgentRun, TRACE_RUN_UPDATE))
+            subscriber.beforeCreate(fakeEventArgs('SalesOrder'))
+          }
+          expect(flush).toThrow(AgentWriteBypassError)
+          expect(flush).toThrow(/SalesOrder/)
+        })
+      })
+    })
+
+    it('keeps allowlisted entities failing closed OUTSIDE the scope under an agent actor', async () => {
+      await withAgentActor({ agentUserId: AGENT_USER }, async () => {
+        expect(() => subscriber.beforeCreate(entityEventArgs(AgentSpan))).toThrow(AgentWriteBypassError)
+        expect(() => subscriber.beforeUpdate(entityEventArgs(AgentRun, TRACE_RUN_UPDATE))).toThrow(AgentWriteBypassError)
+      })
+    })
+
+    it('has no effect without an agent actor (human path unchanged)', async () => {
+      await withRuntimeAuditWrite(async () => {
+        expect(() => subscriber.beforeCreate(fakeEventArgs('SalesOrder'))).not.toThrow()
+        expect(() => subscriber.beforeCreate(entityEventArgs(AgentSpan))).not.toThrow()
+      })
+      expect(() => subscriber.beforeCreate(fakeEventArgs('SalesOrder'))).not.toThrow()
+    })
+
+    it('nests sensibly with the audited-command scope in both directions', async () => {
+      await withAgentActor({ agentUserId: AGENT_USER }, async () => {
+        await withRuntimeAuditWrite(async () => {
+          await withAuditedCommand(async () => {
+            expect(isRuntimeAuditWriteActive()).toBe(true)
+            expect(isAuditedCommandActive()).toBe(true)
+            expect(() => subscriber.beforeCreate(fakeEventArgs('SalesOrder'))).not.toThrow()
+          })
+          expect(isAuditedCommandActive()).toBe(false)
+          expect(() => subscriber.beforeCreate(fakeEventArgs('SalesOrder'))).toThrow(AgentWriteBypassError)
+        })
+        await withAuditedCommand(async () => {
+          await withRuntimeAuditWrite(async () => {
+            expect(isRuntimeAuditWriteActive()).toBe(true)
+            expect(isAuditedCommandActive()).toBe(true)
+            expect(() => subscriber.beforeCreate(entityEventArgs(AgentProposal))).not.toThrow()
+          })
+          expect(isRuntimeAuditWriteActive()).toBe(false)
+        })
+        await withRuntimeAuditWrite(async () => {
+          await withRuntimeAuditWrite(async () => {
+            expect(isRuntimeAuditWriteActive()).toBe(true)
+          })
+          expect(isRuntimeAuditWriteActive()).toBe(true)
+        })
+        expect(isRuntimeAuditWriteActive()).toBe(false)
+      })
     })
   })
 })

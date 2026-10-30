@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="agent-eval:invoice_triage" tests="4" failures="1" errors="1" skipped="0" time="5.100">
+  <testsuite name="agent-eval:invoice_triage" id="suite-1" tests="4" failures="1" errors="1" skipped="0" time="5.100" timestamp="2026-10-22T11:58:00.000Z">
+    <properties>
+      <property name="schema" value="open-mercato.agent-eval-report@1"/>
+      <property name="suiteRunId" value="suite-1"/>
+      <property name="agentId" value="invoice_triage"/>
+      <property name="status" value="completed"/>
+      <property name="trigger" value="ci"/>
+      <property name="outcome" value="failed"/>
+      <property name="passScore" value="0.5"/>
+      <property name="repeatCount" value="2"/>
+      <property name="judgeMayGate" value="false"/>
+      <property name="evalSetVersion" value="sha256:abc123"/>
+      <property name="evalSetLabel" value="regression"/>
+      <property name="manifestHash" value="sha256:abc123"/>
+      <property name="baselineSuiteRunId" value="suite-0"/>
+      <property name="flakyCases" value="1"/>
+      <property name="models" value="openai/gpt-5-mini"/>
+      <property name="toolMode" value="replay"/>
+      <property name="modelMode" value="live"/>
+      <property name="gitSha" value="deadbeef"/>
+      <property name="cliVersion" value="0.9.0"/>
+    </properties>
+    <testcase name="invoice-overdue (Overdue invoice) [trial 0]" classname="invoice_triage.invoice-overdue" time="1.200">
+      <properties>
+        <property name="flaky" value="true"/>
+      </properties>
+      <system-out><![CDATA[Case: invoice-overdue
+Case id: case-a
+Source: file
+Trial: 0
+Status: passed
+Case run: cr-a0
+Baseline status: passed
+Score: 1
+Latency ms: 1200
+Cost minor: 3
+Agent run: run-a0
+Trace: /backend/traces/run-a0
+FLAKY: verdicts differ across trials of this case]]></system-out>
+    </testcase>
+    <testcase name="invoice-overdue (Overdue invoice) [trial 1]" classname="invoice_triage.invoice-overdue" time="3.000">
+      <properties>
+        <property name="flaky" value="true"/>
+      </properties>
+      <failure message="Failed assertions: amount_matches" type="assertion"><![CDATA[Assertion: amount_matches
+Scorer: exact_match
+Type: deterministic
+Severity: gate
+Score: 0
+Evidence:
+{
+  "expected": 120,
+  "actual": 210
+}]]></failure>
+      <system-out><![CDATA[Case: invoice-overdue
+Case id: case-a
+Source: file
+Trial: 1
+Status: failed
+Case run: cr-a1
+Baseline status: passed
+Score: 0.5
+Latency ms: 3000
+Cost minor: 3
+Agent run: run-a1
+Trace: /backend/traces/run-a1
+FLAKY: verdicts differ across trials of this case]]></system-out>
+    </testcase>
+    <testcase name="invoice-paid [trial 0]" classname="invoice_triage.invoice-paid" time="0.900">
+      <system-out><![CDATA[Case: invoice-paid
+Case id: case-b
+Source: file
+Trial: 0
+Status: passed
+Case run: cr-b0
+Baseline status: absent
+Score: 1
+Latency ms: 900
+Cost minor: 2]]></system-out>
+    </testcase>
+    <testcase name="invoice-paid [trial 1]" classname="invoice_triage.invoice-paid" time="0.000">
+      <error message="Provider timeout" type="error"><![CDATA[Provider timeout]]></error>
+      <system-out><![CDATA[Case: invoice-paid
+Case id: case-b
+Source: file
+Trial: 1
+Status: error
+Case run: cr-b1
+Baseline status: absent]]></system-out>
+    </testcase>
+    <system-out><![CDATA[Gate verdict: FAILED
+Regressions: amount_matches
+Flaky cases: invoice-overdue
+Assertion amount_matches: pass rate 50.0%, baseline 100.0% [regressed, flaky]
+Assertion rationale_quality: pass rate 100.0%, baseline 75.0%]]></system-out>
+  </testsuite>
+</testsuites>

@@ -13,6 +13,8 @@ export type McpAuthSuccess = {
   success: true
   keyId: string
   keyName: string
+  keySessionUserId?: string | null
+  keyCreatedBy?: string | null
   tenantId: string | null
   organizationId: string | null
   userId: string
@@ -102,6 +104,8 @@ export async function authenticateMcpRequest(
       success: true,
       keyId: apiKey.id,
       keyName: apiKey.name,
+      keySessionUserId: apiKey.sessionUserId ?? null,
+      keyCreatedBy: apiKey.createdBy ?? null,
       tenantId: apiKey.tenantId ?? null,
       organizationId: apiKey.organizationId ?? null,
       userId,

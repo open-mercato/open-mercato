@@ -20,6 +20,7 @@ import { runScorer } from './registry'
 import { createModelJudge, runLlmJudgeForRun } from './llmJudge'
 import { SKIP_REASON, type Json } from './types'
 import { emitAgentOrchestratorEvent } from '../../events'
+import { withRuntimeAuditWrite } from '../identity/agentWriteScope'
 
 const logger = createLogger('agent_orchestrator').child({ component: 'eval-replay' })
 
@@ -207,9 +208,18 @@ async function runCase(
   // gate. Best-effort — a judge failure must not fail an otherwise scored case.
   try {
     const suiteRun = await em.findOne(AgentEvalSuiteRun, { id: caseRun.suiteRunId, ...scope })
-    await runLlmJudgeForRun(em, scope, topLevelRunId, createModelJudge(container), {
-      judgeMayGate: suiteRun?.judgeMayGate ?? false,
-    })
+    await runLlmJudgeForRun(
+      em,
+      scope,
+      topLevelRunId,
+      createModelJudge(container),
+      { judgeMayGate: suiteRun?.judgeMayGate ?? false },
+      {
+        evalCaseRunId: caseRun.id,
+        expected: evalCase.expected ?? null,
+        assertions: parseCaseAssertionRefs(evalCase.assertions),
+      },
+    )
   } catch (error) {
     // Log the SHAPE of the failure, never the error object. Vercel AI SDK errors
     // carry `requestBodyValues.prompt` as an own enumerable property, and that
@@ -278,6 +288,7 @@ async function scoreCaseRun(
     )
     verdicts.push({ severity: entry.assertion.severity, passed: verdict.passed, score: verdict.score })
   }
+  await withRuntimeAuditWrite(() => em.flush())
 
   const applied = verdicts.filter((entry) => entry.passed !== null)
   const gate = applied.filter((entry) => entry.severity === 'gate')

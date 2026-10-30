@@ -1,4 +1,9 @@
 import { z } from 'zod'
+import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+import {
+  AI_PENDING_ACTION_CHANNELS,
+  AI_PENDING_ACTION_STATUSES,
+} from '../lib/pending-action-types'
 
 /**
  * Zod validators for the server-side AI chat conversation APIs.
@@ -132,3 +137,36 @@ export type AiChatConversationTranscriptQuery = z.infer<
 export const aiChatMessageAppendSchema = messageBaseSchema
 
 export type AiChatMessageAppendInput = z.infer<typeof aiChatMessageAppendSchema>
+
+export const AI_PENDING_ACTION_LIST_DEFAULT_PAGE_SIZE = 25
+
+export const AI_PENDING_ACTION_LIST_MAX_PAGE_SIZE = 100
+
+/** `GET /api/ai_assistant/ai/actions?status=&channel=&toolName=&mine=&page=&pageSize=` */
+export const aiPendingActionListQuerySchema = z.object({
+  status: z.enum(AI_PENDING_ACTION_STATUSES).optional(),
+  channel: z.enum(AI_PENDING_ACTION_CHANNELS).optional(),
+  toolName: z.string().trim().min(1).max(256).optional(),
+  mine: z
+    .string()
+    .trim()
+    .optional()
+    .transform((value, ctx) => {
+      if (value === undefined || value === '') return undefined
+      const parsed = parseBooleanToken(value)
+      if (parsed === null) {
+        ctx.addIssue({ code: 'custom', message: 'mine must be a boolean token' })
+        return z.NEVER
+      }
+      return parsed
+    }),
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(AI_PENDING_ACTION_LIST_MAX_PAGE_SIZE)
+    .default(AI_PENDING_ACTION_LIST_DEFAULT_PAGE_SIZE),
+})
+
+export type AiPendingActionListQuery = z.infer<typeof aiPendingActionListQuerySchema>

@@ -114,6 +114,7 @@ export const setup: ModuleSetupConfig = {
       'ai_assistant.tools.list',
       'ai_assistant.mcp_servers.view',
       'ai_assistant.mcp_servers.manage',
+      'ai_assistant.pending_actions.approve',
     ],
     employee: ['ai_assistant.view', 'ai_assistant.conversations.share'],
   },

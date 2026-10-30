@@ -1972,6 +1972,23 @@
           "enumItems": [],
           "mappedType": "text"
         },
+        "api_key_id": {
+          "name": "api_key_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "uuid"
+        },
         "attachment_ids": {
           "name": "attachment_ids",
           "type": "jsonb",
@@ -1989,8 +2006,42 @@
           "enumItems": [],
           "mappedType": "json"
         },
+        "channel": {
+          "name": "channel",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": "'agent'",
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "text"
+        },
         "conversation_id": {
           "name": "conversation_id",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "text"
+        },
+        "correlation_id": {
+          "name": "correlation_id",
           "type": "text",
           "unsigned": false,
           "autoincrement": false,
@@ -2405,6 +2456,20 @@
           "primary": false,
           "unique": false,
           "expression": "create unique index \"ai_pending_actions_tenant_org_idempotency_uq\" on \"ai_pending_actions\" (\"tenant_id\", \"organization_id\", \"idempotency_key\") where \"organization_id\" is not null"
+        },
+        {
+          "columnNames": [
+            "tenant_id",
+            "organization_id",
+            "status",
+            "channel",
+            "created_at"
+          ],
+          "composite": true,
+          "constraint": false,
+          "keyName": "ai_pending_actions_tenant_org_status_channel_created_idx",
+          "primary": false,
+          "unique": false
         },
         {
           "columnNames": [

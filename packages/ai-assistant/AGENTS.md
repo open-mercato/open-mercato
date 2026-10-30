@@ -873,6 +873,7 @@ yarn mcp:serve
 | `ai_assistant.tools.list` | MUST require for listing available MCP tools |
 | `ai_assistant.mcp_servers.view` | MUST require for viewing external MCP server configs |
 | `ai_assistant.mcp_servers.manage` | MUST require for creating/editing/deleting MCP server configs |
+| `ai_assistant.pending_actions.approve` | Approve/reject MCP and `/tools/execute` pending actions of other users (Pending AI actions page); granted to `admin` |
 
 ## Workers
 
@@ -1420,6 +1421,15 @@ if (tool.requiredFeatures?.length) {
 }
 ```
 
+### Exposure, List Filtering, Audit and Approval Mode
+
+Full reference: [`mcp.mdx`](../../apps/docs/docs/framework/ai-assistant/mcp.mdx) → "Exposure, audit and mutation modes".
+
+- MUST resolve exposure through `resolveMcpExposureConfig` (CLI flag > `OM_MCP_*` env > default) and filter with `isToolExposed` / `filterToolsForCaller` (`lib/mcp-exposure.ts`) in all three servers — never re-implement allow/deny or feature filtering inline.
+- `mcp:serve-http` registers per request only tools passing exposure + the list principal's ACL (session user from `x-om-session-token`, else the API key's ACL), so `tools/list` == callable set; per-call ACL still runs.
+- MUST audit every `tools/call` and `/tools/execute` via `recordMcpToolCall` (`lib/mcp-audit.ts`, `access_logs` kind `ai_assistant.mcp_tool_call`): best-effort, bounded, argument names only (never values), correlation id from `x-correlation-id` echoed as `_meta.correlationId`.
+- MUST pass `channel` + `mutationMode` to `executeTool` from MCP/tools-api callers. `deny` hides and refuses mutations (`MUTATION_REQUIRES_APPROVAL`); `approval` queues an `ai_pending_actions` row (`channel` `mcp`/`tools-api`) and never runs the handler. Raw-tool rows are re-checked at confirm (`tool_not_exposed`, `approver_features_denied`, `requester_revoked`, `requester_features_denied`) and executed as the approver. Chat rows stay owner-only; MCP rows are owner-or-approver (`ai_assistant.pending_actions.approve`).
+
 ### Return Standard Error Responses
 
 | Code | Message | When returned |
@@ -1519,23 +1529,7 @@ Note: the guard is intentionally NOT added to `mcp-client.ts` `connectHttp`, whi
 
 ### 2026-05-13 - Remove dead `indexApiEndpoints` from MCP boot (#1876)
 
-**What changed**:
-- MCP HTTP / stdio / dev entry points no longer call `indexApiEndpoints(searchService)` at startup. The Code Mode rewrite (2026-02-22) deleted the only readers (`find_api` / `call_api` / `discover_schema`), so the call was indexing into fulltext + tokens + vector indexes that nothing queried. On large specs (≳200 ops + remote embedding latency) the search-service fan-out also burned an `OpenAI` embedding storm + pgvector load on every boot — Code Mode reads the OpenAPI document directly via `getRawOpenApiSpec()` / `loadRichOpenApiSpec()`, in-memory.
-- Deleted `lib/api-discovery-tools.ts`, `lib/entity-graph-tools.ts`, `lib/api-endpoint-index-config.ts` — all dead since the 2026-02-22 rewrite, kept only by the boot-time indexing call we removed.
-- Pruned `lib/api-endpoint-index.ts`: removed `indexApiEndpoints`, `searchEndpoints`, `searchEndpointsFallback`, `buildSearchableContent`, `lastIndexChecksum`, and the `API_ENDPOINT_ENTITY` deprecated alias. Kept `parseApiEndpoints` (private), `getApiEndpoints`, `getEndpointByOperationId`, `getRawOpenApiSpec`, `loadRichOpenApiSpec`, `setRawSpecCache`, `clearRawSpecCache`, `clearEndpointCache`, `simplifyRequestBodySchema` — those still serve Code Mode.
-
-**Files modified**:
-- `lib/http-server.ts`, `lib/mcp-server.ts`, `lib/mcp-dev-server.ts` — removed the `indexApiEndpoints` import + call
-- `lib/api-endpoint-index.ts` — pruned dead code
-
-**Files deleted**:
-- `lib/api-discovery-tools.ts`
-- `lib/entity-graph-tools.ts`
-- `lib/api-endpoint-index-config.ts`
-
-**Backward compatibility**: All removed symbols (`indexApiEndpoints`, `searchEndpoints`, `searchEndpointsFallback`, `endpointToIndexableRecord`, `API_ENDPOINT_ENTITY`, `API_ENDPOINT_SEARCH_CONFIG`, `apiEndpointEntityConfig`, `computeEndpointsChecksum`, `API_ENDPOINT_ENTITY_ID`, `GLOBAL_TENANT_ID` from `api-endpoint-index-config`) live inside the module's internal `lib/` path and are not part of the documented developer contract surface (see `BACKWARD_COMPATIBILITY.md`). They were already documented as legacy and unused.
-
-**Operator cleanup (optional)**: If a deployment previously booted MCP and accumulated rows in fulltext/vector/tokens under `entityId: 'ai_assistant:api_endpoint'` / `tenantId: '00000000-0000-0000-0000-000000000000'`, they are orphaned but inert — no live workflow reads them. Manual purge is purely cosmetic.
+MCP HTTP / stdio / dev servers no longer index API endpoints into search at startup (no reader since the Code Mode rewrite; it caused an embedding storm on large specs). Deleted `lib/api-discovery-tools.ts`, `lib/entity-graph-tools.ts`, `lib/api-endpoint-index-config.ts` and pruned `lib/api-endpoint-index.ts` to the Code Mode helpers listed under "Rules for the API Endpoint Index". Removed symbols were internal `lib/` paths, not contract surface. Orphaned `ai_assistant:api_endpoint` search rows are inert; purging them is optional.
 
 ### 2026-05-08 - Phase 5 opt-in ToolLoopAgent backend (spec 2026-04-28-ai-agents-agentic-loop-controls)
 

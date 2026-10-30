@@ -127,6 +127,8 @@
   "attachments.partitions.errors.s3Disabled": "Esta partición usa S3, pero S3 está desactivado. Configura OM_ENABLE_STORAGE_S3=true y reinicia la aplicación.",
   "attachments.partitions.errors.s3EnvPrefixRequired": "El prefijo de variables de entorno es obligatorio cuando se usa una fuente de credenciales independiente.",
   "attachments.partitions.errors.save": "No se pudo guardar la partición.",
+  "attachments.partitions.extractDocumentStructure.help": "Analiza los archivos PDF y DOCX subidos en un esquema de capítulos, secciones y cláusulas con referencias de página.",
+  "attachments.partitions.extractDocumentStructure.label": "Extraer la estructura del documento",
   "attachments.partitions.form.codeLabel": "Código",
   "attachments.partitions.form.codePlaceholder": "ej. marketingAssets",
   "attachments.partitions.form.descriptionLabel": "Descripción",
@@ -162,6 +164,9 @@
   "attachments.partitions.form.storageDriverS3DisabledHelp": "S3 está desactivado. Configura OM_ENABLE_STORAGE_S3=true y reinicia para habilitar particiones S3.",
   "attachments.partitions.form.titleLabel": "Título",
   "attachments.partitions.form.titlePlaceholder": "ej. Recursos de marketing",
+  "attachments.partitions.indexDocumentSections.help": "Cada sección extraída se puede buscar por separado. Requiere la extracción de la estructura del documento.",
+  "attachments.partitions.indexDocumentSections.label": "Indexar secciones del documento en la búsqueda",
+  "attachments.partitions.indexDocumentSections.warning": "El texto de las secciones se envía en texto plano a los almacenes de búsqueda de texto completo y vectorial, incluso con el cifrado de datos del inquilino activado. No lo actives en particiones con datos personales o confidenciales.",
   "attachments.partitions.locked.description": "Las particiones de archivos adjuntos están administradas por valores predeterminados del entorno mientras el modo demo o de incorporación está activo.",
   "attachments.partitions.locked.hint": "Actualice las variables de entorno que se indican a continuación para volver a habilitar la configuración en la aplicación.",
   "attachments.partitions.locked.title": "Configuración de particiones bloqueada",
@@ -181,5 +186,11 @@
   "attachments.partitions.table.title": "Título",
   "attachments.partitions.table.visibility": "Visibilidad",
   "attachments.partitions.title": "Particiones de archivos adjuntos",
-  "attachments.storage.nav.title": "Almacenamiento"
+  "attachments.storage.nav.title": "Almacenamiento",
+  "attachments.structure.audit.current": "La estructura del documento ya está actualizada",
+  "attachments.structure.audit.requested": "Extracción de la estructura del documento solicitada",
+  "attachments.structure.errors.invalidRequest": "Solicitud no válida",
+  "attachments.structure.errors.notFound": "Archivo adjunto no encontrado",
+  "attachments.structure.errors.tooLarge": "El archivo es demasiado grande para extraer la estructura del documento.",
+  "attachments.structure.errors.unsupportedType": "Este tipo de archivo no admite la extracción de la estructura del documento."
 }

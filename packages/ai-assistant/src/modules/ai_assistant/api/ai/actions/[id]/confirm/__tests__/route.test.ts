@@ -30,12 +30,24 @@ jest.mock('@open-mercato/core/modules/attachments/data/entities', () => ({
   AttachmentPartition: class AttachmentPartition {},
 }))
 
-jest.mock('../../../../../../data/repositories/AiPendingActionRepository', () => ({
-  AiPendingActionRepository: jest.fn().mockImplementation(() => ({
-    getById: repoGetByIdMock,
-    setStatus: repoSetStatusMock,
-  })),
-}))
+jest.mock('../../../../../../data/repositories/AiPendingActionRepository', () => {
+  const actual = jest.requireActual('../../../../../../data/repositories/AiPendingActionRepository')
+  return {
+    ...actual,
+    AiPendingActionRepository: jest.fn().mockImplementation(() => ({
+      getById: repoGetByIdMock,
+      getByIdForApprover: async (
+        id: string,
+        scope: { tenantId: string; organizationId?: string | null },
+        viewer: { userId: string; canApproveAny: boolean },
+      ) => {
+        const row = await repoGetByIdMock(id, scope)
+        return row && actual.canViewerAccessPendingAction(row, viewer) ? row : null
+      },
+      setStatus: repoSetStatusMock,
+    })),
+  }
+})
 
 jest.mock('../../../../../../data/repositories/AiAgentMutationPolicyOverrideRepository', () => ({
   AiAgentMutationPolicyOverrideRepository: jest.fn().mockImplementation(() => ({
@@ -342,6 +354,102 @@ describe('POST /api/ai/actions/:id/confirm route (Step 5.8)', () => {
     expect(body.mutationResult).toEqual(priorResult)
     expect(handlerSpy).not.toHaveBeenCalled()
     expect(repoSetStatusMock).not.toHaveBeenCalled()
+  })
+
+  describe('owner / approver visibility', () => {
+    beforeEach(() => {
+      getToolMock.mockReset()
+      getToolMock.mockReturnValue(makeTool())
+      repoGetByIdMock.mockReset()
+    })
+
+    const rawRow = () =>
+      makeRow({ channel: 'mcp', agentId: 'ai_assistant.raw_tool', correlationId: 'corr-1', apiKeyId: null })
+
+    function aclByPrincipal(approverFeatures: string[]) {
+      loadAclMock.mockImplementation(async (principal: string) => {
+        if (principal === 'user-2') return { features: approverFeatures, isSuperAdmin: false }
+        return { features: ['ai_assistant.view', 'catalog.manage'], isSuperAdmin: false }
+      })
+    }
+
+    it('another user without the approve feature gets 404 on a chat row', async () => {
+      authMock.mockResolvedValueOnce({ sub: 'user-2', tenantId: 'tenant-1', orgId: 'org-1' })
+      repoGetByIdMock.mockResolvedValueOnce(makeRow({ channel: 'agent' }))
+
+      const response = await POST(buildRequest() as any, buildContext(PENDING_ACTION_ID))
+
+      expect(response.status).toBe(404)
+      expect((await response.json()).code).toBe('pending_action_not_found')
+      expect(repoSetStatusMock).not.toHaveBeenCalled()
+    })
+
+    it('another user without the approve feature gets 404 on an MCP row', async () => {
+      authMock.mockResolvedValueOnce({ sub: 'user-2', tenantId: 'tenant-1', orgId: 'org-1' })
+      repoGetByIdMock.mockResolvedValueOnce(rawRow())
+
+      const response = await POST(buildRequest() as any, buildContext(PENDING_ACTION_ID))
+
+      expect(response.status).toBe(404)
+      expect(repoSetStatusMock).not.toHaveBeenCalled()
+    })
+
+    it('an approver gets 404 on someone else\'s chat row', async () => {
+      authMock.mockResolvedValueOnce({ sub: 'user-2', tenantId: 'tenant-1', orgId: 'org-1' })
+      aclByPrincipal(['ai_assistant.view', 'ai_assistant.pending_actions.approve', 'catalog.manage'])
+      repoGetByIdMock.mockResolvedValueOnce(makeRow({ channel: 'agent' }))
+
+      const response = await POST(buildRequest() as any, buildContext(PENDING_ACTION_ID))
+
+      expect(response.status).toBe(404)
+    })
+
+    it('an approver confirms an MCP row under their own identity without agent lookup', async () => {
+      authMock.mockResolvedValueOnce({ sub: 'user-2', tenantId: 'tenant-1', orgId: 'org-1' })
+      aclByPrincipal(['ai_assistant.view', 'ai_assistant.pending_actions.approve', 'catalog.manage'])
+      repoGetByIdMock.mockResolvedValueOnce(rawRow())
+      const handlerSpy = jest.fn().mockResolvedValue({ recordId: 'p-1' })
+      getToolMock.mockReturnValueOnce(makeTool({ handler: handlerSpy, requiredFeatures: ['catalog.manage'] }))
+
+      const response = await POST(buildRequest() as any, buildContext(PENDING_ACTION_ID))
+
+      expect(response.status).toBe(200)
+      expect(getAgentMock).not.toHaveBeenCalled()
+      expect(policyOverrideGetMock).not.toHaveBeenCalled()
+      expect(handlerSpy).toHaveBeenCalledTimes(1)
+      const handlerCtx = handlerSpy.mock.calls[0][1]
+      expect(handlerCtx.userId).toBe('user-2')
+      expect(handlerCtx.auditCorrelation).toEqual({
+        correlationId: 'corr-1',
+        apiKeyId: null,
+        pendingActionId: PENDING_ACTION_ID,
+        requestedByUserId: 'user-1',
+      })
+      const [, , , confirmExtra] = repoSetStatusMock.mock.calls[0]
+      expect(confirmExtra).toMatchObject({ resolvedByUserId: 'user-2' })
+    })
+
+    it('an approver lacking the tool feature is denied with approver_features_denied', async () => {
+      authMock.mockResolvedValueOnce({ sub: 'user-2', tenantId: 'tenant-1', orgId: 'org-1' })
+      aclByPrincipal(['ai_assistant.view', 'ai_assistant.pending_actions.approve'])
+      repoGetByIdMock.mockResolvedValueOnce(rawRow())
+      getToolMock.mockReturnValueOnce(makeTool({ requiredFeatures: ['catalog.manage'] }))
+
+      const response = await POST(buildRequest() as any, buildContext(PENDING_ACTION_ID))
+
+      expect(response.status).toBe(403)
+      expect((await response.json()).code).toBe('approver_features_denied')
+      expect(repoSetStatusMock).not.toHaveBeenCalled()
+    })
+
+    it('the creator still confirms their own chat row', async () => {
+      repoGetByIdMock.mockResolvedValueOnce(makeRow({ channel: 'agent' }))
+
+      const response = await POST(buildRequest() as any, buildContext(PENDING_ACTION_ID))
+
+      expect(response.status).toBe(200)
+      expect(getAgentMock).toHaveBeenCalledWith('catalog.merchandising_assistant')
+    })
   })
 
   it('500 confirm_internal_error when the repo throws unexpectedly', async () => {

@@ -10,6 +10,7 @@ import {
   type AiAgentOverrideConfigEntry,
 } from './ai-overrides'
 import { TASK_PLAN_TOOL_NAME } from './task-plan-labels'
+import { AI_RAW_TOOL_AGENT_ID } from './pending-action-types'
 import { findGeneratedFile, compileAndImportGenerated } from './generated-registry-loader'
 
 const logger = createLogger('ai_assistant')
@@ -190,6 +191,13 @@ function populateFromAgents(agents: unknown[]): void {
   for (const candidate of agents) {
     if (!isAiAgentDefinition(candidate)) {
       logger.warn('AI Agents — Skipping malformed agent entry in ai-agents.generated.ts')
+      continue
+    }
+    if (candidate.id === AI_RAW_TOOL_AGENT_ID) {
+      logger.error('AI Agents — Skipping agent using the reserved raw-tool agent id', {
+        agentId: candidate.id,
+        moduleId: candidate.moduleId,
+      })
       continue
     }
     const existing = agentsById.get(candidate.id)
