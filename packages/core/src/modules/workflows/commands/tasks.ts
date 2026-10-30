@@ -27,7 +27,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
 import { UserTask } from '../data/entities'
 import { loadTaskDecisionContext } from '../lib/task-decision-context'
-import { isTaskCompletionBlockedError } from '../lib/task-completion-guards'
+import { isTaskCompletionBlockedError, resolveTaskCompletionBlockedBody } from '../lib/task-completion-guards'
 import type { TaskHandlerService } from '../lib/task-handler'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
@@ -115,7 +115,7 @@ const completeUserTaskCommand: CommandHandler<
     // Re-resolved from the pinned definition, exactly as the task page does.
     // More than one decision means the quick action should never have been
     // offered (see `lib/task-quick-action.ts`), so refuse rather than pick one.
-    const { decisions } = await loadTaskDecisionContext(em, task)
+    const { decisions } = await loadTaskDecisionContext(em, task, { tenantId: task.tenantId, organizationId: task.organizationId })
     if (decisions.length > 1) {
       throw new Error('[internal] Task offers multiple decisions and cannot be completed in one click')
     }
@@ -135,7 +135,7 @@ const completeUserTaskCommand: CommandHandler<
       // A completion-guard veto reaches the notification action route as the
       // same 409 body the HTTP complete route answers.
       if (isTaskCompletionBlockedError(error)) {
-        throw new CrudHttpError(error.status, error.body, { cause: error })
+        throw new CrudHttpError(error.status, await resolveTaskCompletionBlockedBody(error.block), { cause: error })
       }
       throw error
     }

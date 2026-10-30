@@ -1740,6 +1740,7 @@
   "workflows.tasks.detail.validation.requiredField": "필수 필드가 누락되었습니다: {{field}}",
   "workflows.tasks.detail.workflowInstance": "워크플로우 인스턴스",
   "workflows.tasks.dueDate": "기한",
+  "workflows.tasks.errors.completionBlocked": "선행 조건이 충족되지 않아 작업을 완료할 수 없습니다.",
   "workflows.tasks.fields.assignment": "배정",
   "workflows.tasks.fields.createdAt": "생성 시각",
   "workflows.tasks.fields.dueDate": "기한",

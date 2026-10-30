@@ -1740,6 +1740,7 @@
   "workflows.tasks.detail.validation.requiredField": "Pflichtfeld fehlt: {{field}}",
   "workflows.tasks.detail.workflowInstance": "Workflow-Instanz",
   "workflows.tasks.dueDate": "Fälligkeitsdatum",
+  "workflows.tasks.errors.completionBlocked": "Die Aufgabe kann wegen einer nicht erfüllten Vorbedingung nicht abgeschlossen werden.",
   "workflows.tasks.fields.assignment": "Zuweisung",
   "workflows.tasks.fields.createdAt": "Erstellt am",
   "workflows.tasks.fields.dueDate": "Fälligkeitsdatum",

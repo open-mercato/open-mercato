@@ -198,7 +198,7 @@ export async function completeUserTask(
   // default route. The list is re-resolved from the instance's pinned
   // definition, so it is exactly the list the assignee was shown.
   const chosenDecision = decisionId
-    ? findTaskDecision((await loadTaskDecisionContext(em, task)).decisions, decisionId)
+    ? findTaskDecision((await loadTaskDecisionContext(em, task, { tenantId: task.tenantId, organizationId: task.organizationId })).decisions, decisionId)
     : null
 
   if (decisionId && !chosenDecision) {

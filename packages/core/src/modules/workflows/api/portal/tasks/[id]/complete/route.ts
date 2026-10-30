@@ -23,7 +23,7 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import { UserTask } from '../../../../../data/entities'
 import { serializeUserTask } from '../../../../tasks/serialize'
 import type { TaskHandlerService } from '../../../../../lib/task-handler'
-import { isTaskCompletionBlockedError } from '../../../../../lib/task-completion-guards'
+import { isTaskCompletionBlockedError, resolveTaskCompletionBlockedBody } from '../../../../../lib/task-completion-guards'
 import {
   decidePortalTaskAccess,
   PORTAL_TASK_REFUSAL,
@@ -122,7 +122,8 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     // The caller is the assignee (the predicate admitted them as `actable`), so
     // naming the host precondition discloses nothing the read did not.
     if (isTaskCompletionBlockedError(error)) {
-      return NextResponse.json({ ok: false, ...error.body }, { status: error.status })
+      const body = await resolveTaskCompletionBlockedBody(error.block)
+      return NextResponse.json({ ok: false, ...body }, { status: error.status })
     }
     const code = (error as { code?: unknown }).code
     if (code === 'UNKNOWN_DECISION' || code === 'FORM_VALIDATION_FAILED') {

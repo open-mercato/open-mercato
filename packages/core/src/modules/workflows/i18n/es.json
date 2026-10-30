@@ -1740,6 +1740,7 @@
   "workflows.tasks.detail.validation.requiredField": "Falta el campo obligatorio: {{field}}",
   "workflows.tasks.detail.workflowInstance": "Instancia del flujo de trabajo",
   "workflows.tasks.dueDate": "Fecha limite",
+  "workflows.tasks.errors.completionBlocked": "No se puede completar la tarea porque no se cumple una condición previa.",
   "workflows.tasks.fields.assignment": "Asignacion",
   "workflows.tasks.fields.createdAt": "Fecha de creacion",
   "workflows.tasks.fields.dueDate": "Fecha limite",

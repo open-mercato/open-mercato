@@ -232,8 +232,12 @@ as it always did (guarded by a regression test in `lib/__tests__/error-routing.t
   `globalThis` like the work-inbox sources); the module namespace is also in DI as `taskCompletionGuards`.
 - **Enforced inside `completeUserTask`**, after lookup/ownership/form/decision and BEFORE any mutation,
   so the complete route, the `workflows.tasks.complete` command and in-process callers share one check.
-  A veto throws `TaskCompletionBlockedError` (`code` = the guard's code, `status` 409); the route answers
-  its `body`, the command rethrows it as `CrudHttpError(409, body)`.
+  A veto throws `TaskCompletionBlockedError` (`code` = the guard's code, `status` 409); the routes and the
+  command answer `resolveTaskCompletionBlockedBody(error.block)` — the same body with `error` in the
+  caller's locale — the command as `CrudHttpError(409, body)`.
+- **The guard target is read inside the task's scope.** `loadTaskCompletionGuardTarget` filters the
+  instance, step instance and definition by the task's tenant + organization; a new caller of
+  `loadTaskDecisionContext` MUST pass the task's `scope`.
 - **Mirrored in `canComplete`.** The task detail route evaluates the same guards in `preview` mode on a
   never-flushed `em.fork()`, ONLY when visibility already allows completion, and feeds the veto into
   `resolveTaskAffordances` (`actBlockedReason: 'completion-guard'` + `completionGuard`). The portal

@@ -1740,6 +1740,7 @@
   "workflows.tasks.detail.validation.requiredField": "Required field is missing: {{field}}",
   "workflows.tasks.detail.workflowInstance": "Workflow Instance",
   "workflows.tasks.dueDate": "Due Date",
+  "workflows.tasks.errors.completionBlocked": "Task completion is blocked by a precondition",
   "workflows.tasks.fields.assignment": "Assignment",
   "workflows.tasks.fields.createdAt": "Created At",
   "workflows.tasks.fields.dueDate": "Due Date",

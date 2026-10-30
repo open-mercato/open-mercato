@@ -102,7 +102,7 @@ export async function GET(
     // definition version, so re-resolving here always yields the buttons the
     // author wrote for this step. A task on a step that authored none gets an
     // empty list and completes through the plain form exactly as before.
-    const { decisions, stepId, formKey } = await loadTaskDecisionContext(em, task)
+    const { decisions, stepId, formKey } = await loadTaskDecisionContext(em, task, { tenantId: task.tenantId, organizationId: task.organizationId })
 
     // The predicate already answered "may this caller act on this row" above.
     // Sending it is what stops the page offering a Complete button that 409s for

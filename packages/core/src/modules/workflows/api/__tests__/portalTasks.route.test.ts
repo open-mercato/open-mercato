@@ -23,6 +23,17 @@ import {
 } from '../../lib/task-completion-guards'
 import { portalTaskDetailResponseSchema } from '../openapi'
 
+const mockTranslations: Record<string, string> = {}
+
+jest.mock('@open-mercato/shared/lib/i18n/server', () => {
+  const { createFallbackTranslator } = jest.requireActual<typeof import('@open-mercato/shared/lib/i18n/translate')>(
+    '@open-mercato/shared/lib/i18n/translate',
+  )
+  return {
+    resolveTranslations: async () => ({ locale: 'pl', translate: createFallbackTranslator(mockTranslations) }),
+  }
+})
+
 const getCustomerAuthFromRequest = jest.fn<(req: Request) => Promise<unknown>>()
 const requireCustomerFeature = jest.fn<(...args: unknown[]) => Promise<void>>()
 const findWithDecryption = jest.fn<(...args: unknown[]) => Promise<unknown[]>>()
@@ -403,6 +414,34 @@ describe('completion guards on the portal', () => {
       guardId: 'host.signed-contract',
       messageKey: 'host.tasks.contractNotSigned',
     })
+  })
+
+  test('a veto on submit localizes the host message key, keeping code, guardId and messageKey', async () => {
+    Object.assign(mockTranslations, { 'host.tasks.contractNotSigned': 'Najpierw podpisz umowę.' })
+    taskRow = makeTask()
+    completeUserTask.mockRejectedValue(
+      new TaskCompletionBlockedError({
+        guardId: 'host.signed-contract',
+        code: 'CONTRACT_NOT_SIGNED',
+        messageKey: 'host.tasks.contractNotSigned',
+        message: 'The contract must be signed first',
+      }),
+    )
+
+    try {
+      const response = await runComplete()
+
+      expect(response.status).toBe(409)
+      expect(await response.json()).toEqual({
+        ok: false,
+        error: 'Najpierw podpisz umowę.',
+        code: 'CONTRACT_NOT_SIGNED',
+        guardId: 'host.signed-contract',
+        messageKey: 'host.tasks.contractNotSigned',
+      })
+    } finally {
+      for (const key of Object.keys(mockTranslations)) delete mockTranslations[key]
+    }
   })
 })
 

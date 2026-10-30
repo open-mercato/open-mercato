@@ -133,17 +133,18 @@ The integration spec drives a test-only guard fixture in `apps/mercato/src/modul
 | Guard mutates state during preview | Medium | task detail GET | Forked EM, never flushed; contract documents read-only | A guard doing its own raw writes is a host bug |
 | Extra queries on every completion | Low | performance | Zero-guard fast path; target loaded only when guards exist | One instance/definition read per guarded completion |
 | Old client sees unknown `completion-guard` reason | Low | UI | `describeTaskActionBlock` already renders unknown reasons as `unavailable` | None |
-| Cross-tenant leak through guard input | High | security | Scope taken from the already tenant-scoped task row | None |
+| Cross-tenant leak through guard input | High | security | Scope taken from the already tenant-scoped task row; the instance, step instance and definition reads that resolve the guard target carry the task's tenant + organization, so a foreign-scope reference resolves to no selectors | None |
 
 ## Final Compliance Report
 
 - Backward compatibility: additive only (new optional function arg, new enum value in a response, new optional response field, new DI name, new error subclass of `UserTaskError`).
-- Tenant scoping: guard scope comes from the scoped task row.
+- Tenant scoping: guard scope comes from the scoped task row, and every guard-target read (instance, step instance, definition) is filtered by that scope.
 - No ORM relations, no generated files, no migrations.
-- i18n: new key in every workflows locale (en, de, es, pl, ko).
+- i18n: new keys in every workflows locale (en, de, es, pl, ko); the 409 `error` is resolved in the caller's locale (guard `messageKey` → guard `message` → `workflows.tasks.errors.completionBlocked`), with `code`, `guardId` and `messageKey` unchanged.
 
 ## Changelog
 
 - 2026-10-11: Initial spec and implementation (issue #7178).
 - 2026-10-11: Review pass — extended the preview and the 409 mapping to the customer-portal task routes.
 - 2026-10-11: Maintainer review — a throwing guard is reported through the telemetry runtime (`workflows.task_completion_guard_failed`); added the OM_INTEGRATION_TEST-gated example guard fixture and TC-WF-070 integration coverage (backoffice, portal, notification quick action, task detail notice + Reassign).
+- 2026-10-30: Maintainer re-review — guard-target reads are explicitly tenant/organization-scoped (`loadTaskDecisionContext` gains an optional trailing `scope`); the 409 refusal body is localized on the backoffice, portal and notification paths (`resolveTaskCompletionBlockedBody`); TC-WF-070 renders the real portal task page (veto/throw notice, no form; pass keeps the form).

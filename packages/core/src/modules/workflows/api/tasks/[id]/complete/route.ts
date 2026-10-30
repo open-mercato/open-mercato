@@ -12,7 +12,10 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
-import { isTaskCompletionBlockedError } from '../../../../lib/task-completion-guards'
+import {
+  isTaskCompletionBlockedError,
+  resolveTaskCompletionBlockedBody,
+} from '../../../../lib/task-completion-guards'
 import type { TaskHandlerService } from '../../../../lib/task-handler'
 import { gateTaskAction } from '../../../../lib/task-visibility-request'
 import {
@@ -149,7 +152,7 @@ export async function POST(
     if (isCrudHttpError(error)) return NextResponse.json(error.body, { status: error.status })
     // A host-owned precondition refused, not a failure: answer before logging.
     if (isTaskCompletionBlockedError(error)) {
-      return NextResponse.json(error.body, { status: error.status })
+      return NextResponse.json(await resolveTaskCompletionBlockedBody(error.block), { status: error.status })
     }
     logger.error('Error completing user task', { err: error })
 

@@ -186,7 +186,11 @@ export default function PortalTaskDetailPage({ params }: Props) {
             onSubmit={handleSubmit}
           />
         ) : (
-          <p className="text-sm text-muted-foreground">
+          <p
+            className="text-sm text-muted-foreground"
+            data-testid={isOpen && detail.completionGuard ? 'portal-task-completion-guard' : 'portal-task-read-only'}
+            data-guard-code={isOpen && detail.completionGuard ? detail.completionGuard.code : undefined}
+          >
             {isOpen && detail.completionGuard
               ? t(
                   detail.completionGuard.messageKey ?? 'workflows.portal.tasks.detail.completionGuard',

@@ -1740,6 +1740,7 @@
   "workflows.tasks.detail.validation.requiredField": "Brakuje wymaganego pola: {{field}}",
   "workflows.tasks.detail.workflowInstance": "Instancja Przepływu",
   "workflows.tasks.dueDate": "Termin",
+  "workflows.tasks.errors.completionBlocked": "Nie można ukończyć zadania, ponieważ warunek wstępny nie jest spełniony.",
   "workflows.tasks.fields.assignment": "Przypisanie",
   "workflows.tasks.fields.createdAt": "Data Utworzenia",
   "workflows.tasks.fields.dueDate": "Termin",

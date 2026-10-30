@@ -2,7 +2,7 @@ import { expect, test, type APIRequestContext } from '@playwright/test'
 import { randomInt } from 'node:crypto'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { login } from '@open-mercato/core/helpers/integration/auth'
-import { getTokenScope, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
+import { getTokenContext, getTokenScope, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 import {
   createCustomerCompanyFixture,
   createCustomerRoleFixture,
@@ -38,6 +38,7 @@ import {
  * - POST /api/workflows/portal/tasks/[id]/complete
  * - POST /api/notifications/[id]/action            (`complete` → command `workflows.tasks.complete`)
  * - /backend/tasks/[id]                            (the guard notice and the Reassign control)
+ * - /[orgSlug]/portal/tasks/[id]                   (the guard notice replaces the completion form)
  *
  * The guards are the test-only fixture in `apps/mercato/src/modules/example/workflows.ts`,
  * registered only under `OM_INTEGRATION_TEST=true` and selected by a `formKey` that
@@ -74,6 +75,23 @@ const FAILED_BODY = {
 const THROWN_MESSAGE = 'example completion guard failure'
 
 const PORTAL_TASK_FEATURES = ['portal.tasks.view', 'portal.tasks.complete']
+
+const GENERIC_PORTAL_GUARD_NOTICE = 'This task cannot be completed yet because a precondition is not met.'
+
+async function readOrganizationSlug(request: APIRequestContext, token: string): Promise<string> {
+  const { tenantId, organizationId } = getTokenContext(token)
+  const response = await apiRequest(
+    request,
+    'GET',
+    `/api/directory/organizations?view=manage&ids=${encodeURIComponent(organizationId)}&tenantId=${encodeURIComponent(tenantId)}`,
+    { token },
+  )
+  expect(response.ok(), 'the organization lookup succeeds').toBeTruthy()
+  const body = await readJsonSafe<{ items?: Array<{ slug?: string | null }> }>(response)
+  const slug = body?.items?.[0]?.slug ?? null
+  expect(slug, 'the organization has a portal slug').toBeTruthy()
+  return slug!
+}
 
 type Assignee = { kind: 'user'; userId: string } | { kind: 'customer' }
 
@@ -286,7 +304,10 @@ test.describe('TC-WF-070: task completion guards', () => {
     }
   })
 
-  test('portal: the assignee sees the veto on the detail and the complete route answers it', async ({ request }) => {
+  test('portal: the assignee sees the veto on the detail and the complete route answers it', async ({
+    page,
+    request,
+  }) => {
     test.setTimeout(150_000)
 
     const adminToken = await getAuthToken(request, 'admin')
@@ -340,6 +361,39 @@ test.describe('TC-WF-070: task completion guards', () => {
           headers: { ...headers, 'Content-Type': 'application/json' },
           data: { formData: {} },
         })
+
+      // --- UI: the real portal task page renders the guard notice instead of the
+      //     completion form under a veto or a throw, and the form under a pass.
+      const orgSlug = await readOrganizationSlug(request, adminToken)
+      const baseUrl = process.env.BASE_URL || 'http://localhost:3000'
+      await page.context().addCookies([
+        { name: 'customer_auth_token', value: session.authToken, url: baseUrl, sameSite: 'Lax' },
+        { name: 'customer_session_token', value: session.sessionToken, url: baseUrl, sameSite: 'Lax' },
+      ])
+      const openPortalTask = async (taskId: string) => {
+        await page.goto(`/${orgSlug}/portal/tasks/${encodeURIComponent(taskId)}`, { waitUntil: 'domcontentloaded' })
+      }
+      const completeButton = page.getByRole('button', { name: 'Complete task' })
+      const guardNotice = page.getByTestId('portal-task-completion-guard')
+
+      await openPortalTask(taskIds.veto)
+      await expect(guardNotice, 'the veto notice replaces the completion form').toBeVisible({ timeout: 30_000 })
+      await expect(guardNotice).toHaveAttribute('data-guard-code', VETO_BODY.code)
+      await expect(guardNotice, 'the host message key is rendered').toHaveText(VETO_BODY.error)
+      await expect(completeButton, 'no completion form under a veto').toHaveCount(0)
+
+      await openPortalTask(taskIds.throw)
+      await expect(guardNotice, 'a throwing guard closes the form too').toBeVisible({ timeout: 30_000 })
+      await expect(guardNotice).toHaveAttribute('data-guard-code', FAILED_BODY.code)
+      await expect(guardNotice, 'a guard without a message key falls back to the generic notice').toHaveText(
+        GENERIC_PORTAL_GUARD_NOTICE,
+      )
+      await expect(guardNotice).not.toContainText(THROWN_MESSAGE)
+      await expect(completeButton, 'no completion form when the guard throws').toHaveCount(0)
+
+      await openPortalTask(taskIds.pass)
+      await expect(completeButton, 'a passing guard leaves the completion form').toBeVisible({ timeout: 30_000 })
+      await expect(guardNotice).toHaveCount(0)
 
       // --- Veto.
       const vetoDetail = await readPortalDetail(taskIds.veto)

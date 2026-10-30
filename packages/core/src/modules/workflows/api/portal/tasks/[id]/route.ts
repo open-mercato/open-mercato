@@ -83,7 +83,7 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
     // Re-resolved from the instance's pinned definition, exactly as the
     // backoffice detail does — the portal must offer the SAME named outcomes the
     // author wrote, or a portal completion silently takes the default route.
-    const { decisions, formKey } = await loadTaskDecisionContext(em, task)
+    const { decisions, formKey } = await loadTaskDecisionContext(em, task, { tenantId: task.tenantId, organizationId: task.organizationId })
 
     // Host completion guards close the form for the assignee too, evaluated in
     // `preview` mode so reading the page never changes the task.

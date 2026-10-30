@@ -37,6 +37,7 @@ import {
   clearTaskCompletionGuards,
   evaluateTaskCompletionGuards,
   getTaskCompletionGuards,
+  loadTaskCompletionGuardTarget,
   registerTaskCompletionGuards,
   taskCompletionGuardApplies,
   TASK_COMPLETION_BLOCKED_CODE,
@@ -104,7 +105,13 @@ function makeEm(task: Row) {
     tenantId: TENANT,
     organizationId: ORG,
   }
-  const stepInstance: Row = { id: STEP_INSTANCE_ID, stepId: 'review', status: 'ACTIVE' }
+  const stepInstance: Row = {
+    id: STEP_INSTANCE_ID,
+    stepId: 'review',
+    status: 'ACTIVE',
+    tenantId: TENANT,
+    organizationId: ORG,
+  }
   const tables: Record<string, Row[]> = {
     UserTask: [task],
     WorkflowInstance: [instance],
@@ -128,7 +135,7 @@ function makeEm(task: Row) {
     create,
     fork: jest.fn(() => forkEm),
   }
-  return { em: em as unknown as EntityManager, flush, forkFlush, persist, instance }
+  return { em: em as unknown as EntityManager, flush, forkFlush, persist, instance, stepInstance }
 }
 
 const container = { resolve: jest.fn(() => undefined) } as unknown as AwilixContainer
@@ -160,6 +167,7 @@ beforeEach(() => {
   jest.clearAllMocks()
   clearTaskCompletionGuards()
   findDefinitionForInstance.mockImplementation(async () => ({
+    tenantId: TENANT,
     definition: {
       steps: [{ stepId: 'review', stepType: 'USER_TASK', userTaskConfig: { formKey: 'contract-review' } }],
       transitions: [],
@@ -456,5 +464,81 @@ describe('evaluateTaskCompletionGuards preview', () => {
 
     expect(block).toBeNull()
     expect(em.findOne).not.toHaveBeenCalled()
+  })
+})
+
+describe('guard target scoping', () => {
+  const FOREIGN_TENANT = '22222222-2222-2222-2222-222222222222'
+  const FOREIGN_ORG = '44444444-4444-4444-4444-444444444444'
+
+  function selectingGuard(): TaskCompletionGuard {
+    return {
+      id: 'host.scoped',
+      workflowId: 'contract-approval',
+      stepId: 'review',
+      formKey: 'contract-review',
+      evaluate: jest.fn(async () => ({ ok: false as const, code: 'CONTRACT_NOT_SIGNED' })),
+    }
+  }
+
+  test('resolves the selectors from rows inside the task scope', async () => {
+    const task = makeTask()
+    const { em } = makeEm(task)
+
+    await expect(loadTaskCompletionGuardTarget(em, task as unknown as UserTask)).resolves.toEqual({
+      workflowId: 'contract-approval',
+      workflowInstanceId: INSTANCE_ID,
+      stepId: 'review',
+      formKey: 'contract-review',
+    })
+  })
+
+  test('an instance in another tenant cannot supply guard selectors', async () => {
+    const task = makeTask()
+    const { em, instance } = makeEm(task)
+    instance.tenantId = FOREIGN_TENANT
+    const guard = selectingGuard()
+    registerTaskCompletionGuards([{ moduleId: 'host', guards: [guard] }])
+
+    const target = await loadTaskCompletionGuardTarget(em, task as unknown as UserTask)
+    const block = await evaluateTaskCompletionGuards(em, container, task as unknown as UserTask, {
+      mode: 'preview',
+      userId: USER,
+    })
+
+    expect(target).toEqual({ workflowId: null, workflowInstanceId: INSTANCE_ID, stepId: null, formKey: null })
+    expect(block).toBeNull()
+    expect(guard.evaluate).not.toHaveBeenCalled()
+    for (const [, where] of (em.findOne as jest.Mock).mock.calls) {
+      expect(where).toMatchObject({ tenantId: TENANT, organizationId: ORG })
+    }
+  })
+
+  test('an instance or step in another organization cannot supply guard selectors', async () => {
+    const task = makeTask()
+    const { em, stepInstance } = makeEm(task)
+    stepInstance.organizationId = FOREIGN_ORG
+
+    const target = await loadTaskCompletionGuardTarget(em, task as unknown as UserTask)
+
+    expect(target.stepId).toBeNull()
+    expect(target.formKey).toBeNull()
+    expect(taskCompletionGuardApplies(selectingGuard(), target)).toBe(false)
+  })
+
+  test('a definition owned by another tenant cannot supply the form key', async () => {
+    const task = makeTask()
+    const { em } = makeEm(task)
+    findDefinitionForInstance.mockImplementation(async () => ({
+      tenantId: FOREIGN_TENANT,
+      definition: {
+        steps: [{ stepId: 'review', stepType: 'USER_TASK', userTaskConfig: { formKey: 'contract-review' } }],
+        transitions: [],
+      },
+    }))
+
+    const target = await loadTaskCompletionGuardTarget(em, task as unknown as UserTask)
+
+    expect(target.formKey).toBeNull()
   })
 })

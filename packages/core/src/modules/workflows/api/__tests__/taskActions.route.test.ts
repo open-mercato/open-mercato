@@ -27,6 +27,17 @@ import { UserTask } from '../../data/entities'
 import { TaskCompletionBlockedError } from '../../lib/task-handler'
 import { makeTaskVisibilityRouteStubs, type TaskVisibilityRouteStubs } from './helpers/taskVisibilityRoute'
 
+const mockTranslations: Record<string, string> = {}
+
+jest.mock('@open-mercato/shared/lib/i18n/server', () => {
+  const { createFallbackTranslator } = jest.requireActual<typeof import('@open-mercato/shared/lib/i18n/translate')>(
+    '@open-mercato/shared/lib/i18n/translate',
+  )
+  return {
+    resolveTranslations: async () => ({ locale: 'pl', translate: createFallbackTranslator(mockTranslations) }),
+  }
+})
+
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn(),
 }))
@@ -291,6 +302,35 @@ describe('completion guards on the complete route', () => {
       guardId: 'host.signed-contract',
       messageKey: 'host.tasks.contractNotSigned',
     })
+  })
+
+  test('a code-less, message-less veto answers the generic refusal in the caller locale', async () => {
+    Object.assign(mockTranslations, {
+      'workflows.tasks.errors.completionBlocked': 'Nie można ukończyć zadania, ponieważ warunek wstępny nie jest spełniony.',
+    })
+    setTask(makeTask({ assignedTo: USER_ID, assignedToRoles: null }))
+    taskHandler.completeUserTask.mockRejectedValue(
+      new TaskCompletionBlockedError({
+        guardId: 'host.signed-contract',
+        code: 'TASK_COMPLETION_BLOCKED',
+        messageKey: null,
+        message: null,
+      }) as never,
+    )
+
+    try {
+      const { status, body } = await bodyAndStatus(await runComplete())
+
+      expect(status).toBe(409)
+      expect(body).toEqual({
+        error: 'Nie można ukończyć zadania, ponieważ warunek wstępny nie jest spełniony.',
+        code: 'TASK_COMPLETION_BLOCKED',
+        guardId: 'host.signed-contract',
+        messageKey: null,
+      })
+    } finally {
+      for (const key of Object.keys(mockTranslations)) delete mockTranslations[key]
+    }
   })
 })
 
