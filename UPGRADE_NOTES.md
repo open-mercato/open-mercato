@@ -39,11 +39,35 @@ creation time from the stored after-snapshot when available. A historical log
 that lacks that timestamp cannot recover the original time. Rolling back the
 code does not remove tombstones or release their slugs.
 
+### Agent page reads enforce domain rules before redirected egress (#7548)
+
+`web_search` inline content and `web_fetch` now check agent domain rules before
+each HTTP request, including redirects. Permitted inline content uses the final
+page URL. Internal adapter services remain reachable under the operator's
+separate `OM_WEB_SEARCH_ALLOW_PRIVATE_HOSTS` setting.
+
+**Operator action:** with a nonempty domain allowlist or denylist, content reads
+stay on guarded HTTP: automatic browser rendering is skipped and explicit
+`render: 'always'` returns a blocked outcome. Keep domain restrictions configured;
+rendered page reads require future browser redirect-policy enforcement. Restricted
+searches bypass result caches automatically, including previously enriched entries.
+No cache purge or database migration is needed.
+
+**Adapter author action:** existing contract version 1 adapters remain supported
+by the version 2 loader and shared contract-test kit. Adapters rebuilt against
+the current `CONTRACT_VERSION` advertise version 2 and require a host supporting
+version 2; upgrade the host before deploying those rebuilt descriptors.
+Custom HTTP clients must honor the new optional
+`HttpRequestInit.assertUrlAllowed(url)` callback, awaiting synchronous or async
+assertions before DNS and transmission for initial requests and every redirect.
+No tool input or result-field migration is required.
+
 ### Warranty claim line numbers must be unique within each live claim (#7306)
 
 Creating or renumbering a line with a number already used by another live line now returns `409`, with a localized `error` and `code: warranty_claims.errors.duplicateLineNo`. Initial claim batches also reject duplicate resolved numbers, including collisions between explicit and default numbers. Valid inputs and automatic numbering remain unchanged.
 
 An undo that would restore an occupied line number is refused before changing the line or totals. Remove the occupying line or move it to a free number through the API, then retry the same undo. Existing duplicates are not automatically renumbered. No database migration is required.
+
 ### Workflow webhook responses have resource limits (#7814)
 
 Each `CALL_WEBHOOK` attempt now defaults to a 30-second deadline covering the
@@ -242,6 +266,25 @@ AI_RUNTIME_BASEURL_ALLOWLIST=openrouter.ai,http://localhost:11434
 
 Update the allowlist before upgrading when tenants saved a local or self-hosted base URL: once that
 saved value is ignored, prompts go to the provider's default endpoint instead.
+
+### Staff: customer support tickets (helpdesk) need a per-organization seed and a portal ACL sync
+
+New tenants get everything from `setup.ts`. **Existing** tenants must run, once per organization:
+
+```bash
+yarn mercato staff seed-support-defaults --tenant <tenantId> --org <organizationId>
+yarn mercato customer_accounts sync-customer-role-acls
+```
+
+- `seed-support-defaults` is safe to re-run. It creates the "Customer support" fallback project and the fallback routing rule when they are missing. It seeds the default support ticket categories only in the run that creates the organization's support-category dictionary; once that dictionary exists, a re-run never re-adds a category an admin deleted. Without the fallback project and rule, a portal customer cannot file a ticket because there is no project to route it to.
+- `sync-customer-role-acls` grants the new portal features to the default customer roles: `portal.support_tickets.view` (buyer, viewer) and `portal.support_tickets.manage` (buyer). It is additive and never creates roles. Add `--tenant <tenantId>` to limit it to one tenant.
+- No staff (`acl.ts`) features were added, so `yarn mercato auth sync-role-acls` is not required for this change.
+
+Additive surfaces that third-party code can use. Existing code needs no changes:
+
+- New injection spot `staff.time_tracking.settings:tabs` on the Time Tracking Settings page, with `placement: { kind: 'tab' }` and context `{ moduleId, canManage, settings, onSettingsSaved }`. A tab saves its own changes. It builds each write from `context.settings` and reports the stored result through `onSettingsSaved`.
+- Task comments have an optional `visibility` field (`'internal' | 'customer'`, default `'internal'`). It was added to `staffTimeTaskCommentCreateSchema` and `staffTimeTaskCommentUpdateSchema` as an optional field. `staffTimeTaskCommentUpdateSchema` still requires `body`. The task comment `PUT` route validates against the new `staffTimeTaskCommentUpdateRequestSchema`, which also accepts a visibility-only change.
+- `TimeTrackingBuiltInSettings` has an optional `support: { referencePrefix }` group, stored as the `support.referencePrefix` setting key (default `SUP`). If a settings `PUT` omits it, the stored prefix is kept.
 
 ### `GET /api/attachments` without paging returns at most the newest 100 attachments (#3816)
 
@@ -1140,6 +1183,44 @@ Customers now exposes the scoped `GET /api/customers/activity-types` catalog and
 `GET /api/customers/dictionaries/activity-types` is now scoped to the selected organization plus its ancestors, matching the effective catalog. It no longer returns entries from readable sibling organizations; callers that intentionally inspect another organization must select that organization explicitly.
 
 The optional `example` module demonstrates a fixed-behavior `visit` type. Its Meeting label patch requires `OM_EXAMPLE_CALENDAR_DEMO_OVERRIDES=true`; Example preserves every built-in type with either flag value. Missing Staff, Resources, or Planner modules show a warning and skip only the absent integration checks. Visit names each unavailable subject and distinguishes working-hour failures from scoped overlapping bookings of any Customers event type, including recurrence; editing excludes the current interaction. An empty custom-fieldset configuration preserves existing interaction custom-field writes. See the [calendar event-type guide](apps/docs/docs/framework/modules/calendar-event-types.mdx) and the [source specification PR](https://github.com/open-mercato/open-mercato/pull/6687).
+
+### Planner availability replace endpoints honour the declared `timezone`; unresolvable zones are deprecated (#5868)
+
+`POST /api/planner/availability-weekly` and `POST /api/planner/availability-date-specific` used
+to build every `DTSTART` with the host process's local clock and ignore the required
+`timezone` field (#5862). They now anchor each wall-clock time in the declared IANA zone, so
+for a non-UTC zone the stored instant moves by that zone's offset. Rows written before the
+upgrade are not re-anchored; they stay offset from newly written rows until they are replaced.
+On DST days a wall time the zone skips moves forward by the gap, a repeated one takes its
+earlier occurrence, and a full-day block spans local midnight to the next local midnight (23
+or 25 hours instead of a fixed 24).
+
+A recurring window now keeps its local end time on DST days. The weekly save anchors each
+window on a week whose exact length matches the requested local length (the previous week
+when the upcoming one spans a transition), so `DURATION` is always the local length. The
+zone-aware expander (`getMergedAvailabilityWindows` with `respectTimezone`) now ends each
+occurrence at its local end time instead of adding `DURATION` as an exact span. Existing
+weekly and daily rows are therefore 1 hour shorter or longer on DST-transition days only:
+Sunday 00:00–08:00 in `Europe/Warsaw` ends at 08:00 local on every Sunday, rather than at
+09:00 on the spring-forward Sunday and at 07:00 on the fallback Sunday.
+
+Saving the weekly schedule replaces every weekly row, so legacy weekly rows go away on the next
+save. A date-specific save only replaces rows whose start falls on the saved date *in the
+rule's own zone*, and a legacy row can fall on the neighbouring day there — a full-day block in a
+negative-offset zone such as `America/New_York` (stored `T000000Z`, which is the previous day
+locally), or a late window in a large positive-offset zone such as `Pacific/Auckland`. Re-saving
+the intended date then leaves the legacy row in place on the adjacent date; clear it there.
+
+Because `timezone` now decides the stored instant, a value the runtime cannot resolve (a typo
+such as `Europe/Warszawa`, or `UTC+2`) is anchored to UTC and logged as a `[deprecated]`
+warning. The request schemas (`plannerAvailabilityWeeklyReplaceSchema`,
+`plannerAvailabilityDateSpecificReplaceSchema`) still accept it for now, so the request
+contract is unchanged. A future minor release will reject it with `400`.
+
+**Action for API callers:** send a valid IANA zone name (anything `Intl.DateTimeFormat`
+accepts, e.g. `Europe/Warsaw`, `UTC`, `Etc/GMT+2`). Look for
+`Unresolvable availability timezone` warnings in the `planner` logs to find callers that will
+start failing.
 
 ### `reviveSnapshotSeed` throws on an unparsable snapshot date; `extractUndoPayload` can revive dates (#6336)
 
@@ -2238,6 +2319,29 @@ Module dependency check failed:
 ```
 
 **Action for module authors:** add `{ id: 'progress', from: '@open-mercato/core' }` to `src/modules.ts` before `communication_channels`, then re-run `yarn generate`. `apps/mercato/src/modules.ts`, the `create-app` template's `modules.ts` (used unchanged by the `classic` preset), and the `crm` starter preset (the only other preset that enables `communication_channels`) all enable `progress` too, so this repo's own apps and freshly scaffolded apps are unaffected.
+
+### `sales_order_lines.discount_amount` can be negative on `external` rows (sales external amounts mode)
+
+Sales orders gained an opt-in, persisted `external` amounts mode: `sales_orders.totals_mode` and
+`sales_order_lines.amounts_mode`, both defaulting to `'computed'`. On a row a caller explicitly opted in,
+core stores the supplied net, gross and tax verbatim and derives `discount_amount` as
+`unit_price_net × quantity − total_net_amount` — which is **signed**, so a line whose net is above its
+undiscounted subtotal (upward source rounding, a surcharge priced into the line) stores a negative
+discount. See [`.ai/specs/2026-09-07-sales-external-amounts-mode.md`](.ai/specs/2026-09-07-sales-external-amounts-mode.md).
+
+**Action for module and report authors:** if you read `sales_order_lines.discount_amount` and assumed it
+was non-negative — clamping, `SUM()`-ing it as a positive discount total, or rendering it without a sign —
+decide explicitly what an external row should do. Only rows a caller opted in can be negative, so a
+deployment that never sets the mode is unaffected. A report that sums the column across mixed rows
+understates the discount total rather than failing.
+
+### `GET /api/sales/orders` and `/api/sales/order-lines` gained one field each
+
+Order responses now carry `totalsMode` and order-line responses carry `amounts_mode`, both
+`'computed' | 'external'`. Additive; no field was removed or renamed.
+
+**Action for API consumers:** only relevant if you validate these responses against a strict (no
+additional properties) schema. Add the field or relax the schema.
 
 ## 0.6.7 → 0.7.0 (2026-08-26)
 
