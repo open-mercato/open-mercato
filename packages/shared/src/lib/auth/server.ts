@@ -18,6 +18,7 @@ const TENANT_COOKIE_NAME = 'om_selected_tenant'
 const ORGANIZATION_COOKIE_NAME = 'om_selected_org'
 const ALL_ORGANIZATIONS_COOKIE_VALUE = '__all__'
 const SUPERADMIN_ROLE = 'superadmin'
+const apiKeySessionBindings = new WeakMap<NonNullable<AuthContext>, boolean>()
 
 export type AuthContext = {
   sub: string
@@ -191,24 +192,41 @@ function applySuperAdminScope(
 async function resolveApiKeyAuth(secret: string): Promise<AuthContext> {
   if (!secret) return null
   const cache = getSharedApiKeyAuthCache()
-  const cached = cache.get(secret) as AuthContext | undefined
+  let cached = cache.get(secret) as AuthContext | undefined
   if (cached === null) return null
-  if (cached && !cached.tenantId) return cached
+  const cachedSessionBinding = cached ? apiKeySessionBindings.get(cached) : undefined
+  if (cached && cachedSessionBinding === undefined) cached = undefined
+  if (cached && !cached.tenantId && !cachedSessionBinding) return cached
   try {
     const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
     const container = await createRequestContainer()
     const em = (container.resolve('em') as EntityManager)
     const { Organization, Tenant } = await import('@open-mercato/core/modules/directory/data/entities')
-    if (cached?.tenantId) {
-      const tenant = await findOneWithDecryption(em, Tenant, { id: cached.tenantId, deletedAt: null, isActive: true })
-      if (!tenant) {
-        cache.setMiss(secret)
-        return null
+    const { Role, RoleAcl, User } = await import('@open-mercato/core/modules/auth/data/entities')
+    if (cached) {
+      if (cached.tenantId) {
+        const tenant = await findOneWithDecryption(em, Tenant, { id: cached.tenantId, deletedAt: null, isActive: true })
+        if (!tenant) {
+          cache.setMiss(secret)
+          return null
+        }
+      }
+      if (cachedSessionBinding) {
+        const user = cached.userId ? await findOneWithDecryption(em, User, {
+          id: cached.userId,
+          tenantId: cached.tenantId,
+          organizationId: cached.orgId,
+          deletedAt: null,
+          isConfirmed: true,
+        }, { refresh: true }) : null
+        if (!user) {
+          cache.setMiss(secret)
+          return null
+        }
       }
       return cached
     }
     const { findApiKeyBySecret } = await import('@open-mercato/core/modules/api_keys/services/apiKeyService')
-    const { Role, RoleAcl, User } = await import('@open-mercato/core/modules/auth/data/entities')
 
     const record = await findApiKeyBySecret(em, secret)
     if (!record) {
@@ -290,7 +308,11 @@ async function resolveApiKeyAuth(secret: string): Promise<AuthContext> {
     }
 
     if (actualUserId) {
-      const user = await em.findOne(User, { id: actualUserId, deletedAt: null })
+      const user = await findOneWithDecryption(em, User, {
+        id: actualUserId,
+        deletedAt: null,
+        ...(isSessionBoundKey ? { isConfirmed: true } : {}),
+      }, { refresh: true })
       if (!user) {
         cache.setMiss(secret)
         return null
@@ -329,6 +351,7 @@ async function resolveApiKeyAuth(secret: string): Promise<AuthContext> {
       keyName: record.name,
       ...(actualUserId ? { userId: actualUserId } : {}),
     }
+    apiKeySessionBindings.set(auth, isSessionBoundKey)
     cache.setSuccess(secret, auth, record.expiresAt ? record.expiresAt.getTime() : null)
     return auth
   } catch (err) {
