@@ -57,6 +57,10 @@ Fresh independent registry controller: 43 archive integrities, five authority ha
 - [ ] 3.3 Run eligible generated-code checks, judge and release lanes.
 
 ### Phase 4: Publication
-- [ ] 4.1 Run ordered repository validation and resolve relevant failures.
-- [ ] 4.2 Complete authoritative review and fixes.
+- [x] 4.1 Run ordered repository validation and resolve relevant failures. — 0692dbed2
+
+Local runner: all eight configured commands pass, including 51/51 workspace test tasks and the app build. One earlier full-run `CrudForm.transformData` failure is retained; its isolated three-test rerun and the full ordered retry pass without code changes. Heavy validation finished before timed Round 2 inference.
+- [x] 4.2 Complete authoritative review and fixes. — 3aa951612
+
+The single authoritative review evidence comment records all code findings fixed and the full validation blocker resolved. GitHub rejects an approving/request-changes self-review with HTTP 422; the formal review list remains empty. No independent approval is claimed. The proposal remains draft with `review`, pending model/release evidence.
 - [ ] 4.3 Publish the per-case evidence and PR handoff.

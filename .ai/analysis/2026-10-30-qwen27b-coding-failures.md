@@ -61,7 +61,7 @@ Hashes identify the local sanitized evaluator record and retained generated-file
 
 ## Validation status
 
-The first recovery experiment is stopped; a fresh explicit-context experiment is being prepared. Full-case results and implementation-oracle results are recorded separately; neither is a complete release certificate. The frozen-target attribution below remains historical evidence.
+The first two recovery experiments are stopped; a fresh experiment is being prepared with corrected local transport normalization and the same separately frozen `0692dbed2` controller. Full-case results and implementation-oracle results are recorded separately; neither is a complete release certificate. The frozen-target attribution below remains historical evidence.
 
 The true-base knowledge controller passes at source commit `0692dbed268fe2b11d435ba1802d78e8bb2b6005`, against `fd7c06569bd5fa282716b28e1375d2ddb2cc1eea`. Each focused test is overlaid alone onto the base, and the same test runs against the complete fixed tree:
 
@@ -81,7 +81,9 @@ The complete deterministic catalog remains 236/240, with unchanged budget defici
 
 Normal cached builds exposed another delivery defect: the CLI restored an older embedded harness because sibling knowledge sources were absent from its Turbo inputs. The exact copied authority inputs are now declared, and both actual restored-output tests and normal source/create-app/CLI hash parity pass. Caching remains enabled.
 
-The full release command was attempted from the coherent controller and stopped with exit 2 before model execution: macOS lacks the isolated-loopback lane that requires Linux/Bubblewrap. The experimental Pi transport and missing certified lanes remain explicit limits. Repository-wide validation is being rerun after the cache correction.
+The full release command was attempted from the coherent controller and stopped with exit 2 before model execution: macOS lacks the isolated-loopback lane that requires Linux/Bubblewrap. The experimental Pi transport and missing certified lanes remain explicit limits.
+
+All eight configured repository validation commands pass with the local runner at the final runtime source: build packages, generate, build packages again, translation sync/usage, typecheck, all 51 workspace test tasks and the app build. An earlier full-run `CrudForm.transformData` test failure is retained alongside its isolated 3/3 pass and unchanged-source full ordered retry. Heavy validation completed before Round 2 inference. These are repository checks; they do not attest that model-generated artifacts pass their separate gates.
 
 ## First recovery experiment
 
@@ -100,6 +102,16 @@ Source `f40d9e798` was tested through the same local Pi/Ollama transport and 600
 The transport defect is outside the shipped harness: the last visible OMH-026 response contained a 329-byte prose prefix followed by a multiline JSON object. The object validates against the unchanged routing-response schema, but the old adapter recognized only whole-text, fenced or single-line objects. Its failure to extract this object triggered the evaluator's correction policy. The separate Round 2 adapter handles bounded top-level JSON containers and passes 11/11 synthetic positive/negative controls, compared with the old parser's 4/11. It does not repair values, unwrap nested answers or replace later invalid payloads with earlier valid ones. No original or Round 1 score is changed, and no first-attempt code pass is inferred without a retained implementation attestation.
 
 The Round 1 observations justify one further shared context change in `0692dbed2`: project the already-declared instruction-to-source references into exact owner/source/access metadata, and disclose the immutable baseline package's real test script with a content hash. This addresses guessing and missed references without embedding expected routing answers, adding read permissions or counting metadata as an observed read. The 351 focused tests pass; read-only prompt bytes remain unchanged. Timed inference in Round 1 overlapped repository validation and installation, so its throughput and timeout counts do not establish isolated model performance or causal improvement.
+
+## Explicit-context recovery experiment
+
+Round 2 used the independently packed `0692dbed2` controller after all heavy repository/scaffold validation completed. It is stopped and frozen: OMH-009 completed with full-case and implementation-oracle failures (two attempts, one correction); OMH-011 was operator-interrupted and ungraded; twelve cases were not run.
+
+In OMH-009, the prior unsupported Vitest import and extra testing-route mistakes are absent. The correction attempt followed all three declared source references in the correct order. Its final generated source still fails real typechecking: a validator rewrite leaves imports of missing exports in earlier test/API/command files, and a newer test omits its Jest globals. Two generated migrations both create the same table; that is a static finding, with no database execution or additional score assigned. The refusal of an undeclared canonical `index.ts` read is a valid capability boundary, not a denied required reference.
+
+The format correction has a separate local transport cause. The first response contains one schema-valid fenced JSON object followed by explanatory Markdown. The strict parser introduced for Round 2 rejects trailing prose, including an inline JavaScript `{ transaction: true }` expression that is not a later JSON answer. The model failed the requested response format, and the adapter also imposed an avoidable extraction failure. Installed Pi's JSON mode emits events rather than constraining the final answer schema. The next local parser uses bounded Markdown-aware answer-container extraction while retaining exact values, canonical validation, and fail-closed handling of later genuine malformed/schema-invalid answers. No historical result is regraded; no first-attempt code pass is inferred from a valid routing object.
+
+The frozen Round 2 analysis hashes are `dbf896905e140d5bc87d52ee5760ea54a5236f6fec35f5792624fb0eee523c9d` (Markdown) and `a8737e840a0ae52cecb9525d21d49e67d9d28b5f30413359d7c22dc9e380f6b5` (JSON). The content-free response-normalization audit SHA-256 is `91e36ea7c07e49b35c408dff93ed8b8981d320750b79dee64d99405694c51484`. Original scores, both prior reports, the frozen original-before lane and all eleven controller assets were verified unchanged.
 
 ## Offline attribution on the frozen generated targets
 
