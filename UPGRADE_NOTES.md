@@ -804,22 +804,6 @@ the same check, for at most three hops. Any other redirect fails with
 different scheme (for example `http://` while `APP_URL` is `https://`) or a non-`/api/` path. Use a
 relative `/api/...` path or `{{env.APP_URL}}/api/...` instead.
 
-### Entity translations are kept while their record is soft-deleted (#ISSUE)
-
-The translations module used to delete a record's `entity_translations` rows on every
-`query_index.delete_one` event, including soft deletes that set `deleted_at` and can be undone. Undoing
-such a delete (for example a resource in the `resources` module) restored the record without its
-translations. The cleanup subscriber now keeps the translations while the owning row still exists with
-its soft-delete column set, so undo brings them back; `GET /api/translations/:entityType/:entityId`
-keeps returning them for the soft-deleted record, and nothing purges them unless the row is later
-hard-deleted. Hard deletes, entities without a soft-delete column, and entity types outside the
-generated entity id registry (including custom-entity records such as `user:*`) are cleaned up as
-before. If the soft-delete check itself fails, the translations are kept and the error is reported.
-Event names and payloads are unchanged.
-
-**Action for module authors:** if your code reads `entity_translations` directly, expect rows for
-soft-deleted records and filter by the owning record's `deleted_at` where that matters.
-
 ## 0.8.0 → 0.9.0 (2026-10-09)
 
 ### `POST /api/auth/logout` no longer requires a valid access token (#7225)
