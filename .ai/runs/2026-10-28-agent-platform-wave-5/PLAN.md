@@ -72,7 +72,7 @@
 | 6 | 6.2 | Add the citation resolver registry and citations UI part | dispatch | done | 82de9c1fe |
 | 6 | 6.3 | Persist run citations and show Sources | dispatch | done | 7797adab9 |
 | 6 | 6.4 | Cover citations with integration tests and docs | dispatch | done | 27b4b02d7 |
-| 7 | 7.1 | Define the eval-set file format | dispatch | todo | — |
+| 7 | 7.1 | Define the eval-set file format | dispatch | done | pending |
 | 7 | 7.2 | Read and write eval sets as YAML | dispatch:cheap | todo | — |
 | 7 | 7.3 | Start eval runs from a file manifest | dispatch:capable | todo | — |
 | 7 | 7.4 | Add CLI --cases and eval-set export and validate | dispatch | todo | — |
