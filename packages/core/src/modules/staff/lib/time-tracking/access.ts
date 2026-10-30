@@ -2,7 +2,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
 import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { StaffTeamMember, StaffTimeProjectMember } from '../../data/entities'
-import { DEFAULT_ASSIGNMENT_GRACE_DAYS, MAX_ASSIGNMENT_GRACE_DAYS } from './settings'
+import { isWithinAssignmentWindow, normalizeAssignmentGraceDays, toDayIndex, toEntryDayIndex } from './projectAssignment'
 
 export const MANAGE_PROJECTS_FEATURE = 'staff.timesheets.projects.manage'
 
@@ -47,70 +47,7 @@ export type ProjectAccess = {
 
 const DENIED: ProjectAccess = { canManageAll: false, projectIds: [], staffMemberId: null }
 
-const MS_PER_DAY = 86_400_000
-const ISO_DATE_PREFIX = /^(\d{4})-(\d{2})-(\d{2})/
-
-export function normalizeAssignmentGraceDays(value: unknown): number {
-  if (typeof value !== 'number' || !Number.isInteger(value)) return DEFAULT_ASSIGNMENT_GRACE_DAYS
-  if (value < 0 || value > MAX_ASSIGNMENT_GRACE_DAYS) return DEFAULT_ASSIGNMENT_GRACE_DAYS
-  return value
-}
-
-/**
- * `assigned_start_date` / `assigned_end_date` are `date` columns, so both bounds
- * are compared as whole days rather than timestamps. MikroORM returns those
- * columns as `YYYY-MM-DD` strings, which take the string branch. The `Date`
- * branch serves `now`, test fixtures and a membership written in the same
- * EntityManager that was not reloaded, and reads local calendar fields
- * because "today" means the server's local day — unlike `toEntryDayIndex`,
- * whose input is always a client-sent calendar day.
- */
-function toDayIndex(value: unknown): number | null {
-  if (value == null) return null
-  if (value instanceof Date) {
-    if (Number.isNaN(value.getTime())) return null
-    return Date.UTC(value.getFullYear(), value.getMonth(), value.getDate()) / MS_PER_DAY
-  }
-  if (typeof value === 'string') {
-    const match = ISO_DATE_PREFIX.exec(value.trim())
-    if (!match) return null
-    return Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])) / MS_PER_DAY
-  }
-  return null
-}
-
-/**
- * An entry date is a calendar day the client sent as `YYYY-MM-DD`, which
- * `z.coerce.date()` turns into UTC midnight — so a Date is read through its UTC
- * fields here, the same way the grid addresses a cell (D-8).
- */
-function toEntryDayIndex(value: unknown): number | null {
-  if (value instanceof Date) {
-    if (Number.isNaN(value.getTime())) return null
-    return Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate()) / MS_PER_DAY
-  }
-  return toDayIndex(value)
-}
-
-/**
- * A membership only grants access inside its assignment window: from
- * `assigned_start_date` until `assigned_end_date` plus the tenant's grace days.
- * A null end date is open-ended and never expires.
- */
-export function isWithinAssignmentWindow(
-  membership: Pick<StaffTimeProjectMember, 'assignedStartDate' | 'assignedEndDate'>,
-  todayIndex: number,
-  graceDays: number,
-): boolean {
-  if (membership.assignedStartDate != null) {
-    const startIndex = toDayIndex(membership.assignedStartDate)
-    if (startIndex === null || todayIndex < startIndex) return false
-  }
-  if (membership.assignedEndDate == null) return true
-  const endIndex = toDayIndex(membership.assignedEndDate)
-  if (endIndex === null) return false
-  return todayIndex <= endIndex + graceDays
-}
+export { isWithinAssignmentWindow, normalizeAssignmentGraceDays, toDayIndex }
 
 export async function resolveProjectAccess(ctx: ProjectAccessContext): Promise<ProjectAccess> {
   const tenantId = ctx.tenantId ?? null
