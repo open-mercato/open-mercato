@@ -364,12 +364,12 @@ describe('companies list — Recently created preset', () => {
   })
 
   it.each([
-    ['2026-09-24T12:00:00.000', '2026-09-17'],
-    ['2026-10-31T23:30:00.000', '2026-10-24'],
-    ['2026-04-01T00:30:00.000', '2026-03-25'],
-    ['2026-11-07T23:30:00.000', '2026-10-31'],
-    ['2026-03-11T00:30:00.000', '2026-03-04'],
-  ])('starts at local midnight seven calendar days before %s', async (localNow, firstIncludedDay) => {
+    ['2026-09-24T12:00:00.000', '2026-09-16', '2026-09-17'],
+    ['2026-10-31T23:30:00.000', '2026-10-23', '2026-10-24'],
+    ['2026-04-01T00:30:00.000', '2026-03-24', '2026-03-25'],
+    ['2026-11-07T23:30:00.000', '2026-10-30', '2026-10-31'],
+    ['2026-03-11T00:30:00.000', '2026-03-03', '2026-03-04'],
+  ])('starts at local midnight seven calendar days before %s', async (localNow, dayBeforeWindow, firstIncludedDay) => {
     renderWithProviders(<CustomersCompaniesPage />)
     await waitFor(() => expect(filterPanelPropsCapture.current?.presets).toBeDefined())
 
@@ -378,10 +378,10 @@ describe('companies list — Recently created preset', () => {
     const now = fromZonedTime(localNow, USER_TIMEZONE)
     const tree = preset!.build({ now, userId: null })
     const [presetRule] = tree.root.children
-    expect(presetRule).toMatchObject({ field: 'created_at', operator: 'greater_or_equal', value: firstIncludedDay })
+    expect(presetRule).toMatchObject({ field: 'created_at', operator: 'is_after', value: dayBeforeWindow })
 
     const sentRule = expandCreatedAtDayRules(tree, USER_TIMEZONE).root.children[0]
     const localMidnight = fromZonedTime(`${firstIncludedDay}T00:00:00.000`, USER_TIMEZONE).getTime()
-    expect(sentRule).toMatchObject({ operator: 'greater_or_equal', value: new Date(localMidnight).toISOString() })
+    expect(sentRule).toMatchObject({ operator: 'greater_than', value: new Date(localMidnight - 1).toISOString() })
   })
 })

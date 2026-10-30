@@ -77,9 +77,9 @@ function makeCompaniesPresets(): FilterPreset[] {
       labelKey: 'customers.companies.presets.recentlyCreated',
       iconName: 'clock',
       build: ({ now }) => {
-        const windowStart = new Date(`${formatInTimeZone(now, USER_TIMEZONE, 'yyyy-MM-dd')}T00:00:00.000Z`)
-        windowStart.setUTCDate(windowStart.getUTCDate() - 7)
-        return makeRuleTree({ field: 'created_at', operator: 'greater_or_equal', value: windowStart.toISOString().slice(0, 10) })
+        const dayBeforeWindow = new Date(`${formatInTimeZone(now, USER_TIMEZONE, 'yyyy-MM-dd')}T00:00:00.000Z`)
+        dayBeforeWindow.setUTCDate(dayBeforeWindow.getUTCDate() - 8)
+        return makeRuleTree({ field: 'created_at', operator: 'is_after', value: dayBeforeWindow.toISOString().slice(0, 10) })
       },
     },
     {
