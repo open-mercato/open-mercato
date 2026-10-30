@@ -135,6 +135,8 @@ it.each(['PUT', 'PATCH'])('does not inherit the creator permissions for %s', asy
 })
 
 it.each(['PUT', 'PATCH'])('attributes an authorized %s to the key while updating the bound user layout', async (method) => {
+  const layout = { layoutJson: savedItems.map((item) => ({ ...item })) }
+  em.findOne.mockResolvedValue(layout)
   const response = method === 'PUT' ? await PUT(request('PUT')) : await PATCH(request('PATCH'), { params: { itemId } })
   expect(response.status).toBe(200)
   expect(guard).toHaveBeenCalledWith(container, expect.objectContaining({ userId: actorId, tenantId, organizationId }))
@@ -144,5 +146,29 @@ it.each(['PUT', 'PATCH'])('attributes an authorized %s to the key while updating
   if (method === 'PUT') {
     expect(allowedWidgets).toHaveBeenCalledWith(em, expect.objectContaining({ userId }), expect.anything())
     expect(rbac.getEffectiveFeatures).toHaveBeenCalledWith(actorId, { tenantId, organizationId })
+    expect(layout.layoutJson).toEqual([{ id: itemId, widgetId: 'visible', order: 0, priority: 0, size: 'md' }])
+  } else {
+    expect(layout.layoutJson).toEqual([{ ...savedItems[0], size: 'lg' }, savedItems[1]])
+  }
+})
+
+it.each(['GET', 'PUT', 'PATCH'])('keeps a tenant-wide key in its own layout scope for %s', async (method) => {
+  authMock.mockResolvedValue({ sub: actorId, userId, isApiKey: true, tenantId, orgId: null })
+
+  const response = method === 'GET' ? await GET(request()) : method === 'PUT' ? await PUT(request('PUT')) : await PATCH(request('PATCH'), { params: { itemId } })
+
+  expect(response.status).toBe(200)
+  expect(findUser).toHaveBeenCalledWith(em, expect.anything(), {
+    id: userId, tenantId, deletedAt: null,
+  }, undefined, { tenantId, organizationId: null })
+  expect(em.findOne).toHaveBeenCalledTimes(1)
+  expect(em.findOne).toHaveBeenCalledWith(expect.anything(), { userId, tenantId, organizationId: null, deletedAt: null })
+  if (method === 'GET') {
+    expect(await response.json()).toMatchObject({ context: { userId, tenantId, organizationId: null } })
+    expect(em.flush).not.toHaveBeenCalled()
+  } else {
+    expect(rbac.userHasAllFeatures).toHaveBeenCalledWith(actorId, ['dashboards.configure'], { tenantId, organizationId: null })
+    expect(guard).toHaveBeenCalledWith(container, expect.objectContaining({ userId: actorId, tenantId, organizationId: null }))
+    expect(em.flush).toHaveBeenCalledTimes(1)
   }
 })
