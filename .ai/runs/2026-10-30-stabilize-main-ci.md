@@ -57,8 +57,8 @@ Restore the current `main` branch workflows to green by identifying each failing
 
 ### Phase 2: Correct root causes
 
-- [ ] 2.1 Implement minimal fixes with regression coverage for every actionable failure.
-- [ ] 2.2 Run targeted validation and confirm the original failure signatures are resolved.
+- [x] 2.1 Implement minimal fixes with regression coverage for every actionable failure. — 4c20fce5cc
+- [x] 2.2 Run targeted validation and confirm the original failure signatures are resolved. — 4c20fce5cc
 
 ### Phase 3: Verify and hand off
 
