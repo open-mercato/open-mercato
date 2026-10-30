@@ -76,6 +76,32 @@ describePostgres('custom entity encryption in PostgreSQL JSONB (#7810)', () => {
         filters: { secret: '123' }, page: { page: 1, pageSize: 10 },
       })
       expect(result.items).toEqual([{ id: recordId, secret: '123', title: 'Visible' }])
+      await db.updateTable('custom_entities_storage').set({ doc: { ...stored.doc, tags: ['red', 'blue'] } }).execute()
+      const scopedResult = await queryEngine.query(entityId, {
+        forceCustomEntityStorage: true, tenantId, organizationId, fields: ['id', 'secret'],
+        filters: { secret: '123', organization_id: { $in: [organizationId] }, tags: { $overlap: ['red'] } },
+      })
+      expect(scopedResult.items).toEqual([{ id: recordId, secret: '123' }])
+      expect(scopedResult.total).toBe(1)
+      const groupedResult = await queryEngine.query(entityId, {
+        forceCustomEntityStorage: true, tenantId, organizationId, fields: ['id'],
+        filters: { $or: [{ secret: 'missing' }, { organization_id: organizationId }] },
+      })
+      expect(groupedResult.items).toEqual([{ id: recordId }])
+      expect(groupedResult.total).toBe(1)
+      const overlapResult = await queryEngine.query(entityId, {
+        forceCustomEntityStorage: true, tenantId, organizationId, fields: ['id', 'tags'],
+        filters: { $or: [{ secret: 'missing' }, { tags: { $overlap: ['red'] } }] },
+      })
+      expect(overlapResult.items).toEqual([{ id: recordId, tags: '["red", "blue"]' }])
+      expect(overlapResult.total).toBe(1)
+      await db.updateTable('custom_entities_storage').set({ doc: { ...stored.doc, tags: '["red", "blue"]' } }).execute()
+      const scalarResult = await queryEngine.query(entityId, {
+        forceCustomEntityStorage: true, tenantId, organizationId, fields: ['id'],
+        filters: { $or: [{ secret: 'missing' }, { tags: { $overlap: ['red'] } }] },
+      })
+      expect(scalarResult.items).toEqual([])
+      expect(scalarResult.total).toBe(0)
       await db.updateTable('custom_entities_storage').set({ doc: { id: recordId, secret: 'legacy plaintext', title: 'Visible' } }).execute()
       await engine.updateCustomEntityRecord({ entityId, recordId, tenantId, organizationId, values: { title: 'Updated' } })
       const updated = await db.selectFrom('custom_entities_storage').select('doc').executeTakeFirstOrThrow()

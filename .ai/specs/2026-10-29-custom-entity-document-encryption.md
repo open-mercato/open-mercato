@@ -52,4 +52,6 @@ Runner: local. Both package builds around generation, translation sync/usage, fu
 
 ## Changelog
 
+- 2026-10-30: Review autofix preserves SQL-applied common predicates and selects storage metadata columns for deferred filters. Public array predicates in mixed encrypted OR groups use hidden JSON projections without changing response types; PostgreSQL and unit regressions cover organization scoping, array matching and scalar rejection.
+
 - 2026-10-29: Implemented and independently reviewed document encryption, scoped queries and historical-field rotation for #7810; verified against isolated PostgreSQL 17.

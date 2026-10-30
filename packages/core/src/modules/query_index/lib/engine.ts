@@ -123,8 +123,7 @@ function matchesCustomDocumentPattern(value: string, pattern: string, ignoreCase
   return tokenIndex === tokens.length
 }
 
-function matchesCustomDocumentFilter(row: Record<string, unknown>, filter: Filter): boolean {
-  const actual = customDocumentValue(row, filter.field)
+function matchesCustomDocumentFilter(row: Record<string, unknown>, filter: Filter, actual = customDocumentValue(row, filter.field)): boolean {
   const expected: unknown = filter.value
   assertCustomDocumentPlaintext(actual)
   const equal = (left: unknown, right: unknown) => left == null || right == null
@@ -2329,6 +2328,11 @@ export class HybridQueryEngine implements QueryEngine {
     const plaintextFilters = normalizedFilters.some((filter) => isProtected(filter.field))
     const plaintextSort = (opts.sort ?? []).some((sort) => isProtected(sort.field))
     const scanPlaintext = plaintextFilters || plaintextSort
+    const deferredFilters = plaintextFilters ? normalizedFilters.filter((filter) => filter.orGroup || isProtected(filter.field)) : []
+    const jsonComparisonAliases = new Map(Array.from(new Set(deferredFilters
+      .filter((filter) => !isProtected(filter.field) && !filter.field.startsWith('cf:')
+        && !this.resolveCustomEntityColumn(alias, filter.field) && (filter.op === 'overlap' || filter.op === 'noverlap'))
+      .map((filter) => filter.field)), (field, index) => [field, `__om_ce_filter_${index}`]))
     const searchConfig = resolveSearchConfig()
     const searchEnabled = await this.searchAvailability().staticEnabled()
     // Same gate as `query()` (#4723): without a like/ilike filter the probe's answer is never read.
@@ -2419,7 +2423,7 @@ export class HybridQueryEngine implements QueryEngine {
     for (const key of cfKeys) projectedFields.add(this.sanitize(`cf:${key}`))
     const hiddenFields = new Set<string>()
     const comparisonFields = scanPlaintext
-      ? Array.from(new Set([...normalizedFilters.map((filter) => filter.field), ...(opts.sort ?? []).map((sort) => sort.field)]))
+      ? Array.from(new Set([...deferredFilters.map((filter) => filter.field), ...(opts.sort ?? []).map((sort) => sort.field)]))
       : []
     for (const field of comparisonFields) {
       const outputKey = field.startsWith('cf:') ? this.sanitize(field) : field
@@ -2434,10 +2438,8 @@ export class HybridQueryEngine implements QueryEngine {
         if (f.startsWith('cf:')) {
           const aliasName = this.sanitize(f)
           next = next.select(this.jsonbSqlAlias(alias, f).as(aliasName))
-        } else if (f === 'id') {
-          next = next.select(`${alias}.entity_id as id`)
-        } else if (f === 'created_at' || f === 'updated_at' || f === 'deleted_at') {
-          next = next.select(`${alias}.${f} as ${f}`)
+        } else if (this.resolveCustomEntityColumn(alias, f)) {
+          next = next.select(`${this.resolveCustomEntityColumn(alias, f)} as ${f}`)
         } else {
           const expr = isProtected(f)
             ? sql<unknown>`(${sql.ref(alias + '.doc')} -> ${f})`
@@ -2449,6 +2451,9 @@ export class HybridQueryEngine implements QueryEngine {
       for (const key of cfKeys) {
         const aliasName = this.sanitize(`cf:${key}`)
         next = next.select(this.jsonbSqlAlias(alias, `cf:${key}`).as(aliasName))
+      }
+      for (const [field, comparisonAlias] of jsonComparisonAliases) {
+        next = next.select(sql<unknown>`(${sql.ref(alias + '.doc')} -> ${field})`.as(comparisonAlias))
       }
       if (encryptionService) {
         next = next.select([`${alias}.tenant_id as __om_ce_tenant_id`, `${alias}.organization_id as __om_ce_organization_id`])
@@ -2507,13 +2512,17 @@ export class HybridQueryEngine implements QueryEngine {
       if (maxRows !== null && rows.length > maxRows) throw new Error('[internal] Custom entity encrypted query exceeds the candidate row limit')
       let candidates = await mapWithConcurrency(rows, DECRYPT_CONCURRENCY, decryptRow)
       if (plaintextFilters) {
-        const common = normalizedFilters.filter((filter) => !filter.orGroup)
+        const common = deferredFilters.filter((filter) => !filter.orGroup)
         const groups = new Map<string, typeof normalizedFilters>()
         for (const filter of normalizedFilters) {
           if (filter.orGroup) groups.set(filter.orGroup, [...(groups.get(filter.orGroup) ?? []), filter])
         }
-        candidates = candidates.filter((row) => common.every((filter) => matchesCustomDocumentFilter(row, filter))
-          && (!groups.size || Array.from(groups.values()).some((group) => group.every((filter) => matchesCustomDocumentFilter(row, filter)))))
+        const matches = (row: Record<string, unknown>, filter: Filter) => {
+          const comparisonAlias = jsonComparisonAliases.get(filter.field)
+          return matchesCustomDocumentFilter(row, filter, comparisonAlias ? row[comparisonAlias] : customDocumentValue(row, filter.field))
+        }
+        candidates = candidates.filter((row) => common.every((filter) => matches(row, filter))
+          && (!groups.size || Array.from(groups.values()).some((group) => group.every((filter) => matches(row, filter)))))
       }
       for (const row of candidates) {
         for (const sort of opts.sort ?? []) {
@@ -2525,6 +2534,7 @@ export class HybridQueryEngine implements QueryEngine {
       const items = candidates.slice((page - 1) * pageSize, page * pageSize).map((row) => {
         const projected = { ...row }
         for (const field of hiddenFields) delete projected[field]
+        for (const comparisonAlias of jsonComparisonAliases.values()) delete projected[comparisonAlias]
         return projected
       })
       return { items: items as T[], page, pageSize, total }

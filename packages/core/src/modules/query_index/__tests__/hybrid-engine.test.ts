@@ -2717,6 +2717,43 @@ describe('HybridQueryEngine custom-document encryption (#7810)', () => {
     expect(result.total).toBe(2)
   })
 
+  test('does not re-evaluate common predicates already matched by SQL against document projections', async () => {
+    const rows: Array<Record<string, unknown>> = []
+    const { engine, seal } = fixture(rows)
+    rows.push(row('match', { code: await seal('private') }))
+    const result = await engine.query(entity, {
+      fields: ['id'], tenantId: tenant, forceCustomEntityStorage: true,
+      filters: { code: 'private', organization_id: { $in: ['org-a'] }, tags: { $overlap: ['red'] } },
+    })
+    expect(result.items).toEqual([{ id: 'match' }])
+    expect(result.total).toBe(1)
+  })
+
+  test('selects storage metadata columns for deferred OR predicates', async () => {
+    const rows: Array<Record<string, unknown>> = []
+    const { engine, seal, db } = fixture(rows)
+    rows.push(row('match', { code: await seal('other'), organization_id: 'org-a' }))
+    const result = await engine.query(entity, {
+      fields: ['id'], tenantId: tenant, forceCustomEntityStorage: true,
+      filters: { $or: [{ code: 'private' }, { organization_id: 'org-a' }] },
+    })
+    expect(result.items).toEqual([{ id: 'match' }])
+    const selections = (db._chains as ChainLog[]).filter((chain) => chain.table === 'custom_entities_storage').flatMap((chain) => chain.selects.flat())
+    expect(selections).toContain('ce.organization_id as organization_id')
+  })
+
+  test('uses a hidden JSON projection for deferred public array comparisons and preserves requested text projections', async () => {
+    const rows: Array<Record<string, unknown>> = []
+    const { engine, seal } = fixture(rows)
+    rows.push(row('match', { code: await seal('other'), tags: '["red", "blue"]', __om_ce_filter_0: ['red', 'blue'] }))
+    const result = await engine.query(entity, {
+      fields: ['id', 'tags'], tenantId: tenant, forceCustomEntityStorage: true,
+      filters: { $or: [{ code: 'private' }, { tags: { $overlap: ['red'] } }] },
+    })
+    expect(result.items).toEqual([{ id: 'match', tags: '["red", "blue"]' }])
+    expect(result.total).toBe(1)
+  })
+
   test('rejects a candidate scan beyond the configured limit before key lookup', async () => {
     process.env.OM_ENCRYPTED_SORT_MAX_ROWS = '2'
     const { engine, getDek } = fixture([row('doc-1', { code: 'c' }), row('doc-2', { code: 'b' }), row('doc-3', { code: 'a' })])
