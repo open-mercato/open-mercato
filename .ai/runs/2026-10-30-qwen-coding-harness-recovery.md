@@ -1,7 +1,7 @@
 # Qwen coding harness recovery
 
 ## Goal
-Explain every task from the stopped local Qwen 27B experiment, correct demonstrated shared harness defects in the fewest authoritative owners, and publish proposed fixes with honest before/after evidence.
+Explain every task from the stopped local Qwen 27B experiment, correct demonstrated shared harness defects in the fewest authoritative owners, make all fourteen selected OMH cases pass without weakening checks, then make PR #8262 merge-ready without merging it. Preserve honest first-attempt and repair-trial evidence.
 
 Source doc: .ai/specs/2026-10-30-coding-harness-contract-recovery.md
 
@@ -73,3 +73,10 @@ Local runner: all eight configured commands pass, including 51/51 workspace test
 
 The single authoritative review evidence comment records all code findings fixed and the full validation blocker resolved. GitHub rejects an approving/request-changes self-review with HTTP 422; the formal review list remains empty. No independent approval is claimed. The final source review is clear, including current-factory config compatibility and the bare-CR boundary. The same evidence comment records the final 8/8 gate, v6 knowledge result and fresh-cohort preflight. The proposal remains draft with `review`, pending model/release evidence.
 - [ ] 4.3 Publish the per-case evidence and PR handoff.
+
+### Phase 5: Merge readiness after all fourteen cases pass
+- [ ] 5.1 Integrate the latest base and resolve conflicts.
+- [ ] 5.2 Complete the same authoritative review/autofix and stabilize required CI checks.
+- [ ] 5.3 Satisfy approval and applicable QA gates, promote the PR to ready, and hand off without merging.
+
+The user explicitly requires all fourteen canonical cases to pass before the merge-ready phase. `om-auto-fix-pr` stage-zero research is read-only during the model batch. The current snapshot has one formal approval required; self-approval/admin bypass is not an acceptable substitute. Base integration, CI stabilization and any remaining review work start after the OMH completion criterion, using the same parent claim and authoritative review engine. The expanded plan has fourteen steps, below the configured loop threshold.

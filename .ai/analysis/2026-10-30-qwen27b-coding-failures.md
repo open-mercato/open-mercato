@@ -61,7 +61,7 @@ Hashes identify the local sanitized evaluator record and retained generated-file
 
 ## Validation status
 
-[Round 5 complete-cohort results](2026-10-30-qwen27b-round5-results.md) are live on the corrected source. OMH-009 is the first canonical and implementation pass (one attempt, no correction); thirteen cases remain in progress/pending. Broader generated-app checks wait until the model batch completes.
+[Round 5 complete-cohort results](2026-10-30-qwen27b-round5-results.md) are live on the corrected source. OMH-009 is the first canonical and implementation pass (one attempt, no correction). OMH-011 passes implementation but still fails procedure-read order and the unread required compatibility document; twelve cases remain in progress/pending. All fourteen canonical cases must pass before merge-ready preparation, as the user explicitly requested. Broader generated-app checks wait until the model batch completes.
 
 [Round 4 per-case results](2026-10-30-qwen27b-round4-results.md) track the complete fourteen-case rerun, including narrower implementation outcomes and content-free evidence hashes.
 

@@ -3,7 +3,7 @@
   "sourceRevision": "0395f6246d13fac742fdd72df59aa22f3d8bdd49",
   "runId": "ac37befc-5efe-486e-a2f3-c37d437d446e",
   "startedAt": "2026-10-30T19:17:57.739Z",
-  "updatedAt": "2026-10-30T19:24:41.855Z",
+  "updatedAt": "2026-10-30T19:32:57.146Z",
   "status": "running",
   "cases": [
     {
@@ -53,22 +53,52 @@
     },
     {
       "caseId": "OMH-011",
-      "status": "running",
-      "implementationOracle": "pending",
-      "attempts": null,
-      "corrections": null,
-      "durationMs": null,
-      "finishedAt": null,
-      "evaluatorSha256": null,
-      "generatedSha256": null,
-      "captureSha256": [],
-      "shortCause": null,
-      "localeReadCounts": null,
-      "deliveryCounts": null
+      "status": "fail",
+      "implementationOracle": "pass",
+      "attempts": 1,
+      "corrections": 0,
+      "durationMs": 413443,
+      "finishedAt": "2026-10-30T19:31:45.548Z",
+      "evaluatorSha256": "214880f07cfcebecdafa82c61c719e6615874fc96b2c78513a75ee9f2226ccb2",
+      "generatedSha256": "f6b57be433db51b662ab39ae2a26b262d4f37f36e716e9d67c22c3e0fb67636b",
+      "captureSha256": [
+        "9cf7c50139f3efdd276cda9a0cf4a09af3f05cb0370812e044065c00235a654a"
+      ],
+      "shortCause": "Implementation passes; fullcase fails owner-before-source ordering and a missed required BC read.",
+      "localeReadCounts": {
+        "globalApp": {
+          "events": 0,
+          "deliveredBytes": 0,
+          "missingMetadata": 0
+        },
+        "newModule": {
+          "events": 0,
+          "deliveredBytes": 0,
+          "missingMetadata": 0
+        },
+        "canonicalExample": {
+          "events": 0,
+          "deliveredBytes": 0,
+          "missingMetadata": 0
+        },
+        "otherModule": {
+          "events": 0,
+          "deliveredBytes": 0,
+          "missingMetadata": 0
+        }
+      },
+      "deliveryCounts": {
+        "successfulReads": 12,
+        "attestedReads": 12,
+        "missingMetadata": 0,
+        "immutableCompared": 9,
+        "immutableMatches": 9,
+        "immutableMismatches": 0
+      }
     },
     {
       "caseId": "OMH-012",
-      "status": "pending",
+      "status": "running",
       "implementationOracle": "pending",
       "attempts": null,
       "corrections": null,
@@ -248,11 +278,11 @@
     }
   ],
   "deliveryTotals": {
-    "successfulReads": 21,
-    "attestedReads": 21,
+    "successfulReads": 33,
+    "attestedReads": 33,
     "missingMetadata": 0,
-    "immutableCompared": 13,
-    "immutableMatches": 13,
+    "immutableCompared": 22,
+    "immutableMatches": 22,
     "immutableMismatches": 0
   },
   "localeReadTotals": {

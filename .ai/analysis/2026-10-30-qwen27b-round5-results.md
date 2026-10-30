@@ -9,8 +9,8 @@ The complete case covers routing, observed context/read boundaries and the imple
 | Case | Complete case | Implementation oracle | Attempts / corrections | Observed outcome |
 |---|---|---|---|---|
 | OMH-009 | pass | pass | 1 / 0 | Canonical and implementation pass; broader generated-artifact validation is pending. |
-| OMH-011 | running | pending | — | In progress. |
-| OMH-012 | pending | pending | — | Pending. |
+| OMH-011 | fail | pass | 1 / 0 | Implementation passes; fullcase fails owner-before-source ordering and a missed required BC read. |
+| OMH-012 | running | pending | — | In progress. |
 | OMH-014 | pending | pending | — | Pending. |
 | OMH-026 | pending | pending | — | Pending. |
 | OMH-027 | pending | pending | — | Pending. |
@@ -28,6 +28,8 @@ The complete case covers routing, observed context/read boundaries and the imple
 OMH-009 passes its full canonical case and implementation oracle in one attempt, with zero corrections or violations (257,720 ms). All three required source references are followed in owner order. Its 21 successful reads carry finalized byte/hash metadata and all thirteen independently comparable immutable hashes match. No denied read or extra UMES selection is observed in this attempt.
 
 Five data/migration files were retained; no generated test file was produced. Therefore this result does not demonstrate that the Jest wording changed test generation. Controlled app generation/typecheck/lint/build, applicable generated tests and read-only artifact judgment remain pending until all fourteen model cases finish. No migration is applied. This canonical pass is not a complete app/release certificate.
+
+OMH-011 also passes its implementation oracle (413,443 ms, one attempt, no correction), but fails the complete case: the CRUD/OpenAPI sources were read before their required procedure owner, and the now-readable compatibility document was never read or declared. No denied capability probe or transport error occurred. Both completed cases therefore pass implementation checks, while only one passes all policy/routing requirements. Across them, all 33 successful reads are attested and all 22 comparable immutable hashes match. These remaining policy failures must be corrected before the requested fourteen-pass completion is reached.
 
 [Machine-readable results and evidence hashes](2026-10-30-qwen27b-round5-results.json) remain content-free. Visible responses, tool calls and generated files are available in the [local dashboard](http://127.0.0.1:8768/), under “Qwen27B canonical context recovery · round5”. Internal reasoning and raw read bodies are excluded.
 
