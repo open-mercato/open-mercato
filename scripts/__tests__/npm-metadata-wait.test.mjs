@@ -72,7 +72,7 @@ test('metadata waiting remains bounded when npm never exposes the version', () =
   })
 })
 
-test('snapshot workflows share the thirty-minute metadata wait', () => {
+test('snapshot workflows share the forty-five-minute metadata wait', () => {
   for (const workflowPath of SNAPSHOT_WORKFLOWS) {
     const source = fs.readFileSync(workflowPath, 'utf8')
     assert.match(source, /npm-wait-for-metadata\.sh" "\$VERSION" "\$\{PACKAGES\[@\]\}"/)
@@ -80,6 +80,6 @@ test('snapshot workflows share the thirty-minute metadata wait', () => {
   }
 
   const source = fs.readFileSync(WAIT_SCRIPT, 'utf8')
-  assert.match(source, /NPM_METADATA_MAX_ATTEMPTS:-180/)
+  assert.match(source, /NPM_METADATA_MAX_ATTEMPTS:-270/)
   assert.match(source, /NPM_METADATA_RETRY_SLEEP:-10/)
 })
