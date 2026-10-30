@@ -24,6 +24,88 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.9.0 → 0.9.1 (unreleased)
 
+### Workflow steps may last longer than ~24.8 days; `StepInstance.executionTimeMs` is deprecated
+
+A workflow step that lasted 2^31 ms (~24.86 days) or longer could not complete: `step_instances.execution_time_ms`
+is a Postgres `integer`, so the flush that closed the step threw after the step's task had already committed. A
+synchronous `WAIT` activity of that length resolved after 1 ms instead (Node's `setTimeout` ceiling), and a
+`WAIT_FOR_CONDITION` step was forced to time out after 1000 polls whatever its own timeout said.
+
+- `StepInstance.executionTimeMs` (`step_instances.execution_time_ms`) is now `@deprecated` and is written as `null`
+  for a step longer than 2^31 − 1 ms. It was already `null` on every FAILED path. Derive a step's duration from
+  `exitedAt - enteredAt`; the exact value still travels on the `STEP_EXITED` event (`eventData.executionTimeMs`).
+  The column is scheduled for removal no earlier than 0.11.0; no migration ships now.
+- A synchronous `WAIT` longer than one minute that is the last activity of its transition is now queued like an
+  `async: true` WAIT, so the run parks in `WAITING_FOR_ACTIVITIES` instead of holding the request open. A synchronous
+  WAIT longer than ~24.8 days anywhere else now fails with an explicit error instead of resolving early.
+- `OM_WORKFLOWS_MAX_CONDITION_ATTEMPTS` is now the floor of the poll cap: each `WAIT_FOR_CONDITION` waiter may poll
+  as many times as its own `timeout / pollIntervalMs` requires.
+
+### MCP HTTP servers now bind to loopback by default (#2659, #2670)
+
+`runMcpHttpServer` (`mcp:serve-http` / `yarn mcp:serve`, production) and `runMcpDevServer`
+(`mcp:dev` / `yarn mcp:dev`, Claude Code / local testing) used to call `httpServer.listen(port,
+...)` with no host, which binds every network interface (`0.0.0.0`/`::`) rather than loopback.
+Neither server's intended client needs non-loopback reachability, so this widened the API-key
+attack surface to anything with network reach to the host — worse for the dev server, which
+authenticates a single API key once at startup and reuses that same superadmin-equivalent
+context for every request afterward, with no per-request ACL re-check.
+
+**Both servers now default to `127.0.0.1`.** Override with `--host` / `MCP_HTTP_HOST` for the
+production server, `MCP_DEV_HOST` for the dev server.
+
+**Action for operators who reach either MCP server over a non-loopback address** — a reverse
+proxy, sidecar, container, or any other process connecting from outside the host's own loopback
+interface: set the corresponding host override so the server keeps listening where that caller
+expects it. Two shipped topologies already needed this and have been updated as part of this
+change, as a reference for anything else you run:
+
+- The `mcp` service in `docker-compose.fullapp.yml` / `docker-compose.fullapp.dev.yml` (and the
+  `starters/docker/compose.fullapp*.yml` canonicals, and the `create-app` template) is reached
+  by the `app` and `opencode` services over the internal compose network (`mcp:3001`), which is
+  not loopback from the `mcp` container's own point of view. Both now set `MCP_HTTP_HOST:
+  "0.0.0.0"` on that service — the network is internal and the port is not published, so this is
+  not a new exposure, just an explicit opt-in matching the new default-loopback contract.
+- `yarn dev`'s full-stack flow (`scripts/dev.mjs`) spawns this server on the **host** so the
+  Dockerized OpenCode sidecar can reach it via `host.docker.internal`. On Docker Desktop that hop
+  resolves to host loopback, so `yarn dev` keeps the loopback default there. On **native Linux**
+  `host-gateway` is the bridge IP (e.g. `172.17.0.1`), which a loopback-only bind refuses, so
+  `yarn dev` binds `0.0.0.0` on Linux only. Set `MCP_HTTP_HOST` to override either way — for
+  example `MCP_HTTP_HOST=127.0.0.1 yarn dev` restores loopback on Linux. Standalone apps get
+  the same behavior from the `create-app` template's `scripts/dev.mjs` / `scripts/dev-mcp.mjs`;
+  an app scaffolded before this release must copy `resolveDevMcpHost` into its own copies.
+
+No database schema, event id, or CLI command signature changes — only the new options
+(`--host` / `MCP_HTTP_HOST` for `mcp:serve-http`, `MCP_DEV_HOST` for `mcp:dev`) and the changed
+default.
+
+
+### Passkey enrollment requires a WebAuthn registration response (#6800)
+
+Enterprise Security no longer accepts the passkey confirmation shortcut
+`{ credentialId, publicKey, challenge }`. The server previously stored that supplied public
+key without verifying a WebAuthn registration ceremony. The legacy shape now returns
+HTTP 400 without activating the pending method. The shipped browser UI already uses the
+supported path.
+
+**Client action:** call `POST /api/security/mfa/provider/passkey`, use its `clientData` options
+with `navigator.credentials.create` or the SimpleWebAuthn browser registration helper, and
+send the serialized credential to `PUT /api/security/mfa/provider/passkey` as
+`{ setupId, payload: { response, label? } }`. Update fixtures that invented public keys to
+use an actual or virtual authenticator. A disclosed challenge alone is insufficient.
+
+**Operator action:** this upgrade does not delete or invalidate existing passkeys. Their
+stored metadata cannot establish whether enrollment used the shortcut; a key with uncertain
+provenance may still be suspect even though login requires a valid signed assertion. Audit
+enrollment history and exposure, and arrange reset and re-enrollment through a trusted
+ceremony where provenance is uncertain. Preserve alternate MFA/recovery access before a
+reset to avoid locking users out. No database migration is needed.
+
+This is the narrow Emergency Security Exception described in
+[the enrollment specification](.ai/specs/enterprise/2026-10-01-passkey-enrollment-require-webauthn-attestation.md).
+There is no compatibility flag because retaining the shortcut retains the flaw. Credit to @Sawarz for the
+original report and proof of concept (#5296, #6710).
+
 ### Organization create undo retains a tombstone (#7663)
 
 Undoing organization creation now sets `deleted_at`, deactivates the row and
@@ -62,6 +144,12 @@ Custom HTTP clients must honor the new optional
 assertions before DNS and transmission for initial requests and every redirect.
 No tool input or result-field migration is required.
 
+### Warranty claim line numbers must be unique within each live claim (#7306)
+
+Creating or renumbering a line with a number already used by another live line now returns `409`, with a localized `error` and `code: warranty_claims.errors.duplicateLineNo`. Initial claim batches also reject duplicate resolved numbers, including collisions between explicit and default numbers. Valid inputs and automatic numbering remain unchanged.
+
+An undo that would restore an occupied line number is refused before changing the line or totals. Remove the occupying line or move it to a free number through the API, then retry the same undo. Existing duplicates are not automatically renumbered. No database migration is required.
+
 ### Workflow webhook responses have resource limits (#7814)
 
 Each `CALL_WEBHOOK` attempt now defaults to a 30-second deadline covering the
@@ -77,6 +165,50 @@ the byte limit to return a small acknowledgement promptly. Configure an explicit
 activity timeout for a slower endpoint, and move large results behind a separate
 retrieval or asynchronous workflow.
 Existing request configuration and successful response envelopes are unchanged.
+
+### Documents attachments enforce owner permissions at host URLs (#6726)
+
+Host attachment file/image routes, library metadata and attachment mutations now apply
+Documents' existing sharing and feature checks. Organization membership or `attachments.manage`
+alone no longer grants access to an unshared document's files. Authorized owners, shared
+recipients and Documents managers keep their existing capabilities; editing/deleting attachments
+still requires document editing permission and a non-archived owner.
+
+**Operator action:** run the additive attachments migration before serving the new binaries,
+then regenerate and build modules. It adds `attachment_partitions.access_resolver_requirements`
+and backfills the required `documents.document-attachments` provider for existing primary or
+assignment references to the historical `documents:document` identifier. This backfill needs
+no enabled Documents module or Documents table. It preserves unrelated owners in shared
+partitions such as `privateAttachments`, other requirements and malformed policy data (which
+fails closed). Disabling or removing the required provider denies those protected owners;
+restore the provider/registration to restore access. There is no manager API to erase protection.
+
+Protected responses use `Cache-Control: private, no-store`. Purge any affected CDN/reverse-proxy
+copies cached before deployment; the new headers cannot recall cached or downloaded copies.
+A policy timeout returns HTTP 504 without bytes or partial list counts. List authorization has
+a 15-second total budget and a default 1.5-second per-provider budget.
+
+**Module author action:** modules can export `attachmentAccessResolvers` and
+`protectedAttachmentTargets` from `data/attachment-access.ts`, using types exported by
+`@open-mercato/core/modules/attachments`. Regenerate registrations after changing declarations.
+For a new adopter with existing partitions, invoke the trusted
+`syncAttachmentAccessProtection(em)` export during its upgrade/setup while its declarations
+are registered, before disabling that provider. Synchronization unions requirements and never
+removes them. New partition creation and protected uploads synchronize the active declarations.
+Custom code constructing attachment read/link services without DI must provide their optional
+lazy policy context when owner policies apply; missing context denies protected reads.
+The existing synchronous `checkAttachmentAccess` signature and all service method inputs remain
+unchanged. Resolver allows cannot override the baseline; feature checks belong inside the
+callback, and a named required provider cannot be replaced by an unrelated wildcard callback.
+
+**Rollback:** keep the additive schema and roll forward. Older binaries ignore these policies;
+block affected host endpoints at the deployment boundary before any emergency binary rollback.
+Dropping policy data is not a supported security rollback.
+
+This intentional tightening uses the Emergency Security Exception described in
+`BACKWARD_COMPATIBILITY.md` and [design PR #6828](https://github.com/open-mercato/open-mercato/pull/6828).
+Human maintainer @haxiorz [approved the steps 1–3 waiver and acknowledged the client/operator migration](https://github.com/open-mercato/open-mercato/pull/6829#issuecomment-6505350022)
+on 2026-10-29. Independent review, QA and CI remain separate merge gates.
 
 ### Scoped attachment bytes no longer advertise shared caching (#7220)
 
@@ -94,6 +226,39 @@ Include both `/api/attachments/file/*` (including download query variants) and
 Changing origin headers cannot invalidate copies already stored with the old
 public TTL. Check cache rules honor origin `private` and do not force-cache these
 routes. No database or module-code migration is required.
+
+### Auth ACL live-row canonicalization
+
+Only live ACL rows and live role memberships now grant authorization. A super-admin grant must belong to the user's own tenant. Users whose `users.tenant_id` is NULL no longer obtain global super-admin access from legacy ACL rows; assign an owning tenant and a valid live grant before deploying, especially if that user is your only platform administrator. Foreign-tenant super-admin rows no longer confer super-admin access.
+
+The migration keeps the most recently changed live ACL row per user/tenant or role/tenant (then creation time and id as tie-breakers) and soft-deletes duplicates. Features present only in a superseded role ACL stop being unioned; user ACL resolution may select a different row than the previously unordered read. Review and reconcile intended grants before upgrading. Historical rows remain available for audit; rolling back the indexes does not reactivate them.
+
+Operators should run these read-only audits before deployment:
+
+```sql
+select id from users where tenant_id is null and deleted_at is null;
+
+select 'user' as principal_kind, acl.id, acl.user_id as principal_id,
+       acl.tenant_id as grant_tenant_id, principal.tenant_id as owner_tenant_id
+from user_acls acl join users principal on principal.id = acl.user_id
+where acl.deleted_at is null and acl.is_super_admin = true
+  and acl.tenant_id is distinct from principal.tenant_id
+union all
+select 'role', acl.id, acl.role_id, acl.tenant_id, principal.tenant_id
+from role_acls acl join roles principal on principal.id = acl.role_id
+where acl.deleted_at is null and acl.is_super_admin = true
+  and acl.tenant_id is distinct from principal.tenant_id;
+
+select 'user' as principal_kind, user_id as principal_id, tenant_id, count(*)
+from user_acls where deleted_at is null
+group by user_id, tenant_id having count(*) > 1
+union all
+select 'role', role_id, tenant_id, count(*)
+from role_acls where deleted_at is null
+group by role_id, tenant_id having count(*) > 1;
+```
+
+Drain old application instances when deploying the migration and reader changes together. Restarting clears process-local ACL caches, but a shared cache can retain old grants for up to the configured RBAC TTL (five minutes by default); invalidate shared RBAC cache entries or wait out that TTL before treating revocations as effective. Module authors must filter current ACL and membership reads by `deletedAt: null`, keep parent authorization-state locks around writes, and preserve historical rows for audit.
 
 ### Bundled Traefik keeps app and collaboration ports private (#7833)
 
@@ -118,6 +283,26 @@ continue to omit the bundled Traefik overlay; their base-file port mappings
 are unchanged. Host-local proxies and diagnostics can use a final loopback-only
 override. See [migration, override examples, WSS routing, and deployment checks](docker/traefik/README.md#private-application-ports-and-migration).
 No application API, database, or module-code migration is required.
+
+### AI session keys revalidate staff roles on every request (#7599)
+
+Removing a staff role now removes that role's privileges from already-issued AI session keys on
+the next request, including cached ACLs, organization visibility, and the raw superadmin flag.
+Role-based resource shares and temporary keys minted by business-rule calls also use current
+session-role membership. A key keeps only roles that were present at issuance and are still held by its owner. Independent
+API keys retain their existing role policy. Endpoints, token/response formats, and schema are unchanged.
+
+**Action for module authors:** do not rely on a session key retaining removed staff privileges.
+After granting a new role, issue a fresh session key to use it. No stored keys need rewriting.
+
+**Action for operators:** deploy and restart every application/worker process that authenticates
+or authorizes API keys. Session authorization now reads live memberships instead of reusing
+cross-request grants, which adds database work for session requests. Verified session-secret
+identities keep the existing bounded authentication cache; live roles and authorization are never
+served from it. Ordinary keys retain cached authentication and authorization results, but ACL,
+feature-organization and enabled organization-scope lookups now read the API-key row before using
+those caches to distinguish session credentials. Last-used write debouncing remains enabled. No
+migration is required.
 
 ### `yarn mercato <module> <command>` exits with the code the command signalled (#5936)
 
@@ -669,6 +854,32 @@ produces an actionable proposal. No new dependency, configuration, or database m
 fresh proposals. Old cards cannot be distinguished from forgeries; do not backfill markers using
 their text or sender email. Inspect prior approved replies if forgery is suspected. Normal
 messages and fresh system-filed proposals retain their existing behavior.
+
+### AI-chat session tokens: hashed storage, deploy the app and the MCP server together (#2254, #7304)
+
+`api_keys.session_token` (the ephemeral AI-chat/MCP bearer credential) is replaced by a SHA-256
+`api_keys.session_token_hash`. The old column is kept as a deprecated, always-`null` bridge —
+nothing reads or writes it anymore — rather than dropped, so it is safe to leave in place across
+a rolling deploy.
+
+**Deploy the app and the standalone MCP process (`mcp:serve-http`/`mcp:dev`) together.** During
+the window where they run different code versions:
+- A session minted by the *old* code (plaintext-only) is still resolved by the *new* code — it
+  falls back to the plaintext column on a hash miss and self-heals the row onto the hash on
+  first use — so upgrading the app ahead of the MCP process is safe.
+- A session minted by the *new* code (hash-only) is **not** resolved by an *old* MCP process
+  still running against the same database — the old binary has no way to know about the hash
+  column. Upgrading the MCP process after the app, or running both from the same deploy, avoids
+  this. If hit anyway, the user sees "Your chat session has expired" and recovers by reopening
+  the chat window; no data is corrupted.
+
+**Rolling back after this migration is destructive to sessions minted since the upgrade.** The
+migration backfills the hash from, and then clears, the plaintext column for rows that already
+existed; it cannot retroactively plaintext-store sessions minted by the new code after that
+point. Rolling back (`down()`) drops the hash column, so any session minted between the forward
+migration and the rollback is unrecoverable — users must reopen their chat windows. This is the
+same one-time-TTL (120-minute) cost paid by any session mid-flight at rollback, not an ongoing
+state.
 
 ### Payment gateway webhooks: opt-in transport, locator and response options; ambiguous matches are rejected
 
