@@ -61,6 +61,35 @@ describe('ConfirmDialog', () => {
     expect(dialog.parentElement).toBe(document.body)
   })
 
+  it('stays exposed to assistive technology when a modal underneath hid its siblings', () => {
+    const renderDialog = (open: boolean) => (
+      <ConfirmDialog
+        open={open}
+        onOpenChange={() => undefined}
+        onConfirm={() => undefined}
+        title="Discard unsaved changes?"
+        confirmText="Discard"
+        cancelText="Cancel"
+      />
+    )
+    const { rerender } = renderWithProviders(renderDialog(false))
+    const dialog = document.body.querySelector('dialog')!
+    dialog.setAttribute('aria-hidden', 'true')
+    dialog.setAttribute('data-aria-hidden', 'true')
+
+    rerender(renderDialog(true))
+    expect(dialog).not.toHaveAttribute('aria-hidden')
+    expect(screen.getByRole('alertdialog')).toBe(dialog)
+
+    rerender(renderDialog(false))
+    expect(dialog).toHaveAttribute('aria-hidden', 'true')
+
+    rerender(renderDialog(true))
+    dialog.removeAttribute('data-aria-hidden')
+    rerender(renderDialog(false))
+    expect(dialog).not.toHaveAttribute('aria-hidden')
+  })
+
   it('renders the destructive confirmation as the solid variant', () => {
     renderWithProviders(
       <ConfirmDialog

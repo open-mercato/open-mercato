@@ -34,6 +34,10 @@ jest.mock('@open-mercato/ui/backend/Page', () => ({
   PageBody: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }))
 
+jest.mock('../../../../../components/useDataSyncRunAccess', () => ({
+  useDataSyncRunAccess: () => ({ canRunSync: true, canConfigureSync: true }),
+}))
+
 jest.mock('next/navigation', () => ({
   usePathname: () => '/backend/data-sync/runs/run-1',
   useRouter: () => ({ push: jest.fn() }),

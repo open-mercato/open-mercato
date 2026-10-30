@@ -265,9 +265,11 @@ export class ScopedAttachmentUploadService {
     }
 
     if (useLlmOcr) {
-      requestOcrProcessing(em, attachment, driver, storedPath).catch((error) => {
+      try {
+        await requestOcrProcessing(em, attachment, driver, storedPath)
+      } catch (error) {
         logger.error('Scoped attachment OCR scheduling failed', { err: error })
-      })
+      }
     }
     if (this.deps.dataEngine) {
       await emitCrudSideEffects({

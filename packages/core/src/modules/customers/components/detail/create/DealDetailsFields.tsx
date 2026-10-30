@@ -13,6 +13,7 @@ import { PipelineSelect } from './PipelineSelect'
 import { PipelineStageSelect } from './PipelineStageSelect'
 import { SuffixInput } from './SuffixInput'
 import { DealCurrencyField } from './DealCurrencyField'
+import { DealOwnerSelect, type DealOwnerOption } from '../DealOwnerSelect'
 import { sanitizeAmount, sanitizeProbability } from './dealNumericInput'
 import type { BaseValues } from './dealFormTypes'
 import type { PipelineOption, PipelineStageOption } from './useDealPipelines'
@@ -28,6 +29,8 @@ export type DealDetailsFieldsProps = {
   pipelines: PipelineOption[]
   stages: PipelineStageOption[]
   statusLabels: ReturnType<typeof createDictionarySelectLabels>
+  /** Seeds the owner picker so a self-assigned user outside the roster still renders by name. */
+  ownerInitialOption?: DealOwnerOption | null
   tr: Translate
 }
 
@@ -46,6 +49,7 @@ export function DealDetailsFields({
   pipelines,
   stages,
   statusLabels,
+  ownerInitialOption,
   tr,
 }: DealDetailsFieldsProps) {
   return (
@@ -153,6 +157,14 @@ export function DealDetailsFields({
             onChange={(date) => patch({ expectedCloseAt: date ? format(date, 'yyyy-MM-dd') : '' })}
             disabled={isSubmitting}
             placeholder={tr('customers.deals.create.fields.datePlaceholder', 'Pick a date')}
+          />
+        </DealFormField>
+        <DealFormField fieldId="ownerUserId" label={tr('customers.deals.fields.owner', 'Owner')}>
+          <DealOwnerSelect
+            value={values.ownerUserId ? values.ownerUserId : null}
+            onChange={(next) => patch({ ownerUserId: next ?? '' })}
+            initialOption={ownerInitialOption ?? null}
+            disabled={isSubmitting}
           />
         </DealFormField>
       </div>

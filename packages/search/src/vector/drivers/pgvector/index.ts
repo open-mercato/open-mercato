@@ -1,5 +1,6 @@
 import { Pool } from 'pg'
 import { searchDebugWarn, searchWarn } from '../../../lib/debug'
+import { compileIndexDocFilterExists } from '../../../lib/index-doc-filter'
 
 type PgPoolQueryResult<T> = { rows: T[]; rowCount?: number }
 type PgPoolClient = {
@@ -420,6 +421,18 @@ export function createPgVectorDriver(opts: PgVectorDriverOptions = {}): VectorDr
       Array.isArray(filter.entityIds) && filter.entityIds.length ? filter.entityIds : null,
       input.limit ?? 20,
     ]
+    const indexDocClause = filter.indexDocFilter
+      ? compileIndexDocFilterExists(
+          filter.indexDocFilter,
+          {
+            entityTypeRef: `${tableName}.entity_id`,
+            recordIdRef: `${tableName}.record_id`,
+            tenantIdRef: `${tableName}.tenant_id`,
+          },
+          params.length + 1,
+        )
+      : null
+    if (indexDocClause) params.push(...indexDocClause.parameters)
     const res = await pool.query<{
       entity_id: string
       record_id: string
@@ -463,6 +476,7 @@ export function createPgVectorDriver(opts: PgVectorDriverOptions = {}): VectorDr
           AND (
             $5::text[] IS NULL OR entity_id = ANY($5::text[])
           )
+          ${indexDocClause ? `AND ${indexDocClause.sql}` : ''}
         ORDER BY embedding <=> $1::vector
         LIMIT $6
       `,
@@ -706,6 +720,7 @@ export function createPgVectorDriver(opts: PgVectorDriverOptions = {}): VectorDr
 
   return {
     id: 'pgvector',
+    supportsIndexDocFilter: true,
     ensureReady,
     isHealthy,
     getStatus,

@@ -420,6 +420,13 @@ async function loadLegacyTriggers(
  * those with no triggers — so the caller can let a materialized (customized)
  * definition suppress its code-registry counterpart regardless of whether the
  * customization kept any triggers (#4425).
+ *
+ * Versions of a workflow coexist as separate rows, and publishing copies the
+ * triggers into the new row while the previous one stays enabled for the
+ * instances and pinned callers still running it. Triggers are therefore taken
+ * only from the database row an unpinned start resolves to
+ * (`findWorkflowDefinition`): the highest enabled, published version. Projecting every enabled row would
+ * start one instance per version for a single event.
  */
 async function loadEmbeddedTriggers(
   em: EntityManager,
@@ -428,7 +435,8 @@ async function loadEmbeddedTriggers(
 ): Promise<{ triggers: UnifiedTrigger[]; workflowIds: Set<string> }> {
   const postgresEm = em as unknown as PostgreSqlEntityManager
   // Load all definitions so disabled customizations still shadow their code
-  // counterpart. Only enabled definitions contribute embedded triggers below.
+  // counterpart. Only the resolved version of each workflow contributes
+  // embedded triggers below.
   const definitions = await findWithDecryption(
     postgresEm,
     WorkflowDefinition,
@@ -443,11 +451,19 @@ async function loadEmbeddedTriggers(
 
   const triggers: UnifiedTrigger[] = []
   const workflowIds = new Set<string>()
+  const resolvedVersions = new Map<string, WorkflowDefinition>()
 
   for (const def of definitions) {
     workflowIds.add(def.workflowId)
-    if (!def.enabled) continue
+    if (!def.enabled || def.lifecycle !== 'published') continue
 
+    const resolved = resolvedVersions.get(def.workflowId)
+    if (!resolved || def.version > resolved.version) {
+      resolvedVersions.set(def.workflowId, def)
+    }
+  }
+
+  for (const def of resolvedVersions.values()) {
     const embeddedTriggers = def.definition?.triggers as WorkflowDefinitionTrigger[] | undefined
     if (!embeddedTriggers || embeddedTriggers.length === 0) continue
 

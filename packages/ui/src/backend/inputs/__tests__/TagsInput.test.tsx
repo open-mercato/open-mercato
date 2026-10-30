@@ -2,7 +2,10 @@
 import * as React from 'react'
 import { act, fireEvent, screen } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from '../../../primitives/dialog'
 import { TagsInput } from '../TagsInput'
+
+const escapeSuggestions = [{ value: 'user-admin', label: 'admin@acme.com' }]
 
 describe('TagsInput', () => {
   it('does not add the typed query when selecting a suggestion', () => {
@@ -111,5 +114,124 @@ describe('TagsInput', () => {
     expect(loadSuggestions).not.toHaveBeenCalled()
 
     jest.useRealTimers()
+  })
+
+  describe('closeSuggestionsOnSelect', () => {
+    const pickSuggestions = [
+      { value: 'cat-1', label: 'Category One' },
+      { value: 'cat-2', label: 'Category Two' },
+    ]
+
+    function PickHarness({ closeSuggestionsOnSelect }: { closeSuggestionsOnSelect?: boolean }) {
+      const [value, setValue] = React.useState<string[]>([])
+      return (
+        <TagsInput
+          value={value}
+          onChange={setValue}
+          suggestions={pickSuggestions}
+          closeSuggestionsOnSelect={closeSuggestionsOnSelect}
+        />
+      )
+    }
+
+    it('keeps the remaining suggestions open after a pick by default', () => {
+      renderWithProviders(<PickHarness />)
+      const input = screen.getByRole('textbox')
+      fireEvent.focus(input)
+      fireEvent.click(screen.getByRole('button', { name: /Category One/ }))
+
+      expect(screen.getByRole('button', { name: /Category Two/ })).toBeInTheDocument()
+    })
+
+    it('dismisses the suggestions after a pick when opted in and reopens them on the next interaction', () => {
+      renderWithProviders(<PickHarness closeSuggestionsOnSelect />)
+      const input = screen.getByRole('textbox')
+      fireEvent.focus(input)
+      fireEvent.click(screen.getByRole('button', { name: /Category One/ }))
+
+      expect(screen.queryByRole('button', { name: /Category Two/ })).not.toBeInTheDocument()
+
+      fireEvent.mouseDown(input)
+
+      expect(screen.getByRole('button', { name: /Category Two/ })).toBeInTheDocument()
+    })
+  })
+
+  describe('Escape on the suggestions list', () => {
+    it('closes only the suggestions and keeps Escape away from the host', () => {
+      const onHostKeyDown = jest.fn()
+
+      renderWithProviders(
+        <div onKeyDown={onHostKeyDown}>
+          <TagsInput value={[]} onChange={jest.fn()} suggestions={escapeSuggestions} />
+        </div>,
+      )
+
+      const input = screen.getByRole('textbox')
+      fireEvent.change(input, { target: { value: 'adm' } })
+      expect(screen.getByRole('button', { name: /admin@acme\.com/ })).toBeInTheDocument()
+
+      fireEvent.keyDown(input, { key: 'Escape' })
+
+      expect(screen.queryByRole('button', { name: /admin@acme\.com/ })).not.toBeInTheDocument()
+      expect(onHostKeyDown).not.toHaveBeenCalled()
+      expect(input).toHaveValue('adm')
+    })
+
+    it('lets Escape reach the host once the suggestions are closed', () => {
+      const onHostKeyDown = jest.fn()
+
+      renderWithProviders(
+        <div onKeyDown={(event) => onHostKeyDown(event.key)}>
+          <TagsInput value={[]} onChange={jest.fn()} suggestions={escapeSuggestions} />
+        </div>,
+      )
+
+      const input = screen.getByRole('textbox')
+      fireEvent.change(input, { target: { value: 'adm' } })
+      fireEvent.keyDown(input, { key: 'Escape' })
+      fireEvent.keyDown(input, { key: 'Escape' })
+
+      expect(onHostKeyDown).toHaveBeenCalledTimes(1)
+      expect(onHostKeyDown).toHaveBeenCalledWith('Escape')
+    })
+
+    it('reopens the suggestions when the user keeps typing', () => {
+      renderWithProviders(
+        <TagsInput value={[]} onChange={jest.fn()} suggestions={escapeSuggestions} />,
+      )
+
+      const input = screen.getByRole('textbox')
+      fireEvent.change(input, { target: { value: 'adm' } })
+      fireEvent.keyDown(input, { key: 'Escape' })
+      fireEvent.change(input, { target: { value: 'admi' } })
+
+      expect(screen.getByRole('button', { name: /admin@acme\.com/ })).toBeInTheDocument()
+    })
+
+    it('keeps an enclosing dialog open', () => {
+      const onOpenChange = jest.fn()
+
+      renderWithProviders(
+        <Dialog open onOpenChange={onOpenChange}>
+          <DialogContent>
+            <DialogTitle>Compose</DialogTitle>
+            <DialogDescription>Compose a message.</DialogDescription>
+            <TagsInput value={[]} onChange={jest.fn()} suggestions={escapeSuggestions} />
+          </DialogContent>
+        </Dialog>,
+      )
+
+      const input = screen.getByRole('textbox')
+      fireEvent.change(input, { target: { value: 'adm' } })
+      fireEvent.keyDown(input, { key: 'Escape' })
+
+      expect(screen.queryByRole('button', { name: /admin@acme\.com/ })).not.toBeInTheDocument()
+      expect(onOpenChange).not.toHaveBeenCalled()
+
+      fireEvent.keyDown(input, { key: 'Escape' })
+
+      expect(onOpenChange).toHaveBeenCalledWith(false)
+    })
   })
 })

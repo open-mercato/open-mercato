@@ -361,6 +361,108 @@ describe('setRecordCustomFields', () => {
       expect(nativeDelete).toHaveBeenCalledWith(CustomFieldValue, { id: { $in: ['value-b'] } })
     })
 
+    describe('array echoed back for a single-value field (#6468)', () => {
+      const textDefinition = { ...definition, key: 'note', kind: 'text' }
+
+      it('heals the duplicates to one row, keeping the value the caller\'s scope already holds', async () => {
+        const stale = { id: 'value-org-a', organizationId: 'org-a', tenantId: 'tenant-1', valueText: 'A-stale' }
+        const current = { id: 'value-org-b', organizationId: 'org-b', tenantId: 'tenant-1', valueText: 'B-ui' }
+        const { em, nativeDelete, create, persist } = makeEm([stale, current], textDefinition)
+
+        await setRecordCustomFields(em, {
+          entityId: 'auth:user',
+          recordId: 'user-1',
+          organizationId: 'org-b',
+          tenantId: 'tenant-1',
+          values: { note: ['A-stale', 'B-ui'] },
+        })
+
+        // Without the fix the array took the multi-value branch: one key-wide delete, then
+        // both values re-created under org-b — still two live rows for a single-value field.
+        expect(nativeDelete).toHaveBeenCalledTimes(1)
+        expect(nativeDelete).toHaveBeenCalledWith(CustomFieldValue, { id: { $in: ['value-org-a'] } })
+        expect(current.valueText).toBe('B-ui')
+        expect(create).not.toHaveBeenCalled()
+        expect(persist).not.toHaveBeenCalled()
+      })
+
+      it('writes exactly one row when no duplicate lives in the caller\'s scope', async () => {
+        const staleA = { id: 'value-org-a', organizationId: 'org-a', tenantId: 'tenant-1', valueText: 'first' }
+        const staleC = { id: 'value-org-c', organizationId: 'org-c', tenantId: 'tenant-1', valueText: 'second' }
+        const { em, nativeDelete, create, persist } = makeEm([staleA, staleC], textDefinition)
+
+        await setRecordCustomFields(em, {
+          entityId: 'auth:user',
+          recordId: 'user-1',
+          organizationId: 'org-b',
+          tenantId: 'tenant-1',
+          values: { note: ['first', 'second'] },
+        })
+
+        expect(nativeDelete).toHaveBeenCalledWith(CustomFieldValue, { id: { $in: ['value-org-a', 'value-org-c'] } })
+        expect(create).toHaveBeenCalledTimes(1)
+        expect(persist).toHaveBeenCalledWith([
+          expect.objectContaining({ fieldKey: 'note', organizationId: 'org-b', valueText: 'second' }),
+        ])
+      })
+
+      it('stores null for an empty array instead of leaving the field multi-valued', async () => {
+        const current = { id: 'value-org-b', organizationId: 'org-b', tenantId: 'tenant-1', valueText: 'B-ui' }
+        const { em } = makeEm([current], textDefinition)
+
+        await setRecordCustomFields(em, {
+          entityId: 'auth:user',
+          recordId: 'user-1',
+          organizationId: 'org-b',
+          tenantId: 'tenant-1',
+          values: { note: [] },
+        })
+
+        expect(current.valueText).toBeNull()
+      })
+
+      it('keeps replacing every row for a multi-value field', async () => {
+        const multiDefinition = { ...textDefinition, configJson: { multi: true } }
+        const { em, nativeDelete, persist } = makeEm([], multiDefinition)
+
+        await setRecordCustomFields(em, {
+          entityId: 'auth:user',
+          recordId: 'user-1',
+          organizationId: 'org-b',
+          tenantId: 'tenant-1',
+          values: { note: ['x', 'y'] },
+        })
+
+        expect(nativeDelete).toHaveBeenCalledWith(CustomFieldValue, {
+          entityId: 'auth:user',
+          recordId: 'user-1',
+          fieldKey: 'note',
+          $or: [{ tenantId: 'tenant-1' }, { tenantId: null }],
+        })
+        expect(persist).toHaveBeenCalledWith([
+          expect.objectContaining({ valueText: 'x' }),
+          expect.objectContaining({ valueText: 'y' }),
+        ])
+      })
+
+      it('keeps the multi-value branch for an undeclared key, whose arity is unknown', async () => {
+        const { em, persist } = makeEm([], textDefinition)
+
+        await setRecordCustomFields(em, {
+          entityId: 'auth:user',
+          recordId: 'user-1',
+          organizationId: 'org-b',
+          tenantId: 'tenant-1',
+          values: { tags: ['x', 'y'] },
+        })
+
+        expect(persist).toHaveBeenCalledWith([
+          expect.objectContaining({ fieldKey: 'tags', valueText: 'x' }),
+          expect.objectContaining({ fieldKey: 'tags', valueText: 'y' }),
+        ])
+      })
+    })
+
     it('does not delete anything when the record has never left its scope', async () => {
       const current = { id: 'value-current', organizationId: 'org-b', tenantId: 'tenant-1', valueInt: 3 }
       const { em, nativeDelete } = makeEm([current])

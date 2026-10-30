@@ -89,6 +89,7 @@ function toValues(record: ProjectRecord): ProjectFormValues {
     budgetValue: readString(record, 'budgetValue', 'budget_value'),
     budgetWarnAtPercent:
       readString(record, 'budgetWarnAtPercent', 'budget_warn_at_percent') ?? String(DEFAULT_BUDGET_WARN_AT_PERCENT),
+    defaultAssigneeStaffMemberId: readString(record, 'defaultAssigneeStaffMemberId', 'default_assignee_staff_member_id') ?? null,
     projectType: readString(record, 'projectType', 'project_type'),
     color: readString(record, 'color'),
     startDate: readString(record, 'startDate', 'start_date'),
@@ -149,34 +150,49 @@ export default function TimeTrackingProjectEditPage({ params }: { params?: { id?
   )
   const groups = React.useMemo(() => createProjectFormGroups(t), [t])
 
+  // The organization switcher settles the scope just after mount, bumping the
+  // scope version from 0 and reloading the project. A screen resolved before
+  // that stays up until the answer arrives: falling back to the full-page
+  // loader would unmount it and drop its local state — the form's unsaved
+  // edits, or an access request the user has just sent. A switch between two
+  // known scopes still goes through the loader, so no form outlives the scope
+  // it was loaded for. The decision looks at the load this one replaces,
+  // settled or not: a version-0 load cancelled by a quick second switch must
+  // not let that switch through.
+  const lastLoadRef = React.useRef<{ projectId: string; scopeVersion: number } | null>(null)
   React.useEffect(() => {
     if (!projectId) return
     let cancelled = false
+    const replaced = lastLoadRef.current
+    lastLoadRef.current = { projectId, scopeVersion }
+    const keepScreen = replaced !== null && replaced.projectId === projectId && replaced.scopeVersion === 0
     async function load() {
-      setLoading(true)
-      setError(null)
-      setIsNotFound(false)
-      setAccessDenied(false)
+      if (!keepScreen) setLoading(true)
+      const settle = (outcome: { values?: ProjectFormValues; accessDenied?: boolean; isNotFound?: boolean; error?: string }) => {
+        if (cancelled) return
+        setAccessDenied(outcome.accessDenied === true)
+        setIsNotFound(outcome.isNotFound === true)
+        setError(outcome.error ?? null)
+        if (outcome.values) setInitialValues(outcome.values)
+        setLoading(false)
+      }
       try {
         const record = await fetchProject()
         if (!record) {
-          if (!cancelled) setIsNotFound(true)
+          settle({ isNotFound: true })
           return
         }
-        if (!cancelled) setInitialValues(toValues(record))
+        settle({ values: toValues(record) })
       } catch (err) {
-        if (cancelled) return
         if (err instanceof ProjectAccessDeniedError) {
-          setAccessDenied(true)
+          settle({ accessDenied: true })
           return
         }
-        setError(
-          err instanceof Error
+        settle({
+          error: err instanceof Error
             ? err.message
             : t('staff.timesheets.projects.errors.load', 'Failed to load project.'),
-        )
-      } finally {
-        if (!cancelled) setLoading(false)
+        })
       }
     }
     load()

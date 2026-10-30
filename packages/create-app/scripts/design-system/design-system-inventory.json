@@ -58,9 +58,9 @@
       "empty": "source-only",
       "wms": "source-only"
     },
-    "canonicalUiRowCount": 8,
-    "referenceCount": 16,
-    "directReferenceCount": 10,
+    "canonicalUiRowCount": 9,
+    "referenceCount": 18,
+    "directReferenceCount": 12,
     "compositeReferenceCount": 6,
     "rowsWithoutVisualCoverage": [
       "ui.frontend-page"
@@ -9141,6 +9141,66 @@
       ],
       "compositeImplementationSource": null,
       "implementationSource": "node_modules/@open-mercato/ui/src/backend/Page.tsx",
+      "availabilityByPreset": {
+        "classic": "source-only",
+        "crm": "source-only",
+        "empty": "source-only",
+        "wms": "source-only"
+      },
+      "featureId": "design_system.view",
+      "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
+      "provenanceHeadSha": "186af58044c7530885a889c41f53bb36a5093d82",
+      "baselineSha": "bf25803d7a8c85c8552db9e76c7cc4398d1768be"
+    },
+    {
+      "capabilityId": "umes.customers.calendar-event-types",
+      "exampleSource": "src/modules/example/components/VisitPanel.tsx",
+      "publicImportPath": "@open-mercato/ui/primitives/alert",
+      "exportNames": [
+        "Alert",
+        "AlertDescription",
+        "AlertTitle"
+      ],
+      "galleryCoverage": "direct",
+      "galleryEntries": [
+        {
+          "familyId": "feedback",
+          "entryId": "alert",
+          "importPath": "@open-mercato/ui/primitives/alert",
+          "entrySource": "node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/feedback.tsx"
+        }
+      ],
+      "compositeImplementationSource": null,
+      "implementationSource": "node_modules/@open-mercato/ui/src/primitives/alert.tsx",
+      "availabilityByPreset": {
+        "classic": "source-only",
+        "crm": "source-only",
+        "empty": "source-only",
+        "wms": "source-only"
+      },
+      "featureId": "design_system.view",
+      "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
+      "provenanceHeadSha": "186af58044c7530885a889c41f53bb36a5093d82",
+      "baselineSha": "bf25803d7a8c85c8552db9e76c7cc4398d1768be"
+    },
+    {
+      "capabilityId": "umes.customers.calendar-event-types",
+      "exampleSource": "src/modules/example/components/VisitPanel.tsx",
+      "publicImportPath": "@open-mercato/ui/primitives/button",
+      "exportNames": [
+        "Button"
+      ],
+      "galleryCoverage": "direct",
+      "galleryEntries": [
+        {
+          "familyId": "buttons",
+          "entryId": "button",
+          "importPath": "@open-mercato/ui/primitives/button",
+          "entrySource": "node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/buttons.tsx"
+        }
+      ],
+      "compositeImplementationSource": null,
+      "implementationSource": "node_modules/@open-mercato/ui/src/primitives/button.tsx",
       "availabilityByPreset": {
         "classic": "source-only",
         "crm": "source-only",

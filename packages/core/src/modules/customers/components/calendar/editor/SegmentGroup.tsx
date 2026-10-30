@@ -12,12 +12,14 @@ export function SegmentGroup<T extends string>({
   onChange,
   size = 'sm',
   ariaLabel,
+  disabled = false,
 }: {
   options: Array<SegmentOption<T>>
   value: T
   onChange(next: T): void
   size?: 'sm' | 'md'
   ariaLabel: string
+  disabled?: boolean
 }) {
   return (
     <div
@@ -34,6 +36,7 @@ export function SegmentGroup<T extends string>({
             variant="ghost"
             aria-pressed={isActive}
             onClick={() => onChange(option.value)}
+            disabled={disabled}
             title={option.label}
             data-state={isActive ? 'active' : 'inactive'}
             className={cn(
