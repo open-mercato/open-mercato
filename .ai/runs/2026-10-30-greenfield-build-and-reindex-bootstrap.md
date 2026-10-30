@@ -55,4 +55,3 @@ PR: #8272
 Local macOS runner, Node 24.22.2. All eight configured validation commands passed, including the full 51-task test run and the production app build. Final focused build/import/lifecycle suite: 110/110 passed. Post-MCP package refresh: 42/42 tasks passed. Template sync and lessons checks passed.
 
 Automated review found no remaining actionable code findings: https://github.com/open-mercato/open-mercato/pull/8272#pullrequestreview-5715415459. GitHub rejected author self-approval, so the assessment is posted as a non-approving review; independent human approval remains required. The latest main merged cleanly in a read-only merge-tree check. Remote CI remains queued/running and continues to gate merge; this run does not wait for or promise further CI monitoring.
-
