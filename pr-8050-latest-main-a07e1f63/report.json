@@ -1,0 +1,180 @@
+{
+  "runId": "a07e1f63-8050-latest-main",
+  "mode": "pr",
+  "target": {
+    "prNumber": 8050,
+    "title": "Aggregate batch line writes with current external-amount rules",
+    "branch": "carry/pr-6184-ready",
+    "headSha": "2373aa6050d1495feec542d0d6c54a16e2f7d2d8"
+  },
+  "verdict": "PASS",
+  "environment": {
+    "baseUrl": "http://127.0.0.1:40815",
+    "role": "admin and owned viewer/denied users",
+    "startedByThisRepo": true,
+    "browserProvider": "playwright"
+  },
+  "scenario": [
+    {
+      "step": 1,
+      "priority": "P0",
+      "action": "POST external order-lines without either unit price in default/net/gross modes",
+      "expected": "400 naming unitPriceNet; header25.23 unchanged; one original line remains",
+      "observed": "400 naming unitPriceNet; header25.23 unchanged; one original line remains",
+      "result": "PASS",
+      "screenshot": "00-missing-source-price-modes.png"
+    },
+    {
+      "step": 2,
+      "priority": "P0",
+      "action": "POST explicit zero unit prices in net and gross modes",
+      "expected": "Both201; header25.23 unchanged",
+      "observed": "Both201; header25.23 unchanged",
+      "result": "PASS",
+      "screenshot": "00-explicit-zero-source-prices.png"
+    },
+    {
+      "step": 3,
+      "priority": "P0",
+      "action": "POST batch missing headers, mixed mode and partially valid missing-price batches",
+      "expected": "All400; original3lines and source gross25.23 unchanged",
+      "observed": "All400; original3lines and source gross25.23 unchanged",
+      "result": "PASS",
+      "screenshot": "00-batch-refusals-atomic.png"
+    },
+    {
+      "step": 4,
+      "priority": "P0",
+      "action": "POST batch of explicit net/gross zero lines, then batch-delete one",
+      "expected": "Both operations200;4lines remain, deleted ID absent and source gross25.23 preserved",
+      "observed": "Both operations200;4lines remain, deleted ID absent and source gross25.23 preserved",
+      "result": "PASS",
+      "screenshot": "00-batch-explicit-zero-and-delete.png"
+    },
+    {
+      "step": 5,
+      "priority": "P0",
+      "action": "Open external order with source markup",
+      "expected": "Source badge; gross25.23; line mutation controls disabled",
+      "observed": "Source badge; gross25.23; line mutation controls disabled",
+      "result": "PASS",
+      "screenshot": "01-source-default.png"
+    },
+    {
+      "step": 6,
+      "priority": "P0",
+      "action": "Open conversion confirmation then Escape",
+      "expected": "Dialog dismissed; mode remains external",
+      "observed": "Dialog dismissed; mode remains external",
+      "result": "PASS",
+      "screenshot": "02-confirmation-Escape.png"
+    },
+    {
+      "step": 7,
+      "priority": "P0",
+      "action": "Open empty adjustments",
+      "expected": "Empty copy; both creation controls disabled",
+      "observed": "Empty copy; both creation controls disabled",
+      "result": "PASS",
+      "screenshot": "03-empty-read-only-adjustments.png"
+    },
+    {
+      "step": 8,
+      "priority": "P0",
+      "action": "390px viewport; horizontally scroll long item table",
+      "expected": "Table scrolls within overflow-auto wrapper; conversion action remains in viewport",
+      "observed": "Table scrolls within overflow-auto wrapper; conversion action remains in viewport",
+      "result": "PASS",
+      "screenshot": "04-long-content-mobile-scroll.png"
+    },
+    {
+      "step": 9,
+      "priority": "P0",
+      "action": "Hold document response during reload",
+      "expected": "Loading document shell appears, then source view",
+      "observed": "Loading document shell appears, then source view",
+      "result": "PASS",
+      "screenshot": "05-loading.png"
+    },
+    {
+      "step": 10,
+      "priority": "P0",
+      "action": "Inject document GET500",
+      "expected": "Retry control visible; conversion control absent",
+      "observed": "Retry control visible; conversion control absent",
+      "result": "PASS",
+      "screenshot": "06-read-error-500.png"
+    },
+    {
+      "step": 11,
+      "priority": "P0",
+      "action": "Inject document GET403",
+      "expected": "Retry control visible; conversion control absent",
+      "observed": "Retry control visible; conversion control absent",
+      "result": "PASS",
+      "screenshot": "06-read-error-403.png"
+    },
+    {
+      "step": 12,
+      "priority": "P0",
+      "action": "Open missing UUID",
+      "expected": "Document not found with back link",
+      "observed": "Document not found with back link",
+      "result": "PASS",
+      "screenshot": "07-missing-record.png"
+    },
+    {
+      "step": 13,
+      "priority": "P0",
+      "action": "Real view-only account reads then attempts conversion",
+      "expected": "GET200; PUT403; external mode preserved",
+      "observed": "GET200; PUT403; external mode preserved",
+      "result": "PASS",
+      "screenshot": "08-real-view-only403.png"
+    },
+    {
+      "step": 14,
+      "priority": "P0",
+      "action": "Real account with no sales grants opens order",
+      "expected": "Access Denied; source totals absent",
+      "observed": "Access Denied; source totals absent",
+      "result": "PASS",
+      "screenshot": "09-real-no-permission.png"
+    },
+    {
+      "step": 15,
+      "priority": "P0",
+      "action": "Concurrent API update then stale browser conversion",
+      "expected": "PUT409; Record changed alert; gross25.23 preserved",
+      "observed": "PUT409; Record changed alert; gross25.23 preserved",
+      "result": "PASS",
+      "screenshot": "10-real-stale409.png"
+    },
+    {
+      "step": 16,
+      "priority": "P0",
+      "action": "Reload; confirm conversion with Ctrl+Enter",
+      "expected": "PUT200; computed net20/tax4/gross24; line editing enabled",
+      "observed": "PUT200; computed net20/tax4/gross24; line editing enabled",
+      "result": "PASS",
+      "screenshot": "11-CtrlEnter-switch-correct-money.png"
+    },
+    {
+      "step": 17,
+      "priority": "P0",
+      "action": "Restore external; inject conversion PUT500",
+      "expected": "Failure message; mode stays external",
+      "observed": "Failure message; mode stays external",
+      "result": "PASS",
+      "screenshot": "12-switch-error500.png"
+    }
+  ],
+  "hasUiTest": true,
+  "notes": [
+    "Fresh production build at the published2373head containing main5cf. All17 checkpoints executed independently from the native suite. Owned users/roles/order deleted successfully; zero remaining fixtures.",
+    "Native CLI:11 cases passed without retries, comprising8bulk cases (including the new external batch regression) and3external-order cases. Native covers source-header preservation, missing/mixed/incomplete refusal atomicity, explicit zero, deletion, tenant/organization guards, equivalent sequential results, undo and migration round-trip on disposable PostgreSQL.",
+    "Conflict resolution retains the shared builder and main external rules. Header totals are optional for computed callers and required/restated for external writes; source price presence is captured before tax fallback.68focusedunit tests/generation/coretypecheck passed; hooks passed.",
+    "Controlled browser500/403 read and500 conversion errors are simulated; view-only403 and stale409 are real server responses. Enterprise runtime was not exercised in this OSS environment.",
+    "Evidence-only; no new independent review or QA approval. New-head CI is reported separately."
+  ]
+}
