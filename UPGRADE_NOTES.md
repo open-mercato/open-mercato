@@ -166,6 +166,50 @@ activity timeout for a slower endpoint, and move large results behind a separate
 retrieval or asynchronous workflow.
 Existing request configuration and successful response envelopes are unchanged.
 
+### Documents attachments enforce owner permissions at host URLs (#6726)
+
+Host attachment file/image routes, library metadata and attachment mutations now apply
+Documents' existing sharing and feature checks. Organization membership or `attachments.manage`
+alone no longer grants access to an unshared document's files. Authorized owners, shared
+recipients and Documents managers keep their existing capabilities; editing/deleting attachments
+still requires document editing permission and a non-archived owner.
+
+**Operator action:** run the additive attachments migration before serving the new binaries,
+then regenerate and build modules. It adds `attachment_partitions.access_resolver_requirements`
+and backfills the required `documents.document-attachments` provider for existing primary or
+assignment references to the historical `documents:document` identifier. This backfill needs
+no enabled Documents module or Documents table. It preserves unrelated owners in shared
+partitions such as `privateAttachments`, other requirements and malformed policy data (which
+fails closed). Disabling or removing the required provider denies those protected owners;
+restore the provider/registration to restore access. There is no manager API to erase protection.
+
+Protected responses use `Cache-Control: private, no-store`. Purge any affected CDN/reverse-proxy
+copies cached before deployment; the new headers cannot recall cached or downloaded copies.
+A policy timeout returns HTTP 504 without bytes or partial list counts. List authorization has
+a 15-second total budget and a default 1.5-second per-provider budget.
+
+**Module author action:** modules can export `attachmentAccessResolvers` and
+`protectedAttachmentTargets` from `data/attachment-access.ts`, using types exported by
+`@open-mercato/core/modules/attachments`. Regenerate registrations after changing declarations.
+For a new adopter with existing partitions, invoke the trusted
+`syncAttachmentAccessProtection(em)` export during its upgrade/setup while its declarations
+are registered, before disabling that provider. Synchronization unions requirements and never
+removes them. New partition creation and protected uploads synchronize the active declarations.
+Custom code constructing attachment read/link services without DI must provide their optional
+lazy policy context when owner policies apply; missing context denies protected reads.
+The existing synchronous `checkAttachmentAccess` signature and all service method inputs remain
+unchanged. Resolver allows cannot override the baseline; feature checks belong inside the
+callback, and a named required provider cannot be replaced by an unrelated wildcard callback.
+
+**Rollback:** keep the additive schema and roll forward. Older binaries ignore these policies;
+block affected host endpoints at the deployment boundary before any emergency binary rollback.
+Dropping policy data is not a supported security rollback.
+
+This intentional tightening uses the Emergency Security Exception described in
+`BACKWARD_COMPATIBILITY.md` and [design PR #6828](https://github.com/open-mercato/open-mercato/pull/6828).
+Human maintainer @haxiorz [approved the steps 1–3 waiver and acknowledged the client/operator migration](https://github.com/open-mercato/open-mercato/pull/6829#issuecomment-6505350022)
+on 2026-10-29. Independent review, QA and CI remain separate merge gates.
+
 ### Scoped attachment bytes no longer advertise shared caching (#7220)
 
 The attachment file and image byte routes now return `Cache-Control: private,
@@ -206,6 +250,26 @@ continue to omit the bundled Traefik overlay; their base-file port mappings
 are unchanged. Host-local proxies and diagnostics can use a final loopback-only
 override. See [migration, override examples, WSS routing, and deployment checks](docker/traefik/README.md#private-application-ports-and-migration).
 No application API, database, or module-code migration is required.
+
+### AI session keys revalidate staff roles on every request (#7599)
+
+Removing a staff role now removes that role's privileges from already-issued AI session keys on
+the next request, including cached ACLs, organization visibility, and the raw superadmin flag.
+Role-based resource shares and temporary keys minted by business-rule calls also use current
+session-role membership. A key keeps only roles that were present at issuance and are still held by its owner. Independent
+API keys retain their existing role policy. Endpoints, token/response formats, and schema are unchanged.
+
+**Action for module authors:** do not rely on a session key retaining removed staff privileges.
+After granting a new role, issue a fresh session key to use it. No stored keys need rewriting.
+
+**Action for operators:** deploy and restart every application/worker process that authenticates
+or authorizes API keys. Session authorization now reads live memberships instead of reusing
+cross-request grants, which adds database work for session requests. Verified session-secret
+identities keep the existing bounded authentication cache; live roles and authorization are never
+served from it. Ordinary keys retain cached authentication and authorization results, but ACL,
+feature-organization and enabled organization-scope lookups now read the API-key row before using
+those caches to distinguish session credentials. Last-used write debouncing remains enabled. No
+migration is required.
 
 ### `yarn mercato <module> <command>` exits with the code the command signalled (#5936)
 
