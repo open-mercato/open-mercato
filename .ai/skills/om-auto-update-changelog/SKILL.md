@@ -43,7 +43,7 @@ If any artifact is missing, create or repair the complete set in the same releas
 
 The skill must validate that it is running in a downstream app, support `--path` and `--dry-run`, avoid framework-owned `packages/` and generated/vendor directories, show its edit plan before mutation, run the app's configured typecheck/tests after edits, and list unresolved manual work. A release section with no safe automatic edit still gets a companion skill: discoverability and a deterministic review checklist are part of the contract.
 
-Update `.ai/skills/README.md` and `.ai/skills/om-help/references/skills-catalog.md` for the new migration skill. Do not add version-specific skills to the default tier.
+Update `.ai/skills/README.md` for the new migration skill (`om-help` discovers installed skills at run time, so there is no separate catalog to edit). Do not add version-specific skills to the default tier.
 
 ## 3. Broaden the delegated PR safely
 
@@ -56,7 +56,6 @@ For a release with matching upgrade notes, the external skill's `CHANGELOG.md`-o
 - `.ai/skills/tiers.json`
 - `packages/create-app/agentic/shared/ai/skills/tiers.json`
 - `.ai/skills/README.md`
-- `.ai/skills/om-help/references/skills-catalog.md`
 - tests/specs that enforce this release contract
 
 Pass the expanded file list and the upgrade-window facts in the concrete `om-auto-create-pr` brief. The resulting PR is still non-UI and uses `skip-qa`, but it is a release-automation feature rather than a changelog-only documentation change.

@@ -30,6 +30,15 @@ This repo requests changes on Medium findings too:
 | Only Low/nit findings | `approved` |
 | No findings | `approved` |
 
+## Release-note labels (applied on every review)
+
+Before posting the verdict, make the PR's release-note labels right — they are what the generated release notes group by (`.ai/docs/pr-workflow.md` § Release-note labels):
+
+1. Determine the expected category from the diff and the conventional title (table in the policy), or `skip-changelog` for release and branch bookkeeping.
+2. If it is missing or wrong, add the expected label and remove a wrong category with **add-labels** / **remove-labels**, then comment one line: `Labels: <change> — <why>`. Keep `security` and `enterprise` when they apply alongside the type label.
+3. Mention the label change in the review report. A label fix alone is never a finding and never changes the verdict.
+4. If the title does not read as a release-note line, report it as a **Low/nit** with a suggested title (renaming is the author's call).
+
 ## Repo conventions the shared workflow already parameterizes
 
 - Base branch: PRs target `main` (config `baseBranch`; backports target `release/vX.Y.x`); the PR's own `baseRefName` stays authoritative for diffs.
