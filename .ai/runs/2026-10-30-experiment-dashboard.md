@@ -51,8 +51,12 @@ Local runner: package build, 21 focused tests, strict tooling typecheck and the 
 
 ### Phase 4: Workflow knowledge
 
+Skill tiers/discovery, local-only installation, frontmatter/pointers, template exercises and inspect-only invocation passed. The knowledge controller passed at c059d48f9 against a11f57298: both focused files failed with base-plus-test-only (exit 1) and passed on head (exit 0); authoritative hashes were rechecked. A fresh current scaffold deterministic check passed 236/240: existing context ceilings fail for OMH-008 (45,340/45,056 bytes), OMH-082/153/155 (69,669/69,632). Emitted harness/template/CLI sources are unchanged from the base. This is a validation limit, not a passing release gate.
+
+Post-implementation regression: stable path-based file identities preserve the selected file when producers insert or reorder generated files; failure-first coverage and all 22 focused tests pass. — c059d48f9
+
 - [x] 4.1 Document producer integration and update eval/harness skills. — 89001eb29
-- [ ] 4.2 Run applicable skill and knowledge-change checks.
+- [x] 4.2 Run applicable skill and knowledge-change checks. — c059d48f9
 
 ### Phase 5: Publication
 
