@@ -1,0 +1,165 @@
+{
+  "runId": "3d99f138-resume",
+  "mode": "pr",
+  "target": {
+    "prNumber": 8201,
+    "title": "Created dates on customer lists",
+    "branch": "cez-b-8201",
+    "headSha": "8815b4405dc86bbc6039aa4e3b74717ed6627e7b"
+  },
+  "verdict": "PASS",
+  "environment": {
+    "baseUrl": "http://127.0.0.1:5001",
+    "role": "admin",
+    "startedByThisRepo": true,
+    "browserProvider": "playwright"
+  },
+  "scenario": [
+    {
+      "step": 1,
+      "priority": "P1",
+      "action": "Load companies with isolated dated fixtures",
+      "expected": "Created column and own dated records render",
+      "observed": "Created column and own dated records render",
+      "result": "PASS",
+      "screenshot": "01-companies-created-default.png"
+    },
+    {
+      "step": 2,
+      "priority": "P1",
+      "action": "Sort companies by Created",
+      "expected": "Created sort is wired into the list URL",
+      "observed": "Created sort is wired into the list URL",
+      "result": "PASS",
+      "screenshot": "02-companies-created-sort.png"
+    },
+    {
+      "step": 3,
+      "priority": "P1",
+      "action": "Filter companies by local calendar day",
+      "expected": "Local-midnight boundary included; previous local day excluded",
+      "observed": "Local-midnight boundary included; previous local day excluded",
+      "result": "PASS",
+      "screenshot": "03-companies-local-day.png"
+    },
+    {
+      "step": 4,
+      "priority": "P1",
+      "action": "View companies with long content at 390px",
+      "expected": "Dated record and Created control remain accessible in narrow viewport",
+      "observed": "Dated record and Created control remain accessible in narrow viewport",
+      "result": "PASS",
+      "screenshot": "04-companies-mobile-long.png"
+    },
+    {
+      "step": 5,
+      "priority": "P1",
+      "action": "Load people with isolated dated fixtures",
+      "expected": "Created column and own dated records render",
+      "observed": "Created column and own dated records render",
+      "result": "PASS",
+      "screenshot": "05-people-created-default.png"
+    },
+    {
+      "step": 6,
+      "priority": "P1",
+      "action": "Sort people by Created",
+      "expected": "Created sort is wired into the list URL",
+      "observed": "Created sort is wired into the list URL",
+      "result": "PASS",
+      "screenshot": "06-people-created-sort.png"
+    },
+    {
+      "step": 7,
+      "priority": "P1",
+      "action": "Filter people by local calendar day",
+      "expected": "Local-midnight boundary included; previous local day excluded",
+      "observed": "Local-midnight boundary included; previous local day excluded",
+      "result": "PASS",
+      "screenshot": "07-people-local-day.png"
+    },
+    {
+      "step": 8,
+      "priority": "P1",
+      "action": "View people with long content at 390px",
+      "expected": "Dated record and Created control remain accessible in narrow viewport",
+      "observed": "Dated record and Created control remain accessible in narrow viewport",
+      "result": "PASS",
+      "screenshot": "08-people-mobile-long.png"
+    },
+    {
+      "step": 9,
+      "priority": "P1",
+      "action": "Apply Recently created across Warsaw DST transition",
+      "expected": "Calendar day 2026-10-24 is inclusive at 2026-10-23T22:00:00.000Z",
+      "observed": "Calendar day 2026-10-24 is inclusive at 2026-10-23T22:00:00.000Z",
+      "result": "PASS",
+      "screenshot": "01-fall-dst-preset.png"
+    },
+    {
+      "step": 10,
+      "priority": "P1",
+      "action": "Apply Recently created across Warsaw DST transition",
+      "expected": "Calendar day 2026-03-25 is inclusive at 2026-03-24T23:00:00.000Z",
+      "observed": "Calendar day 2026-03-25 is inclusive at 2026-03-24T23:00:00.000Z",
+      "result": "PASS",
+      "screenshot": "02-spring-dst-preset.png"
+    },
+    {
+      "step": 11,
+      "priority": "P1",
+      "action": "Search an absent isolated fixture marker",
+      "expected": "No fixture or seeded record is rendered for the absent marker",
+      "observed": "No fixture or seeded record is rendered for the absent marker",
+      "result": "PASS",
+      "screenshot": "03-empty.png"
+    },
+    {
+      "step": 12,
+      "priority": "P1",
+      "action": "Render controlled list failure",
+      "expected": "HTTP 500 message is visible; rendering check, not server authorization proof",
+      "observed": "HTTP 500 message is visible; rendering check, not server authorization proof",
+      "result": "PASS",
+      "screenshot": "04-http-500.png"
+    },
+    {
+      "step": 13,
+      "priority": "P1",
+      "action": "Render controlled list failure",
+      "expected": "HTTP 403 message is visible; rendering check, not server authorization proof",
+      "observed": "HTTP 403 message is visible; rendering check, not server authorization proof",
+      "result": "PASS",
+      "screenshot": "05-http-403.png"
+    },
+    {
+      "step": 14,
+      "priority": "P1",
+      "action": "Cold-load companies while holding its data response",
+      "expected": "Useful heading and loading shell appear before data resolves",
+      "observed": "Useful heading and loading shell appear before data resolves",
+      "result": "PASS",
+      "screenshot": "01-loading-shell.png"
+    },
+    {
+      "step": 15,
+      "priority": "P1",
+      "action": "Open and cancel the advanced-filter dialog with Escape",
+      "expected": "The filter interaction responds and keyboard cancellation closes the dialog",
+      "observed": "The filter interaction responds and keyboard cancellation closes the dialog",
+      "result": "PASS",
+      "screenshot": "02-responsive-filter-dialog.png"
+    }
+  ],
+  "hasUiTest": true,
+  "notes": [
+    "Scoped local repair; published head remains6aeb8f247f013ae209ca17428223f222eb4242ad.",
+    "15 checkpoints;3 committed native integration cases passed through repository CLI without retry.",
+    "500/403 responses are controlled rendering checks; they do not prove server authorization.",
+    "Narrow view uses normal horizontal table scrolling to expose full Created values.",
+    "Cold shell appeared in539ms while list data was deliberately held; no hard latency threshold asserted.",
+    "Fixtures created via API and deleted in finally; timestamp fixtures scoped to own tenant/organization and IDs.",
+    "Representative desktop/DST/error and both final mobile screenshots visually inspected; all reported PNGs nonempty.",
+    "Initial exploratory fixture trailing whitespace and header-only mobile scroll were corrected in the QA harness; no product source or test assertion weakened."
+  ]
+}
