@@ -3,8 +3,8 @@
   "sourceRevision": "b478b301e4ee3af3e78380a6e4df0c398ee95617",
   "runId": "06e4d9e8-e10f-4744-87f9-10da249c1eb1",
   "startedAt": "2026-10-30T17:34:54.761Z",
-  "updatedAt": "2026-10-30T18:21:33.515Z",
-  "status": "running",
+  "updatedAt": "2026-10-30T18:33:59.164Z",
+  "status": "stopped",
   "cases": [
     {
       "caseId": "OMH-009",
@@ -123,17 +123,26 @@
     },
     {
       "caseId": "OMH-027",
-      "status": "running",
-      "implementationOracle": "pending",
-      "attempts": null,
-      "corrections": null,
-      "durationMs": null,
-      "finishedAt": null,
-      "evaluatorSha256": null,
-      "generatedSha256": null,
-      "captureSha256": [],
-      "shortCause": null,
-      "deliveryCounts": null
+      "status": "fail",
+      "implementationOracle": "fail",
+      "attempts": 1,
+      "corrections": 0,
+      "durationMs": 600022,
+      "finishedAt": "2026-10-30T18:31:54.125Z",
+      "evaluatorSha256": "de273f0a4600ebc17952822d1a96debe558791408aa8704119a415f0dba67680",
+      "generatedSha256": "0edb0e5b24c2ca7b4c9a978ae32201991432200e4710652bf611d0b5e5328c34",
+      "captureSha256": [
+        "1f89f9e5723d1c58d61286adc090f6cdd66a06b539be0060cc68d50d11df351f"
+      ],
+      "shortCause": "Timed out after required reference reads; no implementation artifact or final routing response retained.",
+      "deliveryCounts": {
+        "successfulReads": 22,
+        "attestedReads": 22,
+        "missingMetadata": 0,
+        "immutableCompared": 17,
+        "immutableMatches": 17,
+        "immutableMismatches": 0
+      }
     },
     {
       "caseId": "OMH-029",
@@ -249,11 +258,17 @@
     }
   ],
   "deliveryTotals": {
-    "successfulReads": 97,
-    "attestedReads": 97,
+    "successfulReads": 119,
+    "attestedReads": 119,
     "missingMetadata": 0,
-    "immutableCompared": 69,
-    "immutableMatches": 69,
+    "immutableCompared": 86,
+    "immutableMatches": 86,
     "immutableMismatches": 0
-  }
+  },
+  "finishedAt": "2026-10-30T18:31:54.127Z",
+  "completedCases": 6,
+  "notRunCases": 8,
+  "operatorInterruptedCases": 0,
+  "stopReason": "Graceful boundary stop after OMH-027 following reproduction of undisclosed canonical permissions; fresh fixed cohort retains all fourteen cases.",
+  "originalEvidenceUnchanged": true
 }
