@@ -170,6 +170,7 @@ export type SearchModulesInput = {
   type?: OriginType[]
   kind?: (EntryKind | 'built-in')[]
   verifiedOnly?: boolean
+  verifiedModulesOnly?: boolean
   includeBuiltIn?: boolean
   includeExamples?: boolean
   emits?: string
@@ -762,6 +763,7 @@ export function rankModules(searcher: CatalogSearcher, rawInput: SearchModulesIn
       (!input.type || input.type.includes(entry.type)) &&
       (!wantKinds || wantKinds.includes(entry.kind)) &&
       (!input.verifiedOnly || (line !== null && statusOn(entry, line) === 'verified')) &&
+      (!input.verifiedModulesOnly || entry.kind !== 'module' || (line !== null && Boolean(entry.version.recommended[line]))) &&
       (!input.emits || meta.ids.emits.includes(input.emits)) &&
       (!input.consumes || meta.ids.consumes.includes(input.consumes)) &&
       (!provider || entry.providers.some(providerMatches))

@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import type { ModuleEntry } from './modules-config'
+import { createResolver } from './resolver'
 import {
   builtInEnableCommand,
   builtInPresetText,
@@ -543,18 +544,20 @@ export function buildSearchView(
   app: AppContext,
 ): ModuleSearchView {
   const resolved = app.omVersion ? resolveLine(app.omVersion, searcher.index.lines) : null
-  const ranked = rankModules(searcher, {
+  const rankInput = {
     query: request.query ?? '',
     ...(app.omVersion ? { omVersion: app.omVersion } : {}),
     ...(request.category ? { category: request.category } : {}),
     ...(request.kinds ? { kind: request.kinds } : {}),
-  })
-  const line = ranked.line
+  }
+  const unfiltered = rankModules(searcher, rankInput)
+  const line = unfiltered.line
   const allLines = request.allLines === true || line === null
-  // the nightly run installs modules only, so providers, libraries and tools stay listed with their status on the line
-  const kept = ranked.modules.filter(
-    (hit) => allLines || hit.meta.entry.kind !== 'module' || (line !== null && Boolean(hit.meta.entry.version.recommended[line])),
-  )
+  const ranked = allLines ? unfiltered : rankModules(searcher, { ...rankInput, verifiedModulesOnly: true })
+  const kept = ranked.modules
+  const hidden = allLines ? 0 : unfiltered.modules.filter(
+    (hit) => hit.meta.entry.kind === 'module' && (line === null || !hit.meta.entry.version.recommended[line]),
+  ).length
   const limit = Math.min(SEARCH_MAX_LIMIT, Math.max(1, Math.floor(request.limit ?? 10)))
   const results = kept.slice(0, limit).map((hit) => toModuleCard(searcher, hit, line, ranked.latest))
   const entries = new Map<string, CatalogEntry>()
@@ -572,8 +575,8 @@ export function buildSearchView(
       omVersion: app.omVersion,
       results,
       builtIn,
-      total: ranked.modules.length,
-      hidden: ranked.modules.length - kept.length,
+      total: unfiltered.modules.length,
+      hidden,
       dataVersion: searcher.index.dataVersion,
       generatedAt: searcher.index.generatedAt,
       receiptSource: receiptSourceOf(searcher),
@@ -867,7 +870,7 @@ type LoadedForCommand = { searcher: CatalogSearcher; app: AppContext; builtInUna
 
 async function loadForCommand(deps: ModuleSearchDeps): Promise<LoadedForCommand> {
   const env = deps.env ?? process.env
-  const appRoot = deps.appRoot ?? process.cwd()
+  const appRoot = deps.appRoot ?? createResolver().getAppDir()
   const stderr = deps.stderr ?? ((line: string) => console.error(line))
   const url = env.OM_MODULES_INDEX_URL?.trim() || DEFAULT_MODULES_INDEX_URL
   const builtInUrl = env.OM_MODULES_BUILTIN_URL?.trim() || undefined

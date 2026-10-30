@@ -140,6 +140,14 @@ exit code 2 with its reason, `OM_MODULES_INDEX_URL`, `module info` text and JSON
 - Docs: `apps/docs/docs/cli/module-search.mdx`.
 - Catalog side: spec of the Open Mercato Modules catalog, section 9.1, and its `tools@1` contract.
 
+## Migration & Backward Compatibility
+
+The commands and flags are additive. Existing command names, required arguments and JSON field shapes are preserved.
+Default search visibility is applied before AND/OR fill and typo retry, while built-ins and non-module catalog entries remain visible.
+Unknown app versions and `--all-lines` retain the unfiltered behavior; hidden counts use the unfiltered pass.
+Search and info resolve the app directory through the existing package resolver for workspace and nested invocations.
+Explicit app-root overrides and the resolver's cwd fallback remain supported. No migration is required.
+
 ## Changelog
 
 - 2026-10-23: Initial spec, implemented in the same change.
@@ -157,3 +165,5 @@ exit code 2 with its reason, `OM_MODULES_INDEX_URL`, `module info` text and JSON
   published anatomy; `--json` keeps the bare
   command of `tools@1`. `src/modules.ts` is read with the command's environment and keeps only active registrations.
   `module info --json` warnings use the app line, not the latest one.
+
+- 2026-10-30: Repair inherited default-visibility ranking and app-root findings. Add regressions for hidden AND hits, typo retry, non-module visibility, and both commands from workspace and nested roots, retaining explicit overrides and cwd fallback. Adapt the two scoped fixes from #8190 without changing that stacked PR or its separate version/download work.

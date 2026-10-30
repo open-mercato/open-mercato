@@ -15,6 +15,7 @@ import {
 } from '../module-search-index'
 import {
   buildInfoView,
+  buildSearchView,
   DEFAULT_MODULES_INDEX_URL,
   defaultBuiltInUrl,
   loadIndex,
@@ -274,6 +275,52 @@ describe('resolveLine', () => {
     expect(resolveLine('0.10.1-develop.7590.1.abc', index.lines).line).toBe('next')
     expect(resolveLine('0.7.4', index.lines)).toEqual({ line: null, version: null, note: 'Line 0.7 is not tested by the catalog.' })
     expect(resolveLine(null, index.lines).line).toBe('0.9')
+  })
+})
+
+describe('module search visibility regressions', () => {
+  function entry(locator: string, title: string, verified: boolean, kind: CatalogEntry['kind'] = 'module'): CatalogEntry {
+    const base = structuredClone(index.entries[0])
+    return {
+      ...base, locator, title, kind, npm: locator, summary: '', whenToUse: '', tags: [], providers: [],
+      moduleIds: [], renamedFrom: [], anatomy: null, _meta: {}, listed: true,
+      version: { ...base.version, recommended: verified ? { '0.9': '0.9.0' } : {} },
+      compat: { ...base.compat, lines: {}, verifiedOn: verified ? ['0.9'] : [] },
+    }
+  }
+
+  it.each([0, 1])('fills verified partial matches despite three hidden AND hits (%s visible AND)', (visibleAnd) => {
+    const entries = [
+      ...[1, 2, 3].map((number) => entry(`hidden-${number}`, 'quantum zebra', false)),
+      entry('partial', 'quantum', true),
+      ...(visibleAnd ? [entry('exact', 'quantum zebra', true)] : []),
+    ]
+    const searcher = createCatalogSearcher({ ...index, entries }, null)
+    const view = buildSearchView(searcher, { query: 'quantum zebra' }, { omVersion: '0.9.0', enabledModules: null })
+    expect(view.json.results.map((card) => card.locator)).toContain('partial')
+    expect(view.json.results.every((card) => !card.locator.startsWith('hidden-'))).toBe(true)
+    expect(view.json.hidden).toBe(3)
+    expect(view.json.total).toBe(3 + visibleAnd)
+    const all = buildSearchView(searcher, { query: 'quantum zebra', allLines: true }, { omVersion: '0.9.0', enabledModules: null })
+    expect(all.json.results.map((card) => card.locator)).toContain('hidden-1')
+    expect(all.json.hidden).toBe(0)
+  })
+
+  it('retries a typo when only unverified modules match the original spelling', () => {
+    const searcher = createCatalogSearcher({ ...index, entries: [
+      entry('hidden', 'stirpe', false), entry('visible', 'stripe', true),
+    ] }, null)
+    const view = buildSearchView(searcher, { query: 'stirpe' }, { omVersion: '0.9.0', enabledModules: null })
+    expect(view.json.results.map((card) => card.locator)).toEqual(['visible'])
+    expect(view.json.didYouMean).toBe('stripe')
+    expect(view.json.hidden).toBe(1)
+  })
+
+  it('retains unverified providers, libraries and tools while filtering modules before ranking', () => {
+    const entries = (['provider', 'library', 'tool', 'module'] as const).map((kind) => entry(kind, 'quantum', false, kind))
+    const view = buildSearchView(createCatalogSearcher({ ...index, entries }, null), { query: 'quantum' }, { omVersion: '0.9.0', enabledModules: null })
+    expect(view.json.results.map((card) => card.kind).sort()).toEqual(['library', 'provider', 'tool'])
+    expect(view.json.hidden).toBe(1)
   })
 })
 
@@ -595,6 +642,66 @@ describe('providers, libraries and tools, follow-up steps and the app line', () 
     if ('error' in untested.json) throw new Error('expected a built-in module')
     expect(untested.json.warnings).toEqual([`Built into Open Mercato core as currencies. Enable it: ${enable}`])
     expect(renderInfoHuman(untested, searcher)).toContain(`  enable: ${enable}`)
+  })
+})
+
+describe('module search app-root resolution', () => {
+  it.each([
+    { name: 'search', run: runModuleSearch, directory: '' },
+    { name: 'info', run: runModuleInfo, directory: '' },
+    { name: 'search', run: runModuleSearch, directory: 'nested/working' },
+    { name: 'info', run: runModuleInfo, directory: 'nested/working' },
+  ])('uses the resolved app for $name metadata and cache from "$directory"', async ({ run, directory }) => {
+    const root = tempApp({ coreVersion: '0.8.0' })
+    const app = path.join(root, 'apps', 'mercato')
+    fs.mkdirSync(path.join(root, 'packages', 'core', 'src', 'modules'), { recursive: true })
+    fs.mkdirSync(path.join(app, 'src'), { recursive: true })
+    fs.writeFileSync(path.join(app, 'package.json'), JSON.stringify({ dependencies: { '@open-mercato/core': '^0.9.0' } }))
+    fs.writeFileSync(path.join(app, 'src', 'modules.ts'), "export const enabledModules = [{ id: 'currencies', from: '@open-mercato/core' }]")
+    const cwd = process.cwd()
+    const workingDirectory = path.join(root, directory)
+    fs.mkdirSync(workingDirectory, { recursive: true })
+    process.chdir(workingDirectory)
+    const io = capture()
+    try {
+      const options = deps(root, fixtureFetch().fetchImpl, io)
+      delete options.appRoot
+      expect(await run(['currencies', '--json'], options)).toBe(0)
+      expect(JSON.parse(io.stdout.join('')).line).toBe('0.9')
+      if (run === runModuleSearch) expect(JSON.parse(io.stdout.join('')).builtIn[0].enabled).toBe(true)
+      expect(fs.existsSync(path.join(app, MODULE_INDEX_CACHE_FILE))).toBe(true)
+      expect(fs.existsSync(path.join(root, MODULE_INDEX_CACHE_FILE))).toBe(false)
+    } finally {
+      process.chdir(cwd)
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('keeps cwd outside an app and honors an explicit appRoot', async () => {
+    const root = tempApp()
+    const existsSync = fs.existsSync
+    const exists = jest.spyOn(fs, 'existsSync').mockImplementation((file) =>
+      String(file).endsWith(path.join('node_modules', '@open-mercato', 'core')) ? false : existsSync(file),
+    )
+    const explicit = tempApp({ coreVersion: '0.8.0' })
+    const cwd = process.cwd()
+    process.chdir(root)
+    try {
+      const io = capture()
+      const options = deps(root, fixtureFetch().fetchImpl, io)
+      delete options.appRoot
+      expect(await runModuleSearch(['stripe', '--json'], options)).toBe(0)
+      expect(fs.existsSync(path.join(root, MODULE_INDEX_CACHE_FILE))).toBe(true)
+      const override = capture()
+      await runModuleSearch(['stripe', '--json'], deps(explicit, fixtureFetch().fetchImpl, override))
+      expect(JSON.parse(override.stdout.join('')).line).toBe('0.8')
+      expect(fs.existsSync(path.join(explicit, MODULE_INDEX_CACHE_FILE))).toBe(true)
+    } finally {
+      process.chdir(cwd)
+      fs.rmSync(root, { recursive: true, force: true })
+      fs.rmSync(explicit, { recursive: true, force: true })
+      exists.mockRestore()
+    }
   })
 })
 
