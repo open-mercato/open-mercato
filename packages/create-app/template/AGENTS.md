@@ -14,7 +14,7 @@ Route first; never probe unmatched context.
 - Run `yarn db:generate`, review scoped SQL/snapshot, and ask before applying it.
 - Run `yarn generate` after discovery files/`src/modules.ts`/routes/pages/events/widgets/agents/tools/workflows change.
 - Contract-surface changes (route/schema/ID/export/seam/signature/event payload/CLI) MUST read `.ai/guides/upstream/BACKWARD_COMPATIBILITY.md`; tenant/org scope alone is not a contract.
-- Localize app-module strings in `src/modules/<id>/i18n/<locale>.json`; use shared UI/tokens and cover loading/empty/error/conflict/keyboard/a11y.
+- App-module strings: `src/modules/<id>/i18n/<locale>.json`; shared UI/tokens; loading/empty/error/conflict/keyboard/a11y.
 
 ## Ask First
 
@@ -30,7 +30,7 @@ Route first; never probe unmatched context.
 
 ## Validation
 
-Unit tests use Jest; import globals from `@jest/globals`. This alone adds no `testing` route.
+Jest globals: import from `@jest/globals`; no extra `testing` route.
 
 Broad: `yarn generate && yarn typecheck && yarn lint && yarn ds:check && yarn test && yarn build`; integration: `yarn test:integration:ephemeral`. Never migrate to validate.
 
