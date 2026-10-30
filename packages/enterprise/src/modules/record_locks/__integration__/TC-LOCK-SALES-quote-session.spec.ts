@@ -170,9 +170,8 @@ test.describe('TC-LOCK-SALES-quote-session: local mutations and stale sessions',
         unitPriceNet: 10, unitPriceGross: 10, taxRateId, taxRate: 0,
       })
       await login(page, 'admin')
-      await openQuote(page, quoteId)
       stalePage = await page.context().newPage()
-      await openQuote(stalePage, quoteId)
+      await Promise.all([openQuote(page, quoteId), openQuote(stalePage, quoteId)])
       stalePage.on('response', (response) => {
         if (new URL(response.url()).pathname === '/api/sales/quotes/send') sendStatuses.push(response.status())
       })

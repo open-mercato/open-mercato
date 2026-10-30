@@ -2,6 +2,8 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { FilterQuery } from '@mikro-orm/core'
 import type { AwilixContainer } from 'awilix'
 import { Organization } from '@open-mercato/core/modules/directory/data/entities'
+import { ApiKey } from '@open-mercato/core/modules/api_keys/data/entities'
+import { isSessionBoundApiKey } from '@open-mercato/core/modules/api_keys/services/sessionKeyRoles'
 import { isAllOrganizationsSelection } from '@open-mercato/core/modules/directory/constants'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
@@ -504,9 +506,14 @@ export async function resolveOrganizationScopeForRequest({
   }
 
   const resolveScope = async (): Promise<OrganizationScope> => {
-    if (cache && cacheKey && typeof cache.get === 'function') {
+    let crossRequestCache = cache
+    if (crossRequestCache && userId?.startsWith('api_key:')) {
+      const key = await em.findOne(ApiKey, { id: userId.slice('api_key:'.length), deletedAt: null })
+      if (!key || isSessionBoundApiKey(key)) crossRequestCache = null
+    }
+    if (crossRequestCache && cacheKey && typeof crossRequestCache.get === 'function') {
       try {
-        const cached = await cache.get(cacheKey)
+        const cached = await crossRequestCache.get(cacheKey)
         if (isValidCachedScope(cached)) return cached
       } catch (err) {
         logger.warn('Cache read failed', { err })
@@ -521,9 +528,9 @@ export async function resolveOrganizationScopeForRequest({
       tenantId: effectiveTenantId,
     })
 
-    if (cache && cacheKey && userId && typeof cache.set === 'function') {
+    if (crossRequestCache && cacheKey && userId && typeof crossRequestCache.set === 'function') {
       try {
-        await cache.set(cacheKey, baseScope, {
+        await crossRequestCache.set(cacheKey, baseScope, {
           ttl: ttlMs,
           tags: buildOrgScopeCacheTags({ userId, effectiveTenantId }),
         })
