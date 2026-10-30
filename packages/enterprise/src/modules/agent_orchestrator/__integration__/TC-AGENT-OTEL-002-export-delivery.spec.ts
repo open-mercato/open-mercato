@@ -3,22 +3,23 @@ import { randomUUID } from 'node:crypto'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { login } from '@open-mercato/core/helpers/integration/auth'
 import { getTokenScope, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
-import { signTraceIngest, TRACE_INGEST_HEADERS } from '../lib/trace/ingestAuth'
 import { deleteAgentRunsWithTraceByIds } from './helpers/agentPerfFixtures'
 import {
   OTEL_DEPLOYMENT_DISABLED_REASON,
+  OTEL_INGEST_SKIP_REASON,
   OTEL_RECEIVER_PORT_BUSY_REASON,
   attributeNumber,
   attributeString,
   collectKeyNames,
   englishMessage,
+  ingestSignedRun,
   readOtelSettings,
+  requestsForRun,
   restoreOtelSettings,
   saveOtelSettings,
   spansOf,
   startFakeOtlpReceiver,
   type FakeOtlpReceiver,
-  type ReceivedOtlpRequest,
 } from './helpers/otelExportFixtures'
 
 /**
@@ -57,37 +58,13 @@ import {
  * `mercato` CLI, and the Playwright process has no module registry to run it in.
  */
 
-const INGEST_PATH = '/api/agent_orchestrator/trace/ingest'
-const BASE_URL = process.env.BASE_URL?.trim() || ''
 const AGENT_ID = 'it.otel_export'
 const DELIVERY_TIMEOUT_MS = 30_000
 const OPT_OUT_WAIT_MS = 5_000
 const CONTENT_KEYS = new Set(['input', 'output', 'payload', 'evidence'])
-const INGEST_SKIP_REASON =
-  'trace ingest rejected the signature — the test process does not share JWT_SECRET with the app under test'
 const SPAN_KIND_CLIENT = 3
 
 type RunDetail = { otel?: { traceId?: string; url?: string } | null }
-
-async function postSignedTrace(request: APIRequestContext, token: string, body: unknown) {
-  const scope = getTokenScope(token)
-  const raw = JSON.stringify(body)
-  const messageId = `msg_${randomUUID()}`
-  const timestamp = String(Math.floor(Date.now() / 1000))
-  const signature = signTraceIngest(scope.tenantId, messageId, timestamp, raw)
-  return request.fetch(BASE_URL ? `${BASE_URL}${INGEST_PATH}` : INGEST_PATH, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      [TRACE_INGEST_HEADERS.tenant]: scope.tenantId,
-      [TRACE_INGEST_HEADERS.organization]: scope.organizationId,
-      [TRACE_INGEST_HEADERS.id]: messageId,
-      [TRACE_INGEST_HEADERS.timestamp]: timestamp,
-      [TRACE_INGEST_HEADERS.signature]: signature,
-    },
-    data: raw,
-  })
-}
 
 function buildExportTrace(externalRunId: string, sentinel: string) {
   const startedAt = new Date(Date.now() - 4_000).toISOString()
@@ -137,19 +114,8 @@ function buildExportTrace(externalRunId: string, sentinel: string) {
   }
 }
 
-function requestsForRun(requests: ReceivedOtlpRequest[], runId: string): ReceivedOtlpRequest[] {
-  return requests.filter((received) =>
-    spansOf(received.body).some((span) => attributeString(span.attributes, 'om.run.id') === runId),
-  )
-}
-
 async function ingestRun(request: APIRequestContext, token: string, sentinel: string): Promise<string | null> {
-  const ingest = await postSignedTrace(request, token, buildExportTrace(`it-otel-002-${randomUUID()}`, sentinel))
-  if (ingest.status() === 401) return null
-  expect(ingest.status(), await ingest.text()).toBe(202)
-  const ingested = await readJsonSafe<{ runId?: string }>(ingest)
-  expect(typeof ingested?.runId).toBe('string')
-  return ingested!.runId!
+  return ingestSignedRun(request, token, buildExportTrace(`it-otel-002-${randomUUID()}`, sentinel))
 }
 
 test.describe('TC-AGENT-OTEL-002: agent run export to an OTLP receiver', () => {
@@ -175,7 +141,7 @@ test.describe('TC-AGENT-OTEL-002: agent run export to an OTLP receiver', () => {
       expect(enable.status(), await enable.text()).toBe(200)
 
       const runId = await ingestRun(request, adminToken, sentinel)
-      test.skip(runId === null, INGEST_SKIP_REASON)
+      test.skip(runId === null, OTEL_INGEST_SKIP_REASON)
       runIds.push(runId!)
 
       await expect
