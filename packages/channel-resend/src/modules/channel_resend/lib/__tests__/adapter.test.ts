@@ -97,6 +97,68 @@ describe('ResendChannelAdapter', () => {
     expect(sendMock).not.toHaveBeenCalled()
   })
 
+  it('passes List-Unsubscribe headers through unchanged', async () => {
+    const adapter = getResendChannelAdapter()
+
+    await adapter.sendMessage({
+      content: { text: 'Hello' },
+      credentials: { apiKey: 'key', fromAddress: 'from@example.com' },
+      scope: { tenantId: 'tenant', organizationId: 'org' },
+      metadata: {
+        to: 'user@example.com',
+        subject: 'Hello',
+        headers: {
+          'List-Unsubscribe': '<https://example.com/unsubscribe>',
+          'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+        },
+      },
+    })
+
+    expect(sendMock).toHaveBeenCalledWith(expect.objectContaining({
+      headers: {
+        'List-Unsubscribe': '<https://example.com/unsubscribe>',
+        'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+      },
+    }))
+  })
+
+  it('strips CR/LF from a header value instead of injecting it', async () => {
+    const adapter = getResendChannelAdapter()
+
+    await adapter.sendMessage({
+      content: { text: 'Hello' },
+      credentials: { apiKey: 'key', fromAddress: 'from@example.com' },
+      scope: { tenantId: 'tenant', organizationId: 'org' },
+      metadata: {
+        to: 'user@example.com',
+        subject: 'Hello',
+        headers: { 'X-Campaign': 'promo\r\nBcc: attacker@example.com' },
+      },
+    })
+
+    expect(sendMock).toHaveBeenCalledWith(expect.objectContaining({
+      headers: { 'X-Campaign': 'promo Bcc: attacker@example.com' },
+    }))
+  })
+
+  it('drops an invalid header name and omits headers entirely when none remain', async () => {
+    const adapter = getResendChannelAdapter()
+
+    await adapter.sendMessage({
+      content: { text: 'Hello' },
+      credentials: { apiKey: 'key', fromAddress: 'from@example.com' },
+      scope: { tenantId: 'tenant', organizationId: 'org' },
+      metadata: {
+        to: 'user@example.com',
+        subject: 'Hello',
+        headers: { 'X Bad Name': 'value' },
+      },
+    })
+
+    const payload = sendMock.mock.calls[0][0]
+    expect(payload.headers).toBeUndefined()
+  })
+
   it('returns a failed result when Resend reports an error', async () => {
     sendMock.mockResolvedValueOnce({ error: { message: 'bad domain' } })
     const adapter = getResendChannelAdapter()
