@@ -301,7 +301,10 @@ export function registerBuiltinActivityTypes(): void {
       { id: 'headers', component: 'keyValue' },
       { id: 'body', component: 'json' },
     ],
-    execute: async (config, ctx, deps) => (await loadExecutor()).executeCallWebhook(config, ctx, { signal: deps.signal }),
+    execute: async (config, ctx, deps) => (await loadExecutor()).executeCallWebhook(config, ctx, {
+      signal: deps.signal,
+      timeoutMs: deps.timeoutMs,
+    }),
     async: { capable: true },
     mock: (config) => {
       const record = asConfigRecord(config)
