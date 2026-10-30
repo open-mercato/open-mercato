@@ -36,7 +36,7 @@ module feature server-side, and derive tenant and organization scope from the
 interceptor context. Payload sanitation drops prototype keys at every level of
 the payload, module ids included, builds its accumulators with a null prototype
 so a missed key can never re-parent the result, and bounds nesting depth plus a
-shared budget spent by both object keys and array elements.
+shared budget spent by module ids, nested object keys, and array elements.
 
 ## Coverage
 

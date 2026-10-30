@@ -613,7 +613,7 @@ When asked to add fields to another module's CrudForm:
 Key implementation details from deep-diving into the actual codebase:
 
 1. **Runtime Architecture**: Widget injection uses `globalThis` keys for HMR (`__openMercatoCoreInjectionWidgetEntries__`, `__openMercatoCoreInjectionTables__`), lazy loading via `entry.loader()`, wildcard matching via regex, priority sorting `(b.priority ?? 0) - (a.priority ?? 0)`
-2. **Scoped Headers**: `withScopedApiRequestHeaders` bridges client widgets to server API — standard pattern for all UMES extensions. Widget `onBeforeSave` returns `requestHeaders`, `useGuardedMutation` wraps the operation, and all `apiCall()` invocations within include the scoped headers
+2. **Scoped Headers**: `withScopedApiRequestHeaders` bridges small string metadata from client widgets to server APIs. Widget `onBeforeSave` returns `requestHeaders`, and `CrudForm` or `useGuardedMutation` scopes them around the operation. Every `apiCall()` made while that ambient scope is active inherits the headers, so a multi-write handler must override or isolate child requests instead of assuming the headers target only its primary write
 3. **CRUD Factory Hooks**: `CrudHooks` (before/afterList, before/afterCreate, before/afterUpdate, before/afterDelete) + mutation guards already exist; UMES interceptors compose with them at precise pipeline positions
 4. **Bootstrap Order**: New registries follow existing pattern — generated files → bootstrap registration → `globalThis` for HMR
 5. **Record-Locking Patterns**: Primary instance election (global Map), client-side state store (pub/sub), beacon-based cleanup, portal rendering — UMES should formalize these as standard widget utilities
