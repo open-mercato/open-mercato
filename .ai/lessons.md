@@ -50,7 +50,13 @@ This catalog indexes 144 focused lessons. Route the task first, then read only r
 - [Local tooling gotchas: stale snapshots and ephemeral restarts](lessons/db-generate-re-emits-an-unrelated-stale-snapshot.md) — area:module-data,testing,debugging; module:cli,ai_assistant; topic:database-migrations,dev-runtime,regeneration
 - [`dbMigrate` must not write migration snapshots during initialize flows](lessons/dbmigrate-must-not-write-migration-snapshots-during.md) — area:module-data,architecture; module:cli,create_app; topic:generated-files,database-migrations,runtime-startup
 - [A self-request needs data committed outside the caller's transaction](lessons/a-self-request-needs-data-committed-outside-the-callers.md) — area:module-data; module:auth,checkout,query_index; topic:data-integrity,query-index,workers
+<<<<<<< HEAD
 - [Avoid identity-map stale snapshots in command logs](lessons/avoid-identity-map-stale-snapshots-in-command-logs.md) — area:module-data,debugging; module:audit_logs,cache; topic:command-pattern,data-integrity,generated-files
+=======
+- [A migration with swapped up/down can silently drop a unique constraint the code relies on](lessons/swapped-migration-up-down-can-silently-drop-a-unique-constraint.md) — area:module-data,debugging,testing; module:payment_gateways; topic:database-migrations,data-integrity,webhooks
+- [Avoid identity-map stale snapshots in command logs](lessons/avoid-identity-map-stale-snapshots-in-command-logs.md) — area:module-data,debugging,testing; module:audit_logs,cache,customers,auth; topic:command-pattern,data-integrity,generated-files,encryption,authorization-locks
+- [Classify redo creation by operation and snapshot](lessons/classify-redo-creation-by-operation-and-snapshot.md) — area:module-data,testing; module:feature_toggles; topic:command-pattern,data-integrity,undo-redo
+>>>>>>> 90fa052c1 (fix(auth): bound AI-generated keys by the user ACL (#8086))
 - [Classify entity metadata by ORM ownership before custom declarations](lessons/classify-entity-metadata-by-orm-ownership-before-custom.md) — area:module-data; module:entities; topic:access-control,filters
 - [Concurrent index migrations must recover from invalid build stubs](lessons/concurrent-index-migrations-must-recover-from-invalid-build-stubs.md) — area:module-data,debugging,testing; module:query_index; topic:concurrency,database-migrations,data-integrity
 - [Data migrations must declare the query-index projections they invalidate](lessons/data-migrations-must-declare-the-projections-they.md) — area:module-data,architecture,debugging; module:query_index,cli,customers; topic:database-migrations,query-index,events

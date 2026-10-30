@@ -224,7 +224,11 @@ async function resolveApiKeyAuth(secret: string): Promise<AuthContext> {
     const keyOrganizationId = typeof record.organizationId === 'string' && record.organizationId.trim().length > 0
       ? record.organizationId.trim()
       : null
+<<<<<<< HEAD
     if (roleIds.length && !keyOrganizationId) {
+=======
+    if (liveRoleIds.length && !keyOrganizationId && !record.sessionUserId) {
+>>>>>>> 90fa052c1 (fix(auth): bound AI-generated keys by the user ACL (#8086))
       const superAcls = await em.find(
         RoleAcl,
         {

@@ -94,6 +94,144 @@ describe('resolveApiKeyAuth caching + lastUsedAt debounce', () => {
     expect(emFlush).toHaveBeenCalledTimes(1)
   })
 
+<<<<<<< HEAD
+=======
+  it('immediately removes revoked session roles and super-admin status while retaining issued roles still held', async () => {
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    const { getSharedApiKeyAuthCache } = await import('@open-mercato/shared/lib/auth/apiKeyAuthCache')
+    const { Role, RoleAcl, User } = await import('@open-mercato/core/modules/auth/data/entities')
+    const { Tenant } = await import('@open-mercato/core/modules/directory/data/entities')
+    const { ApiKey } = await import('@open-mercato/core/modules/api_keys/data/entities')
+    const secret = 'session-role-revocation-secret'
+    let currentRoleIds = ['role-super', 'role-reader']
+    const record = {
+      id: 'key-session-revocation',
+      name: 'session role revocation',
+      tenantId: 'tenant-1',
+      organizationId: null,
+      rolesJson: ['role-super', 'role-reader'],
+      sessionTokenHash: 'sess_role_revocation',
+      sessionUserId: 'session-user-1',
+      createdBy: 'session-user-1',
+      expiresAt: new Date(Date.now() + 120 * 60_000),
+    }
+    findApiKeyBySecret.mockResolvedValue(record)
+    findWithDecryption.mockImplementation(async () => currentRoleIds.map((roleId) => ({ role: { id: roleId } })))
+    emFindOne.mockImplementation(async (entity: unknown) => {
+      if (entity === ApiKey) return record
+      if (entity === User) return {
+        id: 'session-user-1',
+        tenantId: 'tenant-1',
+        organizationId: null,
+      }
+      if (entity === Tenant) return { id: 'tenant-1', isActive: true, deletedAt: null }
+      return null
+    })
+    emFind.mockImplementation(async (entity: unknown, where: Record<string, unknown>) => {
+      if (entity === Role) {
+        const roleIds = (where.id as { $in: string[] }).$in
+        return roleIds.map((roleId) => ({
+          id: roleId,
+          name: roleId === 'role-super' ? 'superadmin' : roleId === 'role-reader' ? 'employee' : 'new-role',
+        }))
+      }
+      const relation = where.role as { $in?: string[]; id?: { $in: string[] } } | undefined
+      if (entity === RoleAcl && (relation?.$in ?? relation?.id?.$in ?? []).includes('role-super')) {
+        return [{ isSuperAdmin: true, organizationsJson: null }]
+      }
+      return []
+    })
+
+    await expect(getAuthFromRequest(buildRequest(secret))).resolves.toMatchObject({
+      roles: ['superadmin', 'employee'],
+      isSuperAdmin: false,
+    })
+    await expect(getAuthFromRequest(buildRequest(secret))).resolves.toMatchObject({ isSuperAdmin: false })
+
+    currentRoleIds = ['role-reader', 'role-new']
+
+    for (const requestNumber of [1, 2]) {
+      await expect(getAuthFromRequest(buildRequest(secret))).resolves.toMatchObject({
+        roles: ['employee'],
+        isSuperAdmin: false,
+        userId: 'session-user-1',
+      })
+      expect(getSharedApiKeyAuthCache().get(secret)).toEqual({ keyId: record.id, sessionBound: true })
+      expect(findApiKeyBySecret).toHaveBeenCalledTimes(1)
+      expect(emFindOne.mock.calls.filter(([entity]) => entity === ApiKey)).toHaveLength(1 + requestNumber)
+    }
+    expect(findWithDecryption).toHaveBeenCalledTimes(4)
+    expect(emFlush).toHaveBeenCalledTimes(1)
+  })
+
+  it.each(['deleted key', 'expired key', 'deleted owner', 'changed tenant', 'changed organization'])(
+    'rejects a cached session identity after %s',
+    async (change) => {
+      const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+      const { ApiKey } = await import('@open-mercato/core/modules/api_keys/data/entities')
+      const { User } = await import('@open-mercato/core/modules/auth/data/entities')
+      const { Tenant } = await import('@open-mercato/core/modules/directory/data/entities')
+      const record = {
+        id: 'key-live-session', name: 'session', tenantId: 'tenant-1', organizationId: null,
+        rolesJson: [], sessionUserId: 'owner-1', expiresAt: new Date(Date.now() + 60_000),
+      }
+      const owner = { id: 'owner-1', tenantId: 'tenant-1', organizationId: null as string | null }
+      let keyDeleted = false
+      let ownerDeleted = false
+      findApiKeyBySecret.mockResolvedValue(record)
+      emFindOne.mockImplementation(async (entity: unknown) => {
+        if (entity === ApiKey) return keyDeleted ? null : record
+        if (entity === User) return ownerDeleted ? null : owner
+        if (entity === Tenant) return { id: 'tenant-1', isActive: true, deletedAt: null }
+        return null
+      })
+      await expect(getAuthFromRequest(buildRequest('live-session-secret'))).resolves.toMatchObject({ keyId: record.id })
+
+      if (change === 'deleted key') keyDeleted = true
+      if (change === 'expired key') record.expiresAt = new Date(Date.now() - 1)
+      if (change === 'deleted owner') ownerDeleted = true
+      if (change === 'changed tenant') owner.tenantId = 'tenant-other'
+      if (change === 'changed organization') owner.organizationId = 'org-other'
+
+      await expect(getAuthFromRequest(buildRequest('live-session-secret'))).resolves.toBeNull()
+      expect(findApiKeyBySecret).toHaveBeenCalledTimes(1)
+      expect(emFindOne).toHaveBeenCalledWith(ApiKey, { id: record.id, deletedAt: null })
+    },
+  )
+
+  it('does not extend verified session-secret caching on a cache hit', async () => {
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    const { ApiKey } = await import('@open-mercato/core/modules/api_keys/data/entities')
+    const { User } = await import('@open-mercato/core/modules/auth/data/entities')
+    const { Tenant } = await import('@open-mercato/core/modules/directory/data/entities')
+    const now = jest.spyOn(Date, 'now')
+    const startedAt = Date.now()
+    const record = {
+      id: 'key-session-ttl', name: 'session', tenantId: 'tenant-1', organizationId: null,
+      rolesJson: [], sessionUserId: 'owner-1', expiresAt: new Date(startedAt + 120_000),
+    }
+    findApiKeyBySecret.mockResolvedValue(record)
+    emFindOne.mockImplementation(async (entity: unknown) => {
+      if (entity === ApiKey) return record
+      if (entity === User) return { id: 'owner-1', tenantId: 'tenant-1', organizationId: null }
+      if (entity === Tenant) return { id: 'tenant-1', isActive: true, deletedAt: null }
+      return null
+    })
+    try {
+      now.mockReturnValue(startedAt)
+      await getAuthFromRequest(buildRequest('session-ttl-secret'))
+      now.mockReturnValue(startedAt + 20_000)
+      await getAuthFromRequest(buildRequest('session-ttl-secret'))
+      expect(findApiKeyBySecret).toHaveBeenCalledTimes(1)
+      now.mockReturnValue(startedAt + 30_001)
+      await getAuthFromRequest(buildRequest('session-ttl-secret'))
+      expect(findApiKeyBySecret).toHaveBeenCalledTimes(2)
+    } finally {
+      now.mockRestore()
+    }
+  })
+
+>>>>>>> 90fa052c1 (fix(auth): bound AI-generated keys by the user ACL (#8086))
   it('retains the creator identity for a regular tenant-scoped key', async () => {
     const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
     findApiKeyBySecret.mockResolvedValue({
@@ -189,6 +327,37 @@ describe('resolveApiKeyAuth caching + lastUsedAt debounce', () => {
     await expect(
       getAuthFromRequest(buildRequest('foreign-creator-secret')),
     ).resolves.toBeNull()
+  })
+
+  it('never caches a role-only super-admin flag for a user-bound key', async () => {
+    const { Role, RoleAcl, User } = await import('@open-mercato/core/modules/auth/data/entities')
+    const { Tenant } = await import('@open-mercato/core/modules/directory/data/entities')
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    const record = {
+      id: 'bound-super-key', name: 'bound', tenantId: 'tenant-1', organizationId: null,
+      rolesJson: ['role-super'], sessionUserId: 'owner-1', createdBy: 'owner-1',
+      expiresAt: null, lastUsedAt: null,
+    }
+    findApiKeyBySecret.mockResolvedValue(record)
+    findWithDecryption.mockResolvedValue([{ role: { id: 'role-super' } }])
+    emFind.mockImplementation(async (entity: unknown) => {
+      if (entity === Role) return [{ id: 'role-super', name: 'superadmin' }]
+      if (entity === RoleAcl) return [{ isSuperAdmin: true, organizationsJson: null }]
+      return []
+    })
+    const { ApiKey } = await import('@open-mercato/core/modules/api_keys/data/entities')
+    emFindOne.mockImplementation(async (entity: unknown) => {
+      if (entity === ApiKey) return record
+      if (entity === Tenant) return { id: 'tenant-1' }
+      if (entity === User) return { id: 'owner-1', tenantId: 'tenant-1', organizationId: null }
+      return null
+    })
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      await expect(getAuthFromRequest(buildRequest('bound-super-secret')))
+        .resolves.toMatchObject({ isSuperAdmin: false, userId: 'owner-1', roles: ['superadmin'] })
+    }
+    expect(findApiKeyBySecret).toHaveBeenCalledTimes(1)
+    expect(emFindOne.mock.calls.filter((call) => call[0] === Tenant)).toHaveLength(2)
   })
 
   it('accepts a tenant-scoped regular key that records no creator', async () => {
@@ -367,6 +536,111 @@ describe('resolveApiKeyAuth caching + lastUsedAt debounce', () => {
     expect(findApiKeyBySecret).toHaveBeenCalledTimes(2)
   })
 
+<<<<<<< HEAD
+=======
+  describe.each(['unbound', 'creator-bound', 'session-bound', 'mcp-bound'] as const)('%s tenant liveness', (binding) => {
+    let tenant: { id: string; isActive: boolean; deletedAt: Date | null } | null
+
+    beforeEach(async () => {
+      const [{ Tenant }, { User }, { ApiKey }] = await Promise.all([
+        import('@open-mercato/core/modules/directory/data/entities'),
+        import('@open-mercato/core/modules/auth/data/entities'),
+        import('@open-mercato/core/modules/api_keys/data/entities'),
+      ])
+      tenant = { id: 'tenant-1', isActive: true, deletedAt: null }
+      const keyRecord = {
+        id: 'key-tenant-liveness',
+        name: 'tenant liveness',
+        tenantId: 'tenant-1',
+        organizationId: null,
+        rolesJson: [],
+        sessionTokenHash: binding === 'session-bound' ? 'session-marker' : null,
+        sessionUserId: binding === 'session-bound' || binding === 'mcp-bound' ? 'key-owner' : null,
+        sessionSecretEncrypted: null,
+        opencodeSessionId: null,
+        createdBy: binding === 'unbound' ? null : 'key-owner',
+        expiresAt: null,
+        lastUsedAt: null,
+      }
+      findApiKeyBySecret.mockResolvedValue(keyRecord)
+      emFindOne.mockImplementation(async (entity: unknown, where: Record<string, unknown>) => {
+        if (entity === ApiKey && where.id === keyRecord.id) return keyRecord
+        if (entity === Tenant) {
+          return tenant && where.id === tenant.id && where.isActive === tenant.isActive && where.deletedAt === tenant.deletedAt
+            ? tenant
+            : null
+        }
+        if (entity === User && where.id === 'key-owner') {
+          return { id: 'key-owner', tenantId: 'tenant-1', organizationId: null, isConfirmed: true }
+        }
+        return null
+      })
+    })
+
+    function setTenantState(state: 'active' | 'inactive' | 'deleted' | 'missing') {
+      tenant = state === 'missing'
+        ? null
+        : { id: 'tenant-1', isActive: state !== 'inactive', deletedAt: state === 'deleted' ? new Date() : null }
+    }
+
+    it.each(['active', 'inactive', 'deleted', 'missing'] as const)('authenticates only an active existing tenant (%s)', async (state) => {
+      const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+      setTenantState(state)
+
+      const auth = await getAuthFromRequest(buildRequest('tenant-liveness-secret'))
+
+      if (state === 'active') {
+        expect(auth).toMatchObject({ keyId: 'key-tenant-liveness', tenantId: 'tenant-1' })
+      } else {
+        expect(auth).toBeNull()
+        expect(emPersist).not.toHaveBeenCalled()
+      }
+    })
+
+    it.each(['inactive', 'deleted', 'missing'] as const)('rejects a cached key immediately after its tenant becomes %s', async (state) => {
+      const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+      await expect(getAuthFromRequest(buildRequest('tenant-liveness-secret'))).resolves.toMatchObject({
+        keyId: 'key-tenant-liveness',
+      })
+      setTenantState(state)
+
+      await expect(getAuthFromRequest(buildRequest('tenant-liveness-secret'))).resolves.toBeNull()
+
+      expect(findApiKeyBySecret).toHaveBeenCalledTimes(1)
+    })
+
+    it('rechecks an active tenant while retaining the cached secret lookup', async () => {
+      const { Tenant } = await import('@open-mercato/core/modules/directory/data/entities')
+      const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+      const first = await getAuthFromRequest(buildRequest('tenant-liveness-secret'))
+
+      await expect(getAuthFromRequest(buildRequest('tenant-liveness-secret'))).resolves.toEqual(first)
+
+      expect(first).toMatchObject({ keyId: 'key-tenant-liveness' })
+      expect(findApiKeyBySecret).toHaveBeenCalledTimes(1)
+      expect(emFindOne).toHaveBeenCalledWith(Tenant, { id: 'tenant-1', deletedAt: null, isActive: true })
+      expect(emFindOne.mock.calls.filter((call) => call[0] === Tenant)).toHaveLength(2)
+    })
+
+    it('reports cached tenant-check database unavailability without poisoning the cache', async () => {
+      const { resolveAuthFromRequestDetailed } = await import('@open-mercato/shared/lib/auth/server')
+      await expect(resolveAuthFromRequestDetailed(buildRequest('tenant-liveness-secret'))).resolves.toMatchObject({
+        status: 'authenticated',
+      })
+      emFindOne.mockRejectedValueOnce(Object.assign(new Error('connection unavailable'), { code: '53300' }))
+
+      await expect(resolveAuthFromRequestDetailed(buildRequest('tenant-liveness-secret'))).resolves.toEqual({
+        auth: null,
+        status: 'error',
+      })
+      await expect(resolveAuthFromRequestDetailed(buildRequest('tenant-liveness-secret'))).resolves.toMatchObject({
+        status: 'authenticated',
+      })
+      expect(findApiKeyBySecret).toHaveBeenCalledTimes(1)
+    })
+  })
+
+>>>>>>> 90fa052c1 (fix(auth): bound AI-generated keys by the user ACL (#8086))
   describe('super-admin bit stays bounded by the effective key scope', () => {
     async function resolveWithSuperAdminRole(input: {
       secret: string
