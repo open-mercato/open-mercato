@@ -39,6 +39,13 @@ Restore the current `main` branch workflows to green by identifying each failing
 - Release workflows may depend on external package registries or credentials; failures proved to be external infrastructure will be documented rather than masked in code.
 - Other commits may land on `main` during the run; diagnosis is pinned to the recorded head SHA and the pull request is rebased only through normal merge commits if needed.
 
+## Diagnosis
+
+- `main` SHA `440f7c2b4cdcb69d820423ecbb9db71e4a8494f9` failed [Develop Snapshot Release run 41132875987](https://github.com/open-mercato/open-mercato/actions/runs/41132875987) only in `Release snapshot`.
+- `@open-mercato/channel-fcm` and `@open-mercato/events` each failed with npm `TLOG_CREATE_ENTRY_ERROR`: Rekor returned HTTP 409 because an equivalent transparency-log entry already existed. Their snapshot versions remained absent from npm, while every other package published.
+- This is the Sigstore retry-after-success defect fixed upstream in [sigstore-js#1709](https://github.com/sigstore/sigstore-js/pull/1709): the transparency entry is committed, a retry receives the valid duplicate, and the current client treats that duplicate as fatal. The fix merged on 2026-10-27 but is not present in the published Sigstore version used by npm in the workflow.
+- The smallest repository safeguard is a bounded wrapper that retries only this exact two-part error signature, preserves `--provenance`, and fails immediately for all other npm errors. The caller also verifies registry state after a client failure so a completed publish is not falsely reported as failed.
+
 ## Progress
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
