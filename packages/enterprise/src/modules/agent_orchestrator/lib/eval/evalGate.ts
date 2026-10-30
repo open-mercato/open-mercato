@@ -1,8 +1,12 @@
 import type { AwilixContainer } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import type { AiAgentCallSettings } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/agent-call-contract'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { AgentEvalCase, AgentEvalSuiteRun } from '../../data/entities'
+import type { EvalSetSnapshot } from '../../data/validators'
 import { replaySuiteRun } from './evalReplayService'
+import type { EvalSetFile } from './evalSetFile'
+import type { EvalToolFixtureOptions } from './toolFixtures'
 import type {
   CompleteEvalRunCommandInput,
   CompleteEvalRunCommandResult,
@@ -19,12 +23,35 @@ export type EvalGateInput = {
    * dataset a verdict is not reproducible, so it must not read as a gate result.
    */
   evalSetVersion?: string | null
+  /**
+   * Pins a frozen manifest instead of a label: `latest` freezes the current
+   * dataset, `sha256:<hex>` replays a stored one. The suite run's
+   * `evalSetVersion` becomes the manifest hash; cannot be combined with
+   * `evalSetVersion`.
+   */
+  snapshot?: EvalSetSnapshot
+  /**
+   * Runs an eval-set FILE instead of the database cases. The file is frozen into
+   * a `source: 'file'` manifest and the suite run is pinned to its hash; cannot
+   * be combined with `snapshot` or `evalSetVersion`.
+   */
+  cases?: EvalSetFile
   /** Overrides automatic baseline selection (previous completed run for this agent). */
   baselineSuiteRunId?: string | null
   repeatCount?: number
   scope: { tenantId: string; organizationId: string }
   /** `'ci'` or a userId, recorded on the suite run. */
   triggeredBy?: string | null
+  /**
+   * Eval-run model settings. Merged over the agent's `modelSettings` key by key
+   * for every case run, and recorded on the suite run as `summary.__evalRun`.
+   */
+  callSettings?: AiAgentCallSettings
+  /**
+   * In-process tool record/replay for every case run (CLI `--record`/`--replay`).
+   * The resulting tool mode is stored as `summary.__evalRun.tools`.
+   */
+  toolFixtures?: EvalToolFixtureOptions
 }
 
 export type EvalGateResult = {
@@ -65,13 +92,15 @@ export async function runEvalGate(
 
   // Only APPROVED cases form the regression set — a draft has not been reviewed,
   // so its expected value cannot serve as a baseline for blocking a release.
-  const cases = await em.find(AgentEvalCase, {
-    ...scope,
-    agentDefinitionId: input.agentDefinitionId,
-    status: 'approved',
-    deletedAt: null,
-  })
-  if (!cases.length) {
+  const cases = input.snapshot || input.cases
+    ? null
+    : await em.find(AgentEvalCase, {
+        ...scope,
+        agentDefinitionId: input.agentDefinitionId,
+        status: 'approved',
+        deletedAt: null,
+      })
+  if (cases && !cases.length) {
     throw new Error(
       `[internal] no approved eval cases for agent "${input.agentDefinitionId}" — nothing to gate on`,
     )
@@ -92,7 +121,9 @@ export async function runEvalGate(
       input: {
         ...scope,
         agentDefinitionId: input.agentDefinitionId,
-        evalCaseIds: cases.map((entry) => entry.id),
+        ...(cases ? { evalCaseIds: cases.map((entry) => entry.id) } : {}),
+        ...(input.snapshot ? { snapshot: input.snapshot } : {}),
+        ...(input.cases ? { evalSet: input.cases } : {}),
         repeatCount: input.repeatCount ?? 1,
         trigger: 'ci',
         // CI never lets a judge gate — see the doc comment.
@@ -100,6 +131,7 @@ export async function runEvalGate(
         releaseId: input.releaseId ?? null,
         evalSetVersion: input.evalSetVersion ?? null,
         triggeredBy,
+        ...(input.callSettings ? { callSettings: input.callSettings } : {}),
       },
       ctx: commandCtx,
     },
@@ -115,7 +147,13 @@ export async function runEvalGate(
     }
   }
 
-  await replaySuiteRun(container, started.suiteRunId, scope, triggeredBy)
+  await replaySuiteRun(
+    container,
+    started.suiteRunId,
+    scope,
+    triggeredBy,
+    input.toolFixtures ? { toolFixtures: input.toolFixtures } : {},
+  )
 
   const { result: completed } = await commandBus.execute<
     CompleteEvalRunCommandInput,

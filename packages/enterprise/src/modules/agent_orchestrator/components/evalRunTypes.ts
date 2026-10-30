@@ -43,6 +43,8 @@ export type EvalRunDetailView = EvalRunRow & {
   evalSetVersion: string | null
   /** Assertion keys that regressed against the baseline. Non-empty blocks a gate. */
   safetyRegressions: string[]
+  /** `file` when the run replayed an eval-set file: its case runs have no case rows. */
+  evalSetSource: 'db' | 'file' | null
   summary: unknown
 }
 
@@ -150,6 +152,14 @@ export function mapEvalRunRow(item: Record<string, unknown>): EvalRunRow | null 
   }
 }
 
+function readEvalSetSource(summary: unknown): EvalRunDetailView['evalSetSource'] {
+  if (!summary || typeof summary !== 'object' || Array.isArray(summary)) return null
+  const pointer = (summary as Record<string, unknown>).__evalSet
+  if (!pointer || typeof pointer !== 'object' || Array.isArray(pointer)) return null
+  const source = (pointer as Record<string, unknown>).source
+  return source === 'db' || source === 'file' ? source : null
+}
+
 export function mapEvalRunDetail(item: Record<string, unknown>): EvalRunDetailView | null {
   const base = mapEvalRunRow(item)
   if (!base) return null
@@ -158,6 +168,7 @@ export function mapEvalRunDetail(item: Record<string, unknown>): EvalRunDetailVi
     releaseId: readString(item, 'release_id'),
     evalSetVersion: readString(item, 'eval_set_version'),
     safetyRegressions: readStringList(item.safety_regressions),
+    evalSetSource: readEvalSetSource(item.summary),
     summary: item.summary ?? null,
   }
 }

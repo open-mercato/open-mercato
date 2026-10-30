@@ -226,6 +226,17 @@ describe('agent OAuth client-credentials token server (Wave 4 Phase 3)', () => {
     expect(result).toBeNull()
   })
 
+  it('returns null (→ 401) for a client id that is not a uuid, without querying principals', async () => {
+    const em = createFakeEm()
+    const findOne = jest.spyOn(em, 'findOne')
+    const result = await issueAgentToken(createContainer(em), {
+      clientId: 'it-agent-not-a-uuid',
+      clientSecret: CLIENT_SECRET,
+    })
+    expect(result).toBeNull()
+    expect(findOne).not.toHaveBeenCalled()
+  })
+
   it('refuses to mint when the grant is revoked', async () => {
     const em = createFakeEm()
     const principal = await seedPrincipalWithSecret(em, {
@@ -287,6 +298,24 @@ describe('agent OAuth client-credentials token server (Wave 4 Phase 3)', () => {
     // Revoke the grant (as the command would) — the token is still cryptographically
     // valid, but the per-request grant check now denies it.
     ;(grant as unknown as Record<string, unknown>).revokedAt = new Date()
+    expect(await verifyAgentToken(createContainer(em), result!.accessToken)).toBeNull()
+  })
+
+  it('denies a token whose grant lives in another tenant, even with a matching organization id', async () => {
+    const em = createFakeEm()
+    const principal = await seedPrincipalWithSecret(em, {
+      tenantId: TENANT_A,
+      organizationId: ORG_A,
+      agentUserId: AGENT_USER_A,
+    })
+    const grant = seedGrant(em, principal, { scopes: ['deals:read'] })
+    const result = await issueAgentToken(createContainer(em), {
+      clientId: principal.id,
+      clientSecret: CLIENT_SECRET,
+    })
+    expect(await verifyAgentToken(createContainer(em), result!.accessToken)).not.toBeNull()
+
+    ;(grant as unknown as Record<string, unknown>).tenantId = TENANT_B
     expect(await verifyAgentToken(createContainer(em), result!.accessToken)).toBeNull()
   })
 

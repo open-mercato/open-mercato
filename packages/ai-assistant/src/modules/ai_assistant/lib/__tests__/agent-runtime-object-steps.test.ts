@@ -264,4 +264,76 @@ describe('runAiAgentObject enableTools branch — per-step exposure (native-runt
     expect(result.object).toEqual({ verdict: 'plain' })
     expect('steps' in result && result.steps !== undefined).toBe(false)
   })
+  it('composes a caller loop.prepareStep under the wrapper prepareStep on the tool-loop branch', async () => {
+    seedToolLoopAgent()
+    mockGenerateTextWithSteps([])
+    const callerPrepareStep = jest.fn(async () => ({ toolChoice: 'required' as const }))
+
+    await runAiAgentObject({
+      agentId: 'customers.object_agent',
+      input: 'judge',
+      authContext: baseAuth,
+      enableTools: true,
+      loop: { prepareStep: callerPrepareStep },
+    })
+
+    const callArg = generateTextMock.mock.calls[0][0] as {
+      prepareStep: (state: unknown) => Promise<Record<string, unknown>>
+    }
+    const override = await callArg.prepareStep({ steps: [], stepNumber: 0, model: {}, messages: [] })
+    expect(callerPrepareStep).toHaveBeenCalledTimes(1)
+    expect(override.toolChoice).toBe('required')
+  })
+
+  it('drops a caller prepareStep instead of failing when enableTools resolves no tools', async () => {
+    seedAgentRegistryForTests([
+      makeAgent({
+        id: 'customers.toolless_prepare_agent',
+        moduleId: 'customers',
+        executionMode: 'object',
+        mutationPolicy: 'read-only',
+        output: { schemaName: 'Verdict', schema: outputSchema },
+      }),
+    ])
+    generateObjectMock.mockResolvedValue({
+      object: { verdict: 'plain' },
+      finishReason: 'stop',
+      usage: { inputTokens: 5, outputTokens: 2 },
+    })
+    const callerPrepareStep = jest.fn(async () => ({ toolChoice: 'required' as const }))
+
+    const result = await runAiAgentObject({
+      agentId: 'customers.toolless_prepare_agent',
+      input: 'judge',
+      authContext: baseAuth,
+      enableTools: true,
+      loop: { prepareStep: callerPrepareStep },
+    })
+
+    expect(result.mode).toBe('generate')
+    expect(callerPrepareStep).not.toHaveBeenCalled()
+    expect(generateTextMock).not.toHaveBeenCalled()
+  })
+
+  it('still rejects a caller prepareStep on the toolless path without enableTools', async () => {
+    seedAgentRegistryForTests([
+      makeAgent({
+        id: 'customers.toolless_strict_agent',
+        moduleId: 'customers',
+        executionMode: 'object',
+        mutationPolicy: 'read-only',
+        output: { schemaName: 'Verdict', schema: outputSchema },
+      }),
+    ])
+
+    await expect(
+      runAiAgentObject({
+        agentId: 'customers.toolless_strict_agent',
+        input: 'judge',
+        authContext: baseAuth,
+        loop: { prepareStep: async () => undefined },
+      }),
+    ).rejects.toMatchObject({ code: 'loop_unsupported_in_object_mode' })
+    expect(generateObjectMock).not.toHaveBeenCalled()
+  })
 })

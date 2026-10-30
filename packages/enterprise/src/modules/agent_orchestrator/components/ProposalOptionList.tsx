@@ -41,6 +41,11 @@ export type ProposalOptionListProps = {
    * tenant's risk ceiling, a missing trace or the policy switch.
    */
   autoDispositionBlock?: string | null
+  /**
+   * Integrity rule ids that held the proposal (block, or a warn with
+   * `holdsAutoApproval`) — shown as a details line under a `guardrail` hold.
+   */
+  heldRuleIds?: readonly string[]
   /** Renders the "you must pick one" hint below the list. */
   showChooseHint?: boolean
   className?: string
@@ -59,6 +64,7 @@ export function ProposalOptionList({
   onSelect,
   disabled = false,
   autoDispositionBlock = null,
+  heldRuleIds = [],
   showChooseHint = false,
   className,
 }: ProposalOptionListProps) {
@@ -166,7 +172,16 @@ export function ProposalOptionList({
           ) : (
             <ShieldAlert className="mt-0.5 size-4 shrink-0" />
           )}
-          <span>{t(autoBlockMessageKey)}</span>
+          <div className="min-w-0">
+            <p>{t(autoBlockMessageKey)}</p>
+            {autoDispositionBlock === 'guardrail' && heldRuleIds.length > 0 ? (
+              <p className="mt-0.5 text-xs">
+                {t('agent_orchestrator.proposal.options.autoBlock.heldByRules', undefined, {
+                  rules: heldRuleIds.join(', '),
+                })}
+              </p>
+            ) : null}
+          </div>
         </div>
       ) : null}
 

@@ -1,0 +1,46 @@
+  ✓   1 packages/core/src/modules/customers/__integration__/TC-CRM-065.spec.ts:22:3 › TC-CRM-065: People bulk delete partial failure › keeps blocked row, deletes eligible rows, surfaces grouped dependency toast 
+  ✓   2 packages/core/src/modules/customers/__integration__/TC-CRM-085.spec.ts:76:3 › TC-CRM-085: deals map view tab (UI) › navigates from the deals list to the map view tab 
+  ✓   3 packages/core/src/modules/customers/__integration__/TC-CRM-085.spec.ts:99:3 › TC-CRM-085: deals map view tab (UI) › shows a located fixture deal in the panel with a map marker 
+  ✓   4 packages/core/src/modules/customers/__integration__/TC-CRM-085.spec.ts:196:3 › TC-CRM-085: deals map view tab (UI) › opens the deal preview card from a marker click 
+  ✓   5 packages/core/src/modules/customers/__integration__/TC-CRM-085.spec.ts:254:3 › TC-CRM-085: deals map view tab (UI) › excludes deals without coordinates from the located-only panel 
+  ✓   6 packages/core/src/modules/customers/__integration__/TC-CRM-085.spec.ts:306:3 › TC-CRM-085: deals map view tab (UI) › persists address coordinates entered through the company address editor 
+  ✘   7 packages/core/src/modules/forms/__integration__/TC-FORMS-UI-002.spec.ts:41:3 › TC-FORMS-UI-002: create a form through the UI › submits the create form and persists the reshaped payload 
+  ✓   8 packages/core/src/modules/forms/__integration__/TC-FORMS-UI-002.spec.ts:41:3 › TC-FORMS-UI-002: create a form through the UI › submits the create form and persists the reshaped payload (retry #1) 
+  ✘   9 packages/core/src/modules/sales/__integration__/TC-SALES-ADDR-CONTACT-002.spec.ts:11:1 › TC-SALES-ADDR-CONTACT-002: the document form persists address contact fields 
+  ✓  10 packages/core/src/modules/sales/__integration__/TC-SALES-ADDR-CONTACT-002.spec.ts:11:1 › TC-SALES-ADDR-CONTACT-002: the document form persists address contact fields (retry #1) 
+22:09:15.422 WARN  [data_sync:sync-engine] Skipping finalization of a sync run another worker already finalized runId=3e9c3051-699c-4ddb-88c4-8c4ef447979c requestedStatus=failed actualStatus=completed
+  ✘  11 packages/core/src/modules/sync_excel/__integration__/TC-SX-009.spec.ts:245:3 › TC-SX-009: sync_excel re-import after a delete or a failed row › re-importing a file after its person was deleted creates the person again, then updates it 
+  ✘  12 packages/core/src/modules/sync_excel/__integration__/TC-SX-009.spec.ts:245:3 › TC-SX-009: sync_excel re-import after a delete or a failed row › re-importing a file after its person was deleted creates the person again, then updates it (retry #1) 
+22:09:30.313 WARN  [data_sync:sync-engine] Skipping finalization of a sync run another worker already finalized runId=e6a98837-caec-402d-b1f7-b23d0aca9e4c requestedStatus=failed actualStatus=completed
+  ✘  13 packages/core/src/modules/sync_excel/__integration__/TC-SX-009.spec.ts:319:3 › TC-SX-009: sync_excel re-import after a delete or a failed row › a batch row whose address is rejected keeps its mapping, so retries and the corrected file reuse the same person 
+22:09:37.796 WARN  [data_sync:sync-engine] Skipping finalization of a sync run another worker already finalized runId=042ed5b1-02d9-40b8-8c64-92df5a021d63 requestedStatus=failed actualStatus=completed
+  ✘  14 packages/core/src/modules/sync_excel/__integration__/TC-SX-009.spec.ts:319:3 › TC-SX-009: sync_excel re-import after a delete or a failed row › a batch row whose address is rejected keeps its mapping, so retries and the corrected file reuse the same person (retry #1) 
+  ✓  15 packages/core/src/modules/sync_excel/__integration__/TC-SX-009.spec.ts:407:3 › TC-SX-009: sync_excel re-import after a delete or a failed row › re-importing after the person was deleted and re-created by hand with the same email updates that person 
+  ✘  16 packages/core/src/modules/sync_excel/__integration__/TC-SX-009.spec.ts:479:3 › TC-SX-009: sync_excel re-import after a delete or a failed row › a stale mapping never adopts a person that lives in another organization 
+  ✓  17 packages/core/src/modules/sync_excel/__integration__/TC-SX-009.spec.ts:479:3 › TC-SX-009: sync_excel re-import after a delete or a failed row › a stale mapping never adopts a person that lives in another organization (retry #1) 
+  1) packages/core/src/modules/sync_excel/__integration__/TC-SX-009.spec.ts:245:3 › TC-SX-009: sync_excel re-import after a delete or a failed row › re-importing a file after its person was deleted creates the person again, then updates it 
+        "failedCount": 0,
+    +   "status": "failed",
+    > 297 |       expect(thirdRun).toMatchObject({ status: 'completed', createdCount: 0, updatedCount: 1, failedCount: 0 })
+        "failedCount": 0,
+    +   "status": "failed",
+    > 297 |       expect(thirdRun).toMatchObject({ status: 'completed', createdCount: 0, updatedCount: 1, failedCount: 0 })
+  2) packages/core/src/modules/sync_excel/__integration__/TC-SX-009.spec.ts:319:3 › TC-SX-009: sync_excel re-import after a delete or a failed row › a batch row whose address is rejected keeps its mapping, so retries and the corrected file reuse the same person 
+        "failedCount": 0,
+    +   "status": "failed",
+    > 375 |       expect(correctedRun).toMatchObject({ status: 'completed', createdCount: 0, updatedCount: 2, failedCount: 0 })
+        "failedCount": 0,
+    +   "status": "failed",
+    > 375 |       expect(correctedRun).toMatchObject({ status: 'completed', createdCount: 0, updatedCount: 2, failedCount: 0 })
+    .ai/qa/test-results/artifacts/packages-core-src-modules--779f5-rsists-the-reshaped-payload/test-failed-1.png
+    .ai/qa/test-results/artifacts/packages-core-src-modules--c0a2e-ists-address-contact-fields/test-failed-1.png
+  5) packages/core/src/modules/sync_excel/__integration__/TC-SX-009.spec.ts:479:3 › TC-SX-009: sync_excel re-import after a delete or a failed row › a stale mapping never adopts a person that lives in another organization 
+        "failedCount": 0,
+    +   "status": "failed",
+    > 527 |       expect(run).toMatchObject({ status: 'completed', createdCount: 1, updatedCount: 0, failedCount: 0 })
+  2 failed
+    packages/core/src/modules/sync_excel/__integration__/TC-SX-009.spec.ts:245:3 › TC-SX-009: sync_excel re-import after a delete or a failed row › re-importing a file after its person was deleted creates the person again, then updates it 
+    packages/core/src/modules/sync_excel/__integration__/TC-SX-009.spec.ts:319:3 › TC-SX-009: sync_excel re-import after a delete or a failed row › a batch row whose address is rejected keeps its mapping, so retries and the corrected file reuse the same person 
+  3 flaky
+    packages/core/src/modules/sync_excel/__integration__/TC-SX-009.spec.ts:479:3 › TC-SX-009: sync_excel re-import after a delete or a failed row › a stale mapping never adopts a person that lives in another organization 
+  7 passed (3.8m)

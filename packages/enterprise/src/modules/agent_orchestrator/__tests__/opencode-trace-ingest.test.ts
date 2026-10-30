@@ -19,8 +19,16 @@ jest.mock('@open-mercato/core/modules/api_keys/services/apiKeyService', () => ({
     return Promise.resolve()
   },
 }))
+const mockObservationSpans: Array<Record<string, unknown>> = []
+const mockObservationQueries: Array<Record<string, unknown>> = []
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
-  findWithDecryption: () => Promise.resolve([{ role: { id: 'role-caller' } }]),
+  findWithDecryption: (_em: unknown, entity: { name?: string }, where: Record<string, unknown>) => {
+    if (entity?.name === 'AgentSpan') {
+      mockObservationQueries.push(where)
+      return Promise.resolve(mockObservationSpans)
+    }
+    return Promise.resolve([{ role: { id: 'role-caller' } }])
+  },
 }))
 jest.mock('@open-mercato/core/modules/auth/data/entities', () => ({ UserRole: class UserRole {} }))
 
@@ -30,6 +38,7 @@ import { registerFileAgent, getAgentEntry, type AgentRegistryEntry } from '../li
 import { aiTools, SUBMIT_OUTCOME_TOOL_ID } from '../ai-tools'
 import { compileOutcome } from '../lib/sdk/outcomeSchema'
 import { InMemoryAgentRunSessionStore } from '../lib/runtime/agentRunSessionStore'
+import { RUN_MANIFEST_SPAN_NAME } from '../lib/trace/runManifest'
 import type { AiToolDefinition } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/types'
 
 const submitOutcomeTool = aiTools.find((t) => t.name === SUBMIT_OUTCOME_TOOL_ID) as AiToolDefinition
@@ -100,7 +109,14 @@ type IngestCommandInput = {
     externalRunId: string
     agentId: string
     latencyMs?: number
-    spans: Array<{ name: string; kind: string; toolCalls?: Array<{ toolName: string; responseSummary?: unknown }> }>
+    spans: Array<{
+      name: string
+      kind: string
+      sequence?: number
+      externalSpanId?: string
+      attributes?: unknown
+      toolCalls?: Array<{ toolName: string; responseSummary?: unknown }>
+    }>
   }
 }
 
@@ -110,7 +126,7 @@ function findIngestInput(bus: { executed: RecordedCommand[] }): IngestCommandInp
     | undefined
 }
 
-function makeHarness() {
+function makeHarness(options: { capturePolicy?: unknown } = {}) {
   const executed: RecordedCommand[] = []
   const commandBus = {
     executed,
@@ -124,6 +140,9 @@ function makeHarness() {
   const em = { fork: () => ({}) }
   const agentRunSessionStore = new InMemoryAgentRunSessionStore()
   const registrations: Record<string, unknown> = { rbacService, em, agentRunSessionStore }
+  if (options.capturePolicy !== undefined) {
+    registrations.moduleConfigService = { getRecord: async () => ({ value: options.capturePolicy }) }
+  }
   const container = {
     resolve(name: string) {
       if (name in registrations) return registrations[name]
@@ -200,6 +219,56 @@ describe('OpenCodeAgentRunner — trace ingestion (#3628)', () => {
 
   beforeEach(() => {
     jest.clearAllMocks()
+    mockObservationSpans.length = 0
+    mockObservationQueries.length = 0
+  })
+
+  it('folds MCP tool observations into the matching tool span and the manifest knowledge', async () => {
+    mockObservationSpans.push(
+      {
+        name: 'tool.observation',
+        startedAt: new Date('2026-10-28T10:00:00.000Z'),
+        attributes: {
+          'om.tool.name': 'load_skill',
+          'om.knowledge': { 'support.playbook': 'v7' },
+          'om.retrieval': [{ source: 'kb', queryHash: 'qh-1', k: 5, hits: [{ ref: 'doc-1', score: 0.9 }] }],
+        },
+      },
+      {
+        name: 'tool.observation',
+        startedAt: new Date('2026-10-28T10:00:01.000Z'),
+        attributes: { 'om.tool.name': 'customers.search', 'om.knowledge': { 'customers.segments': 'v2' }, 'om.retrieval': [] },
+      },
+    )
+    const entry = registerExampleFileAgent()
+    const { commandBus, container } = makeHarness()
+    const runner = new OpenCodeAgentRunner({
+      container: container as never,
+      commandBus: commandBus as never,
+      openCodeClient: makeFakeClient({ container }),
+    })
+
+    await runner.run(entry, { subject: 'observed tools' }, runCtx)
+
+    expect(mockObservationQueries[0]).toMatchObject({
+      agentRunId: 'run-123',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      name: 'tool.observation',
+    })
+    const spans = findIngestInput(commandBus)!.payload.spans
+    const loadSkillSpan = spans.find((span) => span.name === 'load_skill')
+    expect(loadSkillSpan?.attributes).toEqual({
+      'om.knowledge': { 'support.playbook': 'v7' },
+      'om.retrieval': [{ source: 'kb', queryHash: 'qh-1', k: 5, hits: [{ ref: 'doc-1', score: 0.9 }] }],
+    })
+    const scriptSpan = spans.find((span) => span.name === 'run_skill_script')
+    expect(scriptSpan?.attributes).toBeUndefined()
+    const manifest = spans.find((span) => span.name === RUN_MANIFEST_SPAN_NAME)
+    expect((manifest?.attributes as Record<string, unknown>)['om.knowledge']).toEqual({
+      'customers.segments': 'v2',
+      'support.playbook': 'v7',
+    })
   })
 
   it('ingests captured tool calls as trace spans, correlated on runtime+externalRunId', async () => {
@@ -336,10 +405,122 @@ describe('OpenCodeAgentRunner — trace ingestion (#3628)', () => {
     // auto-approval unreachable for every toolless OpenCode agent. One synthetic
     // span covering the session is the same answer `buildNativeTracePayload`
     // gives a toolless native run.
-    expect(ingestInput!.payload.spans).toHaveLength(1)
-    const span = ingestInput!.payload.spans![0] as { kind: string; sequence: number; startedAt: string }
+    const stepSpans = ingestInput!.payload.spans.filter((candidate) => candidate.kind !== 'system')
+    expect(stepSpans).toHaveLength(1)
+    const span = stepSpans[0] as { kind: string; sequence: number; startedAt: string }
     expect(span.kind).toBe('llm')
     expect(span.sequence).toBe(0)
     expect(Date.parse(span.startedAt)).not.toBeNaN()
+  })
+
+  it('appends one run.manifest span without a resolved model or provider', async () => {
+    const entry = registerExampleFileAgent()
+    const { commandBus, container } = makeHarness()
+    const runner = new OpenCodeAgentRunner({
+      container: container as never,
+      commandBus: commandBus as never,
+      openCodeClient: makeFakeClient({ container }),
+    })
+
+    await runner.run(entry, { subject: 'manifest' }, runCtx)
+
+    const spans = findIngestInput(commandBus)!.payload.spans
+    const manifests = spans.filter((candidate) => candidate.name === RUN_MANIFEST_SPAN_NAME)
+    expect(manifests).toHaveLength(1)
+    expect(manifests[0]).toMatchObject({ kind: 'system', externalSpanId: 'run-123:manifest', sequence: spans.length - 1 })
+    const attributes = manifests[0].attributes as Record<string, unknown>
+    expect(attributes['om.runtime']).toBe('opencode')
+    expect(attributes['om.agent.id']).toBe(FILE_AGENT_ID)
+    expect(attributes['om.model.declared']).toBe('gpt-5-mini')
+    expect(attributes).not.toHaveProperty('om.model.resolved')
+    expect(attributes).not.toHaveProperty('om.provider')
+    expect(attributes['om.invoker']).toEqual({ kind: 'user', userId: 'user-1', apiKeyId: null, ownerUserId: null })
+  })
+
+  it('records the deployment default capture in the manifest when the tenant saved no policy', async () => {
+    const entry = registerExampleFileAgent()
+    const { commandBus, container } = makeHarness()
+    const runner = new OpenCodeAgentRunner({
+      container: container as never,
+      commandBus: commandBus as never,
+      openCodeClient: makeFakeClient({ container }),
+    })
+
+    await runner.run(entry, { subject: 'capture default' }, runCtx)
+
+    const spans = findIngestInput(commandBus)!.payload.spans
+    const manifest = spans.find((candidate) => candidate.name === RUN_MANIFEST_SPAN_NAME)
+    expect((manifest?.attributes as Record<string, unknown>)['om.capture']).toEqual({
+      level: 'metadata',
+      source: 'deployment',
+      retentionDays: 30,
+      redactPii: false,
+    })
+  })
+
+  it('records the tenant capture policy in the manifest', async () => {
+    const entry = registerExampleFileAgent()
+    const { commandBus, container } = makeHarness({ capturePolicy: { level: 'off', retentionDays: 7 } })
+    const runner = new OpenCodeAgentRunner({
+      container: container as never,
+      commandBus: commandBus as never,
+      openCodeClient: makeFakeClient({ container }),
+    })
+
+    await runner.run(entry, { subject: 'capture tenant' }, runCtx)
+
+    const spans = findIngestInput(commandBus)!.payload.spans
+    const manifest = spans.find((candidate) => candidate.name === RUN_MANIFEST_SPAN_NAME)
+    expect((manifest?.attributes as Record<string, unknown>)['om.capture']).toEqual({
+      level: 'off',
+      source: 'tenant',
+      retentionDays: 7,
+      redactPii: false,
+    })
+  })
+
+  it('records the invoker, entry point and correlation id from the run context in the manifest', async () => {
+    const entry = registerExampleFileAgent()
+    const { commandBus, container } = makeHarness()
+    const runner = new OpenCodeAgentRunner({
+      container: container as never,
+      commandBus: commandBus as never,
+      openCodeClient: makeFakeClient({ container }),
+    })
+
+    await runner.run(entry, { subject: 'manifest' }, {
+      ...runCtx,
+      invoker: { kind: 'api_key', apiKeyId: 'key-1', ownerUserId: 'user-1' },
+      entryPoint: 'run_api',
+      correlationId: 'corr-1',
+    })
+
+    const spans = findIngestInput(commandBus)!.payload.spans
+    const manifest = spans.find((candidate) => candidate.name === RUN_MANIFEST_SPAN_NAME)
+    const attributes = manifest?.attributes as Record<string, unknown>
+    expect(attributes['om.invoker']).toEqual({ kind: 'api_key', userId: null, apiKeyId: 'key-1', ownerUserId: 'user-1' })
+    expect(attributes['om.entry_point']).toBe('run_api')
+    expect(attributes).not.toHaveProperty('om.channel')
+    expect(attributes['om.correlation_id']).toBe('corr-1')
+  })
+
+  it('writes no run.manifest span when trace capture is off', async () => {
+    process.env.OM_AGENT_TRACE_CAPTURE = 'off'
+    try {
+      const entry = registerExampleFileAgent()
+      const { commandBus, container } = makeHarness()
+      const runner = new OpenCodeAgentRunner({
+        container: container as never,
+        commandBus: commandBus as never,
+        openCodeClient: makeFakeClient({ container }),
+      })
+
+      await runner.run(entry, { subject: 'capture off' }, runCtx)
+
+      const spans = findIngestInput(commandBus)!.payload.spans
+      expect(spans.some((candidate) => candidate.name === RUN_MANIFEST_SPAN_NAME)).toBe(false)
+    } finally {
+      delete process.env.OM_AGENT_TRACE_CAPTURE
+    }
   })
 })

@@ -107,7 +107,24 @@ describe('guardrail-block 422 contract (subclass before parent)', () => {
     expect(body.kind).toBe('moderation')
     expect(body.phase).toBe('input')
     expect(body.guardrailSetVersion).toBe('sha256:test-set')
+    expect(body.ruleId).toBeNull()
     expect(typeof body.error).toBe('string')
+  })
+
+  it('run route carries the blocking integrity ruleId additively', async () => {
+    await mockAuthAndScope()
+    await setupContainer(
+      new AgentGuardrailBlockedError(AGENT_ID, 'guardrail block', {
+        phase: 'output',
+        kind: 'evidence_quote',
+        guardrailSetVersion: 'sha256:integrity-set',
+        ruleId: 'quotes',
+      }),
+    )
+    const res = await runPost(runRequest(), { params: runParams })
+    expect(res.status).toBe(422)
+    const body = await res.json()
+    expect(body).toMatchObject({ code: 'guardrail_blocked', kind: 'evidence_quote', ruleId: 'quotes' })
   })
 
   // The run route stamps a code on every failure it classifies (#5979: the
@@ -137,6 +154,7 @@ describe('guardrail-block 422 contract (subclass before parent)', () => {
     expect(body.kind).toBe('moderation')
     expect(body.phase).toBe('input')
     expect(body.guardrailSetVersion).toBe('sha256:test-set')
+    expect(body.ruleId).toBeNull()
   })
 
   it('rerun route keeps the generic 422 (no code) for a plain AgentOutputInvalidError', async () => {

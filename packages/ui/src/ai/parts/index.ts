@@ -25,3 +25,4 @@ export type {
   AiPendingActionCardExecutionResult,
 } from './types'
 export { AI_MUTATION_APPROVAL_CARDS } from './approval-cards-map'
+export { CitationsPart } from './CitationsPart'

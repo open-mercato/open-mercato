@@ -1,7 +1,7 @@
 /** @jest-environment jsdom */
 
 import * as React from 'react'
-import { screen, waitFor } from '@testing-library/react'
+import { fireEvent, screen, waitFor } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { AttachmentMetadataDialog, type AttachmentItem } from '../detail/AttachmentMetadataDialog'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
@@ -43,6 +43,12 @@ jest.mock('@open-mercato/ui/backend/CrudForm', () => ({
 
 jest.mock('@open-mercato/core/modules/attachments/components/AttachmentContentPreview', () => ({
   AttachmentContentPreview: () => <div data-testid="attachment-content-preview" />,
+}))
+
+jest.mock('../detail/DocumentStructurePanel', () => ({
+  DocumentStructurePanel: ({ attachmentId, canManage }: { attachmentId: string; canManage?: boolean }) => (
+    <div data-testid="document-structure-panel-mock" data-attachment-id={attachmentId} data-can-manage={String(canManage)} />
+  ),
 }))
 
 describe('AttachmentMetadataDialog assignment layout', () => {
@@ -141,5 +147,30 @@ describe('AttachmentMetadataDialog assignment layout', () => {
       expect((wrapper as HTMLElement).className).toContain('w-full')
       expect((wrapper as HTMLElement).className).toContain('min-w-0')
     })
+  })
+
+  it('lazy-renders the document structure panel only on the Structure tab', async () => {
+    renderWithProviders(
+      <AttachmentMetadataDialog
+        open
+        item={item}
+        availableTags={[]}
+        onOpenChange={jest.fn()}
+        onSave={jest.fn()}
+        canManageStructure
+      />,
+    )
+
+    await screen.findByDisplayValue(longAssignment.type)
+    expect(screen.queryByTestId('document-structure-panel-mock')).not.toBeInTheDocument()
+
+    const structureTab = screen.getByRole('tab', { name: 'Structure' })
+    fireEvent.mouseDown(structureTab, { button: 0 })
+    fireEvent.click(structureTab)
+
+    const panel = await screen.findByTestId('document-structure-panel-mock')
+    expect(panel).toHaveAttribute('data-attachment-id', item.id)
+    expect(panel).toHaveAttribute('data-can-manage', 'true')
+    expect(screen.getByTestId('mock-crud-form').closest('[hidden]')).not.toBeNull()
   })
 })

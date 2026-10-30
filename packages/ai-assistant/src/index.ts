@@ -43,10 +43,66 @@ export {
   type AiAgentPageContextInput,
   type AiAgentStructuredOutput,
   type AiAgentDataCapabilities,
+  type AiAgentMcpToolConfig,
 } from './modules/ai_assistant/lib/ai-agent-definition'
+
+export {
+  mergeCallSettings,
+  aiAgentCallSettingsSchema,
+  type AiAgentCallSettings,
+  type AiAgentRunChannel,
+  type AiAgentRunTraceOptions,
+  type AiAgentCallObserver,
+  type AiAgentPromptResolvedEvent,
+  type AiAgentModelCallStartEvent,
+  type AiAgentModelCallEndEvent,
+  type AiAgentModelCallUsage,
+} from './modules/ai_assistant/lib/agent-call-contract'
+
+export {
+  AI_AGENT_RUN_DISPATCHER_DI_KEY,
+  AiAgentDispatchDeniedError,
+  isAiAgentDispatchDeniedError,
+  resolveAiAgentRunDispatcher,
+  resolveDispatchOwner,
+  type ResolveDispatchOwnerOptions,
+  type AiAgentRunDispatcher,
+  type AiAgentRunDispatchInput,
+  type AiAgentRunDispatchResult,
+  type AiAgentRunDispatchCaller,
+  type AiAgentRunDispatchUsage,
+  type AiAgentRunDispatchVia,
+  type AiAgentDispatchDeniedCode,
+} from './modules/ai_assistant/lib/agent-run-dispatcher'
 
 // Additive AI tool builder
 export { defineAiTool } from './modules/ai_assistant/lib/ai-tool-definition'
+
+export {
+  emitCitations,
+  aiCitationSchema,
+  isSafeHref,
+  AI_CITATIONS_COMPONENT_ID,
+  AI_CITATIONS_MAX_PER_CALL,
+  type AiCitation,
+  type AiCitationsPartPayload,
+  type EmitCitationsOptions,
+} from './modules/ai_assistant/lib/citations'
+
+// Agent exposed as one tool (chat, MCP, /tools/execute)
+export {
+  defineAgentTool,
+  AGENT_TOOL_DEFAULT_TIMEOUT_MS,
+  isAgentToolFeatureSuperset,
+  type AgentToolResult,
+  type DefineAgentToolSpec,
+} from './modules/ai_assistant/lib/agent-tool'
+export {
+  AgentToolError,
+  isAgentToolError,
+  type AgentToolErrorCode,
+  type AgentToolDenyCode,
+} from './modules/ai_assistant/lib/agent-tool-error'
 
 // Attachment-bridge contract types (spec Phase 0 §8/§10, implementation-ready for Phase 3 runtime)
 export {
@@ -80,6 +136,12 @@ export { createMcpServer, runMcpServer } from './modules/ai_assistant/lib/mcp-se
 
 // MCP HTTP server
 export { runMcpHttpServer, type McpHttpServerOptions } from './modules/ai_assistant/lib/http-server'
+
+export {
+  MCP_TOOL_EXECUTION_OBSERVER_DI_KEY,
+  type McpToolExecutionObserver,
+  type McpToolExecutionObserverContext,
+} from './modules/ai_assistant/lib/mcp-tool-execution-observer'
 
 // MCP auth
 export {
@@ -137,6 +199,19 @@ export {
   type ResolvedAgentTools,
   type AiUiPartQueue,
 } from './modules/ai_assistant/lib/agent-tools'
+
+// Tool record/replay seam for reproducible eval runs
+export {
+  withToolReplayContext,
+  getToolReplayContext,
+  computeToolArgsKey,
+  ToolReplayError,
+  type ToolReplayContext,
+  type ToolReplayFixture,
+  type ToolReplayMiss,
+  type ToolReplayMissReason,
+  type ToolReplayErrorCode,
+} from './modules/ai_assistant/lib/llm-adapters/tool-replay-context'
 
 // In-process API operation runner (Phase 1 of API-backed AI tool DRY refactor)
 export {

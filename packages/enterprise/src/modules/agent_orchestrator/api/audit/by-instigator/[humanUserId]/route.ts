@@ -4,6 +4,11 @@ import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import {
+  PROPOSAL_CORRELATION_KEY,
+  RUN_CORRELATION_KEY,
+  readCorrelationValue,
+} from '../../../../lib/identity/runActionCorrelation'
 
 /**
  * Audit chain by instigator (Agent Identity & On-Behalf-Of, Wave 4 P2).
@@ -41,6 +46,8 @@ const entrySchema = z.object({
   createdAt: z.string().nullable(),
   /** `'direct'` when the human is the actor; `'via_agent'` when an agent acted on their behalf. */
   via: z.enum(['direct', 'via_agent']),
+  agentRunId: z.string().nullable(),
+  proposalId: z.string().nullable(),
 })
 
 export const responseSchema = z.object({
@@ -78,6 +85,7 @@ export async function GET(req: Request, ctx: RouteContext) {
       'action_logs.actor_user_id as actorUserId',
       'action_logs.on_behalf_of_user_id as onBehalfOfUserId',
       'action_logs.created_at as createdAt',
+      'action_logs.correlation_keys as correlationKeys',
     ])
     .where('action_logs.deleted_at', 'is', null)
     .where('action_logs.tenant_id', '=', auth.tenantId)
@@ -100,6 +108,7 @@ export async function GET(req: Request, ctx: RouteContext) {
   const items = (rows as Array<Record<string, unknown>>).map((row) => {
     const onBehalfOf = (row.onBehalfOfUserId as string | null) ?? null
     const createdAt = row.createdAt
+    const correlationKeys = Array.isArray(row.correlationKeys) ? (row.correlationKeys as string[]) : null
     return {
       id: String(row.id),
       commandId: (row.commandId as string | null) ?? null,
@@ -117,6 +126,8 @@ export async function GET(req: Request, ctx: RouteContext) {
             ? String(createdAt)
             : null,
       via: onBehalfOf === parsedId.data ? ('via_agent' as const) : ('direct' as const),
+      agentRunId: readCorrelationValue(correlationKeys, RUN_CORRELATION_KEY),
+      proposalId: readCorrelationValue(correlationKeys, PROPOSAL_CORRELATION_KEY),
     }
   })
 
@@ -130,7 +141,7 @@ export const openApi: OpenApiRouteDoc = {
     GET: {
       summary: 'List actions a human caused directly and via agents',
       description:
-        'Returns ActionLog entries where the human is either the direct actor or the on-behalf-of principal of an agent action, joined on action_logs.on_behalf_of_user_id. Org-scoped; gated by agent_orchestrator.identity.read.',
+        'Returns ActionLog entries where the human is either the direct actor or the on-behalf-of principal of an agent action, joined on action_logs.on_behalf_of_user_id. `agentRunId` / `proposalId` carry the run and proposal correlation recorded on the entry, or null. Org-scoped; gated by agent_orchestrator.identity.read.',
       responses: [{ status: 200, description: 'Instigator audit chain', schema: responseSchema }],
       errors: [
         { status: 400, description: 'Invalid query', schema: errorSchema },
