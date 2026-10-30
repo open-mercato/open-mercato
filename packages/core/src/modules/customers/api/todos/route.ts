@@ -504,14 +504,22 @@ export async function PUT(request: Request): Promise<Response> {
         ...(nextDone !== undefined ? { status: nextDone ? 'done' : 'planned' } : {}),
         ...(customValues ? {
           customValues,
-          priority: typeof customValues.priority === 'number' ? customValues.priority : null,
-          body: typeof customValues.description === 'string' ? customValues.description : null,
-          scheduledAt:
-            typeof customValues.due_at === 'string'
-              ? customValues.due_at
-              : typeof customValues.dueAt === 'string'
-                ? customValues.dueAt
-                : null,
+          ...(customValues.priority !== undefined
+            ? { priority: typeof customValues.priority === 'number' ? customValues.priority : null }
+            : {}),
+          ...(customValues.description !== undefined
+            ? { body: typeof customValues.description === 'string' ? customValues.description : null }
+            : {}),
+          ...(customValues.due_at !== undefined || customValues.dueAt !== undefined
+            ? {
+                scheduledAt:
+                  typeof customValues.due_at === 'string'
+                    ? customValues.due_at
+                    : typeof customValues.dueAt === 'string'
+                      ? customValues.dueAt
+                      : null,
+              }
+            : {}),
         } : {}),
       },
       ctx: commandContext,

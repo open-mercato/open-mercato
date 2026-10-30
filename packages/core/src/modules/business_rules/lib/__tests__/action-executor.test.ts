@@ -19,6 +19,14 @@ import {
 } from '../action-executor'
 import { createTransactionalEntityManagerDouble } from '../../../../test-utils/transactionalEntityManagerDouble'
 
+const mockAssertActorCanGrantRoles = jest.fn(async (_input: unknown) => undefined)
+const mockIsUserEffectivelySuperAdmin = jest.fn(async (_em: unknown, _userId: string) => false)
+
+jest.mock('../../../auth/lib/grantChecks', () => ({
+  assertActorCanGrantRoles: jest.fn((input: unknown) => mockAssertActorCanGrantRoles(input)),
+  isUserEffectivelySuperAdmin: jest.fn((em: unknown, userId: string) => mockIsUserEffectivelySuperAdmin(em, userId)),
+}))
+
 describe('Action Executor', () => {
   // Type-safe result extractors
   const asAllowTransition = (result: any) => result.result as AllowTransitionResult
@@ -489,11 +497,28 @@ describe('Action Executor', () => {
       const originalAppUrl = process.env.APP_URL
       const mockFetch = jest.fn() as jest.MockedFunction<typeof fetch>
       const apiKeyProfileId = '123e4567-e89b-42d3-a456-426614174010'
+      const ruleAuthorId = '123e4567-e89b-42d3-a456-426614174020'
+      const authorApiKeyId = '123e4567-e89b-42d3-a456-426614174030'
 
-      function createOpenMercatoContext(overrides: Partial<ActionContext> = {}) {
+      function createOpenMercatoContext(
+        overrides: Partial<ActionContext> = {},
+        users: Record<string, { id: string; tenantId: string | null }> = {
+          [ruleAuthorId]: { id: ruleAuthorId, tenantId: 'tenant-456' },
+        },
+      ) {
         const createdApiKeys: any[] = []
         const apiKeyProfile = {
           id: apiKeyProfileId,
+          name: 'Automation profile',
+          tenantId: 'tenant-456',
+          organizationId: 'org-789',
+          rolesJson: ['role-1'],
+          expiresAt: null,
+          deletedAt: null,
+        }
+        const authorApiKey = {
+          id: authorApiKeyId,
+          name: 'Rule author key',
           tenantId: 'tenant-456',
           organizationId: 'org-789',
           rolesJson: ['role-1'],
@@ -503,7 +528,11 @@ describe('Action Executor', () => {
         const em = createTransactionalEntityManagerDouble({
           findOne: jest.fn(async (Entity: any, query: any) => {
             if (Entity?.name === 'ApiKey') {
+              if (query.id === authorApiKeyId) return authorApiKey
               return createdApiKeys.find((record) => record.id === query.id) ?? apiKeyProfile
+            }
+            if (Entity?.name === 'User') {
+              return users[query.id] ?? null
             }
             return null
           }),
@@ -518,6 +547,9 @@ describe('Action Executor', () => {
             if (Entity?.name === 'ApiKey' && Array.isArray(query?.id?.$in)) {
               return createdApiKeys.filter((record) => query.id.$in.includes(record.id))
             }
+            if (Entity?.name === 'Role' && Array.isArray(query?.id?.$in)) {
+              return query.id.$in.map((id: string) => ({ id, tenantId: 'tenant-456' }))
+            }
             return []
           }),
         })
@@ -529,6 +561,8 @@ describe('Action Executor', () => {
             organizationId: 'org-789',
             executedBy: 'user-123',
             em: em as any,
+            ruleAuthorId,
+            rbacService: {} as any,
             openMercatoEndpointOptions: [
               {
                 id: 'POST /api/business_rules/rules',
@@ -558,6 +592,109 @@ describe('Action Executor', () => {
         process.env.APP_URL = 'http://localhost:3000'
         global.fetch = mockFetch as any
         mockFetch.mockReset()
+        mockAssertActorCanGrantRoles.mockReset()
+        mockAssertActorCanGrantRoles.mockResolvedValue(undefined)
+        mockIsUserEffectivelySuperAdmin.mockReset()
+        mockIsUserEffectivelySuperAdmin.mockResolvedValue(false)
+      })
+
+      function mockSuccessfulResponse() {
+        mockFetch.mockResolvedValue({
+          ok: true,
+          status: 200,
+          statusText: 'OK',
+          headers: new Headers({ 'content-type': 'application/json' }),
+          json: async () => ({ ok: true }),
+        } as any)
+      }
+
+      const getAction: Action = {
+        type: 'CALL_OPEN_MERCATO',
+        config: {
+          endpoint: '/api/business_rules/rules',
+          method: 'GET',
+          apiKeyId: apiKeyProfileId,
+        },
+      }
+
+      it('should refuse to mint a key when the rule author cannot grant the profile roles', async () => {
+        mockSuccessfulResponse()
+        mockAssertActorCanGrantRoles.mockImplementation(async () => {
+          const { forbidden } = jest.requireActual('@open-mercato/shared/lib/crud/errors') as typeof import('@open-mercato/shared/lib/crud/errors')
+          throw forbidden('Not allowed to grant')
+        })
+        const { context, createdApiKeys } = createOpenMercatoContext()
+
+        const result = await executeAction(getAction, context)
+
+        expect(result.success).toBe(false)
+        expect(result.error).toContain('cannot grant every role')
+        expect(result.error).not.toContain('[internal]')
+        expect(createdApiKeys).toHaveLength(0)
+        expect(mockFetch).not.toHaveBeenCalled()
+        expect(mockAssertActorCanGrantRoles).toHaveBeenCalledWith(expect.objectContaining({
+          actorUserId: ruleAuthorId,
+          tenantId: 'tenant-456',
+          organizationId: 'org-789',
+          requireBoundRbac: true,
+          roles: [expect.objectContaining({ id: 'role-1' })],
+        }))
+      })
+
+      it('should fail closed when the rule has no author', async () => {
+        mockSuccessfulResponse()
+        const { context, createdApiKeys } = createOpenMercatoContext({ ruleAuthorId: null })
+
+        const result = await executeAction(getAction, context)
+
+        expect(result.success).toBe(false)
+        expect(result.error).toContain('the rule has no active author')
+        expect(createdApiKeys).toHaveLength(0)
+        expect(mockFetch).not.toHaveBeenCalled()
+      })
+
+      it('should fail closed when the rule author was deleted', async () => {
+        mockSuccessfulResponse()
+        const { context, createdApiKeys } = createOpenMercatoContext({}, {})
+
+        const result = await executeAction(getAction, context)
+
+        expect(result.success).toBe(false)
+        expect(result.error).toContain('the rule has no active author')
+        expect(createdApiKeys).toHaveLength(0)
+        expect(mockAssertActorCanGrantRoles).not.toHaveBeenCalled()
+      })
+
+      it('should fail closed for an author from another tenant unless they are a super administrator', async () => {
+        mockSuccessfulResponse()
+        const foreignUsers = { [ruleAuthorId]: { id: ruleAuthorId, tenantId: 'tenant-other' } }
+        const refused = createOpenMercatoContext({}, foreignUsers)
+
+        const refusedResult = await executeAction(getAction, refused.context)
+
+        expect(refusedResult.success).toBe(false)
+        expect(refused.createdApiKeys).toHaveLength(0)
+
+        mockIsUserEffectivelySuperAdmin.mockResolvedValue(true)
+        const allowed = createOpenMercatoContext({}, foreignUsers)
+
+        const allowedResult = await executeAction(getAction, allowed.context)
+
+        expect(allowedResult.success).toBe(true)
+        expect(allowed.createdApiKeys).toHaveLength(1)
+      })
+
+      it('should accept a live API key as the rule author', async () => {
+        mockSuccessfulResponse()
+        const { context, createdApiKeys } = createOpenMercatoContext({ ruleAuthorId: `api_key:${authorApiKeyId}` }, {})
+
+        const result = await executeAction(getAction, context)
+
+        expect(result.success).toBe(true)
+        expect(createdApiKeys).toHaveLength(1)
+        expect(mockAssertActorCanGrantRoles).toHaveBeenCalledWith(expect.objectContaining({
+          actorUserId: `api_key:${authorApiKeyId}`,
+        }))
       })
 
       afterEach(() => {

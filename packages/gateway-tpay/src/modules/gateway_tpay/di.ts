@@ -12,6 +12,7 @@ export function register(container: AppContainer) {
   registerPaymentGatewayDescriptor({
     providerKey: 'tpay',
     label: 'Tpay',
+    requiresPayerFields: ['email', 'name'],
     sessionConfig: {
       fields: [],
       supportedCurrencies: ['PLN'],

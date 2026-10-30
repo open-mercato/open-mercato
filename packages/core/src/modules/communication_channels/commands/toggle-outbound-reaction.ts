@@ -37,6 +37,7 @@ export type ToggleOutboundReactionInput = z.infer<typeof toggleOutboundReactionS
 export type ToggleOutboundReactionResult =
   | { status: 'no_channel_link'; reason: string }
   | { status: 'not_owner'; reason: string }
+  | { status: 'not_found'; reason: string }
   | {
       status: 'added'
       reactionId: string
@@ -110,7 +111,7 @@ const toggleOutboundReactionCommand: CommandHandler<
       dscope,
     )
     if (!message) {
-      return { status: 'no_channel_link', reason: 'message not found' }
+      return { status: 'not_found', reason: 'message not found' }
     }
     const channelLink = await findOneWithDecryption(
       em,
@@ -152,7 +153,6 @@ const toggleOutboundReactionCommand: CommandHandler<
         id: mapping.channelId,
         tenantId: input.scope.tenantId,
         organizationId: input.scope.organizationId ?? null,
-        deletedAt: null,
       },
       undefined,
       dscope,
@@ -169,6 +169,9 @@ const toggleOutboundReactionCommand: CommandHandler<
     // guard. Applies to both add and remove.
     if (resolvedChannel.userId != null && resolvedChannel.userId !== input.reactedByUserId) {
       return { status: 'not_owner', reason: 'channel is owned by another user' }
+    }
+    if (resolvedChannel.deletedAt != null) {
+      return { status: 'no_channel_link', reason: 'channel not resolved' }
     }
     const capabilities = (resolvedChannel.capabilities as ChannelCapabilities | null) ?? null
 
