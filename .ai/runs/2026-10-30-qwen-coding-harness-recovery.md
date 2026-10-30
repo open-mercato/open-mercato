@@ -11,7 +11,7 @@ Source doc: .ai/specs/2026-10-30-coding-harness-contract-recovery.md
 - Prefer shared bounded source/fixture delivery and contract-accurate semantic oracles. Primary runtime owners: existing evaluator, case catalog, writable AST oracle and fixture seed catalog, an optional Pi hook for demonstrated client-side MCP truncation, and current generated-config recognition in the existing fresh-scaffold validator. A demonstrated stale CLI-cache restoration additionally requires its exact external build-input declaration. Use existing source/example inventories; avoid one prose patch per failure.
 - Keep actual typecheck, tenant safety, sandbox confinement, behavioral probes, pass definitions and first-attempt evidence. Do not convert invalid generated apps into passing results or raise budgets to hide unrelated reads.
 - Fresh local Qwen/Pi validation uses disposable targets and separate result storage. The original stopped experiment and its scores stay frozen. The experimental transport is not an official runner or release certificate.
-- No production dependency, public runtime API, scaffold mode or release/PR automation change. Supporting tests, documentation and derived inventories accompany the smallest proven owners.
+- No production dependency, public runtime API, scaffold mode or release/PR automation change. Supporting tests, documentation and derived inventories accompany the smallest proven owners. Follow-up knowledge owners are the shared root and its fallback, plus the existing compatibility-classification list; no new runtime architecture or permissions are introduced.
 
 ## Implementation plan
 1. Freeze evidence, write the 14-row analysis and implementation spec, and compare pinned contracts with the branch base.
@@ -47,6 +47,10 @@ Pi delivery regression: four semantic failures/one control pass without the hook
 Coding context tests: 13 pass, including all 49 writable seed declarations and protected resume fixture. Source-policy tests: 30 pass, including real MCP trace accounting and actual installed adapter/descriptor preparation.
 
 Structural and typed-seed validation initially passed 65 tests. Review added malformed-output exit classification, exact example entrypoint disclosure and bound React callback regressions. The full read-policy sync suite passes 66 tests; separate example bounds cover the complete declared surface without raising writable routing budgets. Real typecheck/behavior gates remain unchanged.
+
+- [ ] 2.4 Repair shared instruction and public read-scope contradictions.
+
+Round 4 exposes a further shared mismatch: the writable prompt mentions declared canonical capabilities without disclosing their complete permitted paths, while the example map describes denied paths as readable. Project only the exact canonical allowlist through the existing evaluator; never project instruction permissions or expected routing answers. The same evidence identifies ambiguous app-owned versus installed UMES shortcuts and missed explicit Jest imports. Clarify the root once, mirrored to its fallback. Preserve the broad public-contract safety rule; reconcile only demonstrated excluded contract cases (011/012/018), measuring total ordinary closure without changing initial or example limits. The independent Round 4 controller/runtime remain frozen at b478b301e while the PR branch prepares these follow-ups. Heavy gates and a fresh candidate cohort wait until the timed batch ends.
 
 ### Phase 3: Evaluation evidence
 - Cached-delivery regression: normal builds restored legacy CLI harness assets despite corrected source. `f40d9e798` declares the copied inputs; two real Turbo tests fail before and pass afterward, retaining unchanged-input cache hits. Source/create-app/CLI parity passes through normal cached builds.

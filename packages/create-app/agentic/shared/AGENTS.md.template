@@ -30,6 +30,8 @@ Route first; never probe unmatched context.
 
 ## Validation
 
+Unit tests use Jest; import globals from `@jest/globals`. This alone adds no `testing` route.
+
 Broad: `yarn generate && yarn typecheck && yarn lint && yarn ds:check && yarn test && yarn build`; integration: `yarn test:integration:ephemeral`. Never migrate to validate.
 
 ## Production Deployment
@@ -42,7 +44,7 @@ Routes are additive: ownership says WHO; other axes say WHAT. Select every match
 
 `debugging` is additive. A scalar-ID/snapshot fix to persisted records or commands linked to an installed record MUST use `module-data` + `umes` and load `om-data-model-design` + `om-system-extension`.
 
-`debugging` = reported bug/security/drift, not designed failure UI. Custom fields/entities = `umes` + `module-data` + `om-data-model-design`; editable round trips add `backend-ui`, requested coverage adds `testing`. Never infer work from specs/PRs.
+`debugging` = reported bug/security/drift, not designed failure UI. Editable round trips add `backend-ui`, requested coverage adds `testing`. Never infer work from specs/PRs.
 
 Unified-override audits = `umes` only; add `architecture`/`framework-context` only for unresolved ownership or installed keys. Durable process/activity/user task = `module-data` + `ai-workflow`. Multi-stage waits/cancel/restart are durable; reminders and renewal/batch schedules are `module-data`.
 
@@ -64,7 +66,7 @@ Existing installed form/table fields, filters, row/bulk actions without app pers
 | `ai-workflow` | Agent/tool/MCP/orchestrator/durable workflow | `.ai/guides/ai-workflows.md` + facts; schedules/queues/workers/retries/progress alone are `module-data` |
 | `debugging` | Bug/security/drift/runtime inconsistency | `.ai/guides/testing-debugging.md` + affected areas |
 
-API/command/record/status/event/UI changes/guards = `umes`; app persistence = `module-data`; installed guard without app persistence = `umes` only, so do not load contracts; read-only behavior/auth/dependents/customization = `framework-context` (alone: no extensions guide; report `installed-version`). Facts do not. Providers are published, never `packages/*`.
+App-owned data/API/commands = `module-data`; installed behavior changes/guards = `umes`. Installed-only guards do not load contracts; read-only behavior/auth/dependents/customization = `framework-context` (alone: no extensions guide; report `installed-version`). Facts do not. Providers are published, never `packages/*`.
 
 ### Axis 2 — Work Units
 
@@ -82,7 +84,7 @@ Match every work-unit row; OPEN its skill before selection.
 | `module-data` | CRUD/API/command/OpenAPI/ACL/setup/mutation | `om-module-scaffold` + contracts |
 | `backend-ui` | Form/table/page/renderer/middleware/nav/i18n/UI states | `om-backend-ui-design` + backend UI |
 | `module-data` | Search/analytics/event/notification/message/worker/progress/cache/CLI | scaffold + contracts |
-| `umes` | Fields/extension entities/links/enrichers/injection/interceptors/guards/subscribers/DOM/widgets/toggles/overrides | `om-system-extension` + extensions; choices load `mechanism-selector` + `extension-branches` |
+| `umes` | Installed fields/extension entities/links/enrichers/injection/interceptors/guards/subscribers/DOM/widgets/toggles/overrides | `om-system-extension` + extensions; choices load `mechanism-selector` + `extension-branches` |
 | `integration` | Provider/credentials/health/webhook/files/client/reconciliation/package | `om-integration-builder` + integrations |
 | `ai-workflow` | Agent/tool/MCP/OpenCode/Code Mode/orchestrator/AI file or content drafting/attachment/override | `om-create-ai-agent` + AI/workflows; MCP/OpenCode loads `surface-selector` + `ai_assistant` facts |
 | `ai-workflow` | Workflow/activity/user task/idempotency/output/progress | `om-build-workflow` + AI/workflows |
