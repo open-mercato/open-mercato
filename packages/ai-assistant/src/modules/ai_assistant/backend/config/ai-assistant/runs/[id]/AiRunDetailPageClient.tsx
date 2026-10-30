@@ -11,6 +11,7 @@ import { ErrorMessage, LoadingMessage, RecordNotFoundState } from '@open-mercato
 import { CollapsibleSection } from '@open-mercato/ui/backend/SectionHeader'
 import { JsonDisplay } from '@open-mercato/ui/backend/JsonDisplay'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { CitationsPart } from '@open-mercato/ui/ai/parts/CitationsPart'
 import {
   AGENT_RUNS_API_PATH,
   AGENT_RUNS_HREF,
@@ -271,6 +272,7 @@ export function AiRunDetailPageClient({ id }: { id: string }) {
 
   const { run, links } = detail
   const contentCaptured = run.captureLevel !== 'metadata'
+  const citations = contentCaptured && Array.isArray(run.citations) ? run.citations : []
   const conversationId = links.conversationId
 
   return (
@@ -372,6 +374,15 @@ export function AiRunDetailPageClient({ id }: { id: string }) {
           text={run.outputText}
           truncated={run.contentTruncated}
         />
+      ) : null}
+
+      {citations.length > 0 ? (
+        <div data-agent-run-sources>
+          <CitationsPart
+            componentId="ai_assistant:citations"
+            payload={{ citations, title: t('ai_assistant.runs.detail.citations', 'Sources') }}
+          />
+        </div>
       ) : null}
 
       <CollapsibleSection title={t('ai_assistant.runs.detail.modelParams', 'Model parameters')} defaultCollapsed>

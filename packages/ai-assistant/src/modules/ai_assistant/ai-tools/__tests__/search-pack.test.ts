@@ -562,3 +562,54 @@ describe('search-pack tool surface', () => {
     }
   })
 })
+
+describe('search.* record citations', () => {
+  function makeUiPartsCtx(results: unknown[]) {
+    const { service } = makeSearchService(results)
+    const enqueue = jest.fn()
+    const ctx = { ...makeCtx(), uiParts: { enqueue } }
+    const lookup = permissiveLookup(['catalog:product'])
+    ;(ctx.container.resolve as jest.Mock).mockImplementation((name: string) => {
+      if (name === 'searchService') return service
+      if (name === 'searchIndexer') return lookup
+      throw new Error(`unexpected ${name}`)
+    })
+    return { ctx, enqueue }
+  }
+
+  it('hybrid_search emits record citations for returned hits and drops unsafe hrefs', async () => {
+    const { ctx, enqueue } = makeUiPartsCtx([
+      { entityId: 'catalog:product', recordId: 'rec-1', score: 1, source: 'fulltext', presenter: { title: 'Widget' }, url: '/backend/catalog/products/rec-1' },
+      { entityId: 'catalog:product', recordId: 'rec-2', score: 0.5, source: 'fulltext', url: 'javascript:alert(1)' },
+    ])
+    await findTool('search.hybrid_search').handler({ q: 'widget' }, ctx as any)
+    expect(enqueue).toHaveBeenCalledTimes(1)
+    expect(enqueue).toHaveBeenCalledWith({
+      componentId: 'ai_assistant:citations',
+      payload: {
+        citations: [
+          { kind: 'record', ref: 'catalog:product:rec-1', label: 'Widget', href: '/backend/catalog/products/rec-1' },
+          { kind: 'record', ref: 'catalog:product:rec-2' },
+        ],
+      },
+    })
+  })
+
+  it('hybrid_search emits nothing when there are no hits', async () => {
+    const { ctx, enqueue } = makeUiPartsCtx([])
+    await findTool('search.hybrid_search').handler({ q: 'nothing' }, ctx as any)
+    expect(enqueue).not.toHaveBeenCalled()
+  })
+
+  it('get_record_context cites only the matched record', async () => {
+    const { ctx, enqueue } = makeUiPartsCtx([
+      { entityId: 'catalog:product', recordId: 'rec-9', score: 0.4, source: 'fulltext' },
+      { entityId: 'catalog:product', recordId: 'rec-42', score: 1, source: 'fulltext', presenter: { title: 'Gadget' } },
+    ])
+    await findTool('search.get_record_context').handler({ entityId: 'catalog:product', recordId: 'rec-42' }, ctx as any)
+    expect(enqueue).toHaveBeenCalledWith({
+      componentId: 'ai_assistant:citations',
+      payload: { citations: [{ kind: 'record', ref: 'catalog:product:rec-42', label: 'Gadget' }] },
+    })
+  })
+})

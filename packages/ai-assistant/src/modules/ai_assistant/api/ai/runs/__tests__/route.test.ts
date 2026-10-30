@@ -373,6 +373,20 @@ describe('AI agent runs API', () => {
       expect(body.links).toEqual({ conversationId: 'conv-a', pendingActionIds: ['pa-1'] })
     })
 
+    it('includes the run citations in the detail but never in the list', async () => {
+      const citations = [{ kind: 'record', ref: 'catalog:product:p1', label: 'Red shoe' }]
+      ownRun.citations = citations
+      const response = await detail(ownRun.id as string)
+      expect(response.status).toBe(200)
+      expect((await response.json()).run.citations).toEqual(citations)
+      const listed = await (await listRuns(request('/runs') as never)).json()
+      for (const item of listed.items) expect(item).not.toHaveProperty('citations')
+    })
+
+    it('returns null citations when the run has none', async () => {
+      expect((await (await detail(ownRun.id as string)).json()).run.citations).toBeNull()
+    })
+
     it("returns 404 for another user's private-conversation run", async () => {
       expect((await detail(otherPrivateRun.id as string)).status).toBe(404)
     })

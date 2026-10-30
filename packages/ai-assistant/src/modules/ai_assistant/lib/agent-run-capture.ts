@@ -6,6 +6,7 @@ import { getAgentDefinitionHash } from './agent-registry'
 import { reportAiAssistantError } from './report-ai-assistant-error'
 import { computeAgentDefinitionHash } from './agent-definition-hash'
 import { extractStepMeta, normalizeToolError } from './loop-step-extraction'
+import { collectRunCitations } from './citations'
 import type { RawStepEvent } from './loop-step-extraction'
 import {
   buildAgentRunModelParams,
@@ -228,6 +229,7 @@ export function createAgentRunCapture(input: AgentRunCaptureInput): AgentRunCapt
             outputTokens: settleInput.usage.outputTokens ?? 0,
           }
     const lastStep = settleInput.steps[settleInput.steps.length - 1]
+    const citations = collectRunCitations(toolCalls.map((toolCall) => toolCall.result))
     const snapshot = recorderObserver.snapshot()
     try {
       return await recordAgentRun(
@@ -268,7 +270,7 @@ export function createAgentRunCapture(input: AgentRunCaptureInput): AgentRunCapt
           inputText: settleInput.inputText,
           outputText: settleInput.outputText ?? null,
           systemPrompt: input.systemPrompt,
-          citations: null,
+          citations: citations.length > 0 ? citations : null,
           error: settleInput.error === undefined ? null : toAgentRunError(settleInput.error),
           steps,
           toolCalls,

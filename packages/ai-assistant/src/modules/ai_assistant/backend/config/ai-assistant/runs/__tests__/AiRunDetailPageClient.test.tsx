@@ -177,6 +177,38 @@ describe('AiRunDetailPageClient', () => {
     expect(screen.queryByText(dict['ai_assistant.runs.detail.input'])).toBeNull()
   })
 
+  it('renders the run citations as a numbered Sources section', async () => {
+    apiCallMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      result: buildDetail({
+        citations: [
+          { kind: 'record', ref: 'catalog:product:p1', label: 'Red shoe', href: '/backend/catalog/products/p1' },
+          { kind: 'kb', ref: 'returns@2', quote: 'Returns within 30 days' },
+        ],
+      }),
+    })
+    const { container } = renderWithProviders(<AiRunDetailPageClient id={RUN_ID} />, { dict })
+    expect(await screen.findByText(dict['ai_assistant.runs.detail.citations'])).toBeTruthy()
+    const sources = container.querySelector('[data-agent-run-sources]')
+    expect(sources).not.toBeNull()
+    expect(sources?.querySelectorAll('li')).toHaveLength(2)
+    expect(screen.getByText('Red shoe').closest('a')?.getAttribute('href')).toBe('/backend/catalog/products/p1')
+    expect(screen.getByText('returns@2')).toBeTruthy()
+    expect(screen.getByText('Returns within 30 days')).toBeTruthy()
+  })
+
+  it('omits the Sources section when the run has no citations or was captured at metadata level', async () => {
+    apiCallMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      result: buildDetail({ captureLevel: 'metadata', citations: [{ kind: 'kb', ref: 'a' }] }),
+    })
+    const { container } = renderWithProviders(<AiRunDetailPageClient id={RUN_ID} />, { dict })
+    expect(await screen.findByText(dict['ai_assistant.runs.detail.contentNotCaptured'])).toBeTruthy()
+    expect(container.querySelector('[data-agent-run-sources]')).toBeNull()
+  })
+
   it('renders the no-steps message when the run recorded no steps', async () => {
     const detail = buildDetail()
     apiCallMock.mockResolvedValue({ ok: true, status: 200, result: { ...detail, steps: [], toolCalls: [] } })

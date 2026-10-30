@@ -13,7 +13,9 @@ jest.mock('@open-mercato/shared/lib/logger', () => {
 import {
   AI_CITATIONS_COMPONENT_ID,
   AI_CITATIONS_MAX_PER_CALL,
+  AI_RUN_CITATIONS_MAX,
   aiCitationSchema,
+  collectRunCitations,
   emitCitations,
   isSafeHref,
 } from '../citations'
@@ -241,5 +243,71 @@ describe('public entry', () => {
     expect(publicEntry.aiCitationSchema).toBe(aiCitationSchema)
     expect(publicEntry.isSafeHref).toBe(isSafeHref)
     expect(publicEntry.AI_CITATIONS_COMPONENT_ID).toBe('ai_assistant:citations')
+  })
+})
+
+describe('collectRunCitations', () => {
+  const part = (citations: unknown[], extra: Record<string, unknown> = {}) => ({
+    componentId: AI_CITATIONS_COMPONENT_ID,
+    payload: { citations, ...extra },
+  })
+
+  it('reads citation parts from JSON-string and object tool outputs and dedupes across tool calls', () => {
+    const first = JSON.stringify({
+      items: [],
+      uiParts: [
+        part([{ kind: 'kb', ref: 'refunds@3', label: 'Refunds' }, { kind: 'record', ref: 'catalog:product:p1' }]),
+        { componentId: 'other:part', payload: { citations: [{ kind: 'kb', ref: 'ignored' }] } },
+      ],
+    })
+    const second = {
+      result: null,
+      uiParts: [part([{ kind: 'kb', ref: 'refunds@3', label: 'Duplicate' }, { kind: 'url', ref: 'https://example.com/a', href: 'https://example.com/a' }])],
+    }
+    expect(collectRunCitations([first, second, 'plain text', null, undefined])).toEqual([
+      { kind: 'kb', ref: 'refunds@3', label: 'Refunds' },
+      { kind: 'record', ref: 'catalog:product:p1' },
+      { kind: 'url', ref: 'https://example.com/a', href: 'https://example.com/a' },
+    ])
+  })
+
+  it('accepts a single uiPart envelope and legacy props payloads', () => {
+    const result = {
+      uiPart: { componentId: AI_CITATIONS_COMPONENT_ID, props: { citations: [{ kind: 'kb', ref: 'a' }] } },
+    }
+    expect(collectRunCitations([result])).toEqual([{ kind: 'kb', ref: 'a' }])
+  })
+
+  it('keeps entries with the same ref but a different locator and drops invalid or unsafe entries', () => {
+    const result = {
+      uiParts: [
+        part([
+          { kind: 'kb', ref: 'a', locator: 'p. 1' },
+          { kind: 'kb', ref: 'a', locator: 'p. 2' },
+          { kind: 'BAD KIND', ref: 'x' },
+          { kind: 'url', ref: 'x', href: 'javascript:alert(1)' },
+        ]),
+      ],
+    }
+    expect(collectRunCitations([result])).toEqual([
+      { kind: 'kb', ref: 'a', locator: 'p. 1' },
+      { kind: 'kb', ref: 'a', locator: 'p. 2' },
+    ])
+  })
+
+  it('caps the run at AI_RUN_CITATIONS_MAX citations', () => {
+    const results = Array.from({ length: 4 }, (_, call) => ({
+      uiParts: [part(Array.from({ length: 20 }, (_, index) => ({ kind: 'kb', ref: `doc-${call}-${index}` })))],
+    }))
+    const collected = collectRunCitations(results)
+    expect(collected).toHaveLength(AI_RUN_CITATIONS_MAX)
+    expect(collected[0]).toEqual({ kind: 'kb', ref: 'doc-0-0' })
+  })
+
+  it('round-trips emitCitations output merged into a tool result', () => {
+    const buffer = createToolUiPartBuffer()
+    emitCitations({ uiParts: buffer }, [{ kind: 'kb', ref: 'a' }], { title: 'Docs' })
+    const output = JSON.stringify(mergeUiPartsIntoToolResult({ ok: true }, buffer.drain()))
+    expect(collectRunCitations([output])).toEqual([{ kind: 'kb', ref: 'a' }])
   })
 })

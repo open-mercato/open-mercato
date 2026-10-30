@@ -95,3 +95,54 @@ export function emitCitations(
   ctx.uiParts.enqueue({ componentId: AI_CITATIONS_COMPONENT_ID, payload })
   return accepted
 }
+
+export const AI_RUN_CITATIONS_MAX = 50
+
+function readObject(value: unknown): Record<string, unknown> | null {
+  if (typeof value === 'string') {
+    if (!value.includes(AI_CITATIONS_COMPONENT_ID)) return null
+    try {
+      return readObject(JSON.parse(value))
+    } catch {
+      return null
+    }
+  }
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null
+}
+
+function readCitationParts(result: unknown): unknown[] {
+  const envelope = readObject(result)
+  if (!envelope) return []
+  const parts: unknown[] = Array.isArray(envelope.uiParts) ? [...envelope.uiParts] : []
+  if (envelope.uiPart !== undefined) parts.push(envelope.uiPart)
+  const citations: unknown[] = []
+  for (const part of parts) {
+    const record = readObject(part)
+    if (!record || record.componentId !== AI_CITATIONS_COMPONENT_ID) continue
+    const payload = readObject(record.payload !== undefined ? record.payload : record.props)
+    if (payload && Array.isArray(payload.citations)) citations.push(...payload.citations)
+  }
+  return citations
+}
+
+export function collectRunCitations(toolResults: readonly unknown[]): AiCitation[] {
+  const accepted: AiCitation[] = []
+  const seen = new Set<string>()
+  for (const result of toolResults) {
+    for (const candidate of readCitationParts(result)) {
+      const parsed = aiCitationSchema.safeParse(candidate)
+      if (!parsed.success) continue
+      const key = citationKey(parsed.data)
+      if (seen.has(key)) continue
+      seen.add(key)
+      if (accepted.length >= AI_RUN_CITATIONS_MAX) {
+        logger.warn('Run citations capped', { cap: AI_RUN_CITATIONS_MAX })
+        return accepted
+      }
+      accepted.push(parsed.data)
+    }
+  }
+  return accepted
+}

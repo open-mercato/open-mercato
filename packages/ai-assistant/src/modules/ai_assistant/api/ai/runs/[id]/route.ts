@@ -29,7 +29,9 @@ export const openApi: OpenApiRouteDoc = {
         'must belong to the caller\'s tenant and organization and be in the caller\'s scope ' +
         '(own run, or a run of a conversation the caller owns, participates in, or that is ' +
         'organization-visible; `ai_assistant.runs.view_all` lifts the conversation rule). ' +
-        'Out-of-scope runs return 404 so their existence is not revealed.',
+        'Out-of-scope runs return 404 so their existence is not revealed. `run.citations` lists ' +
+        'the deduplicated sources tool calls emitted during the run (null when none were emitted ' +
+        'or the run was captured at the `metadata` level).',
       responses: [
         {
           status: 200,

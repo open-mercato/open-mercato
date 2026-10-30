@@ -217,6 +217,15 @@ describe('recordAgentRun', () => {
     expect(toolCall.resultBytes).toBe(Buffer.byteLength(JSON.stringify({ items: [{ id: 'product-1' }] })))
   })
 
+  it('stores the run citations at the full level', async () => {
+    const harness = makeContainer()
+    const citations = [{ kind: 'record', ref: 'catalog:product:product-1', label: 'Shoe', quote: 'Red shoe' }]
+    await recordAgentRun(harness.container, makePayload({ citations }), fullEnv)
+
+    const [run] = harness.rowsOf(AiAgentRun)
+    expect(run).toMatchObject({ captureLevel: 'full', citations })
+  })
+
   it('drops every content field at the metadata level but keeps keys, sizes, timings and error codes', async () => {
     const harness = makeContainer()
     const payload = makePayload({
