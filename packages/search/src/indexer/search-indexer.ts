@@ -29,7 +29,7 @@ const MAX_PAGES = 10000
  */
 type CustomFieldExclusion = Set<string> | 'all' | null
 
-type CustomFieldExclusionLookup = (entityId: EntityId) => Promise<CustomFieldExclusion>
+type CustomFieldExclusionLookup = (entityId: EntityId, tenantId: string | null) => Promise<CustomFieldExclusion>
 
 function mergeCustomFieldExclusions(exclusions: CustomFieldExclusion[]): CustomFieldExclusion {
   if (exclusions.includes('all')) return 'all'
@@ -246,17 +246,18 @@ export class SearchIndexer {
   }
 
   /**
-   * Returns a lookup of the custom fields to keep out of build contexts, memoized per entity
-   * for one indexing call. A missing resolver or a failed resolution excludes every custom field.
+   * Returns a lookup of the custom fields to keep out of build contexts, memoized per entity and
+   * tenant for one indexing call. A missing resolver or a failed resolution excludes every custom field.
    */
   private createCustomFieldExclusionLookup(): CustomFieldExclusionLookup {
     const resolver = this.encryptedCustomFieldKeysResolver
-    const cache = new Map<EntityId, Promise<CustomFieldExclusion>>()
-    return (entityId) => {
+    const cache = new Map<string, Promise<CustomFieldExclusion>>()
+    return (entityId, tenantId) => {
       if (!resolver) return Promise.resolve('all')
-      let pending = cache.get(entityId)
+      const cacheKey = `${entityId}\u0000${tenantId ?? ''}`
+      let pending = cache.get(cacheKey)
       if (!pending) {
-        pending = resolver(entityId).catch((error): CustomFieldExclusion => {
+        pending = resolver(entityId, tenantId).catch((error): CustomFieldExclusion => {
           searchWarn('SearchIndexer', 'Encrypted custom fields could not be resolved; excluding every custom field', {
             entityId,
             error: error instanceof Error ? error.message : error,
@@ -264,7 +265,7 @@ export class SearchIndexer {
           reportSearchError('SearchIndexer', error, 'search.encrypted_custom_fields_unresolved', { entityId })
           return 'all'
         })
-        cache.set(entityId, pending)
+        cache.set(cacheKey, pending)
       }
       return pending
     }
@@ -275,7 +276,7 @@ export class SearchIndexer {
    * Used to prevent feedback loops when search indexing callbacks (buildSource, formatResult)
    * call queryEngine.query() to hydrate related entities. Encrypted custom fields are removed
    * from the hydrated records, as from the indexed record itself, including those joined in
-   * from `customFieldSources`.
+   * from `customFieldSources`. A query without a tenant is checked against every tenant's definitions.
    */
   private createBuildQueryEngine(exclusions: CustomFieldExclusionLookup): QueryEngine | undefined {
     if (!this.queryEngine) return undefined
@@ -284,8 +285,9 @@ export class SearchIndexer {
       query: async (entity, opts) => {
         const result = await queryEngine.query(entity, { ...opts, skipAutoReindex: true })
         const sourceEntityIds = [entity, ...(opts?.customFieldSources ?? []).map((source) => source.entityId)]
+        const tenantId = opts?.tenantId ?? null
         const exclusion = mergeCustomFieldExclusions(
-          await Promise.all(sourceEntityIds.map((sourceEntityId) => exclusions(sourceEntityId as EntityId))),
+          await Promise.all(sourceEntityIds.map((sourceEntityId) => exclusions(sourceEntityId as EntityId, tenantId))),
         )
         if (!exclusion || !Array.isArray(result?.items)) return result
         return {
@@ -329,7 +331,7 @@ export class SearchIndexer {
     }
 
     const exclusions = this.createCustomFieldExclusionLookup()
-    const exclusion = await exclusions(params.entityId)
+    const exclusion = await exclusions(params.entityId, params.tenantId)
     const buildContext: SearchBuildContext = {
       record: withoutExcludedRecordCustomFields(params.record, exclusion),
       customFields: withoutExcludedCustomFields(params.customFields ?? {}, exclusion),
@@ -735,7 +737,7 @@ export class SearchIndexer {
         continue
       }
 
-      const exclusion = await exclusions(param.entityId)
+      const exclusion = await exclusions(param.entityId, param.tenantId)
       const buildContext: SearchBuildContext = {
         record: withoutExcludedRecordCustomFields(param.record, exclusion),
         customFields: withoutExcludedCustomFields(param.customFields ?? {}, exclusion),
@@ -1273,7 +1275,7 @@ export class SearchIndexer {
   ): Promise<{ records: IndexableRecord[]; dropped: number }> {
     const records: IndexableRecord[] = []
     let dropped = 0
-    const exclusion = await exclusions(entityId)
+    const exclusion = await exclusions(entityId, tenantId)
     const buildQueryEngine = this.createBuildQueryEngine(exclusions)
 
     // Debug: log first item to see structure

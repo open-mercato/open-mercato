@@ -21,8 +21,8 @@ A search source is a module's `search.ts` entity config. The indexer builds a `S
 
 ## Proposed Solution
 
-1. **Resolver.** `createEncryptedCustomFieldKeysResolver(db)` reads `custom_field_defs` for an entity and returns the normalized keys whose `config_json.encrypted` is true, plus the query engine's sanitized `cf_` alias of each key. It unions every tenant and organization and ignores `is_active`, because a build context has no definition scope; over-excluding a field is preferable to publishing it.
-2. **Exclusion in every build path.** `indexRecord`, `indexRecordsById`, the reindex paths and `bulkIndexRecords` remove excluded keys from `ctx.customFields` and from the record's `cf:` / `cf_` keys. The query engine handed to sources removes them from every loaded record, merging the exclusions of the queried entity and each `customFieldSources` entity. Exclusions are memoized per entity for one indexing call.
+1. **Resolver.** `createEncryptedCustomFieldKeysResolver(db)` reads `custom_field_defs` for an entity and returns the normalized keys whose `config_json.encrypted` is true, plus the query engine's sanitized `cf_` alias of each key. It reads the record's tenant and global definitions (`tenant_id = :tenant OR tenant_id IS NULL`, as the query engine joins definitions), unions every organization of that tenant and ignores `is_active`, because a build context has no organization; over-excluding a field is preferable to publishing it. A query without a tenant reads every tenant's definitions. A `config_json::text LIKE '%encrypted%'` predicate keeps the rows read to candidate definitions; the flag itself is checked after parsing.
+2. **Exclusion in every build path.** `indexRecord`, `indexRecordsById`, the reindex paths and `bulkIndexRecords` remove excluded keys from `ctx.customFields` and from the record's `cf:` / `cf_` keys. The query engine handed to sources removes them from every loaded record, merging the exclusions of the queried entity and each `customFieldSources` entity. Exclusions are memoized per entity and tenant for one indexing call.
 3. **Fail closed.** When the resolver throws, every custom field of that entity is excluded and the failure is reported as `search.encrypted_custom_fields_unresolved`. When the indexer is constructed without a resolver, every custom field is excluded and `search.encrypted_custom_fields_resolver_missing` is reported once per indexer. When DI cannot obtain the entity manager, it reports `search.custom_field_definitions_unavailable` and installs a resolver that always throws.
 4. **Token fields untouched.** `IndexableRecord.fields` keeps the original values so the hashed `search_tokens` index still covers encrypted custom fields. Changes a source makes to its build record (as customers does with `entity_id`), including deleted keys, are copied back so they still reach the indexed fields.
 5. **Reporting.** `reportSearchError` sends caught failures to `getTelemetryRuntime()?.reportError` with a stable `search.<reason>` code; a telemetry fault degrades to a warning and never changes the indexing outcome.
@@ -59,14 +59,15 @@ No route changes. Public TypeScript surface:
 
 ## Risks & Impact Review
 
-| Risk | Severity | Mitigation | Residual risk |
-|---|---|---|---|
-| A source relied on an encrypted custom field for matching or display | Medium | The value is the leak being closed; documented in `UPGRADE_NOTES.md` | Results stop matching on that value through fulltext and vector; the token strategy still matches it by hash |
-| Code constructs `SearchIndexer` without the resolver | Medium | The indexer excludes every custom field and reports `search.encrypted_custom_fields_resolver_missing`; docs and upgrade notes show how to pass the resolver | Non-encrypted custom fields disappear from that indexer's sources until it is wired |
-| The definitions table is unreachable during indexing | Low | Every custom field of the entity is excluded and the failure is reported | Search text lacks custom fields for that run; a later reindex restores them |
-| A key encrypted in one tenant is plain in another | Low | Union across scopes, by design | That key is excluded for every tenant |
-| Values indexed before the upgrade | High | Operators reindex affected entities (`UPGRADE_NOTES.md`) | Values already sent to the embedding provider cannot be recalled by the platform |
-| `IndexableRecord.fields` still carries encrypted custom fields to the fulltext driver for entities without a `fieldPolicy.searchable` list and to the vector fallback text | Medium | Out of scope; tracked in #7894 | Unchanged until #7894 lands |
+| Risk | Severity | Affected area | Mitigation | Residual risk |
+|---|---|---|---|---|
+| A source relied on an encrypted custom field for matching or display | Medium | Module search sources | The value is the leak being closed; documented in `UPGRADE_NOTES.md` | Results stop matching on that value through fulltext and vector; the token strategy still matches it by hash |
+| Code constructs `SearchIndexer` without the resolver | Medium | Direct `SearchIndexer` consumers | The indexer excludes every custom field and reports `search.encrypted_custom_fields_resolver_missing`; docs and upgrade notes show how to pass the resolver | Non-encrypted custom fields disappear from that indexer's sources until it is wired |
+| The definitions table is unreachable during indexing | Low | Indexing workers | Every custom field of the entity is excluded and the failure is reported | Search text lacks custom fields for that run; a later reindex restores them |
+| A key encrypted in one organization is plain in another of the same tenant | Low | Search indexing per tenant | Union across the tenant's organizations, by design | That key is excluded for every organization of the tenant |
+| Values indexed before the upgrade | High | Fulltext and vector indexes, embedding provider | Operators reindex affected entities (`UPGRADE_NOTES.md`) | Values already sent to the embedding provider cannot be recalled by the platform |
+| `VectorIndexService` (exported from `@open-mercato/search/vector`) calls `buildSource`, `formatResult` and `resolveLinks` with decrypted custom fields | Medium | Apps that register it as `vectorIndexService` | Nothing in the repository registers it; `query_index` only uses it when present. Documented in `packages/search/AGENTS.md`; applying the same exclusion there is a follow-up | An app that registers it still embeds encrypted custom fields |
+| `IndexableRecord.fields` still carries encrypted custom fields to the fulltext driver for entities without a `fieldPolicy.searchable` list and to the vector fallback text | Medium | Fulltext driver, vector fallback text | Out of scope; tracked in #7894 | Unchanged until #7894 lands |
 
 ## Migration & Backward Compatibility
 
@@ -82,7 +83,7 @@ This narrows the documented behaviour of `SearchBuildContext`, a public contract
 
 ## Final Compliance Report
 
-- Tenant scoping: the resolver deliberately ignores tenant and organization to over-exclude; it returns only key names, never values, and no data crosses tenants.
+- Tenant scoping: the resolver reads only the record's tenant and global definitions, and unions that tenant's organizations to over-exclude; it returns only key names, never values.
 - No encrypted values are logged; warnings and telemetry carry the entity id and the error message only.
 - No new `any`; the resolver and DI use narrow Kysely types.
 - Caught failures are reported through the telemetry runtime with stable codes.
@@ -90,4 +91,4 @@ This narrows the documented behaviour of `SearchBuildContext`, a public contract
 
 ## Changelog
 
-- 2026-10-30: Exclusion of encrypted custom fields from search build contexts, fail-closed for a failing or missing resolver.
+- 2026-10-30: Exclusion of encrypted custom fields from search build contexts, scoped to the record's tenant, fail-closed for a failing or missing resolver.

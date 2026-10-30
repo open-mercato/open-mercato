@@ -8,7 +8,7 @@ describe('SearchIndexer encrypted custom fields', () => {
   const parentEntityId = 'customers:customer_entity'
 
   function setup(options: {
-    resolver?: (entityId: string) => Promise<Set<string>>
+    resolver?: (entityId: string, tenantId?: string | null) => Promise<Set<string>>
     parentRecord?: Record<string, unknown>
   } = {}) {
     const contexts: SearchBuildContext[] = []
@@ -103,8 +103,9 @@ describe('SearchIndexer encrypted custom fields', () => {
   })
 
   it('removes encrypted custom fields from records hydrated through the build query engine', async () => {
+    const resolver = jest.fn(encryptedTaxNumber)
     const { indexer, hydrated, record } = setup({
-      resolver: encryptedTaxNumber,
+      resolver,
       parentRecord: { id: 'entity-1', display_name: 'Acme', 'cf:tax_number': 'GB123456', 'cf:segment': 'B2B' },
     })
 
@@ -116,6 +117,10 @@ describe('SearchIndexer encrypted custom fields', () => {
     })
 
     expect(hydrated[0]).toEqual({ id: 'entity-1', display_name: 'Acme', 'cf:segment': 'B2B' })
+    expect(resolver.mock.calls).toEqual([
+      [companyEntityId, 'tenant-1'],
+      [parentEntityId, 'tenant-1'],
+    ])
   })
 
   it('removes encrypted custom fields joined in from customFieldSources of another entity', async () => {
