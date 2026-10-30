@@ -19,7 +19,7 @@ type ContextCase = {
   context: { required: string[]; forbidden: string[] }
   fixture: { setup: string[] }
   allowedWrites: string[]
-  frameworkContext?: { module: string; query: string }[]
+  frameworkContext?: { module?: string; package?: string; query: string }[]
   maxContextFiles: number
   maxInitialContextBytes: number
   maxTotalContextBytes: number
@@ -75,13 +75,17 @@ test('writable prompt discloses exact trusted seeds and requires preserving the 
   assert.doesNotMatch(prompt, /Immediately before output, re-read every selectedContext/)
   assert.match(prompt, /selectedContext records only instruction\/fact paths/)
   assert.match(prompt, /must never include.*target source paths/)
+  assert.match(prompt, /Canonical example source reads are tracked separately by exampleReadPolicy and must be omitted from selectedContext/)
+  assert.match(prompt, /selectedContext records only instruction\/fact paths and controller-prepared installed context/)
+  assert.doesNotMatch(prompt, /declared read-only reference evidence/)
   assert.match(prompt, /Do not inspect \.ai\/harness\/\*\*/)
 }))
 
 test('seed hints cannot disclose paths outside allowed app source, secrets, symlinks or oracle internals', () => fixture((root, record) => {
   write(root, 'private.txt', 'PRIVATE_SENTINEL')
   fs.symlinkSync(path.join(root, 'private.txt'), path.join(root, 'src/modules/library/linked.ts'))
-  for (const seed of ['../private.txt', '.env', '.ai/harness/cases.json', 'src/modules/example/data/entities.ts', 'src/modules/library/linked.ts']) {
+  for (const relative of ['.env', 'credentials.json', '.credentials.json', 'auth.json', 'secrets.yaml']) write(root, relative, 'PRIVATE_SENTINEL')
+  for (const seed of ['../private.txt', '/tmp/root-escape.ts', 'src/modules/library/../private.ts', 'src/modules/library/%2e%2e/private.ts', '.env', 'credentials.json', '.credentials.json', 'auth.json', 'secrets.yaml', '.ai/harness/cases.json', 'src/modules/example/data/entities.ts', 'src/modules/library/linked.ts']) {
     const unsafe = { fixtures: { activity: { seededArtifacts: [seed] } } }
     assert.throws(() => evaluator.buildPrompt(record, root, true, [], unsafe), /seed|unsafe|allowed|symbolic/i)
   }
@@ -138,4 +142,71 @@ test('unsafe materialization roots remain denied', () => fixture((root, record) 
     assert.throws(() => prepare(root, record), /symbolic|unsafe|preparation failed/i)
     assert.deepEqual(fs.readdirSync(outside), [])
   } finally { fs.rmSync(outside, { recursive: true, force: true }) }
+}))
+
+test('oversized optional package instructions are omitted without making required production evidence infeasible', () => fixture((root, record) => {
+  write(root, 'node_modules/@open-mercato/core/AGENTS.md', '# Optional package guidance\n' + 'oversized '.repeat(16000))
+  const prepared = prepare(root, record)
+  const entry = prepared.entries[0]
+  assert.ok(prepared.patterns.every((item) => !item.endsWith('/instructions/package.md')))
+  const manifest = JSON.parse(fs.readFileSync(path.join(root, entry.manifest), 'utf8'))
+  assert.deepEqual(manifest.instructions, [])
+  assert.equal(manifest.package.version, '1.0.0')
+  assert.deepEqual(entry.sourceFiles, [`${entry.sourceRoot}/lib/call-api.ts`])
+}))
+
+test('prepared evidence budgets are cumulative across multiple installed queries', () => fixture((root, record) => {
+  write(root, 'node_modules/@open-mercato/shared/package.json', JSON.stringify({ name: '@open-mercato/shared', version: '1.0.0' }))
+  write(root, 'node_modules/@open-mercato/shared/src/code-workflow.ts', 'export interface CodeWorkflowDefinition {}\n' + 'x'.repeat(2200))
+  write(root, 'node_modules/@open-mercato/core/src/modules/workflows/lib/call-api.ts', 'export const callApiActivity = true\n' + 'x'.repeat(2200))
+  record.maxTotalContextBytes = 5500
+  record.frameworkContext = [{ module: 'workflows', query: 'callApiActivity' }, { package: '@open-mercato/shared', query: 'interface CodeWorkflowDefinition' }]
+  assert.throws(() => evaluator.prepareCaseFrameworkContext(record, root, root, { writable: true }), /mandatory.*budget|context.*budget/i)
+}))
+
+test('read-only prepared context preserves its existing routing controls', () => fixture((root, record) => {
+  record.frameworkContext = [{ module: 'workflows', query: 'callApiActivity' }]
+  const prepared = evaluator.prepareCaseFrameworkContext(record, root, root)
+  assert.ok(prepared.patterns.some((item: string) => item.endsWith('/**')))
+  assert.ok(prepared.entries[0].sourceFiles.some((item: string) => item.includes('__tests__')))
+}))
+
+test('OMH-230 protected fixture seed does not become a writable prompt target or permission', () => fixture((root) => {
+  const catalog = JSON.parse(fs.readFileSync(path.join(sharedRoot, 'ai/harness/cases.json'), 'utf8')) as ContextCase[]
+  const actualFixtures = JSON.parse(fs.readFileSync(path.join(sharedRoot, 'ai/harness/fixtures/index.json'), 'utf8'))
+  const seeds = JSON.parse(fs.readFileSync(path.join(sharedRoot, 'ai/harness/fixtures/seeds.json'), 'utf8'))
+  const record = catalog.find(item => item.id === 'OMH-230')!
+  const fixtureId = record.fixture.setup[0].slice('fixture:'.length)
+  for (const [relative, content] of Object.entries(seeds.fixtures[fixtureId])) write(root, relative, String(content))
+  const preserved = 'src/modules/resume_demo/lib/preserved.ts'
+  const preservedContent = fs.readFileSync(path.join(root, preserved), 'utf8')
+  const permissions = JSON.stringify(record.allowedWrites)
+  const fixtureMetadata = JSON.stringify(actualFixtures.fixtures[fixtureId])
+  const prompt = evaluator.buildPrompt(record, root, true, [], actualFixtures)
+  assert.match(prompt, /Existing seeded target files:.*format-export\.ts/)
+  assert.doesNotMatch(prompt, /Existing seeded target files:[^\n]*preserved\.ts/)
+  assert.equal(fs.readFileSync(path.join(root, preserved), 'utf8'), preservedContent)
+  assert.equal(JSON.stringify(record.allowedWrites), permissions)
+  assert.equal(JSON.stringify(actualFixtures.fixtures[fixtureId]), fixtureMetadata)
+  const allowedReads: string[] = evaluator.caseReadAllowlist(record, true, root)
+  assert.ok(!allowedReads.some(pattern => pattern === preserved || (pattern.endsWith('/**') && preserved.startsWith(pattern.slice(0, -2)))))
+}))
+
+test('every declared writable case can render its safe seeded prompt without widening its write contract', () => fixture((root) => {
+  const catalog = JSON.parse(fs.readFileSync(path.join(sharedRoot, 'ai/harness/cases.json'), 'utf8')) as ContextCase[]
+  const actualFixtures = JSON.parse(fs.readFileSync(path.join(sharedRoot, 'ai/harness/fixtures/index.json'), 'utf8'))
+  const seeds = JSON.parse(fs.readFileSync(path.join(sharedRoot, 'ai/harness/fixtures/seeds.json'), 'utf8'))
+  const registry = JSON.parse(fs.readFileSync(path.join(sharedRoot, 'ai/harness/validators.json'), 'utf8'))
+  const writableIds: string[] = registry.catalog.writableCaseIds
+  assert.equal(writableIds.length, 49)
+  for (const caseId of writableIds) {
+    const record = catalog.find(item => item.id === caseId)!
+    const permissions = JSON.stringify(record.allowedWrites)
+    for (const declaration of record.fixture.setup) {
+      const fixtureId = declaration.slice('fixture:'.length)
+      for (const [relative, content] of Object.entries(seeds.fixtures[fixtureId])) write(root, relative, String(content))
+    }
+    assert.doesNotThrow(() => evaluator.buildPrompt(record, root, true, [], actualFixtures), caseId)
+    assert.equal(JSON.stringify(record.allowedWrites), permissions, caseId)
+  }
 }))

@@ -225,10 +225,6 @@ test('prepared workflow context queries name exact production declarations', () 
 
 test('OMH-042 prepares its actual installed adapter and descriptor definitions', context => {
   const record = codingCase('OMH-042')
-  assert.deepEqual(record.frameworkContext, [
-    { module: 'data_sync', query: 'export interface DataSyncAdapter' },
-    { package: '@open-mercato/shared', query: 'export interface IntegrationDefinition' },
-  ])
   const root = stageApp()
   try {
     const write = (filename: string, content: string) => {
@@ -276,6 +272,20 @@ test('OMH-042 prepares its actual installed adapter and descriptor definitions',
     }
     assert.ok(prepared.patterns.every(filename => !filename.includes('*') && !filename.includes('?')))
     assert.ok(bytes <= record.maxTotalContextBytes, `mandatory context plus prepared definitions ${bytes}/${record.maxTotalContextBytes}`)
+    const preparedRecord = { ...record, materializedFrameworkContextPatterns: prepared.patterns }
+    const readable = prepared.entries.flatMap(entry => entry.sourceFiles)
+    const denied = prepared.entries.flatMap(entry => [
+      `${path.posix.dirname(entry.sourceFiles[0])}/consumer.ts`,
+      `${path.posix.dirname(entry.sourceFiles[0])}/__tests__/definition.test.ts`,
+    ])
+    const replies = toolCalls(root, preparedRecord, [...readable, ...denied].map(filename => ({ name: 'read', arguments: { path: filename } })))
+    for (const reply of replies.slice(0, readable.length)) assert.notEqual(reply.result.isError, true)
+    for (const reply of replies.slice(readable.length)) assert.equal(reply.result.isError, true)
+    assert.doesNotMatch(JSON.stringify(replies), /privateQaMarker|privateEnvironmentMarker/)
+    assert.deepEqual(record.frameworkContext, [
+      { module: 'data_sync', query: 'export interface DataSyncAdapter' },
+      { package: '@open-mercato/shared', query: 'export interface IntegrationDefinition' },
+    ])
     context.diagnostic(JSON.stringify({ id: record.id, mandatoryAndPreparedBytes: bytes, limit: record.maxTotalContextBytes }))
   } finally { fs.rmSync(root, { recursive: true, force: true }) }
 })

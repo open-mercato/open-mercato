@@ -640,11 +640,33 @@
       "required": [
         "AGENTS.md",
         ".ai/guides/contracts.md",
-        ".ai/skills/om-data-model-design/SKILL.md"
+        ".ai/skills/om-data-model-design/SKILL.md",
+        ".ai/skills/om-data-model-design/references/schema-design.md",
+        ".ai/skills/om-data-model-design/references/migration-workflow.md"
       ],
       "forbidden": [
         ".env*",
         ".git/**"
+      ],
+      "sourceReferenceIds": [
+        "om-data-model-design/schema-design:data/entities.ts",
+        "om-data-model-design/schema-design:data/validators.ts",
+        "om-data-model-design/migration-workflow:migrations/.snapshot-open-mercato.json"
+      ],
+      "exampleRoots": [
+        {
+          "root": "src/modules/example",
+          "entrypoints": [
+            "README.md"
+          ],
+          "allowedCapabilityIds": [
+            "data.entities",
+            "data.validators",
+            "data.migrations"
+          ],
+          "maxFiles": 7,
+          "maxBytes": 36864
+        }
       ]
     },
     "requiredDecisions": [
@@ -804,7 +826,8 @@
       "required": [
         "AGENTS.md",
         ".ai/guides/contracts.md",
-        ".ai/skills/om-module-scaffold/SKILL.md"
+        ".ai/skills/om-module-scaffold/SKILL.md",
+        ".ai/skills/om-module-scaffold/references/api-and-domain.md"
       ],
       "allowedExtra": [
         ".ai/guides/modules/api_docs/index.md",
@@ -814,6 +837,24 @@
       "forbidden": [
         ".env*",
         ".git/**"
+      ],
+      "sourceReferenceIds": [
+        "om-module-scaffold/api-and-domain:api/todos/route.ts",
+        "om-module-scaffold/api-and-domain:api/openapi.ts"
+      ],
+      "exampleRoots": [
+        {
+          "root": "src/modules/example",
+          "entrypoints": [
+            "README.md"
+          ],
+          "allowedCapabilityIds": [
+            "api.crud-query-engine-custom-fields",
+            "api.openapi"
+          ],
+          "maxFiles": 3,
+          "maxBytes": 24576
+        }
       ]
     },
     "requiredDecisions": [
@@ -903,11 +944,28 @@
       "required": [
         "AGENTS.md",
         ".ai/guides/contracts.md",
-        ".ai/skills/om-module-scaffold/SKILL.md"
+        ".ai/skills/om-module-scaffold/SKILL.md",
+        ".ai/skills/om-module-scaffold/references/api-and-domain.md"
       ],
       "forbidden": [
         ".env*",
         ".git/**"
+      ],
+      "sourceReferenceIds": [
+        "om-module-scaffold/api-and-domain:commands/todos.ts"
+      ],
+      "exampleRoots": [
+        {
+          "root": "src/modules/example",
+          "entrypoints": [
+            "README.md"
+          ],
+          "allowedCapabilityIds": [
+            "commands.write"
+          ],
+          "maxFiles": 2,
+          "maxBytes": 32768
+        }
       ]
     },
     "requiredDecisions": [
@@ -1086,6 +1144,26 @@
       "forbidden": [
         ".env*",
         ".git/**"
+      ],
+      "sourceReferenceIds": [
+        "guides/backend-ui:components/TodosTable.tsx",
+        "guides/backend-ui:components/TodoForm.tsx"
+      ],
+      "exampleRoots": [
+        {
+          "root": "src/modules/example",
+          "entrypoints": [
+            "README.md"
+          ],
+          "allowedCapabilityIds": [
+            "ui.page-shell",
+            "ui.datatable",
+            "ui.form-create",
+            "ui.form-edit"
+          ],
+          "maxFiles": 12,
+          "maxBytes": 33792
+        }
       ]
     },
     "requiredDecisions": [
@@ -2017,7 +2095,9 @@
         ".ai/guides/extensions.md",
         ".ai/guides/backend-ui.md",
         ".ai/skills/om-system-extension/SKILL.md",
-        ".ai/skills/om-backend-ui-design/SKILL.md"
+        ".ai/skills/om-backend-ui-design/SKILL.md",
+        ".ai/skills/om-system-extension/references/extension-branches.md",
+        ".ai/guides/modules/customers/index.md"
       ],
       "allowedExtra": [
         ".ai/skills/om-framework-context/SKILL.md"
@@ -2025,6 +2105,28 @@
       "forbidden": [
         ".env*",
         ".git/**"
+      ],
+      "sourceReferenceIds": [
+        "om-system-extension/extension-branches:data/enrichers.ts",
+        "om-system-extension/extension-branches:data/guards.ts",
+        "om-system-extension/extension-branches:widgets/injection/customer-priority-field/widget.ts",
+        "om-system-extension/extension-branches:widgets/injection-table.ts"
+      ],
+      "exampleRoots": [
+        {
+          "root": "src/modules/example",
+          "entrypoints": [
+            "README.md"
+          ],
+          "allowedCapabilityIds": [
+            "umes.response-enricher",
+            "umes.mutation-guard",
+            "umes.injection.crud-form-field",
+            "umes.injection-table"
+          ],
+          "maxFiles": 5,
+          "maxBytes": 21504
+        }
       ]
     },
     "requiredDecisions": [
@@ -2120,11 +2222,38 @@
         "AGENTS.md",
         ".ai/guides/extensions.md",
         ".ai/guides/backend-ui.md",
-        ".ai/skills/om-system-extension/SKILL.md"
+        ".ai/skills/om-system-extension/SKILL.md",
+        ".ai/skills/om-system-extension/references/extension-branches.md",
+        ".ai/guides/modules/customers/index.md",
+        ".ai/skills/om-backend-ui-design/SKILL.md"
       ],
       "forbidden": [
         ".env*",
         ".git/**"
+      ],
+      "sourceReferenceIds": [
+        "om-system-extension/extension-branches:widgets/injection/customer-priority-column/widget.ts",
+        "om-system-extension/extension-branches:widgets/injection/customer-priority-filter/widget.ts",
+        "om-system-extension/extension-branches:widgets/injection/customer-priority-row-action/widget.ts",
+        "om-system-extension/extension-branches:widgets/injection/customer-priority-bulk-actions/widget.ts",
+        "om-system-extension/extension-branches:widgets/injection-table.ts"
+      ],
+      "exampleRoots": [
+        {
+          "root": "src/modules/example",
+          "entrypoints": [
+            "README.md"
+          ],
+          "allowedCapabilityIds": [
+            "umes.injection.datatable-column",
+            "umes.injection.datatable-filter",
+            "umes.injection.datatable-row-action",
+            "umes.injection.datatable-bulk-action",
+            "umes.injection-table"
+          ],
+          "maxFiles": 6,
+          "maxBytes": 16384
+        }
       ]
     },
     "requiredDecisions": [
@@ -2152,7 +2281,7 @@
       "oracle.umes.data-table"
     ],
     "maxContextFiles": 5,
-    "maxInitialContextBytes": 40960,
+    "maxInitialContextBytes": 43008,
     "maxTotalContextBytes": 98304,
     "relatedCases": [
       "OMH-028"
@@ -2300,11 +2429,15 @@
       "required": [
         "AGENTS.md",
         ".ai/guides/extensions.md",
-        ".ai/skills/om-system-extension/SKILL.md"
+        ".ai/skills/om-system-extension/SKILL.md",
+        ".ai/skills/om-system-extension/references/unified-overrides.md"
       ],
       "forbidden": [
         ".env*",
         ".git/**"
+      ],
+      "sourceReferenceIds": [
+        "om-system-extension/unified-overrides:src/modules.ts"
       ]
     },
     "requiredDecisions": [
@@ -2351,7 +2484,8 @@
       ]
     },
     "allowedWrites": [
-      "src/modules/app_customizations/**"
+      "src/modules/app_customizations/**",
+      "src/modules.ts"
     ]
   },
   {
@@ -2472,11 +2606,29 @@
       "required": [
         "AGENTS.md",
         ".ai/guides/extensions.md",
-        ".ai/skills/om-system-extension/SKILL.md"
+        ".ai/skills/om-system-extension/SKILL.md",
+        ".ai/skills/om-system-extension/references/extension-branches.md",
+        ".ai/guides/modules/customers/index.md"
       ],
       "forbidden": [
         ".env*",
         ".git/**"
+      ],
+      "sourceReferenceIds": [
+        "om-system-extension/extension-branches:api/interceptors.ts"
+      ],
+      "exampleRoots": [
+        {
+          "root": "src/modules/example",
+          "entrypoints": [
+            "README.md"
+          ],
+          "allowedCapabilityIds": [
+            "api.interceptors"
+          ],
+          "maxFiles": 2,
+          "maxBytes": 11264
+        }
       ]
     },
     "requiredDecisions": [
@@ -3299,17 +3451,20 @@
     },
     "expectedRouter": {
       "required": [
-        "integration"
+        "integration",
+        "module-data"
       ],
       "allowedExtra": [
         "architecture",
-        "module-data",
         "debugging",
-        "spec-pr"
+        "spec-pr",
+        "framework-context"
       ]
     },
     "requiredSkills": [
-      "om-integration-builder"
+      "om-integration-builder",
+      "om-module-scaffold",
+      "om-data-model-design"
     ],
     "context": {
       "required": [
@@ -3317,11 +3472,35 @@
         ".ai/guides/integrations.md",
         ".ai/skills/om-integration-builder/SKILL.md",
         ".ai/guides/modules/data_sync/index.md",
-        ".ai/guides/modules/integrations/index.md"
+        ".ai/guides/modules/integrations/index.md",
+        ".ai/skills/om-module-scaffold/references/module-surfaces.md",
+        ".ai/guides/contracts.md",
+        ".ai/skills/om-module-scaffold/SKILL.md",
+        ".ai/skills/om-data-model-design/SKILL.md"
       ],
       "forbidden": [
         ".env*",
         ".git/**"
+      ],
+      "sourceReferenceIds": [
+        "om-module-scaffold/module-surfaces:acl.ts",
+        "om-module-scaffold/module-surfaces:setup.ts",
+        "om-module-scaffold/module-surfaces:di.ts"
+      ],
+      "exampleRoots": [
+        {
+          "root": "src/modules/example",
+          "entrypoints": [
+            "README.md"
+          ],
+          "allowedCapabilityIds": [
+            "module.acl-features",
+            "module.setup-role-features",
+            "module.di-registration"
+          ],
+          "maxFiles": 6,
+          "maxBytes": 26624
+        }
       ]
     },
     "requiredDecisions": [
@@ -3346,7 +3525,7 @@
       "oracle.integration.data-sync"
     ],
     "maxContextFiles": 6,
-    "maxInitialContextBytes": 40960,
+    "maxInitialContextBytes": 43008,
     "maxTotalContextBytes": 131072,
     "relatedCases": [
       "OMH-043"
@@ -3378,7 +3557,17 @@
       "paths": [
         ".ai/specs/2026-07-24-standalone-ai-development-harness.md"
       ]
-    }
+    },
+    "frameworkContext": [
+      {
+        "module": "data_sync",
+        "query": "export interface DataSyncAdapter"
+      },
+      {
+        "package": "@open-mercato/shared",
+        "query": "export interface IntegrationDefinition"
+      }
+    ]
   },
   {
     "id": "OMH-043",
@@ -3887,6 +4076,21 @@
       "forbidden": [
         ".env*",
         ".git/**"
+      ],
+      "exampleRoots": [
+        {
+          "root": "src/modules/example",
+          "entrypoints": [
+            "README.md"
+          ],
+          "allowedCapabilityIds": [
+            "ai.agent",
+            "ai.tool-pack",
+            "module.acl-features"
+          ],
+          "maxFiles": 4,
+          "maxBytes": 24576
+        }
       ]
     },
     "requiredDecisions": [
@@ -4313,7 +4517,7 @@
     "frameworkContext": [
       {
         "module": "workflows",
-        "query": "CodeWorkflowDefinition"
+        "query": "export function registerCodeWorkflows"
       },
       {
         "package": "@open-mercato/shared",
@@ -4515,7 +4719,8 @@
       ]
     },
     "requiredSkills": [
-      "om-troubleshooter"
+      "om-troubleshooter",
+      "om-module-scaffold"
     ],
     "context": {
       "required": [
@@ -4523,7 +4728,8 @@
         ".ai/guides/contracts.md",
         ".ai/guides/testing-debugging.md",
         ".ai/skills/om-troubleshooter/SKILL.md",
-        ".ai/guides/upstream/BACKWARD_COMPATIBILITY.md"
+        ".ai/guides/upstream/BACKWARD_COMPATIBILITY.md",
+        ".ai/skills/om-module-scaffold/SKILL.md"
       ],
       "forbidden": [
         ".env*",
@@ -4554,7 +4760,7 @@
     ],
     "maxContextFiles": 5,
     "maxInitialContextBytes": 40960,
-    "maxTotalContextBytes": 114688,
+    "maxTotalContextBytes": 119808,
     "relatedCases": [
       "OMH-058"
     ],
@@ -4779,7 +4985,8 @@
         "AGENTS.md",
         ".ai/guides/testing-debugging.md",
         ".ai/guides/contracts.md",
-        ".ai/skills/om-troubleshooter/SKILL.md"
+        ".ai/skills/om-troubleshooter/SKILL.md",
+        ".ai/skills/om-data-model-design/SKILL.md"
       ],
       "forbidden": [
         ".env*",
