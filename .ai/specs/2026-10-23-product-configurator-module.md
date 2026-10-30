@@ -18,7 +18,6 @@
 - Configuration sessions launched from a quote, priced through `catalogPricingService`
 - Finalisation into a sales quote line (`configuration` jsonb) plus a snapshot, shown on the quote and on the converted order
 - An admin test mode for the saved draft, and "Add another identical" / "Configure again" to add a re-priced copy of a configuration
-- Phase E, after v1: re-configure in place (replace a configured line and carry over its commercial terms)
 - Opt-in: the module is off unless `OM_ENABLE_PRODUCT_CONFIGURATOR=true`
 
 **Non-goals (v1):**
@@ -30,15 +29,16 @@
 - Translating authored model content
 - Dashboard widgets (follow-up spec: needs a defined audience, thresholds and actions)
 - Quantity above 1 on a configured line (one configured unit is one line; "Add another identical" creates more)
-- Re-configure in place (Phase E). In v1 a rep changes a configured machine by adding a changed copy, re-entering the commercial terms that differ (name if renamed, comment, discount, a changed tax rate) and removing the old line in Items
+- Re-configure in place (replacing a configured line and carrying over its terms), proposed for a follow-up spec (Q6). In v1 a rep changes a configured machine by adding a changed copy, re-entering the commercial terms that differ (name if renamed, comment, discount, a changed tax rate) and removing the old line in Items
 
 ## Open Questions for Maintainers *(remove before finalizing)*
 
 - **Q1 Placement**: own package `packages/product-configurator`, enabled in `apps/mercato` and the create-app template behind `OM_ENABLE_PRODUCT_CONFIGURATOR` (default off), following the merged `OM_ENABLE_STORAGE_S3` pattern (`apps/mercato/src/modules.ts:227`, `packages/create-app/template/src/modules.ts:218`). Acceptable, or do you prefer another placement?
-- **Q2 Sales command contract**: v1 (Phases A-D) depends on `sales.quotes.lines.upsert`, the line `configuration` field, and command interceptors on `sales.quotes.lines.upsert`, `sales.orders.lines.upsert`, `sales.quotes.create`, `sales.orders.create` and `sales.quotes.convert_to_order` (an `afterExecute` cleanup only). Command ids are not a category in `BACKWARD_COMPATIBILITY.md`. Can these ids and input schemas be treated as STABLE? Phase E (re-configure in place, after v1) also needs `sales.quotes.lines.delete`: with existing commands, replacing a line is two sales writes, and a conversion that slips between them can leave both lines on the order; the spec narrows and detects this but cannot close it. Would you prefer a sales-owned atomic "replace configured line" command for Phase E? Your answer shapes Phase E only; v1 does not depend on it.
+- **Q2 Sales command contract**: v1 (Phases A-D) depends on `sales.quotes.lines.upsert`, the line `configuration` field, and command interceptors on `sales.quotes.lines.upsert`, `sales.orders.lines.upsert`, `sales.quotes.create`, `sales.orders.create` and `sales.quotes.convert_to_order` (an `afterExecute` cleanup only). Command ids are not a category in `BACKWARD_COMPATIBILITY.md`. Can these ids and input schemas be treated as STABLE?
 - **Q3 Catalog seam**: is a new `catalogPriceRowService` in `catalog` (below) the right way for another module to fetch price rows and resolve SKUs? It ships as the first commit of PR A, next to its only consumer. We can split it into its own PR if you prefer.
 - **Q4 CI for opt-in modules**: the integration specs declare `requiredEnvVars: ['OM_ENABLE_PRODUCT_CONFIGURATOR']`, so CI skips them unless the flag is set. Should CI set it, or is there a preferred mechanism?
-- **Q5 Quote items integration**: the standard sales line dialog requires a variant for a catalog line (`LineItemDialog.tsx:1490`) and has no discount or comment field, so a configured line (product, no variant) cannot be saved from Items. v1 edits a configured line's commercial fields from the Configurations tab instead. Would you accept an additive quote-items host (like `data-table:sales.order.items:columns`, which today is order-only) for a "Configured" column and row action, and is a variant-less product line in the dialog something sales plans to support? The dialog's field widgets also cannot tell which line is open (`LineFormState` has no id or `configuration`, `LineItemDialog.tsx:162-178`), so v1 shows its notice in the details spot instead; could sales pass the line id or `configuration` to `crud-form:sales.sales_quote_line:fields` widgets? For Phase E: is there a spot higher on the document page than `sales.document.detail.*:details` (rendered below the totals) for the two-line warning?
+- **Q5 Quote items integration**: the standard sales line dialog requires a variant for a catalog line (`LineItemDialog.tsx:1490`) and has no discount or comment field, so a configured line (product, no variant) cannot be saved from Items. v1 edits a configured line's commercial fields from the Configurations tab instead. Would you accept an additive quote-items host (like `data-table:sales.order.items:columns`, which today is order-only) for a "Configured" column and row action, and is a variant-less product line in the dialog something sales plans to support? The dialog's field widgets also cannot tell which line is open (`LineFormState` has no id or `configuration`, `LineItemDialog.tsx:162-178`), so v1 shows its notice in the details spot instead; could sales pass the line id or `configuration` to `crud-form:sales.sales_quote_line:fields` widgets?
+- **Q6 Scope**: re-configure in place (replace a configured line and carry over its commercial terms) is a separate capability with its own data, commands, UI states and an open sales question (two sales writes vs a sales-owned atomic replace). This spec leaves it out, and we propose it as a follow-up spec after v1. Do you agree, or should it be part of this spec?
 
 ## Decisions
 
@@ -46,8 +46,8 @@
 |---|---|
 | Naming | Module id `product_configurator`, package `@open-mercato/product-configurator`. Avoids the `cpq` id and `/backend/cpq/*` routes of the third-party `@dainamite/cpq` |
 | Dependencies | `requires: ['catalog', 'sales']` |
-| Spec shape | One spec, one PR per phase. v1 is four phases (A engine, B studio, C configurator, D finalise); B and C depend only on A. Phase E (re-configure in place) follows after v1 is merged and Q2 is answered |
-| Re-configure in place | Phase E. Replacing a line needs two sales writes, a conversion guard with a residual race, and carried-over commercial terms. v1 offers a re-priced copy and manual removal of the old line |
+| Spec shape | One spec, one PR per phase: A engine, B studio, C configure and add to quote, D configured lines on quotes and orders. B and C depend only on A; each phase ships something a user can use |
+| Re-configure in place | Follow-up spec (Q6). Replacing a line needs two sales writes, a conversion guard with a residual race, and carried-over commercial terms. v1 offers a re-priced copy and manual removal of the old line |
 | Catalog data | New `catalogPriceRowService` (Q3), first commit of PR A. Price selection stays in `catalogPricingService` |
 | Sales data | Existing seams only: sales commands via the command bus, `queryEngine` reads of quotes and lines, widget spots, public line APIs. No `sales` change (Q2) |
 | Sales RBAC | Every session operation requires sales visibility of its quote; finalising requires `sales.quotes.manage` |
@@ -86,13 +86,12 @@ Evidence of demand: a community spec for a window-coverings configurator (PR #15
 
 ## Proposed Solution
 
-The module has four v1 parts, each owned by one phase, and a fifth part after v1.
+The module has four parts, each owned by one phase.
 
 1. **Engine (Phase A).** A pure, deterministic evaluator in two steps: structure (`definition, selections -> settled selections, visibility, formulas, BOM quantities`) and price (`structure, unit prices, currency exponent -> totals, hash`). The definition is a versioned JSON document validated by zod and by publication checks. Publishing freezes a version and stores its hash.
 2. **Studio (Phase B).** Backend pages to author a model through forms and tables only, including a text expression editor and a BOM row editor, plus an advanced JSON view of the whole draft.
-3. **Configurator (Phase C).** A session bound to a quote and a published model version. Every change re-evaluates on the server. Unit prices come from catalog price rows selected by `catalogPricingService`.
-4. **Finalise (Phase D).** Finalising writes a snapshot, then a quote line through `sales.quotes.lines.upsert`, with reconciliation so a retry never creates a second line. The quote and the converted order show a tab that links each configured line to its snapshot. The Configurations tab also edits a configured line's commercial fields and adds re-priced copies.
-5. **Line replacement (Phase E, after v1).** Re-configure replaces a configured line in place and carries over its commercial terms (see Phase E below).
+3. **Configure and add to quote (Phase C).** A session bound to a quote and a published model version. Every change re-evaluates on the server; unit prices come from catalog price rows selected by `catalogPricingService`. "Add to quote" writes a snapshot, then a quote line through `sales.quotes.lines.upsert`, with reconciliation so a retry never creates a second line, and the line guard protects it.
+4. **Configured lines on quotes and orders (Phase D).** "Add another identical" and "Configure again" add re-priced copies, the Configurations tab edits a configured line's commercial fields, and the converted order shows a tab and an items column that link each configured line to its snapshot.
 
 ### Design Decisions
 
@@ -128,7 +127,7 @@ The module has four v1 parts, each owned by one phase, and a fifth part after v1
 - **Admin** wants to **publish a new version without changing quotes already sent** so that **old quotes stay explainable**.
 - **Sales rep** wants to **configure a product from a quote and see the price, BOM and rule messages live** so that **the quote is correct the first time**.
 - **Sales rep** wants to **leave the configurator and come back to the same session** so that **work is not lost on refresh**.
-- **Sales rep** wants to **re-open a configured line and change it** so that **customer feedback is handled without configuring from scratch**. v1: a changed copy plus manual removal of the old line; Phase E: in place, with the commercial terms carried over.
+- **Sales rep** wants to **re-open a configured line and change it** so that **customer feedback is handled without configuring from scratch**. v1: a changed copy plus manual removal of the old line; in place with the terms carried over is proposed for a follow-up spec (Q6).
 - **Back office** wants to **see on the order which configuration was sold** so that **fulfilment builds the right product**.
 - **Sales rep** wants to **add another identical configuration** so that **five machines do not mean configuring five times**.
 - **Admin** wants to **try the saved draft with real choices before publishing** so that **the first tester of a rule is not a rep on a live quote**.
@@ -166,7 +165,6 @@ Entity ids of other modules are read with `getEntityIds()` from `@open-mercato/s
 | Quote header (`status`, `currency_code`, `channel_id`, `customer_entity_id`, `customer_snapshot`, `quote_number`, `updated_at`) | `queryEngine` on `E.sales.sales_quote` (decrypts). Same pattern as `wms/lib/salesOrderInventoryAutomation.ts` | none |
 | Lines of one quote or order (reconcile, guard, order tab) | `queryEngine` on `E.sales.sales_quote_line` / `sales_order_line` filtered by parent id. The hybrid engine reads base-table columns and only uses the index for custom fields (`query_index/lib/engine.ts:420-425,519-521`), so `configuration` is live. `queryEngine` returns 20 rows by default, so every line read here pages through all lines (`pageSize` 100) until the last page. Never `omitAutomaticTenantOrgScope` | none |
 | Write the configured line | `commandBus.execute('sales.quotes.lines.upsert', { input: { body }, ctx })`, returns `{ quoteId, lineId }` | none |
-| Remove the replaced line (Phase E) | `sales.quotes.lines.delete` with `{ body: { id, quoteId, organizationId, tenantId } }`. Not found counts as removed | none |
 | Quote / order tabs | Spots `sales.document.detail.quote:tabs` and `sales.document.detail.order:tabs`; lines via `/api/sales/{quote,order}-lines` | none |
 | Bound product, SKUs, price rows | New `catalogPriceRowService` (below) | additive `catalog` service |
 | Price selection | `catalogPricingService.resolvePriceMany(Array<{ rows, context }>)` | none |
@@ -251,7 +249,7 @@ commandBus.execute('sales.quotes.lines.upsert', {
 
 Gross, tax and totals are computed by sales, which recalculates the whole quote on every line write. One configured unit is one line; "Add another identical" creates more lines.
 
-A copy ("Add another identical", "Configure again") gets the defaults of a new line: name = model title, the bound product's tax rate, no comment and no discount. The rep re-enters what differs through "Edit line details". Carrying the source line's terms over is part of Phase E.
+A copy ("Add another identical", "Configure again") gets the defaults of a new line: name = model title, the bound product's tax rate, no comment and no discount. The rep re-enters what differs through "Edit line details". Carrying the source line's terms over belongs to re-configure in place (Q6).
 
 ### Summary
 
@@ -263,7 +261,7 @@ The summary goes into the line `description`, which the customer sees on the pub
 
 ### Session flow
 
-Finalise is serialized per quote with a Postgres session-level advisory lock, `pg_try_advisory_lock(hashtextextended('product_configurator:quote:' || quote_id, 0))`, taken on a dedicated connection and held until finalise ends. The repo already uses the transaction-scoped form for similar serialization (`currencies/commands/currencies.ts:99`, `wms/commands/inventory-actions.ts:745`); the session-scoped form is needed here because finalise spans the module's own writes and a sales transaction (two in Phase E). If the process dies, its connection closes and Postgres releases the lock, so there is no time-based takeover and a paused worker keeps its lock instead of being overtaken. The canonical `withAdvisoryXactLock` (`packages/shared/src/lib/db/advisoryLock.ts`) does not fit: its callback must do all I/O on one transaction and never fork, while the sales upsert forks its own EntityManager (`sales/commands/documents.ts:7981`). The lock connection must be a direct database connection, never a transaction-mode pooler, which silently drops session-level locks (same requirement as `2026-07-27-mercato-upgrade-reconcile-command.md`); this goes into the module docs. If the lock connection breaks while the process lives, finalise stops before its next write and the session stays `finalising`, which the next call reconciles.
+Finalise is serialized per quote with a Postgres session-level advisory lock, `pg_try_advisory_lock(hashtextextended('product_configurator:quote:' || quote_id, 0))`, taken on a dedicated connection and held until finalise ends. The repo already uses the transaction-scoped form for similar serialization (`currencies/commands/currencies.ts:99`, `wms/commands/inventory-actions.ts:745`); the session-scoped form is needed here because finalise spans the module's own writes and a sales transaction. If the process dies, its connection closes and Postgres releases the lock, so there is no time-based takeover and a paused worker keeps its lock instead of being overtaken. The canonical `withAdvisoryXactLock` (`packages/shared/src/lib/db/advisoryLock.ts`) does not fit: its callback must do all I/O on one transaction and never fork, while the sales upsert forks its own EntityManager (`sales/commands/documents.ts:7981`). The lock connection must be a direct database connection, never a transaction-mode pooler, which silently drops session-level locks (same requirement as `2026-07-27-mercato-upgrade-reconcile-command.md`); this goes into the module docs. If the lock connection breaks while the process lives, finalise stops before its next write and the session stays `finalising`, which the next call reconciles.
 
 ```
 open(quoteId, modelId?, fromSnapshotId?, mode?) -> session(open, revision 0)
@@ -271,11 +269,11 @@ evaluate(selections, revision) -> structure -> prices -> result (stored, revisio
 finalise(expectedHash, revision)
   1. lock the quote (busy -> finalise_in_progress); CAS open|finalising -> finalising
   2. if the session already has a snapshot:
-       linked (quote_line_id set)   -> go to 7
+       linked (quote_line_id set)   -> go to 6
        unlinked                     -> read the quote's lines, or, when the quote is gone, the lines
                                        of the order with the quote's id (conversion's default
                                        order id); if one carries this snapshotId, adopt it as
-                                       quote_line_id (no re-evaluation) and go to 7
+                                       quote_line_id (no re-evaluation) and go to 6
   3. re-read quote (exists, currency, updatedAt) and bound product; check revision (stale -> session_changed);
      re-evaluate; reject unless finalisable; hash differs from expectedHash -> result_changed
      (no write, returns the new result so the rep confirms the new price)
@@ -286,8 +284,7 @@ finalise(expectedHash, revision)
      which a fresh read finds no quote (converted or deleted) -> status cancelled, error
      quote_converted. Other failure -> status open, error quote_line_write_failed.
      A crash here is handled by step 2 on the next call.
-  6. Phase E only (replace mode): remove the replaced line, see Phase E.
-  7. CAS finalising -> finalised; emit snapshot.created; release the lock (always, in finally)
+  6. CAS finalising -> finalised; emit snapshot.created; release the lock (always, in finally)
 ```
 
 - **Conversion during finalise (v1)**: no blocking guard is needed. Conversion takes `FOR UPDATE` on the quote row before it reads the lines (`sales/commands/documents.ts:6730-6747`) and deletes lines and quote in the same transaction (`:7061-7063`); a line insert takes `FOR KEY SHARE` on the quote row through the `quote_id` foreign key (`sales/migrations/Migration20251030150038.ts:87`). So the two serialize: either the line commits first and conversion copies it with its `configuration` (`:6933-6935`), or conversion commits first and the insert fails, which step 5 maps to `quote_converted`. A configured line is never lost; a transaction can still abort under contention and is then retried like any write failure. `TC-PCFG-062` pins this.
@@ -299,28 +296,11 @@ finalise(expectedHash, revision)
 - **Revision**: every successful `evaluate` increments the session `revision` and returns it. `evaluate` and `finalise` carry the revision the client last saw; a stale one is rejected with 409 `session_changed` and the current state, so an older request can never overwrite a newer one and two windows on a shared session cannot silently overwrite each other. The UI keeps the rejected local choices and shows them next to the current ones, with "Keep current" or "Apply my choices" (re-sent on the current revision).
 - **Price confirmation**: `finalise` carries the `expectedHash` of the result the rep saw. Re-evaluation in step 3 uses current catalog prices; if the hash differs, nothing is written and 409 `result_changed` returns the new result. A replay of a finalised session still returns the stored result.
 - **Intent vs result**: `selections` stores only what the user chose. Values set by `force` rules live only in `evaluation`. When the condition of a force rule stops holding, the user's own value (or the default) comes back. Hidden and shown features keep the user's value in `selections`.
-- **Modes**: v1 has `new` and `duplicate`. `fromSnapshotId` without `mode` means `duplicate`: the session is prefilled from the snapshot, re-priced, and finalise adds a separate line. `source_snapshot_id` records the copy source, which the header uses ("Copy of: <line name>"); it has no replacement meaning in v1. `mode: 'replace'` returns 400 `mode_not_supported` until Phase E, which adds it as an explicit value and keeps `duplicate` as the default.
-- **Selection migration**: opening from a snapshot whose model version is older than the latest maps the old selections onto the new version and returns `migration: { kept[], dropped[], reset[] }`, each item with the feature label, the old value and the reason (feature removed, option removed, out of range). Nothing is silently replaced. It applies to `duplicate` (and to `replace` in Phase E), so "Add another identical" shows a review when the latest version changed the copied choices. When the list is not empty, `finalise` requires `migrationAcknowledged: true` (else 422 `migration_unconfirmed`). Plain `evaluate` stays strict.
+- **Modes**: v1 has `new` and `duplicate`. `fromSnapshotId` without `mode` means `duplicate`: the session is prefilled from the snapshot, re-priced, and finalise adds a separate line. `source_snapshot_id` records the copy source, which the header uses ("Copy of: <line name>"); it has no replacement meaning in v1. Any other mode, such as `replace`, returns 400 `mode_not_supported`; a later re-configure spec would add it as an explicit value and keep `duplicate` as the default.
+- **Selection migration**: opening from a snapshot whose model version is older than the latest maps the old selections onto the new version and returns `migration: { kept[], dropped[], reset[] }`, each item with the feature label, the old value and the reason (feature removed, option removed, out of range). Nothing is silently replaced. It applies to `duplicate`, so "Add another identical" shows a review when the latest version changed the copied choices. When the list is not empty, `finalise` requires `migrationAcknowledged: true` (else 422 `migration_unconfirmed`). Plain `evaluate` stays strict.
 - **Orphaned sessions**: an `afterExecute` hook on the `sales.quotes.convert_to_order` interceptor (`packages/shared/src/lib/commands/command-interceptor.ts:25`) cancels the quote's `open` sessions with reason `quote_converted`. For the quote's `finalising` sessions it tries the quote lock: when free, it runs the step-2 reconcile against the lines of the order in the command result (`result.orderId`, which also covers a conversion with an explicit `orderId`; order lines keep the quote line ids, `documents.ts:6897`) (a line carrying the snapshot -> adopt and finalise, none -> cancel); when busy, the running finalise ends the session itself. It is idempotent. This covers a crash between the sales commit and storing `quote_line_id` followed by a conversion, which would otherwise leave the session in `finalising`. Undoing a conversion restores the quote but not the sessions the hook cancelled; the rep starts a new configuration. Redo of a finalise line write is rejected by the guard (`configured_line_forged`), because redo runs the interceptors with an untrusted request; the rep configures again.
 - `fromSnapshotId` must belong to the same quote and model (`snapshot_not_in_quote`).
 - Finalise failures are logged with `createLogger('product_configurator.finalise')` and reported with `reportError` (`packages/telemetry/src/facade/report-error.ts`).
-
-### Phase E: line replacement (after v1)
-
-Designed now so v1 does not block it; it ships after A-D are merged and Q2 is answered. If maintainers provide a sales-owned atomic replace command, step 6 and the conversion guard below switch to it.
-
-- **Re-configure**: `mode: 'replace'` (explicit; the default stays `duplicate`) opens a session from a snapshot whose line is on the quote. When no quote line carries the snapshot, open returns 409 `source_line_removed` and the tab offers "Configure again" instead; if the source line is deleted after open, finalise returns the same error before writing anything. Only one active replacement per source: unique `(source_snapshot_id)` where `mode = 'replace'` and `status in ('open', 'finalising')`; a second open gets 409 `source_in_use`.
-- **Carry-over**: when the session replaces a line, finalise reads the source line through `queryEngine` and carries over its commercial terms, because a new line otherwise gets `comment: null` and `discountPercent: 0` from the upsert:
-  - `name` when it differs from the model title (the rep renamed it), `comment` and `discountPercent` are copied as they are;
-  - the source line's numeric `taxRate` is copied (quote lines store the rate, not `taxRateId`, `sales/data/entities.ts:1085`); with `priceMode: 'net'`, a net price and no gross, the upsert computes gross through `taxCalculationService` (`sales/commands/documents.ts:8013-8037`);
-  - a fixed `discountAmount` (with `discountPercent` 0) was negotiated on the old price, so finalise needs `discountAmountDecision: 'keep'` (copied) or `'remove'` (not copied); without it 422 `discount_amount_unconfirmed`;
-  - the summary is always rebuilt from the new choices.
-- **Review**: before "Replace line" the workspace always shows the re-configure review: old and new choices (with the migration items when there are any), the carried-over terms, the old price, the new price and the difference, and the fixed-discount decision when it applies. The difference is not split into causes. 
-- **Step 6**: delete the source snapshot's line, with no lock header (step 5 has just updated the quote, so the step-3 `updatedAt` is stale, and the delete only removes a line this module wrote). Line not found -> done. Quote not found (converted) -> `replacement_state = incomplete_after_conversion`. Other failure -> `replacement_state = pending`, release the lock and return `replacementPending`; the session stays `finalising` and step 7 is not reached. The retry action takes the lock, goes straight to step 6 through step 2 (later price or model changes do not block it) and retries the delete. Step 7 clears `replacement_state` (or keeps `incomplete_after_conversion`). Phase E changes step 2: a linked or adopted snapshot whose session still has a replacement to finish (a `source_snapshot_id` in `replace` mode and no `replacement_state` of `incomplete_after_conversion`) goes to step 6, not 7, so Retry resumes the delete.
-- **Conversion guard**: an interceptor on `sales.quotes.convert_to_order` tries the same advisory lock and releases it at once; if finalise holds it, conversion is rejected with 409 `configuration_in_progress`. A conversion that passed this check just before finalise took the lock can still run alongside step 5-6; then the order may carry both the new and the replaced line. That case is detected (`incomplete_after_conversion`), shown on the order tab with the replaced snapshot, and left to the user to remove. Q2 asks whether sales prefers to own an atomic "replace configured line" command that closes this window.
-- **Contract additions**: finalise accepts `discountAmountDecision` and returns `replacementPending`; new errors 409 `source_line_removed`, 409 `source_in_use`, 422 `discount_amount_unconfirmed`, 409 `configuration_in_progress` (conversion). Snapshot `lineState` adds `replaced` and `replacement_pending` (by `quoteId`) and `replaced_before_conversion` (by `orderId`), plus `replacement: { replacesSnapshotId?, replacedBySnapshotId?, state? }`; the source snapshot of a pending replacement stays `present` with `replacement.replacedBySnapshotId`.
-- **Data**: sessions gain `replacement_state` (`pending` | `incomplete_after_conversion`) and the partial unique index above, in Phase E's own migration.
-- **UI**: "Re-configure" on configured lines; header "Replacing: <line name>" with the source and target model version; "Replace line" opens the re-configure review, "Edit choices" returns to the workspace and "Replace line" in the review finalises; "Re-configuration in progress" disables a second one; a pending replacement is one card for the new line that names the old line and offers Retry, and is not announced as full success; "Replaced configurations" history; the two-line warning in `sales.document.detail.{quote,order}:details` while a quote has `replacement_pending` or an order has a line replaced before conversion; on orders the "Configured" column and the order tab mark the old line "Replaced before conversion". Outcomes: `source_line_removed` offers Discard and "Configure again"; `source_in_use` points to the running re-configuration; a conversion refused with `configuration_in_progress` says to try again in a moment.
 
 ### Access control at runtime
 
@@ -349,7 +329,7 @@ Sessions are shared within the organization: any user who passes the checks can 
   - the body matches the snapshot: `productId`, `currencyCode`, `quantity: 1`, `unitPriceNet` equal to the snapshot net price, and the marker's `hash` equal to the snapshot hash.
 - **`sales.quotes.create` and `sales.orders.create` with inline `lines`** (flat input): lines carrying the marker are rejected the same way.
 - **Standard line dialog**: it cannot save a configured line at all, because a catalog line without a variant fails its validation (`sales/components/documents/LineItemDialog.tsx:1490`) before reaching the guard, and it has no discount or comment field. v1 does not change it. Commercial fields of a configured line are edited from the Configurations tab (see UI/UX); Q5 asks maintainers about a quote-items host and about exposing the line to dialog field widgets. The guard still protects every other write path (API, inline lines, inbox actions).
-- **`sales.quotes.convert_to_order`**: no guard in v1, only the `afterExecute` cleanup (see Conversion during finalise); Phase E adds the conversion guard. The order line keeps price and configuration, and the order-line guard protects it from then on.
+- **`sales.quotes.convert_to_order`**: no guard, only the `afterExecute` cleanup (see Conversion during finalise). The order line keeps price and configuration, and the order-line guard protects it from then on.
 - **Undo**: not intercepted. Sales undo restores the stored quote graph.
 - Deletion stays allowed. Messages go through `resolveTranslations`.
 
@@ -369,7 +349,7 @@ Sessions are shared within the organization: any user who passes the checks can 
 
 `product_configurator.lines.update` edits `name`, `comment`, the discount and the tax rate of a configured line by dispatching `sales.quotes.lines.upsert` with the stored configured inputs unchanged, so the guard passes. Discount modes are explicit because a non-zero percentage always wins in sales (`sales/lib/calculations.ts:97`): choosing an amount sends `discountPercent: 0`, choosing a percentage sends `discountAmount: 0`, choosing none sends both 0. A tax change sends the chosen `taxRateId` and its numeric `taxRate`; Phase D verifies that gross is recomputed on an existing line (`TC-PCFG-055`). Commands return domain results and throw `CrudHttpError` helpers (`badRequest`, `notFound`, `conflict`). HTTP mapping stays in routes. Reference: `customers/commands/interactions.ts` (`buildLog`, undo via `extractUndoPayload`, `emitCrudSideEffects`, `enforceCommandOptimisticLockWithGuards`). Events are declared with `createModuleEvents`.
 
-Finalise has no undo of its own. The line write (and in Phase E the replaced-line delete) is a sales command with its own undo entry (`undoQuoteGraph`, `documents.ts:4093`). Sales treats an undo as stale only when the set of line or adjustment ids, notes, tags or addresses changed (`documents.ts:4076-4091`). Edits to line content or the quote header made later are silently reverted by such an undo. This is sales behaviour, not changed by this module. The quote tab shows a snapshot whose line is gone as "line removed" and offers "Configure again".
+Finalise has no undo of its own. The line write is a sales command with its own undo entry (`undoQuoteGraph`, `documents.ts:4093`). Sales treats an undo as stale only when the set of line or adjustment ids, notes, tags or addresses changed (`documents.ts:4076-4091`). Edits to line content or the quote header made later are silently reverted by such an undo. This is sales behaviour, not changed by this module. The quote tab shows a snapshot whose line is gone as "line removed" and offers "Configure again".
 
 | Event | Payload |
 |---|---|
@@ -470,11 +450,11 @@ Blue: new entities. Grey: existing entities, with only the fields the relation u
 - Immutable by design: no `updated_at`, no edit or delete API, so exempt from optimistic locking.
 
 ### ConfigurationSession (`product_configurator_sessions`)
-- `id`, `tenant_id`, `organization_id`, `model_version_id`, `quote_id`, `source_snapshot_id` nullable (copy source; the replaced snapshot in Phase E)
-- `selections` jsonb (user intent only), `evaluation` jsonb nullable (settled result), `revision` int default 0, `mode` text (`new` | `duplicate`; Phase E adds `replace`), `migration` jsonb nullable
+- `id`, `tenant_id`, `organization_id`, `model_version_id`, `quote_id`, `source_snapshot_id` nullable (copy source)
+- `selections` jsonb (user intent only), `evaluation` jsonb nullable (settled result), `revision` int default 0, `mode` text (`new` | `duplicate`), `migration` jsonb nullable
 - `status` text (`open` | `finalising` | `finalised` | `cancelled`; the hackathon called the last one `abandoned`)
 - `created_by`, `created_at`, `updated_at`
-- indexes `(tenant_id, organization_id, quote_id)`, `(tenant_id, organization_id, status)`; Phase E adds `replacement_state` and a partial unique index (see Phase E)
+- indexes `(tenant_id, organization_id, quote_id)`, `(tenant_id, organization_id, status)`
 - Concurrency: `revision` guards `evaluate` and `finalise`; finalise is also serialized by the per-quote advisory lock. Open sessions do not expire in v1; they are cancelled from the UI, and automatically when their quote is converted.
 
 ### ConfigurationSnapshot (`product_configurator_snapshots`)
@@ -503,10 +483,10 @@ All routes live under `/api/product_configurator/`, export `openApi`, and scope 
 | `POST /models/publish` | `models.manage` | `{ id }` + lock header -> `{ modelVersionId, version, hash }` | 422 `validation_failed`, 409 lock |
 | `GET /model-versions` | `models.view` | `modelId` -> versions without definition; `id` -> one version with definition | 404 |
 | `GET /sessions` | see Access control | `id` or `quoteId` -> `{ id, status, mode, revision, quoteId, quote: { number, customerName }, modelVersion, selections, evaluation, sourceSnapshotId, migration, createdBy: { id, displayName }, createdAt }` | 404 |
-| `POST /sessions` | see Access control | `{ quoteId, modelId?, fromSnapshotId?, mode? }` -> `{ sessionId, revision, modelVersion, quote: { id, number, customerName }, migration? }` | 404, 400 `mode_not_supported` (`replace` before Phase E), 409 `currency_mismatch`, 409 `no_published_version`, 409 `model_required` (with candidate ids), 422 `snapshot_not_in_quote`; Phase E adds 409 `source_in_use`, 409 `source_line_removed` |
+| `POST /sessions` | see Access control | `{ quoteId, modelId?, fromSnapshotId?, mode? }` -> `{ sessionId, revision, modelVersion, quote: { id, number, customerName }, migration? }` | 404, 400 `mode_not_supported`, 409 `currency_mismatch`, 409 `no_published_version`, 409 `model_required` (with candidate ids), 422 `snapshot_not_in_quote` |
 | `POST /sessions/evaluate` | see Access control | `{ id, selections, revision }` -> evaluation result with the new `revision` | 409 `session_not_open`, 409 `session_changed`, 422 `bom_sku_unmapped`, 413 `payload_too_large`, 422 `invalid_selection`, 422 `forced_value_invalid`, 422 `fixed_point_not_reached`, 422 `price_missing`, 422 `expression_error` |
 | `POST /sessions/cancel` | see Access control | `{ id }` -> `{ status }` | 409 `session_not_open` |
-| `POST /sessions/finalise` | see Access control | `{ id, expectedHash, revision, migrationAcknowledged? }` -> `{ snapshotId, quoteLineId, hash, replay }`; Phase E adds `discountAmountDecision` and `replacementPending` | 409 `result_changed` (with the new result), 409 `session_changed`, 409 `session_not_open` (discarded or cancelled; a finalised session returns its stored result with `replay: true`), 422 `migration_unconfirmed`, 409 `finalise_in_progress`, 409 `quote_changed` (quote edited after step 3), 409 `quote_converted` (quote converted or deleted), 409 `currency_mismatch`, 409 `model_deleted`, 422 `not_finalisable`, 422 `product_missing`, 422 `price_missing`, 422 `expression_error`, 422 `fixed_point_not_reached`, 502 `quote_line_write_failed` |
+| `POST /sessions/finalise` | see Access control | `{ id, expectedHash, revision, migrationAcknowledged? }` -> `{ snapshotId, quoteLineId, hash, replay }` | 409 `result_changed` (with the new result), 409 `session_changed`, 409 `session_not_open` (discarded or cancelled; a finalised session returns its stored result with `replay: true`), 422 `migration_unconfirmed`, 409 `finalise_in_progress`, 409 `quote_changed` (quote edited after step 3), 409 `quote_converted` (quote converted or deleted), 409 `currency_mismatch`, 409 `model_deleted`, 422 `not_finalisable`, 422 `product_missing`, 422 `price_missing`, 422 `expression_error`, 422 `fixed_point_not_reached`, 502 `quote_line_write_failed` |
 | `POST /lines/update` | `sessions.manage` + `sales.quotes.manage` | `{ quoteId, lineId, name?, comment?, discount?: { mode: 'percent' \| 'amount' \| 'none', value? }, taxRateId? }` + quote lock header -> `{ lineId, updatedAt }` | 404, 409 lock, 422 `not_a_configured_line` |
 | `POST /models/preview` | `models.manage` | `{ id, selections, context?: { channelId?, customerId?, date? } }` -> evaluation of the saved draft priced from the catalog for the given context (or a labelled reference context), plus `trace: { firedRules: [{ ruleId, label, effect }] }`; customer groups are resolved server-side for `context.customerId` at `context.date` in the same way; no session, no finalise | 404, 422 evaluation errors |
 | `GET /catalog-items` | `models.manage` | `skus` (comma-separated, max 100) -> `{ items: [{ sku, title, unit }], unknown[], ambiguous[] }` through `catalogPriceRowService.resolveSkus`, so the studio shows catalog titles and units and marks unknown or ambiguous SKUs while a row is edited | 400 over the limit |
@@ -514,7 +494,7 @@ All routes live under `/api/product_configurator/`, export `openApi`, and scope 
 
 Snapshot read model: `id`, `sessionId`, `quoteId`, `quoteLineId`, `lineState`, `lineName` (name of the document line that carries the snapshot, read through `queryEngine`; null when the line is gone, and the UI then shows `modelTitle`), `modelTitle`, `modelVersion { id, version, hash }`, `summary`, `selectionRows[{ label, value, unit }]` (visible features), `calculatedRows[{ label, value, unit }]` (labelled formulas), `specification[{ label, value }]`, `bom[{ sku, label, quantity, uom, unitPrice, total }]`, `netPrice`, `currencyCode`, `warnings[{ ruleId, message }]`, `hash`, `createdAt`. `orderId` reads the order's lines and returns the snapshots they reference.
 
-`lineState` is computed against the document asked for. By `quoteId` or `orderId`: `present` or `removed` (no line of that document carries the snapshot); Phase E adds the replacement states and the `replacement` field. By `id` alone: `present` when the quote line `quote_line_id` exists, or an order line with the same id carries the snapshot (order lines keep the quote line ids), otherwise `removed`.
+`lineState` is computed against the document asked for. By `quoteId` or `orderId`: `present` or `removed` (no line of that document carries the snapshot). By `id` alone: `present` when the quote line `quote_line_id` exists, or an order line with the same id carries the snapshot (order lines keep the quote line ids), otherwise `removed`.
 
 Feature ids are prefixed with `product_configurator.`. Model candidates for `model_required` are all non-deleted models with a published version in the organization whose `currency_code` matches the quote; the `currencyCode` filter of `GET /models` uses the same column. The quote tab shows them in a picker and sends `modelId`.
 
@@ -551,12 +531,12 @@ No caching in v1. Every read goes to the database. Each read is bounded: lists b
   - A sticky summary on the right holds the net price, status and the primary action; the BOM below it is collapsible. On a narrow screen the summary becomes a bottom bar.
   - Messages link to the fields they concern (`featureKeys`): clicking one scrolls to and highlights the field.
   - While a change is evaluated the result is shown as updating (previous result greyed, primary action disabled). Errors map to states: `invalid_selection` under the field; `bom_sku_unmapped` and `price_missing` name the part (and channel) and say an admin must fix the model or the catalog; `expression_error`, `fixed_point_not_reached` and `forced_value_invalid` block with "This model needs a fix by an admin" and the reference; `session_changed` reloads the current state and explains that someone else changed it; `session_not_open` says the configuration was added or discarded elsewhere and links to the quote; network errors and 5xx keep the last good result with Retry. A partial BOM is shown only when marked incomplete.
-  - Header shows quote number, customer name and, for a copy, "Copy of: <line name>" (Phase E adds "Replacing: <line name>"). When `migration` is not empty, every dropped or reset field is marked inline from the moment the workspace opens ("Reset to Navy: Signal red was removed in v4"), so nothing changes without a visible reason.
+  - Header shows quote number, customer name and, for a copy, "Copy of: <line name>". When `migration` is not empty, every dropped or reset field is marked inline from the moment the workspace opens ("Reset to Navy: Signal red was removed in v4"), so nothing changes without a visible reason.
   - Copy review: when `migration` is not empty, "Add to quote" first shows the choices that moved (old and new value with the reason), "I reviewed the changed choices" and "Add to quote"; "Edit choices" returns to the workspace. No commercial terms are shown, because a copy does not carry them. Without migration items a copy goes straight to "Add to quote".
-  - Primary action: "Add to quote" (Phase E adds "Replace line"). "Back to quote" keeps the session; "Discard configuration" ends it after a confirmation. A value set by a force rule shows the other options locked with the reason in plain words.
+  - Primary action: "Add to quote". "Back to quote" keeps the session; "Discard configuration" ends it after a confirmation. A value set by a force rule shows the other options locked with the reason in plain words.
   - Outcomes: success returns to the Configurations tab with the new line highlighted and focused. `result_changed` shows "The price changed from X to Y" with confirm; `quote_changed`, `finalise_in_progress` and `session_changed` explain and keep the rep's work; `quote_converted` explains that the session cannot finish; `model_deleted`, `product_missing` and `currency_mismatch` explain why it cannot be added and offer Discard; `quote_line_write_failed` keeps the choices and offers Retry; a replay says the configuration was already added and opens the quote with the line highlighted; `session_not_open` says it was discarded in another window, nothing was added. A rep without quote edit rights sees "Your choices are saved. Someone who can edit this quote can finish it from the Configurations tab."
   - Other errors and their way out: `no_published_version` or `currency_mismatch` on open reloads the model candidates and explains why the model is no longer offered; "all organizations" selected (400) asks to pick one organization; a lost permission (403) shows `ErrorMessage`. Work already saved in the session is kept in every case.
-  - Evaluate, discard and finalise go through `useGuardedMutation`. In Phase C there is no finalise action; Phase D adds it.
+  - Evaluate, discard and finalise go through `useGuardedMutation`.
 - `/backend/product_configurator/snapshots/[id]`: "Configuration details" (read model above). Links from the quote and order tabs carry `?quoteId=` or `?orderId=`, and the page authorizes against that document.
 - Quote tab "Configurations" (`sales.document.detail.quote:tabs`):
   - The model candidates load with the tab: "Configure product" opens a picker when several fit and an empty state with a link for admins when none fits; an API error shows `ErrorMessage`, not an empty list.
@@ -565,27 +545,26 @@ No caching in v1. Every read goes to the database. Each read is bounded: lists b
   - "Configurations in progress" with "Started by <name>, <date>", "Continue" and "Discard".
   - "Line removed" state: a configuration whose line was deleted in Items stays as history and offers "Configure again" (`duplicate`).
 - Configured-lines notice: a widget in `sales.document.detail.quote:details` says "This quote has N configured lines. Edit their name, comment, discount and tax in the Configurations tab" with a link, so a rep who opens a configured line in Items and meets the dialog's variant error knows where to go. It renders below the totals. A notice inside the line dialog itself is not possible in v1, because its field widgets cannot tell which line is open (Q5). Orders show configured lines through the "Configured" column.
-- Order: tab "Configurations" (`sales.document.detail.order:tabs`), read-only: one card per configured order line with name, summary, model version, configured net price and "Configuration details"; no configure or edit actions. A "Configured" badge column with a link to the snapshot is added to the order items table through `data-table:sales.order.items:columns`. The quote items table has no column host yet (Q5); the dialog field widget covers quotes meanwhile.
+- Order: tab "Configurations" (`sales.document.detail.order:tabs`), read-only: one card per configured order line with name, summary, model version, configured net price and "Configuration details"; no configure or edit actions. A "Configured" badge column with a link to the snapshot is added to the order items table through `data-table:sales.order.items:columns`. The quote items table has no column host yet (Q5); the configured-lines notice below the quote totals covers quotes meanwhile.
 - Copy for rep-facing screens: "Add to quote", "Add another identical", "Configure again", "Configuration details", "Discard configuration", "Configurations in progress". The model version is secondary information. Rep-facing screens never show rule codes or technical keys; rule messages are plain authored text.
 - Accessibility: choice groups are native radio groups or DS equivalents with arrow-key navigation; a disabled option's reason is its accessible description; after each evaluation one polite live-region message announces the price and message changes (not on every keystroke); field errors are linked to their controls; after finalise focus moves to the new line. Formula autocomplete follows the combobox pattern.
 - All data calls use `apiCall` / `readApiResultOrThrow`. Loading uses `LoadingMessage`; a failed call shows `ErrorMessage`, never an empty state; empty lists use the DS empty state. Icon-only buttons carry `aria-label`. Every dialog supports `Cmd/Ctrl+Enter` and `Escape`. DS tokens only, no status colors.
 
 ### Mockups
 
-Low-fidelity UX wireframes of the proposed v1 flow. Each one annotates behaviour and states with numbered notes; they show flow, not visual design, and the implementation uses the Open Mercato design system. They become a binding `Prototype:` reference only after maintainers accept them. Source HTML sits next to each PNG. Frames and notes labelled "Phase E" show re-configure in place, which ships after v1.
+Low-fidelity UX wireframes of the proposed v1 flow. Each one annotates behaviour and states with numbered notes; they show flow, not visual design, and the implementation uses the Open Mercato design system. They become a binding `Prototype:` reference only after maintainers accept them. Source HTML sits next to each PNG.
 
 | Wireframe | What it shows |
 |---|---|
 | ![Flow](assets/product-configurator/mockup-00-flow.png) | End-to-end flow by role (admin, sales rep, customer, back office) and the module behind each step |
-| ![Configurator](assets/product-configurator/mockup-01-configurator.png) | Configurator: controls by type, disabled option with reason, value set by a rule, conditional field, sticky summary, messages that link to fields, the result states (field error with the primary action disabled, evaluating, missing price, model problem, network error), and a copy with inline reset markers (re-configure header: Phase E) |
+| ![Configurator](assets/product-configurator/mockup-01-configurator.png) | Configurator: controls by type, disabled option with reason, value set by a rule, conditional field, sticky summary, messages that link to fields, the result states (field error with the primary action disabled, evaluating, missing price, model problem, network error), and a copy with inline reset markers |
 | ![Studio formulas](assets/product-configurator/mockup-02-studio-formulas.png) | Studio formulas: draft vs published, text expressions, autocomplete, live preview, inline errors with a fix |
 | ![Studio BOM](assets/product-configurator/mockup-03-studio-bom.png) | Studio BOM: SKU from lookup, formula quantity, conditions, units from the catalog, surcharge binding, row editor |
-| ![Quote tab](assets/product-configurator/mockup-04-quote-tab.png) | Quote tab: start, model picker, configurations in progress, add another identical with the copy review, edit line details, line removed with Configure again, nothing fits; Phase E regions: re-configure, replacement pending, history, warning outside the tab |
+| ![Quote tab](assets/product-configurator/mockup-04-quote-tab.png) | Quote tab: start, model picker, configurations in progress, add another identical with the copy review, edit line details, line removed with Configure again, nothing fits |
 | ![Publish states](assets/product-configurator/mockup-05-publish-states.png) | Studio: validation report with links, concurrent-edit conflict with draft copy, discard, successful publish |
 | ![Edit line details](assets/product-configurator/mockup-06-line-edit-lock.png) | Editing a configured line from the Configurations tab (discount none, percent or amount; quantity, unit and price read-only), why the standard Items dialog cannot save it, and the configured-lines notice below the quote totals |
-| ![Order](assets/product-configurator/mockup-07-order-snapshot.png) | Back office: "Configured" column in order items, warning for a line replaced before conversion, configuration details, read-only Configurations tab on the order; Phase E regions: the replaced line and its warning |
-| ![Adding to the quote](assets/product-configurator/mockup-08-finalise-outcomes.png) | Add to quote outcomes: success, price changed, changed in another window, quote edited, quote converted, another add running, added or discarded in another window, cannot finish with the actual reason, write failed, no edit rights; Phase E states: partly done replacement, line being replaced was deleted |
-| ![Re-configure](assets/product-configurator/mockup-09-reconfigure.png) | Phase E. Re-configure review, shown before every replace: changed and reset choices, old and new price with the difference, kept commercial terms, keep or remove a fixed discount, confirm and replace |
+| ![Order](assets/product-configurator/mockup-07-order-snapshot.png) | Back office: "Configured" column in order items, configuration details, read-only Configurations tab on the order |
+| ![Adding to the quote](assets/product-configurator/mockup-08-finalise-outcomes.png) | Add to quote outcomes: success, price changed, changed in another window, quote edited, quote converted, another add running, added or discarded in another window, cannot finish with the actual reason, write failed, no edit rights |
 | ![Studio rules](assets/product-configurator/mockup-10-studio-rules.png) | Studio rules: names and ids, effects, condition builder with all condition kinds, message with placeholders, fields highlighted for the rep, the three ways a rule sets a value |
 | ![Studio lookups](assets/product-configurator/mockup-11-studio-lookups.png) | Studio lookups: typed tables with friendly names, catalog SKU check when a row is edited, coverage, bulk edits through Advanced (JSON) |
 | ![Studio test](assets/product-configurator/mockup-12-studio-test.png) | Studio Test tab: the saved draft with a pricing context, rule trace, nothing saved |
@@ -608,11 +587,11 @@ Current state, from the hackathon build this spec is based on (it still contains
 | studio | `page.tsx` | `ModelStudio`, one leaf per tab | `GET /models?id=`, `PUT /models`, `GET /catalog-items` | each tab under 300 LOC or justified |
 | dependencies tab | - | `DependencyGraph` | studio draft | `@xyflow/react` (declared in the package's own `package.json`) via dynamic import |
 | version page | `page.tsx` | `ModelVersionView` | `GET /model-versions?id=` | read-only |
-| configure | `page.tsx` | `ConfiguratorWorkspace` | `GET /sessions`, `POST /sessions/*` | no viewer, no `three`; also renders the copy review (and the re-configure review in Phase E) |
+| configure | `page.tsx` | `ConfiguratorWorkspace` | `GET /sessions`, `POST /sessions/*` | no viewer, no `three`; also renders the copy review |
 | studio Test tab | - | `ConfiguratorWorkspace` (preview mode) | `POST /models/preview` | same component, no session |
 | snapshot page | `page.tsx` | `SnapshotDetail` | `GET /snapshots?id=` | |
 | quote / order tabs | injected widget | `QuoteConfigureTab`, `OrderConfigurationsTab` | `GET /snapshots`, `GET /sessions`, `GET /models`, `POST /lines/update`, `/api/sales/tax-rates`, sales line APIs | loaded only on the sales document page |
-| order items column; configured-lines notice; details warning (Phase E) | injected widget | `ConfiguredLineColumn`, `ConfiguredLinesNotice`, `ConfigurationWarning` (Phase E) | `GET /snapshots` | `sales.document.detail.*:details`, `data-table:sales.order.items:columns` |
+| order items column; configured-lines notice | injected widget | `ConfiguredLineColumn`, `ConfiguredLinesNotice` | `GET /snapshots` | `sales.document.detail.quote:details`, `data-table:sales.order.items:columns` |
 
 `"use client"` ledger:
 
@@ -624,7 +603,7 @@ Current state, from the hackathon build this spec is based on (it still contains
 | `ConfiguratorWorkspace` | live evaluation on change | configure page | no | debounce timer cleared on unmount | form submit per change |
 | widget components | injected client widgets | widget registry | no | none | none (spots are client-side) |
 
-No provider is added at page or app root. Budgets: 0 new page-root `"use client"`, 0 heavy libraries at page root, a hydration smoke test per interactive route in the phase that ships it (`TC-PCFG-014`, `-019`, `-046`), `yarn check:client-boundaries` in the gate. Performance evidence per UI phase PR: configurator evaluate round-trip under 300 ms for the reference model on a local build, and the client bundle size of each new route, attached to the PR body.
+No provider is added at page or app root. Budgets: 0 new page-root `"use client"`, 0 heavy libraries at page root, a hydration smoke test per interactive route in the phase that ships it (`TC-PCFG-014`, `-019`, `-045`, `-046`), `yarn check:client-boundaries` in the gate. Performance evidence per UI phase PR: configurator evaluate round-trip under 300 ms for the reference model on a local build, and the client bundle size of each new route, attached to the PR body.
 
 ## Configuration
 
@@ -632,7 +611,7 @@ No provider is added at page or app root. Budgets: 0 new page-root `"use client"
 
 ## Migration & Compatibility
 
-- New tables only, one migration per phase that adds tables (A: models and versions; C: sessions; D: snapshots plus `source_snapshot_id` on sessions; E: `replacement_state` and the partial unique index on sessions), each with its snapshot file.
+- New tables only, one migration per phase that adds tables (A: models and versions; C: sessions, with `mode` and `migration` columns used from D on, and snapshots; D: `source_snapshot_id` on sessions), each with its snapshot file.
 - New contract surfaces (all additive): module id, routes, ACL features, event ids, widget ids, DI key `catalogPriceRowService`.
 - `catalog`: one new service and DI registration, additive under `BACKWARD_COMPATIBILITY.md` (new DI key, new export). No change to existing signatures.
 - `sales`: no change. Dependency on line commands, the `configuration` field and command interceptors (Q2).
@@ -648,16 +627,11 @@ No provider is added at page or app root. Budgets: 0 new page-root `"use client"
 | Conversion while finalise writes the line | Serialized by the quote row lock and the line's foreign key: the line is either copied to the order or not written (`quote_converted`) |
 | Crash after the sales commit, then conversion before a retry | The conversion hook reconciles the `finalising` session against the order lines, adopts the line and finalises the session |
 | Rep adds a changed copy and forgets to remove the old line | Both lines stay on the quote, as for any two lines; the tab hint asks to remove the old one before sending |
-| Phase E: conversion while finalise holds the lock | Conversion rejected with 409 `configuration_in_progress` |
-| Phase E: conversion that started just before finalise took the lock, during a re-configure | Order may carry both lines; detected as `incomplete_after_conversion` and shown on the order tab for manual removal |
 | A BOM line in `cm` for an item sold in `m` | Publish fails with `bom_unit_mismatch` |
 | API submits a value outside the permitted lookup row | Blocking error `option_not_available`; finalise refused |
 | Quote converted during configuration | Step 3 or the upsert finds no quote, mapped to `quote_converted`; session cancelled; no line written |
 | Quote edited between finalise step 3 and step 5 | Sales rejects the upsert with 409, mapped to `quote_changed`; earlier edits do not conflict |
-| Phase E: delete of the replaced line fails | Session stays `finalising`, tab shows "replacement pending" with a retry |
-| Phase E: two reps re-configure the same snapshot | Second open gets `source_in_use`; the tab points to the running re-configuration |
-| Rep wants to change a line deleted in Items | The tab offers "Configure again", which adds a new line with new-line defaults (Phase E: re-configure returns `source_line_removed`) |
-| Phase E: source line deleted while its re-configuration is open | Finalise returns `source_line_removed` before writing; nothing is added |
+| Rep wants to change a line deleted in Items | The tab offers "Configure again", which adds a new line with new-line defaults |
 | Finalise of a session discarded in another window | 409 `session_not_open`; nothing is added |
 | Rep edits net price, quantity, UOM or product of a configured line through the API | 409 `configured_line_locked`; name, comment, discount and tax edits from the Configurations tab pass |
 | Rep opens a configured line in the standard Items dialog | The dialog cannot save it (variant required); the notice below the totals points to the Configurations tab (Q5) |
@@ -665,8 +639,6 @@ No provider is added at page or app root. Budgets: 0 new page-root `"use client"
 | Quote with more than 100 lines, crash, then retry | Step 2 pages through all lines and adopts the committed line; no duplicate |
 | Catalog price changes between the rep's last view and finalise | 409 `result_changed`; nothing written; the rep confirms the new price |
 | Two windows or two reps evaluate the same session | The older revision gets 409 `session_changed` and the current state |
-| Phase E: re-configure of a line with a 10% discount and a comment | The new line keeps them and its tax rate |
-| Phase E: re-configure of a line with a fixed 2,000.00 discount | The review asks to keep or remove it; finalise needs `discountAmountDecision` |
 | Rep switches a line discount from 5% to 1,000.00 | `discountPercent` is set to 0 so the amount applies |
 | "Add another identical" from v3 after v4 removed an option | The copy review lists the dropped value; finalise needs `migrationAcknowledged` |
 | A lookup has no SKU row for a selected option | Blocking `bom_sku_unmapped`; publication's `lookup_coverage` catches it for choice, color and boolean features |
@@ -686,9 +658,8 @@ No provider is added at page or app root. Budgets: 0 new page-root `"use client"
 |---|---|---|---|
 | A | engine | `catalogPriceRowService` (first commit), package, models and versions, evaluator, validation, publish, `GET /catalog-items` | admins author and publish models through the API |
 | B | studio | studio UI | admins author and publish models in the UI |
-| C | configurator | sessions, pricing, configurator UI, quote tab, studio Test tab | reps configure and see prices on a quote; admins test drafts |
-| D | finalise | snapshots, finalise (always a new line), line guard, "Add another identical" and "Configure again" with the copy review, line edit from the tab, order tab and items column, conversion cleanup | configured lines land on quotes and orders; v1 complete |
-| E | replacement | re-configure in place: `replace` mode, carried-over terms, step 6, conversion guard, replacement states, two-line warning (after v1, pending Q2) | reps change a configured line without re-entering its terms |
+| C | configure and add to quote | sessions, pricing, configurator UI, quote tab, studio Test tab, snapshots, finalise (always a new line), line guard, snapshot detail page, conversion cleanup | reps configure a product on a quote and add it as a priced, protected line; admins test drafts |
+| D | configured lines | "Add another identical" and "Configure again" with the copy review, line edit from the tab, configured-lines notice, order tab and items column | reps copy and adjust configured lines; back office sees what was sold on the order |
 
 ## Implementation Plan
 
@@ -707,24 +678,20 @@ No provider is added at page or app root. Budgets: 0 new page-root `"use client"
 2. Studio tabs in UI, expression parser and editor, BOM row editor, `visibleWhen` editor, dependency graph, advanced JSON view. Proved by `TC-PCFG-010`, `-011`.
 3. Published version page, publish flow with inline report, conflict handling with draft copy, discard, draft reload. Proved by `TC-PCFG-012` to `-016`.
 
-### Phase C: Configurator (PR C)
-1. `ConfigurationSession` entity and migration.
+### Phase C: Configure and add to quote (PR C)
+1. `ConfigurationSession` and `ConfigurationSnapshot` entities, one migration.
 2. Session commands and routes (open without `fromSnapshotId`, evaluate, cancel, get), sales RBAC checks, selected-organization scoping, currency check, model candidates. Proved by `TC-PCFG-020` to `-028`.
 3. Pricing through `catalogPriceRowService` and `catalogPricingService`. Proved by `TC-PCFG-020`, `-027`.
-4. Configurator workspace (no finalise) with error states, layout and accessibility, session revision, and quote tab (configure, picker, resume, discard). Proved by `TC-PCFG-018`, `-019`, `-029`, `-051`, `-061`.
+4. Configurator workspace with error states, layout and accessibility, session revision, and quote tab (configure, picker, resume, discard, configured lines). Proved by `TC-PCFG-018`, `-019`, `-029`, `-051`, `-061`.
 5. `POST /models/preview` and the studio Test tab. Proved by `TC-PCFG-017`.
+6. Finalise command (advisory lock, reconcile-first recovery including order lines, revision and `expectedHash` checks, trusted line write), sales RBAC on finalise, events, logging and error reporting, conversion cleanup. Proved by `TC-PCFG-030` to `-033`, `-039`, `-040`, `-042`, `-050`, `-051`, `-056`, `-060`, `-062` and finalise unit tests.
+7. Configured line guard (line upserts, quote and order create) and the snapshot detail page opened from the quote. Proved by `TC-PCFG-035` to `-037`, `-043`, `-045`, `-047`.
 
-### Phase D: Finalise (PR D)
-1. `ConfigurationSnapshot` entity, `source_snapshot_id` on sessions, one migration.
-2. Finalise command (advisory lock, reconcile-first recovery including order lines, revision and `expectedHash` checks, trusted line write), `fromSnapshotId` with `duplicate` as the default mode, sales RBAC on finalise, events, logging and error reporting. Proved by `TC-PCFG-030` to `-033`, `-039` to `-042`, `-050`, `-060`, `-062` and finalise unit tests.
-3. Configured line guard (line upserts, quote and order create). Proved by `TC-PCFG-035` to `-037`, `-048`.
-4. Snapshot detail page and its access rules, quote tab lines with line states, order tab, configured-lines notice. Proved by `TC-PCFG-038`, `-043`, `-044`, `-046`, `-047`, `-058`.
-5. "Add another identical" and "Configure again" with selection migration and the copy review, edit of a configured line's commercial fields, order items column, conversion cleanup and reconcile of `finalising` sessions. Proved by `TC-PCFG-053` to `-061`.
-
-### Phase E: Line replacement (PR E, after v1)
-1. Migration: `replacement_state` and the partial unique index on sessions.
-2. `replace` mode on open (`source_line_removed`, `source_in_use`), carry-over of commercial terms with `discountAmountDecision`, finalise step 6 with retry, conversion guard. Proved by `TC-PCFG-034`, `-049`, `-052`, `-063`, `-066` and the replacement unit tests.
-3. Re-configure workspace and review, replacement states on the quote and order tabs, two-line warning in the details spot. Proved by `TC-PCFG-064`, `-065`.
+### Phase D: Configured lines on quotes and orders (PR D)
+1. `source_snapshot_id` on sessions, one migration; `fromSnapshotId` with `duplicate` as the default mode.
+2. "Add another identical" and "Configure again" with selection migration and the copy review. Proved by `TC-PCFG-041`, `-053`, `-054`, `-057`, `-059`.
+3. Edit of a configured line's commercial fields and the configured-lines notice. Proved by `TC-PCFG-048`, `-055`, `-058`.
+4. Order tab, order items column, snapshot access from the order. Proved by `TC-PCFG-038`, `-044`, `-046`, `-063`.
 
 ### Integration coverage
 
@@ -734,14 +701,13 @@ Tests live in `src/modules/product_configurator/__integration__/` with `meta.ts`
 |---|---|---|
 | A | `TC-PCFG-001` create, update, delete model; stale `updatedAt` -> 409. `TC-PCFG-002` validate a broken model (cycle, unknown SKU, ambiguous SKU, bad default, non-settling rules, duplicate key, over limits, BOM unit different from the catalog unit, lookup without a row for an option) -> right codes. `TC-PCFG-003` publish creates version 1, then 2; versions read-only; draft edit keeps the model selectable. `TC-PCFG-004` cross-organization and cross-tenant reads -> 404; "all organizations" on validate and publish -> 400. `TC-PCFG-005` each feature gates its routes. `TC-PCFG-006` a registered mutation guard blocks publish. `TC-PCFG-007` module enabled on a fresh database: migrations apply and `GET /models` answers. `TC-PCFG-008` `GET /catalog-items` returns titles and units, lists unknown and ambiguous SKUs, stays in the selected organization and rejects more than 100 SKUs | - |
 | B | covered by A | `TC-PCFG-010` build the reference model from a blank model through the UI only and publish; canonical comparison with the fixture. `TC-PCFG-011` formula parse error shown inline. `TC-PCFG-012` conflict bar on concurrent edit. `TC-PCFG-013` published version page renders. `TC-PCFG-014` hydration smoke test of the models list, studio and version page. `TC-PCFG-015` save a draft, reload the studio, keep editing, then publish. `TC-PCFG-016` conflict refresh asks for confirmation and offers a copy of the local draft; discard restores the last saved draft |
-| C | `TC-PCFG-020` open, evaluate golden scenarios, prices match, including a BOM part with a price for a customer group that the quote customer belongs to (fixtures create the group and membership through `/api/customer-groups`); a unit test of the configurator's `lib/pricing.ts` with `customerGroupsService` not registered prices with `customerGroupIds: []`. `TC-PCFG-021` currency mismatch -> 409. `TC-PCFG-022` two models and no `modelId` -> `model_required`, then open with `modelId`. `TC-PCFG-023` invalid selection -> 422; a value outside the permitted lookup row sent straight to the API -> blocking `option_not_available`; a lookup gap -> blocking `bom_sku_unmapped`. `TC-PCFG-024` selected organization switch changes visible data. `TC-PCFG-025` user without `sales.quotes.view` -> 403 on open, evaluate and get. `TC-PCFG-026` cancel; evaluate after cancel -> 409. `TC-PCFG-027` channel price wins over base price. `TC-PCFG-028` another rep resumes a session; revoked sales access blocks it. `TC-PCFG-051` stale revision on evaluate (and on finalise once D ships) -> `session_changed` | `TC-PCFG-029` configure from the quote tab, hidden features appear when their condition holds, refresh restores state, forced values and blocking errors visible. `TC-PCFG-019` hydration smoke test of the configure page and quote tab. `TC-PCFG-017` studio Test tab evaluates the saved draft with a chosen context, without creating a session. `TC-PCFG-018` deterministic errors show their own state (no Retry); keyboard and live-region behaviour of the workspace. `TC-PCFG-061` the primary action stays disabled while a number field holds invalid text |
-| D | `TC-PCFG-030` finalise writes a line with `productId`, net price, `taxRateId`, `configuration`; sales computes gross; also for a model bound to a product without SKU. `TC-PCFG-031` replay is idempotent. `TC-PCFG-032` failed line write leaves the session reopenable. `TC-PCFG-033` quote converted between open and finalise -> `quote_converted`, session cancelled, no line; quote edited between steps 3 and 5 -> `quote_changed`, session open. `TC-PCFG-035` on a configured quote line: net price, quantity, UOM, product, marker, or an explicit `taxAmount` / `totalGrossAmount` change -> 409; discount, tax and name change succeed; an earlier interceptor's `modifiedInput` cannot bypass the guard. `TC-PCFG-036` same guard on order lines after conversion. `TC-PCFG-037` forged marker on line insert (including one that references a real pending snapshot), on an update of a plain line, and on inline quote and order create -> 422. `TC-PCFG-038` convert to order keeps `configuration`; order tab finds the snapshot. `TC-PCFG-039` user without `sales.quotes.manage` cannot finalise. `TC-PCFG-040` finalise on a deleted model -> `model_deleted`. `TC-PCFG-041` `fromSnapshotId` of another quote -> 422; `mode: 'replace'` -> 400 `mode_not_supported`. `TC-PCFG-042` a registered mutation guard blocks finalise. `TC-PCFG-043` snapshot routes gated as specified; an order-only user opens a snapshot from the order tab. `TC-PCFG-050` catalog price changed after the last evaluate -> `result_changed`, no line; confirm then succeeds. `TC-PCFG-053` "Add another identical" across model versions returns `migration` and finalise needs `migrationAcknowledged`. `TC-PCFG-054` "Add another identical" adds a separate, re-priced line with new-line defaults and leaves the source line. `TC-PCFG-055` `POST /lines/update` changes name, comment, discount (percent to amount to none) and tax (gross recomputed) and rejects a non-configured line. `TC-PCFG-056` converting a quote cancels its open sessions. `TC-PCFG-059` "Configure again" on a removed line adds a new line. `TC-PCFG-060` finalise of a discarded session -> `session_not_open`, no line. `TC-PCFG-062` convert, then finalise -> `quote_converted`, no line; finalise, then convert -> the order carries the configured line. Unit: crash after sales commit then retry adopts the line without re-evaluating, also with changed prices and a deleted model; crash after sales commit then conversion: the hook adopts the order line and finalises the session; a second finalise on the same quote is refused while the lock is held; against a real database, a conversion holding the quote row lock makes a concurrent configured line insert fail with nothing on the order; a reconcile read past 20 and 100 lines finds the committed line | `TC-PCFG-044` quote -> configure -> finalise -> send -> accept -> order tab links the snapshot. `TC-PCFG-046` hydration smoke test of the snapshot page and order tab. `TC-PCFG-048` edit a configured line's name, comment, discount and tax from the Configurations tab; quantity and price are not offered. `TC-PCFG-047` snapshot page renders the read model. `TC-PCFG-057` "Add another identical" across model versions shows the copy review. `TC-PCFG-058` the quote shows the configured-lines notice below the totals. |
-| E | `TC-PCFG-034` re-configure from a snapshot replaces only that line; a second configuration on the same quote stays; a second session on the same source -> `source_in_use`. `TC-PCFG-049` conversion while finalise holds the lock -> 409 `configuration_in_progress`. `TC-PCFG-052` re-configure keeps name, comment, discount percent and the numeric tax rate (gross recomputed); a fixed discount amount needs `discountAmountDecision` and is copied on `keep`, dropped on `remove`. `TC-PCFG-063` re-configure of a removed line -> `source_line_removed`. `TC-PCFG-066` re-configure across versions returns `migration` and needs `migrationAcknowledged`. Unit: delete failure then retry; conversion between insert and delete is marked `incomplete_after_conversion` | `TC-PCFG-064` the re-configure review always shows before Replace line; replacement pending card and Retry; two-line warning in the details spot. `TC-PCFG-065` hydration smoke test of re-configure mode |
+| C | `TC-PCFG-020` open, evaluate golden scenarios, prices match, including a BOM part with a price for a customer group that the quote customer belongs to (fixtures create the group and membership through `/api/customer-groups`); a unit test of the configurator's `lib/pricing.ts` with `customerGroupsService` not registered prices with `customerGroupIds: []`. `TC-PCFG-021` currency mismatch -> 409. `TC-PCFG-022` two models and no `modelId` -> `model_required`, then open with `modelId`. `TC-PCFG-023` invalid selection -> 422; a value outside the permitted lookup row sent straight to the API -> blocking `option_not_available`; a lookup gap -> blocking `bom_sku_unmapped`. `TC-PCFG-024` selected organization switch changes visible data. `TC-PCFG-025` user without `sales.quotes.view` -> 403 on open, evaluate and get. `TC-PCFG-026` cancel; evaluate after cancel -> 409. `TC-PCFG-027` channel price wins over base price. `TC-PCFG-028` another rep resumes a session; revoked sales access blocks it. `TC-PCFG-051` stale revision on evaluate and on finalise -> `session_changed`. `TC-PCFG-030` finalise writes a line with `productId`, net price, `taxRateId`, `configuration`; sales computes gross; also for a model bound to a product without SKU. `TC-PCFG-031` replay is idempotent. `TC-PCFG-032` failed line write leaves the session reopenable. `TC-PCFG-033` quote converted between open and finalise -> `quote_converted`, session cancelled, no line; quote edited between steps 3 and 5 -> `quote_changed`, session open. `TC-PCFG-035` on a configured quote line: net price, quantity, UOM, product, marker, or an explicit `taxAmount` / `totalGrossAmount` change -> 409; discount, tax and name change succeed; an earlier interceptor's `modifiedInput` cannot bypass the guard. `TC-PCFG-036` same guard on order lines after conversion. `TC-PCFG-037` forged marker on line insert (including one that references a real pending snapshot), on an update of a plain line, and on inline quote and order create -> 422. `TC-PCFG-039` user without `sales.quotes.manage` cannot finalise. `TC-PCFG-040` finalise on a deleted model -> `model_deleted`. `TC-PCFG-042` a registered mutation guard blocks finalise. `TC-PCFG-043` snapshot routes by `quoteId` and `id` gated as specified; cross-organization reads -> 404. `TC-PCFG-050` catalog price changed after the last evaluate -> `result_changed`, no line; confirm then succeeds. `TC-PCFG-056` converting a quote cancels its open sessions. `TC-PCFG-060` finalise of a discarded session -> `session_not_open`, no line. `TC-PCFG-062` convert, then finalise -> `quote_converted`, no line; finalise, then convert -> the order carries the configured line. Unit: crash after sales commit then retry adopts the line without re-evaluating, also with changed prices and a deleted model; crash after sales commit then conversion: the hook adopts the order line and finalises the session; a second finalise on the same quote is refused while the lock is held; against a real database, a conversion holding the quote row lock makes a concurrent configured line insert fail with nothing on the order; a reconcile read past 20 and 100 lines finds the committed line | `TC-PCFG-029` configure from the quote tab, hidden features appear when their condition holds, refresh restores state, forced values and blocking errors visible. `TC-PCFG-019` hydration smoke test of the configure page and quote tab. `TC-PCFG-017` studio Test tab evaluates the saved draft with a chosen context, without creating a session. `TC-PCFG-018` deterministic errors show their own state (no Retry); keyboard and live-region behaviour of the workspace. `TC-PCFG-061` the primary action stays disabled while a number field holds invalid text. `TC-PCFG-047` snapshot page renders the read model. `TC-PCFG-045` hydration smoke test of the snapshot page. |
+| D | `TC-PCFG-038` convert to order keeps `configuration`; order tab finds the snapshot. `TC-PCFG-041` `fromSnapshotId` of another quote -> 422; `mode: 'replace'` -> 400 `mode_not_supported`. `TC-PCFG-063` an order-only user opens a snapshot from the order tab; with `id`, the order must carry it. `TC-PCFG-053` "Add another identical" across model versions returns `migration` and finalise needs `migrationAcknowledged`. `TC-PCFG-054` "Add another identical" adds a separate, re-priced line with new-line defaults and leaves the source line. `TC-PCFG-055` `POST /lines/update` changes name, comment, discount (percent to amount to none) and tax (gross recomputed) and rejects a non-configured line. `TC-PCFG-059` "Configure again" on a removed line adds a new line. | `TC-PCFG-044` quote -> configure -> finalise -> send -> accept -> order tab links the snapshot. `TC-PCFG-046` hydration smoke test of the order tab. `TC-PCFG-048` edit a configured line's name, comment, discount and tax from the Configurations tab; quantity and price are not offered. `TC-PCFG-057` "Add another identical" across model versions shows the copy review. `TC-PCFG-058` the quote shows the configured-lines notice below the totals. |
 
 ## Risks & Impact Review
 
 ### Data Integrity Failures
-Finalise spans the module's own writes and one sales line write, and is serialized per quote by an advisory lock. Recovery first adopts a committed line (on the quote, or on the order after a conversion) before re-evaluating, and the snapshot is replaceable only while no line carries it. A crash is repaired by the next `finalise` call or by the conversion hook. Conversion and the line write serialize on the quote row, so a configured line is never lost. Model edits use optimistic locking. Phase E adds a second sales write (the replaced-line delete) and its own risks, listed below.
+Finalise spans the module's own writes and one sales line write, and is serialized per quote by an advisory lock. Recovery first adopts a committed line (on the quote, or on the order after a conversion) before re-evaluating, and the snapshot is replaceable only while no line carries it. A crash is repaired by the next `finalise` call or by the conversion hook. Conversion and the line write serialize on the quote row, so a configured line is never lost. Model edits use optimistic locking.
 
 ### Cascading Failures & Side Effects
 Event subscribers are not required for correctness. The line guard runs on every sales line upsert with an `id`, on line inserts carrying the marker, and on quote and order create with inline lines. It returns early when neither the stored line nor the input carries `configuration.productConfigurator`, so a bug can only block configured lines. Sales recalculates the whole quote on each line write, as for any line.
@@ -771,13 +737,6 @@ Evaluation runs on each change in the configurator. The engine is pure and bound
 - **Mitigation**: step 2 looks for a line carrying the snapshot before any re-evaluation or write (live base-table read, all pages); the advisory lock keeps a second worker out while the first is alive; unit tests with an injected crash, changed prices and a deleted model.
 - **Residual risk**: none known.
 
-#### Conversion during a re-configure (Phase E)
-- **Scenario**: a conversion passes the lock check just before finalise takes the lock, and runs while finalise inserts the new line and deletes the old one.
-- **Severity**: Medium
-- **Affected area**: order totals
-- **Mitigation**: conversion is rejected while finalise holds the lock; the remaining case is detected (`incomplete_after_conversion`) and shown on the order tab with the replaced snapshot.
-- **Residual risk**: the order can carry both lines until a user removes one. Closing this fully needs a sales-owned atomic replace command (Q2).
-
 #### Crash after the sales commit, then conversion
 - **Scenario**: the process dies after sales commits the line and before `quote_line_id` is stored, and the quote is converted before a retry.
 - **Severity**: Low
@@ -789,7 +748,7 @@ Evaluation runs on each change in the configurator. The engine is pure and bound
 - **Scenario**: a rep adds a changed copy of a configured machine and does not remove the old line.
 - **Severity**: Low
 - **Affected area**: quote totals
-- **Mitigation**: both lines are visible on the quote like any two lines; the Configurations tab says to remove the old line before sending or converting. Phase E replaces the line in place.
+- **Mitigation**: both lines are visible on the quote like any two lines; the Configurations tab says to remove the old line before sending or converting. A follow-up spec (Q6) would replace the line in place.
 - **Residual risk**: the quote can be sent with both lines until a person notices.
 
 #### Guard read is not transactional
@@ -798,13 +757,6 @@ Evaluation runs on each change in the configurator. The engine is pure and bound
 - **Affected area**: configured line fields
 - **Mitigation**: the guard runs last and compares the final input with a fresh read; sales optimistic locking on the document rejects most concurrent writes.
 - **Residual risk**: a narrow race between two writers; the snapshot keeps the configured price for comparison.
-
-#### Replacement leaves two lines (Phase E)
-- **Scenario**: the delete of the replaced line fails.
-- **Severity**: Medium
-- **Affected area**: quote totals
-- **Mitigation**: the session stays `finalising`, the tab shows "replacement pending", and a retry completes it.
-- **Residual risk**: until the rep retries, the quote shows both lines.
 
 #### Quote changes during configuration
 - **Scenario**: the quote is converted while a rep configures, or edited between finalise step 3 and step 5.
@@ -857,7 +809,7 @@ Evaluation runs on each change in the configurator. The engine is pure and bound
 
 Product-direction calls (for maintainers, not rule violations): placement (Q1), relying on sales commands (Q2), the catalog seam (Q3), and quote items integration (Q5).
 
-## Final Compliance Report — 2026-10-29
+## Final Compliance Report — 2026-10-30
 
 ### AGENTS.md Files Reviewed
 - `AGENTS.md` (root)
@@ -906,15 +858,18 @@ Product-direction calls (for maintainers, not rule violations): placement (Q1), 
 | Risks cover all write operations | Pass | |
 | Commands defined for all mutations | Pass | undo and audit per command |
 | Cache strategy covers all read APIs | Pass | no cache in v1 |
-| Phase boundaries | Pass | `fromSnapshotId` (copy) and finalise in D; re-configure in place in E |
+| Phase boundaries | Pass | finalise in C, so each phase is usable; copies, line edits and the order surfaces in D; re-configure in place left to a follow-up spec (Q6) |
 
 ### Non-Compliant Items
 None known.
 
 ### Verdict
-Findings of ten review rounds applied; pending maintainer answers to Q1-Q5. v1 (A-D) has no known open data-integrity risk beyond the low-severity cases in the risk register. Re-configure in place moved to Phase E; its residual risk (conversion during a replacement) is documented and raised in Q2.
+Findings of eleven review rounds applied; pending maintainer answers to Q1-Q6. No known open data-integrity risk beyond the low-severity cases in the risk register. Re-configure in place is proposed as a follow-up spec (Q6).
 
 ## Changelog
+
+### 2026-10-30
+- Applied maintainer re-review: re-configure in place (former Phase E) removed from this spec and proposed as a follow-up spec (Q6); "Add to quote" (snapshots, finalise, line guard, snapshot page, conversion cleanup) moved into Phase C so every phase is usable; Phase D now covers copies, line edits, the configured-lines notice and the order surfaces; tests, migrations and risks re-assigned.
 
 ### 2026-10-29
 - Applied maintainer review: the pricing context carries the quote customer's `customerGroupIds` from `customerGroupsService` (empty when `customer_groups` is disabled), passed to both row fetching and selection, also in preview, and stored in the snapshot `price_context`; a quote without a customer gets the tenant default group like the storefront; a variant item gets its product's rows plus its own rows through `filterRowsForVariant`; grouped-price, parent-price and disabled-module tests added.
@@ -1026,4 +981,13 @@ Findings of ten review rounds applied; pending maintainer answers to Q1-Q5. v1 (
 - **Cache**: No findings
 - **Commands**: No findings
 - **Risks**: customer-group prices ignored although the catalog pricing context already supports them; a variant without its own price row failed instead of using its product's row (fixed)
+- **Verdict**: Needs revision (applied)
+
+### Review — 2026-10-30 (round 11)
+- **Reviewer**: Maintainer (`om-auto-review-pr`)
+- **Security**: No findings
+- **Performance**: No findings
+- **Cache**: No findings
+- **Commands**: No findings
+- **Risks**: Phase E bundled without a scope decision; Phase C not usable on its own (fixed: Q6 and a follow-up spec; finalise moved into Phase C)
 - **Verdict**: Needs revision (applied)
