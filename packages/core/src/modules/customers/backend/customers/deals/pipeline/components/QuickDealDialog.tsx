@@ -391,7 +391,7 @@ export function QuickDealDialog({
             {translateWithFallback(
               t,
               'customers.deals.kanban.quickDeal.context',
-              'Pipeline: {pipeline} · Stage: {stage}',
+              'Pipeline: {pipeline}, Stage: {stage}',
               { pipeline: context.pipelineName, stage: context.pipelineStageLabel },
             )}
           </DialogDescription>

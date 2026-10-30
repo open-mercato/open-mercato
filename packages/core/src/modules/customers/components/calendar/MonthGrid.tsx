@@ -62,7 +62,7 @@ function MonthPill({ item, onItemClick }: { item: CalendarItem; onItemClick: (it
   const locale = useLocale()
   const canceled = item.status === 'canceled'
   const title = eventDisplayTitle(item.title, t('customers.calendar.grid.untitled', 'Untitled'))
-  const timeLabel = item.allDay ? '' : ` · ${formatTimeRangeLabel(locale, item.start, item.end)}`
+  const timeLabel = item.allDay ? '' : `, ${formatTimeRangeLabel(locale, item.start, item.end)}`
   const tintStyle = item.color
     ? { backgroundColor: `${item.color}${SOFT_TINT_ALPHA}`, color: readableTypeColor(item.color) }
     : undefined

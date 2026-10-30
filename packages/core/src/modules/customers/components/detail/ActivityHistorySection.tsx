@@ -352,7 +352,7 @@ export function ActivityHistorySection({
             {t('customers.activityLog.title', 'Activity history')}
           </h3>
           <p className="text-xs text-muted-foreground">
-            {t('customers.timeline.history.filtered', 'filtered: {{types}} · {{count}} results', {
+            {t('customers.timeline.history.filtered', 'filtered: {{types}}, {{count}} results', {
               types: filteredLabel,
               count: activities.length,
             })}
@@ -459,7 +459,7 @@ export function ActivityHistorySection({
                   {showYearSeparator ? (
                     <div className="flex items-center gap-3 py-1">
                       <div className="h-px flex-1 bg-border" />
-                      <span className="text-xs font-semibold text-muted-foreground">· {currentYear} ·</span>
+                      <span className="text-xs font-semibold text-muted-foreground">{currentYear}</span>
                       <div className="h-px flex-1 bg-border" />
                     </div>
                   ) : null}

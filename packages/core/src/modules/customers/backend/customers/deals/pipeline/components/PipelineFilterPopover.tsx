@@ -86,7 +86,7 @@ export function PipelineFilterPopover({
       {translateWithFallback(
         t,
         'customers.deals.kanban.filter.pipeline.selectedOne',
-        '1 selected · {name}',
+        '1 selected: {name}',
         { name: pipelines.find((pipeline) => pipeline.id === draft)?.name ?? '' },
       )}
     </span>
@@ -111,7 +111,7 @@ export function PipelineFilterPopover({
         onKeyDown={handleKeyDown}
       >
         <FilterPopoverShell
-          title={translateWithFallback(t, 'customers.deals.kanban.filter.pipeline.title', 'Filter · Pipeline')}
+          title={translateWithFallback(t, 'customers.deals.kanban.filter.pipeline.title', 'Filter: Pipeline')}
           onClose={() => setOpen(false)}
           onCancel={() => setOpen(false)}
           onApply={handleApply}

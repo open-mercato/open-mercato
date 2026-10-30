@@ -79,7 +79,7 @@ export function CompanyDetailHeader({
 
   const industryLabel = profile?.industry ?? null
   const sizeLabel = profile?.sizeBucket ?? null
-  const subtitle = [industryLabel, sizeLabel ? t('customers.companies.detail.header.employees', '{count} employees', { count: sizeLabel }) : null].filter(Boolean).join(' \u00b7 ')
+  const subtitle = [industryLabel, sizeLabel ? t('customers.companies.detail.header.employees', '{count} employees', { count: sizeLabel }) : null].filter(Boolean).join(', ')
 
   // Primary address for header
   const primaryAddress = React.useMemo(() => {

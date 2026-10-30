@@ -101,7 +101,7 @@ export function DealLostSummaryDialog({
                 {stats ? formatCurrency(stats.dealValue, stats.dealCurrency) : '—'}
               </p>
               <p className="mt-1 text-xs text-muted-foreground">
-                {t('customers.deals.detail.lost.popupSummary', 'Lost · reason: {{reason}}', {
+                {t('customers.deals.detail.lost.popupSummary', 'Lost: {{reason}}', {
                   reason: stats?.lossReason ?? t('customers.deals.detail.lost.reasonFallback', 'Unknown'),
                 })}
               </p>
