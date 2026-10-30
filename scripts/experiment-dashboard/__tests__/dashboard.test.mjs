@@ -70,6 +70,26 @@ test('inline producer artifacts work without artifact files', () => fixture(asyn
   assert.equal(detail.files[0].content, 'hello')
 }))
 
+test('generated file identities survive producer reordering and inserted files', () => fixture(async root => {
+  const run = snapshot()
+  run.cases[0].lanes['quality/品質'].files = [
+    { path: 'src/selected.ts', content: 'original' },
+    { path: 'src/other.ts', content: 'other' },
+  ]
+  await write(root, 'experiment.json', run)
+  const before = await loadCaseDetail(root, 'case/α', 'quality/品質')
+  const selected = before.files.find(file => file.path === 'src/selected.ts')
+  run.cases[0].lanes['quality/品質'].files = [
+    { path: 'src/new.ts', content: 'new' },
+    { path: 'src/other.ts', content: 'other' },
+    { path: 'src/selected.ts', content: 'updated' },
+  ]
+  await write(root, 'experiment.json', run)
+  const after = await loadCaseDetail(root, 'case/α', 'quality/品質')
+  assert.equal(after.files.find(file => file.id === selected.id)?.path, 'src/selected.ts')
+  assert.equal(after.files.find(file => file.id === selected.id)?.content, 'updated')
+}))
+
 test('legacy summaries and supplemental artifacts are observed without reading writable targets', () => fixture(async root => {
   await write(root, 'summary.json', { model: 'different-model', status: 'running', cases: { 'trial:7': { id: 'trial:7', title: 'Trial', family: 'module', routing: { status: 'pass', attempts: 2, corrections: 1 }, coding: { status: 'fail', writable: { changedPaths: ['/outside/secret.ts'] }, evidence: 'evidence/coding-trial7.json' } } } })
   await write(root, 'evidence/coding-trial7.json', { selectedRouter: ['module-data'], selectedSkills: [], selectedContext: [], decisions: [], status: 'fail' })

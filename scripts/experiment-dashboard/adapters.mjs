@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises'
 import constants from 'node:constants'
 import path from 'node:path'
+import { createHash } from 'node:crypto'
 import { cleanText, errorExperiment, isRecord, MAX_JSON_BYTES, MAX_TEXT_BYTES, normalizeExperiment, OUTCOME_STATUSES } from './model.mjs'
 
 const SENSITIVE = /^(?:\.env(?:\..*)?|\.git|\.ssh|\.aws|node_modules|auth\.json|\.?credentials\.json|mcp-auth\.json|\.npmrc|\.netrc|secrets?(?:\.json)?|.*\.(?:pem|key|p12|pfx))$/i
@@ -111,11 +112,11 @@ function normalizeArtifacts(raw, label, notices) {
     if (typeof text !== 'string') continue
     output.responses.push({ id: label + '-response-' + index, text: cleanText(text, MAX_TEXT_BYTES), ...(typeof response?.attemptId === 'string' ? { attemptId: cleanText(response.attemptId, 200) } : {}) })
   }
-  for (const [index, file] of (Array.isArray(raw.files) ? raw.files : []).slice(0, 200).entries()) {
+  for (const file of (Array.isArray(raw.files) ? raw.files : []).slice(0, 200)) {
     if (!isRecord(file) || typeof file.path !== 'string' || typeof file.content !== 'string') continue
     const parts = file.path.split(/[\\/]/)
     if (path.isAbsolute(file.path) || parts.some(part => part === '..' || SENSITIVE.test(part)) || Buffer.byteLength(file.content) > MAX_TEXT_BYTES) { notices.push('An unsafe or oversized generated file was omitted'); continue }
-    output.files.push({ id: label + '-file-' + index, path: cleanText(file.path, 500), content: cleanText(file.content, MAX_TEXT_BYTES), bytes: Buffer.byteLength(file.content), ...(typeof file.sha256 === 'string' ? { sha256: file.sha256 } : {}) })
+    output.files.push({ id: label + '-file-' + createHash('sha256').update(file.path).digest('hex').slice(0, 16), path: cleanText(file.path, 500), content: cleanText(file.content, MAX_TEXT_BYTES), bytes: Buffer.byteLength(file.content), ...(typeof file.sha256 === 'string' ? { sha256: file.sha256 } : {}) })
   }
   for (const [index, tool] of (Array.isArray(raw.tools) ? raw.tools : []).slice(0, 1000).entries()) {
     if (!isRecord(tool) || typeof tool.name !== 'string') continue
