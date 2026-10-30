@@ -106,6 +106,13 @@ jest.mock('../lib/settings', () => ({
   })),
 }))
 
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: async () => ({
+    t: (key: string, fallback?: string) => fallback ?? key,
+    translate: (key: string, fallback?: string) => fallback ?? key,
+  }),
+}))
+
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: () => createRequestContainerMock(),
 }))
@@ -475,7 +482,7 @@ describe('warranty claim AI assessment packet', () => {
     }))
 
     expect(response.status).toBe(400)
-    await expect(response.json()).resolves.toEqual({ error: 'warranty_claims.errors.attachmentNotLinked' })
+    await expect(response.json()).resolves.toEqual({ error: 'The attachment is not linked to this claim.' })
     expect(createModelFactoryMock).not.toHaveBeenCalled()
     expect(generateObjectMock).not.toHaveBeenCalled()
     expect(commandExecuteMock).not.toHaveBeenCalled()

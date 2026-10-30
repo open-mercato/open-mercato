@@ -34,6 +34,15 @@ export type IndexRecordParams = {
 }
 
 /**
+ * Parameters for indexing a batch of records by id in a single bulk write.
+ */
+export type IndexRecordsByIdParams = {
+  items: Array<{ entityId: EntityId; recordId: string }>
+  tenantId: string
+  organizationId?: string | null
+}
+
+/**
  * Parameters for deleting a record from the search index.
  */
 export type DeleteRecordParams = {
@@ -340,6 +349,81 @@ export class SearchIndexer {
       })
       throw error
     }
+  }
+
+  /**
+   * Index a batch of records by id in a single bulk write.
+   * Unlike calling indexRecordById() in a loop, this loads each record fresh
+   * (same as indexRecordById) but flushes the whole batch through a single
+   * searchService.bulkIndex() call. Strategies that implement bulkIndex then
+   * collapse the batch into one write; strategies without it still write per
+   * record, at the bounded concurrency SearchService applies.
+   */
+  async indexRecordsById(params: IndexRecordsByIdParams): Promise<{ indexed: number; skipped: number }> {
+    const { items, tenantId, organizationId } = params
+    if (!this.queryEngine || items.length === 0) {
+      return { indexed: 0, skipped: items.length }
+    }
+
+    const recordIdsByEntity = new Map<EntityId, string[]>()
+    for (const item of items) {
+      const list = recordIdsByEntity.get(item.entityId) ?? []
+      list.push(item.recordId)
+      recordIdsByEntity.set(item.entityId, list)
+    }
+
+    const allRecords: IndexableRecord[] = []
+    let skipped = 0
+
+    for (const [entityId, recordIds] of recordIdsByEntity) {
+      const config = this.entityConfigMap.get(entityId)
+      if (!config || config.enabled === false) {
+        skipped += recordIds.length
+        continue
+      }
+
+      for (const recordId of recordIds) {
+        try {
+          const result = await this.queryEngine.query(entityId, {
+            tenantId,
+            organizationId: organizationId ?? undefined,
+            filters: { id: recordId },
+            includeCustomFields: true,
+            page: { page: 1, pageSize: 1 },
+            skipAutoReindex: true,
+          })
+
+          const record = result.items[0] as Record<string, unknown> | undefined
+          if (!record) {
+            skipped++
+            continue
+          }
+
+          const { records: built, dropped } = await this.buildIndexableRecords(
+            entityId,
+            tenantId,
+            organizationId ?? null,
+            [record],
+            config,
+          )
+          skipped += dropped
+          allRecords.push(...built)
+        } catch (error) {
+          skipped++
+          searchError('SearchIndexer', 'Failed to load record for batch indexing', {
+            entityId,
+            recordId,
+            error: error instanceof Error ? error.message : error,
+          })
+        }
+      }
+    }
+
+    if (allRecords.length > 0) {
+      await this.searchService.bulkIndex(allRecords)
+    }
+
+    return { indexed: allRecords.length, skipped }
   }
 
   /**

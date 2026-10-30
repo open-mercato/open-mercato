@@ -3,6 +3,8 @@ import { z } from 'zod'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import { resolveFeatureCheckContext } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { featureCheckRequestSchema } from '../data/validators'
 
 export const metadata = {
@@ -37,8 +39,13 @@ export async function POST(req: Request) {
   }
 
   const container = await createRequestContainer()
-  const rbac = (container.resolve('rbacService') as any)
-  const ok = await rbac.userHasAllFeatures(auth.sub, features, { tenantId: auth.tenantId, organizationId: auth.orgId })
+  const rbac = container.resolve<RbacService>('rbacService')
+  const featureContext = await resolveFeatureCheckContext({ container, auth, request: req })
+  const featureScope = {
+    tenantId: featureContext.scope.tenantId ?? auth.tenantId ?? null,
+    organizationId: featureContext.organizationId,
+  }
+  const ok = await rbac.userHasAllFeatures(auth.sub, features, featureScope)
   if (ok) {
     return NextResponse.json({ ok: true, granted: features, userId: auth.sub })
   }
@@ -46,7 +53,7 @@ export async function POST(req: Request) {
   // Check individually to see which features are granted
   const granted: string[] = []
   for (const f of features) {
-    const hasFeature = await rbac.userHasAllFeatures(auth.sub, [f], { tenantId: auth.tenantId, organizationId: auth.orgId })
+    const hasFeature = await rbac.userHasAllFeatures(auth.sub, [f], featureScope)
     if (hasFeature) granted.push(f)
   }
 

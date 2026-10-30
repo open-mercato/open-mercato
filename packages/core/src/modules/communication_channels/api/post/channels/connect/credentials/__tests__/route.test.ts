@@ -17,6 +17,7 @@ jest.mock('../../../../../../lib/route-mutation-guard', () => ({
 }))
 
 import { POST } from '../route'
+import { mapCrudServerErrorToFormErrors } from '@open-mercato/ui/backend/utils/serverErrors'
 
 const AUTH = {
   sub: '33333333-3333-4333-8333-333333333333',
@@ -80,5 +81,18 @@ describe('POST /api/communication_channels/channels/connect/credentials (per-use
     expect(mockExecute).toHaveBeenCalledTimes(1)
     const dispatch = mockExecute.mock.calls[0][1] as { input: { userId: string | null } }
     expect(dispatch.input.userId).toBe(AUTH.sub)
+  })
+
+  it('returns per-field details instead of a raw zod message for an invalid body', async () => {
+    const response = await POST(
+      connectRequest({ providerKey: 'imap', displayName: '', credentials: {} }),
+    )
+
+    expect(response.status).toBe(422)
+    const body = (await response.json()) as { error?: string }
+    expect(body.error).toBe('Invalid request body')
+    const { fieldErrors } = mapCrudServerErrorToFormErrors(body)
+    expect(Object.keys(fieldErrors ?? {})).toEqual(['displayName'])
+    expect(mockExecute).not.toHaveBeenCalled()
   })
 })

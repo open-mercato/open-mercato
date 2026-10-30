@@ -143,6 +143,7 @@ export default function SecurityUsersPage() {
       <PageBody>
         <DataTable<ComplianceItem>
           title={t('security.admin.users.table.title', 'Users')}
+          titleHeadingLevel={1}
           columns={columns}
           data={pagedItems}
           searchValue={search}

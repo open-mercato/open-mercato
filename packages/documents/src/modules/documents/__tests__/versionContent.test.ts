@@ -6,6 +6,7 @@ import {
   materializeDocumentVersionPreview,
   sanitizeDocumentPreviewHtml,
 } from '../lib/versionContent'
+import { deriveContentTextFromHtml } from '../lib/contentService'
 
 type JsdomModule = typeof import('jsdom')
 type JsdomInstance = InstanceType<JsdomModule['JSDOM']>
@@ -42,6 +43,11 @@ describe('document version materialization and preview safety', () => {
     expect(result.yjsState.length).toBeGreaterThan(0)
     expect(result.contentHtml).toContain('Historical title')
     expect(result.contentText).toContain('Restored body')
+  })
+
+  it('derives text with a parser that drops executable element contents', () => {
+    expect(deriveContentTextFromHtml('<p>Before</p><script >alert(1)</script ><p>After</p>'))
+      .toBe('Before After')
   })
 
   it('rejects a corrupt non-empty Yjs snapshot', () => {

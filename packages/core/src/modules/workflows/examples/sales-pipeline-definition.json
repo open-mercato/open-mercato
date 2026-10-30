@@ -95,8 +95,8 @@
             "activityName": "Validate Order Data",
             "activityType": "EXECUTE_FUNCTION",
             "config": {
-              "function": "validateOrderData",
-              "parameters": {
+              "functionName": "validateOrderData",
+              "args": {
                 "requiredFields": [
                   "customer_id",
                   "items",
@@ -118,8 +118,8 @@
             "activityName": "Emit Order Created Event",
             "activityType": "EMIT_EVENT",
             "config": {
-              "eventType": "order.created",
-              "includeContext": true
+              "includeContext": true,
+              "eventName": "order.created"
             },
             "async": true
           }
@@ -138,8 +138,8 @@
             "activityName": "Calculate Total Order Value",
             "activityType": "EXECUTE_FUNCTION",
             "config": {
-              "function": "calculateOrderTotal",
-              "updateContext": true
+              "updateContext": true,
+              "functionName": "calculateOrderTotal"
             },
             "timeout": "PT3S",
             "async": false
@@ -173,9 +173,9 @@
             "activityName": "Update Order Status to Pending",
             "activityType": "UPDATE_ENTITY",
             "config": {
-              "entity": "Order",
-              "id": "{{context.order.id}}",
-              "data": {
+              "commandId": "sales.orders.update",
+              "input": {
+                "id": "{{context.order.id}}",
                 "status": "PENDING_APPROVAL",
                 "approvalRequestedAt": "{{now}}"
               }
@@ -204,9 +204,9 @@
             "activityName": "Update Order to Approved",
             "activityType": "UPDATE_ENTITY",
             "config": {
-              "entity": "Order",
-              "id": "{{context.order.id}}",
-              "data": {
+              "commandId": "sales.orders.update",
+              "input": {
+                "id": "{{context.order.id}}",
                 "status": "APPROVED",
                 "approvedAt": "{{now}}",
                 "approvedBy": "{{task.completedBy}}"
@@ -237,12 +237,12 @@
             "activityName": "Emit Order Approved Event",
             "activityType": "EMIT_EVENT",
             "config": {
-              "eventType": "order.approved",
               "payload": {
                 "orderId": "{{context.order.id}}",
                 "approvedBy": "{{task.completedBy}}",
                 "timestamp": "{{now}}"
-              }
+              },
+              "eventName": "order.approved"
             },
             "async": true
           }
@@ -262,7 +262,6 @@
             "activityType": "CALL_API",
             "config": {
               "method": "POST",
-              "url": "{{context.integration.contractServiceUrl}}/api/contracts/generate",
               "headers": {
                 "Content-Type": "application/json",
                 "Authorization": "Bearer {{context.integration.serviceToken}}"
@@ -274,7 +273,8 @@
                 "totalAmount": "{{context.order.total}}",
                 "terms": "standard"
               },
-              "storeResponseIn": "context.contract"
+              "storeResponseIn": "context.contract",
+              "endpoint": "{{context.integration.contractServiceUrl}}/api/contracts/generate"
             },
             "timeout": "PT30S",
             "async": false,
@@ -331,12 +331,12 @@
             "activityType": "CALL_API",
             "config": {
               "method": "POST",
-              "url": "{{context.integration.contractServiceUrl}}/api/contracts/verify",
               "body": {
                 "contractId": "{{context.contract.id}}",
                 "signatureId": "{{task.result.signatureId}}"
               },
-              "storeResponseIn": "context.contract.verified"
+              "storeResponseIn": "context.contract.verified",
+              "endpoint": "{{context.integration.contractServiceUrl}}/api/contracts/verify"
             },
             "timeout": "PT10S",
             "async": false
@@ -346,9 +346,9 @@
             "activityName": "Update Order - Contract Signed",
             "activityType": "UPDATE_ENTITY",
             "config": {
-              "entity": "Order",
-              "id": "{{context.order.id}}",
-              "data": {
+              "commandId": "sales.orders.update",
+              "input": {
+                "id": "{{context.order.id}}",
                 "status": "CONTRACT_SIGNED",
                 "contractSignedAt": "{{now}}",
                 "contractId": "{{context.contract.id}}"
@@ -393,7 +393,6 @@
             "activityType": "CALL_API",
             "config": {
               "method": "POST",
-              "url": "{{context.integration.billingServiceUrl}}/api/invoices",
               "headers": {
                 "Content-Type": "application/json",
                 "Authorization": "Bearer {{context.integration.serviceToken}}"
@@ -408,7 +407,8 @@
                 "dueDate": "{{context.invoice.dueDate}}",
                 "paymentTerms": "NET30"
               },
-              "storeResponseIn": "context.invoice"
+              "storeResponseIn": "context.invoice",
+              "endpoint": "{{context.integration.billingServiceUrl}}/api/invoices"
             },
             "timeout": "PT20S",
             "async": false,
@@ -458,9 +458,9 @@
             "activityName": "Update Order Status - Invoiced",
             "activityType": "UPDATE_ENTITY",
             "config": {
-              "entity": "Order",
-              "id": "{{context.order.id}}",
-              "data": {
+              "commandId": "sales.orders.update",
+              "input": {
+                "id": "{{context.order.id}}",
                 "status": "INVOICED",
                 "invoiceId": "{{context.invoice.id}}",
                 "invoiceNumber": "{{context.invoice.number}}",
@@ -486,7 +486,6 @@
             "activityType": "CALL_API",
             "config": {
               "method": "POST",
-              "url": "{{context.integration.warehouseServiceUrl}}/api/fulfillment/orders",
               "headers": {
                 "Content-Type": "application/json",
                 "Authorization": "Bearer {{context.integration.serviceToken}}"
@@ -499,7 +498,8 @@
                 "priority": "standard",
                 "notes": "Invoice #{{context.invoice.number}} sent"
               },
-              "storeResponseIn": "context.fulfillment"
+              "storeResponseIn": "context.fulfillment",
+              "endpoint": "{{context.integration.warehouseServiceUrl}}/api/fulfillment/orders"
             },
             "timeout": "PT15S",
             "async": false,
@@ -534,12 +534,12 @@
             "activityName": "Emit Fulfillment Ready Event",
             "activityType": "EMIT_EVENT",
             "config": {
-              "eventType": "fulfillment.ready",
               "payload": {
                 "orderId": "{{context.order.id}}",
                 "fulfillmentId": "{{context.fulfillment.id}}",
                 "timestamp": "{{now}}"
-              }
+              },
+              "eventName": "fulfillment.ready"
             },
             "async": true
           }
@@ -558,9 +558,9 @@
             "activityName": "Update Order Status - Completed",
             "activityType": "UPDATE_ENTITY",
             "config": {
-              "entity": "Order",
-              "id": "{{context.order.id}}",
-              "data": {
+              "commandId": "sales.orders.update",
+              "input": {
+                "id": "{{context.order.id}}",
                 "status": "COMPLETED",
                 "completedAt": "{{now}}",
                 "fulfillmentId": "{{context.fulfillment.id}}"
@@ -594,12 +594,12 @@
             "activityName": "Emit Pipeline Completed Event",
             "activityType": "EMIT_EVENT",
             "config": {
-              "eventType": "sales.pipeline.completed",
               "payload": {
                 "orderId": "{{context.order.id}}",
                 "workflowInstanceId": "{{workflow.instanceId}}",
                 "timestamp": "{{now}}"
-              }
+              },
+              "eventName": "sales.pipeline.completed"
             },
             "async": true
           }

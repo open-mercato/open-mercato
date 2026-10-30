@@ -2,9 +2,11 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
+import { toHeaderLabel } from '@open-mercato/shared/lib/crud/exporters'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { isOrganizationReadAccessAllowed } from '@open-mercato/core/modules/directory/utils/organizationScopeGuard'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
@@ -21,7 +23,14 @@ import {
 } from '../../../data/validators'
 import { resolveDeviceActorUserId } from '../../auth'
 import { createDevicesCrudOpenApi, createPagedListResponseSchema } from '../../openapi'
-import { deviceListSchema, deviceListFields, deviceListSortFieldMap, deviceListItemSchema } from '../../deviceList'
+import {
+  deviceListSchema,
+  deviceListFields,
+  deviceListSortFieldMap,
+  deviceListItemSchema,
+  deviceExportColumnFields,
+  transformDeviceListItem,
+} from '../../deviceList'
 import { executeRegister, type DeviceMutationContext } from '../../deviceOps'
 
 const logger = createLogger('devices')
@@ -55,6 +64,11 @@ const crud = makeCrudRoute({
     entityId: E.devices.user_device,
     fields: deviceListFields,
     sortFieldMap: deviceListSortFieldMap,
+    // The query engine projects raw column names; expose them in camelCase like every other module.
+    transformItem: transformDeviceListItem,
+    // Without an explicit column set the factory's default export spreads each item, so the deprecated
+    // snake_case aliases would double every column in the CSV/JSON/XML export.
+    export: { columns: deviceExportColumnFields.map((field) => ({ field, header: toHeaderLabel(field) })) },
     // Tenant + org scope is enforced by the factory (orm.tenantField + orm.orgField); only the optional
     // userId/platform narrowing is left to do here.
     buildFilters: async (query) => {
@@ -80,7 +94,7 @@ export async function POST(req: Request) {
 
     const body = registerDeviceAdminSchema.parse(await readJsonSafe(req, {}))
     const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
-    const organizationId = scope?.selectedId ?? auth.orgId ?? null
+    const organizationId = resolveSingleOrganizationIdOrDeny(scope, auth) ?? null
 
     // Validate the on-behalf-of target before registering. `body.userId` is caller-supplied, and the
     // fan-out delivers by `(tenant, org, user)` — so without this an admin could register their OWN push

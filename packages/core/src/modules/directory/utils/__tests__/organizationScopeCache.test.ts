@@ -3,6 +3,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import { ApiKey } from '@open-mercato/core/modules/api_keys/data/entities'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { getCurrentCacheTenant } from '@open-mercato/cache'
 import {
@@ -11,20 +12,23 @@ import {
   invalidateOrganizationScopeCacheForUser,
 } from '../organizationScope'
 
-function createMockEm(orgs: Array<{ id: string; descendantIds: string[] }>) {
+function createMockEm(orgs: Array<{ id: string; descendantIds: string[] }>, apiKey: ApiKey | null = null) {
   const find = jest.fn((_entity: unknown, filter: { id?: { $in: string[] }; tenant?: string }) => {
     const requestedIds = filter?.id?.$in ?? []
     return Promise.resolve(orgs.filter((row) => requestedIds.includes(row.id)))
   })
-  return { find } as unknown as EntityManager
+  const findOne = jest.fn(async (entity: unknown, filter: { id?: string }) => (
+    entity === ApiKey && apiKey?.id === filter.id ? apiKey : null
+  ))
+  return { find, findOne } as unknown as EntityManager
 }
 
-function createMockRbac() {
+function createMockRbac(organizations: string[] | null = ['org-home']) {
   return {
     loadAcl: jest.fn().mockResolvedValue({
       isSuperAdmin: false,
       features: [],
-      organizations: ['org-home'],
+      organizations,
     }),
   } as unknown as RbacService
 }
@@ -98,6 +102,125 @@ describe('resolveOrganizationScopeForRequest caching (Phase 4)', () => {
     expect(cache.set).toHaveBeenCalledTimes(1)
     expect(cache.get).toHaveBeenCalledTimes(2)
     expect((rbac.loadAcl as jest.Mock).mock.calls.length).toBe(1)
+    expect(em.findOne).not.toHaveBeenCalled()
+  })
+
+  it('revalidates session-key organization visibility on the next request', async () => {
+    process.env.OM_ORG_SCOPE_CACHE_TTL_MS = '60000'
+    const key = Object.assign(new ApiKey(), {
+      id: 'session-key',
+      tenantId: 'tenant-1',
+      sessionUserId: 'user-owner',
+    })
+    const em = createMockEm([
+      { id: 'org-home', descendantIds: [] },
+      { id: 'org-privileged', descendantIds: [] },
+    ], key)
+    const rbac = createMockRbac(['org-home', 'org-privileged'])
+    const cache = createMemoryCache()
+    const container = createContainer(em, rbac, cache)
+    const actor = { ...auth(), sub: 'api_key:session-key', orgId: null }
+
+    const first = await resolveOrganizationScopeForRequest({ container, auth: actor })
+    expect(first.filterIds).toEqual(['org-home', 'org-privileged'])
+    ;(rbac.loadAcl as jest.Mock).mockResolvedValue({
+      isSuperAdmin: false,
+      features: [],
+      organizations: ['org-home'],
+    })
+    const second = await resolveOrganizationScopeForRequest({ container, auth: actor })
+
+    expect(second.filterIds).toEqual(['org-home'])
+    expect(second.allowedIds).toEqual(['org-home'])
+    expect(cache.get).not.toHaveBeenCalled()
+    expect(cache.set).not.toHaveBeenCalled()
+    expect(rbac.loadAcl).toHaveBeenCalledTimes(2)
+    expect(em.findOne).toHaveBeenCalledWith(ApiKey, { id: 'session-key', deletedAt: null })
+  })
+
+  it.each(['session key', 'missing key'])('ignores a pre-existing organization cache for a %s', async (keyState) => {
+    process.env.OM_ORG_SCOPE_CACHE_TTL_MS = '60000'
+    const key = keyState === 'session key'
+      ? Object.assign(new ApiKey(), { id: 'session-key', sessionTokenHash: 'session-token' })
+      : null
+    const em = createMockEm([{ id: 'org-home', descendantIds: [] }], key)
+    const rbac = createMockRbac(['org-home'])
+    const cache = createMemoryCache()
+    const actor = { ...auth(), sub: 'api_key:session-key', orgId: null }
+    cache.store.set(`org-scope:v2:${actor.sub}:tenant-1:none:none`, {
+      value: {
+        selectedId: null,
+        filterIds: ['org-home', 'org-privileged'],
+        allowedIds: ['org-home', 'org-privileged'],
+        tenantId: 'tenant-1',
+      },
+      tags: [],
+    })
+    const container = createContainer(em, rbac, cache)
+
+    const result = await resolveOrganizationScopeForRequest({ container, auth: actor })
+
+    expect(result.filterIds).toEqual(['org-home'])
+    expect(cache.get).not.toHaveBeenCalled()
+    expect(cache.set).not.toHaveBeenCalled()
+    expect(rbac.loadAcl).toHaveBeenCalledTimes(1)
+  })
+
+  it('retains request-local memoization for session keys with cross-request caching enabled', async () => {
+    process.env.OM_ORG_SCOPE_CACHE_TTL_MS = '60000'
+    const key = Object.assign(new ApiKey(), { id: 'session-key', sessionUserId: 'user-owner' })
+    const em = createMockEm([{ id: 'org-home', descendantIds: [] }], key)
+    const rbac = createMockRbac()
+    const cache = createMemoryCache()
+    const container = createContainer(em, rbac, cache)
+    const actor = { ...auth(), sub: 'api_key:session-key' }
+    const request = {} as Request
+
+    const first = await resolveOrganizationScopeForRequest({ container, auth: actor, request })
+    const second = await resolveOrganizationScopeForRequest({ container, auth: actor, request })
+
+    expect(second).toBe(first)
+    expect(em.findOne).toHaveBeenCalledTimes(1)
+    expect(rbac.loadAcl).toHaveBeenCalledTimes(1)
+    expect(cache.get).not.toHaveBeenCalled()
+    expect(cache.set).not.toHaveBeenCalled()
+  })
+
+  it('retains cross-request organization caching for independent API keys', async () => {
+    process.env.OM_ORG_SCOPE_CACHE_TTL_MS = '60000'
+    const key = Object.assign(new ApiKey(), { id: 'independent-key', createdBy: 'user-owner' })
+    const em = createMockEm([{ id: 'org-home', descendantIds: [] }], key)
+    const rbac = createMockRbac()
+    const cache = createMemoryCache()
+    const container = createContainer(em, rbac, cache)
+    const actor = { ...auth(), sub: 'api_key:independent-key' }
+
+    const first = await resolveOrganizationScopeForRequest({ container, auth: actor })
+    const second = await resolveOrganizationScopeForRequest({ container, auth: actor })
+
+    expect(second).toEqual(first)
+    expect(em.findOne).toHaveBeenCalledTimes(2)
+    expect(rbac.loadAcl).toHaveBeenCalledTimes(1)
+    expect(cache.get).toHaveBeenCalledTimes(2)
+    expect(cache.set).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not classify session API keys when cross-request caching is disabled', async () => {
+    process.env.OM_ORG_SCOPE_CACHE_TTL_MS = '0'
+    const key = Object.assign(new ApiKey(), { id: 'session-key', sessionUserId: 'user-owner' })
+    const em = createMockEm([{ id: 'org-home', descendantIds: [] }], key)
+    const rbac = createMockRbac()
+    const cache = createMemoryCache()
+    const container = createContainer(em, rbac, cache)
+    const actor = { ...auth(), sub: 'api_key:session-key' }
+
+    await resolveOrganizationScopeForRequest({ container, auth: actor })
+    await resolveOrganizationScopeForRequest({ container, auth: actor })
+
+    expect(em.findOne).not.toHaveBeenCalled()
+    expect(rbac.loadAcl).toHaveBeenCalledTimes(2)
+    expect(cache.get).not.toHaveBeenCalled()
+    expect(cache.set).not.toHaveBeenCalled()
   })
 
   it('memoizes resolution per request, deduping the double resolution (issue #2259)', async () => {
@@ -143,6 +266,68 @@ describe('resolveOrganizationScopeForRequest caching (Phase 4)', () => {
     await resolveOrganizationScopeForRequest({ container, auth: auth() })
     expect(cache.set).not.toHaveBeenCalled()
     expect((rbac.loadAcl as jest.Mock).mock.calls.length).toBe(2)
+  })
+
+  it.each([
+    ['uncached', '0', 2],
+    ['cached', '60000', 1],
+  ])('preserves an explicit empty ACL as deny-all on the %s path', async (_path, ttl, expectedAclCalls) => {
+    process.env.OM_ORG_SCOPE_CACHE_TTL_MS = ttl
+    const em = createMockEm([{ id: 'org-home', descendantIds: [] }])
+    const rbac = createMockRbac([])
+    const cache = createMemoryCache()
+    const container = createContainer(em, rbac, cache)
+
+    const first = await resolveOrganizationScopeForRequest({ container, auth: auth() })
+    const second = await resolveOrganizationScopeForRequest({ container, auth: auth() })
+
+    expect(first).toEqual({
+      selectedId: null,
+      filterIds: [],
+      allowedIds: [],
+      tenantId: 'tenant-1',
+    })
+    expect(second).toEqual(first)
+    expect((rbac.loadAcl as jest.Mock).mock.calls.length).toBe(expectedAclCalls)
+  })
+
+  it('ignores a legacy cached home-org widening and caches the current deny-all scope', async () => {
+    process.env.OM_ORG_SCOPE_CACHE_TTL_MS = '60000'
+    const em = createMockEm([{ id: 'org-home', descendantIds: [] }])
+    const rbac = createMockRbac([])
+    const cache = createMemoryCache()
+    const container = createContainer(em, rbac, cache)
+    const actor = auth()
+    const legacyKey = `org-scope:${actor.sub}:tenant-1:none:none`
+    const currentKey = `org-scope:v2:${actor.sub}:tenant-1:none:none`
+    cache.store.set(legacyKey, {
+      value: {
+        selectedId: 'org-home',
+        filterIds: ['org-home'],
+        allowedIds: ['org-home'],
+        tenantId: 'tenant-1',
+      },
+      tags: [`org-scope:user:${actor.sub}`, 'org-scope:tenant:tenant-1'],
+    })
+
+    const first = await resolveOrganizationScopeForRequest({ container, auth: actor })
+    const second = await resolveOrganizationScopeForRequest({ container, auth: actor })
+
+    const denyAllScope = {
+      selectedId: null,
+      filterIds: [],
+      allowedIds: [],
+      tenantId: 'tenant-1',
+    }
+    expect(first).toEqual(denyAllScope)
+    expect(second).toEqual(denyAllScope)
+    expect(cache.get).toHaveBeenNthCalledWith(1, currentKey)
+    expect(cache.get).toHaveBeenNthCalledWith(2, currentKey)
+    expect(cache.get).not.toHaveBeenCalledWith(legacyKey)
+    expect(cache.store.get(currentKey)?.value).toEqual(denyAllScope)
+    expect(cache.store.get(legacyKey)?.value).toMatchObject({ filterIds: ['org-home'] })
+    expect(cache.set).toHaveBeenCalledTimes(1)
+    expect((rbac.loadAcl as jest.Mock).mock.calls.length).toBe(1)
   })
 
   it('invalidateOrganizationScopeCacheForTenant drops entries tagged for that tenant', async () => {

@@ -291,7 +291,9 @@ Every phase is purely additive. Modules without `entry.overrides` are unaffected
 | Risk | Mitigation |
 |------|-----------|
 | Future/custom override domain silently does nothing | Dispatcher still emits a one-shot structured warning when a domain has no registered applier. Built-in phases 1-18 all register appliers. |
-| App boot order matters (overrides must apply before the registry first load) | The dispatcher is called from `bootstrap.ts` BEFORE any registry loads. Tests cover the ordering. |
+| App boot order matters (overrides must apply before the registry first load) | The dispatcher has two entrypoints, each ordered ahead of its own registry load: `bootstrap.ts` for the Next.js runtime, and `bootstrapFromAppRoot()` for CLI/worker/scheduler processes (before `registerModules` and before the `registerCliModules` the `mercato` bin runs on return). Tests cover both orderings. |
+| A process bootstraps through a path the dispatcher was never wired into | Adding a bootstrap entrypoint means adding a dispatch site. `bootstrapFromAppRoot()` went four releases without one, so every `entry.overrides` was inert in CLI, worker and scheduler processes (#5582). |
+| A domain whose applier is registered by importing a package, not by `registerBuiltInModuleOverrideAppliers()` | `ai` is the only such domain today. `bootstrap-common.ts` covers it with a static side-effect import; `bootstrapFromAppRoot()` resolves it lazily through `OPTIONAL_OVERRIDE_APPLIER_MODULES`, and only when an app actually declares the domain, so `@open-mercato/shared` keeps zero runtime dependencies on domain packages. A new domain of this kind MUST be added to that map. |
 | Different domains have different "id" semantics (route key vs subscriber id vs DI key) | The umbrella type names each sub-shape clearly; per-domain spec phases lock the id syntax. |
 | Removing an ACL feature via override leaves existing role grants stored | The shared feature policy makes those grants runtime-inert while the null override exists. No migration is required; removing the override restores the preserved grants. |
 | Disabling a route or widget leaves stale references elsewhere | Stale override keys log a warning. Operators must remove links, grants, or injection-table references that intentionally target disabled contracts. |
@@ -314,3 +316,24 @@ Every phase is purely additive. Modules without `entry.overrides` are unaffected
   reader lives in `@open-mercato/core` while its writer is the app bootstrap — see `.ai/lessons.md`,
   "Global registries in publishable packages must use `globalThis`" — with isolated-module regression
   coverage. Spec: `.ai/specs/2026-07-30-nav-group-order-override-domain.md`.
+
+- **2026-09-02 — Second dispatch entrypoint for CLI/worker/scheduler processes (#5582).** The
+  dispatcher is no longer called only from the Next.js runtime's `bootstrap.ts`.
+  `bootstrapFromAppRoot()` in `packages/shared/src/lib/bootstrap/dynamicLoader.ts` — the entrypoint
+  every `mercato` command, queue/event worker and scheduler process boots through — now compiles and
+  imports the app's own `src/modules.ts` and dispatches its `entry.overrides` too. Until then that
+  path only ever loaded the generated `modules.cli.generated.ts`, which does not carry `overrides`,
+  so every declaration was silently inert there; `mercato entities seed-encryption` reading
+  `getDefaultEncryptionMaps(getCliModules())` seeded the base maps and still printed success, leaving
+  override-added fields as plaintext at rest. The ordering constraint the new site satisfies is that
+  it runs inside the existing `withEsbuildLifecycle` scope **before** `loadBootstrapData`,
+  `createBootstrap` and `bootstrap()` — therefore before `registerModules(data.modules)` and before
+  the `registerCliModules(data.modules)` that `packages/cli/src/bin.ts` runs immediately after the
+  function returns. Two consequences worth carrying forward: (1) the `ai` domain's applier is
+  registered by importing `@open-mercato/ai-assistant/.../ai-overrides` for its side effect rather
+  than by `registerBuiltInModuleOverrideAppliers()`, so this path resolves it on demand through
+  `OPTIONAL_OVERRIDE_APPLIER_MODULES` — declared-only and fail-soft, keeping shared free of a runtime
+  dependency on a domain package; (2) a `src/modules.ts` that is present but unloadable now throws
+  instead of degrading, because continuing with an empty override set reproduces #5582's outcome
+  behind a success banner. An absent `src/modules.ts` is still skipped. Coverage:
+  `packages/shared/src/lib/bootstrap/__tests__/dynamicLoader.appModuleOverrides.test.ts`.

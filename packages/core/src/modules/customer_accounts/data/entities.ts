@@ -13,7 +13,11 @@ export const DOMAIN_STATUSES: readonly DomainStatus[] = [
 ] as const
 
 @Entity({ tableName: 'customer_users' })
-@Unique({ properties: ['tenantId', 'emailHash'], name: 'customer_users_tenant_email_hash_uniq' })
+@Index({
+  name: 'customer_users_tenant_email_hash_uniq',
+  expression:
+    'create unique index "customer_users_tenant_email_hash_uniq" on "customer_users" ("tenant_id", "email_hash") where "deleted_at" is null',
+})
 export class CustomerUser {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string

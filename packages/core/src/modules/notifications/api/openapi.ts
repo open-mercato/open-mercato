@@ -29,6 +29,7 @@ export const notificationItemSchema = z.object({
     labelKey: z.string().optional(),
     variant: z.string().optional(),
     icon: z.string().optional(),
+    href: z.string().optional(),
   })),
   primaryActionId: z.string().optional(),
   sourceModule: z.string().nullable().optional(),
@@ -46,6 +47,10 @@ export const okResponseSchema = z.object({
 
 export const errorResponseSchema = z.object({
   error: z.string(),
+})
+
+export const actionConflictResponseSchema = errorResponseSchema.extend({
+  code: z.string().optional(),
 })
 
 export const scopeErrorResponseSchema = z.object({

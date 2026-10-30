@@ -4,7 +4,9 @@
 import * as React from 'react'
 import { fireEvent, screen, waitFor } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
+import { registerTranslatableFields } from '@open-mercato/shared/lib/localization/translatable-fields'
 import { TranslationManager, LocaleManager } from '../TranslationManager'
+import translatableFields from '../../../catalog/translations'
 
 const apiCallMock = jest.fn()
 const withScopedApiRequestHeadersMock = jest.fn(
@@ -74,7 +76,7 @@ beforeEach(() => {
     async (url: string, init?: { method?: string; body?: string }) => {
       if (!init?.method) {
         if (url === '/api/translations/locales') {
-          return { ok: true, result: { locales: ['en', 'de'] } }
+          return { ok: true, result: { locales: ['en', 'de'], servable: ['en', 'de'] } }
         }
         // entity-translation GET
         return {
@@ -143,12 +145,10 @@ describe('LocaleManager guarded mutations (#3316)', () => {
 
     await screen.findByRole('button', { name: 'Add' })
 
-    // click a locale remove "X" button -> removeLocale -> guarded save
-    const removeButton = screen
-      .getAllByRole('button')
-      .find((button) => !/add/i.test(button.textContent || ''))
-    expect(removeButton).toBeDefined()
-    fireEvent.click(removeButton as HTMLElement)
+    // click a locale remove "X" button -> removeLocale -> guarded save.
+    // German, not English: the default locale is always served, so its remove
+    // control is deliberately disabled.
+    fireEvent.click(screen.getByRole('button', { name: 'Remove German' }))
 
     await waitFor(() => expect(runMutationMock).toHaveBeenCalledTimes(1))
 
@@ -157,7 +157,7 @@ describe('LocaleManager guarded mutations (#3316)', () => {
       mutationPayload?: Record<string, unknown>
     }
     expect(runInput.context.retryLastMutation).toBe(retryLastMutationMock)
-    expect(runInput.mutationPayload).toEqual({ locales: ['de'] })
+    expect(runInput.mutationPayload).toEqual({ locales: ['en'] })
     expect(apiCallMock).toHaveBeenCalledWith(
       '/api/translations/locales',
       expect.objectContaining({ method: 'PUT' }),
@@ -165,5 +165,52 @@ describe('LocaleManager guarded mutations (#3316)', () => {
 
     // flash behavior preserved
     await waitFor(() => expect(flashMock).toHaveBeenCalledWith('Locales updated', 'success'))
+  })
+})
+
+describe('TranslationManager standalone record loading for option schema templates', () => {
+  const templateId = '11111111-1111-4111-8111-111111111111'
+
+  beforeEach(() => {
+    registerTranslatableFields(translatableFields)
+    apiCallMock.mockImplementation(async (url: string, init?: { method?: string }) => {
+      if (init?.method) return { ok: true, result: {} }
+      if (url === '/api/translations/locales') {
+        return { ok: true, result: { locales: ['en', 'de'], servable: ['en', 'de'] } }
+      }
+      if (url.startsWith('/api/catalog/option-schemas?')) {
+        return {
+          ok: true,
+          result: {
+            items: [
+              {
+                id: templateId,
+                name: 'Apparel options',
+                schema: {
+                  options: [
+                    { code: 'color', label: 'Color', choices: [{ code: 'red', label: 'Red' }] },
+                  ],
+                },
+              },
+            ],
+          },
+        }
+      }
+      return { ok: true, result: { entityType: 'catalog:catalog_option_schema_template', entityId: templateId, translations: {} } }
+    })
+  })
+
+  it('loads the record from the registered list route and renders option and choice rows with base values', async () => {
+    renderWithProviders(
+      <TranslationManager entityType="catalog:catalog_option_schema_template" recordId={templateId} />,
+    )
+
+    expect(await screen.findByText('Color › Red')).toBeTruthy()
+    expect(screen.getAllByText('Color')).toHaveLength(2)
+    expect(screen.getByText('Red')).toBeTruthy()
+
+    const requestedUrls = apiCallMock.mock.calls.map((call) => String(call[0]))
+    expect(requestedUrls.some((url) => url.startsWith(`/api/catalog/option-schemas?id=${templateId}`))).toBe(true)
+    expect(requestedUrls.some((url) => url.includes('option-schema-templates'))).toBe(false)
   })
 })

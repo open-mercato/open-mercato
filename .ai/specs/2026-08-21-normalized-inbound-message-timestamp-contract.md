@@ -2,7 +2,7 @@
 
 ## 📝 TLDR
 
-Inbound channel adapters expose one canonical nullable `timestamp` for application behavior and may additionally expose the provider-native `providerTimestamp`. Email adapters select the canonical timestamp using MIME `Date`, then provider internal time, then `null`; other adapters select the best meaningful occurrence time for their channel. Open Mercato materialization time remains the entity `createdAt` and is never substituted for an unknown external time.
+Inbound channel adapters expose one canonical nullable `timestamp` for application behavior and may additionally expose the provider-native `providerTimestamp`. Email adapters select the canonical timestamp using provider receipt time, then a usable MIME `Date`, then the legacy provider fallback, then `null`; other adapters select the best meaningful occurrence time for their channel. Open Mercato materialization time remains the entity `createdAt` and is never substituted for an unknown external time.
 
 This focused specification records the simplified contract chosen after issue #5326 proposed separate source and provider timestamps. It preserves the existing `timestamp` field for third-party adapter compatibility while retaining provider provenance when a channel supplies it.
 
@@ -35,16 +35,16 @@ The canonical `timestamp` drives application behavior such as `Message.sentAt`, 
 Provider adapters define their own selection policy. First-party email adapters use:
 
 ```text
-valid MIME Date → valid provider internal date → null
+valid provider receipt time → valid MIME Date (no more than one day ahead) → valid legacy fallback → null
 ```
 
-They independently expose the valid Gmail `internalDate` or IMAP `INTERNALDATE` as `providerTimestamp`, even when MIME `Date` wins the canonical selection. Non-email providers may return the same value for both fields when their native message timestamp is also the canonical occurrence time, or omit `providerTimestamp` when no separate transport fact exists.
+They independently expose the valid Gmail `internalDate` or IMAP `INTERNALDATE` as `providerTimestamp`, independently of canonical selection. Non-email providers may return the same value for both fields when their native message timestamp is also the canonical occurrence time, or omit `providerTimestamp` when no separate transport fact exists.
 
 The persistence mapping is:
 
 | Normalized value | Destination | Meaning |
 |---|---|---|
-| `timestamp` | `Message.sentAt` and derived application projections *(persisted by `messages.messages.record_existing` in Fix 1; not delivered in this PR)* | Best meaningful external occurrence time |
+| `timestamp` | `Message.sentAt` and derived application projections *(persisted through the existing internal compose command; explicit null remains null)* | Best meaningful external occurrence time |
 | `providerTimestamp` | `ExternalMessage.providerTimestamp` | Provider-native transport/storage time only |
 | neither | Entity `createdAt` | Local Open Mercato materialization time |
 
@@ -52,7 +52,7 @@ The persistence mapping is:
 
 ## 📝 Architecture
 
-The provider package owns extraction of provider-native facts. The shared MIME normalizer validates MIME and fallback dates, selects the canonical value, and carries the validated fallback separately as `providerTimestamp`. The communication hub persists the two values into their distinct module-owned entities.
+The provider package owns extraction of provider-native facts. The shared MIME normalizer validates MIME and fallback dates, selects the canonical value, and carries the validated fallback separately as `providerTimestamp`. The communication hub persists the two values into their distinct module-owned entities. The latest base already wires inbound timestamps through internal compose (#6095); this change preserves that path, including explicit null. Ordinary compose calls that omit the server-only timestamp still assign the send time. The public HTTP request strips `sentAt`.
 
 No new database column, event, API endpoint, or cross-module relationship is introduced. `ExternalMessage.providerTimestamp` retains its existing provider-specific meaning.
 
@@ -82,7 +82,7 @@ User-facing surfaces render the canonical timestamp when present and a translate
 
 - Invalid MIME dates are ignored without throwing.
 - Invalid provider dates are ignored and exposed as `null`.
-- A valid MIME date and a different valid provider date are both preserved: the MIME date is canonical and the provider date remains diagnostic metadata.
+- A valid provider receipt time takes precedence over a different MIME date, retaining upstream #6095 behavior and its future-date guard. The canonical field does not retain both source facts.
 - When only provider time exists, it supplies both the canonical occurrence time and `providerTimestamp`.
 - When neither exists, both values are `null`; local import time is not substituted.
 - A mixed thread derives its summary and ordering date from its newest dated message; an undated message cannot erase a known thread date. When a thread is capped, newest dated messages are retained before undated messages.
@@ -127,6 +127,13 @@ Ensure every affected projection, ordering path, and UI handles nullable canonic
 4. Add focused regression coverage for MIME/provider precedence, unknown values, persistence, and the compatibility bridge.
 5. Update upgrade notes and the tracking issue to record that this specification supersedes the original split-field proposal in #5326.
 
+## Integration Coverage
+
+- Shared MIME and Gmail/IMAP normalization suites preserve provider-first precedence, reject invalid/far-future dates, and propagate unknown as null. The exported legacy `resolveInboundTimestamp` helper retains its existing `Date` return and now fallback; normalization uses the nullable internal resolver.
+- Ingest command tests pass known and null timestamps across the command boundary; the real compose-command harness verifies persisted sent time and ordinary-compose defaults. Subscriber tests verify canonical occurrence time and nullable legacy events.
+- `messages/__integration__/TC-MSG-UNKNOWN-TIMESTAMP-001.spec.ts` creates and cleans an undated message fixture and exercises list/detail APIs, forwarding preview, and the detail-header UI. Existing CRM activities and email-thread integration paths cover the ORM query consumers.
+- The unrelated ActivitiesSection client fallback to createdAt remains preexisting follow-up work; no current QA pass is claimed by this spec.
+
 ## Final Compliance Report
 
 - Public contract changes are additive except for the already-documented nullable widening of `timestamp`.
@@ -139,4 +146,6 @@ Ensure every affected projection, ordering path, and UI handles nullable canonic
 ## Changelog
 
 - 2026-08-21: Initial focused specification recording the simplified nullable canonical timestamp and optional provider-native timestamp contract agreed for #5326 and PR #5446.
-- 2026-08-21: Removed imported timestamp authority from the authored-message compose path and defined mixed dated/undated thread summary and retention behavior. Fix 1's `record_existing` command owns imported `sentAt` persistence.
+- 2026-08-21: Removed imported timestamp authority from the authored-message compose path and defined mixed dated/undated thread summary and retention behavior. At that revision, Fix 1's planned `record_existing` command owned imported `sentAt` persistence.
+
+- 2026-10-30: Reconciled #5446 with current main: preserved provider-first precedence, future-date rejection, sharing, and existing ingest-to-compose timestamp delivery; kept explicit null through internal compose. Added boundary and API/UI coverage; retained all published helper signatures.

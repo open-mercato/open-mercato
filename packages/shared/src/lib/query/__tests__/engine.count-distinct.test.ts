@@ -1,5 +1,12 @@
-import { BasicQueryEngine } from '../engine'
+import { BasicQueryEngine, clearColumnExistsCache } from '../engine'
 import { registerModules } from '../../i18n/server'
+
+// The column-existence answer is memoized on the module, not the instance (#5605), so
+// the per-test fake schemas below would otherwise inherit whatever the first test
+// probed for the same table names.
+beforeEach(() => {
+  clearColumnExistsCache()
+})
 
 // One entity extension on auth:user so includeExtensions exercises the joined-aggregate path.
 registerModules([

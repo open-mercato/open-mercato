@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { Briefcase, Building2, CalendarDays, CircleDollarSign, User } from 'lucide-react'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import { KeyValueList, RecordCardShell, TagRow, statusToTagVariant } from './RecordCardShell'
 import type { DealRecordPayload } from './types'
 import { formatCurrency, formatDate } from '../../utils/format'
@@ -11,12 +11,13 @@ export interface DealCardProps extends DealRecordPayload {}
 
 export function DealCard(props: DealCardProps) {
   const t = useT()
+  const locale = useLocale()
   const status = props.status
     ? { label: props.status, variant: statusToTagVariant(props.status) }
     : null
   const stage = props.stage && props.stage !== props.status ? props.stage : null
-  const amount = formatCurrency(props.amount, props.currency)
-  const closeDate = formatDate(props.closeDate)
+  const amount = formatCurrency(props.amount, props.currency, locale)
+  const closeDate = formatDate(props.closeDate, locale)
 
   const items = [
     stage ? { label: t('ai_assistant.chat.records.fields.stage', 'Stage'), value: stage } : null,

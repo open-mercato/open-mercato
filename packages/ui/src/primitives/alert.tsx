@@ -47,34 +47,34 @@ const alertVariants = cva(
       },
       size: {
         // Figma X-Small: px-[8px] py-[6px], radius-8, Paragraph/X Small (12/16)
-        xs: 'min-h-8 items-center rounded-lg px-2 py-1.5 text-xs leading-4 tracking-tight',
+        xs: 'min-h-8 items-center rounded-md px-2 py-1.5 text-xs leading-4 tracking-tight',
         // Figma Small: px-[10px] py-[8px], radius-8, Paragraph/Small (14/20)
-        sm: 'min-h-9 items-center rounded-lg px-2.5 py-2 text-sm leading-5 tracking-tight',
-        // Figma Large: px-[12px] py-[10px], radius-12, Paragraph/Small (14/20) multi-line
-        default: 'items-start rounded-xl px-3 py-2.5 text-sm leading-5 tracking-tight',
+        sm: 'min-h-9 items-center rounded-md px-2.5 py-2 text-sm leading-5 tracking-tight',
+        // Figma Large: px/pt 14px, pb 16px, radius-12, Paragraph/Small (14/20)
+        default: 'items-start gap-3 rounded-alert px-3.5 pt-3.5 pb-4 text-sm leading-5 tracking-tight',
       },
     },
     compoundVariants: [
       // === filled (Figma: bg = state/{x}/base, text = static-white) ===
-      { status: 'error',       style: 'filled', className: 'border border-transparent bg-status-error-icon text-white' },
-      { status: 'warning',     style: 'filled', className: 'border border-transparent bg-status-warning-icon text-white' },
-      { status: 'success',     style: 'filled', className: 'border border-transparent bg-status-success-icon text-white' },
-      { status: 'information', style: 'filled', className: 'border border-transparent bg-status-info-icon text-white' },
-      { status: 'feature',     style: 'filled', className: 'border border-transparent bg-status-neutral-icon text-white' },
+      { status: 'error',       style: 'filled', className: 'ring-1 ring-inset ring-transparent bg-status-error-solid text-status-error-solid-foreground' },
+      { status: 'warning',     style: 'filled', className: 'ring-1 ring-inset ring-transparent bg-status-warning-solid text-status-warning-solid-foreground' },
+      { status: 'success',     style: 'filled', className: 'ring-1 ring-inset ring-transparent bg-status-success-solid text-status-success-solid-foreground' },
+      { status: 'information', style: 'filled', className: 'ring-1 ring-inset ring-transparent bg-status-info-solid text-status-info-solid-foreground' },
+      { status: 'feature',     style: 'filled', className: 'ring-1 ring-inset ring-transparent bg-status-neutral-solid text-status-neutral-solid-foreground' },
       // === light (Figma: bg = state/{x}/light, text = text/strong-950 = #171717 black) ===
-      { status: 'error',       style: 'light', className: 'border border-transparent bg-status-error-border text-foreground' },
-      { status: 'warning',     style: 'light', className: 'border border-transparent bg-status-warning-border text-foreground' },
-      { status: 'success',     style: 'light', className: 'border border-transparent bg-status-success-border text-foreground' },
-      { status: 'information', style: 'light', className: 'border border-transparent bg-status-info-border text-foreground' },
-      { status: 'feature',     style: 'light', className: 'border border-transparent bg-status-neutral-border text-foreground' },
+      { status: 'error',       style: 'light', className: 'ring-1 ring-inset ring-transparent bg-status-error-border text-foreground' },
+      { status: 'warning',     style: 'light', className: 'ring-1 ring-inset ring-transparent bg-status-warning-border text-foreground' },
+      { status: 'success',     style: 'light', className: 'ring-1 ring-inset ring-transparent bg-status-success-border text-foreground' },
+      { status: 'information', style: 'light', className: 'ring-1 ring-inset ring-transparent bg-status-info-border text-foreground' },
+      { status: 'feature',     style: 'light', className: 'ring-1 ring-inset ring-transparent bg-status-neutral-border text-foreground' },
       // === lighter (Figma: bg = state/{x}/lighter, text = text/strong-950 = #171717 black) ===
-      { status: 'error',       style: 'lighter', className: 'border border-transparent bg-status-error-bg text-foreground' },
-      { status: 'warning',     style: 'lighter', className: 'border border-transparent bg-status-warning-bg text-foreground' },
-      { status: 'success',     style: 'lighter', className: 'border border-transparent bg-status-success-bg text-foreground' },
-      { status: 'information', style: 'lighter', className: 'border border-transparent bg-status-info-bg text-foreground' },
-      { status: 'feature',     style: 'lighter', className: 'border border-transparent bg-status-neutral-bg text-foreground' },
+      { status: 'error',       style: 'lighter', className: 'ring-1 ring-inset ring-transparent bg-status-error-bg text-foreground' },
+      { status: 'warning',     style: 'lighter', className: 'ring-1 ring-inset ring-transparent bg-status-warning-bg text-foreground' },
+      { status: 'success',     style: 'lighter', className: 'ring-1 ring-inset ring-transparent bg-status-success-bg text-foreground' },
+      { status: 'information', style: 'lighter', className: 'ring-1 ring-inset ring-transparent bg-status-info-bg text-foreground' },
+      { status: 'feature',     style: 'lighter', className: 'ring-1 ring-inset ring-transparent bg-status-neutral-bg text-foreground' },
       // === stroke (Figma: bg = white, border = stroke/soft-200, text = strong-950, shadow = regular-shadow/medium) ===
-      { style: 'stroke', className: 'border border-border bg-background text-foreground shadow-lg' },
+      { style: 'stroke', className: 'ring-1 ring-inset ring-border bg-background text-foreground shadow-lg' },
     ],
     defaultVariants: {
       status: 'information',
@@ -148,6 +148,8 @@ export type AlertProps = Omit<React.HTMLAttributes<HTMLDivElement>, 'role' | 'st
     dismissAriaLabel?: string
     /** Inline action slot (link buttons) rendered to the right of the body. */
     action?: React.ReactNode
+    /** Actions below the text, as in the large source alert. */
+    footer?: React.ReactNode
     /**
      * @deprecated Use `status` + `style` instead. Kept for BC. Maps the
      * legacy single-prop variants onto `status` and picks up the new
@@ -169,6 +171,7 @@ const Alert = React.forwardRef<HTMLDivElement, AlertProps>(
       onDismiss,
       dismissAriaLabel = 'Dismiss',
       action,
+      footer,
       variant,
       children,
       ...props
@@ -189,7 +192,7 @@ const Alert = React.forwardRef<HTMLDivElement, AlertProps>(
           <span
             className={cn(
               'inline-flex shrink-0 items-center justify-center',
-              resolvedSize === 'default' ? '[&>svg]:size-5' : '[&>svg]:size-4',
+              resolvedSize === 'xs' ? '[&>svg]:size-4' : '[&>svg]:size-5',
             )}
             data-slot="alert-icon"
           >
@@ -224,7 +227,7 @@ const Alert = React.forwardRef<HTMLDivElement, AlertProps>(
         {...props}
       >
         {iconSlot}
-        <div className="min-w-0 flex-1">{children}</div>
+        <div className="min-w-0 flex-1">{children}{footer ? <div data-slot="alert-footer" className="mt-2.5 flex flex-wrap items-center gap-2">{footer}</div> : null}</div>
         {action ? <div className="shrink-0">{action}</div> : null}
         {dismissible ? (
           <button
@@ -252,9 +255,12 @@ const AlertTitle = React.forwardRef<HTMLHeadingElement, React.HTMLAttributes<HTM
 AlertTitle.displayName = 'AlertTitle'
 
 // Figma "Paragraph/Small": Inter Regular 14 / 20.
-const AlertDescription = React.forwardRef<HTMLParagraphElement, React.HTMLAttributes<HTMLParagraphElement>>(
+// Renders a <div>, not a <p>: callers routinely nest paragraphs, lists and other
+// block elements inside the description, which is invalid inside <p> and makes
+// React fail hydration with "In HTML, <p> cannot be a descendant of <p>".
+const AlertDescription = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
   ({ className, ...props }, ref) => (
-    <p ref={ref} className={cn('text-sm leading-5', className)} {...props} />
+    <div ref={ref} className={cn('text-sm leading-5', className)} {...props} />
   ),
 )
 AlertDescription.displayName = 'AlertDescription'

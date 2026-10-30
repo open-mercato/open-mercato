@@ -20,6 +20,7 @@ import {
   type CustomerKindSettingsUpsertInput,
 } from '../../../data/validators'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 
 const logger = createLogger('customers')
 
@@ -84,6 +85,9 @@ export async function GET(req: Request) {
     }
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
+    }
+    if (err instanceof z.ZodError) {
+      return NextResponse.json({ error: translate('customers.errors.validationFailed', 'Validation failed'), details: err.issues }, { status: 400 })
     }
     logger.error('customers/dictionaries/kind-settings.GET', { err })
     return NextResponse.json({ error: translate('customers.errors.kind_settings_load_failed', 'Failed to load kind settings') }, { status: 500 })
@@ -185,6 +189,13 @@ export async function PATCH(req: Request) {
   } catch (err) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
+    }
+    if (err instanceof z.ZodError) {
+      return NextResponse.json({ error: translate('customers.errors.validationFailed', 'Validation failed'), details: err.issues }, { status: 400 })
+    }
+    const interceptorRejection = getCommandInterceptorHttpRejection(err)
+    if (interceptorRejection) {
+      return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
     }
     logger.error('customers/dictionaries/kind-settings.PATCH', { err })
     return NextResponse.json({ error: 'Failed to update kind setting' }, { status: 500 })

@@ -2,13 +2,14 @@ import { BasicQueryEngine } from '../engine'
 import { SortDir } from '../types'
 import { registerModules } from '../../i18n/server'
 import { clearSearchTokenPresenceCache } from '../../search/availability'
-import { clearEncryptedLikeFieldsCache } from '../engine'
+import { clearEncryptedLikeFieldsCache, clearColumnExistsCache, columnExistsCacheSize } from '../engine'
 
 // The token-presence answer is cached process-wide (TTL); without clearing it,
 // probe-count assertions would observe hits from earlier tests in this file.
 beforeEach(() => {
   clearSearchTokenPresenceCache()
   clearEncryptedLikeFieldsCache()
+  clearColumnExistsCache()
 })
 
 // Mock modules with one entity extension
@@ -243,6 +244,12 @@ function createFakeKysely(overrides?: FakeData) {
   return db
 }
 
+// Selects are recorded verbatim, so a plain column arrives as a string while an
+// aggregated cf projection arrives as Kysely's aliased raw builder.
+function selectAliases(call: any): string[] {
+  return call._ops.selects.map((s: any) => (typeof s === 'string' ? s : String(s?.alias ?? '')))
+}
+
 describe('BasicQueryEngine (Kysely)', () => {
   test('pluralizes entity names ending with y correctly', async () => {
     const fakeDb = createFakeKysely()
@@ -280,10 +287,139 @@ describe('BasicQueryEngine (Kysely)', () => {
     })
     expect(hasTenantFilter).toBe(true)
     const baseCall = fakeDb._calls.find((b: any) => b._ops.table === 'users')
-    const hasCfOrder = baseCall._ops.orderBys.some((o: any) => o[0] === 'cf_vip')
+    // The sort rides its own dedicated `__sort` alias, not the jsonb projection
+    // alias `cf_vip` — see the dedicated-alias test above (#5674).
+    const hasCfOrder = baseCall._ops.orderBys.some((o: any) => {
+      const expr = o[0]
+      return typeof expr?.toOperationNode === 'function'
+        && JSON.stringify(expr.toOperationNode()).includes('cf_vip__sort')
+    })
     expect(hasCfOrder).toBe(true)
     const hasExtJoin = baseCall._ops.joins.length > 0
     expect(hasExtJoin).toBe(true)
+  })
+
+  test('a cf sort alone projects and joins the key it orders by', async () => {
+    const fakeDb = createFakeKysely()
+    const engine = new BasicQueryEngine({} as any, () => fakeDb as any)
+    await engine.query('auth:user', {
+      fields: ['id', 'email'],
+      sort: [{ field: 'cf:vip', dir: SortDir.Asc }],
+      organizationId: '1',
+      tenantId: 't1',
+    })
+    const baseCall = fakeDb._calls.find((b: any) => b._ops.table === 'users')
+    // The sort rides its own dedicated scalar alias, never the jsonb projection
+    // alias — ordering by `to_jsonb(...)` compares arrays after every scalar
+    // string regardless of contents (#5674). Trailing entry is the stable `id`
+    // tiebreak appended when the sort didn't already end on `id`.
+    expect(baseCall._ops.orderBys).toHaveLength(2)
+    const [sortExpr] = baseCall._ops.orderBys[0]
+    expect(JSON.stringify(sortExpr.toOperationNode())).toContain('cf_vip__sort')
+    expect(baseCall._ops.orderBys[1]).toEqual(['users.id', 'asc'])
+    // Ordering by an alias the query never selected is a Postgres 42703, so the
+    // sort has to bring its own projection and joins along (#5521).
+    expect(selectAliases(baseCall)).toContain('cf_vip__sort')
+    expect(baseCall._ops.joins.length).toBeGreaterThan(0)
+  })
+
+  test('a numeric-kind cf sort casts to numeric instead of ordering as text (#5674)', async () => {
+    const fakeDb = createFakeKysely({
+      custom_field_defs: [
+        { key: 'rank', entity_id: 'auth:user', is_active: true, config_json: '{}', kind: 'float' },
+      ],
+    })
+    const engine = new BasicQueryEngine({} as any, () => fakeDb as any)
+    await engine.query('auth:user', {
+      fields: ['id', 'email'],
+      sort: [{ field: 'cf:rank', dir: SortDir.Asc }],
+      organizationId: '1',
+      tenantId: 't1',
+    })
+    const baseCall = fakeDb._calls.find((b: any) => b._ops.table === 'users')
+    // The cast lives on the dedicated sort projection, not the ORDER BY clause,
+    // which just references that projection's alias by name.
+    const sortSelect = baseCall._ops.selects.find((s: any) => String(s?.alias ?? '') === 'cf_rank__sort')
+    expect(sortSelect).toBeTruthy()
+    const serialized = JSON.stringify(sortSelect.toOperationNode())
+    expect(serialized).toContain('::numeric')
+    expect(serialized).toContain('value_float')
+    expect(baseCall._ops.orderBys).toHaveLength(2)
+    const [orderExpr] = baseCall._ops.orderBys[0]
+    expect(JSON.stringify(orderExpr.toOperationNode())).toContain('NULLS LAST')
+    expect(baseCall._ops.orderBys[1]).toEqual(['users.id', 'asc'])
+  })
+
+  test('an encrypted base sort combined with a cf: sort still orders by the cf value, and the __sort alias never leaks into returned rows (#5674)', async () => {
+    const fakeDb = createFakeKysely({
+      users: [
+        // '1' and '2' decrypt to the same email — only the cf:vip tiebreak can
+        // put them in the right relative order. '3' decrypts to a later email
+        // so it sorts last regardless of its cf:vip value.
+        { id: '1', tenant_id: 't1', organization_id: 'org1', email: 'cipher-1', cf_vip__sort: 'b' },
+        { id: '2', tenant_id: 't1', organization_id: 'org1', email: 'cipher-2', cf_vip__sort: 'a' },
+        { id: '3', tenant_id: 't1', organization_id: 'org1', email: 'cipher-3', cf_vip__sort: 'z' },
+      ],
+      'information_schema.columns': [
+        { table_name: 'users', column_name: 'id' },
+        { table_name: 'users', column_name: 'tenant_id' },
+        { table_name: 'users', column_name: 'organization_id' },
+        { table_name: 'users', column_name: 'deleted_at' },
+        { table_name: 'users', column_name: 'email' },
+      ],
+    })
+    const emailById: Record<string, string> = {
+      '1': 'dup@example.com',
+      '2': 'dup@example.com',
+      '3': 'zzz@example.com',
+    }
+    const engine = new BasicQueryEngine(
+      {} as any,
+      () => fakeDb as any,
+      () => ({
+        isEnabled: () => true,
+        getEncryptedFieldNames: async () => ['email'],
+        decryptEntityPayload: async (_entityId, payload) => ({
+          email: emailById[String(payload.id)],
+        }),
+      }),
+    )
+
+    const result = await engine.query('auth:user', {
+      tenantId: 't1',
+      organizationId: 'org1',
+      fields: ['id', 'email'],
+      sort: [{ field: 'email', dir: SortDir.Asc }, { field: 'cf:vip', dir: SortDir.Asc }],
+      page: { page: 1, pageSize: 3 },
+    })
+
+    // Before the fix, `sortRowsInMemory` read `cf:vip` through candidates that
+    // never included the dedicated `cf_vip__sort` projection alias, so the value
+    // came back `undefined` and the cf: sort silently dropped out of the
+    // ordering — '1' and '2' would then only tie-break by `id`.
+    expect(result.items.map((item: any) => item.id)).toEqual(['2', '1', '3'])
+    // The synthetic sort alias is internal-only — it must never leak into a
+    // returned row as a phantom custom field `vip__sort` (#5674 review).
+    for (const item of result.items) {
+      expect(item).not.toHaveProperty('cf_vip__sort')
+    }
+  })
+
+  test('a cf sort that resolves to no definition is dropped, not ordered by', async () => {
+    const fakeDb = createFakeKysely()
+    const engine = new BasicQueryEngine({} as any, () => fakeDb as any)
+    await engine.query('auth:user', {
+      fields: ['id', 'email'],
+      sort: [{ field: 'cf:no_such_key', dir: SortDir.Asc }],
+      organizationId: '1',
+      tenantId: 't1',
+    })
+    const baseCall = fakeDb._calls.find((b: any) => b._ops.table === 'users')
+    // Dropping an unresolvable sort is what the base-column branch already does;
+    // the alternative here was an ORDER BY over a column that is never selected.
+    // No cf sort survived, so there is nothing to tiebreak either.
+    expect(baseCall._ops.orderBys).toEqual([])
+    expect(selectAliases(baseCall)).not.toContain('cf_no_such_key__sort')
   })
 
   test('customFieldSources join additional profiles for custom fields', async () => {
@@ -1001,7 +1137,12 @@ describe('BasicQueryEngine (Kysely)', () => {
     })
 
     const baseCall = fakeDb._calls.find((call: any) => call._ops.table === 'customer_entities')
-    expect(baseCall._ops.orderBys).toEqual([['customer_entities.display_name', 'asc']])
+    // A trailing `id` tiebreak is appended when the sort didn't already end on
+    // `id`, so ties/NULLs don't reorder arbitrarily across pages (#5674).
+    expect(baseCall._ops.orderBys).toEqual([
+      ['customer_entities.display_name', 'asc'],
+      ['customer_entities.id', 'asc'],
+    ])
     expect(baseCall._ops.limits).toBe(10)
     expect(baseCall._ops.offsets).toBe(10)
   })
@@ -1262,9 +1403,9 @@ describe('BasicQueryEngine entity-extension joins', () => {
 })
 
 describe('BasicQueryEngine like/ilike routing by column encryption', () => {
-  // The gate is opt-in: OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS defaults to false and the
-  // legacy rewrite-everything behavior stays. These cases flip it on; the last one pins the
-  // default off.
+  // The gate stays off by default per #5383, so these cases opt in explicitly to pin the
+  // declared-ILIKE behavior a deployment gets by setting the switch; the last one flips it back
+  // off and pins the legacy rewrite-everything behavior that is the shipped default.
   beforeEach(() => {
     process.env.OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS = 'true'
   })
@@ -1287,7 +1428,15 @@ describe('BasicQueryEngine like/ilike routing by column encryption', () => {
     ],
   })
 
-  test('a plaintext base column keeps exact SQL ILIKE even when tokens are available', async () => {
+  const ilikePatternsFor = (fakeDb: any, table: string, column: string): string[] => {
+    const baseCall = fakeDb._calls.find((b: any) => b._ops.table === table)
+    if (!baseCall) return []
+    return baseCall._ops.wheres
+      .filter((w: any) => Array.isArray(w) && String(w[0]).includes(column) && w[1] === 'ilike')
+      .map((w: any) => String(w[2]))
+  }
+
+  test('a plaintext base column runs as SQL ILIKE even when tokens are available', async () => {
     const fakeDb = fakeDbWithTokens()
     const engine = new BasicQueryEngine(
       {} as any,
@@ -1304,12 +1453,33 @@ describe('BasicQueryEngine like/ilike routing by column encryption', () => {
     })
 
     expect(applySearchTokensSpy).not.toHaveBeenCalled()
-    const baseCall = fakeDb._calls.find((b: any) => b._ops.table === 'customer_entities')
-    expect(baseCall).toBeTruthy()
-    const ilikeWhere = baseCall._ops.wheres.some(
-      (w: any) => Array.isArray(w) && String(w[0]).includes('display_name') && w[1] === 'ilike' && w[2] === '%ZK 1/2026%',
+    // Multi-word terms are ANDed per word rather than matched as one literal substring -- see the
+    // TC-RESO-009 case below for why that distinction is the whole point of the reroute.
+    expect(ilikePatternsFor(fakeDb, 'customer_entities', 'display_name')).toEqual(['%ZK%', '%1/2026%'])
+  })
+
+  // #5803 regression guard, reported by CI on the first shape of this fix. The token subquery
+  // matched a value carrying EVERY token in any order with anything in between, so
+  // `?search=Warehouse <stamp>` matched `Warehouse A <stamp>`; TC-RESO-009 pins that as required
+  // behavior. One verbatim `ILIKE '%Warehouse <stamp>%'` would not match -- the `A ` sits between
+  // the words -- so the reroute has to AND one containment predicate per word to be a fix rather
+  // than a trade of one broken search for another.
+  test('a multi-word term matches words in order-independent positions, as the token path did', async () => {
+    const fakeDb = fakeDbWithTokens()
+    const engine = new BasicQueryEngine(
+      {} as any,
+      () => fakeDb as any,
+      () => ({ getEncryptedFieldNames: async () => [] }) as any,
     )
-    expect(ilikeWhere).toBe(true)
+
+    await engine.query('customers:customer_entity', {
+      tenantId: 't1',
+      fields: ['id'],
+      filters: { display_name: { $ilike: '%Warehouse 1757%' } },
+      page: { page: 1, pageSize: 10 },
+    })
+
+    expect(ilikePatternsFor(fakeDb, 'customer_entities', 'display_name')).toEqual(['%Warehouse%', '%1757%'])
   })
 
   test('an encrypted base column still routes through search tokens', async () => {
@@ -1393,8 +1563,70 @@ describe('BasicQueryEngine like/ilike routing by column encryption', () => {
     expect(applySearchTokensSpy).toHaveBeenCalled()
   })
 
-  test('with the flag off (default) the token rewrite is kept even for plaintext columns', () => {
-    delete process.env.OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS
+  // #5803: the reported regression. `2026-08` and `2026-01` tokenize to the identical set
+  // {202, 2026} because the fragment that tells them apart is shorter than minTokenLength, so the
+  // token rewrite answered a search for one period with the other one. The declared predicate has
+  // to reach SQL verbatim for the exact row to come back at all.
+  test('a search term whose distinguishing fragment is dropped by the tokenizer still reaches SQL verbatim', async () => {
+    const fakeDb = createFakeKysely({
+      accounting_periods: [],
+      search_tokens: [{ one: 1 }],
+      'information_schema.tables': [{ table_name: 'search_tokens' }],
+      'information_schema.columns': [
+        { table_name: 'accounting_periods', column_name: 'tenant_id' },
+        { table_name: 'accounting_periods', column_name: 'period_code' },
+      ],
+    })
+    const engine = new BasicQueryEngine(
+      {} as any,
+      () => fakeDb as any,
+      () => ({ getEncryptedFieldNames: async () => [] }) as any,
+    )
+    const applySearchTokensSpy = jest.spyOn(engine as any, 'applySearchTokens')
+
+    await engine.query('accounting:accounting_period', {
+      tenantId: 't1',
+      fields: ['id'],
+      filters: { period_code: { $ilike: '%2026-08%' } },
+      page: { page: 1, pageSize: 10 },
+    })
+
+    expect(applySearchTokensSpy).not.toHaveBeenCalled()
+    const baseCall = fakeDb._calls.find((b: any) => b._ops.table === 'accounting_periods')
+    expect(baseCall).toBeTruthy()
+    const ilikeWhere = baseCall._ops.wheres.some(
+      (w: any) => Array.isArray(w) && String(w[0]).includes('period_code') && w[1] === 'ilike' && w[2] === '%2026-08%',
+    )
+    expect(ilikeWhere).toBe(true)
+  })
+
+  // #5803: `08` tokenizes to nothing at all, and the token path answered that with "no predicate"
+  // -- every row in the table. A filter that matches everything is never the honest reading of a
+  // declared containment predicate.
+  test('a term too short to tokenize filters instead of being dropped', async () => {
+    const fakeDb = fakeDbWithTokens()
+    const engine = new BasicQueryEngine(
+      {} as any,
+      () => fakeDb as any,
+      () => ({ getEncryptedFieldNames: async () => [] }) as any,
+    )
+
+    await engine.query('customers:customer_entity', {
+      tenantId: 't1',
+      fields: ['id'],
+      filters: { display_name: { $ilike: '%08%' } },
+      page: { page: 1, pageSize: 10 },
+    })
+
+    const baseCall = fakeDb._calls.find((b: any) => b._ops.table === 'customer_entities')
+    const ilikeWhere = baseCall._ops.wheres.some(
+      (w: any) => Array.isArray(w) && String(w[0]).includes('display_name') && w[1] === 'ilike' && w[2] === '%08%',
+    )
+    expect(ilikeWhere).toBe(true)
+  })
+
+  test('with the flag explicitly off the token rewrite is kept even for plaintext columns', () => {
+    process.env.OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS = 'false'
     const fakeDb = fakeDbWithTokens()
     const engine = new BasicQueryEngine(
       {} as any,
@@ -1413,5 +1645,398 @@ describe('BasicQueryEngine like/ilike routing by column encryption', () => {
       .then(() => {
         expect(applySearchTokensSpy).toHaveBeenCalled()
       })
+  })
+})
+
+describe('module-scoped column-existence cache (#5605)', () => {
+  const columnProbes = (fakeDb: any) =>
+    fakeDb._calls.filter((b: any) => b._ops.table === 'information_schema.columns')
+
+  const columnProbesFor = (fakeDb: any, column: string) =>
+    columnProbes(fakeDb).filter((b: any) =>
+      b._ops.wheres.some((w: any) => Array.isArray(w) && w[0] === 'column_name' && w[1] === '=' && w[2] === column)
+    )
+
+  const hasTenantGuard = (fakeDb: any) => {
+    const baseCall = fakeDb._calls.find((b: any) => b._ops.table === 'customer_entities')
+    return !!baseCall?._ops.wheres.some(
+      (w: any) => Array.isArray(w) && w[0] === 'customer_entities.tenant_id' && w[1] === '=' && w[2] === 't1',
+    )
+  }
+
+  const originalTtl = process.env.OM_QUERY_COLUMN_EXISTS_CACHE_MS
+  const originalMaxEntries = process.env.OM_QUERY_COLUMN_EXISTS_CACHE_MAX_ENTRIES
+
+  afterEach(() => {
+    if (originalTtl === undefined) delete process.env.OM_QUERY_COLUMN_EXISTS_CACHE_MS
+    else process.env.OM_QUERY_COLUMN_EXISTS_CACHE_MS = originalTtl
+    if (originalMaxEntries === undefined) delete process.env.OM_QUERY_COLUMN_EXISTS_CACHE_MAX_ENTRIES
+    else process.env.OM_QUERY_COLUMN_EXISTS_CACHE_MAX_ENTRIES = originalMaxEntries
+    jest.restoreAllMocks()
+  })
+
+  test('the column-existence cache is shared across separate engine instances', async () => {
+    // `createRequestContainer()` builds a fresh `BasicQueryEngine` per HTTP request.
+    // The cache must live on the module, not the instance, so a later "request" (a
+    // second engine here) reuses the first request's answer instead of re-probing
+    // `information_schema.columns`.
+    const fakeDb = createFakeKysely({
+      customer_entities: [],
+      'information_schema.columns': [
+        { table_name: 'customer_entities', column_name: 'tenant_id' },
+      ],
+    })
+    const queryOpts = { tenantId: 't1', fields: ['id'], page: { page: 1, pageSize: 10 } }
+
+    const engine1 = new BasicQueryEngine({} as any, () => fakeDb as any)
+    await engine1.query('customers:customer_entity', queryOpts)
+    const probesAfterFirstEngine = columnProbes(fakeDb).length
+    expect(probesAfterFirstEngine).toBeGreaterThan(0)
+
+    const engine2 = new BasicQueryEngine({} as any, () => fakeDb as any)
+    await engine2.query('customers:customer_entity', queryOpts)
+    expect(columnProbes(fakeDb).length).toBe(probesAfterFirstEngine)
+  })
+
+  test('a missing column is remembered as false instead of being re-queried on every call', async () => {
+    // Before the fix, `columnExists` deleted a `false` result instead of caching it,
+    // so `organization_id` (absent here) was re-queried once per query projection
+    // ('full' and 'count') within a single `.query()` call.
+    const fakeDb = createFakeKysely({
+      customer_entities: [],
+      'information_schema.columns': [],
+    })
+    const engine = new BasicQueryEngine({} as any, () => fakeDb as any)
+
+    await engine.query('customers:customer_entity', {
+      tenantId: 't1',
+      organizationId: 'org1',
+      fields: ['id'],
+      page: { page: 1, pageSize: 10 },
+    })
+
+    expect(columnProbesFor(fakeDb, 'organization_id').length).toBe(1)
+  })
+
+  test('a cached negative expires, so a migrated-in scope column is picked up without a process restart', async () => {
+    // A cached `false` is consumed where the tenant/organization/soft-delete predicates
+    // are applied, so a stale one does not merely slow a query down — it silently drops
+    // a scope guard. The TTL bounds that window: a migration applied against a running
+    // process (`yarn dev`, or pods not recycled by a separate migration release step)
+    // converges once the entry expires instead of never.
+    const now = 1_700_000_000_000
+    const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(now)
+
+    const beforeMigration = createFakeKysely({
+      customer_entities: [],
+      'information_schema.columns': [],
+    })
+    const queryOpts = { tenantId: 't1', fields: ['id'], page: { page: 1, pageSize: 10 } }
+    await new BasicQueryEngine({} as any, () => beforeMigration as any).query('customers:customer_entity', queryOpts)
+    expect(columnProbesFor(beforeMigration, 'tenant_id').length).toBe(1)
+    expect(hasTenantGuard(beforeMigration)).toBe(false)
+
+    // Same process, same cache — a second request while the entry is still fresh reuses
+    // the negative and does not re-probe, even though the column now exists.
+    const afterMigration = createFakeKysely({
+      customer_entities: [],
+      'information_schema.columns': [
+        { table_name: 'customer_entities', column_name: 'tenant_id' },
+      ],
+    })
+    await new BasicQueryEngine({} as any, () => afterMigration as any).query('customers:customer_entity', queryOpts)
+    expect(columnProbesFor(afterMigration, 'tenant_id').length).toBe(0)
+    expect(hasTenantGuard(afterMigration)).toBe(false)
+
+    nowSpy.mockReturnValue(now + 300_001)
+
+    const afterTtl = createFakeKysely({
+      customer_entities: [],
+      'information_schema.columns': [
+        { table_name: 'customer_entities', column_name: 'tenant_id' },
+      ],
+    })
+    await new BasicQueryEngine({} as any, () => afterTtl as any).query('customers:customer_entity', queryOpts)
+    expect(columnProbesFor(afterTtl, 'tenant_id').length).toBe(1)
+    expect(hasTenantGuard(afterTtl)).toBe(true)
+  })
+
+  test('the cache is bounded, so caller-supplied sort fields cannot grow it without limit', async () => {
+    // `columnExists` is reached with raw request input through `resolveBaseColumn` —
+    // `sortField` arrives from the query string and many list schemas type it as a plain
+    // string. Without a cap, one distinct name per request would be retained for the
+    // lifetime of the process.
+    process.env.OM_QUERY_COLUMN_EXISTS_CACHE_MAX_ENTRIES = '4'
+    const fakeDb = createFakeKysely({
+      customer_entities: [],
+      'information_schema.columns': [],
+    })
+    const engine = new BasicQueryEngine({} as any, () => fakeDb as any)
+
+    for (let index = 0; index < 20; index += 1) {
+      await engine.query('customers:customer_entity', {
+        tenantId: 't1',
+        fields: ['id'],
+        sort: [{ field: `attacker_supplied_${index}`, dir: SortDir.Asc }],
+        page: { page: 1, pageSize: 10 },
+      })
+      expect(columnExistsCacheSize()).toBeLessThanOrEqual(4)
+    }
+  })
+
+  test('OM_QUERY_COLUMN_EXISTS_CACHE_MS=0 disables the memo and probes per request again', async () => {
+    process.env.OM_QUERY_COLUMN_EXISTS_CACHE_MS = '0'
+    const fakeDb = createFakeKysely({
+      customer_entities: [],
+      'information_schema.columns': [
+        { table_name: 'customer_entities', column_name: 'tenant_id' },
+      ],
+    })
+    const queryOpts = { tenantId: 't1', fields: ['id'], page: { page: 1, pageSize: 10 } }
+
+    await new BasicQueryEngine({} as any, () => fakeDb as any).query('customers:customer_entity', queryOpts)
+    const probesAfterFirstEngine = columnProbesFor(fakeDb, 'tenant_id').length
+    expect(probesAfterFirstEngine).toBeGreaterThan(0)
+    expect(columnExistsCacheSize()).toBe(0)
+
+    await new BasicQueryEngine({} as any, () => fakeDb as any).query('customers:customer_entity', queryOpts)
+    expect(columnProbesFor(fakeDb, 'tenant_id').length).toBeGreaterThan(probesAfterFirstEngine)
+  })
+})
+
+describe('BasicQueryEngine decrypt tenant binding (#5430)', () => {
+  const informationSchema = [
+    { table_name: 'customer_entities', column_name: 'id' },
+    { table_name: 'customer_entities', column_name: 'tenant_id' },
+    { table_name: 'customer_entities', column_name: 'organization_id' },
+    { table_name: 'customer_entities', column_name: 'deleted_at' },
+    { table_name: 'customer_entities', column_name: 'display_name' },
+  ]
+
+  function setup(rows: any[], encryptedFieldNames: string[] = ['display_name']) {
+    const fakeDb = createFakeKysely({ customer_entities: rows, 'information_schema.columns': informationSchema })
+    const decryptCalls: Array<{ tenantId: string | null; organizationId: string | null }> = []
+    const engine = new BasicQueryEngine(
+      {} as any,
+      () => fakeDb as any,
+      () => ({
+        isEnabled: () => true,
+        getEncryptedFieldNames: async () => encryptedFieldNames,
+        decryptEntityPayload: async (_entityId: any, _payload: any, tenantId: any, organizationId: any) => {
+          decryptCalls.push({ tenantId, organizationId })
+          return { display_name: 'PLAINTEXT' }
+        },
+      }),
+    )
+    return { engine, decryptCalls, fakeDb }
+  }
+
+  // Every column named in any SELECT issued against the base table.
+  const selectedBaseColumns = (fakeDb: any): string[] =>
+    fakeDb._calls
+      .filter((call: any) => call._ops.table === 'customer_entities')
+      .flatMap((call: any) => selectAliases(call))
+
+  test('returns ciphertext and never fetches a DEK when the row tenant contradicts the query tenant', async () => {
+    const { engine, decryptCalls } = setup([
+      { id: '1', tenant_id: 'tenant-b', organization_id: 'org1', display_name: 'cipher-1' },
+    ])
+    const result = await engine.query('customers:customer_entity', {
+      tenantId: 'tenant-a',
+      fields: ['id', 'display_name'],
+      page: { page: 1, pageSize: 10 },
+    })
+    expect(decryptCalls).toEqual([])
+    expect((result.items[0] as any).display_name).toBe('cipher-1')
+  })
+
+  test('still decrypts a row whose tenant matches the query tenant', async () => {
+    const { engine, decryptCalls } = setup([
+      { id: '1', tenant_id: 'tenant-a', organization_id: 'org1', display_name: 'cipher-1' },
+    ])
+    const result = await engine.query('customers:customer_entity', {
+      tenantId: 'tenant-a',
+      fields: ['id', 'display_name'],
+      page: { page: 1, pageSize: 10 },
+    })
+    expect(decryptCalls).toEqual([{ tenantId: 'tenant-a', organizationId: 'org1' }])
+    expect((result.items[0] as any).display_name).toBe('PLAINTEXT')
+  })
+
+  // Both engines require `opts.tenantId` on every query, so a row that carries no tenant of its
+  // own — a global row on an `omitAutomaticTenantOrgScope` read — is the only fallback case left.
+  test('a row with no tenant of its own still decrypts under the caller tenant', async () => {
+    const { engine, decryptCalls } = setup([
+      { id: '1', tenant_id: null, organization_id: null, display_name: 'cipher-1' },
+    ])
+    const result = await engine.query('customers:customer_entity', {
+      tenantId: 'tenant-a',
+      omitAutomaticTenantOrgScope: true,
+      fields: ['id', 'display_name'],
+      page: { page: 1, pageSize: 10 },
+    })
+    expect(decryptCalls).toEqual([{ tenantId: 'tenant-a', organizationId: null }])
+    expect((result.items[0] as any).display_name).toBe('PLAINTEXT')
+  })
+
+  test('performs no DEK lookup at all when the query declines decryption', async () => {
+    const { engine, decryptCalls } = setup([
+      { id: '1', tenant_id: 'tenant-a', organization_id: 'org1', display_name: 'cipher-1' },
+    ])
+    const result = await engine.query('customers:customer_entity', {
+      tenantId: 'tenant-a',
+      decryptEncryptedFields: false,
+      fields: ['id', 'display_name'],
+      page: { page: 1, pageSize: 10 },
+    })
+    expect(decryptCalls).toEqual([])
+    expect((result.items[0] as any).display_name).toBe('cipher-1')
+  })
+
+  test('an explicit true keeps decrypting, as does omitting the flag', async () => {
+    for (const decryptEncryptedFields of [true, undefined]) {
+      const { engine, decryptCalls } = setup([
+        { id: '1', tenant_id: 'tenant-a', organization_id: 'org1', display_name: 'cipher-1' },
+      ])
+      const result = await engine.query('customers:customer_entity', {
+        tenantId: 'tenant-a',
+        decryptEncryptedFields,
+        fields: ['id', 'display_name'],
+        page: { page: 1, pageSize: 10 },
+      })
+      expect(decryptCalls).toHaveLength(1)
+      expect((result.items[0] as any).display_name).toBe('PLAINTEXT')
+    }
+  })
+
+  // A declined query must not take the plaintext-sort path: that path exists only to sort on
+  // decrypted values, so running it without decryption scans the full candidate set and then
+  // orders by ciphertext. It reads the encryption MAP once — not a DEK — only to warn that the
+  // requested sort has degraded to ciphertext ordering.
+  test('a declined query resolves no encrypted sort fields and never scans for a plaintext sort', async () => {
+    const fakeDb = createFakeKysely({
+      customer_entities: [
+        { id: '1', tenant_id: 'tenant-a', organization_id: 'org1', display_name: 'cipher-b' },
+        { id: '2', tenant_id: 'tenant-a', organization_id: 'org1', display_name: 'cipher-a' },
+      ],
+      'information_schema.columns': informationSchema,
+    })
+    const decryptCalls: string[] = []
+    const engine = new BasicQueryEngine(
+      {} as any,
+      () => fakeDb as any,
+      () => ({
+        isEnabled: () => true,
+        getEncryptedFieldNames: async () => ['display_name'],
+        decryptEntityPayload: async () => {
+          decryptCalls.push('called')
+          return { display_name: 'PLAINTEXT' }
+        },
+      }),
+    )
+
+    const result = await engine.query('customers:customer_entity', {
+      tenantId: 'tenant-a',
+      decryptEncryptedFields: false,
+      fields: ['id', 'display_name'],
+      sort: [{ field: 'display_name', dir: SortDir.Asc }],
+      page: { page: 1, pageSize: 10 },
+    })
+
+    expect(decryptCalls).toEqual([])
+    expect((result.items[0] as any).display_name).toBe('cipher-b')
+    const baseCalls = fakeDb._calls.filter((call: any) => call._ops.table === 'customer_entities')
+    // The plaintext-sort path issues a second (phase-1 candidate) query with no ORDER BY;
+    // a declined query must stay on the single ordinary SQL-ordered read.
+    expect(baseCalls.some((call: any) => call._ops.orderBys?.length > 0)).toBe(true)
+  })
+
+  test('an omitAutomaticTenantOrgScope query still decrypts by default', async () => {
+    const { engine, decryptCalls } = setup([
+      { id: '1', tenant_id: null, organization_id: null, display_name: 'cipher-1' },
+    ])
+    await engine.query('customers:customer_entity', {
+      tenantId: 'tenant-a',
+      omitAutomaticTenantOrgScope: true,
+      fields: ['id', 'display_name'],
+      page: { page: 1, pageSize: 10 },
+    })
+    expect(decryptCalls).toHaveLength(1)
+  })
+
+  // The decision reads the row's own tenant_id, so a `fields` list that omits it would leave
+  // `rowTenantId` null and make the guard inert on exactly the routes that project narrowly
+  // (e.g. the deals map route). The engine widens the projection and strips the column back out.
+  describe('tenant_id is carried into the decrypt decision regardless of the projection', () => {
+    test('a projection without tenant_id still refuses a foreign-tenant row', async () => {
+      const { engine, decryptCalls, fakeDb } = setup([
+        { id: '1', tenant_id: 'tenant-b', organization_id: 'org1', display_name: 'cipher-1' },
+      ])
+      const result = await engine.query('customers:customer_entity', {
+        tenantId: 'tenant-a',
+        fields: ['id', 'organization_id', 'display_name'],
+        page: { page: 1, pageSize: 10 },
+      })
+      expect(selectedBaseColumns(fakeDb)).toContain('tenant_id')
+      expect(decryptCalls).toEqual([])
+      expect((result.items[0] as any).display_name).toBe('cipher-1')
+    })
+
+    test('the injected column is stripped from the response shape', async () => {
+      const { engine, fakeDb } = setup([
+        { id: '1', tenant_id: 'tenant-a', organization_id: 'org1', display_name: 'cipher-1' },
+      ])
+      const result = await engine.query('customers:customer_entity', {
+        tenantId: 'tenant-a',
+        fields: ['id', 'organization_id', 'display_name'],
+        page: { page: 1, pageSize: 10 },
+      })
+      expect(selectedBaseColumns(fakeDb)).toContain('tenant_id')
+      expect(Object.prototype.hasOwnProperty.call(result.items[0], 'tenant_id')).toBe(false)
+      expect((result.items[0] as any).display_name).toBe('PLAINTEXT')
+    })
+
+    test('a caller that asked for tenant_id still gets it back', async () => {
+      const { engine } = setup([
+        { id: '1', tenant_id: 'tenant-a', organization_id: 'org1', display_name: 'cipher-1' },
+      ])
+      const result = await engine.query('customers:customer_entity', {
+        tenantId: 'tenant-a',
+        fields: ['id', 'tenant_id', 'display_name'],
+        page: { page: 1, pageSize: 10 },
+      })
+      expect((result.items[0] as any).tenant_id).toBe('tenant-a')
+    })
+
+    test('an entity with no encryption map keeps its projection untouched', async () => {
+      const { engine, fakeDb } = setup(
+        [{ id: '1', tenant_id: 'tenant-a', organization_id: 'org1', display_name: 'plain-1' }],
+        [],
+      )
+      await engine.query('customers:customer_entity', {
+        tenantId: 'tenant-a',
+        fields: ['id', 'display_name'],
+        page: { page: 1, pageSize: 10 },
+      })
+      expect(selectedBaseColumns(fakeDb)).not.toContain('tenant_id')
+    })
+  })
+
+  test('refuses each mismatching row independently within one page', async () => {
+    const { engine, decryptCalls } = setup([
+      { id: '1', tenant_id: 'tenant-a', organization_id: 'org1', display_name: 'cipher-1' },
+      { id: '2', tenant_id: 'tenant-b', organization_id: 'org1', display_name: 'cipher-2' },
+      { id: '3', tenant_id: 'tenant-c', organization_id: 'org1', display_name: 'cipher-3' },
+    ])
+    const result = await engine.query('customers:customer_entity', {
+      tenantId: 'tenant-a',
+      fields: ['id', 'display_name'],
+      page: { page: 1, pageSize: 10 },
+    })
+    expect(decryptCalls).toHaveLength(1)
+    const byId = new Map((result.items as any[]).map((row) => [row.id, row.display_name]))
+    expect(byId.get('1')).toBe('PLAINTEXT')
+    expect(byId.get('2')).toBe('cipher-2')
+    expect(byId.get('3')).toBe('cipher-3')
   })
 })

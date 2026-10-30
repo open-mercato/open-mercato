@@ -9,6 +9,7 @@ import {
   dehydrateSettings,
   hydrateSettings,
 } from '../config'
+import { CLOSED_DEAL_STATUS_LIST } from '@open-mercato/core/modules/customers/lib/dealStatus'
 
 describe('pipeline summary settings', () => {
   describe('hydrateSettings', () => {
@@ -53,6 +54,16 @@ describe('pipeline summary settings', () => {
     // CLOSED_DEAL_STATUSES passes no matter which terminal statuses are missing from it.
     it('covers every terminal status the supported write paths persist', () => {
       expect([...CLOSED_DEAL_STATUSES].sort()).toEqual(['closed', 'loose', 'lost', 'win', 'won'])
+    })
+
+    // The literal above is deliberate (see its comment), but a literal alone cannot notice
+    // the customers module dropping a spelling from its own vocabulary: when `loose` is
+    // removed from LOST_DEAL_STATUS_LIST at 0.9.0 this copy would keep it and both suites
+    // would stay green. Cross-checking membership catches that divergence without turning
+    // the duplication into a cross-module import in the widget itself, which is a separate
+    // architectural call.
+    it('stays in step with the customers module vocabulary it duplicates', () => {
+      expect([...CLOSED_DEAL_STATUSES].sort()).toEqual([...CLOSED_DEAL_STATUS_LIST].sort())
     })
 
     it('does not deny any status that means the deal is still open', () => {

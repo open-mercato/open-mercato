@@ -1,14 +1,15 @@
 import { randomUUID } from 'crypto'
-import type { FindOneOptions } from '@mikro-orm/core'
+import { LockMode, type FindOneOptions } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
-import { assertFound } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, assertFound } from '@open-mercato/shared/lib/crud/errors'
 import { invalidateCrudCache } from '@open-mercato/shared/lib/crud/cache'
 import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { emitCrudSideEffects, flushCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import {
   WarrantyClaim,
   WarrantyClaimEvent,
@@ -65,6 +66,11 @@ export async function enforceWarrantyClaimOptimisticLock(
   })
 }
 
+export async function throwUndoRefusal(key: string, fallback: string): Promise<never> {
+  const { translate } = await resolveTranslations()
+  throw new CrudHttpError(409, { error: translate(key, fallback), code: key })
+}
+
 export async function loadScopedClaim(
   em: EntityManager,
   id: string,
@@ -80,14 +86,55 @@ export async function loadScopedClaim(
   )
 }
 
+/**
+ * `notFoundMessage` is passed to `assertFound` verbatim, so request-scoped callers
+ * must hand in an already-translated sentence; the key default only suits the
+ * command surface, which runs without a request locale.
+ */
 export async function requireScopedClaim(
   em: EntityManager,
   id: string,
   scope: WarrantyClaimScope,
   options: FindOneOptions<WarrantyClaim> = {},
+  notFoundMessage = 'warranty_claims.errors.notFound',
 ): Promise<WarrantyClaim> {
   const claim = await loadScopedClaim(em, id, scope, options)
-  return assertFound(claim, 'warranty_claims.errors.notFound')
+  return assertFound(claim, notFoundMessage)
+}
+
+export async function assertUniqueClaimLineNumbers(lineNumbers: Iterable<number>): Promise<void> {
+  const usedNumbers = new Set<number>()
+  for (const lineNo of lineNumbers) {
+    if (usedNumbers.has(lineNo)) {
+      const { translate } = await resolveTranslations()
+      const code = 'warranty_claims.errors.duplicateLineNo'
+      throw new CrudHttpError(409, {
+        error: translate(code, 'Another line on this claim already uses that line number. Remove the line that uses this number, then retry.'),
+        code,
+      })
+    }
+    usedNumbers.add(lineNo)
+  }
+}
+
+export async function assertClaimLineNumberAvailable(
+  em: EntityManager,
+  claim: WarrantyClaim,
+  lineNo: number,
+  excludedLineId?: string,
+  allowCurrentNumber = false,
+): Promise<void> {
+  const scope = { tenantId: claim.tenantId, organizationId: claim.organizationId }
+  await requireScopedClaim(em, claim.id, scope, { lockMode: LockMode.PESSIMISTIC_WRITE })
+  const siblings = await findWithDecryption(
+    em,
+    WarrantyClaimLine,
+    { claim: claim.id, lineNo, deletedAt: null, tenantId: scope.tenantId, organizationId: scope.organizationId },
+    {},
+    scope,
+  )
+  if (allowCurrentNumber && siblings.some((line) => line.id === excludedLineId)) return
+  await assertUniqueClaimLineNumbers([lineNo, ...siblings.filter((line) => line.id !== excludedLineId).map((line) => line.lineNo)])
 }
 
 export function appendClaimEvent(

@@ -106,6 +106,7 @@ The following authentication endpoints have two-layer rate limiting built in:
 | `POST /api/login` | IP | 20 | 60s | 60s |
 | `POST /api/reset` | IP | 10 | 60s | 60s |
 | `POST /api/reset/confirm` | IP | 5 | 300s | &mdash; |
+| `POST /api/auth/reset/validate` | IP | 10 | 300s | &mdash; |
 
 **Layer 2 — Compound** caps attempts per IP + account pair (email is SHA-256 hashed):
 
@@ -114,9 +115,15 @@ The following authentication endpoints have two-layer rate limiting built in:
 | `POST /api/login` | `IP:emailHash` | 5 | 60s | 60s |
 | `POST /api/reset` | `IP:emailHash` | 3 | 60s | 60s |
 
-The reset-confirm endpoint uses IP-only limiting because no email is available at that point.
+The reset-confirm and reset-validate endpoints use IP-only limiting because no email is available at that point — both are reached with a token alone. Reset-validate is the read-only check the reset page makes on load to decide whether to render the password form or a terminal "link is no longer valid" state; it never consumes the token, so it gets a slightly larger budget than reset-confirm.
 
 On successful login, the compound counter is automatically reset so legitimate users aren't penalized for prior typos. The IP-only counter is not reset.
+
+**Attachment uploads** (handler-level, per tenant + authenticated user):
+
+| Endpoint | Key | Points | Window | Block |
+|----------|-----|--------|--------|-------|
+| `POST /api/attachments` | `tenantId:principal` | 30 | 60s | &mdash; |
 
 All limits can be overridden via environment variables (see [Configuration](#configuration)).
 
@@ -203,6 +210,16 @@ When using `redis` strategy, the service reads `REDIS_URL` (already used by cach
 | `RATE_LIMIT_RESET_IP_BLOCK_DURATION` | `60` | Block duration after exceeding IP limit |
 | `RATE_LIMIT_RESET_CONFIRM_POINTS` | `5` | Max reset confirm attempts per IP per window |
 | `RATE_LIMIT_RESET_CONFIRM_DURATION` | `300` | Window in seconds |
+| `RATE_LIMIT_RESET_VALIDATE_POINTS` | `10` | Max reset-token checks per IP per window |
+| `RATE_LIMIT_RESET_VALIDATE_DURATION` | `300` | Window in seconds |
+
+**Attachment uploads:**
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `RATE_LIMIT_ATTACHMENTS_UPLOAD_POINTS` | `100` | Max uploads per tenant+user per window |
+| `RATE_LIMIT_ATTACHMENTS_UPLOAD_DURATION` | `60` | Window in seconds |
+| `RATE_LIMIT_ATTACHMENTS_UPLOAD_BLOCK_DURATION` | &mdash; | Optional block duration after exceeding limit |
 
 **Future:**
 
@@ -210,6 +227,20 @@ When using `redis` strategy, the service reads `REDIS_URL` (already used by cach
 |----------|---------|-------------|
 | `RATE_LIMIT_2FA_VERIFY_POINTS` | `5` | Max 2FA verification attempts |
 | `RATE_LIMIT_2FA_VERIFY_DURATION` | `300` | Window in seconds |
+
+### Attachment OCR resource bounds
+
+These variables bound LLM OCR cost amplification in the attachments module. They are **not** rate-limit keys — they cap page iteration, per-call timeouts, in-process concurrency, and the OCR wait queue.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `OM_ATTACHMENT_OCR_MAX_PAGES` | `50` | Max PDF pages processed for OCR / text extraction |
+| `OM_ATTACHMENT_OCR_PAGE_TIMEOUT_MS` | `60000` | Per-page LLM OCR call timeout |
+| `OM_ATTACHMENT_OCR_MAX_OUTPUT_TOKENS` | `4096` | Max output tokens per OCR `generateText` call |
+| `OM_ATTACHMENT_OCR_MAX_CONCURRENCY` | `2` | Max concurrent in-process OCR jobs **per replica** |
+| `OM_ATTACHMENT_OCR_MAX_WAIT_QUEUE` | `50` | Max waiters blocked on the concurrency slot |
+
+Cluster-wide OCR concurrency is `OM_ATTACHMENT_OCR_MAX_CONCURRENCY ×` the number of app replicas because counters are in-process, not shared via Redis.
 
 ## Strategies
 

@@ -29,6 +29,7 @@ export default function CreateWarrantyVendorPolicyPage() {
       <PageBody>
         <CrudForm<VendorPolicyFormValues>
           title={t('warranty_claims.vendorPolicies.create.title', 'New vendor policy')}
+          titleHeadingLevel={1}
           backHref="/backend/warranty_claims/vendor-policies"
           fields={fields}
           groups={groups}

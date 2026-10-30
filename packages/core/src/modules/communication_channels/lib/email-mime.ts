@@ -259,7 +259,6 @@ export function assembleRfc2822(input: AssembleRfc2822Input): Buffer {
     const textPart = encodeBodyPart(input.text)
     const htmlPart = encodeBodyPart(input.html)
     const body = [
-      '',
       `--${boundary}`,
       'Content-Type: text/plain; charset=utf-8',
       `Content-Transfer-Encoding: ${textPart.cte}`,
@@ -273,7 +272,7 @@ export function assembleRfc2822(input: AssembleRfc2822Input): Buffer {
       `--${boundary}--`,
       '',
     ].join('\r\n')
-    return Buffer.from(headers.join('\r\n') + body, 'utf-8')
+    return Buffer.from(headers.join('\r\n') + '\r\n\r\n' + body, 'utf-8')
   }
 
   if (input.html) {
@@ -414,7 +413,19 @@ export interface NormalizeMimeInboundOptions {
   fallbackMessageId: string
   /** Compute the conversation grouping id from the resolved message id + references. */
   resolveConversationId: (context: { messageId: string; references: string[] }) => string
-  /** Provider-specific fallback when the parsed message has no valid MIME Date header. */
+  /**
+   * When the provider received the message (Gmail `internalDate`, IMAP
+   * `INTERNALDATE`). Preferred over the MIME `Date` header for the message
+   * timestamp: the header is written by the sender's client and can be forged
+   * or skewed, and since #6095 the timestamp also dates the platform message
+   * and the CRM interaction, so a bad header would pin a message in the future
+   * or hide it in the past.
+   */
+  receivedAt?: Date
+  /**
+   * Fallback timestamp when neither `receivedAt` nor a usable Date header is
+   * available.
+   */
   fallbackDate?: Date | null
   /** Provider-specific fields merged into `channelMetadata`. */
   channelMetadata?: (parsed: ParsedMail) => Record<string, unknown>
@@ -429,6 +440,49 @@ function validDate(value: Date | string | null | undefined): Date | null {
 }
 
 /**
+ * A MIME `Date` header this far ahead of the clock is treated as bogus. Clock
+ * skew between real mail servers is seconds to minutes; a day of tolerance
+ * keeps legitimate mail while stopping a forged header from pinning a message
+ * to the top of a `sent_at`-sorted inbox for weeks.
+ */
+const MAX_MIME_DATE_FUTURE_SKEW_MS = 24 * 60 * 60 * 1000
+
+function isValidDate(value: unknown): value is Date {
+  return value instanceof Date && !Number.isNaN(value.getTime())
+}
+
+/**
+ * Pick the timestamp for an inbound message.
+ *
+ * Order: the provider's receipt time; then the sender's MIME `Date` header,
+ * unless it is unparsable or more than a day in the future; then the caller's
+ * fallback; unknown remains null.
+ */
+function resolveKnownInboundTimestamp(input: {
+  receivedAt?: Date
+  mimeDate?: Date
+  fallbackDate?: Date | null
+  now?: Date
+}): Date | null {
+  if (isValidDate(input.receivedAt)) return input.receivedAt
+  const now = input.now ?? new Date()
+  if (isValidDate(input.mimeDate) && input.mimeDate.getTime() <= now.getTime() + MAX_MIME_DATE_FUTURE_SKEW_MS) {
+    return input.mimeDate
+  }
+  if (isValidDate(input.fallbackDate)) return input.fallbackDate
+  return null
+}
+
+export function resolveInboundTimestamp(input: {
+  receivedAt?: Date
+  mimeDate?: Date
+  fallbackDate?: Date | null
+  now?: Date
+}): Date {
+  return resolveKnownInboundTimestamp(input) ?? input.now ?? new Date()
+}
+
+/**
  * Build the hub's canonical `NormalizedInboundMessage` from a parsed MIME
  * message. Providers supply the bits that genuinely differ (message-id
  * fallback, conversation grouping, extra metadata) and inherit the shared
@@ -436,7 +490,7 @@ function validDate(value: Date | string | null | undefined): Date | null {
  */
 export function normalizeMimeInbound(options: NormalizeMimeInboundOptions): NormalizedInboundMessage {
   const { parsed } = options
-  const providerTimestamp = validDate(options.fallbackDate)
+  const providerTimestamp = validDate(options.receivedAt) ?? validDate(options.fallbackDate)
 
   const messageId = stripBrackets(parsed.messageId) ?? options.fallbackMessageId
   const inReplyTo = stripBrackets(parsed.inReplyTo)
@@ -481,7 +535,11 @@ export function normalizeMimeInbound(options: NormalizeMimeInboundOptions): Norm
     body,
     bodyFormat,
     attachments,
-    timestamp: validDate(parsed.date) ?? providerTimestamp,
+    timestamp: resolveKnownInboundTimestamp({
+      receivedAt: options.receivedAt,
+      mimeDate: parsed.date ? new Date(parsed.date) : undefined,
+      fallbackDate: options.fallbackDate,
+    }),
     providerTimestamp,
     replyToExternalId: inReplyTo ?? undefined,
     channelPayload,

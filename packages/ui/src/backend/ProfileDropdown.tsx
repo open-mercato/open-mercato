@@ -3,8 +3,9 @@ import * as React from 'react'
 import { createPortal } from 'react-dom'
 import Link from 'next/link'
 import { User, LogOut, Bell, Moon, Sun, Globe, Key, Check, ChevronRight } from 'lucide-react'
-import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
-import { locales, type Locale } from '@open-mercato/shared/lib/i18n/config'
+import { useT, useLocale, useSupportedLocales } from '@open-mercato/shared/lib/i18n/context'
+import type { Locale } from '@open-mercato/shared/lib/i18n/config'
+import { resolveLocaleLabel } from '@open-mercato/shared/lib/i18n/locale-label'
 import { useTheme } from '@open-mercato/ui/theme'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useIsomorphicLayoutEffect } from '@open-mercato/ui/hooks/useIsomorphicLayoutEffect'
@@ -23,14 +24,6 @@ export type ProfileDropdownProps = {
   notificationsHref?: string
 }
 
-const localeLabels: Record<Locale, string> = {
-  en: 'English',
-  de: 'Deutsch',
-  es: 'Español',
-  pl: 'Polski',
-  ko: '한국어',
-}
-
 export function ProfileDropdown({
   email,
   displayName,
@@ -39,6 +32,7 @@ export function ProfileDropdown({
 }: ProfileDropdownProps) {
   const t = useT()
   const currentLocale = useLocale()
+  const supportedLocales = useSupportedLocales()
   const { resolvedTheme, setTheme } = useTheme()
   const [open, setOpen] = React.useState(false)
   const [languageOpen, setLanguageOpen] = React.useState(false)
@@ -289,7 +283,7 @@ export function ProfileDropdown({
             >
               <Globe className={menuIconClass} />
               <span className="truncate">{t('ui.profileMenu.language', 'Language')}</span>
-              <span className="text-xs text-muted-foreground">{localeLabels[currentLocale]}</span>
+              <span className="text-xs text-muted-foreground">{resolveLocaleLabel(currentLocale)}</span>
               <ChevronRight
                 className={cn(
                   'ml-auto size-3.5 shrink-0 text-muted-foreground transition-transform',
@@ -300,7 +294,7 @@ export function ProfileDropdown({
             </button>
             {languageOpen && (
               <div className="ml-7 mr-1 flex flex-col gap-0.5 border-l pl-2 py-1">
-                {locales.map((locale) => (
+                {supportedLocales.map((locale) => (
                   <button
                     key={locale}
                     type="button"
@@ -310,7 +304,7 @@ export function ProfileDropdown({
                     )}
                     onClick={() => handleLocaleChange(locale)}
                   >
-                    <span className="truncate">{localeLabels[locale]}</span>
+                    <span className="truncate">{resolveLocaleLabel(locale)}</span>
                     {locale === currentLocale && <Check className="size-3.5 shrink-0 text-accent-indigo" aria-hidden="true" />}
                   </button>
                 ))}

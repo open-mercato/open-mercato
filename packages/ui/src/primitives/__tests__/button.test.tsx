@@ -34,13 +34,13 @@ describe('Button destructive variants', () => {
 
   it('destructive-solid fills with the destructive surface and white glyph', () => {
     const classes = classesOf('destructive-solid')
-    expect(classes).toContain('bg-destructive')
-    expect(classes).toContain('text-white')
+    expect(classes).toContain('bg-status-error-solid')
+    expect(classes).toContain('text-status-error-solid-foreground')
     expect(classes).not.toContain('border-destructive')
   })
 
   it('destructive-solid ships no dark background override', () => {
-    // `--destructive` is a semantic token that already resolves per theme; a
+    // The solid fill and foreground tokens already resolve per theme; a
     // `dark:bg-*` override on top of it is what broke IconButton in #3507.
     const classes = classesOf('destructive-solid')
     expect(classes.some((cls) => cls.startsWith('dark:bg-'))).toBe(false)
@@ -57,8 +57,8 @@ describe('Button destructive variants', () => {
   it('renders the filled treatment on the element for variant="destructive-solid"', () => {
     const { getByRole } = render(<Button variant="destructive-solid">Delete permanently</Button>)
     const classNames = getByRole('button').className.split(/\s+/)
-    expect(classNames).toContain('bg-destructive')
-    expect(classNames).toContain('text-white')
+    expect(classNames).toContain('bg-status-error-solid')
+    expect(classNames).toContain('text-status-error-solid-foreground')
   })
 
   it('defaults to the primary variant when none is given', () => {

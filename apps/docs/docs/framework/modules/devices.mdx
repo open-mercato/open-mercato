@@ -1,0 +1,114 @@
+---
+title: Devices
+description: The per-tenant device registry — what a device row is, how a client app registers one, the self-serve vs admin API split, and how push tokens are protected.
+sidebar_label: Devices
+---
+
+# Devices
+
+## Overview
+
+- **Location**: `packages/core/src/modules/devices/`
+- **Package**: `@open-mercato/core`
+- **Requires**: `auth`
+
+`devices` is a registry, not a delivery mechanism. It answers one question — *which devices does this user have, and what push token does each hold* — and holds no notification logic whatsoever. Push is its first consumer; device-trust for MFA and device-aware audit are the designed-for later ones.
+
+A row is identified by the tuple `(tenant, organization, user, deviceId)`, enforced by a partial unique index over live rows:
+
+```sql
+create unique index "user_devices_tenant_org_user_device_active_unique" on "user_devices"
+  ("tenant_id","organization_id","user_id","device_id") nulls not distinct where deleted_at is null
+```
+
+Registering the same `deviceId` twice therefore updates the existing row rather than creating a second one, and re-registering a soft-deleted device revives it. A client app can call register on every launch.
+
+### Columns
+
+`id`, `tenant_id`, `organization_id`, `user_id`, `device_id`, `platform`, `client_app_version`, `os_version`, `locale`, `push_token`, `push_provider`, `push_token_updated_at`, `last_seen_at`, `created_at`, `updated_at`, `deleted_at` (`packages/core/src/modules/devices/data/entities.ts`).
+
+`device_id` is **your** identifier for the installation — a stable per-install string the app generates. It is not the push token and should survive a token rotation.
+
+## Registering a device from a client app
+
+This is the flow a mobile or web client performs after it obtains a push token from the platform SDK. It authenticates as the user; no admin permission is involved.
+
+```http
+POST /api/devices
+Authorization: Bearer <user session token>
+Content-Type: application/json
+
+{
+  "deviceId": "9d1f...-install-id",
+  "platform": "ios",
+  "clientAppVersion": "1.4.0",
+  "osVersion": "iOS 18.1",
+  "locale": "pl",
+  "pushToken": "<token from FCM / APNs / Expo>",
+  "pushProvider": "fcm"
+}
+```
+
+Response: `{ id, deviceId, revived }` — `revived: true` means a previously deactivated row for this `deviceId` came back.
+
+:::danger `pushProvider` must match a connected channel exactly
+The fan-out routes each device by looking up `device.pushProvider` among the tenant's **active** push channels, keyed on the channel's `providerKey`. A device whose `pushProvider` is misspelled, or left empty, or names a provider the tenant has not connected, is **silently skipped** — no delivery row, no error, only a warn-level log line. Send `fcm`, `apns` or `expo` to match the provider you connected. See [Push Notifications](./push-notifications.mdx).
+:::
+
+The token itself may be omitted (a device registered for identity/audit purposes without push). Fields are validated by `registerDeviceSchema` in `packages/core/src/modules/devices/data/validators.ts`; `locale` is accepted and used to pick the recipient's copy per device.
+
+Updating a token later is a `PUT /api/devices/:id`. `pushToken` and `pushProvider` are tri-state on update: absent leaves the stored value unchanged, an explicit `null` clears it.
+
+## Self-serve vs admin
+
+Two route trees, deliberately separate.
+
+| | Self-serve | Admin |
+|---|---|---|
+| Path | `/api/devices`, `/api/devices/:id` | `/api/devices/admin/devices`, `/api/devices/admin/devices/:id` |
+| Sees | Only the acting user's own devices | Every device in the caller's tenant/org scope |
+| Features | `devices.view` (read), `devices.manage` (write) | `devices.admin` |
+| Owner | Always the acting user | `userId` in the body — register on behalf of someone |
+| Exports | Disabled | Enabled |
+
+The self-serve list is scoped to the acting user in a way a client cannot widen: it consumes the advanced-filter state itself and AND-combines its own scope under `$and`, so no `filter[...]` key can overwrite it. API-key principals are not valid device actors and fail closed.
+
+The admin register-on-behalf route validates the target first — the user must exist in the caller's tenant, and the caller must have read access to that user's organization — returning `400 devices.errors.user_not_found` or `403` otherwise.
+
+### ACL
+
+`devices.view`, `devices.manage`, `devices.admin` (`packages/core/src/modules/devices/acl.ts`). Seeded to superadmin/admin (all three) and employee (`view` + `manage`) by `packages/core/src/modules/devices/setup.ts`. Existing tenants pick new grants up with `yarn mercato auth sync-role-acls`.
+
+Note that `devices.admin` does **not** imply `auth.users.list`. The admin screens degrade gracefully when it is missing: the user picker returns no suggestions and the owner column falls back to the raw id, rather than bouncing the page to `/login`.
+
+## The push token is a secret
+
+`push_token` is encrypted at rest — declared in `packages/core/src/modules/devices/encryption.ts` and read back through `findWithDecryption`. Beyond that:
+
+- **No endpoint returns it.** Not the self list, not the admin list, not the admin detail.
+- It is redacted from audit snapshots and mutation-guard payloads.
+- The delivery log stores only the last 8 characters, as a correlation aid.
+
+When a provider reports the token as permanently invalid, the delivery worker soft-deletes the device through the audited `devices.user_devices.deactivate` command — never a direct table write.
+
+## Admin UI
+
+Under **Settings → Auth**, gated on `devices.admin`:
+
+- `/backend/devices` — cross-user list, filterable by platform and by user
+- `/backend/devices/create` — register on behalf of a user (the owner field searches by name and email)
+- `/backend/devices/:id` — edit app version, OS version and push provider; owner, device id and platform are read-only
+
+## Commands and events
+
+Writes go through the command bus with undo support: `devices.user_devices.register`, `.update`, `.deactivate`. Events declared in `packages/core/src/modules/devices/events.ts`: `devices.user_device.registered`, `devices.user_device.deactivated`, plus the CRUD lifecycle trio.
+
+## Response shape
+
+Responses are camelCase (`userId`, `deviceId`, `pushProvider`, `lastSeenAt`, …). Every snake_case key is retained alongside its camelCase counterpart as a **deprecated alias for one minor version** — see `UPGRADE_NOTES.md`. Write new clients against the camelCase keys.
+
+## Related
+
+- [Notification Delivery](./notification-delivery.mdx) — the gate and the type registry
+- [Push Notifications](./push-notifications.mdx) — how a registered device actually receives a push
+- [Devices & Push Notifications — Getting Started](../../tutorials/devices-and-push-getting-started.mdx)

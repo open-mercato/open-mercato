@@ -131,6 +131,7 @@ export function DocumentsTable(props: DocumentsTableProps) {
   return (
     <DataTable<DocumentRow>
       title={props.title}
+      titleHeadingLevel={1}
       actions={actions}
       refreshButton={{ label: t('documents.actions.refresh'), onRefresh: props.onRefresh, isRefreshing: props.isLoading }}
       columns={columns}

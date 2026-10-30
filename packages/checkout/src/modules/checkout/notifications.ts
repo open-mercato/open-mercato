@@ -4,6 +4,7 @@ export const notificationTypes: NotificationTypeDefinition[] = [
   {
     type: 'checkout.transaction.completed',
     module: 'checkout',
+    channels: ['in_app', 'email'],
     titleKey: 'checkout.notifications.transaction.completed.title',
     bodyKey: 'checkout.notifications.transaction.completed.body',
     icon: 'check-circle',
@@ -23,6 +24,7 @@ export const notificationTypes: NotificationTypeDefinition[] = [
   {
     type: 'checkout.transaction.failed',
     module: 'checkout',
+    channels: ['in_app', 'email'],
     titleKey: 'checkout.notifications.transaction.failed.title',
     bodyKey: 'checkout.notifications.transaction.failed.body',
     icon: 'alert-circle',
@@ -42,6 +44,7 @@ export const notificationTypes: NotificationTypeDefinition[] = [
   {
     type: 'checkout.link.usageLimitReached',
     module: 'checkout',
+    channels: ['in_app', 'email'],
     titleKey: 'checkout.notifications.link.usageLimitReached.title',
     bodyKey: 'checkout.notifications.link.usageLimitReached.body',
     icon: 'alert-triangle',

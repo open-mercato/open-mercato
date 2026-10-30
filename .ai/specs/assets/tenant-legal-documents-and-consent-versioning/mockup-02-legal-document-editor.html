@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Mockup — Legal document editor</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: #f8fafc; color: #0f172a; width: 1440px; font-size: 14px;
+  }
+  .topbar {
+    height: 56px; background: #ffffff; border-bottom: 1px solid #e2e8f0;
+    display: flex; align-items: center; padding: 0 24px; gap: 16px;
+  }
+  .logo { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 15px; }
+  .logo-mark { width: 26px; height: 26px; border-radius: 7px; background: #4f46e5; }
+  .topbar-right { margin-left: auto; display: flex; align-items: center; gap: 14px; }
+  .icon-dot { width: 30px; height: 30px; border-radius: 8px; background: #f1f5f9; border: 1px solid #e2e8f0; }
+  .avatar { width: 32px; height: 32px; border-radius: 50%; background: #c7d2fe; color: #3730a3;
+    display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 13px; }
+  .shell { display: flex; }
+  .sidebar { width: 232px; min-height: 844px; background: #ffffff; border-right: 1px solid #e2e8f0; padding: 16px 12px; }
+  .nav-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: #94a3b8;
+    padding: 0 10px; margin: 14px 0 6px; font-weight: 600; }
+  .nav-item { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 8px;
+    color: #475569; font-size: 13.5px; margin-bottom: 2px; }
+  .nav-item .ni { width: 16px; height: 16px; border-radius: 4px; background: #cbd5e1; flex: none; }
+  .nav-item.active { background: #eef2ff; color: #4338ca; font-weight: 600; }
+  .nav-item.active .ni { background: #6366f1; }
+  .main { flex: 1; padding: 24px 32px; }
+  .breadcrumb { font-size: 12.5px; color: #94a3b8; margin-bottom: 10px; }
+  .breadcrumb b { color: #64748b; font-weight: 500; }
+  .form-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; }
+  h1 { font-size: 20px; font-weight: 700; letter-spacing: -0.01em; display: flex; align-items: center; gap: 10px; }
+  .badge { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600;
+    border-radius: 999px; padding: 3px 10px; }
+  .badge .b-dot { width: 6px; height: 6px; border-radius: 50%; }
+  .badge-draft { background: #fffbeb; color: #b45309; border: 1px solid #fde68a; }
+  .badge-draft .b-dot { background: #f59e0b; }
+  .version-chip { font-size: 12px; font-weight: 600; color: #475569; background: #f1f5f9;
+    border: 1px solid #e2e8f0; border-radius: 999px; padding: 3px 10px; }
+  .note-chip { display: inline-flex; align-items: center; gap: 7px; background: #eff6ff; border: 1px solid #bfdbfe;
+    color: #1d4ed8; font-size: 12.5px; font-weight: 500; border-radius: 8px; padding: 6px 12px; }
+  .note-chip .info { width: 15px; height: 15px; border-radius: 50%; background: #3b82f6; color: #ffffff;
+    display: inline-flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; flex: none; }
+  .layout { display: flex; gap: 24px; align-items: flex-start; }
+  .card { background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; }
+  .form-card { flex: 1; }
+  .form-body { padding: 20px 24px; }
+  .field { margin-bottom: 18px; }
+  label { display: block; font-size: 13px; font-weight: 600; color: #334155; margin-bottom: 6px; }
+  label small { font-weight: 400; color: #94a3b8; }
+  .input, select { width: 100%; height: 38px; border: 1px solid #e2e8f0; border-radius: 8px; padding: 0 12px;
+    font-size: 13.5px; color: #0f172a; background: #ffffff; display: flex; align-items: center; }
+  .input.disabled { background: #f8fafc; color: #64748b; }
+  .row-2 { display: flex; gap: 16px; }
+  .row-2 .field { flex: 1; }
+  .tabs { display: flex; gap: 2px; border-bottom: 1px solid #e2e8f0; padding: 0 24px; margin-top: 4px; }
+  .tab { padding: 10px 16px; font-size: 13px; font-weight: 600; color: #64748b;
+    border-bottom: 2px solid transparent; }
+  .tab.active { color: #4338ca; border-bottom-color: #4f46e5; }
+  .tab .miss { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #cbd5e1; margin-left: 6px; vertical-align: 2px; }
+  .md-toolbar { display: flex; gap: 4px; border: 1px solid #e2e8f0; border-bottom: none;
+    border-radius: 8px 8px 0 0; background: #f8fafc; padding: 6px 8px; }
+  .md-btn { width: 26px; height: 26px; border-radius: 6px; display: flex; align-items: center; justify-content: center;
+    color: #64748b; font-size: 12.5px; font-weight: 700; }
+  .md-sep { width: 1px; background: #e2e8f0; margin: 3px 4px; }
+  .md-mode { margin-left: auto; font-size: 12px; color: #94a3b8; align-self: center; }
+  .textarea { width: 100%; border: 1px solid #e2e8f0; border-radius: 0 0 8px 8px; padding: 14px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12.5px; line-height: 1.65;
+    color: #334155; background: #ffffff; white-space: pre-wrap; min-height: 300px; }
+  .tok { color: #4f46e5; background: #eef2ff; border-radius: 4px; padding: 0 3px; font-weight: 600; }
+  .form-footer { display: flex; align-items: center; justify-content: space-between; border-top: 1px solid #e2e8f0;
+    padding: 14px 24px; background: #f8fafc; border-radius: 0 0 12px 12px; }
+  .btn { display: inline-flex; align-items: center; gap: 7px; border-radius: 8px; font-size: 13.5px;
+    font-weight: 600; padding: 9px 16px; border: 1px solid transparent; }
+  .btn-primary { background: #4f46e5; color: #ffffff; }
+  .btn-ghost { background: #ffffff; color: #334155; border-color: #e2e8f0; }
+  .btn-subtle { color: #64748b; }
+  .side { width: 320px; flex: none; }
+  .side-card { padding: 18px 20px; margin-bottom: 16px; }
+  .side-card h3 { font-size: 13px; font-weight: 700; color: #0f172a; margin-bottom: 4px; }
+  .side-card p { font-size: 12.5px; color: #64748b; line-height: 1.55; margin-bottom: 12px; }
+  .tok-row { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding: 7px 0;
+    border-bottom: 1px solid #f1f5f9; }
+  .tok-row:last-child { border-bottom: none; }
+  .tok-name { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11.5px;
+    color: #4f46e5; background: #eef2ff; border-radius: 5px; padding: 2px 6px; white-space: nowrap; }
+  .tok-desc { font-size: 12px; color: #64748b; text-align: right; }
+  .hint { font-size: 12px; color: #94a3b8; line-height: 1.5; }
+</style>
+</head>
+<body>
+  <div class="topbar">
+    <div class="logo"><div class="logo-mark"></div>Mercato Backoffice</div>
+    <div class="topbar-right">
+      <div class="icon-dot"></div>
+      <div class="icon-dot"></div>
+      <div class="avatar">MA</div>
+    </div>
+  </div>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="nav-label">General</div>
+      <div class="nav-item"><span class="ni"></span>Dashboard</div>
+      <div class="nav-item"><span class="ni"></span>Customers</div>
+      <div class="nav-item"><span class="ni"></span>Sales</div>
+      <div class="nav-label">Content</div>
+      <div class="nav-item active"><span class="ni"></span>Legal documents</div>
+      <div class="nav-item"><span class="ni"></span>Pages</div>
+      <div class="nav-label">System</div>
+      <div class="nav-item"><span class="ni"></span>Settings</div>
+    </aside>
+    <main class="main">
+      <div class="breadcrumb">Content &rsaquo; Legal documents &rsaquo; <b>Privacy Policy &middot; v3</b></div>
+      <div class="form-header">
+        <h1>Privacy Policy
+          <span class="version-chip">Version 3</span>
+          <span class="badge badge-draft"><span class="b-dot"></span>Draft</span>
+        </h1>
+        <span class="note-chip"><span class="info">i</span>Published versions are read-only &mdash; create a new version to change a published document.</span>
+      </div>
+      <div class="layout">
+        <div class="card form-card">
+          <div class="form-body" style="padding-bottom:0;">
+            <div class="row-2">
+              <div class="field">
+                <label>Kind <small>&mdash; set on create</small></label>
+                <div class="input disabled">Privacy policy (privacy)</div>
+              </div>
+              <div class="field">
+                <label>Effective from <small>&mdash; optional</small></label>
+                <div class="input" style="color:#94a3b8;">Immediately on publish</div>
+              </div>
+            </div>
+          </div>
+          <div class="tabs">
+            <div class="tab active">EN</div>
+            <div class="tab">DE</div>
+            <div class="tab">PL</div>
+            <div class="tab">ES<span class="miss"></span></div>
+            <div class="tab">KO<span class="miss"></span></div>
+          </div>
+          <div class="form-body">
+            <div class="field">
+              <label>Title</label>
+              <div class="input">Privacy Policy</div>
+            </div>
+            <div class="field" style="margin-bottom:0;">
+              <label>Content <small>&mdash; markdown</small></label>
+              <div class="md-toolbar">
+                <span class="md-btn">B</span><span class="md-btn" style="font-style:italic;">I</span>
+                <span class="md-sep"></span>
+                <span class="md-btn">H2</span><span class="md-btn">&bull;&equiv;</span><span class="md-btn">&ldquo;&rdquo;</span><span class="md-btn">&#128279;</span>
+                <span class="md-mode">Write &middot; Preview</span>
+              </div>
+              <div class="textarea">## 1. Data controller
+
+The controller of your personal data is <span class="tok">{{controllerName}}</span>, <span class="tok">{{controllerAddress}}</span>, registered under <span class="tok">{{controllerRegistration}}</span>.
+
+For any privacy matter you can reach us at <span class="tok">{{controllerEmail}}</span>.
+
+## 2. What we collect
+
+We process the account data you provide during sign-up (name, e-mail address) and the operational records your organization creates while using the service.
+
+## 3. Legal basis and retention
+
+Processing is based on the contract for the service and, where required, your explicit consent. Data is retained for the duration of the contract and thereafter as required by applicable law.
+
+## 4. Your rights
+
+You may request access, rectification, erasure, restriction of processing, or portability of your data by contacting <span class="tok">{{controllerEmail}}</span>.</div>
+            </div>
+          </div>
+          <div class="form-footer">
+            <span class="btn btn-subtle">Cancel</span>
+            <div style="display:flex;gap:10px;">
+              <span class="btn btn-ghost">Save draft</span>
+              <span class="btn btn-primary">Publish&hellip;</span>
+            </div>
+          </div>
+        </div>
+        <aside class="side">
+          <div class="card side-card">
+            <h3>Identity tokens</h3>
+            <p>Tokens are replaced with the configured legal-entity identity when the version is published.</p>
+            <div class="tok-row"><span class="tok-name">{{controllerName}}</span><span class="tok-desc">Legal entity name</span></div>
+            <div class="tok-row"><span class="tok-name">{{controllerEmail}}</span><span class="tok-desc">Contact e-mail</span></div>
+            <div class="tok-row"><span class="tok-name">{{controllerAddress}}</span><span class="tok-desc">Registered address</span></div>
+            <div class="tok-row"><span class="tok-name">{{controllerRegistration}}</span><span class="tok-desc">Registration ids</span></div>
+          </div>
+          <div class="card side-card">
+            <h3>Publishing</h3>
+            <p class="hint">Publishing bakes the tokens, computes a content hash, and freezes the version. Consent evidence references the published version and hash.</p>
+            <p class="hint" style="margin:0;">Unconfigured identity bakes to a bracketed placeholder, e.g. <b>[data controller not configured]</b>.</p>
+          </div>
+        </aside>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

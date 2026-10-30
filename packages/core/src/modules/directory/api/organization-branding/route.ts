@@ -17,8 +17,10 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 import { organizationUpdateSchema } from '@open-mercato/core/modules/directory/data/validators'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import '@open-mercato/core/modules/directory/commands/organizations'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 
 const logger = createLogger('directory').child({ component: 'organization-branding' })
 
@@ -80,7 +82,15 @@ async function resolveCurrentOrganization(req: Request) {
 
   const container = await createRequestContainer()
   const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
-  const organizationId = scope.selectedId ?? auth.orgId ?? null
+  let organizationId: string | null
+  try {
+    organizationId = resolveSingleOrganizationIdOrDeny(scope, auth)
+  } catch (error) {
+    if (isCrudHttpError(error)) {
+      return { response: NextResponse.json(error.body, { status: error.status }) }
+    }
+    throw error
+  }
   const tenantId = scope.tenantId ?? auth.tenantId ?? null
   if (!organizationId || !tenantId) {
     return {
@@ -267,6 +277,10 @@ export async function PUT(req: Request) {
   } catch (err) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
+    }
+    const interceptorRejection = getCommandInterceptorHttpRejection(err)
+    if (interceptorRejection) {
+      return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
     }
     logger.error('Organization branding update failed', { err })
     return NextResponse.json(

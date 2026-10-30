@@ -15,6 +15,8 @@ import { updateDeviceSchema } from '../../../../data/validators'
 import { isOrganizationReadAccessAllowed } from '@open-mercato/core/modules/directory/utils/organizationScopeGuard'
 import { resolveDeviceActorUserId } from '../../../auth'
 import { executeUpdate, executeDeactivate, type DeviceMutationContext } from '../../../deviceOps'
+import { serializeDeviceDetail, deviceDetailItemSchema } from '../../../deviceSerialization'
+import { DEPRECATED_SNAKE_CASE_NOTICE } from '../../../openapi'
 
 const logger = createLogger('devices')
 
@@ -38,23 +40,6 @@ async function loadDevice(
   return findOneWithDecryption(em, UserDevice, { id, tenantId, deletedAt: null }, undefined, { tenantId })
 }
 
-// push_token is a secret and is never returned.
-function serializeDevice(device: UserDevice) {
-  return {
-    id: device.id,
-    user_id: device.userId,
-    device_id: device.deviceId,
-    platform: device.platform,
-    client_app_version: device.clientAppVersion ?? null,
-    os_version: device.osVersion ?? null,
-    push_provider: device.pushProvider ?? null,
-    push_token_updated_at: device.pushTokenUpdatedAt ? device.pushTokenUpdatedAt.toISOString() : null,
-    last_seen_at: device.lastSeenAt ? device.lastSeenAt.toISOString() : null,
-    created_at: device.createdAt ? device.createdAt.toISOString() : null,
-    updated_at: device.updatedAt ? device.updatedAt.toISOString() : null,
-  }
-}
-
 export async function GET(req: Request, { params }: { params: { id: string } }) {
   const { translate } = await resolveTranslations()
   try {
@@ -76,7 +61,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
     if (!isOrganizationReadAccessAllowed({ scope, auth, organizationId: device.organizationId ?? null })) {
       return NextResponse.json({ error: translate('devices.errors.forbidden', 'Access denied') }, { status: 403 })
     }
-    return NextResponse.json({ item: serializeDevice(device) })
+    return NextResponse.json({ item: serializeDeviceDetail(device) })
   } catch (err) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
@@ -177,21 +162,7 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
 
 const okResponseSchema = z.object({ ok: z.literal(true), id: z.string().uuid().optional() })
 const errorResponseSchema = z.object({ error: z.string() })
-const detailResponseSchema = z.object({
-  item: z.object({
-    id: z.string().uuid(),
-    user_id: z.string().uuid(),
-    device_id: z.string(),
-    platform: z.enum(['ios', 'android', 'web']),
-    client_app_version: z.string().nullable(),
-    os_version: z.string().nullable(),
-    push_provider: z.string().nullable(),
-    push_token_updated_at: z.string().nullable(),
-    last_seen_at: z.string().nullable(),
-    created_at: z.string().nullable(),
-    updated_at: z.string().nullable(),
-  }),
-})
+const detailResponseSchema = z.object({ item: deviceDetailItemSchema })
 
 export const openApi: OpenApiRouteDoc = {
   tag: 'Devices (admin)',
@@ -199,7 +170,7 @@ export const openApi: OpenApiRouteDoc = {
   methods: {
     GET: {
       summary: 'Get any device',
-      description: 'Admin: fetch a single device by id (push_token is never returned).',
+      description: `Admin: fetch a single device by id (push_token is never returned). ${DEPRECATED_SNAKE_CASE_NOTICE}`,
       responses: [{ status: 200, description: 'Device', schema: detailResponseSchema }],
       errors: [
         { status: 400, description: 'Invalid id', schema: errorResponseSchema },

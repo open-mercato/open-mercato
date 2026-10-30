@@ -247,8 +247,16 @@ export function LookupSelectField<Snapshot extends Record<string, unknown>>({
     }
   }, [loadSelectedOption, selectedOption, selectedValue, translate])
 
+  // A snapshot is a denormalization captured when the user picks a record, so resolving the
+  // value an edit form was hydrated with must not re-emit it. Doing so overwrites the stored
+  // snapshot with a freshly fetched one, which makes an untouched CrudForm look dirty and
+  // raises the "You have unsaved changes" prompt on the way out.
+  const hydratedValueRef = React.useRef<string | null>(selectedValue)
+
   React.useEffect(() => {
     if (!onSnapshot || !selectedOption || selectedOption.unavailable) return
+    if (hydratedValueRef.current === selectedOption.value) return
+    hydratedValueRef.current = null
     onSnapshot(selectedOption.snapshot ?? null)
   }, [onSnapshot, selectedOption])
 
@@ -592,7 +600,7 @@ export function parseGeolocationInput(raw: string, translate: Translator): Recor
   return parsed
 }
 
-export { translateEudrCrudError } from './crudErrorI18n'
+export { translateEudrCrudError, translateEudrErrorMessage } from './crudErrorI18n'
 
 let referencedStatementRowKeySeq = 0
 

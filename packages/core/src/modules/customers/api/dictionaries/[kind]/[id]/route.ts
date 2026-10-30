@@ -16,6 +16,8 @@ import {
   validateCrudMutationGuard,
 } from '@open-mercato/shared/lib/crud/mutation-guard'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
+import { calendarEventTypeBehaviorSchema } from '../../../../calendar-event-types'
 
 const logger = createLogger('customers')
 
@@ -29,8 +31,9 @@ const patchSchema = z
     label: z.string().trim().max(150).optional(),
     color: z.union([z.string().trim(), z.null()]).optional(),
     icon: z.union([z.string().trim(), z.null()]).optional(),
+    behavior: calendarEventTypeBehaviorSchema.nullable().optional(),
   })
-  .refine((input) => input.value !== undefined || input.label !== undefined || input.color !== undefined || input.icon !== undefined, {
+  .refine((input) => input.value !== undefined || input.label !== undefined || input.color !== undefined || input.icon !== undefined || input.behavior !== undefined, {
     message: 'No changes provided',
   })
 
@@ -80,6 +83,7 @@ export async function PATCH(req: Request, ctx: { params?: { kind?: string; id?: 
           label: payload.label,
           color: payload.color,
           icon: payload.icon,
+          behavior: payload.behavior,
         },
         ctx: routeContext.ctx,
       })) as CommandExecuteResult<{ entryId: string; changed: boolean }>
@@ -102,6 +106,7 @@ export async function PATCH(req: Request, ctx: { params?: { kind?: string; id?: 
               ),
             })
           }
+          if (typeof err.body.code === 'string') throw err
           throw new CrudHttpError(409, { error: routeContext.translate('customers.config.dictionaries.errors.duplicate', 'An entry with this value already exists') })
         }
         if (err.status === 400) {
@@ -140,8 +145,10 @@ export async function PATCH(req: Request, ctx: { params?: { kind?: string; id?: 
       label: entry.label,
       color: entry.color,
       icon: entry.icon,
+      ...(mappedKind === 'activity_type' ? { behavior: entry.activityTypeBehavior ?? null } : {}),
       organizationId: entry.organizationId,
       isInherited: false,
+      updatedAt: entry.updatedAt,
     })
     if (logEntry?.undoToken && logEntry?.id && logEntry?.commandId) {
       response.headers.set(
@@ -174,6 +181,10 @@ export async function PATCH(req: Request, ctx: { params?: { kind?: string; id?: 
   } catch (err) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
+    }
+    const interceptorRejection = getCommandInterceptorHttpRejection(err)
+    if (interceptorRejection) {
+      return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
     }
     const { translate } = await resolveTranslations()
     logger.error('customers.dictionaries.update failed', { err })
@@ -276,6 +287,10 @@ export async function DELETE(req: Request, ctx: { params?: { kind?: string; id?:
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
+    const interceptorRejection = getCommandInterceptorHttpRejection(err)
+    if (interceptorRejection) {
+      return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
+    }
     const { translate } = await resolveTranslations()
     logger.error('customers.dictionaries.delete failed', { err })
     return NextResponse.json({ error: translate('customers.errors.lookup_failed', 'Failed to delete dictionary entry') }, { status: 400 })
@@ -288,8 +303,10 @@ const dictionaryEntrySchema = z.object({
   label: z.string().nullable().optional(),
   color: z.string().nullable().optional(),
   icon: z.string().nullable().optional(),
+  behavior: calendarEventTypeBehaviorSchema.nullable().optional(),
   organizationId: z.string().uuid().nullable().optional(),
   isInherited: z.boolean().optional(),
+  updatedAt: z.date().or(z.string()).optional(),
 })
 
 const dictionaryDeleteResponseSchema = z.object({

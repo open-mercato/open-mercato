@@ -1,5 +1,6 @@
 /** @jest-environment node */
 
+import { CommandInterceptorError } from '@open-mercato/shared/lib/commands/errors'
 import { PUT } from '../route'
 
 const TENANT_ID = '123e4567-e89b-12d3-a456-426614174001'
@@ -130,5 +131,32 @@ describe('feature_toggles override mutation guard lifecycle', () => {
     expect(res.status).toBe(200)
     const input = mockValidateMutation.mock.calls[0][0]
     expect(input.resourceId).toBe(OVERRIDE_ID)
+  })
+  it('surfaces the status and body of an interceptor rejection that carries one', async () => {
+    mockValidateMutation.mockResolvedValue({ ok: true, shouldRunAfterSuccess: false })
+    mockExecute.mockRejectedValueOnce(
+      new CommandInterceptorError('Toggle frozen by policy', {
+        status: 422,
+        body: { error: 'Toggle frozen by policy', policy: 'freeze-window' },
+      }),
+    )
+
+    const res = await PUT(putRequest())
+
+    expect(res.status).toBe(422)
+    await expect(res.json()).resolves.toEqual({
+      error: 'Toggle frozen by policy',
+      policy: 'freeze-window',
+    })
+  })
+
+  it('keeps the generic 500 when an interceptor rejection carries no status', async () => {
+    mockValidateMutation.mockResolvedValue({ ok: true, shouldRunAfterSuccess: false })
+    mockExecute.mockRejectedValueOnce(new CommandInterceptorError('Blocked without a status'))
+
+    const res = await PUT(putRequest())
+
+    expect(res.status).toBe(500)
+    await expect(res.json()).resolves.toEqual({ error: 'Failed to update override' })
   })
 })

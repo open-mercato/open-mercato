@@ -32,6 +32,7 @@ import {
   updateAiServerConversation,
   type AiServerConversation,
 } from './conversation-store'
+import { useAiAssistantAvailable } from './useAiAssistantAvailable'
 
 const logger = createLogger('ui').child({ component: 'AiChatSessions' })
 
@@ -214,6 +215,7 @@ function mergeServerConversations(
 }
 
 export function AiChatSessionsProvider({ children }: { children: React.ReactNode }) {
+  const aiAvailable = useAiAssistantAvailable()
   // Hydrate synchronously via a lazy initializer. The previous "empty
   // state + post-mount load effect" pattern had a window where the
   // persistence effect ran with the empty closure value (because the
@@ -254,7 +256,13 @@ export function AiChatSessionsProvider({ children }: { children: React.ReactNode
     writePersisted(storageKey, state)
   }, [storageKey, state])
 
+  // The provider wraps the whole backend shell, so it also mounts on
+  // installations without the `ai_assistant` module and for users without
+  // `ai_assistant.view`. Syncing there only produces a 404 / 403 and a warning
+  // on every page load, so skip it — `aiAvailable` is in the dependency list
+  // so the sync still runs once the backend chrome payload arrives.
   React.useEffect(() => {
+    if (!aiAvailable) return
     let cancelled = false
     listAiServerConversations({ limit: 100 })
       .then((conversations) => {
@@ -272,7 +280,7 @@ export function AiChatSessionsProvider({ children }: { children: React.ReactNode
     return () => {
       cancelled = true
     }
-  }, [storageKey])
+  }, [aiAvailable, storageKey])
 
   const update = React.useCallback(
     (mutator: (prev: AiChatSessionsState) => AiChatSessionsState) => {

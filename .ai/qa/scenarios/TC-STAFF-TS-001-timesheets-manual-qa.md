@@ -29,10 +29,10 @@
 **Key surfaces under test**
 | Surface | Route / location |
 |---|---|
-| My Timesheets (timer + grid + list) | `/backend/staff/timesheets` |
-| Projects portfolio | `/backend/staff/timesheets/projects` |
-| Project details (members) | `/backend/staff/timesheets/projects/{id}` |
-| Create / edit project | `/backend/staff/timesheets/projects/create`, `.../{id}/edit` |
+| My Timesheets (timer + grid + list) | `/backend/staff/time-tracking/timesheet` |
+| Projects portfolio | `/backend/staff/time-tracking/projects` |
+| Project details (members) | `/backend/staff/time-tracking/projects/{id}` |
+| Create / edit project | `/backend/staff/time-tracking/projects/create`, `.../{id}/edit` |
 | Sidebar running-timer indicator | injected in left sidebar (all backend pages) |
 | Dashboard widget — Time Reporting (quick timer) | Dashboard |
 | Dashboard widget — Hours by Project | Dashboard |
@@ -58,7 +58,7 @@ A "running" entry = `startedAt` set, `endedAt` null, with an open work segment. 
 | T9 | Start, wait **5+ minutes**, observe sidebar indicator + grid. | Elapsed keeps advancing accurately on both the bar and the sidebar indicator (30s poll); no drift/reset. |
 | T10 | Start timer in **tab A**, open My Timesheets in **tab B**. | Tab B reflects the running timer (on load/poll); stopping in one tab is reflected in the other after refresh/poll. |
 | T11 | **Stop with the network throttled/offline** (DevTools), then restore. | Stop either succeeds on retry or shows a clear error AND the timer remains running on the server (no silent loss). Re-verify state after reload. |
-| T12 | Start a timer, **navigate to another module** and back to `/backend/staff/timesheets`. | Timer still running, elapsed correct; no duplicate entry created on return. |
+| T12 | Start a timer, **navigate to another module** and back to `/backend/staff/time-tracking/timesheet`. | Timer still running, elapsed correct; no duplicate entry created on return. |
 
 ---
 
@@ -85,7 +85,7 @@ The description is the `notes` field captured at start. Suspected loss points: s
 | ID | Scenario | Expected |
 |---|---|---|
 | S1 | No timer running. | Sidebar indicator is **hidden**. |
-| S2 | Start a timer. | Sidebar shows pulsing dot + **project name** + live elapsed; clicking it navigates to `/backend/staff/timesheets`. |
+| S2 | Start a timer. | Sidebar shows pulsing dot + **project name** + live elapsed; clicking it navigates to `/backend/staff/time-tracking/timesheet`. |
 | S3 | Stop the timer. | Sidebar indicator disappears within one poll cycle (≤30s) / immediately on the acting page. |
 | S4 | Indicator after full navigation across modules. | Persists (sessionStorage-backed) without flashing away; elapsed stays correct. |
 | S5 | **Hours by Project** widget, default range "this month". | Shows hours grouped by project, total correct for the signed-in user; changing the date-range preset updates totals. |

@@ -9,7 +9,7 @@ import type { WidgetDataRequest } from '../../../services/widgetDataService'
 // `customers/lib/interactionStatus.ts`, which treats an unknown interaction status as open.
 //
 // Every vocabulary that reaches the column has to be listed here:
-//   - `win` / `loose` are written by the deal closure UI and the kanban board.
+//   - `win` / `lost` are written by the deal closure UI and the kanban board.
 //   - `won` / `lost` are written verbatim by the `customers.update_deal_stage` AI tool, whose
 //     free-form `toStage` is passed straight through to `status`.
 //   - `closed` is a seeded `deal_status` dictionary value, persisted by the dashboards

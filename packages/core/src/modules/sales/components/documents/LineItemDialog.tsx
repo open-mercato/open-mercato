@@ -13,6 +13,7 @@ import {
 } from "@open-mercato/ui/backend/CrudForm";
 import { collectCustomFieldValues } from "@open-mercato/ui/backend/utils/customFieldValues";
 import { apiCall, withScopedApiRequestHeaders } from "@open-mercato/ui/backend/utils/apiCall";
+import { useSalesDocumentMutation } from "./useSalesDocumentMutation";
 import { buildOptimisticLockHeader } from "@open-mercato/ui/backend/utils/optimisticLock";
 import { createCrud, updateCrud } from "@open-mercato/ui/backend/utils/crud";
 import { createCrudFormError } from "@open-mercato/ui/backend/utils/serverErrors";
@@ -46,9 +47,13 @@ import {
   renderDictionaryColor,
 } from "@open-mercato/core/modules/dictionaries/components/dictionaryAppearance";
 import { E } from "#generated/entities.ids.generated";
-import { useT } from "@open-mercato/shared/lib/i18n/context";
+import { useT, useLocale } from "@open-mercato/shared/lib/i18n/context";
 import { useOrganizationScopeDetail } from "@open-mercato/shared/lib/frontend/useOrganizationScope";
-import { formatMoney, normalizeNumber } from "./lineItemUtils";
+import {
+  formatMoney,
+  normalizeNumber,
+  resolveCatalogPriceAmount,
+} from "./lineItemUtils";
 import type { SalesLineRecord } from "./lineItemTypes";
 import { prepareShippedLineUpdatePayload } from "./lineItemShipmentLock";
 import {
@@ -56,6 +61,7 @@ import {
   extractCustomFieldValues,
 } from "./customFieldHelpers";
 import { canonicalizeUnitCode } from "@open-mercato/shared/lib/units/unitCodes";
+import { parseLocaleNumber } from "@open-mercato/shared/lib/number";
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('sales')
@@ -489,6 +495,32 @@ export function LineItemDialog({
   onDraftSaved,
 }: SalesLineDialogProps) {
   const t = useT();
+  const runDocumentMutation = useSalesDocumentMutation(kind, documentId);
+  const locale = useLocale();
+  // These fields are hand-rolled text inputs, so the raw string a user typed reaches the
+  // submit handler. It carries the separator the surrounding UI displays, which follows the
+  // application locale — `110,70` under Polish (issue #5552). A blank field keeps its old
+  // "must be greater than 0" message; only genuinely unparseable input returns null.
+  const parseUserNumber = React.useCallback(
+    (value: unknown): number | null => {
+      if (value == null) return 0;
+      if (typeof value === "number") return Number.isFinite(value) ? value : null;
+      if (typeof value !== "string") return null;
+      if (!value.trim()) return 0;
+      return parseLocaleNumber(value, locale);
+    },
+    [locale],
+  );
+  const numberExample = React.useMemo(() => {
+    try {
+      return new Intl.NumberFormat(locale, {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      }).format(110.7);
+    } catch {
+      return "110.70";
+    }
+  }, [locale]);
   const scope = useOrganizationScopeDetail();
   const resolvedOrganizationId = organizationId ?? scope.organizationId ?? null;
   const resolvedTenantId = tenantId ?? scope.tenantId ?? null;
@@ -514,6 +546,7 @@ export function LineItemDialog({
   const [, setLineStatusLoading] = React.useState(false);
   const productOptionsRef = React.useRef<Map<string, ProductOption>>(new Map());
   const variantOptionsRef = React.useRef<Map<string, VariantOption>>(new Map());
+  const selectedProductIdRef = React.useRef<string | null>(null);
   const taxRatesRef = React.useRef<TaxRateOption[]>([]);
   const defaultTaxRateRef = React.useRef<TaxRateOption | null>(null);
   const dialogContentRef = React.useRef<HTMLDivElement | null>(null);
@@ -619,6 +652,7 @@ export function LineItemDialog({
       }
       setInitialValues(base);
       setLineMode(base.lineMode);
+      selectedProductIdRef.current = null;
       setProductOption(null);
       setVariantOption(null);
       setPriceOptions([]);
@@ -951,7 +985,7 @@ export function LineItemDialog({
       try {
         const params = new URLSearchParams({ productId, pageSize: "20" });
         if (variantId) params.set("variantId", variantId);
-        const quantityValue = normalizeNumber(quantity, Number.NaN);
+        const quantityValue = parseUserNumber(quantity) ?? Number.NaN;
         if (Number.isFinite(quantityValue) && quantityValue > 0) {
           params.set("quantity", String(quantityValue));
         }
@@ -1044,10 +1078,10 @@ export function LineItemDialog({
               displayMode === "including-tax" &&
               amountGross !== null &&
               currency
-                ? formatMoney(amountGross, currency)
+                ? formatMoney(amountGross, currency, locale)
                 : null,
               displayMode === "excluding-tax" && amountNet !== null && currency
-                ? formatMoney(amountNet, currency)
+                ? formatMoney(amountNet, currency, locale)
                 : null,
               displayMode
                 ? displayMode === "including-tax"
@@ -1063,9 +1097,9 @@ export function LineItemDialog({
               labelParts.length > 0
                 ? labelParts.join(" • ")
                 : amountGross !== null && currency
-                  ? formatMoney(amountGross, currency)
+                  ? formatMoney(amountGross, currency, locale)
                   : amountNet !== null && currency
-                    ? formatMoney(amountNet, currency)
+                    ? formatMoney(amountNet, currency, locale)
                     : id;
             return {
               id,
@@ -1082,7 +1116,15 @@ export function LineItemDialog({
               scopeTags: tags,
             } as PriceOption;
           })
-          .filter((entry): entry is PriceOption => Boolean(entry));
+          .filter((entry): entry is PriceOption => Boolean(entry))
+          .filter(
+            (entry) =>
+              resolveCatalogPriceAmount(
+                entry.amountNet,
+                entry.amountGross,
+                entry.displayMode === "excluding-tax" ? "net" : "gross",
+              ) !== null,
+          );
         setPriceOptions(mapped);
         return mapped;
       } catch (err) {
@@ -1092,7 +1134,7 @@ export function LineItemDialog({
         setPriceLoading(false);
       }
     },
-    [t],
+    [parseUserNumber, t],
   );
 
   const selectPriceAfterRefresh = React.useCallback(
@@ -1135,7 +1177,7 @@ export function LineItemDialog({
       fromUnit: string | null | undefined,
       toUnit: string | null | undefined,
     ): string | null => {
-      const amount = normalizeNumber(rawUnitPrice, Number.NaN);
+      const amount = parseUserNumber(rawUnitPrice) ?? Number.NaN;
       if (!Number.isFinite(amount) || amount <= 0) return null;
       const fromCode = normalizeUnitCode(fromUnit);
       const toCode = normalizeUnitCode(toUnit);
@@ -1155,7 +1197,7 @@ export function LineItemDialog({
       if (!Number.isFinite(convertedAmount) || convertedAmount <= 0) return null;
       return normalizeUnitPriceInputValue(convertedAmount);
     },
-    [resolveUnitPriceFactor],
+    [parseUserNumber, resolveUnitPriceFactor],
   );
 
   const applyPriceSelection = React.useCallback(
@@ -1172,9 +1214,11 @@ export function LineItemDialog({
         const mode =
           selected.displayMode === "excluding-tax" ? "net" : "gross";
         const amountPerBaseUnit =
-          mode === "net"
-            ? (selected.amountNet ?? selected.amountGross ?? 0)
-            : (selected.amountGross ?? selected.amountNet ?? 0);
+          resolveCatalogPriceAmount(
+            selected.amountNet,
+            selected.amountGross,
+            mode,
+          ) ?? 0;
         const factor = resolveUnitPriceFactor(options?.quantityUnit ?? null);
         const amount = Number.isFinite(amountPerBaseUnit * factor)
           ? amountPerBaseUnit * factor
@@ -1195,6 +1239,125 @@ export function LineItemDialog({
       setFormValue("taxRateId", fallbackTax.taxRateId ?? null);
     },
     [currencyCode, findTaxRateIdByValue, resolveTaxSelection, resolveUnitPriceFactor],
+  );
+
+  const commitVariantSelection = React.useCallback(
+    ({
+      variantId,
+      productId,
+      product,
+      values,
+      setFormValue,
+    }: {
+      variantId: string | null;
+      productId: string | null;
+      product: ProductOption | null;
+      values: Record<string, unknown> | undefined;
+      setFormValue: ((id: string, value: unknown) => void) | undefined;
+    }) => {
+      const selectedOption = variantId
+        ? (variantOptionsRef.current.get(variantId) ?? null)
+        : null;
+      setVariantOption(selectedOption);
+      setFormValue?.("variantId", variantId);
+      const existingName = typeof values?.name === "string" ? values.name : "";
+      if (!existingName.trim()) {
+        setFormValue?.(
+          "name",
+          selectedOption?.title ?? product?.title ?? existingName,
+        );
+      }
+      const taxSource = hasTaxMetadata(selectedOption)
+        ? selectedOption
+        : hasTaxMetadata(product)
+          ? product
+          : null;
+      if (taxSource) {
+        const taxSelection = resolveTaxSelection(taxSource);
+        setFormValue?.("taxRate", taxSelection.taxRate ?? null);
+        setFormValue?.("taxRateId", taxSelection.taxRateId ?? null);
+      }
+      const prevSnapshot =
+        typeof values?.catalogSnapshot === "object" && values.catalogSnapshot
+          ? (values.catalogSnapshot as Record<string, unknown>)
+          : null;
+      if (variantId) {
+        setFormValue?.("catalogSnapshot", {
+          ...(prevSnapshot ?? {}),
+          variant: {
+            id: variantId,
+            title: selectedOption?.title ?? null,
+            sku: selectedOption?.sku ?? null,
+            thumbnailUrl: selectedOption?.thumbnailUrl ?? null,
+          },
+        });
+      } else if (prevSnapshot) {
+        const snapshot = { ...prevSnapshot };
+        if ("variant" in snapshot)
+          delete (snapshot as CatalogSnapshotRecord).variant;
+        setFormValue?.(
+          "catalogSnapshot",
+          Object.keys(snapshot).length ? snapshot : null,
+        );
+      } else {
+        setFormValue?.("catalogSnapshot", null);
+      }
+      if (productId) {
+        const currentQuantity =
+          typeof values?.quantity === "string" ? values.quantity : 1;
+        const currentQuantityUnit =
+          typeof values?.quantityUnit === "string" ? values.quantityUnit : null;
+        void loadPrices(
+          productId,
+          variantId,
+          currentQuantity,
+          currentQuantityUnit,
+        );
+      }
+    },
+    [hasTaxMetadata, loadPrices, resolveTaxSelection],
+  );
+
+  const autoSelectSoleVariant = React.useCallback(
+    async ({
+      productId,
+      product,
+      values,
+      setFormValue,
+    }: {
+      productId: string;
+      product: ProductOption | null;
+      values: Record<string, unknown>;
+      setFormValue: ((id: string, value: unknown) => void) | undefined;
+    }) => {
+      let variants: LookupSelectItem[] = [];
+      try {
+        variants = await loadVariantOptions(
+          productId,
+          product?.thumbnailUrl ?? null,
+        );
+      } catch (err) {
+        logger.error('sales.document.items.autoSelectVariant', { err });
+      }
+      if (selectedProductIdRef.current !== productId) return;
+      if (variants.length === 1) {
+        commitVariantSelection({
+          variantId: variants[0].id,
+          productId,
+          product,
+          values,
+          setFormValue,
+        });
+        return;
+      }
+      void loadPrices(
+        productId,
+        null,
+        typeof values.quantity === "string" ? values.quantity : 1,
+        typeof values.quantityUnit === "string" ? values.quantityUnit : null,
+      );
+    },
+    [commitVariantSelection, loadPrices, loadVariantOptions],
   );
 
   const loadLineStatuses = React.useCallback(async (): Promise<
@@ -1341,8 +1504,16 @@ export function LineItemDialog({
         );
       }
 
-      const qtyNumber = Number(values.quantity ?? 0);
-      if (!Number.isFinite(qtyNumber) || qtyNumber <= 0) {
+      const qtyNumber = parseUserNumber(values.quantity);
+      if (qtyNumber === null) {
+        const message = t(
+          "sales.documents.items.errorQuantityInvalid",
+          "Enter the quantity as a number, for example {{example}}.",
+          { example: numberExample },
+        );
+        throw createCrudFormError(message, { quantity: message });
+      }
+      if (qtyNumber <= 0) {
         throw createCrudFormError(
           t(
             "sales.documents.items.errorQuantity",
@@ -1379,8 +1550,16 @@ export function LineItemDialog({
         );
       })();
 
-      const unitPriceNumber = Number(values.unitPrice ?? 0);
-      if (!Number.isFinite(unitPriceNumber) || unitPriceNumber <= 0) {
+      const unitPriceNumber = parseUserNumber(values.unitPrice);
+      if (unitPriceNumber === null) {
+        const message = t(
+          "sales.documents.items.errorUnitPriceInvalid",
+          "Enter the unit price as a number, for example {{example}}.",
+          { example: numberExample },
+        );
+        throw createCrudFormError(message, { unitPrice: message });
+      }
+      if (unitPriceNumber <= 0) {
         throw createCrudFormError(
           t(
             "sales.documents.items.errorUnitPrice",
@@ -1558,7 +1737,7 @@ export function LineItemDialog({
           return;
         }
         const action = editingId ? updateCrud : createCrud;
-        const result = await withScopedApiRequestHeaders(
+        const result = await runDocumentMutation(() => withScopedApiRequestHeaders(
           buildOptimisticLockHeader(documentUpdatedAt),
           () =>
             action(
@@ -1573,7 +1752,7 @@ export function LineItemDialog({
                 ),
               },
             ),
-        );
+        ), editingId ? { id: editingId, ...submittedPayload } : submittedPayload);
         if (result.ok) {
           if (onSaved) await onSaved();
           closeDialog();
@@ -1609,8 +1788,11 @@ export function LineItemDialog({
       variantOption,
       onSaved,
       closeDialog,
+      numberExample,
+      parseUserNumber,
       resolvedOrganizationId,
       resolvedTenantId,
+      runDocumentMutation,
     ],
   );
 
@@ -1627,6 +1809,7 @@ export function LineItemDialog({
           const switchMode = (next: "catalog" | "custom") => {
             if (next === mode) return;
             setValue(next);
+            selectedProductIdRef.current = null;
             setLineMode(next);
             if (next === "custom") {
               setProductOption(null);
@@ -1751,18 +1934,17 @@ export function LineItemDialog({
                       selectedOption?.defaultUnit ??
                       null;
                     setFormValue?.("quantityUnit", defaultQuantityUnit);
-                    if (
+                    const defaultQuantity =
                       typeof selectedOption?.defaultSalesUnitQuantity ===
                         "number" &&
                       Number.isFinite(
                         selectedOption.defaultSalesUnitQuantity,
                       ) &&
                       selectedOption.defaultSalesUnitQuantity > 0
-                    ) {
-                      setFormValue?.(
-                        "quantity",
-                        String(selectedOption.defaultSalesUnitQuantity),
-                      );
+                        ? String(selectedOption.defaultSalesUnitQuantity)
+                        : null;
+                    if (defaultQuantity) {
+                      setFormValue?.("quantity", defaultQuantity);
                     }
                     const taxSelection = selectedOption
                       ? resolveTaxSelection(selectedOption)
@@ -1774,33 +1956,38 @@ export function LineItemDialog({
                     if (!existingName.trim() && selectedOption?.title) {
                       setFormValue?.("name", selectedOption.title);
                     }
-                    setFormValue?.(
-                      "catalogSnapshot",
-                      next
-                        ? {
-                            product: {
-                              id: next,
-                              title: selectedOption?.title ?? null,
-                              sku: selectedOption?.sku ?? null,
-                              thumbnailUrl:
-                                selectedOption?.thumbnailUrl ?? null,
-                              defaultUnit: selectedOption?.defaultUnit ?? null,
-                              defaultSalesUnit:
-                                selectedOption?.defaultSalesUnit ?? null,
-                            },
-                          }
-                        : null,
-                    );
+                    const productSnapshot = next
+                      ? {
+                          product: {
+                            id: next,
+                            title: selectedOption?.title ?? null,
+                            sku: selectedOption?.sku ?? null,
+                            thumbnailUrl:
+                              selectedOption?.thumbnailUrl ?? null,
+                            defaultUnit: selectedOption?.defaultUnit ?? null,
+                            defaultSalesUnit:
+                              selectedOption?.defaultSalesUnit ?? null,
+                          },
+                        }
+                      : null;
+                    setFormValue?.("catalogSnapshot", productSnapshot);
+                    selectedProductIdRef.current = next ?? null;
                     if (next) {
                       void loadProductUnits(next, selectedOption);
-                      void loadPrices(
-                        next,
-                        null,
-                        typeof values?.quantity === "string"
-                          ? values.quantity
-                          : 1,
-                        defaultQuantityUnit,
-                      );
+                      const valuesAfterProductChange = {
+                        ...values,
+                        name:
+                          existingName.trim() || selectedOption?.title || "",
+                        catalogSnapshot: productSnapshot,
+                        quantity: defaultQuantity ?? values?.quantity,
+                        quantityUnit: defaultQuantityUnit,
+                      };
+                      void autoSelectSoleVariant({
+                        productId: next,
+                        product: selectedOption,
+                        values: valuesAfterProductChange,
+                        setFormValue,
+                      });
                     }
                   }}
                   fetchItems={loadProductOptions}
@@ -1877,76 +2064,14 @@ export function LineItemDialog({
                     key={productId ?? "no-product"}
                     value={typeof value === "string" ? value : null}
                     onChange={(next) => {
-                      const selectedOption = next
-                        ? (variantOptionsRef.current.get(next) ?? null)
-                        : null;
-                      setVariantOption(selectedOption);
                       setValue(next ?? null);
-                      const existingName =
-                        typeof values?.name === "string" ? values.name : "";
-                      if (!existingName.trim()) {
-                        setFormValue?.(
-                          "name",
-                          selectedOption?.title ??
-                            productOption?.title ??
-                            existingName,
-                        );
-                      }
-                      const taxSource = hasTaxMetadata(selectedOption)
-                        ? selectedOption
-                        : hasTaxMetadata(productOption)
-                          ? productOption
-                          : null;
-                      if (taxSource) {
-                        const taxSelection = resolveTaxSelection(taxSource);
-                        setFormValue?.("taxRate", taxSelection.taxRate ?? null);
-                        setFormValue?.(
-                          "taxRateId",
-                          taxSelection.taxRateId ?? null,
-                        );
-                      }
-                      const prevSnapshot =
-                        typeof values?.catalogSnapshot === "object" &&
-                        values.catalogSnapshot
-                          ? (values.catalogSnapshot as Record<string, unknown>)
-                          : null;
-                      if (next) {
-                        setFormValue?.("catalogSnapshot", {
-                          ...(prevSnapshot ?? {}),
-                          variant: {
-                            id: next,
-                            title: selectedOption?.title ?? null,
-                            sku: selectedOption?.sku ?? null,
-                            thumbnailUrl: selectedOption?.thumbnailUrl ?? null,
-                          },
-                        });
-                      } else if (prevSnapshot) {
-                        const snapshot = { ...prevSnapshot };
-                        if ("variant" in snapshot)
-                          delete (snapshot as CatalogSnapshotRecord).variant;
-                        setFormValue?.(
-                          "catalogSnapshot",
-                          Object.keys(snapshot).length ? snapshot : null,
-                        );
-                      } else {
-                        setFormValue?.("catalogSnapshot", null);
-                      }
-                      if (productId) {
-                        const currentQuantity =
-                          typeof values?.quantity === "string"
-                            ? values.quantity
-                            : 1;
-                        const currentQuantityUnit =
-                          typeof values?.quantityUnit === "string"
-                            ? values.quantityUnit
-                            : null;
-                        void loadPrices(
-                          productId,
-                          next,
-                          currentQuantity,
-                          currentQuantityUnit,
-                        );
-                      }
+                      commitVariantSelection({
+                        variantId: next ?? null,
+                        productId,
+                        product: productOption,
+                        values,
+                        setFormValue,
+                      });
                     }}
                     fetchItems={async (query) => {
                       if (!productId) return [];
@@ -2059,7 +2184,7 @@ export function LineItemDialog({
                       ? t("sales.documents.items.priceNet", "Net")
                       : t("sales.documents.items.priceGross", "Gross");
                   const lockedAmountLabel = Number.isFinite(lockedAmount)
-                    ? `${formatMoney(lockedAmount, lockedCurrency)} — ${lockedModeLabel}`
+                    ? `${formatMoney(lockedAmount, lockedCurrency, locale)} — ${lockedModeLabel}`
                     : lockedModeLabel;
                   const lockedPriceDetail =
                     selectedPrice?.priceKindTitle ??
@@ -2260,11 +2385,11 @@ export function LineItemDialog({
                       "sales.documents.items.priceBasisTemplate",
                       "Catalog price basis: {{baseAmount}} / {{baseUnit}}. Converted for {{unit}}: {{baseAmount}} × {{factor}} = {{convertedAmount}}.",
                       {
-                        baseAmount: formatMoney(selectedBaseAmount as number, selectedCurrency),
+                        baseAmount: formatMoney(selectedBaseAmount as number, selectedCurrency, locale),
                         baseUnit: baseUnitCode,
                         unit: quantityUnitCode,
                         factor: unitFactor,
-                        convertedAmount: formatMoney(convertedAmount, selectedCurrency),
+                        convertedAmount: formatMoney(convertedAmount, selectedCurrency, locale),
                       },
                     )}
                   </p>
@@ -2311,9 +2436,10 @@ export function LineItemDialog({
             event: React.ChangeEvent<HTMLSelectElement>,
           ) => {
             const nextId = event.target.value || null;
-            const option = nextId ? (taxRateMap.get(nextId) ?? null) : null;
+            if (!nextId) return;
+            const option = taxRateMap.get(nextId) ?? null;
             setValue(nextId);
-            const rate = normalizeNumber(option?.rate);
+            const rate = normalizeNumber(option?.rate, Number.NaN);
             setFormValue?.("taxRate", Number.isFinite(rate) ? rate : null);
           };
           return (
@@ -2540,7 +2666,7 @@ export function LineItemDialog({
         layout: "full",
         component: ({ values }: FieldRenderProps) => {
           if (isCustomLine) return null;
-          const quantity = normalizeNumber(values?.quantity, Number.NaN);
+          const quantity = parseUserNumber(values?.quantity) ?? Number.NaN;
           const enteredUnit = normalizeUnitCode(values?.quantityUnit);
           if (!Number.isFinite(quantity) || quantity <= 0 || !enteredUnit) {
             return (
@@ -2610,7 +2736,7 @@ export function LineItemDialog({
               "ui.lookupSelect.startTyping",
               "Start typing to search.",
             )}
-            minQuery={0}
+            minQuery={1}
           />
         ),
       } satisfies CrudField,
@@ -2628,6 +2754,8 @@ export function LineItemDialog({
     ];
   }, [
     applyPriceSelection,
+    autoSelectSoleVariant,
+    commitVariantSelection,
     convertUnitPriceForUnitChange,
     currencyCode,
     findTaxRateIdByValue,
@@ -2650,6 +2778,7 @@ export function LineItemDialog({
     selectPriceAfterRefresh,
     hasTaxMetadata,
     isShippedOrderLine,
+    parseUserNumber,
   ]);
 
   const groups = React.useMemo<CrudFormGroup[]>(() => {
@@ -2671,6 +2800,7 @@ export function LineItemDialog({
       return;
     }
     let cancelled = false;
+    selectedProductIdRef.current = null;
     setDeletedCatalogReference(false);
     setEditingId(initialLine.id);
     const nextForm = defaultForm(initialLine.currencyCode ?? currencyCode);
@@ -2733,10 +2863,11 @@ export function LineItemDialog({
         ? metaRec.taxRateId
         : null;
     const fallbackTaxRateId = findTaxRateIdByValue(nextForm.taxRate);
-    nextForm.taxRateId =
-      metaTaxRateId ??
-      fallbackTaxRateId ??
-      (defaultTaxRateRef.current ? defaultTaxRateRef.current.id : null);
+    const defaultTaxRateId =
+      !Number.isFinite(nextForm.taxRate) && defaultTaxRateRef.current
+        ? defaultTaxRateRef.current.id
+        : null;
+    nextForm.taxRateId = metaTaxRateId ?? fallbackTaxRateId ?? defaultTaxRateId;
     if (!Number.isFinite(nextForm.taxRate) && nextForm.taxRateId) {
       const matched = taxRatesRef.current.find(
         (rate) => rate.id === nextForm.taxRateId,

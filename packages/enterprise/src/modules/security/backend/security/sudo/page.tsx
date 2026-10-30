@@ -244,6 +244,7 @@ function SecuritySudoPageInner() {
 
         <DataTable<SudoConfigRow>
           title={t('security.admin.sudo.title', 'Sudo protection')}
+          titleHeadingLevel={1}
           columns={columns}
           data={rows}
           actions={(

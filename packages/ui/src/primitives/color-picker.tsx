@@ -24,8 +24,9 @@ interface WindowWithEyeDropper extends Window { EyeDropper?: new () => EyeDroppe
  *   3. Saved Colors  — title + row of swatch dots (24×24, rounded-full).
  *   4. Action        — "+ Add new color" footer button (optional).
  *
- * No 2D HSV spectrum, no opacity slider, no format dropdown — those
- * belong to a heavier picker layout that's not in this DS source.
+ * The optional opacity slider follows `Color Sliders [1.1]`,
+ * `4415:53670`. Alpha is controlled separately from the RGB hex value
+ * so existing consumers continue to receive six-digit hex strings.
  * Implementation is vanilla (no `react-colorful`): hue is a native
  * `<input type="range">` styled as a gradient pill, hex → RGB → HSL
  * conversion done inline so we can keep dependencies minimal.
@@ -245,10 +246,13 @@ export type ColorPickerProps = Omit<
      *  at the right of the "Saved colors" header. Click fires this
      *  callback so the consumer can open a separate management UI. */
     onEditSavedColors?: () => void
-    /** Show an opacity percentage badge inside the hex container.
-     *  Default `false`. v5 always shows 100% — surface kept for
-     *  forward-compatibility with an alpha-aware follow-up release. */
+    /** Show the opacity percentage and, when onOpacityChange is set,
+     *  the Figma opacity slider. Default `false`. */
     showOpacity?: boolean
+    /** Controlled opacity percentage, 0–100. Defaults to 100. */
+    opacity?: number
+    /** Updates alpha independently; onChange continues to emit RGB hex. */
+    onOpacityChange?: (next: number) => void
     /** Section title above the hue slider. Default `"Choose color"`. */
     chooseLabel?: string
     /** Section title above the swatch row. Default `"Saved colors"`. */
@@ -278,6 +282,8 @@ export const ColorPicker = React.forwardRef<HTMLButtonElement, ColorPickerProps>
       onRemoveColor,
       onEditSavedColors,
       showOpacity = false,
+      opacity = 100,
+      onOpacityChange,
       chooseLabel = 'Choose color',
       savedLabel = 'Saved colors',
       addLabel = 'Add new color',
@@ -288,6 +294,7 @@ export const ColorPicker = React.forwardRef<HTMLButtonElement, ColorPickerProps>
     ref,
   ) => {
     const t = useT()
+    const effectiveOpacity = Number.isFinite(opacity) ? Math.min(100, Math.max(0, opacity)) : 100
     const normalizedValue = React.useMemo(() => normalizeHex(value) ?? value, [value])
     const [hexInput, setHexInput] = React.useState(normalizedValue)
     const [hexError, setHexError] = React.useState<string | null>(null)
@@ -445,7 +452,7 @@ export const ColorPicker = React.forwardRef<HTMLButtonElement, ColorPickerProps>
               data-slot="color-picker-preview"
               aria-hidden="true"
               className="inline-block size-4 shrink-0 rounded-full border border-border/30"
-              style={{ backgroundColor: normalizedValue }}
+              style={{ backgroundColor: normalizedValue, opacity: effectiveOpacity / 100 }}
             />
             <span className="font-mono uppercase tracking-tight">{normalizedValue}</span>
           </button>
@@ -494,6 +501,33 @@ export const ColorPicker = React.forwardRef<HTMLButtonElement, ColorPickerProps>
                   'disabled:cursor-not-allowed disabled:opacity-50',
                 )}
               />
+              {showOpacity && onOpacityChange ? (
+                <div className="space-y-2 pt-2">
+                  <div className="flex items-center justify-between text-xs text-muted-foreground">
+                    <span>{t('ui.colorPicker.opacity', 'Opacity')}</span>
+                    <span aria-hidden="true" className="tabular-nums">{effectiveOpacity}%</span>
+                  </div>
+                  <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    step={1}
+                    value={effectiveOpacity}
+                    disabled={disabled}
+                    onChange={event => onOpacityChange(Number(event.target.value))}
+                    aria-label={t('ui.colorPicker.opacity', 'Opacity')}
+                    aria-valuetext={`${effectiveOpacity}%`}
+                    data-slot="color-picker-opacity-slider"
+                    className={cn(
+                      'block h-4 w-full cursor-pointer appearance-none rounded-full border border-border outline-none',
+                      '[&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:size-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-background [&::-webkit-slider-thumb]:bg-foreground [&::-webkit-slider-thumb]:shadow-sm',
+                      '[&::-moz-range-thumb]:size-4 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-2 [&::-moz-range-thumb]:border-background [&::-moz-range-thumb]:bg-foreground [&::-moz-range-thumb]:shadow-sm',
+                      'focus-visible:shadow-focus disabled:cursor-not-allowed',
+                    )}
+                    style={{ backgroundImage: `linear-gradient(to right, transparent, ${normalizedValue}), repeating-conic-gradient(var(--muted) 0% 25%, var(--background) 0% 50%)`, backgroundSize: '100% 100%, 8px 8px' }}
+                  />
+                </div>
+              ) : null}
             </div>
 
             <div className="h-px w-full bg-border/60" aria-hidden="true" />
@@ -520,7 +554,7 @@ export const ColorPicker = React.forwardRef<HTMLButtonElement, ColorPickerProps>
                     aria-hidden="true"
                     data-slot="color-picker-current-dot"
                     className="inline-block size-4 shrink-0 rounded-full border border-foreground/10"
-                    style={{ backgroundColor: normalizedValue }}
+                    style={{ backgroundColor: normalizedValue, opacity: effectiveOpacity / 100 }}
                   />
                   <input
                     type="text"
@@ -554,7 +588,7 @@ export const ColorPicker = React.forwardRef<HTMLButtonElement, ColorPickerProps>
                       aria-hidden="true"
                       className="shrink-0 font-mono text-xs text-muted-foreground tabular-nums"
                     >
-                      100%
+                      {effectiveOpacity}%
                     </span>
                   ) : null}
                 </div>

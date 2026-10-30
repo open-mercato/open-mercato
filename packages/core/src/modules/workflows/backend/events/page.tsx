@@ -279,7 +279,8 @@ export default function WorkflowEventsPage() {
     <Page>
       <PageBody>
         <DataTable
-          title={t('workflows.events.list.title')}
+        title={t('workflows.events.list.title')}
+        titleHeadingLevel={1}
           columns={columns}
           data={data || []}
           filters={filters}

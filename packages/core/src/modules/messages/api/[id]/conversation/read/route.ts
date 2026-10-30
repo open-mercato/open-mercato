@@ -7,6 +7,7 @@ import {
   conversationMutationResponseSchema,
   errorResponseSchema,
 } from '../../../openapi'
+import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 
 export const metadata = {
   PUT: { requireAuth: true, requireFeatures: ['messages.view'] },
@@ -78,6 +79,10 @@ async function runConversationReadMutation(
     })
     return response
   } catch (error) {
+    const interceptorRejection = getCommandInterceptorHttpRejection(error)
+    if (interceptorRejection) {
+      return Response.json(interceptorRejection.body, { status: interceptorRejection.status })
+    }
     if (error instanceof Error) {
       if (error.message === 'Message not found') {
         return Response.json({ error: error.message }, { status: 404 })

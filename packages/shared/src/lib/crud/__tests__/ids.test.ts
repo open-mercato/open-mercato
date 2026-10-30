@@ -1,4 +1,11 @@
-import { MAX_IDS_PER_REQUEST, mergeIdFilter, parseIdsParam, isIdsParamProvided } from '@open-mercato/shared/lib/crud/ids'
+import {
+  MAX_IDS_PER_REQUEST,
+  mergeIdFilter,
+  parseIdsParam,
+  isIdsParamProvided,
+  isUuidListParam,
+  splitIdListParam,
+} from '@open-mercato/shared/lib/crud/ids'
 
 describe('crud ids helpers', () => {
   const idA = '550e8400-e29b-41d4-a716-446655440001'
@@ -83,22 +90,24 @@ describe('crud ids helpers', () => {
     })
   })
 
-  it('mergeIdFilter preserves existing filter for unknown filter shape (fail closed)', () => {
-    // Regression: previously the unrecognised shape was silently discarded and
-    // replaced with `{ id: { $in: parsedIds } }`, widening access. The contract
-    // is "intersect with existing id filters — never widen" — so unknown shapes
-    // must degrade closed.
+  it('mergeIdFilter AND-combines an unknown filter shape with parsedIds (fail closed, never dropped)', () => {
+    // Regression for #7641: an earlier fix made the unrecognised shape fail
+    // closed by discarding `parsedIds` and keeping only the existing filter —
+    // but `parsedIds` can itself be server-supplied narrowing (an
+    // interceptor's `before` hook setting `query.ids`), so dropping it
+    // silently disabled that narrowing. Both constraints must survive via
+    // `$and` — this neither widens (still an AND) nor drops either side.
     expect(
       mergeIdFilter({ id: { $ne: idA } as any }, [idA, idB]),
-    ).toEqual({ id: { $ne: idA } })
+    ).toEqual({ $and: [{ id: { $ne: idA } }, { id: { $in: [idA, idB] } }] })
   })
 
-  it('mergeIdFilter preserves existing $eq with unsupported value (fail closed)', () => {
-    // An `$eq` with a non-UUID payload is also an unrecognised narrowing — we
-    // must not drop it and substitute `parsedIds`.
+  it('mergeIdFilter AND-combines an unsupported $eq value with parsedIds (fail closed, never dropped)', () => {
+    // An `$eq` with a non-UUID payload is also an unrecognised narrowing — it
+    // must survive alongside `parsedIds`, not be replaced or dropped.
     expect(
       mergeIdFilter({ id: { $eq: 'not-a-uuid' } as any }, [idA]),
-    ).toEqual({ id: { $eq: 'not-a-uuid' } })
+    ).toEqual({ $and: [{ id: { $eq: 'not-a-uuid' } }, { id: { $in: [idA] } }] })
   })
 
   it('mergeIdFilter treats undefined/null id as no existing narrowing', () => {
@@ -122,6 +131,35 @@ describe('crud ids helpers', () => {
     expect(isIdsParamProvided(null)).toBe(false)
   })
 
+  // #5548: once the factory groups repeated params, `?ids=a&ids=b` reaches these
+  // helpers as an array. Treating that as "not supplied" would silently drop the
+  // filter and return the full list — the same side channel #4143 closed.
+  it('parseIdsParam accepts the repeated-parameter form', () => {
+    expect(parseIdsParam([idA, idB])).toEqual([idA, idB])
+    expect(parseIdsParam([`${idA},${idB}`, idC])).toEqual([idA, idB, idC])
+    expect(parseIdsParam([idA, idA])).toEqual([idA])
+    expect(parseIdsParam([idA, idB, idC], 2)).toEqual([idA, idB])
+    expect(parseIdsParam([])).toEqual([])
+    expect(parseIdsParam(['invalid', 'also-invalid'])).toEqual([])
+  })
+
+  it('isIdsParamProvided recognizes the repeated-parameter form', () => {
+    expect(isIdsParamProvided([idA, idB])).toBe(true)
+    expect(isIdsParamProvided(['not-a-uuid'])).toBe(true)
+    expect(isIdsParamProvided([])).toBe(false)
+    expect(isIdsParamProvided(['', '  '])).toBe(false)
+  })
+
+  // "Supplied" is about the raw occurrence, not about what survives parsing:
+  // `?ids=,,,` carries no usable value but was still requested, so it must match
+  // nothing rather than fall back to the unfiltered list.
+  it('isIdsParamProvided treats a value that parses to nothing as still supplied', () => {
+    expect(isIdsParamProvided(',,,')).toBe(true)
+    expect(parseIdsParam(',,,')).toEqual([])
+    expect(isIdsParamProvided([',', ','])).toBe(true)
+    expect(parseIdsParam([',', ','])).toEqual([])
+  })
+
   it('mergeIdFilter matches nothing when ids param was provided but all invalid', () => {
     // Malformed input: parseIdsParam yields [], but the param WAS provided.
     expect(mergeIdFilter({}, parseIdsParam('not-a-uuid'), { idsParamProvided: true })).toEqual({
@@ -138,5 +176,31 @@ describe('crud ids helpers', () => {
     expect(mergeIdFilter({ tenantId: 't1' } as any, [], { idsParamProvided: false })).toEqual({
       tenantId: 't1',
     })
+  })
+
+  it('splitIdListParam trims entries and drops empty ones', () => {
+    expect(splitIdListParam(` ${idA} ,, ${idB} ,`)).toEqual([idA, idB])
+    expect(splitIdListParam(undefined)).toEqual([])
+    expect(splitIdListParam(['not', 'a', 'string'])).toEqual([])
+  })
+
+  it('isUuidListParam accepts absent, empty, and all-UUID lists', () => {
+    expect(isUuidListParam(undefined)).toBe(true)
+    expect(isUuidListParam('')).toBe(true)
+    expect(isUuidListParam(` ${idA}, ${idB.toUpperCase()} `)).toBe(true)
+    expect(isUuidListParam('00000000-0000-0000-0000-000000000000')).toBe(true)
+  })
+
+  it('isUuidListParam rejects malformed and mixed lists', () => {
+    expect(isUuidListParam('not-a-uuid')).toBe(false)
+    expect(isUuidListParam(`${idA},not-a-uuid`)).toBe(false)
+    expect(isUuidListParam(`${idA}0`)).toBe(false)
+    expect(isUuidListParam(`{${idA}}`)).toBe(false)
+  })
+
+  it('isUuidListParam fails closed on non-string values', () => {
+    expect(isUuidListParam(['not-a-uuid'])).toBe(false)
+    expect(isUuidListParam([idA])).toBe(false)
+    expect(isUuidListParam(null)).toBe(false)
   })
 })

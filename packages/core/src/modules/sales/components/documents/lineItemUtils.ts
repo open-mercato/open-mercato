@@ -9,9 +9,32 @@ export function normalizeNumber(value: unknown, fallback = 0): number {
   return fallback
 }
 
-export function formatMoney(value: number, currency: string | null | undefined): string {
+/**
+ * A catalog price is only usable on a line when it carries a positive amount, because line
+ * submission rejects a unit price of zero. Returns the amount for the requested mode, falling
+ * back to the other mode only when the requested amount is missing, or `null` when the price
+ * has no positive amount to use.
+ */
+export function resolveCatalogPriceAmount(
+  amountNet: number | null | undefined,
+  amountGross: number | null | undefined,
+  mode: 'net' | 'gross',
+): number | null {
+  const isPresent = (value: number | null | undefined): value is number =>
+    typeof value === 'number' && Number.isFinite(value)
+  const [preferred, fallback] = mode === 'net' ? [amountNet, amountGross] : [amountGross, amountNet]
+  const amount = isPresent(preferred) ? preferred : isPresent(fallback) ? fallback : null
+  return amount !== null && amount > 0 ? amount : null
+}
+
+/**
+ * Pass `locale` to format in the application locale (`useLocale()` in client components).
+ * Omitting it keeps the runtime default, which varies per machine and is therefore not
+ * assertable in tests.
+ */
+export function formatMoney(value: number, currency: string | null | undefined, locale?: string): string {
   if (!currency) return value.toFixed(2)
-  return new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(value)
+  return new Intl.NumberFormat(locale, { style: 'currency', currency }).format(value)
 }
 
 export type LineDiscountDisplay = {

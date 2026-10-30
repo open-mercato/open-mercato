@@ -59,6 +59,21 @@ function resolveMemorySamplerImport() {
   throw new Error('Unable to resolve dev memory sampler module')
 }
 
+function resolveDevSessionGuardImport() {
+  const candidates = [
+    new URL('./dev-session-guard.mjs', import.meta.url),
+    new URL('../../../scripts/dev-session-guard.mjs', import.meta.url),
+  ]
+
+  for (const candidate of candidates) {
+    if (fs.existsSync(fileURLToPath(candidate))) {
+      return candidate.href
+    }
+  }
+
+  throw new Error('Unable to resolve dev session guard module')
+}
+
 function isEnabledEnvFlag(value) {
   if (typeof value !== 'string') return false
   return ['1', 'true', 'yes', 'on'].includes(value.trim().toLowerCase())
@@ -111,15 +126,16 @@ const {
   stripAnsi,
   wrapListLines,
 } = await import(resolveSplashHelpersImport())
-const { resolveProjectBinary, resolveSpawnCommand } = await import(resolveSpawnUtilsImport())
+const { resolveMercatoInvocation, resolveSpawnCommand } = await import(resolveSpawnUtilsImport())
 const {
   DEFAULT_MEMORY_TRACE_OUT_DIR,
   createMemoryTraceSession,
   inferDevMemoryMarkerFromLine,
   resolveMemoryTraceIntervalMs,
 } = await import(resolveMemorySamplerImport())
+const { acquireDevSession } = await import(resolveDevSessionGuardImport())
 
-const command = resolveProjectBinary(process.platform === 'win32' ? 'mercato.cmd' : 'mercato')
+const mercatoInvocation = resolveMercatoInvocation()
 const classic = process.argv.includes('--classic') || isEnabledEnvFlag(process.env.OM_DEV_CLASSIC)
 const verbose = !classic && (process.argv.includes('--verbose') || process.env.MERCATO_DEV_OUTPUT === 'verbose')
 const rawPassthrough = classic || verbose
@@ -187,7 +203,10 @@ const splashState = {
   progressPercent: 0,
   progressLabel: setupSplashMode ? 'Starting app runtime' : 'Preparing app runtime',
   activities: [],
+  runtimeSignals: [],
 }
+const maxBufferedRuntimeSignals = 20
+let runtimeSignalSequence = 0
 const startupProgress = {
   current: runtimeProgressCurrent,
   total: runtimeProgressTotal,
@@ -224,6 +243,32 @@ const runtimeWarmupState = {
   retryAttempts: 0,
   tenantId: readNonEmptyEnvValue('OM_DEV_WARMUP_TENANT_ID') ?? null,
   tenantLookupAttempted: false,
+}
+
+function resolveDevSessionWorkspaceRoot() {
+  const inheritedRoot = process.env.OM_DEV_SESSION_WORKSPACE_ROOT?.trim()
+  if (inheritedRoot) return inheritedRoot
+  const monorepoRoot = path.resolve(process.cwd(), '..', '..')
+  if (fs.existsSync(path.join(monorepoRoot, 'packages')) && fs.existsSync(path.join(monorepoRoot, 'apps', 'mercato'))) {
+    return monorepoRoot
+  }
+  return process.cwd()
+}
+
+const devSessionUrl = process.env.APP_URL?.trim()
+  || process.env.NEXT_PUBLIC_APP_URL?.trim()
+  || `http://localhost:${process.env.PORT?.trim() || '3000'}`
+let devSession
+try {
+  devSession = acquireDevSession({
+    workspaceRoot: resolveDevSessionWorkspaceRoot(),
+    mode: `app-runtime:${classic ? 'classic' : verbose ? 'verbose' : 'compact'}`,
+    url: devSessionUrl,
+    role: 'app-runtime',
+  })
+} catch (error) {
+  console.error(`❌ ${error instanceof Error ? error.message : String(error)}`)
+  process.exit(1)
 }
 
 function clearWarmupReadyFile() {
@@ -559,6 +604,19 @@ function collectRuntimeFailureLines(maxLines = 10) {
   return lines.slice(-maxLines)
 }
 
+// Typed hand-off to the root supervisor's incident collector. The wrapper only
+// reports what it observed; classification, redaction, and state transitions
+// stay in the supervisor so one generation owns them.
+function emitRuntimeSignal(signal) {
+  if (!splashChildStateFile) return
+  runtimeSignalSequence += 1
+  splashState.runtimeSignals.push({ seq: runtimeSignalSequence, ...signal })
+  while (splashState.runtimeSignals.length > maxBufferedRuntimeSignals) {
+    splashState.runtimeSignals.shift()
+  }
+  persistSplashState()
+}
+
 function publishRuntimeFailure(detail, options = {}) {
   const failureLines = Array.isArray(options.failureLines) && options.failureLines.length > 0
     ? options.failureLines
@@ -572,6 +630,15 @@ function publishRuntimeFailure(detail, options = {}) {
   const progressLabel = typeof options.progressLabel === 'string' && options.progressLabel.trim().length > 0
     ? options.progressLabel
     : (startupProgress.current >= runtimeProgressCurrent ? startupProgress.label : 'Starting app server')
+
+  emitRuntimeSignal({
+    source: options.source ?? 'log',
+    message: failureLines.join('\n') || failureDetail,
+    detail: failureDetail,
+    failureLines,
+    failureCommand: 'yarn dev',
+    failureStage: options.failureStage,
+  })
 
   updateSplashState({
     phase: 'Runtime error detected',
@@ -613,7 +680,7 @@ function looksLikeFailure(line) {
 }
 
 function spawnMercato(args) {
-  const resolvedSpawn = resolveSpawnCommand(command, args)
+  const resolvedSpawn = resolveSpawnCommand(mercatoInvocation.command, [...mercatoInvocation.args, ...args])
   const child = spawn(resolvedSpawn.command, resolvedSpawn.args, {
     stdio: rawPassthrough ? 'inherit' : 'pipe',
     env: {
@@ -627,6 +694,7 @@ function spawnMercato(args) {
   })
 
   children.add(child)
+  devSession.registerChild(child, `app:${args.join(' ')}`)
   child.on('exit', () => {
     children.delete(child)
   })
@@ -668,6 +736,8 @@ function reportUnexpectedChildExit(result) {
   // The banner was just printed, so buffer it without echoing it a second time.
   bufferRawLog(report.banner)
   publishRuntimeFailure(report.banner, {
+    source: 'process',
+    failureStage: result?.label,
     progressCurrent: splashState.progressCurrent >= runtimeProgressCurrent ? splashState.progressCurrent : runtimeProgressCurrent,
     progressLabel: splashState.progressLabel || startupProgress.label,
     failureLines: report.failureLines,
@@ -1084,6 +1154,8 @@ async function runTargetedRouteWarmup() {
         runtimeWarmupState.failed = true
         const detail = `Warmup failed after ${attempt} retries: ${reason}`
         publishRuntimeFailure(detail, {
+          source: 'warmup',
+          failureStage: 'Startup warmup',
           progressCurrent: runtimeProgressCurrent,
           progressLabel: progressLabel,
           failureLines: [
@@ -1256,6 +1328,7 @@ async function finalizeRuntimeProcess(exitCode) {
   } catch (error) {
     console.warn(`⚠️ Failed to write memory trace summary: ${error instanceof Error ? error.message : String(error)}`)
   }
+  devSession.release()
   process.exit(exitCode)
 }
 
@@ -1473,6 +1546,7 @@ async function runInitialGenerate() {
     if (exitCode !== 0) {
       markMemoryTrace('generate:failure', 'Generating app artifacts', { exitCode })
       shutdown(exitCode)
+      return
     }
     markMemoryTrace('generate:end', 'Generating app artifacts', { durationMs: Date.now() - startedAt })
     return
@@ -1504,6 +1578,7 @@ async function runInitialGenerate() {
       console.error(line)
     }
     shutdown(exitCode)
+    return
   }
 
   updateSplashState({

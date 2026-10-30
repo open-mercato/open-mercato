@@ -431,6 +431,30 @@ describe('SearchService', () => {
       expect(strategy.index).toHaveBeenCalledTimes(2)
     })
 
+    it('should bound in-flight writes when falling back to individual indexing', async () => {
+      let inFlight = 0
+      let peakInFlight = 0
+      const strategy = createMockStrategy({
+        id: 'test',
+        bulkIndex: undefined,
+        index: jest.fn(async () => {
+          inFlight++
+          peakInFlight = Math.max(peakInFlight, inFlight)
+          await new Promise<void>((resolve) => setTimeout(resolve, 0))
+          inFlight--
+        }),
+      })
+      const service = new SearchService({ strategies: [strategy] })
+      const records = Array.from({ length: 50 }, (_, index) =>
+        createMockRecord({ recordId: `rec-${index}` }),
+      )
+
+      await service.bulkIndex(records)
+
+      expect(strategy.index).toHaveBeenCalledTimes(50)
+      expect(peakInFlight).toBeLessThanOrEqual(4)
+    })
+
     it('should do nothing when records array is empty', async () => {
       const strategy = createMockStrategy({ id: 'test' })
       const service = new SearchService({ strategies: [strategy] })
@@ -558,21 +582,26 @@ describe('SearchService', () => {
         availabilityCacheTtlMs: 0,
       })
 
-      const start = Date.now()
-      await service.search('q', { tenantId: 't-1' })
-      const elapsed = Date.now() - start
-      const timings = Object.values(probeTimings)
-      const latestStart = Math.max(...timings.map((timing) => timing.start))
-      const earliestEnd = Math.min(...timings.map((timing) => timing.end))
+      jest.useFakeTimers({ now: 0 })
+      try {
+        const start = Date.now()
+        const search = service.search('q', { tenantId: 't-1' })
+        await jest.runAllTimersAsync()
+        await search
+        const elapsed = Date.now() - start
+        const timings = Object.values(probeTimings)
+        const latestStart = Math.max(...timings.map((timing) => timing.start))
+        const earliestEnd = Math.min(...timings.map((timing) => timing.end))
 
-      // Sequential probes would not overlap. Parallel probes must overlap in time,
-      // and total elapsed time should stay well below a fully sequential run.
-      expect(timings).toHaveLength(3)
-      expect(latestStart).toBeLessThan(earliestEnd)
-      expect(elapsed).toBeLessThan(450)
-      expect(slowA.isAvailable).toHaveBeenCalledTimes(1)
-      expect(slowB.isAvailable).toHaveBeenCalledTimes(1)
-      expect(slowC.isAvailable).toHaveBeenCalledTimes(1)
+        expect(timings).toHaveLength(3)
+        expect(latestStart).toBeLessThan(earliestEnd)
+        expect(elapsed).toBeLessThan(450)
+        expect(slowA.isAvailable).toHaveBeenCalledTimes(1)
+        expect(slowB.isAvailable).toHaveBeenCalledTimes(1)
+        expect(slowC.isAvailable).toHaveBeenCalledTimes(1)
+      } finally {
+        jest.useRealTimers()
+      }
     })
 
     it('caches positive availability checks within the TTL window', async () => {

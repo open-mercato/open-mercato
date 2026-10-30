@@ -1,3 +1,4 @@
+import { CommandInterceptorError } from '@open-mercato/shared/lib/commands/errors'
 import { POST } from '@open-mercato/core/modules/messages/api/[id]/reply/route'
 
 const resolveMessageContextMock = jest.fn()
@@ -177,5 +178,41 @@ describe('messages /api/messages/[id]/reply', () => {
         { params: { id: 'message-1' } },
       ),
     ).rejects.toThrow('Unexpected database failure')
+  })
+  it('surfaces the status and body of an interceptor rejection that carries one', async () => {
+    commandBus.execute.mockRejectedValueOnce(
+      new CommandInterceptorError('Reply blocked by policy', {
+        status: 422,
+        body: { error: 'Reply blocked by policy', policy: 'thread-frozen' },
+      }),
+    )
+
+    const response = await POST(
+      new Request('http://localhost', {
+        method: 'POST',
+        body: JSON.stringify({ body: 'Hi' }),
+      }),
+      { params: { id: 'message-1' } },
+    )
+
+    expect(response.status).toBe(422)
+    await expect(response.json()).resolves.toEqual({
+      error: 'Reply blocked by policy',
+      policy: 'thread-frozen',
+    })
+  })
+
+  it('still rethrows an interceptor rejection that carries no status', async () => {
+    commandBus.execute.mockRejectedValueOnce(new CommandInterceptorError('Blocked without a status'))
+
+    await expect(
+      POST(
+        new Request('http://localhost', {
+          method: 'POST',
+          body: JSON.stringify({ body: 'Hi' }),
+        }),
+        { params: { id: 'message-1' } },
+      ),
+    ).rejects.toThrow('Blocked without a status')
   })
 })

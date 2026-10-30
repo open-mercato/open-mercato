@@ -16,10 +16,18 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   }),
 }))
 
+jest.mock('@open-mercato/shared/lib/commands/customFieldSnapshots', () => {
+  const actual = jest.requireActual('@open-mercato/shared/lib/commands/customFieldSnapshots')
+  return {
+    ...actual,
+    loadCustomFieldSnapshot: jest.fn(async () => ({ dashboard: false, scope: 'limited' })),
+  }
+})
+
 import '@open-mercato/core/modules/auth/commands/roles'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import type { Role } from '../../data/entities'
+import { Role, RoleAcl } from '../../data/entities'
 import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -50,15 +58,18 @@ describe('auth.roles.update', () => {
     }
     const em = {
       findOne: jest.fn(async () => existingRole),
+      find: jest.fn(async () => []),
       count: jest.fn(async () => 0),
     }
     const ctx = makeExecuteCtx(dataEngine, em)
 
+    await handler.prepare!({ id: roleId, name: 'admin' }, ctx)
     const result = await handler.execute({ id: roleId, name: 'admin' }, ctx)
 
     expect(result).toMatchObject({ id: roleId, name: 'admin', tenantId })
     expect(em.count).not.toHaveBeenCalled()
     expect(updateOrmEntity).toHaveBeenCalled()
+    expect(em.find.mock.calls.find(([entity]) => entity === RoleAcl)?.[1]).toMatchObject({ deletedAt: null })
     expect(markOrmEntityChange).toHaveBeenCalledWith(expect.objectContaining({
       action: 'updated',
       identifiers: expect.objectContaining({ id: roleId, tenantId }),
@@ -131,6 +142,13 @@ describe('auth.roles.update', () => {
     }
 
     const em = {
+      begin: async () => undefined,
+      commit: async () => undefined,
+      rollback: async () => undefined,
+      find: async () => [],
+      findOne: async (entity: unknown) => (entity === Role
+        ? { id: 'role-1', name: 'After Role', tenantId: 'tenant-1', deletedAt: null }
+        : null),
       nativeDelete: async () => 0,
       flush: async () => undefined,
       getReference: () => ({}),
@@ -145,6 +163,14 @@ describe('auth.roles.update', () => {
             return dataEngine
           case 'em':
             return em
+          case 'rbacService':
+            return {
+              invalidateUserCache: jest.fn(async () => undefined),
+              userHasAllFeatures: jest.fn(async () => true),
+              userHasAllFeaturesWithEntityManager: jest.fn(async () => true),
+              loadAcl: jest.fn(async () => ({ isSuperAdmin: true, features: ['*'], organizations: null })),
+              loadAclWithEntityManager: jest.fn(async () => ({ isSuperAdmin: true, features: ['*'], organizations: null })),
+            }
           default:
             throw new Error(`Unexpected dependency: ${token}`)
         }
@@ -195,6 +221,12 @@ describe('auth.roles.update', () => {
 })
 
 function makeExecuteCtx(dataEngine: object, em: object): CommandRuntimeContext {
+  const transactionEm = em as Record<string, unknown>
+  if (typeof transactionEm.begin !== 'function') transactionEm.begin = jest.fn(async () => undefined)
+  if (typeof transactionEm.commit !== 'function') transactionEm.commit = jest.fn(async () => undefined)
+  if (typeof transactionEm.rollback !== 'function') transactionEm.rollback = jest.fn(async () => undefined)
+  if (typeof transactionEm.flush !== 'function') transactionEm.flush = jest.fn(async () => undefined)
+  if (typeof transactionEm.find !== 'function') transactionEm.find = jest.fn(async () => [])
   const container = {
     resolve: (token: string) => {
       switch (token) {
@@ -202,6 +234,8 @@ function makeExecuteCtx(dataEngine: object, em: object): CommandRuntimeContext {
           return dataEngine
         case 'em':
           return em
+        case 'rbacService':
+          return { loadAcl: async () => ({ isSuperAdmin: true, features: ['*'], organizations: null }) }
         default:
           throw new Error(`Unexpected dependency: ${token}`)
       }

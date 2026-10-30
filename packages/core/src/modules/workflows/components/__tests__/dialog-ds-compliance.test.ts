@@ -3,7 +3,9 @@ import path from 'node:path'
 
 const dialogFiles = [
   'src/modules/workflows/components/EdgeEditDialog.tsx',
+  'src/modules/workflows/components/EdgeEditDialogCrudForm.tsx',
   'src/modules/workflows/components/NodeEditDialog.tsx',
+  'src/modules/workflows/components/NodeEditDialogCrudForm.tsx',
 ]
 
 const tailwindColorFamilies = [

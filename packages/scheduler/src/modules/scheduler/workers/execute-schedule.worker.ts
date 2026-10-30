@@ -6,8 +6,11 @@ import { ScheduledJob } from '../data/entities.js'
 import { CommandBus } from '@open-mercato/shared/lib/commands'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import { emitSchedulerEvent } from '../events.js'
-import { assertSchedulerSafeCommandAuthorized } from '../lib/scheduler-safe-commands.js'
-import { buildScheduledCommandContext } from '../lib/commandContext.js'
+import {
+  assertSchedulerSafeCommandAuthorized,
+  SchedulerCommandAuthorizationError,
+} from '../lib/scheduler-safe-commands.js'
+import { buildScheduledCommandContext, resolveScheduledCommandActorUserId } from '../lib/commandContext.js'
 import { buildQueueTargetPayload, buildSchedulerIdempotencyKey } from '../lib/queueTargetPayload.js'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import {
@@ -16,6 +19,7 @@ import {
   sanitizeSchedulerTargetPayload,
   validateSchedulerTargetPayload,
 } from '../lib/safeQueueTargets'
+import { syncScheduleNextRunAt, type ScheduleTimingSnapshot } from '../lib/nextRunSync.js'
 
 const logger = createLogger('scheduler').child({ component: 'worker' })
 
@@ -66,10 +70,33 @@ type RbacServiceLike = {
  * - Checking feature flags and conditions
  * - Enqueuing target job or executing command
  * - Updating last run time
+ * - Mirroring BullMQ's next fire time into nextRunAt once the run is over
  */
 export default async function executeScheduleWorker(
   job: QueuedJob<ExecuteSchedulePayload>,
   ctx: JobContext & HandlerContext,
+): Promise<void> {
+  const execution: ScheduleExecution = { timing: null }
+  try {
+    await executeSchedule(job, ctx, execution)
+  } finally {
+    // Runs on every outcome of a started execution — completed, skipped,
+    // refused or thrown — because BullMQ has consumed the slot either way.
+    // A job rejected before it started (unknown, mismatched or disabled
+    // schedule) never sets the timing and is left alone.
+    const { timing } = execution
+    if (timing) {
+      await syncScheduleNextRunAt(() => ctx.resolve<EntityManager>('em'), timing)
+    }
+  }
+}
+
+type ScheduleExecution = { timing: ScheduleTimingSnapshot | null }
+
+async function executeSchedule(
+  job: QueuedJob<ExecuteSchedulePayload>,
+  ctx: JobContext & HandlerContext,
+  execution: ScheduleExecution,
 ): Promise<void> {
   logger.debug('Processing job', {
     jobId: ctx.jobId,
@@ -139,6 +166,17 @@ export default async function executeScheduleWorker(
       reason: 'Schedule is disabled',
     })
     return
+  }
+
+  // Captured before the target runs: the sync that follows the run must compare
+  // against the timing this execution loaded, not whatever the entity holds later.
+  execution.timing = {
+    scheduleId: schedule.id,
+    tenantId: schedule.tenantId ?? null,
+    organizationId: schedule.organizationId ?? null,
+    scheduleType: schedule.scheduleType,
+    scheduleValue: schedule.scheduleValue,
+    timezone: schedule.timezone,
   }
 
   // Emit started event
@@ -280,23 +318,65 @@ export default async function executeScheduleWorker(
 
   } else if (schedule.targetType === 'command' && schedule.targetCommand) {
     const commandBus = new CommandBus()
-    const actorUserId = typeof schedule.createdByUserId === 'string' ? schedule.createdByUserId.trim() : ''
-    await assertSchedulerSafeCommandAuthorized({
-      commandId: schedule.targetCommand,
-      actorUserId,
-      tenantId: schedule.tenantId,
-      organizationId: schedule.organizationId,
-      rbacService,
-    })
-    
+    // A manual run acts as whoever pressed the button; an unattended run keeps
+    // acting as the schedule's creator. The gate below and the context built
+    // afterwards must agree on that identity, so it is resolved once, by the same
+    // helper the context itself uses.
+    const triggeredByUserId = payload.triggerType === 'manual' ? payload.triggeredByUserId ?? null : null
+    const actorUserId = resolveScheduledCommandActorUserId(schedule, { triggeredByUserId })
+    try {
+      await assertSchedulerSafeCommandAuthorized({
+        commandId: schedule.targetCommand,
+        actorUserId,
+        tenantId: schedule.tenantId,
+        organizationId: schedule.organizationId,
+        rbacService,
+      })
+    } catch (error) {
+      // A refusal is permanent, so it must not be thrown: throwing hands BullMQ an
+      // error it cannot tell from an outage and it retries a decision that no
+      // attempt can change, while the run leaves no trace beyond a log line. The
+      // queue branch above already ends its equivalent conditions with an event and
+      // a return; this does the same, and records the refusal as a failure rather
+      // than a skip because a schedule whose actor may no longer run its command is
+      // a state an operator has to act on.
+      //
+      // Only the authorization decision is swallowed. Anything else — an RBAC
+      // lookup that fails because its store is down — is genuinely transient and
+      // still propagates so BullMQ retries it.
+      if (!(error instanceof SchedulerCommandAuthorizationError)) throw error
+
+      const reason = error.message
+      await emitSchedulerEvent('scheduler.job.failed', {
+        id: schedule.id,
+        tenantId: schedule.tenantId,
+        organizationId: schedule.organizationId,
+        scheduleName: schedule.name,
+        scopeType: schedule.scopeType,
+        error: reason,
+        failedAt: new Date(),
+      })
+
+      logger.warn('Schedule refused: scheduled command is not authorized', {
+        scheduleId: schedule.id,
+        commandId: schedule.targetCommand,
+        triggerType: payload.triggerType ?? 'scheduled',
+        reason,
+      })
+      return
+    }
+
     const commandInput = {
       ...((schedule.targetPayload as Record<string, unknown>) || {}),
       tenantId: schedule.tenantId,
       organizationId: schedule.organizationId,
     }
-    
+
     // Build the schedule-scoped command context after the allowlist/RBAC gate.
-    const commandCtx = buildScheduledCommandContext(schedule, ctx as unknown as AppContainer)
+    // The gate authorized `actorUserId`; this must execute as that same identity.
+    const commandCtx = buildScheduledCommandContext(schedule, ctx as unknown as AppContainer, {
+      triggeredByUserId,
+    })
     
     const commandResult = await commandBus.execute(schedule.targetCommand, {
       input: commandInput,

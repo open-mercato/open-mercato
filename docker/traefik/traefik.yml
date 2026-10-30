@@ -2,7 +2,7 @@
 # Phase 3 of `.ai/specs/implemented/2026-04-08-portal-custom-domain-routing.md`.
 #
 # Routers, services, and middlewares are declared via Docker labels on the
-# `app` service in docker-compose.fullapp.yml / docker-compose.fullapp.dev.yml,
+# `app` service in starters/docker/compose.fullapp.yml / compose.fullapp.dev.yml,
 # which lets compose-level ${ENV} substitution inject secrets like
 # DOMAIN_CHECK_SECRET. Operators who prefer a file provider can mount
 # `dynamic.example.yml` instead — see docker/traefik/README.md.

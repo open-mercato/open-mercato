@@ -2,6 +2,8 @@ export type TelemetryTraceCarrier = Record<string, string>
 
 export type TelemetrySpanAttributes = Record<string, string | number | boolean | undefined>
 
+export type TelemetryMetricLabels = Record<string, string | number | boolean | undefined>
+
 export type TelemetrySpanKind = 'internal' | 'server' | 'client' | 'producer' | 'consumer'
 
 /** The subset of the telemetry package's `Span` that bridge consumers need. */
@@ -43,11 +45,23 @@ export type TelemetryRuntime = {
    * running `fn` untraced.
    */
   withSpan?<T>(name: string, fn: (span: TelemetrySpan) => T, options?: TelemetrySpanOptions): T
+  recordHistogram?(
+    name: string,
+    value: number,
+    labels?: TelemetryMetricLabels,
+    unit?: string,
+  ): void
   recordHttpDuration(method: string, route: string, status: number, startedAt: number): void
   reportError(
     error: unknown,
     context?: {
       module?: string
+      /**
+       * Stable, enumerated fingerprint (`module.reason`) the backend groups on.
+       * Optional so a bootstrap predating it still satisfies the contract — an
+       * older bridge simply ignores the field.
+       */
+      code?: string
       attributes?: Record<string, string | number | boolean | undefined>
     },
   ): void

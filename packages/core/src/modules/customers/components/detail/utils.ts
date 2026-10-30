@@ -3,13 +3,19 @@
 import type { DictionarySelectLabels } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
 import type { CustomerDictionaryKind } from '../../lib/dictionaries'
 import { CUSTOMER_INTERACTION_TASK_SOURCE, CUSTOMER_INTERACTION_TASK_TYPE } from '../../lib/interactionCompatibility'
+import { WORKFLOW_TASK_TODO_SOURCE, workflowTaskHref } from '../../lib/workflowTaskLink'
 
 
-export function formatDate(value?: string | null): string | null {
+/**
+ * Pass `locale` to format in the application locale (`useLocale()` in client components).
+ * Omitting it keeps the runtime default, which varies per machine and is therefore not
+ * assertable in tests.
+ */
+export function formatDate(value?: string | null, locale?: string): string | null {
   if (!value) return null
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return null
-  return date.toLocaleDateString()
+  return date.toLocaleDateString(locale)
 }
 
 export function formatTemplate(template: string, params?: Record<string, string | number>): string {
@@ -42,6 +48,7 @@ export function resolveTodoHref(source: string, todoId: string | null | undefine
   if (module === 'example') {
     return `/backend/todos/${encodeURIComponent(todoId)}/edit`
   }
+  if (source === WORKFLOW_TASK_TODO_SOURCE) return workflowTaskHref(todoId)
   return `/backend/${module}/todos/${encodeURIComponent(todoId)}/edit`
 }
 
@@ -148,15 +155,20 @@ export function createDictionarySelectLabels(
   }
 }
 
-export function formatCurrency(amount: number, currency?: string | null): string {
+/**
+ * Pass `locale` to format in the application locale (`useLocale()` in client components).
+ * Omitting it keeps the runtime default, which varies per machine and is therefore not
+ * assertable in tests.
+ */
+export function formatCurrency(amount: number, currency?: string | null, locale?: string): string {
   try {
-    return new Intl.NumberFormat(undefined, {
+    return new Intl.NumberFormat(locale, {
       style: 'currency',
       currency: currency || 'PLN',
       maximumFractionDigits: 0,
     }).format(amount)
   } catch {
-    return `${amount.toLocaleString()} ${currency || 'PLN'}`
+    return `${amount.toLocaleString(locale)} ${currency || 'PLN'}`
   }
 }
 

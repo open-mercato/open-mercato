@@ -394,6 +394,7 @@ export default function EnforcementPolicyForm({
             ? t('security.admin.enforcement.form.titleEdit', 'Edit enforcement policy')
             : t('security.admin.enforcement.form.titleCreate', 'Create enforcement policy')
         }
+        titleHeadingLevel={1}
         backHref={backHref}
         schema={schema}
         formId={formId}

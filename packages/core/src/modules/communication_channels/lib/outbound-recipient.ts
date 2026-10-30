@@ -37,11 +37,24 @@ export type OutboundRecipientCheck = { ok: true } | { ok: false; error: string }
  * path to send at all (#4976). Validation now follows the adapter's
  * `capabilities.recipientFormat`, defaulting to `'email'` so every existing
  * provider keeps byte-identical behavior.
+ *
+ * A `'provider-native'` provider may also be addressed by **omitting** the
+ * recipient entirely: those adapters are configured with their own outbound
+ * target (Discord's `defaultChannelId`) and fall back to it when the message
+ * names no channel, which is the smoke test the Discord spec documents in
+ * § 6 "Test it". An email provider has no such default, so `'email'` — the
+ * format every existing provider resolves to — still requires a recipient.
+ * Omission means `undefined` only: `null` or `''` is a caller that meant to
+ * supply an address and got it wrong, and stays a 422 on every provider.
  */
 export function validateOutboundRecipient(
   recipient: unknown,
   capabilities: Pick<ChannelCapabilities, 'recipientFormat'> | null | undefined,
 ): OutboundRecipientCheck {
+  const isProviderNative = capabilities?.recipientFormat === 'provider-native'
+  if (recipient === undefined && isProviderNative) {
+    return { ok: true }
+  }
   if (typeof recipient !== 'string' || recipient.length === 0) {
     return { ok: false, error: 'Recipient is required' }
   }
@@ -51,7 +64,7 @@ export function validateOutboundRecipient(
       error: `Recipient must be at most ${MAX_OUTBOUND_RECIPIENT_LENGTH} characters`,
     }
   }
-  if (capabilities?.recipientFormat !== 'provider-native') {
+  if (!isProviderNative) {
     return emailRecipientSchema.safeParse(recipient).success
       ? { ok: true }
       : { ok: false, error: 'Recipient must be a valid email address' }

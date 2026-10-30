@@ -36,12 +36,14 @@ Steps are the building blocks of workflows. Each step represents a stage in your
 - **USER_TASK**: Requires human input or decision
 - **AUTOMATED**: Performs automated processing
 - **WAIT_FOR_SIGNAL**: Pauses until an external event occurs
+- **WAIT_FOR_CONDITION**: Pauses until something becomes true about the run's own data
+- **IF_ELSE** / **SWITCH**: Decision steps that route on a condition or on one field's value
 
 [**Learn more about step types →**](./step-types)
 
 ### Transitions
 
-Transitions connect steps and define how the workflow moves forward. They can be automatic (immediate) or conditional (based on rules or manual actions).
+Transitions — "routes" on the canvas — connect steps and define how the workflow moves forward. They can be automatic (immediate) or conditional (based on rules or manual actions), and a route marked as an **error route** is taken only when its source step fails.
 
 [**Learn more about transitions →**](./transitions)
 

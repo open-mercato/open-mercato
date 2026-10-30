@@ -1,18 +1,33 @@
+import { rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import {
   TEST_CHANNEL_SEEDING_ENV,
+  TEST_EMAIL_CAPTURE_ACCESS_TOKEN_ENV,
+  TEST_EMAIL_CAPTURE_CORRELATION_TOKEN_ENV,
   TEST_SEED_CHAT_PROVIDER_KEY,
   TEST_SEED_PROVIDER_KEY,
+  clearTestSeedCapturedMessages,
+  deleteTestSeedPlatformMessage,
   ensureTestSeedAdapterRegistered,
   isTestChannelSeedingEnabled,
+  isTestEmailCaptureAccessAuthorized,
+  listTestSeedCapturedMessages,
+  type TestSeedCapturedMessage,
 } from '../test-seed'
 import { clearChannelAdapters, hasChannelAdapter, getChannelAdapter } from '../registry'
+import { getSystemEmailProviderConfigResolver } from '../system-email-provider-config'
 
 describe('communication_channels test-seed gate', () => {
   const originalFlag = process.env[TEST_CHANNEL_SEEDING_ENV]
+  const originalAccessToken = process.env[TEST_EMAIL_CAPTURE_ACCESS_TOKEN_ENV]
 
   afterEach(() => {
     if (originalFlag === undefined) delete process.env[TEST_CHANNEL_SEEDING_ENV]
     else process.env[TEST_CHANNEL_SEEDING_ENV] = originalFlag
+    if (originalAccessToken === undefined) delete process.env[TEST_EMAIL_CAPTURE_ACCESS_TOKEN_ENV]
+    else process.env[TEST_EMAIL_CAPTURE_ACCESS_TOKEN_ENV] = originalAccessToken
     clearChannelAdapters()
   })
 
@@ -84,6 +99,49 @@ describe('communication_channels test-seed gate', () => {
       expect((normalized as { subject?: string }).subject).toBeUndefined()
     })
 
+    it('the email stub normalizes an email-shaped frame whose sender is an address (#6089)', async () => {
+      process.env[TEST_CHANNEL_SEEDING_ENV] = 'true'
+      clearChannelAdapters()
+      ensureTestSeedAdapterRegistered()
+      const adapter = getChannelAdapter(TEST_SEED_PROVIDER_KEY)
+
+      const normalized = await adapter!.normalizeInbound({
+        raw: {
+          externalMessageId: '<inbound-1@example.test>',
+          externalConversationId: 'inbound-conversation-1',
+          senderIdentifier: 'inbound-sender@example.test',
+          senderDisplayName: 'Inbound Sender',
+          subject: 'Inbound subject',
+          body: 'hello from an inbox',
+        },
+        eventType: 'message',
+        metadata: {},
+      })
+
+      expect(normalized.senderIdentifier).toBe('inbound-sender@example.test')
+      expect(normalized.subject).toBe('Inbound subject')
+      expect(normalized.body).toBe('hello from an inbox')
+      expect(normalized.channelPayload.from).toEqual({
+        address: 'inbound-sender@example.test',
+        name: 'Inbound Sender',
+      })
+    })
+
+    it('the email stub rejects a frame whose sender is not an address', async () => {
+      process.env[TEST_CHANNEL_SEEDING_ENV] = 'true'
+      clearChannelAdapters()
+      ensureTestSeedAdapterRegistered()
+      const adapter = getChannelAdapter(TEST_SEED_PROVIDER_KEY)
+
+      await expect(
+        adapter!.normalizeInbound({
+          raw: { externalMessageId: 'x', externalConversationId: 'y', senderIdentifier: '1499156851487539260' },
+          eventType: 'message',
+          metadata: {},
+        }),
+      ).rejects.toThrow('email-shaped senderIdentifier')
+    })
+
     it('registers a network-free email stub adapter when the gate is on', () => {
       process.env[TEST_CHANNEL_SEEDING_ENV] = 'true'
       clearChannelAdapters()
@@ -94,6 +152,7 @@ describe('communication_channels test-seed gate', () => {
       // conversationHistory must be false so the strict registry validator does
       // not require a fetchHistory() implementation on the stub.
       expect(adapter?.capabilities.conversationHistory).toBe(false)
+      expect(getSystemEmailProviderConfigResolver(TEST_SEED_PROVIDER_KEY)?.isConfigured()).toBe(true)
     })
 
     it('is idempotent — repeated calls do not throw a duplicate registration', () => {
@@ -120,5 +179,187 @@ describe('communication_channels test-seed gate', () => {
       expect(typeof result.externalMessageId).toBe('string')
       expect(result.externalMessageId.length).toBeGreaterThan(0)
     })
+  })
+
+  describe('isTestEmailCaptureAccessAuthorized', () => {
+    it('requires the exact configured opaque access token', () => {
+      process.env[TEST_EMAIL_CAPTURE_ACCESS_TOKEN_ENV] = 'a'.repeat(64)
+
+      expect(isTestEmailCaptureAccessAuthorized('a'.repeat(64))).toBe(true)
+      expect(isTestEmailCaptureAccessAuthorized('b'.repeat(64))).toBe(false)
+      expect(isTestEmailCaptureAccessAuthorized(null)).toBe(false)
+    })
+
+    it('fails closed for missing or short configured tokens', () => {
+      delete process.env[TEST_EMAIL_CAPTURE_ACCESS_TOKEN_ENV]
+      expect(isTestEmailCaptureAccessAuthorized('a'.repeat(64))).toBe(false)
+
+      process.env[TEST_EMAIL_CAPTURE_ACCESS_TOKEN_ENV] = 'too-short'
+      expect(isTestEmailCaptureAccessAuthorized('too-short')).toBe(false)
+    })
+  })
+})
+
+describe('deleteTestSeedPlatformMessage', () => {
+  it('scopes deletion to a test-seed stamp or the verified external conversation', async () => {
+    const execute = jest.fn().mockResolvedValue(undefined)
+    const em = {
+      getConnection: () => ({ execute }),
+    } as unknown as EntityManager
+
+    await deleteTestSeedPlatformMessage(em, {
+      messageId: 'message-1',
+      channelId: 'channel-1',
+      conversationId: 'conversation-1',
+      tenantId: 'tenant-1',
+      organizationId: 'organization-1',
+    })
+
+    expect(execute).toHaveBeenCalledWith(
+      expect.stringContaining("source_entity_type = 'communication_channels.external_conversation'"),
+      ['message-1', 'channel-1', 'conversation-1', 'tenant-1', 'organization-1'],
+    )
+  })
+})
+
+const tenantId = 'tenant-1'
+const organizationId = 'organization-1'
+const captureScope = { tenantId, organizationId }
+
+function makeCapturedMessage(
+  scope: TestSeedCapturedMessage['scope'],
+  to: string,
+  subject: string,
+): TestSeedCapturedMessage {
+  return {
+    capturedAt: new Date().toISOString(),
+    externalMessageId: `${subject}@test-seed.local`,
+    content: { text: subject, bodyFormat: 'text' },
+    scope,
+    metadata: { to, subject },
+  }
+}
+
+describe('test-seed email capture scoping', () => {
+  const originalCapturePath = process.env.OM_TEST_SYSTEM_EMAIL_CAPTURE_PATH
+  const originalCorrelationToken = process.env[TEST_EMAIL_CAPTURE_CORRELATION_TOKEN_ENV]
+  let capturePath: string
+  const correlationToken = 'c'.repeat(64)
+
+  beforeEach(() => {
+    capturePath = path.join(tmpdir(), `open-mercato-test-email-${Date.now()}-${Math.random()}.jsonl`)
+    process.env.OM_TEST_SYSTEM_EMAIL_CAPTURE_PATH = capturePath
+    process.env[TEST_EMAIL_CAPTURE_CORRELATION_TOKEN_ENV] = correlationToken
+  })
+
+  afterEach(async () => {
+    await rm(capturePath, { force: true })
+    if (originalCapturePath === undefined) {
+      delete process.env.OM_TEST_SYSTEM_EMAIL_CAPTURE_PATH
+    } else {
+      process.env.OM_TEST_SYSTEM_EMAIL_CAPTURE_PATH = originalCapturePath
+    }
+    if (originalCorrelationToken === undefined) {
+      delete process.env[TEST_EMAIL_CAPTURE_CORRELATION_TOKEN_ENV]
+    } else {
+      process.env[TEST_EMAIL_CAPTURE_CORRELATION_TOKEN_ENV] = originalCorrelationToken
+    }
+  })
+
+  async function seedCapture(messages: TestSeedCapturedMessage[]): Promise<void> {
+    await writeFile(capturePath, `${messages.map((message) => JSON.stringify(message)).join('\n')}\n`, 'utf8')
+  }
+
+  it('returns exact-organization and tenant-wide messages without exposing another organization', async () => {
+    await seedCapture([
+      makeCapturedMessage(captureScope, 'exact@example.test', 'exact'),
+      makeCapturedMessage({ tenantId, organizationId: tenantId }, 'tenant@example.test', 'tenant-wide'),
+      makeCapturedMessage({ tenantId, organizationId: 'organization-2' }, 'other@example.test', 'other-org'),
+      makeCapturedMessage({ tenantId: 'tenant-2', organizationId }, 'tenant-2@example.test', 'other-tenant'),
+    ])
+
+    const messages = await listTestSeedCapturedMessages(captureScope)
+
+    expect(messages.map((message) => message.metadata?.subject)).toEqual(['exact', 'tenant-wide'])
+  })
+
+  it('skips foreign and malformed records instead of failing the whole capture read', async () => {
+    // The unscoped `shared/lib/email/send` capture writes records with no `scope`, and the repo
+    // ships a committed fixture of them. Reading one of those must not take down every capture
+    // call — that turned the whole email integration suite red once already.
+    const foreignRecord = { to: 'foreign@example.test', subject: 'foreign', from: 'ops@example.test' }
+    await writeFile(
+      capturePath,
+      `${JSON.stringify(foreignRecord)}\nnot-json\n${JSON.stringify(makeCapturedMessage(captureScope, 'ours@example.test', 'ours'))}\n`,
+      'utf8',
+    )
+
+    await expect(listTestSeedCapturedMessages(captureScope)).resolves.toEqual([
+      expect.objectContaining({ metadata: expect.objectContaining({ subject: 'ours' }) }),
+    ])
+    await expect(clearTestSeedCapturedMessages(captureScope)).resolves.toBeUndefined()
+  })
+
+  it('returns system messages only for the explicitly requested recipient', async () => {
+    await seedCapture([
+      { ...makeCapturedMessage({ tenantId: 'system', organizationId: 'system' }, 'target@example.test', 'target'), captureCorrelationToken: correlationToken },
+      { ...makeCapturedMessage({ tenantId: 'system', organizationId: 'system' }, 'other@example.test', 'other'), captureCorrelationToken: 'd'.repeat(64) },
+    ])
+
+    await expect(listTestSeedCapturedMessages(captureScope)).resolves.toEqual([])
+
+    const messages = await listTestSeedCapturedMessages(captureScope, {
+      systemRecipient: 'TARGET@example.test',
+      captureCorrelationToken: correlationToken,
+    })
+
+    expect(messages.map((message) => message.metadata?.subject)).toEqual(['target'])
+  })
+
+  it('clears only visible tenant and recipient-filtered system messages', async () => {
+    await seedCapture([
+      makeCapturedMessage(captureScope, 'exact@example.test', 'exact'),
+      makeCapturedMessage({ tenantId, organizationId: tenantId }, 'tenant@example.test', 'tenant-wide'),
+      makeCapturedMessage({ tenantId, organizationId: 'organization-2' }, 'other@example.test', 'other-org'),
+      { ...makeCapturedMessage({ tenantId: 'system', organizationId: 'system' }, 'target@example.test', 'target'), captureCorrelationToken: correlationToken },
+      { ...makeCapturedMessage({ tenantId: 'system', organizationId: 'system' }, 'other-system@example.test', 'other-system'), captureCorrelationToken: correlationToken },
+    ])
+
+    await clearTestSeedCapturedMessages(captureScope, {
+      systemRecipient: 'target@example.test',
+      captureCorrelationToken: correlationToken,
+    })
+
+    await expect(listTestSeedCapturedMessages(
+      { tenantId, organizationId: 'organization-2' },
+      {
+        systemRecipient: 'other-system@example.test',
+        captureCorrelationToken: correlationToken,
+      },
+    )).resolves.toEqual([
+      expect.objectContaining({ metadata: expect.objectContaining({ subject: 'other-org' }) }),
+      expect.objectContaining({ metadata: expect.objectContaining({ subject: 'other-system' }) }),
+    ])
+  })
+
+  it('never authorizes system capture access by recipient alone', async () => {
+    await seedCapture([
+      {
+        ...makeCapturedMessage(
+          { tenantId: 'system', organizationId: 'system' },
+          'target@example.test',
+          'target',
+        ),
+        captureCorrelationToken: correlationToken,
+      },
+    ])
+
+    await expect(listTestSeedCapturedMessages(captureScope, {
+      systemRecipient: 'target@example.test',
+    })).resolves.toEqual([])
+    await expect(listTestSeedCapturedMessages(captureScope, {
+      systemRecipient: 'target@example.test',
+      captureCorrelationToken: 'd'.repeat(64),
+    })).resolves.toEqual([])
   })
 })

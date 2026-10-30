@@ -5,7 +5,8 @@ import { sql, type SelectQueryBuilder } from 'kysely'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
-import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
+import { CrudHttpError, isCrudHttpError, translateCrudErrorBody } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { resolveEffectiveWarrantyClaimSettings } from '../../lib/settings'
@@ -38,7 +39,7 @@ type WarrantyClaimsStatsDb = {
 
 type StatsRouteContext = {
   tenantId: string
-  organizationIds: string[]
+  organizationIds: string[] | undefined
   userId: string | null
   em: EntityManager
 }
@@ -92,8 +93,14 @@ function parseNumeric(value: NumericAggregateValue | undefined): number {
 
 function applyOrganizationScope<O>(
   query: SelectQueryBuilder<WarrantyClaimsStatsDb, 'warranty_claims', O>,
-  organizationIds: string[],
+  organizationIds: string[] | undefined,
 ): SelectQueryBuilder<WarrantyClaimsStatsDb, 'warranty_claims', O> {
+  if (organizationIds === undefined) {
+    return query
+  }
+  if (organizationIds.length === 0) {
+    return query.where(sql<boolean>`false`)
+  }
   if (organizationIds.length === 1) {
     return query.where('organization_id', '=', organizationIds[0])
   }
@@ -120,14 +127,7 @@ async function resolveStatsContext(req: Request): Promise<StatsRouteContext> {
     throw new CrudHttpError(401, { error: translate('warranty_claims.errors.unauthorized', 'Unauthorized') })
   }
   const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
-  const organizationIds = Array.isArray(scope?.filterIds) && scope.filterIds.length > 0
-    ? scope.filterIds
-    : auth.orgId
-      ? [auth.orgId]
-      : []
-  if (organizationIds.length === 0) {
-    throw new CrudHttpError(400, { error: translate('warranty_claims.errors.organization_required', 'Organization context is required') })
-  }
+  const { organizationIds } = resolveOrganizationScopeFilter(scope, auth)
   return {
     tenantId: auth.tenantId,
     organizationIds,
@@ -146,7 +146,7 @@ export async function GET(req: Request) {
     const thirtyDaysAgo = new Date(now.getTime() - THIRTY_DAYS_MS)
     const effectiveSettings = await resolveEffectiveWarrantyClaimSettings(context.em, {
       tenantId: context.tenantId,
-      organizationId: context.organizationIds[0] ?? null,
+      organizationId: context.organizationIds?.[0] ?? null,
     })
 
     const openRows = await baseClaimsQuery(
@@ -277,8 +277,8 @@ export async function GET(req: Request) {
       },
     })
   } catch (err) {
-    if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
     const { translate } = await resolveTranslations()
+    if (isCrudHttpError(err)) return NextResponse.json(translateCrudErrorBody(err.body, translate), { status: err.status })
     if (err instanceof z.ZodError) {
       return NextResponse.json({ error: translate('warranty_claims.errors.invalidInput', 'Invalid input') }, { status: 400 })
     }

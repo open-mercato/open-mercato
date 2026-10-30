@@ -69,6 +69,24 @@ describe('normalizeInboundImapMessage', () => {
     expect(result.channelContentType).toBe('email/mime')
   })
 
+  it('dates the message with INTERNALDATE, not the sender-written Date header (#6095)', async () => {
+    const receivedAt = new Date('2026-05-21T10:00:07.000Z')
+    const result = await normalizeInboundImapMessage({
+      rawMessage: buildMimeMessage({
+        messageId: '<skewed@example.com>',
+        from: 'alice@example.com',
+        to: 'bob@example.com',
+        subject: 'skewed',
+        text: 'hi',
+        date: 'Tue, 01 Jan 2030 00:00:00 +0000',
+      }),
+      uid: 43,
+      accountIdentifier: 'bob@example.com',
+      receivedAt,
+    })
+    expect(result.timestamp).toEqual(receivedAt)
+  })
+
   it('synthesises a deterministic fallback message id when missing', async () => {
     const result = await normalizeInboundImapMessage({
       rawMessage: buildMimeMessage({

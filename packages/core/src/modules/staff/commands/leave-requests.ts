@@ -12,7 +12,7 @@ import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { invalidateCrudCache } from '@open-mercato/shared/lib/crud/cache'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { PlannerAvailabilityRule } from '@open-mercato/core/modules/planner/data/entities'
-import { StaffLeaveRequest, type StaffLeaveRequestStatus } from '../data/entities'
+import { StaffLeaveRequest, StaffTeamMember, type StaffLeaveRequestStatus } from '../data/entities'
 import {
   staffLeaveRequestCreateSchema,
   staffLeaveRequestDecisionSchema,
@@ -210,6 +210,36 @@ function ensurePendingStatus(request: StaffLeaveRequest): void {
   }
 }
 
+async function ensureUndoablePending(request: StaffLeaveRequest): Promise<void> {
+  if (request.status === 'pending') return
+  const { translate } = await resolveTranslations()
+  throw new CrudHttpError(409, {
+    error: translate(
+      'staff.leaveRequests.errors.undoAfterDecision',
+      'This leave request has already been approved or rejected and can no longer be undone. Undo the decision first.',
+    ),
+  })
+}
+
+async function requireUndoMember(em: EntityManager, snapshot: LeaveRequestSnapshot): Promise<StaffTeamMember> {
+  const scope = explicitStaffCommandScope(snapshot.tenantId, snapshot.organizationId)
+  const member = await findOneWithDecryption(
+    em,
+    StaffTeamMember,
+    applyScopeToWhere<StaffTeamMember>({ id: snapshot.memberId, deletedAt: null }, scope),
+    undefined,
+    scopeForDecryption(scope),
+  )
+  if (member) return member
+  const { translate } = await resolveTranslations()
+  throw new CrudHttpError(409, {
+    error: translate(
+      'staff.leaveRequests.errors.undoMemberMissing',
+      'The original team member of this leave request no longer exists, so the change cannot be undone.',
+    ),
+  })
+}
+
 async function createUnavailabilityRules(params: {
   em: EntityManager
   tenantId: string
@@ -388,25 +418,25 @@ const createLeaveRequestCommand: CommandHandler<StaffLeaveRequestCreateInput, { 
     if (!after) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const request = await em.findOne(StaffLeaveRequest, scopedStaffSnapshotWhere(after.id, staffSnapshotScopeFromSnapshot(after)))
-    if (request) {
-      request.deletedAt = new Date()
-      request.updatedAt = new Date()
-      await em.flush()
+    if (!request || request.deletedAt) return
+    await ensureUndoablePending(request)
+    request.deletedAt = new Date()
+    request.updatedAt = new Date()
+    await em.flush()
 
-      const de = (ctx.container.resolve('dataEngine') as DataEngine)
-      await emitCrudUndoSideEffects({
-        dataEngine: de,
-        action: 'deleted',
-        entity: request,
-        identifiers: {
-          id: request.id,
-          organizationId: request.organizationId,
-          tenantId: request.tenantId,
-        },
-        events: staffLeaveRequestCrudEvents,
+    const de = (ctx.container.resolve('dataEngine') as DataEngine)
+    await emitCrudUndoSideEffects({
+      dataEngine: de,
+      action: 'deleted',
+      entity: request,
+      identifiers: {
+        id: request.id,
+        organizationId: request.organizationId,
+        tenantId: request.tenantId,
+      },
+      events: staffLeaveRequestCrudEvents,
       indexer: leaveRequestCrudIndexer,
-      })
-    }
+    })
   },
   redo: makeCreateRedo<StaffLeaveRequest, LeaveRequestSnapshot, StaffLeaveRequestCreateInput, { requestId: string }>({
     entityClass: StaffLeaveRequest,
@@ -517,17 +547,18 @@ const updateLeaveRequestCommand: CommandHandler<StaffLeaveRequestUpdateInput, { 
     if (!before || !after) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const request = await em.findOne(StaffLeaveRequest, scopedStaffSnapshotWhere(after.id, staffSnapshotScopeFromSnapshot(after)))
-    if (!request) return
+    if (!request || request.deletedAt) return
+    await ensureUndoablePending(request)
+    const currentMemberId = typeof request.member === 'string' ? request.member : request.member.id
+    if (before.memberId !== currentMemberId) {
+      request.member = await requireUndoMember(em, before)
+    }
     request.startDate = new Date(before.startDate)
     request.endDate = new Date(before.endDate)
     request.timezone = before.timezone
-    request.status = before.status
     request.unavailabilityReasonEntryId = before.unavailabilityReasonEntryId
     request.unavailabilityReasonValue = before.unavailabilityReasonValue
     request.note = before.note
-    request.decisionComment = before.decisionComment
-    request.decidedByUserId = before.decidedByUserId
-    request.decidedAt = before.decidedAt ? new Date(before.decidedAt) : null
     request.updatedAt = new Date()
     await em.flush()
 

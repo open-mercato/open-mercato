@@ -3,7 +3,7 @@ import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration
 import { deleteSalesEntityIfExists } from '@open-mercato/core/helpers/integration/salesFixtures'
 
 /**
- * TC-SALES-032: Invoice create / read / delete and totals verification via API.
+ * TC-SALES-032: Invoice create / read / update / delete and totals verification via API.
  *
  * Issue #2459 scenario "TC-SALES-031 — Invoice Creation and Totals Verification via API" (P0).
  * Renumbered to 032: TC-SALES-030 is already taken (read-model totals, #2455/#2457).
@@ -16,8 +16,6 @@ import { deleteSalesEntityIfExists } from '@open-mercato/core/helpers/integratio
  * Scope notes (pre-existing defects tracked separately so this coverage stays green):
  *  - `orderId` is validated on create (unknown order → 400, covered below) but the order
  *    relation is not persisted (`order_id` reads back null), so linkage is not asserted.
- *  - `PUT /api/sales/invoices` (update) currently returns 500, so the update leg is not
- *    exercised; this spec covers create → read → delete, which all work.
  */
 
 type JsonRecord = Record<string, unknown>
@@ -44,8 +42,8 @@ function num(value: unknown): number {
   return Number.NaN
 }
 
-test.describe('TC-SALES-032 invoice create/read/delete + totals', () => {
-  test('creates, reads, and deletes an invoice preserving totals', async ({ request }) => {
+test.describe('TC-SALES-032 invoice create/read/update/delete + totals', () => {
+  test('creates, reads, updates, and deletes an invoice preserving totals', async ({ request }) => {
     test.slow()
     const token = await getAuthToken(request, 'admin')
     let orderId: string | null = null
@@ -94,6 +92,22 @@ test.describe('TC-SALES-032 invoice create/read/delete + totals', () => {
       // so `order_id` reads back null. This pins current behavior and will fail — by design —
       // once the link is persisted, prompting a flip to `expect(created.order_id).toBe(orderId)`.
       expect(created.order_id).toBeNull()
+
+      const updatedDueDate = '2030-06-15T00:00:00.000Z'
+      const updatedGrossTotal = 125.5
+      const updateResponse = await apiRequest(request, 'PUT', '/api/sales/invoices', {
+        token,
+        data: { id: invoiceId, dueDate: updatedDueDate, grandTotalGrossAmount: updatedGrossTotal },
+      })
+      expect(updateResponse.status(), 'PUT /api/sales/invoices should be 200').toBe(200)
+      expect((await readJson(updateResponse)).invoiceId).toBe(invoiceId)
+
+      const updated = listItems(
+        await readJson(await apiRequest(request, 'GET', `/api/sales/invoices?id=${encodeURIComponent(invoiceId)}`, { token })),
+      ).find((row) => row.id === invoiceId) ?? {}
+      expect(updated.id).toBe(invoiceId)
+      expect(new Date(String(updated.due_date)).toISOString()).toBe(updatedDueDate)
+      expect(num(updated.grand_total_gross_amount)).toBe(updatedGrossTotal)
 
       const deleteResponse = await apiRequest(
         request,

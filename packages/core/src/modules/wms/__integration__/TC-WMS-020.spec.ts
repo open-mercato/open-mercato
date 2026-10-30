@@ -12,6 +12,7 @@ import {
 import {
   ensureRoleFeatures,
 } from './helpers/wmsFixtures'
+import { fillCombobox } from './helpers/wmsUi'
 
 export const integrationMeta = {
   dependsOnModules: ['wms'],
@@ -71,8 +72,8 @@ test.describe('TC-WMS-020: ACL denial and warehouse UI CRUD', () => {
       await fillControlledInput(createInputs.nth(0), warehouseName)
       await fillControlledInput(createInputs.nth(1), warehouseCode)
       await fillControlledInput(createInputs.nth(2), 'Gdynia')
-      await fillControlledInput(createInputs.nth(3), 'PL')
-      await fillControlledInput(createInputs.nth(4), 'Europe/Warsaw')
+      await fillCombobox(page, 'Search country', 'Poland', { scope: createDialog })
+      await fillCombobox(page, 'Search timezone', 'Europe/Warsaw', { scope: createDialog })
 
       const createResponse = await waitForApiMutation(
         page,
