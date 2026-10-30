@@ -74,6 +74,13 @@ describe.each(Object.entries(configFiles))('%s next.config frame headers', (_lab
     expect(findHeader(rules, '/:path*', 'X-Frame-Options')).toBe('SAMEORIGIN')
   })
 
+  it.each([PHASE_DEVELOPMENT_SERVER, PHASE_PRODUCTION_BUILD])('keeps the Autopay launch policy in %s', async (phase) => {
+    const rules = await loadHeaderRules(configFile, phase, 'production')
+
+    expect(findHeader(rules, '/api/gateway_autopay/launch', 'Content-Security-Policy')).toBe("default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; form-action https:; base-uri 'none'; frame-ancestors 'none'")
+    expect(findHeader(rules, '/api/gateway_autopay/launch', 'X-Frame-Options')).toBe('DENY')
+  })
+
   it.each([PHASE_DEVELOPMENT_SERVER, PHASE_PRODUCTION_BUILD])('keeps the attachment download sandbox in %s', async (phase) => {
     const rules = await loadHeaderRules(configFile, phase, 'production')
 

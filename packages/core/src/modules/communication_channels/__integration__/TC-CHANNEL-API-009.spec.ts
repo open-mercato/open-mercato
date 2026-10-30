@@ -125,6 +125,9 @@ test.describe('TC-CHANNEL-API-009: reaction routes mask other users\' personal m
 
       await login(page, 'admin')
       await page.context().addCookies([{ name: 'locale', value: 'pl', url: baseURL ?? 'http://localhost:3000' }])
+      // The scenario is a stale reaction bar: keep live events from refreshing the
+      // page before the click, so the refusal path is exercised deterministically.
+      await page.route('**/api/events/stream**', (route) => route.abort())
       await page.goto(`/backend/messages/${seeded.messageId}`)
       const reactionButton = page.getByRole('button', { name: /👍/ })
       await expect(reactionButton).toBeVisible()

@@ -27,7 +27,7 @@ jest.mock('@open-mercato/shared/lib/commands/customFieldSnapshots', () => {
 import '@open-mercato/core/modules/auth/commands/roles'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { Role } from '../../data/entities'
+import { Role, RoleAcl } from '../../data/entities'
 import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -58,15 +58,18 @@ describe('auth.roles.update', () => {
     }
     const em = {
       findOne: jest.fn(async () => existingRole),
+      find: jest.fn(async () => []),
       count: jest.fn(async () => 0),
     }
     const ctx = makeExecuteCtx(dataEngine, em)
 
+    await handler.prepare!({ id: roleId, name: 'admin' }, ctx)
     const result = await handler.execute({ id: roleId, name: 'admin' }, ctx)
 
     expect(result).toMatchObject({ id: roleId, name: 'admin', tenantId })
     expect(em.count).not.toHaveBeenCalled()
     expect(updateOrmEntity).toHaveBeenCalled()
+    expect(em.find.mock.calls.find(([entity]) => entity === RoleAcl)?.[1]).toMatchObject({ deletedAt: null })
     expect(markOrmEntityChange).toHaveBeenCalledWith(expect.objectContaining({
       action: 'updated',
       identifiers: expect.objectContaining({ id: roleId, tenantId }),
@@ -231,6 +234,8 @@ function makeExecuteCtx(dataEngine: object, em: object): CommandRuntimeContext {
           return dataEngine
         case 'em':
           return em
+        case 'rbacService':
+          return { loadAcl: async () => ({ isSuperAdmin: true, features: ['*'], organizations: null }) }
         default:
           throw new Error(`Unexpected dependency: ${token}`)
       }

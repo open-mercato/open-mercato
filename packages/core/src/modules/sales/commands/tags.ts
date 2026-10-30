@@ -5,7 +5,7 @@ import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
 import { SalesDocumentTag, SalesDocumentTagAssignment } from '../data/entities'
-import { ensureTenantScope } from './shared'
+import { ensureOrganizationScope, ensureTenantScope } from './shared'
 import {
   salesTagCreateSchema,
   salesTagUpdateSchema,
@@ -45,12 +45,13 @@ const updateTagCommand: CommandHandler<SalesTagUpdateInput, { tagId: string }> =
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const tag = await em.findOne(SalesDocumentTag, { id: parsed.id })
     if (!tag) throw notFound('Tag not found')
-    ensureTenantScope(ctx, parsed.tenantId ?? tag.tenantId)
+    ensureTenantScope(ctx, tag.tenantId)
+    ensureOrganizationScope(ctx, tag.organizationId)
     if (parsed.slug && parsed.slug !== tag.slug) {
       const conflict = await em.findOne(SalesDocumentTag, {
         slug: parsed.slug,
-        organizationId: parsed.organizationId ?? tag.organizationId,
-        tenantId: parsed.tenantId ?? tag.tenantId,
+        organizationId: tag.organizationId,
+        tenantId: tag.tenantId,
       })
       if (conflict && conflict.id !== tag.id) {
         throw new CrudHttpError(409, { error: 'Tag slug already exists for this scope' })
@@ -60,8 +61,6 @@ const updateTagCommand: CommandHandler<SalesTagUpdateInput, { tagId: string }> =
     if (parsed.label !== undefined) tag.label = parsed.label
     if (parsed.color !== undefined) tag.color = parsed.color ?? null
     if (parsed.description !== undefined) tag.description = parsed.description ?? null
-    if (parsed.organizationId) tag.organizationId = parsed.organizationId
-    if (parsed.tenantId) tag.tenantId = parsed.tenantId
     await em.flush()
     return { tagId: tag.id }
   },
@@ -76,6 +75,7 @@ const deleteTagCommand: CommandHandler<{ id?: string }, { tagId: string }> = {
     const tag = await em.findOne(SalesDocumentTag, { id })
     if (!tag) throw notFound('Tag not found')
     ensureTenantScope(ctx, tag.tenantId)
+    ensureOrganizationScope(ctx, tag.organizationId)
     await em.nativeDelete(SalesDocumentTagAssignment, { tag: tag.id })
     em.remove(tag)
     await em.flush()

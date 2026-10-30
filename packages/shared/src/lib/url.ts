@@ -70,6 +70,10 @@ function readAllowedOrigins(env: EnvLike): Set<string> {
   return origins
 }
 
+export function readConfiguredAppOrigins(env: EnvLike = process.env): string[] {
+  return Array.from(readAllowedOrigins(env))
+}
+
 function readFirstHeaderValue(value: string | null): string | null {
   const first = value?.split(',')[0]?.trim()
   return first && first.length > 0 ? first : null
@@ -179,11 +183,18 @@ function normalizeOriginPort(url: URL): string {
   return ''
 }
 
-function isEquivalentLoopbackOrigin(origin: string, allowedOrigin: string): boolean {
+export function isEquivalentLoopbackOrigin(
+  origin: string,
+  allowedOrigin: string,
+  options: { requireSameProtocol?: boolean } = {},
+): boolean {
   try {
     const candidateUrl = new URL(origin)
     const allowedUrl = new URL(allowedOrigin)
     if (!isLoopbackHostname(candidateUrl.hostname) || !isLoopbackHostname(allowedUrl.hostname)) {
+      return false
+    }
+    if (options.requireSameProtocol && candidateUrl.protocol !== allowedUrl.protocol) {
       return false
     }
     return normalizeOriginPort(candidateUrl) === normalizeOriginPort(allowedUrl)

@@ -71,6 +71,20 @@ function buildSecurityHeaders(allowLoopbackFraming: boolean) {
       ],
     },
     {
+      // The Autopay launch page auto-submits a signed form to Autopay's hosted
+      // gateway, which the global form-action 'self' would block. Keep this value
+      // in step with LAUNCH_PAGE_CONTENT_SECURITY_POLICY in
+      // @open-mercato/gateway-autopay (lib/launch.ts); the Next.js config layer
+      // replaces a CSP set by the route handler, so it has to be declared here.
+      source: '/api/gateway_autopay/launch',
+      headers: [
+        { key: 'Content-Security-Policy', value: "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; form-action https:; base-uri 'none'; frame-ancestors 'none'" },
+        { key: 'Referrer-Policy', value: 'no-referrer' },
+        { key: 'X-Content-Type-Options', value: 'nosniff' },
+        { key: 'X-Frame-Options', value: 'DENY' },
+      ],
+    },
+    {
       // Marker header consumed by the custom-domain DNS reverse-resolve check
       // (see SPEC 2026-04-08-portal-custom-domain-routing). Lets the verifier
       // tell "request reached our origin" from "request was answered by an

@@ -47,6 +47,7 @@ import {
   looksLikeUninitializedDatabase,
   nextMcpKeyRetryDelayMs,
   nextMcpRestartDelayMs,
+  resolveDevMcpHost,
   resolveMcpKeyFilePath,
   resolveMcpPort,
   shouldRetryMcpProvisioning,
@@ -2494,7 +2495,10 @@ async function runMcpLifecycle() {
 
     const startedAt = Date.now()
     const capturedLines = []
-    const child = spawnMcpCommand(['mcp:serve-http', '--port', String(mcpPort)], 'MCP server', verbose ? null : (line) => {
+    // Host-side server reachable from the OpenCode container; see resolveDevMcpHost.
+    const devMcpHost = resolveDevMcpHost({ env: process.env })
+    const mcpArgs = ['mcp:serve-http', '--port', String(mcpPort), ...(devMcpHost ? ['--host', devMcpHost] : [])]
+    const child = spawnMcpCommand(mcpArgs, 'MCP server', verbose ? null : (line) => {
       capturedLines.push(line)
       if (capturedLines.length > 200) capturedLines.shift()
     })

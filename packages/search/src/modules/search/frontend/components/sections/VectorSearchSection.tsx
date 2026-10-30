@@ -182,6 +182,11 @@ export type VectorSearchSectionProps = {
   onRefreshEmbeddings: () => Promise<void>
 }
 
+function flashRequestError(err: unknown, fallbackMessage: string) {
+  const message = err instanceof Error && err.message.trim() ? err.message : fallbackMessage
+  flash(message, 'error')
+}
+
 export function VectorSearchSection({
   embeddingSettings,
   embeddingLoading,
@@ -200,6 +205,7 @@ export function VectorSearchSection({
   const [selectedModel, setSelectedModel] = React.useState<string | null>(null)
   const [customModelName, setCustomModelName] = React.useState<string>('')
   const [customDimension, setCustomDimension] = React.useState<number>(768)
+  const [ollamaBaseUrlDraft, setOllamaBaseUrlDraft] = React.useState<string | null>(null)
 
   const [pendingEmbeddingConfig, setPendingEmbeddingConfig] = React.useState<EmbeddingProviderConfig | null>(null)
   const [showEmbeddingConfirmDialog, setShowEmbeddingConfirmDialog] = React.useState(false)
@@ -282,7 +288,8 @@ export function VectorSearchSection({
         autoIndexingPreviousRef.current = body.settings.autoIndexingEnabled
       }
       flash(t('search.settings.messages.saved', 'Settings saved'), 'success')
-    } catch {
+    } catch (err) {
+      flashRequestError(err, t('search.settings.errors.saveFailed', 'Failed to save settings'))
       if (embeddingSettings) {
         onEmbeddingSettingsUpdate({ ...embeddingSettings, autoIndexingEnabled: autoIndexingPreviousRef.current })
       }
@@ -297,6 +304,7 @@ export function VectorSearchSection({
     setSelectedModel(null)
     setCustomModelName('')
     setCustomDimension(768)
+    setOllamaBaseUrlDraft(null)
   }
 
   const handleModelChange = (modelId: string) => {
@@ -334,6 +342,10 @@ export function VectorSearchSection({
       dimension,
       updatedAt: new Date().toISOString(),
     }
+    const ollamaBaseUrl = (ollamaBaseUrlDraft ?? savedOllamaBaseUrl).trim()
+    if (newProviderId === 'ollama' && ollamaBaseUrl) {
+      newConfig.baseUrl = ollamaBaseUrl
+    }
 
     if (embeddingSettings?.indexedDimension || embeddingSettings?.embeddingConfig) {
       setPendingEmbeddingConfig(newConfig)
@@ -348,6 +360,7 @@ export function VectorSearchSection({
     setSelectedModel(null)
     setCustomModelName('')
     setCustomDimension(768)
+    setOllamaBaseUrlDraft(null)
   }
 
   const applyEmbeddingConfig = async (config: EmbeddingProviderConfig) => {
@@ -367,10 +380,11 @@ export function VectorSearchSection({
       )
       setSelectedProvider(null)
       setSelectedModel(null)
+      setOllamaBaseUrlDraft(null)
       flash(t('search.settings.messages.providerSaved', 'Embedding provider saved'), 'success')
       await onRefreshEmbeddings()
-    } catch {
-      // Error handled by readApiResultOrThrow
+    } catch (err) {
+      flashRequestError(err, t('search.settings.errors.saveFailed', 'Failed to save settings'))
     } finally {
       setEmbeddingSaving(false)
     }
@@ -407,8 +421,8 @@ export function VectorSearchSection({
       )
       flash(t('search.settings.messages.reindexStarted', 'Reindex started'), 'success')
       await fetchActivityLogs()
-    } catch {
-      // Error handled by readApiResultOrThrow
+    } catch (err) {
+      flashRequestError(err, t('search.settings.errors.reindexFailed', 'Reindex failed'))
     } finally {
       setVectorReindexing(false)
     }
@@ -423,6 +437,7 @@ export function VectorSearchSection({
   const savedProviderInfo = EMBEDDING_PROVIDERS[savedProvider]
   const savedModel = embeddingSettings?.embeddingConfig?.model ?? savedProviderInfo.defaultModel
   const savedDimension = embeddingSettings?.embeddingConfig?.dimension ?? savedProviderInfo.models[0]?.dimension ?? 768
+  const savedOllamaBaseUrl = savedProvider === 'ollama' ? embeddingSettings?.embeddingConfig?.baseUrl ?? '' : ''
 
   const savedModelIsPredefined = savedProviderInfo.models.some((m) => m.id === savedModel)
   const savedCustomModel = !savedModelIsPredefined && savedModel ? { id: savedModel, name: savedModel, dimension: savedDimension } : null
@@ -444,7 +459,8 @@ export function VectorSearchSection({
   const hasUnsavedEmbeddingChanges = (selectedProvider !== null && selectedProvider !== savedProvider) ||
     (selectedModel !== null && selectedModel !== savedModel) ||
     (selectedProvider !== null && selectedModel === null && displayProviderInfo.defaultModel !== savedModel) ||
-    (isCustomModel && (customModelName.trim() !== '' || customDimension !== 768))
+    (isCustomModel && (customModelName.trim() !== '' || customDimension !== 768)) ||
+    (displayProvider === 'ollama' && ollamaBaseUrlDraft !== null && ollamaBaseUrlDraft.trim() !== savedOllamaBaseUrl)
 
   const isEmbeddingConfigured = embeddingSettings?.configuredProviders?.includes(savedProvider)
   const providerOptions: EmbeddingProviderId[] = ['openai', 'google', 'mistral', 'cohere', 'bedrock', 'ollama']
@@ -686,6 +702,27 @@ export function VectorSearchSection({
                                 </SelectContent>
                               </Select>
                             </div>
+
+                            {providerId === 'ollama' && (
+                              <div className="space-y-1">
+                                <Label htmlFor="ollama-base-url" className="text-xs font-medium">
+                                  {t('search.settings.ollama.baseUrl.label', 'Base URL')}
+                                </Label>
+                                <Input
+                                  id="ollama-base-url"
+                                  type="url"
+                                  size="sm"
+                                  value={ollamaBaseUrlDraft ?? savedOllamaBaseUrl}
+                                  onChange={(e) => setOllamaBaseUrlDraft(e.target.value)}
+                                  placeholder="http://localhost:11434"
+                                  aria-describedby="ollama-base-url-hint"
+                                  disabled={embeddingLoading || embeddingSaving}
+                                />
+                                <p id="ollama-base-url-hint" className="text-xs text-muted-foreground">
+                                  {t('search.settings.ollama.baseUrl.hint', 'Leave empty to use the OLLAMA_BASE_URL environment variable.')}
+                                </p>
+                              </div>
+                            )}
 
                             {isCustomModel && (
                               <div className="space-y-2 rounded border border-input bg-muted/30 p-2">
