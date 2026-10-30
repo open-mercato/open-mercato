@@ -45,6 +45,7 @@ Restore the current `main` branch workflows to green by identifying each failing
 - `@open-mercato/channel-fcm` and `@open-mercato/events` each failed with npm `TLOG_CREATE_ENTRY_ERROR`: Rekor returned HTTP 409 because an equivalent transparency-log entry already existed. Their snapshot versions remained absent from npm, while every other package published.
 - This is the Sigstore retry-after-success defect fixed upstream in [sigstore-js#1709](https://github.com/sigstore/sigstore-js/pull/1709): the transparency entry is committed, a retry receives the valid duplicate, and the current client treats that duplicate as fatal. The fix merged on 2026-10-27 but is not present in the published Sigstore version used by npm in the workflow.
 - The smallest repository safeguard is a bounded wrapper that retries only this exact two-part error signature, preserves `--provenance`, and fails immediately for all other npm errors. The caller also verifies registry state after a client failure so a completed publish is not falsely reported as failed.
+- The snapshot's standalone-app follow-up also exposed a deterministic activation defect: `scripts/lib/module-activation-fixtures.ts` still injected the removed `exampleCalendarOverrides` symbol, so evaluating the generated `src/modules.ts` failed with `ReferenceError`. The fixture now relies on the example module's own calendar registration and its test bundles and evaluates every activated module configuration instead of checking generated structure alone.
 
 ## Progress
 
@@ -57,8 +58,8 @@ Restore the current `main` branch workflows to green by identifying each failing
 
 ### Phase 2: Correct root causes
 
-- [x] 2.1 Implement minimal fixes with regression coverage for every actionable failure. — 4c20fce5cc
-- [x] 2.2 Run targeted validation and confirm the original failure signatures are resolved. — 4c20fce5cc
+- [x] 2.1 Implement minimal fixes with regression coverage for every actionable failure. — 4c20fce5cc, 343ebfffcd
+- [x] 2.2 Run targeted validation and confirm the original failure signatures are resolved. — 4c20fce5cc, 343ebfffcd
 
 ### Phase 3: Verify and hand off
 
