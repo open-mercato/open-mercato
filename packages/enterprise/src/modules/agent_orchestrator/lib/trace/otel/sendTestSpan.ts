@@ -16,6 +16,7 @@ export type OtelTestSpanDestination = {
   headers: Record<string, string>
   protocol: OtelExportProtocol
   serviceName: string
+  pinnedAddresses?: readonly string[]
 }
 
 export type OtelTestSpanScope = {
@@ -76,6 +77,7 @@ export async function sendOtelTestSpan(
     headers: destination.headers,
     body: request.body,
     contentType: request.contentType,
+    ...(destination.pinnedAddresses !== undefined ? { pinnedAddresses: destination.pinnedAddresses } : {}),
   })
   const ok = result.outcome === 'ok'
   const errorCode = ok ? null : result.errorCode ?? (result.httpStatus ? `http_${result.httpStatus}` : 'unknown')

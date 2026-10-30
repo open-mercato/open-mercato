@@ -4,16 +4,24 @@ import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { APP_VERSION } from '@open-mercato/shared/lib/version'
 import type { EnqueueOptions } from '@open-mercato/queue'
 import type { OtelExportJobPayload } from '../../queue'
+import type { OtelExportSettings } from '../../../data/validators'
 import {
   isExportEnabledFor,
   readOtelExportSettings,
   resolveContentExportMode,
   resolveOtelExportDeployment,
-  resolveOtelExportWireProtocol,
   type OtelContentExportMode,
   type OtelExportContainer,
+  type OtelExportDeploymentConfig,
   type OtelExportProtocol,
 } from './exportSettings'
+import {
+  isOtelExportDestinationError,
+  resolveOtelExportDestination,
+  type OtelExportDestination,
+  type OtelExportDestinationResult,
+  type OtelExportDestinationScope,
+} from './exportDestination'
 import { recordOtelExportHealth } from './exportHealth'
 import type { RunExportBundle } from './loadRunExportBundle'
 import { loadRunExportContent, type RunExportContent } from './loadRunExportContent'
@@ -279,9 +287,16 @@ export type OtelExportJobOutcome =
   | 'retry_scheduled'
   | 'failed'
   | 'rejected'
+  | 'destination_unavailable'
   | 'error'
 
 export type LoadOtelExportContent = (bundle: RunExportBundle, mode: OtelContentExportMode) => Promise<RunExportContent>
+
+export type ResolveOtelExportJobDestination = (input: {
+  deployment: OtelExportDeploymentConfig
+  settings: OtelExportSettings
+  scope: OtelExportDestinationScope
+}) => Promise<OtelExportDestinationResult>
 
 export type ProcessOtelExportJobDeps = {
   container: AwilixContainer
@@ -289,6 +304,7 @@ export type ProcessOtelExportJobDeps = {
   post: (input: PostOtlpTracesInput) => Promise<OtlpExportResult>
   enqueue: EnqueueOtelExport
   loadContent?: LoadOtelExportContent
+  resolveDestination?: ResolveOtelExportJobDestination
   env?: EnvLike
 }
 
@@ -306,13 +322,12 @@ function readJobPayload(payload: unknown): OtelExportJobPayload | null {
 async function postAllChunks(
   bundle: RunExportBundle,
   content: RunExportContent | null,
-  deployment: ReturnType<typeof resolveOtelExportDeployment>,
+  deployment: OtelExportDeploymentConfig,
+  destination: OtelExportDestination,
   exportUserIds: boolean,
   env: EnvLike,
   post: ProcessOtelExportJobDeps['post'],
 ): Promise<OtlpExportResult | null> {
-  const endpoint = deployment.endpoint
-  if (!endpoint) return null
   const chunks = mapAgentRunToOtlp({ ...bundle, content: content ?? undefined }, {
     exportUserIds,
     serviceName: deployment.serviceName,
@@ -320,13 +335,13 @@ async function postAllChunks(
     environment: readDeploymentEnvironment(env),
     scopeVersion: APP_VERSION,
   })
-  const protocol = resolveOtelExportWireProtocol(deployment.protocol)
-  for (const request of encodeOtlpRequests(chunks, protocol)) {
+  for (const request of encodeOtlpRequests(chunks, destination.protocol)) {
     const result = await post({
-      endpoint,
-      headers: deployment.headers,
+      endpoint: destination.endpoint,
+      headers: destination.headers,
       body: request.body,
       contentType: request.contentType,
+      ...(destination.pinnedAddresses !== undefined ? { pinnedAddresses: destination.pinnedAddresses } : {}),
     })
     if (result.outcome !== 'ok') return result
   }
@@ -372,10 +387,15 @@ async function handleUnexpectedJobFailure(
 /**
  * One OTel export job. Only `runId` is trusted from the payload: the run row
  * gives the tenant, agent and source, and the tenant settings are re-read here
- * so a revoked opt-in stops queued jobs. Content (prompts, completions, tool
+ * so a revoked opt-in stops queued jobs. The destination is resolved per run
+ * for the run's organization ({@link resolveOtelExportDestination}): the
+ * deployment endpoint or the organization's vetted, pinned integration
+ * endpoint; an unavailable destination is recorded as the tenant's export
+ * health and reported, never retried, and never falls back to the deployment
+ * endpoint. Content (prompts, completions, tool
  * arguments/results) is loaded and attached only when all three locks hold for
  * this job — deployment allow-switch, tenant `content: 'full'` and the run's
- * captured level `full` — and each request body, encoded in the deployment's
+ * captured level `full` — and each request body, encoded in the destination's
  * protocol (`http/json` or `http/protobuf`), stays within
  * {@link OTEL_EXPORT_MAX_REQUEST_BYTES} uncompressed. Expected failures never throw (the
  * queue's own retry would duplicate the backoff): `retry` and unexpected
@@ -406,11 +426,27 @@ export async function processOtelExportJob(
     })
     if (!enabled) return 'not_enabled'
 
+    const resolveDestination: ResolveOtelExportJobDestination =
+      deps.resolveDestination ??
+      ((input) => resolveOtelExportDestination(deps.container, input.deployment, input.settings, input.scope, { env }))
+    const destination = await resolveDestination({
+      deployment,
+      settings,
+      scope: { tenantId, organizationId: bundle.run.organizationId },
+    })
+    if (isOtelExportDestinationError(destination)) {
+      const attributes = { tenantId, runId: job.runId, attempt: job.attempt, errorCode: destination.error }
+      logger.warn('otel export destination unavailable', attributes)
+      reportExportError(new Error('[internal] otel export destination unavailable'), OTEL_EXPORT_ERROR_CODES.rejected, attributes)
+      await recordOtelExportHealth(deps.container, tenantId, { outcome: 'error', errorCode: destination.error })
+      return 'destination_unavailable'
+    }
+
     const mode = resolveContentExportMode({ deployment, tenant: settings, runCapture: bundle.manifest?.['om.capture'] })
     const loadContent: LoadOtelExportContent =
       deps.loadContent ?? ((target, contentMode) => loadRunExportContent(deps.container, target, { mode: contentMode }))
     const content = mode === 'full' ? await loadContent(bundle, mode) : null
-    const failure = await postAllChunks(bundle, content, deployment, settings.exportUserIds, env, deps.post)
+    const failure = await postAllChunks(bundle, content, deployment, destination, settings.exportUserIds, env, deps.post)
     if (!failure) {
       await recordOtelExportHealth(deps.container, tenantId, { outcome: 'success' })
       return 'exported'

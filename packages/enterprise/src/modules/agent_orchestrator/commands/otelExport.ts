@@ -31,6 +31,13 @@ export const OTEL_EXPORT_CONTENT_ERRORS = {
 
 export type OtelExportContentError = (typeof OTEL_EXPORT_CONTENT_ERRORS)[keyof typeof OTEL_EXPORT_CONTENT_ERRORS]
 
+export const OTEL_EXPORT_DESTINATION_SETTING_ERRORS = {
+  tenantEndpointsNotAllowed: 'tenant_endpoints_not_allowed',
+} as const
+
+export type OtelExportDestinationSettingError =
+  (typeof OTEL_EXPORT_DESTINATION_SETTING_ERRORS)[keyof typeof OTEL_EXPORT_DESTINATION_SETTING_ERRORS]
+
 const updateOtelExportSettingsSchema = z.object({
   tenantId: z.string().uuid(),
   settings: otelExportSettingsSchema,
@@ -108,6 +115,24 @@ export function resolveOtelExportContentError(
   return deployment.contentAllowed ? null : OTEL_EXPORT_CONTENT_ERRORS.notAllowed
 }
 
+/**
+ * Why the requested destination cannot be saved, or `null` when it can:
+ * `integration` is refused while the deployment denies tenant endpoints
+ * (`OM_AGENT_OTEL_EXPORT_TENANT_ENDPOINTS` is not `allow`).
+ */
+export function resolveOtelExportDestinationSettingError(
+  settings: Pick<OtelExportSettings, 'destination'>,
+  deployment: { tenantEndpointsAllowed: boolean },
+): OtelExportDestinationSettingError | null {
+  if (settings.destination !== 'integration') return null
+  return deployment.tenantEndpointsAllowed ? null : OTEL_EXPORT_DESTINATION_SETTING_ERRORS.tenantEndpointsNotAllowed
+}
+
+function readStoredSettings(value: unknown): OtelExportSettings | null {
+  const parsed = otelExportSettingsSchema.safeParse(value)
+  return parsed.success ? parsed.data : null
+}
+
 function requestsContentExport(value: unknown): boolean {
   const parsed = otelExportSettingsSchema.safeParse(value)
   return parsed.success && parsed.data.content === 'full'
@@ -183,6 +208,8 @@ export const updateOtelExportSettingsCommand: CommandHandler<
       const contentError = resolveOtelExportContentError(input.settings, resolveOtelExportDeployment())
       if (contentError) throw new CrudHttpError(422, { error: contentError })
     }
+    const destinationError = resolveOtelExportDestinationSettingError(input.settings, resolveOtelExportDeployment())
+    if (destinationError) throw new CrudHttpError(422, { error: destinationError })
     const service = resolveModuleConfig(ctx.container)
     const current = await readTenantRecord(service, input.tenantId)
     enforceCommandOptimisticLock({
@@ -234,6 +261,11 @@ export const updateOtelExportSettingsCommand: CommandHandler<
       throw new CrudHttpError(403, { error: '[internal] missing otel export write features' })
     }
     if (requestsContentExport(payload.before)) await assertContentWriteFeatures(ctx, payload.tenantId)
+    const before = readStoredSettings(payload.before)
+    if (before) {
+      const destinationError = resolveOtelExportDestinationSettingError(before, resolveOtelExportDeployment())
+      if (destinationError) throw new CrudHttpError(422, { error: destinationError })
+    }
   },
   async undo({ ctx, logEntry }) {
     const payload = extractUndoPayload<OtelExportSettingsUndoPayload>(logEntry)

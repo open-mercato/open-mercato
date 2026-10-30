@@ -756,3 +756,120 @@ describe('encodeOtlpRequests', () => {
     for (const request of requests.slice(0, -1)) expect(request.byteLength).toBeLessThanOrEqual(limit)
   })
 })
+
+describe('processOtelExportJob destination', () => {
+  const payload: OtelExportJobPayload = { runId: RUN_ID, attempt: 0 }
+  const TENANT_ENDPOINT = 'http://127.0.0.1:4319/v1/traces'
+  const TENANT_ENV = {
+    ...ENABLED_ENV,
+    OM_AGENT_OTEL_EXPORT_TENANT_ENDPOINTS: 'allow',
+    OM_AGENT_OTEL_EXPORT_PRIVATE_HOSTS: '127.0.0.1',
+  }
+
+  function makeDestinationDeps(options: {
+    env?: Record<string, string | undefined>
+    settings?: unknown
+    credentials?: Record<string, unknown> | null
+    integrationEnabled?: boolean
+  }) {
+    const harness = makeJobDeps({
+      env: options.env ?? TENANT_ENV,
+      settings: options.settings ?? { enabled: true, content: 'full', destination: 'integration' },
+      bundle: buildBundle({ manifest: { 'om.capture': { level: 'full' } } as RunExportBundle['manifest'] }),
+    })
+    const credentials =
+      options.credentials === undefined
+        ? { endpoint: TENANT_ENDPOINT, headers: 'x-tenant-key=tenant-secret', protocol: 'http/protobuf' }
+        : options.credentials
+    const resolveCredentials = jest.fn(async (_id: string, _scope: unknown) => credentials)
+    const isEnabled = jest.fn(async (_id: string, _scope: unknown) => options.integrationEnabled ?? true)
+    const baseContainer = harness.deps.container as unknown as { resolve: (token: string) => unknown }
+    const container = {
+      resolve: (token: string) => {
+        if (token === 'integrationCredentialsService') return { resolve: resolveCredentials }
+        if (token === 'integrationStateService') return { isEnabled }
+        return baseContainer.resolve(token)
+      },
+    }
+    loadRunExportContent.mockResolvedValue({ llm: new Map(), tools: new Map() })
+    return { ...harness, resolveCredentials, isEnabled, deps: { ...harness.deps, container: container as never } }
+  }
+
+  test('posts to the organization integration endpoint, pinned, with its headers and protocol', async () => {
+    const harness = makeDestinationDeps({})
+    expect(await processOtelExportJob(payload, harness.deps)).toBe('exported')
+    expect(harness.resolveCredentials).toHaveBeenCalledWith('agent_orchestrator_otel_export', {
+      tenantId: TENANT_ID,
+      organizationId: ORG_ID,
+    })
+    expect(harness.isEnabled).toHaveBeenCalledWith('agent_orchestrator_otel_export', {
+      tenantId: TENANT_ID,
+      organizationId: ORG_ID,
+    })
+    const input = harness.post.mock.calls[0][0]
+    expect(input.endpoint).toBe(TENANT_ENDPOINT)
+    expect(input.pinnedAddresses).toEqual(['127.0.0.1'])
+    expect(input.headers).toEqual({ 'x-tenant-key': 'tenant-secret' })
+    expect(input.contentType).toBe('application/x-protobuf')
+    expect(recordOtelExportHealth).toHaveBeenCalledWith(expect.anything(), TENANT_ID, { outcome: 'success' })
+  })
+
+  test('the deployment destination is not pinned', async () => {
+    const harness = makeJobDeps({})
+    expect(await processOtelExportJob(payload, harness.deps)).toBe('exported')
+    expect(harness.post.mock.calls[0][0].pinnedAddresses).toBeUndefined()
+  })
+
+  const failures: Array<[string, Parameters<typeof makeDestinationDeps>[0], string]> = [
+    ['tenant endpoints are denied', { env: ENABLED_ENV }, 'tenant_endpoints_denied'],
+    ['the integration has no credentials', { credentials: null }, 'integration_unconfigured'],
+    ['the integration is disabled', { integrationEnabled: false }, 'integration_disabled'],
+    ['the endpoint is blocked', { credentials: { endpoint: 'http://169.254.169.254/v1/traces' } }, 'endpoint_blocked'],
+  ]
+
+  test.each(failures)('records the health error and reports without retrying when %s', async (_label, options, code) => {
+    const harness = makeDestinationDeps(options)
+    expect(await processOtelExportJob(payload, harness.deps)).toBe('destination_unavailable')
+    expect(harness.post).not.toHaveBeenCalled()
+    expect(harness.enqueue).not.toHaveBeenCalled()
+    expect(loadRunExportContent).not.toHaveBeenCalled()
+    expect(recordOtelExportHealth).toHaveBeenCalledWith(expect.anything(), TENANT_ID, { outcome: 'error', errorCode: code })
+    expect(reportError).toHaveBeenCalledWith(
+      expect.any(Error),
+      expect.objectContaining({
+        module: 'agent_orchestrator',
+        code: OTEL_EXPORT_ERROR_CODES.rejected,
+        attributes: expect.objectContaining({ errorCode: code }),
+      }),
+    )
+    const reported = JSON.stringify(reportError.mock.calls)
+    expect(reported).not.toContain('169.254')
+    expect(reported).not.toContain('collector.test')
+  })
+
+  test('a deployment destination without a deployment endpoint fails closed', async () => {
+    const env = { OM_AGENT_OTEL_EXPORT: 'on', OM_AGENT_OTEL_EXPORT_TENANT_ENDPOINTS: 'allow' }
+    const harness = makeJobDeps({ env, settings: { enabled: true } })
+    expect(await processOtelExportJob(payload, harness.deps)).toBe('destination_unavailable')
+    expect(harness.post).not.toHaveBeenCalled()
+    expect(recordOtelExportHealth).toHaveBeenCalledWith(expect.anything(), TENANT_ID, {
+      outcome: 'error',
+      errorCode: 'deployment_unconfigured',
+    })
+  })
+
+  test('uses an injected resolver with the run organization', async () => {
+    const harness = makeJobDeps({})
+    const resolveDestination = jest.fn(async () => ({
+      endpoint: 'https://override.test/v1/traces',
+      headers: {},
+      protocol: 'http/json' as const,
+      source: 'deployment' as const,
+    }))
+    expect(await processOtelExportJob(payload, { ...harness.deps, resolveDestination })).toBe('exported')
+    expect(resolveDestination).toHaveBeenCalledWith(
+      expect.objectContaining({ scope: { tenantId: TENANT_ID, organizationId: ORG_ID } }),
+    )
+    expect(harness.post.mock.calls[0][0].endpoint).toBe('https://override.test/v1/traces')
+  })
+})

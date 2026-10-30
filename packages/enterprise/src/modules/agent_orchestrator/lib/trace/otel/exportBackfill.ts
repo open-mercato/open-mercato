@@ -10,7 +10,8 @@ import {
   resolveOtelExportDeployment,
   type OtelExportContainer,
 } from './exportSettings'
-import { encodeOtlpRequestBodies, readDeploymentEnvironment } from './exportJob'
+import { encodeOtlpRequestBodies, readDeploymentEnvironment, type ResolveOtelExportJobDestination } from './exportJob'
+import { isOtelExportDestinationError, resolveOtelExportDestination } from './exportDestination'
 import type { RunExportBundle } from './loadRunExportBundle'
 import { mapAgentRunToOtlp } from './mapAgentRunToOtlp'
 
@@ -139,6 +140,7 @@ export type OtelExportBackfillSkipReason =
   | 'tenant_disabled'
   | 'agent_not_allowed'
   | 'source_not_exported'
+  | 'destination_unavailable'
   | 'not_found'
 
 export type OtelExportBackfillSummary =
@@ -152,6 +154,7 @@ export type OtelExportBackfillDeps = {
   loadBundle: (runId: string) => Promise<RunExportBundle | null>
   enqueue: (payload: OtelExportJobPayload, options?: EnqueueOptions) => Promise<unknown>
   writeLine: (line: string) => void
+  resolveDestination?: ResolveOtelExportJobDestination
   env?: EnvLike
 }
 
@@ -171,8 +174,10 @@ function countSkip(
 /**
  * Backfill for terminal runs. `dryRun` prints the encoded requests and never
  * touches the network or the queue; otherwise the deployment switch must be on
- * and each run passes the same tenant gate as the live exporter before a
- * `{ runId, attempt: 0 }` job is enqueued without delay (the worker re-checks).
+ * and each run passes the same tenant gate as the live exporter and has an
+ * available export destination for its organization (resolved once per
+ * tenant + organization) before a `{ runId, attempt: 0 }` job is enqueued
+ * without delay (the worker re-checks both).
  */
 export async function runOtelExportBackfill(
   args: OtelExportBackfillArgs,
@@ -200,6 +205,10 @@ export async function runOtelExportBackfill(
   }
 
   const settingsByTenant = new Map<string, OtelExportSettings>()
+  const destinationAvailableByScope = new Map<string, boolean>()
+  const resolveDestination: ResolveOtelExportJobDestination =
+    deps.resolveDestination ??
+    ((input) => resolveOtelExportDestination(deps.container, input.deployment, input.settings, input.scope, { env }))
   let enqueued = 0
   for (const run of runs) {
     let settings = settingsByTenant.get(run.tenantId)
@@ -210,6 +219,21 @@ export async function runOtelExportBackfill(
     const enabled = isExportEnabledFor({ deployment, tenant: settings, agentId: run.agentId, runSource: run.source })
     if (!enabled) {
       countSkip(skipped, skipReasonFor(settings, run))
+      continue
+    }
+    const scopeKey = `${run.tenantId}:${run.organizationId}`
+    let destinationAvailable = destinationAvailableByScope.get(scopeKey)
+    if (destinationAvailable === undefined) {
+      const destination = await resolveDestination({
+        deployment,
+        settings,
+        scope: { tenantId: run.tenantId, organizationId: run.organizationId },
+      })
+      destinationAvailable = !isOtelExportDestinationError(destination)
+      destinationAvailableByScope.set(scopeKey, destinationAvailable)
+    }
+    if (!destinationAvailable) {
+      countSkip(skipped, 'destination_unavailable')
       continue
     }
     await deps.enqueue({ runId: run.id, attempt: 0 }, { delayMs: 0 })

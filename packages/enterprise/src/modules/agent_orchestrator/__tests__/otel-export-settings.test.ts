@@ -36,7 +36,12 @@ function makeContainer(record: unknown, options: { withStore?: boolean; rejects?
 
 describe('otelExportSettingsSchema', () => {
   test('applies the spec defaults', () => {
-    expect(otelExportSettingsSchema.parse({})).toEqual({ enabled: false, content: 'none', exportUserIds: false })
+    expect(otelExportSettingsSchema.parse({})).toEqual({
+      enabled: false,
+      content: 'none',
+      exportUserIds: false,
+      destination: 'deployment',
+    })
   })
 
   test('caps the allowlist at 200 entries of at most 100 chars', () => {
@@ -204,7 +209,7 @@ describe('readOtelExportSettings', () => {
     const result = await readOtelExportSettings(container as never, TENANT_ID)
     expect(getRecord).toHaveBeenCalledWith(OTEL_EXPORT_CONFIG_MODULE, OTEL_EXPORT_CONFIG_NAME, { tenantId: TENANT_ID })
     expect(result).toEqual({
-      settings: { enabled: true, content: 'none', exportUserIds: false, agentAllowlist: ['agent_a'] },
+      settings: { enabled: true, content: 'none', exportUserIds: false, agentAllowlist: ['agent_a'], destination: 'deployment' },
       source: 'tenant',
       updatedAt: '2026-10-27T10:00:00.000Z',
     })

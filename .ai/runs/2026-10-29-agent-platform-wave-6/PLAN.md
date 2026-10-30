@@ -32,7 +32,7 @@
 | 2 | 2.2 | Send OTLP over http/protobuf | dispatch | done | bd3594e8d |
 | 3 | 3.1 | Declare the OTLP export integration | dispatch | done | b2db8e528 |
 | 3 | 3.2 | Vet tenant OTLP endpoints and pin their addresses | dispatch:capable | done | a318ca824 |
-| 3 | 3.3 | Resolve the export destination per run | dispatch:capable | todo | — |
+| 3 | 3.3 | Resolve the export destination per run | dispatch:capable | done | pending |
 | 3 | 3.4 | Pick the export destination on the settings page | dispatch | todo | — |
 | 3 | 3.5 | Cover content, protobuf and tenant endpoints with integration tests | dispatch | todo | — |
 | 3 | 3.6 | Document OTel export phase 2 and mirror env vars | dispatch:cheap | todo | — |

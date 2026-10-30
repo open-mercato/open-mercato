@@ -63,6 +63,8 @@ const OTEL_ENV_KEYS = [
   'OM_AGENT_OTEL_EXPORT_PROTOCOL',
   'OM_AGENT_OTEL_EXPORT_CONTENT',
   'OM_AGENT_OTEL_TRACE_URL_TEMPLATE',
+  'OM_AGENT_OTEL_EXPORT_TENANT_ENDPOINTS',
+  'OM_AGENT_OTEL_EXPORT_PRIVATE_HOSTS',
   'OTEL_EXPORTER_OTLP_TRACES_ENDPOINT',
   'OTEL_EXPORTER_OTLP_ENDPOINT',
   'OTEL_EXPORTER_OTLP_HEADERS',
@@ -107,6 +109,7 @@ function makeContainer(options: {
   isSuperAdmin?: boolean
   execute?: jest.Mock
   consume?: jest.Mock
+  integration?: { credentials: Record<string, unknown> | null; enabled: boolean }
 }) {
   const store = options.store ?? makeConfigStore()
   const loadAcl = jest.fn(async () => ({
@@ -117,6 +120,7 @@ function makeContainer(options: {
   const execute = options.execute ?? jest.fn()
   const consume =
     options.consume ?? jest.fn(async () => ({ allowed: true, remainingPoints: 0, msBeforeNext: 10_000 }))
+  const integrationCredentials = jest.fn(async (_id: string, _scope: unknown) => options.integration?.credentials ?? null)
   const container = {
     hasRegistration: (token: string) => token === 'rateLimiterService',
     resolve: (token: string) => {
@@ -126,10 +130,16 @@ function makeContainer(options: {
       if (token === 'rbacService') return { loadAcl }
       if (token === 'commandBus') return { execute }
       if (token === 'rateLimiterService') return { consume, trustProxyDepth: 0 }
+      if (token === 'integrationCredentialsService' && options.integration) {
+        return { resolve: integrationCredentials }
+      }
+      if (token === 'integrationStateService' && options.integration) {
+        return { isEnabled: async () => options.integration?.enabled ?? false }
+      }
       throw new Error(`Unexpected DI token in test: ${token}`)
     },
   }
-  return { container, store, loadAcl, execute, consume }
+  return { container, store, loadAcl, execute, consume, integrationCredentials }
 }
 
 function authOf(overrides: Record<string, unknown> = {}) {
@@ -225,6 +235,7 @@ describe('GET /otel-export/settings', () => {
         protocol: 'http/json',
         protocolSupported: true,
         contentAllowed: false,
+        tenantEndpointsAllowed: false,
         traceLinkConfigured: false,
       },
       health: { lastSuccessAt: null, lastErrorAt: null, lastErrorCode: null },
@@ -256,6 +267,7 @@ describe('GET /otel-export/settings', () => {
       protocol: 'http/json',
       protocolSupported: true,
       contentAllowed: true,
+      tenantEndpointsAllowed: false,
       traceLinkConfigured: true,
     })
     expect(body.health.lastSuccessAt).toBe('2026-10-27T09:00:00.000Z')
@@ -354,6 +366,58 @@ describe('PUT /otel-export/settings', () => {
       UPDATE_OTEL_EXPORT_SETTINGS_COMMAND_ID,
       expect.objectContaining({
         input: { tenantId: TENANT, settings: expect.objectContaining({ content: 'full' }) },
+      }),
+    )
+  })
+
+  test('422 tenant_endpoints_not_allowed for an integration destination while tenant endpoints are denied', async () => {
+    enableDeployment()
+    const execute = jest.fn()
+    const { container } = makeContainer({ features: [MANAGE], execute })
+    createRequestContainer.mockResolvedValue(container)
+    getAuthFromRequest.mockResolvedValue(authOf())
+
+    const response = await PUT(putRequest({ enabled: true, destination: 'integration' }))
+
+    expect(response.status).toBe(422)
+    expect(await response.json()).toEqual({ error: 'tenant_endpoints_not_allowed' })
+    expect(execute).not.toHaveBeenCalled()
+  })
+
+  test('400 for an unknown destination', async () => {
+    enableDeployment()
+    const { container } = makeContainer({ features: [MANAGE] })
+    createRequestContainer.mockResolvedValue(container)
+    getAuthFromRequest.mockResolvedValue(authOf())
+
+    expect((await PUT(putRequest({ enabled: true, destination: 'https://evil.test' }))).status).toBe(400)
+  })
+
+  test('saves an integration destination when the deployment allows tenant endpoints', async () => {
+    enableDeployment({ OM_AGENT_OTEL_EXPORT_TENANT_ENDPOINTS: 'allow' })
+    const execute = jest.fn(async () => ({
+      result: {
+        settings: otelExportSettingsSchema.parse({ enabled: true, destination: 'integration' }),
+        source: 'tenant',
+        updatedAt: '2026-10-27T10:00:00.000Z',
+      },
+      logEntry: null,
+    }))
+    const { container } = makeContainer({ features: [MANAGE], execute })
+    createRequestContainer.mockResolvedValue(container)
+    getAuthFromRequest.mockResolvedValue(authOf())
+
+    const response = await PUT(putRequest({ enabled: true, destination: 'integration' }))
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({
+      settings: { destination: 'integration' },
+      deployment: { tenantEndpointsAllowed: true },
+    })
+    expect(execute).toHaveBeenCalledWith(
+      UPDATE_OTEL_EXPORT_SETTINGS_COMMAND_ID,
+      expect.objectContaining({
+        input: { tenantId: TENANT, settings: expect.objectContaining({ destination: 'integration' }) },
       }),
     )
   })
@@ -557,6 +621,47 @@ describe('agent_orchestrator.otelExportSettings.update', () => {
     ).resolves.toBeUndefined()
   })
 
+  test('the command refuses an integration destination while tenant endpoints are denied', async () => {
+    enableDeployment()
+    const store = makeConfigStore()
+    const { container } = makeContainer({ store, features: [MANAGE] })
+
+    await expect(
+      updateOtelExportSettingsCommand.execute(
+        { tenantId: TENANT, settings: otelExportSettingsSchema.parse({ enabled: true, destination: 'integration' }) },
+        commandCtx(container),
+      ),
+    ).rejects.toMatchObject({ status: 422, body: { error: 'tenant_endpoints_not_allowed' } })
+    expect(store.setValue).not.toHaveBeenCalled()
+  })
+
+  test('replaying a restore of an integration destination is refused once tenant endpoints are denied', async () => {
+    enableDeployment({ OM_AGENT_OTEL_EXPORT_TENANT_ENDPOINTS: 'allow' })
+    const store = makeConfigStore({ enabled: true, destination: 'integration' })
+    const { container } = makeContainer({ store, features: [MANAGE] })
+    const { input, logEntry } = await runUpdate(container, { enabled: true, destination: 'deployment' })
+
+    await expect(
+      updateOtelExportSettingsCommand.authorizeReplay!({ operation: 'undo', input, ctx: commandCtx(container), logEntry }),
+    ).resolves.toBeUndefined()
+
+    process.env.OM_AGENT_OTEL_EXPORT_TENANT_ENDPOINTS = 'deny'
+    await expect(
+      updateOtelExportSettingsCommand.authorizeReplay!({ operation: 'undo', input, ctx: commandCtx(container), logEntry }),
+    ).rejects.toMatchObject({ status: 422, body: { error: 'tenant_endpoints_not_allowed' } })
+  })
+
+  test('stored rows without a destination parse as deployment', async () => {
+    const store = makeConfigStore({ enabled: true, content: 'none' })
+    const { container } = makeContainer({ store })
+    createRequestContainer.mockResolvedValue(container)
+    getAuthFromRequest.mockResolvedValue(authOf())
+
+    const body = await (await GET(new Request('http://localhost/x'))).json()
+
+    expect(body.settings).toMatchObject({ enabled: true, destination: 'deployment' })
+  })
+
   test('refuses to write another tenant', async () => {
     const { container } = makeContainer({})
     const ctx = commandCtx(container, { auth: authOf({ tenantId: OTHER_TENANT }) as CommandRuntimeContext['auth'] })
@@ -693,6 +798,75 @@ describe('POST /otel-export/test', () => {
     const bytes = Buffer.from(call.body as Uint8Array)
     expect(bytes.includes(Buffer.from('om.export.test'))).toBe(true)
     expect(bytes.includes(Buffer.from(TENANT))).toBe(true)
+  })
+
+  test('sends the test span to the caller organization integration endpoint, pinned', async () => {
+    enableDeployment({ OM_AGENT_OTEL_EXPORT_TENANT_ENDPOINTS: 'allow', OM_AGENT_OTEL_EXPORT_PRIVATE_HOSTS: '127.0.0.1' })
+    postOtlpTraces.mockResolvedValue({ outcome: 'ok', httpStatus: 200, retryAfterMs: null, errorCode: null, latencyMs: 7 })
+    const store = makeConfigStore({ enabled: true, destination: 'integration' })
+    const { container, integrationCredentials } = makeContainer({
+      store,
+      features: [MANAGE],
+      integration: {
+        credentials: { endpoint: 'http://127.0.0.1:4319/v1/traces', headers: 'x-tenant-key=tenant-secret' },
+        enabled: true,
+      },
+    })
+    createRequestContainer.mockResolvedValue(container)
+    getAuthFromRequest.mockResolvedValue(authOf())
+
+    const response = await postTestSpan(testRequest())
+    const text = await response.text()
+
+    expect(JSON.parse(text)).toEqual({ ok: true, httpStatus: 200, latencyMs: 7, errorCode: null })
+    expect(integrationCredentials).toHaveBeenCalledWith('agent_orchestrator_otel_export', {
+      tenantId: TENANT,
+      organizationId: ORG,
+    })
+    const call = postOtlpTraces.mock.calls[0][0] as PostOtlpTracesInput
+    expect(call.endpoint).toBe('http://127.0.0.1:4319/v1/traces')
+    expect(call.pinnedAddresses).toEqual(['127.0.0.1'])
+    expect(call.headers).toEqual({ 'x-tenant-key': 'tenant-secret' })
+    expect(text).not.toContain('tenant-secret')
+    expect(text).not.toContain('127.0.0.1')
+  })
+
+  test('reports a blocked integration endpoint as ok false without sending or echoing it', async () => {
+    enableDeployment({ OM_AGENT_OTEL_EXPORT_TENANT_ENDPOINTS: 'allow' })
+    const store = makeConfigStore({ enabled: true, destination: 'integration' })
+    const { container } = makeContainer({
+      store,
+      features: [MANAGE],
+      integration: { credentials: { endpoint: 'http://169.254.169.254/v1/traces' }, enabled: true },
+    })
+    createRequestContainer.mockResolvedValue(container)
+    getAuthFromRequest.mockResolvedValue(authOf())
+
+    const response = await postTestSpan(testRequest())
+    const text = await response.text()
+
+    expect(response.status).toBe(200)
+    expect(JSON.parse(text)).toEqual({ ok: false, httpStatus: null, latencyMs: 0, errorCode: 'endpoint_blocked' })
+    expect(text).not.toContain('169.254')
+    expect(postOtlpTraces).not.toHaveBeenCalled()
+    expect(store.healthRow()?.value).toMatchObject({ lastErrorCode: 'endpoint_blocked' })
+  })
+
+  test('an integration destination never falls back to the deployment endpoint', async () => {
+    enableDeployment()
+    const store = makeConfigStore({ enabled: true, destination: 'integration' })
+    const { container } = makeContainer({
+      store,
+      features: [MANAGE],
+      integration: { credentials: { endpoint: 'http://127.0.0.1:4319/v1/traces' }, enabled: true },
+    })
+    createRequestContainer.mockResolvedValue(container)
+    getAuthFromRequest.mockResolvedValue(authOf())
+
+    const body = await (await postTestSpan(testRequest())).json()
+
+    expect(body).toEqual({ ok: false, httpStatus: null, latencyMs: 0, errorCode: 'tenant_endpoints_denied' })
+    expect(postOtlpTraces).not.toHaveBeenCalled()
   })
 
   test('reports a backend rejection as ok false and records the error', async () => {

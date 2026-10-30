@@ -11,17 +11,23 @@ import {
   rateLimitErrorSchema,
 } from '@open-mercato/shared/lib/ratelimit/helpers'
 import { resolveRateLimiter } from '../../../lib/guardrails/publicEndpointRateLimit'
-import { resolveOtelExportDeployment, resolveOtelExportWireProtocol } from '../../../lib/trace/otel/exportSettings'
+import { readOtelExportSettings, resolveOtelExportDeployment } from '../../../lib/trace/otel/exportSettings'
+import {
+  isOtelExportDestinationError,
+  resolveOtelExportDestination,
+} from '../../../lib/trace/otel/exportDestination'
 import { recordOtelExportHealth } from '../../../lib/trace/otel/exportHealth'
 import { sendOtelTestSpan } from '../../../lib/trace/otel/sendTestSpan'
 import { OTEL_EXPORT_WRITE_FEATURES, hasOtelExportFeatures } from '../../../commands/otelExport'
 import { agentOrchestratorTag } from '../../openapi'
 
 /**
- * Sends one synthetic `om.export.test` span to the deployment's OTLP endpoint
- * for the caller's tenant and records the outcome as the tenant's export
- * health. A backend rejection is a successful call (`ok: false`); only a
- * disabled deployment (409) or the per-tenant ceiling (429) fail the request.
+ * Sends one synthetic `om.export.test` span to the tenant's export destination
+ * (the deployment endpoint, or the caller organization's vetted integration
+ * endpoint) and records the outcome as the tenant's export health. A backend
+ * rejection or an unavailable destination is a successful call (`ok: false`
+ * with an error code); only a disabled deployment (409) or the per-tenant
+ * ceiling (429) fail the request.
  */
 
 export const metadata = {
@@ -48,7 +54,7 @@ export async function POST(req: Request) {
   }
 
   const deployment = resolveOtelExportDeployment()
-  if (!deployment.enabled || !deployment.endpoint) {
+  if (!deployment.enabled) {
     return NextResponse.json({ error: 'otel_export_disabled' }, { status: 409 })
   }
 
@@ -67,12 +73,20 @@ export async function POST(req: Request) {
     if (rateLimited) return rateLimited
   }
 
+  const { settings } = await readOtelExportSettings(container, auth.tenantId)
+  const destination = await resolveOtelExportDestination(container, deployment, settings, scope)
+  if (isOtelExportDestinationError(destination)) {
+    await recordOtelExportHealth(container, auth.tenantId, { outcome: 'error', errorCode: destination.error })
+    return NextResponse.json({ ok: false, httpStatus: null, latencyMs: 0, errorCode: destination.error })
+  }
+
   const { ok, httpStatus, latencyMs, errorCode } = await sendOtelTestSpan(
     {
-      endpoint: deployment.endpoint,
-      headers: deployment.headers,
-      protocol: resolveOtelExportWireProtocol(deployment.protocol),
+      endpoint: destination.endpoint,
+      headers: destination.headers,
+      protocol: destination.protocol,
       serviceName: deployment.serviceName,
+      pinnedAddresses: destination.pinnedAddresses,
     },
     scope,
   )
@@ -100,7 +114,7 @@ export const openApi: OpenApiRouteDoc = {
     POST: {
       summary: 'Send a test span to the OTLP endpoint',
       description:
-        'Sends one synthetic om.export.test span for the caller’s tenant to the deployment OTLP endpoint and records the outcome as the tenant’s export health. Returns 200 with ok false when the backend rejects the span. Limited to one call per 10 seconds per tenant. Requires agent_orchestrator.agents.manage.',
+        'Sends one synthetic om.export.test span for the caller’s tenant to its export destination (the deployment OTLP endpoint, or the caller organization’s agent_orchestrator_otel_export integration when the settings select it) and records the outcome as the tenant’s export health. Returns 200 with ok false when the backend rejects the span or the destination is unavailable (errorCode deployment_unconfigured, integration_unconfigured, integration_disabled, tenant_endpoints_denied or endpoint_blocked). Limited to one call per 10 seconds per tenant. Requires agent_orchestrator.agents.manage.',
       responses: [{ status: 200, description: 'Export attempt outcome', schema: testResponseSchema }],
       errors: [
         { status: 400, description: 'Missing tenant', schema: errorSchema },

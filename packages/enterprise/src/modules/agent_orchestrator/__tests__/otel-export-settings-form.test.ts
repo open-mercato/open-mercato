@@ -43,19 +43,34 @@ describe('otel export settings form mapping', () => {
     expect(form.agentAllowlist).toEqual(['claims.assess', 'support.triage'])
     expect(formToSettings(form)).toEqual({
       ok: true,
-      settings: { enabled: true, content: 'none', exportUserIds: false, agentAllowlist: ['claims.assess', 'support.triage'] },
+      settings: {
+        enabled: true,
+        content: 'none',
+        exportUserIds: false,
+        agentAllowlist: ['claims.assess', 'support.triage'],
+        destination: 'deployment',
+      },
     })
   })
 
   it('sends an empty allowlist as absent (every agent)', () => {
-    const form = settingsToForm({ enabled: false, content: 'none', exportUserIds: true })
+    const form = settingsToForm({ enabled: false, content: 'none', exportUserIds: true, destination: 'deployment' })
     expect(form.agentAllowlist).toEqual([])
     const result = formToSettings(form)
-    expect(result).toEqual({ ok: true, settings: { enabled: false, content: 'none', exportUserIds: true } })
+    expect(result).toEqual({ ok: true, settings: { enabled: false, content: 'none', exportUserIds: true, destination: 'deployment' } })
+  })
+
+  it('keeps a stored integration destination and treats rows without one as deployment', () => {
+    const form = settingsToForm({ enabled: true, content: 'none', exportUserIds: false, destination: 'integration' })
+    expect(form.destination).toBe('integration')
+    expect(formToSettings(form)).toMatchObject({ ok: true, settings: { destination: 'integration' } })
+    expect(formSignature(form)).not.toBe(formSignature({ ...form, destination: 'deployment' }))
+    expect(parseOtelExportSettingsResponse(RESPONSE)?.settings.destination).toBe('deployment')
+    expect(parseOtelExportSettingsResponse(RESPONSE)?.deployment.tenantEndpointsAllowed).toBe(false)
   })
 
   it('adds and removes allowlist agents without duplicates', () => {
-    const base = settingsToForm({ enabled: true, content: 'none', exportUserIds: false })
+    const base = settingsToForm({ enabled: true, content: 'none', exportUserIds: false, destination: 'deployment' })
     const added = addAllowlistAgent(addAllowlistAgent(base, 'b.agent'), 'a.agent')
     expect(added.agentAllowlist).toEqual(['a.agent', 'b.agent'])
     expect(addAllowlistAgent(added, 'a.agent')).toBe(added)
@@ -68,6 +83,7 @@ describe('otel export settings form mapping', () => {
       enabled: true,
       content: 'none',
       exportUserIds: false,
+      destination: 'deployment',
       agentAllowlist: Array.from({ length: OTEL_EXPORT_AGENT_ALLOWLIST_MAX }, (_, index) => `agent.${index}`),
     })
     expect(canAddAllowlistAgent(full)).toBe(false)
@@ -75,7 +91,7 @@ describe('otel export settings form mapping', () => {
   })
 
   it('signs the form independently of allowlist order', () => {
-    const left = settingsToForm({ enabled: true, content: 'none', exportUserIds: false, agentAllowlist: ['a', 'b'] })
+    const left = settingsToForm({ enabled: true, content: 'none', exportUserIds: false, agentAllowlist: ['a', 'b'], destination: 'deployment' })
     const right = { ...left, agentAllowlist: ['b', 'a'] }
     expect(formSignature(left)).toBe(formSignature(right))
     expect(formSignature(left)).not.toBe(formSignature({ ...left, enabled: false }))

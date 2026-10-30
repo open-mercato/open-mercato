@@ -6,7 +6,7 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { OTEL_EXPORT_CONTENT_MODES, otelExportSettingsSchema } from '../../../data/validators'
+import { OTEL_EXPORT_CONTENT_MODES, OTEL_EXPORT_DESTINATIONS, otelExportSettingsSchema } from '../../../data/validators'
 import {
   readOtelExportSettings,
   resolveOtelExportDeployment,
@@ -22,6 +22,7 @@ import {
   UPDATE_OTEL_EXPORT_SETTINGS_COMMAND_ID,
   hasOtelExportFeatures,
   resolveOtelExportContentError,
+  resolveOtelExportDestinationSettingError,
   type UpdateOtelExportSettingsCommandInput,
   type UpdateOtelExportSettingsCommandResult,
 } from '../../../commands/otelExport'
@@ -52,6 +53,7 @@ function deploymentView() {
     protocol: deployment.protocol,
     protocolSupported: deployment.protocolSupported,
     contentAllowed: deployment.contentAllowed,
+    tenantEndpointsAllowed: deployment.tenantEndpointsAllowed,
     traceLinkConfigured: deployment.traceUrlTemplate !== null,
   }
 }
@@ -111,6 +113,9 @@ export async function PUT(req: Request) {
     if (contentError) return NextResponse.json({ error: contentError }, { status: 422 })
   }
 
+  const destinationError = resolveOtelExportDestinationSettingError(parsed.data, resolveOtelExportDeployment())
+  if (destinationError) return NextResponse.json({ error: destinationError }, { status: 422 })
+
   const commandBus = container.resolve('commandBus') as CommandBus
   const commandCtx: CommandRuntimeContext = {
     container,
@@ -145,6 +150,7 @@ const settingsResponseSchema = z.object({
     content: z.enum(OTEL_EXPORT_CONTENT_MODES),
     exportUserIds: z.boolean(),
     agentAllowlist: z.array(z.string()).optional(),
+    destination: z.enum(OTEL_EXPORT_DESTINATIONS),
   }),
   source: z.enum(['tenant', 'instance', 'default']),
   updatedAt: z.string().nullable(),
@@ -155,6 +161,7 @@ const settingsResponseSchema = z.object({
     protocol: z.string(),
     protocolSupported: z.boolean(),
     contentAllowed: z.boolean(),
+    tenantEndpointsAllowed: z.boolean(),
     traceLinkConfigured: z.boolean(),
   }),
   health: z.object({
@@ -188,7 +195,7 @@ export const openApi: OpenApiRouteDoc = {
     PUT: {
       summary: 'Save the tenant OTel export settings',
       description:
-        'Writes the tenant-scoped settings through the undoable agent_orchestrator.otelExportSettings.update command. Send the x-om-ext-optimistic-lock-expected-updated-at header with the updatedAt from GET to reject a stale save with 409. Requires agent_orchestrator.agents.manage; content "full" also requires agent_orchestrator.trace.view_content and is refused with 422 content_export_not_allowed while the deployment denies content export (OM_AGENT_OTEL_EXPORT_CONTENT is not allow).',
+        'Writes the tenant-scoped settings through the undoable agent_orchestrator.otelExportSettings.update command. Send the x-om-ext-optimistic-lock-expected-updated-at header with the updatedAt from GET to reject a stale save with 409. Requires agent_orchestrator.agents.manage; content "full" also requires agent_orchestrator.trace.view_content and is refused with 422 content_export_not_allowed while the deployment denies content export (OM_AGENT_OTEL_EXPORT_CONTENT is not allow); destination "integration" is refused with 422 tenant_endpoints_not_allowed while the deployment denies tenant endpoints (OM_AGENT_OTEL_EXPORT_TENANT_ENDPOINTS is not allow).',
       responses: [{ status: 200, description: 'Saved settings', schema: settingsResponseSchema }],
       errors: [
         { status: 400, description: 'Invalid settings or missing tenant', schema: errorSchema },
@@ -199,7 +206,11 @@ export const openApi: OpenApiRouteDoc = {
           schema: errorSchema,
         },
         { status: 409, description: 'The settings changed since they were read', schema: conflictSchema },
-        { status: 422, description: 'Content export is not allowed by the deployment', schema: errorSchema },
+        {
+          status: 422,
+          description: 'Content export or tenant endpoints are not allowed by the deployment',
+          schema: errorSchema,
+        },
         { status: 503, description: 'Config store unavailable', schema: errorSchema },
       ],
     },

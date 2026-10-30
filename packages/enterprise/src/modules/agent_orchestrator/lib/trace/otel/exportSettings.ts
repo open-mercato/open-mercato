@@ -108,6 +108,28 @@ export function parseOtlpHeaders(raw: string | null | undefined): Record<string,
   return headers
 }
 
+/**
+ * Strict variant of {@link parseOtlpHeaders} for tenant-supplied header lists:
+ * `null` when any non-empty pair is malformed (no `=`, bad URL-encoding, an
+ * invalid header name, or CR/LF/NUL in a value) instead of skipping it.
+ */
+export function parseOtlpHeadersStrict(raw: string | null | undefined): Record<string, string> | null {
+  const headers: Record<string, string> = {}
+  if (typeof raw !== 'string') return headers
+  for (const pair of raw.split(',')) {
+    if (pair.trim() === '') continue
+    const separator = pair.indexOf('=')
+    if (separator <= 0) return null
+    const name = decodeHeaderPart(pair.slice(0, separator).trim())
+    const value = decodeHeaderPart(pair.slice(separator + 1).trim())
+    if (name === null || value === null) return null
+    if (!HEADER_NAME_RE.test(name)) return null
+    if (HEADER_VALUE_FORBIDDEN_RE.test(value)) return null
+    headers[name] = value
+  }
+  return headers
+}
+
 function normalizeEndpoint(raw: string, variable: string): string | null {
   let parsed: URL
   try {
@@ -214,10 +236,22 @@ function readTenantEndpointsAllowed(env: EnvLike): boolean {
 }
 
 /**
+ * Whether the deployment's own endpoint can receive exports: one is configured
+ * and the deployment protocol is supported.
+ */
+export function isOtelExportDeploymentEndpointUsable(
+  deployment: Pick<OtelExportDeploymentConfig, 'endpoint' | 'protocolSupported'>,
+): boolean {
+  return deployment.protocolSupported && deployment.endpoint !== null
+}
+
+/**
  * Deployment-level OTel export configuration from the environment. `enabled`
- * requires the master switch, a supported protocol (`http/json` or
- * `http/protobuf`; anything else disables export with a one-time warning) and a usable endpoint. The
- * endpoint and headers stay server-side and are never logged.
+ * requires the master switch and a destination: a usable deployment endpoint
+ * (configured, with a supported protocol — `http/json` or `http/protobuf`;
+ * anything else disables it with a one-time warning) or tenant endpoints
+ * allowed (`OM_AGENT_OTEL_EXPORT_TENANT_ENDPOINTS=allow`). The endpoint and
+ * headers stay server-side and are never logged.
  */
 export function resolveOtelExportDeployment(env: EnvLike = process.env): OtelExportDeploymentConfig {
   const switchOn = readSwitch(env)
@@ -232,15 +266,16 @@ export function resolveOtelExportDeployment(env: EnvLike = process.env): OtelExp
   const endpoint = resolveOtelExportEndpoint(env)
   const headersRaw =
     readTrimmed(env, OTEL_EXPORT_ENV.headers) ?? readTrimmed(env, OTEL_EXPORT_ENV.platformHeaders)
+  const tenantEndpointsAllowed = readTenantEndpointsAllowed(env)
   return {
-    enabled: switchOn && protocolSupported && endpoint !== null,
+    enabled: switchOn && (isOtelExportDeploymentEndpointUsable({ endpoint, protocolSupported }) || tenantEndpointsAllowed),
     switchOn,
     protocol,
     protocolSupported,
     endpoint,
     headers: parseOtlpHeaders(headersRaw),
     contentAllowed: readContentAllowed(env),
-    tenantEndpointsAllowed: readTenantEndpointsAllowed(env),
+    tenantEndpointsAllowed,
     delayMs: readDelayMs(env),
     serviceName: readTrimmed(env, OTEL_EXPORT_ENV.serviceName) ?? OTEL_EXPORT_DEFAULT_SERVICE_NAME,
     sources: readSources(env),

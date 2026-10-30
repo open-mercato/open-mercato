@@ -3,7 +3,7 @@ import {
   otelExportIntegrationCredentialsSchema,
   type OtelExportIntegrationCredentials,
 } from '../../../data/validators'
-import { parseOtlpHeaders } from './exportSettings'
+import { parseOtlpHeadersStrict } from './exportSettings'
 import { sendOtelTestSpan, type OtelTestSpanDestination } from './sendTestSpan'
 
 export { OTEL_EXPORT_HEALTH_CHECK_SERVICE, OTEL_EXPORT_INTEGRATION_ID } from './exportIntegrationIds'
@@ -19,8 +19,10 @@ export type ParsedOtelExportIntegrationCredentials =
   | { ok: false; field: string | null }
 
 /**
- * Validates stored integration credentials and parses the `headers` secret.
- * The failure result names the offending field only, never its value.
+ * Validates stored integration credentials and parses the `headers` secret
+ * strictly (a malformed pair, an invalid header name or CR/LF in a value
+ * rejects the whole list). The failure result names the offending field only,
+ * never its value.
  */
 export function parseOtelExportIntegrationCredentials(raw: Record<string, unknown> | null): ParsedOtelExportIntegrationCredentials {
   const parsed = otelExportIntegrationCredentialsSchema.safeParse(raw ?? {})
@@ -28,11 +30,13 @@ export function parseOtelExportIntegrationCredentials(raw: Record<string, unknow
     const field = parsed.error.issues[0]?.path[0]
     return { ok: false, field: typeof field === 'string' ? field : null }
   }
+  const headers = parseOtlpHeadersStrict(parsed.data.headers ?? null)
+  if (headers === null) return { ok: false, field: 'headers' }
   return {
     ok: true,
     credentials: {
       endpoint: parsed.data.endpoint,
-      headers: parseOtlpHeaders(parsed.data.headers ?? null),
+      headers,
       protocol: parsed.data.protocol,
     },
   }

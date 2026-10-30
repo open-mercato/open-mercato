@@ -336,6 +336,45 @@ describe('runOtelExportBackfill', () => {
     expect(harness.getRecord).toHaveBeenCalledTimes(2)
     expect(harness.loadBundle).not.toHaveBeenCalled()
   })
+
+  test('skips runs whose organization has no export destination, resolving once per tenant + organization', async () => {
+    const otherOrg = '88888888-8888-4888-8888-888888888888'
+    const harness = makeDeps({
+      env: ENABLED_ENV,
+      runs: [
+        row(),
+        row({ id: SECOND_RUN_ID }),
+        row({ id: '66666666-6666-4666-8666-666666666666', organizationId: otherOrg }),
+      ],
+      settingsByTenant: { [TENANT_ID]: { enabled: true, destination: 'integration' } },
+    })
+    const resolveDestination = jest.fn(async (input: { scope: { organizationId: string | null } }) =>
+      input.scope.organizationId === ORG_ID
+        ? { error: 'integration_disabled' as const }
+        : { endpoint: 'https://tenant.example/v1/traces', headers: {}, protocol: 'http/json' as const, source: 'integration' as const },
+    )
+    const summary = await runOtelExportBackfill(parsedArgs(['--since', '2026-10-01T00:00:00Z']), {
+      ...harness.deps,
+      resolveDestination,
+    })
+    expect(summary).toEqual({ mode: 'enqueue', selected: 3, enqueued: 1, skipped: { destination_unavailable: 2 } })
+    expect(resolveDestination).toHaveBeenCalledTimes(2)
+    expect(harness.enqueue).toHaveBeenCalledWith(
+      { runId: '66666666-6666-4666-8666-666666666666', attempt: 0 },
+      { delayMs: 0 },
+    )
+  })
+
+  test('the default resolver fails closed for an integration destination while tenant endpoints are denied', async () => {
+    const harness = makeDeps({
+      env: ENABLED_ENV,
+      runs: [row()],
+      settingsByTenant: { [TENANT_ID]: { enabled: true, destination: 'integration' } },
+    })
+    const summary = await runOtelExportBackfill(parsedArgs(['--run', RUN_ID]), harness.deps)
+    expect(summary).toEqual({ mode: 'enqueue', selected: 1, enqueued: 0, skipped: { destination_unavailable: 1 } })
+    expect(harness.enqueue).not.toHaveBeenCalled()
+  })
 })
 
 describe('formatOtelExportBackfillSkips', () => {

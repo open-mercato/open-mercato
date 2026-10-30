@@ -632,11 +632,16 @@ export type TraceCapturePolicyInput = z.input<typeof traceCapturePolicySchema>
 export const OTEL_EXPORT_CONTENT_MODES = ['none', 'full'] as const
 export const OTEL_EXPORT_AGENT_ALLOWLIST_MAX = 200
 export const OTEL_EXPORT_AGENT_ID_MAX_LENGTH = 100
+export const OTEL_EXPORT_DESTINATIONS = ['deployment', 'integration'] as const
+export type OtelExportDestinationKind = (typeof OTEL_EXPORT_DESTINATIONS)[number]
 
 /**
  * Per-tenant OTel export settings (module config `agent_orchestrator/otel_export`).
  * Deployment configuration and the effective export gate live in
  * `lib/trace/otel/exportSettings.ts`. An absent `agentAllowlist` exports every agent.
+ * `destination` picks the deployment endpoint or the organization's
+ * `agent_orchestrator_otel_export` integration (rows saved before it existed
+ * parse as `deployment`).
  */
 export const otelExportSettingsSchema = z.object({
   enabled: z.boolean().default(false),
@@ -646,6 +651,7 @@ export const otelExportSettingsSchema = z.object({
     .array(z.string().min(1).max(OTEL_EXPORT_AGENT_ID_MAX_LENGTH))
     .max(OTEL_EXPORT_AGENT_ALLOWLIST_MAX)
     .optional(),
+  destination: z.enum(OTEL_EXPORT_DESTINATIONS).default('deployment'),
 })
 export type OtelExportSettings = z.infer<typeof otelExportSettingsSchema>
 export type OtelExportSettingsInput = z.input<typeof otelExportSettingsSchema>

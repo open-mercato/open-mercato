@@ -55,8 +55,8 @@ import { buildWebSearchEngine } from './lib/webSearch/registry'
 import {
   OTEL_EXPORT_HEALTH_CHECK_SERVICE,
   createOtelExportHealthCheck,
-  resolveInactiveOtelExportHealthDestination,
 } from './lib/trace/otel/exportIntegration'
+import { createOtelExportHealthDestinationResolver } from './lib/trace/otel/exportDestination'
 import type { DispositionService } from './lib/disposition/dispositionService'
 import { registerWorkInboxSources } from '@open-mercato/core/modules/workflows/lib/work-inbox/provider'
 import {
@@ -183,7 +183,7 @@ export function register(container: AppContainer) {
     // `webSearchEngineFactory` to wrap or replace the chain.
     webSearchEngineFactory: asFunction(() => buildWebSearchEngine).scoped(),
     [OTEL_EXPORT_HEALTH_CHECK_SERVICE]: asValue(
-      createOtelExportHealthCheck({ resolveDestination: resolveInactiveOtelExportHealthDestination }),
+      createOtelExportHealthCheck({ resolveDestination: createOtelExportHealthDestinationResolver() }),
     ),
     agentDocumentIngestService: asFunction(
       () => new DocumentIngestServiceImpl(container, { provider: resolveDefaultOcrProvider(container) }),

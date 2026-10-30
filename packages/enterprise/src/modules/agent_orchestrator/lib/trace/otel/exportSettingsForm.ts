@@ -3,6 +3,7 @@ import {
   OTEL_EXPORT_AGENT_ALLOWLIST_MAX,
   OTEL_EXPORT_CONTENT_MODES,
   otelExportSettingsSchema,
+  type OtelExportDestinationKind,
   type OtelExportSettings,
 } from '../../../data/validators'
 
@@ -19,6 +20,7 @@ export type OtelExportSettingsForm = {
   exportUserIds: boolean
   content: OtelExportContentMode
   agentAllowlist: string[]
+  destination: OtelExportDestinationKind
 }
 
 const deploymentSchema = z.object({
@@ -28,6 +30,7 @@ const deploymentSchema = z.object({
   protocol: z.string(),
   protocolSupported: z.boolean(),
   contentAllowed: z.boolean(),
+  tenantEndpointsAllowed: z.boolean().default(false),
   traceLinkConfigured: z.boolean(),
 })
 
@@ -82,6 +85,7 @@ export function settingsToForm(settings: OtelExportSettings): OtelExportSettings
     exportUserIds: settings.exportUserIds,
     content: settings.content,
     agentAllowlist: [...(settings.agentAllowlist ?? [])].sort((left, right) => left.localeCompare(right)),
+    destination: settings.destination,
   }
 }
 
@@ -101,6 +105,7 @@ export function formToSettings(form: OtelExportSettingsForm): FormToSettingsResu
     content: form.content,
     exportUserIds: form.exportUserIds,
     ...(allowlist.length > 0 ? { agentAllowlist: allowlist } : {}),
+    destination: form.destination,
   }
   const parsed = otelExportSettingsSchema.safeParse(candidate)
   return parsed.success ? { ok: true, settings: parsed.data } : { ok: false }
@@ -126,6 +131,7 @@ export function formSignature(form: OtelExportSettingsForm): string {
     exportUserIds: form.exportUserIds,
     content: form.content,
     agentAllowlist: normalizeAllowlist(form.agentAllowlist),
+    destination: form.destination,
   })
 }
 

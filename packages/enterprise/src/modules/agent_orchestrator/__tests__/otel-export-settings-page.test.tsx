@@ -124,7 +124,7 @@ describe('OTel export settings page', () => {
     await waitFor(() => expect(readApiResultMock).toHaveBeenCalledTimes(1))
     const [url, init] = readApiResultMock.mock.calls[0] as [string, RequestInit]
     expect(url).toBe('/api/agent_orchestrator/otel-export/settings')
-    expect(JSON.parse(String(init.body))).toEqual({ ...SETTINGS.settings, exportUserIds: true })
+    expect(JSON.parse(String(init.body))).toEqual({ ...SETTINGS.settings, exportUserIds: true, destination: 'deployment' })
     expect(withScopedApiRequestHeaders.mock.calls[0][0]).toEqual({
       'x-om-ext-optimistic-lock-expected-updated-at': '2026-10-27T10:00:00.000Z',
     })
