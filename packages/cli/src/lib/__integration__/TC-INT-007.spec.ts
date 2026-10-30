@@ -241,4 +241,26 @@ test.describe('TC-INT-007: CLI official module install and eject flows', () => {
       fs.rmSync(appDir, { recursive: true, force: true })
     }
   })
+
+  test('module add and module enable exit 0 without changes when the module is already enabled', () => {
+    const appDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mercato-cli-standalone-rerun-'))
+
+    try {
+      createStandaloneFixture(appDir)
+      runCommand(yarnBinary(), ['install'], appDir)
+      const packageSpec = `@open-mercato/test-package@file:${fixtureModulePackage}`
+
+      runMercato(['module', 'add', packageSpec], appDir)
+      const modulesSource = readFile(path.join(appDir, 'src', 'modules.ts'))
+
+      const addOutput = runMercato(['module', 'add', packageSpec], appDir)
+      const enableOutput = runMercato(['module', 'enable', '@open-mercato/test-package'], appDir)
+
+      expect(addOutput).toContain('is already enabled in modules.ts. Nothing to change.')
+      expect(enableOutput).toContain('is already enabled in modules.ts. Nothing to change.')
+      expect(readFile(path.join(appDir, 'src', 'modules.ts'))).toBe(modulesSource)
+    } finally {
+      fs.rmSync(appDir, { recursive: true, force: true })
+    }
+  })
 })
