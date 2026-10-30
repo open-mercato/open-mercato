@@ -24,6 +24,23 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.9.0 → 0.9.1 (unreleased)
 
+### Workflow steps may last longer than ~24.8 days; `StepInstance.executionTimeMs` is deprecated
+
+A workflow step that lasted 2^31 ms (~24.86 days) or longer could not complete: `step_instances.execution_time_ms`
+is a Postgres `integer`, so the flush that closed the step threw after the step's task had already committed. A
+synchronous `WAIT` activity of that length resolved after 1 ms instead (Node's `setTimeout` ceiling), and a
+`WAIT_FOR_CONDITION` step was forced to time out after 1000 polls whatever its own timeout said.
+
+- `StepInstance.executionTimeMs` (`step_instances.execution_time_ms`) is now `@deprecated` and is written as `null`
+  for a step longer than 2^31 − 1 ms. It was already `null` on every FAILED path. Derive a step's duration from
+  `exitedAt - enteredAt`; the exact value still travels on the `STEP_EXITED` event (`eventData.executionTimeMs`).
+  The column is scheduled for removal no earlier than 0.11.0; no migration ships now.
+- A synchronous `WAIT` longer than one minute that is the last activity of its transition is now queued like an
+  `async: true` WAIT, so the run parks in `WAITING_FOR_ACTIVITIES` instead of holding the request open. A synchronous
+  WAIT longer than ~24.8 days anywhere else now fails with an explicit error instead of resolving early.
+- `OM_WORKFLOWS_MAX_CONDITION_ATTEMPTS` is now the floor of the poll cap: each `WAIT_FOR_CONDITION` waiter may poll
+  as many times as its own `timeout / pollIntervalMs` requires.
+
 ### MCP HTTP servers now bind to loopback by default (#2659, #2670)
 
 `runMcpHttpServer` (`mcp:serve-http` / `yarn mcp:serve`, production) and `runMcpDevServer`
@@ -61,6 +78,7 @@ change, as a reference for anything else you run:
 No database schema, event id, or CLI command signature changes — only the new options
 (`--host` / `MCP_HTTP_HOST` for `mcp:serve-http`, `MCP_DEV_HOST` for `mcp:dev`) and the changed
 default.
+
 
 ### Passkey enrollment requires a WebAuthn registration response (#6800)
 
@@ -733,6 +751,32 @@ produces an actionable proposal. No new dependency, configuration, or database m
 fresh proposals. Old cards cannot be distinguished from forgeries; do not backfill markers using
 their text or sender email. Inspect prior approved replies if forgery is suspected. Normal
 messages and fresh system-filed proposals retain their existing behavior.
+
+### AI-chat session tokens: hashed storage, deploy the app and the MCP server together (#2254, #7304)
+
+`api_keys.session_token` (the ephemeral AI-chat/MCP bearer credential) is replaced by a SHA-256
+`api_keys.session_token_hash`. The old column is kept as a deprecated, always-`null` bridge —
+nothing reads or writes it anymore — rather than dropped, so it is safe to leave in place across
+a rolling deploy.
+
+**Deploy the app and the standalone MCP process (`mcp:serve-http`/`mcp:dev`) together.** During
+the window where they run different code versions:
+- A session minted by the *old* code (plaintext-only) is still resolved by the *new* code — it
+  falls back to the plaintext column on a hash miss and self-heals the row onto the hash on
+  first use — so upgrading the app ahead of the MCP process is safe.
+- A session minted by the *new* code (hash-only) is **not** resolved by an *old* MCP process
+  still running against the same database — the old binary has no way to know about the hash
+  column. Upgrading the MCP process after the app, or running both from the same deploy, avoids
+  this. If hit anyway, the user sees "Your chat session has expired" and recovers by reopening
+  the chat window; no data is corrupted.
+
+**Rolling back after this migration is destructive to sessions minted since the upgrade.** The
+migration backfills the hash from, and then clears, the plaintext column for rows that already
+existed; it cannot retroactively plaintext-store sessions minted by the new code after that
+point. Rolling back (`down()`) drops the hash column, so any session minted between the forward
+migration and the rollback is unrecoverable — users must reopen their chat windows. This is the
+same one-time-TTL (120-minute) cost paid by any session mid-flight at rollback, not an ongoing
+state.
 
 ### Payment gateway webhooks: opt-in transport, locator and response options; ambiguous matches are rejected
 
