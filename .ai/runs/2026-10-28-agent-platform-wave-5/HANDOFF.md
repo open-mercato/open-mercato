@@ -1,17 +1,18 @@
 # Handoff — 2026-10-28-agent-platform-wave-5
 
-**Last updated:** 2026-10-30T03:49:26Z
+**Last updated:** 2026-10-30T05:14:45Z
 **Branch:** feat/agent-platform-wave-5
 **PR:** https://github.com/open-mercato/open-mercato/pull/8099 (draft; `do-not-merge` at the user's request)
-**Current phase/step:** Phase 7 Step 7.1 (first `todo` row)
-**Last commit:** 27b4b02d7 — test(ai-assistant): cover citations with integration tests and docs
+**Current phase/step:** Phase 7 Step 7.11 (first `todo` row)
+**Last commit:** 239d0230f — test(agent_orchestrator): expect the translated guardrail kind label in TC-AGENT-UXC-006
 
 ## What just happened
 - 2026-10-29: branch brought up to date with `main` through the wave chain; checkpoint 4 green.
 - 2026-10-29/30: Phase 5 (Chat P3, 5.1–5.5) and Phase 6 (Chat P4, 6.1–6.4) landed; wave-4 head merged in (TC-AI-RUN-TRACE-016 fix); checkpoint 5 green (see checkpoint-5-checks.md).
 
 ## Next concrete action
-- Phase 7 (Eval P3–P5) Steps 7.1–7.12, then 8.1 close, then the final gate.
+- Steps 7.11 (eval CI recipe docs) and 7.12 (eval-set import/export/settings integration tests), then 8.1 close (roadmap, UPGRADE_NOTES incl. `yaml` dep, `OM_AGENT_EVAL_TOOL_FIXTURE_MAX_BYTES` env mirror, ACL sync), then the final gate (full validation + full integration suite + DS pass), then om-auto-review-pr --autofix.
+- Decisions to carry into 8.1 / the PR summary are collected in the session scratchpad notes and in each spec changelog; the eval spec changelog (Phase 3–5) is still to write (7.11/8.1).
 
 ## Blockers / open questions
 - none. User preferences: auto-continue, checkpoints every 10+ Steps.

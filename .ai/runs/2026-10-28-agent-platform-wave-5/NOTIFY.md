@@ -50,3 +50,8 @@
 - Idempotency: assertions upsert by (org, agentId, key), reviving soft-deleted rows (the unique key spans them); cases match `sourceType:'file'` + deterministic `sourceId`, and a key equal to an existing case id of the agent (what `current` export emits) updates that case. Content change demotes approved → draft unless `approve`.
 - No `enforceCommandOptimisticLock` in the import (bulk upsert by key, no client version) → no coverage-allowlist entry; undo/audit via the command. No per-case `eval_case.created` events (bulk).
 - Export: judge-gate downgrade reported in the `x-om-eval-set-downgraded` header (body is the file); `x-om-eval-set-version` = the file's hash, `x-om-eval-set-source-version` = the exported manifest's. `includeFixtures` not implemented (DB manifests carry no fixtures). No new ACL features (spec: reuse eval.manage/eval.export).
+
+## 2026-10-30T05:14:45Z — checkpoint 6
+- Steps 7.1–7.10 landed via executors (7.2 cheap tier; 7.3, 7.5, 7.6, 7.8 capable tier). New production dependency `yaml` 2.9.0 in @open-mercato/enterprise (approved for Phase 7).
+- Fixes: 7.10-review-fix (explicit sort comparators), 1.11-review-fix-2 (UXC-006 expected the raw guardrail kind).
+- Checkpoint 6: static + unit + build:app pass after the fixes; integration 113 passed / 18 skipped / 1 failed → fixed, UXC 8/8.

@@ -72,18 +72,18 @@
 | 6 | 6.2 | Add the citation resolver registry and citations UI part | dispatch | done | 82de9c1fe |
 | 6 | 6.3 | Persist run citations and show Sources | dispatch | done | 7797adab9 |
 | 6 | 6.4 | Cover citations with integration tests and docs | dispatch | done | 27b4b02d7 |
-| 7 | 7.1 | Define the eval-set file format | dispatch | done | pending |
-| 7 | 7.2 | Read and write eval sets as YAML | dispatch:cheap | done | pending |
-| 7 | 7.3 | Start eval runs from a file manifest | dispatch:capable | done | pending |
-| 7 | 7.4 | Add CLI --cases and eval-set export and validate | dispatch | done | pending |
-| 7 | 7.5 | Add eval-set import and export APIs | dispatch:capable | done | pending |
-| 7 | 7.6 | Add the tool replay seam to ai-assistant | dispatch:capable | done | pending |
-| 7 | 7.7 | Forward modelSettings and eval callSettings | dispatch | done | pending |
-| 7 | 7.8 | Record and replay tool fixtures in eval runs | dispatch:capable | done | pending |
-| 7 | 7.9 | Fill the eval report environment block | dispatch | done | pending |
-| 7 | 7.10 | Add the rubric library and rubricRef | dispatch | done | pending |
-| 7 | 7.10-review-fix | Use explicit sort comparators in the eval-set YAML and rubric helpers | inline | done | pending |
-| 1 | 1.11-review-fix-2 | Expect the translated guardrail kind label in TC-AGENT-UXC-006 | inline | done | pending |
+| 7 | 7.1 | Define the eval-set file format | dispatch | done | 9e1e4b169 |
+| 7 | 7.2 | Read and write eval sets as YAML | dispatch:cheap | done | b35b2d7c7 |
+| 7 | 7.3 | Start eval runs from a file manifest | dispatch:capable | done | 1421ce3ed |
+| 7 | 7.4 | Add CLI --cases and eval-set export and validate | dispatch | done | ab15c999e |
+| 7 | 7.5 | Add eval-set import and export APIs | dispatch:capable | done | 710b85fe8 |
+| 7 | 7.6 | Add the tool replay seam to ai-assistant | dispatch:capable | done | 4851eaae3 |
+| 7 | 7.7 | Forward modelSettings and eval callSettings | dispatch | done | 13fac90e9 |
+| 7 | 7.8 | Record and replay tool fixtures in eval runs | dispatch:capable | done | 73e6e4ed1 |
+| 7 | 7.9 | Fill the eval report environment block | dispatch | done | e57c6801a |
+| 7 | 7.10 | Add the rubric library and rubricRef | dispatch | done | 058781a33 |
+| 7 | 7.10-review-fix | Use explicit sort comparators in the eval-set YAML and rubric helpers | inline | done | 345b6e955 |
+| 1 | 1.11-review-fix-2 | Expect the translated guardrail kind label in TC-AGENT-UXC-006 | inline | done | 239d0230f |
 | 7 | 7.11 | Document the eval CI recipe | dispatch:cheap | todo | — |
 | 7 | 7.12 | Cover eval-set import, export and settings with integration tests | dispatch | todo | — |
 | 8 | 8.1 | Update the roadmap and upgrade notes for wave 5 | inline | todo | — |
