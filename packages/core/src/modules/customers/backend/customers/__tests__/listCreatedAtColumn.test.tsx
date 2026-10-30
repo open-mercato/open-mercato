@@ -3,7 +3,7 @@ import * as React from 'react'
 import { act, render, waitFor } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import type { AdvancedFilterTree } from '@open-mercato/shared/lib/query/advanced-filter-tree'
-import { formatInTimeZone, fromZonedTime } from 'date-fns-tz'
+import { fromZonedTime } from 'date-fns-tz'
 import { USER_TIMEZONE } from '../../../lib/localDay'
 import { expandCreatedAtDayRules } from '../../../lib/createdAtDayFilter'
 import CustomersPeoplePage from '../people/page'
@@ -363,20 +363,25 @@ describe('companies list — Recently created preset', () => {
     apiCallMock.mockResolvedValue({ ok: true, result: { items: [], total: 0, page: 1, totalPages: 1 }, cacheStatus: null })
   })
 
-  it('starts at local midnight seven days ago once sent to the API', async () => {
+  it.each([
+    ['2026-09-24T12:00:00.000', '2026-09-17'],
+    ['2026-10-31T23:30:00.000', '2026-10-24'],
+    ['2026-04-01T00:30:00.000', '2026-03-25'],
+    ['2026-11-07T23:30:00.000', '2026-10-31'],
+    ['2026-03-11T00:30:00.000', '2026-03-04'],
+  ])('starts at local midnight seven calendar days before %s', async (localNow, firstIncludedDay) => {
     renderWithProviders(<CustomersCompaniesPage />)
     await waitFor(() => expect(filterPanelPropsCapture.current?.presets).toBeDefined())
 
     const presets = filterPanelPropsCapture.current?.presets as FilterPreset[]
     const preset = presets.find((candidate) => candidate.id === 'recently-created')
-    const now = new Date('2026-09-24T12:00:00.000Z')
+    const now = fromZonedTime(localNow, USER_TIMEZONE)
     const tree = preset!.build({ now, userId: null })
     const [presetRule] = tree.root.children
-    expect(presetRule).toMatchObject({ field: 'created_at', operator: 'is_after' })
+    expect(presetRule).toMatchObject({ field: 'created_at', operator: 'greater_or_equal', value: firstIncludedDay })
 
     const sentRule = expandCreatedAtDayRules(tree, USER_TIMEZONE).root.children[0]
-    const firstIncludedDay = formatInTimeZone(new Date(now.getTime() - 7 * 24 * 3600 * 1000), USER_TIMEZONE, 'yyyy-MM-dd')
     const localMidnight = fromZonedTime(`${firstIncludedDay}T00:00:00.000`, USER_TIMEZONE).getTime()
-    expect(sentRule).toMatchObject({ operator: 'greater_than', value: new Date(localMidnight - 1).toISOString() })
+    expect(sentRule).toMatchObject({ operator: 'greater_or_equal', value: new Date(localMidnight).toISOString() })
   })
 })
