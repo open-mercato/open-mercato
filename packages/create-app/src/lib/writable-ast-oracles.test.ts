@@ -1067,6 +1067,8 @@ const recoveryNegatives: Array<{ caseId: string; label: string; mutate: (sources
   { caseId: 'OMH-014', label: 'orphan component', mutate: sources => ({ ...sources, 'src/modules/library/backend/books/page.tsx': 'export default function Page() { return <div /> }' }) },
   { caseId: 'OMH-014', label: 'unused component import', mutate: sources => ({ ...sources, 'src/modules/library/backend/books/page.tsx': "import { Books } from '../../components/Books'\nexport default function Page() { return <div /> }" }) },
   { caseId: 'OMH-014', label: 'import escaping the case module', mutate: sources => ({ ...sources, 'src/modules/library/backend/books/page.tsx': "import { Books } from '../../../other/Books'\nexport default function Page() { return <Books /> }", 'src/modules/other/Books.tsx': sources['src/modules/library/components/Books.tsx'] }) },
+  { caseId: 'OMH-014', label: 'import escaping the target root', mutate: sources => ({ ...sources, 'src/modules/library/backend/books/page.tsx': "import { Books } from '../../../../../../outside/Books'\nexport default function Page() { return <Books /> }" }) },
+  { caseId: 'OMH-014', label: 'rendered non-component export', mutate: sources => ({ ...sources, 'src/modules/library/components/Books.tsx': 'export const Books = 42' }) },
   { caseId: 'OMH-014', label: 'nonexistent rendered import', mutate: sources => ({ ...sources, 'src/modules/library/backend/books/page.tsx': "import { Books } from '../../components/Missing'\nexport default function Page() { return <Books /> }" }) },
   { caseId: 'OMH-026', label: 'empty registered enricher', mutate: sources => ({ ...sources, 'src/modules/app_customizations/data/enrichers.ts': "import type { ResponseEnricher } from '@open-mercato/shared/lib/crud/response-enricher'\nexport const enrichers: ResponseEnricher[] = [{ id: 'empty', targetEntity: 'customers.person', async enrichMany() { return [] } }]" }) },
   { caseId: 'OMH-026', label: 'disconnected enrichMany call', mutate: sources => ({ ...sources, 'src/modules/app_customizations/data/enrichers.ts': "function unused() { enrichMany([]) }\nexport const enrichers = []" }) },
@@ -1095,7 +1097,9 @@ for (const { caseId, label, mutate } of recoveryNegatives) {
     const root = stageTarget('src/fixture.ts', 'export {}')
     try {
       writeRecoverySources(root, mutate(recoveryFixtures[caseId]))
-      assert.equal(runOracle(root, 'before', process.env, caseId).parsed.passed, false)
+      const result = runOracle(root, 'before', process.env, caseId)
+      assert.equal(result.status, 1, JSON.stringify(result.parsed))
+      assert.equal(result.parsed.passed, false)
     } finally { fs.rmSync(root, { recursive: true, force: true }) }
   })
 }
@@ -1109,17 +1113,22 @@ test('recovery OMH-014 bounds cycles, component count and rendered source bytes'
       'src/modules/library/components/Books.tsx': "import { Loop } from './Loop'\nexport function Books() { return <Loop /> }",
       'src/modules/library/components/Loop.tsx': "import { Books } from './Books'\nexport function Loop() { return <Books /> }",
     })
-    assert.equal(runOracle(root, 'before', process.env, 'OMH-014').parsed.passed, false)
+    const assertGeneratedFailure = () => {
+      const result = runOracle(root, 'before', process.env, 'OMH-014')
+      assert.equal(result.status, 1, JSON.stringify(result.parsed))
+      assert.equal(result.parsed.passed, false)
+    }
+    assertGeneratedFailure()
     writeRecoverySources(root, recoveryFixtures['OMH-014'])
     fs.appendFileSync(path.join(root, 'src/modules/library/components/Books.tsx'), '\n/*' + 'x'.repeat(512 * 1024) + '*/')
-    assert.equal(runOracle(root, 'before', process.env, 'OMH-014').parsed.passed, false)
+    assertGeneratedFailure()
     const parts = Array.from({ length: 64 }, (_, index) => `Part${index}`)
     writeRecoverySources(root, {
       ...recoveryFixtures['OMH-014'],
       'src/modules/library/backend/books/page.tsx': parts.map(name => `import { ${name} } from '../../components/${name}'`).join('\n') + "\nimport { Books } from '../../components/Books'\nexport default function Page() { return <><Books />" + parts.map(name => `<${name} />`).join('') + '</> }',
       ...Object.fromEntries(parts.map(name => [`src/modules/library/components/${name}.tsx`, `export function ${name}() { return <div /> }`])),
     })
-    assert.equal(runOracle(root, 'before', process.env, 'OMH-014').parsed.passed, false)
+    assertGeneratedFailure()
   } finally { fs.rmSync(root, { recursive: true, force: true }) }
 })
 
@@ -1128,5 +1137,22 @@ test('recovery OMH-031 permits explicit metadata handoff when after consumes it'
   try {
     writeRecoverySources(root, Object.fromEntries(Object.entries(recoveryFixtures['OMH-031']).map(([file, source]) => [file, source.replace('return { ok: true, query:', 'return { ok: true, metadata: { approved: true }, query:').replace(/}\s*\]$/, ', async after(request, response, context) { return { merge: { approved: context.metadata?.approved } } } }]') ])))
     assert.equal(runOracle(root, 'before', process.env, 'OMH-031').parsed.passed, true)
+  } finally { fs.rmSync(root, { recursive: true, force: true }) }
+})
+
+
+test('recovery OMH-014 malformed generated graph remains a case failure and still runs after typecheck', { skip: !targetSandboxAvailable }, () => {
+  const root = stageTarget('src/fixture.ts', 'export {}')
+  try {
+    writeRecoverySources(root, {
+      ...recoveryFixtures['OMH-014'],
+      'src/modules/library/backend/books/page.tsx': "import { Books } from '../../components/Missing'\nexport default function Page() { return <Books /> }",
+    })
+    const bin = installFakeYarn(root)
+    const result = runOracle(root, 'after', { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}` }, 'OMH-014')
+    assert.equal(result.status, 1, JSON.stringify(result.parsed))
+    assert.equal(result.parsed.checks.find(entry => entry.id === 'ui.rendered-source')?.passed, false)
+    assert.ok(result.parsed.checks.some(entry => entry.id === 'target.typecheck'))
+    assert.ok(fs.existsSync(path.join(root, 'typecheck-invocation.txt')))
   } finally { fs.rmSync(root, { recursive: true, force: true }) }
 })

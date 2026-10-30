@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { randomUUID } from 'node:crypto'
 import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -36,7 +37,23 @@ type Reply = { id: number; result: { isError?: boolean; content: Array<{ text: s
 const packageRoot = fileURLToPath(new URL('../../', import.meta.url))
 const repositoryRoot = fileURLToPath(new URL('../../../../', import.meta.url))
 const shared = path.join(packageRoot, 'agentic/shared')
-const evaluator = await import(pathToFileURL(path.join(shared, 'scripts/evaluate-agent-harness.mjs')).href) as unknown as Evaluator
+const evaluatorPath = path.join(shared, 'scripts/evaluate-agent-harness.mjs')
+
+async function loadEvaluator(): Promise<Evaluator> {
+  const source = fs.readFileSync(evaluatorPath, 'utf8')
+  if (/^export function prepareCaseFrameworkContext\(/m.test(source)) return import(pathToFileURL(evaluatorPath).href) as unknown as Promise<Evaluator>
+  const declaration = /^function prepareCaseFrameworkContext\(/m
+  assert.match(source, declaration, 'existing evaluator declaration missing: prepareCaseFrameworkContext')
+  const bridge = path.join(path.dirname(evaluatorPath), `.coding-source-policy-test-${process.pid}-${randomUUID()}.mjs`)
+  try {
+    fs.writeFileSync(bridge, source.replace(declaration, 'export function prepareCaseFrameworkContext('), { flag: 'wx', mode: 0o600 })
+    return await import(pathToFileURL(bridge).href) as unknown as Evaluator
+  } finally {
+    if (fs.existsSync(bridge)) fs.unlinkSync(bridge)
+  }
+}
+
+const evaluator = await loadEvaluator()
 const catalog = JSON.parse(fs.readFileSync(path.join(shared, 'ai/harness/cases.json'), 'utf8')) as CodingCase[]
 const references = (JSON.parse(fs.readFileSync(path.join(shared, 'ai/harness/source-link-inventory.json'), 'utf8')) as { records: Reference[] }).records
 const surfaces = (JSON.parse(fs.readFileSync(path.join(packageRoot, 'template/src/modules/example/references/surface-inventory.json'), 'utf8')) as { capabilities: Surface[] }).capabilities

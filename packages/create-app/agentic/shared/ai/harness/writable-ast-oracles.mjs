@@ -1600,7 +1600,7 @@ function renderedUiContract(ts, root, backendFiles) {
   const moduleRoot = path.join(root, 'src/modules/library')
   const pending = backendFiles.filter((file) => file.endsWith('/page.tsx')).map((file) => ({ file, name: 'default' }))
   const visited = new Set()
-  const result = { jsxTags: new Set(), jsxAttributes: new Set(), calls: new Set() }
+  const result = { jsxTags: new Set(), jsxAttributes: new Set(), calls: new Set(), failure: null }
   let bytes = 0
   while (pending.length) {
     const { file, name } = pending.pop()
@@ -1608,11 +1608,11 @@ function renderedUiContract(ts, root, backendFiles) {
     if (visited.has(key)) continue
     visited.add(key)
     const relative = path.relative(moduleRoot, file)
-    if (relative.startsWith('..') || path.isAbsolute(relative)) throw new Error('rendered component escapes the case module')
+    if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) return { ...result, failure: 'rendered component escapes the case module' }
     const stat = safeTargetEntry(root, file)
-    if (!stat?.isFile()) throw new Error('rendered component source is missing')
+    if (!stat?.isFile()) return { ...result, failure: 'rendered component source is missing' }
     bytes += stat.size
-    if (visited.size > 64 || bytes > 512 * 1024) throw new Error('rendered component source budget exceeded')
+    if (visited.size > 64 || bytes > 512 * 1024) return { ...result, failure: 'rendered component source budget exceeded' }
     const source = ts.createSourceFile(file, fs.readFileSync(file, 'utf8'), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
     const local = collectFacts(ts, [file])
     let render = name === 'default'
@@ -1622,7 +1622,7 @@ function renderedUiContract(ts, root, backendFiles) {
       const exported = defaultExportExpression(ts, local, file)
       render = exported && ts.isIdentifier(exported) ? local.functionNodes.get(exported.text) : exported
     }
-    if (!render || !ts.isFunctionLike(render)) throw new Error('rendered import does not resolve to an exported component')
+    if (!render || !ts.isFunctionLike(render)) return { ...result, failure: 'rendered import does not resolve to an exported component' }
     const reached = functionContractFacts(ts, local, render, { skipNestedFunctions: true })
     const visitBindings = (node) => {
       if (node !== render && ts.isFunctionLike(node)) return
@@ -1651,9 +1651,11 @@ function renderedUiContract(ts, root, backendFiles) {
       ].filter((binding) => renderedTags.has(binding.local))
       if (!bindings.length) continue
       const base = specifier.startsWith('@/') ? path.join(root, 'src', specifier.slice(2)) : path.resolve(path.dirname(file), specifier)
+      const relativeBase = path.relative(moduleRoot, base)
+      if (relativeBase === '..' || relativeBase.startsWith(`..${path.sep}`) || path.isAbsolute(relativeBase)) return { ...result, failure: 'rendered component import escapes the case module' }
       const target = ['', '.tsx', '.ts', '/index.tsx', '/index.ts'].map((suffix) => base + suffix)
         .find((candidate) => safeTargetEntry(root, candidate)?.isFile())
-      if (!target) throw new Error('rendered component import cannot be resolved')
+      if (!target) return { ...result, failure: 'rendered component import cannot be resolved' }
       for (const binding of bindings) pending.push({ file: target, name: binding.imported })
     }
   }
@@ -2251,6 +2253,7 @@ function caseChecks(ts, caseId, facts, root, sourceFiles) {
     case 'OMH-014': {
       const rendered = renderedUiContract(ts, root, sourceFiles)
       return [
+        check('ui.rendered-source', rendered.failure === null, rendered.failure ?? 'rendered component sources resolve within case bounds'),
         check('ui.table', rendered.jsxTags.has('DataTable') && rendered.jsxAttributes.has('extensionTableId'), 'a rendered DataTable uses extensionTableId'),
         check('ui.form', rendered.jsxTags.has('CrudForm') && rendered.jsxAttributes.has('initialValues'), 'a rendered CrudForm uses initialValues'),
         check('ui.conflict', rendered.calls.has('surfaceRecordConflict'), 'a rendered UI handler reaches surfaceRecordConflict'),

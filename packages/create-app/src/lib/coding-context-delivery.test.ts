@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { randomUUID } from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -7,7 +8,28 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const sharedRoot = fileURLToPath(new URL('../../agentic/shared/', import.meta.url))
 const evaluatorPath = path.join(sharedRoot, 'scripts/evaluate-agent-harness.mjs')
-const evaluator = await import(pathToFileURL(evaluatorPath).href)
+
+async function loadEvaluator() {
+  let source = fs.readFileSync(evaluatorPath, 'utf8')
+  let bridgeRequired = false
+  for (const name of ['buildPrompt', 'prepareCaseFrameworkContext']) {
+    if (new RegExp(`^export function ${name}\\(`, 'm').test(source)) continue
+    const declaration = new RegExp(`^function ${name}\\(`, 'm')
+    assert.match(source, declaration, `existing evaluator declaration missing: ${name}`)
+    source = source.replace(declaration, `export function ${name}(`)
+    bridgeRequired = true
+  }
+  if (!bridgeRequired) return import(pathToFileURL(evaluatorPath).href)
+  const bridge = path.join(path.dirname(evaluatorPath), `.coding-context-test-${process.pid}-${randomUUID()}.mjs`)
+  try {
+    fs.writeFileSync(bridge, source, { flag: 'wx', mode: 0o600 })
+    return await import(pathToFileURL(bridge).href)
+  } finally {
+    if (fs.existsSync(bridge)) fs.unlinkSync(bridge)
+  }
+}
+
+const evaluator = await loadEvaluator()
 
 type ContextCase = {
   id: string
@@ -79,6 +101,19 @@ test('writable prompt discloses exact trusted seeds and requires preserving the 
   assert.match(prompt, /selectedContext records only instruction\/fact paths and controller-prepared installed context/)
   assert.doesNotMatch(prompt, /declared read-only reference evidence/)
   assert.match(prompt, /Do not inspect \.ai\/harness\/\*\*/)
+}))
+
+test('writable prompt discloses declared example entrypoints after routed owners and before canonical source links', () => fixture((root) => {
+  const catalog = JSON.parse(fs.readFileSync(path.join(sharedRoot, 'ai/harness/cases.json'), 'utf8')) as ContextCase[]
+  const record = catalog.find(item => item.id === 'OMH-009')!
+  const before = JSON.stringify(record.context)
+  const prompt = evaluator.buildPrompt(record, root, true)
+  assert.match(prompt, /Read the applicable routed guides, skills and facts before canonical examples/)
+  assert.match(prompt, /Before following canonical source links, read a declared example entrypoint/)
+  assert.match(prompt, /src\/modules\/example\/README\.md/)
+  assert.match(prompt, /These entrypoints do not grant reads beyond the declared example capabilities/)
+  assert.equal(JSON.stringify(record.context), before)
+  assert.doesNotMatch(evaluator.buildPrompt(record, root, false), /Before following canonical source links, read a declared example entrypoint/)
 }))
 
 test('seed hints cannot disclose paths outside allowed app source, secrets, symlinks or oracle internals', () => fixture((root, record) => {
