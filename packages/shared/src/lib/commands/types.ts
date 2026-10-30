@@ -68,6 +68,14 @@ export type CommandRuntimeContext = {
    */
   transactionalEm?: EntityManager
   /**
+   * Optional server-side guard that supported command handlers invoke after
+   * opening their write transaction and before reading or mutating records.
+   * The guard receives that same transaction-bound EntityManager and, when the
+   * handler provides it, the final input after command interceptors. The input
+   * stays optional so existing handlers and callers remain source-compatible.
+   */
+  beforeTransactionalWrite?: (em: EntityManager, input?: unknown) => Promise<void>
+  /**
    * Identifies the owner of an already-active {@link transactionalEm} lifetime.
    * Atomic replay accepts an ambient EntityManager only when this is the exact
    * token returned by `getTransactionLifetime(transactionalEm)` from the outer
@@ -243,6 +251,12 @@ export interface CommandHandler<TInput = unknown, TResult = unknown> {
    */
   readonly outputSchema?: ZodTypeAny
   prepare?(input: TInput, ctx: CommandRuntimeContext): Promise<{ before?: unknown } | null> | { before?: unknown } | null
+  /**
+   * Opt in to taking the undo snapshot inside the write transaction. The bus
+   * defers `prepare()` into `ctx.beforeTransactionalWrite`, after the handler's
+   * transaction guard and before its first read or mutation.
+   */
+  readonly prepareSnapshotInsideTransaction?: boolean
   execute(input: TInput, ctx: CommandRuntimeContext): Promise<TResult> | TResult
   buildLog?(args: CommandLogBuilderArgs<TInput, TResult>): Promise<CommandLogMetadata | null | undefined> | CommandLogMetadata | null | undefined
   captureAfter?(input: TInput, result: TResult, ctx: CommandRuntimeContext): Promise<unknown> | unknown

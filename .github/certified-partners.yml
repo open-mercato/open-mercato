@@ -18,7 +18,7 @@ partners:
   - company: Cognize
     contributors: [jakubmatwiejew-wq]
   - company: Commerce Weavers
-    contributors: [lchrusciel]
+    contributors: [lchrusciel, jakubtobiasz, mikoajp]
   - company: Dev4You
     contributors: [PawelSydorow, Paul-Mlodochowki]
   - company: Fast White Cat
@@ -30,7 +30,7 @@ partners:
   - company: GoNextStage
     contributors: [truongx, mat-kruk]
   - company: Itrix
-    contributors: [itrixjarek]
+    contributors: [itrixjarek, MateuszBilant]
   - company: LemonMind
     contributors: [msoroka]
   - company: Omdyo
@@ -50,6 +50,6 @@ partners:
   - company: they.dev
     contributors: [pmadajthey, mikolajbogusz-they, WojciechSoczynskiTHEY]
   - company: Univio
-    contributors: [gsobczyk, szymonkilar]
+    contributors: [gsobczyk, szymonkilar, olachows, wciesla2, mlopatkaunivio, zczarnecunivio]
   - company: White Label Coders
     contributors: [redjungle-as, ArtSadWLC, KBraneckiWLC]

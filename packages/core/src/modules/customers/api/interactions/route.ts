@@ -179,6 +179,7 @@ type InteractionListRow = {
   appearance_icon: string | null
   appearance_color: string | null
   source: string | null
+  timezone: string | null
   duration_minutes: number | null
   location: string | null
   all_day: boolean | null
@@ -314,6 +315,7 @@ const INTERACTION_LIST_COLUMNS = [
   'appearance_icon',
   'appearance_color',
   'source',
+  'timezone',
   'duration_minutes',
   'location',
   'all_day',
@@ -713,6 +715,7 @@ export async function GET(req: Request) {
       source: row.source ?? null,
       duration: row.duration_minutes ?? null,
       durationMinutes: row.duration_minutes ?? null,
+      timezone: row.timezone ?? null,
       location: row.location ?? null,
       allDay: row.all_day ?? null,
       recurrenceRule: row.recurrence_rule ?? null,
@@ -794,6 +797,7 @@ const interactionListItemSchema = z
     source: z.string().nullable().optional(),
     duration: z.number().nullable().optional(),
     durationMinutes: z.number().nullable().optional(),
+    timezone: z.string().nullable().optional(),
     location: z.string().nullable().optional(),
     allDay: z.boolean().nullable().optional(),
     recurrenceRule: z.string().nullable().optional(),

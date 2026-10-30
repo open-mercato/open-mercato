@@ -25,6 +25,20 @@ export function shouldStartMcp({ args = [], env = {}, appOnly = false } = {}) {
   return true
 }
 
+/**
+ * Bind address for the host-side MCP server `yarn dev` spawns. Loopback unless the
+ * OpenCode sidecar needs to reach it: on native Linux `host-gateway` resolves to the
+ * bridge IP, which a loopback-only socket refuses, so there (and only there) the server
+ * binds 0.0.0.0. Docker Desktop reaches host loopback, so it keeps the default. An
+ * explicit MCP_HTTP_HOST always wins. Returns `null` for "no --host flag, use default".
+ */
+export function resolveDevMcpHost({ platform = process.platform, env = {} } = {}) {
+  const explicit = typeof env.MCP_HTTP_HOST === 'string' ? env.MCP_HTTP_HOST.trim() : ''
+  if (explicit) return explicit
+  if (platform === 'linux') return '0.0.0.0'
+  return null
+}
+
 export function resolveMcpPort(env = {}) {
   const raw = typeof env.MCP_PORT === 'string' ? env.MCP_PORT.trim() : ''
   if (!raw) return MCP_DEFAULT_PORT
@@ -84,6 +98,17 @@ export function looksLikeMissingKeyOwner(outputLines = []) {
   return outputLines.some((line) =>
     /MCP API key owner not found|no active user with email|Run "?mercato init"?/i.test(String(line)),
   )
+}
+
+// The CLI dispatcher exits 1 with `Module not found: "ai_assistant"` when the
+// app intentionally omits the module (empty/wms starter presets). That is a
+// configuration state, not a transient startup failure, so it must not be retried.
+export function looksLikeMissingAiAssistantModule(outputLines = []) {
+  return outputLines.some((line) => /Module not found: "ai_assistant"(?![\w-])/.test(String(line)))
+}
+
+export function shouldRetryMcpProvisioning(outputLines = []) {
+  return !looksLikeMissingAiAssistantModule(outputLines)
 }
 
 export function isKeyRotationOutput(outputLines = []) {

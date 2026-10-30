@@ -21,6 +21,7 @@ export interface CatalogToolContext {
   isSuperAdmin: boolean
   apiKeySecret?: string
   sessionId?: string
+  expectedRecordVersions?: Readonly<Record<string, string>>
 }
 
 /**
@@ -46,6 +47,7 @@ export interface CatalogToolLoadBeforeRecord {
   label: string
   recordVersion: string | null
   before: Record<string, unknown>
+  after?: Record<string, unknown>
 }
 
 export interface CatalogAiToolDefinition<TInput = unknown, TOutput = unknown> {

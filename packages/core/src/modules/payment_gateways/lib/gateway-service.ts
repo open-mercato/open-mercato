@@ -21,7 +21,7 @@ import type { IntegrationStateService } from '../../integrations/lib/state-servi
 import type { IntegrationLogService } from '../../integrations/lib/log-service'
 import { conflict, CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { GatewayPaymentOperation, GatewaySessionInitialization, GatewayTransaction } from '../data/entities'
-import { canApplyManualAction, isValidTransition, type ManualGatewayAction } from './status-machine'
+import { canApplyManualAction, isValidTransition, resolveImpliedCaptureStatus, type ManualGatewayAction } from './status-machine'
 import { emitPaymentGatewayEvent } from '../events'
 import { readGatewayMetadata, readWebhookLog } from './transaction-fields'
 import { reconcileSessionAmountWithOrder } from './order-amount-reconciliation'
@@ -811,11 +811,14 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
         receivedAt?: string
       }
     }, scope: { organizationId: string; tenantId: string }): Promise<void> {
-      const { transaction, previousStatus, shouldApplyStatus } = await em.fork().transactional(async (tx) => {
+      const { transaction, previousStatus, impliedCaptureStatus, shouldApplyStatus } = await em.fork().transactional(async (tx) => {
         const locked = await findTransactionOrThrow(transactionId, scope, tx, { lockMode: LockMode.PESSIMISTIC_WRITE })
         const currentStatus = locked.unifiedStatus as UnifiedPaymentStatus
-        const applies = isValidTransition(currentStatus, update.unifiedStatus) && update.unifiedStatus !== currentStatus
+        const implied = resolveImpliedCaptureStatus(currentStatus, update.unifiedStatus)
+        const canTransition = isValidTransition(currentStatus, update.unifiedStatus) || implied !== null
+        const applies = canTransition && update.unifiedStatus !== currentStatus
         if (applies) {
+          if (implied) alignCapturedAmountWithStatus(locked, implied)
           locked.unifiedStatus = update.unifiedStatus
           alignCapturedAmountWithStatus(locked, update.unifiedStatus)
         }
@@ -838,16 +841,27 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
         }
         locked.lastWebhookAt = new Date()
         await tx.flush()
-        return { transaction: locked, previousStatus: currentStatus, shouldApplyStatus: applies }
+        return {
+          transaction: locked,
+          previousStatus: currentStatus,
+          impliedCaptureStatus: applies ? implied : null,
+          shouldApplyStatus: applies,
+        }
       })
       if (shouldApplyStatus) {
-        await emitStatusEvent(update.unifiedStatus, {
+        const eventPayload = {
           transactionId: transaction.id,
           paymentId: transaction.paymentId,
           providerKey: transaction.providerKey,
-          previousStatus,
           organizationId: transaction.organizationId,
           tenantId: transaction.tenantId,
+        }
+        if (impliedCaptureStatus) {
+          await emitStatusEvent(impliedCaptureStatus, { ...eventPayload, previousStatus })
+        }
+        await emitStatusEvent(update.unifiedStatus, {
+          ...eventPayload,
+          previousStatus: impliedCaptureStatus ?? previousStatus,
         })
       }
       await writeTransactionLog(
@@ -858,6 +872,7 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
         shouldApplyStatus ? 'Payment status synchronized from webhook' : 'Webhook received with no status transition',
         {
           previousStatus,
+          ...(impliedCaptureStatus ? { impliedStatus: impliedCaptureStatus } : {}),
           nextStatus: update.unifiedStatus,
           providerStatus: update.providerStatus ?? null,
           eventType: update.webhookEvent?.eventType ?? null,
