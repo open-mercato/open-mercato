@@ -286,7 +286,7 @@
     },
     {
       "path": "packages/create-app/agentic/shared/scripts/run-agent-harness-release.mjs",
-      "sha256": "e848d4c0f20f54bef021218a66a4b92895f7188b58987d2c89f84f248ca8d6be"
+      "sha256": "dac833402fe5f32db60a21f8941ae8b943095695dbde55984256bf73ced123d0"
     }
   ],
   "generatedFiles": [
