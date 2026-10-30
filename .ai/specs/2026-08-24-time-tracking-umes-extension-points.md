@@ -498,12 +498,10 @@ Legend for **Type**: `catalog` · `event` · `guard` · `interceptor` · `enrich
   `propsSchema` built from the shared helpers in `lib/time-tracking/componentContracts.ts`
   — `useRegisteredComponent` parses it in development and falls back to the original
   component when a replacement does not satisfy it.
-- **Schemas exported (#6989, 2026-10-07).** Each of the ten `propsSchema`s is a named export
-  of its component file (`timeEntryDialogPropsSchema`, `timerBarPropsSchema`,
-  `kanbanCardPropsSchema`, `kanbanColumnPropsSchema`, `gridViewPropsSchema`,
-  `listViewPropsSchema`, `timesheetCalendarPropsSchema`, `reportSheetPropsSchema`,
-  `projectCardPropsSchema`, `timeEntriesSummaryFooterPropsSchema`) — STABLE, additive-only —
-  so a replacement imports the exact contract. `optionalCallbackProp` now marks its key
+- **Dialog schema exported (#6989, 2026-10-07).** `timeEntryDialogPropsSchema` is a named
+  export of `lib/time-tracking-ui/TimeEntryDialog.tsx` — STABLE, additive-only — so a
+  replacement imports the exact contract. The other nine schemas are covered by
+  `.ai/specs/2026-10-30-time-tracking-component-props-schema-exports.md`. `optionalCallbackProp` now marks its key
   optional, so an omitted optional callback no longer fails the dev-time check.
 
 ### Group 6 — Domain strategy registries (10) ✅

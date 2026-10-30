@@ -321,7 +321,7 @@ function ReportSheetLine({ line, depth, isNonBillable, showRates, money }: LineP
   )
 }
 
-export const reportSheetPropsSchema: z.ZodType<ReportSheetProps> = z.object({
+const reportSheetPropsSchema: z.ZodType<ReportSheetProps> = z.object({
   reportId: z.string().nullable().optional(),
   reference: z.string(),
   customerName: z.string(),

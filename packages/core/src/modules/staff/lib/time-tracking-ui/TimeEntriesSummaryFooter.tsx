@@ -72,7 +72,7 @@ function DefaultTimeEntriesSummaryFooter({ summary, totalCount, canSeeMoney }: T
   )
 }
 
-export const timeEntriesSummaryFooterPropsSchema: z.ZodType<TimeEntriesSummaryFooterProps> = z.object({
+const timeEntriesSummaryFooterPropsSchema: z.ZodType<TimeEntriesSummaryFooterProps> = z.object({
   summary: opaqueProp<TimeEntriesSummary>(),
   totalCount: z.number(),
   canSeeMoney: z.boolean(),

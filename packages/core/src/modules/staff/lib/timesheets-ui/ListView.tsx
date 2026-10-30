@@ -560,7 +560,7 @@ function QuickAddRow({
   )
 }
 
-export const listViewPropsSchema: z.ZodType<ListViewProps> = z.object({
+const listViewPropsSchema: z.ZodType<ListViewProps> = z.object({
   days: z.array(opaqueProp<TimesheetDay>()),
   scaleMinutes: z.number().nullable(),
   dailyTargetMinutes: z.number().nullable(),

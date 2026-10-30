@@ -616,9 +616,9 @@ your key. Code that asserted the exact `defaults` group shape or counted
 `PUT /api/staff/timesheets/settings` and `writeTimeTrackingSettings` may still omit it — the
 registry fills in the default.
 
-The ten published time-tracking component `propsSchema`s are now named exports of their
-component files (e.g. `timeEntryDialogPropsSchema` from
-`@open-mercato/core/modules/staff/lib/time-tracking-ui/TimeEntryDialog`). A replacement can
+The time entry dialog's `propsSchema` is now a named export,
+`timeEntryDialogPropsSchema` from
+`@open-mercato/core/modules/staff/lib/time-tracking-ui/TimeEntryDialog`. A replacement can
 import its contract instead of copying it.
 
 ## 0.8.0 → 0.9.0 (2026-10-09)

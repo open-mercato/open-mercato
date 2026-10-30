@@ -5,11 +5,11 @@ Issue: #6989
 
 ## Goal
 
-Let people log time to a project without a task from the time entry dialog (tenant setting `defaults.entryMode` plus an optional `mode` prop), show the derived project in task mode, and export the ten published component `propsSchema`s.
+Let people log time to a project without a task from the time entry dialog (tenant setting `defaults.entryMode` plus an optional `mode` prop), show the derived project in task mode, and export the dialog's `timeEntryDialogPropsSchema`. The nine sibling `propsSchema` exports moved to their own spec (2026-10-30 review on #7000).
 
 ## Scope
 
-- `packages/core/src/modules/staff/`: the setting-key registry and settings types, the settings page form, `TimeEntryDialog.tsx` and `timeEntryDialogState.ts`, the nine sibling component files (export keyword only), the five staff locale files, tests, TC-TT-024, staff `AGENTS.md`, `UPGRADE_NOTES.md`, the EP-31 and consulting-suite spec changelogs.
+- `packages/core/src/modules/staff/`: the setting-key registry and settings types, the settings page form, `TimeEntryDialog.tsx` and `timeEntryDialogState.ts`, the five staff locale files, tests, TC-TT-024, staff `AGENTS.md`, `UPGRADE_NOTES.md`, the EP-31 and consulting-suite spec changelogs.
 
 ## Non-goals
 
@@ -69,3 +69,4 @@ PR: #7001
 - [x] Post-review fix (haxiorz UX comment, 2026-10-12): footer shortcut hint wraps instead of overflowing the dialog — 2ad0c8fec
 - [x] Post-review fix (haxiorz UX comment, 2026-10-12): footer shortcuts wrap as whole groups, no dot separators — 5947dc458
 - [x] Post-review fix (merge of main, 2026-10-27): resolved the consulting-suite spec changelog conflict and moved the defaults.entryMode upgrade note out of the released 0.8.0 → 0.9.0 section into the unreleased window — 4b781a3ac
+- [x] Post-review fix (pkarw spec review on #7000, 2026-10-30): the nine sibling propsSchema exports are no longer exported here; only timeEntryDialogPropsSchema stays, the export test and docs follow — {sha}

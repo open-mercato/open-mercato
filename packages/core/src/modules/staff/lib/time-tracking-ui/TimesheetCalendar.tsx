@@ -235,7 +235,7 @@ function CalendarDayCell({
   )
 }
 
-export const timesheetCalendarPropsSchema: z.ZodType<TimesheetCalendarProps> = z.object({
+const timesheetCalendarPropsSchema: z.ZodType<TimesheetCalendarProps> = z.object({
   monthAnchors: z.array(z.string()),
   days: opaqueProp<TimesheetDayIndex>(),
   scaleMinutes: z.number().nullable(),
