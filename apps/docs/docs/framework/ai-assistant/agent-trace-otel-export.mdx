@@ -5,18 +5,18 @@ description: Opt-in export of Agent Orchestrator runs to any OTLP backend with G
 
 # Exporting agent traces to OpenTelemetry
 
-Agent Orchestrator can send persisted runs to any backend that accepts OTLP over HTTP with JSON (Jaeger, Grafana Tempo, a vendor collector). Spans use the OpenTelemetry GenAI semantic conventions (`gen_ai.*`, version 1.43) plus `om.*` attributes for platform concepts. Export is opt-in, fail-open and never affects a run.
+Agent Orchestrator can send persisted runs to any backend that accepts OTLP over HTTP with JSON or protobuf (Jaeger, Grafana Tempo, a vendor collector). Spans use the OpenTelemetry GenAI semantic conventions (`gen_ai.*`, version 1.43) plus `om.*` attributes for platform concepts. Export is opt-in, fail-open and never affects a run.
 
 ## Enabling export
 
 Export happens only when all of these hold:
 
-1. **Deployment switch**: `OM_AGENT_OTEL_EXPORT=on`, with a usable http(s) endpoint and the `http/json` protocol.
+1. **Deployment switch**: `OM_AGENT_OTEL_EXPORT=on`, with a usable http(s) endpoint and a supported protocol (`http/json` or `http/protobuf`). Alternatively, tenants can send to their own endpoint, see [Tenant destinations](#tenant-destinations); that path needs the switch on and `OM_AGENT_OTEL_EXPORT_TENANT_ENDPOINTS=allow`, but no deployment endpoint.
 2. **Tenant opt-in**: the tenant enables export on `/backend/settings/otel-export`.
 3. **Allowlist**: if the tenant set an agent allowlist, the run's agent is on it. No allowlist exports every agent.
 4. **Source**: the run's source is listed in `OM_AGENT_OTEL_EXPORT_SOURCES` (default `runtime,eval`).
 
-Tenant settings are stored in module config `agent_orchestrator/otel_export`: `enabled`, `content` (`none` or `full`), `exportUserIds` and `agentAllowlist`. A malformed or unreadable record disables export for the tenant. Saving needs `agent_orchestrator.agents.manage`. Content export is not available yet, so saving `content = full` is refused with `422`: `content_export_not_allowed` when the deployment does not allow content, otherwise `content_export_unavailable`.
+Tenant settings are stored in module config `agent_orchestrator/otel_export`: `enabled`, `content` (`none` or `full`), `exportUserIds` and `agentAllowlist` and `destination` (`deployment` or `integration`). A malformed or unreadable record disables export for the tenant. Saving needs `agent_orchestrator.agents.manage`. Saving `content = full` additionally needs `agent_orchestrator.trace.view_content` and a deployment that allows content (`OM_AGENT_OTEL_EXPORT_CONTENT=allow`); otherwise it is refused with `422`: `content_export_not_allowed`.
 
 ## Environment variables
 
@@ -25,8 +25,10 @@ Tenant settings are stored in module config `agent_orchestrator/otel_export`: `e
 | `OM_AGENT_OTEL_EXPORT` | off | Deployment master switch. |
 | `OM_AGENT_OTEL_EXPORT_ENDPOINT` | none | OTLP traces URL. Falls back to `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`, then `OTEL_EXPORTER_OTLP_ENDPOINT` plus `/v1/traces`. |
 | `OM_AGENT_OTEL_EXPORT_HEADERS` | none | Request headers as `key=value` pairs (URL-encoded values). Falls back to `OTEL_EXPORTER_OTLP_HEADERS`. |
-| `OM_AGENT_OTEL_EXPORT_PROTOCOL` | `http/json` | Only `http/json` is supported; anything else disables export. |
-| `OM_AGENT_OTEL_EXPORT_CONTENT` | `deny` | `allow` lets tenants opt into content export once it ships. |
+| `OM_AGENT_OTEL_EXPORT_PROTOCOL` | `http/json` | `http/json` or `http/protobuf`; anything else disables deployment-endpoint export. |
+| `OM_AGENT_OTEL_EXPORT_CONTENT` | `deny` | `allow` lets tenants opt into prompt and response content export. |
+| `OM_AGENT_OTEL_EXPORT_TENANT_ENDPOINTS` | `deny` | `allow` lets organizations export to their own endpoint through the `agent_orchestrator_otel_export` integration. |
+| `OM_AGENT_OTEL_EXPORT_PRIVATE_HOSTS` | none | Comma-separated hosts (exact or dot-boundary suffix) that tenant endpoints may resolve to private addresses, for example an in-cluster collector. Empty denies every private address. |
 | `OM_AGENT_OTEL_EXPORT_DELAY_MS` | `30000` | Delay between run completion and export, so late spans are included. Maximum 24 hours. |
 | `OM_AGENT_OTEL_SERVICE_NAME` | `open-mercato-agents` | `service.name` resource attribute. |
 | `OM_AGENT_OTEL_EXPORT_SOURCES` | `runtime,eval` | Run sources that may be exported. |
@@ -44,10 +46,58 @@ Per run: the run span, its LLM, tool and agent spans with the attributes from [T
 ## What is never exported
 
 - Run input and output, proposal payloads, tool-call summaries, evaluation evidence, and process input, failure reasons or subject titles. These are encrypted or free text.
-- Prompt and response content. Only hashes, sizes and counts leave the system.
+- Prompt and response content, unless all three content locks are open (see [Content export](#content-export)). By default only hashes, sizes and counts leave the system.
 - User ids, unless the tenant turns on `exportUserIds`.
 
 String attributes pass through a redaction step that masks email addresses, authorization schemes and secret-looking keys before they are sent.
+
+## Content export
+
+Prompt and response content is exported only when all three locks are open:
+
+1. **Deployment**: `OM_AGENT_OTEL_EXPORT_CONTENT=allow`.
+2. **Tenant**: the tenant setting `content = full`. Only users with `agent_orchestrator.trace.view_content` can opt in (the settings API, the command and its undo all check it).
+3. **Run**: the run was captured with `om.capture = full` (see [Trace capture policy](./agent-trace-capture)). Runs captured at a lower level export no content.
+
+With the locks open, the worker reads the stored request and response artifacts of each LLM span and adds one `gen_ai.client.inference.operation.details` event to the span with these attributes: `gen_ai.system_instructions`, `gen_ai.input.messages`, `gen_ai.output.messages` and `gen_ai.tool.definitions`. Messages follow the GenAI message schema (text, reasoning, tool call and tool call response parts); binary parts become file metadata (modality, MIME type, size, sha256) and never carry bytes or file names. Every string passes a second redaction pass (emails and secret-looking values) on top of the one applied at capture time.
+
+Limits: each content attribute is capped at 64 KiB and marked `om.truncated` when cut; a run reads at most 4 MiB of stored content; export requests are split so no body exceeds 4 MiB (a single oversized span is sent alone).
+
+Each LLM span carries `om.content.export_status`:
+
+| Value | Meaning |
+| --- | --- |
+| `exported` | All content keys of the span loaded. |
+| `unavailable` | Storage failed or the content could not be read. |
+| `expired` | Retention removed the content. |
+| `over_budget` | The 4 MiB run budget was exhausted. |
+| `not_captured` | The span has no stored content. |
+
+Every artifact read for export is recorded in the content access log, like a manual read through the run page, including reads dropped for budget. Tool call arguments and results are exported only for tool spans that carry a `gen_ai.tool.call.id` matching the LLM content; native and OpenCode runs do not record that id yet, so tool spans currently export no content. The `otel:export --dry-run` backfill maps runs without content and never prints it.
+
+## Protobuf
+
+Set `OM_AGENT_OTEL_EXPORT_PROTOCOL=http/protobuf` to send `application/x-protobuf` bodies. The encoder is hand-written, with no OpenTelemetry SDK dependency, and normalizes ids, timestamps and value types exactly like the JSON encoder. Integers beyond signed 64-bit are sent as decimal strings. Tenant destinations choose their own protocol.
+
+## Tenant destinations
+
+An organization can send its runs to its own OTLP endpoint instead of the deployment endpoint:
+
+1. The deployment sets `OM_AGENT_OTEL_EXPORT=on` and `OM_AGENT_OTEL_EXPORT_TENANT_ENDPOINTS=allow`.
+2. An administrator configures the `agent_orchestrator_otel_export` integration for the organization (credentials: `endpoint`, optional `headers` as URL-encoded `key=value` pairs, `protocol`) and enables it. Credentials are stored per organization, encrypted, and never returned by the API or shown again.
+3. The tenant sets `destination = integration` on `/backend/settings/otel-export`.
+
+Endpoints are vetted before every export and by the integration health check: http(s) only, no credentials in the URL, and every DNS answer must be a public address (loopback, link-local and metadata, private, CGNAT, multicast and mapped or transition addresses are refused) unless the host is listed in `OM_AGENT_OTEL_EXPORT_PRIVATE_HOSTS`. The connection is pinned to the vetted addresses so a DNS change cannot redirect it, the hostname is kept for Host, SNI and certificate checks, and redirects are not followed. The endpoint, headers and the block reason are never logged or returned.
+
+The destination fails closed: when it cannot be resolved, nothing is sent and the deployment endpoint is never used as a fallback. Failures are reported with these codes in export health, test span responses and backfill skips:
+
+| Code | Cause |
+| --- | --- |
+| `deployment_unconfigured` | Destination is `deployment` but the switch is off or the endpoint is missing or unusable. |
+| `integration_unconfigured` | No valid credentials for the organization. |
+| `integration_disabled` | Credentials exist but the integration is not enabled. |
+| `tenant_endpoints_denied` | The deployment does not allow tenant endpoints. |
+| `endpoint_blocked` | The endpoint failed the SSRF checks. |
 
 ## Deterministic ids
 
@@ -124,4 +174,4 @@ yarn test:integration:ephemeral:start
 
 ## Not included yet
 
-Prompt and response content events, protobuf transport, per-tenant endpoints, live streaming, and export of chat or copilot runs are not part of this release.
+Live streaming, tool call content for native and OpenCode runs (no call id is recorded yet), and export of chat or copilot runs are not part of this release.
