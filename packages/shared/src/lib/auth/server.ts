@@ -18,6 +18,7 @@ const TENANT_COOKIE_NAME = 'om_selected_tenant'
 const ORGANIZATION_COOKIE_NAME = 'om_selected_org'
 const ALL_ORGANIZATIONS_COOKIE_VALUE = '__all__'
 const SUPERADMIN_ROLE = 'superadmin'
+const regularApiKeyAuthContexts = new WeakSet<object>()
 
 export type AuthContext = {
   sub: string
@@ -196,7 +197,9 @@ async function resolveApiKeyAuth(secret: string): Promise<AuthContext> {
   const verifiedSessionKeyId = cached?.sessionBound === true && typeof cached.keyId === 'string'
     ? cached.keyId
     : null
-  const cachedAuth = cached !== undefined && !verifiedSessionKeyId ? cached as Exclude<AuthContext, null> : null
+  const cachedAuth = cached && !verifiedSessionKeyId && regularApiKeyAuthContexts.has(cached)
+    ? cached as Exclude<AuthContext, null>
+    : null
   if (cachedAuth && !cachedAuth.tenantId) return cachedAuth
   try {
     const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
@@ -231,11 +234,12 @@ async function resolveApiKeyAuth(secret: string): Promise<AuthContext> {
       }
     }
 
-    const isSessionBoundKey = isSessionBoundApiKey(record)
+    const isSessionBoundKey = isSessionBoundApiKey(record) || Boolean(record.sessionToken)
     const roleIds = await resolveApiKeyRoleIds(em, record)
     const roles = roleIds.length
       ? await em.find(Role, { id: { $in: roleIds }, deletedAt: null })
       : []
+    const liveRoleIds = roles.map((role) => role.id)
     const roleNames = roles.map((role) => role.name).filter((name): name is string => typeof name === 'string' && name.length > 0)
 
     // A role-level super-admin grant is authorization-grade only when it is genuinely
@@ -248,15 +252,15 @@ async function resolveApiKeyAuth(secret: string): Promise<AuthContext> {
     const keyOrganizationId = typeof record.organizationId === 'string' && record.organizationId.trim().length > 0
       ? record.organizationId.trim()
       : null
-    if (roleIds.length && !keyOrganizationId) {
+    if (liveRoleIds.length && !keyOrganizationId) {
       const superAcls = await em.find(
         RoleAcl,
         {
-          role: { $in: roleIds } as any,
+          role: { id: { $in: liveRoleIds }, deletedAt: null },
           tenantId: record.tenantId ?? null,
           isSuperAdmin: true,
           deletedAt: null,
-        } as any,
+        },
       )
       keyIsSuperAdmin = superAcls.some((acl) => {
         const organizations = Array.isArray((acl as { organizationsJson?: string[] | null }).organizationsJson)
@@ -291,7 +295,15 @@ async function resolveApiKeyAuth(secret: string): Promise<AuthContext> {
     }
 
     if (actualUserId) {
-      const user = await em.findOne(User, { id: actualUserId, deletedAt: null })
+      const user = await findOneWithDecryption(em, User, {
+        id: actualUserId,
+        deletedAt: null,
+        ...(isSessionBoundKey ? {
+          isConfirmed: true,
+          tenantId: record.tenantId ?? null,
+          organizationId: record.organizationId ?? null,
+        } : {}),
+      }, { refresh: true })
       if (!user) {
         cache.setMiss(secret)
         return null
@@ -331,6 +343,7 @@ async function resolveApiKeyAuth(secret: string): Promise<AuthContext> {
       ...(actualUserId ? { userId: actualUserId } : {}),
     }
     if (!isSessionBoundKey) {
+      regularApiKeyAuthContexts.add(auth)
       cache.setSuccess(secret, auth, record.expiresAt ? record.expiresAt.getTime() : null)
     } else if (!verifiedSessionKeyId) {
       cache.setSuccess(secret, { keyId: record.id, sessionBound: true }, record.expiresAt ? record.expiresAt.getTime() : null)
