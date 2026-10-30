@@ -8,6 +8,7 @@
 
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import { DefaultSalesCalculationService } from '../../services/salesCalculationService'
+import { createSalesDocumentLockKyselyFixture } from './salesDocumentLockFixture'
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: async () => ({
@@ -75,6 +76,7 @@ function buildTx() {
     remove: jest.fn(),
     flush: jest.fn().mockResolvedValue(undefined),
     getReference: (_entity: any, id: unknown) => ({ id }),
+    getKysely: () => createSalesDocumentLockKyselyFixture(ORDER_ID),
   }
 }
 
