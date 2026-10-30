@@ -10,8 +10,8 @@ The complete case covers routing, observed context/read boundaries and the imple
 |---|---|---|---|---|
 | OMH-009 | pass | pass | 1 / 0 | Canonical and implementation pass; broader generated-artifact validation is pending. |
 | OMH-011 | fail | pass | 1 / 0 | Implementation passes; fullcase fails owner-before-source ordering and a missed required BC read. |
-| OMH-012 | running | pending | — | In progress. |
-| OMH-014 | pending | pending | — | Pending. |
+| OMH-012 | fail | fail | 1 / 0 | Timed out; required mutation/atomic helpers absent and generated checkout route imports nonexistent commandBus. |
+| OMH-014 | running | pending | — | In progress. |
 | OMH-026 | pending | pending | — | Pending. |
 | OMH-027 | pending | pending | — | Pending. |
 | OMH-029 | pending | pending | — | Pending. |
@@ -30,6 +30,8 @@ OMH-009 passes its full canonical case and implementation oracle in one attempt,
 Five data/migration files were retained; no generated test file was produced. Therefore this result does not demonstrate that the Jest wording changed test generation. Controlled app generation/typecheck/lint/build, applicable generated tests and read-only artifact judgment remain pending until all fourteen model cases finish. No migration is applied. This canonical pass is not a complete app/release certificate.
 
 OMH-011 also passes its implementation oracle (413,443 ms, one attempt, no correction), but fails the complete case: the CRUD/OpenAPI sources were read before their required procedure owner, and the now-readable compatibility document was never read or declared. No denied capability probe or transport error occurred. Both completed cases therefore pass implementation checks, while only one passes all policy/routing requirements. Across them, all 33 successful reads are attested and all 22 comparable immutable hashes match. These remaining policy failures must be corrected before the requested fourteen-pass completion is reached.
+
+OMH-012 times out at 1,200,026 ms (one attempt, zero corrections; process exit 143). Its implementation still fails: the generated route imports a nonexistent `commandBus` singleton and omits the required registered mutation-guard and atomic-write calls. The seeded route and command were edited, and a generated test imports Jest globals explicitly, but no test execution is claimed. The required command reference was followed; one undeclared events-example read was denied. All seventeen successful reads are attested and ten comparable immutable hashes match. This is a genuine failed coding attempt, preserved separately from pending harness changes. OMH-014 is running.
 
 [Machine-readable results and evidence hashes](2026-10-30-qwen27b-round5-results.json) remain content-free. Visible responses, tool calls and generated files are available in the [local dashboard](http://127.0.0.1:8768/), under “Qwen27B canonical context recovery · round5”. Internal reasoning and raw read bodies are excluded.
 

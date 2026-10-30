@@ -3,7 +3,7 @@
   "sourceRevision": "0395f6246d13fac742fdd72df59aa22f3d8bdd49",
   "runId": "ac37befc-5efe-486e-a2f3-c37d437d446e",
   "startedAt": "2026-10-30T19:17:57.739Z",
-  "updatedAt": "2026-10-30T19:32:57.146Z",
+  "updatedAt": "2026-10-30T19:54:17.049Z",
   "status": "running",
   "cases": [
     {
@@ -98,22 +98,52 @@
     },
     {
       "caseId": "OMH-012",
-      "status": "running",
-      "implementationOracle": "pending",
-      "attempts": null,
-      "corrections": null,
-      "durationMs": null,
-      "finishedAt": null,
-      "evaluatorSha256": null,
-      "generatedSha256": null,
-      "captureSha256": [],
-      "shortCause": null,
-      "localeReadCounts": null,
-      "deliveryCounts": null
+      "status": "fail",
+      "implementationOracle": "fail",
+      "attempts": 1,
+      "corrections": 0,
+      "durationMs": 1200026,
+      "finishedAt": "2026-10-30T19:52:56.365Z",
+      "evaluatorSha256": "4cd1e1fc9d6b12dd4b3a13e2e63b61fee9a4350106ff92d7d6600e615f11e17c",
+      "generatedSha256": "1212b6afff8ab1d56302dca8827c80aae8af35af562920f134a3aab6543720d5",
+      "captureSha256": [
+        "2be66cdffa552558c0c1190596eafdefde88b64b014954cf928e33d67c0a3ef7"
+      ],
+      "shortCause": "Timed out; required mutation/atomic helpers absent and generated checkout route imports nonexistent commandBus.",
+      "localeReadCounts": {
+        "globalApp": {
+          "events": 0,
+          "deliveredBytes": 0,
+          "missingMetadata": 0
+        },
+        "newModule": {
+          "events": 0,
+          "deliveredBytes": 0,
+          "missingMetadata": 0
+        },
+        "canonicalExample": {
+          "events": 0,
+          "deliveredBytes": 0,
+          "missingMetadata": 0
+        },
+        "otherModule": {
+          "events": 0,
+          "deliveredBytes": 0,
+          "missingMetadata": 0
+        }
+      },
+      "deliveryCounts": {
+        "successfulReads": 17,
+        "attestedReads": 17,
+        "missingMetadata": 0,
+        "immutableCompared": 10,
+        "immutableMatches": 10,
+        "immutableMismatches": 0
+      }
     },
     {
       "caseId": "OMH-014",
-      "status": "pending",
+      "status": "running",
       "implementationOracle": "pending",
       "attempts": null,
       "corrections": null,
@@ -278,11 +308,11 @@
     }
   ],
   "deliveryTotals": {
-    "successfulReads": 33,
-    "attestedReads": 33,
+    "successfulReads": 50,
+    "attestedReads": 50,
     "missingMetadata": 0,
-    "immutableCompared": 22,
-    "immutableMatches": 22,
+    "immutableCompared": 32,
+    "immutableMatches": 32,
     "immutableMismatches": 0
   },
   "localeReadTotals": {
