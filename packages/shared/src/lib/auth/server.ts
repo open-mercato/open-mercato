@@ -191,27 +191,35 @@ function applySuperAdminScope(
 async function resolveApiKeyAuth(secret: string): Promise<AuthContext> {
   if (!secret) return null
   const cache = getSharedApiKeyAuthCache()
-  const cached = cache.get(secret) as AuthContext | undefined
+  const cached = cache.get(secret)
   if (cached === null) return null
-  if (cached && !cached.tenantId) return cached
+  const verifiedSessionKeyId = cached?.sessionBound === true && typeof cached.keyId === 'string'
+    ? cached.keyId
+    : null
+  const cachedAuth = cached !== undefined && !verifiedSessionKeyId ? cached as Exclude<AuthContext, null> : null
+  if (cachedAuth && !cachedAuth.tenantId) return cachedAuth
   try {
     const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
     const container = await createRequestContainer()
     const em = (container.resolve('em') as EntityManager)
     const { Organization, Tenant } = await import('@open-mercato/core/modules/directory/data/entities')
-    if (cached?.tenantId) {
-      const tenant = await findOneWithDecryption(em, Tenant, { id: cached.tenantId, deletedAt: null, isActive: true })
+    if (cachedAuth?.tenantId) {
+      const tenant = await findOneWithDecryption(em, Tenant, { id: cachedAuth.tenantId, deletedAt: null, isActive: true })
       if (!tenant) {
         cache.setMiss(secret)
         return null
       }
-      return cached
+      return cachedAuth
     }
     const { findApiKeyBySecret } = await import('@open-mercato/core/modules/api_keys/services/apiKeyService')
+    const { ApiKey } = await import('@open-mercato/core/modules/api_keys/data/entities')
+    const { isSessionBoundApiKey, resolveApiKeyRoleIds } = await import('@open-mercato/core/modules/api_keys/services/sessionKeyRoles')
     const { Role, RoleAcl, User } = await import('@open-mercato/core/modules/auth/data/entities')
 
-    const record = await findApiKeyBySecret(em, secret)
-    if (!record) {
+    const record = verifiedSessionKeyId
+      ? await findOneWithDecryption(em, ApiKey, { id: verifiedSessionKeyId, deletedAt: null })
+      : await findApiKeyBySecret(em, secret)
+    if (!record || (record.expiresAt && record.expiresAt.getTime() <= Date.now())) {
       cache.setMiss(secret)
       return null
     }
@@ -223,9 +231,8 @@ async function resolveApiKeyAuth(secret: string): Promise<AuthContext> {
       }
     }
 
-    const roleIds = Array.isArray(record.rolesJson)
-      ? record.rolesJson.filter((value): value is string => typeof value === 'string' && value.length > 0)
-      : []
+    const isSessionBoundKey = isSessionBoundApiKey(record)
+    const roleIds = await resolveApiKeyRoleIds(em, record)
     const roles = roleIds.length
       ? await em.find(Role, { id: { $in: roleIds }, deletedAt: null })
       : []
@@ -274,14 +281,8 @@ async function resolveApiKeyAuth(secret: string): Promise<AuthContext> {
     // creator's concrete organization when validating the wider key scope.
     // Keep every session marker fail-closed so a malformed session key cannot
     // fall back to the regular key path and escape its user/scope binding.
-    const isSessionBoundKey = Boolean(
-      record.sessionToken
-      || record.sessionUserId
-      || record.sessionSecretEncrypted
-      || record.opencodeSessionId
-    )
     const actualUserId = isSessionBoundKey
-      ? record.sessionUserId ?? null
+      ? record.sessionUserId?.trim() || null
       : record.createdBy ?? null
 
     if (isSessionBoundKey && !actualUserId) {
@@ -329,7 +330,11 @@ async function resolveApiKeyAuth(secret: string): Promise<AuthContext> {
       keyName: record.name,
       ...(actualUserId ? { userId: actualUserId } : {}),
     }
-    cache.setSuccess(secret, auth, record.expiresAt ? record.expiresAt.getTime() : null)
+    if (!isSessionBoundKey) {
+      cache.setSuccess(secret, auth, record.expiresAt ? record.expiresAt.getTime() : null)
+    } else if (!verifiedSessionKeyId) {
+      cache.setSuccess(secret, { keyId: record.id, sessionBound: true }, record.expiresAt ? record.expiresAt.getTime() : null)
+    }
     return auth
   } catch (err) {
     // A transient DB failure (pool exhausted, `max_connections` reached, DB
