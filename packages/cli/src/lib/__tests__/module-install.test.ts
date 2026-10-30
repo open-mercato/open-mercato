@@ -1,8 +1,15 @@
+import { EventEmitter } from 'node:events'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import type { PackageResolver } from '../resolver'
 import { addOfficialModule, enableOfficialModule } from '../module-install'
+import * as modulesConfig from '../modules-config'
+import spawn from 'cross-spawn'
+
+jest.mock('cross-spawn', () => ({ __esModule: true, default: jest.fn() }))
+
+const mockedSpawn = spawn as unknown as jest.Mock
 
 function buildPackageFixture(
   packageRoot: string,
@@ -70,7 +77,7 @@ describe('enableOfficialModule', () => {
     fs.rmSync(tmpDir, { recursive: true, force: true })
   })
 
-  it('throws when module is already enabled in modules.ts with the same source', async () => {
+  it('succeeds without changes when the module is already enabled with the same source', async () => {
     const packageRoot = path.join(tmpDir, 'node_modules', '@open-mercato', 'test-package')
     const appDir = path.join(tmpDir, 'app')
     buildPackageFixture(packageRoot, 'test_package')
@@ -81,9 +88,17 @@ describe('enableOfficialModule', () => {
       "export const enabledModules = [{ id: 'test_package', from: '@open-mercato/test-package' }]\n",
     )
 
+    const modulesTsBefore = fs.readFileSync(resolver.getModulesConfigPath(), 'utf8')
+
     await expect(
       enableOfficialModule(resolver, '@open-mercato/test-package'),
-    ).rejects.toThrow('already enabled in modules.ts')
+    ).resolves.toEqual({
+      moduleId: 'test_package',
+      packageName: '@open-mercato/test-package',
+      from: '@open-mercato/test-package',
+      registrationChanged: false,
+    })
+    expect(fs.readFileSync(resolver.getModulesConfigPath(), 'utf8')).toBe(modulesTsBefore)
   })
 
   it('throws when module is already enabled with different casing in the source field', async () => {
@@ -104,7 +119,7 @@ describe('enableOfficialModule', () => {
     ).rejects.toThrow('already registered from')
   })
 
-  it('error message includes the module id and package name', async () => {
+  it('stays a no-op success when enable runs again for an enabled module', async () => {
     const packageRoot = path.join(tmpDir, 'node_modules', '@open-mercato', 'test-package')
     const appDir = path.join(tmpDir, 'app')
     buildPackageFixture(packageRoot, 'test_package')
@@ -115,16 +130,14 @@ describe('enableOfficialModule', () => {
       "export const enabledModules = [{ id: 'test_package', from: '@open-mercato/test-package' }]\n",
     )
 
-    await expect(
-      enableOfficialModule(resolver, '@open-mercato/test-package'),
-    ).rejects.toThrow('"test_package"')
-
-    await expect(
-      enableOfficialModule(resolver, '@open-mercato/test-package'),
-    ).rejects.toThrow('"@open-mercato/test-package"')
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      await expect(
+        enableOfficialModule(resolver, '@open-mercato/test-package'),
+      ).resolves.toMatchObject({ moduleId: 'test_package', registrationChanged: false })
+    }
   })
 
-  it('throws when the specific module is already enabled in a multi-module package', async () => {
+  it('succeeds without changes when the specific module is already enabled in a multi-module package', async () => {
     const packageRoot = path.join(tmpDir, 'node_modules', '@open-mercato', 'multi')
     const appDir = path.join(tmpDir, 'app')
 
@@ -155,15 +168,15 @@ describe('enableOfficialModule', () => {
 
     await expect(
       enableOfficialModule(resolver, '@open-mercato/multi', 'alpha'),
-    ).rejects.toThrow('already enabled in modules.ts')
+    ).resolves.toMatchObject({ moduleId: 'alpha', registrationChanged: false })
 
-    // beta is not yet enabled — must not throw "already enabled", even if generators fail afterwards
     try {
       await enableOfficialModule(resolver, '@open-mercato/multi', 'beta')
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      expect(message).not.toContain('already enabled in modules.ts')
+      expect(message).toContain('Module "beta" is enabled')
     }
+    expect(fs.readFileSync(resolver.getModulesConfigPath(), 'utf8')).toContain("id: 'beta'")
   })
 
   it('copies module source into the app when enabling with --eject', async () => {
@@ -299,5 +312,169 @@ describe('third-party module packages', () => {
     expect(fs.readFileSync(path.join(appDir, 'src', 'modules.ts'), 'utf8')).toContain(
       "{ id: 'ksef_direct', from: '@fast-white-cat/integration-ksef-direct' }",
     )
+  })
+})
+
+describe('addOfficialModule', () => {
+  let tmpDir: string
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'module-install-add-test-'))
+    mockedSpawn.mockReset()
+  })
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  function simulateYarnAdd(appDir: string, packageName: string): void {
+    mockedSpawn.mockImplementation(() => {
+      const child = new EventEmitter()
+      const packageJsonPath = path.join(appDir, 'package.json')
+      const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8')) as {
+        dependencies?: Record<string, string>
+      }
+      packageJson.dependencies = { ...packageJson.dependencies, [packageName]: '0.1.0' }
+      fs.writeFileSync(packageJsonPath, JSON.stringify(packageJson))
+      setImmediate(() => child.emit('exit', 0))
+      return child
+    })
+  }
+
+  function writeAppPackageJson(appDir: string, dependencies: Record<string, string> = {}): void {
+    fs.mkdirSync(appDir, { recursive: true })
+    fs.writeFileSync(path.join(appDir, 'package.json'), JSON.stringify({ name: 'test-app', dependencies }))
+  }
+
+  it('succeeds without changes when the module is already enabled', async () => {
+    const packageRoot = path.join(tmpDir, 'node_modules', '@open-mercato', 'test-package')
+    const appDir = path.join(tmpDir, 'app')
+    buildPackageFixture(packageRoot, 'test_package')
+    writeAppPackageJson(appDir, { '@open-mercato/test-package': '0.1.0' })
+    const resolver = buildResolver(
+      appDir,
+      packageRoot,
+      "export const enabledModules = [{ id: 'test_package', from: '@open-mercato/test-package' }]\n",
+    )
+    simulateYarnAdd(appDir, '@open-mercato/test-package')
+    const modulesTsBefore = fs.readFileSync(resolver.getModulesConfigPath(), 'utf8')
+
+    await expect(
+      addOfficialModule(resolver, '@open-mercato/test-package@0.1.0', false),
+    ).resolves.toEqual({
+      moduleId: 'test_package',
+      packageName: '@open-mercato/test-package',
+      from: '@open-mercato/test-package',
+      registrationChanged: false,
+    })
+    expect(mockedSpawn).toHaveBeenCalledTimes(1)
+    expect(fs.readFileSync(resolver.getModulesConfigPath(), 'utf8')).toBe(modulesTsBefore)
+  })
+
+  it('tells the user how to remove a newly added package that has no modules', async () => {
+    const packageRoot = path.join(tmpDir, 'node_modules', '@open-mercato', 'no-modules')
+    const appDir = path.join(tmpDir, 'app')
+    fs.mkdirSync(packageRoot, { recursive: true })
+    fs.writeFileSync(
+      path.join(packageRoot, 'package.json'),
+      JSON.stringify({ name: '@open-mercato/no-modules', version: '0.1.0' }),
+    )
+    writeAppPackageJson(appDir)
+    const resolver = buildResolver(appDir, packageRoot, 'export const enabledModules = []\n')
+    simulateYarnAdd(appDir, '@open-mercato/no-modules')
+
+    const failure = addOfficialModule(resolver, '@open-mercato/no-modules', false)
+    await expect(failure).rejects.toThrow('has no modules in src/modules/ or dist/modules/.')
+    await expect(failure).rejects.toThrow(
+      'The package "@open-mercato/no-modules" stayed in package.json. To remove it, run: yarn remove @open-mercato/no-modules',
+    )
+  })
+
+  it('names the app workspace in the remove command inside a monorepo', async () => {
+    const packageRoot = path.join(tmpDir, 'node_modules', '@open-mercato', 'no-modules')
+    const appDir = path.join(tmpDir, 'apps', 'mercato')
+    fs.mkdirSync(packageRoot, { recursive: true })
+    fs.writeFileSync(
+      path.join(packageRoot, 'package.json'),
+      JSON.stringify({ name: '@open-mercato/no-modules', version: '0.1.0' }),
+    )
+    writeAppPackageJson(appDir)
+    const resolver = {
+      ...buildResolver(appDir, packageRoot, 'export const enabledModules = []\n'),
+      isMonorepo: () => true,
+      getRootDir: () => tmpDir,
+    } as PackageResolver
+    simulateYarnAdd(appDir, '@open-mercato/no-modules')
+
+    await expect(addOfficialModule(resolver, '@open-mercato/no-modules', false)).rejects.toThrow(
+      'To remove it, run: yarn workspace test-app remove @open-mercato/no-modules',
+    )
+  })
+
+  it('does not suggest removing a package the app already depended on', async () => {
+    const packageRoot = path.join(tmpDir, 'node_modules', '@open-mercato', 'no-modules')
+    const appDir = path.join(tmpDir, 'app')
+    fs.mkdirSync(packageRoot, { recursive: true })
+    fs.writeFileSync(
+      path.join(packageRoot, 'package.json'),
+      JSON.stringify({ name: '@open-mercato/no-modules', version: '0.1.0' }),
+    )
+    writeAppPackageJson(appDir, { '@open-mercato/no-modules': '0.0.9' })
+    const resolver = buildResolver(appDir, packageRoot, 'export const enabledModules = []\n')
+    simulateYarnAdd(appDir, '@open-mercato/no-modules')
+
+    const failure = addOfficialModule(resolver, '@open-mercato/no-modules', false)
+    await expect(failure).rejects.toThrow('has no modules')
+    await expect(failure).rejects.not.toThrow('yarn remove')
+  })
+
+  it('rethrows a gated-off registration error without the leftover-package hint', async () => {
+    const packageRoot = path.join(tmpDir, 'node_modules', '@open-mercato', 'test-package')
+    const appDir = path.join(tmpDir, 'app')
+    buildPackageFixture(packageRoot, 'test_package')
+    writeAppPackageJson(appDir)
+    const resolver = buildResolver(appDir, packageRoot, 'export const enabledModules = []\n')
+    simulateYarnAdd(appDir, '@open-mercato/test-package')
+    const gatedOffError = Object.assign(
+      new Error('Module "test_package" is gated off. Enable it by setting OM_ENABLE_TEST_PACKAGE=true, then run `yarn generate`.'),
+      { code: 'MODULE_GATED_OFF' },
+    )
+    const registrationSpy = jest
+      .spyOn(modulesConfig, 'ensureModuleRegistration')
+      .mockImplementation(() => {
+        throw gatedOffError
+      })
+
+    try {
+      const failure = addOfficialModule(resolver, '@open-mercato/test-package', false)
+      await expect(failure).rejects.toBe(gatedOffError)
+      await expect(failure).rejects.not.toThrow('stayed in package.json')
+    } finally {
+      registrationSpy.mockRestore()
+    }
+  })
+
+  it('keeps the leftover-package hint for a plain registration error on a newly added package', async () => {
+    const packageRoot = path.join(tmpDir, 'node_modules', '@open-mercato', 'test-package')
+    const appDir = path.join(tmpDir, 'app')
+    buildPackageFixture(packageRoot, 'test_package')
+    writeAppPackageJson(appDir)
+    const resolver = buildResolver(appDir, packageRoot, 'export const enabledModules = []\n')
+    simulateYarnAdd(appDir, '@open-mercato/test-package')
+    const registrationSpy = jest
+      .spyOn(modulesConfig, 'ensureModuleRegistration')
+      .mockImplementation(() => {
+        throw new Error('Could not update modules.ts.')
+      })
+
+    try {
+      const failure = addOfficialModule(resolver, '@open-mercato/test-package', false)
+      await expect(failure).rejects.toThrow('Could not update modules.ts.')
+      await expect(failure).rejects.toThrow(
+        'The package "@open-mercato/test-package" stayed in package.json. To remove it, run: yarn remove @open-mercato/test-package',
+      )
+    } finally {
+      registrationSpy.mockRestore()
+    }
   })
 })
