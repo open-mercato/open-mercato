@@ -45,12 +45,18 @@
 ## Environment
 
 - Models: openai/gpt-5-mini
+- Providers: openai
 - Temperature: 0
 - Seed: 42 (honored: unknown)
+- Other model settings: maxOutputTokens=1024, providerOptions=set (values not reported)
 - Tool mode: replay
 - Model mode: live
 - Git SHA: deadbeef
 - CLI version: 0.9.0
+
+### Environment warnings
+
+- tool_fixture_summary_fidelity: 1 case(s) replayed tool fixtures built from a stored run (fidelity: summary)
 
 ## Baseline
 

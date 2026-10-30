@@ -180,6 +180,11 @@ function suiteProperties(report: EvalReport): Array<[string, string | number | n
     ['sameDataset', report.baseline.sameDataset === null ? null : String(report.baseline.sameDataset)],
     ['flakyCases', report.totals.flakyCases],
     ['models', report.environment.models.join(',')],
+    ['providers', report.environment.providers?.length ? report.environment.providers.join(',') : null],
+    ['temperature', report.environment.modelSettings.temperature ?? null],
+    ['seed', report.environment.modelSettings.seed?.requested ?? null],
+    ['seedHonored', report.environment.modelSettings.seed?.honored ?? null],
+    ['providerOptionsPresent', report.environment.modelSettings.providerOptionsPresent ? 'true' : null],
     ['toolMode', report.environment.toolMode],
     ['modelMode', report.environment.modelMode],
     ['gitSha', report.environment.gitSha],
@@ -195,6 +200,7 @@ function suiteSystemOut(report: EvalReport): string {
   const lines = [`Gate verdict: ${(report.suiteRun.outcome ?? 'not_evaluated').toUpperCase()}`]
   if (report.regressions.length) lines.push(`Regressions: ${report.regressions.join(', ')}`)
   for (const warning of report.baseline.warnings) lines.push(`Baseline warning: ${warning}`)
+  for (const warning of report.environment.warnings ?? []) lines.push(`Environment warning: ${warning}`)
   const flakyKeys = report.cases.filter((entry) => entry.flaky).map((entry) => entry.key)
   if (flakyKeys.length) lines.push(`Flaky cases: ${flakyKeys.join(', ')}`)
   for (const assertion of report.assertions) {

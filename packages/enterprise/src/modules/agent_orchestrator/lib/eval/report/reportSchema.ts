@@ -114,11 +114,23 @@ export const evalReportSchema = z.object({
           honored: z.enum(['yes', 'no', 'unknown']),
         })
         .optional(),
+      topP: z.number().optional(),
+      topK: z.number().optional(),
+      maxOutputTokens: z.number().optional(),
+      stopSequences: z.array(z.string()).optional(),
+      presencePenalty: z.number().optional(),
+      frequencyPenalty: z.number().optional(),
+      /** Set when provider options were in effect; their values are never reported. */
+      providerOptionsPresent: z.boolean().optional(),
     }),
+    /** LLM providers recorded on the run tree's llm spans; absent on reports built before it existed. */
+    providers: z.array(z.string()).optional(),
     toolMode: z.enum(['live', 'replay', 'record', 'mixed', 'unsupported_runtime']),
     modelMode: z.enum(['live', 'scripted']),
     gitSha: z.string().nullable(),
     cliVersion: z.string().nullable(),
+    /** Reproducibility caveats (e.g. summary-fidelity tool fixtures); absent when there are none. */
+    warnings: z.array(z.string()).optional(),
   }),
   totals: z.object({
     cases: z.number().int().nonnegative(),

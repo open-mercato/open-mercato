@@ -136,20 +136,43 @@ function renderSummary(report: EvalReport): string[] {
   ]
 }
 
+function otherModelSettings(settings: EvalReport['environment']['modelSettings']): string[] {
+  const entries: Array<[string, string | number | undefined]> = [
+    ['topP', settings.topP],
+    ['topK', settings.topK],
+    ['maxOutputTokens', settings.maxOutputTokens],
+    ['stopSequences', settings.stopSequences?.length ? settings.stopSequences.map(inlineText).join(', ') : undefined],
+    ['presencePenalty', settings.presencePenalty],
+    ['frequencyPenalty', settings.frequencyPenalty],
+    ['providerOptions', settings.providerOptionsPresent ? 'set (values not reported)' : undefined],
+  ]
+  return entries
+    .filter((entry): entry is [string, string | number] => entry[1] !== undefined)
+    .map(([key, value]) => `${key}=${value}`)
+}
+
 function renderEnvironment(report: EvalReport): string[] {
   const { environment } = report
   const seed = environment.modelSettings.seed
-  return [
+  const otherSettings = otherModelSettings(environment.modelSettings)
+  const lines = [
     '## Environment',
     '',
     `- Models: ${environment.models.length ? environment.models.map(inlineText).join(', ') : EMPTY_CELL}`,
+    ...(environment.providers?.length ? [`- Providers: ${environment.providers.map(inlineText).join(', ')}`] : []),
     `- Temperature: ${environment.modelSettings.temperature ?? EMPTY_CELL}`,
     `- Seed: ${seed ? `${seed.requested} (honored: ${seed.honored})` : EMPTY_CELL}`,
+    ...(otherSettings.length ? [`- Other model settings: ${otherSettings.join(', ')}`] : []),
     `- Tool mode: ${environment.toolMode}`,
     `- Model mode: ${environment.modelMode}`,
     `- Git SHA: ${environment.gitSha ? inlineText(environment.gitSha) : EMPTY_CELL}`,
     `- CLI version: ${environment.cliVersion ? inlineText(environment.cliVersion) : EMPTY_CELL}`,
   ]
+  if (environment.warnings?.length) {
+    lines.push('', '### Environment warnings', '')
+    for (const warning of environment.warnings) lines.push(`- ${inlineText(warning)}`)
+  }
+  return lines
 }
 
 function renderBaseline(report: EvalReport): string[] {

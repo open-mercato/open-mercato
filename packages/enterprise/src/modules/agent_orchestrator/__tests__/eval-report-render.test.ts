@@ -96,11 +96,18 @@ function baseReport(overrides: Partial<EvalReport> = {}): EvalReport {
     },
     environment: {
       models: ['openai/gpt-5-mini'],
-      modelSettings: { temperature: 0, seed: { requested: 42, honored: 'unknown' } },
+      modelSettings: {
+        temperature: 0,
+        seed: { requested: 42, honored: 'unknown' },
+        maxOutputTokens: 1024,
+        providerOptionsPresent: true,
+      },
+      providers: ['openai'],
       toolMode: 'replay',
       modelMode: 'live',
       gitSha: 'deadbeef',
       cliVersion: '0.9.0',
+      warnings: ['tool_fixture_summary_fidelity: 1 case(s) replayed tool fixtures built from a stored run (fidelity: summary)'],
     },
     totals: {
       cases: 2,
@@ -287,6 +294,15 @@ function joinCdataSegments(segment: string): string {
   return cdataContents(segment).join('')
 }
 
+const LEGACY_ENVIRONMENT: EvalReport['environment'] = {
+  models: ['openai/gpt-5-mini'],
+  modelSettings: {},
+  toolMode: 'live',
+  modelMode: 'live',
+  gitSha: null,
+  cliVersion: null,
+}
+
 describe('eval report renderers', () => {
   it('builds fixtures that satisfy the report schema', () => {
     expect(evalReportSchema.safeParse(baseReport()).success).toBe(true)
@@ -377,6 +393,14 @@ describe('eval report renderers', () => {
       expect(markdown).toContain('### Warnings\n\n- dataset drift: label regression')
     })
 
+    it('renders an environment block stored before the additive fields existed', () => {
+      const markdown = renderEvalReportMarkdown({ ...baseReport(), environment: LEGACY_ENVIRONMENT })
+      expect(markdown).toContain('- Temperature: —\n- Seed: —\n- Tool mode: live')
+      expect(markdown).not.toContain('- Providers:')
+      expect(markdown).not.toContain('- Other model settings:')
+      expect(markdown).not.toContain('### Environment warnings')
+    })
+
     it('renders the eval set pin, counts and baseline dataset fields', () => {
       const markdown = renderEvalReportMarkdown(baseReport())
       expect(markdown).toContain('| Pin | hash |')
@@ -406,6 +430,15 @@ describe('eval report renderers', () => {
       })
       expect(legacy).not.toContain('name="sameDataset"')
       expect(legacy).not.toContain('name="baselineManifestHash"')
+    })
+
+    it('omits environment properties and warnings a legacy report does not carry', () => {
+      const xml = renderEvalReportJunit({ ...baseReport(), environment: LEGACY_ENVIRONMENT })
+      for (const name of ['providers', 'temperature', 'seed', 'seedHonored', 'providerOptionsPresent']) {
+        expect(xml).not.toContain(`name="${name}"`)
+      }
+      expect(xml).not.toContain('Environment warning:')
+      expect(checkXmlWellFormed(xml).reason).toBeUndefined()
     })
 
     it('produces well-formed XML with the JUnit element structure', () => {

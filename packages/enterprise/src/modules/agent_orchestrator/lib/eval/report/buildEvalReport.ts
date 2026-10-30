@@ -24,7 +24,17 @@ import {
 } from '../manifest'
 import type { Json } from '../types'
 import { detectFlaky } from './flaky'
-import { readEvalRunToolMode } from '../evalRunSettings'
+import { readEvalRunCallSettings, readEvalRunToolMode, readEvalRunToolSummary } from '../evalRunSettings'
+import { getAgentEntry } from '../../sdk/defineAgent'
+import {
+  buildEnvironmentWarnings,
+  buildReportModelSettings,
+  collectRunTreeIds,
+  loadRecordedLlmCalls,
+  providersOf,
+  resolveEffectiveModelSettings,
+  type RecordedLlmCall,
+} from './reportEnvironment'
 import {
   EVAL_REPORT_SCHEMA,
   EVAL_REPORT_SCHEMA_VERSION,
@@ -388,6 +398,16 @@ export async function buildEvalReport(
   const models = Array.from(
     new Set(runs.map((run) => run.model).filter((value): value is string => typeof value === 'string' && value.length > 0)),
   ).sort((left, right) => left.localeCompare(right))
+  const effectiveModelSettings = resolveEffectiveModelSettings(
+    getAgentEntry(suiteRun.agentDefinitionId)?.modelSettings,
+    readEvalRunCallSettings(suiteRun.summary),
+  )
+  const recordedLlmCalls: RecordedLlmCall[] = runIds.length
+    ? await loadRecordedLlmCalls(em, scope, await collectRunTreeIds(em, scope, runIds))
+    : []
+  const providers = providersOf(recordedLlmCalls)
+  const toolSummary = readEvalRunToolSummary(suiteRun.summary)
+  const environmentWarnings = buildEnvironmentWarnings(toolSummary)
   const countStatus = (target: AgentEvalCaseRun['status']) =>
     current.caseRuns.filter((entry) => entry.status === target).length
   const evalSetVersion = suiteRun.evalSetVersion ?? null
@@ -436,11 +456,13 @@ export async function buildEvalReport(
     },
     environment: {
       models,
-      modelSettings: {},
+      modelSettings: buildReportModelSettings(effectiveModelSettings, recordedLlmCalls),
+      ...(providers.length ? { providers } : {}),
       toolMode: readEvalRunToolMode(suiteRun.summary),
       modelMode: env.OM_AI_PROVIDER === 'scripted' ? 'scripted' : 'live',
       gitSha: readString(env.GITHUB_SHA) ?? readString(env.OM_EVAL_GIT_SHA),
       cliVersion: options.cliVersion ?? null,
+      ...(environmentWarnings.length ? { warnings: environmentWarnings } : {}),
     },
     totals: {
       cases: caseIds.length,
