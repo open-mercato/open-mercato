@@ -4,6 +4,8 @@ import type {
   AiToolDefinition,
   McpToolContext,
 } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/types'
+import { emitCitations } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/citations'
+import { DOCUMENT_SECTION_SEARCH_URL } from './search'
 import {
   ATTACHMENT_DOCUMENT_STRUCTURE_SERVICE_DI_KEY,
   type AttachmentDocumentStructureService,
@@ -12,6 +14,10 @@ import {
 import type { DocumentSectionKind, ExtractionStatus } from './lib/documentStructure/types'
 
 const TOOL_PRINCIPAL = 'attachments:ai-tool'
+const CITATION_KIND = 'attachment'
+const CITATION_LABEL_MAX_LENGTH = 200
+const CITATION_LOCATOR_MAX_LENGTH = 200
+const CITATION_QUOTE_MAX_LENGTH = 1000
 
 export const getDocumentSectionsInputSchema = z.object({
   attachmentId: z.string().uuid().describe('Attachment identifier.'),
@@ -133,6 +139,20 @@ function toToolItem(section: DocumentSection, includeText: boolean): DocumentSec
   }
 }
 
+function toCitation(section: DocumentSection) {
+  const label = section.citation.slice(0, CITATION_LABEL_MAX_LENGTH)
+  const locator = section.numberLabel ?? (section.pageStart !== null ? `p. ${section.pageStart}` : null)
+  const quote = typeof section.text === 'string' ? section.text.slice(0, CITATION_QUOTE_MAX_LENGTH) : ''
+  return {
+    kind: CITATION_KIND,
+    ref: section.citationRef,
+    ...(label ? { label } : {}),
+    ...(locator ? { locator: locator.slice(0, CITATION_LOCATOR_MAX_LENGTH) } : {}),
+    ...(quote ? { quote } : {}),
+    href: DOCUMENT_SECTION_SEARCH_URL,
+  }
+}
+
 const getDocumentSectionsTool: AiToolDefinition<GetDocumentSectionsInput, GetDocumentSectionsOutput> = {
   name: 'attachments.get_document_sections',
   displayName: 'Get document sections',
@@ -181,6 +201,7 @@ const getDocumentSectionsTool: AiToolDefinition<GetDocumentSectionsInput, GetDoc
     if (!page) return emptyResult('not_found', NOT_FOUND_HINT)
     const needle = input.headingContains?.toLocaleLowerCase() ?? null
     const sections = needle ? page.items.filter((section) => matchesHeading(section, needle)) : page.items
+    emitCitations(ctx, sections.map(toCitation))
     return {
       status: extraction.status,
       extractionId: page.extractionId,

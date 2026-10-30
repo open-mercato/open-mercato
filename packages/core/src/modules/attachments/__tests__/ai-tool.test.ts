@@ -1,4 +1,9 @@
 import type { McpToolContext } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/types'
+import {
+  AI_CITATIONS_COMPONENT_ID,
+  AI_CITATIONS_MAX_PER_CALL,
+  aiCitationSchema,
+} from '@open-mercato/ai-assistant/modules/ai_assistant/lib/citations'
 import aclFeatures from '../acl'
 import aiTools from '../ai-tools'
 import type { DocumentSection } from '../lib/documentStructure/service'
@@ -83,6 +88,17 @@ function completedStructure(status = 'completed') {
     extraction: { id: 'extraction-1', status, pageCount: 12 },
     outline: [],
   }
+}
+
+function makeUiParts() {
+  const parts: Array<{ componentId: string; payload: { citations: Array<Record<string, unknown>>; title?: string } }> = []
+  const collector = {
+    enqueue: jest.fn((part: (typeof parts)[number]) => {
+      parts.push(part)
+    }),
+    drain: jest.fn(() => parts.splice(0)),
+  }
+  return { parts, collector: collector as unknown as NonNullable<McpToolContext['uiParts']> }
 }
 
 function expectNoWrites(service: ServiceMock) {
@@ -262,5 +278,94 @@ describe('attachments.get_document_sections', () => {
     await run(service, { attachmentId: ATTACHMENT_ID })
     expect(service.requestExtraction).not.toHaveBeenCalled()
     expect(service.getNormalizedText).not.toHaveBeenCalled()
+  })
+
+  describe('citations', () => {
+    it('emits one attachment citation per returned section without changing the output', async () => {
+      const service = makeService()
+      service.getStructure.mockResolvedValue(completedStructure())
+      service.listSections.mockResolvedValue({
+        extractionId: 'extraction-1',
+        items: [
+          makeSection({ text: 'x'.repeat(1500) }),
+          makeSection({
+            id: 'b',
+            numberLabel: null,
+            anchorKey: 'sec:b',
+            citationRef: `${ATTACHMENT_ID}#sec:b`,
+            citation: 'Preamble (p. 1)',
+            pageStart: 1,
+            text: undefined,
+          }),
+        ],
+        nextCursor: null,
+      })
+      const { parts, collector } = makeUiParts()
+      const result = await run(service, { attachmentId: ATTACHMENT_ID }, makeCtx(service, { uiParts: collector }))
+      expect(result.items[0]).toMatchObject({ citation: 'contract.pdf, p. 4-5, §8.12', locator: 'p. 4-5, §8.12' })
+      expect(Object.keys(result.items[0]).sort()).toEqual(
+        ['citation', 'content', 'headingPath', 'id', 'kind', 'locator', 'numberLabel', 'page', 'textTruncated'],
+      )
+      expect(parts).toHaveLength(1)
+      expect(parts[0].componentId).toBe(AI_CITATIONS_COMPONENT_ID)
+      const citations = parts[0].payload.citations
+      expect(citations).toEqual([
+        {
+          kind: 'attachment',
+          ref: `${ATTACHMENT_ID}#sec:8.12`,
+          label: 'contract.pdf, p. 4-5, §8.12',
+          locator: '8.12',
+          quote: 'x'.repeat(1000),
+          href: '/backend/storage/attachments',
+        },
+        {
+          kind: 'attachment',
+          ref: `${ATTACHMENT_ID}#sec:b`,
+          label: 'Preamble (p. 1)',
+          locator: 'p. 1',
+          href: '/backend/storage/attachments',
+        },
+      ])
+      for (const citation of citations) {
+        expect(aiCitationSchema.safeParse(citation).success).toBe(true)
+        expect(String(citation.ref).length).toBeLessThanOrEqual(300)
+      }
+      expectNoWrites(service)
+    })
+
+    it('caps emitted citations per call', async () => {
+      const service = makeService()
+      service.getStructure.mockResolvedValue(completedStructure())
+      const total = AI_CITATIONS_MAX_PER_CALL + 5
+      service.listSections.mockResolvedValue({
+        extractionId: 'extraction-1',
+        items: Array.from({ length: total }, (_, index) =>
+          makeSection({ id: `s${index}`, anchorKey: `sec:${index}`, citationRef: `${ATTACHMENT_ID}#sec:${index}` }),
+        ),
+        nextCursor: null,
+      })
+      const { parts, collector } = makeUiParts()
+      const result = await run(service, { attachmentId: ATTACHMENT_ID }, makeCtx(service, { uiParts: collector }))
+      expect(result.items).toHaveLength(total)
+      expect(parts[0].payload.citations).toHaveLength(AI_CITATIONS_MAX_PER_CALL)
+      expectNoWrites(service)
+    })
+
+    it('emits no citations when no sections are returned', async () => {
+      const service = makeService()
+      service.getStructure.mockResolvedValue(completedStructure())
+      service.listSections.mockResolvedValue({ extractionId: 'extraction-1', items: [], nextCursor: null })
+      const { parts, collector } = makeUiParts()
+      await run(service, { attachmentId: ATTACHMENT_ID }, makeCtx(service, { uiParts: collector }))
+      expect(parts).toHaveLength(0)
+    })
+
+    it('emits no citations when the structure is not available', async () => {
+      const service = makeService()
+      service.getStructure.mockResolvedValue({ attachmentId: ATTACHMENT_ID, extraction: null, outline: [] })
+      const { parts, collector } = makeUiParts()
+      await run(service, { attachmentId: ATTACHMENT_ID }, makeCtx(service, { uiParts: collector }))
+      expect(parts).toHaveLength(0)
+    })
   })
 })
