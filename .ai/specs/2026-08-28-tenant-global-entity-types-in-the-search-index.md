@@ -263,6 +263,9 @@ search. §4 adds it.
 
 ### 2026-10-30
 
+- Kept the BC ledger concise with links to both full specs; preserved all commitments
+  while fitting the unchanged standalone compatibility-context budget.
+
 - Fixed inherited review 5640170132: canonical token writes through real worker and batch
   indexing, declaration-gated fusion across strategies, canonical document-filter lookup,
   coverage assertion synchronization and precise types on the new cleanup helpers.

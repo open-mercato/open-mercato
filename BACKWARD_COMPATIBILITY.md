@@ -462,88 +462,11 @@ Issue #3852 removed the non-cryptographic passkey verification shape from `Passk
 
 ## Tenant-Scoped Reindex of Tenant-Less Tables (2026-08-28)
 
-[`.ai/specs/2026-08-28-tenant-scoped-reindex-of-tenant-less-tables.md`](.ai/specs/2026-08-28-tenant-scoped-reindex-of-tenant-less-tables.md)
-stops `reindexEntity()` filing every tenant's rows under the caller's tenant when the
-source table has no `tenant_id` column.
-
-| Surface | Change | Classification |
-|---------|--------|----------------|
-| Function signatures | New exports `registerTenantGlobalEntityTypes`, `isTenantGlobalEntityType`, `listTenantGlobalEntityTypes`, `resetTenantGlobalEntityTypes` from `@open-mercato/core/modules/query_index/lib/tenant-global` | ✓ ADDITIVE (new module, new functions) |
-| Function signatures | `reindexEntity(em, options)` — signature and return type unchanged | ✓ No change |
-| `reindexEntity` behaviour | A tenant-scoped reindex of a table with no `tenant_id` column returns an empty result and logs a warning, instead of indexing every tenant's rows under the caller's tenant | ⚠ Deliberate behaviour narrowing |
-| Import paths, type definitions, event IDs, API routes, DB schema, DI names, ACL features, notification IDs, CLI commands, generated files | No change | ✓ n/a |
-
-**The Emergency Security Exception is not invoked, and does not need to be.** Nothing
-is removed or renamed, so steps 1-3 have nothing to stage; `reindexEntity` keeps its
-signature and every caller compiles unchanged. What narrows is which inputs it will
-act on, and the refused input's only possible outcome was a cross-tenant write. A flag
-that restored the old behaviour was considered and rejected for the reason the
-exception itself gives: a retained vulnerable branch is the bridge that must not be
-built.
-
-**Contract commitments**: the refusal is derived, not enumerated — it fires exactly
-when the tenant predicate would be dropped AND a tenant override would be stamped, so
-a tenant-less entity type added later fails closed with nobody editing a list. The
-allowlist MAY grow through `registerTenantGlobalEntityTypes()` and MUST NOT come to
-admit an entity type by default that is not a platform-wide catalogue. A `tenantId` of
-`null` or `undefined` is outside the rule and stays outside it.
-
-**Migration path for existing modules**: none required unless a module owns a
-tenant-less catalogue table, which registers itself as above. See
-[`UPGRADE_NOTES.md`](UPGRADE_NOTES.md) `0.9.0 → 0.9.1` for both the module-author and
-the operator action, including the index residue this change does not clean up.
+[Spec](.ai/specs/2026-08-28-tenant-scoped-reindex-of-tenant-less-tables.md): fail closed on tenant-scoped sweeps without tenant columns, except declared catalogues; null/undefined tenants unchanged. Registration helpers are additive. No vulnerable opt-out.
 
 ## Tenant-Global Entity Types in the Search Index (2026-08-28)
 
-[`.ai/specs/2026-08-28-tenant-global-entity-types-in-the-search-index.md`](.ai/specs/2026-08-28-tenant-global-entity-types-in-the-search-index.md)
-aligns the sweep writer with the incremental one on `tenant_id = NULL` for declared
-platform-wide catalogues, and gives both index readers the matching NULL branch.
-
-Search strategy single/batch token writes also use the canonical null/null scope, including
-writes performed by the vector worker. Caller-scoped vectors and fulltext retain storage
-scope; SearchService filters organization access before fusing declared catalogue identity.
-Ordinary organization identities remain separate. Document-filter correlation is null-safe
-and can use the declared catalogue's null/null projection for a caller-scoped vector.
-`IndexDocFilterTarget` gains only an optional `tenantGlobalEntityTypes` list; callers that
-omit it retain same-tenant correlation. No database schema or existing public signature
-is removed or narrowed.
-
-
-| Surface | Change | Classification |
-|---------|--------|----------------|
-| Function signatures | `reindexEntity`, `createPresenterEnricher`, `TokenSearchStrategy.search` — all unchanged | ✓ No change |
-| Stored scope | The projection of a **declared** tenant-global entity type is written under `tenant_id = NULL, organization_id = NULL` instead of the caller's tenant and organization | ⚠ Deliberate behaviour change, declared types only |
-| Read scope | Both index readers match `tenant_id = X OR (tenant_id IS NULL AND entity_type IN <declared>)` instead of `tenant_id = X`; `TokenSearchStrategy` also matches `organization_id IN <selected> OR (organization_id IS NULL AND tenant_id IS NULL AND entity_type IN <declared>)`, and `SearchService` keeps an organization-less result only for a declared type | ⚠ Deliberate behaviour change, declared types only |
-| Coverage / purge scope | `entity_index_coverage` rows, `purgeOrphans` and the force purge follow the projection to the null tenant AND null organization for declared types; a sweep of a declared type also retires the projections, tokens and coverage rows earlier sweeps stamped with a caller scope | ⚠ Consequential, same set |
-| Vector scope | `query_index.vectorize_one`, the force reindex's `query_index.vectorize_purge` and `removeOrphans` keep the caller's tenant and organization: the vector consumers need a real tenant | ✓ No change |
-| Job scope | `entity_index_jobs` keeps the caller's tenant and organization | ✓ No change |
-| Import paths, type definitions, event IDs, API routes, DB schema, DI names, ACL features, notification IDs, CLI commands, generated files | No change | ✓ n/a |
-
-**No migration.** Adding `tenant_id_coalesced` to `entity_indexes_type_entity_org_coalesced_unique`
-was considered and is not needed: a declared catalogue has no scoped variant to coexist
-with, since its source table has NEITHER scope column and all three writers now resolve
-the same record to the same `(NULL, NULL)` scope - the sweep, the event path through
-`resolveQueryIndexRecordScope()`, and the force purge.
-
-That is a claim about the whole scope, not just the tenant half, and it only became true
-with the organization axis. While the sweep still stamped the caller's organization, two
-tenants reindexing from their own backends produced `(NULL, orgA)` and `(NULL, orgB)`, and
-the event path's slot was a third, `(NULL, NULL)` - three rows for one record under a key
-that coalesces only the organization.
-
-**Contract commitments**: the widening is gated on `isTenantGlobalEntityType()` and MUST
-NOT be reduced to a bare `tenant_id IS NULL` predicate. A table with neither scope column
-is stored under the null tenant whether it is a catalogue or private data — fourteen of
-the fifteen such entity types in this repository are private — so the entity-type
-conjunct is the only thing separating the two. Reader and writer MUST move together; a
-reader-only change publishes whatever an unscoped reindex left behind, and a writer-only
-change makes catalogues unfindable for everyone.
-
-**Migration path**: reindex each declared catalogue once. The sweep writes the canonical
-`(NULL, NULL)` rows and then retires the rows earlier sweeps stamped with a caller scope -
-projections, tokens and coverage. A stamped projection does not self-heal through the
-upsert: its organization is part of the unique key, so it is a different row. See
-[`UPGRADE_NOTES.md`](UPGRADE_NOTES.md) `0.9.0 → 0.9.1` for the equivalent manual cleanup.
+[Spec](.ai/specs/2026-08-28-tenant-global-entity-types-in-the-search-index.md): declared catalogues require neither scope column. Projections, tokens, coverage and purges use null/null; vectors/events/jobs retain caller scope. Readers MUST gate null scope on declarations; writers/readers MUST move together. Worker/bulk tokens stay canonical; fusion follows organization filtering, preserving ordinary isolation. Filters use null-safe correlation; optional `IndexDocFilterTarget.tenantGlobalEntityTypes` permits canonical lookup. No schema/key migration or removed signatures. Reindex once to retire legacy projections/tokens/coverage; organization-keyed residue cannot self-heal. Module/operator actions: [upgrade notes](UPGRADE_NOTES.md).
 
 ## Data Sync Start Control Applicability (2026-09-02)
 
