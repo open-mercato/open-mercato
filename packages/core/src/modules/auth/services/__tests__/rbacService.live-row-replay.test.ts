@@ -1,6 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createMemoryStrategy } from '@open-mercato/cache'
 import { User, UserAcl, UserRole, RoleAcl } from '../../data/entities'
+import { ApiKey } from '../../../api_keys/data/entities'
 import { RbacService } from '../rbacService'
 
 type Row = Record<string, unknown>
@@ -12,7 +13,9 @@ function matches(value: unknown, expected: unknown): boolean {
       || (typeof value === 'object' && value !== null && 'id' in value && value.id === expected)
   }
   if ('$in' in expected && Array.isArray(expected.$in)) {
-    return expected.$in.some((candidate: unknown) => matches(value, candidate))
+    if (!expected.$in.some((candidate: unknown) => matches(value, candidate))) return false
+    const rest = Object.fromEntries(Object.entries(expected).filter(([key]) => key !== '$in'))
+    return Object.keys(rest).length === 0 || matches(value, rest)
   }
   if (typeof value !== 'object' || value === null) return false
   const record = value as Row
@@ -25,7 +28,9 @@ function createFixture() {
   const userAcls: Row[] = []
   const roleAcls: Row[] = []
   const links: Row[] = []
+  const keys: Row[] = []
   const rows = (entity: unknown): Row[] => {
+    if (entity === ApiKey) return keys
     if (entity === User) return [user]
     if (entity === UserAcl) return userAcls
     if (entity === RoleAcl) return roleAcls
@@ -40,7 +45,7 @@ function createFixture() {
   const em = { findOne, find, fork }
   fork.mockReturnValue(em)
   const service = new RbacService(em as unknown as EntityManager, createMemoryStrategy())
-  return { user, role, userAcls, roleAcls, links, em, service }
+  return { user, role, userAcls, roleAcls, links, keys, em, service }
 }
 
 describe('live ACL authorization in replay and organization projections', () => {
@@ -132,6 +137,33 @@ describe('live ACL authorization in replay and organization projections', () => 
     const access = await fixture.service.resolveFeatureOrganizationAccess(
       fixture.user.id, ['auth.users.list'], { tenantId: 'tenant-other' },
     )
+    expect(access.unrestricted).toBe(true)
+  })
+})
+
+
+describe('API-key live-role consistency across authorization readers', () => {
+  it.each([false, true])('rejects a deleted role with a live ACL (super-admin: %s)', async (isSuperAdmin) => {
+    const fixture = createFixture()
+    fixture.role.deletedAt = new Date()
+    fixture.keys.push({ id: 'key-live', tenantId: fixture.user.tenantId, organizationId: null, rolesJson: [fixture.role.id], deletedAt: null })
+    fixture.roleAcls.push({ role: fixture.role, tenantId: fixture.user.tenantId, deletedAt: null, isSuperAdmin, featuresJson: ['auth.users.list'], organizationsJson: null })
+    const scope = { tenantId: fixture.user.tenantId, organizationId: null }
+    await expect(fixture.service.loadAcl('api_key:key-live', scope)).resolves.toMatchObject({ isSuperAdmin: false, features: [] })
+    await expect(fixture.service.loadAclWithEntityManager(fixture.em as unknown as EntityManager, 'api_key:key-live', scope)).resolves.toMatchObject({ isSuperAdmin: false, features: [] })
+    const access = await fixture.service.resolveFeatureOrganizationAccess('api_key:key-live', ['auth.users.list'], { tenantId: scope.tenantId })
+    expect(access.unrestricted).toBe(false)
+    expect(access.filterOrganizationIds([{ id: 'org-one' }])).toEqual([])
+  })
+
+  it.each([false, true])('preserves a live role positive control (super-admin: %s)', async (isSuperAdmin) => {
+    const fixture = createFixture()
+    fixture.keys.push({ id: 'key-live', tenantId: fixture.user.tenantId, organizationId: null, rolesJson: [fixture.role.id], deletedAt: null })
+    fixture.roleAcls.push({ role: fixture.role, tenantId: fixture.user.tenantId, deletedAt: null, isSuperAdmin, featuresJson: ['auth.users.list'], organizationsJson: null })
+    const scope = { tenantId: fixture.user.tenantId, organizationId: null }
+    await expect(fixture.service.loadAcl('api_key:key-live', scope)).resolves.toMatchObject({ isSuperAdmin, features: ['auth.users.list'] })
+    await expect(fixture.service.loadAclWithEntityManager(fixture.em as unknown as EntityManager, 'api_key:key-live', scope)).resolves.toMatchObject({ isSuperAdmin, features: ['auth.users.list'] })
+    const access = await fixture.service.resolveFeatureOrganizationAccess('api_key:key-live', ['auth.users.list'], { tenantId: scope.tenantId })
     expect(access.unrestricted).toBe(true)
   })
 })

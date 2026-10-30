@@ -229,6 +229,7 @@ async function resolveApiKeyAuth(secret: string): Promise<AuthContext> {
     const roles = roleIds.length
       ? await em.find(Role, { id: { $in: roleIds }, deletedAt: null })
       : []
+    const liveRoleIds = roles.map((role) => role.id)
     const roleNames = roles.map((role) => role.name).filter((name): name is string => typeof name === 'string' && name.length > 0)
 
     // A role-level super-admin grant is authorization-grade only when it is genuinely
@@ -241,15 +242,15 @@ async function resolveApiKeyAuth(secret: string): Promise<AuthContext> {
     const keyOrganizationId = typeof record.organizationId === 'string' && record.organizationId.trim().length > 0
       ? record.organizationId.trim()
       : null
-    if (roleIds.length && !keyOrganizationId) {
+    if (liveRoleIds.length && !keyOrganizationId) {
       const superAcls = await em.find(
         RoleAcl,
         {
-          role: { $in: roleIds } as any,
+          role: { id: { $in: liveRoleIds }, deletedAt: null },
           tenantId: record.tenantId ?? null,
           isSuperAdmin: true,
           deletedAt: null,
-        } as any,
+        },
       )
       keyIsSuperAdmin = superAcls.some((acl) => {
         const organizations = Array.isArray((acl as { organizationsJson?: string[] | null }).organizationsJson)

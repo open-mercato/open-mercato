@@ -36,7 +36,8 @@ The deterministic tie-breaker makes reruns select the same winner. Soft deletion
 Every path that asks for current ACL state includes `deletedAt: null`:
 
 - human and API-key grant resolution in `RbacService`, including exact-EntityManager replay readers and feature-organization projections;
-- super-admin target protection and exclusion lists in `grantChecks.ts`;
+- role-grant authorization, super-admin target protection and exclusion lists in `grantChecks.ts`;
+- authentication-time API-key super-admin projection, restricted to loaded live role IDs and a live related role;
 - role/user ACL GET and PUT routes;
 - protected role filtering in the roles list;
 - setup reconciliation, core execution-principal provisioning and enterprise agent-principal provisioning;
@@ -104,7 +105,8 @@ All four steps ship together; no intermediate phase is independently deployable 
 ### Testing Strategy
 
 - Migration PostgreSQL regression: `auth/migrations/__tests__/Migration20260828120000_auth.integration.test.ts` starts a disposable PostgreSQL16 container, builds isolated schemas, executes actual `up()`/`down()` SQL, and checks updated/null-updated/creation/id ordering, pre-revoked history/payload retention, tenant separation, second-live-row rejection, revoked-history acceptance, repeated-up stability, and index-only rollback without grant reactivation. Run explicitly with `OM_PG_INTEGRATION=1 node node_modules/jest/bin/jest.js --config packages/core/jest.config.cjs --runInBand --runTestsByPath packages/core/src/modules/auth/migrations/__tests__/Migration20260828120000_auth.integration.test.ts`; the ordinary fast Jest pass skips Docker-backed tests unless opted in, matching the existing integrations PostgreSQL suite convention.
-- Unit: direct/role super-admin grants, foreign-tenant grants, soft-deleted ACLs, soft-deleted assignments, soft-deleted roles, API-key ACLs, deterministic selection, and target protection.
+- Unit: direct/role super-admin grants, foreign-tenant grants, soft-deleted ACLs, soft-deleted assignments, soft-deleted roles, API-key ACLs, deterministic selection, and target protection. Historical weaker/live stronger role ACLs must deny excessive grants; historical stronger/live permitted ACLs must allow bounded grants. Ordinary, transaction-bound and organization-projection API-key readers must agree on deleted roles, with live-role positive controls.
+- API boundary: API-key creation must authorize the live role ACL even when revoked history differs; a fresh key referencing a deleted role with a still-live ACL must lose feature and super-admin authority.
 - Route: user/role ACL GET and PUT queries must carry `deletedAt: null`; role list protection must do the same.
 - Command: user and role snapshots must exclude revoked ACL history so undo cannot reactivate it or violate the new indexes.
 - Setup: reconciliation must ignore revoked ACL history and create/update the one live row.
@@ -189,6 +191,8 @@ None.
 **Fully compliant: Approved — ready for implementation.**
 
 ## Changelog
+
+- 2026-10-30: Closed the role-grant reader and API-key live-role projection gaps identified in re-review B2/H1; added historical-row and deleted-role regression requirements without changing cache TTLs, routes or schemas.
 
 - **2026-10-29:** Add self-contained real-PostgreSQL migration up/down regression for duplicate remediation, all ordering tie-breakers, live-row uniqueness, historical payload/tenant preservation, idempotent rerun and irreversible-revocation rollback semantics. No migration or runtime behavior changed.
 

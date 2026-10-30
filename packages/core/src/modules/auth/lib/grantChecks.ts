@@ -189,7 +189,7 @@ export async function assertActorCanGrantRoles(input: RoleGrantCheckInput): Prom
     const acl = await findOneWithDecryption(
       input.em,
       RoleAcl,
-      { role, tenantId } as FilterQuery<RoleAcl>,
+      { role, tenantId, deletedAt: null } as FilterQuery<RoleAcl>,
       {},
       { tenantId, organizationId: null },
     )

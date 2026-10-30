@@ -527,7 +527,7 @@ export class RbacService {
         const racls = await em.find(RoleAcl, {
           tenantId,
           deletedAt: null,
-          role: { $in: roleIds as unknown as Role[] },
+          role: { $in: roleIds as unknown as Role[], deletedAt: null },
         } as FilterQuery<RoleAcl>)
         for (const acl of racls) {
           if (roleAclAllowsOrganization(acl, roleOrganizationScope)) {

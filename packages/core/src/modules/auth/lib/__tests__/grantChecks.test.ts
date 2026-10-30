@@ -1,6 +1,7 @@
 /** @jest-environment node */
 
 import {
+  assertActorCanGrantRoles,
   assertActorCanModifySuperAdminUserTarget,
   assertActorCanModifySuperAdminRoleTarget,
   isUserEffectivelySuperAdmin,
@@ -533,5 +534,40 @@ describe('listSuperAdminUserIds', () => {
     const result = await listSuperAdminUserIds(makeEm(db) as never, null)
 
     expect(result).toEqual(new Set([targetUserId, otherUserId]))
+  })
+})
+
+
+describe('assertActorCanGrantRoles canonical live ACL', () => {
+  test.each([false, true])('rejects a live stronger grant despite weaker revoked history (super-admin: %s)', async (isSuperAdmin) => {
+    const db = emptyDb()
+    const role = { id: targetRoleId, tenantId, deletedAt: null }
+    db.roles.push(role)
+    db.roleAcls.push(
+      { role: role.id, tenantId, deletedAt: new Date(), isSuperAdmin: false, featuresJson: [] },
+      { role: role.id, tenantId, deletedAt: null, isSuperAdmin, featuresJson: ['sales.*'] },
+    )
+    const rbacService = makeRbac(false)
+    rbacService.loadAcl.mockResolvedValue({ isSuperAdmin: false, features: ['api_keys.create', 'customers.people.view'], organizations: null })
+    await expect(assertActorCanGrantRoles({
+      em: makeEm(db) as never, rbacService: rbacService as never,
+      actorUserId: actorId, tenantId, roles: [role as Role],
+    })).rejects.toMatchObject({ status: 403 })
+  })
+
+  test('permits a live bounded grant despite stronger revoked history', async () => {
+    const db = emptyDb()
+    const role = { id: targetRoleId, tenantId, deletedAt: null }
+    db.roles.push(role)
+    db.roleAcls.push(
+      { role: role.id, tenantId, deletedAt: new Date(), isSuperAdmin: true, featuresJson: ['*'] },
+      { role: role.id, tenantId, deletedAt: null, isSuperAdmin: false, featuresJson: ['customers.people.view'] },
+    )
+    const rbacService = makeRbac(false)
+    rbacService.loadAcl.mockResolvedValue({ isSuperAdmin: false, features: ['api_keys.create', 'customers.people.view'], organizations: null })
+    await expect(assertActorCanGrantRoles({
+      em: makeEm(db) as never, rbacService: rbacService as never,
+      actorUserId: actorId, tenantId, roles: [role as Role],
+    })).resolves.toBeUndefined()
   })
 })
