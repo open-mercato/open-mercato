@@ -52,8 +52,8 @@ Restore the current `main` branch workflows to green by identifying each failing
 
 ### Phase 1: Diagnose current failures
 
-- [ ] 1.1 Collect the current `main` workflow/job failures and their failed-step logs.
-- [ ] 1.2 Classify each failure and reproduce actionable defects with the closest local command.
+- [x] 1.1 Collect the current `main` workflow/job failures and their failed-step logs. — e6735b1e59
+- [x] 1.2 Classify each failure and reproduce actionable defects with the closest local command. — e6735b1e59
 
 ### Phase 2: Correct root causes
 
