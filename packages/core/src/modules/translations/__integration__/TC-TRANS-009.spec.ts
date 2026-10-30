@@ -10,53 +10,22 @@ function escapeForRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
-async function fillCombobox(
-  page: import('@playwright/test').Page,
-  placeholder: string,
-  value: string,
-  options?: { waitForEnabledPlaceholder?: string },
-) {
-  const input = page.getByPlaceholder(placeholder)
-  await expect(input).toBeEnabled({ timeout: 10_000 })
-  await input.click()
-  await input.fill(value)
-  const suggestion = page.getByRole('button', {
-    name: new RegExp(escapeForRegex(value), 'i'),
-  }).first()
-  const suggestionVisible = await suggestion.waitFor({ state: 'visible', timeout: 2_000 }).then(
-    () => true,
-    () => false,
-  )
-  if (suggestionVisible) {
-    await suggestion.click()
-  } else {
-    await input.press('Enter')
-  }
-  await input.press('Tab')
-  if (options?.waitForEnabledPlaceholder) {
-    await expect(page.getByPlaceholder(options.waitForEnabledPlaceholder)).toBeEnabled({ timeout: 10_000 })
-  }
-}
-
-async function selectEntityForRecordPicker(
+async function selectTranslationRecord(
   page: Page,
   entityType: string,
+  recordId: string,
 ) {
+  const entityInput = page.getByPlaceholder('Select an entity')
+  await expect(entityInput).toBeEnabled({ timeout: 10_000 })
+  await entityInput.click()
+  await page.getByRole('option', {
+    name: new RegExp(`\\b${escapeForRegex(entityType)}$`),
+  }).click()
+
   const recordInput = page.getByPlaceholder('Search records...')
-
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    await fillCombobox(page, 'Select an entity', entityType)
-    const enabled = await expect
-      .poll(async () => !(await recordInput.isDisabled()), { timeout: 4_000 })
-      .toBe(true)
-      .then(() => true)
-      .catch(() => false)
-    if (enabled) {
-      return
-    }
-  }
-
   await expect(recordInput).toBeEnabled({ timeout: 10_000 })
+  await recordInput.fill(recordId)
+  await recordInput.press('Enter')
 }
 
 async function waitForTranslationField(root: Locator, preferredPlaceholder?: string): Promise<Locator> {
@@ -101,8 +70,7 @@ test.describe('TC-TRANS-009: Translation Command Undo', () => {
       await login(page, 'superadmin')
       await page.goto('/backend/config/translations')
 
-      await selectEntityForRecordPicker(page, ENTITY_TYPE)
-      await fillCombobox(page, 'Search records...', productId!)
+      await selectTranslationRecord(page, ENTITY_TYPE, productId)
 
       const managerCard = page.locator('.bg-card').filter({
         has: page.getByRole('button', { name: 'Save translations' }),
@@ -165,8 +133,7 @@ test.describe('TC-TRANS-009: Translation Command Undo', () => {
       await login(page, 'superadmin')
       await page.goto('/backend/config/translations')
 
-      await selectEntityForRecordPicker(page, ENTITY_TYPE)
-      await fillCombobox(page, 'Search records...', productId!)
+      await selectTranslationRecord(page, ENTITY_TYPE, productId)
 
       const managerCard = page.locator('.bg-card').filter({
         has: page.getByRole('button', { name: 'Save translations' }),
