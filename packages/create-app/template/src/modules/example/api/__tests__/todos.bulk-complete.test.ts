@@ -17,12 +17,13 @@ const USER_A = '00000000-0000-4000-8000-0000000000b1'
 const TODO_1 = '00000000-0000-4000-8000-0000000000c1'
 const TODO_2 = '00000000-0000-4000-8000-0000000000c2'
 const IDEMPOTENCY_KEY = '00000000-0000-4000-8000-0000000000d1'
+const REVISED_IDEMPOTENCY_KEY = '00000000-0000-4000-8000-0000000000d2'
 const PROGRESS_JOB_ID = '00000000-0000-4000-8000-0000000000e1'
 const OPERATION_ID = '00000000-0000-4000-8000-0000000000f1'
 
 const mockAuth: { value: Record<string, unknown> | null } = { value: null }
 const scopedTodoCount = { value: 2 }
-const guardOutcome: { blocked: boolean } = { blocked: false }
+const guardOutcome: { blocked: boolean; modifiedPayload?: Record<string, unknown> } = { blocked: false }
 const countCalls: Record<string, unknown>[] = []
 const runAfterSuccess = jest.fn(async () => undefined)
 
@@ -63,7 +64,7 @@ jest.mock('@open-mercato/shared/lib/crud/route-mutation-guard', () => ({
       errorBody: { error: 'blocked' },
       response: Response.json({ error: 'blocked' }, { status: 422 }),
     }
-    : { ok: true, runAfterSuccess })),
+    : { ok: true, modifiedPayload: guardOutcome.modifiedPayload, runAfterSuccess })),
 }))
 
 jest.mock('../../lib/todoBulkComplete', () => {
@@ -91,6 +92,9 @@ describe('example todo bulk-complete route', () => {
     countCalls.length = 0
     scopedTodoCount.value = 2
     guardOutcome.blocked = false
+    guardOutcome.modifiedPayload = undefined
+    runAfterSuccess.mockResolvedValue(undefined)
+    publishTodoBulkOperation.mockResolvedValue(true)
     mockAuth.value = { sub: USER_A, tenantId: TENANT_A, orgId: ORG_A1 }
     claimTodoBulkOperation.mockResolvedValue({
       operationId: OPERATION_ID,
@@ -144,6 +148,121 @@ describe('example todo bulk-complete route', () => {
     expect(claimTodoBulkOperation).toHaveBeenCalledWith(expect.objectContaining({
       todoIds: [TODO_1, TODO_2],
     }))
+  })
+
+  it('revalidates and deduplicates guard-revised ids and claims with the revised idempotency key', async () => {
+    guardOutcome.modifiedPayload = {
+      ids: [TODO_2, TODO_2],
+      idempotencyKey: REVISED_IDEMPOTENCY_KEY,
+    }
+    scopedTodoCount.value = 1
+
+    const response = await POST(buildRequest({ ids: [TODO_1, TODO_2], idempotencyKey: IDEMPOTENCY_KEY }))
+
+    expect(response.status).toBe(202)
+    expect(countCalls).toEqual([expect.objectContaining({ id: { $in: [TODO_2] } })])
+    expect(claimTodoBulkOperation).toHaveBeenCalledWith(expect.objectContaining({
+      todoIds: [TODO_2],
+      idempotencyKey: REVISED_IDEMPOTENCY_KEY,
+    }))
+    expect(runAfterSuccess).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
+    ['ids', { ids: [TODO_2] }, [TODO_2], IDEMPOTENCY_KEY],
+    ['key', { idempotencyKey: REVISED_IDEMPOTENCY_KEY }, [TODO_1, TODO_2], REVISED_IDEMPOTENCY_KEY],
+  ])('merges a guard rewrite of only the %s without dropping other validated fields', async (_label, modifiedPayload, expectedIds, expectedKey) => {
+    guardOutcome.modifiedPayload = modifiedPayload
+    scopedTodoCount.value = expectedIds.length
+
+    const response = await POST(buildRequest({ ids: [TODO_1, TODO_2], idempotencyKey: IDEMPOTENCY_KEY }))
+
+    expect(response.status).toBe(202)
+    expect(claimTodoBulkOperation).toHaveBeenCalledWith(expect.objectContaining({
+      todoIds: expectedIds,
+      idempotencyKey: expectedKey,
+    }))
+  })
+
+  it.each([
+    ['empty ids', { ids: [] }],
+    ['invalid id', { ids: ['not-a-uuid'] }],
+    ['too many ids', { ids: Array.from({ length: 501 }, () => TODO_1) }],
+    ['invalid key', { idempotencyKey: 'not-a-uuid' }],
+    ['removed key', { idempotencyKey: undefined }],
+  ])('rejects guard-revised %s before scope queries or durable work', async (_label, modifiedPayload) => {
+    guardOutcome.modifiedPayload = modifiedPayload
+
+    const response = await POST(buildRequest({ ids: [TODO_1, TODO_2], idempotencyKey: IDEMPOTENCY_KEY }))
+
+    expect(response.status).toBe(400)
+    expect(await response.json()).toEqual({ ok: false, progressJobId: null, message: 'Invalid payload' })
+    expect(countCalls).toEqual([])
+    expect(claimTodoBulkOperation).not.toHaveBeenCalled()
+    expect(publishTodoBulkOperation).not.toHaveBeenCalled()
+    expect(runAfterSuccess).not.toHaveBeenCalled()
+  })
+
+  it('checks rewritten ids in the session scope and refuses an out-of-scope replacement', async () => {
+    guardOutcome.modifiedPayload = { ids: [TODO_2], tenantId: 'attacker-tenant', organizationId: 'attacker-org' }
+    scopedTodoCount.value = 0
+
+    const response = await POST(buildRequest({ ids: [TODO_1], idempotencyKey: IDEMPOTENCY_KEY }))
+
+    expect(response.status).toBe(404)
+    expect(countCalls).toEqual([expect.objectContaining({
+      id: { $in: [TODO_2] },
+      tenantId: TENANT_A,
+      organizationId: ORG_A1,
+    })])
+    expect(claimTodoBulkOperation).not.toHaveBeenCalled()
+    expect(publishTodoBulkOperation).not.toHaveBeenCalled()
+    expect(runAfterSuccess).not.toHaveBeenCalled()
+  })
+
+  it('keeps session-derived scope when a guard returns extra scope fields', async () => {
+    guardOutcome.modifiedPayload = { tenantId: 'attacker-tenant', organizationId: 'attacker-org', userId: 'attacker-user' }
+
+    const response = await POST(buildRequest({ ids: [TODO_1, TODO_2], idempotencyKey: IDEMPOTENCY_KEY }))
+
+    expect(response.status).toBe(202)
+    expect(claimTodoBulkOperation).toHaveBeenCalledWith(expect.objectContaining({
+      scope: { tenantId: TENANT_A, organizationId: ORG_A1, userId: USER_A },
+    }))
+  })
+
+  it('runs guard success callbacks only after the durable claim and publication', async () => {
+    const order: string[] = []
+    claimTodoBulkOperation.mockImplementationOnce(async () => {
+      order.push('claim')
+      return { operationId: OPERATION_ID, progressJobId: PROGRESS_JOB_ID, created: true }
+    })
+    publishTodoBulkOperation.mockImplementationOnce(async () => { order.push('publish'); return true })
+    runAfterSuccess.mockImplementationOnce(async () => { order.push('after-success') })
+
+    const response = await POST(buildRequest({ ids: [TODO_1, TODO_2], idempotencyKey: IDEMPOTENCY_KEY }))
+
+    expect(response.status).toBe(202)
+    expect(order).toEqual(['claim', 'publish', 'after-success'])
+  })
+
+  it('does not publish or run guard callbacks when the durable claim fails', async () => {
+    claimTodoBulkOperation.mockRejectedValueOnce(new Error('claim failed'))
+
+    await expect(POST(buildRequest({ ids: [TODO_1, TODO_2], idempotencyKey: IDEMPOTENCY_KEY }))).rejects.toThrow('claim failed')
+
+    expect(publishTodoBulkOperation).not.toHaveBeenCalled()
+    expect(runAfterSuccess).not.toHaveBeenCalled()
+  })
+
+  it('keeps a committed operation successful when a guard callback fails', async () => {
+    runAfterSuccess.mockRejectedValueOnce(new Error('callback failed'))
+
+    const response = await POST(buildRequest({ ids: [TODO_1, TODO_2], idempotencyKey: IDEMPOTENCY_KEY }))
+
+    expect(response.status).toBe(202)
+    expect(claimTodoBulkOperation).toHaveBeenCalledTimes(1)
+    expect(publishTodoBulkOperation).toHaveBeenCalledTimes(1)
   })
 
   it('creates neither an operation nor a progress job when an id is out of scope', async () => {
