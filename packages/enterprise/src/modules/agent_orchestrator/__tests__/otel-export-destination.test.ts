@@ -6,7 +6,7 @@ import {
   isOtelExportDestinationError,
   resolveOtelExportDestination,
 } from '../lib/trace/otel/exportDestination'
-import { createOtelExportHealthCheck } from '../lib/trace/otel/exportIntegration'
+import { createOtelExportHealthCheck, parseOtelExportIntegrationCredentials } from '../lib/trace/otel/exportIntegration'
 import { parseOtlpHeadersStrict, resolveOtelExportDeployment } from '../lib/trace/otel/exportSettings'
 import { OTEL_EXPORT_INTEGRATION_ID } from '../lib/trace/otel/exportIntegrationIds'
 
@@ -239,6 +239,20 @@ describe('parseOtlpHeadersStrict', () => {
     expect(parseOtlpHeadersStrict('x-a=one%0Atwo')).toBeNull()
     expect(parseOtlpHeadersStrict('x-a=one%0Dtwo')).toBeNull()
     expect(parseOtlpHeadersStrict('x-a=%zz')).toBeNull()
+  })
+
+  test('rejects values the HTTP client would refuse to send, keeping TAB and Latin-1', () => {
+    expect(parseOtlpHeadersStrict('x-a=one%01two')).toBeNull()
+    expect(parseOtlpHeadersStrict('x-a=one%7Ftwo')).toBeNull()
+    expect(parseOtlpHeadersStrict('x-a=%E2%82%AC')).toBeNull()
+    expect(parseOtlpHeadersStrict('x-a=one%09two,x-b=%C3%A9')).toEqual({ 'x-a': 'one\ttwo', 'x-b': '\u00e9' })
+  })
+
+  test('marks credentials with such a header value invalid instead of sending them', () => {
+    expect(parseOtelExportIntegrationCredentials({ endpoint: TENANT_ENDPOINT, headers: 'authorization=%E2%82%AC' })).toEqual({
+      ok: false,
+      field: 'headers',
+    })
   })
 })
 

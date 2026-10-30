@@ -79,6 +79,7 @@ function readTrimmed(env: EnvLike, name: string): string | null {
 
 const HEADER_NAME_RE = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/
 const HEADER_VALUE_FORBIDDEN_RE = /[\r\n\0]/
+const HEADER_VALUE_INVALID_CHAR_RE = /[^\t\x20-\x7e\x80-\xff]/
 
 function decodeHeaderPart(value: string): string | null {
   try {
@@ -111,7 +112,8 @@ export function parseOtlpHeaders(raw: string | null | undefined): Record<string,
 /**
  * Strict variant of {@link parseOtlpHeaders} for tenant-supplied header lists:
  * `null` when any non-empty pair is malformed (no `=`, bad URL-encoding, an
- * invalid header name, or CR/LF/NUL in a value) instead of skipping it.
+ * invalid header name, or a value character Node's HTTP client refuses — any
+ * control character but TAB, or a code point above U+00FF) instead of skipping it.
  */
 export function parseOtlpHeadersStrict(raw: string | null | undefined): Record<string, string> | null {
   const headers: Record<string, string> = {}
@@ -124,7 +126,7 @@ export function parseOtlpHeadersStrict(raw: string | null | undefined): Record<s
     const value = decodeHeaderPart(pair.slice(separator + 1).trim())
     if (name === null || value === null) return null
     if (!HEADER_NAME_RE.test(name)) return null
-    if (HEADER_VALUE_FORBIDDEN_RE.test(value)) return null
+    if (HEADER_VALUE_INVALID_CHAR_RE.test(value)) return null
     headers[name] = value
   }
   return headers
