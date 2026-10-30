@@ -132,4 +132,129 @@ describe('modules-config', () => {
     expect(updated).toContain("{ id: 'test_package', from: '@open-mercato/test-package' }")
     expect(updated).toContain("enabledModules.push({ id: 'example_customers_sync', from: '@app' })")
   })
+
+  describe('preserves the rest of the file when appending a module', () => {
+    const appendEntry = (source: string): string => {
+      const filePath = path.join(tmpDir, 'modules.ts')
+      fs.writeFileSync(filePath, source)
+      const result = ensureModuleRegistration(filePath, {
+        id: 'storage_s3',
+        from: '@open-mercato/storage-s3',
+      })
+      expect(result.changed).toBe(true)
+      return fs.readFileSync(filePath, 'utf8')
+    }
+
+    it('keeps line comments, block comments, blank lines and commented-out entries', () => {
+      const source = [
+        '// Central place to enable modules.',
+        'export const enabledModules: ModuleEntry[] = [',
+        "  { id: 'auth', from: '@open-mercato/core' },",
+        '  // customer_groups stays disabled by default:',
+        '  // enabling it needs extra harness coverage.',
+        "  // { id: 'customer_groups', from: '@open-mercato/core' },",
+        '',
+        '  /* Communication channels hub.',
+        '   * Provider packages register adapters here. */',
+        "  { id: 'communication_channels', from: '@open-mercato/core' }, // trailing note",
+        "  // { id: 'cart', from: '@open-mercato/core' },",
+        ']',
+        '',
+        "if (process.env.OM_ENABLE_ENTERPRISE_MODULES === 'true') {",
+        "  // enterprise modules",
+        "  enabledModules.push({ id: 'record_locks', from: '@open-mercato/enterprise' })",
+        '}',
+        '',
+      ].join('\n')
+
+      const updated = appendEntry(source)
+
+      expect(updated).toBe(
+        source.replace(
+          "  { id: 'communication_channels', from: '@open-mercato/core' }, // trailing note\n",
+          "  { id: 'communication_channels', from: '@open-mercato/core' }, // trailing note\n" +
+            "  { id: 'storage_s3', from: '@open-mercato/storage-s3' },\n",
+        ),
+      )
+    })
+
+    it('adds a separating comma when the last element has none', () => {
+      const source = [
+        'export const enabledModules = [',
+        "  { id: 'auth', from: '@open-mercato/core' } // no trailing comma",
+        '  // closing comment',
+        ']',
+        '',
+      ].join('\n')
+
+      expect(appendEntry(source)).toBe(
+        [
+          'export const enabledModules = [',
+          "  { id: 'auth', from: '@open-mercato/core' }, // no trailing comma",
+          "  { id: 'storage_s3', from: '@open-mercato/storage-s3' }",
+          '  // closing comment',
+          ']',
+          '',
+        ].join('\n'),
+      )
+    })
+
+    it('fills an empty array and keeps its comments', () => {
+      expect(appendEntry('export const enabledModules = []\n')).toBe(
+        "export const enabledModules = [\n  { id: 'storage_s3', from: '@open-mercato/storage-s3' },\n]\n",
+      )
+      expect(
+        appendEntry('export const enabledModules = [\n  // nothing yet\n]\n'),
+      ).toBe(
+        "export const enabledModules = [\n  // nothing yet\n  { id: 'storage_s3', from: '@open-mercato/storage-s3' },\n]\n",
+      )
+    })
+
+    it('keeps CRLF line endings', () => {
+      const source = "export const enabledModules = [\r\n  // core\r\n  { id: 'auth', from: '@open-mercato/core' },\r\n]\r\n"
+      expect(appendEntry(source)).toBe(
+        "export const enabledModules = [\r\n  // core\r\n  { id: 'auth', from: '@open-mercato/core' },\r\n  { id: 'storage_s3', from: '@open-mercato/storage-s3' },\r\n]\r\n",
+      )
+    })
+
+    it('handles a spread or a comma-less last element', () => {
+      expect(
+        appendEntry("export const enabledModules = [\n  { id: 'auth' },\n  ...officialModuleEntries,\n]\n"),
+      ).toBe(
+        "export const enabledModules = [\n  { id: 'auth' },\n  ...officialModuleEntries,\n  { id: 'storage_s3', from: '@open-mercato/storage-s3' },\n]\n",
+      )
+      expect(appendEntry("export const enabledModules = [\n  { id: 'auth' }\n]\n")).toBe(
+        "export const enabledModules = [\n  { id: 'auth' },\n  { id: 'storage_s3', from: '@open-mercato/storage-s3' }\n]\n",
+      )
+    })
+
+    it('indents from the opening line when brackets share a line with elements', () => {
+      expect(appendEntry("export const enabledModules = [{ id: 'auth' }]\n")).toBe(
+        "export const enabledModules = [{ id: 'auth' },\n  { id: 'storage_s3', from: '@open-mercato/storage-s3' }\n]\n",
+      )
+      expect(appendEntry("export const enabledModules = [\n  { id: 'auth' },\n  { id: 'directory' }]\n")).toBe(
+        "export const enabledModules = [\n  { id: 'auth' },\n  { id: 'directory' },\n  { id: 'storage_s3', from: '@open-mercato/storage-s3' }\n]\n",
+      )
+    })
+
+    it('leaves the create-app template untouched apart from the new entry', () => {
+      const templatePath = path.resolve(__dirname, '../../../../create-app/template/src/modules.ts')
+      const source = fs.readFileSync(templatePath, 'utf8')
+      const filePath = path.join(tmpDir, 'modules.ts')
+      fs.writeFileSync(filePath, source)
+      const added = "  { id: 'template_probe', from: '@open-mercato/template-probe' },\n"
+
+      expect(source).not.toContain('template_probe')
+      expect(
+        ensureModuleRegistration(filePath, { id: 'template_probe', from: '@open-mercato/template-probe' }).changed,
+      ).toBe(true)
+
+      const updated = fs.readFileSync(filePath, 'utf8')
+      expect(updated.length).toBe(source.length + added.length)
+      expect(updated.replace(added, '')).toBe(source)
+      expect(updated.split('\n').filter((line) => line.trim().startsWith('//'))).toEqual(
+        source.split('\n').filter((line) => line.trim().startsWith('//')),
+      )
+    })
+  })
 })
