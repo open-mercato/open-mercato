@@ -266,6 +266,11 @@ export function restoreTemplateFromSnapshot(
   Object.assign(target, buildTemplateSnapshotData(snapshot))
 }
 
+/**
+ * Restores configuration onto an existing link. The usage counters and lock flag are
+ * owned by the link's transactions, so the live row keeps them: rewinding them to a
+ * snapshot would drop payments made after it was taken and reopen sold-out links.
+ */
 export function restoreLinkFromSnapshot(
   target: CheckoutLink,
   snapshot: CheckoutLinkSnapshot,
@@ -274,9 +279,6 @@ export function restoreLinkFromSnapshot(
     ...buildTemplateSnapshotData(snapshot),
     slug: snapshot.slug,
     templateId: snapshot.templateId ?? null,
-    completionCount: snapshot.completionCount,
-    activeReservationCount: snapshot.activeReservationCount,
-    isLocked: snapshot.isLocked,
   })
 }
 
