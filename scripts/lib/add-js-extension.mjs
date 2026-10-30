@@ -68,6 +68,9 @@ function resolveRelativeImport(fileDir, importPath, knownOutputPaths) {
   if (knownOutputPaths && knownOutputPaths.has(directoryIndexPath)) {
     return `${importPath}/index.js`
   }
+  if (knownOutputPaths && knownOutputPaths.has(join(fileDir, `${importPath}.js`))) {
+    return `${importPath}.js`
+  }
   const resolvedPath = join(fileDir, importPath)
   if (existsSync(resolvedPath) && existsSync(directoryIndexPath)) {
     return `${importPath}/index.js`

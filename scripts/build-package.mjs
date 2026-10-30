@@ -1,7 +1,7 @@
 import * as esbuild from 'esbuild'
 import { glob } from 'glob'
-import { copyFileSync, mkdirSync, readdirSync, rmSync } from 'node:fs'
-import { basename, dirname, join, relative } from 'node:path'
+import { copyFileSync, mkdirSync, readFileSync, rmSync } from 'node:fs'
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { createAtomicWritePlugin } from './lib/add-js-extension.mjs'
 
 // `*.typecheck.*` files exist only so `tsc --noEmit` can assert a type contract;
@@ -24,10 +24,19 @@ async function resolveEntryPoints(packageDir, entryPoints, extraIgnore) {
   })
 }
 
-function clearDirectory(dir) {
-  mkdirSync(dir, { recursive: true })
-  for (const entry of readdirSync(dir)) {
-    rmSync(join(dir, entry), { recursive: true, force: true })
+function isOwnedSourceMap(sourceMapPath, outbase) {
+  try {
+    const sourceMap = JSON.parse(readFileSync(sourceMapPath, 'utf8'))
+    if (!Array.isArray(sourceMap?.sources) || !sourceMap.sources.length) return false
+    if (sourceMap.sourceRoot !== undefined && typeof sourceMap.sourceRoot !== 'string') return false
+    return sourceMap.sources.every((source) => {
+      if (typeof source !== 'string') return false
+      const sourcePath = resolve(dirname(sourceMapPath), sourceMap.sourceRoot ?? '', source)
+      const relativeSourcePath = relative(outbase, sourcePath)
+      return relativeSourcePath !== '..' && !relativeSourcePath.startsWith(`..${sep}`) && !isAbsolute(relativeSourcePath)
+    })
+  } catch {
+    return false
   }
 }
 
@@ -58,7 +67,7 @@ async function copyJsonFiles(packageDir, outdir, ignore) {
 //   esbuildOverrides     — raw esbuild options merged last (write is always forced off)
 //   extraPlugins         — esbuild plugins prepended before the atomic-write plugin
 //   rewriteOptions       — options for createAtomicWritePlugin (skipExtensions, skipTemplateLiterals, resolveGeneratedImport)
-//   clearDist            — wipe outdir before building (default: false)
+//   clearDist            — prune obsolete source-map-owned outputs after successful compilation (default: false)
 //   copyJson             — copy src/**/*.json to dist after build (default: false)
 //   copyJsonIgnore       — extra ignore patterns for JSON copy
 //   watch                — use esbuild.context().watch() instead of one-shot build (default: false)
@@ -91,9 +100,9 @@ export async function buildPackage(packageDir, userOptions = {}) {
   const resolvedOutdir = join(packageDir, outdir)
   const resolvedOutbase = join(packageDir, outbase)
 
-  if (clearDist) {
-    clearDirectory(resolvedOutdir)
-  }
+  let previousSourceMapPaths = clearDist
+    ? await glob('**/*.map', { cwd: resolvedOutdir, nodir: true, absolute: true, dot: true })
+    : []
 
   if (typeof beforeBuild === 'function') {
     await beforeBuild({ packageDir, outdir: resolvedOutdir })
@@ -119,7 +128,26 @@ export async function buildPackage(packageDir, userOptions = {}) {
     bundle,
     ...esbuildOverrides,
     write: false,
-    plugins: [...extraPlugins, createAtomicWritePlugin(rewriteOptions)],
+    plugins: [
+      ...extraPlugins,
+      createAtomicWritePlugin(rewriteOptions),
+      {
+        name: 'prune-obsolete-outputs',
+        setup(build) {
+          build.onEnd((result) => {
+            if (result.errors.length || !result.outputFiles?.length) return
+            const currentOutputPaths = new Set(result.outputFiles.map((file) => file.path))
+            for (const sourceMapPath of previousSourceMapPaths) {
+              if (currentOutputPaths.has(sourceMapPath) || !isOwnedSourceMap(sourceMapPath, resolvedOutbase)) continue
+              for (const outputPath of [sourceMapPath.slice(0, -4), sourceMapPath]) {
+                if (!currentOutputPaths.has(outputPath)) rmSync(outputPath, { force: true })
+              }
+            }
+            previousSourceMapPaths = []
+          })
+        },
+      },
+    ],
   }
 
   if (watch) {
