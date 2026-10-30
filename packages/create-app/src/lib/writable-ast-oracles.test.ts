@@ -1010,3 +1010,83 @@ export const openApi = { methods: {} }
     fs.rmSync(root, { recursive: true, force: true })
   }
 })
+
+function writeRecoverySources(root: string, sources: Record<string, string>) {
+  for (const [relative, source] of Object.entries(sources)) {
+    const destination = path.join(root, relative)
+    fs.mkdirSync(path.dirname(destination), { recursive: true })
+    fs.writeFileSync(destination, source)
+  }
+}
+
+const recoveryFixtures: Record<string, Record<string, string>> = {
+  'OMH-014': {
+    'src/modules/library/backend/books/page.tsx': "import { Books } from '../../components/Books'\nexport default function Page() { return <Books /> }",
+    'src/modules/library/components/Books.tsx': "import { DataTable } from '@open-mercato/ui/backend/DataTable'\nimport { CrudForm } from '@open-mercato/ui/backend/CrudForm'\nimport { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'\nexport function Books() { const onError = (error: unknown) => surfaceRecordConflict(error, key => key); return <><DataTable extensionTableId='library.books' /><CrudForm initialValues={{}} onSubmit={onError} /></> }",
+  },
+  'OMH-026': {
+    'src/modules/app_customizations/widgets/injection-table.ts': "export const injectionTable = { 'crud-form:customers.person:fields': 'app_customizations.note' }",
+    'src/modules/app_customizations/data/enrichers.ts': "import type { ResponseEnricher } from '@open-mercato/shared/lib/crud/response-enricher'\nconst note: ResponseEnricher = { id: 'app_customizations.note', targetEntity: 'customers.person', async enrichMany(records, context) { return records.map(record => ({ ...record, _app_customizations: { note: null, tenantId: context.tenantId, organizationId: context.organizationId } })) } }\nexport const enrichers = [note]",
+    'src/modules/app_customizations/api/interceptors.ts': "export const interceptors = [{ id: 'app_customizations.note', targetRoute: 'customers/people', methods: ['PUT'], async before(request) { return { ok: true, body: request.body } } }]",
+  },
+  'OMH-027': {
+    'src/modules/app_customizations/widgets/injection-table.ts': "export const injectionTable = { 'data-table:customers.people:columns': { widgetId: 'app_customizations.note-column', priority: 30 } }",
+    'src/modules/app_customizations/widgets/injection/note-column/widget.ts': "import type { InjectionColumnWidget } from '@open-mercato/shared/modules/widgets/injection'\nconst widget: InjectionColumnWidget = { metadata: { id: 'app_customizations.note-column', requiredModules: ['customers'] }, columns: [{ id: 'note', accessorKey: '_app_customizations.note', header: 'app_customizations.note' }] }\nexport default widget",
+  },
+  'OMH-029': {
+    'src/modules/app_customizations/index.ts': "export const metadata = { id: 'app_customizations' }",
+    'src/modules/app_customizations/overrides.ts': "import type { ModuleOverrides } from '@open-mercato/shared/modules/overrides'\nexport const overrides: ModuleOverrides = { routes: { pages: { '/backend/example/reports': null } } }",
+    'src/modules.ts': "import { overrides } from './modules/app_customizations/overrides'\nexport const enabledModules = [{ id: 'example', from: '@app' }, { id: 'app_customizations', from: '@app', overrides }]",
+  },
+  'OMH-031': {
+    'src/modules/app_customizations/api/interceptors.ts': "import type { ApiInterceptor } from '@open-mercato/shared/lib/crud/api-interceptor'\nexport const interceptors: ApiInterceptor[] = [{ id: 'app_customizations.scope', targetRoute: 'customers/people', methods: ['GET'], timeoutMs: 1000, async before(request, context) { if (!context.tenantId || !context.organizationId) return { ok: false, statusCode: 403 }; return { ok: true, query: { ...request.query, tenantId: context.tenantId, organizationId: context.organizationId } } } }]",
+  },
+  'OMH-049': {
+    'src/modules/library/ai-agents.ts': "import { defineAiAgent } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/ai-agent-definition'\nconst librarian = defineAiAgent({ id: 'library.librarian', moduleId: 'library', label: 'Librarian', defaultProvider: 'openai', defaultModel: 'model', allowedTools: ['library.list'], requiredFeatures: ['library.books.view'] })\nexport const aiAgents = [librarian]",
+  },
+  'OMH-054': {
+    'src/modules/automation/workflows/call-api.ts': "export type Input = { url: string; idempotencyKey: string }\nexport type Effects = { reserveIdempotency(key: string): Promise<string>; transaction<T>(work: () => Promise<T>): Promise<T>; post(url: string, options: { idempotencyKey: string }): Promise<unknown> }\nexport async function callApiActivity(input: Input, effects: Effects) { const key = await effects.reserveIdempotency(input.idempotencyKey); return effects.transaction(async () => effects.post(input.url, { idempotencyKey: key })) }",
+  },
+}
+
+for (const [caseId, sources] of Object.entries(recoveryFixtures)) {
+  test(`recovery ${caseId} accepts its connected current framework contract`, () => {
+    const root = stageTarget('src/fixture.ts', 'export {}')
+    try {
+      writeRecoverySources(root, sources)
+      const result = runOracle(root, 'before', process.env, caseId)
+      assert.equal(result.parsed.passed, true, JSON.stringify(result.parsed.failures))
+    } finally { fs.rmSync(root, { recursive: true, force: true }) }
+  })
+}
+
+const recoveryNegatives: Array<{ caseId: string; label: string; mutate: (sources: Record<string, string>) => Record<string, string> }> = [
+  { caseId: 'OMH-014', label: 'orphan component', mutate: sources => ({ ...sources, 'src/modules/library/backend/books/page.tsx': 'export default function Page() { return <div /> }' }) },
+  { caseId: 'OMH-014', label: 'unused component import', mutate: sources => ({ ...sources, 'src/modules/library/backend/books/page.tsx': "import { Books } from '../../components/Books'\nexport default function Page() { return <div /> }" }) },
+  { caseId: 'OMH-014', label: 'import escaping the case module', mutate: sources => ({ ...sources, 'src/modules/library/backend/books/page.tsx': "import { Books } from '../../../other/Books'\nexport default function Page() { return <Books /> }", 'src/modules/other/Books.tsx': sources['src/modules/library/components/Books.tsx'] }) },
+  { caseId: 'OMH-014', label: 'nonexistent rendered import', mutate: sources => ({ ...sources, 'src/modules/library/backend/books/page.tsx': "import { Books } from '../../components/Missing'\nexport default function Page() { return <Books /> }" }) },
+  { caseId: 'OMH-026', label: 'disconnected enrichMany call', mutate: sources => ({ ...sources, 'src/modules/app_customizations/data/enrichers.ts': "function unused() { enrichMany([]) }\nexport const enrichers = []" }) },
+  { caseId: 'OMH-026', label: 'unexported enricher', mutate: sources => Object.fromEntries(Object.entries(sources).map(([file, source]) => [file, source.replace('export const enrichers', 'const enrichers')])) },
+  { caseId: 'OMH-027', label: 'disconnected typed widget', mutate: sources => ({ ...sources, 'src/modules/app_customizations/widgets/injection-table.ts': "export const injectionTable = { 'data-table:customers.people:columns': { widgetId: 'other.widget' } }; const options = { extensionTableId: 'customers.people' }" }) },
+  { caseId: 'OMH-027', label: 'nonmountable base host', mutate: sources => Object.fromEntries(Object.entries(sources).map(([file, source]) => [file, source.replace('data-table:customers.people:columns', 'data-table:')])) },
+  { caseId: 'OMH-027', label: 'missing widget default export', mutate: sources => Object.fromEntries(Object.entries(sources).map(([file, source]) => [file, source.replace('export default widget', 'export const unused = widget')])) },
+  { caseId: 'OMH-029', label: 'disconnected page map', mutate: sources => ({ ...sources, 'src/modules.ts': "export const enabledModules = [{ id: 'app_customizations', from: '@app' }]" }) },
+  { caseId: 'OMH-029', label: 'singular page property', mutate: sources => Object.fromEntries(Object.entries(sources).map(([file, source]) => [file, source.replace('pages:', 'page:')])) },
+  { caseId: 'OMH-029', label: 'invented replace URL', mutate: sources => Object.fromEntries(Object.entries(sources).map(([file, source]) => [file, source.replace("'/backend/example/reports': null", "'/backend/example/reports': { replace: '/backend/other' }")])) },
+  { caseId: 'OMH-031', label: 'untrusted request scope', mutate: sources => Object.fromEntries(Object.entries(sources).map(([file, source]) => [file, source.replaceAll('context.tenantId', 'request.body?.tenantId').replaceAll('context.organizationId', 'request.body?.organizationId')])) },
+  { caseId: 'OMH-031', label: 'obsolete match shape', mutate: sources => Object.fromEntries(Object.entries(sources).map(([file, source]) => [file, source.replace("targetRoute: 'customers/people', methods: ['GET']", "match: { path: '/api/customers/people', methods: ['GET'] }")])) },
+  { caseId: 'OMH-031', label: 'orphan typed interceptor', mutate: sources => Object.fromEntries(Object.entries(sources).map(([file, source]) => [file, source.replace('export const interceptors', 'const interceptors')])) },
+  { caseId: 'OMH-049', label: 'unregistered agent in dead helper', mutate: sources => ({ 'src/modules/library/ai-agents.ts': "function unused() { return defineAiAgent({ provider: 'x', model: 'x', allowedTools: [], requiredFeatures: [] }) }; export const aiAgents = []" }) },
+  { caseId: 'OMH-049', label: 'obsolete provider model options', mutate: sources => Object.fromEntries(Object.entries(sources).map(([file, source]) => [file, source.replace('defaultProvider:', 'provider:').replace('defaultModel:', 'model:')])) },
+  { caseId: 'OMH-054', label: 'dead fetch header helper', mutate: () => ({ 'src/modules/automation/workflows/call-api.ts': "export async function callApiActivity(input, effects) { return effects.post(input.url, { idempotencyKey: input.idempotencyKey }) }\nfunction unused() { transaction(); fetch('CALL_API', { headers: { 'Idempotency-Key': 'fake' } }) }" }) },
+  { caseId: 'OMH-054', label: 'post uses unreserved key', mutate: sources => Object.fromEntries(Object.entries(sources).map(([file, source]) => [file, source.replace('idempotencyKey: key', 'idempotencyKey: input.idempotencyKey')])) },
+]
+for (const { caseId, label, mutate } of recoveryNegatives) {
+  test(`recovery ${caseId} rejects ${label}`, () => {
+    const root = stageTarget('src/fixture.ts', 'export {}')
+    try {
+      writeRecoverySources(root, mutate(recoveryFixtures[caseId]))
+      assert.equal(runOracle(root, 'before', process.env, caseId).parsed.passed, false)
+    } finally { fs.rmSync(root, { recursive: true, force: true }) }
+  })
+}

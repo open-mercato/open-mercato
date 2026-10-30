@@ -2229,7 +2229,7 @@ function supportingSkillPaths(caseRecord) {
   ])
 }
 
-function prepareCaseFrameworkContext(caseRecord, controllerRoot, runRoot) {
+export function prepareCaseFrameworkContext(caseRecord, controllerRoot, runRoot) {
   if (!caseRecord.frameworkContext?.length) return { patterns: [], entries: [] }
   const script = path.join(controllerRoot, 'scripts', 'framework-context.mjs')
   const scriptStat = fs.lstatSync(script)
@@ -2754,7 +2754,7 @@ function runnerVersion(runner, root) {
   return String(result.stdout || result.stderr).trim().slice(0, 200)
 }
 
-function buildPrompt(caseRecord, root, writable, frameworkContextEntries = []) {
+export function buildPrompt(caseRecord, root, writable, frameworkContextEntries = []) {
   const skillRoot = path.join(root, '.ai', 'skills')
   const localSkills = fs.existsSync(skillRoot) ? fs.readdirSync(skillRoot, { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort() : []
   const externalSkills = [...discoverExternalSkills(root)]
