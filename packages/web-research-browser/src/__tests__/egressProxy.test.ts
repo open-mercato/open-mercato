@@ -382,11 +382,14 @@ describe('browser egress proxy (#7218)', () => {
     expect(tunnel.status).toBe(200)
     tunnel.socket.on('error', () => undefined)
     const clientClosed = new Promise<void>((resolve) => tunnel.socket.once('close', () => resolve()))
+    expect(harness.publicSockets.size).toBe(1)
+    const upstreamClosed = [...harness.publicSockets].map(
+      (socket) => new Promise<void>((resolve) => socket.once('close', () => resolve())),
+    )
 
     await harness.proxy.close()
-    await clientClosed
+    await Promise.all([clientClosed, ...upstreamClosed])
 
-    await new Promise<void>((resolve) => setImmediate(resolve))
     expect(harness.publicSockets.size).toBe(0)
     await expect(
       new Promise((resolve, reject) => {
