@@ -111,6 +111,14 @@ const listSchema = z
     totalGrossMax: z.coerce.number().optional(),
     dateFrom: z.string().optional(),
     dateTo: z.string().optional(),
+    dueFrom: z
+      .string()
+      .optional()
+      .describe('Orders only, ignored on quotes: matches orders whose due date (due_at) is on or after this date. Orders without a due date never match.'),
+    dueTo: z
+      .string()
+      .optional()
+      .describe('Orders only, ignored on quotes: matches orders whose due date (due_at) is on or before this bound. A date-only value (YYYY-MM-DD) includes the whole UTC day; a timestamp is used as given. Orders without a due date never match.'),
     tagIds: z
       .string()
       .optional()
@@ -123,6 +131,9 @@ const listSchema = z
   .passthrough()
 
 type ListQuery = z.infer<typeof listSchema>
+
+const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/
+const MS_PER_DAY = 24 * 60 * 60 * 1000
 
 function buildFilters(query: ListQuery, numberColumn: string, kind: DocumentKind) {
   const filters: Record<string, unknown> = {}
@@ -183,6 +194,27 @@ function buildFilters(query: ListQuery, numberColumn: string, kind: DocumentKind
   if (Object.keys(dateRange).length) {
     filters.created_at = dateRange
   }
+  if (kind === 'order') {
+    const dueRange: Record<string, Date> = {}
+    if (query.dueFrom) {
+      const from = new Date(query.dueFrom)
+      if (!Number.isNaN(from.getTime())) dueRange.$gte = from
+    }
+    if (query.dueTo) {
+      const dueTo = query.dueTo.trim()
+      const to = new Date(dueTo)
+      if (!Number.isNaN(to.getTime())) {
+        if (DATE_ONLY_PATTERN.test(dueTo)) {
+          dueRange.$lt = new Date(to.getTime() + MS_PER_DAY)
+        } else {
+          dueRange.$lte = to
+        }
+      }
+    }
+    if (Object.keys(dueRange).length) {
+      filters.due_at = dueRange
+    }
+  }
   const tagIds = splitIdListParam(query.tagIds)
   if (parseBooleanToken(query.tagIdsEmpty) === true) {
     filters.id = { $eq: '00000000-0000-0000-0000-000000000000' }
@@ -193,11 +225,12 @@ function buildFilters(query: ListQuery, numberColumn: string, kind: DocumentKind
   return filters
 }
 
-function buildSortMap(numberColumn: string) {
+function buildSortMap(numberColumn: string, kind: DocumentKind) {
   return {
     id: 'id',
     number: numberColumn,
     placedAt: 'placed_at',
+    ...(kind === 'order' ? { dueAt: 'due_at' } : {}),
     lineItemCount: 'line_item_count',
     grandTotalNetAmount: 'grand_total_net_amount',
     grandTotalGrossAmount: 'grand_total_gross_amount',
@@ -231,6 +264,7 @@ const mapUpdateResponse = (entity: any) => {
     currencyCode: entity?.currencyCode ?? null,
     placedAt: entity?.placedAt ? entity.placedAt.toISOString() : null,
     expectedDeliveryAt: entity?.expectedDeliveryAt ? entity.expectedDeliveryAt.toISOString() : null,
+    dueAt: entity?.dueAt ? entity.dueAt.toISOString() : null,
     shippingAddressId: entity?.shippingAddressId ?? null,
     billingAddressId: entity?.billingAddressId ?? null,
     shippingAddressSnapshot: normalizeJsonRecord(entity?.shippingAddressSnapshot),
@@ -424,6 +458,7 @@ export function buildDocumentCrudOptions(binding: DocumentBinding) {
 
   const orderOnlyFields = [
     'expected_delivery_at',
+    'due_at',
     'shipping_net_amount',
     'shipping_gross_amount',
     'surcharge_total_amount',
@@ -477,7 +512,7 @@ export function buildDocumentCrudOptions(binding: DocumentBinding) {
       schema: listSchema,
       entityId: binding.entityId,
       fields: (query: ListQuery) => resolveListFields(query),
-      sortFieldMap: buildSortMap(numberColumn),
+      sortFieldMap: buildSortMap(numberColumn, binding.kind),
       buildFilters: async (query: any) => buildFilters(query, numberColumn, binding.kind),
       decorateCustomFields: { entityIds: [binding.entityId] },
       joins: [
@@ -519,6 +554,7 @@ export function buildDocumentCrudOptions(binding: DocumentBinding) {
           customerReference: item.customer_reference ?? null,
           placedAt: item.placed_at ?? null,
           expectedDeliveryAt: item.expected_delivery_at ?? null,
+          dueAt: item.due_at ?? null,
           comment: item.comments ?? null,
           validFrom: item.valid_from ?? null,
           validUntil: item.valid_until ?? null,
@@ -635,6 +671,7 @@ export function buildDocumentOpenApi(binding: DocumentBinding) {
     comment: z.string().nullable().optional(),
     placedAt: z.string().nullable().optional(),
     expectedDeliveryAt: z.string().nullable().optional(),
+    dueAt: z.string().nullable().optional(),
     customerSnapshot: z.record(z.string(), z.unknown()).nullable().optional(),
     billingAddressSnapshot: z.record(z.string(), z.unknown()).nullable().optional(),
     shippingAddressSnapshot: z.record(z.string(), z.unknown()).nullable().optional(),

@@ -267,6 +267,115 @@ describe('buildDocumentCrudOptions', () => {
     })
   })
 
+  describe('order due date (dueAt)', () => {
+    const orderBinding = {
+      kind: 'order' as const,
+      entity: SalesOrder,
+      entityId: E.sales.sales_order,
+      numberField: 'orderNumber' as const,
+      createCommandId: 'sales.orders.create',
+      updateCommandId: 'sales.orders.update',
+      deleteCommandId: 'sales.orders.delete',
+      manageFeature: 'sales.orders.manage',
+      viewFeature: 'sales.orders.view',
+    }
+
+    const quoteBinding = {
+      kind: 'quote' as const,
+      entity: SalesQuote,
+      entityId: E.sales.sales_quote,
+      numberField: 'quoteNumber' as const,
+      createCommandId: 'sales.quotes.create',
+      updateCommandId: 'sales.quotes.update',
+      deleteCommandId: 'sales.quotes.delete',
+      manageFeature: 'sales.quotes.manage',
+      viewFeature: 'sales.quotes.view',
+    }
+
+    const resolveFields = (binding: typeof orderBinding | typeof quoteBinding, query: Record<string, unknown>) =>
+      (buildDocumentCrudOptions(binding).list.fields as (q: unknown) => string[])(query)
+
+    // Create accepts a full timestamp for dueAt, so a date-only dueTo must cover
+    // the whole UTC day, not stop at its midnight.
+    it('bounds due_at with date-only dueFrom and dueTo, covering both whole days', async () => {
+      const filters = await buildDocumentCrudOptions(orderBinding).list.buildFilters({
+        dueFrom: '2026-11-01',
+        dueTo: '2026-11-30',
+      })
+
+      expect(filters).toEqual({
+        due_at: {
+          $gte: new Date('2026-11-01T00:00:00.000Z'),
+          $lt: new Date('2026-12-01T00:00:00.000Z'),
+        },
+      })
+    })
+
+    it('accepts a single bound', async () => {
+      const filters = await buildDocumentCrudOptions(orderBinding).list.buildFilters({ dueTo: '2026-11-30' })
+
+      expect(filters).toEqual({ due_at: { $lt: new Date('2026-12-01T00:00:00.000Z') } })
+    })
+
+    it('keeps explicit timestamp bounds exactly as given', async () => {
+      const filters = await buildDocumentCrudOptions(orderBinding).list.buildFilters({
+        dueFrom: '2026-11-01T08:00:00.000Z',
+        dueTo: '2026-11-30T15:00:00.000Z',
+      })
+
+      expect(filters).toEqual({
+        due_at: {
+          $gte: new Date('2026-11-01T08:00:00.000Z'),
+          $lte: new Date('2026-11-30T15:00:00.000Z'),
+        },
+      })
+    })
+
+    it('ignores an unparseable bound, like dateFrom and dateTo', async () => {
+      const filters = await buildDocumentCrudOptions(orderBinding).list.buildFilters({ dueFrom: 'not-a-date' })
+
+      expect(filters).toEqual({})
+    })
+
+    it('ignores dueFrom and dueTo on quotes, which have no due_at column', async () => {
+      const filters = await buildDocumentCrudOptions(quoteBinding).list.buildFilters({
+        dueFrom: '2026-11-01',
+        dueTo: '2026-11-30',
+      })
+
+      expect(filters).toEqual({})
+    })
+
+    it('maps sortField=dueAt to due_at for orders only', () => {
+      const orderSort = buildDocumentCrudOptions(orderBinding).list.sortFieldMap as Record<string, string>
+      const quoteSort = buildDocumentCrudOptions(quoteBinding).list.sortFieldMap as Record<string, string>
+
+      expect(orderSort.dueAt).toBe('due_at')
+      expect(quoteSort).not.toHaveProperty('dueAt')
+      expect(quoteSort.placedAt).toBe('placed_at')
+    })
+
+    it('selects due_at for order grids and order detail, never for quotes', () => {
+      const detailQuery = { id: '11111111-1111-4111-8111-111111111111' }
+
+      expect(resolveFields(orderBinding, {})).toContain('due_at')
+      expect(resolveFields(orderBinding, detailQuery)).toContain('due_at')
+      expect(resolveFields(quoteBinding, {})).not.toContain('due_at')
+      expect(resolveFields(quoteBinding, detailQuery)).not.toContain('due_at')
+    })
+
+    it('serves due_at as dueAt on each list item', () => {
+      const transformItem = buildDocumentCrudOptions(orderBinding).list.transformItem as (
+        item: Record<string, unknown>,
+      ) => Record<string, unknown>
+
+      expect(transformItem({ id: 'order-1', due_at: '2026-11-30T00:00:00.000Z' }).dueAt).toBe(
+        '2026-11-30T00:00:00.000Z',
+      )
+      expect(transformItem({ id: 'order-2', due_at: null }).dueAt).toBeNull()
+    })
+  })
+
   describe('enrichers', () => {
     const orderBinding = {
       kind: 'order' as const,

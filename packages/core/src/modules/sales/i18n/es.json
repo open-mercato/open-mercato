@@ -1326,6 +1326,7 @@
   "sales.quotes.create": "Crear cotización",
   "sales.quotes.delete": "Eliminar cotización",
   "sales.quotes.detail.title": "Detalles de la cotización",
+  "sales.quotes.due_at_unsupported": "La fecha de vencimiento no está disponible en los presupuestos.",
   "sales.quotes.email.cta": "Ver cotización",
   "sales.quotes.email.footer": "Open Mercato",
   "sales.quotes.email.heading": "Cotización {quoteNumber}",

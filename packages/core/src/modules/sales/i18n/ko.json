@@ -1326,6 +1326,7 @@
   "sales.quotes.create": "판매 견적 생성",
   "sales.quotes.delete": "판매 견적 삭제",
   "sales.quotes.detail.title": "견적 상세 정보",
+  "sales.quotes.due_at_unsupported": "결제 기한은 견적서에서 사용할 수 없습니다.",
   "sales.quotes.email.cta": "견적 보기",
   "sales.quotes.email.footer": "Open Mercato",
   "sales.quotes.email.heading": "견적 {quoteNumber}",
