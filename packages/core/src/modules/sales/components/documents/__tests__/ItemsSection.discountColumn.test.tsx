@@ -3,7 +3,7 @@
  */
 
 import * as React from 'react'
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { createTranslator } from '@open-mercato/shared/lib/i18n/translate'
 import { SalesDocumentItemsSection } from '../ItemsSection'
 
@@ -52,8 +52,11 @@ jest.mock('@open-mercato/ui/primitives/button', () => ({
 }))
 
 jest.mock('@open-mercato/ui/primitives/tooltip', () => ({
-  SimpleTooltip: ({ content, children }: { content: React.ReactNode; children: React.ReactNode }) => (
-    <span data-tooltip-content={String(content)}>{children}</span>
+  SimpleTooltip: ({ content, children, open }: { content: React.ReactNode; children: React.ReactNode; open?: boolean }) => (
+    <span data-tooltip-content={String(content)}>
+      {children}
+      {open ? <span role="tooltip">{content}</span> : null}
+    </span>
   ),
 }))
 
@@ -225,6 +228,11 @@ describe('SalesDocumentItemsSection discount column', () => {
     for (const trigger of triggers) expect(trigger).toHaveClass('focus-visible:shadow-focus')
     expect(screen.getByRole('button', { name: 'Edit' })).toBeDisabled()
     expect(screen.getByRole('button', { name: 'Delete' })).toBeDisabled()
+
+    const touchPointerDown = new Event('pointerdown', { bubbles: true })
+    Object.defineProperty(touchPointerDown, 'pointerType', { value: 'touch' })
+    fireEvent(triggers[0], touchPointerDown)
+    expect(screen.getByRole('tooltip')).toHaveTextContent(reason)
   })
 
   it('leaves the cell empty on lines that carry no discount', async () => {
