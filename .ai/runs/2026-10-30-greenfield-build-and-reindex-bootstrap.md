@@ -28,7 +28,7 @@ Non-goals: reset local data, apply migrations, change package dependency version
 
 ## Risks
 
-Shared build cleanup affects every package: preserve outputs owned by other source roots and copied assets, and prune only obsolete compiled outputs identified by source maps. Reindex scheduling must remain non-fatal and must never replace a migration failure. The invoking checkout's first broad test run hit an intermittent CrudForm transform assertion; its focused retry passed. Validation must be repeated on the isolated branch. A free TCP port does not prove the workspace is idle while initialization or builds still run; preserve live ownership throughout startup and shutdown. Scope expanded after the user reproduced a dead-owner conflict after Ctrl+C.
+Shared build cleanup affects every package: preserve outputs owned by other source roots and copied assets, and prune only obsolete compiled outputs identified by source maps. Reindex scheduling must remain non-fatal and must never replace a migration failure. The invoking checkout's first broad test run hit an intermittent CrudForm transform assertion; its focused retry passed. Validation must be repeated on the isolated branch. A free TCP port does not prove the workspace is idle while initialization or builds still run; preserve live ownership throughout startup and shutdown. Scope expanded after the user reproduced a dead-owner conflict after Ctrl+C. macOS sandbox fixture validation also required fake-runner package metadata within its existing allowed directory; this test-only correction preserves outside-secret isolation assertions (2de34fec7). Final verification uses declared Node 24.x, without changing the user shell.
 
 ## Progress
 
@@ -44,6 +44,6 @@ Shared build cleanup affects every package: preserve outputs owned by other sour
 
 ### Phase 3: Repair shutdown, verify, and publish
 
-- [ ] 3.0 Fix Ctrl+C descendant cleanup, stale session recovery, and listener diagnostics
+- [x] 3.0 Fix Ctrl+C descendant cleanup, stale session recovery, and listener diagnostics — 01e85243e
 - [ ] 3.1 Run focused tests and the configured validation gate
 - [ ] 3.2 Complete authoritative review and publish the ready PR
