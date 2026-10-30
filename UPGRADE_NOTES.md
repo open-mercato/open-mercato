@@ -40,6 +40,31 @@ synchronous `WAIT` activity of that length resolved after 1 ms instead (Node's `
   WAIT longer than ~24.8 days anywhere else now fails with an explicit error instead of resolving early.
 - `OM_WORKFLOWS_MAX_CONDITION_ATTEMPTS` is now the floor of the poll cap: each `WAIT_FOR_CONDITION` waiter may poll
   as many times as its own `timeout / pollIntervalMs` requires.
+### Passkey enrollment requires a WebAuthn registration response (#6800)
+
+Enterprise Security no longer accepts the passkey confirmation shortcut
+`{ credentialId, publicKey, challenge }`. The server previously stored that supplied public
+key without verifying a WebAuthn registration ceremony. The legacy shape now returns
+HTTP 400 without activating the pending method. The shipped browser UI already uses the
+supported path.
+
+**Client action:** call `POST /api/security/mfa/provider/passkey`, use its `clientData` options
+with `navigator.credentials.create` or the SimpleWebAuthn browser registration helper, and
+send the serialized credential to `PUT /api/security/mfa/provider/passkey` as
+`{ setupId, payload: { response, label? } }`. Update fixtures that invented public keys to
+use an actual or virtual authenticator. A disclosed challenge alone is insufficient.
+
+**Operator action:** this upgrade does not delete or invalidate existing passkeys. Their
+stored metadata cannot establish whether enrollment used the shortcut; a key with uncertain
+provenance may still be suspect even though login requires a valid signed assertion. Audit
+enrollment history and exposure, and arrange reset and re-enrollment through a trusted
+ceremony where provenance is uncertain. Preserve alternate MFA/recovery access before a
+reset to avoid locking users out. No database migration is needed.
+
+This is the narrow Emergency Security Exception described in
+[the enrollment specification](.ai/specs/enterprise/2026-10-01-passkey-enrollment-require-webauthn-attestation.md).
+There is no compatibility flag because retaining the shortcut retains the flaw. Credit to @Sawarz for the
+original report and proof of concept (#5296, #6710).
 
 ### Organization create undo retains a tombstone (#7663)
 
