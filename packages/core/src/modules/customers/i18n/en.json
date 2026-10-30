@@ -618,6 +618,8 @@
   "customers.companies.detail.fields.sizeBucket": "Company size",
   "customers.companies.detail.fields.sizeBucketPlaceholder": "Add size bucket",
   "customers.companies.detail.fields.source": "Source",
+  "customers.companies.detail.fields.taxId": "VAT ID",
+  "customers.companies.detail.fields.taxIdPlaceholder": "e.g. PL1234567890",
   "customers.companies.detail.fields.website": "Website",
   "customers.companies.detail.fields.websiteHelp": "Use a full URL like https://example.com.",
   "customers.companies.detail.fields.websitePlaceholder": "https://example.com",

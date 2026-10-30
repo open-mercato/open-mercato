@@ -134,6 +134,7 @@ const companyDetailsSchema = {
   industry: z.string().trim().max(150).optional(),
   sizeBucket: clearableStringSchema(100),
   annualRevenue: clearableRevenueSchema,
+  taxId: clearableStringSchema(64),
 }
 
 export const personCreateSchema = scopedSchema.extend({

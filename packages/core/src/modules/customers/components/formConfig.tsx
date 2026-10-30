@@ -89,6 +89,8 @@ export type CustomerFormFieldOptions = {
    * localizes its built-in list for the active locale.
    */
   phoneCountries?: PhoneCountry[]
+  /** The VAT ID is mandatory for a new company; edit forms keep legacy records without one saveable. */
+  requireTaxId?: boolean
 }
 
 export type PersonFormValues = {
@@ -120,6 +122,7 @@ export type CompanyFormValues = {
   industry?: string
   sizeBucket?: string
   annualRevenue?: string
+  taxId?: string
   description?: string
   addresses?: CustomerAddressValue[]
 } & Record<string, unknown>
@@ -1261,6 +1264,13 @@ export const createCompanyFormSchema = () =>
         .or(z.literal(''))
         .transform((val) => (val === '' ? undefined : val))
         .optional(),
+      taxId: z
+        .string()
+        .trim()
+        .optional()
+        .or(z.literal(''))
+        .transform((val) => (val === '' ? undefined : val))
+        .optional(),
     })
     .passthrough()
 
@@ -1324,6 +1334,14 @@ export const createCompanyFormFields = (t: Translator, options?: CustomerFormFie
       label: t('customers.companies.detail.fields.legalName', 'Legal name'),
       type: 'text',
       layout: 'half',
+    },
+    {
+      id: 'taxId',
+      label: t('customers.companies.detail.fields.taxId', 'VAT ID'),
+      type: 'text',
+      layout: 'half',
+      required: options?.requireTaxId ?? true,
+      placeholder: t('customers.companies.detail.fields.taxIdPlaceholder', 'e.g. PL1234567890'),
     },
     {
       id: 'brandName',
@@ -1462,7 +1480,7 @@ export const createCompanyFormGroups = (t: Translator): CrudFormGroup[] => [
     id: 'profile',
     title: t('customers.companies.form.groups.profile'),
     column: 1,
-    fields: ['legalName', 'brandName', 'domain', 'websiteUrl', 'industry', 'sizeBucket', 'annualRevenue'],
+    fields: ['legalName', 'taxId', 'brandName', 'domain', 'websiteUrl', 'industry', 'sizeBucket', 'annualRevenue'],
   },
   {
     id: 'addresses',
@@ -1509,6 +1527,7 @@ export function buildCompanyPayload(
   assign('lifecycleStage', typeof values.lifecycleStage === 'string' ? values.lifecycleStage : undefined)
   assign('source', typeof values.source === 'string' ? values.source : undefined)
   assign('legalName', typeof values.legalName === 'string' ? values.legalName : undefined)
+  assign('taxId', typeof values.taxId === 'string' ? values.taxId : undefined)
   assign('brandName', typeof values.brandName === 'string' ? values.brandName : undefined)
   assign('domain', typeof values.domain === 'string' ? values.domain?.toLowerCase() : undefined)
   assign('websiteUrl', typeof values.websiteUrl === 'string' ? values.websiteUrl : undefined)
@@ -1554,6 +1573,7 @@ export type CompanyEditFormValues = Omit<
   | 'brandName'
   | 'sizeBucket'
   | 'annualRevenue'
+  | 'taxId'
   | 'description'
 > & {
   id: string
@@ -1566,6 +1586,7 @@ export type CompanyEditFormValues = Omit<
   brandName?: string | null
   sizeBucket?: string | null
   annualRevenue?: string | null
+  taxId?: string | null
   description?: string | null
 }
 
@@ -1662,6 +1683,7 @@ export const createCompanyEditSchema = () =>
     brandName: clearableTextField(),
     sizeBucket: clearableTextField(),
     annualRevenue: clearableTextField(),
+    taxId: clearableTextField(),
     description: clearableTextField(),
   })
 
@@ -1699,7 +1721,7 @@ const buildIndustryLabels = (t: Translator): DictionarySelectLabels => ({
 })
 
 export const createCompanyEditFields = (t: Translator, options?: CustomerFormFieldOptions): CrudField[] => {
-  const baseFields = createCompanyFormFields(t, options)
+  const baseFields = createCompanyFormFields(t, { ...options, requireTaxId: options?.requireTaxId ?? false })
   const industryLabels = buildIndustryLabels(t)
 
   return baseFields.map((field) => {
@@ -1780,7 +1802,7 @@ export const createCompanyEditGroups = (t: Translator): CrudFormGroup[] => [
     id: 'profile',
     title: t('customers.companies.form.groups.profile'),
     column: 1,
-    fields: ['legalName', 'brandName', 'domain', 'websiteUrl', 'industry', 'sizeBucket', 'annualRevenue'],
+    fields: ['legalName', 'taxId', 'brandName', 'domain', 'websiteUrl', 'industry', 'sizeBucket', 'annualRevenue'],
   },
   {
     id: 'notes',
@@ -1806,7 +1828,7 @@ export const createCompanyDaneFiremyGroups = (t: Translator): CrudFormGroup[] =>
     id: 'identity',
     title: t('customers.companies.form.groups.identity', 'Tożsamość').toUpperCase(),
     column: 1,
-    fields: ['displayName', 'legalName', 'brandName'],
+    fields: ['displayName', 'legalName', 'taxId', 'brandName'],
   },
   {
     id: 'contact',
@@ -1978,6 +2000,7 @@ export function buildCompanyEditPayload(values: CompanyEditFormValues, organizat
 
   // Plain nullable string fields that must transmit null when blanked on edit (#3050).
   assignClearable(payload, 'legalName', values.legalName)
+  assignClearable(payload, 'taxId', values.taxId)
   assignClearable(payload, 'brandName', values.brandName)
   assignClearable(payload, 'sizeBucket', values.sizeBucket)
   assignClearable(payload, 'description', values.description)
@@ -2068,6 +2091,7 @@ export type CompanyOverview = {
     websiteUrl?: string | null
     industry?: string | null
     sizeBucket?: string | null
+    taxId?: string | null
     annualRevenue?: string | null
   } | null
   customFields: Record<string, unknown>
@@ -2206,6 +2230,7 @@ export function mapCompanyOverviewToFormValues(overview: CompanyOverview): Parti
     websiteUrl: overview.profile?.websiteUrl ?? '',
     industry: overview.profile?.industry ?? '',
     sizeBucket: overview.profile?.sizeBucket ?? '',
+    taxId: overview.profile?.taxId ?? '',
     annualRevenue: overview.profile?.annualRevenue ?? '',
     ...extractCustomFieldEntries({ customFields: overview.customFields }),
   }

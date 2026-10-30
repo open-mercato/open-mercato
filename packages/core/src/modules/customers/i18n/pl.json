@@ -618,6 +618,8 @@
   "customers.companies.detail.fields.sizeBucket": "Rozmiar firmy",
   "customers.companies.detail.fields.sizeBucketPlaceholder": "Dodaj rozmiar firmy",
   "customers.companies.detail.fields.source": "Źródło",
+  "customers.companies.detail.fields.taxId": "NIP / VAT ID",
+  "customers.companies.detail.fields.taxIdPlaceholder": "np. PL1234567890",
   "customers.companies.detail.fields.website": "Strona internetowa",
   "customers.companies.detail.fields.websiteHelp": "Użyj pełnego adresu URL, np. https://przyklad.pl.",
   "customers.companies.detail.fields.websitePlaceholder": "https://przyklad.pl",
