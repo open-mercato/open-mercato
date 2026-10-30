@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -38,7 +38,7 @@ type ContextCase = {
   requiredSkills: string[]
   requiredDecisions: string[]
   expectedRouter: { required: string[]; allowedExtra: string[] }
-  context: { required: string[]; forbidden: string[] }
+  context: { required: string[]; forbidden: string[]; sourceReferenceIds?: string[] }
   fixture: { setup: string[] }
   allowedWrites: string[]
   frameworkContext?: { module?: string; package?: string; query: string }[]
@@ -104,8 +104,7 @@ test('writable prompt discloses exact trusted seeds and requires preserving the 
 }))
 
 test('writable prompt discloses declared example entrypoints after routed owners and before canonical source links', () => fixture((root) => {
-  const catalog = JSON.parse(fs.readFileSync(path.join(sharedRoot, 'ai/harness/cases.json'), 'utf8')) as ContextCase[]
-  const record = catalog.find(item => item.id === 'OMH-009')!
+  const { record } = stageDeclaredEvidence(root, 'OMH-009')
   const before = JSON.stringify(record.context)
   const prompt = evaluator.buildPrompt(record, root, true)
   assert.match(prompt, /Read the applicable routed guides, skills and facts before canonical examples/)
@@ -114,6 +113,153 @@ test('writable prompt discloses declared example entrypoints after routed owners
   assert.match(prompt, /These entrypoints do not grant reads beyond the declared example capabilities/)
   assert.equal(JSON.stringify(record.context), before)
   assert.doesNotMatch(evaluator.buildPrompt(record, root, false), /Before following canonical source links, read a declared example entrypoint/)
+}))
+
+type SourceRecord = { referenceId: string; requirement: string; originAsset: string; originAuthoringPath: string; readStatus: string; resolvedPath: string; targetAuthoringPath: string; presets?: string[] }
+
+function stageDeclaredEvidence(root: string, caseId: string) {
+  const packageRoot = path.resolve(sharedRoot, '../..')
+  const catalog = JSON.parse(fs.readFileSync(path.join(sharedRoot, 'ai/harness/cases.json'), 'utf8')) as ContextCase[]
+  const record = catalog.find(entry => entry.id === caseId)!
+  const inventory = JSON.parse(fs.readFileSync(path.join(packageRoot, 'scripts/source-links/source-link-inventory.json'), 'utf8')) as { records: SourceRecord[] }
+  fs.cpSync(path.join(packageRoot, 'template/src/modules/example'), path.join(root, 'src/modules/example'), { recursive: true })
+  write(root, '.ai/harness/source-link-inventory.json', JSON.stringify(inventory))
+  write(root, '.ai/skills/tiers.json', JSON.stringify({ default: ['core'], tiers: {} }))
+  const selected = inventory.records.filter(entry => record.context.sourceReferenceIds?.includes(entry.referenceId))
+  for (const entry of selected) {
+    write(root, entry.originAsset, fs.readFileSync(path.join(packageRoot, entry.originAuthoringPath), 'utf8'))
+    if (entry.targetAuthoringPath) write(root, entry.resolvedPath, fs.readFileSync(path.join(packageRoot, entry.targetAuthoringPath), 'utf8'))
+    else if (entry.resolvedPath.startsWith('node_modules/@open-mercato/')) {
+      const installedSource = entry.resolvedPath.replace('node_modules/@open-mercato/', 'packages/')
+      write(root, entry.resolvedPath, fs.readFileSync(path.join(packageRoot, '../..', installedSource), 'utf8'))
+    }
+  }
+  return { record, inventory, selected }
+}
+
+test('writable grounding names only declared owner-to-source links while preserving grants and source contents', () => fixture(root => {
+  const { record, selected } = stageDeclaredEvidence(root, 'OMH-014')
+  const before = JSON.stringify(record)
+  const allowlist = evaluator.caseReadAllowlist(record, true, root)
+  const sources = selected.map(entry => [entry.resolvedPath, fs.readFileSync(path.join(root, entry.resolvedPath), 'utf8')])
+  const prompt = evaluator.buildPrompt(record, root, true)
+  for (const entry of selected) {
+    assert.ok(prompt.includes(entry.originAsset), `missing routed owner ${entry.originAsset}`)
+    assert.ok(prompt.includes(entry.resolvedPath), `missing exact source ${entry.resolvedPath}`)
+    assert.ok(prompt.indexOf(entry.originAsset) < prompt.indexOf(entry.resolvedPath), 'the owner must precede its source')
+    assert.ok(!prompt.includes(entry.referenceId), 'private inventory IDs are not routing answers')
+  }
+  assert.match(prompt, /AGENTS.*rout.*owner|rout.*AGENTS.*owner/is)
+  assert.match(prompt, /owner.*entrypoint.*source/is)
+  assert.doesNotMatch(prompt, /source-link-inventory\.json|expectedRouter|requiredSkills|requiredDecisions/)
+  assert.equal(JSON.stringify(record), before)
+  assert.deepEqual(evaluator.caseReadAllowlist(record, true, root), allowlist)
+  for (const [relative, content] of sources) assert.equal(fs.readFileSync(path.join(root, relative), 'utf8'), content)
+  assert.ok(!prompt.includes('src/modules/example/commands/todos.ts'), 'unrelated sources must not be disclosed')
+}))
+
+test('writable toolchain grounding quotes only actual baseline test script, provenance and an already allowed verification link', () => fixture(root => {
+  const { record } = stageDeclaredEvidence(root, 'OMH-009')
+  const verification = '.ai/skills/om-module-scaffold/references/verification.md'
+  write(root, verification, fs.readFileSync(path.join(sharedRoot, 'ai/skills/om-module-scaffold/references/verification.md'), 'utf8'))
+  const manifest = JSON.stringify({ scripts: { test: 'node ./project-runner.cjs --config project-tests.config.cjs', postinstall: 'PRIVATE_SCRIPT_SENTINEL' }, privateToken: 'PRIVATE_FIELD_SENTINEL' })
+  write(root, 'package.json', manifest)
+  const allowlist = evaluator.caseReadAllowlist(record, true, root)
+  assert.ok(!allowlist.includes('package.json'))
+  const prompt = evaluator.buildPrompt(record, root, true)
+  assert.ok(prompt.includes('node ./project-runner.cjs --config project-tests.config.cjs'))
+  assert.ok(prompt.includes(createHash('sha256').update(manifest).digest('hex')))
+  assert.ok(prompt.includes(verification))
+  assert.doesNotMatch(prompt, /PRIVATE_SCRIPT_SENTINEL|PRIVATE_FIELD_SENTINEL|never Vitest|must use Jest/)
+  assert.match(prompt, /metadata.*not.*(?:tool|successful).*read/is)
+  assert.deepEqual(evaluator.caseReadAllowlist(record, true, root), allowlist)
+  write(root, 'package.json', JSON.stringify({ scripts: { test: 'another-runner run --serial' } }))
+  const changed = evaluator.buildPrompt(record, root, true)
+  assert.ok(changed.includes('another-runner run --serial'))
+  assert.ok(!changed.includes('node ./project-runner.cjs'))
+}))
+
+test('writable grounding keeps an editable source seam distinct from immutable canonical references', () => fixture(root => {
+  const { record } = stageDeclaredEvidence(root, 'OMH-029')
+  const prompt = evaluator.buildPrompt(record, root, true)
+  assert.match(prompt, /src\/modules\.ts.{0,160}(?:writable|editable)|(?:writable|editable).{0,160}src\/modules\.ts/is)
+  assert.match(prompt, /preserve.*(?:ABI|exports|signature)/is)
+}))
+
+for (const [label, change] of [
+  ['QA-only', (entry: SourceRecord) => { entry.readStatus = 'qa-only' }],
+  ['unrouted owner', (entry: SourceRecord) => { entry.originAsset = '.ai/guides/unrelated.md' }],
+  ['wrong preset', (entry: SourceRecord) => { entry.presets = ['not-the-active-preset'] }],
+  ['unsafe path', (entry: SourceRecord) => { entry.resolvedPath = '../private.ts' }],
+] as const) {
+  test(`writable grounding rejects a declared ${label} reference before exposing it`, () => fixture(root => {
+    const { record, inventory, selected } = stageDeclaredEvidence(root, 'OMH-014')
+    change(selected[0])
+    write(root, '.ai/harness/source-link-inventory.json', JSON.stringify(inventory))
+    assert.throws(() => evaluator.buildPrompt(record, root, true), /source reference|qa-only|owner|preset|unsafe/i)
+  }))
+}
+
+test('writable toolchain facts do not expose unsafe script secrets or missing/ungranted verification paths', () => fixture(root => {
+  const { record } = stageDeclaredEvidence(root, 'OMH-014')
+  record.expectedRouter.allowedExtra = []
+  const verification = '.ai/skills/om-module-scaffold/references/verification.md'
+  write(root, verification, '# Existing but not permitted for this synthetic UI-only case')
+  write(root, 'package.json', JSON.stringify({ scripts: { test: 'TEST_TOKEN=PRIVATE_SECRET_SENTINEL node runner.cjs' } }))
+  const prompt = evaluator.buildPrompt(record, root, true)
+  assert.doesNotMatch(prompt, /PRIVATE_SECRET_SENTINEL/)
+  assert.ok(!prompt.includes(verification))
+  write(root, 'package.json', JSON.stringify({ scripts: {} }))
+  assert.match(evaluator.buildPrompt(record, root, true), /test.*(?:not reported|not declared|unavailable|missing)/is)
+}))
+
+test('rendered grounding does not count as an owner read or bypass canonical source order', () => fixture(root => {
+  const { record, selected } = stageDeclaredEvidence(root, 'OMH-014')
+  evaluator.buildPrompt(record, root, true)
+  const owner = selected[0].originAsset
+  const source = selected[0].resolvedPath
+  const entrypoint = 'src/modules/example/README.md'
+  const early = evaluator.evaluateExampleReadPolicy({ caseRecord: record, appRoot: root, reads: [{ path: entrypoint }, { path: source }, { path: owner }] })
+  assert.match(early.firstViolation, /before its origin owner was read/)
+  const lateEntrypoint = evaluator.evaluateExampleReadPolicy({ caseRecord: record, appRoot: root, reads: [{ path: owner }, { path: source }, { path: entrypoint }] })
+  assert.match(lateEntrypoint.firstViolation, /start from a declared entrypoint/)
+  const ordered = evaluator.evaluateExampleReadPolicy({ caseRecord: record, appRoot: root, reads: [{ path: owner }, { path: entrypoint }, { path: source }] })
+  assert.equal(ordered.firstViolation, null)
+}))
+
+test('canonical example access stays immutable even beneath a broad writable pattern', () => fixture(root => {
+  const { record, selected } = stageDeclaredEvidence(root, 'OMH-014')
+  record.allowedWrites = ['src/modules/**']
+  const prompt = evaluator.buildPrompt(record, root, true)
+  const pair = `"source":"${selected[0].resolvedPath}","access":"read-only-reference"`
+  assert.ok(prompt.includes(pair))
+}))
+
+for (const invalid of ['symlink', 'malformed', 'oversized']) {
+  test(`writable toolchain grounding rejects ${invalid} package provenance`, () => fixture((root, record) => {
+    if (invalid === 'symlink') {
+      write(root, 'private-package.json', JSON.stringify({ scripts: { test: 'PRIVATE_MANIFEST_SENTINEL' } }))
+      fs.unlinkSync(path.join(root, 'package.json'))
+      fs.symlinkSync(path.join(root, 'private-package.json'), path.join(root, 'package.json'))
+    } else write(root, 'package.json', invalid === 'malformed' ? '{' : ' '.repeat(65_537))
+    assert.throws(() => evaluator.buildPrompt(record, root, true), /baseline package\.json|bounded regular|valid JSON/)
+  }))
+}
+
+test('writable final audit points back to the original AGENTS testing predicate without giving case routing answers', () => fixture((root, record) => {
+  const prompt = evaluator.buildPrompt(record, root, true)
+  assert.match(prompt, /(?:final|returning).{0,180}AGENTS\.md.{0,100}Axis 2.{0,100}testing/is)
+  assert.match(prompt, /original request/is)
+  assert.doesNotMatch(prompt, /expectedRouter|do not select testing|select only module-data/)
+}))
+
+test('read-only prompt ignores writable source metadata and package toolchain facts byte for byte', () => fixture(root => {
+  const { record, inventory, selected } = stageDeclaredEvidence(root, 'OMH-014')
+  const before = evaluator.buildPrompt(record, root, false)
+  write(root, 'package.json', JSON.stringify({ scripts: { test: 'another-runner run' } }))
+  selected[0].readStatus = 'qa-only'
+  write(root, '.ai/harness/source-link-inventory.json', JSON.stringify(inventory))
+  assert.equal(evaluator.buildPrompt(record, root, false), before)
 }))
 
 test('seed hints cannot disclose paths outside allowed app source, secrets, symlinks or oracle internals', () => fixture((root, record) => {
@@ -237,6 +383,7 @@ test('every declared writable case can render its safe seeded prompt without wid
   for (const caseId of writableIds) {
     const record = catalog.find(item => item.id === caseId)!
     const permissions = JSON.stringify(record.allowedWrites)
+    if (record.context.sourceReferenceIds?.length) stageDeclaredEvidence(root, caseId)
     for (const declaration of record.fixture.setup) {
       const fixtureId = declaration.slice('fixture:'.length)
       for (const [relative, content] of Object.entries(seeds.fixtures[fixtureId])) write(root, relative, String(content))
