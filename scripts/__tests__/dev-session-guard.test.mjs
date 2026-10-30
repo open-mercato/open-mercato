@@ -1,11 +1,14 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
+import childProcess from 'node:child_process'
+import { syncBuiltinESMExports } from 'node:module'
+import { createServer } from 'node:net'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
-import { acquireDevSession, DevSessionConflictError } from '../dev-session-guard.mjs'
+import { acquireDevSession, assertDevSessionPortAvailable, describeDevSessionConflict, DevSessionConflictError } from '../dev-session-guard.mjs'
 
 function createWorkspace() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'om-dev-session-'))
@@ -376,6 +379,213 @@ test('a delayed stale recoverer cannot remove a competing live session', async (
       await contenderClosed
     }
     owner?.release()
+    fs.rmSync(workspaceRoot, { recursive: true, force: true })
+  }
+})
+
+
+test('acquisition recovers a recorded PID that now belongs to a different process', () => {
+  const workspaceRoot = createWorkspace()
+  const lockDirectory = path.join(workspaceRoot, '.mercato', 'dev-session.lock')
+  fs.mkdirSync(path.join(lockDirectory, 'members'), { recursive: true })
+  const token = 'abandoned-session'
+  fs.writeFileSync(path.join(lockDirectory, 'owner.json'), JSON.stringify({
+    pid: 2_147_483_647, token, mode: 'greenfield', workspaceRoot,
+  }))
+  fs.writeFileSync(path.join(lockDirectory, 'members', `${process.pid}.json`), JSON.stringify({
+    pid: process.pid, token, role: 'initializer', processIdentity: '2000-01-01T00:00:00.000Z',
+    heartbeatAt: '2000-01-01T00:00:00.000Z',
+  }))
+  let recovered
+  try {
+    recovered = acquireDevSession({ workspaceRoot, token: null })
+    assert.notEqual(recovered.token, token)
+  } finally {
+    recovered?.release()
+    fs.rmSync(workspaceRoot, { recursive: true, force: true })
+  }
+})
+
+test('conflict identifies the surviving member instead of the dead original owner', () => {
+  const workspaceRoot = createWorkspace()
+  const lockDirectory = path.join(workspaceRoot, '.mercato', 'dev-session.lock')
+  fs.mkdirSync(path.join(lockDirectory, 'members'), { recursive: true })
+  const token = 'surviving-initializer'
+  fs.writeFileSync(path.join(lockDirectory, 'owner.json'), JSON.stringify({
+    pid: 2_147_483_647, token, mode: 'greenfield', workspaceRoot,
+  }))
+  fs.writeFileSync(path.join(lockDirectory, 'members', `${process.pid}.json`), JSON.stringify({
+    pid: process.pid, token, role: 'initializer', heartbeatAt: new Date().toISOString(),
+  }))
+  try {
+    assert.throws(() => acquireDevSession({ workspaceRoot, token: null }), (error) => {
+      assert.ok(error instanceof DevSessionConflictError)
+      assert.equal(error.owner.pid, process.pid)
+      assert.match(error.message, new RegExp(`PID ${process.pid}`))
+      assert.match(error.message, /initializer/)
+      return true
+    })
+  } finally {
+    fs.rmSync(workspaceRoot, { recursive: true, force: true })
+  }
+})
+
+
+test('conflict diagnostics probe the actual TCP listener without weakening startup ownership', async () => {
+  const server = createServer()
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
+  const address = server.address()
+  const error = new DevSessionConflictError({ pid: process.pid, mode: 'initialize', url: `http://127.0.0.1:${address.port}` }, process.cwd())
+  try {
+    assert.match(await describeDevSessionConflict(error), /TCP listener reached/)
+  } finally {
+    await new Promise((resolve) => server.close(resolve))
+  }
+  assert.match(await describeDevSessionConflict(error), /No TCP listener reached/)
+  assert.match(await describeDevSessionConflict(error), /live initializer, build, or cleanup process still owns/)
+})
+
+
+test('legacy abandoned membership does not block a PID born after its last heartbeat', () => {
+  const workspaceRoot = createWorkspace()
+  const lockDirectory = path.join(workspaceRoot, '.mercato', 'dev-session.lock')
+  fs.mkdirSync(path.join(lockDirectory, 'members'), { recursive: true })
+  const token = 'legacy-abandoned-session'
+  fs.writeFileSync(path.join(lockDirectory, 'owner.json'), JSON.stringify({
+    pid: 2_147_483_647, token, mode: 'greenfield', workspaceRoot,
+  }))
+  fs.writeFileSync(path.join(lockDirectory, 'members', `${process.pid}.json`), JSON.stringify({
+    pid: process.pid, token, role: 'initializer', heartbeatAt: '2000-01-01T00:00:00.000Z',
+  }))
+  let recovered
+  try {
+    recovered = acquireDevSession({ workspaceRoot, token: null })
+    assert.notEqual(recovered.token, token)
+  } finally {
+    recovered?.release()
+    fs.rmSync(workspaceRoot, { recursive: true, force: true })
+  }
+})
+
+
+test('an owning launch refuses an already occupied app port and releases its new lock', async () => {
+  const workspaceRoot = createWorkspace()
+  const server = createServer()
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
+  const address = server.address()
+  const owner = acquireDevSession({ workspaceRoot, url: 'https://public.example.invalid', listenUrl: `http://127.0.0.1:${address.port}` })
+  try {
+    await assert.rejects(assertDevSessionPortAvailable(owner), /already has a TCP listener/)
+    assert.equal(fs.existsSync(path.join(workspaceRoot, '.mercato/dev-session.lock')), false)
+    assert.equal(server.listening, true)
+  } finally {
+    owner.release()
+    await new Promise((resolve) => server.close(resolve))
+    fs.rmSync(workspaceRoot, { recursive: true, force: true })
+  }
+})
+
+test('managed joins preserve the owning launcher listener and closed ports permit startup', async () => {
+  const workspaceRoot = createWorkspace()
+  const server = createServer()
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
+  const address = server.address()
+  const owner = acquireDevSession({ workspaceRoot, url: `http://127.0.0.1:${address.port}` })
+  const child = acquireDevSession({ workspaceRoot, token: owner.token, role: 'app-runtime' })
+  try {
+    await assertDevSessionPortAvailable(child)
+    await new Promise((resolve) => server.close(resolve))
+    await assertDevSessionPortAvailable(owner)
+  } finally {
+    child.release()
+    owner.release()
+    if (server.listening) await new Promise((resolve) => server.close(resolve))
+    fs.rmSync(workspaceRoot, { recursive: true, force: true })
+  }
+})
+
+
+test('an unverifiable local bind address refuses startup instead of assuming a free port', async () => {
+  const workspaceRoot = createWorkspace()
+  const owner = acquireDevSession({ workspaceRoot, listenUrl: 'not a URL' })
+  try {
+    await assert.rejects(assertDevSessionPortAvailable(owner), /Unable to verify the local app port/)
+    assert.equal(fs.existsSync(path.join(workspaceRoot, '.mercato/dev-session.lock')), false)
+  } finally {
+    owner.release()
+    fs.rmSync(workspaceRoot, { recursive: true, force: true })
+  }
+})
+
+test('standalone process-state and shutdown helpers remain byte-identical to root helpers', () => {
+  for (const name of ['dev-process-state.mjs', 'dev-shutdown-utils.mjs']) {
+    assert.equal(fs.readFileSync(new URL(`../../packages/create-app/template/scripts/${name}`, import.meta.url), 'utf8'),
+      fs.readFileSync(new URL(`../${name}`, import.meta.url), 'utf8'))
+  }
+})
+
+
+test('default bind preflight refuses a port occupied only on IPv6 loopback', async (context) => {
+  const server = createServer()
+  try {
+    await new Promise((resolve, reject) => {
+      server.once('error', reject)
+      server.listen({ host: '::1', port: 0, ipv6Only: true }, resolve)
+    })
+  } catch (error) {
+    if (['EAFNOSUPPORT', 'EADDRNOTAVAIL', 'EPROTONOSUPPORT'].includes(error.code)) {
+      context.skip('IPv6 loopback is unsupported on this host')
+      return
+    }
+    throw error
+  }
+  const workspaceRoot = createWorkspace()
+  const address = server.address()
+  const owner = acquireDevSession({ workspaceRoot, listenUrl: `http://127.0.0.1:${address.port}` })
+  try {
+    await assert.rejects(assertDevSessionPortAvailable(owner), /already has a TCP listener/)
+    assert.equal(server.listening, true)
+    const ipv4Owner = acquireDevSession({ workspaceRoot, listenUrl: `http://127.0.0.1:${address.port}`, bindHost: '127.0.0.1' })
+    try {
+      await assertDevSessionPortAvailable(ipv4Owner)
+    } finally {
+      ipv4Owner.release()
+    }
+  } finally {
+    owner.release()
+    await new Promise((resolve) => server.close(resolve))
+    fs.rmSync(workspaceRoot, { recursive: true, force: true })
+  }
+})
+
+
+test('a failed initial identity probe cannot keep a later reused child PID alive through heartbeat refresh', () => {
+  const workspaceRoot = createWorkspace()
+  const originalSpawnSync = childProcess.spawnSync
+  const originalSetInterval = globalThis.setInterval
+  let heartbeat
+  let owner
+  const childPid = 2_147_483_646
+  try {
+    childProcess.spawnSync = () => ({ status: 1, stdout: '' })
+    syncBuiltinESMExports()
+    globalThis.setInterval = (callback) => { heartbeat = callback; return { unref() {} } }
+    owner = acquireDevSession({ workspaceRoot, token: null })
+    owner.registerChild({ pid: childPid, once() {} }, 'initializer')
+    const memberPath = path.join(workspaceRoot, '.mercato/dev-session.lock/members', `${childPid}.json`)
+    assert.equal(JSON.parse(fs.readFileSync(memberPath, 'utf8')).processIdentity, null)
+    childProcess.spawnSync = () => ({
+      status: 0,
+      stdout: `${process.pid} 1 S ${new Date(Date.now() - 60_000).toString()}\n${childPid} 1 S ${new Date(Date.now() + 60_000).toString()}\n`,
+    })
+    syncBuiltinESMExports()
+    heartbeat()
+    assert.equal(fs.existsSync(memberPath), false)
+  } finally {
+    owner?.release()
+    globalThis.setInterval = originalSetInterval
+    childProcess.spawnSync = originalSpawnSync
+    syncBuiltinESMExports()
     fs.rmSync(workspaceRoot, { recursive: true, force: true })
   }
 })

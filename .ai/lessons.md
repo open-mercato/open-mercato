@@ -1,6 +1,6 @@
 # Lessons
 
-This catalog indexes 164 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
+This catalog indexes 165 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
 
 ## How to use this catalog
 
@@ -52,6 +52,7 @@ This catalog indexes 164 focused lessons. Route the task first, then read only r
 - [Standalone template env examples must mirror security-sensitive app env keys](lessons/standalone-template-env-examples-must-mirror-security.md) — area:architecture,integration,testing; module:create_app,catalog,webhooks; topic:generated-files,package-runtime,template-sync
 - [Standalone template must include all generated bootstrap registries](lessons/standalone-template-must-include-all-generated.md) — area:architecture,integration; module:create_app,events; topic:auto-discovery,events,generated-files
 - [Startup splash must distinguish blocking bootstrap failures from non-blocking runtime warnings](lessons/startup-splash-must-distinguish-blocking-bootstrap.md) — area:architecture,debugging,module-data; module:customers,search,create_app; topic:error-states,dev-runtime,package-runtime
+- [Dev session shutdown must verify process exit](lessons/dev-session-shutdown-must-verify-process-exit.md) — area:architecture,debugging,testing; module:cli,create_app; topic:dev-runtime,process-lifecycle,concurrency
 - [Use `safeExtend()` when composing refined Zod object schemas](lessons/use-safeextend-when-composing-refined-zod-object-schemas.md) — area:architecture; module:shared,checkout; topic:generated-files,schema-composition
 
 ### module-data
