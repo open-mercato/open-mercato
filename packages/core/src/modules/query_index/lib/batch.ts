@@ -2,9 +2,10 @@ import { type Kysely, sql } from 'kysely'
 import { recordIndexerError } from '@open-mercato/shared/lib/indexers/error-log'
 import { isUniqueViolation } from '@open-mercato/shared/lib/db/pg-errors'
 import { buildIndexDocument, rebuildAggregateSearchField, type IndexCustomFieldValue } from './document'
-import { replaceSearchTokensForBatch, isSearchDebugEnabled } from './search-tokens'
+import { replaceSearchTokensForBatch, deleteSearchTokensForRecord, isSearchDebugEnabled } from './search-tokens'
 import { applyIndexDocEnrichers, type IndexDocEnrichmentTarget } from './doc-enrichers'
-import { isSearchTokenWriteGated } from './search-entity-policy'
+import { passesSearchTokenIndexGates, resolveSearchTokenIndexGates } from './search-entity-policy'
+import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { resolveSearchConfig } from '@open-mercato/shared/lib/search/config'
 
@@ -102,6 +103,8 @@ export type IndexBatchOptions = {
     doc: Record<string, unknown>,
     scope: { organizationId: string | null; tenantId: string | null },
   ) => Promise<Record<string, unknown> | null | undefined>
+  /** Query engine handed to the entity's `shouldIndex` gates before its search tokens are written. */
+  searchTokenGateQueryEngine?: QueryEngine
 }
 
 function normalizeId(value: unknown): string {
@@ -386,7 +389,22 @@ export async function upsertIndexBatch(
     deleted_at: null,
   }))
 
-  const tokenPayloads = isSearchTokenWriteGated(entityType) ? [] : basePayloads.map((payload) => ({
+  const tokenGates = resolveSearchTokenIndexGates(entityType)
+  const gateRejectedPayloads: IndexRowPayload[] = []
+  const tokenSourcePayloads: IndexRowPayload[] = []
+  for (const payload of basePayloads) {
+    const allowed = !tokenGates.length || await passesSearchTokenIndexGates(entityType, tokenGates, {
+      recordId: payload.entity_id,
+      record: payload.tokenDoc,
+      tenantId: payload.tenant_id,
+      organizationId: payload.organization_id,
+      queryEngine: options.searchTokenGateQueryEngine,
+    })
+    if (allowed) tokenSourcePayloads.push(payload)
+    else gateRejectedPayloads.push(payload)
+  }
+
+  const tokenPayloads = tokenSourcePayloads.map((payload) => ({
     entityType: payload.entity_type,
     recordId: payload.entity_id,
     organizationId: payload.organization_id,
@@ -395,8 +413,16 @@ export async function upsertIndexBatch(
   }))
 
   const writeSearchTokens = async (payloads = tokenPayloads): Promise<void> => {
-    if (!payloads.length) return
+    if (!payloads.length && !gateRejectedPayloads.length) return
     try {
+      for (const rejected of gateRejectedPayloads) {
+        await deleteSearchTokensForRecord(db, {
+          entityType: rejected.entity_type,
+          recordId: rejected.entity_id,
+          organizationId: rejected.organization_id,
+          tenantId: rejected.tenant_id,
+        })
+      }
       await replaceSearchTokensForBatch(db, payloads)
     } catch (searchTokenError) {
       // Record instead of swallowing: a failed token write leaves fulltext search stale.

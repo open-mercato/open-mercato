@@ -1,5 +1,5 @@
 import { recordIndexerError } from '@open-mercato/shared/lib/indexers/error-log'
-import { replaceSearchTokensForBatch } from '../lib/search-tokens'
+import { replaceSearchTokensForBatch, deleteSearchTokensForRecord } from '../lib/search-tokens'
 import { registerSearchModuleConfigs } from '@open-mercato/shared/modules/search'
 import {
   upsertIndexBatch,
@@ -14,11 +14,13 @@ jest.mock('@open-mercato/shared/lib/indexers/error-log', () => ({
 
 jest.mock('../lib/search-tokens', () => ({
   replaceSearchTokensForBatch: jest.fn(async () => undefined),
+  deleteSearchTokensForRecord: jest.fn(async () => undefined),
   isSearchDebugEnabled: () => false,
 }))
 
 const mockRecordIndexerError = recordIndexerError as jest.MockedFunction<typeof recordIndexerError>
 const mockReplaceSearchTokens = replaceSearchTokensForBatch as jest.MockedFunction<typeof replaceSearchTokensForBatch>
+const mockDeleteSearchTokens = deleteSearchTokensForRecord as jest.MockedFunction<typeof deleteSearchTokensForRecord>
 
 type InsertCall = { table: string; onConflict: boolean; values: any }
 
@@ -155,17 +157,41 @@ describe('upsertIndexBatch write accounting (GSM-266)', () => {
     expect(mockRecordIndexerError).not.toHaveBeenCalled()
   })
 
-  it('skips query-index token writes for entities whose search config declares shouldIndex', async () => {
+  it('writes tokens only for records the shouldIndex gate accepts and deletes the rest', async () => {
     const fake = createFakeDb()
-    registerSearchModuleConfigs([{ entities: [{ entityId: 'example:todo', shouldIndex: () => true }] }])
+    const queryEngine = { query: jest.fn() }
+    const gate = jest.fn((ctx: any) => {
+      if (ctx.record.id === '3') throw new Error('lookup failed')
+      return ctx.record.id === '1'
+    })
+    registerSearchModuleConfigs([{ entities: [{ entityId: 'example:todo', shouldIndex: gate }] }])
     try {
-      const result = await upsertIndexBatch(fake.db, 'example:todo', makeRows(['1', '2']), SCOPE)
-      expect(result.written).toBe(2)
+      const result = await upsertIndexBatch(fake.db, 'example:todo', makeRows(['1', '2', '3']), SCOPE, {
+        searchTokenGateQueryEngine: queryEngine as any,
+      })
+      expect(result.written).toBe(3)
     } finally {
       registerSearchModuleConfigs([])
     }
 
-    expect(mockReplaceSearchTokens).not.toHaveBeenCalled()
+    expect(gate).toHaveBeenCalledTimes(3)
+    expect(gate.mock.calls[0][0]).toEqual(expect.objectContaining({
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      queryEngine,
+    }))
+    expect(mockReplaceSearchTokens).toHaveBeenCalledTimes(1)
+    expect(mockReplaceSearchTokens.mock.calls[0][1].map((payload) => payload.recordId)).toEqual(['1'])
+    expect(mockDeleteSearchTokens.mock.calls.map((call) => call[1].recordId)).toEqual(['2', '3'])
+  })
+
+  it('leaves token writes untouched for entities without a shouldIndex gate', async () => {
+    const fake = createFakeDb()
+
+    await upsertIndexBatch(fake.db, 'example:todo', makeRows(['1', '2']), SCOPE)
+
+    expect(mockReplaceSearchTokens.mock.calls[0][1].map((payload) => payload.recordId)).toEqual(['1', '2'])
+    expect(mockDeleteSearchTokens).not.toHaveBeenCalled()
   })
 
   it('records the bulk failure and still writes every row through the fallback', async () => {

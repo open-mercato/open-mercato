@@ -331,9 +331,11 @@ export type SearchEntityConfig = {
    * carries `queryEngine` for loading related records (opt-in flags, parents).
    * Omit the hook to index every record of the entity (the default).
    *
-   * Declaring the hook also hands the entity's `search_tokens` rows to the search
-   * indexer: the query index stops writing tokens for that entity type, so an
-   * ungated writer can never surface a record the hook rejects.
+   * The query index applies the same gate before writing the entity's
+   * `search_tokens`: it evaluates the hook per record (with a base-table query
+   * engine) and writes tokens on `true`, or deletes that record's tokens on
+   * `false` / a throw. Tokens therefore stay available without fulltext or vector
+   * providers, and no token writer can surface a record the hook rejects.
    */
   shouldIndex?: (ctx: SearchBuildContext) => boolean | Promise<boolean>
   /**

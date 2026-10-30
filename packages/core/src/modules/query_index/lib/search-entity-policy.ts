@@ -1,5 +1,16 @@
+import type { EntityManager } from '@mikro-orm/postgresql'
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
-import { getSearchModuleConfigs } from '@open-mercato/shared/modules/search'
+import { resolveTenantEncryptionService } from '@open-mercato/shared/lib/encryption/customFieldValues'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+import { BasicQueryEngine } from '@open-mercato/shared/lib/query/engine'
+import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
+import {
+  getSearchModuleConfigs,
+  type SearchBuildContext,
+  type SearchEntityConfig,
+} from '@open-mercato/shared/modules/search'
+
+const logger = createLogger('query_index').child({ component: 'search-entity-policy' })
 
 /**
  * The canonical customer record. Every customer also has a person or company profile indexed under
@@ -46,17 +57,72 @@ export function listSearchTokenExcludedEntityTypes(): string[] {
   return indexesCustomerBaseEntity() ? [] : [CUSTOMERS_BASE_ENTITY_TYPE]
 }
 
+export type SearchTokenIndexGate = NonNullable<SearchEntityConfig['shouldIndex']>
+
 /**
- * Whether the query index must leave `search_tokens` for this entity type to the search indexer.
+ * The `shouldIndex` hooks a `search.ts` config declares for this entity type.
  *
- * A `search.ts` entity that declares `shouldIndex` gates which of its records may be searched at
- * all. The query index writes tokens for every record it projects and cannot evaluate that
- * per-record hook, so for such entity types it writes none: the search indexer's token strategy
- * is then the only writer, and it honors the gate (rejected records are deleted, not indexed).
- * Any declaration counts, enabled or not, so the default is fail closed.
+ * A declared hook gates which records may be searched at all, so the query index evaluates it per
+ * record before writing that record's `search_tokens`: the same gate the search indexer's token
+ * strategy applies, which keeps the two token writers in agreement. Any declaration counts, enabled
+ * or not, so a disabled config still fails closed. An empty list means the entity is ungated.
  */
-export function isSearchTokenWriteGated(entityType: string): boolean {
-  return getSearchModuleConfigs().some((moduleConfig) =>
-    moduleConfig.entities.some((entity) => entity.entityId === entityType && typeof entity.shouldIndex === 'function'),
-  )
+export function resolveSearchTokenIndexGates(entityType: string): SearchTokenIndexGate[] {
+  const gates: SearchTokenIndexGate[] = []
+  for (const moduleConfig of getSearchModuleConfigs()) {
+    for (const entity of moduleConfig.entities) {
+      if (entity.entityId === entityType && typeof entity.shouldIndex === 'function') gates.push(entity.shouldIndex)
+    }
+  }
+  return gates
+}
+
+/**
+ * Query engine handed to `shouldIndex` hooks evaluated by the query index. It reads base tables
+ * directly, so a hook's related-record lookups can never schedule another reindex.
+ */
+export function createSearchTokenGateQueryEngine(em: EntityManager): QueryEngine {
+  return new BasicQueryEngine(em, undefined, () => resolveTenantEncryptionService(em))
+}
+
+/**
+ * Whether every gate accepts the record. The context mirrors the one the search indexer builds
+ * (`record`, `customFields` from the `cf:` keys, scope, `queryEngine`). A gate that returns
+ * anything but `true`, or throws, rejects the record (fail closed).
+ */
+export async function passesSearchTokenIndexGates(
+  entityType: string,
+  gates: SearchTokenIndexGate[],
+  input: {
+    recordId: string
+    record: Record<string, unknown>
+    tenantId: string | null
+    organizationId: string | null
+    queryEngine?: QueryEngine
+  },
+): Promise<boolean> {
+  const customFields: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(input.record)) {
+    if (key.startsWith('cf:') || key.startsWith('cf_')) customFields[key.slice(3)] = value
+  }
+  const context: SearchBuildContext = {
+    record: input.record,
+    customFields,
+    organizationId: input.organizationId,
+    tenantId: input.tenantId,
+    queryEngine: input.queryEngine,
+  }
+  for (const gate of gates) {
+    try {
+      if ((await gate(context)) !== true) return false
+    } catch (error) {
+      logger.warn('shouldIndex failed, excluding record from search tokens', {
+        entityType,
+        recordId: input.recordId,
+        error: error instanceof Error ? error.message : String(error),
+      })
+      return false
+    }
+  }
+  return true
 }

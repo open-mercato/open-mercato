@@ -398,25 +398,59 @@ describe('Indexer', () => {
     expect(tokenInserts.length).toBeGreaterThan(0)
   })
 
-  test('reindexSearchTokensForRecord leaves tokens to the search indexer for entities with a shouldIndex gate', async () => {
-    const fake = createFakeKysely({ baseTable: 'todos', baseRows: [{ id: '1', title: 'x' }], cfValues: [] })
-    const em: any = { getKysely: () => fake.db }
-    registerSearchModuleConfigs([{ entities: [{ entityId: 'example:todo', shouldIndex: () => false }] }])
-    try {
-      await reindexSearchTokensForRecord(em, {
-        entityType: 'example:todo',
-        recordId: '1',
-        organizationId: 'org1',
-        tenantId: 't1',
-        doc: { id: '1', title: 'x' },
-        searchTokenDoc: { title: 'Plain Title' },
-      })
-    } finally {
-      registerSearchModuleConfigs([])
+  describe('reindexSearchTokensForRecord with a shouldIndex gate', () => {
+    const runGated = async (shouldIndex: (ctx: any) => boolean | Promise<boolean>) => {
+      const fake = createFakeKysely({ baseTable: 'todos', baseRows: [{ id: '1', title: 'x' }], cfValues: [] })
+      const em: any = { getKysely: () => fake.db }
+      const gate = jest.fn(shouldIndex)
+      registerSearchModuleConfigs([{ entities: [{ entityId: 'example:todo', shouldIndex: gate }] }])
+      try {
+        await reindexSearchTokensForRecord(em, {
+          entityType: 'example:todo',
+          recordId: '1',
+          organizationId: 'org1',
+          tenantId: 't1',
+          doc: { id: '1', title: 'x' },
+          searchTokenDoc: { title: 'Plain Title', 'cf:priority': 'high' },
+        })
+      } finally {
+        registerSearchModuleConfigs([])
+      }
+      return {
+        gate,
+        tokenInserts: fake.inserts.filter((entry) => entry.table === 'search_tokens'),
+        tokenDeletes: fake.deletes.filter((entry) => entry.table === 'search_tokens'),
+      }
     }
 
-    expect(fake.inserts.filter((entry) => entry.table === 'search_tokens')).toHaveLength(0)
-    expect(fake.deletes.filter((entry) => entry.table === 'search_tokens')).toHaveLength(0)
+    test('writes tokens for a record the gate accepts, passing a search build context', async () => {
+      const { gate, tokenInserts } = await runGated(() => true)
+
+      expect(tokenInserts.length).toBeGreaterThan(0)
+      expect(gate).toHaveBeenCalledTimes(1)
+      const context = gate.mock.calls[0][0]
+      expect(context.record).toEqual(expect.objectContaining({ title: 'Plain Title' }))
+      expect(context.customFields).toEqual({ priority: 'high' })
+      expect(context.tenantId).toBe('t1')
+      expect(context.organizationId).toBe('org1')
+      expect(typeof context.queryEngine?.query).toBe('function')
+    })
+
+    test('deletes the tokens of a record the gate rejects', async () => {
+      const { tokenInserts, tokenDeletes } = await runGated(() => false)
+
+      expect(tokenInserts).toHaveLength(0)
+      expect(tokenDeletes.length).toBeGreaterThan(0)
+    })
+
+    test('fails closed when the gate throws', async () => {
+      const { tokenInserts, tokenDeletes } = await runGated(() => {
+        throw new Error('lookup failed')
+      })
+
+      expect(tokenInserts).toHaveLength(0)
+      expect(tokenDeletes.length).toBeGreaterThan(0)
+    })
   })
 
   test('reindexSearchTokensForRecord reuses an injected transaction for token replacement', async () => {

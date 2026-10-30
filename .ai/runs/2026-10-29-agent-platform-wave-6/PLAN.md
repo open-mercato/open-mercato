@@ -38,6 +38,7 @@
 | 3 | 3.5 | Cover content, protobuf and tenant endpoints with integration tests | dispatch | done | b6982cc6c |
 | 3 | 3.6 | Document OTel export phase 2 and mirror env vars | dispatch:cheap | done | 3f511daaf |
 | 4 | 4.1 | Add a shouldIndex hook to search entity configs | dispatch:capable | done | 72dfa65a3 |
+| 4 | 4.1-review-fix | Gate query_index search tokens per record with shouldIndex | inline | done | pending |
 | 4 | 4.2 | Declare the document section search entity | dispatch:capable | done | 41f07f599 |
 | 4 | 4.3 | Add section search sync jobs to the structure queue | dispatch:capable | done | a0e473ab6 |
 | 4 | 4.4 | Index sections when an extraction completes | dispatch | done | c9992711e |

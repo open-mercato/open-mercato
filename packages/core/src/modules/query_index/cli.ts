@@ -21,6 +21,7 @@ import {
   mergeUpsertIndexBatchResults,
   type AnyRow,
 } from './lib/batch'
+import { createSearchTokenGateQueryEngine } from './lib/search-entity-policy'
 import { reindexEntity, DEFAULT_REINDEX_PARTITIONS } from './lib/reindexer'
 import { purgeIndexScope } from './lib/purge'
 import { refreshCoverageSnapshot } from './lib/coverage'
@@ -191,6 +192,7 @@ async function rebuildEntityIndexes(options: RebuildExecutionOptions): Promise<R
 
   const encryption = resolveTenantEncryptionService(em as any)
   const dekKeyCache = new Map<string | null, string | null>()
+  const searchTokenGateQueryEngine = createSearchTokenGateQueryEngine(em)
 
   // Neither helper swallows failures: upsertIndexBatch treats a failed encrypt as a
   // failed row (writing the plaintext document instead would break encryption at rest)
@@ -246,7 +248,7 @@ async function rebuildEntityIndexes(options: RebuildExecutionOptions): Promise<R
       .executeTakeFirst() as AnyRow | undefined
     if (!row) return { processed: 0, matched: 0 }
     const bar = createProgressBar(progressLabel ?? `Rebuilding ${entityType}`, 1)
-    const singleResult = await upsertIndexBatch(db, entityType, [row], { orgId: orgOverride, tenantId: tenantOverride }, { encryptDoc, decryptDoc })
+    const singleResult = await upsertIndexBatch(db, entityType, [row], { orgId: orgOverride, tenantId: tenantOverride }, { encryptDoc, decryptDoc, searchTokenGateQueryEngine })
     bar.update(singleResult.written)
     bar.complete()
     assertIndexBatchWritesLanded(entityType, singleResult)
@@ -288,7 +290,7 @@ async function rebuildEntityIndexes(options: RebuildExecutionOptions): Promise<R
     const chunkResult = await upsertIndexBatch(db, entityType, chunk as AnyRow[], {
       orgId: orgOverride,
       tenantId: tenantOverride,
-    }, { encryptDoc, decryptDoc })
+    }, { encryptDoc, decryptDoc, searchTokenGateQueryEngine })
     mergeUpsertIndexBatchResults(writeTotals, chunkResult)
 
     processed += chunkResult.written

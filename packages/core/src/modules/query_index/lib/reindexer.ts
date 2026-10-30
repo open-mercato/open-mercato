@@ -11,6 +11,7 @@ import {
   QueryIndexBatchWriteError,
   type AnyRow,
 } from './batch'
+import { createSearchTokenGateQueryEngine } from './search-entity-policy'
 import { refreshCoverageSnapshot, writeCoverageCounts, applyCoverageAdjustments } from './coverage'
 import { prepareJob, updateJobProgress, finalizeJob, type JobScope } from './jobs'
 import { purgeOrphans } from './stale'
@@ -428,6 +429,7 @@ export async function reindexEntity(
       if (!rows.length) break
 
       const encryption = resolveTenantEncryptionService(em as any)
+      const searchTokenGateQueryEngine = createSearchTokenGateQueryEngine(em)
       const dekKeyCache = new Map<string | null, string | null>()
       const encryptDoc = async (
         targetEntity: string,
@@ -459,7 +461,12 @@ export async function reindexEntity(
         return result
       }
 
-      const batchResult = await upsertIndexBatch(db, entityType, rows, scopeOverrides, { deriveOrganizationId: deriveOrg, encryptDoc, decryptDoc })
+      const batchResult = await upsertIndexBatch(db, entityType, rows, scopeOverrides, {
+        deriveOrganizationId: deriveOrg,
+        encryptDoc,
+        decryptDoc,
+        searchTokenGateQueryEngine,
+      })
       mergeUpsertIndexBatchResults(writeTotals, batchResult)
 
       // A whole batch failing is infrastructural (pool exhausted, disk full, KMS down),
