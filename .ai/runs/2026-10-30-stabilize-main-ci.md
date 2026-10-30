@@ -46,6 +46,7 @@ Restore the current `main` branch workflows to green by identifying each failing
 - This is the Sigstore retry-after-success defect fixed upstream in [sigstore-js#1709](https://github.com/sigstore/sigstore-js/pull/1709): the transparency entry is committed, a retry receives the valid duplicate, and the current client treats that duplicate as fatal. The fix merged on 2026-10-27 but is not present in the published Sigstore version used by npm in the workflow.
 - The smallest repository safeguard is a bounded wrapper that retries only this exact two-part error signature, preserves `--provenance`, and fails immediately for all other npm errors. The caller also verifies registry state after a client failure so a completed publish is not falsely reported as failed.
 - The snapshot's standalone-app follow-up also exposed a deterministic activation defect: `scripts/lib/module-activation-fixtures.ts` still injected the removed `exampleCalendarOverrides` symbol, so evaluating the generated `src/modules.ts` failed with `ReferenceError`. The fixture now relies on the example module's own calendar registration and its test bundles and evaluates every activated module configuration instead of checking generated structure alone.
+- Snapshot attempt 2 proved npm can accept a large package while keeping its metadata unavailable longer than the workflow's five-minute ceiling: `@open-mercato/core` published successfully at 22:17:28Z, but remained `E404` through the 22:30:55Z timeout. Both snapshot workflows now share a bounded twenty-minute metadata wait, matching the existing registry-quarantine budget and retaining a hard failure when npm never exposes the version.
 
 ## Progress
 
@@ -58,8 +59,8 @@ Restore the current `main` branch workflows to green by identifying each failing
 
 ### Phase 2: Correct root causes
 
-- [x] 2.1 Implement minimal fixes with regression coverage for every actionable failure. — 4c20fce5cc, 343ebfffcd
-- [x] 2.2 Run targeted validation and confirm the original failure signatures are resolved. — 4c20fce5cc, 343ebfffcd
+- [x] 2.1 Implement minimal fixes with regression coverage for every actionable failure. — 4c20fce5cc, 343ebfffcd, d4f8e125c2
+- [x] 2.2 Run targeted validation and confirm the original failure signatures are resolved. — 4c20fce5cc, 343ebfffcd, d4f8e125c2
 
 ### Phase 3: Verify and hand off
 
