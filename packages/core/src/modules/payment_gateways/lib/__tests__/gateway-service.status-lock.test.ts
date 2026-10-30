@@ -9,6 +9,12 @@ import {
 } from '@open-mercato/shared/modules/payment_gateways/types'
 import { createPaymentGatewayService } from '../gateway-service'
 
+const mockReportError = jest.fn()
+
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  getTelemetryRuntime: () => ({ reportError: (...args: unknown[]) => mockReportError(...args) }),
+}))
+
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: jest.fn(),
   findWithDecryption: jest.fn(),
@@ -174,6 +180,7 @@ describe('payment gateway service — status writers evaluate the locked committ
     clearGatewayAdapters()
     findOneMock.mockReset()
     emit.mockClear()
+    mockReportError.mockClear()
   })
 
   afterEach(() => {
@@ -256,6 +263,11 @@ describe('payment gateway service — status writers evaluate the locked committ
       expect(committed.unifiedStatus).toBe('captured')
       expect(emit).toHaveBeenCalledTimes(1)
       expect(emit.mock.calls[0][0]).toBe('payment_gateways.payment.captured')
+      expect(mockReportError).toHaveBeenCalledTimes(1)
+      expect(mockReportError).toHaveBeenCalledWith(
+        expect.objectContaining({ message: '[internal] re-read failed' }),
+        { module: 'payment_gateways', code: 'payment_gateways.poll_status_reread_failed' },
+      )
     })
   })
 

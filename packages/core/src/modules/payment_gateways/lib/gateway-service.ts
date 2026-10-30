@@ -3,6 +3,7 @@ import { LockMode, QueryOrder } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import {
   getGatewayAdapter,
   type CreateSessionInput,
@@ -775,6 +776,10 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
           transactionId,
           providerKey: transaction.providerKey,
           err: refreshError,
+        })
+        getTelemetryRuntime()?.reportError(refreshError, {
+          module: 'payment_gateways',
+          code: 'payment_gateways.poll_status_reread_failed',
         })
       }
       await emitStatusEvent(status.status, {
