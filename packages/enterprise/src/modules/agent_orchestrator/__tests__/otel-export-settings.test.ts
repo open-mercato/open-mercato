@@ -107,6 +107,7 @@ describe('resolveOtelExportDeployment', () => {
       endpoint: null,
       headers: {},
       contentAllowed: false,
+      tenantEndpointsAllowed: false,
       delayMs: OTEL_EXPORT_DEFAULT_DELAY_MS,
       serviceName: 'open-mercato-agents',
       sources: ['runtime', 'eval'],

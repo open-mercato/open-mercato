@@ -17,6 +17,8 @@ export const OTEL_EXPORT_ENV = {
   serviceName: 'OM_AGENT_OTEL_SERVICE_NAME',
   sources: 'OM_AGENT_OTEL_EXPORT_SOURCES',
   traceUrlTemplate: 'OM_AGENT_OTEL_TRACE_URL_TEMPLATE',
+  tenantEndpoints: 'OM_AGENT_OTEL_EXPORT_TENANT_ENDPOINTS',
+  privateHosts: 'OM_AGENT_OTEL_EXPORT_PRIVATE_HOSTS',
   platformTracesEndpoint: 'OTEL_EXPORTER_OTLP_TRACES_ENDPOINT',
   platformEndpoint: 'OTEL_EXPORTER_OTLP_ENDPOINT',
   platformHeaders: 'OTEL_EXPORTER_OTLP_HEADERS',
@@ -53,6 +55,7 @@ export type OtelExportDeploymentConfig = {
   endpoint: string | null
   headers: Record<string, string>
   contentAllowed: boolean
+  tenantEndpointsAllowed: boolean
   delayMs: number
   serviceName: string
   sources: string[]
@@ -197,6 +200,19 @@ function readContentAllowed(env: EnvLike): boolean {
   return false
 }
 
+function readTenantEndpointsAllowed(env: EnvLike): boolean {
+  const raw = readTrimmed(env, OTEL_EXPORT_ENV.tenantEndpoints)
+  if (raw === null) return false
+  const normalized = raw.toLowerCase()
+  if (normalized === 'allow') return true
+  if (normalized !== 'deny') {
+    warnOnce(`tenant-endpoints:${raw}`, 'unrecognized otel export tenant endpoint mode; tenant endpoints denied', {
+      variable: OTEL_EXPORT_ENV.tenantEndpoints,
+    })
+  }
+  return false
+}
+
 /**
  * Deployment-level OTel export configuration from the environment. `enabled`
  * requires the master switch, a supported protocol (`http/json` or
@@ -224,6 +240,7 @@ export function resolveOtelExportDeployment(env: EnvLike = process.env): OtelExp
     endpoint,
     headers: parseOtlpHeaders(headersRaw),
     contentAllowed: readContentAllowed(env),
+    tenantEndpointsAllowed: readTenantEndpointsAllowed(env),
     delayMs: readDelayMs(env),
     serviceName: readTrimmed(env, OTEL_EXPORT_ENV.serviceName) ?? OTEL_EXPORT_DEFAULT_SERVICE_NAME,
     sources: readSources(env),
