@@ -36,6 +36,23 @@ const envString = (value: string | undefined | null) => {
   return trimmed.length ? trimmed : undefined
 }
 
+const PLACEHOLDER_EMAIL_DOMAINS = new Set(['your-domain.com'])
+
+const EMAIL_DOMAIN_PATTERN = /@([^@\s<>]+)>?\s*$/
+
+function isPlaceholderEmailAddress(value: string | undefined | null): boolean {
+  const address = envString(value)
+  if (!address) return false
+  const domain = EMAIL_DOMAIN_PATTERN.exec(address)?.[1]?.toLowerCase()
+  return domain ? PLACEHOLDER_EMAIL_DOMAINS.has(domain) : false
+}
+
+const resolveStoredSenderAddress = (value: string | undefined): string | undefined => {
+  const address = envString(value)
+  if (!address || isPlaceholderEmailAddress(address)) return undefined
+  return address
+}
+
 const resolveEnvDefaults = () => {
   const appUrl = envString(
     process.env.NOTIFICATIONS_APP_URL ||
@@ -77,8 +94,32 @@ export const DEFAULT_NOTIFICATION_DELIVERY_CONFIG: NotificationDeliveryConfig = 
   }
 })()
 
+export const STORED_DEFAULT_NOTIFICATION_DELIVERY_CONFIG: NotificationDeliveryConfig = {
+  ...DEFAULT_NOTIFICATION_DELIVERY_CONFIG,
+  strategies: {
+    ...DEFAULT_NOTIFICATION_DELIVERY_CONFIG.strategies,
+    email: {
+      ...DEFAULT_NOTIFICATION_DELIVERY_CONFIG.strategies.email,
+      from: undefined,
+      replyTo: resolveStoredSenderAddress(DEFAULT_NOTIFICATION_DELIVERY_CONFIG.strategies.email.replyTo),
+    },
+  },
+}
+
+const parseDeliveryConfig = (input: unknown) => {
+  const parsed = notificationDeliveryConfigSchema.safeParse(input)
+  const onlyPanelPathInvalid = !parsed.success
+    && parsed.error.issues.every((issue) => issue.path[0] === 'panelPath')
+  if (!onlyPanelPathInvalid || typeof input !== 'object' || input === null) {
+    return parsed
+  }
+  const withoutPanelPath: Record<string, unknown> = { ...input }
+  delete withoutPanelPath.panelPath
+  return notificationDeliveryConfigSchema.safeParse(withoutPanelPath)
+}
+
 const normalizeDeliveryConfig = (input?: unknown | null): NotificationDeliveryConfig => {
-  const parsed = notificationDeliveryConfigSchema.safeParse(input ?? {})
+  const parsed = parseDeliveryConfig(input ?? {})
   if (!parsed.success) {
     return { ...DEFAULT_NOTIFICATION_DELIVERY_CONFIG }
   }
@@ -95,8 +136,8 @@ const normalizeDeliveryConfig = (input?: unknown | null): NotificationDeliveryCo
       },
       email: {
         enabled: strategies.email?.enabled ?? DEFAULT_NOTIFICATION_DELIVERY_CONFIG.strategies.email.enabled,
-        from: strategies.email?.from,
-        replyTo: strategies.email?.replyTo,
+        from: resolveStoredSenderAddress(strategies.email?.from),
+        replyTo: resolveStoredSenderAddress(strategies.email?.replyTo),
         subjectPrefix: strategies.email?.subjectPrefix,
       },
       custom: strategies.custom ?? {},

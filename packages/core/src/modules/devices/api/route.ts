@@ -5,6 +5,7 @@ import { consumeAdvancedFilterState, mergeAdvancedFilterTree } from '@open-merca
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
@@ -112,7 +113,7 @@ export async function POST(req: Request) {
 
     const body = registerDeviceSchema.parse(await readJsonSafe(req, {}))
     const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
-    const organizationId = scope?.selectedId ?? auth.orgId ?? null
+    const organizationId = resolveSingleOrganizationIdOrDeny(scope, auth) ?? null
 
     // When the app doesn't send an explicit per-device locale, fall back to the request's
     // Accept-Language (the mobile client calls this with its own headers). Only on self-register —

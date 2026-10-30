@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { createContext, useContext } from 'react'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { BrandStyleRuntime } from './BrandStyleRuntime'
 import { THEME_STORAGE_KEY } from './theme-init-script'
 
 const logger = createLogger('ui').child({ component: 'ThemeProvider' })
@@ -103,7 +104,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   // remount everything below this point, discarding the whole page's component
   // state. Flash of the wrong theme is prevented before first paint by
   // THEME_INIT_SCRIPT in the root layout, not by this branch.
-  return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>
+  return <ThemeContext.Provider value={value}><BrandStyleRuntime />{children}</ThemeContext.Provider>
 }
 
 export function useTheme(): ThemeContextValue {

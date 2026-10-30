@@ -4,7 +4,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
-import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { isCrudHttpError, translateCrudErrorBody } from '@open-mercato/shared/lib/crud/errors'
 import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 import { runRouteMutationGuards, type RouteMutationGuardResult } from '@open-mercato/shared/lib/crud/route-mutation-guard'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
@@ -212,7 +212,7 @@ export async function POST(req: Request) {
     await guarded.runAfterSuccess()
   } catch (err) {
     if (isCrudHttpError(err)) {
-      return NextResponse.json(err.body, { status: err.status })
+      return NextResponse.json(translateCrudErrorBody(err.body, translate), { status: err.status })
     }
     const interceptorRejection = getCommandInterceptorHttpRejection(err)
     if (interceptorRejection) {

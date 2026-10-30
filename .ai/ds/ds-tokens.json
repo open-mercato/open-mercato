@@ -46,7 +46,7 @@
         "name": "accent/indigo",
         "type": "COLOR"
       },
-      "note": "Accent indigo — used for selection controls (checkbox, radio, switch)"
+      "note": "was indigo-400 #818cf8: white glyph 2.98:1 < 3.0 (WCAG non-text); now 3.85:1"
     },
     "accent-indigo-foreground": {
       "kind": "color",
@@ -63,6 +63,66 @@
         "type": "COLOR"
       }
     },
+    "accent-orange": {
+      "kind": "color",
+      "light": "#ff9600",
+      "dark": "#ff9600",
+      "hex": {
+        "light": "#ff9600",
+        "dark": "#ff9600"
+      },
+      "themeInvariant": true,
+      "themeAlias": "color-accent-orange",
+      "figma": {
+        "name": "accent/orange",
+        "type": "COLOR"
+      }
+    },
+    "accent-orange-border": {
+      "kind": "color",
+      "light": "#c46f00",
+      "dark": "#ff9600",
+      "hex": {
+        "light": "#c46f00",
+        "dark": "#ff9600"
+      },
+      "themeInvariant": false,
+      "themeAlias": "color-accent-orange-border",
+      "figma": {
+        "name": "accent-orange-border",
+        "type": "COLOR"
+      }
+    },
+    "accent-orange-foreground": {
+      "kind": "color",
+      "light": "#171717",
+      "dark": "#171717",
+      "hex": {
+        "light": "#171717",
+        "dark": "#171717"
+      },
+      "themeInvariant": true,
+      "themeAlias": "color-accent-orange-foreground",
+      "figma": {
+        "name": "accent/orange-foreground",
+        "type": "COLOR"
+      }
+    },
+    "accent-orange-text": {
+      "kind": "color",
+      "light": "#a15a00",
+      "dark": "#ffbd5c",
+      "hex": {
+        "light": "#a15a00",
+        "dark": "#ffbd5c"
+      },
+      "themeInvariant": false,
+      "themeAlias": "color-accent-orange-text",
+      "figma": {
+        "name": "accent-orange-text",
+        "type": "COLOR"
+      }
+    },
     "background": {
       "kind": "color",
       "light": "oklch(1 0 0)",
@@ -75,6 +135,367 @@
       "themeAlias": "color-background",
       "figma": {
         "name": "background",
+        "type": "COLOR"
+      }
+    },
+    "badge-purple-bg": {
+      "kind": "color",
+      "light": "#efebff",
+      "dark": "rgb(120 77 239 / 16%)",
+      "hex": {
+        "light": "#efebff",
+        "dark": "#784def29"
+      },
+      "themeInvariant": false,
+      "themeAlias": "color-badge-purple-bg",
+      "figma": {
+        "name": "badge-purple-bg",
+        "type": "COLOR"
+      }
+    },
+    "badge-purple-border": {
+      "kind": "color",
+      "light": "#7d52f4",
+      "dark": "#7d52f4",
+      "hex": {
+        "light": "#7d52f4",
+        "dark": "#7d52f4"
+      },
+      "themeInvariant": true,
+      "themeAlias": "color-badge-purple-border",
+      "figma": {
+        "name": "badge-purple-border",
+        "type": "COLOR"
+      }
+    },
+    "badge-purple-light": {
+      "kind": "color",
+      "light": "#cac0ff",
+      "dark": "rgb(120 77 239 / 24%)",
+      "hex": {
+        "light": "#cac0ff",
+        "dark": "#784def3d"
+      },
+      "themeInvariant": false,
+      "themeAlias": "color-badge-purple-light",
+      "figma": {
+        "name": "badge-purple-light",
+        "type": "COLOR"
+      }
+    },
+    "badge-purple-solid": {
+      "kind": "color",
+      "light": "#7d52f4",
+      "dark": "#7d52f4",
+      "hex": {
+        "light": "#7d52f4",
+        "dark": "#7d52f4"
+      },
+      "themeInvariant": true,
+      "themeAlias": "color-badge-purple-solid",
+      "figma": {
+        "name": "badge-purple-solid",
+        "type": "COLOR"
+      }
+    },
+    "badge-purple-solid-foreground": {
+      "kind": "color",
+      "light": "#ffffff",
+      "dark": "#ffffff",
+      "hex": {
+        "light": "#ffffff",
+        "dark": "#ffffff"
+      },
+      "themeInvariant": true,
+      "themeAlias": "color-badge-purple-solid-foreground",
+      "figma": {
+        "name": "badge-purple-solid-foreground",
+        "type": "COLOR"
+      }
+    },
+    "badge-purple-text": {
+      "kind": "color",
+      "light": "#351a75",
+      "dark": "#cac0ff",
+      "hex": {
+        "light": "#351a75",
+        "dark": "#cac0ff"
+      },
+      "themeInvariant": false,
+      "themeAlias": "color-badge-purple-text",
+      "figma": {
+        "name": "badge-purple-text",
+        "type": "COLOR"
+      }
+    },
+    "badge-sky-bg": {
+      "kind": "color",
+      "light": "#ebf8ff",
+      "dark": "rgb(71 194 255 / 16%)",
+      "hex": {
+        "light": "#ebf8ff",
+        "dark": "#47c2ff29"
+      },
+      "themeInvariant": false,
+      "themeAlias": "color-badge-sky-bg",
+      "figma": {
+        "name": "badge-sky-bg",
+        "type": "COLOR"
+      }
+    },
+    "badge-sky-border": {
+      "kind": "color",
+      "light": "#47c2ff",
+      "dark": "#35ade9",
+      "hex": {
+        "light": "#47c2ff",
+        "dark": "#35ade9"
+      },
+      "themeInvariant": false,
+      "themeAlias": "color-badge-sky-border",
+      "figma": {
+        "name": "badge-sky-border",
+        "type": "COLOR"
+      }
+    },
+    "badge-sky-light": {
+      "kind": "color",
+      "light": "#c0eaff",
+      "dark": "rgb(71 194 255 / 24%)",
+      "hex": {
+        "light": "#c0eaff",
+        "dark": "#47c2ff3d"
+      },
+      "themeInvariant": false,
+      "themeAlias": "color-badge-sky-light",
+      "figma": {
+        "name": "badge-sky-light",
+        "type": "COLOR"
+      }
+    },
+    "badge-sky-solid": {
+      "kind": "color",
+      "light": "#47c2ff",
+      "dark": "#35ade9",
+      "hex": {
+        "light": "#47c2ff",
+        "dark": "#35ade9"
+      },
+      "themeInvariant": false,
+      "themeAlias": "color-badge-sky-solid",
+      "figma": {
+        "name": "badge-sky-solid",
+        "type": "COLOR"
+      }
+    },
+    "badge-sky-solid-foreground": {
+      "kind": "color",
+      "light": "#171717",
+      "dark": "#171717",
+      "hex": {
+        "light": "#171717",
+        "dark": "#171717"
+      },
+      "themeInvariant": true,
+      "themeAlias": "color-badge-sky-solid-foreground",
+      "figma": {
+        "name": "badge-sky-solid-foreground",
+        "type": "COLOR"
+      }
+    },
+    "badge-sky-text": {
+      "kind": "color",
+      "light": "#124b68",
+      "dark": "#68cdff",
+      "hex": {
+        "light": "#124b68",
+        "dark": "#68cdff"
+      },
+      "themeInvariant": false,
+      "themeAlias": "color-badge-sky-text",
+      "figma": {
+        "name": "badge-sky-text",
+        "type": "COLOR"
+      }
+    },
+    "badge-teal-bg": {
+      "kind": "color",
+      "light": "#e4fbf8",
+      "dark": "rgb(34 211 187 / 16%)",
+      "hex": {
+        "light": "#e4fbf8",
+        "dark": "#22d3bb29"
+      },
+      "themeInvariant": false,
+      "themeAlias": "color-badge-teal-bg",
+      "figma": {
+        "name": "badge-teal-bg",
+        "type": "COLOR"
+      }
+    },
+    "badge-teal-border": {
+      "kind": "color",
+      "light": "#22d3bb",
+      "dark": "#1daf9c",
+      "hex": {
+        "light": "#22d3bb",
+        "dark": "#1daf9c"
+      },
+      "themeInvariant": false,
+      "themeAlias": "color-badge-teal-border",
+      "figma": {
+        "name": "badge-teal-border",
+        "type": "COLOR"
+      }
+    },
+    "badge-teal-light": {
+      "kind": "color",
+      "light": "#c2f5ee",
+      "dark": "rgb(34 211 187 / 24%)",
+      "hex": {
+        "light": "#c2f5ee",
+        "dark": "#22d3bb3d"
+      },
+      "themeInvariant": false,
+      "themeAlias": "color-badge-teal-light",
+      "figma": {
+        "name": "badge-teal-light",
+        "type": "COLOR"
+      }
+    },
+    "badge-teal-solid": {
+      "kind": "color",
+      "light": "#22d3bb",
+      "dark": "#1daf9c",
+      "hex": {
+        "light": "#22d3bb",
+        "dark": "#1daf9c"
+      },
+      "themeInvariant": false,
+      "themeAlias": "color-badge-teal-solid",
+      "figma": {
+        "name": "badge-teal-solid",
+        "type": "COLOR"
+      }
+    },
+    "badge-teal-solid-foreground": {
+      "kind": "color",
+      "light": "#171717",
+      "dark": "#171717",
+      "hex": {
+        "light": "#171717",
+        "dark": "#171717"
+      },
+      "themeInvariant": true,
+      "themeAlias": "color-badge-teal-solid-foreground",
+      "figma": {
+        "name": "badge-teal-solid-foreground",
+        "type": "COLOR"
+      }
+    },
+    "badge-teal-text": {
+      "kind": "color",
+      "light": "#0b463e",
+      "dark": "#3fdec9",
+      "hex": {
+        "light": "#0b463e",
+        "dark": "#3fdec9"
+      },
+      "themeInvariant": false,
+      "themeAlias": "color-badge-teal-text",
+      "figma": {
+        "name": "badge-teal-text",
+        "type": "COLOR"
+      }
+    },
+    "badge-yellow-bg": {
+      "kind": "color",
+      "light": "#fffaeb",
+      "dark": "rgb(251 198 75 / 16%)",
+      "hex": {
+        "light": "#fffaeb",
+        "dark": "#fbc64b29"
+      },
+      "themeInvariant": false,
+      "themeAlias": "color-badge-yellow-bg",
+      "figma": {
+        "name": "badge-yellow-bg",
+        "type": "COLOR"
+      }
+    },
+    "badge-yellow-border": {
+      "kind": "color",
+      "light": "#f6b51e",
+      "dark": "#e6a819",
+      "hex": {
+        "light": "#f6b51e",
+        "dark": "#e6a819"
+      },
+      "themeInvariant": false,
+      "themeAlias": "color-badge-yellow-border",
+      "figma": {
+        "name": "badge-yellow-border",
+        "type": "COLOR"
+      }
+    },
+    "badge-yellow-light": {
+      "kind": "color",
+      "light": "#ffecc0",
+      "dark": "rgb(251 198 75 / 24%)",
+      "hex": {
+        "light": "#ffecc0",
+        "dark": "#fbc64b3d"
+      },
+      "themeInvariant": false,
+      "themeAlias": "color-badge-yellow-light",
+      "figma": {
+        "name": "badge-yellow-light",
+        "type": "COLOR"
+      }
+    },
+    "badge-yellow-solid": {
+      "kind": "color",
+      "light": "#f6b51e",
+      "dark": "#e6a819",
+      "hex": {
+        "light": "#f6b51e",
+        "dark": "#e6a819"
+      },
+      "themeInvariant": false,
+      "themeAlias": "color-badge-yellow-solid",
+      "figma": {
+        "name": "badge-yellow-solid",
+        "type": "COLOR"
+      },
+      "note": "Figma file-format category colors, identical in both themes."
+    },
+    "badge-yellow-solid-foreground": {
+      "kind": "color",
+      "light": "#171717",
+      "dark": "#171717",
+      "hex": {
+        "light": "#171717",
+        "dark": "#171717"
+      },
+      "themeInvariant": true,
+      "themeAlias": "color-badge-yellow-solid-foreground",
+      "figma": {
+        "name": "badge-yellow-solid-foreground",
+        "type": "COLOR"
+      }
+    },
+    "badge-yellow-text": {
+      "kind": "color",
+      "light": "#624c18",
+      "dark": "#ffd268",
+      "hex": {
+        "light": "#624c18",
+        "dark": "#ffd268"
+      },
+      "themeInvariant": false,
+      "themeAlias": "color-badge-yellow-text",
+      "figma": {
+        "name": "badge-yellow-text",
         "type": "COLOR"
       }
     },
@@ -137,8 +558,7 @@
       "figma": {
         "name": "brand/apple",
         "type": "COLOR"
-      },
-      "note": "Social brand colors — theme-invariant"
+      }
     },
     "brand-dropbox": {
       "kind": "color",
@@ -185,6 +605,22 @@
         "type": "COLOR"
       }
     },
+    "brand-google": {
+      "kind": "color",
+      "light": "#F14336",
+      "dark": "#F14336",
+      "hex": {
+        "light": "#f14336",
+        "dark": "#f14336"
+      },
+      "themeInvariant": true,
+      "themeAlias": "color-brand-google",
+      "figma": {
+        "name": "brand/google",
+        "type": "COLOR"
+      },
+      "note": "Social brand colors — theme-invariant"
+    },
     "brand-google-stroke": {
       "kind": "color",
       "light": "#DADCE0",
@@ -199,6 +635,22 @@
         "name": "brand/google-stroke",
         "type": "COLOR"
       }
+    },
+    "brand-google-text-bg": {
+      "kind": "color",
+      "light": "#D93C31",
+      "dark": "#D93C31",
+      "hex": {
+        "light": "#d93c31",
+        "dark": "#d93c31"
+      },
+      "themeInvariant": true,
+      "themeAlias": "color-brand-google-text-bg",
+      "figma": {
+        "name": "brand/google-text-bg",
+        "type": "COLOR"
+      },
+      "note": "White label contrast4.53:1; source red remains for icon-only."
     },
     "brand-lime": {
       "kind": "color",
@@ -504,6 +956,30 @@
         "type": "COLOR"
       }
     },
+    "chart-legend-gray": {
+      "kind": "color",
+      "light": "#7b7b7b",
+      "dark": "var(--muted-foreground)",
+      "hex": {
+        "light": "#7b7b7b",
+        "dark": null
+      },
+      "themeInvariant": false,
+      "themeAlias": "color-chart-legend-gray",
+      "figma": null
+    },
+    "chart-legend-light-gray": {
+      "kind": "color",
+      "light": "#d1d1d1",
+      "dark": "var(--text-disabled)",
+      "hex": {
+        "light": "#d1d1d1",
+        "dark": null
+      },
+      "themeInvariant": false,
+      "themeAlias": "color-chart-legend-light-gray",
+      "figma": null
+    },
     "chart-orange": {
       "kind": "color",
       "light": "oklch(0.705 0.213 47.604)",
@@ -594,6 +1070,276 @@
         "type": "COLOR"
       }
     },
+    "file-format-blue": {
+      "kind": "color",
+      "light": "#4f46e5",
+      "dark": "#4f46e5",
+      "hex": {
+        "light": "#4f46e5",
+        "dark": "#4f46e5"
+      },
+      "themeInvariant": true,
+      "themeAlias": "color-file-format-blue",
+      "figma": {
+        "name": "file-format-blue",
+        "type": "COLOR"
+      }
+    },
+    "file-format-blue-foreground": {
+      "kind": "color",
+      "light": "#ffffff",
+      "dark": "#ffffff",
+      "hex": {
+        "light": "#ffffff",
+        "dark": "#ffffff"
+      },
+      "themeInvariant": true,
+      "themeAlias": "color-file-format-blue-foreground",
+      "figma": {
+        "name": "file-format-blue-foreground",
+        "type": "COLOR"
+      }
+    },
+    "file-format-gray": {
+      "kind": "color",
+      "light": "#7b7b7b",
+      "dark": "#7b7b7b",
+      "hex": {
+        "light": "#7b7b7b",
+        "dark": "#7b7b7b"
+      },
+      "themeInvariant": true,
+      "themeAlias": "color-file-format-gray",
+      "figma": {
+        "name": "file-format-gray",
+        "type": "COLOR"
+      }
+    },
+    "file-format-gray-foreground": {
+      "kind": "color",
+      "light": "#0c0c0c",
+      "dark": "#0c0c0c",
+      "hex": {
+        "light": "#0c0c0c",
+        "dark": "#0c0c0c"
+      },
+      "themeInvariant": true,
+      "themeAlias": "color-file-format-gray-foreground",
+      "figma": {
+        "name": "file-format-gray-foreground",
+        "type": "COLOR"
+      }
+    },
+    "file-format-green": {
+      "kind": "color",
+      "light": "#16a34a",
+      "dark": "#16a34a",
+      "hex": {
+        "light": "#16a34a",
+        "dark": "#16a34a"
+      },
+      "themeInvariant": true,
+      "themeAlias": "color-file-format-green",
+      "figma": {
+        "name": "file-format-green",
+        "type": "COLOR"
+      }
+    },
+    "file-format-green-foreground": {
+      "kind": "color",
+      "light": "#171717",
+      "dark": "#171717",
+      "hex": {
+        "light": "#171717",
+        "dark": "#171717"
+      },
+      "themeInvariant": true,
+      "themeAlias": "color-file-format-green-foreground",
+      "figma": {
+        "name": "file-format-green-foreground",
+        "type": "COLOR"
+      }
+    },
+    "file-format-orange": {
+      "kind": "color",
+      "light": "#d97706",
+      "dark": "#d97706",
+      "hex": {
+        "light": "#d97706",
+        "dark": "#d97706"
+      },
+      "themeInvariant": true,
+      "themeAlias": "color-file-format-orange",
+      "figma": {
+        "name": "file-format-orange",
+        "type": "COLOR"
+      }
+    },
+    "file-format-orange-foreground": {
+      "kind": "color",
+      "light": "#171717",
+      "dark": "#171717",
+      "hex": {
+        "light": "#171717",
+        "dark": "#171717"
+      },
+      "themeInvariant": true,
+      "themeAlias": "color-file-format-orange-foreground",
+      "figma": {
+        "name": "file-format-orange-foreground",
+        "type": "COLOR"
+      }
+    },
+    "file-format-pink": {
+      "kind": "color",
+      "light": "#fb4ba3",
+      "dark": "#fb4ba3",
+      "hex": {
+        "light": "#fb4ba3",
+        "dark": "#fb4ba3"
+      },
+      "themeInvariant": true,
+      "themeAlias": "color-file-format-pink",
+      "figma": {
+        "name": "file-format-pink",
+        "type": "COLOR"
+      }
+    },
+    "file-format-pink-foreground": {
+      "kind": "color",
+      "light": "#171717",
+      "dark": "#171717",
+      "hex": {
+        "light": "#171717",
+        "dark": "#171717"
+      },
+      "themeInvariant": true,
+      "themeAlias": "color-file-format-pink-foreground",
+      "figma": {
+        "name": "file-format-pink-foreground",
+        "type": "COLOR"
+      }
+    },
+    "file-format-purple": {
+      "kind": "color",
+      "light": "#7d52f4",
+      "dark": "#7d52f4",
+      "hex": {
+        "light": "#7d52f4",
+        "dark": "#7d52f4"
+      },
+      "themeInvariant": true,
+      "themeAlias": "color-file-format-purple",
+      "figma": {
+        "name": "file-format-purple",
+        "type": "COLOR"
+      }
+    },
+    "file-format-purple-foreground": {
+      "kind": "color",
+      "light": "#ffffff",
+      "dark": "#ffffff",
+      "hex": {
+        "light": "#ffffff",
+        "dark": "#ffffff"
+      },
+      "themeInvariant": true,
+      "themeAlias": "color-file-format-purple-foreground",
+      "figma": {
+        "name": "file-format-purple-foreground",
+        "type": "COLOR"
+      }
+    },
+    "file-format-red": {
+      "kind": "color",
+      "light": "#dc2626",
+      "dark": "#dc2626",
+      "hex": {
+        "light": "#dc2626",
+        "dark": "#dc2626"
+      },
+      "themeInvariant": true,
+      "themeAlias": "color-file-format-red",
+      "figma": {
+        "name": "file-format-red",
+        "type": "COLOR"
+      }
+    },
+    "file-format-red-foreground": {
+      "kind": "color",
+      "light": "#ffffff",
+      "dark": "#ffffff",
+      "hex": {
+        "light": "#ffffff",
+        "dark": "#ffffff"
+      },
+      "themeInvariant": true,
+      "themeAlias": "color-file-format-red-foreground",
+      "figma": {
+        "name": "file-format-red-foreground",
+        "type": "COLOR"
+      }
+    },
+    "file-format-teal": {
+      "kind": "color",
+      "light": "#47c2ff",
+      "dark": "#47c2ff",
+      "hex": {
+        "light": "#47c2ff",
+        "dark": "#47c2ff"
+      },
+      "themeInvariant": true,
+      "themeAlias": "color-file-format-teal",
+      "figma": {
+        "name": "file-format-teal",
+        "type": "COLOR"
+      }
+    },
+    "file-format-teal-foreground": {
+      "kind": "color",
+      "light": "#171717",
+      "dark": "#171717",
+      "hex": {
+        "light": "#171717",
+        "dark": "#171717"
+      },
+      "themeInvariant": true,
+      "themeAlias": "color-file-format-teal-foreground",
+      "figma": {
+        "name": "file-format-teal-foreground",
+        "type": "COLOR"
+      }
+    },
+    "file-format-yellow": {
+      "kind": "color",
+      "light": "#f6b51e",
+      "dark": "#f6b51e",
+      "hex": {
+        "light": "#f6b51e",
+        "dark": "#f6b51e"
+      },
+      "themeInvariant": true,
+      "themeAlias": "color-file-format-yellow",
+      "figma": {
+        "name": "file-format-yellow",
+        "type": "COLOR"
+      }
+    },
+    "file-format-yellow-foreground": {
+      "kind": "color",
+      "light": "#171717",
+      "dark": "#171717",
+      "hex": {
+        "light": "#171717",
+        "dark": "#171717"
+      },
+      "themeInvariant": true,
+      "themeAlias": "color-file-format-yellow-foreground",
+      "figma": {
+        "name": "file-format-yellow-foreground",
+        "type": "COLOR"
+      }
+    },
     "focus-ring-inner": {
       "kind": "color",
       "light": "rgba(255, 255, 255, 1)",
@@ -639,8 +1385,7 @@
     "font-size-overline": {
       "kind": "dimension",
       "value": "0.6875rem",
-      "figma": null,
-      "note": "═══ Design System: Typography ═══"
+      "figma": null
     },
     "font-size-overline--line-height": {
       "kind": "dimension",
@@ -676,6 +1421,30 @@
         "name": "input",
         "type": "COLOR"
       }
+    },
+    "key-icon-pink-bg": {
+      "kind": "color",
+      "light": "#ffebf4",
+      "dark": "var(--status-pink-bg)",
+      "hex": {
+        "light": "#ffebf4",
+        "dark": null
+      },
+      "themeInvariant": false,
+      "themeAlias": "color-key-icon-pink-bg",
+      "figma": null
+    },
+    "key-icon-pink-icon": {
+      "kind": "color",
+      "light": "#fb4ba3",
+      "dark": "var(--status-pink-icon)",
+      "hex": {
+        "light": "#fb4ba3",
+        "dark": null
+      },
+      "themeInvariant": false,
+      "themeAlias": "color-key-icon-pink-icon",
+      "figma": null
     },
     "muted": {
       "kind": "color",
@@ -802,6 +1571,70 @@
         "type": "FLOAT"
       }
     },
+    "radius-ai-control": {
+      "kind": "dimension",
+      "value": "0.5625rem",
+      "figma": {
+        "name": "radius/ai-control",
+        "type": "FLOAT"
+      }
+    },
+    "radius-ai-input": {
+      "kind": "dimension",
+      "value": "0.75rem",
+      "figma": {
+        "name": "radius/ai-input",
+        "type": "FLOAT"
+      }
+    },
+    "radius-ai-prompt": {
+      "kind": "dimension",
+      "value": "1.25rem",
+      "figma": {
+        "name": "radius/ai-prompt",
+        "type": "FLOAT"
+      }
+    },
+    "radius-ai-prompt-inner": {
+      "kind": "expression",
+      "value": "calc(var(--radius-ai-prompt) - 1px)",
+      "figma": {
+        "name": "radius/ai-prompt-inner",
+        "type": "FLOAT"
+      }
+    },
+    "radius-ai-prompt-mobile": {
+      "kind": "dimension",
+      "value": "1.125rem",
+      "figma": {
+        "name": "radius/ai-prompt-mobile",
+        "type": "FLOAT"
+      }
+    },
+    "radius-ai-prompt-mobile-inner": {
+      "kind": "expression",
+      "value": "calc(var(--radius-ai-prompt-mobile) - 1px)",
+      "figma": {
+        "name": "radius/ai-prompt-mobile-inner",
+        "type": "FLOAT"
+      }
+    },
+    "radius-alert": {
+      "kind": "dimension",
+      "value": "0.75rem",
+      "figma": {
+        "name": "radius/alert",
+        "type": "FLOAT"
+      }
+    },
+    "radius-content-card": {
+      "kind": "dimension",
+      "value": "0.75rem",
+      "figma": {
+        "name": "radius/content-card",
+        "type": "FLOAT"
+      }
+    },
     "radius-lg": {
       "kind": "expression",
       "value": "var(--radius)",
@@ -820,12 +1653,36 @@
         "type": "FLOAT"
       }
     },
+    "radius-selection-card": {
+      "kind": "dimension",
+      "value": "0.75rem",
+      "figma": {
+        "name": "radius/selection-card",
+        "type": "FLOAT"
+      }
+    },
     "radius-sm": {
       "kind": "expression",
       "value": "calc(var(--radius) - 4px)",
       "resolvedPx": 6,
       "figma": {
         "name": "radius/sm",
+        "type": "FLOAT"
+      }
+    },
+    "radius-textarea": {
+      "kind": "dimension",
+      "value": "0.75rem",
+      "figma": {
+        "name": "radius/textarea",
+        "type": "FLOAT"
+      }
+    },
+    "radius-upload": {
+      "kind": "dimension",
+      "value": "0.75rem",
+      "figma": {
+        "name": "radius/upload",
         "type": "FLOAT"
       }
     },
@@ -1644,6 +2501,12 @@
         "name": "text-disabled",
         "type": "COLOR"
       }
+    },
+    "tracking-badge-small": {
+      "kind": "dimension",
+      "value": "0.02em",
+      "figma": null,
+      "note": "═══ Design System: Typography ═══"
     },
     "z-index-banner": {
       "kind": "number",

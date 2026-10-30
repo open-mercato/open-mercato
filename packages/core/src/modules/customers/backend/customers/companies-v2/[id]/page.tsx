@@ -30,6 +30,7 @@ import { CompanyPeopleSection, type CompanyPersonSummary } from '../../../../com
 import type { TagSummary } from '../../../../components/detail/types'
 import type { TagsSectionController } from '@open-mercato/ui/backend/detail'
 import { coerceDisplayName } from '../../../../lib/displayName'
+import { isDetailNotFoundStatus } from '@open-mercato/core/modules/customers/lib/detailHelpers'
 import { CompanyDetailHeader } from '../../../../components/detail/CompanyDetailHeader'
 import { CompanyDetailTabs, resolveLegacyTab, type CompanyTabId } from '../../../../components/detail/CompanyDetailTabs'
 import { useDealsAccess } from '../../../../components/detail/useDealsAccess'
@@ -152,7 +153,7 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
       )
       setData(payload as CompanyOverview)
     } catch (err) {
-      if ((err as { status?: number }).status === 404) {
+      if (isDetailNotFoundStatus((err as { status?: number }).status)) {
         setIsNotFound(true)
       } else {
         const message = err instanceof Error ? err.message : t('customers.companies.detail.error.load', 'Failed to load company.')

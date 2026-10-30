@@ -37,6 +37,34 @@ describe('normalizeHex', () => {
 })
 
 describe('ColorPicker', () => {
+  it('controls opacity separately without changing the RGB hex contract', async () => {
+    const onChange = jest.fn()
+    const onOpacityChange = jest.fn()
+    function Example() {
+      const [opacity, setOpacity] = React.useState(75)
+      return <ColorPicker value="#6366F1" onChange={onChange} opacity={opacity} showOpacity onOpacityChange={next => { setOpacity(next); onOpacityChange(next) }} />
+    }
+    const { container } = render(<Example />)
+    fireEvent.click(screen.getByRole('button'))
+    const slider = await screen.findByRole('slider', { name: 'Opacity' })
+    expect(slider).toHaveValue('75')
+    fireEvent.change(slider, { target: { value: '25' } })
+    expect(onOpacityChange).toHaveBeenLastCalledWith(25)
+    expect(onChange).not.toHaveBeenCalled()
+    expect(slider).toHaveAttribute('aria-valuetext', '25%')
+    expect(container.querySelector('[data-slot="color-picker-preview"]')).toHaveStyle({ opacity: '0.25' })
+    fireEvent.change(slider, { target: { value: '0' } })
+    expect(onOpacityChange).toHaveBeenLastCalledWith(0)
+    expect(container.querySelector('[data-slot="color-picker-preview"]')).toHaveStyle({ opacity: '0' })
+  })
+
+  it('preserves the existing display-only opacity badge without a callback', async () => {
+    render(<ColorPicker value="#6366F1" onChange={() => {}} showOpacity />)
+    fireEvent.click(screen.getByRole('button'))
+    expect(await screen.findByText('100%')).toBeInTheDocument()
+    expect(screen.queryByRole('slider', { name: 'Opacity' })).not.toBeInTheDocument()
+  })
+
   it('renders a trigger button with the current color preview and hex label', () => {
     const { container } = render(<ColorPicker value="#6366F1" onChange={() => {}} />)
     const trigger = container.querySelector('[data-slot="color-picker-trigger"]') as HTMLButtonElement

@@ -123,7 +123,64 @@ describe('connect-credential-channel scope', () => {
     expect(result.status).toBe('connected')
     const savedScope = save.mock.calls[0][2] as SavedScope
     expect(savedScope.userId).toBe(USER_ID)
-    const rowArgs = (createConnectedChannelRow as jest.Mock).mock.calls[0][0] as { userId: string | null }
+    const rowArgs = (createConnectedChannelRow as jest.Mock).mock.calls[0][0] as {
+      userId: string | null
+      externalIdentifier: string | null
+      adoptUnidentifiedChannel: boolean
+    }
     expect(rowArgs.userId).toBe(USER_ID)
+    expect(rowArgs.externalIdentifier).toBe('alice@example.com')
+    expect(rowArgs.adoptUnidentifiedChannel).toBe(false)
+  })
+
+  it('uses the identity the adapter reported for a provider with no email-shaped credential (#4977)', async () => {
+    const adapter = {
+      providerKey: 'discord',
+      channelType: 'discord',
+      capabilities: { realtimePush: true },
+      validateCredentials: async () => ({ ok: true, externalIdentifier: 'discord:123' }),
+    }
+    const { ctx } = buildCtx(adapter)
+    const result = await connectCredentialChannelCommand.execute(
+      {
+        providerKey: 'discord',
+        displayName: 'Discord',
+        credentials: { botToken: 'token', applicationId: '123', publicKey: 'a'.repeat(64) },
+        userId: USER_ID,
+        scope: { tenantId: TENANT_ID, organizationId: ORG_ID },
+      },
+      ctx,
+    )
+
+    expect(result).toEqual({ status: 'connected', channelId: 'ch-new', externalIdentifier: 'discord:123' })
+    const rowArgs = (createConnectedChannelRow as jest.Mock).mock.calls[0][0] as {
+      externalIdentifier: string | null
+      adoptUnidentifiedChannel: boolean
+    }
+    expect(rowArgs.externalIdentifier).toBe('discord:123')
+    expect(rowArgs.adoptUnidentifiedChannel).toBe(true)
+  })
+
+  it('prefers the adapter identity over a credential username', async () => {
+    const adapter = {
+      providerKey: 'custom',
+      channelType: 'chat',
+      capabilities: {},
+      validateCredentials: async () => ({ ok: true, externalIdentifier: 'custom:acct-1' }),
+    }
+    const { ctx } = buildCtx(adapter)
+    await connectCredentialChannelCommand.execute(
+      {
+        providerKey: 'custom',
+        displayName: 'Custom',
+        credentials: { username: 'bob@example.com' },
+        userId: USER_ID,
+        scope: { tenantId: TENANT_ID, organizationId: ORG_ID },
+      },
+      ctx,
+    )
+
+    const rowArgs = (createConnectedChannelRow as jest.Mock).mock.calls[0][0] as { externalIdentifier: string | null }
+    expect(rowArgs.externalIdentifier).toBe('custom:acct-1')
   })
 })

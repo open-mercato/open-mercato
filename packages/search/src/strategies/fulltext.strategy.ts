@@ -11,6 +11,7 @@ import type {
   FullTextSearchDocument,
   FullTextSearchHit,
   DocumentLookupKey,
+  ListDocumentIdsOptions,
   IndexStats,
 } from '../fulltext/types'
 
@@ -34,6 +35,7 @@ export class FullTextSearchStrategy implements SearchStrategy {
   }
 
   async search(query: string, options: SearchOptions): Promise<SearchResult[]> {
+    if (options.indexDocFilter) return []
     if (Array.isArray(options.organizationIds)) {
       const organizationIds = options.organizationIds
         .map((value) => (typeof value === 'string' ? value.trim() : ''))
@@ -129,6 +131,17 @@ export class FullTextSearchStrategy implements SearchStrategy {
       return null
     }
     return this.driver.getEntityCounts(tenantId)
+  }
+
+  async listDocumentIds(
+    entityId: EntityId,
+    tenantId: string,
+    options?: ListDocumentIdsOptions
+  ): Promise<string[] | null> {
+    if (!this.driver.listDocumentIds) {
+      return null
+    }
+    return this.driver.listDocumentIds(entityId, tenantId, options)
   }
 
   get driverId(): string {

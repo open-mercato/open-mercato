@@ -181,10 +181,12 @@ export type QuarantineDiscordChannelResult = 'quarantined' | 'not_found'
  * refresh that is ~1440 session starts per day against Discord's ~1000/day
  * per-bot budget, while the row and the admin UI still read `connected`.
  *
- * Writing `requires_reauth` mirrors what the hub already does for a channel
- * whose credentials could not be persisted (`connect-channel.ts`), so the
- * existing reauth banner, the mutation guard that keys on `status`, and the
- * operator's reconnect flow all engage without any hub change.
+ * Writing `requires_reauth` + `isActive = false` mirrors what the hub already
+ * does for a channel whose credentials could not be persisted
+ * (`connect-channel.ts`'s `applyConnectionState`), so the existing reauth
+ * banner, the mutation guard that keys on `status`, the admin channel list
+ * (keyed on `isActive`), and the operator's reconnect flow all engage without
+ * any hub change.
  */
 export async function quarantineDiscordChannel(params: {
   em: EntityManager
@@ -212,6 +214,11 @@ export async function quarantineDiscordChannel(params: {
 
   channel.status = 'requires_reauth'
   channel.lastError = params.reason
+  // Mirrors `connect-channel.ts`'s `applyConnectionState`: the admin list and
+  // the reconciler's `isActive: true` query filter both key on this flag, not
+  // `status` — without it the channel keeps reporting Active and the next
+  // refresh tick's query would still pick it up.
+  channel.isActive = false
   await fork.flush()
   return 'quarantined'
 }

@@ -1,6 +1,5 @@
 import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
-import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { InboxSettings } from './data/entities'
+import { ensureInboxSettings } from './lib/ensure-settings'
 
 export const setup: ModuleSetupConfig = {
   defaultRoleFeatures: {
@@ -20,25 +19,7 @@ export const setup: ModuleSetupConfig = {
   },
 
   async onTenantCreated({ em, tenantId, organizationId }) {
-    const exists = await findOneWithDecryption(
-      em,
-      InboxSettings,
-      { tenantId, organizationId, deletedAt: null },
-      undefined,
-      { tenantId, organizationId },
-    )
-    if (!exists) {
-      const domain = process.env.INBOX_OPS_DOMAIN || 'inbox.mercato.local'
-      const slug = organizationId.slice(0, 8)
-      const inboxAddress = `ops-${slug}@${domain}`
-      em.persist(em.create(InboxSettings, {
-        tenantId,
-        organizationId,
-        inboxAddress,
-        isActive: true,
-      }))
-    }
-    await em.flush()
+    await ensureInboxSettings(em, { tenantId, organizationId })
   },
 
   async seedDefaults() {},

@@ -27,12 +27,23 @@ function resolveGeneratedImport(importPath, fileDir) {
 
 const rewriteOptions = { resolveGeneratedImport }
 
+async function copyDesignSystemAssets() {
+  const sourceRoot = join(packageDir, 'src')
+  const files = await glob(['modules/design_system/gallery/assets/**/*.{png,svg}', 'modules/design_system/i18n/*.json'], { cwd: sourceRoot })
+  for (const file of files) {
+    const destination = join(distDir, file)
+    mkdirSync(dirname(destination), { recursive: true })
+    copyFileSync(join(sourceRoot, file), destination)
+  }
+}
+
 await buildPackage(packageDir, {
   name: 'core',
   clearDist: true,
   copyJson: true,
   copyJsonIgnore: ['**/i18n/**'],
   rewriteOptions,
+  afterBuild: copyDesignSystemAssets,
 })
 
 const generatedEntryPoints = await glob('generated/**/*.{ts,tsx}', {

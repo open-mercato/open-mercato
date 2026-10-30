@@ -3591,7 +3591,7 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
   const commandLoadersChecksumFile = path.join(outputDir, 'command-loaders.generated.checksum')
 
   const enabled = discovery.enabled
-  const extensions = loadGeneratorExtensions()
+  const extensions = loadGeneratorExtensions(resolver)
 
   // Pre-pass: collect generator plugins from each enabled module's generators.ts
   const pluginRegistry = new Map<string, import('@open-mercato/shared/modules/generators').GeneratorPlugin>()
@@ -4624,6 +4624,7 @@ async function generateModuleRegistryAppFromDiscovery(options: ModuleRegistryRen
           importName: moduleRuntimeImportName,
           members: ['default', 'runtime'],
           fallback: identifier('undefined'),
+          castType: "Module['runtime']",
         }),
       })
     }
@@ -5035,6 +5036,7 @@ async function generateModuleRegistryCliFromDiscovery(options: ModuleRegistryRen
           importName: moduleRuntimeImportName,
           members: ['default', 'runtime'],
           fallback: identifier('undefined'),
+          castType: "Module['runtime']",
         }),
       })
     }

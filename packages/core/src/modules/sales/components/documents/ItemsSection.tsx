@@ -16,12 +16,14 @@ import {
   createDictionaryMap,
   normalizeDictionaryEntries,
 } from "@open-mercato/core/modules/dictionaries/components/dictionaryAppearance";
+import { cn } from "@open-mercato/shared/lib/utils";
 import { useT, useLocale } from "@open-mercato/shared/lib/i18n/context";
 import { useOrganizationScopeDetail } from "@open-mercato/shared/lib/frontend/useOrganizationScope";
 import { useConfirmDialog } from "@open-mercato/ui/backend/confirm-dialog";
 import { emitSalesDocumentTotalsRefresh } from "@open-mercato/core/modules/sales/lib/frontend/documentTotalsEvents";
 import { LineItemDialog } from "./LineItemDialog";
 import { handleSectionMutationError } from "./optimisticLock";
+import { useSalesDocumentMutation } from "./useSalesDocumentMutation";
 import type { SalesLineRecord } from "./lineItemTypes";
 import {
   formatMoney,
@@ -131,6 +133,11 @@ function resolveInjectedColumnValue(
   return current;
 }
 
+const LINES_PAGE_SIZE = 100;
+// Upper bound on line pages fetched for one document, so an API that ignores `page`
+// cannot spin the loader forever.
+const LINES_MAX_PAGES = 200;
+
 const SHIPMENTS_PAGE_SIZE = 100;
 // A single order beyond this many shipment pages is pathological; stopping there
 // keeps the shipped state explicitly unresolved rather than silently partial.
@@ -145,6 +152,8 @@ type SalesDocumentItemsSectionProps = {
   tenantId?: string | null;
   onActionChange?: (action: SectionAction | null) => void;
   onItemsChange?: (items: SalesLineRecord[]) => void;
+  /** Disables line writes: on an external order they would all be rejected. */
+  amountsReadOnly?: boolean;
 };
 
 export function SalesDocumentItemsSection({
@@ -156,8 +165,10 @@ export function SalesDocumentItemsSection({
   tenantId: tenantFromProps,
   onActionChange,
   onItemsChange,
+  amountsReadOnly = false,
 }: SalesDocumentItemsSectionProps) {
   const t = useT();
+  const runDocumentMutation = useSalesDocumentMutation(kind, documentId);
   const locale = useLocale();
   const { organizationId, tenantId } = useOrganizationScopeDetail();
   const { confirm, ConfirmDialogElement } = useConfirmDialog();
@@ -204,6 +215,7 @@ export function SalesDocumentItemsSection({
   const documentKey = kind === "order" ? "orderId" : "quoteId";
   const lineStatusesLoaded = React.useRef(false);
   const itemsLoadedForDocument = React.useRef<string | null>(null);
+  const itemsLoadSeq = React.useRef(0);
   const shipmentsLoadedForDocument = React.useRef<string | null>(null);
   const loadLineStatuses = React.useCallback(async () => {
     try {
@@ -222,21 +234,58 @@ export function SalesDocumentItemsSection({
   }, []);
 
   const loadItems = React.useCallback(async () => {
+    const loadSeq = ++itemsLoadSeq.current;
+    const isCurrentLoad = () => loadSeq === itemsLoadSeq.current;
     setLoading(true);
     setError(null);
     try {
-      const params = new URLSearchParams({
-        page: "1",
-        pageSize: "100",
-        [documentKey]: documentId,
-      });
-      const response = await apiCall<{
-        items?: Array<Record<string, unknown>>;
-      }>(`/api/${resourcePath}?${params.toString()}`, undefined, {
-        fallback: { items: [] },
-      });
-      if (response.ok && Array.isArray(response.result?.items)) {
-        const mapped = response.result.items.flatMap<SalesLineRecord>(
+      const collectedItems: Array<Record<string, unknown>> = [];
+      const seenIds = new Set<string>();
+      let loaded = false;
+      let complete = false;
+      let page = 1;
+      while (page <= LINES_MAX_PAGES) {
+        const params = new URLSearchParams({
+          page: String(page),
+          pageSize: String(LINES_PAGE_SIZE),
+          [documentKey]: documentId,
+        });
+        const response = await apiCall<{
+          items?: Array<Record<string, unknown>>;
+          total?: unknown;
+        }>(`/api/${resourcePath}?${params.toString()}`, undefined, {
+          fallback: { items: [] },
+        });
+        if (!response.ok || !Array.isArray(response.result?.items)) {
+          if (page > 1) throw new Error("[internal] sales line page failed to load");
+          complete = true;
+          break;
+        }
+        loaded = true;
+        const pageItems = response.result.items;
+        let added = 0;
+        pageItems.forEach((item) => {
+          const id = typeof item.id === "string" ? item.id : null;
+          if (id && seenIds.has(id)) return;
+          if (id) seenIds.add(id);
+          collectedItems.push(item);
+          added += 1;
+        });
+        const reportedTotal = normalizeNumber(response.result?.total, Number.NaN);
+        const hasMore =
+          added > 0 &&
+          pageItems.length >= LINES_PAGE_SIZE &&
+          (!Number.isFinite(reportedTotal) || collectedItems.length < reportedTotal);
+        if (!hasMore) {
+          complete = true;
+          break;
+        }
+        page += 1;
+      }
+      if (!complete) throw new Error("[internal] sales line page limit reached");
+      if (!isCurrentLoad()) return;
+      if (loaded) {
+        const mapped = collectedItems.flatMap<SalesLineRecord>(
           (item) => {
             const id = typeof item.id === "string" ? item.id : null;
             if (!id) return [];
@@ -380,11 +429,13 @@ export function SalesDocumentItemsSection({
         if (onItemsChange) onItemsChange([]);
       }
     } catch (err) {
+      if (!isCurrentLoad()) return;
       logger.error('sales.document.items.load', { err });
       setError(t("sales.documents.items.errorLoad", "Failed to load items."));
+      setItems([]);
       if (onItemsChange) onItemsChange([]);
     } finally {
-      setLoading(false);
+      if (isCurrentLoad()) setLoading(false);
     }
   }, [currencyCode, documentId, documentKey, onItemsChange, resourcePath, t]);
 
@@ -488,15 +539,19 @@ export function SalesDocumentItemsSection({
     onActionChange({
       label: t("sales.documents.items.add", "Add item"),
       onClick: openCreate,
-      disabled: false,
+      disabled: amountsReadOnly,
     });
     return () => onActionChange(null);
-  }, [onActionChange, openCreate, t]);
+  }, [amountsReadOnly, onActionChange, openCreate, t]);
 
-  const handleEdit = React.useCallback((line: SalesLineRecord) => {
-    setLineForEdit(line);
-    setDialogOpen(true);
-  }, []);
+  const handleEdit = React.useCallback(
+    (line: SalesLineRecord) => {
+      if (amountsReadOnly) return;
+      setLineForEdit(line);
+      setDialogOpen(true);
+    },
+    [amountsReadOnly],
+  );
 
   const resolveVariantInfo = React.useCallback((record: SalesLineRecord) => {
     const meta =
@@ -537,7 +592,7 @@ export function SalesDocumentItemsSection({
       });
       if (!confirmed) return;
       try {
-        const result = await withScopedApiRequestHeaders(
+        const result = await runDocumentMutation(() => withScopedApiRequestHeaders(
           buildOptimisticLockHeader(documentUpdatedAt),
           () =>
             deleteCrud(resourcePath, {
@@ -552,7 +607,7 @@ export function SalesDocumentItemsSection({
                 "Failed to delete line.",
               ),
             }),
-        );
+        ), { id: line.id, [documentKey]: documentId });
         if (result.ok) {
           flash(t("sales.documents.items.deleted", "Line removed."), "success");
           await loadItems();
@@ -580,6 +635,7 @@ export function SalesDocumentItemsSection({
       resourcePath,
       t,
       resolvedTenantId,
+      runDocumentMutation,
     ],
   );
 
@@ -680,10 +736,11 @@ export function SalesDocumentItemsSection({
           action={{
             label: t("sales.documents.items.add", "Add item"),
             onClick: openCreate,
+            disabled: amountsReadOnly,
           }}
         />
       ) : (
-        <div className="overflow-hidden rounded border">
+        <div className="relative overflow-x-auto rounded border">
           <table className="w-full text-sm">
             <thead className="bg-muted">
               <tr className="text-left">
@@ -762,7 +819,10 @@ export function SalesDocumentItemsSection({
                 return (
                   <tr
                     key={item.id}
-                    className="border-t hover:bg-muted/50 cursor-pointer transition-colors"
+                    className={cn(
+                      "border-t transition-colors",
+                      amountsReadOnly ? "" : "cursor-pointer hover:bg-muted/50",
+                    )}
                     onClick={() => handleEdit(item)}
                   >
                     <td className="px-3 py-3">
@@ -947,6 +1007,7 @@ export function SalesDocumentItemsSection({
                           variant="ghost"
                           className="h-8 w-8"
                           aria-label={t('ui.actions.edit', 'Edit')}
+                          disabled={amountsReadOnly}
                           onClick={(event) => {
                             event.stopPropagation();
                             handleEdit(item);
@@ -955,16 +1016,18 @@ export function SalesDocumentItemsSection({
                           <Pencil className="h-4 w-4" />
                         </Button>
                         <span
-                          title={kind === 'order' && items.length === 1
-                            ? t('sales.documents.items.errorDeleteLast', 'An order must contain at least one line item.')
-                            : undefined}
+                          title={amountsReadOnly
+                            ? t('sales.documents.amountsExternalHint', 'Totals on this document come from an external system and are stored as supplied.')
+                            : kind === 'order' && items.length === 1
+                              ? t('sales.documents.items.errorDeleteLast', 'An order must contain at least one line item.')
+                              : undefined}
                         >
                           <Button
                             size="icon"
                             variant="ghost"
                             className="h-8 w-8 text-destructive"
                             aria-label={t('ui.actions.delete', 'Delete')}
-                            disabled={kind === 'order' && items.length === 1}
+                            disabled={amountsReadOnly || (kind === 'order' && items.length === 1)}
                             onClick={(event) => {
                               event.stopPropagation();
                               void handleDelete(item);

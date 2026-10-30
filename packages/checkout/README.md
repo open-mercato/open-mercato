@@ -91,6 +91,7 @@ Descriptors must provide safe session metadata only:
 - `sessionConfig.supportedCurrencies`
 - `sessionConfig.supportedPaymentTypes`
 - `sessionConfig.presentation`
+- `requiresPayerFields` (optional) — payer details the provider needs (`'email'`, `'name'`); checkout rejects saving a template or link with that provider unless customer details are collected with `email` (and `firstName` + `lastName` for `name`) marked as required
 
 Checkout uses these descriptors for admin settings forms, supported-currency validation, and public payment presentation choices. Raw credentials and provider-internal configuration never leave the gateway package.
 

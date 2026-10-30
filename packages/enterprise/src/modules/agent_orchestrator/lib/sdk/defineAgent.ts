@@ -1,3 +1,4 @@
+/// <reference path="./file-agents-generated.d.ts" />
 import {
   defineAiAgent,
   type AiAgentDefinition,
@@ -417,14 +418,56 @@ async function loadMutationToolPredicate(): Promise<MutationCheck> {
   }
 }
 
+/**
+ * Resolve the generator-owned file-agent manifest across both layouts.
+ *
+ *  1. Monorepo: the committed manifest sits next to this module's source and the
+ *     relative import resolves at build time exactly as it always has.
+ *  2. Standalone: the enterprise module lives under `node_modules/`, which
+ *     `yarn install` rewrites, so the generator writes the manifest into the
+ *     app's `.mercato/generated/` instead. Inside the Next bundler the `@/`
+ *     alias resolves it; in a plain Node process (the `mcp:serve-http` sidecar,
+ *     workers, the CLI) the alias is not a real specifier and throws, so we fall
+ *     back to locating and compiling the file from disk.
+ *
+ * Mirrors `ai-assistant`'s `importGeneratedAiToolsModule()`, which solves the
+ * same problem for `ai-tools.generated.ts`. Returns `null` when no manifest
+ * exists yet (pre-generate builds, tests).
+ */
+async function importFileAgentsManifest(): Promise<Record<string, unknown> | null> {
+  try {
+    return (await import('../../generated/file-agents.generated')) as unknown as Record<
+      string,
+      unknown
+    >
+  } catch {
+    // Not the monorepo layout — fall through to the standalone resolution.
+  }
+  try {
+    return (await import('@/.mercato/generated/file-agents.generated')) as Record<string, unknown>
+  } catch {
+    // Not inside the Next bundler — fall through to on-disk resolution.
+  }
+  try {
+    const { findGeneratedFile, compileAndImportGenerated } = await import(
+      '@open-mercato/ai-assistant/modules/ai_assistant/lib/generated-registry-loader'
+    )
+    const tsPath = findGeneratedFile('file-agents.generated.ts')
+    if (!tsPath) return null
+    return await compileAndImportGenerated(tsPath)
+  } catch {
+    return null
+  }
+}
+
 async function loadFileAgents(): Promise<void> {
   let descriptors: import('../../generated/file-agents.generated').FileAgentDescriptor[]
-  try {
-    const manifest = await import('../../generated/file-agents.generated')
-    descriptors = manifest.fileAgentDescriptors ?? []
-  } catch {
-    return
-  }
+  const manifest = await importFileAgentsManifest()
+  if (!manifest) return
+  descriptors =
+    (manifest.fileAgentDescriptors as
+      | import('../../generated/file-agents.generated').FileAgentDescriptor[]
+      | undefined) ?? []
   const { compileOutcome } = await import('./outcomeSchema')
   const { registerAgentSkills } = await import('../runtime/fileAgentSkills')
   const isMutationTool = await loadMutationToolPredicate()

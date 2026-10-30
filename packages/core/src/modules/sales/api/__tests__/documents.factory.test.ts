@@ -228,6 +228,43 @@ describe('buildDocumentCrudOptions', () => {
         expect(filters).toEqual({ channel_id: { $in: [channelA, channelB] } })
       })
     })
+
+    describe('tag filtering', () => {
+      const tagA = '11111111-1111-4111-8111-111111111111'
+      const tagB = '22222222-2222-4222-8222-222222222222'
+
+      it.each([
+        ['a malformed tag id', 'not-a-uuid'],
+        ['a mixed valid and malformed list', `${tagA},not-a-uuid`],
+        ['a malformed entry hidden behind whitespace', ` ${tagA} , 123 `],
+      ])('should reject %s in the list query schema', (_label, tagIds) => {
+        const options = buildDocumentCrudOptions(orderBinding)
+        const result = options.list.schema.safeParse({ tagIds })
+
+        expect(result.success).toBe(false)
+      })
+
+      it.each([
+        ['an absent tagIds', {}],
+        ['a valid but unknown tag id', { tagIds: tagA }],
+        ['a valid comma-separated list', { tagIds: ` ${tagA} , ${tagB} ,` }],
+        ['an empty tagIds', { tagIds: '' }],
+      ])('should accept %s in the list query schema', (_label, query) => {
+        const options = buildDocumentCrudOptions(orderBinding)
+
+        expect(options.list.schema.safeParse(query).success).toBe(true)
+      })
+
+      it('should scope a valid tag list to the document kind', async () => {
+        const options = buildDocumentCrudOptions(quoteBinding)
+        const filters = await options.list.buildFilters({ tagIds: ` ${tagA} , ${tagB} ` })
+
+        expect(filters).toEqual({
+          'tag_assignments.tag_id': { $in: [tagA, tagB] },
+          'tag_assignments.document_kind': { $eq: 'quote' },
+        })
+      })
+    })
   })
 
   describe('enrichers', () => {

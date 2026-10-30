@@ -158,6 +158,75 @@ describe('POST /api/checkout/pay/[slug]/submit', () => {
     )
   })
 
+  it('forwards the collected payer email and name to the gateway session metadata', async () => {
+    ;(findOneWithDecryption as jest.Mock)
+      .mockResolvedValueOnce({ ...createLink(), collectCustomerDetails: true })
+      .mockResolvedValueOnce(createTransaction())
+      .mockResolvedValueOnce(createTransaction())
+      .mockResolvedValueOnce(createTransaction({ gatewayTransactionId: GATEWAY_TRANSACTION_ID }))
+
+    const response = await POST(
+      new Request('https://merchant.example/api/checkout/pay/donate/submit', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'Idempotency-Key': 'payer-key-1234567890',
+          origin: 'https://merchant.example',
+        },
+        body: JSON.stringify({
+          customerData: { email: ' jan@example.com ', firstName: 'Jan', lastName: ' Kowalski ' },
+          acceptedLegalConsents: {},
+          amount: 1,
+        }),
+      }),
+      { params: { slug: 'donate' } },
+    )
+
+    expect(response.status).toBe(201)
+    expect(mockCreatePaymentSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        metadata: {
+          checkoutLinkId: LINK_ID,
+          checkoutSlug: 'donate',
+          customerEmail: 'jan@example.com',
+          customerName: 'Jan Kowalski',
+        },
+      }),
+    )
+  })
+
+  it('omits payer metadata when the link does not collect customer details', async () => {
+    ;(findOneWithDecryption as jest.Mock)
+      .mockResolvedValueOnce(createLink())
+      .mockResolvedValueOnce(createTransaction())
+      .mockResolvedValueOnce(createTransaction())
+      .mockResolvedValueOnce(createTransaction({ gatewayTransactionId: GATEWAY_TRANSACTION_ID }))
+
+    const response = await POST(
+      new Request('https://merchant.example/api/checkout/pay/donate/submit', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'Idempotency-Key': 'nopayer-key-1234567',
+          origin: 'https://merchant.example',
+        },
+        body: JSON.stringify({
+          customerData: { email: 'jan@example.com', firstName: 'Jan' },
+          acceptedLegalConsents: {},
+          amount: 1,
+        }),
+      }),
+      { params: { slug: 'donate' } },
+    )
+
+    expect(response.status).toBe(201)
+    expect(mockCreatePaymentSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        metadata: { checkoutLinkId: LINK_ID, checkoutSlug: 'donate' },
+      }),
+    )
+  })
+
   it('pins gateway success/cancel URLs to the configured origin instead of the spoofable request Host', async () => {
     ;(findOneWithDecryption as jest.Mock)
       .mockResolvedValueOnce(createLink())

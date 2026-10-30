@@ -6,6 +6,7 @@ import type { AwilixContainer } from 'awilix'
 type Row = Record<string, unknown>
 
 const stores = new Map<string, Row[]>()
+const authorizationLockOrder: string[] = []
 
 function storeFor(entity: unknown): Row[] {
   const name = typeof entity === 'function' ? entity.name : String(entity)
@@ -32,6 +33,13 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
 
 jest.mock('../emailHash', () => ({
   computeEmailHash: (email: string) => `hash:${email}`,
+}))
+
+jest.mock('@open-mercato/core/modules/auth/lib/authorizationStateLocks', () => ({
+  lockAuthorizationState: jest.fn(async (_em: unknown, targets: { userIds?: string[]; roleIds?: string[] }) => {
+    if (targets.userIds?.length) authorizationLockOrder.push('user')
+    if (targets.roleIds?.length) authorizationLockOrder.push('role')
+  }),
 }))
 
 jest.mock('../../data/entities', () => ({
@@ -86,6 +94,7 @@ const container = {
 
 beforeEach(() => {
   stores.clear()
+  authorizationLockOrder.length = 0
   idSeq = 0
 })
 
@@ -134,6 +143,7 @@ describe('provisionExecutionPrincipal', () => {
     expect(acl.isSuperAdmin).toBe(false)
     expect(acl.organizationsJson).toEqual([ORG])
     expect(storeFor('UserRole')).toHaveLength(1)
+    expect(authorizationLockOrder).toEqual(['user', 'role'])
   })
 
   it('is idempotent: re-provisioning resolves the same rows', async () => {

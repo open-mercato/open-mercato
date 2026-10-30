@@ -130,4 +130,19 @@ function buildLucideRegistrySource(resolvedIcons) {
   return normalizeSourceText(sourceFile.getFullText())
 }
 
-module.exports = { buildLucideRegistrySource }
+// Drift decision for the committed registry, kept here rather than inline in
+// build.mjs so it is reachable from Jest: build.mjs's top level awaits a full
+// package build, so nothing can import it to exercise this comparison. The
+// caller owns reporting and the exit code; this only decides.
+function checkLucideRegistryDrift(committedSource, generatedSource, registryPath = GENERATED_FILE_NAME) {
+  if (committedSource === generatedSource) return { drifted: false }
+
+  return {
+    drifted: true,
+    message: `Lucide icon registry is out of date: ${registryPath}\n`
+      + 'A referenced icon name was added or removed without regenerating it.\n'
+      + 'Run `yarn workspace @open-mercato/ui build` and commit the result.',
+  }
+}
+
+module.exports = { buildLucideRegistrySource, checkLucideRegistryDrift }
