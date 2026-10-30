@@ -63,15 +63,15 @@
 | 4 | 4.5 | Add Request and Response tabs to model calls | dispatch:capable | done | 7a2904b85 |
 | 4 | 4.6 | Add the run compare dialog and run-level copy | dispatch | done | d2069757e |
 | 4 | 4.7 | Cover compare and trace tabs with integration tests | dispatch | done | 9d6ae05fa |
-| 5 | 5.1 | Add the chat run ACL features and query validators | dispatch:cheap | done | pending |
-| 5 | 5.2 | Add the chat runs API | dispatch:capable | done | pending |
-| 5 | 5.3 | Add the chat runs list and detail pages | dispatch | done | pending |
-| 5 | 5.4 | Link chat messages to their run trace | dispatch | done | pending |
-| 5 | 5.5 | Cover the chat runs API and pages with integration tests | dispatch | done | pending |
-| 6 | 6.1 | Add emitCitations and carry citations in tool output | dispatch:capable | done | pending |
-| 6 | 6.2 | Add the citation resolver registry and citations UI part | dispatch | done | pending |
-| 6 | 6.3 | Persist run citations and show Sources | dispatch | done | pending |
-| 6 | 6.4 | Cover citations with integration tests and docs | dispatch | done | pending |
+| 5 | 5.1 | Add the chat run ACL features and query validators | dispatch:cheap | done | 7c2c3f2e7 |
+| 5 | 5.2 | Add the chat runs API | dispatch:capable | done | b639f6348 |
+| 5 | 5.3 | Add the chat runs list and detail pages | dispatch | done | de8ca5394 |
+| 5 | 5.4 | Link chat messages to their run trace | dispatch | done | 66c8c0ca6 |
+| 5 | 5.5 | Cover the chat runs API and pages with integration tests | dispatch | done | 4154ceabd |
+| 6 | 6.1 | Add emitCitations and carry citations in tool output | dispatch:capable | done | 20ff186fa |
+| 6 | 6.2 | Add the citation resolver registry and citations UI part | dispatch | done | 82de9c1fe |
+| 6 | 6.3 | Persist run citations and show Sources | dispatch | done | 7797adab9 |
+| 6 | 6.4 | Cover citations with integration tests and docs | dispatch | done | 27b4b02d7 |
 | 7 | 7.1 | Define the eval-set file format | dispatch | todo | — |
 | 7 | 7.2 | Read and write eval sets as YAML | dispatch:cheap | todo | — |
 | 7 | 7.3 | Start eval runs from a file manifest | dispatch:capable | todo | — |

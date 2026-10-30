@@ -34,3 +34,9 @@
 - Resumed with om-auto-continue-pr-loop after bringing the stack up to date with `main` (2026-10-29).
 - Step 4.7 delegated to one executor (standard tier); landed 9d6ae05fa. Scope addition: a metadata-level UI case so the tabs/dialog run without storage.
 - Checkpoint 4 (3.5–4.7): all static + unit checks pass; integration 30 passed / 8 skipped (LLM provider or storage) / 0 failed; ACC-004 fix verified.
+
+## 2026-10-30T03:49:26Z — checkpoint 5
+- Phases 5–6 (Chat P3–P4) landed via executors: 5.1 (cheap tier), 5.2–5.5, 6.1 (capable tier), 6.2–6.4. 6.3's executor was interrupted by an account usage limit and resumed with its work intact.
+- Decisions recorded in the chat-tracing spec changelog (2026-10-30); notable: conversationId accepts non-uuid ids, org-visible conversations grant run access, run citations cap 50.
+- Wave-2 TC-AI-RUN-TRACE-016 test bug (providerOptions now rejected over HTTP) fixed on wave 2 and merged forward.
+- Checkpoint 5 (5.1–6.4): static + unit + build:app pass; integration 57 passed / 12 skipped (LLM provider or storage) / 0 failed.
