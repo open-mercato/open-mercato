@@ -9,9 +9,9 @@
   },
   "derived": {
     "ownerCount": 32,
-    "recordCount": 150,
-    "sourceRequiredCount": 125,
-    "renderedLinkCount": 127,
+    "recordCount": 151,
+    "sourceRequiredCount": 126,
+    "renderedLinkCount": 128,
     "baselineSha": "f7c941570003f3abe920b1765995cbef98dcad0b"
   },
   "notCovered": [
@@ -4121,7 +4121,10 @@
       "capabilityIds": [
         "api.custom-route"
       ],
-      "integrationTestPaths": [],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-EXAMPLE-003-todo-bulk-progress.spec.ts",
+        "src/modules/example/api/__tests__/todos.bulk-complete.test.ts"
+      ],
       "affectedCaseIds": [
         "OMH-011",
         "OMH-012",
@@ -4179,6 +4182,54 @@
       "replacesBaselineBlockIds": [],
       "citedByBaselineBlockIds": [],
       "href": "../../../../src/modules/example/api/tags/route.ts",
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "topicId": "om-module-scaffold/api-and-domain:api/todos/bulk-complete/route.ts",
+      "referenceId": "om-module-scaffold/api-and-domain:api/todos/bulk-complete/route.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-module-scaffold/references/api-and-domain.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-module-scaffold/references/api-and-domain.md",
+      "heading": "Canonical example source",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/api/todos/bulk-complete/route.ts",
+      "targetAuthoringPath": "template/src/modules/example/api/todos/bulk-complete/route.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "api.custom-route",
+        "runtime.bulk-operation-progress"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-EXAMPLE-003-todo-bulk-progress.spec.ts",
+        "src/modules/example/api/__tests__/todos.bulk-complete.test.ts",
+        "src/modules/example/lib/__tests__/todoBulkComplete.loop.test.ts",
+        "src/modules/example/lib/__tests__/todoBulkComplete.test.ts",
+        "src/modules/example/widgets/__tests__/todo-bulk-complete.test.ts"
+      ],
+      "affectedCaseIds": [
+        "OMH-011",
+        "OMH-012",
+        "OMH-185",
+        "OMH-188",
+        "OMH-192",
+        "OMH-193",
+        "OMH-219",
+        "OMH-222",
+        "OMH-223"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "href": "../../../../src/modules/example/api/todos/bulk-complete/route.ts",
       "renderedLinkCount": 1,
       "presets": [
         "classic",

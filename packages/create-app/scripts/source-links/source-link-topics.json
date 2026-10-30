@@ -405,6 +405,13 @@
       "resolvedPath": "src/modules/example/api/organizations/route.ts"
     },
     {
+      "topicId": "om-module-scaffold/api-and-domain:api/todos/bulk-complete/route.ts",
+      "owner": ".ai/skills/om-module-scaffold/references/api-and-domain.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/api/todos/bulk-complete/route.ts",
+      "resolvedPath": "src/modules/example/api/todos/bulk-complete/route.ts"
+    },
+    {
       "topicId": "om-module-scaffold/api-and-domain:api/tags/route.ts",
       "owner": ".ai/skills/om-module-scaffold/references/api-and-domain.md",
       "requirement": "source-required",

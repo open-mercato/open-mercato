@@ -666,7 +666,7 @@
             "data.migrations"
           ],
           "maxFiles": 9,
-          "maxBytes": 208896
+          "maxBytes": 209920
         }
       ]
     },
@@ -956,7 +956,8 @@
         ".git/**"
       ],
       "sourceReferenceIds": [
-        "om-module-scaffold/api-and-domain:commands/todos.ts"
+        "om-module-scaffold/api-and-domain:commands/todos.ts",
+        "om-module-scaffold/api-and-domain:api/todos/bulk-complete/route.ts"
       ],
       "exampleRoots": [
         {
@@ -966,10 +967,11 @@
             "references/surface-map.md"
           ],
           "allowedCapabilityIds": [
-            "commands.write"
+            "commands.write",
+            "api.custom-route"
           ],
-          "maxFiles": 4,
-          "maxBytes": 204800
+          "maxFiles": 6,
+          "maxBytes": 214016
         }
       ]
     },
@@ -2261,7 +2263,7 @@
             "umes.injection-table"
           ],
           "maxFiles": 8,
-          "maxBytes": 188416
+          "maxBytes": 189440
         }
       ]
     },
@@ -3510,7 +3512,7 @@
             "module.di-registration"
           ],
           "maxFiles": 8,
-          "maxBytes": 198656
+          "maxBytes": 199680
         }
       ]
     },
