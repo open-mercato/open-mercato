@@ -1,0 +1,156 @@
+{
+  "runId": "3d99f138-resume",
+  "mode": "pr",
+  "target": {
+    "prNumber": 5770,
+    "title": "Canonical live ACL grants and targets",
+    "branch": "cez-b-5770",
+    "headSha": "3e661f863e9666d648ace536fc14cdca1567a45a"
+  },
+  "verdict": "PASS",
+  "environment": {
+    "baseUrl": "http://127.0.0.1:5001",
+    "role": "self-created principals; admin/superadmin setup",
+    "startedByThisRepo": true,
+    "browserProvider": "playwright"
+  },
+  "scenario": [
+    {
+      "step": 1,
+      "priority": "P0",
+      "mode": "user-live",
+      "action": "Evaluate isolated user-live principal",
+      "expected": "Feature check and protected list allow",
+      "observed": "{\"featureGranted\": true, \"listStatus\": 200, \"loginStatus\": 200}",
+      "result": "PASS",
+      "screenshot": null
+    },
+    {
+      "step": 2,
+      "priority": "P0",
+      "mode": "role-live",
+      "action": "Evaluate isolated role-live principal",
+      "expected": "Feature check and protected list allow",
+      "observed": "{\"featureGranted\": true, \"listStatus\": 200, \"loginStatus\": 200}",
+      "result": "PASS",
+      "screenshot": null
+    },
+    {
+      "step": 3,
+      "priority": "P0",
+      "mode": "user-revoked",
+      "action": "Evaluate isolated user-revoked principal",
+      "expected": "No revoked, deleted, foreign or tenantless privilege",
+      "observed": "{\"featureGranted\": false, \"listStatus\": 403, \"loginStatus\": 200}",
+      "result": "PASS",
+      "screenshot": null
+    },
+    {
+      "step": 4,
+      "priority": "P0",
+      "mode": "role-revoked",
+      "action": "Evaluate isolated role-revoked principal",
+      "expected": "No revoked, deleted, foreign or tenantless privilege",
+      "observed": "{\"featureGranted\": false, \"listStatus\": 403, \"loginStatus\": 200}",
+      "result": "PASS",
+      "screenshot": null
+    },
+    {
+      "step": 5,
+      "priority": "P0",
+      "mode": "membership-revoked",
+      "action": "Evaluate isolated membership-revoked principal",
+      "expected": "No revoked, deleted, foreign or tenantless privilege",
+      "observed": "{\"featureGranted\": false, \"listStatus\": 403, \"loginStatus\": 200}",
+      "result": "PASS",
+      "screenshot": null
+    },
+    {
+      "step": 6,
+      "priority": "P0",
+      "mode": "role-deleted",
+      "action": "Evaluate isolated role-deleted principal",
+      "expected": "No revoked, deleted, foreign or tenantless privilege",
+      "observed": "{\"featureGranted\": false, \"listStatus\": 403, \"loginStatus\": 200}",
+      "result": "PASS",
+      "screenshot": null
+    },
+    {
+      "step": 7,
+      "priority": "P0",
+      "mode": "foreign-superadmin",
+      "action": "Evaluate isolated foreign-superadmin principal",
+      "expected": "No revoked, deleted, foreign or tenantless privilege",
+      "observed": "{\"featureGranted\": false, \"listStatus\": 403, \"loginStatus\": 200}",
+      "result": "PASS",
+      "screenshot": null
+    },
+    {
+      "step": 8,
+      "priority": "P0",
+      "mode": "tenantless-superadmin",
+      "action": "Evaluate isolated tenantless-superadmin principal",
+      "expected": "No revoked, deleted, foreign or tenantless privilege",
+      "observed": "{\"featureGranted\": false, \"listStatus\": 403, \"loginStatus\": 200}",
+      "result": "PASS",
+      "screenshot": null
+    },
+    {
+      "step": 9,
+      "priority": "P1",
+      "action": "Actual user edit and current access-control panel finish loading",
+      "result": "PASS",
+      "screenshot": "access-ready.png",
+      "expected": "Actual user edit and current access-control panel finish loading",
+      "observed": "Actual user edit and current access-control panel finish loading"
+    },
+    {
+      "step": 10,
+      "priority": "P1",
+      "action": "User edit remains accessible at390px",
+      "result": "PASS",
+      "screenshot": "access-mobile.png",
+      "expected": "User edit remains accessible at390px",
+      "observed": "User edit remains accessible at390px"
+    },
+    {
+      "step": 11,
+      "priority": "P1",
+      "action": "User list displays self-created fixtures after loading",
+      "result": "PASS",
+      "screenshot": "users-ready.png",
+      "expected": "User list displays self-created fixtures after loading",
+      "observed": "User list displays self-created fixtures after loading"
+    },
+    {
+      "step": 12,
+      "priority": "P1",
+      "action": "A real principal with a revoked override cannot render the guarded user list",
+      "result": "PASS",
+      "screenshot": "revoked-access-denied.png",
+      "expected": "A real principal with a revoked override cannot render the guarded user list",
+      "observed": "A real principal with a revoked override cannot render the guarded user list"
+    }
+  ],
+  "hasUiTest": true,
+  "nativeUiEvidence": [
+    {
+      "scenario": "AUTH-01 stale role-name edit shows the conflict bar",
+      "screenshot": "role-edit-conflict.png"
+    },
+    {
+      "scenario": "AUTH-05 stale role delete shows the conflict bar",
+      "screenshot": "role-delete-conflict.png"
+    },
+    {
+      "scenario": "AUTH-03 stale user edit shows the conflict bar",
+      "screenshot": "user-edit-conflict.png"
+    }
+  ],
+  "notes": [
+    "8 live security API scenarios and4 browser checkpoints passed.",
+    "11 committed auth/locking integration cases passed without retry.",
+    "Actual PostgreSQL migration up/down2/2 passed at the same local head.",
+    "Evidence-only; no QA approval granted."
+  ]
+}
