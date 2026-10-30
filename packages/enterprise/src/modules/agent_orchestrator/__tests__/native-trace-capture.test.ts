@@ -625,7 +625,7 @@ describe('ingest integration (idempotent upsert onto the stamped run)', () => {
     const { em, storeFor } = createFakeEm()
     const payload = buildNativeTracePayload({ ...baseInput(), steps: stepsWithCall(buildCall()) })
 
-    await ingestTrace(em, { tenantId: 't1', organizationId: 'o1' }, payload)
+    await ingestTrace(em, { tenantId: 't1', organizationId: 'o1' }, payload, { trustSpanContentKeys: true })
 
     const storedByExternal = new Map(
       storeFor(AgentSpan).map((span) => [span.externalSpanId, span.attributes]),

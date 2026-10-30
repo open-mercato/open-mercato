@@ -209,6 +209,17 @@ function pickKeys(attributes: SpanAttributes, keys: readonly string[]): SpanAttr
 }
 
 /**
+ * Drops the server-owned content keys from adapter-sent attributes on spans
+ * that bypass the `llm` mapping, so an adapter cannot point any span at
+ * stored content. Returns the input unchanged when it carries none.
+ */
+export function withoutServerContentKeys(attributes: unknown): unknown {
+  if (!isPlainRecord(attributes)) return attributes
+  if (!SERVER_CONTENT_KEYS.some((key) => key in attributes)) return attributes
+  return withoutKeys(attributes, SERVER_CONTENT_KEYS)
+}
+
+/**
  * Combines the adapter's explicit attributes with the `llm`-derived metadata
  * (explicit keys win) and the server-owned content keys (always win; an
  * adapter cannot point a span at stored content).

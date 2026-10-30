@@ -25,6 +25,7 @@ import {
   buildIngestManifestSpan,
   fitIngestLlmAttributes,
   mergeIngestLlmAttributes,
+  withoutServerContentKeys,
 } from './ingestLlmAttributes'
 
 export type IngestScope = { tenantId: string; organizationId: string }
@@ -52,6 +53,12 @@ export type IngestTraceOptions = {
   offloadLlmContent?: (
     contents: NativeModelCallContent[],
   ) => Promise<Array<NativeModelCallContentOutcome | null>>
+  /**
+   * Keep server-owned `om.content.*` keys present on span attributes. Only the
+   * in-process native capture, which stamps keys it uploaded itself, sets it;
+   * external adapter payloads always have them stripped.
+   */
+  trustSpanContentKeys?: boolean
 }
 
 export type IngestTraceResult = {
@@ -121,7 +128,10 @@ function buildSpanAttributes(
   options: IngestTraceOptions,
   outcomes: LlmContentOutcomes,
 ): unknown {
-  if (!span.llm || span.kind !== 'llm') return capSummary(normalizeLlmSpanAttributes(span))
+  if (!span.llm || span.kind !== 'llm') {
+    const normalized = normalizeLlmSpanAttributes(span)
+    return capSummary(options.trustSpanContentKeys ? normalized : withoutServerContentKeys(normalized))
+  }
   const merged = mergeIngestLlmAttributes(
     span.attributes,
     buildIngestLlmMetadataAttributes(span.llm),

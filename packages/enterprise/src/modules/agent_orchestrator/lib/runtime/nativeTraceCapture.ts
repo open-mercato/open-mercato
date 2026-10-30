@@ -441,6 +441,7 @@ export async function captureNativeRunTrace(
     const result = await withRuntimeAuditWrite(() =>
       ingestTrace(em, scope, buildNativeTracePayload(prepared), {
         offloadArtifact: createArtifactOffloader(container, scope),
+        trustSpanContentKeys: true,
       }),
     )
     await invalidateAgentRunCache(

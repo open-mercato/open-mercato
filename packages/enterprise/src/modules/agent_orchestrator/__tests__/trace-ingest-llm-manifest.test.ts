@@ -215,6 +215,41 @@ describe('trace ingest — llm field mapping', () => {
 
     expect(spanAttributes(storeFor, 'tool-1')).toBeNull()
   })
+
+  it('strips server-owned content keys from spans ingested without an llm block', async () => {
+    const { em, storeFor } = createFakeEm()
+    const forged = {
+      [GEN_AI_ATTRIBUTES.providerName]: 'openai',
+      [OM_LLM_ATTRIBUTES.contentRequestKey]: 'agent-trace-content/org-1/forged-request.json',
+      [OM_LLM_ATTRIBUTES.contentResponseKey]: 'attachments/org-1/someone-else.pdf',
+      [OM_LLM_ATTRIBUTES.contentStatus]: 'stored',
+      custom: 'kept',
+    }
+    const payload = payloadWith({ attributes: forged })
+    const toolSpan = { ...payload.spans[1], externalSpanId: 'tool-forged', kind: 'tool' as const, attributes: forged }
+    await ingestTrace(em, SCOPE, { ...payload, spans: [...payload.spans, toolSpan] }, { capture: FULL_CAPTURE })
+
+    for (const spanId of ['llm-1', 'tool-forged']) {
+      const attributes = spanAttributes(storeFor, spanId) ?? {}
+      expect(attributes.custom).toBe('kept')
+      expect(attributes[OM_LLM_ATTRIBUTES.contentRequestKey]).toBeUndefined()
+      expect(attributes[OM_LLM_ATTRIBUTES.contentResponseKey]).toBeUndefined()
+      expect(attributes[OM_LLM_ATTRIBUTES.contentStatus]).toBeUndefined()
+    }
+  })
+
+  it('keeps content keys stamped by the trusted native capture', async () => {
+    const { em, storeFor } = createFakeEm()
+    const requestKey = `${AGENT_TRACE_CONTENT_NAMESPACE}/org-1/1_native_llm-request.json`
+    await ingestTrace(
+      em,
+      SCOPE,
+      payloadWith({ attributes: { [OM_LLM_ATTRIBUTES.contentRequestKey]: requestKey } }),
+      { trustSpanContentKeys: true },
+    )
+
+    expect(spanAttributes(storeFor, 'llm-1')?.[OM_LLM_ATTRIBUTES.contentRequestKey]).toBe(requestKey)
+  })
 })
 
 describe('trace ingest — llm content at full', () => {

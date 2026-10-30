@@ -377,9 +377,13 @@ describe('ingestTrace — gen_ai attribute normalization on llm spans', () => {
     }
   }
 
-  async function ingestSpanAttributes(kind: 'llm' | 'tool' | 'system', attributes: Record<string, unknown>) {
+  async function ingestSpanAttributes(
+    kind: 'llm' | 'tool' | 'system',
+    attributes: Record<string, unknown>,
+    options: { trustSpanContentKeys?: boolean } = {},
+  ) {
     const { em, storeFor } = createFakeEm()
-    await ingestTrace(em, SCOPE, payloadWithSpan(kind, attributes))
+    await ingestTrace(em, SCOPE, payloadWithSpan(kind, attributes), options)
     return storeFor(AgentSpan)[0].attributes as Record<string, unknown>
   }
 
@@ -469,7 +473,7 @@ describe('ingestTrace — gen_ai attribute normalization on llm spans', () => {
       [OM_LLM_ATTRIBUTES.captureFidelity]: 'exact',
     }
 
-    const stored = await ingestSpanAttributes('llm', nativeAttributes)
+    const stored = await ingestSpanAttributes('llm', nativeAttributes, { trustSpanContentKeys: true })
 
     expect(stored).toEqual(nativeAttributes)
     expect(normalizeGenAiAttributes(stored)).toEqual(stored)
