@@ -406,7 +406,7 @@ describe('Autopay through the payment gateway service', () => {
       expect(first.get('MessageID')).toHaveLength(deriveMessageId('x').length)
     })
 
-    it('refuses to refund a payment that Autopay has not settled and keeps it pending', async () => {
+    it('refuses to refund a payment that Autopay has not settled and leaves the transaction status unchanged', async () => {
       const boundary = buildBoundary()
       const transaction = seedTransaction(boundary, tenantA, { id: 'txn-unpaid', orderId: ORDER_A, status: 'captured' })
       const fetchSpy = stubAutopay((endpoint) => new Response(
