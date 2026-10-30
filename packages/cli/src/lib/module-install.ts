@@ -8,7 +8,7 @@ import {
   validateEjectBoundaries,
   type ValidatedOfficialModulePackage,
 } from './module-package'
-import { ensureModuleRegistration } from './modules-config'
+import { assertModuleNotGatedOff, ensureModuleRegistration } from './modules-config'
 import type { PackageResolver } from './resolver'
 import { resolveSpawnCommand } from './spawn'
 
@@ -257,6 +257,7 @@ async function registerResolvedOfficialModule(
   packageName: string,
   eject: boolean,
 ): Promise<ModuleCommandResult> {
+  assertModuleNotGatedOff(resolver.getModulesConfigPath(), modulePackage.metadata.moduleId)
   const from = prepareRegistrationSource(modulePackage, resolver, packageName, eject)
 
   const registration = ensureModuleRegistration(
