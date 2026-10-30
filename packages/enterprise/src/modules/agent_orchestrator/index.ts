@@ -16,8 +16,15 @@ export { features } from './acl'
 // Public re-exports (single source of the SDK + result contract).
 export { defineAgent, getAgentEntry, listAgentEntries } from './lib/sdk/defineAgent'
 export type { DefineAgentInput, AgentRegistryEntry, AgentResultKind } from './lib/sdk/defineAgent'
-export { AgentRuntimeService, AgentNotFoundError, AgentOutputInvalidError, AgentGuardrailBlockedError } from './lib/runtime/agentRuntime'
+export {
+  AgentRuntimeService,
+  AgentNotFoundError,
+  AgentInvokeDeniedError,
+  AgentOutputInvalidError,
+  AgentGuardrailBlockedError,
+} from './lib/runtime/agentRuntime'
 export type { AgentRunCtx } from './lib/runtime/agentRuntime'
+export type { AgentInvoker, AgentEntryPoint } from './lib/runtime/persistence'
 export { AgentWorkflowBridgeService } from './lib/runtime/invokeAgentForWorkflow'
 export type {
   AgentWorkflowBridge,
@@ -41,6 +48,9 @@ export {
   guardrailEvidenceSchema,
   guardResultsSchema,
   guardrailSetBodySchema,
+  agentGuardrailSetBodySchema,
+  groundingSetBodySchema,
+  integritySetBodySchema,
   groundingClaimSchema,
   groundingCitationSchema,
   citableSourceSchema,
@@ -76,6 +86,9 @@ export type {
   GuardrailKindInput,
   GuardrailResultInput,
   GuardrailSetBody,
+  GroundingSetBody,
+  IntegritySetBody,
+  AgentGuardrailSetBody,
   GroundingClaim,
   GroundingCitation,
   CitableSource,
@@ -94,6 +107,14 @@ export {
 } from './lib/guardrails/groundingSets'
 export { checkGrounding, evaluateGrounding } from './lib/guardrails/grounding'
 export { syncGroundingSets, resolveCurrentGroundingSet } from './lib/guardrails/syncGroundingSets'
+export {
+  integritySetBodyFor,
+  integritySetVersionFor,
+  resolveIntegritySet,
+  syncIntegritySets,
+  isAgentIntegrityEnforced,
+  AGENT_INTEGRITY_ENV,
+} from './lib/guardrails/integrity/integritySets'
 
 // Context overlay (Phase 1) — TDCR resolver + registry + provenance schemas for
 // trace ("context assembled" panel), guardrails grounding, and compliance lineage.

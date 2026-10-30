@@ -1,0 +1,14 @@
+  ✓   1 packages/ai-assistant/src/modules/ai_assistant/__integration__/TC-AI-MCP-AGENT-TOOL-012-agent-tools.spec.ts:56:3 › TC-AI-MCP-AGENT-TOOL-012: agent tools › the MCP exposure view has the documented shape and marks agent tools with agentRef (386ms)
+  ✓   2 packages/ai-assistant/src/modules/ai_assistant/__integration__/TC-AI-MCP-AGENT-TOOL-012-agent-tools.spec.ts:93:3 › TC-AI-MCP-AGENT-TOOL-012: agent tools › an unsupported view value is rejected with 400 (21ms)
+  -   3 packages/ai-assistant/src/modules/ai_assistant/__integration__/TC-AI-MCP-AGENT-TOOL-012-agent-tools.spec.ts:99:3 › TC-AI-MCP-AGENT-TOOL-012: agent tools › an agent tool whose agent cannot run fails with the dispatcher-unavailable error
+  ✓   4 packages/ai-assistant/src/modules/ai_assistant/__integration__/TC-AI-MCP-AGENT-TOOL-012-agent-tools.spec.ts:121:3 › TC-AI-MCP-AGENT-TOOL-012: agent tools › run-object with an unknown agent answers 404 agent_unknown (18ms)
+  ✓   5 packages/enterprise/src/modules/agent_orchestrator/__integration__/TC-AGENT-ACC-001.spec.ts:44:3 › TC-AGENT-ACC-001: per-agent invoke permission › a user without the agent feature is denied with agent_invoke_denied (660ms)
+  ✓   6 packages/enterprise/src/modules/agent_orchestrator/__integration__/TC-AGENT-ACC-001.spec.ts:65:3 › TC-AGENT-ACC-001: per-agent invoke permission › an API key whose role lacks the agent feature is denied the same way (336ms)
+  ✓   7 packages/enterprise/src/modules/agent_orchestrator/__integration__/TC-AGENT-ACC-001.spec.ts:86:3 › TC-AGENT-ACC-001: per-agent invoke permission › the agent list reports requiredFeatures and invocable for an invoker (585ms)
+  ✓   8 packages/enterprise/src/modules/agent_orchestrator/__integration__/TC-AGENT-ACC-002.spec.ts:36:3 › TC-AGENT-ACC-002: ai-assistant doors honour the agent invoke permission › run-object and the agent tool refuse a caller without the agent feature (525ms)
+  ✓   9 packages/enterprise/src/modules/agent_orchestrator/__integration__/TC-AGENT-ACC-003.spec.ts:28:3 › TC-AGENT-ACC-003: agent-token door › is hidden when disabled and answers 401 to a bad or missing token when enabled (3ms)
+  -  10 packages/enterprise/src/modules/agent_orchestrator/__integration__/TC-AO-MCP-DISPATCH-001.spec.ts:71:3 › TC-AO-MCP-DISPATCH-001: ai-assistant doors dispatch AO agents › run-object and the agent tool create AgentRuns with the door recorded in the manifest
+  2 skipped
+  8 passed (2.2m)
+  1 skipped
+  4 passed (2.0m)

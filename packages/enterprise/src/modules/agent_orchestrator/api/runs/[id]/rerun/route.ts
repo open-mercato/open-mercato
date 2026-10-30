@@ -17,8 +17,10 @@ import {
   type AgentRunCtx,
   type AgentRuntimeService,
 } from '../../../../lib/runtime/agentRuntime'
+import { isAgentInvokeDeniedError } from '../../../../lib/runtime/errors'
 import { isAgentCapacityError, resolveAdmissionMaxWaitMs } from '../../../../lib/runtime/admission'
 import { withRerunOf } from '../../../../lib/runtime/rerunContext'
+import { invokerFromAuth, invokeDeniedBody, invokeDeniedErrorSchema } from '../../../../lib/access/invokeDenial'
 
 /**
  * "Re-run" from the trace inspector: executes the run's agent again with the
@@ -99,6 +101,8 @@ export async function POST(req: Request, ctx: RouteContext) {
     tenantId: auth.tenantId,
     organizationId,
     userId: auth.sub,
+    invoker: invokerFromAuth(auth),
+    entryPoint: 'rerun',
   }
 
   const startedAt = new Date()
@@ -108,6 +112,9 @@ export async function POST(req: Request, ctx: RouteContext) {
   } catch (err) {
     if (err instanceof AgentNotFoundError) {
       return NextResponse.json({ error: 'Agent not found' }, { status: 404 })
+    }
+    if (isAgentInvokeDeniedError(err)) {
+      return NextResponse.json(invokeDeniedBody(err, sourceRun.agentId), { status: 403 })
     }
     // Subclass FIRST: a guardrail block is a policy verdict, not a model bug —
     // the typed reason (kind/phase/set version) must reach the client instead
@@ -180,7 +187,12 @@ export const openApi: OpenApiRouteDoc = {
       errors: [
         { status: 400, description: 'Tenant context missing, or no single organization is selected', schema: errorSchema },
         { status: 401, description: 'Unauthorized', schema: errorSchema },
-        { status: 403, description: 'Missing agent_orchestrator.agents.run', schema: errorSchema },
+        {
+          status: 403,
+          description:
+            'Missing agent_orchestrator.agents.run, or the caller may not invoke the run\'s agent (`code: "agent_invoke_denied"`; the agent\'s required features are never echoed)',
+          schema: z.union([errorSchema, invokeDeniedErrorSchema]),
+        },
         { status: 404, description: 'Unknown run id, cross-tenant run, or the agent is no longer registered', schema: errorSchema },
         {
           status: 422,

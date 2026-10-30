@@ -40,6 +40,9 @@ import { findProposalOption, normalizeProposalEnvelope, rankProposalOptions } fr
 import { buildSpanTimeline, truncateSpanName } from '../../../lib/trace/spanTimeline'
 import { runStatusVariant, runStatusLabelKey, confidenceFace, confidencePctOf, ConfidenceFaceValue } from '../../../components/cockpitStatus'
 import { EmptyArt } from '../../../components/EmptyArt'
+import { RunManifestCard } from '../../../components/RunManifestCard'
+import { LlmStepMetadataCard } from '../../../components/trace/LlmStepMetadataCard'
+import { OtelTraceLink } from '../../../components/trace/OtelTraceLink'
 import { isAgentPreviewUiEnabled } from '../../../lib/featureFlags'
 
 // llm / tool / system get distinct DS tokens so the waterfall reads at a glance
@@ -1025,6 +1028,7 @@ export default function AgentRunTracePage({ params }: { params?: { id?: string }
                           </PopoverContent>
                         </Popover>
                       ) : null}
+                      {detail.otel ? <OtelTraceLink link={detail.otel} /> : null}
                       {run.workflowInstanceId ? (
                         <SimpleTooltip side="bottom" content={t('agent_orchestrator.traces.detail.openProcessTooltip', 'Open the workflow run that started this agent')}>
                           <Button
@@ -1314,6 +1318,8 @@ export default function AgentRunTracePage({ params }: { params?: { id?: string }
                 </InspectorCard>
                 </div>
 
+                <LlmStepMetadataCard spans={detail.spans} currency={run.currency} />
+
                 {/* Tool calls + Output — two columns */}
                 <div className="grid gap-6 lg:grid-cols-2">
                   <ToolCallsCard toolCalls={detail.toolCalls} runId={run.id} />
@@ -1341,6 +1347,7 @@ export default function AgentRunTracePage({ params }: { params?: { id?: string }
                   ) : null}
                   <FilesCard runId={run.id} />
                   {detail.contextBundle ? <ContextAssembledCard bundle={detail.contextBundle} /> : null}
+                  <RunManifestCard spans={detail.spans} agentVersion={run.agentVersion} />
                 </div>
                 {/* Absence is still stated — it just no longer costs a card each.
                     The copy was right; the footprint was not. */}

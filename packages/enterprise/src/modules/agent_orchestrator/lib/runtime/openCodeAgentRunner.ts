@@ -11,6 +11,11 @@ import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { normalizeOpenCodeToolPart } from '@open-mercato/shared/lib/ai/opencode-tool-parts'
 import { emitAgentOrchestratorEvent } from '../../events'
 import type { AgentRegistryEntry } from '../sdk/defineAgent'
+import { resolveAgentDefinitionHash } from '../trace/definitionHash'
+import { buildAgentRunManifestInput, buildRunManifestSpan, captureManifestTraceparent } from '../trace/runManifestEntry'
+import { resolveRunCapture } from '../trace/capturePolicy'
+import type { RunManifestCapture } from '../trace/runManifest'
+import { isNativeTraceCaptureEnabled } from './nativeTraceCapture'
 import { type AgentResult } from '../../data/validators'
 import { deriveEnvelopeConfidence } from '../../data/proposalEnvelope'
 import {
@@ -33,6 +38,7 @@ import type { IngestTraceCommandInput } from '../../commands/trace'
 import type { IngestTraceResult } from '../trace/traceIngestionService'
 import type { TraceSpanIngest } from '../../data/validators'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 
 const logger = createLogger('agent_orchestrator').child({ component: 'opencode-agent-runner' })
 
@@ -169,6 +175,11 @@ export class OpenCodeAgentRunner {
     // so stamping the session id at creation lets a later trace POST upsert THIS
     // row instead of creating a duplicate.
     const session = await this.client.createSession()
+    const traceCaptureEnabled = isNativeTraceCaptureEnabled()
+    const traceparent = traceCaptureEnabled ? captureManifestTraceparent() : null
+    const runCapture = traceCaptureEnabled
+      ? await resolveRunCapture(this.container, { tenantId: ctx.tenantId, agentId, runSource: ctx.source })
+      : null
 
     const runId = await createRun(this.commandBus, commandCtx, {
       source: ctx.source,
@@ -184,6 +195,7 @@ export class OpenCodeAgentRunner {
       stepId: ctx.stepId ?? null,
       invocationId: ctx.invocationId ?? null,
       agentType: entry.agentType ?? null,
+      definitionHash: resolveAgentDefinitionHash(entry),
     })
 
     if (ctx.onRunPersisted) {
@@ -408,6 +420,9 @@ export class OpenCodeAgentRunner {
       // so this can never turn a completed run into a failed one.
       if (startedAtMs != null) {
         const endedAtMs = Date.now()
+        const manifestSpan = traceCaptureEnabled
+          ? this.buildManifestSpan(runId, entry, ctx, traceparent, startedAtMs, runCapture)
+          : null
         await this.ingestSessionTrace(commandCtx, {
           tenantId: ctx.tenantId,
           organizationId: ctx.organizationId,
@@ -417,6 +432,7 @@ export class OpenCodeAgentRunner {
           startedAtMs,
           endedAtMs,
           latencyMs: Math.max(0, Math.round(endedAtMs - startedAtMs)),
+          manifestSpan,
         })
       }
 
@@ -452,6 +468,35 @@ export class OpenCodeAgentRunner {
     }
   }
 
+  private buildManifestSpan(
+    runId: string,
+    entry: AgentRegistryEntry,
+    ctx: AgentRunCtx,
+    traceparent: string | null,
+    startedAtMs: number,
+    capture: RunManifestCapture | null,
+  ): TraceSpanIngest | null {
+    try {
+      return buildRunManifestSpan({
+        runId,
+        manifest: buildAgentRunManifestInput({ entry, ctx, runtime: 'opencode', traceparent, capture }),
+        sequence: 0,
+        recordedAtMs: startedAtMs,
+      })
+    } catch (err) {
+      logger.warn('failed to build OpenCode run manifest', {
+        agentId: entry.id,
+        error: err instanceof Error ? err.message : String(err),
+      })
+      getTelemetryRuntime()?.reportError(err, {
+        module: 'agent_orchestrator',
+        code: 'run_manifest_build_failed',
+        attributes: { runId, agentId: entry.id },
+      })
+      return null
+    }
+  }
+
   /**
    * Persist the tool/skill calls observed during the run as trace spans + tool
    * calls, correlating on `(runtime='opencode', externalRunId=session.id)` so the
@@ -473,6 +518,7 @@ export class OpenCodeAgentRunner {
       startedAtMs?: number | null
       endedAtMs?: number | null
       latencyMs?: number | null
+      manifestSpan?: TraceSpanIngest | null
     },
   ): Promise<void> {
     if (args.toolCalls.length === 0 && args.latencyMs == null) return
@@ -514,6 +560,7 @@ export class OpenCodeAgentRunner {
           status: 'ok',
         })
       }
+      if (args.manifestSpan) spans.push({ ...args.manifestSpan, sequence: spans.length })
       await withAuditedCommand(() =>
         this.commandBus.execute<IngestTraceCommandInput, IngestTraceResult>(
           'agent_orchestrator.trace.ingest',

@@ -30,6 +30,7 @@ import { registerFileAgent, getAgentEntry, type AgentRegistryEntry } from '../li
 import { aiTools, SUBMIT_OUTCOME_TOOL_ID } from '../ai-tools'
 import { compileOutcome } from '../lib/sdk/outcomeSchema'
 import { InMemoryAgentRunSessionStore } from '../lib/runtime/agentRunSessionStore'
+import { RUN_MANIFEST_SPAN_NAME } from '../lib/trace/runManifest'
 import type { AiToolDefinition } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/types'
 
 const submitOutcomeTool = aiTools.find((t) => t.name === SUBMIT_OUTCOME_TOOL_ID) as AiToolDefinition
@@ -100,7 +101,14 @@ type IngestCommandInput = {
     externalRunId: string
     agentId: string
     latencyMs?: number
-    spans: Array<{ name: string; kind: string; toolCalls?: Array<{ toolName: string; responseSummary?: unknown }> }>
+    spans: Array<{
+      name: string
+      kind: string
+      sequence?: number
+      externalSpanId?: string
+      attributes?: unknown
+      toolCalls?: Array<{ toolName: string; responseSummary?: unknown }>
+    }>
   }
 }
 
@@ -110,7 +118,7 @@ function findIngestInput(bus: { executed: RecordedCommand[] }): IngestCommandInp
     | undefined
 }
 
-function makeHarness() {
+function makeHarness(options: { capturePolicy?: unknown } = {}) {
   const executed: RecordedCommand[] = []
   const commandBus = {
     executed,
@@ -124,6 +132,9 @@ function makeHarness() {
   const em = { fork: () => ({}) }
   const agentRunSessionStore = new InMemoryAgentRunSessionStore()
   const registrations: Record<string, unknown> = { rbacService, em, agentRunSessionStore }
+  if (options.capturePolicy !== undefined) {
+    registrations.moduleConfigService = { getRecord: async () => ({ value: options.capturePolicy }) }
+  }
   const container = {
     resolve(name: string) {
       if (name in registrations) return registrations[name]
@@ -336,10 +347,122 @@ describe('OpenCodeAgentRunner — trace ingestion (#3628)', () => {
     // auto-approval unreachable for every toolless OpenCode agent. One synthetic
     // span covering the session is the same answer `buildNativeTracePayload`
     // gives a toolless native run.
-    expect(ingestInput!.payload.spans).toHaveLength(1)
-    const span = ingestInput!.payload.spans![0] as { kind: string; sequence: number; startedAt: string }
+    const stepSpans = ingestInput!.payload.spans.filter((candidate) => candidate.kind !== 'system')
+    expect(stepSpans).toHaveLength(1)
+    const span = stepSpans[0] as { kind: string; sequence: number; startedAt: string }
     expect(span.kind).toBe('llm')
     expect(span.sequence).toBe(0)
     expect(Date.parse(span.startedAt)).not.toBeNaN()
+  })
+
+  it('appends one run.manifest span without a resolved model or provider', async () => {
+    const entry = registerExampleFileAgent()
+    const { commandBus, container } = makeHarness()
+    const runner = new OpenCodeAgentRunner({
+      container: container as never,
+      commandBus: commandBus as never,
+      openCodeClient: makeFakeClient({ container }),
+    })
+
+    await runner.run(entry, { subject: 'manifest' }, runCtx)
+
+    const spans = findIngestInput(commandBus)!.payload.spans
+    const manifests = spans.filter((candidate) => candidate.name === RUN_MANIFEST_SPAN_NAME)
+    expect(manifests).toHaveLength(1)
+    expect(manifests[0]).toMatchObject({ kind: 'system', externalSpanId: 'run-123:manifest', sequence: spans.length - 1 })
+    const attributes = manifests[0].attributes as Record<string, unknown>
+    expect(attributes['om.runtime']).toBe('opencode')
+    expect(attributes['om.agent.id']).toBe(FILE_AGENT_ID)
+    expect(attributes['om.model.declared']).toBe('gpt-5-mini')
+    expect(attributes).not.toHaveProperty('om.model.resolved')
+    expect(attributes).not.toHaveProperty('om.provider')
+    expect(attributes['om.invoker']).toEqual({ kind: 'user', userId: 'user-1', apiKeyId: null, ownerUserId: null })
+  })
+
+  it('records the deployment default capture in the manifest when the tenant saved no policy', async () => {
+    const entry = registerExampleFileAgent()
+    const { commandBus, container } = makeHarness()
+    const runner = new OpenCodeAgentRunner({
+      container: container as never,
+      commandBus: commandBus as never,
+      openCodeClient: makeFakeClient({ container }),
+    })
+
+    await runner.run(entry, { subject: 'capture default' }, runCtx)
+
+    const spans = findIngestInput(commandBus)!.payload.spans
+    const manifest = spans.find((candidate) => candidate.name === RUN_MANIFEST_SPAN_NAME)
+    expect((manifest?.attributes as Record<string, unknown>)['om.capture']).toEqual({
+      level: 'metadata',
+      source: 'deployment',
+      retentionDays: 30,
+      redactPii: false,
+    })
+  })
+
+  it('records the tenant capture policy in the manifest', async () => {
+    const entry = registerExampleFileAgent()
+    const { commandBus, container } = makeHarness({ capturePolicy: { level: 'off', retentionDays: 7 } })
+    const runner = new OpenCodeAgentRunner({
+      container: container as never,
+      commandBus: commandBus as never,
+      openCodeClient: makeFakeClient({ container }),
+    })
+
+    await runner.run(entry, { subject: 'capture tenant' }, runCtx)
+
+    const spans = findIngestInput(commandBus)!.payload.spans
+    const manifest = spans.find((candidate) => candidate.name === RUN_MANIFEST_SPAN_NAME)
+    expect((manifest?.attributes as Record<string, unknown>)['om.capture']).toEqual({
+      level: 'off',
+      source: 'tenant',
+      retentionDays: 7,
+      redactPii: false,
+    })
+  })
+
+  it('records the invoker, entry point and correlation id from the run context in the manifest', async () => {
+    const entry = registerExampleFileAgent()
+    const { commandBus, container } = makeHarness()
+    const runner = new OpenCodeAgentRunner({
+      container: container as never,
+      commandBus: commandBus as never,
+      openCodeClient: makeFakeClient({ container }),
+    })
+
+    await runner.run(entry, { subject: 'manifest' }, {
+      ...runCtx,
+      invoker: { kind: 'api_key', apiKeyId: 'key-1', ownerUserId: 'user-1' },
+      entryPoint: 'run_api',
+      correlationId: 'corr-1',
+    })
+
+    const spans = findIngestInput(commandBus)!.payload.spans
+    const manifest = spans.find((candidate) => candidate.name === RUN_MANIFEST_SPAN_NAME)
+    const attributes = manifest?.attributes as Record<string, unknown>
+    expect(attributes['om.invoker']).toEqual({ kind: 'api_key', userId: null, apiKeyId: 'key-1', ownerUserId: 'user-1' })
+    expect(attributes['om.entry_point']).toBe('run_api')
+    expect(attributes).not.toHaveProperty('om.channel')
+    expect(attributes['om.correlation_id']).toBe('corr-1')
+  })
+
+  it('writes no run.manifest span when trace capture is off', async () => {
+    process.env.OM_AGENT_TRACE_CAPTURE = 'off'
+    try {
+      const entry = registerExampleFileAgent()
+      const { commandBus, container } = makeHarness()
+      const runner = new OpenCodeAgentRunner({
+        container: container as never,
+        commandBus: commandBus as never,
+        openCodeClient: makeFakeClient({ container }),
+      })
+
+      await runner.run(entry, { subject: 'capture off' }, runCtx)
+
+      const spans = findIngestInput(commandBus)!.payload.spans
+      expect(spans.some((candidate) => candidate.name === RUN_MANIFEST_SPAN_NAME)).toBe(false)
+    } finally {
+      delete process.env.OM_AGENT_TRACE_CAPTURE
+    }
   })
 })

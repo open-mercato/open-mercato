@@ -46,6 +46,7 @@ import { validateCrudMutationGuard, runCrudMutationGuardAfterSuccess } from '@op
 import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { collectAgentInvokeGrantWarnings } from '../../../lib/agent-invoke-grant-warnings'
 
 const logger = createLogger('workflows')
 
@@ -321,9 +322,15 @@ export async function PUT(
         })
       }
 
+      const overrideWarnings = await collectAgentInvokeGrantWarnings(container, {
+        definition: savedOverride.definition,
+        grantedFeatures: savedOverride.grantedFeatures,
+      })
+
       return NextResponse.json({
         data: serializeWorkflowDefinition(savedOverride),
         message: 'Workflow definition customized successfully',
+        ...(overrideWarnings.length ? { warnings: overrideWarnings } : {}),
       })
     }
 
@@ -458,9 +465,15 @@ export async function PUT(
     // the wildcard event subscriber reloads them on the next event.
     if (tenantId) invalidateTriggerCache(tenantId, organizationId ?? undefined)
 
+    const warnings = await collectAgentInvokeGrantWarnings(container, {
+      definition: definition.definition,
+      grantedFeatures: definition.grantedFeatures,
+    })
+
     return NextResponse.json({
       data: serializeWorkflowDefinition(definition),
       message: 'Workflow definition updated successfully',
+      ...(warnings.length ? { warnings } : {}),
     })
   } catch (error) {
     if (isCrudHttpError(error)) return NextResponse.json(error.body, { status: error.status })

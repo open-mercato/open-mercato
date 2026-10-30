@@ -9,27 +9,23 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { hasFeature } from '@open-mercato/shared/security/features'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import {
+  deriveOtelExportIndicator,
   deriveRuntimeIndicators,
   deriveWebSearchIndicator,
   isAiRuntimeHealthPayload,
+  isOtelExportHealthPayload,
   isWebSearchHealthPayload,
   rollupHealth,
   type AiRuntimeHealthPayload,
   type HealthIndicator,
-  type HealthIndicatorId,
   type HealthState,
+  type OtelExportHealthPayload,
   type WebSearchHealthPayload,
 } from '../lib/systemHealth'
 import { OPTIONAL_REQUEST_INIT } from './optionalRequest'
 import { SystemHealthPanel } from './health/SystemHealthPanel'
 import { HealthStateBadge } from './health/HealthStateBadge'
-
-const INDICATOR_LABEL_KEY: Record<HealthIndicatorId, string> = {
-  webSearch: 'agent_orchestrator.overview.health.webSearch',
-  mcp: 'agent_orchestrator.overview.health.mcp',
-  opencode: 'agent_orchestrator.overview.health.opencode',
-  opencodeMcp: 'agent_orchestrator.overview.health.opencodeMcp',
-}
+import { HEALTH_INDICATOR_LABEL_KEY } from './health/vocabulary'
 
 const STATE_LABEL_KEY: Record<HealthState, string> = {
   ok: 'agent_orchestrator.health.state.ok',
@@ -48,6 +44,7 @@ const DOT_CLASS: Record<HealthState, string> = {
 }
 
 const WEB_SEARCH_HEALTH_URL = '/api/agent_orchestrator/web-search/health'
+const OTEL_EXPORT_SETTINGS_URL = '/api/agent_orchestrator/otel-export/settings'
 
 /** Not permitted is not the same fault as not reachable. */
 function isDenied(call: { status?: number } | null): boolean {
@@ -72,11 +69,13 @@ export function SystemHealthTile() {
   const t = useT()
   const { payload } = useBackendChrome()
   const canProbe = hasFeature(payload?.grantedFeatures, 'agent_orchestrator.agents.manage')
+  const canViewTraces = hasFeature(payload?.grantedFeatures, 'agent_orchestrator.trace.view')
 
   const [webSearch, setWebSearch] = React.useState<WebSearchHealthPayload | null>(null)
   const [runtime, setRuntime] = React.useState<AiRuntimeHealthPayload | null>(null)
   const [webSearchFailed, setWebSearchFailed] = React.useState(false)
   const [runtimeFailed, setRuntimeFailed] = React.useState(false)
+  const [otelExport, setOtelExport] = React.useState<OtelExportHealthPayload | null>(null)
   const [isLoading, setIsLoading] = React.useState(true)
   const [probingAdapterId, setProbingAdapterId] = React.useState<string | null>(null)
 
@@ -84,10 +83,16 @@ export function SystemHealthTile() {
     setIsLoading(true)
     // Both probes opt out of the throwing 403 path: a denial has to reach
     // `isDenied` as a status, or the panel reports "not permitted" as "broken".
-    const [webSearchCall, runtimeCall] = await Promise.all([
+    const [webSearchCall, runtimeCall, otelExportCall] = await Promise.all([
       apiCall<unknown>(url, OPTIONAL_REQUEST_INIT).catch(() => null),
       apiCall<unknown>('/api/ai_assistant/health', OPTIONAL_REQUEST_INIT).catch(() => null),
+      canViewTraces
+        ? apiCall<unknown>(OTEL_EXPORT_SETTINGS_URL, OPTIONAL_REQUEST_INIT).catch(() => null)
+        : Promise.resolve(null),
     ])
+    setOtelExport(
+      otelExportCall?.ok && isOtelExportHealthPayload(otelExportCall.result) ? otelExportCall.result : null,
+    )
     const webSearchOk = Boolean(webSearchCall?.ok) && isWebSearchHealthPayload(webSearchCall?.result)
     const runtimeOk = Boolean(runtimeCall?.ok) && isAiRuntimeHealthPayload(runtimeCall?.result)
     setWebSearch(webSearchOk ? (webSearchCall!.result as WebSearchHealthPayload) : null)
@@ -99,7 +104,7 @@ export function SystemHealthTile() {
     setWebSearchFailed(!webSearchOk && !isDenied(webSearchCall))
     setRuntimeFailed(!runtimeOk && !isDenied(runtimeCall))
     setIsLoading(false)
-  }, [])
+  }, [canViewTraces])
 
   React.useEffect(() => {
     void load(`${WEB_SEARCH_HEALTH_URL}?probe=auto`)
@@ -119,13 +124,14 @@ export function SystemHealthTile() {
     [load],
   )
 
-  const indicators: HealthIndicator[] = React.useMemo(
-    () => [
+  const indicators: HealthIndicator[] = React.useMemo(() => {
+    const otelExportIndicator = deriveOtelExportIndicator(otelExport)
+    return [
       deriveWebSearchIndicator(webSearch, webSearchFailed),
       ...deriveRuntimeIndicators(runtime, runtimeFailed),
-    ],
-    [webSearch, webSearchFailed, runtime, runtimeFailed],
-  )
+      ...(otelExportIndicator ? [otelExportIndicator] : []),
+    ]
+  }, [webSearch, webSearchFailed, runtime, runtimeFailed, otelExport])
   const rollup = rollupHealth(indicators)
 
   return (
@@ -175,7 +181,7 @@ export function SystemHealthTile() {
                 min-content width; without `min-w-0` a long label ("Wyszukiwanie
                 w sieci") overflows its grid cell and lands on the neighbouring
                 indicator instead of ellipsing. */}
-            <span className="min-w-0 truncate">{t(INDICATOR_LABEL_KEY[indicator.id])}</span>
+            <span className="min-w-0 truncate">{t(HEALTH_INDICATOR_LABEL_KEY[indicator.id])}</span>
             <span className="sr-only">{t(STATE_LABEL_KEY[indicator.state])}</span>
           </li>
         ))}

@@ -169,6 +169,7 @@ every awkward thing in it followed from that split. Do not reintroduce either.
 9. **MUST treat trace/eval/guardrail/context rows as append-only** — `AgentSpan`, `AgentToolCall`, `AgentEvalResult`, `AgentGuardrailCheck`, `AgentContextBundle` (and `AgentRun` once terminal) are immutable audit records; they omit `updated_at`/`deleted_at`. Insert new rows, never mutate.
 10. **MUST reuse `agent_orchestrator.agents.run`** for new file-agent MCP tools' `requiredFeatures` — do not add new ACL features for the file-agent path. **Exception — network egress:** the `web_search`/`web_fetch` tools gate on a dedicated default-off `agent_orchestrator.web_search` feature (spec 2026-07-11-agent-web-search-tool) so web access is an explicit, separately-grantable capability. Any *new* egress/side-effecting tool should follow that precedent (dedicated default-off feature), not reuse `agents.run`.
 11. **MUST add new `acl.ts` features to `setup.ts` `defaultRoleFeatures`** and run `yarn mercato auth sync-role-acls` so existing tenants receive the grant.
+12. **MUST gate an agent's invocation with `requiredFeatures`** (`defineAgent` / `AGENT.md` frontmatter, existing features only) — `enforceAgentInvocable` in `agentRuntime.run()` enforces it at every door (`OM_AGENT_INVOKE_ENFORCEMENT=off` only logs). Expose an agent to MCP/tools-api through `defineAgentTool({ agentId })` in a module `ai-tools.ts` (tool features ⊇ agent features); ai-assistant reaches AO only via the `aiAgentRunDispatcher` (`lib/runtime/aiAgentRunDispatcher.ts`). Example: `agent_examples/ai-tools.ts`; guide: `mcp.mdx` → "Expose an Agent Orchestrator agent as a tool".
 
 ## Ask First
 
@@ -189,6 +190,11 @@ every awkward thing in it followed from that split. Do not reintroduce either.
 - Never give a sub-agent a proposal OUTCOME or its own `subAgents` (depth cap = 1); sub-agents run under the caller's own scope, never escalated.
 - Never let an agent write outside its own Command — the fail-closed `agentNoBypassSubscriber` rejects any flush-time write not inside the agent's command path.
 - Never expose cross-tenant runs, proposals, traces, or principals; never mutate append-only audit rows.
+
+## Trace Capture and OTel Export (`lib/trace/`)
+
+- Capture policy (`capturePolicy.ts`): level resolves per-agent override, tenant, deployment default, then clamps to `OM_AGENT_TRACE_CONTENT_MAX`. Level `off` must stay byte-identical to the legacy attributes; `full` records metadata only (never write content until the content-capture phase ships). Read llm span attributes through `readLlmSpanMetadata`, never ad-hoc keys.
+- OTel export is opt-in (deployment switch + tenant setting + allowlist) and fail-open: never throw into a run, report failures with `reportError` codes. Never export encrypted or free-text fields; pass string attributes through `redactAttributeValues`; derive ids only via `lib/trace/otel/ids.ts`. No `@opentelemetry/*` imports. Docs: `apps/docs/docs/framework/ai-assistant/agent-trace-*.mdx`.
 
 ## Web Egress (`web_search` / `web_fetch`)
 
@@ -247,7 +253,7 @@ Author file agents under `packages/<pkg>/src/modules/<module>/agents/<agent_id>/
 
 ```
 agents/<agent_id>/
-├── AGENT.md            # frontmatter (id,label,description,provider?,model?,tools?,skills?,subAgents?,maxSteps?) + body = instructions
+├── AGENT.md            # frontmatter (id,label,description,provider?,model?,tools?,skills?,subAgents?,requiredFeatures?,maxSteps?) + body = instructions
 ├── OUTCOME.md          # frontmatter `kind: research|proposal|artifact` + FIRST fenced ```json block = JSON-Schema; trailing prose = guidance
 ├── SAMPLE.json         # optional example input — Playground "Insert sample" button
 ├── FACTS.json          # optional Caseload fact declarations (see below)

@@ -3,10 +3,18 @@ import {
   defineAiAgent,
   type AiAgentDefinition,
 } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/ai-agent-definition'
+import { computeAgentDefinitionHash } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/agent-definition-hash'
 import type { ZodTypeAny } from 'zod'
 import { createLogger } from '@open-mercato/shared/lib/logger'
-import type { AgentType } from '../../data/validators'
+import { normalizeAgentRequiredFeatures, type AgentType, type IntegrityRuleInput, type IntegrityRule } from '../../data/validators'
+import { parseAgentIntegrityRules } from '../guardrails/integrity/declaration'
 import { getSkillEntry } from './defineSkill'
+export {
+  registerIntegrityChecker,
+  type IntegrityCheckerFn,
+  type IntegrityCheckerInput,
+  type IntegrityCheckerResult,
+} from './integrityCheckers'
 import type { JsonSchemaNode } from './outcomeSchema'
 import type { AgentTokenUsage, FileAgentFile } from '../tokens/types'
 
@@ -126,6 +134,22 @@ export interface DefineAgentInput {
    * it fall back to the panel's generic derivation.
    */
   facts?: AgentFact[]
+  /**
+   * ACL features the INVOKER must hold to run this agent. Normalised (trimmed,
+   * deduped, empties dropped) onto `AgentRegistryEntry.requiredFeatures` and
+   * forwarded to `defineAiAgent({ requiredFeatures })` so the ai-assistant policy
+   * check applies the same gate. Additive/BC-safe: omitted means no extra gate.
+   */
+  requiredFeatures?: string[]
+  /**
+   * Output-integrity rules (spec `2026-10-21-output-integrity-guardrails`): quotes
+   * that must appear in the source, references that must resolve, citations that
+   * must come from a consulted tool, custom checkers. Validated at registration —
+   * every output path must be able to exist in `result.schema` and rule ids must be
+   * unique — and stored parsed (defaults applied) on `AgentRegistryEntry.integrity`.
+   * Additive/BC-safe: omitted means no integrity checks.
+   */
+  integrity?: IntegrityRuleInput[]
 }
 
 /**
@@ -191,6 +215,10 @@ export interface AgentRegistryEntry {
   outcomeSchema?: JsonSchemaNode
   /** Optional Caseload fact declarations (see DefineAgentInput). */
   facts?: AgentFact[]
+  /** Normalised invoker features (see DefineAgentInput); undefined when the agent declares none. */
+  requiredFeatures?: string[]
+  /** Parsed integrity rules (see DefineAgentInput); undefined when the agent declares none. */
+  integrity?: IntegrityRule[]
   /** File-plane opt-in (#12). OpenCode file agents only; undefined for native agents. */
   files?: FileAgentFilesConfig
   /**
@@ -203,6 +231,11 @@ export interface AgentRegistryEntry {
    * tab. File-defined (`runtime: 'opencode'`) agents only; undefined for native.
    */
   sourceFiles?: FileAgentFile[]
+  /**
+   * ai-assistant definition hash of the underlying `defineAiAgent` definition.
+   * Native (`defineAgent`) agents only; one input of their AO definition hash.
+   */
+  aiDefinitionHash?: string
 }
 
 const registry = new Map<string, AgentRegistryEntry>()
@@ -231,6 +264,8 @@ export function defineAgent(input: DefineAgentInput): AiAgentDefinition {
   const subAgents = input.subAgents ?? []
   const delegationTools = subAgents.length > 0 ? [DELEGATE_TOOL_ID] : []
   const effectiveTools = Array.from(new Set([...ownTools, ...skillTools, ...delegationTools]))
+  const requiredFeatures = normalizeAgentRequiredFeatures(input.id, input.requiredFeatures)
+  const integrity = parseAgentIntegrityRules(input.id, input.result.schema, input.integrity, { effectiveTools })
 
   registry.set(input.id, {
     id: input.id,
@@ -254,6 +289,8 @@ export function defineAgent(input: DefineAgentInput): AiAgentDefinition {
     runtime: 'native',
     sampleInput: input.sampleInput,
     facts: input.facts,
+    requiredFeatures,
+    integrity,
   })
   const skillSections = resolvedSkills.map(
     (skill) => `## Skill: ${skill.label}\n${skill.instructions}`,
@@ -263,7 +300,7 @@ export function defineAgent(input: DefineAgentInput): AiAgentDefinition {
     : null
   const systemPrompt = [input.instructions, ...skillSections, ...(subAgentSection ? [subAgentSection] : [])]
     .join('\n\n')
-  return defineAiAgent({
+  const aiDefinition = defineAiAgent({
     id: input.id,
     moduleId: input.moduleId,
     label: input.label,
@@ -282,7 +319,11 @@ export function defineAgent(input: DefineAgentInput): AiAgentDefinition {
     defaultModel: input.defaultModel,
     loop: input.loop,
     output: { schemaName: input.id.replace(/\W+/g, '_'), schema: input.result.schema },
+    ...(requiredFeatures ? { requiredFeatures } : {}),
   })
+  const registered = registry.get(input.id)
+  if (registered) registered.aiDefinitionHash = computeAgentDefinitionHash(aiDefinition)
+  return aiDefinition
 }
 
 /**
@@ -301,6 +342,19 @@ export function registerFileAgent(entry: AgentRegistryEntry): void {
 
 export function getAgentEntry(id: string): AgentRegistryEntry | undefined {
   return registry.get(id)
+}
+
+/**
+ * The effective read-only tool allowlist `defineAgent` forwards to `defineAiAgent`:
+ * the agent's own tools, every tool its skills contribute, and the delegation
+ * tool when it declares sub-agents.
+ */
+export function resolveAgentEffectiveTools(
+  entry: Pick<AgentRegistryEntry, 'tools' | 'skills' | 'subAgents'>,
+): string[] {
+  const skillTools = entry.skills.flatMap((skillId) => getSkillEntry(skillId)?.tools ?? [])
+  const delegationTools = entry.subAgents.length > 0 ? [DELEGATE_TOOL_ID] : []
+  return Array.from(new Set([...entry.tools, ...skillTools, ...delegationTools]))
 }
 
 export function listAgentEntries(): AgentRegistryEntry[] {
@@ -525,6 +579,7 @@ async function loadFileAgents(): Promise<void> {
         outcomeSchema: descriptor.outcomeSchema,
         sampleInput: descriptor.sampleInput,
         facts: descriptor.facts,
+        requiredFeatures: normalizeAgentRequiredFeatures(descriptor.id, descriptor.requiredFeatures),
         tokenUsage: descriptor.tokenUsage,
         sourceFiles: descriptor.sourceFiles,
       })

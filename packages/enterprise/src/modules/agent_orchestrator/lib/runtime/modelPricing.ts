@@ -18,6 +18,8 @@
 
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
+import type { PricingSource } from '../trace/genAiAttributes'
+
 const logger = createLogger('agent_orchestrator').child({ component: 'model-pricing' })
 
 export type ModelPrice = {
@@ -67,24 +69,30 @@ function isPriceEntry(value: unknown): value is PriceEntry {
  * tests can vary the env without a restart; malformed JSON or malformed
  * entries are skipped with an internal warning, never thrown.
  */
-function resolvePricingTable(): Record<string, PriceEntry> {
+type PricingTable = { entries: Record<string, PriceEntry>; overridden: ReadonlySet<string> }
+
+function resolvePricingTableWithSources(): PricingTable {
+  const defaults: PricingTable = { entries: DEFAULT_PRICING, overridden: new Set() }
   const raw = process.env.OM_AGENT_MODEL_PRICING
-  if (!raw || raw.trim() === '') return DEFAULT_PRICING
+  if (!raw || raw.trim() === '') return defaults
   try {
     const parsed: unknown = JSON.parse(raw)
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
       logger.warn('OM_AGENT_MODEL_PRICING is not a JSON object; using default pricing')
-      return DEFAULT_PRICING
+      return defaults
     }
     const merged: Record<string, PriceEntry> = { ...DEFAULT_PRICING }
+    const overridden = new Set<string>()
     for (const [model, entry] of Object.entries(parsed as Record<string, unknown>)) {
-      if (isPriceEntry(entry)) merged[model] = { inputPer1M: entry.inputPer1M, outputPer1M: entry.outputPer1M }
-      else logger.warn('OM_AGENT_MODEL_PRICING entry is malformed; ignored', { model })
+      if (isPriceEntry(entry)) {
+        merged[model] = { inputPer1M: entry.inputPer1M, outputPer1M: entry.outputPer1M }
+        overridden.add(model)
+      } else logger.warn('OM_AGENT_MODEL_PRICING entry is malformed; ignored', { model })
     }
-    return merged
+    return { entries: merged, overridden }
   } catch {
     logger.warn('OM_AGENT_MODEL_PRICING is not valid JSON; using default pricing')
-    return DEFAULT_PRICING
+    return defaults
   }
 }
 
@@ -104,8 +112,8 @@ const resolveCurrency = resolveCostCurrency
  * `anthropic/claude-sonnet-4-5`), and date-suffixed upstream ids
  * (`claude-haiku-4-5-20251001`). Unknown model → null (never a guess).
  */
-export function resolveModelPrice(model: string): ModelPrice | null {
-  const table = resolvePricingTable()
+function resolveModelPriceWithSource(model: string): { price: ModelPrice; source: PricingSource } | null {
+  const table = resolvePricingTableWithSources()
   const currency = resolveCurrency()
   const candidates = new Set<string>()
   const trimmed = model.trim()
@@ -119,10 +127,19 @@ export function resolveModelPrice(model: string): ModelPrice | null {
     if (dateStripped !== candidate) candidates.add(dateStripped)
   }
   for (const candidate of candidates) {
-    const entry = table[candidate]
-    if (entry) return { ...entry, currency }
+    const entry = table.entries[candidate]
+    if (entry) {
+      return {
+        price: { ...entry, currency },
+        source: table.overridden.has(candidate) ? 'env_override' : 'default',
+      }
+    }
   }
   return null
+}
+
+export function resolveModelPrice(model: string): ModelPrice | null {
+  return resolveModelPriceWithSource(model)?.price ?? null
 }
 
 /**
@@ -143,4 +160,23 @@ export function computeCostMinor(
   const outTok = outputTokens ?? 0
   const costMinor = Math.round(((inTok * price.inputPer1M + outTok * price.outputPer1M) / 1_000_000) * 100)
   return { costMinor, currency: price.currency }
+}
+
+/**
+ * Estimated cost of one model call in integer micros of the deployment
+ * currency (1 unit = 1e-6 major units). With prices expressed per 1M tokens,
+ * `tokens x pricePer1M` is already micros. `null` when the model has no price;
+ * callers then record `om.cost.pricing_source = 'unknown'`.
+ */
+export function computeCostMicros(
+  model: string | null | undefined,
+  usage: { inputTokens?: number | null; outputTokens?: number | null },
+): { micros: number; currency: string; pricingSource: Exclude<PricingSource, 'unknown'> } | null {
+  if (!model) return null
+  const resolved = resolveModelPriceWithSource(model)
+  if (!resolved) return null
+  const inTok = usage.inputTokens ?? 0
+  const outTok = usage.outputTokens ?? 0
+  const micros = Math.round(inTok * resolved.price.inputPer1M + outTok * resolved.price.outputPer1M)
+  return { micros, currency: resolved.price.currency, pricingSource: resolved.source as Exclude<PricingSource, 'unknown'> }
 }

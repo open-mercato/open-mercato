@@ -129,6 +129,7 @@ export type SpanView = {
   endedAt: string | null
   durationMs: number | null
   status: string | null
+  attributes: unknown
 }
 
 export type ToolCallView = {
@@ -199,6 +200,11 @@ export type GoldenCaseView = {
   expected: unknown
 }
 
+export type RunOtelLinkView = {
+  traceId: string
+  url: string
+}
+
 export type RunDetailView = {
   run: RunView
   spans: SpanView[]
@@ -210,6 +216,8 @@ export type RunDetailView = {
   proposals: ProposalView[]
   /** The approved golden case this run's input matched (online golden-match plane), or null. */
   goldenCase: GoldenCaseView | null
+  /** The exported OTel trace and its tracing-backend link; null when export or the link is not configured. */
+  otel: RunOtelLinkView | null
 }
 
 export type AgentRuntime = 'in-process' | 'native' | 'opencode' | 'external'
@@ -238,6 +246,8 @@ export type AgentView = {
   tags: string[]
   tools: string[]
   skills: string[]
+  requiredFeatures: string[]
+  invocable: boolean
   /** Optional example input for the Playground "Insert sample" button. */
   sampleInput?: unknown
   /** Optional declared Caseload facts (from the agent's FACTS.json / defineAgent). */
@@ -487,6 +497,7 @@ export function mapSpan(item: Record<string, unknown>): SpanView | null {
     endedAt: asString(item.ended_at) ?? asString(item.endedAt),
     durationMs: asNumber(item.duration_ms) ?? asNumber(item.durationMs),
     status: asString(item.status),
+    attributes: item.attributes ?? null,
   }
 }
 
@@ -606,7 +617,26 @@ export function mapRunDetail(payload: Record<string, unknown>): RunDetailView | 
     const goldenId = asString((goldenCaseRaw as Record<string, unknown>).id)
     if (goldenId) goldenCase = { id: goldenId, expected: (goldenCaseRaw as Record<string, unknown>).expected ?? null }
   }
-  return { run, spans, toolCalls, evalResults, contextBundle, guardrailChecks, proposals, goldenCase }
+  return {
+    run,
+    spans,
+    toolCalls,
+    evalResults,
+    contextBundle,
+    guardrailChecks,
+    proposals,
+    goldenCase,
+    otel: mapRunOtelLink(payload.otel),
+  }
+}
+
+export function mapRunOtelLink(value: unknown): RunOtelLinkView | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const record = value as Record<string, unknown>
+  const traceId = asString(record.traceId)
+  const url = asString(record.url)
+  if (!traceId || !url || !/^https?:\/\//i.test(url)) return null
+  return { traceId, url }
 }
 
 export function mapAgent(item: Record<string, unknown>): AgentView | null {
@@ -635,6 +665,10 @@ export function mapAgent(item: Record<string, unknown>): AgentView | null {
     tags: normalizeAgentTags(item.tags),
     tools: Array.isArray(item.tools) ? item.tools.filter((tool): tool is string => typeof tool === 'string') : [],
     skills: Array.isArray(item.skills) ? item.skills.filter((skill): skill is string => typeof skill === 'string') : [],
+    requiredFeatures: Array.isArray(item.requiredFeatures)
+      ? item.requiredFeatures.filter((feature): feature is string => typeof feature === 'string')
+      : [],
+    invocable: item.invocable !== false,
     sampleInput: item.sampleInput,
     facts: mapAgentFacts(item.facts),
   }

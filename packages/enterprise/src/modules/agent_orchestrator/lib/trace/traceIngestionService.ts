@@ -12,6 +12,7 @@ import { traceIngestSchema, type TraceIngest, type TraceSpanIngest } from '../..
 import { ARTIFACT_REFS, type ArtifactEncryptionRef, type ArtifactOffloader } from './artifactStore'
 import { computeCostMinor } from '../runtime/modelPricing'
 import { redactSecrets } from './redactToolSummary'
+import { hasGenAiVocabularyKey, normalizeGenAiAttributes } from './genAiAttributes'
 
 export type IngestScope = { tenantId: string; organizationId: string }
 
@@ -40,7 +41,7 @@ export type IngestTraceResult = {
  * storage with the key stamped on the row's artifact-key column. Attribute /
  * context payloads with no artifact-key column stay capped inline only.
  */
-const SUMMARY_CHAR_LIMIT = 4000
+export const SUMMARY_CHAR_LIMIT = 4000
 
 function capSummary(value: unknown): unknown {
   if (value === undefined || value === null) return value ?? null
@@ -52,6 +53,17 @@ function capSummary(value: unknown): unknown {
   }
   if (serialized.length <= SUMMARY_CHAR_LIMIT) return value
   return { _truncated: true, preview: serialized.slice(0, SUMMARY_CHAR_LIMIT) }
+}
+
+/**
+ * External adapters MAY send `gen_ai.*` / `om.*` keys directly on llm spans;
+ * those spans get the same type-checked, legacy-backfilled shape the native
+ * runner writes. Spans carrying only legacy keys (capture level `off`, older
+ * adapters) and non-llm spans are stored exactly as sent.
+ */
+function normalizeLlmSpanAttributes(span: TraceSpanIngest): unknown {
+  if (span.kind !== 'llm' || !hasGenAiVocabularyKey(span.attributes)) return span.attributes
+  return normalizeGenAiAttributes(span.attributes)
 }
 
 /**
@@ -163,7 +175,7 @@ export async function ingestTrace(
       endedAt: spanPayload.endedAt ? new Date(spanPayload.endedAt) : null,
       durationMs: spanPayload.durationMs ?? null,
       status: (spanPayload.status ?? 'ok') as AgentSpanStatus,
-      attributes: capSummary(spanPayload.attributes),
+      attributes: capSummary(normalizeLlmSpanAttributes(spanPayload)),
     })
     em.persist(span)
     spansByExternal.set(spanPayload.externalSpanId, span)

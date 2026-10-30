@@ -20,6 +20,7 @@ import {
   type InjectionRiskResult,
 } from './promptInjection'
 import { checkGrounding } from './grounding'
+import { withRuntimeAuditWrite } from '../identity/agentWriteScope'
 
 /**
  * The versioned guardrail set that produced a verdict. Phase 1 stamps a constant
@@ -270,7 +271,7 @@ export async function persistVerdict(
     })
     em.persist(row)
   }
-  await em.flush()
+  await withRuntimeAuditWrite(() => em.flush())
 
   for (const check of args.verdict.checks) {
     if (check.result === 'pass') continue

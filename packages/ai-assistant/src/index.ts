@@ -43,10 +43,55 @@ export {
   type AiAgentPageContextInput,
   type AiAgentStructuredOutput,
   type AiAgentDataCapabilities,
+  type AiAgentMcpToolConfig,
 } from './modules/ai_assistant/lib/ai-agent-definition'
+
+export {
+  mergeCallSettings,
+  aiAgentCallSettingsSchema,
+  type AiAgentCallSettings,
+  type AiAgentRunChannel,
+  type AiAgentRunTraceOptions,
+  type AiAgentCallObserver,
+  type AiAgentPromptResolvedEvent,
+  type AiAgentModelCallStartEvent,
+  type AiAgentModelCallEndEvent,
+  type AiAgentModelCallUsage,
+} from './modules/ai_assistant/lib/agent-call-contract'
+
+export {
+  AI_AGENT_RUN_DISPATCHER_DI_KEY,
+  AiAgentDispatchDeniedError,
+  isAiAgentDispatchDeniedError,
+  resolveAiAgentRunDispatcher,
+  resolveDispatchOwner,
+  type ResolveDispatchOwnerOptions,
+  type AiAgentRunDispatcher,
+  type AiAgentRunDispatchInput,
+  type AiAgentRunDispatchResult,
+  type AiAgentRunDispatchCaller,
+  type AiAgentRunDispatchUsage,
+  type AiAgentRunDispatchVia,
+  type AiAgentDispatchDeniedCode,
+} from './modules/ai_assistant/lib/agent-run-dispatcher'
 
 // Additive AI tool builder
 export { defineAiTool } from './modules/ai_assistant/lib/ai-tool-definition'
+
+// Agent exposed as one tool (chat, MCP, /tools/execute)
+export {
+  defineAgentTool,
+  AGENT_TOOL_DEFAULT_TIMEOUT_MS,
+  isAgentToolFeatureSuperset,
+  type AgentToolResult,
+  type DefineAgentToolSpec,
+} from './modules/ai_assistant/lib/agent-tool'
+export {
+  AgentToolError,
+  isAgentToolError,
+  type AgentToolErrorCode,
+  type AgentToolDenyCode,
+} from './modules/ai_assistant/lib/agent-tool-error'
 
 // Attachment-bridge contract types (spec Phase 0 §8/§10, implementation-ready for Phase 3 runtime)
 export {
