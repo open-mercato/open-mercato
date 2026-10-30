@@ -316,6 +316,10 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
           'Payment status changed concurrently; provider result not applied',
           { action: input.action, currentStatus: incompatibleConcurrentStatus, resultStatus: result.status },
         )
+        getTelemetryRuntime()?.reportError(
+          new Error('[internal] Provider result not applied after a concurrent payment status change'),
+          { module: 'payment_gateways', code: 'payment_gateways.manual_result_not_applied' },
+        )
       }
       if (statusChanged) {
         await emitStatusEvent(result.status, {

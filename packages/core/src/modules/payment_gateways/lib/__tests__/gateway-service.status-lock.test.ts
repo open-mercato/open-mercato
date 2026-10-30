@@ -349,6 +349,10 @@ describe('payment gateway service — status writers evaluate the locked committ
         }),
         scope,
       )
+      expect(mockReportError).toHaveBeenCalledWith(
+        expect.any(Error),
+        { module: 'payment_gateways', code: 'payment_gateways.manual_result_not_applied' },
+      )
     })
 
     it('still rejects an incompatible provider result when nothing changed concurrently', async () => {
@@ -361,6 +365,7 @@ describe('payment gateway service — status writers evaluate the locked committ
 
       expect(emit).not.toHaveBeenCalled()
       expect(committed.unifiedStatus).toBe('authorized')
+      expect(mockReportError).not.toHaveBeenCalled()
     })
   })
 })
