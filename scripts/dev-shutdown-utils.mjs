@@ -99,13 +99,21 @@ export async function waitForProcessTreesExit(children, timeoutMs = 2_000) {
 
 export function getSessionProcessTargets(session) {
   if (!session) return []
-  const processes = readSessionProcessTable(session.token, session.ownsLock ? null : process.pid)
+  const table = readProcessTable()
+  const registered = (session.getProcessRecords?.(table) ?? []).flatMap((record) => {
+    const current = table?.find((entry) => entry.pid === record.pid)
+    return current ? [{ ...current, role: record.role }] : []
+  })
+  const processes = [...new Map([
+    ...readSessionProcessTable(session.token, session.ownsLock ? null : process.pid),
+    ...registered,
+  ].map((entry) => [entry.pid, entry])).values()]
     .filter((entry) => entry.pid !== process.pid && !entry.state.startsWith('Z'))
   const sessionPids = new Set(processes.map((entry) => entry.pid))
   return processes.filter((entry) => !sessionPids.has(entry.ppid)).map((entry) => {
     const target = { pid: entry.pid, kill: (signal) => process.kill(entry.pid, signal) }
     trackedProcessTrees.set(target, new Map([[entry.pid, entry]]))
-    session.registerChild?.(target, 'orphaned-session-process')
+    session.registerChild?.(target, entry.role ?? 'orphaned-session-process')
     return target
   })
 }

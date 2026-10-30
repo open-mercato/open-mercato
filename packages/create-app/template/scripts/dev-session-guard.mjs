@@ -195,6 +195,11 @@ function createHandle({ lockDirectory, owner, ownsLock, role }) {
       OM_DEV_SESSION_TOKEN: owner.token,
       OM_DEV_SESSION_WORKSPACE_ROOT: owner.workspaceRoot,
     },
+    getProcessRecords(processes = readProcessTable()) {
+      const records = readMembers(lockDirectory)
+      return records.filter((record) => record.token === owner.token && record.pid !== process.pid
+        && (ownsLock || trackedMembers.has(record.pid)) && matchesProcessRecord(record, processes))
+    },
     registerChild(child, childRole = 'managed-child') {
       const pid = child?.pid
       const memberPath = trackPid(pid, childRole)

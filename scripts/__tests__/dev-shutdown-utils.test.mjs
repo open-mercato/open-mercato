@@ -285,3 +285,30 @@ test('failed inspection never permits unverified synthetic PID kills', () => {
   killProcessTree(child, 'SIGKILL', { platform: 'linux', readProcesses: () => null })
   assert.deepEqual(child.killCalls, ['SIGTERM'])
 })
+
+
+test('shutdown includes a recorded MCP listener even without inherited session environment', { skip: process.platform === 'win32' }, async () => {
+  const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'om-recorded-mcp-'))
+  const session = acquireDevSession({ workspaceRoot, token: null })
+  const childEnv = { ...process.env }
+  delete childEnv.OM_DEV_SESSION_TOKEN
+  delete childEnv.OM_DEV_PROCESS_OWNER_PID
+  const child = spawn(process.execPath, ['--eval', "require('node:net').createServer().listen(0, '127.0.0.1', () => console.log('ready'))"], {
+    env: childEnv, stdio: ['ignore', 'pipe', 'ignore'],
+  })
+  try {
+    await new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error('MCP fixture did not start')), 5_000)
+      child.stdout.once('data', () => { clearTimeout(timeout); resolve() })
+    })
+    session.registerChild(child, 'MCP server')
+    const targets = getSessionProcessTargets(session)
+    assert.ok(targets.some((target) => target.pid === child.pid), 'recorded MCP listener was omitted')
+    for (const target of targets) killProcessTree(target, 'SIGTERM')
+    assert.equal(await waitForProcessTreesExit(targets), true)
+  } finally {
+    child.kill('SIGKILL')
+    session.release()
+    fs.rmSync(workspaceRoot, { recursive: true, force: true })
+  }
+})
