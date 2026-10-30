@@ -61,7 +61,7 @@ Hashes identify the local sanitized evaluator record and retained generated-file
 
 ## Validation status
 
-The first two recovery experiments are stopped; a fresh experiment is being prepared with corrected local transport normalization and the same separately frozen `0692dbed2` controller. Full-case results and implementation-oracle results are recorded separately; neither is a complete release certificate. The frozen-target attribution below remains historical evidence.
+The first two recovery experiments are stopped; Round 3 is running with corrected local transport normalization and the same separately frozen `0692dbed2` controller. Full-case results and implementation-oracle results are recorded separately; neither is a complete release certificate. The frozen-target attribution below remains historical evidence.
 
 The true-base knowledge controller passes at source commit `0692dbed268fe2b11d435ba1802d78e8bb2b6005`, against `fd7c06569bd5fa282716b28e1375d2ddb2cc1eea`. Each focused test is overlaid alone onto the base, and the same test runs against the complete fixed tree:
 
@@ -112,6 +112,14 @@ In OMH-009, the prior unsupported Vitest import and extra testing-route mistakes
 The format correction has a separate local transport cause. The first response contains one schema-valid fenced JSON object followed by explanatory Markdown. The strict parser introduced for Round 2 rejects trailing prose, including an inline JavaScript `{ transaction: true }` expression that is not a later JSON answer. The model failed the requested response format, and the adapter also imposed an avoidable extraction failure. Installed Pi's JSON mode emits events rather than constraining the final answer schema. The next local parser uses bounded Markdown-aware answer-container extraction while retaining exact values, canonical validation, and fail-closed handling of later genuine malformed/schema-invalid answers. No historical result is regraded; no first-attempt code pass is inferred from a valid routing object.
 
 The frozen Round 2 analysis hashes are `dbf896905e140d5bc87d52ee5760ea54a5236f6fec35f5792624fb0eee523c9d` (Markdown) and `a8737e840a0ae52cecb9525d21d49e67d9d28b5f30413359d7c22dc9e380f6b5` (JSON). The content-free response-normalization audit SHA-256 is `91e36ea7c07e49b35c408dff93ed8b8981d320750b79dee64d99405694c51484`. Original scores, both prior reports, the frozen original-before lane and all eleven controller assets were verified unchanged.
+
+## Markdown-aware local transport recovery
+
+Round 3 retains the same model, system prompt, timeout, correction policy, canonical schema/grader and all eleven controller assets. Only the local response parser and fresh report/runtime bindings change. Its bounded Markdown protocol selects JSON answer containers rather than explanatory code examples; a later genuine answer controls even when malformed or schema-invalid. It does not unwrap nested answers, repair values or choose a candidate by its grade.
+
+The final parser passes 31/31 synthetic regressions, compared with the frozen Round 2 parser's 17/31 on the same tests. The parent independently reviewed ordinary Markdown/code examples, later invalid answers, standalone inline answers, nested containers, quote/multiline handling and resource bounds. Parser SHA-256: `01053bc7a7588115b2dd8e77df6a40c2fdc55f90c0aa55c452e3f9f1146823b8`. Both previously observed response shapes normalize to their exact schema-valid objects; no earlier score changes.
+
+Fresh fourteen-case fixture/before-oracle, prompt/framework projection and selected deterministic checks pass. Authenticated collector self-tests, version-only canonical sandbox and dry-run checks pass before inference; the source/dependency cohort is unchanged. The sanitized preflight summary SHA-256 is `2802ca1591872962a9bdca743fe80ee3e19be7fba1aac7c4654e9d7479746fb4`. The complete model-result matrix is pending; these setup checks are not model passes.
 
 ## Offline attribution on the frozen generated targets
 
