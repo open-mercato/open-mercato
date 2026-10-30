@@ -1,5 +1,16 @@
 import { applySmtpEnvPreset, readSmtpEnvPreset } from '../preset'
 
+const reportError = jest.fn()
+const ensureSystemEmailChannel = jest.fn()
+
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  getTelemetryRuntime: () => ({ reportError: (...args: unknown[]) => reportError(...args) }),
+}))
+
+jest.mock('@open-mercato/core/modules/communication_channels/lib/ensure-system-email-channel', () => ({
+  ensureSystemEmailChannel: (...args: unknown[]) => ensureSystemEmailChannel(...args),
+}))
+
 const SMTP_ENV_KEYS = ['SMTP_HOST', 'SMTP_PORT', 'SMTP_USER', 'SMTP_PASSWORD', 'SMTP_TLS'] as const
 const EMAIL_ENV_KEYS = ['NOTIFICATIONS_EMAIL_FROM', 'EMAIL_FROM', 'ADMIN_EMAIL', 'SYSTEM_EMAIL_PROVIDER'] as const
 
@@ -116,5 +127,30 @@ describe('applySmtpEnvPreset', () => {
     await applySmtpEnvPreset(ctx)
 
     expect(saved).toHaveLength(0)
+  })
+
+  it('reports a failed integration-state upsert and still provisions the system email channel', async () => {
+    setFullEnv()
+    process.env.SYSTEM_EMAIL_PROVIDER = 'smtp'
+    reportError.mockClear()
+    ensureSystemEmailChannel.mockClear()
+    const failure = new Error('state store unavailable')
+    const { ctx, saved } = makeCtx()
+    const resolve = ctx.container.resolve.bind(ctx.container)
+    ctx.container = {
+      resolve(key: string) {
+        if (key === 'integrationStateService') return { async upsert() { throw failure } }
+        return resolve(key)
+      },
+    } as never
+
+    await applySmtpEnvPreset(ctx)
+
+    expect(saved).toHaveLength(1)
+    expect(reportError).toHaveBeenCalledWith(failure, expect.objectContaining({
+      module: 'channel_smtp',
+      code: 'channel_smtp.preset_state_upsert_failed',
+    }))
+    expect(ensureSystemEmailChannel).toHaveBeenCalledTimes(1)
   })
 })

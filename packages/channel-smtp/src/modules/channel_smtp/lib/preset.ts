@@ -2,6 +2,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import { normalizeEnvString, resolveDefaultEmailFromAddress } from '@open-mercato/shared/lib/email/config'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { ensureSystemEmailChannel } from '@open-mercato/core/modules/communication_channels/lib/ensure-system-email-channel'
 import { isSelectedSystemEmailProvider } from '@open-mercato/core/modules/communication_channels/lib/system-email-provider-config'
 import { smtpCapabilities } from '../capabilities'
@@ -115,6 +116,14 @@ export async function applySmtpEnvPreset(ctx: PresetScope): Promise<void> {
       err,
       tenantId: ctx.tenantId,
       organizationId: ctx.organizationId,
+    })
+    getTelemetryRuntime()?.reportError(err, {
+      module: 'channel_smtp',
+      code: 'channel_smtp.preset_state_upsert_failed',
+      attributes: {
+        tenantId: ctx.tenantId,
+        organizationId: ctx.organizationId,
+      },
     })
   }
 
