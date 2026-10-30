@@ -27,7 +27,7 @@
 | 1 | 1.3 | Load a run's content artifacts for export | dispatch:capable | done | pending |
 | 1 | 1.4 | Emit content events on exported chat and tool spans | dispatch:capable | done | pending |
 | 1 | 1.5 | Enable the content control on the OTel export settings page | dispatch | done | pending |
-| 2 | 2.1 | Add the OTLP protobuf encoder | dispatch:capable | todo | — |
+| 2 | 2.1 | Add the OTLP protobuf encoder | dispatch:capable | done | pending |
 | 2 | 2.2 | Send OTLP over http/protobuf | dispatch | todo | — |
 | 3 | 3.1 | Declare the OTLP export integration | dispatch | todo | — |
 | 3 | 3.2 | Vet tenant OTLP endpoints and pin their addresses | dispatch:capable | todo | — |
