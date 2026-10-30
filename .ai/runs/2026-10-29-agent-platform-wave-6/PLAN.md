@@ -45,7 +45,7 @@
 | 4 | 4.5 | Remove section search records when structure is purged | dispatch:capable | done | 66786b7e7 |
 | 4 | 4.6 | Sync section search when a partition toggles indexing | dispatch | done | 08e0c9cf0 |
 | 4 | 4.7 | Emit attachment citations from get_document_sections | dispatch | done | pending |
-| 4 | 4.8 | Cover section search with integration tests | dispatch | todo | — |
+| 4 | 4.8 | Cover section search with integration tests | dispatch | done | pending |
 | 4 | 4.9 | Document section search | dispatch:cheap | todo | — |
 | 5 | 5.1 | Update the roadmap, upgrade notes and spec changelogs for wave 6 | inline | todo | — |
 

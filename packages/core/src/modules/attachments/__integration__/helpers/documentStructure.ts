@@ -141,6 +141,7 @@ export async function prepareStructurePartition(
   request: APIRequestContext,
   token: string,
   label: string,
+  options: { indexDocumentSections?: boolean } = {},
 ): Promise<StructurePartition> {
   const partitionCode = `qa_struct_${label}_${Date.now()}`
   const response = await apiRequest(request, 'POST', '/api/attachments/partitions', {
@@ -151,6 +152,7 @@ export async function prepareStructurePartition(
       isPublic: false,
       requiresOcr: false,
       extractDocumentStructure: true,
+      indexDocumentSections: options.indexDocumentSections ?? false,
     },
   })
   if (response.status() === 403) {

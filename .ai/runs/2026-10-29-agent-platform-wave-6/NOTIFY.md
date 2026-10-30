@@ -15,3 +15,7 @@
 - Steps 3.3–4.6 landed via executors (3.3, 4.1, 4.2, 4.3, 4.5 capable tier; 3.6 cheap tier — landed as two commits). Fix: 3.4-review-fix (route-link + locale guards).
 - Decisions worth review: per-tenant destination fails closed with five error codes (incl. deployment_unconfigured); `shouldIndex` also gates the query_index token writer; `releaseScoped(flush:false)` returns a search-only cleanup callback; tenant partitions fan out across all of the tenant's orgs.
 - Checkpoint 2: static + unit + build:app pass after the fix; integration 150 passed / 15 skipped / 0 failed.
+
+## 2026-10-30T12:46:01Z — blocker found and fixed
+- Step 4.8's TC-ATT-STRUCT-006 found that Step 4.1 stopped the query_index token writer from writing tokens for `shouldIndex` entities while the SearchIndexer token path only runs from the fulltext/vector workers — so without Meilisearch and a vector provider, document sections were never token-indexed. Fixed in **4.1-review-fix** (79cbca600): query_index now evaluates `shouldIndex` per record (write on true, delete on false/throw). With it, TC-ATT-STRUCT-001..007 pass (7/7).
+- The 4.8 executor's attempt to run against the local Meilisearch container was denied (it needed the container's master key); not retried.
