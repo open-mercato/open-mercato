@@ -4,13 +4,14 @@
   "failureFirstCommit": "26687c241",
   "before": {
     "passed": 29,
-    "failed": 7
+    "failed": 7,
+    "scope": "Initial test-only phase before canonical projection; not the true-fd7 diagnostic."
   },
   "after": {
     "passed": 36,
     "failed": 0
   },
-  "fixtureCorrection": "An explicit inert QA-only row replaces an incorrect assumption that the emitted fixture contains QA rows; no assertion was removed. Exact final-test true-base replay remains part of the pending knowledge gate.",
+  "fixtureCorrection": "An explicit inert QA-only row replaces an incorrect fixture assumption; no assertion was removed. Canonical V7 and additional true-base diagnostics use the exact final test bytes.",
   "writableCasesChecked": 49,
   "maximumCanonicalPaths": 14,
   "existingMetadataByteLimit": 8192,
@@ -21,5 +22,7 @@
   "readOnlyFixturePromptSha256": "310611533329dc0364caeb567261842e48da2b2458bef66f5dc4e40af2814027",
   "evaluatorSha256": "bf7c49e16ac0ccd25445eb5ac74bca90effe935b1b7602c124d72fc239a7593b",
   "candidateModelStatus": "not-run",
-  "repositoryAndPackedValidation": "pending-after-frozen-round4"
+  "repositoryAndPackedValidation": "pending-after-frozen-round4",
+  "trueBaseDiagnostic": "2026-10-30-qwen-harness-knowledge-base-diagnostic-v7.json",
+  "knowledgeController": "2026-10-30-qwen-harness-knowledge-result-summary-v7.json"
 }
