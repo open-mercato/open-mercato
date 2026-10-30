@@ -326,27 +326,60 @@ function lineIndentAt(source: string, position: number): string {
   return match?.[0] ?? ''
 }
 
-function replaceArrayLiteral(
+function nextTokenEnd(source: string, position: number): number {
+  const scanner = ts.createScanner(ts.ScriptTarget.Latest, true, ts.LanguageVariant.Standard, source)
+  scanner.resetTokenState(position)
+  scanner.scan()
+  return scanner.getTokenEnd()
+}
+
+function trailingCommentsEnd(source: string, position: number): number {
+  const ranges = ts.getTrailingCommentRanges(source, position) ?? []
+  return ranges.length > 0 ? ranges[ranges.length - 1].end : position
+}
+
+function insertArrayElement(
   source: string,
   arrayNode: ts.ArrayLiteralExpression,
   entry: ModuleEntry,
   sourceFile: ts.SourceFile,
 ): string {
-  const existingElements = arrayNode.elements.map((element) =>
-    source.slice(element.getStart(sourceFile), element.end).trim(),
-  )
-  const closingIndent = lineIndentAt(source, arrayNode.end - 1)
-  const elementIndent =
-    arrayNode.elements.length > 0
-      ? lineIndentAt(source, arrayNode.elements[0].getStart(sourceFile))
-      : `${closingIndent}  `
-  const updatedArray = [
-    '[',
-    ...[...existingElements, buildModuleEntryLiteral(entry)].map((value) => `${elementIndent}${value},`),
-    `${closingIndent}]`,
-  ].join('\n')
+  const newline = source.includes('\r\n') ? '\r\n' : '\n'
+  const entryLiteral = buildModuleEntryLiteral(entry)
+  const openingBracket = arrayNode.getStart(sourceFile)
+  const closingBracket = arrayNode.end - 1
+  const openingIndent = lineIndentAt(source, openingBracket)
+  const lastElement = arrayNode.elements[arrayNode.elements.length - 1]
 
-  return source.slice(0, arrayNode.getStart(sourceFile)) + updatedArray + source.slice(arrayNode.end)
+  let head: string
+  let insertAt: number
+  let insertion: string
+
+  if (!lastElement) {
+    const innerContent = source.slice(openingBracket + 1, closingBracket).trimEnd()
+    insertAt = openingBracket + 1 + innerContent.length
+    head = source.slice(0, insertAt)
+    insertion = `${newline}${openingIndent}  ${entryLiteral},`
+  } else {
+    const hasTrailingComma = arrayNode.elements.hasTrailingComma
+    const anchor = hasTrailingComma ? nextTokenEnd(source, lastElement.end) : lastElement.end
+    insertAt = trailingCommentsEnd(source, anchor)
+    head = hasTrailingComma
+      ? source.slice(0, insertAt)
+      : `${source.slice(0, anchor)},${source.slice(anchor, insertAt)}`
+    const lastElementStart = lastElement.getStart(sourceFile)
+    const startsOnOpeningLine = !source.slice(openingBracket, lastElementStart).includes('\n')
+    const elementIndent = startsOnOpeningLine
+      ? `${openingIndent}  `
+      : lineIndentAt(source, lastElementStart)
+    insertion = `${newline}${elementIndent}${entryLiteral}${hasTrailingComma ? ',' : ''}`
+  }
+
+  const closesOnSameLine = !source.slice(insertAt, closingBracket).includes('\n')
+  const closingLine = closesOnSameLine ? `${newline}${openingIndent}` : ''
+  const tail = closesOnSameLine ? source.slice(closingBracket) : source.slice(insertAt)
+
+  return head + insertion + closingLine + tail
 }
 
 function upsertModuleSource(objectLiteral: string, from: string): string {
@@ -400,7 +433,7 @@ export function ensureModuleRegistration(
     )
   }
 
-  const updated = replaceArrayLiteral(source, config.arrayNode, normalized, sourceFile)
+  const updated = insertArrayElement(source, config.arrayNode, normalized, sourceFile)
   fs.writeFileSync(modulesPath, updated)
 
   return { changed: true, registeredAs: normalized.from ?? '@open-mercato/core' }

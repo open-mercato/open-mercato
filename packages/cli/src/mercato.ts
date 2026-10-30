@@ -39,6 +39,7 @@ import {
   type GenerateWatcherMode,
 } from './lib/in-process-generate-watcher-mode'
 import { parseModuleInstallArgs } from './lib/module-install-args'
+import type { ModuleCommandResult } from './lib/module-install'
 import { resolveNextBuildIdCandidate } from './lib/next-build-id'
 import { acquireServerStartLock } from './lib/server-start-lock'
 import { assertSingleInstanceStrategies } from './lib/single-instance-strategy-guard'
@@ -676,6 +677,22 @@ function ensureNextBuildIdInConfiguredDistDir(appDir: string): void {
   console.warn(
     '[server] Recovered BUILD_ID from .next build artifacts into .mercato/next to match the configured distDir.',
   )
+}
+
+function printModuleCommandResult(result: ModuleCommandResult, alreadyEnabledNote?: string): void {
+  if (!result.registrationChanged) {
+    console.log(`\nℹ️  Module "${result.moduleId}" from "${result.from}" is already enabled in modules.ts. Nothing to change.`)
+    if (alreadyEnabledNote) {
+      console.log(alreadyEnabledNote)
+    }
+    console.log('')
+    return
+  }
+
+  console.log(`\n✅ Module "${result.moduleId}" enabled from ${result.from}.\n`)
+  console.log('Next steps:')
+  console.log('  1. Review generated files if needed: .mercato/generated/')
+  console.log('  2. Start dev:                         yarn dev')
 }
 
 async function handleDirectEjectCommand(args: string[]): Promise<number> {
@@ -1483,10 +1500,7 @@ export async function run(argv = process.argv) {
         }
 
         const result = await addOfficialModule(createResolver(), packageSpec, eject, moduleId ?? undefined, allowThirdParty)
-        console.log(`\n✅ Module "${result.moduleId}" enabled from ${result.from}.\n`)
-        console.log('Next steps:')
-        console.log('  1. Review generated files if needed: .mercato/generated/')
-        console.log('  2. Start dev:                         yarn dev')
+        printModuleCommandResult(result, 'If yarn add changed the package version, run "yarn mercato generate" to refresh generated files.')
         return 0
       }
 
@@ -1501,10 +1515,7 @@ export async function run(argv = process.argv) {
         const { enableOfficialModule } = await import('./lib/module-install')
         const { moduleId, eject, allowThirdParty } = parseModuleInstallArgs(commandArgs)
         const result = await enableOfficialModule(createResolver(), packageName, moduleId ?? undefined, eject, allowThirdParty)
-        console.log(`\n✅ Module "${result.moduleId}" enabled from ${result.from}.\n`)
-        console.log('Next steps:')
-        console.log('  1. Review generated files if needed: .mercato/generated/')
-        console.log('  2. Start dev:                         yarn dev')
+        printModuleCommandResult(result)
         return 0
       }
 
