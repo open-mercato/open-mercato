@@ -24,6 +24,23 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.9.0 → 0.9.1 (unreleased)
 
+### Workflow steps may last longer than ~24.8 days; `StepInstance.executionTimeMs` is deprecated
+
+A workflow step that lasted 2^31 ms (~24.86 days) or longer could not complete: `step_instances.execution_time_ms`
+is a Postgres `integer`, so the flush that closed the step threw after the step's task had already committed. A
+synchronous `WAIT` activity of that length resolved after 1 ms instead (Node's `setTimeout` ceiling), and a
+`WAIT_FOR_CONDITION` step was forced to time out after 1000 polls whatever its own timeout said.
+
+- `StepInstance.executionTimeMs` (`step_instances.execution_time_ms`) is now `@deprecated` and is written as `null`
+  for a step longer than 2^31 − 1 ms. It was already `null` on every FAILED path. Derive a step's duration from
+  `exitedAt - enteredAt`; the exact value still travels on the `STEP_EXITED` event (`eventData.executionTimeMs`).
+  The column is scheduled for removal no earlier than 0.11.0; no migration ships now.
+- A synchronous `WAIT` longer than one minute that is the last activity of its transition is now queued like an
+  `async: true` WAIT, so the run parks in `WAITING_FOR_ACTIVITIES` instead of holding the request open. A synchronous
+  WAIT longer than ~24.8 days anywhere else now fails with an explicit error instead of resolving early.
+- `OM_WORKFLOWS_MAX_CONDITION_ATTEMPTS` is now the floor of the poll cap: each `WAIT_FOR_CONDITION` waiter may poll
+  as many times as its own `timeout / pollIntervalMs` requires.
+
 ### Organization create undo retains a tombstone (#7663)
 
 Undoing organization creation now sets `deleted_at`, deactivates the row and
@@ -892,23 +909,6 @@ defaults.
 - A caller that relied on omission to reset these fields must send the values explicitly.
 - Rules and rule sets already changed by a partial update are not repaired. Check `enabled` and
   `priority` on the business rules pages and set them again where needed.
-
-### Workflow steps may last longer than ~24.8 days; `StepInstance.executionTimeMs` is deprecated
-
-A workflow step that lasted 2^31 ms (~24.86 days) or longer could not complete: `step_instances.execution_time_ms`
-is a Postgres `integer`, so the flush that closed the step threw after the step's task had already committed. A
-synchronous `WAIT` activity of that length resolved after 1 ms instead (Node's `setTimeout` ceiling), and a
-`WAIT_FOR_CONDITION` step was forced to time out after 1000 polls whatever its own timeout said.
-
-- `StepInstance.executionTimeMs` (`step_instances.execution_time_ms`) is now `@deprecated` and is written as `null`
-  for a step longer than 2^31 − 1 ms. It was already `null` on every FAILED path. Derive a step's duration from
-  `exitedAt - enteredAt`; the exact value still travels on the `STEP_EXITED` event (`eventData.executionTimeMs`).
-  The column will be removed in a later release; no migration ships now.
-- A synchronous `WAIT` longer than one minute that is the last activity of its transition is now queued like an
-  `async: true` WAIT, so the run parks in `WAITING_FOR_ACTIVITIES` instead of holding the request open. A synchronous
-  WAIT longer than ~24.8 days anywhere else now fails with an explicit error instead of resolving early.
-- `OM_WORKFLOWS_MAX_CONDITION_ATTEMPTS` is now the floor of the poll cap: each `WAIT_FOR_CONDITION` waiter may poll
-  as many times as its own `timeout / pollIntervalMs` requires.
 
 ### `directory.organizations.update` keeps `parentId` / `childIds` when they are omitted
 
