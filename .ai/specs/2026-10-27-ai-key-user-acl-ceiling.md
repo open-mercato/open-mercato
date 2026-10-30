@@ -18,6 +18,8 @@ Intersect each bound key's role-derived features and organization visibility wit
 
 Replay authorization locks include the bound owner's user, membership, ACL, and role rows. A binding changed during lock acquisition returns the existing authorization-state drift conflict.
 
+Bound keys also retain the live-role intersection from #8034: an issued role removed from the owner is rejected without relying on cache invalidation. Bound-key projections bypass the key ACL cache while the owner ceiling remains enforced across all three projections. Session markers use the current `sessionTokenHash` field.
+
 Key-cache invalidation tags use the resolved tenant and organization, including when a caller leaves the tenant unset and RBAC infers it from the key.
 
 The optional Directory organization-scope cache also tags API-key scope entries with the authenticated owner ID. Owner ACL invalidation therefore evicts both the RBAC ceiling and the derived organization filter. API-key scope keys use a new namespace so previous entries without the owner dependency cannot survive an upgrade; exported invalidation-tag formats stay unchanged. Independently administered creator-backed keys may be evicted with their creator's scope cache, without changing their role authority.
@@ -53,3 +55,5 @@ Tenant-bound owner lookups, existing schema, no cross-module ORM relations, shar
 - 2026-10-27: Added a failing-then-passing regression for role-ACL invalidation when the key tenant is inferred.
 - 2026-10-28: Corrected integration organization checks to exercise customer-data scoping instead of tenant directory options.
 - 2026-10-28: Added owner-dependent invalidation for the optional organization-scope cache, with a regression for a floating delegated principal.
+
+- 2026-10-30: Reconciled the ceiling with live session-role revocation, owner revalidation, and hashed session markers; added combined role-revocation coverage.
