@@ -22,7 +22,7 @@
 
 | Phase | Step | Title | Exec | Status | Commit |
 |-------|------|-------|------|--------|--------|
-| 1 | 1.1 | Accept content export in the OTel settings when the deployment allows it | dispatch | todo | — |
+| 1 | 1.1 | Accept content export in the OTel settings when the deployment allows it | dispatch | done | pending |
 | 1 | 1.2 | Map LLM content artifacts to GenAI message attributes | dispatch:capable | todo | — |
 | 1 | 1.3 | Load a run's content artifacts for export | dispatch:capable | todo | — |
 | 1 | 1.4 | Emit content events on exported chat and tool spans | dispatch:capable | todo | — |

@@ -301,3 +301,24 @@ export function isExportEnabledFor(input: IsExportEnabledForInput): boolean {
   const runSource = (input.runSource ?? '').toLowerCase()
   return runSource !== '' && input.deployment.sources.includes(runSource)
 }
+
+export type OtelContentExportMode = 'full' | 'none'
+
+export type ResolveContentExportModeInput = {
+  deployment: Pick<OtelExportDeploymentConfig, 'contentAllowed'>
+  tenant: Pick<OtelExportSettings, 'content'>
+  runCapture: { level?: string | null } | null | undefined
+}
+
+/**
+ * Whether a run's prompt/completion content may leave through the OTel
+ * export: `full` only when all three locks hold — the deployment allows content
+ * (`OM_AGENT_OTEL_EXPORT_CONTENT=allow`), the tenant chose `content: 'full'`
+ * and the run was captured at `full`. A run without a capture manifest exports
+ * no content. Evaluated per export job, never cached.
+ */
+export function resolveContentExportMode(input: ResolveContentExportModeInput): OtelContentExportMode {
+  if (input.deployment.contentAllowed !== true) return 'none'
+  if (input.tenant.content !== 'full') return 'none'
+  return input.runCapture?.level === 'full' ? 'full' : 'none'
+}

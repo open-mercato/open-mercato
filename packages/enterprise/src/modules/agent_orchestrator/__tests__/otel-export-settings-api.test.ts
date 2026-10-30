@@ -313,21 +313,49 @@ describe('PUT /otel-export/settings', () => {
     expect(execute).not.toHaveBeenCalled()
   })
 
-  test.each([
-    ['deny', 'content_export_not_allowed'],
-    [undefined, 'content_export_not_allowed'],
-    ['allow', 'content_export_unavailable'],
-  ])('422 for content export when the deployment content mode is %s', async (mode, error) => {
-    enableDeployment(mode ? { OM_AGENT_OTEL_EXPORT_CONTENT: mode } : {})
-    const { container, execute } = makeContainer({ features: [MANAGE, VIEW_CONTENT] })
+  test.each([['deny'], [undefined]])(
+    '422 for content export when the deployment content mode is %s',
+    async (mode) => {
+      enableDeployment(mode ? { OM_AGENT_OTEL_EXPORT_CONTENT: mode } : {})
+      const { container, execute } = makeContainer({ features: [MANAGE, VIEW_CONTENT] })
+      createRequestContainer.mockResolvedValue(container)
+      getAuthFromRequest.mockResolvedValue(authOf())
+
+      const response = await PUT(putRequest({ enabled: true, content: 'full' }))
+
+      expect(response.status).toBe(422)
+      expect(await response.json()).toEqual({ error: 'content_export_not_allowed' })
+      expect(execute).not.toHaveBeenCalled()
+    },
+  )
+
+  test('saves content export when the deployment allows it and the actor holds trace.view_content', async () => {
+    enableDeployment({ OM_AGENT_OTEL_EXPORT_CONTENT: 'allow' })
+    const execute = jest.fn(async () => ({
+      result: {
+        settings: otelExportSettingsSchema.parse({ enabled: true, content: 'full' }),
+        source: 'tenant',
+        updatedAt: '2026-10-27T10:00:00.000Z',
+      },
+      logEntry: null,
+    }))
+    const { container } = makeContainer({ features: [MANAGE, VIEW_CONTENT], execute })
     createRequestContainer.mockResolvedValue(container)
     getAuthFromRequest.mockResolvedValue(authOf())
 
     const response = await PUT(putRequest({ enabled: true, content: 'full' }))
 
-    expect(response.status).toBe(422)
-    expect(await response.json()).toEqual({ error })
-    expect(execute).not.toHaveBeenCalled()
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({
+      settings: { enabled: true, content: 'full' },
+      deployment: { contentAllowed: true },
+    })
+    expect(execute).toHaveBeenCalledWith(
+      UPDATE_OTEL_EXPORT_SETTINGS_COMMAND_ID,
+      expect.objectContaining({
+        input: { tenantId: TENANT, settings: expect.objectContaining({ content: 'full' }) },
+      }),
+    )
   })
 
   test('saves through the update command', async () => {
@@ -463,18 +491,70 @@ describe('agent_orchestrator.otelExportSettings.update', () => {
     expect(log?.snapshotBefore).toEqual({ enabled: true })
   })
 
-  test('refuses content export even when called directly', async () => {
-    enableDeployment({ OM_AGENT_OTEL_EXPORT_CONTENT: 'allow' })
+  test('the command refuses content export while the deployment denies it', async () => {
+    enableDeployment({ OM_AGENT_OTEL_EXPORT_CONTENT: 'deny' })
     const store = makeConfigStore()
-    const { container } = makeContainer({ store })
+    const { container } = makeContainer({ store, features: [MANAGE, VIEW_CONTENT] })
 
     await expect(
       updateOtelExportSettingsCommand.execute(
         { tenantId: TENANT, settings: otelExportSettingsSchema.parse({ content: 'full' }) },
         commandCtx(container),
       ),
-    ).rejects.toMatchObject({ status: 422, body: { error: 'content_export_unavailable' } })
+    ).rejects.toMatchObject({ status: 422, body: { error: 'content_export_not_allowed' } })
     expect(store.setValue).not.toHaveBeenCalled()
+  })
+
+  test('the command refuses content export without trace.view_content even when called directly', async () => {
+    enableDeployment({ OM_AGENT_OTEL_EXPORT_CONTENT: 'allow' })
+    const store = makeConfigStore()
+    const { container } = makeContainer({ store, features: [MANAGE] })
+
+    await expect(
+      updateOtelExportSettingsCommand.execute(
+        { tenantId: TENANT, settings: otelExportSettingsSchema.parse({ content: 'full' }) },
+        commandCtx(container),
+      ),
+    ).rejects.toMatchObject({ status: 403 })
+    expect(store.setValue).not.toHaveBeenCalled()
+  })
+
+  test('the command saves content export with all write locks and undo restores the prior value', async () => {
+    enableDeployment({ OM_AGENT_OTEL_EXPORT_CONTENT: 'allow' })
+    const store = makeConfigStore({ enabled: true, content: 'none' })
+    const { container } = makeContainer({ store, features: [MANAGE, VIEW_CONTENT] })
+
+    const { input, ctx, result, logEntry } = await runUpdate(container, { enabled: true, content: 'full' })
+
+    expect(result.settings.content).toBe('full')
+    expect(store.settingsRow()?.value).toMatchObject({ content: 'full' })
+    await updateOtelExportSettingsCommand.undo!({ input, ctx, logEntry })
+    expect(store.settingsRow()?.value).toEqual({ enabled: true, content: 'none' })
+  })
+
+  test('replaying a restore of content export requires trace.view_content', async () => {
+    enableDeployment({ OM_AGENT_OTEL_EXPORT_CONTENT: 'allow' })
+    const store = makeConfigStore({ enabled: true, content: 'full' })
+    const granted = makeContainer({ store, features: [MANAGE, VIEW_CONTENT] })
+    const { input, logEntry } = await runUpdate(granted.container, { enabled: true, content: 'none' })
+
+    const managerOnly = makeContainer({ store, features: [MANAGE] })
+    await expect(
+      updateOtelExportSettingsCommand.authorizeReplay!({
+        operation: 'undo',
+        input,
+        ctx: commandCtx(managerOnly.container),
+        logEntry,
+      }),
+    ).rejects.toMatchObject({ status: 403 })
+    await expect(
+      updateOtelExportSettingsCommand.authorizeReplay!({
+        operation: 'undo',
+        input,
+        ctx: commandCtx(granted.container),
+        logEntry,
+      }),
+    ).resolves.toBeUndefined()
   })
 
   test('refuses to write another tenant', async () => {

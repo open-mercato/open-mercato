@@ -95,15 +95,37 @@ async function readTenantRecord(
 
 /**
  * Why the requested content mode cannot be saved, or `null` when it can.
- * `full` is refused while the deployment denies content export, and refused
- * otherwise too because content events are not exported yet.
+ * `full` is refused only while the deployment denies content export
+ * (`OM_AGENT_OTEL_EXPORT_CONTENT` is not `allow`). The caller must also hold
+ * `OTEL_EXPORT_CONTENT_WRITE_FEATURES`. `OTEL_EXPORT_CONTENT_ERRORS.unavailable`
+ * is no longer returned and stays exported for backward compatibility.
  */
 export function resolveOtelExportContentError(
   settings: Pick<OtelExportSettings, 'content'>,
   deployment: { contentAllowed: boolean },
 ): OtelExportContentError | null {
   if (settings.content !== 'full') return null
-  return deployment.contentAllowed ? OTEL_EXPORT_CONTENT_ERRORS.unavailable : OTEL_EXPORT_CONTENT_ERRORS.notAllowed
+  return deployment.contentAllowed ? null : OTEL_EXPORT_CONTENT_ERRORS.notAllowed
+}
+
+function requestsContentExport(value: unknown): boolean {
+  const parsed = otelExportSettingsSchema.safeParse(value)
+  return parsed.success && parsed.data.content === 'full'
+}
+
+async function assertContentWriteFeatures(
+  ctx: CommandRuntimeContext,
+  tenantId: string,
+): Promise<void> {
+  const allowed = await hasOtelExportFeatures(
+    ctx.container,
+    ctx.auth,
+    { tenantId, organizationId: ctx.auth?.orgId ?? ctx.selectedOrganizationId ?? null },
+    OTEL_EXPORT_CONTENT_WRITE_FEATURES,
+  )
+  if (!allowed) {
+    throw new CrudHttpError(403, { error: '[internal] missing otel export content write features' })
+  }
 }
 
 /**
@@ -156,8 +178,11 @@ export const updateOtelExportSettingsCommand: CommandHandler<
   async execute(rawInput, ctx) {
     const input = updateOtelExportSettingsSchema.parse(rawInput)
     assertTenantMatchesActor(ctx, input.tenantId)
-    const contentError = resolveOtelExportContentError(input.settings, resolveOtelExportDeployment())
-    if (contentError) throw new CrudHttpError(422, { error: contentError })
+    if (input.settings.content === 'full') {
+      await assertContentWriteFeatures(ctx, input.tenantId)
+      const contentError = resolveOtelExportContentError(input.settings, resolveOtelExportDeployment())
+      if (contentError) throw new CrudHttpError(422, { error: contentError })
+    }
     const service = resolveModuleConfig(ctx.container)
     const current = await readTenantRecord(service, input.tenantId)
     enforceCommandOptimisticLock({
@@ -208,6 +233,7 @@ export const updateOtelExportSettingsCommand: CommandHandler<
     if (!allowed) {
       throw new CrudHttpError(403, { error: '[internal] missing otel export write features' })
     }
+    if (requestsContentExport(payload.before)) await assertContentWriteFeatures(ctx, payload.tenantId)
   },
   async undo({ ctx, logEntry }) {
     const payload = extractUndoPayload<OtelExportSettingsUndoPayload>(logEntry)

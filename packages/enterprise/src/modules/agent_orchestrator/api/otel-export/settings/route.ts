@@ -188,7 +188,7 @@ export const openApi: OpenApiRouteDoc = {
     PUT: {
       summary: 'Save the tenant OTel export settings',
       description:
-        'Writes the tenant-scoped settings through the undoable agent_orchestrator.otelExportSettings.update command. Send the x-om-ext-optimistic-lock-expected-updated-at header with the updatedAt from GET to reject a stale save with 409. Requires agent_orchestrator.agents.manage; content "full" also requires agent_orchestrator.trace.view_content and is refused with 422 (content_export_not_allowed while the deployment denies content export, content_export_unavailable otherwise).',
+        'Writes the tenant-scoped settings through the undoable agent_orchestrator.otelExportSettings.update command. Send the x-om-ext-optimistic-lock-expected-updated-at header with the updatedAt from GET to reject a stale save with 409. Requires agent_orchestrator.agents.manage; content "full" also requires agent_orchestrator.trace.view_content and is refused with 422 content_export_not_allowed while the deployment denies content export (OM_AGENT_OTEL_EXPORT_CONTENT is not allow).',
       responses: [{ status: 200, description: 'Saved settings', schema: settingsResponseSchema }],
       errors: [
         { status: 400, description: 'Invalid settings or missing tenant', schema: errorSchema },
@@ -199,7 +199,7 @@ export const openApi: OpenApiRouteDoc = {
           schema: errorSchema,
         },
         { status: 409, description: 'The settings changed since they were read', schema: conflictSchema },
-        { status: 422, description: 'Content export is not allowed or not available', schema: errorSchema },
+        { status: 422, description: 'Content export is not allowed by the deployment', schema: errorSchema },
         { status: 503, description: 'Config store unavailable', schema: errorSchema },
       ],
     },

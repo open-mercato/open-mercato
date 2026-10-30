@@ -8,6 +8,7 @@ import {
   isExportEnabledFor,
   parseOtlpHeaders,
   readOtelExportSettings,
+  resolveContentExportMode,
   resolveOtelExportDeployment,
   resolveOtelExportEndpoint,
   type OtelExportDeploymentConfig,
@@ -248,5 +249,26 @@ describe('isExportEnabledFor', () => {
     expect(isExportEnabledFor({ deployment: runtimeOnly, tenant: tenantOn, agentId: 'a', runSource: 'eval' })).toBe(
       false,
     )
+  })
+})
+
+describe('resolveContentExportMode', () => {
+  const allow = { contentAllowed: true }
+  const deny = { contentAllowed: false }
+  const full = { content: 'full' as const }
+  const none = { content: 'none' as const }
+
+  test.each([
+    ['all three locks hold', allow, full, { level: 'full' }, 'full'],
+    ['deployment denies content', deny, full, { level: 'full' }, 'none'],
+    ['tenant keeps content off', allow, none, { level: 'full' }, 'none'],
+    ['run captured at metadata', allow, full, { level: 'metadata' }, 'none'],
+    ['run capture off', allow, full, { level: 'off' }, 'none'],
+    ['run capture level missing', allow, full, {}, 'none'],
+    ['run without a manifest (null)', allow, full, null, 'none'],
+    ['run without a manifest (undefined)', allow, full, undefined, 'none'],
+    ['every lock closed', deny, none, { level: 'metadata' }, 'none'],
+  ])('%s → %s', (_label, deployment, tenant, runCapture, expected) => {
+    expect(resolveContentExportMode({ deployment, tenant, runCapture })).toBe(expected)
   })
 })
