@@ -144,6 +144,12 @@ Custom HTTP clients must honor the new optional
 assertions before DNS and transmission for initial requests and every redirect.
 No tool input or result-field migration is required.
 
+### Warranty claim line numbers must be unique within each live claim (#7306)
+
+Creating or renumbering a line with a number already used by another live line now returns `409`, with a localized `error` and `code: warranty_claims.errors.duplicateLineNo`. Initial claim batches also reject duplicate resolved numbers, including collisions between explicit and default numbers. Valid inputs and automatic numbering remain unchanged.
+
+An undo that would restore an occupied line number is refused before changing the line or totals. Remove the occupying line or move it to a free number through the API, then retry the same undo. Existing duplicates are not automatically renumbered. No database migration is required.
+
 ### Workflow webhook responses have resource limits (#7814)
 
 Each `CALL_WEBHOOK` attempt now defaults to a 30-second deadline covering the
