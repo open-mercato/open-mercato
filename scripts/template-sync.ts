@@ -191,6 +191,7 @@ const SYNC_INTERNAL_PACKAGE_KEYS = [
   '@open-mercato/enterprise',
   '@open-mercato/gateway-stripe',
   '@open-mercato/gateway-tpay',
+  '@open-mercato/gus-regon',
   '@open-mercato/sync-akeneo',
 ] as const
 // Modules whose source ships in every scaffold but must stay runtime-disabled there.
@@ -315,6 +316,15 @@ export const TEMPLATE_COMMENTED_MODULES: Record<string, { source: string; templa
   // AI-harness evaluation case (packages/create-app/src/lib/module-facts-build.test.ts),
   // so enabling is a maintainer call, not a one-line edit.
   // { id: 'gateway_tpay', from: '@open-mercato/gateway-tpay' },`,
+  },
+  gus_regon: {
+    source: `  { id: 'gus_regon', from: '@open-mercato/gus-regon' },`,
+    template: `  // GUS REGON company lookup by NIP (.ai/specs/2026-10-12-gus-regon-company-lookup.md).
+  // The package ships with the scaffold as an opt-in provider. Enabling it by
+  // default makes the scaffold ship the module's fact-sheet, which then needs an
+  // AI-harness evaluation case (packages/create-app/src/lib/module-facts-build.test.ts),
+  // so enabling is a maintainer call, not a one-line edit.
+  // { id: 'gus_regon', from: '@open-mercato/gus-regon' },`,
   },
   channel_discord: {
     source: `  // Discord bot channel (SPEC 2026-06-19) — two-way Discord via REST + a
