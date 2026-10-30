@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { expect, test, type APIRequestContext, type APIResponse } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
 import {
@@ -46,7 +47,7 @@ async function isResourceListed(request: APIRequestContext, token: string, resou
  */
 test.describe('TC-TRANS-019: Entity translations survive a soft delete so undo restores them', () => {
   test('undoing a resource delete restores the resource together with its translations', async ({ request }) => {
-    const stamp = `${Date.now()}-${Math.floor(Math.random() * 1e6)}`
+    const stamp = randomUUID().slice(0, 8)
     let token: string | null = null
     let resourceId: string | null = null
 
@@ -95,7 +96,7 @@ test.describe('TC-TRANS-019: Entity translations survive a soft delete so undo r
   })
 
   test('a hard delete still removes the record translations', async ({ request }) => {
-    const stamp = `${Date.now()}-${Math.floor(Math.random() * 1e6)}`
+    const stamp = randomUUID().slice(0, 8)
     let token: string | null = null
     let productId: string | null = null
     let translatedProductId: string | null = null

@@ -2,9 +2,12 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { sql } from 'kysely'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { listEntityMetadata } from '@open-mercato/shared/lib/db/entityMetadata'
-import { getEntityIds } from '@open-mercato/shared/lib/encryption/entityIds'
-import { resolveRegisteredEntityTableName } from '@open-mercato/shared/lib/query/engine'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
+import {
+  QueryIndexScopeError,
+  resolveQueryIndexSourceMetadata,
+  type QueryIndexSourceMetadata,
+} from '@open-mercato/core/modules/query_index/lib/subscriber-scope'
 
 const logger = createLogger('translations').child({ component: 'cleanup' })
 
@@ -12,21 +15,12 @@ export const metadata = { event: 'query_index.delete_one', persistent: false }
 
 type TranslationsCleanupDatabase = Record<string, Record<string, unknown>>
 
-type SoftDeleteSource = {
-  table: string
+type SoftDeleteSource = QueryIndexSourceMetadata & {
   idColumn: string
   deletedAtColumn: string
-  tenantColumn: string | null
-  organizationColumn: string | null
 }
 
 type EntityPropertyMetadata = { fieldNames?: unknown }
-
-function isRegisteredEntityType(entityType: string): boolean {
-  return Object.values(getEntityIds(false)).some((moduleEntities) =>
-    Object.values(moduleEntities ?? {}).includes(entityType),
-  )
-}
 
 function resolveSingleColumn(property: EntityPropertyMetadata | undefined): string | null {
   const fieldNames = property?.fieldNames
@@ -35,11 +29,19 @@ function resolveSingleColumn(property: EntityPropertyMetadata | undefined): stri
   return typeof column === 'string' && column ? column : null
 }
 
+function resolveSourceMetadata(em: EntityManager, entityType: string): QueryIndexSourceMetadata | null {
+  try {
+    return resolveQueryIndexSourceMetadata(em, entityType)
+  } catch (err) {
+    if (err instanceof QueryIndexScopeError) return null
+    throw err
+  }
+}
+
 function resolveSoftDeleteSource(em: EntityManager, entityType: string): SoftDeleteSource | null {
-  if (!isRegisteredEntityType(entityType)) return null
-  const table = resolveRegisteredEntityTableName(em, entityType)
-  if (!table) return null
-  const entityMetadata = listEntityMetadata(em).find((candidate) => String(candidate.tableName ?? '') === table)
+  const source = resolveSourceMetadata(em, entityType)
+  if (!source) return null
+  const entityMetadata = listEntityMetadata(em).find((candidate) => String(candidate.tableName ?? '') === source.table)
   if (!entityMetadata) return null
   const properties = entityMetadata.properties as unknown as Record<string, EntityPropertyMetadata | undefined>
   const deletedAtColumn = resolveSingleColumn(properties.deletedAt)
@@ -48,13 +50,7 @@ function resolveSoftDeleteSource(em: EntityManager, entityType: string): SoftDel
   if (primaryKeys.length !== 1) return null
   const idColumn = resolveSingleColumn(properties[String(primaryKeys[0])])
   if (!idColumn) return null
-  return {
-    table,
-    idColumn,
-    deletedAtColumn,
-    tenantColumn: resolveSingleColumn(properties.tenantId),
-    organizationColumn: resolveSingleColumn(properties.organizationId),
-  }
+  return { ...source, idColumn, deletedAtColumn }
 }
 
 async function isOwningRecordSoftDeleted(
