@@ -70,52 +70,54 @@ export function PersonCard({ person, isStarred, onToggleStar, onUnlink, showLink
       <TableCell className="py-2">
         <div className="flex min-w-0 items-center gap-3">
           <Avatar label={person.displayName} size="sm" variant="monochrome" />
-          <div className="flex min-w-0 items-center gap-1.5">
-            <Link href={personHref} className="min-w-0 truncate text-sm font-medium text-foreground hover:underline">
-              {person.displayName}
-            </Link>
-            {statusLabel ? (
-              <span
-                className={cn('inline-block size-1.5 shrink-0 rounded-full', statusActive ? 'bg-status-success-icon' : 'bg-status-neutral-icon')}
-                title={statusLabel}
-                role="img"
-                aria-label={statusLabel}
-              />
+          <div className="min-w-0">
+            <div className="flex min-w-0 items-center gap-1.5">
+              <Link href={personHref} className="min-w-0 truncate text-sm font-medium text-foreground hover:underline">
+                {person.displayName}
+              </Link>
+              {statusLabel ? (
+                <span
+                  className={cn('inline-block size-1.5 shrink-0 rounded-full', statusActive ? 'bg-status-success-icon' : 'bg-status-neutral-icon')}
+                  title={statusLabel}
+                  role="img"
+                  aria-label={statusLabel}
+                />
+              ) : null}
+              {onToggleStar && (
+                <IconButton
+                  type="button"
+                  variant="ghost"
+                  size="xs"
+                  onClick={() => onToggleStar(person.id)}
+                  className={cn('shrink-0 text-muted-foreground hover:text-status-warning-icon', !isStarred && 'opacity-0 focus-visible:opacity-100 group-hover:opacity-100')}
+                  aria-label={isStarred
+                    ? t('customers.people.card.unstar', 'Remove star')
+                    : t('customers.people.card.star', 'Star')}
+                >
+                  <Star className={cn('size-3.5', isStarred && 'fill-status-warning-icon text-status-warning-icon')} />
+                </IconButton>
+              )}
+            </div>
+            {person.jobTitle ? (
+              <div className="truncate text-xs text-muted-foreground">{person.jobTitle}</div>
             ) : null}
-            {onToggleStar && (
-              <IconButton
-                type="button"
-                variant="ghost"
-                size="xs"
-                onClick={() => onToggleStar(person.id)}
-                className={cn('shrink-0 text-muted-foreground hover:text-status-warning-icon', !isStarred && 'opacity-0 focus-visible:opacity-100 group-hover:opacity-100')}
-                aria-label={isStarred
-                  ? t('customers.people.card.unstar', 'Remove star')
-                  : t('customers.people.card.star', 'Star')}
-              >
-                <Star className={cn('size-3.5', isStarred && 'fill-status-warning-icon text-status-warning-icon')} />
-              </IconButton>
-            )}
           </div>
         </div>
       </TableCell>
-      <TableCell className="hidden py-2 text-muted-foreground md:table-cell">
-        <span className="block truncate">{person.jobTitle || emptyCell}</span>
-      </TableCell>
-      <TableCell className="py-2">
+      <TableCell className="hidden py-2 @xl:table-cell">
         {person.primaryEmail ? (
           <a href={`mailto:${person.primaryEmail}`} className="block truncate text-foreground hover:underline">{person.primaryEmail}</a>
         ) : emptyCell}
       </TableCell>
-      <TableCell className="hidden py-2 lg:table-cell">
+      <TableCell className="hidden py-2 @3xl:table-cell">
         {person.primaryPhone ? (
           <a href={`tel:${person.primaryPhone.replace(/[^+\d]/g, '')}`} className="block whitespace-nowrap text-foreground hover:underline">{person.primaryPhone}</a>
         ) : emptyCell}
       </TableCell>
-      <TableCell className="hidden py-2 text-muted-foreground lg:table-cell">
+      <TableCell className="hidden py-2 text-muted-foreground @4xl:table-cell">
         <span className="block truncate">{person.lifecycleStage ? formatFallbackLabel(person.lifecycleStage) : emptyCell}</span>
       </TableCell>
-      <TableCell className="hidden py-2 text-muted-foreground xl:table-cell">
+      <TableCell className="hidden py-2 text-muted-foreground @5xl:table-cell">
         <span className="flex min-w-0 items-center gap-2">
           <span className="truncate">{sourceTags.length > 0 ? sourceTags.map((sourceTag) => formatFallbackLabel(sourceTag)).join(', ') : emptyCell}</span>
           {temperature ? (
@@ -135,6 +137,11 @@ export function PersonCard({ person, isStarred, onToggleStar, onUnlink, showLink
           ) : null}
         </span>
       </TableCell>
+      {showLinkedDate ? (
+        <TableCell className="hidden py-2 text-muted-foreground @4xl:table-cell">
+          <span className="block whitespace-nowrap">{linkedDate ?? emptyCell}</span>
+        </TableCell>
+      ) : null}
       <TableCell className="py-2 text-right">
         <Popover>
           <PopoverTrigger asChild>
@@ -165,11 +172,6 @@ export function PersonCard({ person, isStarred, onToggleStar, onUnlink, showLink
                 </Button>
               </PopoverClose>
             )}
-            {linkedDate ? (
-              <p className="px-2 pb-1 pt-1.5 text-xs text-muted-foreground">
-                {t('customers.people.card.linkedOn', 'Linked {{date}}', { date: linkedDate })}
-              </p>
-            ) : null}
           </PopoverContent>
         </Popover>
       </TableCell>

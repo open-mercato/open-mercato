@@ -169,9 +169,8 @@ describe('DealPeopleSection', () => {
       )
     })
 
-    fireEvent.change(screen.getByDisplayValue('Sort: Name A-Z'), {
-      target: { value: 'name-desc' },
-    })
+    await waitForInitialLoad()
+    fireEvent.click(screen.getByRole('button', { name: 'Name' }))
 
     await waitFor(() => {
       expect(readApiResultOrThrowMock).toHaveBeenCalledWith(
@@ -182,24 +181,18 @@ describe('DealPeopleSection', () => {
     })
   })
 
-  it('hides and restores search and sort through a labelled disclosure that keeps the query (#7493)', async () => {
+  it('keeps the search box visible and sorts from the Name column header (#7493)', async () => {
     renderSection(jest.fn(async () => {}))
     await waitForInitialLoad()
 
-    const search = screen.getByPlaceholderText('Search by name, role, email...')
-    fireEvent.change(search, { target: { value: 'Ada' } })
-    const toggle = screen.getByRole('button', { name: 'Hide search and sort' })
-    expect(toggle).toHaveAttribute('aria-expanded', 'true')
-    expect(document.getElementById(toggle.getAttribute('aria-controls') ?? '')).toContainElement(search)
-
-    fireEvent.click(toggle)
-    expect(search).not.toBeVisible()
-    expect(screen.getByRole('button', { name: 'Show search and sort' })).toHaveAttribute('aria-expanded', 'false')
-
-    fireEvent.click(screen.getByRole('button', { name: 'Show search and sort' }))
     expect(screen.getByPlaceholderText('Search by name, role, email...')).toBeVisible()
-    expect(screen.getByPlaceholderText('Search by name, role, email...')).toHaveValue('Ada')
-    expect(screen.queryByRole('button', { name: /^Filters$/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /search and sort/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument()
+
+    const nameHeader = screen.getByRole('columnheader', { name: 'Name' })
+    expect(nameHeader).toHaveAttribute('aria-sort', 'ascending')
+    fireEvent.click(screen.getByRole('button', { name: 'Name' }))
+    expect(nameHeader).toHaveAttribute('aria-sort', 'descending')
   })
 
   it('renders the empty state with both link and add actions when nothing is linked', async () => {
@@ -246,15 +239,12 @@ describe('DealPeopleSection', () => {
 
   // --- guards on the two surfaces deferred until `linkedAt` is durable ---
 
-  it('offers only the name sorts, never "recently linked"', async () => {
+  it('offers only the name sort, never a "Linked" column or "recently linked" sort', async () => {
     renderSection(jest.fn(async () => {}))
     await waitForInitialLoad()
 
-    const sortSelect = screen.getByDisplayValue('Sort: Name A-Z') as HTMLSelectElement
-    const offered = Array.from(sortSelect.options).map((option) => option.value)
-
-    expect(offered).toEqual(['name-asc', 'name-desc'])
-    expect(offered).not.toContain('recent')
+    expect(screen.getByRole('button', { name: 'Name' })).toBeInTheDocument()
+    expect(screen.queryByRole('columnheader', { name: 'Linked' })).not.toBeInTheDocument()
   })
 
   // `LinkEntityDialog` resets its query, results and draft selection whenever `adapter`

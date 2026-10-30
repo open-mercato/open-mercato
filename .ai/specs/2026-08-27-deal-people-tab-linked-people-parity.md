@@ -303,7 +303,7 @@ Each PR ships its own coverage. Nothing below is deferred to a later PR than the
 1. loads from `/api/customers/deals/{id}/people` with `page`/`pageSize`/`sort`
 2. unlink saves the remaining selection
 3. search and sort changes are forwarded to the endpoint
-4. The search-and-sort disclosure ("Hide search and sort" / "Show search and sort", `aria-expanded` + `aria-controls`) hides and restores the controls without clearing the query or the sort (#7493)
+4. The search box is always visible and sorting lives in the column headers (`aria-sort` on the Name header; company tabs also get a sortable Linked column) — no disclosure toggle (#7493)
 5. empty state offers both link and add actions
 6. the add-person dialog opens without a company context
 7. a created person is appended to the deal selection

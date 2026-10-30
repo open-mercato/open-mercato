@@ -5,6 +5,7 @@ import * as React from 'react'
 import { fireEvent, screen } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { PersonCard } from '../PersonCard'
+import { formatDate } from '../utils'
 
 const person = {
   id: 'person-1',
@@ -49,13 +50,13 @@ describe('PersonCard', () => {
     expect(screen.queryByRole('button', { name: 'Unlink' })).not.toBeInTheDocument()
   })
 
-  it('keeps open, unlink and the linked date behind the row menu', () => {
+  it('keeps open and unlink behind the row menu and shows the linked date as a cell', () => {
     const onUnlink = jest.fn()
     renderRow({ onUnlink })
 
+    expect(screen.getByText(formatDate(person.linkedAt))).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'More' }))
     expect(screen.getByRole('link', { name: /Open person/ })).toHaveAttribute('href', '/backend/customers/people-v2/person-1')
-    expect(screen.getByText(/Linked /)).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Unlink' }))
     expect(onUnlink).toHaveBeenCalledWith('person-1')
   })

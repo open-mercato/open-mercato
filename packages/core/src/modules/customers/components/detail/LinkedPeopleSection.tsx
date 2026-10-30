@@ -1,8 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import { cn } from '@open-mercato/shared/lib/utils'
-import { Users, Link2, Plus, ChevronDown } from 'lucide-react'
+import { Users, Link2, Plus, ChevronDown, ChevronUp, ChevronsUpDown } from 'lucide-react'
 import { EmptyState } from '@open-mercato/ui/backend/EmptyState'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
@@ -78,7 +77,6 @@ export type LinkedPeopleSectionProps<
   /** Owns messaging for the link write; rejecting keeps the link dialog open. */
   onLinkConfirm: (input: LinkEntityConfirmInput<TLinkSettings>) => Promise<void>
   sectionTitle: string
-  sectionSubtitle?: string
   searchPlaceholder: string
   linkActionLabel: string
   addActionLabel?: string
@@ -112,10 +110,43 @@ export type LinkedPeopleSectionProps<
 const LINKED_PEOPLE_PAGE_SIZE = 20
 const STARRED_PEOPLE_STORAGE_VERSION = 1
 
-const SORT_LABELS: Record<LinkedPeopleSortMode, { key: string; fallback: string }> = {
-  'name-asc': { key: 'customers.linkedPeople.sortNameAsc', fallback: 'Sort: Name A-Z' },
-  'name-desc': { key: 'customers.linkedPeople.sortNameDesc', fallback: 'Sort: Name Z-A' },
-  recent: { key: 'customers.linkedPeople.sortRecent', fallback: 'Sort: Recently linked' },
+type SortState = 'asc' | 'desc' | null
+
+function SortableHead({
+  label,
+  state,
+  onSort,
+  className,
+}: {
+  label: string
+  state: SortState
+  onSort?: () => void
+  className?: string
+}) {
+  const ariaSort = state === 'asc' ? 'ascending' : state === 'desc' ? 'descending' : onSort ? 'none' : undefined
+  return (
+    <TableHead className={className} aria-sort={ariaSort}>
+      {onSort ? (
+        <Button
+          type="button"
+          variant="ghost"
+          className="h-auto p-0 font-medium has-[>svg]:px-0"
+          onClick={onSort}
+        >
+          {label}
+          {state === 'asc' ? (
+            <ChevronUp className="ml-1 size-3.5 shrink-0 text-foreground" aria-hidden="true" />
+          ) : state === 'desc' ? (
+            <ChevronDown className="ml-1 size-3.5 shrink-0 text-foreground" aria-hidden="true" />
+          ) : (
+            <ChevronsUpDown className="ml-1 size-3.5 shrink-0 text-muted-foreground/50" aria-hidden="true" />
+          )}
+        </Button>
+      ) : (
+        label
+      )}
+    </TableHead>
+  )
 }
 
 export function LinkedPeopleSection<
@@ -132,7 +163,6 @@ export function LinkedPeopleSection<
   linkedIds,
   onLinkConfirm,
   sectionTitle,
-  sectionSubtitle,
   searchPlaceholder,
   linkActionLabel,
   addActionLabel,
@@ -171,8 +201,9 @@ export function LinkedPeopleSection<
   )
   const [searchQuery, setSearchQuery] = React.useState('')
   const [sortMode, setSortMode] = React.useState<LinkedPeopleSortMode>(sortOptions[0])
-  const [filtersOpen, setFiltersOpen] = React.useState(true)
-  const searchSortControlsId = React.useId()
+  const nameSortable = sortOptions.includes('name-asc') || sortOptions.includes('name-desc')
+  const recentSortable = sortOptions.includes('recent')
+  const nameSortState: SortState = sortMode === 'name-asc' ? 'asc' : sortMode === 'name-desc' ? 'desc' : null
   const [visiblePeople, setVisiblePeople] = React.useState<LinkedPersonSummary[]>([])
   const [listPage, setListPage] = React.useState(1)
   const [listTotalPages, setListTotalPages] = React.useState(1)
@@ -333,9 +364,6 @@ export function LinkedPeopleSection<
                     {totalLinkedPeople}
                   </Badge>
                 </div>
-                {sectionSubtitle ? (
-                  <p className="text-xs text-muted-foreground">{sectionSubtitle}</p>
-                ) : null}
               </div>
               <div className="flex flex-wrap items-center gap-2 xl:justify-end">
                 {linkAction}
@@ -344,69 +372,14 @@ export function LinkedPeopleSection<
             </div>
 
             {totalLinkedPeople > 0 ? (
-              <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
-                {/*
-                  The disclosure hides the search box and the sort picker without touching
-                  their state, so a query or sort chosen before collapsing is still applied
-                  and comes back on reopen (#7493). The region keeps its id while hidden so
-                  `aria-controls` always resolves.
-                */}
-                <div id={searchSortControlsId} className="contents" hidden={!filtersOpen}>
-                  <div className="min-w-0 flex-1">
-                    <Input
-                      type="text"
-                      size="lg"
-                      value={searchQuery}
-                      onChange={(event) => setSearchQuery(event.target.value)}
-                      placeholder={searchPlaceholder}
-                    />
-                  </div>
-                </div>
-                <div className="flex flex-wrap items-center gap-2 lg:justify-end">
-                  {/*
-                    Deliberately a native <select> rather than the DS `Select`. That primitive is
-                    Radix-based (a button + listbox), and this element is the one the extraction
-                    gate runs through: `CompanyPeopleSection.test.tsx` must keep passing
-                    unmodified, and it drives the sort with `getByDisplayValue` + `fireEvent
-                    .change` — native-select APIs. Swapping it would also change the company
-                    tab's keyboard and mobile-picker behaviour, which is the one thing this PR
-                    asserts it does not do. Worth migrating, but as its own change.
-                  */}
-                  {sortOptions.length > 1 ? (
-                    <select
-                      value={sortMode}
-                      onChange={(event) =>
-                        setSortMode(event.target.value as LinkedPeopleSortMode)
-                      }
-                      hidden={!filtersOpen}
-                      aria-label={translate('customers.linkedPeople.sortLabel', 'Sort people')}
-                      className="h-10 min-w-44 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
-                    >
-                      {sortOptions.map((option) => (
-                        <option key={option} value={option}>
-                          {translate(SORT_LABELS[option].key, SORT_LABELS[option].fallback)}
-                        </option>
-                      ))}
-                    </select>
-                  ) : null}
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    aria-expanded={filtersOpen}
-                    aria-controls={searchSortControlsId}
-                    onClick={() => setFiltersOpen((current) => !current)}
-                    className="h-10"
-                  >
-                    {filtersOpen
-                      ? translate('customers.linkedPeople.searchSort.hide', 'Hide search and sort')
-                      : translate('customers.linkedPeople.searchSort.show', 'Show search and sort')}
-                    <ChevronDown
-                      aria-hidden
-                      className={cn('ml-1.5 h-4 w-4 transition-transform', filtersOpen ? 'rotate-180' : null)}
-                    />
-                  </Button>
-                </div>
+              <div className="max-w-md">
+                <Input
+                  type="text"
+                  size="lg"
+                  value={searchQuery}
+                  onChange={(event) => setSearchQuery(event.target.value)}
+                  placeholder={searchPlaceholder}
+                />
               </div>
             ) : null}
 
@@ -416,31 +389,44 @@ export function LinkedPeopleSection<
               </p>
             ) : visiblePeople.length > 0 ? (
               <>
-                <Table className="text-sm">
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>{translate('customers.people.list.columns.name', 'Name')}</TableHead>
-                      <TableHead className="hidden md:table-cell">{translate('customers.linkedPeople.columns.jobTitle', 'Job title')}</TableHead>
-                      <TableHead>{translate('customers.people.list.columns.email', 'Email')}</TableHead>
-                      <TableHead className="hidden lg:table-cell">{translate('customers.linkedPeople.columns.phone', 'Phone')}</TableHead>
-                      <TableHead className="hidden lg:table-cell">{translate('customers.people.list.columns.lifecycleStage', 'Lifecycle stage')}</TableHead>
-                      <TableHead className="hidden xl:table-cell">{translate('customers.people.list.columns.source', 'Source')}</TableHead>
-                      <TableHead className="w-12"><span className="sr-only">{translate('customers.people.card.more', 'More')}</span></TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                  {visiblePeople.map((person) => (
-                    <PersonCard
-                      key={person.id}
-                      person={person}
-                      isStarred={starredIds.has(person.id)}
-                      onToggleStar={toggleStar}
-                      onUnlink={handleRemove}
-                      showLinkedDate={showLinkedDate}
-                    />
-                  ))}
-                  </TableBody>
-                </Table>
+                <div className="@container min-w-0">
+                  <Table className="table-fixed text-sm">
+                    <TableHeader>
+                      <TableRow>
+                        <SortableHead
+                          label={translate('customers.people.list.columns.name', 'Name')}
+                          state={nameSortState}
+                          onSort={nameSortable ? () => setSortMode(sortMode === 'name-asc' ? 'name-desc' : 'name-asc') : undefined}
+                        />
+                        <TableHead className="hidden w-64 @xl:table-cell">{translate('customers.people.list.columns.email', 'Email')}</TableHead>
+                        <TableHead className="hidden w-36 @3xl:table-cell">{translate('customers.linkedPeople.columns.phone', 'Phone')}</TableHead>
+                        <TableHead className="hidden w-32 @4xl:table-cell">{translate('customers.people.list.columns.lifecycleStage', 'Lifecycle stage')}</TableHead>
+                        <TableHead className="hidden w-40 @5xl:table-cell">{translate('customers.people.list.columns.source', 'Source')}</TableHead>
+                        {showLinkedDate ? (
+                          <SortableHead
+                            className="hidden w-28 @4xl:table-cell"
+                            label={translate('customers.linkedPeople.columns.linked', 'Linked')}
+                            state={sortMode === 'recent' ? 'desc' : null}
+                            onSort={recentSortable ? () => setSortMode('recent') : undefined}
+                          />
+                        ) : null}
+                        <TableHead className="w-12"><span className="sr-only">{translate('customers.people.card.more', 'More')}</span></TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                    {visiblePeople.map((person) => (
+                      <PersonCard
+                        key={person.id}
+                        person={person}
+                        isStarred={starredIds.has(person.id)}
+                        onToggleStar={toggleStar}
+                        onUnlink={handleRemove}
+                        showLinkedDate={showLinkedDate}
+                      />
+                    ))}
+                    </TableBody>
+                  </Table>
+                </div>
                 {listTotalPages > 1 ? (
                   <div className="flex items-center justify-between border-t border-border/60 pt-3 text-sm text-muted-foreground">
                     <span>
