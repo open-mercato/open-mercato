@@ -43,16 +43,22 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 const logger = createLogger('sales')
 
 function DisabledActionHint({
+  label,
   reason,
   children,
 }: {
+  label: string
   reason?: string
   children: React.ReactNode
 }) {
   if (!reason) return <>{children}</>
   return (
     <SimpleTooltip content={reason}>
-      <span className="inline-flex" tabIndex={0} aria-label={reason}>
+      <span
+        className="inline-flex rounded-md focus-visible:outline-none focus-visible:shadow-focus"
+        tabIndex={0}
+        aria-label={`${label}: ${reason}`}
+      >
         {children}
       </span>
     </SimpleTooltip>
@@ -1023,6 +1029,7 @@ export function SalesDocumentItemsSection({
                     <td className="px-3 py-3">
                       <div className="flex items-center gap-2 justify-end">
                         <DisabledActionHint
+                          label={t('ui.actions.edit', 'Edit')}
                           reason={amountsReadOnly
                             ? t('sales.documents.amountsExternalHint', 'Totals on this document come from an external system and are stored as supplied.')
                             : undefined}
@@ -1042,6 +1049,7 @@ export function SalesDocumentItemsSection({
                           </Button>
                         </DisabledActionHint>
                         <DisabledActionHint
+                          label={t('ui.actions.delete', 'Delete')}
                           reason={amountsReadOnly
                             ? t('sales.documents.amountsExternalHint', 'Totals on this document come from an external system and are stored as supplied.')
                             : kind === 'order' && items.length === 1

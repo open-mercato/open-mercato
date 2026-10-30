@@ -671,8 +671,6 @@ const documentUpdateFieldsSchema = z
     tags: z.array(z.string().uuid()).optional(),
     customFields: z.record(z.string(), z.unknown()).optional(),
     customFieldSetId: z.string().uuid().nullable().optional(),
-    // Quote creates have always stripped this order-only field. Valid quote
-    // updates preserve that compatibility behavior while quotes stay computed.
     totalsMode: amountsModeSchema.optional(),
     ...orderHeaderTotalsSchema.shape,
   });

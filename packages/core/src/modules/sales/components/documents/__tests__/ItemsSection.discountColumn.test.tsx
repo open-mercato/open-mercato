@@ -217,9 +217,12 @@ describe('SalesDocumentItemsSection discount column', () => {
 
     await screen.findByText('Widget A')
     const reason = 'Totals on this document come from an external system and are stored as supplied.'
-    const triggers = screen.getAllByLabelText(reason)
-    expect(triggers).toHaveLength(2)
+    const triggers = [
+      screen.getByLabelText(`Edit: ${reason}`),
+      screen.getByLabelText(`Delete: ${reason}`),
+    ]
     for (const trigger of triggers) expect(trigger).toHaveAttribute('tabindex', '0')
+    for (const trigger of triggers) expect(trigger).toHaveClass('focus-visible:shadow-focus')
     expect(screen.getByRole('button', { name: 'Edit' })).toBeDisabled()
     expect(screen.getByRole('button', { name: 'Delete' })).toBeDisabled()
   })
