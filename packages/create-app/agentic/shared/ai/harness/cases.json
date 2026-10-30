@@ -828,7 +828,8 @@
         "AGENTS.md",
         ".ai/guides/contracts.md",
         ".ai/skills/om-module-scaffold/SKILL.md",
-        ".ai/skills/om-module-scaffold/references/api-and-domain.md"
+        ".ai/skills/om-module-scaffold/references/api-and-domain.md",
+        ".ai/guides/upstream/BACKWARD_COMPATIBILITY.md"
       ],
       "allowedExtra": [
         ".ai/guides/modules/api_docs/index.md",
@@ -884,7 +885,7 @@
     ],
     "maxContextFiles": 6,
     "maxInitialContextBytes": 40960,
-    "maxTotalContextBytes": 98304,
+    "maxTotalContextBytes": 123904,
     "relatedCases": [
       "OMH-012"
     ],
@@ -947,7 +948,8 @@
         "AGENTS.md",
         ".ai/guides/contracts.md",
         ".ai/skills/om-module-scaffold/SKILL.md",
-        ".ai/skills/om-module-scaffold/references/api-and-domain.md"
+        ".ai/skills/om-module-scaffold/references/api-and-domain.md",
+        ".ai/guides/upstream/BACKWARD_COMPATIBILITY.md"
       ],
       "forbidden": [
         ".env*",
@@ -996,7 +998,7 @@
     ],
     "maxContextFiles": 6,
     "maxInitialContextBytes": 40960,
-    "maxTotalContextBytes": 98304,
+    "maxTotalContextBytes": 118784,
     "relatedCases": [
       "OMH-013"
     ],
@@ -1477,7 +1479,8 @@
         "AGENTS.md",
         ".ai/guides/contracts.md",
         ".ai/skills/om-module-scaffold/SKILL.md",
-        ".ai/guides/modules/events/index.md"
+        ".ai/guides/modules/events/index.md",
+        ".ai/guides/upstream/BACKWARD_COMPATIBILITY.md"
       ],
       "allowedExtra": [
         ".ai/guides/extensions.md",
@@ -1509,7 +1512,7 @@
     ],
     "maxContextFiles": 6,
     "maxInitialContextBytes": 45056,
-    "maxTotalContextBytes": 98304,
+    "maxTotalContextBytes": 128000,
     "relatedCases": [
       "OMH-019"
     ]
