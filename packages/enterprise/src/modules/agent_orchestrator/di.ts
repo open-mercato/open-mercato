@@ -37,8 +37,14 @@ import {
   verifyIdJagAssertion,
 } from './lib/identity/agentAuthMdService'
 import { AgentRuntimeService } from './lib/runtime/agentRuntime'
+import { createAiAgentRunDispatcher } from './lib/runtime/aiAgentRunDispatcher'
+import { AI_AGENT_RUN_DISPATCHER_DI_KEY } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/agent-run-dispatcher'
+import { warnIfAgentInvokeEnforcementDisabled } from './lib/access/agentInvokeAccess'
+import { warnIfAgentIntegrityShadowMode } from './lib/guardrails/integrity/integritySets'
 import { GuardrailService } from './lib/guardrails/guardrailService'
 import { DbAgentRunSessionStore } from './lib/runtime/agentRunSessionStore'
+import { createMcpToolObservationBinder } from './lib/runtime/mcpToolObservationBinder'
+import { MCP_TOOL_EXECUTION_OBSERVER_DI_KEY } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/mcp-tool-execution-observer'
 import { AgentWorkspaceManager } from './lib/runtime/agentWorkspaceManager'
 import { DispositionServiceImpl } from './lib/disposition/dispositionService'
 import { AgentWorkflowBridgeService } from './lib/runtime/invokeAgentForWorkflow'
@@ -69,6 +75,8 @@ registerWorkInboxSources([
 ])
 
 export function register(container: AppContainer) {
+  warnIfAgentInvokeEnforcementDisabled()
+  warnIfAgentIntegrityShadowMode()
   container.register({
     AgentRun: asValue(AgentRun),
     AgentProposal: asValue(AgentProposal),
@@ -134,6 +142,7 @@ export function register(container: AppContainer) {
         commandBus,
       }),
     ).proxy().scoped(),
+    [AI_AGENT_RUN_DISPATCHER_DI_KEY]: asFunction(() => createAiAgentRunDispatcher(container)).proxy().scoped(),
     dispositionService: asFunction(() => new DispositionServiceImpl(container)).scoped(),
     // Phase 1 runtime guardrails: deterministic output schema + tool-scope
     // backstop checks. Pure/stateless aside from the container it persists through.
@@ -143,6 +152,7 @@ export function register(container: AppContainer) {
     // both backed by the same DB — the in-process Map seam does not work because
     // the runner and the submit_outcome MCP tool run in different processes.
     agentRunSessionStore: asFunction(() => new DbAgentRunSessionStore(container)).scoped(),
+    [MCP_TOOL_EXECUTION_OBSERVER_DI_KEY]: asFunction(() => createMcpToolObservationBinder(container)).singleton(),
     // File plane (#12): per-run sandbox lifecycle + serialized container lease.
     // SINGLETON so the concurrency semaphore (OM_OPENCODE_POOL_SIZE, default 1) is
     // process-wide — every tool-enabled OpenCode run shares the one shared container.

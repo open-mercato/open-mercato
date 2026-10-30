@@ -204,6 +204,67 @@ Partition endpoints let you route uploads to different buckets or visibility tie
 - Delete partition — `DELETE /attachments/partitions?id=<uuid>` (`attachments.manage`)  
   Default partitions cannot be removed; partitions in use return `409`.
 
+## Document structure
+
+Structure extraction turns a PDF, DOCX, text or image attachment into an ordered tree of sections (chapters, clauses, paragraphs, list items, tables). Every section carries a page range, heading path, number label (for example `§8.12`), character offsets into the extraction's normalized text and a stable anchor key. Extraction is deterministic and runs in-process with pure-JS engines (`pdf_layout`, `docx`, `ocr`, `text`); no external binaries are used.
+
+### Partition switches
+
+- `extractDocumentStructure` — when enabled on a partition, every new upload is enqueued on the `attachments-document-structure` queue. Off by default.
+- `indexDocumentSections` — opt-in per-section search indexing. Requires `extractDocumentStructure`.
+
+:::warning Plaintext egress
+Section text is encrypted at rest, but `indexDocumentSections` sends section **plaintext** to the configured search stores (fulltext and vector). Enable it only for non-sensitive corpora such as public regulations or product manuals.
+:::
+
+### Extraction lifecycle
+
+- Extraction runs on the queue worker, never in the upload request. Pages whose text layer is nearly empty fall back to OCR when the partition has `requiresOcr`, capped by `OM_ATTACHMENT_OCR_MAX_PAGES`; pages beyond the cap become `page_unreadable` placeholders and the extraction is `partial`.
+- One extraction is live per attachment. A failed or timed-out re-extraction never replaces a previous `completed`, `partial` or `skipped` extraction.
+- An explicit request (API or CLI) runs even when the partition switch is off.
+- Deleting an attachment purges its extractions and sections.
+
+### API routes
+
+All routes require an organization context (`400` without one) and return `404` for attachments outside the caller's scope.
+
+- `GET /attachments/structure/{id}` (`attachments.view`) — extraction summary and outline. Query: `includeOutline`, `maxDepth` (1–8). Returns `extraction: null` when the attachment has never been extracted.
+- `GET /attachments/structure/{id}/sections` (`attachments.view`) — paged sections. Query: `parentId`, `anchorKey`, `numberLabel`, `page`, `kinds`, `afterOrdinal`, `limit` (1–100), `includeText`, `includeDescendants`, `maxCharsPerSection`. Returns `extractionId: null` and no items when the attachment has not been extracted.
+- `POST /attachments/structure/{id}` (`attachments.manage`) — request extraction. Body: `{ force?, ocr?: 'auto' | 'never' | 'force' }`. Returns `202` when a job was enqueued, `200` with the current extraction when it is already current and `force` is false, `413` above `OM_ATTACHMENT_STRUCTURE_MAX_BYTES`, `422` for unsupported types. The request is not undoable.
+
+Modules read structure through the `attachmentDocumentStructureService` DI service instead of querying the extraction tables directly.
+
+### CLI
+
+```bash
+# Request extraction for one attachment (enqueued; runs even when the partition switch is off)
+yarn mercato attachments structure extract --attachment <id> --tenant <tenantId> --org <orgId> [--force] [--ocr auto|never|force]
+
+# Enqueue every attachment in enabled partitions that has no live extraction (paged; --dry-run lists targets only)
+yarn mercato attachments structure backfill --tenant <tenantId> [--org <orgId>] [--partition <code>] [--limit <n>] [--dry-run]
+
+# Re-extract live extractions produced by an older engine version
+yarn mercato attachments structure backfill --tenant <tenantId> --below-engine-version <n>
+
+# Print the outline (or JSON); section text is printed only with --with-text
+yarn mercato attachments structure dump --attachment <id> --tenant <tenantId> --org <orgId> [--format outline|json] [--with-text]
+```
+
+Backfill never runs extraction inline. With OCR-enabled partitions a large backfill multiplies OCR cost; start with `--dry-run` and a `--limit`.
+
+### Configuration
+
+| Variable | Default | Meaning |
+|----------|---------|---------|
+| `OM_ATTACHMENT_STRUCTURE_MAX_BYTES` | `52428800` (50 MiB) | Larger files are skipped as `too_large` |
+| `OM_ATTACHMENT_STRUCTURE_MAX_PAGES` | `1000` | Page cap for `pdf_layout` |
+| `OM_ATTACHMENT_STRUCTURE_MAX_SECTIONS` | `20000` | Above this the extraction is `partial` |
+| `OM_ATTACHMENT_STRUCTURE_MAX_SECTION_CHARS` | `16000` | Longer sections are split into paragraphs |
+| `OM_ATTACHMENT_STRUCTURE_OCR_MIN_CHARS_PER_PAGE` | `40` | Text-layer threshold below which a page is OCR'd |
+| `OM_ATTACHMENT_STRUCTURE_TIMEOUT_MS` | `180000` | Per-job wall clock |
+| `OM_ATTACHMENT_STRUCTURE_WORKER_CONCURRENCY` | `2` | Concurrent jobs per worker (max `20`) |
+| `OM_ATTACHMENT_OCR_MAX_PAGES` (existing) | `50` | OCR page cap, shared with upload OCR |
+
 ## File delivery and imaging
 
 These routes stream files and thumbnails. Access depends on partition visibility:

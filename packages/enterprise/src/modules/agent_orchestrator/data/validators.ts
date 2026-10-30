@@ -1,6 +1,9 @@
 import { z, type ZodTypeAny } from 'zod'
+import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { AGENT_ICON_NAMES } from './agentIcons'
 import { AGENT_TAG_MAX_LENGTH, AGENT_TAGS_MAX_COUNT } from './agentTags'
+import { isValidIntegrityPath } from '../lib/guardrails/integrity/paths'
+import { aiAgentHttpCallSettingsSchema } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/agent-call-contract'
 
 /**
  * A single proposed action emitted by a proposal agent. `payload` is shaped
@@ -133,6 +136,76 @@ export type AgentResult<T = unknown> =
 export const agentTypeSchema = z.enum(['researcher', 'decision_maker', 'action'])
 export type AgentType = z.infer<typeof agentTypeSchema>
 
+export const AGENT_REQUIRED_FEATURE_PATTERN = /^[A-Za-z0-9_][A-Za-z0-9_.*:-]*$/
+
+/**
+ * ACL features the INVOKER of an agent must hold (`defineAgent({ requiredFeatures })`
+ * and the `requiredFeatures` AGENT.md frontmatter key). Entries are trimmed, empty
+ * entries dropped and duplicates removed in declaration order; a malformed feature id
+ * fails validation so a typo can never silently widen access.
+ */
+export const agentRequiredFeaturesSchema = z
+  .array(z.string())
+  .transform((features) =>
+    Array.from(new Set(features.map((feature) => feature.trim()).filter(Boolean))),
+  )
+  .pipe(z.array(z.string().max(200).regex(AGENT_REQUIRED_FEATURE_PATTERN)).max(50))
+
+/**
+ * Normalise a declared `requiredFeatures` list; `undefined` when nothing is declared.
+ * Throws `[internal]` on a malformed entry.
+ */
+export function normalizeAgentRequiredFeatures(
+  agentId: string,
+  features: unknown,
+): string[] | undefined {
+  if (features === undefined || features === null) return undefined
+  const parsed = agentRequiredFeaturesSchema.safeParse(features)
+  if (!parsed.success) {
+    throw new Error(`[internal] agent "${agentId}" declares invalid requiredFeatures`)
+  }
+  return parsed.data.length > 0 ? parsed.data : undefined
+}
+
+export const agentPrincipalToolAclModeSchema = z.enum(['caller', 'intersect'])
+export type AgentPrincipalToolAclMode = z.infer<typeof agentPrincipalToolAclModeSchema>
+
+/**
+ * Declarative agent principal (`defineAgent({ principal })`): the features the
+ * agent's own identity may use, kept authoritative per organization by
+ * `syncAgentPrincipals`. `roleFeatures` is trimmed, deduplicated and sorted; a
+ * malformed feature id fails validation. `toolAcl` and `required` are read by the
+ * runtime (tool ACL composition, fail-closed binding) and never by the sync.
+ */
+export const agentPrincipalDeclarationSchema = z
+  .object({
+    roleFeatures: agentRequiredFeaturesSchema.transform((features) =>
+      [...features].sort((left, right) => left.localeCompare(right)),
+    ),
+    displayName: z.string().trim().min(1).max(200).optional(),
+    toolAcl: agentPrincipalToolAclModeSchema.optional(),
+    required: z.boolean().optional(),
+  })
+  .strict()
+export type AgentPrincipalDeclarationInput = z.input<typeof agentPrincipalDeclarationSchema>
+export type AgentPrincipalDeclaration = z.output<typeof agentPrincipalDeclarationSchema>
+
+/**
+ * Parse a declared `principal`; `undefined` when nothing is declared. Throws
+ * `[internal]` on a malformed declaration so a typo never silently widens access.
+ */
+export function normalizeAgentPrincipalDeclaration(
+  agentId: string,
+  declaration: unknown,
+): AgentPrincipalDeclaration | undefined {
+  if (declaration === undefined || declaration === null) return undefined
+  const parsed = agentPrincipalDeclarationSchema.safeParse(declaration)
+  if (!parsed.success) {
+    throw new Error(`[internal] agent "${agentId}" declares an invalid principal`)
+  }
+  return parsed.data
+}
+
 /**
  * Trace-list filter facets (trace-eval overlay). `needs-review` is the union
  * facet the traces list tabs use: failed eval OR low confidence.
@@ -199,6 +272,8 @@ export const runListQuerySchema = z
     agentType: agentTypeSchema.optional(),
     /** Only runs carrying the operator triage flag (`flagged_at` set). */
     flagged: z.coerce.boolean().optional(),
+    /** Only runs created strictly before this instant (ISO 8601) — the "previous run" lookup. */
+    createdBefore: z.string().datetime({ offset: true }).optional(),
     // Trace facets + window (trace-eval overlay).
     filter: runFilterFacet.optional(),
     window: runWindow.optional(),
@@ -369,6 +444,118 @@ export const traceToolCallIngestSchema = z.object({
 })
 export type TraceToolCallIngest = z.infer<typeof traceToolCallIngestSchema>
 
+export const TRACE_INGEST_LLM_BODY_MAX_BYTES = 8 * 1024 * 1024
+export const TRACE_INGEST_LLM_ITEMS_MAX = 10_000
+export const TRACE_INGEST_LLM_TOOLS_MAX = 1_000
+export const TRACE_INGEST_STOP_SEQUENCES_MAX = 64
+export const TRACE_INGEST_MANIFEST_LIST_MAX = 1_000
+export const TRACE_INGEST_MANIFEST_KNOWLEDGE_MAX = 50
+
+function ingestJsonByteLength(value: unknown): number {
+  try {
+    const serialized = JSON.stringify(value)
+    return serialized === undefined ? 0 : new TextEncoder().encode(serialized).length
+  } catch {
+    return Number.POSITIVE_INFINITY
+  }
+}
+
+function boundedIngestBody<TSchema extends z.ZodTypeAny>(schema: TSchema) {
+  return schema.refine((value) => ingestJsonByteLength(value) <= TRACE_INGEST_LLM_BODY_MAX_BYTES, {
+    message: `[internal] trace llm body exceeds ${TRACE_INGEST_LLM_BODY_MAX_BYTES} bytes`,
+  })
+}
+
+const ingestLabel = z.string().min(1).max(200)
+const ingestSha256 = z.string().regex(/^(sha256:)?[0-9a-f]{64}$/)
+const ingestCount = z.number().int().nonnegative()
+
+export const traceLlmParamsIngestSchema = z.object({
+  temperature: z.number().finite().optional(),
+  topP: z.number().finite().optional(),
+  topK: ingestCount.optional(),
+  maxTokens: ingestCount.optional(),
+  seed: z.number().int().optional(),
+  stopSequences: z.array(z.string().max(1_000)).max(TRACE_INGEST_STOP_SEQUENCES_MAX).optional(),
+  presencePenalty: z.number().finite().optional(),
+  frequencyPenalty: z.number().finite().optional(),
+})
+export type TraceLlmParamsIngest = z.infer<typeof traceLlmParamsIngestSchema>
+
+export const traceLlmUsageIngestSchema = z.object({
+  inputTokens: ingestCount.optional(),
+  outputTokens: ingestCount.optional(),
+  cachedInputTokens: ingestCount.optional(),
+  reasoningTokens: ingestCount.optional(),
+})
+export type TraceLlmUsageIngest = z.infer<typeof traceLlmUsageIngestSchema>
+
+/** The request the model received. Stored only at capture level `full`, after redaction. */
+export const traceLlmRequestIngestSchema = boundedIngestBody(
+  z.object({
+    reconstructed: z.boolean().optional(),
+    system: z.string().optional(),
+    messages: z.array(z.unknown()).max(TRACE_INGEST_LLM_ITEMS_MAX).optional(),
+    tools: z.array(z.record(z.string(), z.unknown())).max(TRACE_INGEST_LLM_TOOLS_MAX).optional(),
+    responseFormat: z.unknown().optional(),
+  }),
+)
+export type TraceLlmRequestIngest = z.infer<typeof traceLlmRequestIngestSchema>
+
+/** The model's response. Stored only at capture level `full`, after redaction. */
+export const traceLlmResponseIngestSchema = boundedIngestBody(
+  z.object({
+    finishReason: ingestLabel.optional(),
+    content: z.array(z.unknown()).max(TRACE_INGEST_LLM_ITEMS_MAX).optional(),
+    object: z.unknown().optional(),
+    providerMetadata: z.record(z.string(), z.unknown()).optional(),
+  }),
+)
+export type TraceLlmResponseIngest = z.infer<typeof traceLlmResponseIngestSchema>
+
+/** Per-llm-span model call facts an external adapter reports; mapped to `gen_ai.*` / `om.*` keys. */
+export const traceLlmIngestSchema = z.object({
+  provider: ingestLabel.optional(),
+  requestModel: ingestLabel.optional(),
+  responseModel: ingestLabel.optional(),
+  params: traceLlmParamsIngestSchema.optional(),
+  usage: traceLlmUsageIngestSchema.optional(),
+  request: traceLlmRequestIngestSchema.optional(),
+  response: traceLlmResponseIngestSchema.optional(),
+})
+export type TraceLlmIngest = z.infer<typeof traceLlmIngestSchema>
+
+/**
+ * Run manifest facts an external adapter reports. Identity (invoker, entry
+ * point, channel, principal) and the capture level are never taken from the
+ * body: the invoker is the HMAC-verified integration, the capture comes from
+ * the tenant policy.
+ */
+export const traceManifestIngestSchema = z.object({
+  definitionHash: ingestSha256.optional(),
+  agentSource: z.enum(['code', 'file', 'ui']).optional(),
+  promptOverride: z.object({ id: ingestLabel, version: ingestCount }).optional(),
+  systemPromptSha256: ingestSha256.optional(),
+  skills: z
+    .array(z.object({ id: ingestLabel, sha256: ingestSha256 }))
+    .max(TRACE_INGEST_MANIFEST_LIST_MAX)
+    .optional(),
+  toolsSha256: ingestSha256.optional(),
+  toolNames: z.array(ingestLabel).max(TRACE_INGEST_MANIFEST_LIST_MAX).optional(),
+  modelDeclared: ingestLabel.optional(),
+  modelResolved: ingestLabel.optional(),
+  provider: ingestLabel.optional(),
+  knowledge: z
+    .record(ingestLabel, ingestLabel)
+    .refine((value) => Object.keys(value).length <= TRACE_INGEST_MANIFEST_KNOWLEDGE_MAX, {
+      message: `[internal] trace manifest knowledge exceeds ${TRACE_INGEST_MANIFEST_KNOWLEDGE_MAX} keys`,
+    })
+    .optional(),
+  correlationId: ingestLabel.optional(),
+  traceparent: ingestLabel.optional(),
+})
+export type TraceManifestIngest = z.infer<typeof traceManifestIngestSchema>
+
 /** One execution-trace span. `externalSpanId` links children regardless of arrival order. */
 export const traceSpanIngestSchema = z.object({
   externalSpanId: z.string().min(1),
@@ -382,6 +569,7 @@ export const traceSpanIngestSchema = z.object({
   status: z.enum(['ok', 'error']).default('ok'),
   attributes: z.unknown().optional(),
   toolCalls: z.array(traceToolCallIngestSchema).optional(),
+  llm: traceLlmIngestSchema.optional(),
 })
 export type TraceSpanIngest = z.infer<typeof traceSpanIngestSchema>
 
@@ -407,8 +595,60 @@ export const traceIngestSchema = z.object({
   outputSummary: z.unknown().optional(),
   contextRouting: z.unknown().optional(),
   spans: z.array(traceSpanIngestSchema).optional(),
+  manifest: traceManifestIngestSchema.optional(),
 })
 export type TraceIngest = z.infer<typeof traceIngestSchema>
+
+export const TRACE_CAPTURE_LEVELS = ['off', 'metadata', 'full'] as const
+export const traceCaptureLevelSchema = z.enum(TRACE_CAPTURE_LEVELS)
+export const TRACE_CAPTURE_PER_AGENT_MAX = 200
+
+export const traceCaptureAgentOverrideSchema = z.object({
+  level: traceCaptureLevelSchema,
+  until: z.string().datetime().optional(),
+})
+
+/**
+ * Per-tenant trace capture policy (module config
+ * `agent_orchestrator/trace_capture_policy`). Resolution and the deployment
+ * default/ceiling live in `lib/trace/capturePolicy.ts`.
+ */
+export const traceCapturePolicySchema = z.object({
+  level: traceCaptureLevelSchema.default('metadata'),
+  evalLevel: traceCaptureLevelSchema.optional(),
+  perAgent: z
+    .record(z.string().max(100), traceCaptureAgentOverrideSchema)
+    .refine((overrides) => Object.keys(overrides).length <= TRACE_CAPTURE_PER_AGENT_MAX, {
+      message: `perAgent accepts at most ${TRACE_CAPTURE_PER_AGENT_MAX} overrides`,
+    })
+    .default({}),
+  retentionDays: z.number().int().min(1).max(3650).default(30),
+  redactPii: z.boolean().default(false),
+  includeProviderBody: z.boolean().default(false),
+})
+export type TraceCapturePolicy = z.infer<typeof traceCapturePolicySchema>
+export type TraceCapturePolicyInput = z.input<typeof traceCapturePolicySchema>
+
+export const OTEL_EXPORT_CONTENT_MODES = ['none', 'full'] as const
+export const OTEL_EXPORT_AGENT_ALLOWLIST_MAX = 200
+export const OTEL_EXPORT_AGENT_ID_MAX_LENGTH = 100
+
+/**
+ * Per-tenant OTel export settings (module config `agent_orchestrator/otel_export`).
+ * Deployment configuration and the effective export gate live in
+ * `lib/trace/otel/exportSettings.ts`. An absent `agentAllowlist` exports every agent.
+ */
+export const otelExportSettingsSchema = z.object({
+  enabled: z.boolean().default(false),
+  content: z.enum(OTEL_EXPORT_CONTENT_MODES).default('none'),
+  exportUserIds: z.boolean().default(false),
+  agentAllowlist: z
+    .array(z.string().min(1).max(OTEL_EXPORT_AGENT_ID_MAX_LENGTH))
+    .max(OTEL_EXPORT_AGENT_ALLOWLIST_MAX)
+    .optional(),
+})
+export type OtelExportSettings = z.infer<typeof otelExportSettingsSchema>
+export type OtelExportSettingsInput = z.input<typeof otelExportSettingsSchema>
 
 /** Shape returned by GET /runs/:id — the full run with its trace tree. */
 export type RunDetailResponse = {
@@ -446,7 +686,7 @@ export const EVAL_CASE_EXPORT_VERSION = 1 as const
 
 export type EvalCaseExportItem = {
   id: string
-  sourceType: 'correction' | 'golden_run'
+  sourceType: 'correction' | 'golden_run' | 'file'
   agentDefinitionId: string
   processType: string | null
   input: unknown
@@ -472,7 +712,7 @@ export const evalCaseExportQuerySchema = z
 export type EvalCaseExportQuery = z.infer<typeof evalCaseExportQuerySchema>
 
 export const evalCaseStatusSchema = z.enum(['draft', 'approved', 'archived'])
-export const evalCaseSourceTypeSchema = z.enum(['correction', 'golden_run'])
+export const evalCaseSourceTypeSchema = z.enum(['correction', 'golden_run', 'file'])
 
 /**
  * Query schema for the read-only GET /eval-cases list. The route projects
@@ -569,6 +809,11 @@ export const guardrailKind = z.enum([
   'schema',
   'moderation',
   'tool_scope',
+  'evidence_quote',
+  'reference_exists',
+  'tool_consulted',
+  'custom_integrity',
+  'abstain_or_review',
 ])
 export type GuardrailKindInput = z.infer<typeof guardrailKind>
 
@@ -637,13 +882,15 @@ export type GuardResults = z.infer<typeof guardResultsSchema>
  * Wave-2 ContextResolver assembles.
  */
 export const untrustedSpanSchema = z.object({
-  sourceKind: z.enum(['document', 'retrieval']),
+  sourceKind: z.enum(['document', 'retrieval', 'input']),
   /** Source attachment id / retrieval ref — a pointer, never the content. */
   sourceRef: z.string().min(1),
   /** `page:N[#bbox]` (document) or the retrieval locator — a pointer into the artifact. */
   locator: z.string().min(1),
   /** The raw untrusted text. Screened in-memory; never written to evidence. */
   text: z.string(),
+  /** `input` spans only: the declared field's action when the screen flags the span. */
+  injection: z.enum(['warn', 'block']).optional(),
 })
 export type UntrustedSpan = z.infer<typeof untrustedSpanSchema>
 
@@ -730,6 +977,13 @@ export const contextRoutedSourceSchema = z.object({
   locator: z.string().optional(),
   tokens: z.number().int().nonnegative(),
   score: z.number().optional(),
+  retrieval: z
+    .object({
+      queryHash: z.string().min(1),
+      rank: z.number().int().positive(),
+      k: z.number().int().positive(),
+    })
+    .optional(),
 })
 export type ContextRoutedSource = z.infer<typeof contextRoutedSourceSchema>
 
@@ -885,7 +1139,7 @@ export type CitableSource = z.infer<typeof citableSourceSchema>
 export const groundingSeverity = z.enum(['warn', 'block'])
 export type GroundingSeverity = z.infer<typeof groundingSeverity>
 
-export const guardrailSetBodySchema = z.object({
+export const groundingSetBodySchema = z.object({
   capability: z.string().min(1),
   /** Marks the capability factual — only factual capabilities run the grounding gate. */
   factual: z.boolean(),
@@ -899,7 +1153,343 @@ export const guardrailSetBodySchema = z.object({
   /** Minimum citable-source score a citation must clear to be considered resolved. */
   minScore: z.number().default(0),
 })
-export type GuardrailSetBody = z.infer<typeof guardrailSetBodySchema>
+export type GroundingSetBody = z.infer<typeof groundingSetBodySchema>
+/**
+ * The grounding set body schema under its original public name (grounding-only).
+ * Stored `agent_guardrail_sets.body` values are parsed with `agentGuardrailSetBodySchema`.
+ */
+export const guardrailSetBodySchema = groundingSetBodySchema
+export type GuardrailSetBody = GroundingSetBody
+
+// ── Output integrity (spec 2026-10-21-output-integrity-guardrails) ───────────
+/**
+ * A path in the integrity dot-path dialect (`a.b[*].c`, see
+ * `lib/guardrails/integrity/paths.ts`). Syntax only — whether the path can exist
+ * in the agent's result schema is checked at `defineAgent` registration.
+ */
+export const integrityPathSchema = z
+  .string()
+  .min(1)
+  .max(500)
+  .refine(isValidIntegrityPath, { message: 'Invalid integrity path' })
+
+export const integrityRuleIdSchema = z
+  .string()
+  .min(1)
+  .max(100)
+  .regex(/^[A-Za-z0-9][A-Za-z0-9_.-]*$/)
+
+/**
+ * What happens to an item that fails a rule. `repair` is only offered where the
+ * platform can compute the right value itself (an `evidence_quote` quote/offsets),
+ * so every other kind rejects it.
+ */
+export const integrityOnViolation = z.enum(['drop', 'repair', 'flag', 'block'])
+export type IntegrityOnViolation = z.infer<typeof integrityOnViolation>
+const integrityOnViolationWithoutRepair = z.enum(['drop', 'flag', 'block'])
+
+export const integrityNormalizeMode = z.enum(['exact', 'ws', 'nfkc_ws'])
+export type IntegrityNormalizeMode = z.infer<typeof integrityNormalizeMode>
+
+export const evidenceQuoteRuleSchema = z.object({
+  id: integrityRuleIdSchema,
+  kind: z.literal('evidence_quote'),
+  /** Items to check, relative to the result. */
+  items: integrityPathSchema,
+  /** The quote, relative to each item. */
+  quote: integrityPathSchema,
+  /** Where recomputed offsets are written back, relative to each item. */
+  offsets: z.object({ start: integrityPathSchema, end: integrityPathSchema }).strict().optional(),
+  /** The quoted source: a run-input path, or an item path naming the input field. */
+  source: z.union([
+    z.object({ input: integrityPathSchema }).strict(),
+    z.object({ fromItem: integrityPathSchema }).strict(),
+  ]),
+  normalize: integrityNormalizeMode.default('nfkc_ws'),
+  caseInsensitive: z.boolean().default(false),
+  locale: z.string().min(1).max(35).optional(),
+  offsetUnit: z.enum(['utf16', 'codepoint']).default('utf16'),
+  repairQuote: z.boolean().default(true),
+  minChars: z.number().int().nonnegative().default(3),
+  onViolation: integrityOnViolation.default('drop'),
+})
+
+export const referenceExistsRuleSchema = z.object({
+  id: integrityRuleIdSchema,
+  kind: z.literal('reference_exists'),
+  /** The cited references (strings or `{ id, version }` objects), relative to the result. */
+  ids: integrityPathSchema,
+  idPath: integrityPathSchema.optional(),
+  versionPath: integrityPathSchema.optional(),
+  versionSeparator: z.string().min(1).max(5).default('@'),
+  /** DI key suffix: the resolver is `agentReferenceResolver:<resolver>`. */
+  resolver: z.string().min(1).max(200),
+  version: z
+    .union([
+      z.object({ input: integrityPathSchema }).strict(),
+      z.object({ const: z.string().min(1).max(200) }).strict(),
+      z.object({ path: integrityPathSchema }).strict(),
+    ])
+    .optional(),
+  onResolverMissing: z.enum(['block', 'flag']).default('block'),
+  onViolation: integrityOnViolationWithoutRepair.default('drop'),
+})
+
+export const toolConsultedRuleSchema = z.object({
+  id: integrityRuleIdSchema,
+  kind: z.literal('tool_consulted'),
+  /** The cited values, relative to the result. */
+  cites: integrityPathSchema,
+  tools: z.array(z.string().min(1).max(200)).min(1),
+  /** Paths into a tool RESULT at which a cited value must appear. */
+  returned: z.array(integrityPathSchema).default([]),
+  matchArgs: z.boolean().default(false),
+  includeSubRuns: z.boolean().default(false),
+  enforce: z.literal('prepare_step').optional(),
+  onViolation: integrityOnViolationWithoutRepair.default('flag'),
+})
+
+export const customIntegrityRuleSchema = z.object({
+  id: integrityRuleIdSchema,
+  kind: z.literal('custom'),
+  /** Id passed to `registerIntegrityChecker`. */
+  checker: z.string().min(1).max(200),
+  config: z.record(z.string(), z.unknown()).optional(),
+  onViolation: integrityOnViolationWithoutRepair,
+})
+
+/** A concrete integrity path (no `[*]`): the single place an `abstain_or_review` rule writes to. */
+export const integrityConcretePathSchema = integrityPathSchema.refine((path) => !path.includes('[*]'), {
+  message: 'Path must not contain [*]',
+})
+
+export const abstainOrReviewSignalSchema = z.discriminatedUnion('signal', [
+  z.object({ signal: z.literal('output_empty'), path: integrityPathSchema }).strict(),
+  z.object({ signal: z.literal('tool_returned_empty'), tool: z.string().min(1).max(200) }).strict(),
+  z.object({ signal: z.literal('retrieval_empty') }).strict(),
+  z
+    .object({ signal: z.literal('confidence_below'), path: integrityPathSchema, threshold: z.number().finite() })
+    .strict(),
+  z
+    .object({
+      signal: z.literal('violations_at_least'),
+      count: z.number().int().min(1),
+      rules: z.array(integrityRuleIdSchema).min(1).optional(),
+    })
+    .strict(),
+  z.object({ signal: z.literal('output_flag'), path: integrityPathSchema }).strict(),
+  z.object({ signal: z.literal('integrity_dropped_all'), rule: integrityRuleIdSchema }).strict(),
+])
+export type AbstainOrReviewSignal = z.infer<typeof abstainOrReviewSignalSchema>
+
+/** Result fields an outcome writes: concrete path → value (validated against the result schema at registration). */
+const abstainOrReviewSetSchema = z
+  .record(integrityConcretePathSchema, z.unknown())
+  .refine((set) => Object.keys(set).length <= 20, { message: 'At most 20 set paths' })
+  .default({})
+
+export const abstainOrReviewNotApplicableSchema = z
+  .object({
+    when: z.array(abstainOrReviewSignalSchema).min(1).max(20),
+    set: abstainOrReviewSetSchema,
+  })
+  .strict()
+
+export const abstainOrReviewNeedsReviewSchema = z
+  .object({
+    when: z.array(abstainOrReviewSignalSchema).min(1).max(20),
+    set: abstainOrReviewSetSchema,
+    /** Where the stable reason codes (rule ids / signal names) are written. */
+    reasonsPath: integrityConcretePathSchema.optional(),
+    /** `flag` holds auto-approval; `review` additionally emits `agent_orchestrator.run.review_requested`. */
+    route: z.enum(['flag', 'review']).default('flag'),
+  })
+  .strict()
+
+export const abstainOrReviewRuleSchema = z.object({
+  id: integrityRuleIdSchema,
+  kind: z.literal('abstain_or_review'),
+  notApplicable: abstainOrReviewNotApplicableSchema.optional(),
+  needsReview: abstainOrReviewNeedsReviewSchema.optional(),
+})
+
+export const integrityRuleSchema = z
+  .discriminatedUnion('kind', [
+    evidenceQuoteRuleSchema,
+    referenceExistsRuleSchema,
+    toolConsultedRuleSchema,
+    customIntegrityRuleSchema,
+    abstainOrReviewRuleSchema,
+  ])
+  .superRefine((rule, ctx) => {
+    if (rule.kind === 'tool_consulted' && rule.returned.length === 0 && !rule.matchArgs) {
+      ctx.addIssue({ code: 'custom', path: ['returned'], message: 'Declare returned paths or enable matchArgs' })
+    }
+    if (rule.kind === 'abstain_or_review' && !rule.notApplicable && !rule.needsReview) {
+      ctx.addIssue({ code: 'custom', path: ['needsReview'], message: 'Declare notApplicable or needsReview' })
+    }
+  })
+export type IntegrityRuleInput = z.input<typeof integrityRuleSchema>
+export type IntegrityRule = z.infer<typeof integrityRuleSchema>
+export type EvidenceQuoteRule = z.infer<typeof evidenceQuoteRuleSchema>
+export type ReferenceExistsRule = z.infer<typeof referenceExistsRuleSchema>
+export type ToolConsultedRule = z.infer<typeof toolConsultedRuleSchema>
+export type CustomIntegrityRule = z.infer<typeof customIntegrityRuleSchema>
+export type AbstainOrReviewRule = z.infer<typeof abstainOrReviewRuleSchema>
+
+export const integrityRulesSchema = z
+  .array(integrityRuleSchema)
+  .max(50)
+  .superRefine((rules, ctx) => {
+    const seen = new Set<string>()
+    rules.forEach((rule, index) => {
+      if (seen.has(rule.id)) {
+        ctx.addIssue({ code: 'custom', path: [index, 'id'], message: `Duplicate integrity rule id "${rule.id}"` })
+      }
+      seen.add(rule.id)
+      if (rule.kind === 'abstain_or_review') {
+        if (index !== rules.length - 1) {
+          ctx.addIssue({ code: 'custom', path: [index, 'kind'], message: 'abstain_or_review must be the last integrity rule' })
+        }
+        const earlierIds = new Set(rules.slice(0, index).map((earlier) => earlier.id))
+        const outcomes = [
+          ['notApplicable', rule.notApplicable],
+          ['needsReview', rule.needsReview],
+        ] as const
+        for (const [outcomeKey, outcome] of outcomes) {
+          outcome?.when.forEach((signal, signalIndex) => {
+            const referenced =
+              signal.signal === 'integrity_dropped_all'
+                ? [signal.rule]
+                : signal.signal === 'violations_at_least'
+                  ? (signal.rules ?? [])
+                  : []
+            for (const ruleId of referenced) {
+              if (!earlierIds.has(ruleId)) {
+                ctx.addIssue({
+                  code: 'custom',
+                  path: [index, outcomeKey, 'when', signalIndex],
+                  message: `Signal references unknown earlier integrity rule "${ruleId}"`,
+                })
+              }
+            }
+          })
+        }
+      }
+    })
+  })
+
+/** Guardrail check kind each rule kind records (`custom` → `custom_integrity`). */
+export const INTEGRITY_RULE_CHECK_KIND = {
+  evidence_quote: 'evidence_quote',
+  reference_exists: 'reference_exists',
+  tool_consulted: 'tool_consulted',
+  custom: 'custom_integrity',
+  abstain_or_review: 'abstain_or_review',
+} as const satisfies Record<IntegrityRule['kind'], GuardrailKindInput>
+
+export const INTEGRITY_EVIDENCE_MAX_VIOLATIONS = 20
+
+/**
+ * Redacted evidence an integrity check row carries (documents the optional keys
+ * riding the `.passthrough()` guardrail evidence). Counts, item PATHS and stable
+ * reason codes only — never the quoted text or any other output/input content.
+ */
+export const integrityEvidenceSchema = guardrailEvidenceSchema.extend({
+  ruleId: integrityRuleIdSchema,
+  /** Items the rule examined. */
+  items: z.number().int().nonnegative(),
+  violations: z
+    .array(z.object({ itemPath: z.string().min(1).max(500), reason: z.string().min(1).max(100) }))
+    .max(INTEGRITY_EVIDENCE_MAX_VIOLATIONS),
+  dropped: z.number().int().nonnegative().default(0),
+  repaired: z.number().int().nonnegative().default(0),
+  ambiguous: z.number().int().nonnegative().default(0),
+  /** Pointer to the pre-repair model output in the encrypted artifact store. */
+  rawOutput: z
+    .object({ key: z.string().min(1).optional(), status: z.enum(['stored', 'storage_unavailable']) })
+    .optional(),
+  holdsAutoApproval: z.boolean().optional(),
+  /** Recorded under `OM_AGENT_INTEGRITY=off`: the rule was evaluated but its effect was not applied. */
+  shadow: z.boolean().optional(),
+  /** Under shadow mode, the rule would have blocked the run (the row records `warn`). */
+  wouldBlock: z.boolean().optional(),
+  /** `abstain_or_review`: which outcome fired. */
+  outcome: z.enum(['none', 'not_applicable', 'needs_review']).optional(),
+  /** `abstain_or_review`: stable reason codes (signal names and rule ids), never input text. */
+  reasons: z.array(z.string().min(1).max(200)).max(100).optional(),
+  /** `abstain_or_review` needs review: how the run is routed. */
+  route: z.enum(['flag', 'review']).optional(),
+})
+export type IntegrityEvidence = z.infer<typeof integrityEvidenceSchema>
+
+/**
+ * One declared UNTRUSTED input field (spec `2026-10-21-output-integrity-guardrails`
+ * → Untrusted inputs): `path` addresses string values in the run input (a `[*]`
+ * segment addresses every array item), `label` names the field in evidence and in
+ * the delimited prompt block, and `injection` is the action taken when the
+ * prompt-injection screen flags the field (`off` skips screening).
+ */
+export const untrustedInputDeclSchema = z.object({
+  path: z.string().min(1).max(500).refine(isValidIntegrityPath, { message: 'Invalid untrusted input path' }),
+  label: integrityRuleIdSchema,
+  injection: z.enum(['warn', 'block', 'off']).default('warn'),
+})
+export type UntrustedInputDecl = z.infer<typeof untrustedInputDeclSchema>
+export type UntrustedInputDeclInput = z.input<typeof untrustedInputDeclSchema>
+
+export const untrustedInputDeclsSchema = z
+  .array(untrustedInputDeclSchema)
+  .max(50)
+  .superRefine((decls, ctx) => {
+    const labels = new Set<string>()
+    const paths = new Set<string>()
+    decls.forEach((decl, index) => {
+      if (labels.has(decl.label)) {
+        ctx.addIssue({ code: 'custom', path: [index, 'label'], message: `Duplicate untrusted input label "${decl.label}"` })
+      }
+      if (paths.has(decl.path)) {
+        ctx.addIssue({ code: 'custom', path: [index, 'path'], message: `Duplicate untrusted input path "${decl.path}"` })
+      }
+      labels.add(decl.label)
+      paths.add(decl.path)
+    })
+  })
+
+/**
+ * An integrity guardrail SET body (spec `2026-10-21-output-integrity-guardrails`
+ * → Declaration): the parsed rules and untrusted input declarations an agent
+ * declares, content-hashed to an `i1-…` version that every integrity and
+ * untrusted-input check row pins. `capability` is the agent id.
+ */
+export const integritySetBodySchema = z.object({
+  kind: z.literal('integrity'),
+  capability: z.string().min(1),
+  rules: integrityRulesSchema,
+  untrustedInputs: untrustedInputDeclsSchema.default([]),
+})
+export type IntegritySetBody = z.infer<typeof integritySetBodySchema>
+
+/** Every guardrail set body stored in `agent_guardrail_sets`, discriminated by `kind`. */
+export const agentGuardrailSetBodySchema = z.discriminatedUnion('kind', [groundingSetBodySchema, integritySetBodySchema])
+export type AgentGuardrailSetBody = z.infer<typeof agentGuardrailSetBodySchema>
+
+/** Run-level roll-up of every integrity rule's verdict. */
+export const integritySummarySchema = z.object({
+  outcome: z.enum(['clean', 'repaired', 'flagged']),
+  checks: z.array(
+    z.object({
+      ruleId: integrityRuleIdSchema,
+      kind: guardrailKind,
+      result: guardrailResult,
+      items: z.number().int().nonnegative(),
+      violations: z.number().int().nonnegative(),
+      dropped: z.number().int().nonnegative(),
+      repaired: z.number().int().nonnegative(),
+    }),
+  ),
+})
+export type IntegritySummary = z.infer<typeof integritySummarySchema>
 
 // ── Agent identity & on-behalf-of (Wave 4, Phase 1) ──────────────────────────
 /**
@@ -1533,9 +2123,24 @@ export const evalCaseAssertionRefSchema = z.object({
 })
 export type EvalCaseAssertionRefInput = z.infer<typeof evalCaseAssertionRefSchema>
 
+export const EVAL_SET_SNAPSHOT_LATEST = 'latest' as const
+export const EVAL_SET_HASH_PATTERN = /^sha256:[0-9a-f]{64}$/
+
+/**
+ * A frozen eval-set pin: `latest` freezes the current approved cases and
+ * assertions, `sha256:<hex>` replays a previously frozen manifest.
+ */
+export const evalSetSnapshotSchema = z.union([
+  z.literal(EVAL_SET_SNAPSHOT_LATEST),
+  z.string().regex(EVAL_SET_HASH_PATTERN, 'snapshot must be "latest" or sha256:<64 lowercase hex>'),
+])
+export type EvalSetSnapshot = z.infer<typeof evalSetSnapshotSchema>
+
 export const evalRunCreateSchema = z.object({
   agentDefinitionId: z.string().min(1).max(100),
-  evalCaseIds: z.array(z.string().uuid()).min(1).max(500),
+  /** Required unless `snapshot` is set; with a snapshot it narrows the manifest's cases. */
+  evalCaseIds: z.array(z.string().uuid()).min(1).max(500).optional(),
+  snapshot: evalSetSnapshotSchema.optional(),
   /** Repeat each case to MEASURE judge/model variance rather than assume it away. */
   repeatCount: z.coerce.number().int().min(1).max(20).default(1),
   /**
@@ -1543,6 +2148,15 @@ export const evalRunCreateSchema = z.object({
    * false: the gate stays deterministic and promotion reproducible.
    */
   judgeMayGate: z.boolean().default(true),
+  /**
+   * Eval-run model settings, merged over the agent's `modelSettings` for every
+   * case run. HTTP caps apply and `providerOptions` is rejected.
+   */
+  callSettings: aiAgentHttpCallSettingsSchema.optional(),
+}).superRefine((value, ctx) => {
+  if (!value.snapshot && !value.evalCaseIds) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['evalCaseIds'], message: 'evalCaseIds is required without snapshot' })
+  }
 })
 export type EvalRunCreateInput = z.infer<typeof evalRunCreateSchema>
 
@@ -1562,6 +2176,69 @@ export const evalCaseRunListQuerySchema = z.object({
   after: z.string().optional(),
 })
 export type EvalCaseRunListQuery = z.infer<typeof evalCaseRunListQuerySchema>
+
+const queryBooleanSchema = z
+  .string()
+  .optional()
+  .transform((raw, ctx) => {
+    if (raw === undefined || raw === '') return false
+    const parsed = parseBooleanToken(raw)
+    if (parsed === null) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Expected a boolean' })
+      return z.NEVER
+    }
+    return parsed
+  })
+
+export const EVAL_REPORT_FORMATS = ['json', 'md', 'junit'] as const
+export type EvalReportFormat = (typeof EVAL_REPORT_FORMATS)[number]
+
+export const evalReportQuerySchema = z.object({
+  format: z.enum(EVAL_REPORT_FORMATS).default('json'),
+  partial: queryBooleanSchema,
+  includePayloads: queryBooleanSchema,
+  evidenceMaxChars: z.coerce.number().int().min(100).max(20000).optional(),
+})
+export type EvalReportQuery = z.infer<typeof evalReportQuerySchema>
+
+export const EVAL_SET_EXPORT_CURRENT = 'current' as const
+export const EVAL_SET_TEXT_FORMATS = ['json', 'yaml'] as const
+
+/**
+ * `:version` of GET /eval-sets/:version/export: `current` freezes the approved
+ * cases on the fly, `sha256:<hex>` loads a manifest frozen by an earlier run.
+ */
+export const evalSetExportVersionSchema = z.union([
+  z.literal(EVAL_SET_EXPORT_CURRENT),
+  z.string().regex(EVAL_SET_HASH_PATTERN, 'version must be "current" or sha256:<64 lowercase hex>'),
+])
+
+export const evalSetExportQuerySchema = z.object({
+  agentDefinitionId: z.string().min(1).max(100),
+  format: z.enum(EVAL_SET_TEXT_FORMATS).default('json'),
+})
+export type EvalSetExportQuery = z.infer<typeof evalSetExportQuerySchema>
+
+/**
+ * POST /eval-sets/import. The set travels either parsed (`file`) or as the raw
+ * file text (`text`, JSON or YAML); the file itself is validated by
+ * `lib/eval/evalSetFile.ts`, so it stays `unknown` here.
+ */
+export const evalSetImportRequestSchema = z
+  .object({
+    file: z.unknown().optional(),
+    text: z.string().optional(),
+    format: z.enum([...EVAL_SET_TEXT_FORMATS, 'auto']).default('auto'),
+    approve: z.boolean().default(false),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    const provided = (value.file !== undefined ? 1 : 0) + (value.text !== undefined ? 1 : 0)
+    if (provided !== 1) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['file'], message: 'provide exactly one of file or text' })
+    }
+  })
+export type EvalSetImportRequest = z.infer<typeof evalSetImportRequestSchema>
 
 /**
  * Eval-case authoring. `input`/`expected` are free-form per agent (the agent's own

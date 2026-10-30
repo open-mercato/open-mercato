@@ -3,10 +3,23 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { runAiAgentObject } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/agent-runtime'
 import { createModelFactory } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/model-factory'
 import type { AiChatRequestContext } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/attachment-bridge-types'
+import type {
+  AiAgentModelCallEndEvent,
+  AiAgentModelCallStartEvent,
+  AiAgentPromptResolvedEvent,
+} from '@open-mercato/ai-assistant/modules/ai_assistant/lib/agent-call-contract'
+import { bindRunObservation, createRunObservationCollector } from '@open-mercato/shared/lib/ai/run-observation'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
-import type { AgentRegistryEntry } from '../sdk/defineAgent'
+import { withAuditCorrelation } from '@open-mercato/shared/lib/commands/auditCorrelationScope'
+import { getToolRegistry } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/tool-registry'
+import { resolveAgentEffectiveTools, type AgentRegistryEntry } from '../sdk/defineAgent'
+import { resolveAgentDefinitionHash } from '../trace/definitionHash'
+import { buildAgentRunManifestInput, captureManifestTraceparent } from '../trace/runManifestEntry'
+import type { RunManifestCapture, RunManifestInput } from '../trace/runManifest'
+import { resolveRunCapture } from '../trace/capturePolicy'
 import {
   type AgentResult,
+  type AttemptedTool,
   type CitableSource,
   type GuardResults,
   type GuardrailSetBody,
@@ -15,25 +28,50 @@ import {
 import { deriveEnvelopeConfidence } from '../../data/proposalEnvelope'
 import { GuardrailService, persistVerdict, GUARDRAIL_SET_VERSION } from '../guardrails/guardrailService'
 import { resolveCurrentGroundingSet } from '../guardrails/syncGroundingSets'
+import {
+  attachRawOutputPointer,
+  normalizeToolName,
+  runOutputPipeline,
+  type OutputPipelineResult,
+} from '../guardrails/integrity/pipeline'
+import { isAgentIntegrityEnforced, resolveIntegritySet } from '../guardrails/integrity/integritySets'
+import {
+  buildUntrustedInputSpans,
+  createUntrustedInputNonce,
+  renderUntrustedModelInput,
+} from '../guardrails/integrity/untrustedInput'
+import type { IntegrityToolCall } from '../guardrails/integrity/types'
+import {
+  buildToolConsultedPrepareStep,
+  collectEnforcedToolSets,
+} from '../guardrails/integrity/rules/toolConsulted'
+import { emitRunReviewRequested } from '../guardrails/integrity/reviewRequestedEvent'
+import { readCheckRuleId } from '../guardrails/integrity/summary'
 import { ContextResolverImpl, ContextModuleNotFoundError } from '../context/contextResolver'
 import { resolveContextModule } from '../context/registry'
-import { withRunContext } from './runContext'
+import { getCurrentRunToolCallSink, withRunContext, type RunToolCallSink } from './runContext'
+import { resolveInvoker } from '../access/agentInvokeAccess'
 import { runWithProviderBudget } from './providerBudget'
 import { computeCostMinor } from './modelPricing'
 import {
+  buildNativeStepRecord,
   captureNativeRunTrace,
   isNativeTraceCaptureEnabled,
   type NativeStepRecord,
 } from './nativeTraceCapture'
+import { attachModelCallsToSteps, createNativeModelCallCollector } from './nativeModelCallRecorder'
+import { ensureRunIntegritySetSynced, storeRunRawOutput } from './integrityRunSupport'
 import {
   AgentGuardrailBlockedError,
   AgentOutputInvalidError,
+  AgentPrincipalMissingError,
   AgentRunTimeoutError,
 } from './errors'
 import {
   type AgentRunCtx,
   buildCommandContext,
-  resolveCallerAcl,
+  buildRunAuditCorrelation,
+  withRunAuditCorrelation,
   createRun,
   completeRun,
   failRun,
@@ -41,8 +79,20 @@ import {
   shapeResult,
 } from './persistence'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { resolveEffectiveToolAcl } from '../identity/resolveEffectiveToolAcl'
+import { resolvePrincipalToolAclRecord } from '../identity/principalDeniedTools'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 
 const logger = createLogger('agent_orchestrator').child({ component: 'native-agent-runner' })
+
+function reportSettleFailure(error: unknown, code: string, runId: string): void {
+  logger.warn('native run failure settlement step failed', {
+    runId,
+    code,
+    error: error instanceof Error ? error.message : String(error),
+  })
+  getTelemetryRuntime()?.reportError(error, { module: 'agent_orchestrator', code, attributes: { runId } })
+}
 
 /**
  * Default token budget for a TDCR context assembly when the caller does not pass
@@ -94,9 +144,9 @@ export class NativeAgentRunner {
     input: unknown,
     ctx: AgentRunCtx,
   ): Promise<AgentResult> {
-    const commandCtx = buildCommandContext(this.container, ctx)
+    const baseCommandCtx = buildCommandContext(this.container, ctx)
 
-    const runId = await createRun(this.commandBus, commandCtx, {
+    const runId = await createRun(this.commandBus, baseCommandCtx, {
       source: ctx.source,
       tenantId: ctx.tenantId,
       organizationId: ctx.organizationId,
@@ -113,7 +163,9 @@ export class NativeAgentRunner {
       stepId: ctx.stepId ?? null,
       invocationId: ctx.invocationId ?? null,
       agentType: entry.agentType ?? null,
+      definitionHash: resolveAgentDefinitionHash(entry),
     })
+    const commandCtx = withRunAuditCorrelation(baseCommandCtx, ctx, runId)
 
     if (ctx.onRunPersisted) {
       try {
@@ -133,6 +185,10 @@ export class NativeAgentRunner {
     // capabilities that declare a ContextModule get a bundle; the rest are a safe
     // no-op so existing toolless agents are unaffected. Best-effort: an assembly
     // failure must not abort the run (the bundle is evidence, not a gate in P1).
+    const traceEnabled = isNativeTraceCaptureEnabled()
+    const runCapture: RunManifestCapture | null = traceEnabled
+      ? await resolveRunCapture(this.container, { tenantId: ctx.tenantId, agentId, runSource: ctx.source })
+      : null
     let untrustedSpans: UntrustedSpan[] = []
     let citableSources: CitableSource[] = []
     if (resolveContextModule(agentId)) {
@@ -147,6 +203,7 @@ export class NativeAgentRunner {
           stepId: ctx.stepId ?? null,
           capability: agentId,
           budget: DEFAULT_CONTEXT_TOKEN_BUDGET,
+          ...(runCapture ? { contentCapture: { level: runCapture.level, redactPii: runCapture.redactPii } } : {}),
         })
         untrustedSpans = assembled.untrustedSpans
         citableSources = assembled.citableSources
@@ -165,8 +222,19 @@ export class NativeAgentRunner {
     // `guardrail.tripped`, then fails the step with a typed reason (never reaches
     // disposition); a `warn`/`pass` records the audit rows and proceeds. The
     // always-on output tool-scope backstop holds even if this layer is evaded.
+    const integritySet = resolveIntegritySet(entry)
+    const untrustedInputSpans = buildUntrustedInputSpans(input, entry.untrustedInputs)
+    let integritySetSynced = false
+    if (integritySet && entry.untrustedInputs?.length) {
+      await ensureRunIntegritySetSynced(this.container, ctx, entry)
+      integritySetSynced = true
+    }
     const inputGuardrail = new GuardrailService(this.container)
-    const inputVerdict = await inputGuardrail.checkInput({ capability: agentId, untrustedSpans })
+    const inputVerdict = await inputGuardrail.checkInput({
+      capability: agentId,
+      untrustedSpans: [...untrustedSpans, ...untrustedInputSpans],
+      ...(integritySet && untrustedInputSpans.length > 0 ? { untrustedInputSetVersion: integritySet.version } : {}),
+    })
     if (inputVerdict.checks.length > 0) {
       const inputGuardEm = (this.container.resolve('em') as EntityManager).fork()
       const inputScope = { tenantId: ctx.tenantId, organizationId: ctx.organizationId, agentRunId: runId }
@@ -179,20 +247,32 @@ export class NativeAgentRunner {
       if (inputVerdict.result === 'block' && inputVerdict.blockedReason) {
         const detail = '[internal] pre-call guardrail block (prompt_injection)'
         await failRun(this.commandBus, commandCtx, { runId, errorMessage: detail })
+        const blockingInputCheck = inputVerdict.checks.find((check) => check.result === 'block')
         throw new AgentGuardrailBlockedError(agentId, detail, {
           phase: inputVerdict.blockedReason.phase,
           kind: inputVerdict.blockedReason.kind,
-          guardrailSetVersion: GUARDRAIL_SET_VERSION,
+          guardrailSetVersion: blockingInputCheck?.guardrailSetVersion ?? GUARDRAIL_SET_VERSION,
+          ruleId: readCheckRuleId(blockingInputCheck?.evidence),
         })
       }
     }
 
-    // Load the caller's effective ACL so the agent's read-only tools (e.g.
+    // Load the effective tool ACL so the agent's read-only tools (e.g.
     // customers.get_deal, gated by customers.deals.view) pass their feature
-    // check under the caller's own scope — never escalated. Defensive: if the
-    // RBAC service is unavailable, fall back to no features (tool calls then
-    // fail closed rather than running unauthorized).
-    const acl = await resolveCallerAcl(this.container, ctx)
+    // check under the caller's own scope — never escalated. In `intersect` mode
+    // the agent principal's grants narrow it further. Defensive: if the RBAC
+    // service is unavailable, fall back to no features (tool calls then fail
+    // closed rather than running unauthorized).
+    let acl: Awaited<ReturnType<typeof resolveEffectiveToolAcl>>
+    try {
+      acl = await resolveEffectiveToolAcl(this.container, agentId, entry, ctx)
+    } catch (aclError) {
+      if (aclError instanceof AgentPrincipalMissingError) {
+        await failRun(this.commandBus, commandCtx, { runId, errorMessage: aclError.message })
+      }
+      throw aclError
+    }
+    const toolAclRecord = resolvePrincipalToolAclRecord(entry, acl)
     const authContext: AiChatRequestContext = {
       tenantId: ctx.tenantId,
       organizationId: ctx.organizationId,
@@ -211,49 +291,48 @@ export class NativeAgentRunner {
     // Per-step trace recording (Phase 1): the object-mode `loop.onStepFinish`
     // hook (forwarded by the additive ai-assistant change) records one entry per
     // AI SDK step as it happens, so partial traces survive even a failed run.
-    const traceEnabled = isNativeTraceCaptureEnabled()
     const stepRecords: NativeStepRecord[] = []
-    const recordStep = async (event: unknown): Promise<void> => {
-      const raw = event as {
-        toolCalls?: Array<{
-          toolName?: string
-          args?: unknown
-          result?: unknown
-          experimental_toToolResultError?: { code?: string; message?: string }
-          startTime?: number
-          endTime?: number
-        }>
-        finishReason?: string
-        usage?: { inputTokens?: number; outputTokens?: number }
-        response?: { modelId?: string }
-      }
-      stepRecords.push({
-        modelId: raw.response?.modelId ?? 'unknown',
-        finishReason: raw.finishReason ?? 'stop',
-        usage: {
-          inputTokens: raw.usage?.inputTokens ?? 0,
-          outputTokens: raw.usage?.outputTokens ?? 0,
-        },
-        toolCalls: (raw.toolCalls ?? []).map((toolCall) => ({
-          toolName: toolCall.toolName ?? 'unknown',
-          args: toolCall.args ?? {},
-          result: toolCall.result,
-          ...(toolCall.experimental_toToolResultError
-            ? {
-                error: {
-                  code: String(toolCall.experimental_toToolResultError.code ?? 'unknown'),
-                  message: String(toolCall.experimental_toToolResultError.message ?? ''),
-                },
-              }
-            : {}),
-          durationMs:
-            typeof toolCall.startTime === 'number' && typeof toolCall.endTime === 'number'
-              ? toolCall.endTime - toolCall.startTime
-              : 0,
-        })),
-        endedAtMs: Date.now(),
-      })
+    const traceparent = traceEnabled ? captureManifestTraceparent() : null
+    const runObservation = createRunObservationCollector()
+    let promptResolved: AiAgentPromptResolvedEvent | null = null
+    const modelCalls = createNativeModelCallCollector({ retainContent: runCapture?.level === 'full' })
+    const promptObserver = {
+      onPromptResolved(event: AiAgentPromptResolvedEvent): void {
+        promptResolved = event
+      },
     }
+    const runObserver =
+      runCapture?.level === 'off'
+        ? promptObserver
+        : {
+            ...promptObserver,
+            onModelCallStart(event: AiAgentModelCallStartEvent): void {
+              modelCalls.observer.onModelCallStart(event)
+            },
+            onModelCallEnd(event: AiAgentModelCallEndEvent): void {
+              modelCalls.observer.onModelCallEnd(event)
+            },
+          }
+    const integrityRules = entry.integrity?.length ? entry.integrity : null
+    const integrityToolCalls: IntegrityToolCall[] = []
+    let integrityRawOutputKey: string | null = null
+    const parentToolCallSink = getCurrentRunToolCallSink()
+    const collectSubRunToolCalls =
+      integrityRules?.some((rule) => rule.kind === 'tool_consulted' && rule.includeSubRuns) ?? false
+    const subRunToolCalls: IntegrityToolCall[] = []
+    const runToolCallSink: RunToolCallSink | undefined =
+      collectSubRunToolCalls || parentToolCallSink
+        ? (toolCall) => {
+            if (collectSubRunToolCalls) subRunToolCalls.push(toolCall)
+            parentToolCallSink?.(toolCall)
+          }
+        : undefined
+    const enforcedToolSets =
+      integrityRules && isAgentIntegrityEnforced() ? collectEnforcedToolSets(integrityRules) : []
+    const toolConsultedPrepareStep =
+      enforcedToolSets.length > 0
+        ? buildToolConsultedPrepareStep(enforcedToolSets, () => integrityToolCalls)
+        : null
 
     // Live agent-action telemetry (workflows spec Phase 2). When this run is a
     // workflow INVOKE_AGENT step (`ctx.workflowInstanceId` present) and an event bus is
@@ -303,9 +382,25 @@ export class NativeAgentRunner {
       }
     }
     const emitAgentAction = buildAgentActionEmitter()
-    const wireStepFinish = traceEnabled || emitAgentAction !== null
+    const wireStepFinish =
+      traceEnabled || emitAgentAction !== null || integrityRules !== null || parentToolCallSink !== undefined
     const onAgentStepFinish = async (event: unknown): Promise<void> => {
-      if (traceEnabled) await recordStep(event)
+      if (traceEnabled || integrityRules || parentToolCallSink) {
+        const record = buildNativeStepRecord(event, Date.now())
+        if (traceEnabled) stepRecords.push(record)
+        if (integrityRules || parentToolCallSink) {
+          for (const toolCall of record.toolCalls) {
+            const integrityToolCall: IntegrityToolCall = {
+              toolName: toolCall.toolName,
+              args: toolCall.args,
+              result: toolCall.result,
+              ...(toolCall.error ? { error: toolCall.error.code } : {}),
+            }
+            if (integrityRules) integrityToolCalls.push(integrityToolCall)
+            parentToolCallSink?.(integrityToolCall)
+          }
+        }
+      }
       if (emitAgentAction) await emitAgentAction(event)
     }
 
@@ -350,6 +445,32 @@ export class NativeAgentRunner {
         ...(cost ? { costMinor: cost.costMinor, currency: cost.currency } : {}),
       }
     }
+    const buildManifest = (): RunManifestInput | null => {
+      try {
+        return buildAgentRunManifestInput({
+          entry,
+          ctx,
+          runtime: 'native',
+          promptResolved,
+          observation: runObservation.snapshot(),
+          traceparent,
+          integrityRawOutputKey,
+          capture: runCapture,
+          toolAcl: toolAclRecord,
+        })
+      } catch (err) {
+        logger.warn('native run manifest build failed', {
+          runId,
+          error: err instanceof Error ? err.message : String(err),
+        })
+        getTelemetryRuntime()?.reportError(err, {
+          module: 'agent_orchestrator',
+          code: 'run_manifest_build_failed',
+          attributes: { runId },
+        })
+        return null
+      }
+    }
     const captureTrace = async (): Promise<void> => {
       if (!traceEnabled) return
       // AWAITED, not fire-and-forget. `dispositionService` decides whether a
@@ -363,17 +484,21 @@ export class NativeAgentRunner {
       // The capture catches internally; the defensive catch here guarantees a
       // rejected capture can never fail the run regardless of the capture
       // implementation.
+      const attached = attachModelCallsToSteps(stepRecords, modelCalls.records())
       await captureNativeRunTrace(
         this.container,
         { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
         {
           runId,
           agentId,
-          steps: stepRecords,
+          steps: attached.steps,
           startedAtMs: modelStartMs,
           endedAtMs: Date.now(),
           fallbackUsage,
           fallbackModel: entry.defaultModel ?? null,
+          fallbackCall: attached.fallbackCall,
+          manifest: buildManifest(),
+          ...(runCapture ? { captureLevel: runCapture.level, redactPii: runCapture.redactPii } : {}),
         },
       ).catch((err: unknown) => {
         logger.warn('native trace capture rejected for run', {
@@ -388,30 +513,48 @@ export class NativeAgentRunner {
       // its nested run for traceability (Phase 4).
       // `ctx.source` rides the async context so a nested `delegate_agent` call
       // inherits the eval tag instead of being recorded as production traffic.
-      const modelExecution = withRunContext(runId, () =>
-        runWithProviderBudget({ providerId, deadlineAtMs }, async () => {
-          const objectResult = await runAiAgentObject({
-            agentId,
-            input: typeof input === 'string' ? input : JSON.stringify(input),
-            authContext,
-            container: this.container,
-            output: { schemaName: agentId.replace(/\W+/g, '_'), schema: entry.schema },
-            // Propose-only agents stay read-only: run a read-only tool loop so the
-            // agent can gather data (via its own tools or skill-contributed tools)
-            // before proposing. The runtime auto-falls back to a plain structured
-            // generate when no tools resolve, so toolless agents are unaffected.
-            // Writes never execute directly (read-only policy + proposal → effector).
-            enableTools: true,
-            ...(wireStepFinish ? { loop: { onStepFinish: onAgentStepFinish } } : {}),
-          })
-          // Object mode defaults to `mode: 'generate'`, resolving `.object` directly.
-          if (objectResult.mode === 'stream') {
-            return await objectResult.object
-          }
-          fallbackUsage = objectResult.usage ?? null
-          return objectResult.object
-        }),
-        ctx.source,
+      const modelExecution = bindRunObservation(runObservation, () =>
+        withRunContext(
+          runId,
+          () =>
+            withAuditCorrelation(buildRunAuditCorrelation(ctx, runId), () =>
+              runWithProviderBudget({ providerId, deadlineAtMs }, async () => {
+                const objectResult = await runAiAgentObject({
+                  agentId,
+                  input: renderUntrustedModelInput(input, entry.untrustedInputs, createUntrustedInputNonce()),
+                  authContext,
+                  container: this.container,
+                  output: { schemaName: agentId.replace(/\W+/g, '_'), schema: entry.schema },
+                  // Propose-only agents stay read-only: run a read-only tool loop so the
+                  // agent can gather data (via its own tools or skill-contributed tools)
+                  // before proposing. The runtime auto-falls back to a plain structured
+                  // generate when no tools resolve, so toolless agents are unaffected.
+                  // Writes never execute directly (read-only policy + proposal → effector).
+                  enableTools: true,
+                  trace: { persist: false },
+                  ...(ctx.callSettings ? { callSettings: ctx.callSettings } : {}),
+                  ...(traceEnabled ? { observe: runObserver } : {}),
+                  ...(wireStepFinish
+                    ? {
+                        loop: {
+                          onStepFinish: onAgentStepFinish,
+                          ...(toolConsultedPrepareStep ? { prepareStep: toolConsultedPrepareStep } : {}),
+                        },
+                      }
+                    : {}),
+                })
+                // Object mode defaults to `mode: 'generate'`, resolving `.object` directly.
+                if (objectResult.mode === 'stream') {
+                  return await objectResult.object
+                }
+                fallbackUsage = objectResult.usage ?? null
+                return objectResult.object
+              }),
+            ),
+          ctx.source,
+          resolveInvoker(ctx) ?? undefined,
+          runToolCallSink,
+        ),
       )
       const raced = await Promise.race([
         modelExecution,
@@ -478,18 +621,67 @@ export class NativeAgentRunner {
       })
     }
 
+    if (integrityRules && integritySet && !integritySetSynced) await ensureRunIntegritySetSynced(this.container, ctx, entry)
+
+    const failRunAfterUnexpectedError = async (err: unknown): Promise<void> => {
+      const message = err instanceof Error ? err.message : String(err)
+      try {
+        await failRun(this.commandBus, commandCtx, { runId, errorMessage: message, ...buildUsageStamp() })
+      } catch (failRunError) {
+        reportSettleFailure(failRunError, 'agent_orchestrator.native_fail_run_failed', runId)
+      }
+      try {
+        await captureTrace()
+      } catch (captureError) {
+        reportSettleFailure(captureError, 'agent_orchestrator.native_trace_capture_failed', runId)
+      }
+    }
+
     const guardrailService = new GuardrailService(this.container)
-    const verdict = await guardrailService.checkOutput({
-      capability: agentId,
-      schema: entry.schema,
-      output: rawObject,
-      allowedTools: entry.tools,
-      grounding,
-    })
+    let integrityOutcome: OutputPipelineResult | null = null
+    try {
+      integrityOutcome = integrityRules
+        ? await runOutputPipeline({
+            entry,
+            rawObject,
+            input,
+            toolCalls: integrityToolCalls,
+            ...(collectSubRunToolCalls ? { subRunToolCalls } : {}),
+            citableSources,
+            grounding,
+            guardrailService,
+            capability: agentId,
+            allowedTools: resolveAgentEffectiveTools(entry),
+            attemptedTools: buildAttemptedTools(integrityToolCalls),
+            guardrailSetVersion: integritySet?.version ?? GUARDRAIL_SET_VERSION,
+            scope: { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
+            container: this.container,
+            shadow: !isAgentIntegrityEnforced(),
+          })
+        : null
+    } catch (err) {
+      await failRunAfterUnexpectedError(err)
+      throw err
+    }
+    const rawOutputPointer = integrityOutcome?.changed
+      ? await storeRunRawOutput(this.container, ctx, runId, integrityOutcome.rawOutput)
+      : null
+    integrityRawOutputKey = rawOutputPointer?.key ?? null
+    const verdict = integrityOutcome
+      ? rawOutputPointer
+        ? attachRawOutputPointer(integrityOutcome.verdict, integrityOutcome.changedCheckIndexes, rawOutputPointer)
+        : integrityOutcome.verdict
+      : await guardrailService.checkOutput({
+          capability: agentId,
+          schema: entry.schema,
+          output: rawObject,
+          allowedTools: entry.tools,
+          grounding,
+        })
     const guardEm = (this.container.resolve('em') as EntityManager).fork()
     const guardScope = { tenantId: ctx.tenantId, organizationId: ctx.organizationId, agentRunId: runId }
 
-    const parsed = entry.schema.safeParse(rawObject)
+    const parsed = entry.schema.safeParse(integrityOutcome ? integrityOutcome.finalOutput : rawObject)
     if (!parsed.success || verdict.result === 'block') {
       // Persist the block check(s) + emit `guardrail.tripped` BEFORE failing the
       // run, then preserve the existing AgentOutputInvalidError fail semantics.
@@ -505,10 +697,12 @@ export class NativeAgentRunner {
       await captureTrace()
       const blocked = verdict.blockedReason
       if (blocked) {
+        const blockingCheck = verdict.checks.find((check) => check.result === 'block')
         throw new AgentGuardrailBlockedError(agentId, detail, {
           phase: blocked.phase,
           kind: blocked.kind,
-          guardrailSetVersion: GUARDRAIL_SET_VERSION,
+          guardrailSetVersion: blockingCheck?.guardrailSetVersion ?? GUARDRAIL_SET_VERSION,
+          ruleId: readCheckRuleId(blockingCheck?.evidence),
         })
       }
       throw new AgentOutputInvalidError(agentId, detail)
@@ -516,24 +710,31 @@ export class NativeAgentRunner {
 
     // Pass/warn: persist the audit rows (one per check). A pass verdict records
     // pass rows but otherwise does NOT change behavior; warn proceeds + flags.
-    const guardResults: GuardResults = await persistVerdict({ em: guardEm }, guardScope, {
-      verdict,
-      capability: agentId,
-      phase: 'output',
-      proposalId: null,
-    })
+    let guardResults: GuardResults
+    let result: AgentResult
+    try {
+      guardResults = await persistVerdict({ em: guardEm }, guardScope, {
+        verdict,
+        capability: agentId,
+        phase: 'output',
+        proposalId: null,
+      })
 
-    const result = shapeResult(entry.resultKind, parsed.data, agentId)
+      result = shapeResult(entry.resultKind, parsed.data, agentId)
 
-    await completeRun(this.commandBus, commandCtx, {
-      runId,
-      output: result,
-      resultKind: entry.resultKind,
-      // Proposal runs surface the proposal's confidence on the run row;
-      // researcher runs have no confidence semantics → null (renders `—`).
-      confidence: result.kind === 'proposal' ? deriveEnvelopeConfidence(result.proposal) : null,
-      ...buildUsageStamp(),
-    })
+      await completeRun(this.commandBus, commandCtx, {
+        runId,
+        output: result,
+        resultKind: entry.resultKind,
+        // Proposal runs surface the proposal's confidence on the run row;
+        // researcher runs have no confidence semantics → null (renders `—`).
+        confidence: result.kind === 'proposal' ? deriveEnvelopeConfidence(result.proposal) : null,
+        ...buildUsageStamp(),
+      })
+    } catch (err) {
+      await failRunAfterUnexpectedError(err)
+      throw err
+    }
 
     if (result.kind === 'proposal') {
       await createProposal(this.commandBus, commandCtx, {
@@ -549,6 +750,15 @@ export class NativeAgentRunner {
         guardResults,
       })
     }
+
+    await emitRunReviewRequested({
+      agentRunId: runId,
+      agentId,
+      workflowInstanceId: ctx.workflowInstanceId ?? null,
+      tenantId: ctx.tenantId,
+      organizationId: ctx.organizationId,
+      reviewRequest: integrityOutcome?.reviewRequest,
+    })
 
     // Span persistence, after the audited persistence tail so a capture failure
     // changes nothing about the run. Awaited: the caller disposes the proposal
@@ -580,6 +790,33 @@ export class NativeAgentRunner {
 }
 
 const RUN_TIMED_OUT = Symbol('agent-run-timed-out')
+
+function resolveToolIsMutation(toolName: string): boolean | undefined {
+  try {
+    const tool = getToolRegistry().getTool(toolName) as { isMutation?: boolean } | undefined
+    return tool ? tool.isMutation === true : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * Maps the run's in-memory tool calls to the `tool_scope` backstop input: model-safe
+ * names (`a__b`) are normalized back to registry ids, and `isMutation` comes from the
+ * tool registry when the tool is known there.
+ */
+function buildAttemptedTools(toolCalls: readonly IntegrityToolCall[]): AttemptedTool[] {
+  const seen = new Set<string>()
+  const attempted: AttemptedTool[] = []
+  for (const toolCall of toolCalls) {
+    const name = normalizeToolName(toolCall.toolName)
+    if (!name || seen.has(name)) continue
+    seen.add(name)
+    const isMutation = resolveToolIsMutation(name)
+    attempted.push(isMutation === undefined ? { name } : { name, isMutation })
+  }
+  return attempted
+}
 
 /**
  * Wall-clock deadline for one native agent run. Mirrors the OpenCode

@@ -30,6 +30,7 @@ type Row = {
   tenant_id: string | null
   organization_id: string | null
   deleted_at: Date | null
+  correlation_keys?: string[] | null
 }
 
 /**
@@ -99,6 +100,7 @@ function createKyselyFake(rows: Row[]) {
         actorUserId: row.actor_user_id,
         onBehalfOfUserId: row.on_behalf_of_user_id,
         createdAt: row.created_at,
+        correlationKeys: row.correlation_keys ?? null,
       }))
     },
   }
@@ -179,6 +181,29 @@ describe('GET /api/agent_orchestrator/audit/by-instigator/:humanUserId', () => {
     expect(viaAgent.actorUserId).toBe(AGENT_USER)
     expect(viaAgent.onBehalfOfUserId).toBe(HUMAN)
     expect(viaAgent.sourceKey).toBe('agent')
+    expect(direct.agentRunId).toBeNull()
+    expect(direct.proposalId).toBeNull()
+  })
+
+  it('exposes the run and proposal correlation recorded on an entry', async () => {
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    ;(getAuthFromRequest as jest.Mock).mockResolvedValue({ sub: HUMAN, tenantId: TENANT_A, orgId: ORG_A })
+    const runId = '77777777-7777-4777-8777-777777777777'
+    const proposalId = '88888888-8888-4888-8888-888888888888'
+
+    await setup([
+      seedRow({
+        id: 'agent-1',
+        actor_user_id: AGENT_USER,
+        on_behalf_of_user_id: HUMAN,
+        correlation_keys: [`agentRunId:${runId}`, `proposalId:${proposalId}`],
+      }),
+    ])
+
+    const res = await GET(makeRequest(), { params })
+    const body = await res.json()
+
+    expect(body.items[0]).toMatchObject({ agentRunId: runId, proposalId })
   })
 
   it('is org-scoped: a row in another org for the same human is excluded (tenant isolation)', async () => {

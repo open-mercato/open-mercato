@@ -439,7 +439,7 @@ export class AgentCorrection {
   createdAt: Date = new Date()
 }
 
-export type AgentEvalCaseSourceType = 'correction' | 'golden_run'
+export type AgentEvalCaseSourceType = 'correction' | 'golden_run' | 'file'
 export type AgentEvalCaseStatus = 'draft' | 'approved' | 'archived'
 
 /**
@@ -778,6 +778,11 @@ export type GuardrailKind =
   | 'schema'
   | 'moderation'
   | 'tool_scope'
+  | 'evidence_quote'
+  | 'reference_exists'
+  | 'tool_consulted'
+  | 'custom_integrity'
+  | 'abstain_or_review'
 
 export type GuardrailResult = 'pass' | 'warn' | 'block'
 
@@ -875,7 +880,7 @@ export class AgentGuardrailSet {
   @Property({ name: 'version', type: 'varchar', length: 64 })
   version!: string
 
-  /** The grounding policy body. Shape enforced by Zod in data/validators.ts. */
+  /** The set body (`grounding` or `integrity`). Shape enforced by Zod `agentGuardrailSetBodySchema` in data/validators.ts. */
   @Property({ name: 'body', type: 'jsonb' })
   body!: unknown
 

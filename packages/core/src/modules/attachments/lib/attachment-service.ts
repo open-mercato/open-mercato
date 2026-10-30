@@ -30,6 +30,7 @@ import {
   resolveAttachmentMaxBytes,
   resolveAttachmentMultipartMaxBytes,
 } from './upload-limits'
+import { purgeDocumentStructure } from './documentStructure/purge'
 
 const logger = createLogger('attachments').child({ component: 'attachment-service' })
 
@@ -489,6 +490,11 @@ export class DefaultAttachmentService implements AttachmentService {
         : await lockAttachmentStorageReferences(em, attachment)
       const removal = resolveAttachmentStorageRelease(referenceIds, attachment.id)
       if (!removal.removed) throw new CrudHttpError(404, { error: 'Attachment not found' })
+      await purgeDocumentStructure(
+        em,
+        { attachmentId: attachment.id, tenantId: input.tenantId, organizationId: input.organizationId },
+        { flush: false },
+      )
       em.remove(attachment)
       return removal.releaseStorage ? deleteProviderBytes : undefined
     }

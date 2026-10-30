@@ -128,4 +128,25 @@ describe('attachments OCR service hardening', () => {
       }),
     )
   })
+  it('exposes buffer OCR through processImageBuffer with the default model and media type', async () => {
+    const { OcrService } = await import('../ocrService')
+    mockGenerateText.mockResolvedValue({ text: '  buffer OCR text  ' })
+
+    const service = new OcrService({ apiKey: 'test-key', model: 'default-vision' })
+    const defaultText = await service.processImageBuffer({ imageBuffer: Buffer.from([7, 8, 9]) })
+    const customText = await service.processImageBuffer({
+      imageBuffer: Buffer.from([7, 8, 9]),
+      mediaType: 'image/jpeg',
+      model: 'custom-vision',
+    })
+
+    expect(defaultText).toBe('buffer OCR text')
+    expect(customText).toBe('buffer OCR text')
+    expect(mockClientFactory).toHaveBeenNthCalledWith(1, 'default-vision')
+    expect(mockClientFactory).toHaveBeenNthCalledWith(2, 'custom-vision')
+    const imageOf = (callIndex: number) => mockGenerateText.mock.calls[callIndex][0].messages[0].content[0].image
+    expect(imageOf(0)).toMatch(/^data:image\/png;base64,/)
+    expect(imageOf(1)).toMatch(/^data:image\/jpeg;base64,/)
+    expect(mockReadFile).not.toHaveBeenCalled()
+  })
 })

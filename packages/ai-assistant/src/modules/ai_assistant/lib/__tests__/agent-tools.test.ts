@@ -1,3 +1,26 @@
+jest.mock('@open-mercato/shared/lib/di/container', () => ({
+  createRequestContainer: jest.fn(async () => ({
+    resolve: () => null,
+  })),
+}))
+
+jest.mock('../tool-executor', () => ({
+  executeTool: jest.fn(async (name: string, args: unknown, context: unknown) => {
+    const { toolRegistry: registry } = await import('../tool-registry')
+    const registered = registry.getTool(name)
+    if (!registered) {
+      return { success: false, error: `Tool "${name}" not found` }
+    }
+    try {
+      const result = await registered.handler(args as never, context as never)
+      return { success: true, result }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      return { success: false, error: message }
+    }
+  }),
+}))
+
 import { z } from 'zod'
 import type { AiAgentDefinition } from '../ai-agent-definition'
 import type { AiToolDefinition } from '../types'
@@ -7,6 +30,7 @@ import {
   seedAgentRegistryForTests,
 } from '../agent-registry'
 import { toolRegistry, registerMcpTool } from '../tool-registry'
+import { emitCitations } from '../citations'
 
 jest.mock('@open-mercato/shared/lib/logger', () => {
   const mocked = {
@@ -187,5 +211,256 @@ describe('resolveAiAgentTools', () => {
     // Tool never registered -> policy gate returns tool_unknown -> warn + skip.
     expect(result.tools).toEqual({})
     expect(warnSpy).toHaveBeenCalled()
+  })
+
+  describe('tool call timings', () => {
+    type ExecutableTool = {
+      execute: (args: unknown, options?: { toolCallId?: string; messages?: unknown[] }) => Promise<unknown>
+    }
+
+    async function resolveWithTools(tools: AiToolDefinition[]) {
+      for (const definition of tools) {
+        registerMcpTool(definition, { moduleId: 'customers' })
+      }
+      seedAgentRegistryForTests([
+        makeAgent({
+          id: 'customers.assistant',
+          moduleId: 'customers',
+          allowedTools: tools.map((definition) => definition.name),
+        }),
+      ])
+      return resolveAiAgentTools({ agentId: 'customers.assistant', authContext: baseAuth })
+    }
+
+    function executable(tools: Record<string, unknown>, name: string): ExecutableTool {
+      return tools[name] as ExecutableTool
+    }
+
+    it('starts with an empty timings map', async () => {
+      const result = await resolveWithTools([makeTool({ name: 'customers.list_people' })])
+      expect(result.toolCallTimings.size).toBe(0)
+    })
+
+    it('records start and end for a tool call keyed by toolCallId', async () => {
+      const result = await resolveWithTools([makeTool({ name: 'customers.list_people' })])
+      await executable(result.tools, 'customers__list_people').execute(
+        {},
+        { toolCallId: 'call-1', messages: [] },
+      )
+      const timing = result.toolCallTimings.get('call-1')
+      expect(timing).toBeDefined()
+      expect(typeof timing?.startedAt).toBe('number')
+      expect(typeof timing?.endedAt).toBe('number')
+      expect((timing?.endedAt ?? 0) >= (timing?.startedAt ?? Infinity)).toBe(true)
+    })
+
+    it('records the end timestamp when the tool throws', async () => {
+      const result = await resolveWithTools([
+        makeTool({
+          name: 'customers.list_people',
+          handler: async () => {
+            throw new Error('boom')
+          },
+        }),
+      ])
+      await expect(
+        executable(result.tools, 'customers__list_people').execute(
+          {},
+          { toolCallId: 'call-err', messages: [] },
+        ),
+      ).rejects.toThrow('boom')
+      const timing = result.toolCallTimings.get('call-err')
+      expect(typeof timing?.startedAt).toBe('number')
+      expect(typeof timing?.endedAt).toBe('number')
+    })
+
+    it('keeps separate entries for concurrent calls in one step', async () => {
+      const releases: Array<() => void> = []
+      const result = await resolveWithTools([
+        makeTool({
+          name: 'customers.list_people',
+          handler: () =>
+            new Promise((resolve) => {
+              releases.push(() => resolve({ ok: true }))
+            }),
+        }),
+        makeTool({ name: 'customers.get_person' }),
+      ])
+      const slowCall = executable(result.tools, 'customers__list_people').execute(
+        {},
+        { toolCallId: 'call-a', messages: [] },
+      )
+      await executable(result.tools, 'customers__get_person').execute(
+        {},
+        { toolCallId: 'call-b', messages: [] },
+      )
+      await new Promise((resolve) => setImmediate(resolve))
+      expect(result.toolCallTimings.get('call-a')?.endedAt).toBeUndefined()
+      expect(typeof result.toolCallTimings.get('call-b')?.endedAt).toBe('number')
+      releases.forEach((release) => release())
+      await slowCall
+      expect(typeof result.toolCallTimings.get('call-a')?.endedAt).toBe('number')
+      expect(result.toolCallTimings.size).toBe(2)
+    })
+
+    it('records nothing and does not crash when no toolCallId is provided', async () => {
+      const result = await resolveWithTools([makeTool({ name: 'customers.list_people' })])
+      await expect(
+        executable(result.tools, 'customers__list_people').execute({}),
+      ).resolves.toBeDefined()
+      expect(result.toolCallTimings.size).toBe(0)
+    })
+
+    it('does not share timings between separate resolutions', async () => {
+      const first = await resolveWithTools([makeTool({ name: 'customers.list_people' })])
+      toolRegistry.clear()
+      const second = await resolveWithTools([makeTool({ name: 'customers.list_people' })])
+      await executable(first.tools, 'customers__list_people').execute(
+        {},
+        { toolCallId: 'call-1', messages: [] },
+      )
+      expect(first.toolCallTimings.has('call-1')).toBe(true)
+      expect(second.toolCallTimings.size).toBe(0)
+    })
+  })
+
+  describe('tool UI parts', () => {
+    type ExecutableTool = {
+      execute: (args: unknown, options?: { toolCallId?: string; messages?: unknown[] }) => Promise<unknown>
+    }
+
+    async function resolveWithTools(tools: AiToolDefinition[]) {
+      for (const definition of tools) {
+        registerMcpTool(definition, { moduleId: 'customers' })
+      }
+      seedAgentRegistryForTests([
+        makeAgent({
+          id: 'customers.assistant',
+          moduleId: 'customers',
+          allowedTools: tools.map((definition) => definition.name),
+        }),
+      ])
+      return resolveAiAgentTools({ agentId: 'customers.assistant', authContext: baseAuth })
+    }
+
+    function executable(tools: Record<string, unknown>, name: string): ExecutableTool {
+      return tools[name] as ExecutableTool
+    }
+
+    it('carries emitted citations in the tool output uiParts envelope', async () => {
+      const result = await resolveWithTools([
+        makeTool({
+          name: 'customers.list_people',
+          handler: async (_input, ctx) => {
+            emitCitations(ctx, [{ kind: 'record', ref: 'customers.person:1', href: '/backend/customers/people/1' }], {
+              title: 'Sources',
+            })
+            return { items: [{ id: '1' }] }
+          },
+        }),
+      ])
+      const output = await executable(result.tools, 'customers__list_people').execute({}, { toolCallId: 'call-1' })
+      expect(JSON.parse(output as string)).toEqual({
+        items: [{ id: '1' }],
+        uiParts: [
+          {
+            componentId: 'ai_assistant:citations',
+            payload: {
+              citations: [{ kind: 'record', ref: 'customers.person:1', href: '/backend/customers/people/1' }],
+              title: 'Sources',
+            },
+          },
+        ],
+      })
+      expect(result.uiPartQueue.size()).toBe(0)
+    })
+
+    it('appends emitted parts after the uiParts a tool returns itself', async () => {
+      const own = { componentId: 'customers:card', payload: { id: '1' } }
+      const result = await resolveWithTools([
+        makeTool({
+          name: 'customers.list_people',
+          handler: async (_input, ctx) => {
+            emitCitations(ctx, [{ kind: 'record', ref: 'a' }])
+            return { ok: true, uiParts: [own] }
+          },
+        }),
+      ])
+      const output = await executable(result.tools, 'customers__list_people').execute({})
+      const parsed = JSON.parse(output as string) as { uiParts: Array<{ componentId: string }> }
+      expect(parsed.uiParts.map((part) => part.componentId)).toEqual(['customers:card', 'ai_assistant:citations'])
+    })
+
+    it('leaves string and primitive outputs untouched when nothing is emitted', async () => {
+      const result = await resolveWithTools([
+        makeTool({ name: 'customers.list_people', handler: async () => 'plain answer' }),
+        makeTool({ name: 'customers.get_person', handler: async () => 42 }),
+      ])
+      await expect(executable(result.tools, 'customers__list_people').execute({})).resolves.toBe('plain answer')
+      await expect(executable(result.tools, 'customers__get_person').execute({})).resolves.toBe('42')
+    })
+
+    it('wraps a string output when a tool emits citations', async () => {
+      const result = await resolveWithTools([
+        makeTool({
+          name: 'customers.list_people',
+          handler: async (_input, ctx) => {
+            emitCitations(ctx, [{ kind: 'kb', ref: 'policy@1' }])
+            return 'plain answer'
+          },
+        }),
+      ])
+      const output = await executable(result.tools, 'customers__list_people').execute({})
+      expect(JSON.parse(output as string)).toMatchObject({
+        result: 'plain answer',
+        uiParts: [{ componentId: 'ai_assistant:citations' }],
+      })
+    })
+
+    it('gives every call its own collector so concurrent calls never share parts', async () => {
+      const gates: Array<() => void> = []
+      const result = await resolveWithTools([
+        makeTool({
+          name: 'customers.list_people',
+          inputSchema: z.object({ query: z.string() }),
+          handler: async (input, ctx) => {
+            const { query } = input as { query: string }
+            emitCitations(ctx, [{ kind: 'kb', ref: `${query}-before` }])
+            await new Promise<void>((resolve) => gates.push(resolve))
+            emitCitations(ctx, [{ kind: 'kb', ref: `${query}-after` }])
+            return { query }
+          },
+        }),
+      ])
+      const tool = executable(result.tools, 'customers__list_people')
+      const first = tool.execute({ query: 'one' }, { toolCallId: 'call-1' })
+      const second = tool.execute({ query: 'two' }, { toolCallId: 'call-2' })
+      while (gates.length < 2) {
+        await new Promise((resolve) => setImmediate(resolve))
+      }
+      gates.forEach((release) => release())
+      const refsOf = (output: unknown) =>
+        (JSON.parse(output as string) as { uiParts: Array<{ payload: { citations: Array<{ ref: string }> } }> }).uiParts
+          .flatMap((part) => part.payload.citations.map((citation) => citation.ref))
+      expect(refsOf(await first)).toEqual(['one-before', 'one-after'])
+      expect(refsOf(await second)).toEqual(['two-before', 'two-after'])
+    })
+
+    it('does not leak parts into the next call of the same tool', async () => {
+      let emit = true
+      const result = await resolveWithTools([
+        makeTool({
+          name: 'customers.list_people',
+          handler: async (_input, ctx) => {
+            if (emit) emitCitations(ctx, [{ kind: 'kb', ref: 'a' }])
+            return { ok: true }
+          },
+        }),
+      ])
+      const tool = executable(result.tools, 'customers__list_people')
+      await tool.execute({})
+      emit = false
+      expect(JSON.parse((await tool.execute({})) as string)).toEqual({ ok: true })
+    })
   })
 })

@@ -23,6 +23,7 @@ import { PROPOSAL_OPTION_ID_MAX, disposeProposalSchema } from '../data/validator
 import { deriveEnvelopeConfidence, listProposalOptionIds } from '../data/proposalEnvelope'
 import { emitAgentOrchestratorEvent } from '../events'
 import { resumeWorkflowForProposal } from '../lib/disposition/resume'
+import { withProposalAuditCorrelation } from '../lib/disposition/proposalAuditCorrelation'
 import { invalidateAgentProposalCache } from '../lib/crudCache'
 
 const logger = createLogger('agent_orchestrator').child({ command: 'dispose' })
@@ -320,7 +321,7 @@ const disposeProposalCommand: CommandHandler<DisposeProposalCommandInput, Dispos
             correctedValue: input.disposition === 'edited' ? input.payload : null,
             reason: input.reason ?? '',
           },
-          ctx,
+          ctx: withProposalAuditCorrelation(ctx, proposal),
         })
       } catch (error) {
         logger.warn('failed to record correction for disposed proposal', {

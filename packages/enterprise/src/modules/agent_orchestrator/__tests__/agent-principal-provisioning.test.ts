@@ -1,6 +1,7 @@
 import { provisionAgentPrincipal } from '../lib/identity/agentPrincipalService'
 import { AgentPrincipal } from '../data/entities'
 import { User, Role, RoleAcl, UserRole } from '@open-mercato/core/modules/auth/data/entities'
+import { computeEmailHash } from '@open-mercato/core/modules/auth/lib/emailHash'
 
 /**
  * In-memory EntityManager fake covering the surface the provisioning service uses
@@ -200,6 +201,129 @@ describe('provisionAgentPrincipal', () => {
 
     const acls = em.__stores.get(RoleAcl) ?? []
     expect(acls).toHaveLength(1)
-    expect(acls[0].featuresJson).toEqual(['customers.deals.view', 'customers.deals.edit'])
+    expect(acls[0].featuresJson).toEqual(['customers.deals.edit', 'customers.deals.view'])
+  })
+
+  it('never narrows the role ACL on re-provision (mergeFeatures)', async () => {
+    const em = createFakeEm()
+    const container = createContainer(em)
+
+    await provisionAgentPrincipal(container, SCOPE, {
+      ...INPUT,
+      roleFeatures: ['customers.deals.view', 'customers.deals.edit'],
+    })
+    await provisionAgentPrincipal(container, SCOPE, { ...INPUT, roleFeatures: [] })
+
+    const acls = em.__stores.get(RoleAcl) ?? []
+    expect(acls[0].featuresJson).toEqual(['customers.deals.edit', 'customers.deals.view'])
+  })
+
+  it.each([
+    ['deals.health_check', 'org-A'],
+    ['Invoice Triage/v2', '22222222-2222-4222-8222-222222222222'],
+    ['ops.escalation-router', 'org-B'],
+  ])('keeps the historical email and role name byte-identical for %s', async (agentDefinitionId, organizationId) => {
+    const legacySlug = agentDefinitionId.toLowerCase().replace(/[^a-z0-9._-]+/g, '-')
+    const legacyEmail = `agent+${legacySlug}+${organizationId}@agent.internal`
+    const legacyRoleName = `agent:${agentDefinitionId}`
+
+    const em = createFakeEm()
+    await provisionAgentPrincipal(
+      createContainer(em),
+      { tenantId: 'tenant-A', organizationId },
+      { ...INPUT, agentDefinitionId },
+    )
+
+    const users = em.__stores.get(User) ?? []
+    const roles = em.__stores.get(Role) ?? []
+    expect(users).toHaveLength(1)
+    expect(users[0].email).toBe(legacyEmail)
+    expect(users[0].emailHash).toBe(computeEmailHash(legacyEmail))
+    expect(roles).toHaveLength(1)
+    expect(roles[0].name).toBe(legacyRoleName)
+  })
+
+  it('resolves rows provisioned by the legacy implementation instead of duplicating them', async () => {
+    const em = createFakeEm()
+    const legacyEmail = 'agent+deals.health_check+org-A@agent.internal'
+    const role = em.create(Role, { name: 'agent:deals.health_check', tenantId: 'tenant-A', minActiveHolders: 0 })
+    const user = em.create(User, {
+      email: legacyEmail,
+      emailHash: computeEmailHash(legacyEmail),
+      passwordHash: null,
+      isConfirmed: false,
+      kind: 'agent',
+      name: 'Deals Health Check',
+      tenantId: 'tenant-A',
+      organizationId: 'org-A',
+      deletedAt: null,
+    })
+    em.persist(role)
+    em.persist(user)
+    await em.flush()
+    em.persist(em.create(RoleAcl, {
+      role,
+      tenantId: 'tenant-A',
+      featuresJson: ['customers.deals.view'],
+      isSuperAdmin: false,
+      organizationsJson: ['org-A'],
+    }))
+    em.persist(em.create(UserRole, { user, role }))
+    em.persist(em.create(AgentPrincipal, {
+      tenantId: 'tenant-A',
+      organizationId: 'org-A',
+      userId: user.id,
+      agentDefinitionId: 'deals.health_check',
+      roleId: role.id,
+      credentialMode: 'internal',
+      enabled: true,
+      deletedAt: null,
+    }))
+    await em.flush()
+
+    const result = await provisionAgentPrincipal(createContainer(em), SCOPE, INPUT)
+
+    expect(result.userId).toBe(user.id)
+    expect(result.roleId).toBe(role.id)
+    expect(em.__stores.get(User) ?? []).toHaveLength(1)
+    expect(em.__stores.get(Role) ?? []).toHaveLength(1)
+    expect(em.__stores.get(UserRole) ?? []).toHaveLength(1)
+    expect(em.__stores.get(AgentPrincipal) ?? []).toHaveLength(1)
+  })
+
+  it('returns a declaratively provisioned principal untouched instead of widening its ACL', async () => {
+    const em = createFakeEm()
+    const role = em.create(Role, { name: 'agent:deals.health_check@org-A', tenantId: 'tenant-A', minActiveHolders: 0 })
+    const user = em.create(User, {
+      email: 'agent+deals.health_check-org-a+org-A@agent.internal',
+      passwordHash: null,
+      isConfirmed: false,
+      kind: 'agent',
+      tenantId: 'tenant-A',
+      organizationId: 'org-A',
+      deletedAt: null,
+    })
+    em.persist(role)
+    em.persist(user)
+    await em.flush()
+    em.persist(em.create(AgentPrincipal, {
+      tenantId: 'tenant-A',
+      organizationId: 'org-A',
+      userId: user.id,
+      agentDefinitionId: 'deals.health_check',
+      roleId: role.id,
+      credentialMode: 'internal',
+      enabled: true,
+      deletedAt: null,
+    }))
+    await em.flush()
+
+    const result = await provisionAgentPrincipal(createContainer(em), SCOPE, INPUT)
+
+    expect(result.userId).toBe(user.id)
+    expect(result.roleId).toBe(role.id)
+    expect(em.__stores.get(Role) ?? []).toHaveLength(1)
+    expect(em.__stores.get(RoleAcl) ?? []).toHaveLength(0)
+    expect(em.__stores.get(UserRole) ?? []).toHaveLength(0)
   })
 })

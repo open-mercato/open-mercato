@@ -169,6 +169,7 @@ every awkward thing in it followed from that split. Do not reintroduce either.
 9. **MUST treat trace/eval/guardrail/context rows as append-only** — `AgentSpan`, `AgentToolCall`, `AgentEvalResult`, `AgentGuardrailCheck`, `AgentContextBundle` (and `AgentRun` once terminal) are immutable audit records; they omit `updated_at`/`deleted_at`. Insert new rows, never mutate.
 10. **MUST reuse `agent_orchestrator.agents.run`** for new file-agent MCP tools' `requiredFeatures` — do not add new ACL features for the file-agent path. **Exception — network egress:** the `web_search`/`web_fetch` tools gate on a dedicated default-off `agent_orchestrator.web_search` feature (spec 2026-07-11-agent-web-search-tool) so web access is an explicit, separately-grantable capability. Any *new* egress/side-effecting tool should follow that precedent (dedicated default-off feature), not reuse `agents.run`.
 11. **MUST add new `acl.ts` features to `setup.ts` `defaultRoleFeatures`** and run `yarn mercato auth sync-role-acls` so existing tenants receive the grant.
+12. **MUST gate an agent's invocation with `requiredFeatures`** (`defineAgent` / `AGENT.md` frontmatter, existing features only) — `enforceAgentInvocable` in `agentRuntime.run()` enforces it at every door (`OM_AGENT_INVOKE_ENFORCEMENT=off` only logs). Expose an agent to MCP/tools-api through `defineAgentTool({ agentId })` in a module `ai-tools.ts` (tool features ⊇ agent features); ai-assistant reaches AO only via the `aiAgentRunDispatcher` (`lib/runtime/aiAgentRunDispatcher.ts`). Example: `agent_examples/ai-tools.ts`; guide: `mcp.mdx` → "Expose an Agent Orchestrator agent as a tool".
 
 ## Ask First
 
@@ -189,6 +190,32 @@ every awkward thing in it followed from that split. Do not reintroduce either.
 - Never give a sub-agent a proposal OUTCOME or its own `subAgents` (depth cap = 1); sub-agents run under the caller's own scope, never escalated.
 - Never let an agent write outside its own Command — the fail-closed `agentNoBypassSubscriber` rejects any flush-time write not inside the agent's command path.
 - Never expose cross-tenant runs, proposals, traces, or principals; never mutate append-only audit rows.
+
+## Trace Capture and OTel Export (`lib/trace/`)
+
+- Capture policy (`capturePolicy.ts`): level resolves per-agent override, tenant, deployment default, then clamps to `OM_AGENT_TRACE_CONTENT_MAX`. Level `off` must stay byte-identical to the legacy attributes. Read llm span attributes through `readLlmSpanMetadata`, never ad-hoc keys.
+- Content capture (`full` only, `contentCapture.ts`): build artifacts through the redacting, capped builders and upload to `AGENT_TRACE_CONTENT_NAMESPACE`; never put prompt or response text on spans. Upload failures set `om.content.status = storage_unavailable` and never fail the run. Content is read only through `runs/[id]/artifact` (content kinds need `trace.view_content`, key must be referenced by the run, 410 when expired/missing, access-logged). Retention (`contentRetention.ts`) enumerates keys from the DB, never storage listings, and never mutates span/bundle rows.
+- OTel export is opt-in (deployment switch + tenant setting + allowlist) and fail-open: never throw into a run, report failures with `reportError` codes. Never export encrypted or free-text fields; pass string attributes through `redactAttributeValues`; derive ids only via `lib/trace/otel/ids.ts`. No `@opentelemetry/*` imports. Docs: `apps/docs/docs/framework/ai-assistant/agent-trace-*.mdx`.
+
+## Output Integrity (`lib/guardrails/integrity/`)
+
+Spec `.ai/specs/enterprise/agent-orchestrator/2026-10-21-output-integrity-guardrails.md`. `defineAgent({ integrity, untrustedInputs })`; paths are relative to the result envelope (`data.findings[*]`).
+
+- Rules run in declaration order after the output schema; `abstain_or_review` MUST be last. One `AgentGuardrailCheck` per rule with `evidence.ruleId`; evidence holds counts, pointers and reason codes, never input text.
+- A rule asks for a human by writing `holdsAutoApproval: true` on a `warn` row — the disposition gate holds those (`auto_disposition_block='guardrail'`). `route: 'review'` also emits `run.review_requested`. Shadow mode (`OM_AGENT_INTEGRITY=off`) strips the flag.
+- Untrusted input fields are screened as `sourceKind: 'input'` spans and rendered as nonce-delimited blocks; never interpolate them into the prompt yourself.
+- The run API `integrity` summary is derived from the check rows (`summary.ts`) — add new outcomes there, not in routes. The pre-repair output is an encrypted artifact (`rawOutputKey`, `kind=raw_output`), never inline.
+- OpenCode runs the integrity rules only (no `tool_scope`, grounding or untrusted inputs).
+
+## Agent Principals and Audit Correlation (`lib/identity/`)
+
+Spec `.ai/specs/enterprise/agent-orchestrator/2026-10-21-agent-invocation-access-and-identity-binding.md`. `defineAgent({ principal: { roleFeatures, toolAcl?, required? } })`.
+
+- `syncAgentPrincipals` (setup hook, `principals:sync` CLI) provisions one principal per organization (key `<agentId>@<orgId>`) through core `provisionExecutionPrincipal`; never write User/Role/ACL rows here.
+- runAs is bound once in the runtime (`resolveRunAsForAgent`); never bind it per entry point. A `required` principal that is missing refuses with 409 `agent_principal_missing`.
+- Tool ACL: `principal.toolAcl` or `OM_AGENT_TOOL_ACL_MODE` (default `caller`); `intersect` uses `intersectFeatureGrants`. Denied tools never reach the model and are recorded in the manifest (`om.tool_acl`).
+- The `principal` summary on `GET /agents` / `/agents/:id` is for `agents.manage` holders only.
+- Run writes carry `agentRunId` (and effector writes `proposalId`) in action-log `correlation_keys`: pass `auditCorrelation` on command contexts, or wrap tool phases in `withAuditCorrelation`. `GET /runs/:id/actions` reads them through `actionLogService.listByCorrelationKeys`; never query `context_json` (encrypted).
 
 ## Web Egress (`web_search` / `web_fetch`)
 
@@ -247,7 +274,7 @@ Author file agents under `packages/<pkg>/src/modules/<module>/agents/<agent_id>/
 
 ```
 agents/<agent_id>/
-├── AGENT.md            # frontmatter (id,label,description,provider?,model?,tools?,skills?,subAgents?,maxSteps?) + body = instructions
+├── AGENT.md            # frontmatter (id,label,description,provider?,model?,tools?,skills?,subAgents?,requiredFeatures?,maxSteps?) + body = instructions
 ├── OUTCOME.md          # frontmatter `kind: research|proposal|artifact` + FIRST fenced ```json block = JSON-Schema; trailing prose = guidance
 ├── SAMPLE.json         # optional example input — Playground "Insert sample" button
 ├── FACTS.json          # optional Caseload fact declarations (see below)
@@ -287,6 +314,7 @@ agents/<agent_id>/
 | `/trace/ingest` | POST | HMAC (no user auth) | Runtime-adapter trace webhook; idempotent on (runtime, externalRunId) |
 | `/corrections` | GET/POST | `trace.correct` | Record human correction (flywheel) |
 | `/eval-cases[/:id/approve][/export]`, `/eval-assertions` | CRUD | `eval.manage` / `eval.export` | Manage + export eval cases/assertions |
+| `/eval-sets/import`, `/eval-sets/:version/export` | POST / GET | `eval.manage` / `eval.export` | Import an eval-set file (undoable `evalSets.import`, idempotent by key); export `current` or `sha256:` as JSON/YAML |
 | `/context-bundles` | GET | `context.read` | Inspect TDCR bundles |
 | `/guardrail-checks` | GET | `guardrail.read` | Inspect guardrail audit |
 | `/processes`, `/processes/:id` | CRUD | `processes.view` / `processes.manage` | Author process definitions; optimistic-locked on `updated_at` |
@@ -318,7 +346,7 @@ Override per deployment with `RATE_LIMIT_{PREFIX}_{POINTS,DURATION,BLOCK_DURATIO
 
 ## Events (`events.ts`)
 
-`run.created`, `run.completed`, `run.ingested`, `run.evaluated`, `proposal.created`, `proposal.disposed`, `proposal.ready`, `proposal.corrected`, `eval_case.created`, `eval_case.approved`, `guardrail.tripped`, `delegation_grant.revoked`, `agent_principal.registered`, `process_definition.{created,updated,deleted}`, `process_run.{started,completed,failed}` (clientBroadcast) (all prefixed `agent_orchestrator.`). There are deliberately no `task_event_trigger.*` events: a trigger edit IS a definition update. Several set `clientBroadcast: true` for the cockpit. Declare new events here with `as const`.
+`run.created`, `run.completed`, `run.ingested`, `run.evaluated`, `run.review_requested`, `proposal.created`, `proposal.disposed`, `proposal.ready`, `proposal.corrected`, `eval_case.created`, `eval_case.approved`, `guardrail.tripped`, `delegation_grant.revoked`, `agent_principal.registered`, `process_definition.{created,updated,deleted}`, `process_run.{started,completed,failed}` (clientBroadcast) (all prefixed `agent_orchestrator.`). There are deliberately no `task_event_trigger.*` events: a trigger edit IS a definition update. Several set `clientBroadcast: true` for the cockpit. Declare new events here with `as const`.
 
 ## Backend Cockpit (`backend/`)
 

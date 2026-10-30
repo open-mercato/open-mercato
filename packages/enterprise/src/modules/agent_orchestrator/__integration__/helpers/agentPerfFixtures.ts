@@ -149,6 +149,24 @@ export async function deleteAgentRunsByIds(ids: string[]): Promise<void> {
   })
 }
 
+/** Hard-deletes runs produced by a real agent run together with their trace and proposal rows. */
+export async function deleteAgentRunsWithTraceByIds(ids: string[]): Promise<void> {
+  if (ids.length === 0) return
+  await withClient(async (client) => {
+    for (const table of [
+      'agent_tool_calls',
+      'agent_spans',
+      'agent_eval_results',
+      'agent_guardrail_checks',
+      'agent_context_bundles',
+    ]) {
+      await client.query(`delete from ${table} where agent_run_id = any($1::uuid[])`, [ids])
+    }
+    await client.query('delete from agent_proposals where run_id = any($1::uuid[])', [ids])
+    await client.query('delete from agent_runs where id = any($1::uuid[])', [ids])
+  })
+}
+
 /** Hard-deletes seeded agent_proposals rows by id (best-effort cleanup). */
 export async function deleteAgentProposalsByIds(ids: string[]): Promise<void> {
   if (ids.length === 0) return

@@ -80,6 +80,8 @@ type DiscoveredAgent = {
   tools: string[]
   skills: string[]
   subAgents: string[]
+  /** Invoker ACL features from AGENT.md `requiredFeatures` (deduped; empty when undeclared). */
+  requiredFeatures: string[]
   openCodeAgentName: string
   /** Resolved agent-local skill content (Phase 3). */
   skillsContent: DiscoveredSkill[]
@@ -147,7 +149,8 @@ type DiscoveredFact = {
 
 const FRONTMATTER_RE = /^---\s*\n([\s\S]*?)\n---\s*\n?([\s\S]*)$/
 const JSON_FENCE_RE = /```json\s*\n([\s\S]*?)\n```/
-const LIST_KEYS = ['tools', 'skills', 'subAgents'] as const
+const LIST_KEYS = ['tools', 'skills', 'subAgents', 'requiredFeatures'] as const
+const REQUIRED_FEATURE_RE = /^[A-Za-z0-9_][A-Za-z0-9_.*:-]*$/
 
 function stripQuotes(value: string): string {
   return value.trim().replace(/^['"]/, '').replace(/['"]$/, '').trim()
@@ -171,6 +174,7 @@ type AgentFrontmatter = {
   tools: string[]
   skills: string[]
   subAgents: string[]
+  requiredFeatures: string[]
   maxSteps?: number
   instructions: string
 }
@@ -179,7 +183,13 @@ function parseAgentMarkdown(raw: string): AgentFrontmatter | null {
   const match = FRONTMATTER_RE.exec(raw)
   if (!match) return null
   const [, frontmatterBlock, body] = match
-  const meta: AgentFrontmatter = { tools: [], skills: [], subAgents: [], instructions: body.trim() }
+  const meta: AgentFrontmatter = {
+    tools: [],
+    skills: [],
+    subAgents: [],
+    requiredFeatures: [],
+    instructions: body.trim(),
+  }
   const lines = frontmatterBlock.split('\n')
   let index = 0
   while (index < lines.length) {
@@ -223,7 +233,18 @@ function parseAgentMarkdown(raw: string): AgentFrontmatter | null {
     index += 1
   }
   if (!meta.id || !meta.label || !meta.description) return null
+  meta.requiredFeatures = Array.from(new Set(meta.requiredFeatures))
   return meta
+}
+
+function assertRequiredFeaturesValid(features: string[], dir: string): void {
+  const invalid = features.find((feature) => feature.length > 200 || !REQUIRED_FEATURE_RE.test(feature))
+  if (invalid !== undefined) {
+    throw new Error(`[internal] invalid requiredFeatures entry "${invalid}" in AGENT.md at ${dir}`)
+  }
+  if (features.length > 50) {
+    throw new Error(`[internal] too many requiredFeatures (max 50) in AGENT.md at ${dir}`)
+  }
 }
 
 function parseOutcomeKind(frontmatterBlock: string): 'research' | 'proposal' | 'artifact' | null {
@@ -615,6 +636,7 @@ function discoverSubAgents(agentDir: string): DiscoveredAgent[] {
     if (!agent) {
       throw new Error(`[internal] malformed AGENT.md at ${dir}: missing id/label/description`)
     }
+    assertRequiredFeaturesValid(agent.requiredFeatures, dir)
     const outcome = parseOutcomeMarkdown(fs.readFileSync(outcomePath, 'utf8'))
     if (!outcome) {
       throw new Error(`[internal] malformed OUTCOME.md at ${dir}: missing kind or JSON-Schema block`)
@@ -664,6 +686,7 @@ function discoverSubAgents(agentDir: string): DiscoveredAgent[] {
       tools: effectiveTools,
       skills: agent.skills,
       subAgents: [],
+      requiredFeatures: agent.requiredFeatures,
       openCodeAgentName: sanitizeAgentName(agent.id!),
       skillsContent: effectiveSkillsContent,
       subAgentsContent: [],
@@ -1056,6 +1079,9 @@ function renderDescriptor(agent: DiscoveredAgent, indent: string): string {
       .join('\n')
     optional.push(`${indent}  subAgentDescriptors: [\n${nested}\n${indent}  ],`)
   }
+  if (agent.requiredFeatures.length > 0) {
+    optional.push(`${indent}  requiredFeatures: ${JSON.stringify(agent.requiredFeatures)},`)
+  }
   if (agent.maxSteps != null) optional.push(`${indent}  maxSteps: ${agent.maxSteps},`)
   if (agent.provider != null) optional.push(`${indent}  provider: ${JSON.stringify(agent.provider)},`)
   if (agent.model != null) optional.push(`${indent}  model: ${JSON.stringify(agent.model)},`)
@@ -1197,6 +1223,11 @@ export type FileAgentDescriptor = {
    * 1). Absent for agents without sub-agents and for sub-agents themselves.
    */
   subAgentDescriptors?: FileAgentDescriptor[]
+  /**
+   * ACL features the invoker must hold to run this agent, from AGENT.md
+   * \`requiredFeatures\`. Absent when the agent declares none.
+   */
+  requiredFeatures?: string[]
   maxSteps?: number
   provider?: string
   model?: string
@@ -1242,6 +1273,7 @@ export function createAgentFilesExtension(resolver?: AgentFilesResolver): Genera
       if (!agent) {
         throw new Error(`[internal] malformed AGENT.md at ${dir}: missing id/label/description`)
       }
+      assertRequiredFeaturesValid(agent.requiredFeatures, dir)
       const outcome = parseOutcomeMarkdown(fs.readFileSync(outcomePath, 'utf8'))
       if (!outcome) {
         throw new Error(`[internal] malformed OUTCOME.md at ${dir}: missing kind or JSON-Schema block`)
@@ -1302,6 +1334,7 @@ export function createAgentFilesExtension(resolver?: AgentFilesResolver): Genera
         tools: effectiveTools,
         skills: agent.skills,
         subAgents: agent.subAgents,
+        requiredFeatures: agent.requiredFeatures,
         openCodeAgentName: sanitizeAgentName(agent.id!),
         skillsContent: effectiveSkillsContent,
         subAgentsContent,

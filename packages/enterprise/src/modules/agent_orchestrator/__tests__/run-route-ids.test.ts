@@ -58,9 +58,12 @@ async function setupContainer(opts: {
   result: unknown
   invokeHook?: boolean | ((ctx: { onRunPersisted?: (id: string) => void }) => void)
   proposalRows?: Array<{ id: string }>
+  checkRows?: Array<Record<string, unknown>>
 }) {
   const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
-  const find = jest.fn(async () => opts.proposalRows ?? [])
+  const find = jest.fn(async (entity?: { name?: string }, _where?: unknown, _options?: unknown) =>
+    entity?.name === 'AgentGuardrailCheck' ? opts.checkRows ?? [] : opts.proposalRows ?? [],
+  )
   const run = jest.fn(
     async (_agentId: string, _input: unknown, ctx: { onRunPersisted?: (id: string) => void }) => {
       if (typeof opts.invokeHook === 'function') opts.invokeHook(ctx)
@@ -101,8 +104,12 @@ describe('POST /api/agent_orchestrator/agents/:id/run — additive runId/proposa
     expect(body.proposal.options).toHaveLength(1)
     expect(body.proposal.options[0].confidence).toBe(0.9)
     expect(body.proposal.options[0].actions).toEqual([{ type: 'set_stage', payload: { stage: 'won' } }])
-    expect(find).toHaveBeenCalledTimes(1)
-    const [, where, options] = find.mock.calls[0] as unknown[] as [
+    expect(find).toHaveBeenCalledTimes(2)
+    const proposalCall = find.mock.calls.find(
+      (call) => (call[0] as { name?: string } | undefined)?.name === 'AgentProposal',
+    )
+    expect(proposalCall).toBeDefined()
+    const [, where, options] = proposalCall as unknown[] as [
       unknown,
       Record<string, unknown>,
       Record<string, unknown>,
@@ -123,6 +130,35 @@ describe('POST /api/agent_orchestrator/agents/:id/run — additive runId/proposa
     expect(body.runId).toBe(RUN_ID)
     expect(body.proposalId).toBeNull()
     expect(body.kind).toBe('research')
+    expect(body.integrity).toBeNull()
+  })
+
+  it('returns the integrity summary derived from the run\'s scoped check rows', async () => {
+    await mockAuthAndScope()
+    const { find } = await setupContainer({
+      result: shapeResult('research', { data: { ok: true } }),
+      checkRows: [
+        { phase: 'input', kind: 'prompt_injection', result: 'pass', evidence: null },
+        {
+          phase: 'output',
+          kind: 'evidence_quote',
+          result: 'warn',
+          evidence: { ruleId: 'quotes', items: 2, violations: [], dropped: 1, repaired: 0, ambiguous: 0 },
+        },
+        { phase: 'output', kind: 'grounding', result: 'pass', evidence: null },
+      ],
+    })
+
+    const res = await POST(makeRequest(), { params })
+    const body = await res.json()
+    expect(body.integrity).toEqual({
+      outcome: 'repaired',
+      checks: [{ ruleId: 'quotes', kind: 'evidence_quote', result: 'warn', dropped: 1, repaired: 0 }],
+    })
+    const checkCall = find.mock.calls.find(
+      (call) => (call[0] as { name?: string } | undefined)?.name === 'AgentGuardrailCheck',
+    )
+    expect(checkCall?.[1]).toEqual({ agentRunId: RUN_ID, tenantId: TENANT, organizationId: ORG })
   })
 
   it('keeps only the FIRST onRunPersisted invocation (nested delegations fire it again)', async () => {

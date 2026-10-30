@@ -34,6 +34,7 @@ import {
   Wrench,
   X,
 } from 'lucide-react'
+import Link from 'next/link'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -64,6 +65,7 @@ import {
   type AiUiPartComponentId,
   type AiUiPartRegistry,
 } from './ui-part-registry'
+import { mergeConsecutiveCitationParts } from './citations/merge'
 import {
   useAiChat,
   type AiAgentTaskSnapshot,
@@ -75,6 +77,7 @@ import {
 import { useAiChatUpload } from './useAiChatUpload'
 import { useAiShortcuts } from './useAiShortcuts'
 import { LoopTracePanel, type LoopTracePanelTrace } from './LoopTracePanel'
+import { buildAiRunTraceHref, useCanViewAiRunTrace } from './run-trace-link'
 import { AiIcon } from './AiIcon'
 import { readModelPickerValue, writeModelPickerValue } from './modelPickerStorage'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -840,6 +843,9 @@ function MessageRow({
       ? t('ai_assistant.chat.ownerRoleLabel', 'Owner')
       : t('ai_assistant.chat.userRoleLabel', 'You')
   const Icon = isAssistant ? Bot : User
+  const canViewRunTrace = useCanViewAiRunTrace()
+  const runTraceHref =
+    isAssistant && message.runId && canViewRunTrace ? buildAiRunTraceHref(message.runId) : null
   const [copied, setCopied] = React.useState(false)
   const copyTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
   const visibleTaskPlan =
@@ -900,27 +906,46 @@ function MessageRow({
       <div className="flex-1 space-y-1">
         <div className="flex items-center justify-between gap-2">
           <div className="text-xs font-medium text-muted-foreground">{label}</div>
-          {message.content ? (
-            <IconButton
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={handleCopy}
-              aria-label={
-                copied
-                  ? t('ai_assistant.chat.copied', 'Copied')
-                  : t('ai_assistant.chat.copyMessage', 'Copy message')
-              }
-              data-ai-chat-copy-button=""
-              className="opacity-0 transition-opacity group-hover/message:opacity-100 focus-visible:opacity-100"
-            >
-              {copied ? (
-                <Check className="size-3.5 text-status-success-icon" aria-hidden />
-              ) : (
-                <Copy className="size-3.5" aria-hidden />
-              )}
-            </IconButton>
-          ) : null}
+          <div className="flex items-center gap-1">
+            {runTraceHref ? (
+              <IconButton
+                asChild
+                variant="ghost"
+                size="sm"
+                className="opacity-0 transition-opacity group-hover/message:opacity-100 focus-visible:opacity-100"
+              >
+                <Link
+                  href={runTraceHref}
+                  aria-label={t('ai_assistant.chat.viewRunTrace', 'View run trace')}
+                  title={t('ai_assistant.chat.viewRunTrace', 'View run trace')}
+                  data-ai-chat-run-trace-link={message.runId}
+                >
+                  <Activity className="size-3.5" aria-hidden />
+                </Link>
+              </IconButton>
+            ) : null}
+            {message.content ? (
+              <IconButton
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={handleCopy}
+                aria-label={
+                  copied
+                    ? t('ai_assistant.chat.copied', 'Copied')
+                    : t('ai_assistant.chat.copyMessage', 'Copy message')
+                }
+                data-ai-chat-copy-button=""
+                className="opacity-0 transition-opacity group-hover/message:opacity-100 focus-visible:opacity-100"
+              >
+                {copied ? (
+                  <Check className="size-3.5 text-status-success-icon" aria-hidden />
+                ) : (
+                  <Copy className="size-3.5" aria-hidden />
+                )}
+              </IconButton>
+            ) : null}
+          </div>
         </div>
         {message.files && message.files.length > 0 ? (
           <div className="flex flex-wrap gap-2 py-1">
@@ -965,7 +990,7 @@ function MessageUiParts({
 }) {
   return (
     <div className="mt-2 flex flex-col gap-2" data-ai-message-ui-parts="">
-      {parts.map((part) => (
+      {mergeConsecutiveCitationParts(parts).map((part) => (
         <AiUiPartRenderer
           key={part.key}
           part={{

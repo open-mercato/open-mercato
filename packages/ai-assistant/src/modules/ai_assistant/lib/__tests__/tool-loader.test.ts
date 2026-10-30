@@ -2,11 +2,13 @@ import { z } from 'zod'
 import {
   applyAiToolOverrideEntries,
   loadAllModuleTools,
+  loadModuleTools,
   registerGeneratedAiToolEntries,
   resetAllModuleToolsLoadForTests,
   type AiToolConfigEntry,
 } from '../tool-loader'
 import { toolRegistry } from '../tool-registry'
+import type { AiToolDefinition } from '../types'
 import { convertMcpToolsToAiSdk } from '../mcp-tool-adapter'
 import type { InProcessMcpClient, ToolInfoWithSchema } from '../in-process-client'
 import * as codeModeTools from '../codemode-tools'
@@ -150,6 +152,32 @@ describe('registerGeneratedAiToolEntries', () => {
     const out = await adapted.execute({ q: 'hello' })
     expect(callToolMock).toHaveBeenCalledWith('search_query', { q: 'hello' })
     expect(out).toContain('"ok": true')
+  })
+})
+
+describe('loadModuleTools', () => {
+  beforeEach(() => {
+    toolRegistry.clear()
+  })
+
+  afterAll(() => {
+    toolRegistry.clear()
+  })
+
+  it('keeps mcp and agentRef on loaded tools', () => {
+    const outputSchema = z.object({ answer: z.string() })
+    const agentTool: AiToolDefinition<{ q: string }> = {
+      ...makeTool('agent_customers_account_assistant'),
+      mcp: { expose: false, outputSchema },
+      agentRef: { agentId: 'customers.account_assistant', engine: 'ai-assistant' },
+    }
+
+    loadModuleTools('customers', [agentTool])
+
+    const loaded: AiToolDefinition | undefined = toolRegistry.getTool('agent_customers_account_assistant')
+    expect(loaded?.mcp).toEqual({ expose: false, outputSchema })
+    expect(loaded?.mcp?.outputSchema).toBe(outputSchema)
+    expect(loaded?.agentRef).toEqual({ agentId: 'customers.account_assistant', engine: 'ai-assistant' })
   })
 })
 

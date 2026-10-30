@@ -34,6 +34,7 @@ import { CommandInterceptorError } from './errors'
 import { isReadProjectionAlwaysConsistent } from '@open-mercato/shared/lib/data/consistency'
 import { createLogger } from '../logger'
 import { withAtomicFlush } from './flush'
+import { getAmbientAuditCorrelation } from './auditCorrelationScope'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import {
   getTransactionLifetime,
@@ -95,6 +96,28 @@ const SKIPPED_ACTION_LOG_RESOURCE_KINDS = new Set<string>([
 function asRecord(input: unknown): Record<string, unknown> | null {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return null
   return input as Record<string, unknown>
+}
+
+function mergeAuditCorrelation(
+  baseContext: Record<string, unknown> | null,
+  auditCorrelation: Record<string, unknown> | null | undefined,
+): Record<string, unknown> | null {
+  const incoming = asRecord(auditCorrelation)
+  if (!incoming) return null
+  const context = baseContext ?? {}
+  const existingValue = context.correlation
+  const existing = asRecord(existingValue)
+  if (existingValue !== undefined && existingValue !== null && !existing) return null
+  const merged: Record<string, unknown> = { ...(existing ?? {}) }
+  let added = false
+  for (const [key, value] of Object.entries(incoming)) {
+    if (typeof value !== 'string' || value.length === 0) continue
+    if (Object.prototype.hasOwnProperty.call(merged, key)) continue
+    merged[key] = value
+    added = true
+  }
+  if (!added) return null
+  return { ...context, correlation: merged }
 }
 
 /** Command handlers often return domain keys (e.g. warehouseId) without `id`; cache invalidation must still resolve the record. */
@@ -967,6 +990,11 @@ export class CommandBus {
       const baseContext = asRecord(payload.context) ?? {}
       payload.context = { ...baseContext, source: runAs.source }
     }
+
+    const correlationContext = mergeAuditCorrelation(asRecord(payload.context), options.ctx.auditCorrelation)
+    if (correlationContext) payload.context = correlationContext
+    const ambientCorrelationContext = mergeAuditCorrelation(asRecord(payload.context), getAmbientAuditCorrelation())
+    if (ambientCorrelationContext) payload.context = ambientCorrelationContext
 
     if (metadata.replayable === false) {
       delete payload.commandPayload

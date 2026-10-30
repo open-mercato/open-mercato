@@ -5,6 +5,7 @@ import {
 } from '@open-mercato/shared/lib/encryption/find'
 import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 import {
+  AiAgentRun,
   AiChatConversation,
   AiChatConversationParticipant,
   AiChatMessage,
@@ -315,7 +316,11 @@ export class AiChatConversationRepository {
     })
   }
 
-  /** Soft-delete the conversation and all its messages in one transaction. */
+  /**
+   * Soft-delete the conversation, all its messages, and its recorded agent
+   * runs in one transaction. The agent-run prune worker hard-deletes the
+   * soft-deleted runs on its next pass.
+   */
   async softDelete(
     conversationId: string,
     ctx: AiChatConversationContext,
@@ -365,6 +370,17 @@ export class AiChatConversationRepository {
         tx.persist(msg)
       }
       if (messages.length > 0) await tx.flush()
+
+      await tx.nativeUpdate(
+        AiAgentRun,
+        {
+          tenantId: ctx.tenantId,
+          organizationId: ctx.organizationId ?? null,
+          conversationId,
+          deletedAt: null,
+        },
+        { deletedAt: now },
+      )
     })
   }
 
