@@ -7670,6 +7670,7 @@ const orderLineUpsertCommand: CommandHandler<
     let unitPriceGross =
       parsed.unitPriceGross ?? existingSnapshot?.unitPriceGross ?? null;
     let taxRate = parsed.taxRate ?? existingSnapshot?.taxRate ?? null;
+    const unitPriceSupplied = unitPriceNet !== null || unitPriceGross !== null;
     if (priceMode && (unitPriceNet === null || unitPriceGross === null)) {
       let taxService: TaxCalculationService | null = null;
       try {
@@ -7813,10 +7814,14 @@ const orderLineUpsertCommand: CommandHandler<
     );
     // After the line above, never before: tax and gross only exist once it runs,
     // and it nulls them when pricing changed, which an external line must restate.
-    // The unit price is checked as resolved, not as defaulted to zero above.
+    // The unit price is checked as resolved, not as defaulted to zero above,
+    // and a price the tax service derived from no source price counts as absent.
     if (isExternalAmountsMode(totalsMode)) {
       await assertExternalLineComplete(
-        { ...(updatedSnapshot as Record<string, unknown>), unitPriceNet },
+        {
+          ...(updatedSnapshot as Record<string, unknown>),
+          unitPriceNet: unitPriceSupplied ? unitPriceNet : null,
+        },
         updatedSnapshot.lineNumber ?? 1,
       );
     }

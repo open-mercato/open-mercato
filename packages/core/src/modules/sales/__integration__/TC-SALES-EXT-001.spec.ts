@@ -152,6 +152,13 @@ async function readReturns(request: Request, token: string, orderId: string): Pr
   return body.items ?? []
 }
 
+async function expectGone(request: Request, token: string, path: string, label: string): Promise<void> {
+  const response = await request.fetch(resolveUrl(path), { method: 'GET', headers: jsonHeaders(token) })
+  expect(response.status(), `GET ${path} should return 200`).toBe(200)
+  const body = (await response.json()) as { items?: Array<Record<string, unknown>> }
+  expect(body.items ?? [], `${label} should be removed by teardown`).toHaveLength(0)
+}
+
 async function createExternalOrder(request: Request, token: string): Promise<string> {
   const created = await request.fetch(resolveUrl('/api/sales/orders'), {
     method: 'POST',
@@ -288,6 +295,8 @@ test.describe('TC-SALES-EXT-001: external amounts mode', () => {
   test('returns, rejected writes and repeated writes never move the source-owned header', async ({ request }) => {
     const token = await getAuthToken(request)
     let orderId: string | null = null
+    let shipmentId: string | null = null
+    let returnId: string | null = null
 
     try {
       orderId = await createExternalOrder(request, token)
@@ -299,23 +308,31 @@ test.describe('TC-SALES-EXT-001: external amounts mode', () => {
       expect(lineA, 'line A should be readable').toBeTruthy()
       const lineAId = String(lineA?.id)
 
-      const missingPrice = await request.fetch(resolveUrl('/api/sales/order-lines'), {
-        method: 'POST',
-        headers: jsonHeaders(token),
-        data: {
-          orderId,
-          kind: 'service',
-          name: 'Source line without a unit price',
-          currencyCode: 'USD',
-          quantity: 1,
-          totalNetAmount: 10,
-          taxAmount: 2,
-          totalGrossAmount: 12,
-          orderTotals: SUPPLIED_TOTALS,
-        },
-      })
-      expect(missingPrice.status(), 'a new external line without unitPriceNet should be refused').toBe(400)
-      expect(await missingPrice.text()).toContain('unitPriceNet')
+      // A priceMode routes the line through the tax service, which would default
+      // an absent unit price to zero; the absence must still be refused.
+      for (const priceMode of [undefined, 'net', 'gross'] as const) {
+        const missingPrice = await request.fetch(resolveUrl('/api/sales/order-lines'), {
+          method: 'POST',
+          headers: jsonHeaders(token),
+          data: {
+            orderId,
+            kind: 'service',
+            name: 'Source line without a unit price',
+            currencyCode: 'USD',
+            quantity: 1,
+            ...(priceMode ? { priceMode } : {}),
+            totalNetAmount: 10,
+            taxAmount: 2,
+            totalGrossAmount: 12,
+            orderTotals: SUPPLIED_TOTALS,
+          },
+        })
+        expect(
+          missingPrice.status(),
+          `a new external line without unitPriceNet (priceMode ${priceMode ?? 'none'}) should be refused`,
+        ).toBe(400)
+        expect(await missingPrice.text()).toContain('unitPriceNet')
+      }
 
       const withoutHeader = await request.fetch(resolveUrl('/api/sales/order-lines'), {
         method: 'PUT',
@@ -343,7 +360,7 @@ test.describe('TC-SALES-EXT-001: external amounts mode', () => {
       expect(lineAmounts(afterRepeat), 'a repeated line write must leave the amounts as the source stated them').toEqual(baselineLines)
       expect(headerAmounts(await readOrder(request, token, orderId))).toEqual(header)
 
-      await createShipmentFixture(request, token, orderId, [{ orderLineId: lineAId, quantity: 3 }])
+      shipmentId = await createShipmentFixture(request, token, orderId, [{ orderLineId: lineAId, quantity: 3 }])
 
       const createdReturn = await request.fetch(resolveUrl('/api/sales/returns'), {
         method: 'POST',
@@ -355,7 +372,7 @@ test.describe('TC-SALES-EXT-001: external amounts mode', () => {
         `POST /api/sales/returns should be 201: ${(await createdReturn.text()).slice(0, 500)}`,
       ).toBe(201)
       const returnBody = (await createdReturn.json()) as { id?: string; returnId?: string }
-      const returnId = String(returnBody.id ?? returnBody.returnId)
+      returnId = String(returnBody.id ?? returnBody.returnId)
 
       expect(headerAmounts(await readOrder(request, token, orderId)), 'a return must not move an external header').toEqual(header)
       expect(returnedQuantity(await readLines(request, token, orderId), lineAId)).toBe(1)
@@ -384,12 +401,28 @@ test.describe('TC-SALES-EXT-001: external amounts mode', () => {
       expect(await readReturnAdjustments(request, token, orderId)).toHaveLength(1)
       expect((await readReturns(request, token, orderId)).map((row) => row.id)).toContain(returnId)
     } finally {
+      // The restored return references the order and its lines without a delete
+      // cascade, so it has to go before the order (which takes its shipments).
+      if (orderId && returnId) {
+        const returnCleanup = await request.fetch(resolveUrl('/api/sales/returns'), {
+          method: 'DELETE',
+          headers: jsonHeaders(token),
+          data: { id: returnId, orderId },
+        })
+        expect([200, 404], `return cleanup should succeed: ${returnCleanup.status()}`).toContain(returnCleanup.status())
+      }
       if (orderId) {
-        await request.fetch(resolveUrl('/api/sales/orders'), {
+        const orderCleanup = await request.fetch(resolveUrl('/api/sales/orders'), {
           method: 'DELETE',
           headers: jsonHeaders(token),
           data: { id: orderId },
         })
+        expect(orderCleanup.status(), `order cleanup should succeed: ${(await orderCleanup.text()).slice(0, 500)}`).toBe(200)
+        await expectGone(request, token, `/api/sales/orders?id=${encodeURIComponent(orderId)}`, 'the order')
+        await expectGone(request, token, `/api/sales/returns?orderId=${encodeURIComponent(orderId)}`, 'the return')
+        if (shipmentId) {
+          await expectGone(request, token, `/api/sales/shipments?orderId=${encodeURIComponent(orderId)}`, 'the shipment')
+        }
       }
     }
   })

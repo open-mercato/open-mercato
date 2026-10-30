@@ -476,6 +476,72 @@ describe('sales.orders.lines.* — external amounts', () => {
     expect(persistedLines(persisted)).toHaveLength(0)
   })
 
+  function registerTaxService(ctx: CommandRuntimeContext) {
+    const calculateUnitAmounts = jest.fn(async (input: { amount: number; mode: 'net' | 'gross' }) => {
+      const net = input.mode === 'gross' ? input.amount / 1.2 : input.amount
+      const gross = input.mode === 'gross' ? input.amount : input.amount * 1.2
+      return { netAmount: net, grossAmount: gross, taxAmount: gross - net, taxRate: 20 }
+    })
+    ;(ctx.container as ReturnType<typeof createContainer>).register({
+      taxCalculationService: asValue({ calculateUnitAmounts }),
+    })
+    return calculateUnitAmounts
+  }
+
+  function sourceOnlyLine(overrides: Row = {}): Row {
+    return {
+      organizationId: ORG_ID,
+      tenantId: TENANT_ID,
+      orderId: ORDER_ID,
+      kind: 'service',
+      name: 'Source-only line',
+      currencyCode: 'USD',
+      quantity: 1,
+      totalNetAmount: 10,
+      taxAmount: 2,
+      totalGrossAmount: 12,
+      orderTotals: SUPPLIED_TOTALS,
+      ...overrides,
+    }
+  }
+
+  it.each(['net', 'gross'] as const)(
+    'rejects a new external line with priceMode %s and no unit price, even when a tax service would default it to zero',
+    async (priceMode) => {
+      const { ctx, persisted } = harnessWithExternalOrder()
+      const calculateUnitAmounts = registerTaxService(ctx)
+
+      const rejection = await expectRejection(
+        upsert().execute({ body: sourceOnlyLine({ priceMode }) } as never, ctx),
+      )
+
+      expect(calculateUnitAmounts).toHaveBeenCalled()
+      expect(rejection.status).toBe(400)
+      expect(rejection.error).toContain('unitPriceNet')
+      expect(persistedLines(persisted)).toHaveLength(0)
+    },
+  )
+
+  it.each([
+    ['net', { unitPriceNet: 0 }],
+    ['gross', { unitPriceGross: 0 }],
+  ] as const)(
+    'accepts an explicitly supplied zero unit price with priceMode %s on an external line',
+    async (priceMode, price) => {
+      const { ctx, persisted } = harnessWithExternalOrder()
+      registerTaxService(ctx)
+
+      await upsert().execute(
+        { body: sourceOnlyLine({ priceMode, ...price, totalNetAmount: 0, taxAmount: 0, totalGrossAmount: 0 }) } as never,
+        ctx,
+      )
+
+      const written = persistedLines(persisted).find((line) => line.name === 'Source-only line')
+      expect(written).toBeDefined()
+      expect(num(written!.unitPriceNet)).toBe(0)
+    },
+  )
+
   it('keeps stored tax and gross when an external line changes no pricing input', async () => {
     const { ctx, persisted } = harnessWithExternalOrder()
 
