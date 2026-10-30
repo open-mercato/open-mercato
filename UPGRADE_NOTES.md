@@ -144,6 +144,12 @@ Custom HTTP clients must honor the new optional
 assertions before DNS and transmission for initial requests and every redirect.
 No tool input or result-field migration is required.
 
+### Warranty claim line numbers must be unique within each live claim (#7306)
+
+Creating or renumbering a line with a number already used by another live line now returns `409`, with a localized `error` and `code: warranty_claims.errors.duplicateLineNo`. Initial claim batches also reject duplicate resolved numbers, including collisions between explicit and default numbers. Valid inputs and automatic numbering remain unchanged.
+
+An undo that would restore an occupied line number is refused before changing the line or totals. Remove the occupying line or move it to a free number through the API, then retry the same undo. Existing duplicates are not automatically renumbered. No database migration is required.
+
 ### Workflow webhook responses have resource limits (#7814)
 
 Each `CALL_WEBHOOK` attempt now defaults to a 30-second deadline covering the
@@ -263,6 +269,26 @@ continue to omit the bundled Traefik overlay; their base-file port mappings
 are unchanged. Host-local proxies and diagnostics can use a final loopback-only
 override. See [migration, override examples, WSS routing, and deployment checks](docker/traefik/README.md#private-application-ports-and-migration).
 No application API, database, or module-code migration is required.
+
+### AI session keys revalidate staff roles on every request (#7599)
+
+Removing a staff role now removes that role's privileges from already-issued AI session keys on
+the next request, including cached ACLs, organization visibility, and the raw superadmin flag.
+Role-based resource shares and temporary keys minted by business-rule calls also use current
+session-role membership. A key keeps only roles that were present at issuance and are still held by its owner. Independent
+API keys retain their existing role policy. Endpoints, token/response formats, and schema are unchanged.
+
+**Action for module authors:** do not rely on a session key retaining removed staff privileges.
+After granting a new role, issue a fresh session key to use it. No stored keys need rewriting.
+
+**Action for operators:** deploy and restart every application/worker process that authenticates
+or authorizes API keys. Session authorization now reads live memberships instead of reusing
+cross-request grants, which adds database work for session requests. Verified session-secret
+identities keep the existing bounded authentication cache; live roles and authorization are never
+served from it. Ordinary keys retain cached authentication and authorization results, but ACL,
+feature-organization and enabled organization-scope lookups now read the API-key row before using
+those caches to distinguish session credentials. Last-used write debouncing remains enabled. No
+migration is required.
 
 ### `yarn mercato <module> <command>` exits with the code the command signalled (#5936)
 
