@@ -110,5 +110,6 @@ test('the publish script routes provenance publishing through the narrow retry w
     source,
     /npm-retry-on-provenance-conflict\.sh" \\\n+\s+npm publish "package\.tgz" --access public --tag "\$TAG" --provenance/
   )
-  assert.match(source, /npm view "\$PKG_NAME@\$PKG_VERSION" version/)
+  assert.doesNotMatch(source, /elif npm view "\$PKG_NAME@\$PKG_VERSION"/)
+  assert.doesNotMatch(source, /registry accepted the package before the client failed/)
 })
