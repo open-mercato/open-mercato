@@ -146,7 +146,8 @@ describe('resolveApiKeyAuth caching + lastUsedAt debounce', () => {
           name: roleId === 'role-super' ? 'superadmin' : roleId === 'role-reader' ? 'employee' : 'new-role',
         }))
       }
-      if (entity === RoleAcl && (where.role as { $in: string[] }).$in.includes('role-super')) {
+      const relation = where.role as { $in?: string[]; id?: { $in: string[] } } | undefined
+      if (entity === RoleAcl && (relation?.$in ?? relation?.id?.$in ?? []).includes('role-super')) {
         return [{ isSuperAdmin: true, organizationsJson: null }]
       }
       return []
