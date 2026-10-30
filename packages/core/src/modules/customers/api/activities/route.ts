@@ -161,13 +161,13 @@ function buildCanonicalOrderBy(sortField: string | undefined, sortDir: 'asc' | '
   return buildInteractionOccurredAtOrderBy(sortDir)
 }
 
-function resolveActivitySortValue(item: ActivityItem, sortField: string | undefined): number {
+function resolveActivitySortValue(item: ActivityItem, sortField: string | undefined): number | null {
   const raw =
     sortField === 'createdAt'
       ? item.createdAt
-      : item.occurredAt ?? item.createdAt
+      : item.occurredAt
   const timestamp = raw ? new Date(raw).getTime() : Number.NaN
-  return Number.isNaN(timestamp) ? 0 : timestamp
+  return Number.isNaN(timestamp) ? null : timestamp
 }
 
 function sortActivityItems(
@@ -183,6 +183,8 @@ function sortActivityItems(
         ? left.id.localeCompare(right.id)
         : right.id.localeCompare(left.id)
     }
+    if (leftValue === null) return 1
+    if (rightValue === null) return -1
     return sortDir === 'asc' ? leftValue - rightValue : rightValue - leftValue
   })
 }

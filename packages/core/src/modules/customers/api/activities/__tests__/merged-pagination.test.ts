@@ -140,7 +140,7 @@ describe('activities merged GET pagination', () => {
       activityType: 'note',
       subject: null,
       body: null,
-      occurredAt: at,
+      occurredAt: at as Date | null,
       createdAt: at,
       appearanceIcon: null,
       appearanceColor: null,
@@ -155,7 +155,7 @@ describe('activities merged GET pagination', () => {
       id,
       interactionType: 'note',
       deletedAt: null,
-      occurredAt: createdAtIso,
+      occurredAt: createdAtIso as string | null,
       createdAt: createdAtIso,
       customValues: null,
     }
@@ -240,6 +240,22 @@ describe('activities merged GET pagination', () => {
 
     const ids = await fetchIds('page=1&pageSize=2&sortField=createdAt&sortDir=desc')
     expect(ids).toEqual(['C6', 'L5'])
+  })
+
+  it.each(['asc', 'desc'] as const)('keeps unknown occurrence dates last after merging sources (%s)', async (sortDir) => {
+    const undatedLegacy = legacyActivity('LU', '2026-10-30T00:00:00.000Z')
+    undatedLegacy.occurredAt = null
+    const undatedCanonical = canonicalInteraction('CU', '2026-10-29T00:00:00.000Z')
+    undatedCanonical.occurredAt = null
+    wireMergedRows(
+      [legacyActivity('L1', '2026-01-01T00:00:00.000Z'), undatedLegacy],
+      [canonicalInteraction('C2', '2026-01-02T00:00:00.000Z'), undatedCanonical],
+    )
+
+    const ids = await fetchIds(`page=1&pageSize=50&sortField=occurredAt&sortDir=${sortDir}`)
+
+    expect(ids.slice(0, 2)).toEqual(sortDir === 'asc' ? ['L1', 'C2'] : ['C2', 'L1'])
+    expect(ids.slice(2)).toEqual(sortDir === 'asc' ? ['CU', 'LU'] : ['LU', 'CU'])
   })
 
   it('drops legacy items bridged into the canonical stream so they are not duplicated', async () => {
