@@ -3,6 +3,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { createMemoryStrategy } from '@open-mercato/cache'
 import { User, UserRole, Role, RoleAcl } from '@open-mercato/core/modules/auth/data/entities'
 import { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import { Tenant } from '@open-mercato/core/modules/directory/data/entities'
 import { ApiKey } from '../data/entities'
 import { createApiKey, createSessionApiKey } from '../services/apiKeyService'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
@@ -96,6 +97,7 @@ it('revokes an issued session credential immediately across independently warmed
   const readerRole = Object.assign(new Role(), { id: randomUUID(), name: 'reader', tenantId, deletedAt: null })
   const issuedRoleIds = [privilegedRole.id, readerRole.id].sort()
   const fixtures = new Map<unknown, object[]>([
+    [Tenant, [Object.assign(new Tenant(), { id: tenantId, isActive: true, deletedAt: null })]],
     [User, [user]],
     [Role, [privilegedRole, readerRole]],
     [UserRole, [privilegedRole, readerRole].map((role) => Object.assign(new UserRole(), {
