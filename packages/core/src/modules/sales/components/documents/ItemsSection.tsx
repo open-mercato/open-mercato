@@ -52,19 +52,34 @@ function DisabledActionHint({
   children: React.ReactNode
 }) {
   const [open, setOpen] = React.useState(false)
+  const touchOpenRef = React.useRef(false)
   if (!reason) return <>{children}</>
   return (
-    <SimpleTooltip content={reason} open={open} onOpenChange={setOpen}>
+    <SimpleTooltip
+      content={reason}
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (nextOpen || !touchOpenRef.current) setOpen(nextOpen)
+      }}
+    >
       <span
         className="inline-flex rounded-md focus-visible:outline-none focus-visible:shadow-focus"
         tabIndex={0}
         aria-label={`${label}: ${reason}`}
         onPointerDown={(event) => {
-          if (event.pointerType === 'touch') setOpen(true)
+          if (event.pointerType !== 'touch') return
+          touchOpenRef.current = true
+          setOpen(true)
+          event.currentTarget.focus()
         }}
-        onBlur={() => setOpen(false)}
+        onBlur={() => {
+          touchOpenRef.current = false
+          setOpen(false)
+        }}
         onKeyDown={(event) => {
-          if (event.key === 'Escape') setOpen(false)
+          if (event.key !== 'Escape') return
+          touchOpenRef.current = false
+          setOpen(false)
         }}
       >
         {children}

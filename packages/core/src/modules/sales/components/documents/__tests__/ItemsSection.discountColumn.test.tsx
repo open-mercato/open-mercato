@@ -232,7 +232,11 @@ describe('SalesDocumentItemsSection discount column', () => {
     const touchPointerDown = new Event('pointerdown', { bubbles: true })
     Object.defineProperty(touchPointerDown, 'pointerType', { value: 'touch' })
     fireEvent(triggers[0], touchPointerDown)
+    expect(triggers[0]).toHaveFocus()
     expect(screen.getByRole('tooltip')).toHaveTextContent(reason)
+
+    fireEvent.blur(triggers[0])
+    expect(screen.queryByRole('tooltip')).toBeNull()
   })
 
   it('leaves the cell empty on lines that carry no discount', async () => {
