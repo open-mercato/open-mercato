@@ -11,6 +11,12 @@ import {
 import { registerEntityIds } from '@open-mercato/shared/lib/encryption/entityIds'
 import handle from '../cleanup'
 
+const reportError = jest.fn()
+
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  getTelemetryRuntime: () => ({ reportError }),
+}))
+
 type RecordedQuery = { sql: string; parameters: readonly unknown[] }
 
 type FakeEntityMetadata = {
@@ -40,6 +46,17 @@ const CODED_METADATA: FakeEntityMetadata = {
   properties: {
     code: { fieldNames: ['record_code'] },
     deletedAt: { fieldNames: ['removed_at'] },
+  },
+}
+const COMPOSITE_ENTITY_TYPE = 'example:composite_record'
+const COMPOSITE_METADATA: FakeEntityMetadata = {
+  className: 'CompositeRecord',
+  tableName: 'example_composite_records',
+  primaryKeys: ['first', 'second'],
+  properties: {
+    first: { fieldNames: ['first'] },
+    second: { fieldNames: ['second'] },
+    deletedAt: { fieldNames: ['deleted_at'] },
   },
 }
 const HARD_DELETE_ENTITY_TYPE = 'example:hard_record'
@@ -88,7 +105,7 @@ function createHarness(baseRows: Array<Record<string, unknown>> | Error) {
       createQueryCompiler: () => new PostgresQueryCompiler(),
     },
   })
-  const allMetadata = [RESOURCE_METADATA, HARD_DELETE_METADATA, CODED_METADATA]
+  const allMetadata = [RESOURCE_METADATA, HARD_DELETE_METADATA, CODED_METADATA, COMPOSITE_METADATA]
   const em = {
     getKysely: () => db,
     getMetadata: () => ({
@@ -119,9 +136,14 @@ describe('translations cleanup subscriber', () => {
       example: {
         hard_record: HARD_DELETE_ENTITY_TYPE,
         coded_record: CODED_ENTITY_TYPE,
+        composite_record: COMPOSITE_ENTITY_TYPE,
         missing_entity: 'example:missing_entity',
       },
     })
+  })
+
+  beforeEach(() => {
+    reportError.mockClear()
   })
 
   it('keeps translations while the owning record is only soft-deleted', async () => {
@@ -154,6 +176,10 @@ describe('translations cleanup subscriber', () => {
 
     expect(harness.selects()).toHaveLength(1)
     expect(harness.deletes()).toHaveLength(0)
+    expect(reportError).toHaveBeenCalledWith(
+      expect.any(Error),
+      expect.objectContaining({ code: 'translations.cleanup_soft_delete_check_failed' }),
+    )
   })
 
   it('deletes translations when the owning row no longer exists', async () => {
@@ -179,6 +205,15 @@ describe('translations cleanup subscriber', () => {
     const harness = createHarness([{ id: 'hard-1' }])
 
     await handle(payloadFor(HARD_DELETE_ENTITY_TYPE, 'hard-1'), harness.ctx)
+
+    expect(harness.selects()).toHaveLength(0)
+    expect(harness.deletes()).toHaveLength(1)
+  })
+
+  it('deletes translations without probing the row for entities with a composite primary key', async () => {
+    const harness = createHarness([{ deleted_at: new Date() }])
+
+    await handle(payloadFor(COMPOSITE_ENTITY_TYPE, 'comp-1'), harness.ctx)
 
     expect(harness.selects()).toHaveLength(0)
     expect(harness.deletes()).toHaveLength(1)
