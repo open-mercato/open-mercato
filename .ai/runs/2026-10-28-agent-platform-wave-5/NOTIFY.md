@@ -40,3 +40,7 @@
 - Decisions recorded in the chat-tracing spec changelog (2026-10-30); notable: conversationId accepts non-uuid ids, org-visible conversations grant run access, run citations cap 50.
 - Wave-2 TC-AI-RUN-TRACE-016 test bug (providerOptions now rejected over HTTP) fixed on wave 2 and merged forward.
 - Checkpoint 5 (5.1–6.4): static + unit + build:app pass; integration 57 passed / 12 skipped (LLM provider or storage) / 0 failed.
+
+## 2026-10-30T04:06:31Z — step 7.4 decision
+- `eval-set export` writes DB `llm_judge` assertions stored with `gate` severity as `warn` and prints a warning listing their keys (research silent; the file format refuses judge gates). An export that still fails file validation is refused with exit 2.
+- `--cases` / `validate` accept only `.json`, `.yaml`, `.yml` (format by extension); `export --snapshot current` (default) is an alias of `latest`.
