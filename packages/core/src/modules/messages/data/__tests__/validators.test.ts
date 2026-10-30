@@ -8,7 +8,7 @@ import {
 
 describe('messages validators', () => {
   it('does not expose the internal imported-message timestamp in the public compose schema', () => {
-    const result = composeMessageSchema.parse({
+    const result = composeMessageRequestSchema.parse({
       subject: 'Subject',
       body: 'Body',
       visibility: 'public',
