@@ -7,6 +7,12 @@ function readString(value: unknown): string | null {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null
 }
 
+function readRecord(value: unknown): UnknownRecord {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? value as UnknownRecord
+    : {}
+}
+
 export const interceptors: ApiInterceptor[] = [
   {
     id: 'example.block-test-todos',
@@ -146,6 +152,23 @@ export const interceptors: ApiInterceptor[] = [
           ...(request.query ?? {}),
           examplePriority: undefined,
           ids: ids.length > 0 ? ids.join(',') : undefined,
+        },
+      }
+    },
+  },
+  {
+    id: 'example.customer-extension-payload-probe',
+    targetRoute: 'customers/people',
+    methods: ['POST', 'PUT'],
+    priority: 65,
+    async after(_request, response, context) {
+      if (context.extensionPayload?.example?.interceptorProbe !== 'delivery') return {}
+      return {
+        merge: {
+          _example: {
+            ...readRecord(response.body._example),
+            extensionPayloadDelivered: true,
+          },
         },
       }
     },

@@ -12,8 +12,9 @@ import { deleteEntityIfExists } from '@open-mercato/core/helpers/integration/crm
  * parse so it can surface as `InterceptorContext.extensionPayload`. The unit suites
  * pin that plumbing against a synthetic route; this spec pins the same contract
  * against a live one — `customers/people`, the route the widget-injection docs use —
- * where a regression would show up as a 400/422 from the entity schema, a 500 from a
- * poisoned payload object, or the transport field leaking into the stored record.
+ * where a regression would show up as a 400/422 from the entity schema, a missing
+ * response marker from the live example interceptor, a 500 from a poisoned payload
+ * object, or the transport field leaking into the stored record.
  *
  * Self-contained: creates its own person and soft-deletes it in `finally`.
  */
@@ -49,7 +50,10 @@ test.describe('TC-CUST-EXTPAYLOAD-001 injected CrudForm extension payload', () =
           firstName: 'ExtPayload',
           lastName: `Person${stamp}`,
           displayName: `ExtPayload Person ${stamp}`,
-          [TRANSPORT_KEY]: { relations: { relatedPersonId: `person-${stamp}`, relationType: 'father' } },
+          [TRANSPORT_KEY]: {
+            example: { interceptorProbe: 'delivery' },
+            relations: { relatedPersonId: `person-${stamp}`, relationType: 'father' },
+          },
         },
       })
       const createdBody = await readJsonSafe<Record<string, unknown>>(created)
@@ -61,6 +65,7 @@ test.describe('TC-CUST-EXTPAYLOAD-001 injected CrudForm extension payload', () =
         (createdBody?.id ?? createdBody?.entityId ?? createdBody?.personId) as unknown,
         'POST response carries no person id',
       )
+      expect(createdBody).toMatchObject({ _example: { extensionPayloadDelivered: true } })
 
       const stored = await readPersonById(request, token, personId)
       expect(stored, 'created person is not readable').not.toBeNull()
@@ -72,7 +77,10 @@ test.describe('TC-CUST-EXTPAYLOAD-001 injected CrudForm extension payload', () =
         data: {
           id: personId,
           displayName: `ExtPayload Person ${stamp} updated`,
-          [TRANSPORT_KEY]: { relations: { relationType: 'mother' } },
+          [TRANSPORT_KEY]: {
+            example: { interceptorProbe: 'delivery' },
+            relations: { relationType: 'mother' },
+          },
         },
       })
       const updatedBody = await readJsonSafe<Record<string, unknown>>(updated)
@@ -80,6 +88,7 @@ test.describe('TC-CUST-EXTPAYLOAD-001 injected CrudForm extension payload', () =
         updated.status(),
         `PUT with the transport field must not be rejected by the entity schema (body: ${JSON.stringify(updatedBody)})`,
       ).toBe(200)
+      expect(updatedBody).toMatchObject({ _example: { extensionPayloadDelivered: true } })
 
       const reread = await readPersonById(request, token, personId)
       expect(reread).not.toHaveProperty(TRANSPORT_KEY)

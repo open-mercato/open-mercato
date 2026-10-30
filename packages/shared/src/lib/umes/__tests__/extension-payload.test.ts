@@ -35,7 +35,7 @@ describe('sanitizeExtensionPayload', () => {
   it('counts array elements against the key cap', () => {
     const sanitized = sanitizeExtensionPayload({ relations: { items: Array.from({ length: 5000 }, (_, index) => index) } })
 
-    expect((sanitized!.relations.items as unknown[]).length).toBe(200)
+    expect((sanitized!.relations.items as unknown[]).length).toBe(198)
   })
 
   it('counts array elements nested in objects against the same budget', () => {
@@ -47,6 +47,18 @@ describe('sanitizeExtensionPayload', () => {
     const second = sanitized!.relations.second as unknown[]
     expect(first.length + second.length).toBeLessThanOrEqual(200)
     expect(second.length).toBeLessThan(150)
+  })
+
+  it('counts module ids against the shared budget and omits truncated empty modules', () => {
+    const input = Object.fromEntries(
+      Array.from({ length: 5000 }, (_, index) => [`module_${index}`, { value: index }]),
+    )
+
+    const sanitized = sanitizeExtensionPayload(input)!
+    const modules = Object.values(sanitized)
+
+    expect(modules).toHaveLength(100)
+    expect(modules.every((modulePayload) => Object.keys(modulePayload).length === 1)).toBe(true)
   })
 })
 
@@ -60,6 +72,17 @@ describe('mergeExtensionPayload', () => {
     expect(merged).toEqual({ relations: { a: 1, b: 2 } })
     expect(Object.getPrototypeOf(merged)).toBe(Object.prototype)
     expect(String(merged)).toBe('[object Object]')
+  })
+
+  it('reapplies the shared budget after merging two individually valid payloads', () => {
+    const payload = (prefix: string) => Object.fromEntries(
+      Array.from({ length: 75 }, (_, index) => [`${prefix}_${index}`, { value: index }]),
+    )
+
+    const merged = mergeExtensionPayload(payload('base'), payload('addition'))!
+
+    expect(Object.keys(merged)).toHaveLength(100)
+    expect(Object.values(merged).every((modulePayload) => Object.keys(modulePayload).length === 1)).toBe(true)
   })
 })
 

@@ -23,6 +23,12 @@ function toPlainObject<T extends object>(accumulator: T): T {
   return { ...accumulator }
 }
 
+function consumePayloadKey(state: { keyCount: number }): boolean {
+  if (state.keyCount >= MAX_EXTENSION_PAYLOAD_KEYS) return false
+  state.keyCount += 1
+  return true
+}
+
 export function isExtensionPayloadRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
@@ -34,10 +40,9 @@ function sanitizeExtensionPayloadValue(value: unknown, depth: number, state: { k
   if (Array.isArray(value)) {
     const items: unknown[] = []
     for (const item of value) {
-      if (state.keyCount >= MAX_EXTENSION_PAYLOAD_KEYS) break
+      if (!consumePayloadKey(state)) break
       const sanitized = sanitizeExtensionPayloadValue(item, depth + 1, state)
       if (sanitized === undefined) continue
-      state.keyCount += 1
       items.push(sanitized)
     }
     return items
@@ -46,11 +51,10 @@ function sanitizeExtensionPayloadValue(value: unknown, depth: number, state: { k
 
   const result = createAccumulator<Record<string, unknown>>()
   for (const [key, item] of Object.entries(value)) {
-    if (state.keyCount >= MAX_EXTENSION_PAYLOAD_KEYS) break
     if (isUnsafePayloadKey(key)) continue
+    if (!consumePayloadKey(state)) break
     const sanitized = sanitizeExtensionPayloadValue(item, depth + 1, state)
     if (sanitized === undefined) continue
-    state.keyCount += 1
     result[key] = sanitized
   }
   return toPlainObject(result)
@@ -62,8 +66,11 @@ export function sanitizeExtensionPayload(value: unknown): ParsedExtensionPayload
   const state = { keyCount: 0 }
   for (const [moduleId, modulePayload] of Object.entries(value)) {
     if (isUnsafePayloadKey(moduleId)) continue
+    if (!consumePayloadKey(state)) break
     const sanitized = sanitizeExtensionPayloadValue(modulePayload, 0, state)
-    if (isExtensionPayloadRecord(sanitized)) result[moduleId] = sanitized
+    if (isExtensionPayloadRecord(sanitized) && Object.keys(sanitized).length > 0) {
+      result[moduleId] = sanitized
+    }
   }
   return Object.keys(result).length ? toPlainObject(result) : undefined
 }
@@ -78,7 +85,7 @@ export function mergeExtensionPayload(base: unknown, addition: unknown): ParsedE
       merged[moduleId] = { ...(merged[moduleId] ?? {}), ...modulePayload }
     }
   }
-  return Object.keys(merged).length ? toPlainObject(merged) : undefined
+  return sanitizeExtensionPayload(merged)
 }
 
 export function extractExtensionPayload(body: unknown): {

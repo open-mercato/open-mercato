@@ -52,9 +52,10 @@ shared budget spent by both object keys and array elements.
   nested level and the shared object/array budget.
 - `TC-CUST-EXTPAYLOAD-001` (`packages/core/src/modules/customers/__integration__`)
   drives the transport field through a live `makeCrudRoute` `POST`/`PUT` on
-  `customers/people`, asserting the entity schema accepts it, the stored record
-  never carries it, and a prototype-poisoned payload is sanitized rather than
-  faulting the request.
+  `customers/people`, asserts a live example interceptor observes it through
+  `context.extensionPayload`, confirms the entity schema accepts it and the
+  stored record never carries it, and verifies a prototype-poisoned payload is
+  sanitized rather than faulting the request.
 
 ## Migration & Backward Compatibility
 
