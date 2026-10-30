@@ -1,6 +1,6 @@
 # Lessons
 
-This catalog indexes 165 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
+This catalog indexes 166 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
 
 ## How to use this catalog
 
@@ -24,7 +24,7 @@ This catalog indexes 165 focused lessons. Route the task first, then read only r
 
 - [Serialize dev-session stale recovery across ownership changes](lessons/serialize-dev-session-stale-recovery.md) — area:architecture,testing,debugging; module:create_app; topic:dev-runtime,concurrency,template-sync
 
-- [Business extensions belong to the owning module](lessons/business-extensions-belong-to-the-owning-module.md) — area:architecture,backend-ui,testing; module:customers,example,shared,ui; topic:module-boundaries,testing,template-sync
+- [Business extensions belong to the owning module](lessons/business-extensions-belong-to-the-owning-module.md) — area:architecture,backend-ui,testing; module:customers,example,shared,ui; topic:module-boundaries,testing,template-sync,public-contracts
 - [Durable owner policies need visible partition state](lessons/durable-owner-policies-need-visible-partition-state.md) — area:module-data,architecture,testing; module:attachments; topic:access-control,data-integrity,database-migrations
 - [Real WebAuthn tests need a valid relying-party hostname](lessons/real-webauthn-tests-need-valid-rp-hostname.md) — area:testing,integration; module:security; topic:webauthn,testing
 - [Provider validation boundaries must catch synchronous errors](lessons/provider-validation-boundaries-must-catch-synchronous-errors.md) — area:architecture,testing; module:security; topic:validation-errors,provider-lifecycle
@@ -57,6 +57,7 @@ This catalog indexes 165 focused lessons. Route the task first, then read only r
 
 ### module-data
 
+- [Personal API-key data must fail closed when policy is unavailable](lessons/personal-data-api-keys-must-fail-closed-on-missing-policy.md) — area:module-data,debugging; module:auth,dashboards; topic:access-control,api-keys,failure-states
 - [Materialize locking prune batches before deleting](lessons/materialize-locking-prune-batches.md) — area:module-data,debugging,testing; module:payment_gateways; topic:concurrency,postgresql,retention,data-integrity
 
 - [Authoritative command guards must validate final interceptor input](lessons/authoritative-command-guards-must-validate-final-interceptor-input.md) — area:module-data,architecture,testing; module:example,customers,shared; topic:command-pattern,data-integrity,concurrency,api-interceptors,testing

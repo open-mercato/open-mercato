@@ -10,6 +10,7 @@ import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { AttachmentsSection, ErrorMessage, LoadingMessage, NotesSection, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
+import { CustomerDetailSidebar } from '../../../../components/detail/CustomerDetailSidebar'
 import { buildRecordInjectionContext, useSetCurrentRecordInjectionContext } from '@open-mercato/ui/backend/injection/recordContext'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { CollapsibleZoneLayout, type ZoneSectionDescriptor } from '@open-mercato/ui/backend/crud/CollapsibleZoneLayout'
@@ -100,7 +101,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
     [detailTranslator, runMutationWithContext],
   )
 
-  const { injectedTabs, injectedTabMap } = useDealInjectedTabs({
+  const { injectedTabs, injectedTabMap, loading: injectedTabsLoading } = useDealInjectedTabs({
     injectionContext,
     data,
     setData,
@@ -428,8 +429,6 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
   const zone2Content = (
     <div className="rounded-[10px] border border-border bg-card px-5 py-5">
       {(() => {
-        const injected = injectedTabMap.get(activeTab)
-        if (injected) return injected()
 
         if (activeTab === 'activities') {
           const activityEntitySelection = activityEntities.length > 1 ? (
@@ -618,6 +617,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
 
         return null
       })()}
+      {injectedTabMap.get(activeTab)?.()}
     </div>
   )
 
@@ -628,6 +628,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
           <InjectionSpot spotId={extensionPoints.hosts.dealHeader.spotId} context={injectionContext} data={data} />
 
           <DealDetailHeader
+            actions={<InjectionSpot spotId={extensionPoints.hosts.dealHeaderActions.spotId} context={{ ...injectionContext, isDirty, isSaving }} data={data} disabled={isSaving} />}
             deal={data.deal}
             owner={data.owner}
             people={data.people}
@@ -661,7 +662,9 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
             )}
           />
 
+          <CustomerDetailSidebar spotId={extensionPoints.hosts.dealSidebar.spotId} context={injectionContext} data={data} onDataChange={setData} disabled={isSaving}>
           <DealDetailTabs
+            isLoadingInjectedTabs={injectedTabsLoading}
             activeTab={activeTab}
             onTabChange={handleTabChange}
             injectedTabs={injectedTabs.map((tab) => ({ id: tab.id, label: tab.label }))}
@@ -678,6 +681,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
               zone2={zone2Content}
             />
           </DealDetailTabs>
+          </CustomerDetailSidebar>
 
           <InjectionSpot spotId={extensionPoints.hosts.dealFooter.spotId} context={injectionContext} data={data} />
         </div>
