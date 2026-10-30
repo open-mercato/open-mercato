@@ -209,7 +209,7 @@ export async function buildPersonEmailThreads(
     const linkId = interaction.externalMessageId
     if (!linkId || linkIdByInteraction.has(linkId)) continue
     linkIdByInteraction.set(linkId, {
-      occurredAt: interaction.occurredAt,
+      occurredAt: interaction.occurredAt ?? null,
       authorUserId: interaction.authorUserId ?? null,
     })
     linkIds.push(linkId)
