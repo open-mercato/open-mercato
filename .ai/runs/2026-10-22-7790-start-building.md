@@ -74,8 +74,8 @@ Local mode, turbo concurrency 2, `NODE_OPTIONS=--max-old-space-size=6144`: `buil
 ### Phase 5: Combined Cezar control (2026-10-30 user request)
 
 - [x] 5.1 Combine the Cezar action and agent dropdown with hover, keyboard and touch access; mirror the standalone template and add regression coverage — 2f868afc23
-- [ ] 5.2 Run the configured validation gate and authoritative om-auto-review-pr autofix pass
-- [ ] 5.3 Run om-auto-qa-pr with screenshots and publish the outcome
+- [x] 5.2 Run the configured validation gate and authoritative om-auto-review-pr autofix pass — 9fc023ff64
+- [x] 5.3 Run om-auto-qa-pr with screenshots and publish the outcome — 9fc023ff64
 
 ## Resume scope (2026-10-30)
 
@@ -86,3 +86,12 @@ The operator requested one **Start building with Cezar** control: clicking its l
 - Merged current `main` in 2429e7381c; resolved both next.config conflicts by preserving the incoming Autopay launch policy in the shared phase-aware header builder. Added phase regression coverage (28 app/header tests pass).
 - Runner: local. Use `TMPDIR=/tmp` on this host so tsx IPC socket paths fit the platform limit; the normal pre-commit translation/template checks pass with that setting.
 - Targeted splash tests: 110 pass. Preliminary Chromium verification: 17 scenario steps pass, including startup/default/hover, keyboard focus across polls, Cezar and Codex HTTP actions with stub launchers, duplicate launch, empty/unavailable/busy/error/disabled, mobile, template, locales and alternate theme. Final evidence will identify the reviewed head.
+
+## Final verification (2026-10-30)
+
+- Runner: local. The complete ordered gate passed: `build:packages`, `generate`, `build:packages`, `i18n:check-sync`, `i18n:check-usage`, `typecheck` (42 tasks), `test` (51 tasks) and `build:app`. Core alone passed 25,839 tests; the CLI passed 112 suites.
+- Host-only launch settings: `TMPDIR=/tmp`; for the full test command, `--env-mode=loose` preserves that setting and a local Yarn resource file with a 4 GB Node heap. The default runner placed CLI fixtures inside a parent monorepo and constrained the docs build to 1 GB. No repository settings or test assertions were weakened.
+- Targeted dev/splash tests: 131 passed. App/header regression tests: 28 passed. Template parity passed.
+- `om-auto-review-pr --autofix`: no actionable code findings after the current-main merge; production, attachment and Autopay security policies retained. The old cockpit-reuse behavior remains the previously accepted external issue open-mercato/cezar#1732.
+- `om-auto-qa-pr`: **PASS**, 19 Chromium scenarios and zero page errors. [Report and screenshots](https://github.com/open-mercato/open-mercato/pull/7866#issuecomment-6526930361); [browser-test follow-up scenario](https://github.com/open-mercato/open-mercato/pull/7866#issuecomment-6526941453). The pass exercised the real splash and HTTP handler using disposable launchers and controlled status snapshots; a full Next.js/DB/Cezar/Preview environment was not launched. The fixture was stopped.
+- CI on 9fc023ff64 reported a telemetry probe producing no SPANS output (30-second child deadline) despite that unchanged suite passing locally. GitHub refused a job rerun while the workflow's integration job was active. This final tracking-plan commit triggers fresh CI; pending required checks and manual `needs-qa` approval still gate merge. No QA sign-off is granted by this evidence-only run.
