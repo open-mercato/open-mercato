@@ -70,3 +70,13 @@ Local mode, turbo concurrency 2, `NODE_OPTIONS=--max-old-space-size=6144`: `buil
 - [x] 4.1 Full validation gate — f6f9593a4
 - [x] 4.2 om-auto-review-pr autofix pass — cd2e703da
 - [x] 4.3 Evidence, labels and ready for review — cd2e703da (PR left as draft for the author to mark ready)
+
+### Phase 5: Combined Cezar control (2026-10-30 user request)
+
+- [ ] 5.1 Combine the Cezar action and agent dropdown with hover, keyboard and touch access; mirror the standalone template and add regression coverage
+- [ ] 5.2 Run the configured validation gate and authoritative om-auto-review-pr autofix pass
+- [ ] 5.3 Run om-auto-qa-pr with screenshots and publish the outcome
+
+## Resume scope (2026-10-30)
+
+The operator requested one **Start building with Cezar** control: clicking its label invokes the existing Cezar action, while hovering exposes the existing other-agent options. A dedicated dropdown toggle also supports touch and keyboard users. Preserve startup availability for Cezar and readiness gating for other agents. No launcher, security header, endpoint, dependency or production behavior changes. The user explicitly authorized autonomous continuation after the other-assignee ownership check; the override is documented on the PR.
