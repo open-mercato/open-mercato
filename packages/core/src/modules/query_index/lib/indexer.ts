@@ -14,6 +14,7 @@ import { resolveSearchConfig } from '@open-mercato/shared/lib/search/config'
 import { replaceSearchTokensForRecord, deleteSearchTokensForRecord } from './search-tokens'
 import { attachAggregateSearchField, rebuildAggregateSearchField } from './document'
 import { applyIndexDocEnrichers } from './doc-enrichers'
+import { isSearchTokenWriteGated } from './search-entity-policy'
 
 const logger = createLogger('query_index').child({ component: 'indexer' })
 
@@ -398,6 +399,7 @@ export async function reindexSearchTokensForRecord(
     }, { trx: args.trx })
     return
   }
+  if (isSearchTokenWriteGated(args.entityType)) return
   const tokenDoc = args.searchTokenDoc ?? (() => {
     const encryption = resolveTenantEncryptionService(em as any)
     const dekKeyCache = new Map<string | null, string | null>()

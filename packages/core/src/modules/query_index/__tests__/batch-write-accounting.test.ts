@@ -1,5 +1,6 @@
 import { recordIndexerError } from '@open-mercato/shared/lib/indexers/error-log'
 import { replaceSearchTokensForBatch } from '../lib/search-tokens'
+import { registerSearchModuleConfigs } from '@open-mercato/shared/modules/search'
 import {
   upsertIndexBatch,
   assertIndexBatchWritesLanded,
@@ -152,6 +153,19 @@ describe('upsertIndexBatch write accounting (GSM-266)', () => {
     expect(result).toEqual({ attempted: 3, written: 3, failedRecordIds: [], searchTokenFailures: 0 })
     expect(fake.writtenIds).toEqual(['1', '2', '3'])
     expect(mockRecordIndexerError).not.toHaveBeenCalled()
+  })
+
+  it('skips query-index token writes for entities whose search config declares shouldIndex', async () => {
+    const fake = createFakeDb()
+    registerSearchModuleConfigs([{ entities: [{ entityId: 'example:todo', shouldIndex: () => true }] }])
+    try {
+      const result = await upsertIndexBatch(fake.db, 'example:todo', makeRows(['1', '2']), SCOPE)
+      expect(result.written).toBe(2)
+    } finally {
+      registerSearchModuleConfigs([])
+    }
+
+    expect(mockReplaceSearchTokens).not.toHaveBeenCalled()
   })
 
   it('records the bulk failure and still writes every row through the fallback', async () => {

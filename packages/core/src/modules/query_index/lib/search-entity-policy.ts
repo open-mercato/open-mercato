@@ -1,4 +1,5 @@
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
+import { getSearchModuleConfigs } from '@open-mercato/shared/modules/search'
 
 /**
  * The canonical customer record. Every customer also has a person or company profile indexed under
@@ -43,4 +44,19 @@ export function indexesCustomerBaseEntity(): boolean {
  */
 export function listSearchTokenExcludedEntityTypes(): string[] {
   return indexesCustomerBaseEntity() ? [] : [CUSTOMERS_BASE_ENTITY_TYPE]
+}
+
+/**
+ * Whether the query index must leave `search_tokens` for this entity type to the search indexer.
+ *
+ * A `search.ts` entity that declares `shouldIndex` gates which of its records may be searched at
+ * all. The query index writes tokens for every record it projects and cannot evaluate that
+ * per-record hook, so for such entity types it writes none: the search indexer's token strategy
+ * is then the only writer, and it honors the gate (rejected records are deleted, not indexed).
+ * Any declaration counts, enabled or not, so the default is fail closed.
+ */
+export function isSearchTokenWriteGated(entityType: string): boolean {
+  return getSearchModuleConfigs().some((moduleConfig) =>
+    moduleConfig.entities.some((entity) => entity.entityId === entityType && typeof entity.shouldIndex === 'function'),
+  )
 }

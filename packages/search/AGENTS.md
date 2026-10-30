@@ -11,6 +11,7 @@ When working on search functionality, use this guide. It covers indexing, queryi
 5. **MUST** use the `entityId` format `module:entity_name` and ensure it matches the entity registry exactly.
 6. **MUST** use `fieldPolicy.hashOnly` for PII fields (email, phone, tax_id) that need exact-match filtering but not fuzzy search.
 7. **MUST** declare `aclFeatures` on every entity, naming the owning module's view feature(s) — the same gate that entity's own list/read route enforces. `search.global` only authorizes *using* search; `aclFeatures` is what authorizes *reading the records*. Global search, the hybrid `GET /api/search/search` endpoint and the AI tools all fail closed, so an entity without it silently vanishes from results for every non-superadmin.
+8. **MUST** use the optional `shouldIndex(ctx)` hook when only some records of an entity may be searchable (per-record opt-in). `SearchIndexer` evaluates it on every index/reindex path; `false` or a throw deletes the record from all strategies (fail closed), and the query index then stops writing that entity's `search_tokens`, so the token strategy (which honors the gate) is its only token writer.
 
 ## Ask First
 

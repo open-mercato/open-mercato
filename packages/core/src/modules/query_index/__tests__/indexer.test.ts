@@ -1,6 +1,7 @@
 import { buildIndexDoc, upsertIndexRow, markDeleted, reindexSearchTokensForRecord } from '../../query_index/lib/indexer'
 import { resolveTenantEncryptionService } from '@open-mercato/shared/lib/encryption/customFieldValues'
 import type { AggregateSearchOptions } from '../lib/document'
+import { registerSearchModuleConfigs } from '@open-mercato/shared/modules/search'
 
 jest.mock('@open-mercato/shared/lib/encryption/customFieldValues', () => ({
   resolveTenantEncryptionService: jest.fn(),
@@ -395,6 +396,27 @@ describe('Indexer', () => {
 
     const tokenInserts = fake.inserts.filter((entry) => entry.table === 'search_tokens')
     expect(tokenInserts.length).toBeGreaterThan(0)
+  })
+
+  test('reindexSearchTokensForRecord leaves tokens to the search indexer for entities with a shouldIndex gate', async () => {
+    const fake = createFakeKysely({ baseTable: 'todos', baseRows: [{ id: '1', title: 'x' }], cfValues: [] })
+    const em: any = { getKysely: () => fake.db }
+    registerSearchModuleConfigs([{ entities: [{ entityId: 'example:todo', shouldIndex: () => false }] }])
+    try {
+      await reindexSearchTokensForRecord(em, {
+        entityType: 'example:todo',
+        recordId: '1',
+        organizationId: 'org1',
+        tenantId: 't1',
+        doc: { id: '1', title: 'x' },
+        searchTokenDoc: { title: 'Plain Title' },
+      })
+    } finally {
+      registerSearchModuleConfigs([])
+    }
+
+    expect(fake.inserts.filter((entry) => entry.table === 'search_tokens')).toHaveLength(0)
+    expect(fake.deletes.filter((entry) => entry.table === 'search_tokens')).toHaveLength(0)
   })
 
   test('reindexSearchTokensForRecord reuses an injected transaction for token replacement', async () => {

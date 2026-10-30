@@ -322,6 +322,21 @@ export type SearchEntityConfig = {
   /** Define which fields are searchable vs hash-only */
   fieldPolicy?: SearchFieldPolicy
   /**
+   * Per-record index gate, evaluated by the search indexer before any strategy
+   * (fulltext, vector, tokens) receives the record — on live index events,
+   * by-id/batch indexing and every reindex path.
+   *
+   * Return `true` to index the record. Returning `false` — or throwing — removes
+   * the record from every strategy and skips indexing (fail closed). The context
+   * carries `queryEngine` for loading related records (opt-in flags, parents).
+   * Omit the hook to index every record of the entity (the default).
+   *
+   * Declaring the hook also hands the entity's `search_tokens` rows to the search
+   * indexer: the query index stops writing tokens for that entity type, so an
+   * ungated writer can never surface a record the hook rejects.
+   */
+  shouldIndex?: (ctx: SearchBuildContext) => boolean | Promise<boolean>
+  /**
    * Per-entity view feature(s) required to read this entity's records through
    * data-returning surfaces (e.g. the `search_get` / `search_aggregate` AI tools).
    * These tools must NOT rely on the search-administration `search.view` feature

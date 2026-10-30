@@ -4,6 +4,7 @@ import { isUniqueViolation } from '@open-mercato/shared/lib/db/pg-errors'
 import { buildIndexDocument, rebuildAggregateSearchField, type IndexCustomFieldValue } from './document'
 import { replaceSearchTokensForBatch, isSearchDebugEnabled } from './search-tokens'
 import { applyIndexDocEnrichers, type IndexDocEnrichmentTarget } from './doc-enrichers'
+import { isSearchTokenWriteGated } from './search-entity-policy'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { resolveSearchConfig } from '@open-mercato/shared/lib/search/config'
 
@@ -385,7 +386,7 @@ export async function upsertIndexBatch(
     deleted_at: null,
   }))
 
-  const tokenPayloads = basePayloads.map((payload) => ({
+  const tokenPayloads = isSearchTokenWriteGated(entityType) ? [] : basePayloads.map((payload) => ({
     entityType: payload.entity_type,
     recordId: payload.entity_id,
     organizationId: payload.organization_id,
