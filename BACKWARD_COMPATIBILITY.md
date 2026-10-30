@@ -527,6 +527,12 @@ Spec: [`.ai/specs/2026-09-08-error-reporting-policy.md`](.ai/specs/2026-09-08-er
 
 **Deprecation window.** `legacyInjectionSpotId` is scoped to these two call sites and intended for removal after at least one minor version (Deprecation Protocol step 1), tracked in the spec's Changelog and in `UPGRADE_NOTES.md`. No maintainer waiver was needed — nothing is removed by this change.
 
+### 2026-10-01 — Passkey enrollment (#6800)
+
+STABLE `PUT /api/security/mfa/provider/passkey`: unverified keys bypass verification; a bridge preserves the exploit. [@haxiorz approved waiver/migration](https://github.com/open-mercato/open-mercato/pull/6824#issuecomment-6505351158).
+
+Clients use WebAuthn; operators audit key provenance, re-enroll with recovery. [Spec](.ai/specs/enterprise/2026-10-01-passkey-enrollment-require-webauthn-attestation.md); [migration](UPGRADE_NOTES.md#090--091-unreleased).
+
 ## Atomic Auth Command Replay (2026-10-04)
 
 [`.ai/specs/2026-07-28-protected-roles-and-audit-seam.md`](.ai/specs/2026-07-28-protected-roles-and-audit-seam.md) closes the auth undo/redo transaction, authorization, and membership-phantom gaps without changing existing command handlers by default.
