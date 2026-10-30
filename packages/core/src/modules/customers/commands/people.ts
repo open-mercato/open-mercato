@@ -11,11 +11,13 @@ import {
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { LockMode } from '@mikro-orm/core'
 import {
   CustomerAddress,
   CustomerComment,
   CustomerActivity,
   CustomerInteraction,
+  CustomerEmailConversationShare,
   CustomerDeal,
   CustomerDealPersonLink,
   CustomerPersonCompanyLink,
@@ -82,8 +84,11 @@ type PersonAddressSnapshot = {
   id: string
   name: string | null
   purpose: string | null
+  companyName?: string | null
   addressLine1: string
   addressLine2: string | null
+  buildingNumber?: string | null
+  flatNumber?: string | null
   city: string | null
   region: string | null
   postalCode: string | null
@@ -134,6 +139,7 @@ type PersonInteractionSnapshot = {
   body: string | null
   status: string
   scheduledAt: Date | null
+  timezone?: string | null
   occurredAt: Date | null
   priority: number | null
   authorUserId: string | null
@@ -147,6 +153,15 @@ type PersonInteractionSnapshot = {
   deletedAt: Date | null
   custom?: Record<string, unknown>
 } & InteractionRestoreDetails
+
+type PersonEmailConversationShareSnapshot = {
+  id: string
+  ownerUserId: string
+  sharedByUserId: string
+  createdAt: Date
+  updatedAt: Date | null
+  deletedAt: Date | null
+}
 
 type PersonSnapshot = {
   entity: {
@@ -201,6 +216,7 @@ type PersonSnapshot = {
   activities: PersonActivitySnapshot[]
   todos: PersonTodoSnapshot[]
   interactions: PersonInteractionSnapshot[]
+  emailConversationShares?: PersonEmailConversationShareSnapshot[]
 }
 
 type PersonUndoPayload = {
@@ -331,8 +347,11 @@ function serializePersonSnapshot(
       id: address.id,
       name: address.name ?? null,
       purpose: address.purpose ?? null,
+      companyName: address.companyName ?? null,
       addressLine1: address.addressLine1,
       addressLine2: address.addressLine2 ?? null,
+      buildingNumber: address.buildingNumber ?? null,
+      flatNumber: address.flatNumber ?? null,
       city: address.city ?? null,
       region: address.region ?? null,
       postalCode: address.postalCode ?? null,
@@ -462,6 +481,7 @@ async function loadPersonSnapshot(
       body: interaction.body ?? null,
       status: interaction.status,
       scheduledAt: interaction.scheduledAt ?? null,
+      timezone: interaction.timezone ?? null,
       occurredAt: interaction.occurredAt ?? null,
       priority: interaction.priority ?? null,
       authorUserId: interaction.authorUserId ?? null,
@@ -796,6 +816,7 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
       tenantId: entity.tenantId,
     }
     await withAtomicFlush(em, [
+      () => em.nativeDelete(CustomerEmailConversationShare, { personEntity: entity, organizationId: entity.organizationId, tenantId: entity.tenantId }),
       () => em.nativeDelete(CustomerTagAssignment, { entity, organizationId: entity.organizationId, tenantId: entity.tenantId }),
       () => {
         if (profile) em.remove(profile)
@@ -1258,28 +1279,56 @@ const deletePersonCommand: CommandHandler<
       const id = requireId(input, 'Person id required')
       const em = (ctx.container.resolve('em') as EntityManager).fork()
       const snapshot = await loadPersonSnapshot(em, id, { includeInteractionRestoreDetails: true })
-      return snapshot ? { before: snapshot } : {}
+      if (!snapshot) return {}
+      ensureTenantScope(ctx, snapshot.entity.tenantId)
+      ensureOrganizationScope(ctx, snapshot.entity.organizationId)
+      const shares = await findWithDecryption(
+        em,
+        CustomerEmailConversationShare,
+        { personEntity: snapshot.entity.id, tenantId: snapshot.entity.tenantId, organizationId: snapshot.entity.organizationId },
+        { orderBy: { createdAt: 'asc' } },
+        { tenantId: snapshot.entity.tenantId, organizationId: snapshot.entity.organizationId },
+      )
+      snapshot.emailConversationShares = shares.map((share) => ({
+        id: share.id,
+        ownerUserId: share.ownerUserId,
+        sharedByUserId: share.sharedByUserId,
+        createdAt: share.createdAt,
+        updatedAt: share.updatedAt ?? null,
+        deletedAt: share.deletedAt ?? null,
+      }))
+      return { before: snapshot }
     },
     async execute(input, ctx) {
       const id = requireId(input, 'Person id required')
       const em = (ctx.container.resolve('em') as EntityManager).fork()
       const snapshot = await loadPersonSnapshot(em, id)
-      const entity = await em.findOne(CustomerEntity, { id, deletedAt: null })
-      const record = assertFound(entity, 'Person not found')
-      ensureTenantScope(ctx, record.tenantId)
-      ensureOrganizationScope(ctx, record.organizationId)
 
-      const dealLinks = await em.count(CustomerDealPersonLink, { person: record })
-      if (dealLinks > 0) {
-        const { translate } = await resolveTranslations()
-        throw buildPersonHasDependentsError(translate, { dealLinks })
-      }
+      let record!: CustomerEntity
+      const profileHolder: { value: CustomerPersonProfile | null } = { value: null }
+      const labelAssignmentsHolder: { value: LabelAssignmentRestoreSnapshot[] } = { value: [] }
 
-      const profile = await em.findOne(CustomerPersonProfile, { entity: record })
-      let labelAssignments: LabelAssignmentRestoreSnapshot[] = []
       await withAtomicFlush(em, [
         async () => {
-          labelAssignments = await removeEntityLabelAssignments(em, record)
+          // Lock the entity row first, before any child read or cleanup, so a
+          // concurrent insert of a child row (e.g. a label assignment) serializes
+          // behind this transaction instead of racing the final delete with a
+          // 409 FOREIGN_KEY_VIOLATION. See issue #7613.
+          const entity = await em.findOne(CustomerEntity, { id, deletedAt: null }, { lockMode: LockMode.PESSIMISTIC_WRITE })
+          record = assertFound(entity, 'Person not found')
+          ensureTenantScope(ctx, record.tenantId)
+          ensureOrganizationScope(ctx, record.organizationId)
+
+          const dealLinks = await em.count(CustomerDealPersonLink, { person: record })
+          if (dealLinks > 0) {
+            const { translate } = await resolveTranslations()
+            throw buildPersonHasDependentsError(translate, { dealLinks })
+          }
+
+          const profile = await em.findOne(CustomerPersonProfile, { entity: record })
+          profileHolder.value = profile
+          labelAssignmentsHolder.value = await removeEntityLabelAssignments(em, record)
+          await em.nativeDelete(CustomerEmailConversationShare, { personEntity: record, organizationId: record.organizationId, tenantId: record.tenantId })
           if (profile) em.remove(profile)
           await em.nativeDelete(CustomerAddress, { entity: record, organizationId: record.organizationId, tenantId: record.tenantId })
           await em.nativeDelete(CustomerComment, { entity: record, organizationId: record.organizationId, tenantId: record.tenantId })
@@ -1296,6 +1345,8 @@ const deletePersonCommand: CommandHandler<
           em.remove(record)
         },
       ], { transaction: true })
+      const profile = profileHolder.value
+      const labelAssignments = labelAssignmentsHolder.value
 
       const indexDeletes: QueryIndexEventEntry[] = []
       const dealUpserts: QueryIndexEventEntry[] = []
@@ -1378,13 +1429,15 @@ const deletePersonCommand: CommandHandler<
       const before = snapshots.before as PersonSnapshot | undefined
       if (!before) return null
       const { translate } = await resolveTranslations()
+      const snapshotBefore = { ...before }
+      delete snapshotBefore.emailConversationShares
       return {
         actionLabel: translate('customers.audit.people.delete', 'Delete person'),
         resourceKind: 'customers.person',
         resourceId: before.entity.id,
         tenantId: before.entity.tenantId,
         organizationId: before.entity.organizationId,
-        snapshotBefore: omitInteractionRestoreDetails(before),
+        snapshotBefore: omitInteractionRestoreDetails(snapshotBefore),
         payload: {
           undo: {
             before,
@@ -1394,7 +1447,15 @@ const deletePersonCommand: CommandHandler<
       }
     },
     undo: async ({ logEntry, ctx }) => {
-      const payload = extractUndoPayload<PersonUndoPayload>(logEntry, CUSTOMER_ENTITY_UNDO_DATE_OPTIONS)
+      const payload = extractUndoPayload<PersonUndoPayload>(logEntry, {
+        ...CUSTOMER_ENTITY_UNDO_DATE_OPTIONS,
+        datePaths: [
+          ...CUSTOMER_ENTITY_UNDO_DATE_OPTIONS.datePaths,
+          'before.emailConversationShares.createdAt',
+          'before.emailConversationShares.updatedAt',
+          'before.emailConversationShares.deletedAt',
+        ],
+      })
       const before = payload?.before
       if (!before) return
       const em = (ctx.container.resolve('em') as EntityManager).fork()
@@ -1629,8 +1690,11 @@ const deletePersonCommand: CommandHandler<
           entity,
           name: address.name,
           purpose: address.purpose,
+          companyName: address.companyName ?? null,
           addressLine1: address.addressLine1,
           addressLine2: address.addressLine2,
+          buildingNumber: address.buildingNumber ?? null,
+          flatNumber: address.flatNumber ?? null,
           city: address.city,
           region: address.region,
           postalCode: address.postalCode,
@@ -1671,6 +1735,7 @@ const deletePersonCommand: CommandHandler<
           body: interaction.body,
           status: interaction.status,
           scheduledAt: interaction.scheduledAt,
+          timezone: interaction.timezone ?? null,
           occurredAt: interaction.occurredAt,
           priority: interaction.priority,
           authorUserId: interaction.authorUserId,
@@ -1687,6 +1752,34 @@ const deletePersonCommand: CommandHandler<
         em.persist(restoredInteraction)
       }
       await em.flush()
+
+      await em.nativeDelete(CustomerEmailConversationShare, { personEntity: entity, organizationId: entity.organizationId, tenantId: entity.tenantId })
+      for (const share of before.emailConversationShares ?? []) {
+        const restoredShare = em.create(CustomerEmailConversationShare, {
+          id: share.id,
+          organizationId: entity.organizationId,
+          tenantId: entity.tenantId,
+          personEntity: entity,
+          ownerUserId: share.ownerUserId,
+          sharedByUserId: share.sharedByUserId,
+          createdAt: share.createdAt,
+          updatedAt: share.updatedAt,
+          deletedAt: share.deletedAt,
+        })
+        em.persist(restoredShare)
+      }
+      await em.flush()
+      const shareIdsWithNullUpdatedAt = (before.emailConversationShares ?? [])
+        .filter((share) => share.updatedAt === null)
+        .map((share) => share.id)
+      if (shareIdsWithNullUpdatedAt.length) {
+        await em.nativeUpdate(CustomerEmailConversationShare, {
+          id: { $in: shareIdsWithNullUpdatedAt },
+          personEntity: entity,
+          organizationId: entity.organizationId,
+          tenantId: entity.tenantId,
+        }, { updatedAt: null })
+      }
 
       return { entity, profile, beforeInteractions, beforeTodos, restoredLabelAssignments }
         })()

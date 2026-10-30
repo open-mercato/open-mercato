@@ -2,6 +2,7 @@
 // Regression coverage for #7672: POST /api/attachments/transfer caps attachmentIds at 100.
 
 import { randomUUID } from 'crypto'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 jest.mock('@open-mercato/core/modules/attachments/data/entities', () => ({
   Attachment: class Attachment {},
@@ -13,19 +14,37 @@ jest.mock('@open-mercato/shared/lib/auth/server', () => ({
 
 type AttachmentRow = {
   id: string
+  entityId: string
   recordId: string
   storageMetadata: Record<string, unknown> | null
 }
 
-const mockEm = {
-  find: jest.fn(async (_entity: unknown, filter: { id: { $in: string[] } }): Promise<AttachmentRow[]> =>
-    filter.id.$in.map((id) => ({ id, recordId: 'draft-1', storageMetadata: null })),
-  ),
-  persist: jest.fn(function persist(this: unknown) {
-    return this
-  }),
+const mockTx = {
   flush: jest.fn(async () => {}),
 }
+
+const mockEm = {
+  transactional: jest.fn(async (callback: (tx: typeof mockTx) => Promise<unknown>) => callback(mockTx)),
+}
+
+jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
+  findWithDecryption: jest.fn(
+    async (_em: unknown, _entity: unknown, filter: { id: { $in: string[] } }): Promise<AttachmentRow[]> =>
+      filter.id.$in.map((id) => ({ id, entityId: 'catalog:catalog_product', recordId: 'draft-1', storageMetadata: null })),
+  ),
+}))
+
+jest.mock('@open-mercato/core/modules/attachments/lib/access-mutation', () => ({
+  prepareAttachmentMutation: jest.fn(async () => ({ modifiedPayload: undefined, runAfterSuccess: async () => {} })),
+}))
+
+jest.mock('@open-mercato/core/modules/attachments/lib/access-runner', () => ({
+  createAttachmentAccessContext: jest.fn(() => ({})),
+}))
+
+jest.mock('@open-mercato/core/modules/attachments/lib/access-query', () => ({
+  assertAttachmentOwnerAccess: jest.fn(async () => {}),
+}))
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: async () => ({
@@ -59,7 +78,8 @@ describe('POST /api/attachments/transfer attachmentIds limit', () => {
     const { POST } = await import('@open-mercato/core/modules/attachments/api/transfer/route')
     const response = await POST(buildRequest(buildIds(101)))
     expect(response.status).toBe(400)
-    expect(mockEm.find).not.toHaveBeenCalled()
+    expect(mockEm.transactional).not.toHaveBeenCalled()
+    expect(findWithDecryption).not.toHaveBeenCalled()
   })
 
   it('transfers exactly 100 attachmentIds', async () => {

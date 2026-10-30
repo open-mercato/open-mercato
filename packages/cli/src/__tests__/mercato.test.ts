@@ -224,6 +224,33 @@ describe('--help never triggers side effects (issue #5581)', () => {
       })
     })
 
+    it('keeps module search and module info read-only and quiet, so --json output parses', () => {
+      expect(resolveEnvBootstrapOptions(['module', 'search', 'ksef', '--json'])).toEqual({
+        createIfMissing: false,
+        quiet: true,
+      })
+      expect(resolveEnvBootstrapOptions(['module', 'search', 'ksef'])).toEqual({
+        createIfMissing: false,
+        quiet: true,
+      })
+      expect(resolveEnvBootstrapOptions(['module', 'info', '@open-mercato/webhooks'])).toEqual({
+        createIfMissing: false,
+        quiet: true,
+      })
+      // module add changes the app: it may still create .env, and prints as before
+      expect(resolveEnvBootstrapOptions(['module', 'add', '@open-mercato/webhooks'])).toEqual({
+        createIfMissing: true,
+        quiet: false,
+      })
+    })
+
+    it('silences the dotenv line for any --json invocation', () => {
+      expect(resolveEnvBootstrapOptions(['db', 'status', '--json'])).toEqual({
+        createIfMissing: true,
+        quiet: true,
+      })
+    })
+
     it('keeps the pre-existing deploy and telemetry opt-outs', () => {
       expect(resolveEnvBootstrapOptions(['deploy', 'railway'])).toEqual({
         createIfMissing: false,
@@ -319,6 +346,36 @@ describe('--help never triggers side effects (issue #5581)', () => {
 
       expect(exitCode).toBe(0)
       expect(deploy).toHaveBeenCalledWith(['--help'])
+
+      consoleLogSpy.mockRestore()
+      consoleErrorSpy.mockRestore()
+    })
+
+    it('lists module search and info in the module command help', async () => {
+      const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+
+      const exitCode = await run(['node', 'mercato', 'module', '--help'])
+
+      expect(exitCode).toBe(0)
+      const printed = consoleLogSpy.mock.calls.map((call) => String(call[0])).join('\n')
+      expect(printed).toContain('yarn mercato module search [<query>]')
+      expect(printed).toContain('yarn mercato module info <package-or-module-id> [--json]')
+
+      consoleLogSpy.mockRestore()
+    })
+
+    it('routes module search without a query to its usage, before any network call', async () => {
+      const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+
+      const searchExit = await run(['node', 'mercato', 'module', 'search'])
+      const infoExit = await run(['node', 'mercato', 'module', 'info'])
+
+      expect(searchExit).toBe(1)
+      expect(infoExit).toBe(1)
+      const printed = consoleErrorSpy.mock.calls.map((call) => String(call[0])).join('\n')
+      expect(printed).toContain('Usage: yarn mercato module search [<query>]')
+      expect(printed).toContain('Usage: yarn mercato module info <package-or-module-id> [--json]')
 
       consoleLogSpy.mockRestore()
       consoleErrorSpy.mockRestore()
@@ -573,6 +630,110 @@ describe('db command failure output', () => {
   })
 })
 
+describe('module command exit signal propagation', () => {
+  let consoleErrorSpy: jest.SpyInstance
+  let consoleLogSpy: jest.SpyInstance
+
+  beforeEach(() => {
+    jest.restoreAllMocks()
+    consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+    consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+  })
+
+  afterEach(() => {
+    consoleErrorSpy.mockRestore()
+    consoleLogSpy.mockRestore()
+    process.exitCode = undefined
+  })
+
+  it('propagates a non-zero process.exitCode set by a command that does not throw', async () => {
+    registerCliModules([
+      {
+        id: 'reporting',
+        cli: [{
+          command: 'export',
+          run: jest.fn().mockImplementation(async () => {
+            process.exitCode = 1
+          }),
+        }],
+      } as any,
+    ])
+
+    const exitCode = await run(['node', 'mercato', 'reporting', 'export'])
+
+    expect(exitCode).toBe(1)
+  })
+
+  it('preserves the exact exit code a command signals rather than collapsing it to 1', async () => {
+    registerCliModules([
+      {
+        id: 'reporting',
+        cli: [{
+          command: 'export',
+          run: jest.fn().mockImplementation(async () => {
+            process.exitCode = 42
+          }),
+        }],
+      } as any,
+    ])
+
+    const exitCode = await run(['node', 'mercato', 'reporting', 'export'])
+
+    expect(exitCode).toBe(42)
+  })
+
+  it('returns 0 for a command that completes without signalling a failure', async () => {
+    registerCliModules([
+      {
+        id: 'reporting',
+        cli: [{ command: 'export', run: jest.fn().mockResolvedValue(undefined) }],
+      } as any,
+    ])
+
+    const exitCode = await run(['node', 'mercato', 'reporting', 'export'])
+
+    expect(exitCode).toBe(0)
+  })
+
+  it('ignores a non-zero process.exitCode inherited from before the command ran', async () => {
+    process.exitCode = 7
+
+    registerCliModules([
+      {
+        id: 'reporting',
+        cli: [{ command: 'export', run: jest.fn().mockResolvedValue(undefined) }],
+      } as any,
+    ])
+
+    const exitCode = await run(['node', 'mercato', 'reporting', 'export'])
+
+    expect(exitCode).toBe(0)
+    expect(process.exitCode).toBe(7)
+  })
+
+  it('still reports 1 when a command throws, regardless of process.exitCode', async () => {
+    process.exitCode = 7
+
+    registerCliModules([
+      {
+        id: 'reporting',
+        cli: [{
+          command: 'export',
+          run: jest.fn().mockImplementation(async () => {
+            process.exitCode = 3
+            throw new Error('export failed')
+          }),
+        }],
+      } as any,
+    ])
+
+    const exitCode = await run(['node', 'mercato', 'reporting', 'export'])
+
+    expect(exitCode).toBe(1)
+    expect(process.exitCode).toBe(7)
+  })
+})
+
 describe('init command failure output', () => {
   const originalDatabaseUrl = process.env.DATABASE_URL
 
@@ -785,6 +946,122 @@ describe('init command failure output', () => {
     expect(configsRestoreDefaults).toHaveBeenCalled()
     expect(authSetup).toHaveBeenCalled()
     expect(queryIndexReindex).toHaveBeenCalledWith(['--force', '--tenant', 'tenant-1'])
+
+    consoleErrorSpy.mockRestore()
+    consoleLogSpy.mockRestore()
+  })
+
+  function mockInitDependencies({
+    authSetup,
+  }: {
+    authSetup: jest.Mock
+  }) {
+    jest.doMock('child_process', () => ({
+      execSync: jest.fn(),
+    }))
+    jest.doMock('pg', () => ({
+      Client: jest.fn().mockImplementation(() => ({
+        connect: jest.fn().mockResolvedValue(undefined),
+        query: jest.fn().mockResolvedValue({
+          rows: [{ org_id: 'org-1', tenant_id: 'tenant-1' }],
+        }),
+        end: jest.fn().mockResolvedValue(undefined),
+      })),
+    }))
+    jest.doMock('../lib/generators', () => ({
+      generateEntityIds: jest.fn().mockResolvedValue(undefined),
+      generateModuleRegistries: jest.fn().mockResolvedValue(undefined),
+      generateModuleEntities: jest.fn().mockResolvedValue(undefined),
+      generateModuleDi: jest.fn().mockResolvedValue(undefined),
+      generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
+      generateWebResearchAdapters: jest.fn().mockResolvedValue(undefined),
+      generateOpenApi: jest.fn().mockResolvedValue(undefined),
+    }))
+    jest.doMock('../lib/db', () => ({
+      dbMigrate: jest.fn().mockResolvedValue(undefined),
+    }))
+    jest.doMock('../lib/resolver', () => ({
+      createResolver: () => ({
+        getAppDir: () => '/tmp/test-app',
+      }),
+    }))
+    jest.doMock('@open-mercato/shared/lib/bootstrap/dynamicLoader', () => ({
+      bootstrapFromAppRoot: jest.fn().mockResolvedValue({
+        modules: [
+          {
+            id: 'configs',
+            cli: [{ command: 'restore-defaults', run: jest.fn().mockResolvedValue(undefined) }],
+          },
+          {
+            id: 'auth',
+            cli: [
+              { command: 'setup', run: authSetup },
+              { command: 'seed-roles', run: jest.fn().mockResolvedValue(undefined) },
+            ],
+          },
+          {
+            id: 'entities',
+            cli: [{ command: 'seed-encryption', run: jest.fn().mockResolvedValue(undefined) }],
+          },
+          {
+            id: 'query_index',
+            cli: [{ command: 'reindex', run: jest.fn().mockResolvedValue(undefined) }],
+          },
+        ],
+      }),
+    }))
+    jest.doMock('@open-mercato/shared/lib/di/container', () => ({
+      createRequestContainer: jest.fn().mockResolvedValue({
+        resolve: jest.fn().mockReturnValue({}),
+      }),
+    }))
+    jest.doMock(
+      '@open-mercato/core/modules/auth/lib/setup-app',
+      () => ({
+        ensureCustomRoleAcls: jest.fn().mockResolvedValue(undefined),
+      }),
+      { virtual: true },
+    )
+  }
+
+  it('passes --include-demo-users to auth setup by default', async () => {
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+    const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+    const authSetup = jest.fn().mockResolvedValue(undefined)
+    mockInitDependencies({ authSetup })
+
+    const mercato = await import('../mercato')
+    const exitCode = await mercato.run(['node', 'mercato', 'init'])
+
+    expect(exitCode).toBe(0)
+    expect(authSetup).toHaveBeenCalledWith(expect.arrayContaining(['--include-demo-users']))
+    expect(consoleLogSpy).toHaveBeenCalledWith('👤 Demo accounts (admin@/employee@): enabled')
+    const loggedLines = consoleLogSpy.mock.calls.map((args) => args.join(' '))
+    expect(loggedLines.some((line) => line.includes('🧰 Admin:'))).toBe(true)
+    expect(loggedLines.some((line) => line.includes('👷 Employee:'))).toBe(true)
+
+    consoleErrorSpy.mockRestore()
+    consoleLogSpy.mockRestore()
+  })
+
+  it('skips --include-demo-users when --no-demo-users is passed', async () => {
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+    const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+    const authSetup = jest.fn().mockResolvedValue(undefined)
+    mockInitDependencies({ authSetup })
+
+    const mercato = await import('../mercato')
+    const exitCode = await mercato.run(['node', 'mercato', 'init', '--no-demo-users'])
+
+    expect(exitCode).toBe(0)
+    expect(authSetup).toHaveBeenCalled()
+    expect(authSetup.mock.calls[0][0]).not.toContain('--include-demo-users')
+    expect(consoleLogSpy).toHaveBeenCalledWith(
+      '👤 Demo accounts (admin@/employee@): skipped (--no-demo-users)',
+    )
+    const loggedLines = consoleLogSpy.mock.calls.map((args) => args.join(' '))
+    expect(loggedLines.some((line) => line.includes('🧰 Admin:'))).toBe(false)
+    expect(loggedLines.some((line) => line.includes('👷 Employee:'))).toBe(false)
 
     consoleErrorSpy.mockRestore()
     consoleLogSpy.mockRestore()
