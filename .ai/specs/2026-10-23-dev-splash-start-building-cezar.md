@@ -6,7 +6,7 @@
 
 ## TLDR
 
-The shared development splash gets a **Start building** button that opens
+The shared development splash gets a **Start building with Cezar** button that opens
 [Cezar](https://github.com/open-mercato/cezar) for the current project by
 starting plain `npx cezar-run` in a new interactive terminal. The button is
 available while the app is still booting, during setup and after readiness.
@@ -78,10 +78,18 @@ and is out of scope here.
 
 ### Splash UI
 
-- A **Start building** button sits next to the login button in the status
-  card. Unlike the coding menu it is not gated on `ready`; it shows during
-  starting, setup, failed and ready states whenever the coding flow is
-  enabled.
+- One **Start building with Cezar** split control sits next to the login
+  button in the status card. Clicking its main label launches Cezar during
+  starting, setup, failed and ready states whenever the coding flow is enabled.
+- Once the app is ready, hovering the control with a mouse opens the existing
+  VS Code, Cursor, Claude Code and Codex options. A localized **Other coding
+  agents** toggle supports click/touch and keyboard access. Arrow Down opens
+  the options and focuses the first agent; Escape, focus leaving the control,
+  or an outside click closes them. Mouse leave closes the options unless
+  focus remains in the control. Agent buttons remain stable across status polls.
+- Other agents keep their existing readiness gate. Both actions disable each
+  other while a launch request is in flight. An unavailable Cezar launcher
+  does not prevent using other available agents.
 - A status line under the button shows starting / started / already started /
   busy / failed / unavailable messages. All strings are localized in the
   splash dictionaries (`en`, `pl`, `es`, `de`); server results carry a stable
@@ -229,3 +237,10 @@ Browser QA: load the splash during startup and after ready, click
   `routes-manifest.json` ENOENT).
 - Making Start building reuse an already-running Cezar cockpit is tracked in
   open-mercato/cezar#1732.
+
+### 2026-10-30
+
+- Combined the separate coding menu and Cezar button into **Start building with
+  Cezar**: default click launches Cezar, hover reveals other agents, and an
+  explicit dropdown toggle supports keyboard and touch. Mirrored the standalone
+  template and added hover, keyboard, busy/readiness and polling regression tests.

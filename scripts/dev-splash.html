@@ -343,16 +343,26 @@
         width: fit-content;
         max-width: 100%;
       }
-      .coding-summary {
-        list-style: none;
+      .building-controls {
+        display: flex;
+        align-items: stretch;
+      }
+      .building-controls:has(.coding-summary:not([hidden])) .building-button {
+        border-top-right-radius: 0;
+        border-bottom-right-radius: 0;
+      }
+      .building-controls .coding-summary {
+        border-top-left-radius: 0;
+        border-bottom-left-radius: 0;
+        border-left: 0;
         cursor: pointer;
         user-select: none;
         max-width: 100%;
       }
-      .coding-summary::-webkit-details-marker {
+      .coding-summary[hidden] {
         display: none;
       }
-      .coding-summary[aria-disabled="true"] {
+      .coding-summary[disabled] {
         opacity: 0.55;
         pointer-events: none;
       }
@@ -371,6 +381,15 @@
         box-shadow: var(--shadow);
         z-index: 20;
       }
+      .coding-menu-panel[hidden] {
+        display: none;
+      }
+      .coding-menu-panel::before {
+        content: '';
+        position: absolute;
+        inset: -10px 0 auto;
+        height: 10px;
+      }
       .coding-menu[data-align="end"] .coding-menu-panel {
         left: auto;
         right: 0;
@@ -378,7 +397,7 @@
       .coding-menu[data-layout="stacked"] {
         width: 100%;
       }
-      .coding-menu[data-layout="stacked"] .coding-summary {
+      .coding-menu[data-layout="stacked"] .building-controls {
         width: 100%;
       }
       .coding-menu[data-layout="stacked"] .coding-menu-panel {
@@ -848,9 +867,8 @@
         .actions {
           align-items: stretch;
         }
-        .coding-shell,
-        .coding-menu,
-        .coding-summary {
+        .building-shell,
+        .coding-menu {
           width: 100%;
         }
         .coding-menu-panel {
@@ -912,15 +930,17 @@
         <div class="actions">
           <a class="button primary" id="login-button" href="#" aria-disabled="true">🚀 App is preparing…</a>
           <div class="building-shell" id="building-shell" hidden>
-            <button class="button secondary building-button" id="building-button" type="button">🏗️ Start building</button>
+            <div class="coding-menu" id="coding-menu">
+              <div class="building-controls">
+                <button class="button secondary building-button" id="building-button" type="button">🏗️ Start building with Cezar</button>
+                <button class="button secondary coding-summary" id="coding-summary" type="button" aria-expanded="false" aria-controls="coding-menu-panel" disabled hidden>▾</button>
+              </div>
+              <div class="coding-menu-panel" id="coding-menu-panel" hidden></div>
+            </div>
             <div class="building-status" id="building-status" role="status" aria-live="polite" hidden></div>
-          </div>
-          <div class="coding-shell" id="coding-shell" hidden>
-            <details class="coding-menu" id="coding-menu">
-              <summary class="button secondary coding-summary" id="coding-summary" aria-disabled="true">🤖 Start coding with AI</summary>
-              <div class="coding-menu-panel" id="coding-menu-panel"></div>
-            </details>
-            <div class="coding-status" id="coding-status" hidden></div>
+            <div class="coding-shell" id="coding-shell" hidden>
+              <div class="coding-status" id="coding-status" role="status" aria-live="polite" hidden></div>
+            </div>
           </div>
           <div class="terminal-hint" id="terminal-hint">🖥 Keep terminal visible</div>
         </div>
@@ -1037,6 +1057,7 @@
       let buildingActionInFlight = false
       let gitRepoActionInFlight = false
       let codingMenuLayoutRaf = 0
+      let codingMenuMarkup = ''
       let activityListLayoutRaf = 0
       const translations = {
         en: {
@@ -1061,9 +1082,9 @@
           modeGreenfield: 'Greenfield dev flow',
           modeSetup: 'Project setup flow',
           modeEphemeral: 'Ephemeral dev flow',
-          codingButtonLabel: '🤖 Start coding with AI',
+          codingButtonLabel: 'Other coding agents',
           codingNoTools: 'No supported coding tools were detected on this machine.',
-          buildingButtonLabel: '🏗️ Start building',
+          buildingButtonLabel: '🏗️ Start building with Cezar',
           buildingTitle: 'Open Cezar for this project in a new terminal ({command})',
           buildingResult_starting: 'Starting Cezar in a new terminal…',
           buildingResult_started: 'Opened a new terminal running {command}. Cezar opens its cockpit in your browser when it is ready.',
@@ -1130,9 +1151,9 @@
           modeGreenfield: 'Tryb greenfield',
           modeSetup: 'Tryb konfiguracji projektu',
           modeEphemeral: 'Tymczasowy tryb dev',
-          codingButtonLabel: '🤖 Zacznij kodować z AI',
+          codingButtonLabel: 'Inni agenci programistyczni',
           codingNoTools: 'Na tej maszynie nie wykryto obsługiwanych narzędzi do kodowania.',
-          buildingButtonLabel: '🏗️ Zacznij budować',
+          buildingButtonLabel: '🏗️ Zacznij budować z Cezarem',
           buildingTitle: 'Otwórz Cezara dla tego projektu w nowym terminalu ({command})',
           buildingResult_starting: 'Uruchamianie Cezara w nowym terminalu…',
           buildingResult_started: 'Otwarto nowy terminal z {command}. Cezar otworzy kokpit w przeglądarce, gdy będzie gotowy.',
@@ -1199,9 +1220,9 @@
           modeGreenfield: 'Flujo dev greenfield',
           modeSetup: 'Flujo de configuración del proyecto',
           modeEphemeral: 'Flujo dev efímero',
-          codingButtonLabel: '🤖 Empezar a programar con IA',
+          codingButtonLabel: 'Otros agentes de programación',
           codingNoTools: 'No se detectaron herramientas de programacion compatibles en esta maquina.',
-          buildingButtonLabel: '🏗️ Empezar a construir',
+          buildingButtonLabel: '🏗️ Empezar a construir con Cezar',
           buildingTitle: 'Abrir Cezar para este proyecto en una nueva terminal ({command})',
           buildingResult_starting: 'Iniciando Cezar en una nueva terminal…',
           buildingResult_started: 'Se abrió una nueva terminal con {command}. Cezar abrirá su panel en el navegador cuando esté listo.',
@@ -1268,9 +1289,9 @@
           modeGreenfield: 'Greenfield-Dev-Ablauf',
           modeSetup: 'Projekt-Setup-Ablauf',
           modeEphemeral: 'Ephemerer Dev-Ablauf',
-          codingButtonLabel: '🤖 Mit KI programmieren',
+          codingButtonLabel: 'Andere Coding-Agenten',
           codingNoTools: 'Auf diesem Rechner wurden keine unterstuetzten Coding-Tools erkannt.',
-          buildingButtonLabel: '🏗️ Mit dem Bauen beginnen',
+          buildingButtonLabel: '🏗️ Mit Cezar bauen',
           buildingTitle: 'Cezar für dieses Projekt in einem neuen Terminal öffnen ({command})',
           buildingResult_starting: 'Cezar wird in einem neuen Terminal gestartet…',
           buildingResult_started: 'Ein neues Terminal mit {command} wurde geöffnet. Cezar öffnet sein Cockpit im Browser, sobald es bereit ist.',
@@ -1391,13 +1412,44 @@
         renderStaticText()
       })
 
+      function setCodingMenuOpen(open) {
+        const expanded = open && !buildingShell.hidden && !codingSummary.hidden && !codingSummary.disabled
+        codingMenuPanel.hidden = !expanded
+        codingSummary.setAttribute('aria-expanded', expanded ? 'true' : 'false')
+        if (expanded) scheduleCodingMenuLayout()
+      }
+
       document.addEventListener('click', (event) => {
-        if (!codingMenu.contains(event.target)) {
-          codingMenu.open = false
+        if (!codingMenu.contains(event.target)) setCodingMenuOpen(false)
+      })
+      codingMenu.addEventListener('pointerenter', (event) => {
+        if (event.pointerType === 'mouse') setCodingMenuOpen(true)
+      })
+      codingMenu.addEventListener('pointerleave', () => {
+        if (!codingMenu.contains(document.activeElement)) setCodingMenuOpen(false)
+      })
+      codingMenu.addEventListener('focusout', (event) => {
+        if (!codingMenu.contains(event.relatedTarget)) setCodingMenuOpen(false)
+      })
+      codingMenu.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') {
+          event.preventDefault()
+          setCodingMenuOpen(false)
+          codingSummary.focus()
+        } else if (event.key === 'ArrowDown' && (event.target === buildingButton || event.target === codingSummary)) {
+          event.preventDefault()
+          setCodingMenuOpen(true)
+          if (!codingMenuPanel.hidden) codingMenuPanel.querySelector('button:not([disabled])')?.focus()
         }
       })
-      codingMenu.addEventListener('toggle', () => {
-        scheduleCodingMenuLayout()
+      codingSummary.addEventListener('click', () => {
+        setCodingMenuOpen(codingMenuPanel.hidden)
+      })
+      codingMenuPanel.addEventListener('click', (event) => {
+        const button = event.target.closest('[data-coding-tool-id]')
+        if (!button || button.disabled) return
+        const toolId = button.getAttribute('data-coding-tool-id')
+        if (toolId) startCoding(toolId)
       })
       window.addEventListener('resize', () => {
         scheduleCodingMenuLayout()
@@ -1729,13 +1781,14 @@
       }
 
       buildingButton.addEventListener('click', () => {
+        setCodingMenuOpen(false)
         startBuilding()
       })
 
       async function startBuilding() {
         const codingBootstrap = splashBootstrap.codingFlow
         if (!codingBootstrap || codingBootstrap.enabled !== true) return
-        if (buildingActionInFlight) return
+        if (buildingActionInFlight || codingActionInFlight || lastState?.codingFlow?.busy === true) return
 
         buildingActionInFlight = true
         lastState = {
@@ -1749,6 +1802,7 @@
           },
         }
         renderBuildingFlow(lastState)
+        renderCodingFlow(lastState)
 
         try {
           const response = await fetch('/actions/start-building', {
@@ -1789,6 +1843,7 @@
         } finally {
           buildingActionInFlight = false
           renderBuildingFlow(lastState)
+          renderCodingFlow(lastState)
         }
       }
 
@@ -1817,7 +1872,7 @@
         const manualCommand = typeof building.manualCommand === 'string' && building.manualCommand
           ? building.manualCommand
           : 'npx cezar-run'
-        const busy = buildingActionInFlight || codingFlow?.busy === true
+        const busy = buildingActionInFlight || codingActionInFlight || codingFlow?.busy === true
         const available = building.available === true
 
         buildingButton.textContent = t('buildingButtonLabel')
@@ -1845,9 +1900,11 @@
       async function startCoding(toolId) {
         const codingBootstrap = splashBootstrap.codingFlow
         if (!codingBootstrap || codingBootstrap.enabled !== true) return
-        if (codingActionInFlight) return
+        if (codingActionInFlight || buildingActionInFlight || lastState?.codingFlow?.busy === true) return
 
         codingActionInFlight = true
+        setCodingMenuOpen(false)
+        renderBuildingFlow(lastState)
         renderCodingFlow(lastState)
 
         try {
@@ -1872,7 +1929,7 @@
             throw new Error(payload?.error || 'Unable to start the selected coding tool.')
           }
 
-          codingMenu.open = false
+          setCodingMenuOpen(false)
         } catch (error) {
           const message = error instanceof Error ? error.message : 'Unable to start the selected coding tool.'
           lastState = {
@@ -1888,12 +1945,13 @@
           }
         } finally {
           codingActionInFlight = false
+          renderBuildingFlow(lastState)
           renderCodingFlow(lastState)
         }
       }
 
       function updateCodingMenuLayout() {
-        if (codingShell.hidden) {
+        if (codingSummary.hidden) {
           delete codingMenu.dataset.align
           delete codingMenu.dataset.layout
           return
@@ -1947,8 +2005,10 @@
         const enabled = codingFlow?.enabled === true && splashBootstrap?.codingFlow?.enabled === true
 
         codingShell.hidden = !enabled || !ready
+        codingSummary.hidden = codingShell.hidden
         if (codingShell.hidden) {
-          codingMenu.open = false
+          setCodingMenuOpen(false)
+          codingMenuMarkup = ''
           codingMenuPanel.innerHTML = ''
           codingStatus.hidden = true
           delete codingMenu.dataset.align
@@ -1957,31 +2017,28 @@
         }
 
         const tools = Array.isArray(codingFlow?.tools) ? codingFlow.tools : []
-        const busy = codingActionInFlight || codingFlow?.busy === true
+        const busy = codingActionInFlight || buildingActionInFlight || codingFlow?.busy === true
         const menuDisabled = busy || tools.length === 0
 
-        codingSummary.textContent = t('codingButtonLabel')
-        codingSummary.setAttribute('aria-disabled', menuDisabled ? 'true' : 'false')
+        codingSummary.setAttribute('aria-label', t('codingButtonLabel'))
+        codingSummary.title = t('codingButtonLabel')
+        codingSummary.disabled = menuDisabled
 
         if (menuDisabled) {
-          codingMenu.open = false
+          setCodingMenuOpen(false)
         }
 
-        codingMenuPanel.innerHTML = tools.map((tool) => {
+        const markup = tools.map((tool) => {
           const safeId = escapeHtml(tool.id)
           const safeLabel = escapeHtml(tool.label)
           const safeDescription = escapeHtml(tool.description || '')
           return `<button class="coding-item" type="button" data-coding-tool-id="${safeId}" ${busy ? 'disabled' : ''}><span class="coding-item-title">${safeLabel}</span><span class="coding-item-description">${safeDescription}</span></button>`
         }).join('')
 
-        codingMenuPanel.querySelectorAll('[data-coding-tool-id]').forEach((button) => {
-          button.addEventListener('click', () => {
-            const selectedToolId = button.getAttribute('data-coding-tool-id')
-            if (selectedToolId) {
-              startCoding(selectedToolId)
-            }
-          })
-        })
+        if (markup !== codingMenuMarkup) {
+          codingMenuPanel.innerHTML = markup
+          codingMenuMarkup = markup
+        }
 
         const lastResult = codingFlow?.lastResult
         if (lastResult?.message) {
