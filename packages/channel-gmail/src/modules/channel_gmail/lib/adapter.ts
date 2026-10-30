@@ -43,6 +43,7 @@ import {
   getGmailApiClient,
   GmailApiError,
   type GmailApiClient,
+  type GmailGetMessageHeadersResponse,
   type GmailGetMessageRawResponse,
 } from './gmail-client'
 import {
@@ -88,6 +89,34 @@ const logger = createLogger('channel_gmail')
  *     the new historyId from the next `getProfile` call.
  */
 /**
+ * Overall budget for the post-send Message-ID read-back. The send is already
+ * accepted by Gmail but the hub has not persisted it yet, so this enrichment
+ * must not hold the worker on Gmail's retry/backoff schedule: one attempt,
+ * bounded by this deadline, and on expiry the client-built id is kept.
+ */
+export const SENT_MESSAGE_ID_READBACK_DEADLINE_MS = 5_000
+
+function withReadBackDeadline(
+  request: Promise<GmailGetMessageHeadersResponse>,
+): Promise<GmailGetMessageHeadersResponse> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const deadline = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(
+      () =>
+        reject(
+          new GmailApiError(
+            `Gmail Message-ID read-back exceeded ${SENT_MESSAGE_ID_READBACK_DEADLINE_MS}ms`,
+            599,
+            'read-back deadline exceeded',
+          ),
+        ),
+      SENT_MESSAGE_ID_READBACK_DEADLINE_MS,
+    )
+  })
+  return Promise.race([request, deadline]).finally(() => clearTimeout(timer))
+}
+
+/**
  * Gmail replaces the `Message-ID` of a message sent through `users.messages.send`
  * with one it mints itself, and the send response carries only `id`/`threadId`.
  * The recipient's reply, and Gmail's own copy picked up by the next poll, both
@@ -103,7 +132,12 @@ async function readSentMessageId(
 ): Promise<string | undefined> {
   if (!gmailMessageId || typeof api.getMessageHeaders !== 'function') return undefined
   try {
-    const message = await api.getMessageHeaders(auth, gmailMessageId, ['Message-ID'])
+    const message = await withReadBackDeadline(
+      api.getMessageHeaders(auth, gmailMessageId, ['Message-ID'], {
+        maxRetries: 0,
+        timeoutMs: SENT_MESSAGE_ID_READBACK_DEADLINE_MS,
+      }),
+    )
     const header = message.payload?.headers?.find((entry) => entry.name.toLowerCase() === 'message-id')
     return stripBrackets(header?.value)
   } catch (error) {

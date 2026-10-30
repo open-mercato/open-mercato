@@ -641,6 +641,7 @@ describe('deliverOutboundMessageCommand: provider ids of the sent message', () =
     mockFindOne.mockReset()
     mockFindOne
       .mockResolvedValueOnce({ id: 'msg-1', threadId: 'thread-1', body: 'hello', bodyFormat: 'text' } as never)
+      .mockResolvedValueOnce(link as never)
       .mockResolvedValueOnce(mapping as never)
       .mockResolvedValueOnce({
         id: 'ch-1',
@@ -651,11 +652,11 @@ describe('deliverOutboundMessageCommand: provider ids of the sent message', () =
         credentialsRef: null,
         status: 'connected',
       } as never)
-      .mockResolvedValueOnce(link as never)
   }
 
   function outboundMapping(): Record<string, any> {
     return {
+      id: 'map-1',
       messageThreadId: 'thread-1',
       channelId: 'ch-1',
       externalConversationId: 'conv-1',
@@ -722,6 +723,7 @@ describe('deliverOutboundMessageCommand: provider ids of the sent message', () =
     primeFinds(mapping, pendingLink())
     mockFindOne.mockResolvedValueOnce(conversation as never)
     mockFindOne.mockResolvedValueOnce(null as never)
+    mockFindOne.mockResolvedValueOnce({ ...mapping } as never)
 
     const result = await deliverOutboundMessageCommand.execute(
       { messageId: MSG, scope: { tenantId: TENANT, organizationId: ORG } } as never,
@@ -799,6 +801,72 @@ describe('deliverOutboundMessageCommand: provider ids of the sent message', () =
       expect.anything(),
     )
   })
+  it('treats an inbound insert racing the re-key as a conflict, without failing the delivery', async () => {
+    const reportError = jest.fn()
+    registerTelemetryRuntime({ reportError } as unknown as TelemetryRuntime)
+    const mapping = outboundMapping()
+    const parentEm: any = {
+      create: jest.fn((_entity: unknown, data: Record<string, any>) => ({ ...data })),
+      persist: jest.fn(),
+      flush: jest.fn(async () => undefined),
+    }
+    const adoptionFork: any = {
+      flush: jest.fn(async () => {
+        throw Object.assign(
+          new Error('duplicate key value violates unique constraint "external_conversations_channel_external_uq"'),
+          { code: '23505' },
+        )
+      }),
+    }
+    parentEm.fork = jest.fn().mockReturnValueOnce(parentEm).mockReturnValueOnce(adoptionFork)
+    const adapter = {
+      providerKey: 'gmail',
+      convertOutbound: jest.fn(async () => ({ content: { text: 'hi' }, metadata: {} })),
+      sendMessage: jest.fn(async () => ({
+        status: 'sent',
+        externalMessageId: '<client-built@gmail.com>',
+        conversationId: 'gmail-thread:gm-thread-1',
+      })),
+    }
+    const ctx = {
+      container: {
+        resolve: (name: string) => {
+          if (name === 'em') return parentEm
+          if (name === 'channelAdapterRegistry') return { get: () => adapter }
+          if (name === 'integrationCredentialsService') return { resolve: async () => ({}) }
+          if (name === 'integrationLogService') return { error: jest.fn() }
+          throw new Error(`unexpected resolve: ${name}`)
+        },
+      },
+    } as any
+    const link = pendingLink()
+    primeFinds(mapping, link)
+    mockFindOne.mockResolvedValueOnce({ id: 'conv-1', channelId: 'ch-1', externalConversationId: 'outbound:thread-1' } as never)
+    mockFindOne.mockResolvedValueOnce(null as never)
+    mockFindOne.mockResolvedValueOnce({ ...mapping } as never)
+
+    try {
+      const result = await deliverOutboundMessageCommand.execute(
+        { messageId: MSG, scope: { tenantId: TENANT, organizationId: ORG } } as never,
+        ctx,
+      )
+
+      expect((result as any).status).toBe('delivered')
+      expect(link.deliveryStatus).toBe('sent')
+      expect(adoptionFork.flush).toHaveBeenCalledTimes(1)
+      expect(parentEm.flush).toHaveBeenCalledTimes(1)
+      expect(mapping.externalThreadRef).toBe('outbound:thread-1')
+      expect(reportError).not.toHaveBeenCalled()
+      expect(mockEmit).toHaveBeenCalledWith(
+        'communication_channels.message.sent',
+        expect.objectContaining({ messageId: 'msg-1' }),
+        expect.anything(),
+      )
+    } finally {
+      resetTelemetryRuntime()
+    }
+  })
+
   describe('re-keying failure telemetry', () => {
     const reportError = jest.fn()
 
@@ -863,6 +931,7 @@ describe('deliverOutboundMessageCommand: provider ids of the sent message', () =
       primeFinds(outboundMapping(), pendingLink())
       mockFindOne.mockResolvedValueOnce({ id: 'conv-1', channelId: 'ch-1', externalConversationId: 'outbound:thread-1' } as never)
       mockFindOne.mockResolvedValueOnce(null as never)
+      mockFindOne.mockResolvedValueOnce(outboundMapping() as never)
 
       await deliverOutboundMessageCommand.execute(
         { messageId: MSG, scope: { tenantId: TENANT, organizationId: ORG } } as never,

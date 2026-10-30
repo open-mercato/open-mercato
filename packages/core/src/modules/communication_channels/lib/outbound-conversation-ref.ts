@@ -1,5 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { isUniqueViolation } from '@open-mercato/shared/lib/db/pg-errors'
 import { ChannelThreadMapping, ExternalConversation } from '../data/entities'
 
 /**
@@ -31,7 +32,12 @@ export type AdoptProviderConversationRefResult = 'adopted' | 'unchanged' | 'conf
  * provider returned a different, non-empty ref. When another conversation on
  * the same channel already owns that ref (an inbound message raced the send),
  * it is left alone and `conflict` is returned: merging two live conversations
- * is not this helper's job.
+ * is not this helper's job. The same holds when that owner is inserted between
+ * the lookup and the flush: the unique violation on
+ * `external_conversations_channel_external_uq` is reported as `conflict` too.
+ * The work runs on a fork of `em`, so a failed flush never leaves the caller's
+ * entity manager holding dirty state; the caller's `mapping` is updated only
+ * after the fork committed.
  */
 export async function adoptProviderConversationRef(
   em: EntityManager,
@@ -48,8 +54,9 @@ export async function adoptProviderConversationRef(
   if (isOutboundConversationRef(nextRef)) return 'unchanged'
 
   const dscope = { tenantId: args.scope.tenantId, organizationId: args.scope.organizationId }
+  const isolated = em.fork()
   const conversation = await findOneWithDecryption(
-    em,
+    isolated,
     ExternalConversation,
     {
       id: args.mapping.externalConversationId,
@@ -63,7 +70,7 @@ export async function adoptProviderConversationRef(
   if (!conversation || !isOutboundConversationRef(conversation.externalConversationId)) return 'unchanged'
 
   const owner = await findOneWithDecryption(
-    em,
+    isolated,
     ExternalConversation,
     {
       channelId: args.channelId,
@@ -76,8 +83,28 @@ export async function adoptProviderConversationRef(
   )
   if (owner) return 'conflict'
 
+  const mapping = await findOneWithDecryption(
+    isolated,
+    ChannelThreadMapping,
+    {
+      id: args.mapping.id,
+      channelId: args.channelId,
+      tenantId: args.scope.tenantId,
+      organizationId: args.scope.organizationId,
+    },
+    undefined,
+    dscope,
+  )
+  if (!mapping || !isOutboundConversationRef(mapping.externalThreadRef)) return 'unchanged'
+
   conversation.externalConversationId = nextRef
+  mapping.externalThreadRef = nextRef
+  try {
+    await isolated.flush()
+  } catch (error) {
+    if (isUniqueViolation(error)) return 'conflict'
+    throw error
+  }
   args.mapping.externalThreadRef = nextRef
-  await em.flush()
   return 'adopted'
 }

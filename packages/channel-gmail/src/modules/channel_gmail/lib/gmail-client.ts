@@ -75,6 +75,15 @@ export interface GmailGetMessageHeadersResponse {
   payload?: { headers?: Array<{ name: string; value: string }> }
 }
 
+/**
+ * Per-call overrides for one Gmail request. `maxRetries: 0` makes a single
+ * attempt; `timeoutMs` bounds that attempt instead of the env/default timeout.
+ */
+export interface GmailRequestOptions {
+  timeoutMs?: number
+  maxRetries?: number
+}
+
 export interface GmailSendRawInput {
   /** Base64URL-encoded RFC2822 message body. */
   rawBase64Url: string
@@ -120,7 +129,12 @@ export interface GmailApiClient {
    * existing `GmailApiClient` implementations (test fakes) keep compiling;
    * callers treat a missing method as "headers unavailable".
    */
-  getMessageHeaders?(auth: GmailApiAuth, messageId: string, headerNames: string[]): Promise<GmailGetMessageHeadersResponse>
+  getMessageHeaders?(
+    auth: GmailApiAuth,
+    messageId: string,
+    headerNames: string[],
+    options?: GmailRequestOptions,
+  ): Promise<GmailGetMessageHeadersResponse>
   getProfile(auth: GmailApiAuth): Promise<GmailProfileResponse>
   trashMessage(auth: GmailApiAuth, messageId: string): Promise<void>
   /** Spec C — `gmail.users.watch` registers a Pub/Sub topic for push delivery. */
@@ -168,11 +182,12 @@ class FetchGmailApiClient implements GmailApiClient {
     auth: GmailApiAuth,
     messageId: string,
     headerNames: string[],
+    options?: GmailRequestOptions,
   ): Promise<GmailGetMessageHeadersResponse> {
     const url = new URL(`${GMAIL_API_BASE}/users/me/messages/${encodeURIComponent(messageId)}`)
     url.searchParams.set('format', 'metadata')
     for (const name of headerNames) url.searchParams.append('metadataHeaders', name)
-    return this.requestJson<GmailGetMessageHeadersResponse>(auth, url, 'GET')
+    return this.requestJson<GmailGetMessageHeadersResponse>(auth, url, 'GET', undefined, options)
   }
 
   async sendRawMessage(auth: GmailApiAuth, input: GmailSendRawInput): Promise<GmailSendResponse> {
@@ -207,7 +222,15 @@ class FetchGmailApiClient implements GmailApiClient {
     await this.requestJson(auth, url, 'POST')
   }
 
-  private async requestJson<T>(auth: GmailApiAuth, url: URL, method: 'GET' | 'POST', body?: unknown): Promise<T> {
+  private async requestJson<T>(
+    auth: GmailApiAuth,
+    url: URL,
+    method: 'GET' | 'POST',
+    body?: unknown,
+    options?: GmailRequestOptions,
+  ): Promise<T> {
+    const maxRetries = options?.maxRetries ?? GMAIL_MAX_RETRIES
+    const timeoutMs = options?.timeoutMs ?? resolveGmailRequestTimeoutMs()
     const headers: Record<string, string> = {
       Authorization: `Bearer ${auth.accessToken}`,
     }
@@ -222,7 +245,7 @@ class FetchGmailApiClient implements GmailApiClient {
     // documented mitigation for rate-limit + server-side transient errors.
     let attempt = 0
     let lastError: GmailApiError | null = null
-    while (attempt <= GMAIL_MAX_RETRIES) {
+    while (attempt <= maxRetries) {
       let res: Response
       try {
         res = await fetchWithTimeout(url.toString(), {
@@ -231,7 +254,7 @@ class FetchGmailApiClient implements GmailApiClient {
           body: payload,
           // Bound each attempt so a stalled connection fails fast instead of
           // hanging on undici's multi-minute default and pinning the worker slot.
-          timeoutMs: resolveGmailRequestTimeoutMs(),
+          timeoutMs,
         })
       } catch (err) {
         // A timed-out/aborted connection is transient — let the bounded retry
@@ -248,7 +271,7 @@ class FetchGmailApiClient implements GmailApiClient {
           599,
           'request timed out',
         )
-        if (attempt === GMAIL_MAX_RETRIES) throw timeoutError
+        if (attempt === maxRetries) throw timeoutError
         lastError = timeoutError
         await sleep(computeBackoff(attempt))
         attempt += 1
@@ -271,7 +294,7 @@ class FetchGmailApiClient implements GmailApiClient {
         // Gmail signals per-user/project quota exhaustion with HTTP 403 +
         // `rateLimitExceeded`/`userRateLimitExceeded` (not only 429).
         (res.status === 403 && isRateLimit403(text))
-      if (!transient || attempt === GMAIL_MAX_RETRIES) {
+      if (!transient || attempt === maxRetries) {
         throw apiError
       }
       lastError = apiError

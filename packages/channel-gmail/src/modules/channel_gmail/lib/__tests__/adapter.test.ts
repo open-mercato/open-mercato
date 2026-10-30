@@ -9,7 +9,7 @@ import {
   setGoogleOAuthClient,
   type GoogleOAuthClient,
 } from '../oauth'
-import { getGmailChannelAdapter } from '../adapter'
+import { getGmailChannelAdapter, SENT_MESSAGE_ID_READBACK_DEADLINE_MS } from '../adapter'
 import { gmailCapabilities } from '../capabilities'
 import {
   registerTelemetryRuntime,
@@ -331,6 +331,95 @@ describe('GmailChannelAdapter.sendMessage', () => {
     expect(result.status).toBe('sent')
     expect(result.externalMessageId).toMatch(/^<[^@]+@gmail\.com>$/)
     expect(result.metadata).not.toHaveProperty('messageId')
+  })
+
+  describe('Message-ID read-back deadline', () => {
+    afterEach(() => {
+      jest.useRealTimers()
+      resetTelemetryRuntime()
+    })
+
+    it('asks the client for a single attempt bounded by the read-back deadline', async () => {
+      const optionsSeen: unknown[] = []
+      setGmailApiClient(
+        buildSendApi({
+          getMessageHeaders: async (_auth, messageId, _headerNames, options) => {
+            optionsSeen.push(options)
+            return {
+              id: messageId,
+              threadId: 'gm-thread-out',
+              payload: { headers: [{ name: 'Message-ID', value: '<minted@mail.gmail.com>' }] },
+            }
+          },
+        }),
+      )
+
+      await getGmailChannelAdapter().sendMessage(sendInput)
+
+      expect(optionsSeen).toEqual([{ maxRetries: 0, timeoutMs: SENT_MESSAGE_ID_READBACK_DEADLINE_MS }])
+    })
+
+    it('returns the accepted send as sent once the deadline passes, even when the headers never arrive', async () => {
+      jest.useFakeTimers()
+      const reportError = jest.fn()
+      registerTelemetryRuntime({ reportError } as unknown as TelemetryRuntime)
+      setGmailApiClient(
+        buildSendApi({
+          getMessageHeaders: () => new Promise(() => undefined),
+        }),
+      )
+
+      let settled = false
+      const pending = getGmailChannelAdapter()
+        .sendMessage(sendInput)
+        .then((result) => {
+          settled = true
+          return result
+        })
+
+      await jest.advanceTimersByTimeAsync(SENT_MESSAGE_ID_READBACK_DEADLINE_MS - 1)
+      expect(settled).toBe(false)
+
+      await jest.advanceTimersByTimeAsync(1)
+      const result = await pending
+
+      expect(result.status).toBe('sent')
+      expect(result.externalMessageId).toMatch(/^<[^@]+@gmail\.com>$/)
+      expect(result.metadata).toMatchObject({ gmailMessageId: 'gm-out-1', gmailThreadId: 'gm-thread-out' })
+      expect(result.metadata).not.toHaveProperty('messageId')
+      expect(reportError).toHaveBeenCalledTimes(1)
+      expect(reportError.mock.calls[0][1]).toMatchObject({
+        code: 'channel_gmail.sent_message_id_readback_failed',
+      })
+    })
+
+    it('uses headers that arrive late but within the deadline', async () => {
+      jest.useFakeTimers()
+      setGmailApiClient(
+        buildSendApi({
+          getMessageHeaders: (_auth, messageId) =>
+            new Promise((resolve) => {
+              setTimeout(
+                () =>
+                  resolve({
+                    id: messageId,
+                    threadId: 'gm-thread-out',
+                    payload: { headers: [{ name: 'Message-ID', value: '<late@mail.gmail.com>' }] },
+                  }),
+                SENT_MESSAGE_ID_READBACK_DEADLINE_MS - 100,
+              )
+            }),
+        }),
+      )
+
+      const pending = getGmailChannelAdapter().sendMessage(sendInput)
+      await jest.advanceTimersByTimeAsync(SENT_MESSAGE_ID_READBACK_DEADLINE_MS)
+      const result = await pending
+
+      expect(result.status).toBe('sent')
+      expect(result.metadata).toMatchObject({ messageId: 'late@mail.gmail.com' })
+      expect(jest.getTimerCount()).toBe(0)
+    })
   })
 
   describe('Message-ID read-back failure telemetry', () => {
