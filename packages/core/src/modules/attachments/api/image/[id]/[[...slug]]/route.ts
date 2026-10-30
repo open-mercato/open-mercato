@@ -1,3 +1,5 @@
+import { createAttachmentAccessContext, evaluateAttachmentAccess } from '../../../../lib/access-runner'
+import { attachmentAccessErrorResponse } from '../../../../lib/access-errors'
 import { NextRequest, NextResponse } from 'next/server'
 import sharp, { type ResizeOptions } from 'sharp'
 import { z } from 'zod'
@@ -71,17 +73,16 @@ export async function GET(
   if (!attachment) {
     return NextResponse.json({ error: 'Not found' }, { status: 404 })
   }
-  if (!canRenderInlineAttachment(attachment.mimeType)) {
-    return NextResponse.json({ error: 'Unsupported media type' }, { status: 400 })
-  }
   const partition = await em.findOne(AttachmentPartition, { code: attachment.partitionCode })
   if (!partition) {
     return NextResponse.json({ error: 'Partition misconfigured' }, { status: 500 })
   }
-  const access = checkAttachmentAccess(scopedAuth, attachment, partition)
-  if (!access.ok) {
-    const message = access.status === 401 ? 'Unauthorized' : 'Forbidden'
-    return NextResponse.json({ error: message }, { status: access.status })
+  const access = await evaluateAttachmentAccess({
+    auth: scopedAuth, attachment, partition, action: 'render', context: createAttachmentAccessContext(container),
+  })
+  if (!access.ok) return attachmentAccessErrorResponse(access)
+  if (!canRenderInlineAttachment(attachment.mimeType)) {
+    return NextResponse.json({ error: 'Unsupported media type' }, { status: 400 })
   }
 
   const driver = await storageDriverFactory.resolveForPartition(attachment.partitionCode, {
@@ -136,7 +137,7 @@ export async function GET(
     return new NextResponse(responseBody, {
       headers: {
         'Content-Type': attachment.mimeType || 'image/jpeg',
-        'Cache-Control': checkAttachmentAccess(null, attachment, partition).ok ? 'public, max-age=3600' : 'private, max-age=60',
+        'Cache-Control': access.protected ? 'private, no-store' : checkAttachmentAccess(null, attachment, partition).ok ? 'public, max-age=3600' : 'private, max-age=60',
         'X-Content-Type-Options': 'nosniff',
       },
     })
@@ -166,6 +167,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 403, description: 'Forbidden - insufficient permissions', schema: attachmentErrorSchema },
         { status: 404, description: 'Image not found', schema: attachmentErrorSchema },
         { status: 500, description: 'Partition misconfigured or image rendering failed', schema: attachmentErrorSchema },
+        { status: 504, description: 'Owner authorization timed out', schema: attachmentErrorSchema },
       ],
     },
   },

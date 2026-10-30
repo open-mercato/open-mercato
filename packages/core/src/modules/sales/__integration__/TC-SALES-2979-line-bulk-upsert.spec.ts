@@ -167,6 +167,51 @@ async function seedOrder(
 }
 
 test.describe('TC-SALES-2979: bulk order-line upsert over HTTP', () => {
+  test('parallel batch and single appends preserve every row and stored totals', async ({ request }) => {
+    const token = await getAuthToken(request, 'admin')
+    let orderId: string | null = null
+    try {
+      orderId = await createSalesOrderFixture(request, token, CURRENCY)
+      const original = await readLines(request, token, orderId)
+      const stamp = randomUUID()
+      const batches = Array.from({ length: 4 }, (_, index) => [body(`Batch ${stamp} ${index} a`, 1, index + 4), body(`Batch ${stamp} ${index} b`, 2, index + 2)])
+      const singles = Array.from({ length: 4 }, (_, index) => body(`Single ${stamp} ${index}`, 3, index + 1))
+      await Promise.all([
+        ...batches.map(async lines => {
+          const response = await apiRequest(request, 'POST', BATCH_PATH, { token, retryTransport: false, data: { orderId, lines } })
+          expect(response.status()).toBe(200)
+          expect((await readJsonSafe<{ lineIds: string[] }>(response))?.lineIds).toHaveLength(2)
+        }),
+        ...singles.map(async line => {
+          const response = await apiRequest(request, 'POST', LINES_PATH, { token, retryTransport: false, data: { orderId, ...line } })
+          expect(response.status()).toBe(201)
+        }),
+      ])
+      const lines = await readLines(request, token, orderId)
+      const added = [...batches.flat(), ...singles]
+      expect(lines).toHaveLength(original.length + added.length)
+      expect(new Set(lines.map(line => line.id)).size).toBe(lines.length)
+      expect(lines.map(lineNumberOf)).toEqual(Array.from({ length: lines.length }, (_, index) => index + 1))
+      for (const line of added) {
+        const persisted = lines.filter(row => lineNameOf(row) === line.name)
+        expect(persisted).toHaveLength(1)
+        expect(num(persisted[0].quantity)).toBe(line.quantity)
+        expect(lineGrossOf(persisted[0])).toBe(line.quantity * line.unitPriceGross)
+      }
+      const total = original.reduce((sum, line) => sum + lineGrossOf(line), 0) + added.reduce((sum, line) => sum + line.quantity * line.unitPriceGross, 0)
+      const order = await readOrder(request, token, orderId)
+      expect(orderLineCountOf(order)).toBe(lines.length)
+      expect(orderGrossOf(order)).toBe(total)
+      expect(orderNetOf(order)).toBe(total)
+    } finally {
+      if (orderId) {
+        const removed = await apiRequest(request, 'DELETE', ORDERS_PATH, { token, data: { id: orderId } })
+        expect(removed.status()).toBe(200)
+        expect(await readLines(request, token, orderId)).toHaveLength(0)
+      }
+    }
+  })
+
   test('external batches preserve supplied totals and reject incomplete or mixed writes atomically', async ({ request }) => {
     const token = await getAuthToken(request, 'admin')
     const totals = { subtotalNetAmount: 21.03, subtotalGrossAmount: 25.23, discountTotalAmount: 0, taxTotalAmount: 4.2, grandTotalNetAmount: 21.03, grandTotalGrossAmount: 25.23 }

@@ -414,6 +414,15 @@ call rather than this change's.
 
 ## Changelog
 
+### 2026-10-30 — Share the serialized order-graph write boundary
+
+After the main-branch concurrency fix (#6463/#6925), both single and batch line writes
+use `writeLockedOrderGraph`: scope and row lock precede line reads, the refreshed parent
+version is checked under the lock, audit snapshots are captured in the same transaction,
+and totals events publish after commit. The extracted per-line builder and external
+amount checks stay shared. Deterministic overlap coverage exercises batch→single,
+single→batch and batch→batch appends; native coverage retains both writers' rows/totals.
+
 ### 2026-10-30 — Integrate external amounts from main
 
 The optional batch-envelope `orderTotals` uses the existing external header schema.

@@ -81,6 +81,12 @@ const STATUS_ENTRY_ID = '11111111-1111-4111-8111-111111111111'
 const TOTALS_EVENT = 'sales.document.totals.calculated'
 
 type TestWhere = Record<string, unknown>
+type TestLockQuery = {
+  select: (column: string) => TestLockQuery
+  where: (column: string, operator: string, value: unknown) => TestLockQuery
+  forNoKeyUpdate: () => TestLockQuery
+  executeTakeFirst: () => Promise<{ id: string } | undefined>
+}
 
 /** `{ $in: [...] }` or a bare id, as the command's queries spell them. */
 function readIdList(value: unknown): string[] {
@@ -235,6 +241,7 @@ type TestEntityManager = {
   getUnitOfWork: () => { unsetIdentity: jest.Mock }
   getReference: jest.Mock
   getConnection: () => { execute: jest.Mock }
+  getKysely: () => { selectFrom: (table: string) => TestLockQuery }
 }
 
 function makeEm(world: World, trace: string[] = []): TestEntityManager {
@@ -292,6 +299,19 @@ function makeEm(world: World, trace: string[] = []): TestEntityManager {
     getUnitOfWork: () => ({ unsetIdentity }),
     getReference: jest.fn((_entityClass: unknown, id: string) => ({ id })),
     getConnection: () => ({ execute: jest.fn(async () => [{ value: 1 }]) }),
+    getKysely: () => ({
+      selectFrom: () => {
+        const columns: Record<string, unknown> = { id: world.order.id, tenant_id: world.order.tenantId, organization_id: world.order.organizationId, deleted_at: world.order.deletedAt }
+        let matches = true
+        const query: TestLockQuery = {
+          select: () => query,
+          where: (column, _operator, value) => { matches = matches && columns[column] === value; return query },
+          forNoKeyUpdate: () => { trace.push('order-lock'); return query },
+          executeTakeFirst: async () => matches ? { id: world.order.id } : undefined,
+        }
+        return query
+      },
+    }),
   }
   return em
 }
