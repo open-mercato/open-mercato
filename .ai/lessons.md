@@ -1,6 +1,6 @@
 # Lessons
 
-This catalog indexes 159 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
+This catalog indexes 163 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
 
 ## How to use this catalog
 
@@ -25,6 +25,9 @@ This catalog indexes 159 focused lessons. Route the task first, then read only r
 - [Serialize dev-session stale recovery across ownership changes](lessons/serialize-dev-session-stale-recovery.md) — area:architecture,testing,debugging; module:create_app; topic:dev-runtime,concurrency,template-sync
 
 - [Business extensions belong to the owning module](lessons/business-extensions-belong-to-the-owning-module.md) — area:architecture,backend-ui,testing; module:customers,example,shared,ui; topic:module-boundaries,testing,template-sync
+- [Durable owner policies need visible partition state](lessons/durable-owner-policies-need-visible-partition-state.md) — area:module-data,architecture,testing; module:attachments; topic:access-control,data-integrity,database-migrations
+- [Real WebAuthn tests need a valid relying-party hostname](lessons/real-webauthn-tests-need-valid-rp-hostname.md) — area:testing,integration; module:security; topic:webauthn,testing
+- [Provider validation boundaries must catch synchronous errors](lessons/provider-validation-boundaries-must-catch-synchronous-errors.md) — area:architecture,testing; module:security; topic:validation-errors,provider-lifecycle
 
 - [Durable quota reservations need fenced leases, conditional creates, and bounded sizes](lessons/durable-quota-reservations-need-fenced-leases.md) — area:architecture,module-data; module:attachments,storage_s3; topic:data-scoping,command-pattern,database-migrations
 - [Encode untrusted Markdown fragments as data, not chained escapes](lessons/encode-untrusted-markdown-fragments-as-data.md) — area:architecture,testing; module:platform; topic:network-security,testing
@@ -111,7 +114,7 @@ This catalog indexes 159 focused lessons. Route the task first, then read only r
 
 ### backend-ui
 
-- [Design-system coverage needs a source inventory and visual checks](lessons/design-system-coverage-needs-a-source-inventory.md) — area:backend-ui,testing; module:ui,design_system; topic:design-system,ui-components,visual-testing,native-navigation,realtime,dev-runtime
+- [Design-system coverage needs a source inventory and visual checks](lessons/design-system-coverage-needs-a-source-inventory.md) — area:backend-ui,testing; module:ui,design_system,security; topic:design-system,ui-components,visual-testing,native-navigation,realtime,dev-runtime
 - [Write-only secret editors need explicit unchanged intent and separate form state](lessons/write-only-secret-editors-need-explicit-unchanged-intent.md) — area:backend-ui,integration,testing; module:integrations,ui; topic:data-integrity,ui-components,testing
 - [Always propagate structured conflict payload from `onBeforeSave` blockers](lessons/always-propagate-structured-conflict-payload-from.md) — area:backend-ui,umes,debugging; module:ui; topic:concurrency,optimistic-locking,ui-components
 - [Async edit selects must be hydrated as value-plus-options](lessons/async-edit-selects-must-be-hydrated-as-value-plus.md) — area:backend-ui,integration,testing; module:checkout,entities,ui; topic:custom-fields,filters,testing
@@ -205,6 +208,7 @@ This catalog indexes 159 focused lessons. Route the task first, then read only r
 
 ### framework-context
 
+- [Check pending compatibility disclosures as a union](lessons/check-pending-compatibility-disclosures-as-a-union.md) — area:framework-context,spec-pr,testing; module:create_app,attachments; topic:backward-compatibility,instruction-budget,testing
 - [Docker entrypoints must verify required binaries, not just non-empty node_modules](lessons/docker-entrypoints-must-verify-required-binaries-not.md) — area:framework-context,module-data,architecture; module:cli,create_app; topic:build-output,command-pattern,package-runtime
 - [Standalone agent context must follow the installed package, not the checkout layout](lessons/standalone-agent-context-must-follow-the-installed.md) — area:framework-context,architecture; module:checkout,create_app; topic:generated-files,database-migrations,package-runtime
 - [Standalone source-mirror discovery must remap source extensions to runtime files](lessons/standalone-source-mirror-discovery-must-remap-source.md) — area:framework-context,architecture,umes; module:create_app,cli; topic:access-control,build-output,generated-files

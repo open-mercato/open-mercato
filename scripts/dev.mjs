@@ -51,6 +51,7 @@ import {
   looksLikeUninitializedDatabase,
   nextMcpKeyRetryDelayMs,
   nextMcpRestartDelayMs,
+  resolveDevMcpHost,
   resolveMcpKeyFilePath,
   resolveMcpPort,
   selectAvailableMcpPort,
@@ -2506,7 +2507,9 @@ async function runMcpLifecycle() {
     const capturedLines = []
     const attemptedPort = mcpPort
     let childListening = false
-    const child = spawnMcpCommand(['mcp:serve-http', '--port', String(attemptedPort)], 'MCP server', (line) => {
+    const devMcpHost = resolveDevMcpHost({ env: process.env })
+    const mcpArgs = ['mcp:serve-http', '--port', String(attemptedPort), ...(devMcpHost ? ['--host', devMcpHost] : [])]
+    const child = spawnMcpCommand(mcpArgs, 'MCP server', (line) => {
       capturedLines.push(line)
       if (capturedLines.length > 200) capturedLines.shift()
       if (looksLikeMcpServerListening([line])) childListening = true
