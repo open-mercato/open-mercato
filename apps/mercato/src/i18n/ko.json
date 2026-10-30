@@ -731,8 +731,6 @@
   "ui.calendar.selectMonthAndYear": "월 및 연도 선택",
   "ui.collapsible.errorPlural": "오류 {{count}}개",
   "ui.collapsible.errorSingular": "오류 {{count}}개",
-  "ui.collapsible.fieldPlural": "필드",
-  "ui.collapsible.fieldSingular": "필드",
   "ui.colorPicker.error.invalidHex": "유효하지 않은 16진수 값",
   "ui.colorPicker.eyedropper.ariaLabel": "화면에서 색상 선택",
   "ui.colorPicker.opacity": "불투명도",

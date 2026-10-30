@@ -31,7 +31,6 @@
   "attachments.library.actions.upload": "Hochladen",
   "attachments.library.confirm.delete": "Anhang \"{{name}}\" löschen? Diese Aktion kann nicht rückgängig gemacht werden.",
   "attachments.library.delete": "Anhang löschen",
-  "attachments.library.description": "Durchsuchen, taggen und verwalten Sie alle in diesem Arbeitsbereich gespeicherten Dateien.",
   "attachments.library.errors.delete": "Anhang konnte nicht gelöscht werden.",
   "attachments.library.errors.load": "Anhänge konnten nicht geladen werden.",
   "attachments.library.errors.saveBlocked": "Änderung des Anhangs durch Validierung blockiert.",

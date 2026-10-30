@@ -243,15 +243,13 @@ function AttachmentsSectionImpl({
   )
 
   const sectionTitle = title ?? t('attachments.library.title', 'Attachments')
-  const sectionDescription =
-    description ?? t('attachments.library.description', 'Browse, tag, and manage every file stored in this workspace.')
 
   return (
     <div className={cn('space-y-4', className)}>
       {showHeader ? (
         <div className="space-y-1">
           <div className="text-base font-medium">{sectionTitle}</div>
-          <div className="text-sm text-muted-foreground">{sectionDescription}</div>
+          {description ? <div className="text-sm text-muted-foreground">{description}</div> : null}
         </div>
       ) : null}
 

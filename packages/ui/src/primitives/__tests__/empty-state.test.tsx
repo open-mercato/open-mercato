@@ -69,11 +69,18 @@ describe('EmptyState primitive', () => {
     expect(screen.queryByRole('button', { name: /Legacy/i })).not.toBeInTheDocument()
   })
 
-  it('default variant renders dashed border + bg-muted/30', () => {
-    const { container } = render(<EmptyState title="Default" />)
+  it('outlined variant renders dashed border + bg-muted/30', () => {
+    const { container } = render(<EmptyState title="Outlined" variant="outlined" />)
     const root = container.querySelector('[data-slot="empty-state"]')
     expect(root!.className).toContain('border-dashed')
     expect(root!.className).toContain('bg-muted/30')
+  })
+
+  it('default variant draws no frame, so it nests inside cards and tabs without doubling chrome', () => {
+    const { container } = render(<EmptyState title="Default" />)
+    const root = container.querySelector('[data-slot="empty-state"]')
+    expect(root!.className).not.toContain('border-dashed')
+    expect(root!.className).not.toContain('bg-muted/30')
   })
 
   it('subtle variant has no border and no muted background', () => {
@@ -127,10 +134,10 @@ describe('EmptyState primitive', () => {
     expect(sm.querySelector('[data-slot="empty-state"]')!.className).toContain('py-6')
 
     const { container: dft } = render(<EmptyState title="X" />)
-    expect(dft.querySelector('[data-slot="empty-state"]')!.className).toContain('py-10')
+    expect(dft.querySelector('[data-slot="empty-state"]')!.className).toContain('py-8')
 
     const { container: lg } = render(<EmptyState title="X" size="lg" />)
-    expect(lg.querySelector('[data-slot="empty-state"]')!.className).toContain('py-16')
+    expect(lg.querySelector('[data-slot="empty-state"]')!.className).toContain('py-12')
   })
 
   it('forwards className to the root element', () => {

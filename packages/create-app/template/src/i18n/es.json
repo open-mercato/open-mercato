@@ -731,8 +731,6 @@
   "ui.calendar.selectMonthAndYear": "Seleccionar mes y año",
   "ui.collapsible.errorPlural": "{{count}} errors",
   "ui.collapsible.errorSingular": "{{count}} error",
-  "ui.collapsible.fieldPlural": "fields",
-  "ui.collapsible.fieldSingular": "field",
   "ui.colorPicker.error.invalidHex": "Código hex no válido",
   "ui.colorPicker.eyedropper.ariaLabel": "Elegir color de la pantalla",
   "ui.colorPicker.opacity": "Opacidad",
