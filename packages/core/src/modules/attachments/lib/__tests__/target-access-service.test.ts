@@ -1,3 +1,7 @@
+import type { AwilixContainer } from 'awilix'
+import { createAttachmentAccessContext } from '../access-runner'
+import { registerAttachmentAccessResolvers } from '../access-registry'
+import type { AttachmentAccessDecision, AttachmentAccessInput } from '../access-types'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { AttachmentTargetAccessService } from '../target-access-service'
 
@@ -77,5 +81,62 @@ describe('AttachmentTargetAccessService', () => {
     })
 
     await expect(service.canAccessLinkedTarget(input)).resolves.toBe(false)
+  })
+})
+
+describe('AttachmentTargetAccessService owner policy boundary', () => {
+  const resolverId = 'documents.link-test'
+  const resolveOwner = jest.fn(async (_input: AttachmentAccessInput): Promise<AttachmentAccessDecision> => (
+    { ok: false, status: 404, reason: 'document_not_found' }
+  ))
+  const linkedInput = { ...input, targets: [{ entityId: 'documents:document', recordId: 'document-1' }] }
+
+  function harness(withContext = true) {
+    const base = makeService({
+      id: 'attachment-1', tenantId, organizationId, partitionCode: 'private',
+      entityId: 'documents:document', recordId: 'document-1', storageMetadata: null,
+      fileName: 'file.txt', mimeType: 'text/plain',
+    })
+    jest.mocked(base.em.findOne).mockResolvedValue({
+      code: 'private', isPublic: false,
+      accessResolverRequirements: [{ resolverId, targetEntity: 'documents:document' }],
+    } as never)
+    const container = { resolve: () => ({
+      loadAcl: async () => ({ isSuperAdmin: false, organizations: null }),
+      getEffectiveFeatures: async () => ['documents.view'],
+    }) } as unknown as AwilixContainer
+    return new AttachmentTargetAccessService(base.em,
+      withContext ? () => createAttachmentAccessContext(container) : null)
+  }
+
+  beforeEach(() => {
+    findOneWithDecryptionMock.mockReset()
+    resolveOwner.mockReset()
+    resolveOwner.mockResolvedValue({ ok: false, status: 404, reason: 'document_not_found' })
+    registerAttachmentAccessResolvers([{ moduleId: 'documents', resolvers: [{
+      id: resolverId, targetPartition: '*', targetEntity: 'documents:document', resolve: resolveOwner,
+    }] }])
+  })
+  afterEach(() => registerAttachmentAccessResolvers([]))
+
+  it('does not treat a matching link as owner authorization', async () => {
+    await expect(harness().canAccessLinkedTarget(linkedInput)).resolves.toBe(false)
+    expect(resolveOwner).toHaveBeenCalledWith(expect.objectContaining({ action: 'read' }))
+  })
+
+  it.each(['missing-context', 'missing-provider'])('rejects a protected matching link with %s', async (failure) => {
+    if (failure === 'missing-provider') registerAttachmentAccessResolvers([])
+    await expect(harness(failure !== 'missing-context').canAccessLinkedTarget(linkedInput)).resolves.toBe(false)
+    expect(resolveOwner).not.toHaveBeenCalled()
+  })
+
+  it('requires expected link membership even after owner policy allows', async () => {
+    resolveOwner.mockResolvedValue({ ok: true })
+    const service = harness()
+    await expect(service.canAccessLinkedTarget(linkedInput)).resolves.toBe(true)
+    await expect(service.canAccessLinkedTarget({ ...linkedInput,
+      targets: [{ entityId: 'documents:document', recordId: 'unrelated-document' }],
+    })).resolves.toBe(false)
+    expect(resolveOwner).toHaveBeenCalledTimes(2)
   })
 })

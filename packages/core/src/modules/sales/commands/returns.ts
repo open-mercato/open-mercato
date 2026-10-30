@@ -13,7 +13,9 @@ import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/
 import { SalesDocumentNumberGenerator } from '../services/salesDocumentNumberGenerator'
 import type { SalesCalculationService } from '../services/salesCalculationService'
 import type { SalesAdjustmentDraft, SalesLineSnapshot, SalesDocumentCalculationResult } from '../lib/types'
-import { cloneJson, deriveLineNetFromGross, ensureOrganizationScope, ensureSameScope, ensureTenantScope, extractUndoPayload, toNumericString, enforceSalesDocumentOptimisticLock, SALES_RESOURCE_KIND_ORDER, SALES_RESOURCE_KIND_RETURN } from './shared'
+import { isExternalAmountsMode } from '../lib/calculations'
+import { readPersistedHeaderTotals } from '../lib/externalAmounts'
+import { cloneJson, deriveLineNetFromGross, ensureOrganizationScope, ensureSameScope, ensureTenantScope, extractUndoPayload, toNumericString, enforceSalesDocumentOptimisticLock, lockSalesDocumentRow, SALES_RESOURCE_KIND_ORDER, SALES_RESOURCE_KIND_RETURN } from './shared'
 import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
 import { SalesOrder, SalesOrderAdjustment, SalesOrderLine, SalesReturn, SalesReturnLine } from '../data/entities'
 import { mapOrderLineEntityToSnapshot } from '../lib/lineSnapshots'
@@ -136,6 +138,24 @@ function applyOrderTotals(order: SalesOrder, totals: SalesDocumentCalculationRes
   order.lineItemCount = lineCount
 }
 
+// Deliberate, not an omission: an external order's header belongs to the source
+// system, which issues its own credit document. The return itself is still recorded.
+function applyOrderTotalsUnlessExternal(
+  order: SalesOrder,
+  calculation: SalesDocumentCalculationResult,
+): void {
+  if (isExternalAmountsMode(order.totalsMode ?? 'computed')) return
+  applyOrderTotals(order, calculation.totals, calculation.lines.length)
+}
+
+function resolveOrderCalculationMode(order: SalesOrder) {
+  const totalsMode = order.totalsMode ?? 'computed'
+  return {
+    totalsMode,
+    suppliedTotals: isExternalAmountsMode(totalsMode) ? readPersistedHeaderTotals(order) : null,
+  }
+}
+
 function mapOrderAdjustmentToDraft(adjustment: SalesOrderAdjustment): SalesAdjustmentDraft {
   return {
     id: adjustment.id,
@@ -207,6 +227,7 @@ export async function recalculateOrderTotalsForDisplay(
     adjustments: adjustmentDrafts,
     context: buildCalculationContext(order),
     existingTotals: resolveExistingPaymentTotals(order),
+    ...resolveOrderCalculationMode(order),
   })
   return calculation.totals
 }
@@ -297,6 +318,21 @@ async function loadReturnHeaderSnapshot(em: EntityManager, id: string): Promise<
   }
 }
 
+async function lockReturnOrder(
+  em: EntityManager,
+  orderId: string,
+  scope: { tenantId: string; organizationId: string },
+): Promise<SalesOrder | null> {
+  if (!(await lockSalesDocumentRow(em, 'sales_orders', orderId, scope))) return null
+  return findOneWithDecryption(
+    em,
+    SalesOrder,
+    { id: orderId, deletedAt: null, ...scope },
+    { refresh: true },
+    scope,
+  )
+}
+
 /**
  * Reverse the order-level effects of a return: restore each order line's
  * `returnedQuantity`, drop the return's line-scoped credit adjustments, remove
@@ -317,21 +353,18 @@ async function reverseReturnEffects(
   salesCalculationService: SalesCalculationService,
   snapshot: ReturnSnapshot,
 ): Promise<void> {
-  const order = await findOneWithDecryption(
-    em,
-    SalesOrder,
-    { id: snapshot.orderId, deletedAt: null },
-    {},
-    { tenantId: snapshot.tenantId, organizationId: snapshot.organizationId },
-  )
-  if (!order) return
-  await assertOrderRecurrenceUnlocked(em, order)
-
+  let order: SalesOrder | null = null
   let lines: SalesOrderLine[] = []
   await withAtomicFlush(
     em,
     [
       async () => {
+        order = await lockReturnOrder(em, snapshot.orderId, {
+          tenantId: snapshot.tenantId,
+          organizationId: snapshot.organizationId,
+        })
+        if (!order) return
+        await assertOrderRecurrenceUnlocked(em, order)
         lines = await findWithDecryption(
           em,
           SalesOrderLine,
@@ -350,6 +383,7 @@ async function reverseReturnEffects(
         })
       },
       async () => {
+        if (!order) return
         if (snapshot.adjustmentIds.length) {
           const adjustments = await findWithDecryption(
             em,
@@ -393,8 +427,9 @@ async function reverseReturnEffects(
           adjustments: adjustmentDrafts,
           context: buildCalculationContext(order),
           existingTotals: resolveExistingPaymentTotals(order),
+          ...resolveOrderCalculationMode(order),
         })
-        applyOrderTotals(order, calculation.totals, calculation.lines.length)
+        applyOrderTotalsUnlessExternal(order, calculation)
         order.updatedAt = new Date()
         em.persist(order)
       },
@@ -430,17 +465,24 @@ async function restoreReturnEffects(
     em,
     [
       async () => {
-        const order = await findOneWithDecryption(
+        const existingOrder = await findOneWithDecryption(
           em,
           SalesOrder,
           { id: snapshot.orderId, deletedAt: null },
           {},
           { tenantId: snapshot.tenantId, organizationId: snapshot.organizationId },
         )
+        if (!existingOrder) {
+          throw notFound(translate('sales.returns.orderMissing', 'Order not found.'))
+        }
+        ensureSameScope(existingOrder, snapshot.organizationId, snapshot.tenantId)
+        const order = await lockReturnOrder(em, existingOrder.id, {
+          tenantId: snapshot.tenantId,
+          organizationId: snapshot.organizationId,
+        })
         if (!order) {
           throw notFound(translate('sales.returns.orderMissing', 'Order not found.'))
         }
-        ensureSameScope(order, snapshot.organizationId, snapshot.tenantId)
         await assertOrderRecurrenceUnlocked(em, order)
 
         const orderLines = await findWithDecryption(
@@ -580,8 +622,9 @@ async function restoreReturnEffects(
           adjustments: adjustmentDrafts,
           context: buildCalculationContext(order),
           existingTotals: resolveExistingPaymentTotals(order),
+          ...resolveOrderCalculationMode(order),
         })
-        applyOrderTotals(order, calculation.totals, calculation.lines.length)
+        applyOrderTotalsUnlessExternal(order, calculation)
         order.updatedAt = new Date()
         em.persist(order)
       },
@@ -623,17 +666,24 @@ const createReturnCommand: CommandHandler<ReturnCreateInput, { returnId: string 
 
     const salesCalculationService = ctx.container.resolve<SalesCalculationService>('salesCalculationService')
     const { header, createdLines, order } = await em.transactional(async (tx) => {
-      const order = await findOneWithDecryption(
+      const existingOrder = await findOneWithDecryption(
         tx,
         SalesOrder,
         { id: input.orderId, deletedAt: null },
         {},
         { tenantId: input.tenantId, organizationId: input.organizationId },
       )
+      if (!existingOrder) {
+        throw notFound(translate('sales.returns.orderMissing', 'Order not found.'))
+      }
+      ensureSameScope(existingOrder, input.organizationId, input.tenantId)
+      const order = await lockReturnOrder(tx, existingOrder.id, {
+        tenantId: input.tenantId,
+        organizationId: input.organizationId,
+      })
       if (!order) {
         throw notFound(translate('sales.returns.orderMissing', 'Order not found.'))
       }
-      ensureSameScope(order, input.organizationId, input.tenantId)
       await enforceSalesDocumentOptimisticLock(ctx, order, SALES_RESOURCE_KIND_ORDER)
       await assertOrderRecurrenceUnlocked(tx, order)
 
@@ -767,8 +817,9 @@ const createReturnCommand: CommandHandler<ReturnCreateInput, { returnId: string 
         adjustments: adjustmentDrafts,
         context: buildCalculationContext(order),
         existingTotals: resolveExistingPaymentTotals(order),
+        ...resolveOrderCalculationMode(order),
       })
-      applyOrderTotals(order, calculation.totals, calculation.lines.length)
+      applyOrderTotalsUnlessExternal(order, calculation)
       order.updatedAt = new Date()
       tx.persist(order)
 
