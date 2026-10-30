@@ -202,9 +202,8 @@ test.describe('TC-LOCK-SALES-quote-session: local mutations and stale sessions',
         unitPriceNet: 10, unitPriceGross: 10, taxRateId, taxRate: 0,
       })
       await login(page, 'admin')
-      const editingSession = await openQuote(page, quoteId)
       stalePage = await page.context().newPage()
-      const staleSession = await openQuote(stalePage, quoteId)
+      const [editingSession, staleSession] = await Promise.all([openQuote(page, quoteId), openQuote(stalePage, quoteId)])
       const scope = getTokenScope(token)
       expect(editingSession.presence.currentUserId).toBe(scope.userId)
       expect(staleSession.presence.currentUserId).toBe(scope.userId)
