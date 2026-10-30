@@ -295,6 +295,24 @@ describe('SearchIndexer encrypted custom fields', () => {
     expect(searchService.index.mock.calls[0][0].text).not.toContain('GB123456')
   })
 
+  it('excludes every custom field when the resolver throws synchronously', async () => {
+    const { indexer, contexts, record } = setup({
+      resolver: () => {
+        throw new Error('resolver misconfigured')
+      },
+    })
+
+    await indexer.indexRecord({
+      entityId: companyEntityId,
+      recordId: record.id,
+      tenantId: 'tenant-1',
+      record: { ...record },
+      customFields: { tax_number: 'GB123456', industry_note: 'Wholesale' },
+    })
+
+    expect(contexts[0].customFields).toEqual({})
+  })
+
   it('excludes every custom field and reports it when constructed without a resolver', async () => {
     const reportError = jest.fn()
     const unregister = registerTelemetryRuntime({ reportError } as unknown as TelemetryRuntime)

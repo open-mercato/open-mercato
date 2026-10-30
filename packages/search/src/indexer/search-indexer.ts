@@ -260,7 +260,7 @@ export class SearchIndexer {
       const cacheKey = `${entityId}\u0000${tenantId ?? ''}`
       let pending = cache.get(cacheKey)
       if (!pending) {
-        pending = resolver(entityId, tenantId).catch((error): CustomFieldExclusion => {
+        pending = Promise.resolve().then(() => resolver(entityId, tenantId)).catch((error): CustomFieldExclusion => {
           searchWarn('SearchIndexer', 'Encrypted custom fields could not be resolved; excluding every custom field', {
             entityId,
             error: error instanceof Error ? error.message : error,
@@ -1296,7 +1296,6 @@ export class SearchIndexer {
         firstName: items[0].first_name,
         lastName: items[0].last_name,
         preferredName: items[0].preferred_name,
-        sampleItem: JSON.stringify(items[0]).slice(0, 500),
       })
     }
 
