@@ -3,7 +3,7 @@
   "sourceRevision": "b478b301e4ee3af3e78380a6e4df0c398ee95617",
   "runId": "06e4d9e8-e10f-4744-87f9-10da249c1eb1",
   "startedAt": "2026-10-30T17:34:54.761Z",
-  "updatedAt": "2026-10-30T17:47:14.486Z",
+  "updatedAt": "2026-10-30T17:54:43.729Z",
   "status": "running",
   "cases": [
     {
@@ -19,7 +19,7 @@
       "captureSha256": [
         "4f830cee44fd61f431a16b45514fa92b443a18cfd1365f8b5243b28739a0dd3b"
       ],
-      "shortCause": "Completed without timeout: undeclared example-source read, extra UMES route, and generated Jest test globals missing.",
+      "shortCause": "Generated Jest test globals missing; undeclared source read and extra UMES route (root wording is ambiguous).",
       "deliveryCounts": {
         "successfulReads": 19,
         "attestedReads": 19,
@@ -31,21 +31,30 @@
     },
     {
       "caseId": "OMH-011",
-      "status": "running",
-      "implementationOracle": "pending",
-      "attempts": null,
-      "corrections": null,
-      "durationMs": null,
-      "finishedAt": null,
-      "evaluatorSha256": null,
-      "generatedSha256": null,
-      "captureSha256": [],
-      "shortCause": null,
-      "deliveryCounts": null
+      "status": "fail",
+      "implementationOracle": "pass",
+      "attempts": 1,
+      "corrections": 0,
+      "durationMs": 258432,
+      "finishedAt": "2026-10-30T17:50:01.534Z",
+      "evaluatorSha256": "faa1b57a990952dd53da75930ffcbdf05b930a895002d6858a55380bcf748698",
+      "generatedSha256": "8b8c9edde98c5d9bff7b0c75cb48df9fe924a19686d4c5a70ea843b168c880b0",
+      "captureSha256": [
+        "12c4e06b44454985b6b3632d86900df978fbb3be16e4dc077e5e9d56804a9186"
+      ],
+      "shortCause": "Implementation oracle passed; full case failed on an undeclared customer-priorities API example read.",
+      "deliveryCounts": {
+        "successfulReads": 14,
+        "attestedReads": 14,
+        "missingMetadata": 0,
+        "immutableCompared": 9,
+        "immutableMatches": 9,
+        "immutableMismatches": 0
+      }
     },
     {
       "caseId": "OMH-012",
-      "status": "pending",
+      "status": "running",
       "implementationOracle": "pending",
       "attempts": null,
       "corrections": null,
@@ -213,11 +222,11 @@
     }
   ],
   "deliveryTotals": {
-    "successfulReads": 19,
-    "attestedReads": 19,
+    "successfulReads": 33,
+    "attestedReads": 33,
     "missingMetadata": 0,
-    "immutableCompared": 12,
-    "immutableMatches": 12,
+    "immutableCompared": 21,
+    "immutableMatches": 21,
     "immutableMismatches": 0
   }
 }
