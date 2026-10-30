@@ -195,3 +195,8 @@ Content-free evidence pins this specific replay, including OMH-014's invalid cla
 - Ignored sanitized table and per-case before/after fingerprint report SHA-256: `fb9be412edebe3491e34f42147315fb4e3204b42deaa1407c6362ce7d529d085`.
 
 Raw per-case results and complete before/after fingerprints remain local. No generated code, private response, credential, environment value, or absolute machine path is included here.
+
+
+### Branch-only completion-audit follow-up during Round 5
+
+OMH-011 now passes the executable implementation check, with remaining failures confined to an early canonical-source read and an omitted public compatibility document. The coding prompt previously singled out the original-request testing predicate, while read-only routing already required a complete additive audit. The follow-up uses the same public routing principles for coding: check every route/work-unit/fact row, each offered decision, all invoked skill owners and successful instruction reads. It exposes no expected route, required skill or hidden context list. One bounded prompt regression fails at source 0395f6246 and passes afterward. This verifies prompt delivery, not model behavior or the separate proposal for early prerequisite enforcement. The in-flight Round 5 runtime and scores remain bound to 0395f6246; broader candidate validation and fresh model evidence are pending.

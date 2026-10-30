@@ -347,11 +347,22 @@ for (const invalid of ['symlink', 'malformed', 'oversized']) {
   }))
 }
 
-test('writable final audit points back to the original AGENTS testing predicate without giving case routing answers', () => fixture((root, record) => {
+test('writable final audit covers every public routing axis without disclosing expected answers', () => fixture((root, record) => {
+  record.expectedRouter.required = ['PRIVATE_ROUTE_SENTINEL']
+  record.requiredSkills = ['PRIVATE_SKILL_SENTINEL']
+  record.context.required.push('.ai/guides/PRIVATE_CONTEXT_SENTINEL.md')
+  const before = JSON.stringify(record)
   const prompt = evaluator.buildPrompt(record, root, true)
   assert.match(prompt, /(?:final|returning).{0,180}AGENTS\.md.{0,100}Axis 2.{0,100}testing/is)
   assert.match(prompt, /original request/is)
-  assert.doesNotMatch(prompt, /expectedRouter|do not select testing|select only module-data/)
+  assert.match(prompt, /Audit.{0,100}Axis 1.{0,100}Axis 2.{0,100}Module-Specific Facts/is)
+  assert.match(prompt, /Include.{0,80}route.{0,80}skill.{0,80}guide\/fact.{0,80}decision/is)
+  assert.match(prompt, /opened routed guide.{0,80}owning route/is)
+  assert.match(prompt, /opened SKILL\.md.{0,80}invoked skill/is)
+  assert.match(prompt, /each offered decision.{0,100}task.{0,100}instructions.{0,100}successfully read/is)
+  assert.match(prompt, /all successful instruction reads.*omit refused paths/is)
+  assert.doesNotMatch(prompt, /PRIVATE_ROUTE_SENTINEL|PRIVATE_SKILL_SENTINEL|PRIVATE_CONTEXT_SENTINEL|expectedRouter|do not select testing|select only module-data/)
+  assert.equal(JSON.stringify(record), before)
 }))
 
 test('read-only prompt ignores writable source metadata and package toolchain facts byte for byte', () => fixture(root => {
