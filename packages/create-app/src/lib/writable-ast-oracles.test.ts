@@ -1063,7 +1063,30 @@ for (const [caseId, sources] of Object.entries(recoveryFixtures)) {
   })
 }
 
+for (const [label, binding, invocation] of [
+  ['named alias', "import { useCallback as memoize } from 'react'", 'memoize'],
+  ['namespace', "import * as React from 'react'", 'React.useCallback'],
+  ['default', "import React from 'react'", 'React.useCallback'],
+]) {
+  test(`recovery OMH-014 accepts a bound React useCallback handler via ${label}`, () => {
+    const root = stageTarget('src/fixture.ts', 'export {}')
+    try {
+      const sources = { ...recoveryFixtures['OMH-014'] }
+      const file = 'src/modules/library/components/Books.tsx'
+      sources[file] = `${binding}\n${sources[file]}`.replace('const onError = (error: unknown) => surfaceRecordConflict(error, key => key)', `const onError = ${invocation}((error: unknown) => surfaceRecordConflict(error, key => key), [])`)
+      writeRecoverySources(root, sources)
+      const result = runOracle(root, 'before', process.env, 'OMH-014')
+      assert.equal(result.status, 0, JSON.stringify(result.parsed.failures))
+      assert.equal(result.parsed.passed, true)
+    } finally { fs.rmSync(root, { recursive: true, force: true }) }
+  })
+}
+
 const recoveryNegatives: Array<{ caseId: string; label: string; mutate: (sources: Record<string, string>) => Record<string, string> }> = [
+  { caseId: 'OMH-014', label: 'shadowed React callback import', mutate: sources => ({ ...sources, 'src/modules/library/components/Books.tsx': "import { useCallback } from 'react'\n" + sources['src/modules/library/components/Books.tsx'].replace('Books()', 'Books({ useCallback }: { useCallback: (callback: unknown, deps: unknown[]) => unknown })').replace('const onError = (error: unknown) => surfaceRecordConflict(error, key => key)', 'const onError = useCallback((error: unknown) => surfaceRecordConflict(error, key => key), [])') }) },
+  { caseId: 'OMH-014', label: 'arbitrary handler factory', mutate: sources => ({ ...sources, 'src/modules/library/components/Books.tsx': sources['src/modules/library/components/Books.tsx'].replace('const onError = (error: unknown) => surfaceRecordConflict(error, key => key)', 'const factory = (callback: unknown) => () => {}; const onError = factory((error: unknown) => surfaceRecordConflict(error, key => key))') }) },
+  { caseId: 'OMH-014', label: 'unbound memoized handler', mutate: sources => ({ ...sources, 'src/modules/library/components/Books.tsx': "import { useCallback } from 'react'\n" + sources['src/modules/library/components/Books.tsx'].replace('const onError = (error: unknown) => surfaceRecordConflict(error, key => key)', 'const onError = useCallback((error: unknown) => surfaceRecordConflict(error, key => key), [])').replace('onSubmit={onError}', 'onSubmit={() => {}}') }) },
+  { caseId: 'OMH-014', label: 'non-React memoization import', mutate: sources => ({ ...sources, 'src/modules/library/components/Books.tsx': "import { useCallback } from 'factory'\n" + sources['src/modules/library/components/Books.tsx'].replace('const onError = (error: unknown) => surfaceRecordConflict(error, key => key)', 'const onError = useCallback((error: unknown) => surfaceRecordConflict(error, key => key), [])') }) },
   { caseId: 'OMH-014', label: 'orphan component', mutate: sources => ({ ...sources, 'src/modules/library/backend/books/page.tsx': 'export default function Page() { return <div /> }' }) },
   { caseId: 'OMH-014', label: 'unused component import', mutate: sources => ({ ...sources, 'src/modules/library/backend/books/page.tsx': "import { Books } from '../../components/Books'\nexport default function Page() { return <div /> }" }) },
   { caseId: 'OMH-014', label: 'import escaping the case module', mutate: sources => ({ ...sources, 'src/modules/library/backend/books/page.tsx': "import { Books } from '../../../other/Books'\nexport default function Page() { return <Books /> }", 'src/modules/other/Books.tsx': sources['src/modules/library/components/Books.tsx'] }) },

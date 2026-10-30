@@ -1624,11 +1624,42 @@ function renderedUiContract(ts, root, backendFiles) {
     }
     if (!render || !ts.isFunctionLike(render)) return { ...result, failure: 'rendered import does not resolve to an exported component' }
     const reached = functionContractFacts(ts, local, render, { skipNestedFunctions: true })
+    const callbackImports = new Set()
+    const reactImports = new Set()
+    for (const statement of source.statements.filter((statement) => ts.isImportDeclaration(statement) && statement.moduleSpecifier.text === 'react')) {
+      const clause = statement.importClause
+      if (clause?.isTypeOnly) continue
+      if (clause?.name) reactImports.add(clause.name.text)
+      if (clause?.namedBindings && ts.isNamespaceImport(clause.namedBindings)) reactImports.add(clause.namedBindings.name.text)
+      if (clause?.namedBindings && ts.isNamedImports(clause.namedBindings)) {
+        for (const binding of clause.namedBindings.elements) {
+          if (!binding.isTypeOnly && (binding.propertyName?.text ?? binding.name.text) === 'useCallback') callbackImports.add(binding.name.text)
+        }
+      }
+    }
+    const parameterBindings = new Set()
+    const collectParameterBindings = (node) => {
+      if (ts.isIdentifier(node)) parameterBindings.add(node.text)
+      ts.forEachChild(node, collectParameterBindings)
+    }
+    for (const parameter of render.parameters) collectParameterBindings(parameter.name)
+    const isUnshadowedImport = (name) => !parameterBindings.has(name) && !local.variableExpressions.has(name) && !local.functionNodes.has(name)
     const visitBindings = (node) => {
       if (node !== render && ts.isFunctionLike(node)) return
       if (ts.isJsxAttribute(node) && node.initializer && ts.isJsxExpression(node.initializer)) {
         const expression = node.initializer.expression
-        const handler = expression && ts.isIdentifier(expression) ? local.functionNodes.get(expression.text) : expression
+        let handler = expression && ts.isIdentifier(expression) ? local.functionNodes.get(expression.text) : expression
+        if (!handler && expression && ts.isIdentifier(expression)) {
+          const initializer = local.variableExpressions.get(expression.text)
+          if (initializer && ts.isCallExpression(initializer)) {
+            const factory = initializer.expression
+            const isReactCallback = ts.isIdentifier(factory)
+              ? callbackImports.has(factory.text) && isUnshadowedImport(factory.text)
+              : ts.isPropertyAccessExpression(factory) && factory.name.text === 'useCallback' && ts.isIdentifier(factory.expression)
+                && reactImports.has(factory.expression.text) && isUnshadowedImport(factory.expression.text)
+            if (isReactCallback) handler = unwrapExpression(ts, initializer.arguments[0])
+          }
+        }
         if (handler && ts.isFunctionLike(handler)) reached.push(...functionContractFacts(ts, local, handler))
       }
       ts.forEachChild(node, visitBindings)
