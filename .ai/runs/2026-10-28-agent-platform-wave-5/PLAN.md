@@ -84,9 +84,9 @@
 | 7 | 7.10 | Add the rubric library and rubricRef | dispatch | done | 058781a33 |
 | 7 | 7.10-review-fix | Use explicit sort comparators in the eval-set YAML and rubric helpers | inline | done | 345b6e955 |
 | 1 | 1.11-review-fix-2 | Expect the translated guardrail kind label in TC-AGENT-UXC-006 | inline | done | 239d0230f |
-| 7 | 7.11 | Document the eval CI recipe | dispatch:cheap | done | pending |
-| 7 | 7.12 | Cover eval-set import, export and settings with integration tests | dispatch | done | pending |
-| 8 | 8.1 | Update the roadmap and upgrade notes for wave 5 | inline | done | pending |
+| 7 | 7.11 | Document the eval CI recipe | dispatch:cheap | done | 0492ad80b |
+| 7 | 7.12 | Cover eval-set import, export and settings with integration tests | dispatch | done | 8905381bc |
+| 8 | 8.1 | Update the roadmap and upgrade notes for wave 5 | inline | done | 84ad938ba |
 
 ## Goal
 
