@@ -35,7 +35,7 @@ Shared build cleanup affects every package: preserve outputs owned by other sour
 
 ### Phase 1: Preserve runtime build outputs
 
-- [ ] 1.1 Port build cleanup and import-resolution fixes with regression tests
+- [x] 1.1 Port build cleanup and import-resolution fixes with regression tests — 8145158d0
 
 ### Phase 2: Prepare migration reindex dependencies
 
