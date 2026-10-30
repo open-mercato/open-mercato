@@ -131,10 +131,11 @@ test.describe('TC-SALES-8232: gross-only discounted lines keep their totals on t
         )
       } finally {
         if (documentId) {
-          await apiRequest(request, 'DELETE', `/api/sales/${documentKind}s`, {
+          const deleteRes = await apiRequest(request, 'DELETE', `/api/sales/${documentKind}s`, {
             token,
             data: { id: documentId },
-          }).catch(() => {})
+          })
+          expect(deleteRes.ok(), `DELETE ${documentKind} failed: ${deleteRes.status()}`).toBeTruthy()
         }
       }
     })
