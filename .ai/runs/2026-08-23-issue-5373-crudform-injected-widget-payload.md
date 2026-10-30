@@ -81,4 +81,4 @@ Make the injected-`CrudForm`-field payload reach CRUD `POST`/`PUT` interceptors 
 
 - [x] 7.1 Merge `origin/develop` so the mutation workflow can load `scripts/stryker/relatedTests.mjs` — 7412cdaf2
 - [x] 7.2 Omit empty module payloads, prevent cross-scope payload transfer, and repair the integration read-back assertion — 69bbdbec8
-- [ ] 7.3 Run targeted validation, self-review, and hand the updated branch back for review
+- [x] 7.3 Run targeted validation, self-review, and hand the updated branch back for review — approved after autofix re-review at `1ef7607864`
