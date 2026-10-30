@@ -200,7 +200,7 @@ function parseGeneratedQuotedValue(line, prefix) {
 }
 
 function validGeneratedYarnConfig(contents) {
-  if (Buffer.byteLength(contents, 'utf8') > GENERATED_YARN_CONFIG_LIMIT || contents.includes('\0')) return false
+  if (Buffer.byteLength(contents, 'utf8') > GENERATED_YARN_CONFIG_LIMIT || contents.includes('\0') || /\r(?!\n)/.test(contents)) return false
   const lines = contents.replaceAll('\r\n', '\n').split('\n').filter((line) => line !== '' && !line.startsWith('#'))
   const migrated = lines[0] === 'approvedGitRepositories:'
   if (migrated) {

@@ -39,6 +39,25 @@ for (const registry of [undefined, 'http://127.0.0.1:63255', 'https://registry.e
   })
 }
 
+test('canonical target preparation preserves native Windows CRLF factory policy byte-for-byte', () => {
+  const config = generatedConfig('http://127.0.0.1:63255').replaceAll('\n', '\r\n')
+  withController(config, (controller, prepareRoot) => {
+    const manifest = release.prepareWritableTargets({ root: controller, prepareRoot, caseIds: ['OMH-009'] })
+    assert.equal(fs.readFileSync(path.join(manifest.targets['OMH-009'], '.yarnrc.yml'), 'utf8'), config)
+  })
+})
+
+for (const directive of ['unknownSetting: true', 'plugins:\r  - path: "./untrusted-plugin.cjs"']) {
+  test(`canonical target preparation rejects bare-CR directives hidden after a comment (${directive.split(':')[0]})`, () => {
+    const config = `${generatedConfig('https://registry.example.com/npm')}\n# harmless comment\r${directive}\n`
+    withController(config, (controller, prepareRoot) => {
+      assert.throws(() => release.prepareWritableTargets({ root: controller, prepareRoot, caseIds: ['OMH-009'] }), /unsafe Yarn registry configuration/)
+      assert.equal(fs.existsSync(prepareRoot), false)
+      assert.equal(fs.existsSync(path.join(controller, 'untrusted-plugin.cjs')), false)
+    })
+  })
+}
+
 test('canonical target preparation rejects modified policy and executable, unknown, credential or environment-driven Yarn settings', () => {
   const config = generatedConfig('https://registry.example.com/npm')
   const unsafe = [
