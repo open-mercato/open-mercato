@@ -28,6 +28,7 @@ type Evaluator = {
   caseReadAllowlist: (record: CodingCase, writable: boolean, root: string) => string[]
   evaluateExampleReadPolicy: (input: { caseRecord: CodingCase; appRoot: string; reads: Array<{ path: string }> }) => { firstViolation: string | null }
   validateExampleReadPolicyDeclaration: (record: CodingCase, root: string) => string[]
+  prepareCaseFrameworkContext: (record: CodingCase, controller: string, target: string, options: { writable: boolean }) => { patterns: string[]; entries: Array<{ manifest: string; searchResult: string; sourceRoot: string; sourceFiles: string[] }> }
 }
 type Reply = { id: number; result: { isError?: boolean; content: Array<{ text: string }> } }
 
@@ -124,7 +125,6 @@ function mandatoryClosure(root: string, record: CodingCase) {
   }
   for (const declaration of record.context.exampleRoots ?? []) {
     for (const filename of declaration.entrypoints) sourceFiles.add(`${declaration.root}/${filename}`)
-    sourceFiles.add(`${declaration.root}/references/surface-inventory.json`)
     for (const capabilityId of declaration.allowedCapabilityIds) {
       const capability = surfaces.find(capability => capability.capabilityId === capabilityId)
       assert.equal(capability?.readStatus, 'readable', `${record.id}: non-readable capability ${capabilityId}`)
@@ -199,6 +199,63 @@ test('prepared workflow context queries name exact production declarations', () 
     { module: 'workflows', query: 'export function registerCodeWorkflows' },
     { package: '@open-mercato/shared', query: 'interface CodeWorkflowDefinition' },
   ])
+})
+
+test('OMH-042 prepares its actual installed adapter and descriptor definitions', context => {
+  const record = codingCase('OMH-042')
+  assert.deepEqual(record.frameworkContext, [
+    { module: 'data_sync', query: 'export interface DataSyncAdapter' },
+    { package: '@open-mercato/shared', query: 'export interface IntegrationDefinition' },
+  ])
+  const root = stageApp()
+  try {
+    const write = (filename: string, content: string) => {
+      const target = path.join(root, filename)
+      fs.mkdirSync(path.dirname(target), { recursive: true })
+      fs.writeFileSync(target, content)
+    }
+    const sourceFiles = [
+      ['core', 'src/modules/data_sync/lib/adapter.ts', 'DataSyncAdapter'],
+      ['shared', 'src/modules/integrations/types.ts', 'IntegrationDefinition'],
+    ] as const
+    const dependencies: Record<string, string> = {}
+    for (const [name, filename, symbol] of sourceFiles) {
+      const packageName = `@open-mercato/${name}`
+      const installed = `node_modules/${packageName}`
+      const manifest = JSON.parse(fs.readFileSync(path.join(repositoryRoot, 'packages', name, 'package.json'), 'utf8')) as { name: string; version: string }
+      dependencies[packageName] = manifest.version
+      write(`${installed}/package.json`, JSON.stringify({ name: manifest.name, version: manifest.version, type: 'module' }))
+      write(`${installed}/${filename}`, fs.readFileSync(path.join(repositoryRoot, 'packages', name, filename), 'utf8'))
+      write(`${installed}/${path.posix.dirname(filename)}/consumer.ts`, `import type { ${symbol} } from './types'\n`)
+      write(`${installed}/${path.posix.dirname(filename)}/__tests__/definition.test.ts`, `export interface ${symbol} { privateQaMarker: string }\n`)
+      write(`${installed}/src/.env`, `export interface ${symbol} { privateEnvironmentMarker: string }\n`)
+    }
+    write('package.json', JSON.stringify({ name: 'adapter-source-policy-fixture', private: true, dependencies }))
+    write('scripts/framework-context.mjs', fs.readFileSync(path.join(shared, 'scripts/framework-context.mjs'), 'utf8'))
+    const prepared = evaluator.prepareCaseFrameworkContext(record, root, root, { writable: true })
+    assert.equal(prepared.entries.length, 2)
+    let bytes = mandatoryClosure(root, record).totalBytes
+    for (const [index, entry] of prepared.entries.entries()) {
+      const [name, filename, symbol] = sourceFiles[index]
+      const suffix = name === 'core' ? '/lib/adapter.ts' : '/modules/integrations/types.ts'
+      assert.equal(entry.sourceFiles.length, 1)
+      assert.ok(entry.sourceFiles[0].endsWith(suffix))
+      assert.equal(fs.readFileSync(path.join(root, entry.sourceFiles[0]), 'utf8'), fs.readFileSync(path.join(repositoryRoot, 'packages', name, filename), 'utf8'))
+      assert.match(fs.readFileSync(path.join(root, entry.sourceFiles[0]), 'utf8'), new RegExp(`export interface ${symbol}`))
+      const manifest = JSON.parse(fs.readFileSync(path.join(root, entry.manifest), 'utf8')) as { package: { name: string; version: string } }
+      assert.equal(manifest.package.name, `@open-mercato/${name}`)
+      assert.equal(manifest.package.version, dependencies[manifest.package.name])
+      const search = fs.readFileSync(path.join(root, entry.searchResult), 'utf8')
+      assert.doesNotMatch(search, /consumer\.ts|__tests__|privateQaMarker|privateEnvironmentMarker/)
+      for (const filename of [entry.manifest, entry.searchResult, ...entry.sourceFiles]) {
+        assert.ok(prepared.patterns.includes(filename), `exact prepared source grant missing ${filename}`)
+        bytes += fs.statSync(path.join(root, filename)).size
+      }
+    }
+    assert.ok(prepared.patterns.every(filename => !filename.includes('*') && !filename.includes('?')))
+    assert.ok(bytes <= record.maxTotalContextBytes, `mandatory context plus prepared definitions ${bytes}/${record.maxTotalContextBytes}`)
+    context.diagnostic(JSON.stringify({ id: record.id, mandatoryAndPreparedBytes: bytes, limit: record.maxTotalContextBytes }))
+  } finally { fs.rmSync(root, { recursive: true, force: true }) }
 })
 
 for (const id of ['OMH-026', 'OMH-027', 'OMH-031']) {
