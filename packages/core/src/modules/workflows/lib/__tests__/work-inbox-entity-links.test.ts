@@ -9,7 +9,7 @@
  * one the task is about.
  */
 
-import { describe, test, expect, beforeEach, afterEach } from '@jest/globals'
+import { describe, test, expect, beforeEach, afterEach, jest } from '@jest/globals'
 import {
   buildEntityRecordHref,
   entityTypeQueryValues,
@@ -22,6 +22,12 @@ import {
   clearTaskEntityRegistrationsForTests,
   registerTaskEntityLinkBuilders,
 } from '../task-entity-registry'
+
+const reportError = jest.fn()
+
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  getTelemetryRuntime: () => ({ reportError }),
+}))
 
 describe('entity type normalization', () => {
   test('accepts both platform spellings of the same record type', () => {
@@ -78,7 +84,10 @@ describe('work-inbox entityType filter values', () => {
 })
 
 describe('server-resolved deep links (registered link builders)', () => {
-  beforeEach(() => clearTaskEntityRegistrationsForTests())
+  beforeEach(() => {
+    clearTaskEntityRegistrationsForTests()
+    reportError.mockClear()
+  })
   afterEach(() => clearTaskEntityRegistrationsForTests())
 
   test('links a registered app entity through its builder, however the binding spells it', () => {
@@ -103,7 +112,7 @@ describe('server-resolved deep links (registered link builders)', () => {
     expect(resolveEntityRecordHref('customers:person', 'p1')).toBe('/backend/customers/people-v2/p1')
   })
 
-  test('refuses anything but a same-origin path, and survives a throwing builder', () => {
+  test('refuses anything but a same-origin path', () => {
     const cases: Array<[string, () => string | null]> = [
       ['notary:offsite', () => 'https://evil.example/x'],
       ['notary:protocol_relative', () => '//evil.example/x'],
@@ -111,15 +120,37 @@ describe('server-resolved deep links (registered link builders)', () => {
       ['notary:script', () => 'javascript:alert(1)'],
       ['notary:whitespace', () => '/backend/x\ny'],
       ['notary:empty', () => null],
-      ['notary:throws', () => {
-        throw new Error('boom')
-      }],
     ]
     registerTaskEntityLinkBuilders(cases.map(([entityId, buildHref]) => ({ entityId, buildHref })))
 
     for (const [entityId] of cases) {
       expect(resolveEntityRecordHref(entityId, 'r1')).toBeNull()
     }
+    expect(reportError).not.toHaveBeenCalled()
+  })
+
+  test('a throwing builder degrades to no link and is reported without the record id', () => {
+    const failure = new Error('boom')
+    registerTaskEntityLinkBuilders([
+      {
+        entityId: 'notary:throws',
+        buildHref: () => {
+          throw failure
+        },
+      },
+    ])
+
+    expect(resolveEntityRecordHref('notary:throws', 'secret-record-id')).toBeNull()
+    expect(withEntityRecordHrefs([{ entityType: 'notary:throws', entityId: 'secret-record-id' }])).toEqual([
+      { entityType: 'notary:throws', entityId: 'secret-record-id', href: null },
+    ])
+    expect(reportError).toHaveBeenCalledTimes(2)
+    expect(reportError).toHaveBeenCalledWith(failure, {
+      module: 'workflows',
+      code: 'workflows.task_entity_link_builder_failed',
+      attributes: { entityType: 'notary:throws' },
+    })
+    expect(JSON.stringify(reportError.mock.calls)).not.toContain('secret-record-id')
   })
 
   test('adds href to every record-shaped binding and leaves anything else untouched', () => {

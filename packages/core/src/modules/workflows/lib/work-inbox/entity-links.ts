@@ -21,6 +21,7 @@ import {
   TASK_ENTITY_TYPE_ALIAS_GROUPS,
   normalizeTaskEntityTypeSpelling,
 } from '../task-entity-aliases'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { resolveRegisteredTaskEntityLinkBuilder } from '../task-entity-registry'
 
 const CUSTOMER_PERSON = 'customers:person'
@@ -106,7 +107,8 @@ function isSameOriginPath(href: unknown): href is string {
  *
  * A builder that throws, or returns anything but a same-origin path, yields
  * `null`: the binding then renders without a link, never with a wrong or
- * off-site one.
+ * off-site one. A throw is also reported, keyed by record type only — never the
+ * record id — so a broken module's links do not vanish silently.
  */
 export function resolveEntityRecordHref(
   entityType: string | null | undefined,
@@ -115,12 +117,18 @@ export function resolveEntityRecordHref(
   if (!entityType || !entityId) return null
   const builtIn = buildEntityRecordHref(entityType, entityId)
   if (builtIn) return builtIn
-  const buildHref = resolveRegisteredTaskEntityLinkBuilder(normalizeEntityType(entityType))
+  const registeredType = normalizeEntityType(entityType)
+  const buildHref = resolveRegisteredTaskEntityLinkBuilder(registeredType)
   if (!buildHref) return null
   try {
     const href = buildHref(entityId)
     return isSameOriginPath(href) ? href : null
-  } catch {
+  } catch (error) {
+    getTelemetryRuntime()?.reportError(error, {
+      module: 'workflows',
+      code: 'workflows.task_entity_link_builder_failed',
+      attributes: { entityType: registeredType },
+    })
     return null
   }
 }

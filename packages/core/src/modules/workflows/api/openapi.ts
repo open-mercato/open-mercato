@@ -1,5 +1,9 @@
 import { z } from 'zod'
-import { workflowDefinitionDataSchema, workflowDefinitionDraftDataSchema } from '../data/validators'
+import {
+  taskLocalizedStringSchema,
+  workflowDefinitionDataSchema,
+  workflowDefinitionDraftDataSchema,
+} from '../data/validators'
 
 export const workflowsTag = 'Workflows'
 
@@ -152,12 +156,26 @@ export const taskActionBlockReasonSchema = z.enum([
   'unavailable',
 ])
 
-export const workInboxEntityBindingSchema = z.object({
-  entityType: z.string(),
-  entityId: z.string(),
-  label: z.string().nullable().optional(),
-  href: z.string().nullable().optional().describe('Record detail path, when the record type has one'),
-})
+const entityRecordHrefSchema = z
+  .string()
+  .nullable()
+  .optional()
+  .describe('Record detail path, when the record type has one')
+
+/**
+ * A task-detail binding as stored: the label keeps its authored form, a plain
+ * string or a locale map (`taskLocalizedStringSchema`), and unknown keys pass
+ * through. Entries that are not `{ entityType, entityId }` records are served
+ * untouched, so the array stays as permissive as it was before `href` existed.
+ */
+export const userTaskDetailEntityBindingSchema = z
+  .object({
+    entityType: z.string(),
+    entityId: z.string(),
+    label: taskLocalizedStringSchema.nullable().optional(),
+    href: entityRecordHrefSchema,
+  })
+  .passthrough()
 
 /**
  * Detail projection: the same superset the list returns, plus the derived
@@ -172,7 +190,7 @@ export const workInboxEntityBindingSchema = z.object({
 export const userTaskDetailResponseSchema = z.object({
   data: userTaskRowSchema.extend({
     entityBindings: z
-      .array(workInboxEntityBindingSchema)
+      .array(z.union([userTaskDetailEntityBindingSchema, z.unknown()]))
       .nullable()
       .describe('Records this task is about; each carries a server-resolved `href` when its record type has a detail page'),
     stepId: z.string().nullable().describe('Definition step the task is parked on'),
@@ -206,6 +224,13 @@ export const userTaskReassignResponseSchema = z.object({
 // ============================================================================
 // Work Inbox (spec §6.2/§6.3 — one queue over every registered source)
 // ============================================================================
+
+export const workInboxEntityBindingSchema = z.object({
+  entityType: z.string(),
+  entityId: z.string(),
+  label: z.string().nullable().optional(),
+  href: entityRecordHrefSchema,
+})
 
 export const workInboxPrioritySchema = z.enum(['extreme', 'high', 'medium', 'low'])
 

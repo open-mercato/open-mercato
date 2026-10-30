@@ -113,3 +113,4 @@ apps (`TEMPLATE_DISABLED_MODULE_IDS`), mirroring the gated nav/route override pr
 
 - 2026-10-11 — Initial design and implementation (#7180).
 - 2026-10-11 — Detail OpenAPI types `entityBindings` with `workInboxEntityBindingSchema`; TC-WF-068 integration coverage.
+- 2026-10-30 — Detail `entityBindings` use `userTaskDetailEntityBindingSchema` (localized `label`, passthrough, legacy entries tolerated); the inbox keeps its flattened string label. A throwing link builder is reported as `workflows.task_entity_link_builder_failed`.

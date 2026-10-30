@@ -77,7 +77,7 @@ registerTaskEntityLinkBuilders([
 - A caller then sees the task iff they hold **all** `view` features (wildcard-aware) — plus everything else the rule already requires (relationship, tenant, organization). Nothing about scoping changes.
 - **The core table always wins.** A registration for an entity it already lists is ignored, so a module can never weaken or re-point a core requirement. A `view` list that is empty is refused at registration, because it would open the type to everyone in scope.
 - An entity nobody registered keeps resolving to `unavailable`.
-- The link builder is resolved **server-side**: the Work Inbox rows and the task detail carry it as `entityBindings[].href`. Only same-origin paths (`/…`) are accepted; anything else, or a builder that throws, renders the binding without a link. The enumerated core links win over a registration for the same type.
+- The link builder is resolved **server-side**: the Work Inbox rows and the task detail carry it as `entityBindings[].href`. Only same-origin paths (`/…`) are accepted; anything else, or a builder that throws, renders the binding without a link (a throw is reported through the telemetry runtime as `workflows.task_entity_link_builder_failed`, keyed by record type only). Detail bindings keep their authored `label` form — a string or a locale map. The enumerated core links win over a registration for the same type.
 - The record-page pending-work widget needs no registration: map it onto your record page's injection spot and it matches bindings by `resourceKind` in either spelling.
 
 ### Failure is closed; absence is not

@@ -12,7 +12,7 @@ import { NextRequest } from 'next/server'
 import { GET as getTask } from '../tasks/[id]/route'
 import { UserTask } from '../../data/entities'
 import { makeTaskVisibilityRouteStubs, type TaskVisibilityRouteStubs } from './helpers/taskVisibilityRoute'
-import { userTaskDetailResponseSchema } from '../openapi'
+import { userTaskDetailEntityBindingSchema, userTaskDetailResponseSchema } from '../openapi'
 import { registerEntityIds } from '@open-mercato/shared/lib/encryption/entityIds'
 import {
   clearTaskEntityRegistrationsForTests,
@@ -503,6 +503,34 @@ describe('GET /api/workflows/tasks/[id] — registered app entity', () => {
         href: '/backend/notary/cases/case-1',
       },
     ])
+    expect(userTaskDetailResponseSchema.safeParse(body).success).toBe(true)
+  })
+
+  test('keeps a localized and a null binding label inside the published detail schema', async () => {
+    withVisibility({ acl: { features: ['workflows.tasks.view', 'notary.cases.view'] } })
+    setTask(
+      makeTask({
+        entityBindings: [
+          { entityType: 'notary:notary_case', entityId: 'case-1', label: { en: 'Case 1', pl: 'Sprawa 1' } },
+          { entityType: 'notary:notary_case', entityId: 'case-2', label: null },
+        ],
+        entityTypes: ['notary:notary_case'],
+      }),
+    )
+
+    const response = await runDetail()
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(body.data.entityBindings[0]).toEqual({
+      entityType: 'notary:notary_case',
+      entityId: 'case-1',
+      label: { en: 'Case 1', pl: 'Sprawa 1' },
+      href: '/backend/notary/cases/case-1',
+    })
+    for (const binding of body.data.entityBindings) {
+      expect(userTaskDetailEntityBindingSchema.safeParse(binding).success).toBe(true)
+    }
     expect(userTaskDetailResponseSchema.safeParse(body).success).toBe(true)
   })
 
