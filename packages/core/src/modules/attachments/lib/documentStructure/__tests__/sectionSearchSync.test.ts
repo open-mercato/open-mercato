@@ -3,7 +3,11 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { QueuedJob } from '@open-mercato/queue'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { AttachmentDocumentSection } from '../../../data/entities'
+import {
+  AttachmentDocumentExtraction,
+  AttachmentDocumentSection,
+  AttachmentPartition,
+} from '../../../data/entities'
 import handle from '../../../workers/document-structure'
 import {
   DOCUMENT_STRUCTURE_QUEUE_DI_KEY,
@@ -106,6 +110,7 @@ function createDeps(overrides: Partial<DocumentSectionSearchSyncDeps> = {}) {
 beforeEach(() => {
   jest.clearAllMocks()
   findWithDecryptionMock.mockImplementation((async () => []) as unknown as typeof findWithDecryption)
+  findOneWithDecryptionMock.mockImplementation((async () => null) as unknown as typeof findOneWithDecryption)
 })
 
 describe('document structure queue job schema', () => {
@@ -134,6 +139,27 @@ describe('document structure queue job schema', () => {
     expect(documentSectionSearchJobSchema.safeParse({ ...base, mode: 'reindex', extractionId: EXTRACTION_ID }).success).toBe(false)
     expect(documentSectionSearchJobSchema.safeParse({ ...base, partitionCode: 'contracts' }).success).toBe(true)
   })
+
+  it('accepts partition jobs scoped to all tenants or one tenant and rejects stray cursors', () => {
+    const base = { kind: 'section-search', mode: 'index', partitionCode: 'contracts' }
+    expect(documentSectionSearchJobSchema.safeParse({ ...base, tenantId: null, organizationId: null }).success).toBe(true)
+    expect(documentSectionSearchJobSchema.safeParse({ ...base, tenantId: TENANT, organizationId: null }).success).toBe(true)
+    expect(documentSectionSearchJobSchema.safeParse({ ...base, tenantId: null, organizationId: ORG }).success).toBe(false)
+    expect(
+      documentSectionSearchJobSchema.safeParse({ ...base, tenantId: TENANT, organizationId: ORG, afterExtractionId: EXTRACTION_ID })
+        .success,
+    ).toBe(true)
+    expect(
+      documentSectionSearchJobSchema.safeParse({
+        kind: 'section-search',
+        mode: 'index',
+        tenantId: TENANT,
+        organizationId: ORG,
+        extractionId: EXTRACTION_ID,
+        afterExtractionId: EXTRACTION_ID,
+      }).success,
+    ).toBe(false)
+  })
 })
 
 describe('enqueueDocumentSectionSearch', () => {
@@ -158,6 +184,19 @@ describe('enqueueDocumentSectionSearch', () => {
       organizationId: ORG,
       extractionId: EXTRACTION_ID,
       afterOrdinal: 199,
+    })
+  })
+
+  it('accepts a tenant-wide partition job', async () => {
+    const enqueue = jest.fn(async () => 'job-2')
+    const container = { hasRegistration: () => true, resolve: <T,>() => ({ enqueue }) as T }
+    await enqueueDocumentSectionSearch(container, { mode: 'delete', tenantId: TENANT, organizationId: null, partitionCode: 'contracts' })
+    expect(enqueue).toHaveBeenCalledWith({
+      kind: 'section-search',
+      mode: 'delete',
+      tenantId: TENANT,
+      organizationId: null,
+      partitionCode: 'contracts',
     })
   })
 
@@ -276,16 +315,6 @@ describe('runDocumentSectionSearchSync', () => {
     expect(emitEvent).not.toHaveBeenCalled()
   })
 
-  it('does not fan out partition-wide jobs', async () => {
-    const { deps, emitEvent } = createDeps()
-    const outcome = await runDocumentSectionSearchSync(
-      { kind: 'section-search', mode: 'index', tenantId: TENANT, organizationId: ORG, partitionCode: 'contracts' },
-      deps,
-    )
-    expect(outcome).toEqual({ kind: 'skipped', reason: 'partition_fanout_not_handled' })
-    expect(emitEvent).not.toHaveBeenCalled()
-  })
-
   it('reports failures instead of throwing', async () => {
     installSectionStore(buildSections(1))
     const { deps } = createDeps({
@@ -307,6 +336,205 @@ describe('runDocumentSectionSearchSync', () => {
     const outcome = await runDocumentSectionSearchSync({ kind: 'section-search', mode: 'index' }, deps)
     expect(outcome).toEqual({ kind: 'failed' })
     expect(mockReportError).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('partition section search fan-out', () => {
+  const OTHER_TENANT = '77777777-7777-4777-8777-777777777777'
+  const OTHER_ORG = '88888888-8888-4888-8888-888888888888'
+
+  type ExtractionRow = {
+    id: string
+    tenantId: string | null
+    organizationId: string | null
+    partitionCode: string
+    status: string
+    deletedAt: Date | null
+    stats: Record<string, unknown> | null
+  }
+
+  type PartitionRow = { code: string; tenantId: string | null; organizationId: string | null; indexDocumentSections: boolean }
+
+  function extractionId(index: number): string {
+    return `99999999-9999-4999-8999-${String(index).padStart(12, '0')}`
+  }
+
+  function extraction(index: number, overrides: Partial<ExtractionRow> = {}): ExtractionRow {
+    return {
+      id: extractionId(index),
+      tenantId: TENANT,
+      organizationId: ORG,
+      partitionCode: 'contracts',
+      status: 'completed',
+      deletedAt: null,
+      stats: { pages: 1 },
+      ...overrides,
+    }
+  }
+
+  function matchesScope(actual: string | null, expected: unknown): boolean {
+    if (expected && typeof expected === 'object' && '$ne' in expected) return true
+    return actual === expected
+  }
+
+  const extractionQueries: Record<string, unknown>[] = []
+
+  function installPartitionStore(partitions: PartitionRow[], extractions: ExtractionRow[]): void {
+    extractionQueries.length = 0
+    findOneWithDecryptionMock.mockImplementation((async (_em: unknown, entity: unknown, where: { code?: string }) => {
+      if (entity !== AttachmentPartition) return null
+      return partitions.find((row) => row.code === where.code) ?? null
+    }) as unknown as typeof findOneWithDecryption)
+    findWithDecryptionMock.mockImplementation((async (
+      _em: unknown,
+      entity: unknown,
+      where: Record<string, unknown>,
+      options?: FindOptions,
+    ) => {
+      if (entity !== AttachmentDocumentExtraction) return []
+      extractionQueries.push(where)
+      const statuses = (where.status as { $in: string[] }).$in
+      const after = (where.id as { $gt?: string } | undefined)?.$gt
+      const matching = extractions
+        .filter((row) => row.partitionCode === where.partitionCode && row.deletedAt === null)
+        .filter((row) => statuses.includes(row.status))
+        .filter((row) => matchesScope(row.tenantId, where.tenantId) && matchesScope(row.organizationId, where.organizationId))
+        .filter((row) => (after === undefined ? true : row.id > after))
+        .sort((left, right) => left.id.localeCompare(right.id))
+      return options?.limit !== undefined ? matching.slice(0, options.limit) : matching
+    }) as unknown as typeof findWithDecryption)
+  }
+
+  function createFanOutDeps(partitionPageSize?: number) {
+    const nativeUpdate = jest.fn(async () => 1)
+    const { deps, emitEvent, enqueue } = createDeps({
+      em: { nativeUpdate } as unknown as EntityManager,
+      ...(partitionPageSize !== undefined ? { partitionPageSize } : {}),
+    })
+    return { deps, emitEvent, enqueue, nativeUpdate }
+  }
+
+  const globalIndexing: PartitionRow = { code: 'contracts', tenantId: null, organizationId: null, indexDocumentSections: true }
+
+  it('fans out one page of a global partition across tenants, flags extractions and enqueues a continuation', async () => {
+    installPartitionStore(
+      [globalIndexing],
+      [
+        extraction(1),
+        extraction(2, { tenantId: OTHER_TENANT, organizationId: OTHER_ORG }),
+        extraction(3),
+        extraction(4, { status: 'failed' }),
+        extraction(5, { deletedAt: new Date(0) }),
+      ],
+    )
+    const { deps, emitEvent, enqueue, nativeUpdate } = createFanOutDeps(2)
+    const outcome = await runDocumentSectionSearchSync(
+      { kind: 'section-search', mode: 'index', tenantId: null, organizationId: null, partitionCode: 'contracts' },
+      deps,
+    )
+    expect(outcome).toEqual({ kind: 'fanned_out', enqueued: 2, skippedTenantless: 0, continuation: true })
+    expect(extractionQueries[0]).toEqual(
+      expect.objectContaining({ tenantId: { $ne: null }, organizationId: { $ne: null }, deletedAt: null }),
+    )
+    expect(nativeUpdate).toHaveBeenCalledWith(
+      AttachmentDocumentExtraction,
+      { id: extractionId(1), tenantId: TENANT, organizationId: ORG },
+      { stats: { pages: 1, searchIndexed: true } },
+    )
+    expect(nativeUpdate).toHaveBeenCalledWith(
+      AttachmentDocumentExtraction,
+      { id: extractionId(2), tenantId: OTHER_TENANT, organizationId: OTHER_ORG },
+      { stats: { pages: 1, searchIndexed: true } },
+    )
+    expect(enqueue.mock.calls.map((call) => call[0])).toEqual([
+      { mode: 'index', tenantId: TENANT, organizationId: ORG, extractionId: extractionId(1) },
+      { mode: 'index', tenantId: OTHER_TENANT, organizationId: OTHER_ORG, extractionId: extractionId(2) },
+      {
+        mode: 'index',
+        tenantId: null,
+        organizationId: null,
+        partitionCode: 'contracts',
+        afterExtractionId: extractionId(2),
+      },
+    ])
+    expect(emitEvent).not.toHaveBeenCalled()
+  })
+
+  it('resumes after the cursor, skips tenant-less extractions and stops on a short page', async () => {
+    installPartitionStore(
+      [globalIndexing],
+      [extraction(1), extraction(2), extraction(3), extraction(4, { tenantId: null, organizationId: null })],
+    )
+    const { deps, enqueue, nativeUpdate } = createFanOutDeps(5)
+    const outcome = await runDocumentSectionSearchSync(
+      {
+        kind: 'section-search',
+        mode: 'index',
+        tenantId: null,
+        organizationId: null,
+        partitionCode: 'contracts',
+        afterExtractionId: extractionId(2),
+      },
+      deps,
+    )
+    expect(outcome).toEqual({ kind: 'fanned_out', enqueued: 1, skippedTenantless: 1, continuation: false })
+    expect(enqueue).toHaveBeenCalledTimes(1)
+    expect(enqueue).toHaveBeenCalledWith({ mode: 'index', tenantId: TENANT, organizationId: ORG, extractionId: extractionId(3) })
+    expect(nativeUpdate).toHaveBeenCalledTimes(1)
+  })
+
+  it('limits a tenant partition to its own tenant and clears the flag on delete', async () => {
+    installPartitionStore(
+      [{ code: 'contracts', tenantId: TENANT, organizationId: ORG, indexDocumentSections: false }],
+      [
+        extraction(1, { stats: { searchIndexed: true } }),
+        extraction(2, { tenantId: OTHER_TENANT, organizationId: OTHER_ORG, stats: { searchIndexed: true } }),
+      ],
+    )
+    const { deps, enqueue, nativeUpdate } = createFanOutDeps()
+    const outcome = await runDocumentSectionSearchSync(
+      { kind: 'section-search', mode: 'delete', tenantId: TENANT, organizationId: null, partitionCode: 'contracts' },
+      deps,
+    )
+    expect(outcome).toEqual({ kind: 'fanned_out', enqueued: 1, skippedTenantless: 0, continuation: false })
+    expect(extractionQueries[0]).toEqual(expect.objectContaining({ tenantId: TENANT, organizationId: { $ne: null } }))
+    expect(nativeUpdate).toHaveBeenCalledWith(
+      AttachmentDocumentExtraction,
+      { id: extractionId(1), tenantId: TENANT, organizationId: ORG },
+      { stats: { searchIndexed: false } },
+    )
+    expect(enqueue).toHaveBeenCalledWith({ mode: 'delete', tenantId: TENANT, organizationId: ORG, extractionId: extractionId(1) })
+  })
+
+  it('skips when the partition indexing state no longer matches the job mode', async () => {
+    installPartitionStore([{ ...globalIndexing, indexDocumentSections: false }], [extraction(1)])
+    const { deps, enqueue, nativeUpdate } = createFanOutDeps()
+    const outcome = await runDocumentSectionSearchSync(
+      { kind: 'section-search', mode: 'index', tenantId: null, organizationId: null, partitionCode: 'contracts' },
+      deps,
+    )
+    expect(outcome).toEqual({ kind: 'skipped', reason: 'partition_state_mismatch' })
+    expect(enqueue).not.toHaveBeenCalled()
+    expect(nativeUpdate).not.toHaveBeenCalled()
+  })
+
+  it('skips unknown partitions and partitions owned by another tenant', async () => {
+    installPartitionStore(
+      [{ code: 'contracts', tenantId: OTHER_TENANT, organizationId: OTHER_ORG, indexDocumentSections: true }],
+      [extraction(1)],
+    )
+    const { deps, enqueue } = createFanOutDeps()
+    const missing = await runDocumentSectionSearchSync(
+      { kind: 'section-search', mode: 'index', tenantId: null, organizationId: null, partitionCode: 'unknown' },
+      deps,
+    )
+    const foreign = await runDocumentSectionSearchSync(
+      { kind: 'section-search', mode: 'index', tenantId: TENANT, organizationId: null, partitionCode: 'contracts' },
+      deps,
+    )
+    expect(missing).toEqual({ kind: 'skipped', reason: 'partition_not_found' })
+    expect(foreign).toEqual({ kind: 'skipped', reason: 'partition_scope_mismatch' })
+    expect(enqueue).not.toHaveBeenCalled()
   })
 })
 

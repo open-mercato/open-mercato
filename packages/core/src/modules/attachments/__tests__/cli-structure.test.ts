@@ -3,24 +3,28 @@ import { Attachment, AttachmentDocumentExtraction, AttachmentPartition } from '.
 type Row = Record<string, unknown>
 
 const findWithDecryptionMock = jest.fn()
+const findOneWithDecryptionMock = jest.fn()
 const enqueueMock = jest.fn()
+const enqueueSectionSearchMock = jest.fn()
+const nativeUpdateMock = jest.fn()
 const requestExtractionMock = jest.fn()
 const getStructureMock = jest.fn()
 const listSectionsMock = jest.fn()
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findWithDecryption: (...args: unknown[]) => findWithDecryptionMock(...args),
-  findOneWithDecryption: jest.fn(),
+  findOneWithDecryption: (...args: unknown[]) => findOneWithDecryptionMock(...args),
 }))
 
 jest.mock('../lib/documentStructure/queue', () => ({
   enqueueDocumentStructureExtraction: (...args: unknown[]) => enqueueMock(...args),
+  enqueueDocumentSectionSearch: (...args: unknown[]) => enqueueSectionSearchMock(...args),
 }))
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn(async () => ({
     resolve: (key: string) => {
-      if (key === 'em') return {}
+      if (key === 'em') return { nativeUpdate: nativeUpdateMock }
       if (key === 'attachmentDocumentStructureService') {
         return {
           requestExtraction: requestExtractionMock,
@@ -39,6 +43,7 @@ import attachmentsCli, {
   parseStructureBackfillArgs,
   parseStructureDumpArgs,
   parseStructureExtractArgs,
+  parseStructureSearchSyncArgs,
 } from '../cli'
 
 const TENANT = '11111111-1111-4111-8111-111111111111'
@@ -54,7 +59,8 @@ const structureCli = attachmentsCli.find((entry) => entry.command === 'structure
 
 function matchesValue(actual: unknown, expected: unknown): boolean {
   if (expected && typeof expected === 'object' && !Array.isArray(expected)) {
-    const operators = expected as { $gt?: string; $in?: unknown[] }
+    const operators = expected as { $gt?: string; $in?: unknown[]; $ne?: unknown }
+    if ('$ne' in operators) return actual !== operators.$ne
     if (operators.$gt !== undefined) return typeof actual === 'string' && actual > operators.$gt
     if (operators.$in !== undefined) return operators.$in.includes(actual)
   }
@@ -71,7 +77,12 @@ function installStore(store: Store) {
   findWithDecryptionMock.mockImplementation(
     async (_em: unknown, entity: unknown, where: Row, options: { limit?: number } = {}) => {
       if (entity === AttachmentPartition) return store.partitions.filter((row) => matches(row, where))
-      if (entity === AttachmentDocumentExtraction) return store.extractions.filter((row) => matches(row, where))
+      if (entity === AttachmentDocumentExtraction) {
+        const rows = store.extractions
+          .filter((row) => matches(row, where))
+          .sort((left, right) => String(left.id).localeCompare(String(right.id)))
+        return options.limit ? rows.slice(0, options.limit) : rows
+      }
       if (entity === Attachment) {
         const rows = store.attachments
           .filter((row) => matches(row, where))
@@ -80,6 +91,9 @@ function installStore(store: Store) {
       }
       return []
     },
+  )
+  findOneWithDecryptionMock.mockImplementation(async (_em: unknown, entity: unknown, where: Row) =>
+    entity === AttachmentPartition ? store.partitions.find((row) => matches(row, where)) ?? null : null,
   )
 }
 
@@ -129,6 +143,26 @@ describe('attachments structure CLI argument parsing', () => {
       value: { format: 'outline', withText: false },
     })
     expect(parseStructureDumpArgs(['--attachment', ATTACHMENT, '--tenant', TENANT, '--org', ORG, '--format', 'xml']).ok).toBe(false)
+  })
+
+  it('parses search-sync arguments with optional scope and mode', () => {
+    expect(parseStructureSearchSyncArgs(['--partition', 'contracts', '--tenant', TENANT, '--mode', 'delete', '--dry-run'])).toEqual({
+      ok: true,
+      value: { partitionCode: 'contracts', tenantId: TENANT, organizationId: null, mode: 'delete', dryRun: true },
+    })
+    expect(parseStructureSearchSyncArgs(['--partition', 'contracts'])).toEqual({
+      ok: true,
+      value: { partitionCode: 'contracts', tenantId: null, organizationId: null, mode: null, dryRun: false },
+    })
+    expect(parseStructureSearchSyncArgs(['--tenant', TENANT])).toEqual({ ok: false, error: 'Missing required --partition' })
+    expect(parseStructureSearchSyncArgs(['--partition', 'contracts', '--org', ORG])).toEqual({
+      ok: false,
+      error: 'Missing required --tenant',
+    })
+    expect(parseStructureSearchSyncArgs(['--partition', 'contracts', '--mode', 'reindex'])).toMatchObject({
+      ok: false,
+      error: expect.stringContaining('Invalid --mode'),
+    })
   })
 })
 
@@ -237,6 +271,102 @@ describe('attachments structure CLI commands', () => {
     await structureCli?.run(['backfill', '--tenant', TENANT, '--below-engine-version', '2'])
     expect(enqueueMock).toHaveBeenCalledTimes(1)
     expect(enqueueMock).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ attachmentId: attachmentId(1), force: true }))
+  })
+
+  describe('search-sync', () => {
+    const OTHER_TENANT = '99999999-9999-4999-8999-999999999999'
+
+    function extractionId(index: number): string {
+      return `55555555-5555-4555-8555-${String(index).padStart(12, '0')}`
+    }
+
+    function buildExtraction(index: number, overrides: Row = {}): Row {
+      return {
+        id: extractionId(index),
+        tenantId: TENANT,
+        organizationId: ORG,
+        partitionCode: 'contracts',
+        status: 'completed',
+        deletedAt: null,
+        stats: null,
+        ...overrides,
+      }
+    }
+
+    function syncStore(indexDocumentSections: boolean): Store {
+      return {
+        partitions: [{ code: 'contracts', tenantId: null, organizationId: null, indexDocumentSections }],
+        attachments: [],
+        extractions: [
+          ...Array.from({ length: 105 }, (_, index) => buildExtraction(index + 1)),
+          buildExtraction(200, { tenantId: OTHER_TENANT, organizationId: OTHER_ORG }),
+          buildExtraction(201, { organizationId: OTHER_ORG }),
+          buildExtraction(202, { status: 'failed' }),
+        ],
+      }
+    }
+
+    beforeEach(() => {
+      enqueueSectionSearchMock.mockResolvedValue('job-s')
+    })
+
+    it('exits with a usage error for invalid arguments', async () => {
+      await structureCli?.run(['search-sync', '--tenant', TENANT])
+      expect(process.exitCode).toBe(2)
+      expect(enqueueSectionSearchMock).not.toHaveBeenCalled()
+    })
+
+    it('reports counts on dry run without enqueueing or flagging', async () => {
+      installStore(syncStore(true))
+      await structureCli?.run(['search-sync', '--partition', 'contracts', '--tenant', TENANT, '--dry-run'])
+      expect(enqueueSectionSearchMock).not.toHaveBeenCalled()
+      expect(nativeUpdateMock).not.toHaveBeenCalled()
+      const output = logSpy.mock.calls.map((call) => String(call[0])).join('\n')
+      expect(output).toContain('Dry run: 106 extraction(s)')
+      expect(output).toContain('mode index')
+      expect(process.exitCode).toBeUndefined()
+    })
+
+    it('enqueues per-extraction jobs across pages within the tenant and organization filter', async () => {
+      installStore(syncStore(true))
+      await structureCli?.run(['search-sync', '--partition', 'contracts', '--tenant', TENANT, '--org', ORG])
+      expect(enqueueSectionSearchMock).toHaveBeenCalledTimes(105)
+      expect(enqueueSectionSearchMock).toHaveBeenCalledWith(expect.anything(), {
+        mode: 'index',
+        tenantId: TENANT,
+        organizationId: ORG,
+        extractionId: extractionId(1),
+      })
+      const targeted = enqueueSectionSearchMock.mock.calls.map((call) => (call[1] as Row).extractionId)
+      expect(targeted).not.toContain(extractionId(200))
+      expect(targeted).not.toContain(extractionId(201))
+      expect(targeted).not.toContain(extractionId(202))
+      expect(nativeUpdateMock).toHaveBeenCalledTimes(105)
+      expect(findWithDecryptionMock.mock.calls.filter((call) => call[1] === AttachmentDocumentExtraction).length).toBe(2)
+      expect(process.exitCode).toBeUndefined()
+    })
+
+    it('derives the delete mode from a partition that stopped indexing', async () => {
+      installStore(syncStore(false))
+      await structureCli?.run(['search-sync', '--partition', 'contracts', '--tenant', OTHER_TENANT])
+      expect(enqueueSectionSearchMock).toHaveBeenCalledTimes(1)
+      expect(enqueueSectionSearchMock).toHaveBeenCalledWith(expect.anything(), {
+        mode: 'delete',
+        tenantId: OTHER_TENANT,
+        organizationId: OTHER_ORG,
+        extractionId: extractionId(200),
+      })
+    })
+
+    it('fails with exit code 1 for an unknown partition or a mode that contradicts the partition', async () => {
+      installStore(syncStore(false))
+      await structureCli?.run(['search-sync', '--partition', 'missing'])
+      expect(process.exitCode).toBe(1)
+      process.exitCode = undefined
+      await structureCli?.run(['search-sync', '--partition', 'contracts', '--mode', 'index'])
+      expect(process.exitCode).toBe(1)
+      expect(enqueueSectionSearchMock).not.toHaveBeenCalled()
+    })
   })
 
   it('dumps the outline without section text unless requested', async () => {

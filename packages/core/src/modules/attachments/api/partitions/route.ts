@@ -4,11 +4,14 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { Attachment, AttachmentPartition } from '../../data/entities'
 import { ensureDefaultPartitions, DEFAULT_ATTACHMENT_PARTITIONS, sanitizePartitionCode, isPartitionSettingsLocked } from '../../lib/partitions'
 import { resolvePartitionEnvKey } from '../../lib/partitionEnv'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { resolveDefaultAttachmentOcrEnabled } from '../../lib/ocrConfig'
+import { enqueueDocumentSectionSearch, type DocumentStructureQueueContainer } from '../../lib/documentStructure/queue'
 import {
   partitionCreateSchema,
   partitionUpdateSchema,
@@ -25,6 +28,8 @@ import {
 const deleteSchema = z.object({
   id: z.string().uuid(),
 })
+
+const logger = createLogger('attachments').child({ component: 'attachment-partitions' })
 
 const DEFAULT_CODES = new Set(DEFAULT_ATTACHMENT_PARTITIONS.map((entry) => entry.code))
 
@@ -84,6 +89,27 @@ export const metadata = {
 async function resolveEm() {
   const { resolve } = await createRequestContainer()
   return resolve('em') as EntityManager
+}
+
+async function enqueuePartitionSectionSearchSync(
+  container: DocumentStructureQueueContainer,
+  entry: AttachmentPartition,
+): Promise<void> {
+  const tenantId = entry.tenantId ?? null
+  try {
+    await enqueueDocumentSectionSearch(container, {
+      mode: entry.indexDocumentSections ? 'index' : 'delete',
+      tenantId,
+      organizationId: null,
+      partitionCode: entry.code,
+    })
+  } catch (error) {
+    logger.error('Failed to enqueue partition section search sync', { partitionCode: entry.code, err: error })
+    getTelemetryRuntime()?.reportError(error, {
+      module: 'attachments',
+      code: 'attachments.document_structure_search_enqueue_failed',
+    })
+  }
 }
 
 export async function GET(req: Request) {
@@ -182,7 +208,8 @@ export async function PUT(req: Request) {
   if (!parsed.success) {
     return invalidPayloadResponse(parsed.error)
   }
-  const em = await resolveEm()
+  const container = await createRequestContainer()
+  const em = container.resolve<EntityManager>('em')
   const entry = await findOneWithDecryption(
     em,
     AttachmentPartition,
@@ -224,9 +251,13 @@ export async function PUT(req: Request) {
   if (parsed.data.configJson !== undefined) {
     entry.configJson = parsed.data.configJson ?? null
   }
+  const indexDocumentSectionsChanged = (entry.indexDocumentSections ?? false) !== nextDocumentStructureFlags.indexDocumentSections
   entry.extractDocumentStructure = nextDocumentStructureFlags.extractDocumentStructure
   entry.indexDocumentSections = nextDocumentStructureFlags.indexDocumentSections
   await em.persist(entry).flush()
+  if (indexDocumentSectionsChanged) {
+    await enqueuePartitionSectionSearchSync(container, entry)
+  }
   return NextResponse.json({ item: serializePartition(entry) })
 }
 

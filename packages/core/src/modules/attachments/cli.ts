@@ -14,7 +14,8 @@ import {
   type DocumentOutlineNode,
   type DocumentSection,
 } from './lib/documentStructure/service'
-import { enqueueDocumentStructureExtraction } from './lib/documentStructure/queue'
+import { enqueueDocumentSectionSearch, enqueueDocumentStructureExtraction } from './lib/documentStructure/queue'
+import { fanOutPartitionSectionSearch } from './lib/documentStructure/sectionSearchSync'
 import { runDocumentStructureBackfill } from './lib/documentStructure/backfill'
 import { documentOcrModeSchema } from './lib/documentStructure/types'
 import { removeAttachmentRecord } from './lib/storageReferences'
@@ -117,6 +118,7 @@ const STRUCTURE_USAGE = [
   '  mercato attachments structure extract --attachment <id> --tenant <id> --org <id> [--force] [--ocr auto|never|force]',
   '  mercato attachments structure backfill --tenant <id> [--org <id>] [--partition <code>] [--below-engine-version <n>] [--limit <n>] [--dry-run]',
   '  mercato attachments structure dump --attachment <id> --tenant <id> --org <id> [--format outline|json] [--json] [--max-depth <n>] [--with-text]',
+  '  mercato attachments structure search-sync --partition <code> [--tenant <id>] [--org <id>] [--mode index|delete] [--dry-run]',
 ].join('\n')
 
 const DUMP_FORMATS = ['outline', 'json'] as const
@@ -150,6 +152,22 @@ const structureDumpArgsSchema = z.object({
 })
 export type StructureDumpArgs = z.infer<typeof structureDumpArgsSchema>
 
+const SEARCH_SYNC_MODES = ['index', 'delete'] as const
+
+const structureSearchSyncArgsSchema = z
+  .object({
+    partitionCode: z.string().min(1),
+    tenantId: z.string().uuid().nullable(),
+    organizationId: z.string().uuid().nullable(),
+    mode: z.enum(SEARCH_SYNC_MODES).nullable(),
+    dryRun: z.boolean(),
+  })
+  .refine((value) => value.organizationId === null || value.tenantId !== null, {
+    path: ['tenantId'],
+    message: '--org requires --tenant',
+  })
+export type StructureSearchSyncArgs = z.infer<typeof structureSearchSyncArgsSchema>
+
 export type StructureArgsResult<T> = { ok: true; value: T } | { ok: false; error: string }
 
 const ARG_FLAG_NAMES: Record<string, string> = {
@@ -162,6 +180,7 @@ const ARG_FLAG_NAMES: Record<string, string> = {
   ocr: '--ocr',
   format: '--format',
   maxDepth: '--max-depth',
+  mode: '--mode',
 }
 
 function readStringArg(args: ParsedArgs, ...keys: string[]): string | undefined {
@@ -224,6 +243,17 @@ export function parseStructureDumpArgs(rest: string[]): StructureArgsResult<Stru
     format: readStringArg(args, 'format') ?? (jsonFlag ? 'json' : 'outline'),
     maxDepth: readStringArg(args, 'max-depth', 'maxDepth') ?? DOCUMENT_OUTLINE_MAX_DEPTH,
     withText: readFlagArg(args, 'with-text', 'withText'),
+  })
+}
+
+export function parseStructureSearchSyncArgs(rest: string[]): StructureArgsResult<StructureSearchSyncArgs> {
+  const args = parseArgs(rest)
+  return validateStructureArgs(structureSearchSyncArgsSchema, {
+    partitionCode: readStringArg(args, 'partition', 'partitionCode'),
+    tenantId: readStringArg(args, 'tenant', 'tenantId') ?? null,
+    organizationId: readStringArg(args, 'org', 'organizationId') ?? null,
+    mode: readStringArg(args, 'mode') ?? null,
+    dryRun: readFlagArg(args, 'dry-run', 'dryRun'),
   })
 }
 
@@ -367,10 +397,51 @@ async function runStructureDump(rest: string[]): Promise<void> {
   }
 }
 
+async function runStructureSearchSync(rest: string[]): Promise<void> {
+  const parsed = parseStructureSearchSyncArgs(rest)
+  if (!parsed.ok) return reportUsageError(parsed.error)
+  const input = parsed.value
+  const container = await createRequestContainer()
+  const em = container.resolve<EntityManager>('em')
+  const result = await fanOutPartitionSectionSearch({
+    em,
+    enqueue: (job) => enqueueDocumentSectionSearch(container, job),
+    partitionCode: input.partitionCode,
+    tenantId: input.tenantId,
+    organizationId: input.organizationId,
+    ...(input.mode ? { mode: input.mode } : {}),
+    maxPages: null,
+    dryRun: input.dryRun,
+  })
+  if (result.kind === 'partition_not_found') {
+    console.error(`[attachments] Partition ${input.partitionCode} not found.`)
+    process.exitCode = 1
+    return
+  }
+  if (result.kind === 'partition_state_mismatch') {
+    const state = result.indexDocumentSections ? 'enabled' : 'disabled'
+    console.error(`[attachments] Partition ${input.partitionCode} has section indexing ${state}; --mode ${input.mode} does not match.`)
+    process.exitCode = 1
+    return
+  }
+  if (result.kind === 'partition_scope_mismatch') {
+    console.error(`[attachments] Partition ${input.partitionCode} does not belong to the given tenant.`)
+    process.exitCode = 1
+    return
+  }
+  const summary = `partition ${input.partitionCode}, mode ${result.mode}, scanned ${result.scanned}, skipped tenant-less ${result.skippedTenantless}`
+  if (input.dryRun) {
+    console.log(`Dry run: ${result.enqueued} extraction(s) would be enqueued for section search sync (${summary}).`)
+    return
+  }
+  console.log(`Enqueued ${result.enqueued} section search sync job(s) (${summary}).`)
+}
+
 const STRUCTURE_SUBCOMMANDS: Record<string, (rest: string[]) => Promise<void>> = {
   extract: runStructureExtract,
   backfill: runStructureBackfill,
   dump: runStructureDump,
+  'search-sync': runStructureSearchSync,
 }
 
 const documentStructure: ModuleCli = {

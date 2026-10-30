@@ -41,7 +41,7 @@
 | 4 | 4.3 | Add section search sync jobs to the structure queue | dispatch:capable | done | pending |
 | 4 | 4.4 | Index sections when an extraction completes | dispatch | done | pending |
 | 4 | 4.5 | Remove section search records when structure is purged | dispatch:capable | done | pending |
-| 4 | 4.6 | Sync section search when a partition toggles indexing | dispatch | todo | — |
+| 4 | 4.6 | Sync section search when a partition toggles indexing | dispatch | done | pending |
 | 4 | 4.7 | Emit attachment citations from get_document_sections | dispatch | todo | — |
 | 4 | 4.8 | Cover section search with integration tests | dispatch | todo | — |
 | 4 | 4.9 | Document section search | dispatch:cheap | todo | — |

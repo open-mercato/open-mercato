@@ -34,6 +34,7 @@ export const documentSectionSearchJobSchema = z
     sectionIds: z.array(z.string().uuid()).min(1).max(DOCUMENT_SECTION_SEARCH_MAX_IDS).optional(),
     partitionCode: z.string().trim().min(1).max(120).optional(),
     afterOrdinal: z.number().int().min(-1).optional(),
+    afterExtractionId: z.string().uuid().optional(),
   })
   .strict()
   .superRefine((job, ctx) => {
@@ -49,6 +50,20 @@ export const documentSectionSearchJobSchema = z
         code: 'custom',
         path: ['afterOrdinal'],
         message: '[internal] afterOrdinal requires extractionId',
+      })
+    }
+    if (job.afterExtractionId !== undefined && job.partitionCode === undefined) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['afterExtractionId'],
+        message: '[internal] afterExtractionId requires partitionCode',
+      })
+    }
+    if (job.tenantId === null && job.organizationId !== null) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['organizationId'],
+        message: '[internal] organizationId requires tenantId',
       })
     }
   })
@@ -132,7 +147,9 @@ export async function enqueueDocumentSectionSearch(
   container: DocumentStructureQueueContainer | null | undefined,
   input: EnqueueDocumentSectionSearchInput,
 ): Promise<string> {
-  assertAttachmentScopeInvariant({ tenantId: input.tenantId, organizationId: input.organizationId })
+  if (input.partitionCode === undefined) {
+    assertAttachmentScopeInvariant({ tenantId: input.tenantId, organizationId: input.organizationId })
+  }
   const payload = documentSectionSearchJobSchema.parse({
     kind: DOCUMENT_SECTION_SEARCH_JOB_KIND,
     mode: input.mode,
@@ -142,6 +159,7 @@ export async function enqueueDocumentSectionSearch(
     ...(input.sectionIds !== undefined ? { sectionIds: input.sectionIds } : {}),
     ...(input.partitionCode !== undefined ? { partitionCode: input.partitionCode } : {}),
     ...(input.afterOrdinal !== undefined ? { afterOrdinal: input.afterOrdinal } : {}),
+    ...(input.afterExtractionId !== undefined ? { afterExtractionId: input.afterExtractionId } : {}),
   })
   return resolveDocumentStructureQueue(container).enqueue(payload)
 }
