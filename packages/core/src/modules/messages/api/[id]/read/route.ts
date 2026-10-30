@@ -3,6 +3,7 @@ import type { CommandBus } from '@open-mercato/shared/lib/commands/command-bus'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi/types'
 import { Message, MessageRecipient } from '../../../data/entities'
 import { attachOperationMetadataHeader } from '../../../lib/operationMetadata'
+import { ensureChannelInboxRecipient } from '../../../lib/channelInboxRecipient'
 import { hasOrganizationAccess, resolveMessageContext } from '../../../lib/routeHelpers'
 import type { MessageScope } from '../../../lib/routeHelpers'
 import { resolveUserFeatures, runMessageMutationGuardAfterSuccess, runMessageMutationGuards } from '../../guards'
@@ -39,11 +40,14 @@ async function resolveRecipientContext(
     return { response: Response.json({ error: 'Access denied' }, { status: 403 }) }
   }
 
-  const recipient = await em.findOne(MessageRecipient, {
-    messageId: id,
-    recipientUserId: scope.userId,
-    deletedAt: null,
-  })
+  // A channel-inbox message (inbound, unassigned conversation) is listed without a
+  // recipient row; the caller's own row is created on their first action (#6106).
+  const recipient =
+    (await em.findOne(MessageRecipient, {
+      messageId: id,
+      recipientUserId: scope.userId,
+      deletedAt: null,
+    })) ?? (await ensureChannelInboxRecipient(ctx.container, em, scope, id))
 
   if (!recipient) {
     return { response: Response.json({ error: 'Access denied' }, { status: 403 }) }

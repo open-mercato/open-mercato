@@ -7,6 +7,8 @@ import {
   resolveCrudCache,
 } from '@open-mercato/shared/lib/crud/cache'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi/types'
+import { resolveChannelInboxPredicate } from '../../lib/channelThreadWidening'
+import { channelInboxWideningClause } from '../../lib/participantScope'
 import { resolveMessageContext } from '../../lib/routeHelpers'
 import { unreadCountResponseSchema } from '../openapi'
 
@@ -65,7 +67,32 @@ export async function GET(req: Request) {
   const row = await query
     .select(sql<number>`count(*)`.as('count'))
     .executeTakeFirst() as { count: string | number } | undefined
-  const count = Number(row?.count ?? 0)
+  let count = Number(row?.count ?? 0)
+
+  // Channel-inbox messages (inbound, unassigned conversation) the caller has not
+  // opened yet have no recipient row but are listed as unread, so they count too
+  // (#6106). Opening or acting on one creates the caller's row and moves it into the
+  // count above, so nothing is counted twice.
+  const channelInboxPredicate = await resolveChannelInboxPredicate(ctx.container, {
+    userId: scope.userId,
+    tenantId: scope.tenantId,
+    organizationId: orgId,
+  })
+  if (channelInboxPredicate) {
+    let inboxQuery = db
+      .selectFrom('messages as m')
+      .where('m.tenant_id', '=', scope.tenantId)
+      .where('m.deleted_at', 'is', null)
+      .where('m.is_draft', '=', false)
+    inboxQuery = orgId
+      ? inboxQuery.where('m.organization_id', '=', orgId)
+      : inboxQuery.where('m.organization_id', 'is', null)
+    const inboxRow = await inboxQuery
+      .where((eb: any) => channelInboxWideningClause(eb, scope.userId, channelInboxPredicate))
+      .select(sql<number>`count(*)`.as('count'))
+      .executeTakeFirst() as { count: string | number } | undefined
+    count += Number(inboxRow?.count ?? 0)
+  }
 
   if (cache && cacheKey) {
     try {
