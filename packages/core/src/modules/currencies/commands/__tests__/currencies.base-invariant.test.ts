@@ -99,10 +99,12 @@ type LockCall = { sql: string; params: unknown[]; inTransaction: boolean }
 
 function buildEnv(currencies: Row[], rates: Row[] = []) {
   const locks: LockCall[] = []
+  const organizations: Row[] = [{ id: ORG, tenant: { id: TENANT }, deletedAt: null }]
   let inTransaction = false
   const table = (entity: unknown): Row[] => {
     const name = (entity as { name?: string })?.name
     if (name === 'ExchangeRate') return rates
+    if (name === 'Organization') return organizations
     return currencies
   }
   const em: Row = {

@@ -24,6 +24,305 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.9.0 → 0.9.1 (unreleased)
 
+### Workflow steps may last longer than ~24.8 days; `StepInstance.executionTimeMs` is deprecated
+
+A workflow step that lasted 2^31 ms (~24.86 days) or longer could not complete: `step_instances.execution_time_ms`
+is a Postgres `integer`, so the flush that closed the step threw after the step's task had already committed. A
+synchronous `WAIT` activity of that length resolved after 1 ms instead (Node's `setTimeout` ceiling), and a
+`WAIT_FOR_CONDITION` step was forced to time out after 1000 polls whatever its own timeout said.
+
+- `StepInstance.executionTimeMs` (`step_instances.execution_time_ms`) is now `@deprecated` and is written as `null`
+  for a step longer than 2^31 − 1 ms. It was already `null` on every FAILED path. Derive a step's duration from
+  `exitedAt - enteredAt`; the exact value still travels on the `STEP_EXITED` event (`eventData.executionTimeMs`).
+  The column is scheduled for removal no earlier than 0.11.0; no migration ships now.
+- A synchronous `WAIT` longer than one minute that is the last activity of its transition is now queued like an
+  `async: true` WAIT, so the run parks in `WAITING_FOR_ACTIVITIES` instead of holding the request open. A synchronous
+  WAIT longer than ~24.8 days anywhere else now fails with an explicit error instead of resolving early.
+- `OM_WORKFLOWS_MAX_CONDITION_ATTEMPTS` is now the floor of the poll cap: each `WAIT_FOR_CONDITION` waiter may poll
+  as many times as its own `timeout / pollIntervalMs` requires.
+
+### MCP HTTP servers now bind to loopback by default (#2659, #2670)
+
+`runMcpHttpServer` (`mcp:serve-http` / `yarn mcp:serve`, production) and `runMcpDevServer`
+(`mcp:dev` / `yarn mcp:dev`, Claude Code / local testing) used to call `httpServer.listen(port,
+...)` with no host, which binds every network interface (`0.0.0.0`/`::`) rather than loopback.
+Neither server's intended client needs non-loopback reachability, so this widened the API-key
+attack surface to anything with network reach to the host — worse for the dev server, which
+authenticates a single API key once at startup and reuses that same superadmin-equivalent
+context for every request afterward, with no per-request ACL re-check.
+
+**Both servers now default to `127.0.0.1`.** Override with `--host` / `MCP_HTTP_HOST` for the
+production server, `MCP_DEV_HOST` for the dev server.
+
+**Action for operators who reach either MCP server over a non-loopback address** — a reverse
+proxy, sidecar, container, or any other process connecting from outside the host's own loopback
+interface: set the corresponding host override so the server keeps listening where that caller
+expects it. Two shipped topologies already needed this and have been updated as part of this
+change, as a reference for anything else you run:
+
+- The `mcp` service in `docker-compose.fullapp.yml` / `docker-compose.fullapp.dev.yml` (and the
+  `starters/docker/compose.fullapp*.yml` canonicals, and the `create-app` template) is reached
+  by the `app` and `opencode` services over the internal compose network (`mcp:3001`), which is
+  not loopback from the `mcp` container's own point of view. Both now set `MCP_HTTP_HOST:
+  "0.0.0.0"` on that service — the network is internal and the port is not published, so this is
+  not a new exposure, just an explicit opt-in matching the new default-loopback contract.
+- `yarn dev`'s full-stack flow (`scripts/dev.mjs`) spawns this server on the **host** so the
+  Dockerized OpenCode sidecar can reach it via `host.docker.internal`. On Docker Desktop that hop
+  resolves to host loopback, so `yarn dev` keeps the loopback default there. On **native Linux**
+  `host-gateway` is the bridge IP (e.g. `172.17.0.1`), which a loopback-only bind refuses, so
+  `yarn dev` binds `0.0.0.0` on Linux only. Set `MCP_HTTP_HOST` to override either way — for
+  example `MCP_HTTP_HOST=127.0.0.1 yarn dev` restores loopback on Linux. Standalone apps get
+  the same behavior from the `create-app` template's `scripts/dev.mjs` / `scripts/dev-mcp.mjs`;
+  an app scaffolded before this release must copy `resolveDevMcpHost` into its own copies.
+
+No database schema, event id, or CLI command signature changes — only the new options
+(`--host` / `MCP_HTTP_HOST` for `mcp:serve-http`, `MCP_DEV_HOST` for `mcp:dev`) and the changed
+default.
+
+
+### Passkey enrollment requires a WebAuthn registration response (#6800)
+
+Enterprise Security no longer accepts the passkey confirmation shortcut
+`{ credentialId, publicKey, challenge }`. The server previously stored that supplied public
+key without verifying a WebAuthn registration ceremony. The legacy shape now returns
+HTTP 400 without activating the pending method. The shipped browser UI already uses the
+supported path.
+
+**Client action:** call `POST /api/security/mfa/provider/passkey`, use its `clientData` options
+with `navigator.credentials.create` or the SimpleWebAuthn browser registration helper, and
+send the serialized credential to `PUT /api/security/mfa/provider/passkey` as
+`{ setupId, payload: { response, label? } }`. Update fixtures that invented public keys to
+use an actual or virtual authenticator. A disclosed challenge alone is insufficient.
+
+**Operator action:** this upgrade does not delete or invalidate existing passkeys. Their
+stored metadata cannot establish whether enrollment used the shortcut; a key with uncertain
+provenance may still be suspect even though login requires a valid signed assertion. Audit
+enrollment history and exposure, and arrange reset and re-enrollment through a trusted
+ceremony where provenance is uncertain. Preserve alternate MFA/recovery access before a
+reset to avoid locking users out. No database migration is needed.
+
+This is the narrow Emergency Security Exception described in
+[the enrollment specification](.ai/specs/enterprise/2026-10-01-passkey-enrollment-require-webauthn-attestation.md).
+There is no compatibility flag because retaining the shortcut retains the flaw. Credit to @Sawarz for the
+original report and proof of concept (#5296, #6710).
+
+### Organization create undo retains a tombstone (#7663)
+
+Undoing organization creation now sets `deleted_at`, deactivates the row and
+detaches its parent instead of physically removing it. Redo restores the same
+organization and preserves its original creation time. The tombstone reserves
+its slug under the existing tenant-wide unique constraint; creating another
+organization with that name uses the usual numeric slug suffix.
+
+Consumers that inspect raw organization rows must exclude soft-deleted records
+when listing active organizations. Supported list APIs already do so. No schema
+migration is required. Existing replay logs remain readable; recreation restores
+creation time from the stored after-snapshot when available. A historical log
+that lacks that timestamp cannot recover the original time. Rolling back the
+code does not remove tombstones or release their slugs.
+
+### Agent page reads enforce domain rules before redirected egress (#7548)
+
+`web_search` inline content and `web_fetch` now check agent domain rules before
+each HTTP request, including redirects. Permitted inline content uses the final
+page URL. Internal adapter services remain reachable under the operator's
+separate `OM_WEB_SEARCH_ALLOW_PRIVATE_HOSTS` setting.
+
+**Operator action:** with a nonempty domain allowlist or denylist, content reads
+stay on guarded HTTP: automatic browser rendering is skipped and explicit
+`render: 'always'` returns a blocked outcome. Keep domain restrictions configured;
+rendered page reads require future browser redirect-policy enforcement. Restricted
+searches bypass result caches automatically, including previously enriched entries.
+No cache purge or database migration is needed.
+
+**Adapter author action:** existing contract version 1 adapters remain supported
+by the version 2 loader and shared contract-test kit. Adapters rebuilt against
+the current `CONTRACT_VERSION` advertise version 2 and require a host supporting
+version 2; upgrade the host before deploying those rebuilt descriptors.
+Custom HTTP clients must honor the new optional
+`HttpRequestInit.assertUrlAllowed(url)` callback, awaiting synchronous or async
+assertions before DNS and transmission for initial requests and every redirect.
+No tool input or result-field migration is required.
+
+### Warranty claim line numbers must be unique within each live claim (#7306)
+
+Creating or renumbering a line with a number already used by another live line now returns `409`, with a localized `error` and `code: warranty_claims.errors.duplicateLineNo`. Initial claim batches also reject duplicate resolved numbers, including collisions between explicit and default numbers. Valid inputs and automatic numbering remain unchanged.
+
+An undo that would restore an occupied line number is refused before changing the line or totals. Remove the occupying line or move it to a free number through the API, then retry the same undo. Existing duplicates are not automatically renumbered. No database migration is required.
+
+### Workflow webhook responses have resource limits (#7814)
+
+Each `CALL_WEBHOOK` attempt now defaults to a 30-second deadline covering the
+outbound request and response-body consumption. Explicit activity timeouts
+(`timeoutMs` or the legacy `timeout` duration) remain authoritative, including
+values longer than 30 seconds, in both synchronous and queued execution. Every
+attempt accepts at most 1 MiB of response bytes before UTF-8 decoding and JSON
+parsing. Oversized or stalled responses fail the activity and cancel its body;
+the existing retry policy still applies.
+
+**Workflow author and operator action:** update webhook endpoints that exceed
+the byte limit to return a small acknowledgement promptly. Configure an explicit
+activity timeout for a slower endpoint, and move large results behind a separate
+retrieval or asynchronous workflow.
+Existing request configuration and successful response envelopes are unchanged.
+
+### Documents attachments enforce owner permissions at host URLs (#6726)
+
+Host attachment file/image routes, library metadata and attachment mutations now apply
+Documents' existing sharing and feature checks. Organization membership or `attachments.manage`
+alone no longer grants access to an unshared document's files. Authorized owners, shared
+recipients and Documents managers keep their existing capabilities; editing/deleting attachments
+still requires document editing permission and a non-archived owner.
+
+**Operator action:** run the additive attachments migration before serving the new binaries,
+then regenerate and build modules. It adds `attachment_partitions.access_resolver_requirements`
+and backfills the required `documents.document-attachments` provider for existing primary or
+assignment references to the historical `documents:document` identifier. This backfill needs
+no enabled Documents module or Documents table. It preserves unrelated owners in shared
+partitions such as `privateAttachments`, other requirements and malformed policy data (which
+fails closed). Disabling or removing the required provider denies those protected owners;
+restore the provider/registration to restore access. There is no manager API to erase protection.
+
+Protected responses use `Cache-Control: private, no-store`. Purge any affected CDN/reverse-proxy
+copies cached before deployment; the new headers cannot recall cached or downloaded copies.
+A policy timeout returns HTTP 504 without bytes or partial list counts. List authorization has
+a 15-second total budget and a default 1.5-second per-provider budget.
+
+**Module author action:** modules can export `attachmentAccessResolvers` and
+`protectedAttachmentTargets` from `data/attachment-access.ts`, using types exported by
+`@open-mercato/core/modules/attachments`. Regenerate registrations after changing declarations.
+For a new adopter with existing partitions, invoke the trusted
+`syncAttachmentAccessProtection(em)` export during its upgrade/setup while its declarations
+are registered, before disabling that provider. Synchronization unions requirements and never
+removes them. New partition creation and protected uploads synchronize the active declarations.
+Custom code constructing attachment read/link services without DI must provide their optional
+lazy policy context when owner policies apply; missing context denies protected reads.
+The existing synchronous `checkAttachmentAccess` signature and all service method inputs remain
+unchanged. Resolver allows cannot override the baseline; feature checks belong inside the
+callback, and a named required provider cannot be replaced by an unrelated wildcard callback.
+
+**Rollback:** keep the additive schema and roll forward. Older binaries ignore these policies;
+block affected host endpoints at the deployment boundary before any emergency binary rollback.
+Dropping policy data is not a supported security rollback.
+
+This intentional tightening uses the Emergency Security Exception described in
+`BACKWARD_COMPATIBILITY.md` and [design PR #6828](https://github.com/open-mercato/open-mercato/pull/6828).
+Human maintainer @haxiorz [approved the steps 1–3 waiver and acknowledged the client/operator migration](https://github.com/open-mercato/open-mercato/pull/6829#issuecomment-6505350022)
+on 2026-10-29. Independent review, QA and CI remain separate merge gates.
+
+### Scoped attachment bytes no longer advertise shared caching (#7220)
+
+The attachment file and image byte routes now return `Cache-Control: private,
+max-age=60` for tenant- or organization-scoped records, including records in a
+public partition and reads by superadmins. Only records that the existing origin
+access policy permits anonymously retain public caching (global public files:
+86400 seconds; global public images: 3600 seconds). Private partitions keep their
+existing private cache policy. URLs, byte formats, and authorization are unchanged.
+
+**Operator action:** purge previously cached scoped attachment responses from
+CDNs, reverse proxies, and other shared HTTP caches when deploying this fix.
+Include both `/api/attachments/file/*` (including download query variants) and
+`/api/attachments/image/*` (all slugs, sizes, crop options, and query variants).
+Changing origin headers cannot invalidate copies already stored with the old
+public TTL. Check cache rules honor origin `private` and do not force-cache these
+routes. No database or module-code migration is required.
+
+### Dev launchers reject shared-workspace sessions and recover occupied MCP ports (#8044, #8046)
+
+The root and standalone `yarn dev` launchers now claim their canonical workspace before changing
+build caches, generated files, configuration, migrations, or development data. A second mutable
+dev launch in the same checkout exits non-zero and identifies the owning PID, mode, and URL when
+available. This prevents `yarn dev:greenfield` and similar commands from deleting manifests or
+resetting data underneath an active session. Managed parent/child processes share one claim, and
+stale claims are recovered after their processes exit.
+
+**Operator action:** stop the existing session before starting another in the same checkout. To
+run two sessions, use separate checkouts and databases; changing only the HTTP or MCP port does not
+isolate Next output, generated files, package artifacts, workers, or destructive database actions.
+
+`MCP_PORT` is now the managed server's preferred port. When it is occupied, the launcher selects a
+free port and propagates the resulting endpoint to the app and a running OpenCode compose service.
+Explicit external `MCP_URL` and `OPENCODE_MCP_URL` values remain authoritative. No command, flag,
+or environment-variable name changed. See
+`.ai/specs/2026-07-17-hybrid-dev-runtime-and-starters.md` for the lifecycle details.
+
+### Auth ACL live-row canonicalization
+
+Only live ACL rows and live role memberships now grant authorization. A super-admin grant must belong to the user's own tenant. Users whose `users.tenant_id` is NULL no longer obtain global super-admin access from legacy ACL rows; assign an owning tenant and a valid live grant before deploying, especially if that user is your only platform administrator. Foreign-tenant super-admin rows no longer confer super-admin access.
+
+The migration keeps the most recently changed live ACL row per user/tenant or role/tenant (then creation time and id as tie-breakers) and soft-deletes duplicates. Features present only in a superseded role ACL stop being unioned; user ACL resolution may select a different row than the previously unordered read. Review and reconcile intended grants before upgrading. Historical rows remain available for audit; rolling back the indexes does not reactivate them.
+
+Operators should run these read-only audits before deployment:
+
+```sql
+select id from users where tenant_id is null and deleted_at is null;
+
+select 'user' as principal_kind, acl.id, acl.user_id as principal_id,
+       acl.tenant_id as grant_tenant_id, principal.tenant_id as owner_tenant_id
+from user_acls acl join users principal on principal.id = acl.user_id
+where acl.deleted_at is null and acl.is_super_admin = true
+  and acl.tenant_id is distinct from principal.tenant_id
+union all
+select 'role', acl.id, acl.role_id, acl.tenant_id, principal.tenant_id
+from role_acls acl join roles principal on principal.id = acl.role_id
+where acl.deleted_at is null and acl.is_super_admin = true
+  and acl.tenant_id is distinct from principal.tenant_id;
+
+select 'user' as principal_kind, user_id as principal_id, tenant_id, count(*)
+from user_acls where deleted_at is null
+group by user_id, tenant_id having count(*) > 1
+union all
+select 'role', role_id, tenant_id, count(*)
+from role_acls where deleted_at is null
+group by role_id, tenant_id having count(*) > 1;
+```
+
+Drain old application instances when deploying the migration and reader changes together. Restarting clears process-local ACL caches, but a shared cache can retain old grants for up to the configured RBAC TTL (five minutes by default); invalidate shared RBAC cache entries or wait out that TTL before treating revocations as effective. Module authors must filter current ACL and membership reads by `deletedAt: null`, keep parent authorization-state locks around writes, and preserve historical rows for audit.
+
+### Bundled Traefik keeps app and collaboration ports private (#7833)
+
+The optional `starters/docker/compose.fullapp.traefik.yml` overlay (and its
+legacy root duplicate) now removes inherited `app` and `documents-collab`
+host-port publications. Previously the public app port could bypass Traefik's
+TLS and custom-domain ForwardAuth controls. This applies to production and dev
+stacks, including the dev splash port. `APP_PORT` no longer exposes the app
+when the overlay is used. The optional collaboration profile still requires
+explicit enablement and no longer exposes port 4101 with bundled Traefik.
+
+**Operator action:** use Docker Compose **2.24.4+**, inspect the merged config
+including local overlays, and run `up -d` with the deployment's full file/profile
+chain to recreate affected containers. Move direct app-port health probes to
+the public HTTPS hostname. For Documents collaboration, configure a TLS
+WebSocket proxy and set `NEXT_PUBLIC_DOCUMENTS_COLLAB_URL` to its public `wss://`
+URL before rebuilding the app; retain the sidecar's token and Origin checks.
+Verify the recreated containers no longer publish these ports.
+
+Deployments that deliberately use an external proxy or direct access can
+continue to omit the bundled Traefik overlay; their base-file port mappings
+are unchanged. Host-local proxies and diagnostics can use a final loopback-only
+override. See [migration, override examples, WSS routing, and deployment checks](docker/traefik/README.md#private-application-ports-and-migration).
+No application API, database, or module-code migration is required.
+
+### AI session keys revalidate staff roles on every request (#7599)
+
+Removing a staff role now removes that role's privileges from already-issued AI session keys on
+the next request, including cached ACLs, organization visibility, and the raw superadmin flag.
+Role-based resource shares and temporary keys minted by business-rule calls also use current
+session-role membership. A key keeps only roles that were present at issuance and are still held by its owner. Independent
+API keys retain their existing role policy. Endpoints, token/response formats, and schema are unchanged.
+
+**Action for module authors:** do not rely on a session key retaining removed staff privileges.
+After granting a new role, issue a fresh session key to use it. No stored keys need rewriting.
+
+**Action for operators:** deploy and restart every application/worker process that authenticates
+or authorizes API keys. Session authorization now reads live memberships instead of reusing
+cross-request grants, which adds database work for session requests. Verified session-secret
+identities keep the existing bounded authentication cache; live roles and authorization are never
+served from it. Ordinary keys retain cached authentication and authorization results, but ACL,
+feature-organization and enabled organization-scope lookups now read the API-key row before using
+those caches to distinguish session credentials. Last-used write debouncing remains enabled. No
+migration is required.
+
 ### `yarn mercato <module> <command>` exits with the code the command signalled (#5936)
 
 The CLI's module-command dispatcher discarded the executed command's exit signal: unless the command *threw*, the process exited `0`. A command that detected a failure and signalled it the idiomatic Node way — assigning `process.exitCode` without throwing — reported success to the shell, so `$?` lied to every script, CI step and `&&` chain built around the CLI. The dispatcher now wraps the command in the CLI's existing `runWithCapturedExitCode` helper and returns the captured code, which is what the built-in `umes inspect` and `umes check` commands already did.
@@ -166,6 +465,25 @@ AI_RUNTIME_BASEURL_ALLOWLIST=openrouter.ai,http://localhost:11434
 Update the allowlist before upgrading when tenants saved a local or self-hosted base URL: once that
 saved value is ignored, prompts go to the provider's default endpoint instead.
 
+### Staff: customer support tickets (helpdesk) need a per-organization seed and a portal ACL sync
+
+New tenants get everything from `setup.ts`. **Existing** tenants must run, once per organization:
+
+```bash
+yarn mercato staff seed-support-defaults --tenant <tenantId> --org <organizationId>
+yarn mercato customer_accounts sync-customer-role-acls
+```
+
+- `seed-support-defaults` is safe to re-run. It creates the "Customer support" fallback project and the fallback routing rule when they are missing. It seeds the default support ticket categories only in the run that creates the organization's support-category dictionary; once that dictionary exists, a re-run never re-adds a category an admin deleted. Without the fallback project and rule, a portal customer cannot file a ticket because there is no project to route it to.
+- `sync-customer-role-acls` grants the new portal features to the default customer roles: `portal.support_tickets.view` (buyer, viewer) and `portal.support_tickets.manage` (buyer). It is additive and never creates roles. Add `--tenant <tenantId>` to limit it to one tenant.
+- No staff (`acl.ts`) features were added, so `yarn mercato auth sync-role-acls` is not required for this change.
+
+Additive surfaces that third-party code can use. Existing code needs no changes:
+
+- New injection spot `staff.time_tracking.settings:tabs` on the Time Tracking Settings page, with `placement: { kind: 'tab' }` and context `{ moduleId, canManage, settings, onSettingsSaved }`. A tab saves its own changes. It builds each write from `context.settings` and reports the stored result through `onSettingsSaved`.
+- Task comments have an optional `visibility` field (`'internal' | 'customer'`, default `'internal'`). It was added to `staffTimeTaskCommentCreateSchema` and `staffTimeTaskCommentUpdateSchema` as an optional field. `staffTimeTaskCommentUpdateSchema` still requires `body`. The task comment `PUT` route validates against the new `staffTimeTaskCommentUpdateRequestSchema`, which also accepts a visibility-only change.
+- `TimeTrackingBuiltInSettings` has an optional `support: { referencePrefix }` group, stored as the `support.referencePrefix` setting key (default `SUP`). If a settings `PUT` omits it, the stored prefix is kept.
+
 ### `GET /api/attachments` without paging returns at most the newest 100 attachments (#3816)
 
 `GET /api/attachments?entityId=…&recordId=…` used to load, decrypt and return every attachment of the
@@ -301,6 +619,36 @@ successful zero-row sweep on all three surfaces, so a module author who forgot t
 `registerTenantGlobalEntityTypes()` call saw a green completion on the one screen built
 to answer "why is this entity type not indexed".
 
+### New `cart` and `promotions` modules, and buyer-scoped catalog visibility in the cart (#7592)
+
+This release adds the `cart` module (guest/customer cart lifecycle, line pricing, merge/undo,
+promotion application) and the `promotions` module (rule-tree evaluation, benefits, discount
+codes), plus enforces buyer-scoped catalog visibility inside the cart write path so a product
+hidden from browsing cannot be bought through the cart API either.
+
+**Action for operators — existing tenants need two commands.** `setup.ts` `defaultRoleFeatures`
+for both modules (`cart.carts.view`/`.manage`/`.settings.manage`/`.proposals.*`/`.channel.*` and
+`promotions.view`/`.create`/`.update`/`.delete`/`.codes.manage`/`.evaluate`/`.codes.redeem`/
+`.usage.manage`) is merged into seeded staff roles during *tenant setup* only — new tenants get
+the grants automatically, **existing tenants receive nothing until you run:**
+
+```bash
+yarn mercato auth sync-role-acls
+```
+
+It is idempotent, additive (never revokes a hand-added feature) and wildcard-aware (a role
+holding `cart.*`/`promotions.*` gains nothing redundant). Until this runs, staff on existing
+tenants see the new cart/promotions admin UI but every call answers `403`. On a running
+instance the new grants take effect once the permission cache expires (`CACHE_TTL`, about 5
+minutes by default), and the "Promotions" menu group appears after
+`yarn mercato configs cache structural --all-tenants`.
+
+Both modules also register queue-backed sweeper schedules (cart lock/reservation cleanup,
+dynamic-code generation, promotion code-reservation expiry) through the `configs` upgrade-action
+mechanism, gated at version `0.9.1` — the version this release ships as. An existing tenant sees
+these as pending upgrade actions (`configs.manage`, the same admin banner every other upgrade
+action uses) once the app reports `0.9.1`; no migration or CLI command runs them automatically.
+
 ### Login and portal session routes reject cross-site browser requests with `403` (#7239)
 
 `POST /api/auth/login`, `POST /api/auth/session/refresh`, `POST /api/customer_accounts/login`,
@@ -350,6 +698,15 @@ and `--disable-quic`. The `filterSubresources` field of `SidecarState` and optio
 **Action for operators:** nothing to configure. Remove `OM_WEB_RESEARCH_BROWSER_FILTER_SUBRESOURCES`
 from your environment. Intranet assets referenced by rendered pages (images, scripts, APIs on
 private addresses) no longer load; public pages render as before.
+
+### Cross-process event listeners receive portal-only and truncated envelopes (#2973)
+
+`registerCrossProcessEventListener` (`@open-mercato/events/bus`) now also receives events declared only with `portalBroadcast: true`, so a portal event emitted in the queue worker reaches the web process that serves the customer portal stream. An oversize browser-facing envelope (`clientBroadcast` or `portalBroadcast`) is no longer dropped by the Postgres bridge: its payload arrives as `{ truncated: true, id, entityId, entityType }` plus the audience fields, and clients are expected to re-fetch. Private `crossProcessBroadcast` envelopes are unchanged.
+
+*Action for downstream:* a custom listener that handles every envelope should filter by the event flag it serves (`isBroadcastEvent`, `isPortalBroadcastEvent`, ...) and tolerate `payload.truncated === true`. Detect your own echo with `envelope.originInstanceId === CROSS_PROCESS_EVENT_INSTANCE_ID` rather than `originPid`: containers commonly all run as pid 1, so a pid check silently drops envelopes from a worker container.
+
+The portal stream also now treats trusted emit scope as authoritative, as the backoffice stream does: a portal event whose payload names a tenant, or an organization, outside the trusted emit options is not delivered, and one without payload organizations reaches only the trusted organizations.
+
 ### Catalog write commands treat records outside the caller's scope as not found (#3825)
 
 `catalog.products.update|delete`, `catalog.variants.update|delete`, `catalog.prices.update|delete`
@@ -470,6 +827,100 @@ quota. Now:
 media time out on slow links. Check the integration log for `sync_akeneo.media_rejected` warnings
 after the first sync.
 
+### Integration and bundle ids must not end in `__oauth_grant`
+
+The new OAuth2 grant core in `integrations` stores each tenant-level grant as an
+`integration_credentials` row with the id `<integrationId>__oauth_grant`, and reserves that suffix
+so grant secrets never leave the grant service:
+
+- `GET` and `PUT /api/integrations/:id/credentials` answer `404` for any id ending in
+  `__oauth_grant`, even when an integration with that id is registered.
+- `integrationCredentialsService.resolve()` and `resolveUpdatedAt()` no longer fall through to a
+  `bundleId` ending in `__oauth_grant`; they return the child's own credentials or `null`.
+
+No first-party integration or bundle id ends in the suffix, and every other id behaves as before.
+
+**Action for module authors:** rename any integration or bundle id your module registers that ends
+in `__oauth_grant`. To build a provider on OAuth2 grants, see the
+[OAuth2 grants guide](apps/docs/docs/framework/modules/integrations-oauth-grants.mdx).
+
+### Deleting an attachment keeps a stored file that other attachment rows still reference
+
+Catalog copies variant media onto the product, and forwarding a message copies the source message's
+attachments, by creating new `attachments` rows that reuse the source row's stored file
+(`partition_code` + `storage_path`). Every path that deletes an attachment together with its stored
+file used to remove that file with the row it was deleting, which broke all the other rows. Deleting a
+row now removes the stored file only when no other row references it: `DELETE /api/attachments`,
+`DELETE /api/attachments/library/:id`, `attachmentService.releaseScoped()`, `mercato attachments
+delete` and the warranty-claims portal delete go through `removeAttachmentRecord`
+(`@open-mercato/core/modules/attachments/lib/storageReferences`), and Akeneo media reconciliation
+releases through `releaseScoped()`; the deferred `releaseScoped(…, { flush: false })` takes the same
+storage-reference lock inside the caller's transaction. When two requests delete the same row at the
+same time, `DELETE /api/attachments` and `DELETE /api/attachments/library/:id` now answer `404` to
+the one that loses instead of a second `200`, `attachmentService.releaseScoped()` throws a `404`
+`CrudHttpError` (not guaranteed in the deprecated mode below), and Akeneo media reconciliation skips
+the row instead of failing the product.
+
+Calling `attachmentService.releaseScoped(input, { flush: false })` when the entity manager is not
+inside a transaction is deprecated. It still works for at least one minor release, but logs a
+`[deprecated]` warning and decides at call time, without the lock: two such releases racing for rows
+that share a stored file can leave the file orphaned (a storage leak) instead of deleting it, and a
+copy created before the caller flushes is not seen. The lock only protects the decision while the
+caller's transaction is open.
+
+**Action for module authors:** if you call `releaseScoped` with `{ flush: false }`, call it inside
+your own transaction (for example `withAtomicFlush(em, [...], { transaction: true })`) and run the
+returned cleanup after commit — the documented contract. Expect the cleanup to be `undefined` when
+the stored file is still referenced by another row. If you delete `Attachment` rows and their stored
+files yourself, use `removeAttachmentRecord(em, attachment)` outside a transaction and delete the
+file only when it reports `releaseStorage: true`.
+
+The migration adds the index `attachments_storage_reference_idx` on
+`attachments (partition_code, storage_path)`, built `CONCURRENTLY` outside a transaction.
+
+### Webhook credential header values are hidden without `webhooks.secrets` (#7237)
+
+`GET /api/webhooks/:id` and the `PUT /api/webhooks/:id` response (and their `/api/webhooks/webhooks/:id`
+alias) now return `••••••••` as the value of credential-like custom headers unless the caller has
+`webhooks.secrets`. A header counts as credential-like when its name contains (as a substring) `auth`,
+`token`, `secret`, `key`, `pass`, `pwd`, `sig`, `hmac`, `session`, `cookie`, `jwt`, `bearer`,
+`credential` or `private`, or when its value starts with an auth scheme (`Bearer `, `Basic `) or a
+common token prefix. Header names, other values and the response shape are unchanged. The default
+`employee` role (`webhooks.view` only) is affected; `admin` and `superadmin` (`webhooks.*`) still see
+the stored values.
+
+On `PUT /api/webhooks/:id`, a header whose value is exactly `••••••••` keeps its stored value, so a
+client can send back what it read. The route answers `400 { error }` and writes nothing when:
+
+- `••••••••` is sent for a header that has no stored value, or
+- a caller without `webhooks.secrets` changes the webhook URL while keeping a stored credential header
+  (by sending `••••••••` or by omitting `customHeaders`). Re-enter or remove those headers in the same
+  request.
+
+The `makeCrudRoute` update handler behind `PUT /api/webhooks/webhooks` applies the same rules; that route
+currently answers `400 { error: "Invalid id" }` to every request for an unrelated reason.
+
+**Action for API clients:** to change a hidden header, send a new value. To keep it, send
+`••••••••` back unchanged. To delete it, omit the key (`customHeaders` is still a full replacement).
+Grant `webhooks.secrets` to roles that must read the stored values. Code that deep-imports the
+module helper `serializeWebhookDetail()` (`webhooks/api/helpers`) now gets redacted values unless it
+passes `{ revealCredentialHeaders: true }`.
+### Workflow `CALL_API` endpoints must match `APP_URL`'s origin and `/api/` path
+
+A `CALL_API` activity used to accept an absolute endpoint whose host matched `APP_URL`, whatever its
+scheme or path. Now the endpoint must have `APP_URL`'s exact origin (scheme, host and port), and its
+path must be under `/api/` (under `<base path>/api/` when `APP_URL` has one, such as
+`https://shop.example.com/store`). This applies to relative and absolute endpoints, and to every
+redirect hop. A non-matching endpoint, an endpoint with embedded credentials, and an `APP_URL`
+without an `http(s)` scheme fail the activity before the one-time API key is created.
+`fetch` no longer follows redirects on its own: a redirect is followed only when its target passes
+the same check, for at most three hops. Any other redirect fails with
+`CALL_API refused to follow redirect …`.
+
+**Action for operators:** fix any workflow definition whose `CALL_API` endpoint hard-codes a
+different scheme (for example `http://` while `APP_URL` is `https://`) or a non-`/api/` path. Use a
+relative `/api/...` path or `{{env.APP_URL}}/api/...` instead.
+
 ## 0.8.0 → 0.9.0 (2026-10-09)
 
 ### `POST /api/auth/logout` no longer requires a valid access token (#7225)
@@ -539,6 +990,32 @@ produces an actionable proposal. No new dependency, configuration, or database m
 fresh proposals. Old cards cannot be distinguished from forgeries; do not backfill markers using
 their text or sender email. Inspect prior approved replies if forgery is suspected. Normal
 messages and fresh system-filed proposals retain their existing behavior.
+
+### AI-chat session tokens: hashed storage, deploy the app and the MCP server together (#2254, #7304)
+
+`api_keys.session_token` (the ephemeral AI-chat/MCP bearer credential) is replaced by a SHA-256
+`api_keys.session_token_hash`. The old column is kept as a deprecated, always-`null` bridge —
+nothing reads or writes it anymore — rather than dropped, so it is safe to leave in place across
+a rolling deploy.
+
+**Deploy the app and the standalone MCP process (`mcp:serve-http`/`mcp:dev`) together.** During
+the window where they run different code versions:
+- A session minted by the *old* code (plaintext-only) is still resolved by the *new* code — it
+  falls back to the plaintext column on a hash miss and self-heals the row onto the hash on
+  first use — so upgrading the app ahead of the MCP process is safe.
+- A session minted by the *new* code (hash-only) is **not** resolved by an *old* MCP process
+  still running against the same database — the old binary has no way to know about the hash
+  column. Upgrading the MCP process after the app, or running both from the same deploy, avoids
+  this. If hit anyway, the user sees "Your chat session has expired" and recovers by reopening
+  the chat window; no data is corrupted.
+
+**Rolling back after this migration is destructive to sessions minted since the upgrade.** The
+migration backfills the hash from, and then clears, the plaintext column for rows that already
+existed; it cannot retroactively plaintext-store sessions minted by the new code after that
+point. Rolling back (`down()`) drops the hash column, so any session minted between the forward
+migration and the rollback is unrecoverable — users must reopen their chat windows. This is the
+same one-time-TTL (120-minute) cost paid by any session mid-flight at rollback, not an ongoing
+state.
 
 ### Payment gateway webhooks: opt-in transport, locator and response options; ambiguous matches are rejected
 
@@ -658,6 +1135,26 @@ The bulk delete is also recorded in the action log under that user.
 and `scope.userId`. A job missing any of them now fails before deleting anything instead of running
 without a tenant check. `POST /api/catalog/bulk-delete` already sends all three, so no action is
 needed if you only use the API.
+
+### Customer portal password-reset and magic-link requests now send email (#5959)
+
+`POST /api/customer_accounts/password/reset-request` and `POST /api/customer_accounts/magic-link/request`
+used to mint a single-use token and emit `customer_accounts.password_reset.requested` /
+`customer_accounts.magic_link.requested` without ever delivering it — no subscriber consumed those
+events, and the raw token was discarded. Both routes now email the link directly through `sendEmail`
+(the same path portal invitations use): password reset links to `/<orgSlug>/portal/reset-password`,
+and magic links to a new `/<orgSlug>/portal/magic-link` page that redeems the token when the user
+clicks "Sign in". Responses stay `200 { ok: true }` in every case, and the events are still emitted
+with unchanged payloads.
+
+**Action for operators:** configure an email sender (`NOTIFICATIONS_EMAIL_FROM`, `EMAIL_FROM` or
+`ADMIN_EMAIL`) and transport if portal customers should receive these messages; without one the send
+fails, is logged and reported (`customer_accounts.password_reset_email_failed` /
+`customer_accounts.magic_link_email_failed`), and the request still answers `200`.
+
+**Action for module authors:** none, unless your app wraps these two routes (an API interceptor or a
+proxy endpoint) to mint and deliver its own link alongside the call — remove that delivery, or
+customers will receive two emails per request.
 
 ### Redoing an `auth.users.create` no longer restores the account's password
 
@@ -783,6 +1280,18 @@ unaffected.
 **Action for workflow authors:** make each child satisfy its declared output-port contract, or
 remove or relax (`required: false`, a broader type) any port declaration that is not actually
 part of the child's contract.
+
+### Catalog validates its required modules during generation (#6517)
+
+Standalone apps enabling `catalog` must also enable `attachments`, `currencies`,
+`dictionaries`, `entities` and the latter's `query_index` dependency in `src/modules.ts`.
+Run `yarn generate` after updating the selection, then use the normal initialization
+and migration workflow. Incomplete selections now fail generation instead of failing
+later during Catalog setup or CRUD. Default module sets already include these modules.
+
+`sales` remains optional. Catalog's commerce demo dataset is skipped when Sales is
+disabled; Catalog defaults and ordinary product CRUD remain available. Enable Sales
+when that demo dataset is desired. See the [dependency specification](.ai/specs/2026-10-01-catalog-runtime-module-dependencies.md).
 
 ### Catalog product search now requires the `unaccent` and `pg_trgm` PostgreSQL extensions
 
@@ -1015,6 +1524,44 @@ Customers now exposes the scoped `GET /api/customers/activity-types` catalog and
 `GET /api/customers/dictionaries/activity-types` is now scoped to the selected organization plus its ancestors, matching the effective catalog. It no longer returns entries from readable sibling organizations; callers that intentionally inspect another organization must select that organization explicitly.
 
 The optional `example` module demonstrates a fixed-behavior `visit` type. Its Meeting label patch requires `OM_EXAMPLE_CALENDAR_DEMO_OVERRIDES=true`; Example preserves every built-in type with either flag value. Missing Staff, Resources, or Planner modules show a warning and skip only the absent integration checks. Visit names each unavailable subject and distinguishes working-hour failures from scoped overlapping bookings of any Customers event type, including recurrence; editing excludes the current interaction. An empty custom-fieldset configuration preserves existing interaction custom-field writes. See the [calendar event-type guide](apps/docs/docs/framework/modules/calendar-event-types.mdx) and the [source specification PR](https://github.com/open-mercato/open-mercato/pull/6687).
+
+### Planner availability replace endpoints honour the declared `timezone`; unresolvable zones are deprecated (#5868)
+
+`POST /api/planner/availability-weekly` and `POST /api/planner/availability-date-specific` used
+to build every `DTSTART` with the host process's local clock and ignore the required
+`timezone` field (#5862). They now anchor each wall-clock time in the declared IANA zone, so
+for a non-UTC zone the stored instant moves by that zone's offset. Rows written before the
+upgrade are not re-anchored; they stay offset from newly written rows until they are replaced.
+On DST days a wall time the zone skips moves forward by the gap, a repeated one takes its
+earlier occurrence, and a full-day block spans local midnight to the next local midnight (23
+or 25 hours instead of a fixed 24).
+
+A recurring window now keeps its local end time on DST days. The weekly save anchors each
+window on a week whose exact length matches the requested local length (the previous week
+when the upcoming one spans a transition), so `DURATION` is always the local length. The
+zone-aware expander (`getMergedAvailabilityWindows` with `respectTimezone`) now ends each
+occurrence at its local end time instead of adding `DURATION` as an exact span. Existing
+weekly and daily rows are therefore 1 hour shorter or longer on DST-transition days only:
+Sunday 00:00–08:00 in `Europe/Warsaw` ends at 08:00 local on every Sunday, rather than at
+09:00 on the spring-forward Sunday and at 07:00 on the fallback Sunday.
+
+Saving the weekly schedule replaces every weekly row, so legacy weekly rows go away on the next
+save. A date-specific save only replaces rows whose start falls on the saved date *in the
+rule's own zone*, and a legacy row can fall on the neighbouring day there — a full-day block in a
+negative-offset zone such as `America/New_York` (stored `T000000Z`, which is the previous day
+locally), or a late window in a large positive-offset zone such as `Pacific/Auckland`. Re-saving
+the intended date then leaves the legacy row in place on the adjacent date; clear it there.
+
+Because `timezone` now decides the stored instant, a value the runtime cannot resolve (a typo
+such as `Europe/Warszawa`, or `UTC+2`) is anchored to UTC and logged as a `[deprecated]`
+warning. The request schemas (`plannerAvailabilityWeeklyReplaceSchema`,
+`plannerAvailabilityDateSpecificReplaceSchema`) still accept it for now, so the request
+contract is unchanged. A future minor release will reject it with `400`.
+
+**Action for API callers:** send a valid IANA zone name (anything `Intl.DateTimeFormat`
+accepts, e.g. `Europe/Warsaw`, `UTC`, `Etc/GMT+2`). Look for
+`Unresolvable availability timezone` warnings in the `planner` logs to find callers that will
+start failing.
 
 ### `reviveSnapshotSeed` throws on an unparsable snapshot date; `extractUndoPayload` can revive dates (#6336)
 
@@ -1573,6 +2120,40 @@ fallback path). Downstream code that assumed a non-null team-member id must bran
 the `staff` module. Run `yarn mercato auth sync-role-acls` (or your app's equivalent) so existing
 admin/employee roles pick up the grant.
 
+### WMS `wms.inventory.reserve` excludes staging/dock balances
+
+`wms.inventory.reserve` (and sales-order reservation automation that feeds it) no longer treats
+inventory sitting on `staging` or `dock` locations as reservable pick candidates. Those locations
+hold inbound stock until putaway completes; reserving them blocked putaway and overstated Available
+in sales/WMS widgets.
+
+When only staging/dock quantity remains for a variant, reserve returns the same `409` body as a true
+shortage: `{ error: 'insufficient_stock' }`. Callers that previously reserved straight off receive
+staging must either wait for putaway into storage (or another reservable location type) or retype
+stock into a reservable location before calling reserve.
+
+**Action for module authors:** treat `insufficient_stock` after inbound receive as a possible
+"not yet put away" signal when balances still sit on staging/dock; do not assume every on-hand qty
+is reservable.
+
+### WMS custom POST routes honor body `organizationId` when allowed
+
+`executeWmsCustomPostRoute` (shared by WMS inventory/ASN/putaway custom write routes such as
+`POST /api/wms/inventory/receive`, ASN receive/complete, putaway complete/assign/…) used to
+**silently overwrite** request-body `organizationId` with the session-selected / auth org.
+Multi-org callers that sent a different allowed org therefore mutated the selected org instead.
+
+It now:
+- passes through body `organizationId` when present and validates it with `ensureOrganizationScope`
+  (allowed org ids / Pattern C) — disallowed orgs return `403`
+- defaults to the session-selected / auth org only when the body omits `organizationId`
+- still always takes `tenantId` from auth (never from the body)
+
+**Action for module authors:** if a client relied on the old overwrite (sending org B while
+expecting writes in selected org A), stop sending `organizationId` or send org A explicitly.
+Barcode scan resolve/receive/putaway routes keep their session-only resolve policy and still
+force session org onto the body before this helper runs.
+
 ### `Locale` is now derived from an augmentable `LocaleRegistry` (no action required)
 
 `Locale` in `@open-mercato/shared/lib/i18n/config` used to be a closed union literal. It is now
@@ -2079,6 +2660,29 @@ Module dependency check failed:
 ```
 
 **Action for module authors:** add `{ id: 'progress', from: '@open-mercato/core' }` to `src/modules.ts` before `communication_channels`, then re-run `yarn generate`. `apps/mercato/src/modules.ts`, the `create-app` template's `modules.ts` (used unchanged by the `classic` preset), and the `crm` starter preset (the only other preset that enables `communication_channels`) all enable `progress` too, so this repo's own apps and freshly scaffolded apps are unaffected.
+
+### `sales_order_lines.discount_amount` can be negative on `external` rows (sales external amounts mode)
+
+Sales orders gained an opt-in, persisted `external` amounts mode: `sales_orders.totals_mode` and
+`sales_order_lines.amounts_mode`, both defaulting to `'computed'`. On a row a caller explicitly opted in,
+core stores the supplied net, gross and tax verbatim and derives `discount_amount` as
+`unit_price_net × quantity − total_net_amount` — which is **signed**, so a line whose net is above its
+undiscounted subtotal (upward source rounding, a surcharge priced into the line) stores a negative
+discount. See [`.ai/specs/2026-09-07-sales-external-amounts-mode.md`](.ai/specs/2026-09-07-sales-external-amounts-mode.md).
+
+**Action for module and report authors:** if you read `sales_order_lines.discount_amount` and assumed it
+was non-negative — clamping, `SUM()`-ing it as a positive discount total, or rendering it without a sign —
+decide explicitly what an external row should do. Only rows a caller opted in can be negative, so a
+deployment that never sets the mode is unaffected. A report that sums the column across mixed rows
+understates the discount total rather than failing.
+
+### `GET /api/sales/orders` and `/api/sales/order-lines` gained one field each
+
+Order responses now carry `totalsMode` and order-line responses carry `amounts_mode`, both
+`'computed' | 'external'`. Additive; no field was removed or renamed.
+
+**Action for API consumers:** only relevant if you validate these responses against a strict (no
+additional properties) schema. Add the field or relax the schema.
 
 ## 0.6.7 → 0.7.0 (2026-08-26)
 

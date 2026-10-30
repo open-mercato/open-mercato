@@ -39,13 +39,23 @@ The workflow:
 
 The workflow:
 
-1. resolves the PR and rejects fork branches because it requires `NPM_TOKEN`,
-2. checks out the PR head SHA,
+1. resolves the PR, pins its head SHA and author ID, and rejects fork branches,
+2. gates the credentialed job on the protected `npm-preview` environment and verifies independent deployment approval before checking out the pinned PR head SHA,
 3. publishes lockstep npm canary snapshots via `scripts/release-snapshot.sh`,
 4. comments the exact npm snapshot versions on the PR,
 5. runs standalone app integration against the exact published snapshot.
 
 This path is intentionally separate from pkg.pr.new so maintainers can test whether npm canaries are still needed.
+
+#### Approval and credential boundary
+
+The `npm-preview` environment must require a maintainer reviewer, prevent self-review, disallow administrator bypass, and restrict deployment refs to trusted `main` with no tags. Stable `production` approval remains independent. Dispatch from `main`, then review the resolved PR SHA before approval; dependency install hooks and release scripts are PR-controlled code.
+
+The first snapshot step reads the run's environment approval history with `actions: read`. Only an approval for `npm-preview` from someone other than the PR author (immutable user ID), dispatcher, and triggering actor permits checkout. Missing approvals, unrelated/rejected approvals, and API errors fail closed. Only the first run attempt is accepted: retries require a fresh dispatch so earlier approvals cannot authorize a newly resolved PR head.
+
+Only `secrets.NPM_PREVIEW_TOKEN` supplies npm authentication in this workflow. It must be a distinct granular credential stored exclusively in `npm-preview`, with publishing access to the explicit public workspace package allowlist, including `create-mercato-app`, and no unrelated package or organization administration grants. It must not reuse or fall back to the stable `NPM_TOKEN`. A missing token stops the job before installing dependencies. Trusted branch snapshots, stable publishing, snapshot versioning, and provenance remain unchanged.
+
+Operators must verify the actual npm package grants, noninteractive publishing permissions, expiration/rotation owner, environment reviewers, no-self-review/no-bypass policy, ref restrictions, and environment-only secret placement, recording non-secret evidence on the issue or PR. The [operator checklist](../../CONTRIBUTING.md#npm-snapshot-preview-security-setup) is required before first use; these settings are external to the repository and are not established by YAML or unit tests. Npm write grants cannot restrict these shared package names to preview versions or dist-tags, so independent approval is required even with a dedicated credential.
 
 ### 3. Trigger Decision: Dispatch Only
 
@@ -84,6 +94,7 @@ Dispatches are action triggers, not persistent pipeline states. To publish a fre
 - The npm `develop` channel remains unchanged for pushes to `develop`.
 - PR preview publishing becomes opt-in.
 - Both PR preview workflows are restricted to same-repository PR branches. This avoids checking out fork code in workflows that are dispatched from trusted workflow contexts and can publish artifacts or comment on PRs.
+- Npm previews additionally require independent environment approval and a dedicated preview credential. Retry via a fresh dispatch rather than **Re-run jobs**. pkg.pr.new previews retain their existing flow.
 
 ## Integration Coverage
 
@@ -107,10 +118,17 @@ Affected key UI paths:
 Validation:
 
 - YAML parse check for edited workflows.
+- `node --test scripts/__tests__/preview-workflows.test.mjs scripts/__tests__/npm-provenance-runners.test.mjs` verifies job approval/credential isolation, independent versus self/missing/unrelated/rejected approvals, API errors, fresh-dispatch retries, pinned SHA, same-repository dispatch, and provenance runner requirements.
+- Operator acceptance: confirm unapproved/self-approved runs do not reach PR checkout, then approve an intended pinned same-repository SHA and verify canary publication, provenance, and exact-version standalone integration. This live publish check requires maintainer authorization and is not run locally.
 - `yarn install --immutable` after adding `pkg-pr-new`.
 - No local npm publish or pkg.pr.new publish should run during implementation.
 
 ## Changelog
+
+### 2026-10-26
+
+- Required independent `npm-preview` environment approval before PR checkout and a distinct environment-scoped `NPM_PREVIEW_TOKEN` with no stable credential fallback (issue #7835).
+- Rejected approvals from the PR author or workflow initiators, missing/unrelated approval, and run retries that could reuse old approval; added executable regression coverage and the operator configuration checklist.
 
 ### 2026-06-24
 

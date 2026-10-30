@@ -14,7 +14,7 @@ export const ENTERPRISE_PREFIX = 'packages/enterprise/'
 // Keep in sync by hand; do not widen this to an org/team or association
 // check — membership changes shouldn't silently grant enterprise write
 // access. Derived from `git log` authorship on packages/enterprise/ across
-// origin/main + origin/develop (everyone with merged history there today).
+// origin/main and the retired develop branch (everyone with merged history there).
 export const ALLOWED_LOGINS: Set<string> = new Set([
   'pkarw',
   'patzick',

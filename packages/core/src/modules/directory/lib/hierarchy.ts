@@ -55,6 +55,25 @@ function normalizeUuid(value: unknown): string | null {
   return v
 }
 
+export function findOrganizationParentCycle(
+  organizations: ReadonlyArray<Pick<Organization, 'id' | 'parentId'>>,
+  organizationIds: Iterable<string>,
+): string | null {
+  const parents = new Map<string, string | null>()
+  for (const org of organizations) parents.set(String(org.id), normalizeUuid(org.parentId))
+  for (const startId of organizationIds) {
+    const seen = new Set<string>([startId])
+    let currentId = parents.get(startId) ?? null
+    while (currentId && parents.has(currentId)) {
+      if (currentId === startId) return startId
+      if (seen.has(currentId)) break
+      seen.add(currentId)
+      currentId = parents.get(currentId) ?? null
+    }
+  }
+  return null
+}
+
 export function computeHierarchyForOrganizations(organizations: Organization[], tenantId: string): ComputedHierarchy {
   const nodes = new Map<string, InternalNode>()
 
@@ -131,7 +150,7 @@ export function computeHierarchyForOrganizations(organizations: Organization[], 
         const an = nodes.get(a)!.org.name.toLowerCase()
         const bn = nodes.get(b)!.org.name.toLowerCase()
         if (an === bn) return a.localeCompare(b)
-        return an.localeCompare(b)
+        return an.localeCompare(bn)
       })
 
     const descendantIds: string[] = []
@@ -173,10 +192,30 @@ export function computeHierarchyForOrganizations(organizations: Organization[], 
       walk(id, [])
     }
   }
+
+  function findCycleCutId(startId: string): string | null {
+    const positions = new Map<string, number>()
+    const path: string[] = []
+    let currentId: string | null = startId
+    while (currentId && nodes.has(currentId) && !visited.has(currentId) && !positions.has(currentId)) {
+      positions.set(currentId, path.length)
+      path.push(currentId)
+      currentId = nodes.get(currentId)!.parentId
+    }
+    if (!currentId || !positions.has(currentId)) return null
+    return path
+      .slice(positions.get(currentId))
+      .reduce((smallest, candidate) => (candidate < smallest ? candidate : smallest))
+  }
+
   // Handle orphaned nodes or cycles not reached above
   for (const id of nodes.keys()) {
-    if (!visited.has(id)) {
-      walk(id, [])
+    while (!visited.has(id)) {
+      const cutId = findCycleCutId(id) ?? id
+      const cutNode = nodes.get(cutId)!
+      if (cutNode.parentId) nodes.get(cutNode.parentId)?.children.delete(cutId)
+      cutNode.parentId = null
+      walk(cutId, [])
     }
   }
 
