@@ -4,6 +4,7 @@ import { asValue, createContainer, InjectionMode } from 'awilix'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands/types'
 import { DefaultSalesCalculationService } from '../../services/salesCalculationService'
+import { createSalesDocumentLockKyselyFixture } from './salesDocumentLockFixture'
 
 jest.mock('#generated/entities.ids.generated', () => ({
   E: {
@@ -125,6 +126,7 @@ function buildHarness(options: { orders?: Row[]; lines?: Row[]; adjustments?: Ro
     commit: async () => undefined,
     rollback: async () => undefined,
     getReference: (_entity: unknown, id: unknown) => ({ id }),
+    getKysely: () => createSalesDocumentLockKyselyFixture(String(order?.id ?? ORDER_ID)),
     // Reached only by the undo path that finds the order still present: it drops
     // the old line rows and evicts them from the identity map before writing the
     // snapshot's back.
@@ -764,8 +766,10 @@ describe('undo — the mode and the amounts move together', () => {
       lines: [storedExternalLine(LINE_ONE_ID, 1)],
     })
 
-    const snapshots = (await commandRegistry.get('sales.orders.lines.upsert')!.prepare?.(
-      { body: { orderId: ORDER_ID } } as never,
+    // Line writes capture their before graph under the order lock; the order
+    // update still reads it in prepare through the same snapshot loader.
+    const snapshots = (await commandRegistry.get('sales.orders.update')!.prepare?.(
+      { id: ORDER_ID, totalsMode: 'external' } as never,
       ctx,
     )) as { before?: { order: Record<string, unknown>; lines: Array<Record<string, unknown>> } }
 
@@ -780,8 +784,8 @@ describe('undo — the mode and the amounts move together', () => {
       lines: [storedExternalLine(LINE_ONE_ID, 1)],
     })
 
-    const prepared = (await commandRegistry.get('sales.orders.lines.upsert')!.prepare?.(
-      { body: { orderId: ORDER_ID } } as never,
+    const prepared = (await commandRegistry.get('sales.orders.update')!.prepare?.(
+      { id: ORDER_ID, totalsMode: 'external' } as never,
       ctx,
     )) as { before?: unknown }
 
