@@ -462,11 +462,11 @@ Issue #3852 removed the non-cryptographic passkey verification shape from `Passk
 
 ## Tenant-Scoped Reindex of Tenant-Less Tables (2026-08-28)
 
-[Spec](.ai/specs/2026-08-28-tenant-scoped-reindex-of-tenant-less-tables.md): fail closed on tenant-scoped sweeps without tenant columns, except declared catalogues; null/undefined tenants unchanged. Registration helpers are additive. No vulnerable opt-out.
+[Contract](.ai/specs/2026-08-28-tenant-scoped-reindex-of-tenant-less-tables.md): fail closed except declared catalogues; unscoped behavior stays.
 
 ## Tenant-Global Entity Types in the Search Index (2026-08-28)
 
-[Spec](.ai/specs/2026-08-28-tenant-global-entity-types-in-the-search-index.md): declared catalogues require neither scope column. Projections, tokens, coverage and purges use null/null; vectors/events/jobs retain caller scope. Readers MUST gate null scope on declarations; writers/readers MUST move together. Worker/bulk tokens stay canonical; fusion follows organization filtering, preserving ordinary isolation. Filters use null-safe correlation; optional `IndexDocFilterTarget.tenantGlobalEntityTypes` permits canonical lookup. No schema/key migration or removed signatures. Reindex once to retire legacy projections/tokens/coverage; organization-keyed residue cannot self-heal. Module/operator actions: [upgrade notes](UPGRADE_NOTES.md).
+[Contract](.ai/specs/2026-08-28-tenant-global-entity-types-in-the-search-index.md): canonical catalogue scope, caller-scoped vectors, unchanged ordinary isolation. [Reindex migration](UPGRADE_NOTES.md).
 
 ## Data Sync Start Control Applicability (2026-09-02)
 
