@@ -142,6 +142,7 @@ export async function POST(req: Request) {
           trigger: 'manual',
           judgeMayGate: input.judgeMayGate,
           triggeredBy: auth.sub,
+          ...(input.callSettings ? { callSettings: input.callSettings } : {}),
         },
         ctx: commandCtx,
       },
@@ -199,7 +200,7 @@ export const openApi: OpenApiRouteDoc = {
       summary: 'Run an evaluation of an agent against selected approved eval cases or a frozen snapshot',
       requestBody: { contentType: 'application/json', schema: evalRunCreateSchema },
       description:
-        'Replays each selected case through the real agent runtime (FRESH inference under the agent\'s own principal, propose-only: no proposal is ever disposed) and scores the resulting run against the effective assertion set. Only approved cases are accepted. Optional `snapshot` pins a frozen eval-set manifest: "latest" freezes the current approved cases and assertions, "sha256:<hex>" replays a previously frozen manifest; either way the suite run\'s evalSetVersion becomes the manifest hash, evalCaseIds becomes optional (it narrows the manifest\'s cases when given) and baselines compare only against runs of the identical dataset. Without `snapshot` the run is unpinned as before, though the manifest is still frozen and reported. Selections of 5 case runs or fewer execute inline and return 200 with the finished summary; larger ones are queued and return 202 with status "queued" — follow them via the eval_case_run.* SSE events. Gated by agent_orchestrator.eval.run.',
+        'Replays each selected case through the real agent runtime (FRESH inference under the agent\'s own principal, propose-only: no proposal is ever disposed) and scores the resulting run against the effective assertion set. Only approved cases are accepted. Optional `snapshot` pins a frozen eval-set manifest: "latest" freezes the current approved cases and assertions, "sha256:<hex>" replays a previously frozen manifest; either way the suite run\'s evalSetVersion becomes the manifest hash, evalCaseIds becomes optional (it narrows the manifest\'s cases when given) and baselines compare only against runs of the identical dataset. Without `snapshot` the run is unpinned as before, though the manifest is still frozen and reported. Optional `callSettings` (temperature, topP, topK, maxOutputTokens, seed, stopSequences, presencePenalty, frequencyPenalty; capped, providerOptions rejected) override the agent\'s modelSettings key by key for every case run and are recorded on the suite run summary as __evalRun. Selections of 5 case runs or fewer execute inline and return 200 with the finished summary; larger ones are queued and return 202 with status "queued" — follow them via the eval_case_run.* SSE events. Gated by agent_orchestrator.eval.run.',
       responses: [
         { status: 200, description: 'The completed suite run summary (executed inline)' },
         { status: 202, description: 'The suite run was queued for the eval worker' },

@@ -21,6 +21,8 @@ import {
 } from '../lib/eval/manifest'
 import { manifestFromFile, validateEvalSetFile } from '../lib/eval/evalSetFile'
 import { evalSetSnapshotSchema, type EvalSetSnapshot } from '../data/validators'
+import { aiAgentCallSettingsSchema } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/agent-call-contract'
+import { EVAL_RUN_SUMMARY_KEY, buildEvalRunSettings } from '../lib/eval/evalRunSettings'
 import { emitAgentOrchestratorEvent } from '../events'
 
 /**
@@ -45,6 +47,7 @@ const startEvalRunCommandSchema = z.object({
   releaseId: z.string().uuid().nullable().optional(),
   evalSetVersion: z.string().max(100).nullable().optional(),
   triggeredBy: z.string().max(100).nullable().optional(),
+  callSettings: aiAgentCallSettingsSchema.optional(),
 }).superRefine((value, ctx) => {
   const hasEvalSet = value.evalSet !== undefined
   if (!value.snapshot && !hasEvalSet && !value.evalCaseIds) {
@@ -194,6 +197,7 @@ const startEvalRunCommand: CommandHandler<StartEvalRunCommandInput, StartEvalRun
     // `suiteRun.id` for the child rows would therefore yield `undefined` and
     // violate `suite_run_id NOT NULL`. Same pattern as `commands/runs.ts`.
     const suiteRunId = randomUUID()
+    const evalRunSettings = buildEvalRunSettings(input.callSettings)
     const suiteRun = em.create(AgentEvalSuiteRun, {
       id: suiteRunId,
       ...scope,
@@ -213,6 +217,7 @@ const startEvalRunCommand: CommandHandler<StartEvalRunCommandInput, StartEvalRun
           suiteRunId,
           carrierSuiteRunId,
         }),
+        ...(evalRunSettings ? { [EVAL_RUN_SUMMARY_KEY]: evalRunSettings } : {}),
       },
     })
 

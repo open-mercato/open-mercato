@@ -18,6 +18,7 @@ import {
 import { recomputeProcessInstance } from './lib/processes/processProjection'
 import { EVAL_SET_EXPORT_CURRENT, EVAL_SET_SNAPSHOT_LATEST, evalSetSnapshotSchema } from './data/validators'
 import { runEvalGate } from './lib/eval/evalGate'
+import { parseEvalCliCallSettings } from './lib/eval/evalRunSettings'
 import { manifestFromFile, type EvalSetFile } from './lib/eval/evalSetFile'
 import {
   evalSetFileForExport,
@@ -567,7 +568,7 @@ const EVAL_REPORT_FILE_NAMES: Record<EvalReportFormat, string> = {
   junit: 'junit.xml',
 }
 const EVAL_GATE_USAGE =
-  'Usage: mercato agent_orchestrator eval --agent <agentId> --tenant <tenantId> --org <organizationId> [--release <id>] [--eval-set-version <v> | --snapshot <sha256:...|latest> | --cases <file.json|.yaml|.yml>] [--require-snapshot true] [--baseline <suiteRunId>] [--repeat <n>] [--gate true] [--report <dir>] [--format json,md,junit] [--include-payloads true] [--fail-on-flaky true] [--min-pass-score <0..1>]\n' +
+  'Usage: mercato agent_orchestrator eval --agent <agentId> --tenant <tenantId> --org <organizationId> [--release <id>] [--eval-set-version <v> | --snapshot <sha256:...|latest> | --cases <file.json|.yaml|.yml>] [--require-snapshot true] [--baseline <suiteRunId>] [--repeat <n>] [--gate true] [--report <dir>] [--format json,md,junit] [--include-payloads true] [--fail-on-flaky true] [--min-pass-score <0..1>] [--temperature <n>] [--seed <int>]\n' +
   '  --tenant/--org fall back to OM_EVAL_TENANT_ID/OM_EVAL_ORG_ID.'
 
 function isEvalReportFormat(value: string): value is EvalReportFormat {
@@ -629,7 +630,8 @@ function writeEvalErrorReport(dir: string, input: BuildEvalErrorReportInput): vo
  *     [--release <id>] [--eval-set-version <v> | --snapshot <sha256:...|latest> | --cases <file>] \
  *     [--require-snapshot true] [--baseline <suiteRunId>] \
  *     [--repeat <n>] [--gate true] [--report <dir>] [--format json,md,junit] \
- *     [--include-payloads true] [--fail-on-flaky true] [--min-pass-score <0..1>]
+ *     [--include-payloads true] [--fail-on-flaky true] [--min-pass-score <0..1>] \
+ *     [--temperature <n>] [--seed <int>]
  *
  * A thin wrapper over the SAME library the workbench uses — one scorer registry,
  * one replay engine, no second implementation to drift. With `--gate true` the
@@ -647,6 +649,9 @@ function writeEvalErrorReport(dir: string, input: BuildEvalErrorReportInput): vo
  * label-only pins and unpinned runs with exit 2. `--cases <file>` runs an
  * eval-set file (`.json`, `.yaml`, `.yml`) instead of the database cases and pins
  * the run to the file's manifest hash; an unreadable or invalid file exits 2.
+ * `--temperature`/`--seed` override the agent's `modelSettings` for this eval run
+ * only and are recorded on the suite run (`summary.__evalRun`); invalid values
+ * exit 2.
  *
  * Exit codes: 0 passed or report-only; 1 gate failed (stored outcome, or narrowed
  * by `--fail-on-flaky`/`--min-pass-score`, or the run threw under `--gate true`);
@@ -700,6 +705,13 @@ const evalGate: ModuleCli = {
     const minPassScore = parseMinPassScore(args['min-pass-score'])
     if (minPassScore === null) {
       console.error('--min-pass-score must be a number between 0 and 1')
+      process.exitCode = 2
+      return
+    }
+
+    const callSettings = parseEvalCliCallSettings({ temperature: args.temperature, seed: args.seed })
+    if (!callSettings.ok) {
+      console.error(callSettings.message)
       process.exitCode = 2
       return
     }
@@ -777,6 +789,7 @@ const evalGate: ModuleCli = {
         repeatCount,
         scope,
         triggeredBy: 'ci',
+        ...(callSettings.value ? { callSettings: callSettings.value } : {}),
       })
     } catch (error) {
       const message = errorMessageOf(error)

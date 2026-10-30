@@ -37,6 +37,8 @@ import {
   isAgentPrincipalMissingError,
 } from '../runtime/errors'
 import { resolveRunAsForAgent } from '../identity/resolveRunAsForAgent'
+import { readEvalRunCallSettings } from './evalRunSettings'
+import type { AiAgentCallSettings } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/agent-call-contract'
 
 const logger = createLogger('agent_orchestrator').child({ component: 'eval-replay' })
 
@@ -101,6 +103,7 @@ type AgentRuntimeLike = {
       runAs?: { agentUserId: string; onBehalfOfUserId?: string | null }
       invoker?: { kind: 'user'; userId: string }
       entryPoint?: 'eval'
+      callSettings?: AiAgentCallSettings
     },
   ) => Promise<unknown>
 }
@@ -335,6 +338,7 @@ async function runCase(
       },
       { em },
     )
+    const callSettings = readEvalRunCallSettings(suiteRun?.summary)
     await runtime.run(agentDefinitionId, sourceInput(source), {
       tenantId: scope.tenantId,
       organizationId: scope.organizationId,
@@ -342,6 +346,7 @@ async function runCase(
       // No principal provisioned yet (legacy/playground agents): leave `runAs`
       // unset so nothing is misattributed to an agent that has none.
       ...(runAs ? { runAs } : {}),
+      ...(callSettings ? { callSettings } : {}),
       // Tags THIS run and its proposal at creation, closing the window in which a
       // replay proposal would otherwise be broadcast and rendered as operator work.
       //

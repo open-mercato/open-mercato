@@ -1,5 +1,6 @@
 import type { AwilixContainer } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import type { AiAgentCallSettings } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/agent-call-contract'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { AgentEvalCase, AgentEvalSuiteRun } from '../../data/entities'
 import type { EvalSetSnapshot } from '../../data/validators'
@@ -40,6 +41,11 @@ export type EvalGateInput = {
   scope: { tenantId: string; organizationId: string }
   /** `'ci'` or a userId, recorded on the suite run. */
   triggeredBy?: string | null
+  /**
+   * Eval-run model settings. Merged over the agent's `modelSettings` key by key
+   * for every case run, and recorded on the suite run as `summary.__evalRun`.
+   */
+  callSettings?: AiAgentCallSettings
 }
 
 export type EvalGateResult = {
@@ -119,6 +125,7 @@ export async function runEvalGate(
         releaseId: input.releaseId ?? null,
         evalSetVersion: input.evalSetVersion ?? null,
         triggeredBy,
+        ...(input.callSettings ? { callSettings: input.callSettings } : {}),
       },
       ctx: commandCtx,
     },

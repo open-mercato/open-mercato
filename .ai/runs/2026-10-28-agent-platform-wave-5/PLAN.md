@@ -78,7 +78,7 @@
 | 7 | 7.4 | Add CLI --cases and eval-set export and validate | dispatch | done | pending |
 | 7 | 7.5 | Add eval-set import and export APIs | dispatch:capable | done | pending |
 | 7 | 7.6 | Add the tool replay seam to ai-assistant | dispatch:capable | done | pending |
-| 7 | 7.7 | Forward modelSettings and eval callSettings | dispatch | todo | — |
+| 7 | 7.7 | Forward modelSettings and eval callSettings | dispatch | done | pending |
 | 7 | 7.8 | Record and replay tool fixtures in eval runs | dispatch:capable | todo | — |
 | 7 | 7.9 | Fill the eval report environment block | dispatch | todo | — |
 | 7 | 7.10 | Add the rubric library and rubricRef | dispatch | todo | — |

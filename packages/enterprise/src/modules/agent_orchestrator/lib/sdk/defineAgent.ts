@@ -4,6 +4,10 @@ import {
   type AiAgentDefinition,
 } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/ai-agent-definition'
 import { computeAgentDefinitionHash } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/agent-definition-hash'
+import {
+  aiAgentCallSettingsSchema,
+  type AiAgentCallSettings,
+} from '@open-mercato/ai-assistant/modules/ai_assistant/lib/agent-call-contract'
 import type { ZodTypeAny } from 'zod'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import {
@@ -104,6 +108,12 @@ export interface DefineAgentInput {
   subAgents?: string[]
   defaultProvider?: string
   defaultModel?: string
+  /**
+   * Agent-level model-call defaults (temperature, seed, ...), forwarded to
+   * `defineAiAgent({ modelSettings })`. Per-call `callSettings` (run ctx, eval
+   * run override) win key by key; provider defaults apply to unset keys.
+   */
+  modelSettings?: AiAgentCallSettings
   /** Object-safe loop subset only. */
   loop?: { maxSteps?: number }
   /**
@@ -226,6 +236,8 @@ export interface AgentRegistryEntry {
   instructions: string
   defaultProvider?: string
   defaultModel?: string
+  /** Validated agent-level model-call defaults (see DefineAgentInput). */
+  modelSettings?: AiAgentCallSettings
   /** Object-safe loop subset (see DefineAgentInput). */
   loop?: { maxSteps?: number }
   /** Runtime the agent executes on. Always set (`'native'` for `defineAgent` agents; `'in-process'` accepted as a legacy alias). */
@@ -272,6 +284,19 @@ export interface AgentRegistryEntry {
 
 const registry = new Map<string, AgentRegistryEntry>()
 
+function parseAgentModelSettings(
+  agentId: string,
+  modelSettings: AiAgentCallSettings | undefined,
+): AiAgentCallSettings | undefined {
+  if (modelSettings === undefined) return undefined
+  const parsed = aiAgentCallSettingsSchema.safeParse(modelSettings)
+  if (!parsed.success) {
+    const issues = parsed.error.issues.map((issue) => `${issue.path.join('.') || '(root)'}: ${issue.message}`)
+    throw new Error(`[internal] agent "${agentId}" declares invalid modelSettings: ${issues.join('; ')}`)
+  }
+  return Object.keys(parsed.data).length ? parsed.data : undefined
+}
+
 export function defineAgent(input: DefineAgentInput): AiAgentDefinition {
   if (registry.has(input.id)) {
     throw new Error(`[internal] duplicate agent id "${input.id}"`)
@@ -300,6 +325,7 @@ export function defineAgent(input: DefineAgentInput): AiAgentDefinition {
   const principal = normalizeAgentPrincipalDeclaration(input.id, input.principal)
   const integrity = parseAgentIntegrityRules(input.id, input.result.schema, input.integrity, { effectiveTools })
   const untrustedInputs = parseAgentUntrustedInputs(input.id, input.untrustedInputs)
+  const modelSettings = parseAgentModelSettings(input.id, input.modelSettings)
 
   registry.set(input.id, {
     id: input.id,
@@ -319,6 +345,7 @@ export function defineAgent(input: DefineAgentInput): AiAgentDefinition {
     instructions: input.instructions,
     defaultProvider: input.defaultProvider,
     defaultModel: input.defaultModel,
+    ...(modelSettings ? { modelSettings } : {}),
     loop: input.loop,
     runtime: 'native',
     sampleInput: input.sampleInput,
@@ -358,6 +385,7 @@ export function defineAgent(input: DefineAgentInput): AiAgentDefinition {
     mutationPolicy: 'read-only',
     defaultProvider: input.defaultProvider,
     defaultModel: input.defaultModel,
+    ...(modelSettings ? { modelSettings } : {}),
     loop: input.loop,
     output: { schemaName: input.id.replace(/\W+/g, '_'), schema: input.result.schema },
     ...(requiredFeatures ? { requiredFeatures } : {}),

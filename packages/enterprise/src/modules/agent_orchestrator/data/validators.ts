@@ -3,6 +3,7 @@ import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { AGENT_ICON_NAMES } from './agentIcons'
 import { AGENT_TAG_MAX_LENGTH, AGENT_TAGS_MAX_COUNT } from './agentTags'
 import { isValidIntegrityPath } from '../lib/guardrails/integrity/paths'
+import { aiAgentHttpCallSettingsSchema } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/agent-call-contract'
 
 /**
  * A single proposed action emitted by a proposal agent. `payload` is shaped
@@ -2147,6 +2148,11 @@ export const evalRunCreateSchema = z.object({
    * false: the gate stays deterministic and promotion reproducible.
    */
   judgeMayGate: z.boolean().default(true),
+  /**
+   * Eval-run model settings, merged over the agent's `modelSettings` for every
+   * case run. HTTP caps apply and `providerOptions` is rejected.
+   */
+  callSettings: aiAgentHttpCallSettingsSchema.optional(),
 }).superRefine((value, ctx) => {
   if (!value.snapshot && !value.evalCaseIds) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['evalCaseIds'], message: 'evalCaseIds is required without snapshot' })

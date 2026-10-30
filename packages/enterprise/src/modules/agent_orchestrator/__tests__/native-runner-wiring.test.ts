@@ -209,6 +209,18 @@ describe('native run stamping', () => {
     }
   })
 
+  it('forwards the run ctx callSettings to the model call and sends none when absent', async () => {
+    registerNativeAgent('native.call_settings_agent')
+    runAiAgentObjectMock.mockResolvedValue(VALID_MODEL_OUTPUT)
+
+    const service = makeService()
+    await service.run('native.call_settings_agent', {}, { ...runCtx, callSettings: { temperature: 0, seed: 7 } })
+    await service.run('native.call_settings_agent', {}, runCtx)
+
+    expect(runAiAgentObjectMock.mock.calls[0][0].callSettings).toEqual({ temperature: 0, seed: 7 })
+    expect('callSettings' in runAiAgentObjectMock.mock.calls[1][0]).toBe(false)
+  })
+
   it('stamps run correlation on every command the run writes after createRun', async () => {
     registerNativeAgent('native.correlation_agent')
     runAiAgentObjectMock.mockResolvedValue(VALID_MODEL_OUTPUT)
