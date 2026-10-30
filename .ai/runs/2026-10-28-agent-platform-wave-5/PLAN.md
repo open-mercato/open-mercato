@@ -89,6 +89,7 @@
 | 8 | 8.1 | Update the roadmap and upgrade notes for wave 5 | inline | done | 84ad938ba |
 | 8 | 8.1-review-fix | Re-measure the module-facts size caps on the wave-5 union | inline | done | pending |
 | 4 | 4.1-review-fix | Strip server-owned content keys from ingested spans without an llm block | inline | done | pending |
+| 7 | 7.8-review-fix | Fail a case whose fixtures.tools path leaves the eval-set directory instead of running it live | inline | done | pending |
 
 ## Goal
 

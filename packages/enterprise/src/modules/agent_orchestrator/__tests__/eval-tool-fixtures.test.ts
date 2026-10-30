@@ -425,6 +425,16 @@ describe('tool fixture files', () => {
     )
   })
 
+  it('fails a case whose fixture path leaves the eval-set directory instead of running it live', async () => {
+    const store = createFileToolFixtureStore({ evalSetDir: tmpDir })
+    expect(store.resolveReplayPath(ref('k', '..data/a.tools.json'))).toBe(path.join(tmpDir, '..data/a.tools.json'))
+    await expect(store.load(ref('k', '../outside.tools.json'))).resolves.toMatchObject({ ok: false, reason: 'invalid' })
+    await expect(store.load(ref('k', path.join(os.tmpdir(), 'abs.tools.json')))).resolves.toMatchObject({
+      ok: false,
+      reason: 'invalid',
+    })
+  })
+
   it('reports a missing file as not_found and an unconfigured case as not_configured', async () => {
     const store = createFileToolFixtureStore({ evalSetDir: tmpDir })
     await expect(store.load(ref('k', 'missing.tools.json'))).resolves.toEqual({ ok: false, reason: 'not_found' })

@@ -105,7 +105,7 @@ export function conventionalToolFixturePath(dir: string, agentId: string, caseKe
 
 function isInside(baseDir: string, target: string): boolean {
   const relative = path.relative(baseDir, target)
-  return relative !== '' && !relative.startsWith('..') && !path.isAbsolute(relative)
+  return relative !== '' && relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative)
 }
 
 /**
@@ -264,6 +264,9 @@ export function createFileToolFixtureStore(options: {
     resolveReplayPath,
     async load(ref) {
       const filePath = resolveReplayPath(ref)
+      if (!filePath && ref.fixturePath && options.evalSetDir) {
+        return { ok: false, reason: 'invalid', message: `fixtures.tools path "${ref.fixturePath}" leaves the eval set directory` }
+      }
       if (!filePath) return { ok: false, reason: 'not_configured' }
       return readToolFixtureFile(filePath, maxBytes)
     },
