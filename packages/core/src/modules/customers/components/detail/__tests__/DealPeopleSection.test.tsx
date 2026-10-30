@@ -182,17 +182,24 @@ describe('DealPeopleSection', () => {
     })
   })
 
-  it('toggles the filter controls off and on', async () => {
+  it('hides and restores search and sort through a labelled disclosure that keeps the query (#7493)', async () => {
     renderSection(jest.fn(async () => {}))
     await waitForInitialLoad()
 
-    expect(screen.getByPlaceholderText('Search by name, role, email...')).toBeInTheDocument()
+    const search = screen.getByPlaceholderText('Search by name, role, email...')
+    fireEvent.change(search, { target: { value: 'Ada' } })
+    const toggle = screen.getByRole('button', { name: 'Hide search and sort' })
+    expect(toggle).toHaveAttribute('aria-expanded', 'true')
+    expect(document.getElementById(toggle.getAttribute('aria-controls') ?? '')).toContainElement(search)
 
-    fireEvent.click(screen.getByRole('button', { name: /Filters/ }))
-    expect(screen.queryByPlaceholderText('Search by name, role, email...')).not.toBeInTheDocument()
+    fireEvent.click(toggle)
+    expect(search).not.toBeVisible()
+    expect(screen.getByRole('button', { name: 'Show search and sort' })).toHaveAttribute('aria-expanded', 'false')
 
-    fireEvent.click(screen.getByRole('button', { name: /Filters/ }))
-    expect(screen.getByPlaceholderText('Search by name, role, email...')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Show search and sort' }))
+    expect(screen.getByPlaceholderText('Search by name, role, email...')).toBeVisible()
+    expect(screen.getByPlaceholderText('Search by name, role, email...')).toHaveValue('Ada')
+    expect(screen.queryByRole('button', { name: /^Filters$/ })).not.toBeInTheDocument()
   })
 
   it('renders the empty state with both link and add actions when nothing is linked', async () => {

@@ -1,11 +1,13 @@
 "use client"
 
 import * as React from 'react'
-import { Users, Link2, Plus, Filter } from 'lucide-react'
+import { cn } from '@open-mercato/shared/lib/utils'
+import { Users, Link2, Plus, ChevronDown } from 'lucide-react'
 import { EmptyState } from '@open-mercato/ui/backend/EmptyState'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Input } from '@open-mercato/ui/primitives/input'
+import { Table, TableBody, TableHead, TableHeader, TableRow } from '@open-mercato/ui/primitives/table'
 import {
   readVersionedIdSet,
   writeVersionedIdSet,
@@ -170,6 +172,7 @@ export function LinkedPeopleSection<
   const [searchQuery, setSearchQuery] = React.useState('')
   const [sortMode, setSortMode] = React.useState<LinkedPeopleSortMode>(sortOptions[0])
   const [filtersOpen, setFiltersOpen] = React.useState(true)
+  const searchSortControlsId = React.useId()
   const [visiblePeople, setVisiblePeople] = React.useState<LinkedPersonSummary[]>([])
   const [listPage, setListPage] = React.useState(1)
   const [listTotalPages, setListTotalPages] = React.useState(1)
@@ -317,7 +320,7 @@ export function LinkedPeopleSection<
       <div className="space-y-4">
         {header}
 
-        <section className="rounded-lg border bg-card px-4 py-4 sm:px-5">
+        <section>
           <div className="flex flex-col gap-4">
             <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
               <div className="space-y-1">
@@ -342,7 +345,13 @@ export function LinkedPeopleSection<
 
             {totalLinkedPeople > 0 ? (
               <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
-                {filtersOpen ? (
+                {/*
+                  The disclosure hides the search box and the sort picker without touching
+                  their state, so a query or sort chosen before collapsing is still applied
+                  and comes back on reopen (#7493). The region keeps its id while hidden so
+                  `aria-controls` always resolves.
+                */}
+                <div id={searchSortControlsId} className="contents" hidden={!filtersOpen}>
                   <div className="min-w-0 flex-1">
                     <Input
                       type="text"
@@ -352,18 +361,8 @@ export function LinkedPeopleSection<
                       placeholder={searchPlaceholder}
                     />
                   </div>
-                ) : null}
+                </div>
                 <div className="flex flex-wrap items-center gap-2 lg:justify-end">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setFiltersOpen((current) => !current)}
-                    className="h-10"
-                  >
-                    <Filter className="mr-1.5 h-4 w-4" />
-                    {translate('customers.linkedPeople.filter', 'Filters')}
-                  </Button>
                   {/*
                     Deliberately a native <select> rather than the DS `Select`. That primitive is
                     Radix-based (a button + listbox), and this element is the one the extraction
@@ -373,12 +372,14 @@ export function LinkedPeopleSection<
                     tab's keyboard and mobile-picker behaviour, which is the one thing this PR
                     asserts it does not do. Worth migrating, but as its own change.
                   */}
-                  {filtersOpen && sortOptions.length > 1 ? (
+                  {sortOptions.length > 1 ? (
                     <select
                       value={sortMode}
                       onChange={(event) =>
                         setSortMode(event.target.value as LinkedPeopleSortMode)
                       }
+                      hidden={!filtersOpen}
+                      aria-label={translate('customers.linkedPeople.sortLabel', 'Sort people')}
                       className="h-10 min-w-44 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
                     >
                       {sortOptions.map((option) => (
@@ -388,6 +389,23 @@ export function LinkedPeopleSection<
                       ))}
                     </select>
                   ) : null}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    aria-expanded={filtersOpen}
+                    aria-controls={searchSortControlsId}
+                    onClick={() => setFiltersOpen((current) => !current)}
+                    className="h-10"
+                  >
+                    {filtersOpen
+                      ? translate('customers.linkedPeople.searchSort.hide', 'Hide search and sort')
+                      : translate('customers.linkedPeople.searchSort.show', 'Show search and sort')}
+                    <ChevronDown
+                      aria-hidden
+                      className={cn('ml-1.5 h-4 w-4 transition-transform', filtersOpen ? 'rotate-180' : null)}
+                    />
+                  </Button>
                 </div>
               </div>
             ) : null}
@@ -398,12 +416,19 @@ export function LinkedPeopleSection<
               </p>
             ) : visiblePeople.length > 0 ? (
               <>
-                <div
-                  className="grid items-start gap-4"
-                  style={{
-                    gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 19.5rem), 1fr))',
-                  }}
-                >
+                <Table className="text-sm">
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>{translate('customers.people.list.columns.name', 'Name')}</TableHead>
+                      <TableHead className="hidden md:table-cell">{translate('customers.linkedPeople.columns.jobTitle', 'Job title')}</TableHead>
+                      <TableHead>{translate('customers.people.list.columns.email', 'Email')}</TableHead>
+                      <TableHead className="hidden lg:table-cell">{translate('customers.linkedPeople.columns.phone', 'Phone')}</TableHead>
+                      <TableHead className="hidden lg:table-cell">{translate('customers.people.list.columns.lifecycleStage', 'Lifecycle stage')}</TableHead>
+                      <TableHead className="hidden xl:table-cell">{translate('customers.people.list.columns.source', 'Source')}</TableHead>
+                      <TableHead className="w-12"><span className="sr-only">{translate('customers.people.card.more', 'More')}</span></TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
                   {visiblePeople.map((person) => (
                     <PersonCard
                       key={person.id}
@@ -414,7 +439,8 @@ export function LinkedPeopleSection<
                       showLinkedDate={showLinkedDate}
                     />
                   ))}
-                </div>
+                  </TableBody>
+                </Table>
                 {listTotalPages > 1 ? (
                   <div className="flex items-center justify-between border-t border-border/60 pt-3 text-sm text-muted-foreground">
                     <span>

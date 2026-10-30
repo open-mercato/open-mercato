@@ -383,6 +383,7 @@
   "customer_accounts.widgets.lastLogin": "Last login",
   "customer_accounts.widgets.noAccount": "No account linked",
   "customer_accounts.widgets.noUsers": "No users linked",
+  "customer_accounts.widgets.portalAccountTab": "Portal account",
   "customer_accounts.widgets.portalUsers": "Portal users",
   "customer_accounts.widgets.viewAccount": "View account",
   "notifications.categories.customer_accounts": "Customer accounts"

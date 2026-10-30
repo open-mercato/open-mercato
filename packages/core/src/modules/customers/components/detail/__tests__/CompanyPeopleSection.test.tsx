@@ -663,7 +663,7 @@ describe('CompanyPeopleSection', () => {
     )
 
     expect(screen.getByPlaceholderText('Search by name, role, email...')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Filters' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Hide search and sort' })).toHaveAttribute('aria-expanded', 'true')
     expect(screen.getByRole('combobox')).toBeInTheDocument()
   })
 

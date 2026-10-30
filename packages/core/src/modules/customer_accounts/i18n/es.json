@@ -383,6 +383,7 @@
   "customer_accounts.widgets.lastLogin": "Último acceso",
   "customer_accounts.widgets.noAccount": "No hay cuenta vinculada",
   "customer_accounts.widgets.noUsers": "No hay usuarios vinculados",
+  "customer_accounts.widgets.portalAccountTab": "Cuenta del portal",
   "customer_accounts.widgets.portalUsers": "Usuarios del portal",
   "customer_accounts.widgets.viewAccount": "Ver cuenta",
   "notifications.categories.customer_accounts": "Cuentas de clientes"

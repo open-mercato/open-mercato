@@ -5,32 +5,13 @@ import Link from 'next/link'
 import { Mail, Phone, Star, MoreHorizontal, ArrowUpRight, Unlink } from 'lucide-react'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Avatar } from '@open-mercato/ui/primitives/avatar'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
-import { Popover, PopoverContent, PopoverTrigger } from '@open-mercato/ui/primitives/popover'
+import { Popover, PopoverClose, PopoverContent, PopoverTrigger } from '@open-mercato/ui/primitives/popover'
+import { TableCell, TableRow } from '@open-mercato/ui/primitives/table'
 import type { LinkedPersonSummary } from './LinkedPeopleSection'
 import { formatDate, formatFallbackLabel } from './utils'
-
-const sourceColorMap: Record<string, string> = {
-  linkedin: 'border-status-info-icon text-status-info-icon',
-  email: 'border-status-success-icon text-status-success-icon',
-  web_form: 'border-status-info-icon text-status-info-icon',
-  'web form': 'border-status-info-icon text-status-info-icon',
-  referral: 'border-status-warning-icon text-status-warning-icon',
-  customer_referral: 'border-status-warning-icon text-status-warning-icon',
-  'customer referral': 'border-status-warning-icon text-status-warning-icon',
-  partner_referral: 'border-status-warning-icon text-status-warning-icon',
-  'partner referral': 'border-status-warning-icon text-status-warning-icon',
-  event: 'border-status-info-icon text-status-info-icon',
-  'conference/event': 'border-status-info-icon text-status-info-icon',
-  cold_outreach: 'border-status-neutral-icon text-status-neutral-icon',
-  'cold outreach': 'border-status-neutral-icon text-status-neutral-icon',
-  facebook: 'border-status-info-icon text-status-info-icon',
-  typeform: 'border-status-info-icon text-status-info-icon',
-  other: 'border-status-neutral-icon text-status-neutral-icon',
-}
 
 const temperatureConfig = {
   hot: { filled: 5, dotClassName: 'bg-status-error-icon', labelKey: 'customers.temperature.hot', fallback: 'Hot Client' },
@@ -57,12 +38,17 @@ interface PersonCardProps {
   onToggleStar?: (personId: string) => void
   onUnlink?: (personId: string) => void
   /**
-   * Render the "Linked {date}" line. Defaults to `true`; a host whose `linkedAt` is not
-   * durable passes `false` rather than showing a date that is wrong after the first write.
+   * Render the "Linked {date}" line in the card menu. Defaults to `true`; a host whose
+   * `linkedAt` is not durable passes `false` rather than showing a date that is wrong
+   * after the first write.
    */
   showLinkedDate?: boolean
 }
 
+// Table row (#7493 follow-up): the linked-people list reads like every CRM
+// contact table (HubSpot, Pipedrive, Attio): one line per person, name as the
+// link, email and phone as links, qualifiers in their own columns, actions in a
+// trailing menu. Columns collapse from the right on narrow screens.
 export function PersonCard({ person, isStarred, onToggleStar, onUnlink, showLinkedDate = true }: PersonCardProps) {
   const t = useT()
   const sourceTags = React.useMemo(() => splitSourceTags(person.source), [person.source])
@@ -74,172 +60,119 @@ export function PersonCard({ person, isStarred, onToggleStar, onUnlink, showLink
     () => (showLinkedDate ? formatDate(person.linkedAt ?? person.createdAt) : null),
     [person.createdAt, person.linkedAt, showLinkedDate],
   )
+  const personHref = `/backend/customers/people-v2/${person.id}`
+  const statusLabel = typeof person.status === 'string' && person.status.trim() ? formatFallbackLabel(person.status) : null
+  const statusActive = typeof person.status === 'string' && person.status.trim().toLowerCase() === 'active'
+  const emptyCell = <span className="text-muted-foreground">&mdash;</span>
 
   return (
-    <div className="min-w-0 overflow-hidden rounded-lg border bg-card p-4">
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex min-w-0 flex-1 items-start gap-3">
-          <Avatar label={person.displayName} size="lg" variant="monochrome" />
-          <div className="min-w-0 flex-1 space-y-1">
-            <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-              <span className="min-w-0 break-words text-sm font-bold leading-5 text-foreground">{person.displayName}</span>
-              {onToggleStar && (
-                <IconButton
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => onToggleStar(person.id)}
-                  className="h-auto shrink-0 p-0 text-muted-foreground hover:text-status-warning-icon"
-                  aria-label={t('customers.people.card.toggleStar', 'Toggle star')}
-                >
-                  <Star className={cn('size-3.5', isStarred && 'fill-status-warning-icon text-status-warning-icon')} />
-                </IconButton>
-              )}
-            </div>
-            <div className="flex flex-wrap items-center gap-1.5">
-              {person.jobTitle && (
-                <Badge variant="secondary" className="max-w-full truncate px-2 py-0.5 text-xs font-semibold">
-                  {person.jobTitle}
-                </Badge>
-              )}
-              {person.status && (
-                <Badge variant="outline" className="shrink-0 px-2 py-0.5 text-xs font-medium">
-                  <span className="mr-1 inline-block size-1.5 rounded-full bg-status-success-icon" />
-                  {person.status}
-                </Badge>
-              )}
-            </div>
-          </div>
-        </div>
-        <Popover>
-          <PopoverTrigger asChild>
-            <IconButton
-              type="button"
-              variant="ghost"
-              size="xs"
-              className="shrink-0"
-              aria-label={t('customers.people.card.more', 'More')}
-            >
-              <MoreHorizontal className="size-3.5" />
-            </IconButton>
-          </PopoverTrigger>
-          <PopoverContent align="end" className="w-36 p-1">
-            {onUnlink && (
-              <Button
+    <TableRow className="group">
+      <TableCell className="py-2">
+        <div className="flex min-w-0 items-center gap-3">
+          <Avatar label={person.displayName} size="sm" variant="monochrome" />
+          <div className="flex min-w-0 items-center gap-1.5">
+            <Link href={personHref} className="min-w-0 truncate text-sm font-medium text-foreground hover:underline">
+              {person.displayName}
+            </Link>
+            {statusLabel ? (
+              <span
+                className={cn('inline-block size-1.5 shrink-0 rounded-full', statusActive ? 'bg-status-success-icon' : 'bg-status-neutral-icon')}
+                title={statusLabel}
+                role="img"
+                aria-label={statusLabel}
+              />
+            ) : null}
+            {onToggleStar && (
+              <IconButton
                 type="button"
                 variant="ghost"
-                size="sm"
-                className="w-full justify-start text-xs text-destructive hover:text-destructive"
-                onClick={() => onUnlink(person.id)}
+                size="xs"
+                onClick={() => onToggleStar(person.id)}
+                className={cn('shrink-0 text-muted-foreground hover:text-status-warning-icon', !isStarred && 'opacity-0 focus-visible:opacity-100 group-hover:opacity-100')}
+                aria-label={isStarred
+                  ? t('customers.people.card.unstar', 'Remove star')
+                  : t('customers.people.card.star', 'Star')}
               >
-                <Unlink className="mr-1.5 size-3" />
-                {t('customers.people.card.unlink', 'Unlink')}
-              </Button>
+                <Star className={cn('size-3.5', isStarred && 'fill-status-warning-icon text-status-warning-icon')} />
+              </IconButton>
             )}
+          </div>
+        </div>
+      </TableCell>
+      <TableCell className="hidden py-2 text-muted-foreground md:table-cell">
+        <span className="block truncate">{person.jobTitle || emptyCell}</span>
+      </TableCell>
+      <TableCell className="py-2">
+        {person.primaryEmail ? (
+          <a href={`mailto:${person.primaryEmail}`} className="block truncate text-foreground hover:underline">{person.primaryEmail}</a>
+        ) : emptyCell}
+      </TableCell>
+      <TableCell className="hidden py-2 lg:table-cell">
+        {person.primaryPhone ? (
+          <a href={`tel:${person.primaryPhone.replace(/[^+\d]/g, '')}`} className="block whitespace-nowrap text-foreground hover:underline">{person.primaryPhone}</a>
+        ) : emptyCell}
+      </TableCell>
+      <TableCell className="hidden py-2 text-muted-foreground lg:table-cell">
+        <span className="block truncate">{person.lifecycleStage ? formatFallbackLabel(person.lifecycleStage) : emptyCell}</span>
+      </TableCell>
+      <TableCell className="hidden py-2 text-muted-foreground xl:table-cell">
+        <span className="flex min-w-0 items-center gap-2">
+          <span className="truncate">{sourceTags.length > 0 ? sourceTags.map((sourceTag) => formatFallbackLabel(sourceTag)).join(', ') : emptyCell}</span>
+          {temperature ? (
+            <span
+              className="inline-flex shrink-0 items-center gap-1"
+              title={t(temperature.labelKey, temperature.fallback)}
+              aria-label={t(temperature.labelKey, temperature.fallback)}
+            >
+              {Array.from({ length: 5 }).map((_, index) => (
+                <span
+                  key={index}
+                  className={cn('inline-block size-1.5 rounded-full', index < temperature.filled ? temperature.dotClassName : 'bg-border')}
+                  aria-hidden
+                />
+              ))}
+            </span>
+          ) : null}
+        </span>
+      </TableCell>
+      <TableCell className="py-2 text-right">
+        <Popover>
+          <PopoverTrigger asChild>
+            <IconButton type="button" variant="ghost" size="xs" aria-label={t('customers.people.card.more', 'More')}>
+              <MoreHorizontal className="size-4" />
+            </IconButton>
+          </PopoverTrigger>
+          <PopoverContent align="end" className="w-44 p-1">
+            <PopoverClose asChild>
+              <Button asChild type="button" variant="ghost" size="sm" className="w-full justify-start">
+                <Link href={personHref}>
+                  <ArrowUpRight className="mr-1.5 size-3.5" />
+                  {t('customers.people.card.open', 'Open person')}
+                </Link>
+              </Button>
+            </PopoverClose>
+            {onUnlink && (
+              <PopoverClose asChild>
+                <Button
+                  type="button"
+                  variant="destructive-ghost"
+                  size="sm"
+                  className="w-full justify-start"
+                  onClick={() => onUnlink(person.id)}
+                >
+                  <Unlink className="mr-1.5 size-3.5" />
+                  {t('customers.people.card.unlink', 'Unlink')}
+                </Button>
+              </PopoverClose>
+            )}
+            {linkedDate ? (
+              <p className="px-2 pb-1 pt-1.5 text-xs text-muted-foreground">
+                {t('customers.people.card.linkedOn', 'Linked {{date}}', { date: linkedDate })}
+              </p>
+            ) : null}
           </PopoverContent>
         </Popover>
-      </div>
-
-      <div className="mt-3 space-y-2 border-t pt-3 text-xs text-foreground">
-        {person.primaryEmail && (
-          <div className="flex min-w-0 items-center gap-1.5">
-            <Mail className="size-3 shrink-0 text-muted-foreground" />
-            <span className="break-all">{person.primaryEmail}</span>
-          </div>
-        )}
-        {person.primaryPhone && (
-          <div className="flex min-w-0 items-center gap-1.5">
-            <Phone className="size-3 shrink-0 text-muted-foreground" />
-            <span className="break-all">{person.primaryPhone}</span>
-          </div>
-        )}
-        {(person.lifecycleStage || linkedDate) && (
-          <div className="flex min-w-0 flex-wrap items-center gap-1 text-xs text-muted-foreground">
-            <span className="truncate">{person.lifecycleStage ?? t('customers.people.card.defaultStage', 'customer')}</span>
-            {linkedDate ? (
-              <>
-                <span aria-hidden>&middot;</span>
-                <span className="truncate">{t('customers.people.card.linkedOn', 'Linked {{date}}', { date: linkedDate })}</span>
-              </>
-            ) : null}
-          </div>
-        )}
-      </div>
-
-      {(temperature || sourceTags.length > 0) && (
-        <div className="mt-3 flex flex-col gap-3 border-t pt-3 sm:flex-row sm:items-start sm:justify-between">
-          <div className="min-w-0 flex-1 space-y-1">
-            {sourceTags.length > 0 ? (
-              <>
-                <p className="text-overline font-bold uppercase tracking-wide text-muted-foreground">
-                  {t('customers.people.card.source', 'Source')}
-                </p>
-                <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-                  {sourceTags.map((sourceTag) => {
-                    const normalized = sourceTag.toLowerCase().replace(/\s+/g, '_')
-                    return (
-                      <Badge
-                        key={sourceTag}
-                        variant="outline"
-                        className={cn(
-                          'max-w-full truncate px-2 py-0.5 text-xs font-semibold',
-                          sourceColorMap[normalized] ?? sourceColorMap[sourceTag.toLowerCase()] ?? 'border-border text-muted-foreground',
-                        )}
-                      >
-                        {formatFallbackLabel(sourceTag)}
-                      </Badge>
-                    )
-                  })}
-                </div>
-              </>
-            ) : null}
-          </div>
-          {temperature ? (
-            <div className="space-y-1 sm:ml-auto sm:text-right">
-              <div className="flex items-center gap-1 text-overline font-bold text-muted-foreground sm:justify-end">
-                <span>{t(temperature.labelKey, temperature.fallback)}</span>
-              </div>
-              <div className="flex items-center gap-1 sm:justify-end">
-                {Array.from({ length: 5 }).map((_, index) => (
-                  <span
-                    key={index}
-                    className={cn(
-                      'inline-block size-2 rounded-full border border-border/70',
-                      index < temperature.filled ? temperature.dotClassName : 'bg-muted',
-                    )}
-                  />
-                ))}
-              </div>
-            </div>
-          ) : null}
-        </div>
-      )}
-
-      <div className="mt-3 flex flex-col gap-2 border-t pt-3 sm:flex-row sm:flex-wrap">
-        <Button
-          asChild
-          type="button"
-          variant="outline"
-          size="sm"
-          className="h-8 w-full text-xs font-semibold sm:min-w-[9rem] sm:flex-1"
-        >
-          <Link href={`/backend/customers/people-v2/${person.id}`}>
-            <ArrowUpRight className="mr-1 size-3" />
-            {t('customers.people.card.open', 'Open person')}
-          </Link>
-        </Button>
-        {onUnlink && (
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="h-8 w-full border-destructive/30 text-xs font-semibold text-destructive hover:bg-destructive/10 sm:min-w-[7rem] sm:flex-none"
-            onClick={() => onUnlink(person.id)}
-          >
-            {t('customers.people.card.unlink', 'Unlink')}
-          </Button>
-        )}
-      </div>
-    </div>
+      </TableCell>
+    </TableRow>
   )
 }

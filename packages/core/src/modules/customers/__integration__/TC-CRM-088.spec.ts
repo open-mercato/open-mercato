@@ -256,13 +256,19 @@ test.describe('TC-CRM-088 deal linked-people parity', () => {
 
       // --- Step 2: filter and sort ---
       const search = page.getByPlaceholder(/Search by name, role, email/i)
-      const filtersToggle = page.getByRole('button', { name: /^Filters$/i })
-      await expect(search, 'the filter row starts open').toBeVisible({ timeout: 15_000 })
-      await filtersToggle.click()
-      await expect(search, 'Filters should collapse the search and sort controls').toBeHidden()
-      await filtersToggle.click()
-      await expect(search, 'Filters should reopen the search and sort controls').toBeVisible()
+      const disclosure = page.getByRole('button', { name: /^(Hide|Show) search and sort$/i })
+      await expect(search, 'the search and sort row starts open').toBeVisible({ timeout: 15_000 })
+      await expect(disclosure).toHaveAttribute('aria-expanded', 'true')
       await search.fill(unlinkedName)
+      await expect(search).toHaveValue(unlinkedName)
+      await disclosure.click()
+      await expect(search, 'the disclosure should hide the search and sort controls').toBeHidden()
+      await expect(disclosure).toHaveText(/Show search and sort/i)
+      await expect(disclosure).toHaveAttribute('aria-expanded', 'false')
+      await disclosure.focus()
+      await page.keyboard.press('Enter')
+      await expect(search, 'the disclosure should reopen the search and sort controls from the keyboard').toBeVisible()
+      await expect(search, 'collapsing must not clear the query').toHaveValue(unlinkedName)
       await expect(page.getByText(unlinkedName, { exact: false }).first()).toBeVisible({ timeout: 30_000 })
       await expect(
         page.getByText(decoyName, { exact: false }),

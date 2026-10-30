@@ -79,7 +79,7 @@ Three components after the change, all under `packages/core/src/modules/customer
 
 | Component | Role |
 |-----------|------|
-| `LinkedPeopleSection.tsx` (new) | The shared shell. Owns search, Filters toggle, sort, the `PersonCard` grid, pagination, the link dialog, the empty state and the starred-people preference. Host-agnostic. |
+| `LinkedPeopleSection.tsx` (new) | The shared shell. Owns search, the search-and-sort disclosure, sort, the `PersonCard` grid, pagination, the link dialog, the empty state and the starred-people preference. Host-agnostic. |
 | `CompanyPeopleSection.tsx` (rewritten as a wrapper) | Company adapter. Supplies the company fetch/link/unlink handlers, `RolesSection` as a header slot, `DecisionMakersFooter` as a footer slot, and owns `CreatePersonDialog`. |
 | `DealPeopleSection.tsx` (new) | Deal adapter. Supplies the deal fetch handler, the selection-based link/unlink handlers, and owns `CreatePersonDialog`. |
 
@@ -303,7 +303,7 @@ Each PR ships its own coverage. Nothing below is deferred to a later PR than the
 1. loads from `/api/customers/deals/{id}/people` with `page`/`pageSize`/`sort`
 2. unlink saves the remaining selection
 3. search and sort changes are forwarded to the endpoint
-4. Filters toggle hides and restores the controls
+4. The search-and-sort disclosure ("Hide search and sort" / "Show search and sort", `aria-expanded` + `aria-controls`) hides and restores the controls without clearing the query or the sort (#7493)
 5. empty state offers both link and add actions
 6. the add-person dialog opens without a company context
 7. a created person is appended to the deal selection
