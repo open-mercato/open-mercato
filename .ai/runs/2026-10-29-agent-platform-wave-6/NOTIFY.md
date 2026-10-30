@@ -19,3 +19,7 @@
 ## 2026-10-30T12:46:01Z — blocker found and fixed
 - Step 4.8's TC-ATT-STRUCT-006 found that Step 4.1 stopped the query_index token writer from writing tokens for `shouldIndex` entities while the SearchIndexer token path only runs from the fulltext/vector workers — so without Meilisearch and a vector provider, document sections were never token-indexed. Fixed in **4.1-review-fix** (79cbca600): query_index now evaluates `shouldIndex` per record (write on true, delete on false/throw). With it, TC-ATT-STRUCT-001..007 pass (7/7).
 - The 4.8 executor's attempt to run against the local Meilisearch container was denied (it needed the container's master key); not retried.
+
+## 2026-10-30T13:07:02Z — complete
+- Steps 4.7–5.1 landed (4.7 implemented, not deferred); 4.1-review-fix (per-record token gate) found by TC-ATT-STRUCT-006; final gate passed; review: 1 minor fixed (5.1-review-fix), follow-ups listed in the review comment.
+- PR marked ready, `do-not-merge` kept, lock released. The stack conflicts with `main` again and needs a re-sync before CI.

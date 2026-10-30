@@ -1,16 +1,17 @@
 # Handoff — 2026-10-29-agent-platform-wave-6
 
-**Last updated:** 2026-10-30T12:03:05Z
+**Last updated:** 2026-10-30T13:07:02Z
 **Branch:** feat/agent-platform-wave-6 (stacked on feat/agent-platform-wave-5)
-**PR:** https://github.com/open-mercato/open-mercato/pull/8251 (draft; claimed)
-**Current phase/step:** Phase 4 Step 4.7 (first `todo` row)
-**Last commit:** 0a725e423 — fix(agent_orchestrator): satisfy the route-link and locale guards for the OTel destination UI
+**PR:** https://github.com/open-mercato/open-mercato/pull/8251 (ready; `do-not-merge`; lock released)
+**Current phase/step:** complete — every Tasks row done; final gate passed
+**Last commit:** 3161b7e1f — review fix for strict OTLP header validation (+ final-gate record)
 
 ## What just happened
 - Steps 1.1–4.6 landed; checkpoints 1 and 2 green (see checkpoint-*-checks.md).
 
 ## Next concrete action
-- Steps 4.7 (attachment citations), 4.8 (TC-ATT-STRUCT-006 section search integration), 4.9 (docs), 5.1 (close), then the final gate and the review pass.
+- None for this run. The whole stack (#7794 → #8251) conflicts with `main` again (28 commits ahead; ai-assistant MCP/pending-action files, attachments entities/validators) and needs a re-sync before CI can run the full suite.
+- Follow-ups from the review: skip enqueue for `destination: deployment` without an endpoint; batch the attachments shouldIndex partition lookup; tool call ids on native/OpenCode tool spans; purge-vs-toggle-off orphan race.
 
 ## Blockers / open questions
 - none. User preferences: auto-continue (no 20-Step pauses), checkpoints every 10+ Steps.

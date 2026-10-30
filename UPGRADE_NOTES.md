@@ -692,6 +692,8 @@ Specs: [`otel-genai-trace-export`](.ai/specs/enterprise/agent-orchestrator/2026-
 
 **Per-section document search (off by default).** New search entity `attachments:attachment_document_section`, indexed only for partitions with `indexDocumentSections` on; section text then reaches the fulltext/vector stores in plaintext (the partition UI warns about this). Toggling the flag now enqueues a sync job; `mercato attachments structure search-sync --partition <code>` re-syncs on demand. `releaseScoped(…, { flush: false })` may now return a search-only cleanup callback when the stored file is still shared — callers must still invoke a returned callback after commit. `attachments.get_document_sections` now emits `attachment` citations.
 
+**Rolling deploys:** the `attachments-document-structure` queue now also carries `section-search` jobs. Drain the queue or roll workers before web nodes so an older worker never receives the new job kind (it would fail it). Enabling `OM_AGENT_OTEL_EXPORT_TENANT_ENDPOINTS=allow` without a deployment endpoint makes export count as enabled; tenants left on `destination: deployment` then record `deployment_unconfigured` per run.
+
 ## 0.8.0 → 0.9.0 (2026-10-09)
 
 ### `POST /api/auth/logout` no longer requires a valid access token (#7225)

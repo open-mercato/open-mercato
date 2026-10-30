@@ -38,17 +38,17 @@
 | 3 | 3.5 | Cover content, protobuf and tenant endpoints with integration tests | dispatch | done | b6982cc6c |
 | 3 | 3.6 | Document OTel export phase 2 and mirror env vars | dispatch:cheap | done | 3f511daaf |
 | 4 | 4.1 | Add a shouldIndex hook to search entity configs | dispatch:capable | done | 72dfa65a3 |
-| 4 | 4.1-review-fix | Gate query_index search tokens per record with shouldIndex | inline | done | pending |
+| 4 | 4.1-review-fix | Gate query_index search tokens per record with shouldIndex | inline | done | 79cbca600 |
 | 4 | 4.2 | Declare the document section search entity | dispatch:capable | done | 41f07f599 |
 | 4 | 4.3 | Add section search sync jobs to the structure queue | dispatch:capable | done | a0e473ab6 |
 | 4 | 4.4 | Index sections when an extraction completes | dispatch | done | c9992711e |
 | 4 | 4.5 | Remove section search records when structure is purged | dispatch:capable | done | 66786b7e7 |
 | 4 | 4.6 | Sync section search when a partition toggles indexing | dispatch | done | 08e0c9cf0 |
-| 4 | 4.7 | Emit attachment citations from get_document_sections | dispatch | done | pending |
-| 4 | 4.8 | Cover section search with integration tests | dispatch | done | pending |
-| 4 | 4.9 | Document section search | dispatch:cheap | done | pending |
-| 5 | 5.1 | Update the roadmap, upgrade notes and spec changelogs for wave 6 | inline | done | pending |
-| 5 | 5.1-review-fix | Reject tenant OTLP header values the HTTP client refuses | inline | done | pending |
+| 4 | 4.7 | Emit attachment citations from get_document_sections | dispatch | done | 924652ff3 |
+| 4 | 4.8 | Cover section search with integration tests | dispatch | done | c1e156116 |
+| 4 | 4.9 | Document section search | dispatch:cheap | done | 188398ae6 |
+| 5 | 5.1 | Update the roadmap, upgrade notes and spec changelogs for wave 6 | inline | done | 9bbf3d747 |
+| 5 | 5.1-review-fix | Reject tenant OTLP header values the HTTP client refuses | inline | done | 3161b7e1f |
 
 ## Goal
 
