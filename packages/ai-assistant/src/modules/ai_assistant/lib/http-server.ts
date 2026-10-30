@@ -30,8 +30,9 @@ export type McpHttpServerOptions = {
   port: number
   /**
    * Bind address. Defaults to loopback (`127.0.0.1`) — the only intended client is OpenCode
-   * running in Docker, which reaches the host via `host.docker.internal` and needs no
-   * non-loopback binding. Omitting a host to `net.Server.listen` binds every interface
+   * running in Docker, which reaches host loopback via `host.docker.internal` on Docker Desktop.
+   * On native Linux `host-gateway` is the bridge IP, so `yarn dev` passes a wider host there
+   * (see `resolveDevMcpHost` in `scripts/dev-mcp.mjs`). Omitting a host to `net.Server.listen` binds every interface
    * (`0.0.0.0`/`::`), which exposes the server (and its shared API key) off-host; pass this
    * explicitly to opt into that, paired with a firewall and a strong, rotated key.
    */
