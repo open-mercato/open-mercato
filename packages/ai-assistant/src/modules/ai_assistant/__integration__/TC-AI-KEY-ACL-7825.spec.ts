@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { randomBytes, randomUUID } from 'node:crypto'
+import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { hash } from 'bcryptjs'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import {
@@ -61,8 +61,8 @@ for (const { keyKind, floating } of [
         secret = `omk_${randomBytes(4).toString('hex')}.${randomBytes(24).toString('hex')}`
         const keyHash = await hash(secret, 10)
         const boundRows = await withClient((client) => client.query<{ id: string }>(
-          'update api_keys set key_hash = $1, key_prefix = $2 where session_token = $3 and session_user_id = $4 and tenant_id = $5 returning id',
-          [keyHash, secret!.slice(0, 12), body?.sessionToken, userId, tenantId],
+          'update api_keys set key_hash = $1, key_prefix = $2 where session_token_hash = $3 and session_user_id = $4 and tenant_id = $5 returning id',
+          [keyHash, secret!.slice(0, 12), createHash('sha256').update(body!.sessionToken!).digest('hex'), userId, tenantId],
         ))
         expect(boundRows.rows).toHaveLength(1)
       }
