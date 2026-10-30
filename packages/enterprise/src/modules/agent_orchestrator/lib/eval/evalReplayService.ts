@@ -17,9 +17,20 @@ import {
 import { parseCaseAssertionRefs, resolveEffectiveAssertions } from './assertionResolution'
 import { projectRunView } from './projectRunView'
 import { runScorer } from './registry'
-import { createModelJudge, runLlmJudgeForRun } from './llmJudge'
+import { createModelJudge, runLlmJudgeForRun, type JudgeCaseLinkage } from './llmJudge'
+import {
+  EVAL_SET_CASE_MISSING,
+  EVAL_SET_UNRESOLVED,
+  readEvalSetPointer,
+  resolveManifest,
+  resolveManifestCaseAssertions,
+  type EvalSetManifest,
+  type EvalSetManifestCase,
+} from './manifest'
+import { createEvalSetManifestCache, evalSetManifestCacheKey } from './manifestCache'
 import { SKIP_REASON, type Json } from './types'
 import { emitAgentOrchestratorEvent } from '../../events'
+import { withRuntimeAuditWrite } from '../identity/agentWriteScope'
 
 const logger = createLogger('agent_orchestrator').child({ component: 'eval-replay' })
 
@@ -86,6 +97,125 @@ type AgentRuntimeLike = {
   ) => Promise<unknown>
 }
 
+const manifestCache = createEvalSetManifestCache()
+
+export function resetEvalSetManifestCache(): void {
+  manifestCache.clear()
+}
+
+type SuiteManifest = { pinned: false } | { pinned: true; manifest: EvalSetManifest | null }
+
+/**
+ * Resolves the frozen eval-set manifest a suite run was started with. Keyed by
+ * tenant, organization and version: the version is a content hash, so every
+ * suite run pinned to it shares one entry. Only successful resolutions are
+ * cached process-wide: a miss may be a transient read a later suite run retries.
+ * Within one suite run a miss is remembered in `unresolvedVersions`, so the
+ * unbounded resolution scan runs at most once per suite run.
+ */
+async function loadSuiteManifest(
+  em: EntityManager,
+  suiteRun: AgentEvalSuiteRun | null,
+  scope: EvalScope,
+  unresolvedVersions?: Set<string>,
+): Promise<SuiteManifest> {
+  const pointer = suiteRun ? readEvalSetPointer(suiteRun.summary) : null
+  if (!suiteRun || !pointer) return { pinned: false }
+  const cacheKey = evalSetManifestCacheKey(scope, pointer.version)
+  const cached = manifestCache.get(cacheKey)
+  if (cached) return { pinned: true, manifest: cached }
+  if (unresolvedVersions?.has(cacheKey)) return { pinned: true, manifest: null }
+  const manifest = await resolveManifest(em, scope, suiteRun.agentDefinitionId, pointer.version)
+  if (manifest) manifestCache.set(cacheKey, manifest)
+  else unresolvedVersions?.add(cacheKey)
+  return { pinned: true, manifest }
+}
+
+type ReplaySource =
+  | { kind: 'live'; evalCase: AgentEvalCase }
+  | { kind: 'manifest'; manifest: EvalSetManifest; manifestCase: EvalSetManifestCase }
+
+type ReplayAssertion = {
+  id: string
+  key: string
+  severity: 'gate' | 'warn'
+  scorerKey: string
+  config: unknown
+  configError?: string[]
+}
+
+function sourceAgentId(source: ReplaySource): string {
+  return source.kind === 'live' ? source.evalCase.agentDefinitionId : source.manifest.agentId
+}
+
+function sourceInput(source: ReplaySource): unknown {
+  return source.kind === 'live' ? source.evalCase.input : source.manifestCase.input
+}
+
+function sourceExpected(source: ReplaySource): Json | null {
+  return source.kind === 'live'
+    ? ((source.evalCase.expected ?? null) as Json | null)
+    : source.manifestCase.expected
+}
+
+function judgeLinkageFor(source: ReplaySource, evalCaseRunId: string): JudgeCaseLinkage {
+  if (source.kind === 'live') {
+    return {
+      evalCaseRunId,
+      expected: source.evalCase.expected ?? null,
+      assertions: parseCaseAssertionRefs(source.evalCase.assertions),
+    }
+  }
+  return {
+    evalCaseRunId,
+    expected: source.manifestCase.expected,
+    assertions: parseCaseAssertionRefs(source.manifestCase.assertions),
+    frozenAssertions: resolveManifestCaseAssertions(source.manifest, source.manifestCase)
+      .filter((entry) => entry.assertion.type === 'llm_judge')
+      .map((entry) => ({
+        id: entry.assertion.id,
+        key: entry.assertion.key,
+        severity: entry.assertion.severity,
+        rubric: entry.configError ? null : entry.rubric,
+      })),
+  }
+}
+
+async function deterministicAssertionsFor(
+  em: EntityManager,
+  source: ReplaySource,
+  agentId: string,
+  scope: EvalScope,
+): Promise<ReplayAssertion[]> {
+  if (source.kind === 'manifest') {
+    return resolveManifestCaseAssertions(source.manifest, source.manifestCase)
+      .filter((entry) => entry.assertion.type === 'deterministic')
+      .map((entry) => ({
+        id: entry.assertion.id,
+        key: entry.assertion.key,
+        severity: entry.assertion.severity,
+        scorerKey: entry.assertion.scorerKey,
+        config: entry.config,
+        ...(entry.configError ? { configError: entry.configError } : {}),
+      }))
+  }
+  const assertions = await em.find(AgentEvalAssertion, {
+    ...scope,
+    type: 'deterministic',
+    enabled: true,
+    deletedAt: null,
+    appliesTo: { $in: [agentId, '*'] },
+  })
+  return resolveEffectiveAssertions(assertions, parseCaseAssertionRefs(source.evalCase.assertions)).map((entry) => ({
+    id: entry.assertion.id,
+    key: entry.assertion.key,
+    severity: entry.assertion.severity,
+    scorerKey: entry.scorerKey,
+    config: entry.config,
+    ...(entry.configError ? { configError: entry.configError } : {}),
+  }))
+}
+
 /**
  * Executes ONE pending case run: replays the case's input through the real agent
  * runtime, then scores the resulting run.
@@ -103,8 +233,9 @@ export async function executeCaseRun(
   caseRunId: string,
   scope: EvalScope,
   userId: string,
+  unresolvedVersions?: Set<string>,
 ): Promise<ReplayCaseOutcome> {
-  const result = await runCase(container, caseRunId, scope, userId)
+  const result = await runCase(container, caseRunId, scope, userId, unresolvedVersions)
 
   // Emitted on EVERY terminal path — including the error ones — so a failing case
   // still advances the live progress UI instead of leaving it hanging. Re-read
@@ -124,26 +255,56 @@ async function runCase(
   caseRunId: string,
   scope: EvalScope,
   userId: string,
+  unresolvedVersions?: Set<string>,
 ): Promise<ReplayCaseOutcome> {
   const em = (container.resolve('em') as EntityManager).fork()
 
   const caseRun = await em.findOne(AgentEvalCaseRun, { id: caseRunId, ...scope })
   if (!caseRun) throw new Error('[internal] eval case run not found')
 
-  const evalCase = await findOneWithDecryption(
+  const suiteRun = await findOneWithDecryption(
     em,
-    AgentEvalCase,
-    { id: caseRun.evalCaseId, ...scope, deletedAt: null },
+    AgentEvalSuiteRun,
+    { id: caseRun.suiteRunId, ...scope },
     undefined,
     scope,
   )
-  if (!evalCase) {
-    return finishCaseRun(em, caseRun, { status: 'error', errorMessage: '[internal] eval case not found' })
+  const suiteManifest = await loadSuiteManifest(em, suiteRun, scope, unresolvedVersions)
+
+  let source: ReplaySource
+  if (suiteManifest.pinned) {
+    if (!suiteManifest.manifest) {
+      return finishCaseRun(em, caseRun, {
+        status: 'error',
+        errorMessage: `[internal] ${EVAL_SET_UNRESOLVED}: the frozen eval set of this suite run could not be resolved`,
+      })
+    }
+    const manifestCase = suiteManifest.manifest.cases.find((entry) => entry.id === caseRun.evalCaseId)
+    if (!manifestCase) {
+      return finishCaseRun(em, caseRun, {
+        status: 'error',
+        errorMessage: `[internal] ${EVAL_SET_CASE_MISSING}: the case is not part of the frozen eval set`,
+      })
+    }
+    source = { kind: 'manifest', manifest: suiteManifest.manifest, manifestCase }
+  } else {
+    const evalCase = await findOneWithDecryption(
+      em,
+      AgentEvalCase,
+      { id: caseRun.evalCaseId, ...scope, deletedAt: null },
+      undefined,
+      scope,
+    )
+    if (!evalCase) {
+      return finishCaseRun(em, caseRun, { status: 'error', errorMessage: '[internal] eval case not found' })
+    }
+    source = { kind: 'live', evalCase }
   }
+  const agentDefinitionId = sourceAgentId(source)
 
   caseRun.status = 'running'
   await em.flush()
-  await emitCaseProgress('started', caseRun, evalCase.agentDefinitionId, scope)
+  await emitCaseProgress('started', caseRun, agentDefinitionId, scope)
 
   // Capture the FIRST run id only: nested sub-agent delegations fire the same hook.
   let topLevelRunId: string | null = null
@@ -154,7 +315,7 @@ async function runCase(
   // and a different write guard than the configuration being measured, which
   // would quietly invalidate the regression signal.
   const principal = await em.findOne(AgentPrincipal, {
-    agentDefinitionId: evalCase.agentDefinitionId,
+    agentDefinitionId,
     ...scope,
     enabled: true,
     deletedAt: null,
@@ -162,7 +323,7 @@ async function runCase(
   const actingUserId = principal?.userId ?? userId
 
   try {
-    await runtime.run(evalCase.agentDefinitionId, evalCase.input, {
+    await runtime.run(agentDefinitionId, sourceInput(source), {
       tenantId: scope.tenantId,
       organizationId: scope.organizationId,
       userId: actingUserId,
@@ -198,7 +359,7 @@ async function runCase(
     return finishCaseRun(em, caseRun, { status: 'error', errorMessage: '[internal] run produced no run id' })
   }
 
-  const outcome = await scoreCaseRun(em, caseRun, evalCase, topLevelRunId, scope)
+  const outcome = await scoreCaseRun(em, caseRun, source, topLevelRunId, scope)
 
   // Judge assertions run on their own async path AFTER the deterministic tier,
   // because a verdict needs a model round-trip. The suite's stored policy decides
@@ -206,10 +367,14 @@ async function runCase(
   // pass/fail there; CI and online ingest never let a stochastic verdict move a
   // gate. Best-effort — a judge failure must not fail an otherwise scored case.
   try {
-    const suiteRun = await em.findOne(AgentEvalSuiteRun, { id: caseRun.suiteRunId, ...scope })
-    await runLlmJudgeForRun(em, scope, topLevelRunId, createModelJudge(container), {
-      judgeMayGate: suiteRun?.judgeMayGate ?? false,
-    })
+    await runLlmJudgeForRun(
+      em,
+      scope,
+      topLevelRunId,
+      createModelJudge(container),
+      { judgeMayGate: suiteRun?.judgeMayGate ?? false },
+      judgeLinkageFor(source, caseRun.id),
+    )
   } catch (error) {
     // Log the SHAPE of the failure, never the error object. Vercel AI SDK errors
     // carry `requestBodyValues.prompt` as an own enumerable property, and that
@@ -228,7 +393,7 @@ async function runCase(
 async function scoreCaseRun(
   em: EntityManager,
   caseRun: AgentEvalCaseRun,
-  evalCase: AgentEvalCase,
+  source: ReplaySource,
   runId: string,
   scope: EvalScope,
 ): Promise<ReplayCaseOutcome> {
@@ -247,37 +412,32 @@ async function scoreCaseRun(
 
   // Deterministic only: judge assertions need an async model round-trip and are
   // scored on their own path (Phase 3), not by this synchronous replay.
-  const assertions = await em.find(AgentEvalAssertion, {
-    ...scope,
-    type: 'deterministic',
-    enabled: true,
-    deletedAt: null,
-    appliesTo: { $in: [run.agentId, '*'] },
-  })
-  const resolved = resolveEffectiveAssertions(assertions, parseCaseAssertionRefs(evalCase.assertions))
+  const resolved = await deterministicAssertionsFor(em, source, run.agentId, scope)
+  const expected = sourceExpected(source)
 
   const verdicts: Array<{ severity: 'gate' | 'warn'; passed: boolean | null; score: number | null }> = []
 
   for (const entry of resolved) {
     const verdict = entry.configError
       ? { passed: null, score: null, evidence: { reason: SKIP_REASON.invalidConfig, issues: entry.configError } as Json }
-      : runScorer(entry.scorerKey, runView, (evalCase.expected ?? null) as Json | null, entry.config)
+      : runScorer(entry.scorerKey, runView, expected, entry.config)
 
     em.persist(
       em.create(AgentEvalResult, {
         ...scope,
         agentRunId: run.id,
         evalCaseRunId: caseRun.id,
-        assertionId: entry.assertion.id,
-        assertionKey: entry.assertion.key,
+        assertionId: entry.id,
+        assertionKey: entry.key,
         passed: verdict.passed,
         score: verdict.score,
-        severity: entry.assertion.severity,
+        severity: entry.severity,
         evidence: verdict.evidence ?? null,
       }),
     )
-    verdicts.push({ severity: entry.assertion.severity, passed: verdict.passed, score: verdict.score })
+    verdicts.push({ severity: entry.severity, passed: verdict.passed, score: verdict.score })
   }
+  await withRuntimeAuditWrite(() => em.flush())
 
   const applied = verdicts.filter((entry) => entry.passed !== null)
   const gate = applied.filter((entry) => entry.severity === 'gate')
@@ -357,6 +517,26 @@ export type BaselineComparison = {
   judgeDeltas: Record<string, number>
 }
 
+async function judgeAssertionIds(
+  em: EntityManager,
+  suiteRunId: string,
+  results: ReadonlyArray<AgentEvalResult>,
+  scope: EvalScope,
+): Promise<Set<string>> {
+  const suiteRun = await findOneWithDecryption(em, AgentEvalSuiteRun, { id: suiteRunId, ...scope }, undefined, scope)
+  const suiteManifest = await loadSuiteManifest(em, suiteRun, scope)
+  if (suiteManifest.pinned && suiteManifest.manifest) {
+    return new Set(
+      suiteManifest.manifest.assertions.filter((entry) => entry.type === 'llm_judge').map((entry) => entry.id),
+    )
+  }
+  const assertionIds = Array.from(new Set(results.map((result) => result.assertionId)))
+  const assertions = assertionIds.length
+    ? await em.find(AgentEvalAssertion, { id: { $in: assertionIds }, ...scope })
+    : []
+  return new Set(assertions.filter((entry) => entry.type === 'llm_judge').map((entry) => entry.id))
+}
+
 /**
  * Aggregates the finished case runs of a suite. Errored case runs are excluded
  * from `passScore` and counted separately: an errored case is not a passing case,
@@ -393,11 +573,7 @@ export async function aggregateSuiteRun(
   // Judge assertions must be distinguishable in the summary: with a manual gate
   // policy a judge result can carry severity 'gate', so severity alone no longer
   // separates the deterministic tier from the stochastic one.
-  const assertionIds = Array.from(new Set(results.map((result) => result.assertionId)))
-  const assertions = assertionIds.length
-    ? await em.find(AgentEvalAssertion, { id: { $in: assertionIds }, ...scope })
-    : []
-  const judgeIds = new Set(assertions.filter((entry) => entry.type === 'llm_judge').map((entry) => entry.id))
+  const judgeIds = await judgeAssertionIds(em, suiteRunId, results, scope)
 
   const summary: SuiteAggregate['summary'] = {}
   for (const result of results) {
@@ -430,7 +606,7 @@ export async function replaySuiteRun(
   userId: string,
 ): Promise<void> {
   const em = (container.resolve('em') as EntityManager).fork()
-  const suiteRun = await em.findOne(AgentEvalSuiteRun, { id: suiteRunId, ...scope })
+  const suiteRun = await findOneWithDecryption(em, AgentEvalSuiteRun, { id: suiteRunId, ...scope }, undefined, scope)
   if (!suiteRun) throw new Error('[internal] eval suite run not found')
 
   // Mark the suite in-flight before the first case: without this the row stays
@@ -444,9 +620,10 @@ export async function replaySuiteRun(
 
   const pending = await em.find(AgentEvalCaseRun, { suiteRunId, ...scope, status: 'pending' }, { orderBy: { createdAt: 'ASC' } })
 
+  const unresolvedVersions = new Set<string>()
   for (const caseRun of pending) {
     if (suiteRun.status === 'cancelled') break
-    await executeCaseRun(container, caseRun.id, scope, userId)
+    await executeCaseRun(container, caseRun.id, scope, userId, unresolvedVersions)
     await em.refresh(suiteRun)
   }
 }

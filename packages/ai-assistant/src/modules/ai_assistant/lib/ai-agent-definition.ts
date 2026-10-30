@@ -11,6 +11,7 @@ import type {
   ToolChoice,
   ToolSet,
 } from 'ai'
+import type { AiAgentCallSettings } from './agent-call-contract'
 
 export type AiAgentExecutionMode = 'chat' | 'object'
 
@@ -196,6 +197,7 @@ export interface LoopStepRecord {
   /** Model id resolved for this step (relevant when prepareStep swaps models). */
   modelId: string
   toolCalls: Array<{
+    toolCallId?: string
     toolName: string
     args: unknown
     result?: unknown
@@ -239,6 +241,11 @@ export interface LoopTrace {
     | 'abort'
   totalDurationMs: number
   totalUsage: { inputTokens: number; outputTokens: number }
+  /**
+   * Run identifier the turn is persisted under (`ai_agent_runs.id`). Additive;
+   * spec `2026-10-21-chat-run-tracing-and-citations` §2.
+   */
+  runId?: string
 }
 
 export type AiAgentMutationPolicy =
@@ -435,6 +442,21 @@ export interface AiAgentDefinition {
   keywords?: string[]
   domain?: string
   dataCapabilities?: AiAgentDataCapabilities
+  /**
+   * Optional author-declared agent version, recorded on run traces so a past
+   * answer can be tied to the definition that produced it.
+   *
+   * Spec `2026-10-21-chat-run-tracing-and-citations` §6.
+   */
+  version?: string
+  /**
+   * Agent-level default model call settings (temperature, topP, ...).
+   * Call-time `callSettings` win key by key; provider defaults apply to
+   * anything left unset.
+   *
+   * Spec `2026-10-21-chat-run-tracing-and-citations` §6.
+   */
+  modelSettings?: AiAgentCallSettings
 }
 
 export interface AiAgentExtension {

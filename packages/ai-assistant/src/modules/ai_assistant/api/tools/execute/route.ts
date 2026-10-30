@@ -5,6 +5,16 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { executeTool } from '../../../lib/tool-executor'
 import { loadAllModuleTools } from '../../../lib/tool-loader'
+import { getToolRegistry } from '../../../lib/tool-registry'
+import {
+  CORRELATION_ID_HEADER,
+  isMutationTool,
+  mapToolResultToAuditOutcome,
+  recordMcpToolCall,
+  resolveCorrelationId,
+  type McpAuditOutcome,
+} from '../../../lib/mcp-audit'
+import { resolveMcpExposureConfig, type McpMutationMode } from '../../../lib/mcp-exposure'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import type { McpToolContext } from '../../../lib/types'
 
@@ -14,8 +24,38 @@ export const openApi: OpenApiRouteDoc = {
   tag: 'AI Assistant',
   summary: 'Execute AI tool',
   methods: {
-    POST: { summary: 'Execute a specific MCP tool by name' },
+    POST: {
+      summary: 'Execute a specific MCP tool by name',
+      responses: [
+        { status: 200, description: 'Tool executed. Returns `{ success: true, result }`.' },
+        {
+          status: 202,
+          description:
+            'Mutation queued for approval because `OM_MCP_MUTATION_MODE=approval`. Returns `{ success: true, status: "pending_approval", pendingActionId, expiresAt }`; the tool handler did not run.',
+        },
+      ],
+      errors: [
+        { status: 400, description: 'Missing tool name, unknown tool, invalid input, or tool execution error.' },
+        { status: 401, description: 'Unauthenticated.' },
+        {
+          status: 403,
+          description:
+            'Caller lacks the tool features, the tool is a mutation blocked by `OM_MCP_MUTATION_MODE` (`{ success: false, error, code: "MUTATION_REQUIRES_APPROVAL" }`), or approval mode could not resolve a requesting user (`code: "MUTATION_REQUESTER_UNRESOLVED"`).',
+        },
+        { status: 500, description: 'Unexpected failure while executing the tool.' },
+      ],
+    },
   },
+}
+
+let cachedMutationMode: { raw: string | undefined; mode: McpMutationMode } | null = null
+
+function resolveToolsApiMutationMode(): McpMutationMode {
+  const raw = process.env.OM_MCP_MUTATION_MODE
+  if (cachedMutationMode && cachedMutationMode.raw === raw) return cachedMutationMode.mode
+  const mode = resolveMcpExposureConfig(process.env, {}).mutationMode
+  cachedMutationMode = { raw, mode }
+  return mode
 }
 
 export const metadata = {
@@ -29,6 +69,41 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  const correlationId = resolveCorrelationId(req.headers.get(CORRELATION_ID_HEADER))
+  const startedAt = Date.now()
+  let auditedToolName: string | null = null
+  let auditedArgs: unknown = {}
+  let auditContainer: Awaited<ReturnType<typeof createRequestContainer>> | null = null
+  let auditRecorded = false
+
+  const audit = (
+    outcome: McpAuditOutcome,
+    errorCode: string | null,
+    pendingActionIds: string[] | null = null,
+  ) => {
+    if (!auditedToolName || auditRecorded) return Promise.resolve()
+    auditRecorded = true
+    return recordMcpToolCall(auditContainer, {
+      toolName: auditedToolName,
+      tenantId: auth.tenantId,
+      organizationId: auth.orgId,
+      sessionUserId: auth.isApiKey ? null : auth.sub,
+      apiKeySessionUserId: auth.isApiKey ? auth.userId ?? null : null,
+      channel: 'tools-api',
+      mcpServer: null,
+      apiKeyId: auth.isApiKey ? auth.keyId ?? null : null,
+      sessionKeyId: null,
+      principal: auth.isApiKey ? 'api_key' : 'session',
+      outcome,
+      errorCode,
+      durationMs: Date.now() - startedAt,
+      isMutation: isMutationTool(getToolRegistry().getTool(auditedToolName)),
+      pendingActionIds,
+      correlationId,
+      args: auditedArgs,
+    })
+  }
+
   try {
     const body = await req.json()
     const { toolName, args = {} } = body
@@ -37,7 +112,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'toolName is required' }, { status: 400 })
     }
 
+    auditedToolName = toolName
+    auditedArgs = args
+
     const container = await createRequestContainer()
+    auditContainer = container
     const rbacService = container.resolve<RbacService>('rbacService')
 
     // Load ACL for user
@@ -60,7 +139,36 @@ export async function POST(req: NextRequest) {
     }
 
     // Execute the tool
-    const result = await executeTool(toolName, args, toolContext)
+    const result = await executeTool(toolName, args, toolContext, {
+      channel: 'tools-api',
+      mutationMode: resolveToolsApiMutationMode(),
+      requester: {
+        userId: auth.isApiKey ? auth.userId ?? null : auth.sub,
+        apiKeyId: auth.isApiKey ? auth.keyId ?? null : null,
+      },
+      correlationId,
+    })
+
+    if (result.pendingApproval) {
+      const { pendingActionId, expiresAt } = result.pendingApproval
+      await audit(mapToolResultToAuditOutcome(result), null, [pendingActionId])
+      return NextResponse.json(
+        { success: true, status: 'pending_approval', pendingActionId, expiresAt },
+        { status: 202 }
+      )
+    }
+
+    await audit(mapToolResultToAuditOutcome(result), result.errorCode ?? null)
+
+    if (
+      result.errorCode === 'MUTATION_REQUIRES_APPROVAL' ||
+      result.errorCode === 'MUTATION_REQUESTER_UNRESOLVED'
+    ) {
+      return NextResponse.json(
+        { success: false, error: result.error, code: result.errorCode },
+        { status: 403 }
+      )
+    }
 
     if (!result.success) {
       return NextResponse.json(
@@ -74,7 +182,8 @@ export async function POST(req: NextRequest) {
       result: result.result,
     })
   } catch (error) {
-    logger.error('AI Tools — Error executing tool', { err: error })
+    logger.error('AI Tools — Error executing tool', { err: error, correlationId })
+    await audit('error', 'EXCEPTION')
     return NextResponse.json(
       { success: false, error: 'Tool execution failed' },
       { status: 500 }

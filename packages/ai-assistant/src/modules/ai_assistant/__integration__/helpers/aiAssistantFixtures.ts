@@ -244,3 +244,15 @@ export async function deleteConversationCascadeInDb(input: {
     ]);
   });
 }
+
+export type IntegrationMcpMutationMode = 'direct' | 'deny' | 'approval';
+
+/**
+ * Mirrors how the app server resolves `OM_MCP_MUTATION_MODE` (process env first,
+ * then `apps/mercato/.env`). The ephemeral runner forwards the Playwright
+ * process env to the app server it spawns, so a spec can gate on this value.
+ */
+export function resolveIntegrationMcpMutationMode(): IntegrationMcpMutationMode {
+  const raw = (readEnvValue('OM_MCP_MUTATION_MODE') ?? '').trim().toLowerCase();
+  return raw === 'deny' || raw === 'approval' ? raw : 'direct';
+}

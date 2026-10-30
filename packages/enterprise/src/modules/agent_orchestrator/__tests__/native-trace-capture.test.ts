@@ -1,5 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import {
+  buildNativeStepRecord,
   buildNativeTracePayload,
   captureNativeRunTrace,
   isNativeTraceCaptureEnabled,
@@ -181,6 +182,103 @@ describe('buildNativeTracePayload', () => {
       durationMs: 950,
       attributes: { inputTokens: 42, outputTokens: 7 },
     })
+  })
+})
+
+describe('buildNativeStepRecord', () => {
+  const SDK7_STEP = {
+    toolCalls: [
+      { type: 'tool-call', toolCallId: 'call-1', toolName: 'customers.get_deal', input: { id: 'd1' } },
+      { type: 'tool-call', toolCallId: 'call-2', toolName: 'customers.list_people', input: { query: 'acme' } },
+    ],
+    toolResults: [
+      { type: 'tool-result', toolCallId: 'call-1', toolName: 'customers.get_deal', input: { id: 'd1' }, output: { title: 'Big deal' } },
+    ],
+    content: [
+      {
+        type: 'tool-error',
+        toolCallId: 'call-2',
+        toolName: 'customers.list_people',
+        input: { query: 'acme' },
+        error: { name: 'ToolExecutionError', message: 'search backend down' },
+      },
+    ],
+    finishReason: 'tool-calls',
+    usage: { inputTokens: 11, outputTokens: 3 },
+    response: { modelId: 'gpt-5-mini' },
+  }
+
+  it('reads AI SDK 7 tool inputs, outputs and tool-error parts', () => {
+    const record = buildNativeStepRecord(SDK7_STEP, T0 + 100)
+    expect(record).toMatchObject({
+      modelId: 'gpt-5-mini',
+      finishReason: 'tool-calls',
+      usage: { inputTokens: 11, outputTokens: 3 },
+      endedAtMs: T0 + 100,
+    })
+    expect(record.toolCalls).toEqual([
+      { toolName: 'customers.get_deal', args: { id: 'd1' }, result: { title: 'Big deal' }, durationMs: 0 },
+      {
+        toolName: 'customers.list_people',
+        args: { query: 'acme' },
+        result: undefined,
+        error: { code: 'ToolExecutionError', message: 'search backend down' },
+        durationMs: 0,
+      },
+    ])
+  })
+
+  it('persists non-empty request/response summaries and the tool error in the trace payload', () => {
+    const payload = buildNativeTracePayload({
+      ...baseInput(),
+      steps: [buildNativeStepRecord(SDK7_STEP, T0 + 100)],
+    })
+    const toolSpans = (payload.spans ?? []).filter((span) => span.kind === 'tool')
+    expect(toolSpans).toHaveLength(2)
+    expect(toolSpans[0].status).toBe('ok')
+    expect(toolSpans[0].toolCalls?.[0]).toMatchObject({
+      toolName: 'customers.get_deal',
+      requestSummary: { id: 'd1' },
+      responseSummary: { title: 'Big deal' },
+      status: 'ok',
+    })
+    expect(toolSpans[1].status).toBe('error')
+    expect(toolSpans[1].toolCalls?.[0]).toMatchObject({
+      toolName: 'customers.list_people',
+      requestSummary: { query: 'acme' },
+      status: 'error',
+      errorMessage: 'search backend down',
+    })
+  })
+
+  it('keeps the legacy args/result/experimental_toToolResultError shape working', () => {
+    const record = buildNativeStepRecord(
+      {
+        toolCalls: [
+          {
+            toolName: 'customers.get_deal',
+            args: { id: 'd2' },
+            result: { ok: false },
+            experimental_toToolResultError: { code: 'denied', message: 'no access' },
+            startTime: 1000,
+            endTime: 1040,
+          },
+        ],
+        finishReason: 'tool-calls',
+        usage: { inputTokens: 1, outputTokens: 1 },
+      },
+      T0,
+    )
+    expect(record.modelId).toBe('unknown')
+    expect(record.toolCalls).toEqual([
+      {
+        toolName: 'customers.get_deal',
+        args: { id: 'd2' },
+        result: { ok: false },
+        error: { code: 'denied', message: 'no access' },
+        durationMs: 40,
+      },
+    ])
   })
 })
 

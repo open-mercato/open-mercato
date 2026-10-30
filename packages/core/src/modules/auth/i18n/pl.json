@@ -39,6 +39,7 @@
   "auth.acl.features.ai_assistant.mcp.serve": "Uruchamiaj serwer MCP",
   "auth.acl.features.ai_assistant.mcp_servers.manage": "Zarządzaj konfiguracjami serwerów MCP",
   "auth.acl.features.ai_assistant.mcp_servers.view": "Wyświetl konfiguracje serwerów MCP",
+  "auth.acl.features.ai_assistant.pending_actions.approve": "Zatwierdzaj oczekujące akcje AI",
   "auth.acl.features.ai_assistant.settings.manage": "Zarządzaj ustawieniami Asystenta AI",
   "auth.acl.features.ai_assistant.tools.list": "Wyświetl listę narzędzi MCP",
   "auth.acl.features.ai_assistant.view": "Wyświetl ustawienia Asystenta AI",

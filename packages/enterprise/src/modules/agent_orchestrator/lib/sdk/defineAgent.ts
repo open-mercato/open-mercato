@@ -3,6 +3,7 @@ import {
   defineAiAgent,
   type AiAgentDefinition,
 } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/ai-agent-definition'
+import { computeAgentDefinitionHash } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/agent-definition-hash'
 import type { ZodTypeAny } from 'zod'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { AgentType } from '../../data/validators'
@@ -203,6 +204,11 @@ export interface AgentRegistryEntry {
    * tab. File-defined (`runtime: 'opencode'`) agents only; undefined for native.
    */
   sourceFiles?: FileAgentFile[]
+  /**
+   * ai-assistant definition hash of the underlying `defineAiAgent` definition.
+   * Native (`defineAgent`) agents only; one input of their AO definition hash.
+   */
+  aiDefinitionHash?: string
 }
 
 const registry = new Map<string, AgentRegistryEntry>()
@@ -263,7 +269,7 @@ export function defineAgent(input: DefineAgentInput): AiAgentDefinition {
     : null
   const systemPrompt = [input.instructions, ...skillSections, ...(subAgentSection ? [subAgentSection] : [])]
     .join('\n\n')
-  return defineAiAgent({
+  const aiDefinition = defineAiAgent({
     id: input.id,
     moduleId: input.moduleId,
     label: input.label,
@@ -283,6 +289,9 @@ export function defineAgent(input: DefineAgentInput): AiAgentDefinition {
     loop: input.loop,
     output: { schemaName: input.id.replace(/\W+/g, '_'), schema: input.result.schema },
   })
+  const registered = registry.get(input.id)
+  if (registered) registered.aiDefinitionHash = computeAgentDefinitionHash(aiDefinition)
+  return aiDefinition
 }
 
 /**

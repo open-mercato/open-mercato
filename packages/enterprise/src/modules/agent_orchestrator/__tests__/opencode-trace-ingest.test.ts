@@ -30,6 +30,7 @@ import { registerFileAgent, getAgentEntry, type AgentRegistryEntry } from '../li
 import { aiTools, SUBMIT_OUTCOME_TOOL_ID } from '../ai-tools'
 import { compileOutcome } from '../lib/sdk/outcomeSchema'
 import { InMemoryAgentRunSessionStore } from '../lib/runtime/agentRunSessionStore'
+import { RUN_MANIFEST_SPAN_NAME } from '../lib/trace/runManifest'
 import type { AiToolDefinition } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/types'
 
 const submitOutcomeTool = aiTools.find((t) => t.name === SUBMIT_OUTCOME_TOOL_ID) as AiToolDefinition
@@ -100,7 +101,14 @@ type IngestCommandInput = {
     externalRunId: string
     agentId: string
     latencyMs?: number
-    spans: Array<{ name: string; kind: string; toolCalls?: Array<{ toolName: string; responseSummary?: unknown }> }>
+    spans: Array<{
+      name: string
+      kind: string
+      sequence?: number
+      externalSpanId?: string
+      attributes?: unknown
+      toolCalls?: Array<{ toolName: string; responseSummary?: unknown }>
+    }>
   }
 }
 
@@ -336,10 +344,55 @@ describe('OpenCodeAgentRunner — trace ingestion (#3628)', () => {
     // auto-approval unreachable for every toolless OpenCode agent. One synthetic
     // span covering the session is the same answer `buildNativeTracePayload`
     // gives a toolless native run.
-    expect(ingestInput!.payload.spans).toHaveLength(1)
-    const span = ingestInput!.payload.spans![0] as { kind: string; sequence: number; startedAt: string }
+    const stepSpans = ingestInput!.payload.spans.filter((candidate) => candidate.kind !== 'system')
+    expect(stepSpans).toHaveLength(1)
+    const span = stepSpans[0] as { kind: string; sequence: number; startedAt: string }
     expect(span.kind).toBe('llm')
     expect(span.sequence).toBe(0)
     expect(Date.parse(span.startedAt)).not.toBeNaN()
+  })
+
+  it('appends one run.manifest span without a resolved model or provider', async () => {
+    const entry = registerExampleFileAgent()
+    const { commandBus, container } = makeHarness()
+    const runner = new OpenCodeAgentRunner({
+      container: container as never,
+      commandBus: commandBus as never,
+      openCodeClient: makeFakeClient({ container }),
+    })
+
+    await runner.run(entry, { subject: 'manifest' }, runCtx)
+
+    const spans = findIngestInput(commandBus)!.payload.spans
+    const manifests = spans.filter((candidate) => candidate.name === RUN_MANIFEST_SPAN_NAME)
+    expect(manifests).toHaveLength(1)
+    expect(manifests[0]).toMatchObject({ kind: 'system', externalSpanId: 'run-123:manifest', sequence: spans.length - 1 })
+    const attributes = manifests[0].attributes as Record<string, unknown>
+    expect(attributes['om.runtime']).toBe('opencode')
+    expect(attributes['om.agent.id']).toBe(FILE_AGENT_ID)
+    expect(attributes['om.model.declared']).toBe('gpt-5-mini')
+    expect(attributes).not.toHaveProperty('om.model.resolved')
+    expect(attributes).not.toHaveProperty('om.provider')
+    expect(attributes['om.invoker']).toEqual({ kind: 'user', userId: 'user-1', apiKeyId: null, ownerUserId: null })
+  })
+
+  it('writes no run.manifest span when trace capture is off', async () => {
+    process.env.OM_AGENT_TRACE_CAPTURE = 'off'
+    try {
+      const entry = registerExampleFileAgent()
+      const { commandBus, container } = makeHarness()
+      const runner = new OpenCodeAgentRunner({
+        container: container as never,
+        commandBus: commandBus as never,
+        openCodeClient: makeFakeClient({ container }),
+      })
+
+      await runner.run(entry, { subject: 'capture off' }, runCtx)
+
+      const spans = findIngestInput(commandBus)!.payload.spans
+      expect(spans.some((candidate) => candidate.name === RUN_MANIFEST_SPAN_NAME)).toBe(false)
+    } finally {
+      delete process.env.OM_AGENT_TRACE_CAPTURE
+    }
   })
 })

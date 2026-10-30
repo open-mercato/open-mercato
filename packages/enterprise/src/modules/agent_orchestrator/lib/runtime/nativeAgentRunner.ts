@@ -3,8 +3,13 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { runAiAgentObject } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/agent-runtime'
 import { createModelFactory } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/model-factory'
 import type { AiChatRequestContext } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/attachment-bridge-types'
+import type { AiAgentPromptResolvedEvent } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/agent-call-contract'
+import { bindRunObservation, createRunObservationCollector } from '@open-mercato/shared/lib/ai/run-observation'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import type { AgentRegistryEntry } from '../sdk/defineAgent'
+import { resolveAgentDefinitionHash } from '../trace/definitionHash'
+import { buildAgentRunManifestInput, captureManifestTraceparent } from '../trace/runManifestEntry'
+import type { RunManifestInput } from '../trace/runManifest'
 import {
   type AgentResult,
   type CitableSource,
@@ -21,6 +26,7 @@ import { withRunContext } from './runContext'
 import { runWithProviderBudget } from './providerBudget'
 import { computeCostMinor } from './modelPricing'
 import {
+  buildNativeStepRecord,
   captureNativeRunTrace,
   isNativeTraceCaptureEnabled,
   type NativeStepRecord,
@@ -41,8 +47,18 @@ import {
   shapeResult,
 } from './persistence'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 
 const logger = createLogger('agent_orchestrator').child({ component: 'native-agent-runner' })
+
+function reportSettleFailure(error: unknown, code: string, runId: string): void {
+  logger.warn('native run failure settlement step failed', {
+    runId,
+    code,
+    error: error instanceof Error ? error.message : String(error),
+  })
+  getTelemetryRuntime()?.reportError(error, { module: 'agent_orchestrator', code, attributes: { runId } })
+}
 
 /**
  * Default token budget for a TDCR context assembly when the caller does not pass
@@ -113,6 +129,7 @@ export class NativeAgentRunner {
       stepId: ctx.stepId ?? null,
       invocationId: ctx.invocationId ?? null,
       agentType: entry.agentType ?? null,
+      definitionHash: resolveAgentDefinitionHash(entry),
     })
 
     if (ctx.onRunPersisted) {
@@ -213,46 +230,16 @@ export class NativeAgentRunner {
     // AI SDK step as it happens, so partial traces survive even a failed run.
     const traceEnabled = isNativeTraceCaptureEnabled()
     const stepRecords: NativeStepRecord[] = []
+    const traceparent = traceEnabled ? captureManifestTraceparent() : null
+    const runObservation = createRunObservationCollector()
+    let promptResolved: AiAgentPromptResolvedEvent | null = null
+    const runObserver = {
+      onPromptResolved(event: AiAgentPromptResolvedEvent): void {
+        promptResolved = event
+      },
+    }
     const recordStep = async (event: unknown): Promise<void> => {
-      const raw = event as {
-        toolCalls?: Array<{
-          toolName?: string
-          args?: unknown
-          result?: unknown
-          experimental_toToolResultError?: { code?: string; message?: string }
-          startTime?: number
-          endTime?: number
-        }>
-        finishReason?: string
-        usage?: { inputTokens?: number; outputTokens?: number }
-        response?: { modelId?: string }
-      }
-      stepRecords.push({
-        modelId: raw.response?.modelId ?? 'unknown',
-        finishReason: raw.finishReason ?? 'stop',
-        usage: {
-          inputTokens: raw.usage?.inputTokens ?? 0,
-          outputTokens: raw.usage?.outputTokens ?? 0,
-        },
-        toolCalls: (raw.toolCalls ?? []).map((toolCall) => ({
-          toolName: toolCall.toolName ?? 'unknown',
-          args: toolCall.args ?? {},
-          result: toolCall.result,
-          ...(toolCall.experimental_toToolResultError
-            ? {
-                error: {
-                  code: String(toolCall.experimental_toToolResultError.code ?? 'unknown'),
-                  message: String(toolCall.experimental_toToolResultError.message ?? ''),
-                },
-              }
-            : {}),
-          durationMs:
-            typeof toolCall.startTime === 'number' && typeof toolCall.endTime === 'number'
-              ? toolCall.endTime - toolCall.startTime
-              : 0,
-        })),
-        endedAtMs: Date.now(),
-      })
+      stepRecords.push(buildNativeStepRecord(event, Date.now()))
     }
 
     // Live agent-action telemetry (workflows spec Phase 2). When this run is a
@@ -350,6 +337,29 @@ export class NativeAgentRunner {
         ...(cost ? { costMinor: cost.costMinor, currency: cost.currency } : {}),
       }
     }
+    const buildManifest = (): RunManifestInput | null => {
+      try {
+        return buildAgentRunManifestInput({
+          entry,
+          ctx,
+          runtime: 'native',
+          promptResolved,
+          observation: runObservation.snapshot(),
+          traceparent,
+        })
+      } catch (err) {
+        logger.warn('native run manifest build failed', {
+          runId,
+          error: err instanceof Error ? err.message : String(err),
+        })
+        getTelemetryRuntime()?.reportError(err, {
+          module: 'agent_orchestrator',
+          code: 'run_manifest_build_failed',
+          attributes: { runId },
+        })
+        return null
+      }
+    }
     const captureTrace = async (): Promise<void> => {
       if (!traceEnabled) return
       // AWAITED, not fire-and-forget. `dispositionService` decides whether a
@@ -374,6 +384,7 @@ export class NativeAgentRunner {
           endedAtMs: Date.now(),
           fallbackUsage,
           fallbackModel: entry.defaultModel ?? null,
+          manifest: buildManifest(),
         },
       ).catch((err: unknown) => {
         logger.warn('native trace capture rejected for run', {
@@ -388,30 +399,36 @@ export class NativeAgentRunner {
       // its nested run for traceability (Phase 4).
       // `ctx.source` rides the async context so a nested `delegate_agent` call
       // inherits the eval tag instead of being recorded as production traffic.
-      const modelExecution = withRunContext(runId, () =>
-        runWithProviderBudget({ providerId, deadlineAtMs }, async () => {
-          const objectResult = await runAiAgentObject({
-            agentId,
-            input: typeof input === 'string' ? input : JSON.stringify(input),
-            authContext,
-            container: this.container,
-            output: { schemaName: agentId.replace(/\W+/g, '_'), schema: entry.schema },
-            // Propose-only agents stay read-only: run a read-only tool loop so the
-            // agent can gather data (via its own tools or skill-contributed tools)
-            // before proposing. The runtime auto-falls back to a plain structured
-            // generate when no tools resolve, so toolless agents are unaffected.
-            // Writes never execute directly (read-only policy + proposal → effector).
-            enableTools: true,
-            ...(wireStepFinish ? { loop: { onStepFinish: onAgentStepFinish } } : {}),
-          })
-          // Object mode defaults to `mode: 'generate'`, resolving `.object` directly.
-          if (objectResult.mode === 'stream') {
-            return await objectResult.object
-          }
-          fallbackUsage = objectResult.usage ?? null
-          return objectResult.object
-        }),
-        ctx.source,
+      const modelExecution = bindRunObservation(runObservation, () =>
+        withRunContext(
+          runId,
+          () =>
+            runWithProviderBudget({ providerId, deadlineAtMs }, async () => {
+              const objectResult = await runAiAgentObject({
+                agentId,
+                input: typeof input === 'string' ? input : JSON.stringify(input),
+                authContext,
+                container: this.container,
+                output: { schemaName: agentId.replace(/\W+/g, '_'), schema: entry.schema },
+                // Propose-only agents stay read-only: run a read-only tool loop so the
+                // agent can gather data (via its own tools or skill-contributed tools)
+                // before proposing. The runtime auto-falls back to a plain structured
+                // generate when no tools resolve, so toolless agents are unaffected.
+                // Writes never execute directly (read-only policy + proposal → effector).
+                enableTools: true,
+                trace: { persist: false },
+                ...(traceEnabled ? { observe: runObserver } : {}),
+                ...(wireStepFinish ? { loop: { onStepFinish: onAgentStepFinish } } : {}),
+              })
+              // Object mode defaults to `mode: 'generate'`, resolving `.object` directly.
+              if (objectResult.mode === 'stream') {
+                return await objectResult.object
+              }
+              fallbackUsage = objectResult.usage ?? null
+              return objectResult.object
+            }),
+          ctx.source,
+        ),
       )
       const raced = await Promise.race([
         modelExecution,
@@ -516,24 +533,41 @@ export class NativeAgentRunner {
 
     // Pass/warn: persist the audit rows (one per check). A pass verdict records
     // pass rows but otherwise does NOT change behavior; warn proceeds + flags.
-    const guardResults: GuardResults = await persistVerdict({ em: guardEm }, guardScope, {
-      verdict,
-      capability: agentId,
-      phase: 'output',
-      proposalId: null,
-    })
+    let guardResults: GuardResults
+    let result: AgentResult
+    try {
+      guardResults = await persistVerdict({ em: guardEm }, guardScope, {
+        verdict,
+        capability: agentId,
+        phase: 'output',
+        proposalId: null,
+      })
 
-    const result = shapeResult(entry.resultKind, parsed.data, agentId)
+      result = shapeResult(entry.resultKind, parsed.data, agentId)
 
-    await completeRun(this.commandBus, commandCtx, {
-      runId,
-      output: result,
-      resultKind: entry.resultKind,
-      // Proposal runs surface the proposal's confidence on the run row;
-      // researcher runs have no confidence semantics → null (renders `—`).
-      confidence: result.kind === 'proposal' ? deriveEnvelopeConfidence(result.proposal) : null,
-      ...buildUsageStamp(),
-    })
+      await completeRun(this.commandBus, commandCtx, {
+        runId,
+        output: result,
+        resultKind: entry.resultKind,
+        // Proposal runs surface the proposal's confidence on the run row;
+        // researcher runs have no confidence semantics → null (renders `—`).
+        confidence: result.kind === 'proposal' ? deriveEnvelopeConfidence(result.proposal) : null,
+        ...buildUsageStamp(),
+      })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      try {
+        await failRun(this.commandBus, commandCtx, { runId, errorMessage: message, ...buildUsageStamp() })
+      } catch (failRunError) {
+        reportSettleFailure(failRunError, 'agent_orchestrator.native_fail_run_failed', runId)
+      }
+      try {
+        await captureTrace()
+      } catch (captureError) {
+        reportSettleFailure(captureError, 'agent_orchestrator.native_trace_capture_failed', runId)
+      }
+      throw err
+    }
 
     if (result.kind === 'proposal') {
       await createProposal(this.commandBus, commandCtx, {

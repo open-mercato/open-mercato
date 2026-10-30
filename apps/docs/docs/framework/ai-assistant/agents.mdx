@@ -75,6 +75,8 @@ The generator aggregates every module's agents into `apps/mercato/.mercato/gener
 | `resolvePageContext` | no | Async callback invoked when the request carries `{ entityType, recordId }`. Returns extra prompt text appended to `systemPrompt`. Its input also carries `tenantId`, `organizationId` and the authenticated caller's `userId` — see [Page context](./developer-guide#page-context). |
 | `suggestions` | no | Starter prompts shown by generic chat launchers before the first message. |
 | `keywords` / `domain` / `dataCapabilities` | no | Metadata for the agent picker and search. |
+| `version` | no | Author-declared version string recorded on every run trace, so a past answer can be tied to the definition that produced it. The runtime also records a definition hash computed at registry load. |
+| `modelSettings` | no | Agent-level default model call settings (`temperature`, `topP`, `topK`, `maxOutputTokens`, `seed`, `stopSequences`, `presencePenalty`, `frequencyPenalty`, `providerOptions`). See [Model call settings and run tracing](#model-call-settings-and-run-tracing). |
 
 ## Provider and model configuration
 
@@ -303,6 +305,49 @@ import { AiChat } from '@open-mercato/ui/ai'
 - `tool-loader.ts` registers every tool's full typed shape — `isMutation`, `displayName`, `loadBeforeRecord(s)`, `tags` — so the agent settings UI badges mutation tools correctly and the mutation interceptor fires.
 
 When the runtime invokes a tool handler it injects the matching `AiToolDefinition` into the `McpToolContext.tool` slot, so handlers can build an `AiToolExecutionContext` for `createAiApiOperationRunner` without losing route-gate coverage.
+
+## Model call settings and run tracing
+
+`runAiAgentText` and `runAiAgentObject` accept four optional model-call contract fields:
+
+| Input | Purpose |
+|-------|---------|
+| `callSettings` | Per-call `AiAgentCallSettings`. Merged over the agent's `modelSettings` key by key; `providerOptions` merge per provider. |
+| `observe` | `AiAgentCallObserver` receiving `onPromptResolved` (composed system prompt, prompt-override `{ id, version }`, provider/model) and one `onModelCallStart` / `onModelCallEnd` pair per model call (settings, messages, finish reason, usage, timings). |
+| `trace` | `{ persist?, channel?, correlationId? }`. `persist: false` skips the run record; `channel` is one of `chat`, `playground`, `run-object`, `mcp`, `tools-api`, `internal`. |
+| `runId` | Pins the run id (defaults to a fresh UUID). |
+
+Precedence for every setting is **`callSettings` > `modelSettings` > provider default**. HTTP callers pass `callSettings` in the `POST /api/ai_assistant/ai/run-object` body; unknown keys are rejected with `400`.
+
+```ts
+const result = await runAiAgentObject({
+  agentId: 'catalog.extract',
+  input: messages,
+  authContext,
+  callSettings: { temperature: 0, seed: 7 },
+  observe: {
+    onModelCallEnd: (event) => logger.info('model call', { usage: event.usage, ms: event.responseTimeMs }),
+  },
+  trace: { channel: 'internal', correlationId },
+})
+```
+
+Observer hooks are isolated: a hook that throws (or rejects) is logged and ignored, and the turn continues.
+
+### What a run trace stores
+
+Every turn writes one row to `ai_agent_runs` (with `ai_agent_run_steps` and `ai_agent_run_tool_calls`), scoped by tenant and organization, after the turn settles. The row carries the agent id, `version`, definition hash, prompt-override id/version, provider/model, merged model params, tool names, status, stop/finish reason, token usage, duration, and the channel/conversation/correlation ids. Content columns are encrypted at rest. The chat route returns the run id in the assistant message metadata and the `loop-finish` trace; `run-object` returns it as `runId` in the response body.
+
+Recording is best-effort: a failed write is logged and reported, never surfaced to the caller. Callers that persist their own trace for the same turn (for example a custom runner writing to its own store) pass `trace: { persist: false }` to avoid a second record.
+
+| Env | Default | Effect |
+|-----|---------|--------|
+| `OM_AI_RUN_TRACE_CAPTURE` | `full` | `full` stores input/output text, step text and tool payloads; `metadata` stores ids, counts and usage only; `off` writes nothing. |
+| `OM_AI_RUN_TRACE_CAPTURE_PROMPT` | `false` | When `true` (and capture is `full`), also stores the composed system prompt. Its SHA-256 hash is always stored. |
+| `OM_AI_RUN_TRACE_MAX_PAYLOAD_BYTES` | `16384` | Per-field cap; longer content is truncated and flagged. |
+| `AI_AGENT_RUNS_RETENTION_DAYS` | `30` | The daily `ai-agent-run-prune` worker deletes older runs (and runs soft-deleted with their conversation). Run it manually with `yarn mercato ai_assistant run-agent-run-prune`. |
+
+After the run commits, the runtime emits `ai_assistant.agent_run.completed` with ids only (`runId`, `tenantId`, `organizationId`, `agentId`, `channel`, `status`, `conversationId`). Server code reads runs through the DI service `aiAgentRunReader` (`getRun`, `listSteps`, `listToolCalls`), which is tenant/organization scoped and decrypts content.
 
 ## Using the Vercel AI SDK natively
 

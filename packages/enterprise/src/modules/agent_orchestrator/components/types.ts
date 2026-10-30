@@ -129,6 +129,7 @@ export type SpanView = {
   endedAt: string | null
   durationMs: number | null
   status: string | null
+  attributes: unknown
 }
 
 export type ToolCallView = {
@@ -487,6 +488,7 @@ export function mapSpan(item: Record<string, unknown>): SpanView | null {
     endedAt: asString(item.ended_at) ?? asString(item.endedAt),
     durationMs: asNumber(item.duration_ms) ?? asNumber(item.durationMs),
     status: asString(item.status),
+    attributes: item.attributes ?? null,
   }
 }
 

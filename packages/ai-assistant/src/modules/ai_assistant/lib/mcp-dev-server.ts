@@ -4,15 +4,33 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { z, type ZodType } from 'zod'
 import { getToolRegistry } from './tool-registry'
-import { executeTool } from './tool-executor'
+import { buildPendingApprovalMcpResponse, executeTool } from './tool-executor'
 import { loadAllModuleTools, indexToolsForSearch } from './tool-loader'
-import { authenticateMcpRequest, extractApiKeyFromHeaders, hasRequiredFeatures } from './auth'
+import { authenticateMcpRequest, extractApiKeyFromHeaders } from './auth'
+import {
+  collectMcpExposureWarnings,
+  buildDirectMutationModeWarning,
+  describeMcpExposureConfig,
+  filterToolsForCaller,
+  resolveMcpExposureConfig,
+  type McpExposureConfig,
+} from './mcp-exposure'
 import { jsonSchemaToZod } from './schema-utils'
 import { buildMcpToolAnnotations } from './mcp-tool-annotations'
 import { getApiKeyFromMcpJson } from './mcp-dev-key-resolution'
+import {
+  EMPTY_MCP_AUDIT_IDENTITY,
+  attachCorrelationMeta,
+  isMutationTool,
+  mapToolResultToAuditOutcome,
+  recordMcpToolCall,
+  resolveAuditActorUserId,
+  resolveCorrelationId,
+  type McpAuditIdentity,
+  type McpAuditOutcome,
+} from './mcp-audit'
 import type { McpToolContext } from './types'
 import type { SearchService } from '@open-mercato/search/service'
-import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 
 const logger = createLogger('ai_assistant')
 
@@ -60,11 +78,13 @@ async function parseJsonBody(req: IncomingMessage): Promise<unknown> {
  * Create MCP server with tools pre-authenticated for dev use.
  * No session tokens required - uses API key authentication directly.
  */
-function createDevMcpServer(
+export function createDevMcpServer(
   toolContext: McpToolContext,
   authFeatures: string[],
   isSuperAdmin: boolean,
-  debug: boolean
+  debug: boolean,
+  exposureConfig: McpExposureConfig = resolveMcpExposureConfig(process.env),
+  auditIdentity: McpAuditIdentity = EMPTY_MCP_AUDIT_IDENTITY
 ): McpServer {
   const server = new McpServer(
     { name: 'open-mercato-mcp-dev', version: '0.1.0' },
@@ -74,14 +94,10 @@ function createDevMcpServer(
   const registry = getToolRegistry()
   const tools = Array.from(registry.getTools().values())
 
-  // Filter tools based on API key permissions
-  const rbacService = toolContext.container.resolve<RbacService>('rbacService')
-  const accessibleTools = tools.filter((tool) =>
-    hasRequiredFeatures(tool.requiredFeatures, authFeatures, isSuperAdmin, rbacService)
-  )
+  const accessibleTools = filterToolsForCaller(tools, exposureConfig, { features: authFeatures, isSuperAdmin })
 
   if (debug) {
-    log(`Registering ${accessibleTools.length}/${tools.length} tools (filtered by API key permissions)`)
+    log(`Registering ${accessibleTools.length}/${tools.length} tools (filtered by exposure config and API key permissions)`)
   }
 
   for (const tool of accessibleTools) {
@@ -116,34 +132,86 @@ function createDevMcpServer(
         },
         async (args: unknown) => {
           const toolArgs = (args ?? {}) as Record<string, unknown>
+          const correlationId = resolveCorrelationId(null)
+          const startedAt = Date.now()
 
           if (debug) {
             log(`Calling tool: ${tool.name}`, JSON.stringify(toolArgs))
           }
 
-          const result = await executeTool(tool.name, toolArgs, toolContext)
+          const audit = (
+            outcome: McpAuditOutcome,
+            errorCode: string | null,
+            pendingActionIds: string[] | null = null
+          ) =>
+            recordMcpToolCall(toolContext.container, {
+              ...auditIdentity,
+              toolName: tool.name,
+              tenantId: toolContext.tenantId,
+              organizationId: toolContext.organizationId,
+              channel: 'mcp',
+              mcpServer: 'dev',
+              sessionKeyId: null,
+              principal: 'api_key',
+              outcome,
+              errorCode,
+              durationMs: Date.now() - startedAt,
+              isMutation: isMutationTool(tool),
+              pendingActionIds,
+              correlationId,
+              args: toolArgs,
+            })
+
+          let result: Awaited<ReturnType<typeof executeTool>>
+          try {
+            result = await executeTool(tool.name, toolArgs, toolContext, {
+              channel: 'mcp',
+              mutationMode: exposureConfig.mutationMode,
+              requester: {
+                userId: resolveAuditActorUserId(auditIdentity),
+                apiKeyId: auditIdentity.apiKeyId,
+              },
+              correlationId,
+            })
+          } catch (error) {
+            await audit('error', 'EXCEPTION')
+            throw error
+          }
+
+          if (result.pendingApproval) {
+            await audit(mapToolResultToAuditOutcome(result), null, [result.pendingApproval.pendingActionId])
+            return attachCorrelationMeta(buildPendingApprovalMcpResponse(result), correlationId)
+          }
+
+          await audit(mapToolResultToAuditOutcome(result), result.errorCode ?? null)
 
           if (!result.success) {
             log(`Tool error: ${result.error}`)
-            return {
+            return attachCorrelationMeta(
+              {
+                content: [
+                  {
+                    type: 'text' as const,
+                    text: JSON.stringify({ error: result.error, code: result.errorCode }),
+                  },
+                ],
+                isError: true,
+              },
+              correlationId
+            )
+          }
+
+          return attachCorrelationMeta(
+            {
               content: [
                 {
                   type: 'text' as const,
-                  text: JSON.stringify({ error: result.error, code: result.errorCode }),
+                  text: JSON.stringify(result.result, null, 2),
                 },
               ],
-              isError: true,
-            }
-          }
-
-          return {
-            content: [
-              {
-                type: 'text' as const,
-                text: JSON.stringify(result.result, null, 2),
-              },
-            ],
-          }
+            },
+            correlationId
+          )
         }
       )
     } catch (error) {
@@ -168,7 +236,13 @@ function createDevMcpServer(
  *
  * Configure in .mcp.json for Claude Code with HTTP transport.
  */
-export async function runMcpDevServer(): Promise<void> {
+export type McpDevServerOptions = {
+  exposureConfig?: McpExposureConfig
+  cliArgs?: Record<string, unknown>
+}
+
+export async function runMcpDevServer(options: McpDevServerOptions = {}): Promise<void> {
+  const exposureConfig = options.exposureConfig ?? resolveMcpExposureConfig(process.env, options.cliArgs ?? {})
   const apiKey = await getApiKeyFromMcpJson()
   const port = parseInt(process.env.MCP_DEV_PORT ?? '', 10) || DEFAULT_PORT
   const debug = process.env.MCP_DEBUG === 'true'
@@ -220,6 +294,20 @@ export async function runMcpDevServer(): Promise<void> {
   // Load tools
   log('Loading tools...')
   await loadAllModuleTools()
+  log(
+    'MCP exposure config:',
+    JSON.stringify(describeMcpExposureConfig(exposureConfig, Array.from(getToolRegistry().getTools().values())))
+  )
+  for (const warning of collectMcpExposureWarnings(process.env)) {
+    logger.warn(warning)
+  }
+  const directMutationWarning = buildDirectMutationModeWarning(
+    exposureConfig,
+    Array.from(getToolRegistry().getTools().values()),
+  )
+  if (directMutationWarning) {
+    logger.warn(directMutationWarning)
+  }
 
   // Generate and cache entity graph
   try {
@@ -342,7 +430,19 @@ export async function runMcpDevServer(): Promise<void> {
       })
 
       // Create server with pre-authenticated context (no session tokens needed)
-      const mcpServer = createDevMcpServer(toolContext, authResult.features, authResult.isSuperAdmin, debug)
+      const mcpServer = createDevMcpServer(
+        toolContext,
+        authResult.features,
+        authResult.isSuperAdmin,
+        debug,
+        exposureConfig,
+        {
+          apiKeyId: authResult.keyId,
+          apiKeySessionUserId: authResult.keySessionUserId ?? null,
+          apiKeyCreatedBy: authResult.keyCreatedBy ?? null,
+          sessionUserId: null,
+        }
+      )
 
       // Connect server to transport
       await mcpServer.connect(transport)

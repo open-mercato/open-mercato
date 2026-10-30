@@ -10,6 +10,7 @@ import {
 import type { AgentResultKind } from '../sdk/defineAgent'
 import { normalizeProposalEnvelope } from '../../data/proposalEnvelope'
 import { withAuditedCommand } from '../identity/agentWriteScope'
+import { resolveRunAgentVersion } from '../trace/definitionHash'
 
 /**
  * Shared persistence + scope helpers used by BOTH agent runtimes (in-process
@@ -170,15 +171,24 @@ export async function createRun(
     source?: 'runtime' | 'eval'
     /** The agent's declared type (authoring fact); null when it declares none. */
     agentType?: AgentType | null
+    /** Explicit published agent version; wins over the definition-hash short version. */
+    agentVersion?: string | null
+    /** `sha256:<hex>` definition hash; stamped as `sha256:<first 16 hex>` when no explicit version is set. */
+    definitionHash?: string | null
   },
 ): Promise<string> {
+  const { definitionHash, agentVersion, ...runInput } = input
+  const commandInput = {
+    ...runInput,
+    agentVersion: resolveRunAgentVersion({ agentVersion, definitionHash }),
+  }
   // Audited-command scope (Phase 3, layer B-b): the agent's own AgentRun write
   // goes through the audited Command path, so it passes the flush-time no-bypass
   // guard while a raw `em.flush()` under the same agent actor would throw.
   const { result } = await withAuditedCommand(() =>
-    commandBus.execute<typeof input, { runId: string }>(
+    commandBus.execute<typeof commandInput, { runId: string }>(
       'agent_orchestrator.runs.create',
-      { input, ctx: commandCtx },
+      { input: commandInput, ctx: commandCtx },
     ),
   )
   return result.runId

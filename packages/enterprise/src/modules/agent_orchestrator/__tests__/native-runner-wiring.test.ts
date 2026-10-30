@@ -72,7 +72,9 @@ import { AgentRuntimeService } from '../lib/runtime/agentRuntime'
 import { registerFileAgent, getAgentEntry, type AgentRegistryEntry } from '../lib/sdk/defineAgent'
 import { resetAgentAdmissionForTests } from '../lib/runtime/admission'
 import { resetProviderBudgetForTests } from '../lib/runtime/providerBudget'
-import type { NativeTraceInput } from '../lib/runtime/nativeTraceCapture'
+import { buildNativeTracePayload, type NativeTraceInput } from '../lib/runtime/nativeTraceCapture'
+import { RUN_MANIFEST_SPAN_NAME, computeManifestSha256 } from '../lib/trace/runManifest'
+import { reportKnowledgeVersion } from '@open-mercato/shared/lib/ai/run-observation'
 
 function registerNativeAgent(id: string): AgentRegistryEntry {
   const existing = getAgentEntry(id)
@@ -233,6 +235,43 @@ describe('post-run trace capture', () => {
     expect(scope).toEqual({ tenantId: 'tenant-1', organizationId: 'org-1' })
   })
 
+  it('records AI SDK 7 tool inputs, outputs and tool errors on the captured steps', async () => {
+    registerNativeAgent('native.sdk7_capture_agent')
+    runAiAgentObjectMock.mockImplementation(async (args) => {
+      const loop = args.loop as { onStepFinish?: (event: unknown) => Promise<void> } | undefined
+      await loop?.onStepFinish?.({
+        toolCalls: [
+          { toolCallId: 'call-1', toolName: 'customers.get_deal', input: { id: 'd1' } },
+          { toolCallId: 'call-2', toolName: 'customers.list_people', input: { query: 'acme' } },
+        ],
+        toolResults: [{ toolCallId: 'call-1', toolName: 'customers.get_deal', output: { title: 'Big deal' } }],
+        content: [
+          { type: 'tool-error', toolCallId: 'call-2', toolName: 'customers.list_people', error: new Error('search down') },
+        ],
+        finishReason: 'tool-calls',
+        usage: { inputTokens: 5, outputTokens: 2 },
+        response: { modelId: 'test-model' },
+      })
+      return VALID_MODEL_OUTPUT
+    })
+
+    const service = makeService()
+    await service.run('native.sdk7_capture_agent', { x: 1 }, runCtx)
+    await flushMicrotasks()
+
+    const traceInput = captureNativeRunTraceMock.mock.calls[0][2] as NativeTraceInput
+    expect(traceInput.steps[0].toolCalls).toEqual([
+      { toolName: 'customers.get_deal', args: { id: 'd1' }, result: { title: 'Big deal' }, durationMs: 0 },
+      {
+        toolName: 'customers.list_people',
+        args: { query: 'acme' },
+        result: undefined,
+        error: { code: 'Error', message: 'search down' },
+        durationMs: 0,
+      },
+    ])
+  })
+
   it('captures the partial trace when the model call fails', async () => {
     registerNativeAgent('native.failed_capture_agent')
     runAiAgentObjectMock.mockImplementation(async (args) => {
@@ -269,6 +308,20 @@ describe('post-run trace capture', () => {
     expect(failRunMock).not.toHaveBeenCalled()
   })
 
+  it('surfaces the original settle error when failRun and the trace capture also throw', async () => {
+    registerNativeAgent('native.settle_failure_agent')
+    runAiAgentObjectMock.mockResolvedValue(VALID_MODEL_OUTPUT)
+    completeRunMock.mockRejectedValue(new Error('[internal] complete run exploded'))
+    failRunMock.mockRejectedValue(new Error('[internal] fail run exploded'))
+    captureNativeRunTraceMock.mockRejectedValue(new Error('[internal] trace store down'))
+
+    const service = makeService()
+    await expect(service.run('native.settle_failure_agent', {}, runCtx)).rejects.toThrow(
+      'complete run exploded',
+    )
+    expect(failRunMock).toHaveBeenCalledTimes(1)
+  })
+
   it('the trace is persisted BEFORE run() resolves, so the disposition cannot race it', async () => {
     registerNativeAgent('native.capture_ordering_agent')
     runAiAgentObjectMock.mockResolvedValue(VALID_MODEL_OUTPUT)
@@ -300,6 +353,46 @@ describe('post-run trace capture', () => {
     expect(settled).toBe(true)
   })
 
+  it('hands the prompt metadata and the bound run observation to the manifest', async () => {
+    registerNativeAgent('native.manifest_agent')
+    runAiAgentObjectMock.mockImplementation(async (args) => {
+      const observe = args.observe as { onPromptResolved?: (event: unknown) => void } | undefined
+      observe?.onPromptResolved?.({
+        agentId: 'native.manifest_agent',
+        systemPrompt: 'system prompt body',
+        promptOverride: { id: 'override-7', version: 2 },
+        pageContextHydrated: false,
+        attachmentCount: 0,
+        provider: 'test-provider',
+        modelId: 'test-model',
+      })
+      await Promise.resolve()
+      reportKnowledgeVersion('rules.rule_set', '2026-10-20.3')
+      return VALID_MODEL_OUTPUT
+    })
+
+    await makeService().run('native.manifest_agent', {}, runCtx)
+
+    const traceInput = captureNativeRunTraceMock.mock.calls[0][2] as NativeTraceInput
+    expect(traceInput.manifest).toMatchObject({
+      runtime: 'native',
+      agentId: 'native.manifest_agent',
+      agentSource: 'code',
+      ctx: { userId: 'user-1' },
+      promptOverride: { id: 'override-7', version: 2 },
+      systemPromptSha256: computeManifestSha256('system prompt body'),
+      modelResolved: 'test-model',
+      provider: 'test-provider',
+      observation: { knowledge: { 'rules.rule_set': { version: '2026-10-20.3' } } },
+    })
+    const payload = buildNativeTracePayload(traceInput)
+    const manifestSpans = (payload.spans ?? []).filter((span) => span.name === RUN_MANIFEST_SPAN_NAME)
+    expect(manifestSpans).toHaveLength(1)
+    expect((manifestSpans[0].attributes as Record<string, unknown>)['om.knowledge']).toEqual({
+      'rules.rule_set': '2026-10-20.3',
+    })
+  })
+
   it('OM_AGENT_TRACE_CAPTURE=off skips capture and the step hook', async () => {
     process.env.OM_AGENT_TRACE_CAPTURE = 'off'
     registerNativeAgent('native.capture_off_agent')
@@ -312,6 +405,19 @@ describe('post-run trace capture', () => {
     expect(captureNativeRunTraceMock).not.toHaveBeenCalled()
     const callArgs = runAiAgentObjectMock.mock.calls[0][0]
     expect(callArgs.loop).toBeUndefined()
+    expect(callArgs.observe).toBeUndefined()
+  })
+})
+
+describe('run record ownership', () => {
+  it('disables the OSS run recorder for native runs', async () => {
+    registerNativeAgent('native.no_oss_record_agent')
+    runAiAgentObjectMock.mockResolvedValue(VALID_MODEL_OUTPUT)
+
+    const service = makeService()
+    await service.run('native.no_oss_record_agent', {}, runCtx)
+
+    expect(runAiAgentObjectMock.mock.calls[0][0].trace).toEqual({ persist: false })
   })
 })
 
