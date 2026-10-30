@@ -24,6 +24,13 @@ jest.mock('../lib/eval/evalSetAccess', () => ({
   hasEvalSetFeatures: jest.fn(async () => true),
 }))
 
+const invalidateCrudCacheMock = jest.fn(async () => {})
+jest.mock('@open-mercato/shared/lib/crud/cache', () => ({
+  ...jest.requireActual('@open-mercato/shared/lib/crud/cache'),
+  invalidateCrudCache: (...args: unknown[]) => invalidateCrudCacheMock(...(args as [])),
+}))
+
+import { canonicalizeResourceTag } from '@open-mercato/shared/lib/crud/cache'
 import {
   EVAL_SET_RESOURCE_KIND,
   importEvalSetCommand,
@@ -363,5 +370,33 @@ describe('agent_orchestrator.evalSets.import command', () => {
     await expect(
       importEvalSetCommand.authorizeReplay!({ operation: 'undo', input: { tenantId: TENANT, organizationId: ORG, file: null }, ctx: makeCtx(em), logEntry }),
     ).rejects.toMatchObject({ status: 403 })
+  })
+
+  it('flushes the eval-case and eval-assertion list caches after a writing import and its undo, not after a no-op', async () => {
+    const { em } = createFakeEm()
+    const flushedResources = () =>
+      invalidateCrudCacheMock.mock.calls.map((call) => (call as unknown[])[1]).sort()
+    const expected = [
+      canonicalizeResourceTag(AgentEvalAssertion.name),
+      canonicalizeResourceTag(AgentEvalCase.name),
+    ].sort()
+
+    const first = await runImport(em, sampleFile())
+    expect(flushedResources()).toEqual(expected)
+    expect(invalidateCrudCacheMock.mock.calls[0]).toEqual([
+      expect.anything(),
+      expect.any(String),
+      { id: null, tenantId: TENANT, organizationId: ORG },
+      TENANT,
+      expect.any(String),
+    ])
+
+    invalidateCrudCacheMock.mockClear()
+    await runImport(em, sampleFile())
+    expect(invalidateCrudCacheMock).not.toHaveBeenCalled()
+
+    const logEntry = await logEntryFor(first, em)
+    await importEvalSetCommand.undo!({ input: { tenantId: TENANT, organizationId: ORG, file: null }, ctx: makeCtx(em), logEntry })
+    expect(flushedResources()).toEqual(expected)
   })
 })

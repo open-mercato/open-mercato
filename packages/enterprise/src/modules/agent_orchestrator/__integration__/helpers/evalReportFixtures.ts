@@ -110,3 +110,10 @@ export async function loginAs(page: Page, email: string, password: string): Prom
   await page.getByLabel('Password', { exact: true }).press('Enter')
   await expect(page).toHaveURL(/\/backend/, { timeout: 10_000 })
 }
+
+export async function deleteEvalSetRowsForAgent(agentId: string): Promise<void> {
+  await withClient(async (client) => {
+    await client.query('delete from agent_eval_cases where agent_definition_id = $1', [agentId])
+    await client.query('delete from agent_eval_assertions where applies_to = $1', [agentId])
+  })
+}

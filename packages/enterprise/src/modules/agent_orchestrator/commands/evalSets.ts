@@ -30,6 +30,7 @@ import { EVAL_SET_IMPORT_FEATURES, hasEvalSetFeatures } from '../lib/eval/evalSe
 import { deterministicCaseId, EvalSetTooLargeError } from '../lib/eval/manifest'
 import { getScorerDefinition } from '../lib/eval/registry'
 import { ensureRubricLibrary } from '../lib/eval/rubrics'
+import { invalidateAgentEvalSetCaches } from '../lib/crudCache'
 
 export const IMPORT_EVAL_SET_COMMAND_ID = 'agent_orchestrator.evalSets.import'
 export const EVAL_SET_RESOURCE_KIND = 'agent_orchestrator.eval_set'
@@ -427,6 +428,7 @@ export const importEvalSetCommand: CommandHandler<ImportEvalSetCommandInput, Imp
         ],
         { transaction: true, label: IMPORT_EVAL_SET_COMMAND_ID },
       )
+      await invalidateAgentEvalSetCaches(ctx.container, scope, IMPORT_EVAL_SET_COMMAND_ID)
     }
 
     return {
@@ -529,6 +531,7 @@ export const importEvalSetCommand: CommandHandler<ImportEvalSetCommandInput, Imp
       ],
       { transaction: true, label: `${IMPORT_EVAL_SET_COMMAND_ID}.undo` },
     )
+    await invalidateAgentEvalSetCaches(ctx.container, scope, `${IMPORT_EVAL_SET_COMMAND_ID}.undo`)
   },
 }
 

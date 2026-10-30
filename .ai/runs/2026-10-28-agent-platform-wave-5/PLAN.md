@@ -85,7 +85,7 @@
 | 7 | 7.10-review-fix | Use explicit sort comparators in the eval-set YAML and rubric helpers | inline | done | 345b6e955 |
 | 1 | 1.11-review-fix-2 | Expect the translated guardrail kind label in TC-AGENT-UXC-006 | inline | done | 239d0230f |
 | 7 | 7.11 | Document the eval CI recipe | dispatch:cheap | done | pending |
-| 7 | 7.12 | Cover eval-set import, export and settings with integration tests | dispatch | todo | — |
+| 7 | 7.12 | Cover eval-set import, export and settings with integration tests | dispatch | done | pending |
 | 8 | 8.1 | Update the roadmap and upgrade notes for wave 5 | inline | todo | — |
 
 ## Goal
