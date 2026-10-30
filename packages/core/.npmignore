@@ -1,4 +1,5 @@
 **/__tests__/
 **/__integration__/
+**/__bdd__/
 **/*.test.ts
 **/*.test.tsx
