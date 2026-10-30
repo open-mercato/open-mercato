@@ -437,3 +437,38 @@ test(
       )
     }),
 )
+
+test(
+  'live throughput expires while repeated network failures leave the last snapshot unchanged',
+  { timeout: 30000 },
+  () =>
+    environment(async ({ page, alpha, alphaDirectory }) => {
+      alpha.active[0].metrics = {
+        outputTokensPerSecond: 42,
+        sampledAt: new Date().toISOString(),
+        measurementKind: 'live',
+      }
+      await writeSnapshot(alphaDirectory, alpha)
+      await expect(page.getByTestId('throughput').first()).toContainText('42', {
+        timeout: 10000,
+      })
+      await expect(page.locator('.activity-metrics')).toContainText('42')
+      await page.clock.install({ time: new Date() })
+      await page.route('**/api/**', (route) => route.abort())
+      await page.clock.runFor(4000)
+      await expect(
+        page.getByText(
+          'Connection interrupted. Showing the last received results.',
+        ),
+      ).toBeVisible()
+      await expect(page.getByTestId('throughput').first()).toContainText('42')
+      await page.clock.fastForward(31000)
+      await expect(page.getByTestId('throughput').first()).toContainText('—', {
+        timeout: 1500,
+      })
+      await expect(
+        page.getByText('Live sample is stale', { exact: true }),
+      ).toBeVisible()
+      await expect(page.locator('.activity-metrics strong')).toHaveCount(0)
+    }),
+)

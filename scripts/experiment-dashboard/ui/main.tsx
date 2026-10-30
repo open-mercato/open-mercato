@@ -133,6 +133,17 @@ function usePolling<T>(url: string | null, refresh: number) {
   return { data: loadedUrl === url ? data : null, error, syncedAt }
 }
 
+function useLiveMetricClock(enabled: boolean) {
+  const [now, setNow] = useState(Date.now)
+  useEffect(() => {
+    if (!enabled) return
+    setNow(Date.now())
+    const timer = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(timer)
+  }, [enabled])
+  return now
+}
+
 function StatusBadge({ status }: { status: string }) {
   const t = useT()
   const tone =
@@ -187,7 +198,8 @@ function MetricCard({
   caseId?: string | null
 }) {
   const t = useT()
-  const presentation = metricPresentation(metrics)
+  const now = useLiveMetricClock(metrics.measurementKind === 'live')
+  const presentation = metricPresentation(metrics, now)
   return (
     <Card className="throughput-card">
       <div className="metric-heading">
@@ -590,6 +602,13 @@ function Dashboard() {
     refresh,
   )
   const experiment = runState.data
+  const activityNow = useLiveMetricClock(
+    Boolean(
+      experiment?.active.some(
+        (activity) => activity.metrics.measurementKind === 'live',
+      ),
+    ),
+  )
   const disconnected = listing.error || runState.error
   const totals = experiment ? experimentTotals(experiment) : null
   const metrics = experiment ? selectMetrics(experiment) : null
@@ -891,7 +910,10 @@ function Dashboard() {
                       const lane = experiment.lanes.find(
                         (item) => item.id === active.laneId,
                       )
-                      const measurement = metricPresentation(active.metrics)
+                      const measurement = metricPresentation(
+                        active.metrics,
+                        activityNow,
+                      )
                       return (
                         <Button
                           type="button"
