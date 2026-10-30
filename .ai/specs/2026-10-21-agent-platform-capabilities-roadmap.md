@@ -319,4 +319,9 @@ The divergence is deliberate and stated in both specs: chat turns are short conv
 - Before wave 5 continued, the whole stack (#7794 → #8099) was brought up to date with `main` by merging forward wave by wave; two latent test bugs surfaced and were fixed on the wave that owned them (TC-AI-RUN-TRACE-016 on wave 2, a time-bomb date on wave 4).
 - Integration gaps that remain environment-bound: real model runs (no scripted provider) and content cases needing a storage integration; `TC-AGENT-EVAL-REPLAY-001` deferred for the same reason.
 - Next: wave 6 — OTel P2 (content events, hand-encoded OTLP protobuf, per-tenant endpoints) and DocStructure P4 (per-section search behind a new `SearchEntityConfig.shouldIndex` hook), one PR (user decision, 2026-10-29). OTel P3 becomes its own spec.
+- Wave 6 implemented on one PR (#8251), stacked on wave 5 — the last roadmap wave:
+  - OTel P2 items 1–3: content events behind three locks, hand-encoded OTLP protobuf (Q1), per-tenant OTLP endpoints as an SSRF-vetted, DNS-pinned integration (Q2).
+  - DocStructure P4: per-section search behind the new `SearchEntityConfig.shouldIndex` gate (Q3), with indexing, purge and partition-toggle sync and attachment citations.
+- Decisions of 2026-10-29: Q1 hand-encode protobuf in agent_orchestrator; Q2 include per-tenant endpoints; Q3 add `shouldIndex`; one PR.
+- Remaining after wave 6: OTel P3 (live streaming through the platform telemetry bridge) as its own spec; OTel P2.4 (`agent_trace_exports`) at the next AO re-squash; recording tool call ids on native/OpenCode tool spans so tool content can be exported.
 

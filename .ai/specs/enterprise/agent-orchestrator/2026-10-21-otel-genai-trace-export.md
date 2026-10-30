@@ -403,3 +403,17 @@ None.
   - **`service.version` and the scope version** are `APP_VERSION`.
   - **The test-span 429** is covered by unit tests only, because the ephemeral app disables rate limiting.
 
+### 2026-10-30
+- Phase 2 items 1–3 implemented (wave 6, PR #8251). Item 4 (the `agent_trace_exports` ledger) stays on the next-re-squash list; Phase 3 becomes its own spec (OTEL-Q5).
+  - **Content events:** `resolveContentExportMode` requires all three locks (`OM_AGENT_OTEL_EXPORT_CONTENT=allow`, tenant `content: full`, run captured at `full`), re-evaluated per job. `loadRunExportContent` reads only keys referenced by the run's stored `llm` spans, skips expired keys, caps a run at 4 MiB (`over_budget`) and writes an access-log entry per read; `genAiContent` maps the artifacts to `gen_ai.system_instructions` / `input.messages` / `output.messages` / `tool.definitions` on the `gen_ai.client.inference.operation.details` event, with a second redaction pass and a 64 KiB per-attribute cap (`om.truncated`). `om.content.export_status` is one of `exported|unavailable|expired|over_budget|not_captured`. Request bodies are split to stay ≤ 4 MiB. The dry run never prints content.
+  - **Protobuf:** OTLP/HTTP protobuf is hand-encoded in agent_orchestrator (decision Q1; no new dependency, no `@opentelemetry/*` import), checked against a golden fixture produced once with the reference serializer.
+  - **Tenant endpoints:** the `agent_orchestrator_otel_export` integration (credentials per organization), `destination: deployment|integration`, `OM_AGENT_OTEL_EXPORT_TENANT_ENDPOINTS` (default deny) and `OM_AGENT_OTEL_EXPORT_PRIVATE_HOSTS`. Endpoints are vetted with `@open-mercato/web-research` `assertPublicUrl`, connections are pinned to the vetted addresses, redirects are never followed, and the integration path fails closed without falling back to the deployment endpoint.
+  - Integration: `TC-AGENT-OTEL-003` (lock matrix, content status, metadata run) and `TC-AGENT-OTEL-004` (protobuf to a tenant collector, `integration_disabled`, `endpoint_blocked`).
+- Deviations:
+  - **Tool arguments/results** are exported only when a tool span carries `gen_ai.tool.call.id` matching the content artifacts; native and OpenCode runs do not record that id yet, so their tool spans carry no content (follow-up).
+  - **The settings command itself** (and its undo replay) requires `trace.view_content` for `content: full`, not only the PUT route.
+  - **Protobuf integers** beyond the signed 64-bit range are sent as decimal strings; the JSON encoder's normalisation is reused so both formats agree elsewhere.
+  - **A fifth destination error code**, `deployment_unconfigured`: export can be enabled with only tenant endpoints allowed.
+  - **The integration** uses category `other` and English labels, like every other `integration.ts`; its health check works before the integration is enabled.
+  - **The settings response** gains `integration: { configured, enabled }` (status only, never the URL or headers) and `deployment.tenantEndpointsAllowed`.
+  - **The exported-content path** of `TC-AGENT-OTEL-003` needs trace content storage; environments without it exercise the not-exported statuses only.

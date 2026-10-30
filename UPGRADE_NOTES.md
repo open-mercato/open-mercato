@@ -678,6 +678,20 @@ Specs: [`output-integrity-guardrails`](.ai/specs/enterprise/agent-orchestrator/2
 
 **Additive package exports.** `@open-mercato/ai-assistant` exports `emitCitations`, `aiCitationSchema`, `isSafeHref`, `withToolReplayContext` and related types; `@open-mercato/ui` exports the citation resolver registry (`registerCitationResolver`) and `CitationsPart`; `@open-mercato/shared` exports `intersectFeatureGrants`. `McpToolContext` gains an optional per-call `uiParts` collector. No existing signature changed.
 
+### OTel content export, OTLP protobuf, tenant OTLP endpoints and per-section document search
+
+Specs: [`otel-genai-trace-export`](.ai/specs/enterprise/agent-orchestrator/2026-10-21-otel-genai-trace-export.md) (Phase 2) and [`document-structure-extraction`](.ai/specs/2026-10-21-document-structure-extraction.md) (Phase 4). Docs: `apps/docs/docs/framework/ai-assistant/agent-trace-otel-export.mdx` and `apps/docs/docs/api/attachments.mdx`.
+
+**OTel content export is now possible (off by default).** Prompt and completion content leaves only when all three locks hold: `OM_AGENT_OTEL_EXPORT_CONTENT=allow`, the tenant sets `content: full` (requires `agent_orchestrator.trace.view_content`), and the run was captured at `full`. Exported content gets a second redaction pass, per-attribute and per-run caps, and an access-log entry per exported artifact. Tool arguments/results export only when a tool span carries a tool call id (native and OpenCode runs don't record it yet). The `otel:export --dry-run` output never contains content.
+
+**OTLP/HTTP protobuf.** `OM_AGENT_OTEL_EXPORT_PROTOCOL` accepts `http/protobuf` in addition to `http/json` (hand-encoded; no new dependency).
+
+**Per-tenant OTLP endpoints (off by default).** New integration `agent_orchestrator_otel_export` (credentials per organization: endpoint, secret headers, protocol) and the additive tenant setting `destination: deployment | integration`. Enable with `OM_AGENT_OTEL_EXPORT_TENANT_ENDPOINTS=allow`; private collectors need `OM_AGENT_OTEL_EXPORT_PRIVATE_HOSTS`. Tenant endpoints are SSRF-vetted and DNS-pinned, never follow redirects, and fail closed (no fallback to the deployment endpoint). With tenant endpoints allowed, export counts as enabled even without a deployment endpoint. The settings API gains `integration: { configured, enabled }` and `deployment.tenantEndpointsAllowed` (additive).
+
+**`SearchEntityConfig.shouldIndex` (additive, `@open-mercato/shared`).** An optional per-record gate honoured by `SearchIndexer` and the `query_index` token writer: a non-`true` result or a throw removes the record from search instead of indexing it. Configs without the hook behave as before. **Action for custom search modules:** none, unless you want per-record opt-in.
+
+**Per-section document search (off by default).** New search entity `attachments:attachment_document_section`, indexed only for partitions with `indexDocumentSections` on; section text then reaches the fulltext/vector stores in plaintext (the partition UI warns about this). Toggling the flag now enqueues a sync job; `mercato attachments structure search-sync --partition <code>` re-syncs on demand. `releaseScoped(…, { flush: false })` may now return a search-only cleanup callback when the stored file is still shared — callers must still invoke a returned callback after commit. `attachments.get_document_sections` now emits `attachment` citations.
+
 ## 0.8.0 → 0.9.0 (2026-10-09)
 
 ### `POST /api/auth/logout` no longer requires a valid access token (#7225)

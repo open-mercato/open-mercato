@@ -47,7 +47,7 @@
 | 4 | 4.7 | Emit attachment citations from get_document_sections | dispatch | done | pending |
 | 4 | 4.8 | Cover section search with integration tests | dispatch | done | pending |
 | 4 | 4.9 | Document section search | dispatch:cheap | done | pending |
-| 5 | 5.1 | Update the roadmap, upgrade notes and spec changelogs for wave 6 | inline | todo | — |
+| 5 | 5.1 | Update the roadmap, upgrade notes and spec changelogs for wave 6 | inline | done | pending |
 
 ## Goal
 

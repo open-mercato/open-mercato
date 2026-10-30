@@ -600,3 +600,18 @@ OCR integration tests stay unit-level (mocked `OcrService`), so CI needs no prov
   - `attachments/ai-tools.ts` with the read-only tool `attachments.get_document_sections` (`attachments.view`). Section text is returned in `content`, documented as untrusted data. It returns `not_found` when the tool context has no organization; `page` is the section's start page. The optional `emitCitations` coupling is not implemented (the helper does not exist yet, Chat P4).
   - UI: there is no attachment drawer; the panel is `packages/ui/src/backend/detail/DocumentStructurePanel.tsx`, lazy-loaded as a Structure tab in `AttachmentMetadataDialog` (about 3.6 KB gz). The tab shows for every file type (the API reports unsupported types). Extract / Re-extract is gated by the additive `canManageStructure` prop or, when absent, `/api/auth/feature-check`. Second-level outline nodes always offer expand because `childCount` is not known at `maxDepth=2`.
   - Integration: `TC-ATT-STRUCT-007`.
+
+### 2026-10-30
+- Phase 4 implemented (wave 6, PR #8251):
+  - `SearchEntityConfig.shouldIndex` (additive, `@open-mercato/shared`; decision Q3) gates every `SearchIndexer` path (single, by id, batch, bulk, reindex, fulltext/vector reindex jobs): a non-`true` result or a throw deletes the record from every strategy instead of indexing it. The `query_index` token writer evaluates the same hook per record (write on `true`, delete otherwise), so a manual reindex cannot push sections from partitions that did not opt in.
+  - `attachments/search.ts` declares `attachments:attachment_document_section` (fulltext, vector, tokens; `attachments.view`): indexed only while its extraction is live and its partition has `index_document_sections`; title = the section citation, subtitle = the file name; results link to the attachments library (no deep link).
+  - `section-search` jobs on the existing structure queue index or delete per extraction, per section-id list (≤ 1000) or per partition; indexing follows extraction completion (and deletes superseded indexed sections), purge enqueues deletes after commit, and toggling `indexDocumentSections` fans out across the partition's live extractions. CLI: `mercato attachments structure search-sync`.
+  - `attachments.get_document_sections` emits `attachment` citations (wave-5 `emitCitations`).
+  - Integration: `TC-ATT-STRUCT-006`.
+- Deviations:
+  - **Tokens:** the first design skipped token writes for gated entities and relied on the `SearchIndexer` token path, which only runs from the fulltext/vector workers — sections were never token-indexed without Meilisearch and a vector provider. Found by `TC-ATT-STRUCT-006`; the writer now evaluates `shouldIndex` per record.
+  - **`releaseScoped(…, { flush: false })`** returns a search-only cleanup callback when the stored file is still shared, so indexed sections are still removed.
+  - **Tenant partitions** fan out across all of the tenant's organizations (partition codes are unique; the worker looks them up by code); stale toggle jobs whose mode no longer matches the partition are skipped.
+  - **Known gap:** an attachment purged between a toggle-off fan-out and its delete job can leave a few section records until a reindex.
+  - **No client citation resolver:** the ui registry has no module registration hook; attachment citations use their label and the server-side library link.
+  - Residual risk unchanged: no per-record search post-filter, so `attachments.view` holders in the organization can see snippets of indexed sections; opening an attachment still enforces access.
