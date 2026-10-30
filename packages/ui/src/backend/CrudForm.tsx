@@ -2083,15 +2083,6 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     [injectedFieldIdSet, hostFieldIdSet],
   )
 
-  const crudWidgetPayload = React.useMemo(
-    () => buildCrudWidgetPayload(
-      injectedFieldWidgets,
-      values,
-      hiddenInjectedFieldIds,
-    ),
-    [hiddenInjectedFieldIds, injectedFieldWidgets, values],
-  )
-
   const injectedCrudFields = React.useMemo<CrudField[]>(() => {
     return injectedFieldDefinitions.map((definition) => {
       // InjectedField renders its own i18n-resolved <Label> for every field type
@@ -3270,6 +3261,16 @@ export function CrudForm<TValues extends Record<string, unknown>>({
         return
       }
     }
+
+    const excludedWidgetPayloadFieldIds = new Set([
+      ...hiddenInjectedFieldIds,
+      ...hiddenGroupFieldIds,
+    ])
+    const submitWidgetPayload = buildCrudWidgetPayload(
+      injectedFieldWidgets,
+      submitValues as Record<string, unknown>,
+      excludedWidgetPayloadFieldIds,
+    )
     
     try {
       submitNavigationBypassRef.current = true
@@ -3287,7 +3288,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
           await onSubmit?.(coreSubmitValues, submitContext)
         }
       }
-      if (crudWidgetPayload) await withScopedApiRequestBody(crudWidgetPayload, submit)
+      if (submitWidgetPayload) await withScopedApiRequestBody(submitWidgetPayload, submit)
       else await submit()
       
       // Trigger onAfterSave event for injection widgets

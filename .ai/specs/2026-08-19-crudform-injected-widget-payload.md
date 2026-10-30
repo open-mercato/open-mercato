@@ -8,8 +8,9 @@ values to the host entity schema or changing `CrudForm` callback signatures.
 
 ## Design
 
-`CrudForm` collects visible injected field values by contributing module id and
-scopes them around the host submit callback. `apiCall` serializes that sidecar
+`CrudForm` collects the final transformed values of visible injected fields by
+contributing module id at submit time and scopes them around the host submit
+callback. `apiCall` serializes that sidecar
 under the private `__om_ext_v1` transport field. `makeCrudRoute` removes the
 transport field before both direct CRUD and command action schemas parse the
 entity body, then exposes the sanitized payload as optional
@@ -42,7 +43,9 @@ shared budget spent by both object keys and array elements.
 - Shared CRUD factory tests cover direct and command `POST`, including a strict
   command schema, before/after context visibility, and absence from entity and
   `mapInput` bodies.
-- UI tests prove the most recently edited injected value is scoped for submit.
+- UI tests prove the most recently edited and transformed injected value is
+  scoped for submit, while fields hidden by visibility or an entire group are
+  omitted.
 - `apiCall` tests cover nested request scopes, the private transport shape, the
   one-request scope, and the read/non-JSON/non-object cases it must not touch.
 - `sanitizeExtensionPayload` tests pin the prototype-key guard at module and

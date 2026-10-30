@@ -7,6 +7,7 @@ jest.setTimeout(15000)
 let injectedFieldWidgets: Array<Record<string, unknown> & { fields: unknown[] }> = []
 const withScopedApiRequestBodyMock = jest.fn(async (_payload: unknown, run: () => Promise<unknown>) => run())
 let capturedEventWidgets: Array<{ widgetId: string; module: { eventHandlers?: Record<string, unknown> } }> = []
+let transformFormDataOverride: ((data: unknown) => unknown) | null = null
 
 jest.mock('next/navigation', () => ({
   useRouter: () => ({ push: () => {} }),
@@ -18,11 +19,16 @@ jest.mock('../injection/InjectionSpot', () => ({
   __esModule: true,
   InjectionSpot: () => null,
   useInjectionWidgets: () => ({ widgets: [], loading: false, error: null }),
-  // Echo the payload so `transformFormData` is a no-op and submit assertions see
-  // exactly what CrudForm forwards to the host `onSubmit`.
   useInjectionSpotEvents: (_spotId: string, widgets?: typeof capturedEventWidgets) => {
     capturedEventWidgets = widgets ?? []
-    return { triggerEvent: jest.fn(async (_event: string, data: unknown) => ({ ok: true, data })) }
+    return {
+      triggerEvent: jest.fn(async (event: string, data: unknown) => ({
+        ok: true,
+        data: event === 'transformFormData' && transformFormDataOverride
+          ? transformFormDataOverride(data)
+          : data,
+      })),
+    }
   },
 }))
 jest.mock('../injection/useInjectionDataWidgets', () => ({
@@ -77,6 +83,7 @@ describe('CrudForm group field injection (#3047)', () => {
     injectedFieldWidgets = []
     withScopedApiRequestBodyMock.mockClear()
     capturedEventWidgets = []
+    transformFormDataOverride = null
   })
 
   it('honors placement when injecting a field into an existing group', async () => {
@@ -189,6 +196,70 @@ describe('CrudForm group field injection (#3047)', () => {
     expect(withScopedApiRequestBodyMock).toHaveBeenCalledWith({
       customer_relations: { relatedPersonId: 'person-2' },
     }, expect.any(Function))
+  })
+
+  it('scopes the transformed injected value rather than the stale form value', async () => {
+    injectedFieldWidgets = [{
+      moduleId: 'customer_relations',
+      fields: [{ id: 'relatedPersonId', label: 'Related person', type: 'text', group: 'personalData' }],
+    }]
+    transformFormDataOverride = (data) => ({
+      ...(data as Record<string, unknown>),
+      relatedPersonId: 'person-normalized',
+    })
+    const onSubmit = jest.fn(async () => undefined)
+
+    const { container } = renderWithProviders(
+      React.createElement(CrudForm as any, {
+        title: 'Form',
+        entityId: 'customers:person',
+        fields: baseFields,
+        groups,
+        initialValues: { relatedPersonId: 'person-raw' },
+        onSubmit,
+      }),
+    )
+
+    await waitFor(() => expect(container.querySelector('[data-crud-field-id="relatedPersonId"]')).toBeTruthy())
+    await act(async () => {
+      ;(container.querySelector('form') as HTMLFormElement).dispatchEvent(
+        new Event('submit', { bubbles: true, cancelable: true }),
+      )
+    })
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1))
+
+    expect(withScopedApiRequestBodyMock).toHaveBeenCalledWith({
+      customer_relations: { relatedPersonId: 'person-normalized' },
+    }, expect.any(Function))
+  })
+
+  it('does not scope an injected value whose entire group is hidden', async () => {
+    injectedFieldWidgets = [{
+      moduleId: 'customer_relations',
+      fields: [{ id: 'relatedPersonId', label: 'Related person', type: 'text', group: 'personalData' }],
+    }]
+    const onSubmit = jest.fn(async () => undefined)
+
+    const { container } = renderWithProviders(
+      React.createElement(CrudForm as any, {
+        title: 'Form',
+        entityId: 'customers:person',
+        fields: baseFields,
+        groups,
+        hiddenGroupIds: ['personalData'],
+        initialValues: { relatedPersonId: 'person-hidden' },
+        onSubmit,
+      }),
+    )
+
+    await act(async () => {
+      ;(container.querySelector('form') as HTMLFormElement).dispatchEvent(
+        new Event('submit', { bubbles: true, cancelable: true }),
+      )
+    })
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1))
+
+    expect(withScopedApiRequestBodyMock).not.toHaveBeenCalled()
   })
 
   it('renders a group-kind injection targeting an undeclared group as its own card, even when the last group is customFields (#6142)', async () => {
