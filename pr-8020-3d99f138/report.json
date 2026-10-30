@@ -1,0 +1,134 @@
+{
+  "runId": "3d99f138-resume",
+  "mode": "pr",
+  "target": {
+    "prNumber": 8020,
+    "title": "Contributed CRM detail-tab priority",
+    "branch": "cez-b-8020",
+    "headSha": "fb73acf5393b22522ce6d0110d074ebbcd5dd5bf"
+  },
+  "verdict": "PASS",
+  "environment": {
+    "baseUrl": "http://127.0.0.1:5001",
+    "role": "admin and self-created restricted principal",
+    "startedByThisRepo": true,
+    "browserProvider": "playwright"
+  },
+  "scenario": [
+    {
+      "action": "Default People tab remains selected for a newly created company with no linked people",
+      "result": "PASS",
+      "screenshot": "default-empty.png",
+      "step": 1,
+      "priority": "P1",
+      "expected": "Default People tab remains selected for a newly created company with no linked people",
+      "observed": "Default People tab remains selected for a newly created company with no linked people"
+    },
+    {
+      "action": "Held real company request displays the loading message",
+      "result": "PASS",
+      "screenshot": "loading.png",
+      "step": 2,
+      "priority": "P1",
+      "expected": "Held real company request displays the loading message",
+      "observed": "Held real company request displays the loading message"
+    },
+    {
+      "action": "Controlled HTTP500 detail response renders its recovery state; simulation only",
+      "result": "PASS",
+      "screenshot": "http-500.png",
+      "step": 3,
+      "priority": "P1",
+      "expected": "Controlled HTTP500 detail response renders its recovery state; simulation only",
+      "observed": "Controlled HTTP500 detail response renders its recovery state; simulation only"
+    },
+    {
+      "action": "Controlled HTTP403 detail response renders its recovery state; simulation only",
+      "result": "PASS",
+      "screenshot": "http-403.png",
+      "step": 4,
+      "priority": "P1",
+      "expected": "Controlled HTTP403 detail response renders its recovery state; simulation only",
+      "observed": "Controlled HTTP403 detail response renders its recovery state; simulation only"
+    },
+    {
+      "action": "A real absent company UUID renders the safe not-found state",
+      "result": "PASS",
+      "screenshot": "not-found.png",
+      "step": 5,
+      "priority": "P1",
+      "expected": "A real absent company UUID renders the safe not-found state",
+      "observed": "A real absent company UUID renders the safe not-found state"
+    },
+    {
+      "action": "Injected positive priority precedes built-ins without changing the default; missing module and failed loader are isolated",
+      "result": "PASS",
+      "screenshot": "contributed-desktop.png",
+      "step": 6,
+      "priority": "P1",
+      "expected": "Injected positive priority precedes built-ins without changing the default; missing module and failed loader are isolated",
+      "observed": "Injected positive priority precedes built-ins without changing the default; missing module and failed loader are isolated"
+    },
+    {
+      "action": "ArrowRight focuses and selects the next actual tab in sorted DOM order, including enabled-module contributions",
+      "result": "PASS",
+      "screenshot": "keyboard-order.png",
+      "step": 7,
+      "priority": "P1",
+      "expected": "ArrowRight focuses and selects the next actual tab in sorted DOM order, including enabled-module contributions",
+      "observed": "ArrowRight focuses and selects the next actual tab in sorted DOM order, including enabled-module contributions"
+    },
+    {
+      "action": "Long negative-priority contribution remains reachable by normal tab-strip scrolling at390px",
+      "result": "PASS",
+      "screenshot": "contributed-mobile.png",
+      "step": 8,
+      "priority": "P1",
+      "expected": "Long negative-priority contribution remains reachable by normal tab-strip scrolling at390px",
+      "observed": "Long negative-priority contribution remains reachable by normal tab-strip scrolling at390px"
+    },
+    {
+      "action": "Real limited principal retains public contribution while feature-protected tab remains absent",
+      "result": "PASS",
+      "screenshot": "limited-principal.png",
+      "step": 9,
+      "priority": "P1",
+      "expected": "Real limited principal retains public contribution while feature-protected tab remains absent",
+      "observed": "Real limited principal retains public contribution while feature-protected tab remains absent"
+    }
+  ],
+  "hasUiTest": true,
+  "nativeUiEvidence": [
+    {
+      "scenario": "company-tab-priority",
+      "screenshot": "company-tab-priority.png"
+    },
+    {
+      "scenario": "company-tab-priority-mobile",
+      "screenshot": "company-tab-priority-mobile.png"
+    },
+    {
+      "scenario": "person-tab-priority",
+      "screenshot": "person-tab-priority.png"
+    },
+    {
+      "scenario": "person-tab-priority-mobile",
+      "screenshot": "person-tab-priority-mobile.png"
+    },
+    {
+      "scenario": "deal-tab-priority",
+      "screenshot": "deal-tab-priority.png"
+    },
+    {
+      "scenario": "deal-tab-priority-mobile",
+      "screenshot": "deal-tab-priority-mobile.png"
+    }
+  ],
+  "notes": [
+    "Nine independently authored browser checkpoints and three committed company/person/deal integration cases passed without retry.",
+    "Production app build and authenticated readiness passed at the tested head.",
+    "Controlled HTTP500/403 requests verify rendering only; absent UUID and feature-limited principal checks use real responses.",
+    "The limited principal also receives an auxiliary admin-only denial toast; public company tab remains usable and restricted tab absent. This is not a claim that every auxiliary widget is authorized for that role.",
+    "Evidence-only; no independent review or risk-high QA approval granted."
+  ]
+}
