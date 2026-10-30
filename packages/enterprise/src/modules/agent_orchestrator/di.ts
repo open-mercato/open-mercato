@@ -52,6 +52,11 @@ import { ContextResolverImpl } from './lib/context/contextResolver'
 import { DocumentIngestServiceImpl } from './lib/context/documentIngest'
 import { resolveDefaultOcrProvider } from './lib/context/documentOcrProvider'
 import { buildWebSearchEngine } from './lib/webSearch/registry'
+import {
+  OTEL_EXPORT_HEALTH_CHECK_SERVICE,
+  createOtelExportHealthCheck,
+  resolveInactiveOtelExportHealthDestination,
+} from './lib/trace/otel/exportIntegration'
 import type { DispositionService } from './lib/disposition/dispositionService'
 import { registerWorkInboxSources } from '@open-mercato/core/modules/workflows/lib/work-inbox/provider'
 import {
@@ -177,6 +182,9 @@ export function register(container: AppContainer) {
     // (allowed net), never the sandbox. A deployment can re-register
     // `webSearchEngineFactory` to wrap or replace the chain.
     webSearchEngineFactory: asFunction(() => buildWebSearchEngine).scoped(),
+    [OTEL_EXPORT_HEALTH_CHECK_SERVICE]: asValue(
+      createOtelExportHealthCheck({ resolveDestination: resolveInactiveOtelExportHealthDestination }),
+    ),
     agentDocumentIngestService: asFunction(
       () => new DocumentIngestServiceImpl(container, { provider: resolveDefaultOcrProvider(container) }),
     ).scoped(),

@@ -1,4 +1,3 @@
-import { randomBytes } from 'node:crypto'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
@@ -11,16 +10,10 @@ import {
   RATE_LIMIT_UNAVAILABLE_FALLBACK,
   rateLimitErrorSchema,
 } from '@open-mercato/shared/lib/ratelimit/helpers'
-import { APP_VERSION } from '@open-mercato/shared/lib/version'
 import { resolveRateLimiter } from '../../../lib/guardrails/publicEndpointRateLimit'
 import { resolveOtelExportDeployment, resolveOtelExportWireProtocol } from '../../../lib/trace/otel/exportSettings'
 import { recordOtelExportHealth } from '../../../lib/trace/otel/exportHealth'
-import { OTEL_SPAN_ID_BYTES, OTEL_TRACE_ID_BYTES, nonZeroHex } from '../../../lib/trace/otel/ids'
-import { OTEL_EXPORT_SCOPE_NAME } from '../../../lib/trace/otel/mapAgentRunToOtlp'
-import type { OtlpResourceSpansInput } from '../../../lib/trace/otel/otlpJson'
-import { postOtlpTraces } from '../../../lib/trace/otel/otlpHttpClient'
-import { encodeOtlpRequestBody } from '../../../lib/trace/otel/otlpRequestBody'
-import { OM_OTEL_RESOURCE_ATTRIBUTES, OTEL_STANDARD_ATTRIBUTES } from '../../../lib/trace/otel/otelAttributes'
+import { sendOtelTestSpan } from '../../../lib/trace/otel/sendTestSpan'
 import { OTEL_EXPORT_WRITE_FEATURES, hasOtelExportFeatures } from '../../../commands/otelExport'
 import { agentOrchestratorTag } from '../../openapi'
 
@@ -31,8 +24,6 @@ import { agentOrchestratorTag } from '../../openapi'
  * disabled deployment (409) or the per-tenant ceiling (429) fail the request.
  */
 
-const OTEL_EXPORT_TEST_SPAN_NAME = 'om.export.test'
-
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: [...OTEL_EXPORT_WRITE_FEATURES] },
 }
@@ -42,39 +33,6 @@ const otelExportTestRateLimitConfig = readEndpointRateLimitConfig('AGENT_ORCH_OT
   duration: 10,
   keyPrefix: 'agent_orchestrator:otel_export_test',
 })
-
-function buildTestSpan(input: {
-  tenantId: string
-  organizationId: string | null
-  serviceName: string
-  nowMs: number
-}): OtlpResourceSpansInput {
-  return {
-    resource: {
-      attributes: {
-        [OTEL_STANDARD_ATTRIBUTES.serviceName]: input.serviceName,
-        [OM_OTEL_RESOURCE_ATTRIBUTES.tenantId]: input.tenantId,
-        [OM_OTEL_RESOURCE_ATTRIBUTES.organizationId]: input.organizationId,
-      },
-    },
-    scopeSpans: [
-      {
-        scope: { name: OTEL_EXPORT_SCOPE_NAME, version: APP_VERSION },
-        spans: [
-          {
-            traceId: nonZeroHex(randomBytes(OTEL_TRACE_ID_BYTES)),
-            spanId: nonZeroHex(randomBytes(OTEL_SPAN_ID_BYTES)),
-            name: OTEL_EXPORT_TEST_SPAN_NAME,
-            kind: 'internal',
-            startTime: input.nowMs,
-            endTime: input.nowMs,
-            status: { code: 'ok' },
-          },
-        ],
-      },
-    ],
-  }
-}
 
 export async function POST(req: Request) {
   const auth = await getAuthFromRequest(req)
@@ -109,29 +67,21 @@ export async function POST(req: Request) {
     if (rateLimited) return rateLimited
   }
 
-  const request = encodeOtlpRequestBody(
-    buildTestSpan({
-      tenantId: auth.tenantId,
-      organizationId: auth.orgId ?? null,
+  const { ok, httpStatus, latencyMs, errorCode } = await sendOtelTestSpan(
+    {
+      endpoint: deployment.endpoint,
+      headers: deployment.headers,
+      protocol: resolveOtelExportWireProtocol(deployment.protocol),
       serviceName: deployment.serviceName,
-      nowMs: Date.now(),
-    }),
-    resolveOtelExportWireProtocol(deployment.protocol),
+    },
+    scope,
   )
-  const result = await postOtlpTraces({
-    endpoint: deployment.endpoint,
-    headers: deployment.headers,
-    body: request.body,
-    contentType: request.contentType,
-  })
-  const ok = result.outcome === 'ok'
-  const errorCode = ok ? null : result.errorCode ?? (result.httpStatus ? `http_${result.httpStatus}` : 'unknown')
   await recordOtelExportHealth(
     container,
     auth.tenantId,
     ok ? { outcome: 'success' } : { outcome: 'error', errorCode: errorCode ?? 'unknown' },
   )
-  return NextResponse.json({ ok, httpStatus: result.httpStatus, latencyMs: result.latencyMs, errorCode })
+  return NextResponse.json({ ok, httpStatus, latencyMs, errorCode })
 }
 
 const errorSchema = z.object({ error: z.string() })

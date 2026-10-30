@@ -29,7 +29,7 @@
 | 1 | 1.5 | Enable the content control on the OTel export settings page | dispatch | done | pending |
 | 2 | 2.1 | Add the OTLP protobuf encoder | dispatch:capable | done | pending |
 | 2 | 2.2 | Send OTLP over http/protobuf | dispatch | done | pending |
-| 3 | 3.1 | Declare the OTLP export integration | dispatch | todo | — |
+| 3 | 3.1 | Declare the OTLP export integration | dispatch | done | pending |
 | 3 | 3.2 | Vet tenant OTLP endpoints and pin their addresses | dispatch:capable | todo | — |
 | 3 | 3.3 | Resolve the export destination per run | dispatch:capable | todo | — |
 | 3 | 3.4 | Pick the export destination on the settings page | dispatch | todo | — |

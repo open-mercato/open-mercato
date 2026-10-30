@@ -1,0 +1,2 @@
+export const OTEL_EXPORT_INTEGRATION_ID = 'agent_orchestrator_otel_export'
+export const OTEL_EXPORT_HEALTH_CHECK_SERVICE = 'agentOrchestratorOtelExportHealthCheck'

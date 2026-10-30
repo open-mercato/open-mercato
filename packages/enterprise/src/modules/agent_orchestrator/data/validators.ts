@@ -650,6 +650,41 @@ export const otelExportSettingsSchema = z.object({
 export type OtelExportSettings = z.infer<typeof otelExportSettingsSchema>
 export type OtelExportSettingsInput = z.input<typeof otelExportSettingsSchema>
 
+export const OTEL_EXPORT_INTEGRATION_PROTOCOLS = ['http/json', 'http/protobuf'] as const
+export const OTEL_EXPORT_INTEGRATION_ENDPOINT_MAX_LENGTH = 2048
+export const OTEL_EXPORT_INTEGRATION_HEADERS_MAX_LENGTH = 8192
+
+function isCredentialFreeHttpUrl(value: string): boolean {
+  let parsed: URL
+  try {
+    parsed = new URL(value)
+  } catch {
+    return false
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false
+  return parsed.username === '' && parsed.password === ''
+}
+
+/**
+ * Per-organization credentials of the `agent_orchestrator_otel_export`
+ * integration. The endpoint never carries credentials; secrets go in the
+ * `headers` secret field (`k=v,k2=v2`).
+ */
+export const otelExportIntegrationCredentialsSchema = z.object({
+  endpoint: z
+    .string()
+    .trim()
+    .min(1)
+    .max(OTEL_EXPORT_INTEGRATION_ENDPOINT_MAX_LENGTH)
+    .refine(isCredentialFreeHttpUrl, { message: 'endpoint_invalid' }),
+  headers: z.string().max(OTEL_EXPORT_INTEGRATION_HEADERS_MAX_LENGTH).nullish(),
+  protocol: z.preprocess(
+    (value) => (value === '' || value === null ? undefined : value),
+    z.enum(OTEL_EXPORT_INTEGRATION_PROTOCOLS).default('http/json'),
+  ),
+})
+export type OtelExportIntegrationCredentials = z.infer<typeof otelExportIntegrationCredentialsSchema>
+
 /** Shape returned by GET /runs/:id — the full run with its trace tree. */
 export type RunDetailResponse = {
   run: Record<string, unknown>
