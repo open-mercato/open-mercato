@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { expect, test } from '@playwright/test'
 import { apiRequest, getAuthToken, withCredentialIsolatedRequest } from '@open-mercato/core/helpers/integration/api'
 import {
@@ -49,10 +49,10 @@ test.describe('TC-AUTH-071: session API keys require a live owner in the origina
           secrets.push(expectId(body?.secret, 'API key fixture secret'))
           await withClient(async (client) => {
             await client.query(
-              `update api_keys set created_by = $1, session_user_id = $2, session_token = $3,
+              `update api_keys set created_by = $1, session_user_id = $2, session_token_hash = $3,
                expires_at = now() + interval '30 minutes'
                where id = $4 and tenant_id = $5 and organization_id = $6`,
-              [userId, kind === 'regular' ? null : userId, kind === 'regular' ? null : `sess_${randomUUID().replace(/-/g, '')}`, keyId, tenantId, organizationId],
+              [userId, kind === 'regular' ? null : userId, kind === 'regular' ? null : createHash('sha256').update(`sess_${randomUUID().replace(/-/g, '')}`).digest('hex'), keyId, tenantId, organizationId],
             )
           })
         }

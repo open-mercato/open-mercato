@@ -344,7 +344,7 @@ describe('resolveApiKeyAuth caching + lastUsedAt debounce', () => {
     )
   })
 
-  describe.each(['sessionToken', 'sessionUserId', 'sessionSecretEncrypted', 'opencodeSessionId'] as const)(
+  describe.each(['sessionTokenHash', 'sessionToken', 'sessionUserId', 'sessionSecretEncrypted', 'opencodeSessionId'] as const)(
     '%s session-owner liveness',
     (marker) => {
       let owner: { id: string; tenantId: string | null; organizationId: string | null; isConfirmed: boolean; deletedAt: Date | null } | null
@@ -502,7 +502,7 @@ describe('resolveApiKeyAuth caching + lastUsedAt debounce', () => {
     expect(findApiKeyBySecret).toHaveBeenCalledTimes(1)
   })
 
-  it.each(['sessionToken', 'sessionSecretEncrypted', 'opencodeSessionId'] as const)(
+  it.each(['sessionTokenHash', 'sessionToken', 'sessionSecretEncrypted', 'opencodeSessionId'] as const)(
     'denies a %s marker without a session user instead of falling back to the regular creator',
     async (marker) => {
       const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')

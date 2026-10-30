@@ -14,7 +14,7 @@ This narrow security fix complements `2026-10-29-inactive-tenant-authentication.
 
 ## Proposed Solution
 
-Require an existing, confirmed, non-deleted session owner on both cold resolution and every positive cache hit. Recheck the original tenant and organization on cache hits. Keep all existing session markers fail-closed: a session-marked key without `sessionUserId` cannot fall back to its creator.
+Require an existing, confirmed, non-deleted session owner on both cold resolution and every positive cache hit. Recheck the original tenant and organization on cache hits. Keep all existing session markers, including hashed and legacy plaintext token fields during rolling upgrades, fail-closed: a session-marked key without `sessionUserId` cannot fall back to its creator.
 
 ## Architecture
 
@@ -76,3 +76,4 @@ The automated-verification exemption in `.ai/docs/pr-workflow.md` applies: no UI
 
 - 2026-10-30: Defined and implemented the scoped session-owner revocation fix and regression coverage for #7223.
 - 2026-10-30: Reconciled historical local validation limits with successful hosted API/CI evidence and recorded the automated-verification QA basis.
+- 2026-10-30: Integrated the landed main test-mock fix and session-token hashing; retained legacy marker rejection, expanded hashed-marker coverage, and aligned HTTP fixtures with hashed storage.

@@ -294,6 +294,7 @@ async function resolveApiKeyAuth(secret: string): Promise<AuthContext> {
     // fall back to the regular key path and escape its user/scope binding.
     const isSessionBoundKey = Boolean(
       record.sessionTokenHash
+      || record.sessionToken
       || record.sessionUserId
       || record.sessionSecretEncrypted
       || record.opencodeSessionId
