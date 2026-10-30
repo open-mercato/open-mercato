@@ -9,7 +9,7 @@ export const integrationMeta = {
 }
 
 /**
- * TC-TT-026 — "My projects" under "All organizations" (#7465).
+ * TC-TT-027 — "My projects" under "All organizations" (#7465).
  *
  * `GET /api/staff/timesheets/time-projects?mine=1` narrows the list to the
  * projects the caller is an active member of. Under the "All organizations"
@@ -51,7 +51,7 @@ async function ensureSelfStaffMemberId(
   return { id: created as string, created: true }
 }
 
-test.describe('TC-TT-026: "my projects" under "All organizations"', () => {
+test.describe('TC-TT-027: "my projects" under "All organizations"', () => {
   test('mine=1 lists the assigned project in the organization and an empty list under "All organizations"', async ({
     request,
   }) => {
