@@ -22,16 +22,16 @@
 
 | Phase | Step | Title | Exec | Status | Commit |
 |-------|------|-------|------|--------|--------|
-| 1 | 1.1 | Accept content export in the OTel settings when the deployment allows it | dispatch | done | pending |
-| 1 | 1.1-review-fix | Accept content export in TC-AGENT-OTEL-001 when the deployment allows it | inline | done | pending |
-| 1 | 1.2 | Map LLM content artifacts to GenAI message attributes | dispatch:capable | done | pending |
-| 1 | 1.3 | Load a run's content artifacts for export | dispatch:capable | done | pending |
-| 1 | 1.4 | Emit content events on exported chat and tool spans | dispatch:capable | done | pending |
-| 1 | 1.5 | Enable the content control on the OTel export settings page | dispatch | done | pending |
-| 2 | 2.1 | Add the OTLP protobuf encoder | dispatch:capable | done | pending |
-| 2 | 2.2 | Send OTLP over http/protobuf | dispatch | done | pending |
-| 3 | 3.1 | Declare the OTLP export integration | dispatch | done | pending |
-| 3 | 3.2 | Vet tenant OTLP endpoints and pin their addresses | dispatch:capable | done | pending |
+| 1 | 1.1 | Accept content export in the OTel settings when the deployment allows it | dispatch | done | d6c2d09b0 |
+| 1 | 1.1-review-fix | Accept content export in TC-AGENT-OTEL-001 when the deployment allows it | inline | done | cf8fc9019 |
+| 1 | 1.2 | Map LLM content artifacts to GenAI message attributes | dispatch:capable | done | 4b05c77eb |
+| 1 | 1.3 | Load a run's content artifacts for export | dispatch:capable | done | 2e7410b23 |
+| 1 | 1.4 | Emit content events on exported chat and tool spans | dispatch:capable | done | 08f187fa2 |
+| 1 | 1.5 | Enable the content control on the OTel export settings page | dispatch | done | 2942c9347 |
+| 2 | 2.1 | Add the OTLP protobuf encoder | dispatch:capable | done | bbba2189c |
+| 2 | 2.2 | Send OTLP over http/protobuf | dispatch | done | bd3594e8d |
+| 3 | 3.1 | Declare the OTLP export integration | dispatch | done | b2db8e528 |
+| 3 | 3.2 | Vet tenant OTLP endpoints and pin their addresses | dispatch:capable | done | a318ca824 |
 | 3 | 3.3 | Resolve the export destination per run | dispatch:capable | todo | — |
 | 3 | 3.4 | Pick the export destination on the settings page | dispatch | todo | — |
 | 3 | 3.5 | Cover content, protobuf and tenant endpoints with integration tests | dispatch | todo | — |
