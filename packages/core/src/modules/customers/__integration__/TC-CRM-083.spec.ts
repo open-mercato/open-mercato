@@ -16,8 +16,8 @@ import { login } from '@open-mercato/core/modules/core/__integration__/helpers/a
  * Source spec: .ai/specs/2026-06-08-deals-list-redesign.md ("Integration Test Coverage" → UI paths).
  *
  * Verifies the redesigned list renders end to end:
- * - The 4-card KPI strip (`DealsKpiStrip`) shows the four card titles — Pipeline value, Active deals,
- *   Won this quarter, Win rate — and a delta chip (comparable or neutral zero-baseline state).
+ * - The KPI strip (`DealsKpiStrip`) shows the four metric tabs — Pipeline value, Active deals,
+ *   Won, Win rate — and a delta chip (comparable or neutral zero-baseline state).
  * - The restyled cells render: a `StatusBadge` (dictionary label "Open"), an OWNER `Avatar` + name,
  *   and a STAGE name, on a seeded row.
  * - No regression: the search box, the row-actions (⋮) menu, and the advanced-filter ("Filters")
@@ -81,7 +81,7 @@ test.describe('TC-CRM-083: Deals list redesign UI', () => {
     // --- KPI strip: the four card titles render (they show in loading + loaded states) ---
     await expect(page.getByText('Pipeline value', { exact: true })).toBeVisible({ timeout: 30_000 });
     await expect(page.getByText('Active deals', { exact: true })).toBeVisible();
-    await expect(page.getByText('Won this quarter', { exact: true })).toBeVisible();
+    await expect(page.getByText('Won', { exact: true })).toBeVisible();
     await expect(page.getByText('Win rate', { exact: true })).toBeVisible();
 
     // A delta chip carries either the comparable-period title or the neutral zero-baseline title.

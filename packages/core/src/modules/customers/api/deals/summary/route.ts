@@ -12,8 +12,8 @@ import { loadDealsSummaryQueryRows } from '../../../lib/dealsSummaryQueries'
 import {
   computeDelta,
   convertSumsToBase,
-  getPreviousQuarterWindow,
-  getQuarterWindow,
+  getPreviousTrailingWindow,
+  getTrailingWindow,
   getTrailingMonths,
   type CurrencySum,
   type Delta,
@@ -26,7 +26,6 @@ export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['customers.deals.view'] },
 }
 
-const TRAILING_MONTHS = 6
 const TOP_OWNERS = 5
 
 const deltaSchema = z.object({
@@ -50,7 +49,22 @@ const winRatePointSchema = z.object({
   rate: z.number(),
 })
 
+const monthlyValuePointSchema = z.object({
+  period: z.string(),
+  value: z.number(),
+})
+
+const monthlyCountPointSchema = z.object({
+  period: z.string(),
+  count: z.number(),
+})
+
+const SUMMARY_RANGES = ['3m', '6m', '12m'] as const
+const summaryRangeSchema = z.enum(SUMMARY_RANGES)
+const RANGE_MONTHS: Record<(typeof SUMMARY_RANGES)[number], number> = { '3m': 3, '6m': 6, '12m': 12 }
+
 const summaryResponseSchema = z.object({
+  range: summaryRangeSchema,
   baseCurrencyCode: z.string().nullable(),
   convertedAll: z.boolean(),
   missingRateCurrencies: z.array(z.string()),
@@ -58,10 +72,12 @@ const summaryResponseSchema = z.object({
     value: z.number(),
     delta: deltaSchema,
     stages: z.array(stageBreakdownSchema),
+    series: z.array(monthlyValuePointSchema),
   }),
   activeDeals: z.object({
     value: z.number(),
     delta: deltaSchema,
+    series: z.array(monthlyCountPointSchema),
     ownersCount: z.number(),
     needAttention: z.number(),
     owners: z.array(ownerCountSchema),
@@ -70,6 +86,7 @@ const summaryResponseSchema = z.object({
   wonThisQuarter: z.object({
     value: z.number(),
     delta: deltaSchema,
+    series: z.array(monthlyValuePointSchema),
     dealsClosed: z.number(),
     avgDeal: z.number(),
   }),
@@ -95,7 +112,7 @@ export const openApi: OpenApiRouteDoc = {
     GET: {
       summary: 'Pipeline KPI metrics with period-over-period deltas for the deals list',
       description:
-        'Returns the four list-level KPI cards (pipeline value, active deals, won this quarter, win rate) with quarter-over-quarter deltas, per-stage open-pipeline breakdown, top owners, and a 6-month win-rate series. Values are converted to the tenant base currency where rates are available; partial conversions are disclosed via convertedAll/missingRateCurrencies.',
+        'Returns the four list-level KPI metrics (pipeline value, active deals, won, win rate) for a trailing window selected with `?range=3m|6m|12m` (default 6m): period-over-period deltas against the previous window, per-stage open-pipeline breakdown, top owners, and monthly series (pipeline inflow value, new open deals, won value, win rate). Values are converted to the tenant base currency where rates are available; partial conversions are disclosed via convertedAll/missingRateCurrencies.',
       responses: [
         { status: 200, description: 'Deals KPI summary payload', schema: summaryResponseSchema },
       ],
@@ -143,10 +160,15 @@ export async function GET(req: Request) {
   }
   const orgFilterIds = await resolveDealsOrganizationIds({ em, scope, auth, tenantId: effectiveTenantId })
 
+  const rangeParam = summaryRangeSchema.safeParse(new URL(req.url).searchParams.get('range') ?? '6m')
+  const range = rangeParam.success ? rangeParam.data : '6m'
+  const months = RANGE_MONTHS[range]
   const today = new Date()
-  const currentQuarter = getQuarterWindow(today)
-  const previousQuarter = getPreviousQuarterWindow(today)
-  const trailingMonths = getTrailingMonths(today, TRAILING_MONTHS)
+  // Headline numbers compare the selected trailing window with the one before it;
+  // the series cover the same window month by month.
+  const currentQuarter = getTrailingWindow(today, months)
+  const previousQuarter = getPreviousTrailingWindow(today, months)
+  const trailingMonths = getTrailingMonths(today, months)
   const seriesStart = trailingMonths[0]?.start ?? currentQuarter.start
 
   const baseCurrencyCode = await resolveOptionalBaseCurrencyCode(
@@ -155,7 +177,7 @@ export async function GET(req: Request) {
     orgFilterIds[0],
   )
 
-  const { openRows, inflowRows, wonRows, winLossRows, seriesRows, overdueRows, openStuckIds } =
+  const { openRows, inflowRows, wonRows, winLossRows, seriesRows, inflowSeriesRows, wonSeriesRows, overdueRows, openStuckIds } =
     await loadDealsSummaryQueryRows({
       em,
       tenantId: effectiveTenantId,
@@ -202,6 +224,8 @@ export async function GET(req: Request) {
   collect(openSums)
   collect(inflowRows)
   collect(wonRows)
+  collect(inflowSeriesRows)
+  collect(wonSeriesRows)
 
   let rates = new Map<string, RateResult>()
   if (baseCurrencyCode && distinctCurrencies.size > 0) {
@@ -313,7 +337,36 @@ export async function GET(req: Request) {
     return { period: month.label, rate: denom > 0 ? won / denom : 0 }
   })
 
+  // Monthly trends behind the metric tabs: open value / count created per month
+  // and won value per month, converted like the headline numbers.
+  const monthlyBuckets = (rows: Array<{ period: string; currency: string | null; count: string | number; total: string | number | null }>) => {
+    const byPeriod = new Map<string, { count: number; byCurrency: CurrencySum[] }>()
+    for (const row of rows) {
+      const bucket = byPeriod.get(row.period) ?? { count: 0, byCurrency: [] }
+      bucket.count += toNumber(row.count)
+      const currency = (row.currency ?? '').toString().trim().toUpperCase()
+      if (currency) bucket.byCurrency.push({ currency, total: toNumber(row.total) })
+      byPeriod.set(row.period, bucket)
+    }
+    return byPeriod
+  }
+  const inflowByPeriod = monthlyBuckets(inflowSeriesRows)
+  const wonByPeriod = monthlyBuckets(wonSeriesRows)
+  const pipelineSeries = trailingMonths.map((month) => ({
+    period: month.label,
+    value: convert(inflowByPeriod.get(month.label)?.byCurrency ?? []),
+  }))
+  const activeSeries = trailingMonths.map((month) => ({
+    period: month.label,
+    count: inflowByPeriod.get(month.label)?.count ?? 0,
+  }))
+  const wonSeries = trailingMonths.map((month) => ({
+    period: month.label,
+    value: convert(wonByPeriod.get(month.label)?.byCurrency ?? []),
+  }))
+
   const response: DealsSummaryResponse = {
+    range,
     baseCurrencyCode,
     convertedAll,
     missingRateCurrencies: Array.from(missingRateCurrencies),
@@ -321,10 +374,12 @@ export async function GET(req: Request) {
       value: pipelineValueTotal,
       delta: pipelineDelta,
       stages,
+      series: pipelineSeries,
     },
     activeDeals: {
       value: activeDealsCount,
       delta: activeDelta,
+      series: activeSeries,
       ownersCount,
       needAttention: attentionIds.size,
       owners,
@@ -333,6 +388,7 @@ export async function GET(req: Request) {
     wonThisQuarter: {
       value: wonCurrent,
       delta: wonDelta,
+      series: wonSeries,
       dealsClosed,
       avgDeal,
     },
