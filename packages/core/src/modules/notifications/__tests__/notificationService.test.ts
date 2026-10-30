@@ -17,6 +17,7 @@ import { asValue, createContainer, InjectionMode } from 'awilix'
 // fragments carry their own `$or`, so they cannot be spread into a single filter object.
 import { inAppVisibleFilter } from '../lib/notificationVisibility'
 import { invalidateCrudCache } from '@open-mercato/shared/lib/crud/cache'
+import { registerNotificationTypes } from '../lib/notification-type-registry'
 
 jest.mock('../lib/notificationRecipients', () => ({
   getRecipientUserIdsForRole: jest.fn(),
@@ -38,6 +39,15 @@ const baseNotificationInput = {
   title: 'Hello',
   recipientUserId: '2d4a4c33-9c4b-4e39-8e15-0a3cd9a7f432',
 } as const
+
+const approvalType = {
+  type: 'tests.sales.approval',
+  module: 'tests',
+  titleKey: 'tests.sales.approval.title',
+  icon: 'bell',
+  severity: 'info' as const,
+  actions: [{ id: 'approve', labelKey: 'tests.sales.approval.approve', commandId: 'sales.approve' }],
+}
 
 const baseCtx = {
   tenantId: '7f4c85ef-f8f7-4e53-9df1-42e95bd8d48e',
@@ -95,6 +105,10 @@ const buildEm = () => {
 }
 
 describe('notification service', () => {
+  beforeAll(() => {
+    registerNotificationTypes([approvalType])
+  })
+
   beforeEach(() => {
     jest.clearAllMocks()
     const recipients = jest.requireMock('../lib/notificationRecipients') as {
@@ -633,6 +647,7 @@ describe('notification service', () => {
 
     const notification: Notification = {
       id: 'note-3',
+      type: approvalType.type,
       recipientUserId: baseCtx.userId ?? null,
       tenantId: baseCtx.tenantId,
       status: 'unread',
@@ -751,6 +766,7 @@ describe('notification service', () => {
 
     const notification: Notification = {
       id: 'note-retry',
+      type: approvalType.type,
       recipientUserId: baseCtx.userId ?? null,
       tenantId: baseCtx.tenantId,
       status: 'unread',
@@ -811,6 +827,7 @@ describe('notification service', () => {
     // in-memory status guard cannot stop the race — only the atomic DB claim can.
     const buildPending = (): Notification => ({
       id: 'note-race',
+      type: approvalType.type,
       recipientUserId: baseCtx.userId ?? null,
       tenantId: baseCtx.tenantId,
       status: 'unread',
@@ -983,7 +1000,7 @@ describe('notification service', () => {
       recipientUserId: baseNotificationInput.recipientUserId,
       tenantId: baseCtx.tenantId,
       organizationId: null,
-      type: 'system',
+      type: approvalType.type,
       groupKey: 'approval-1',
       status: 'actioned',
       readAt: new Date('2026-01-01T10:00:00.000Z'),
@@ -997,6 +1014,7 @@ describe('notification service', () => {
     await service.create(
       {
         ...baseNotificationInput,
+        type: approvalType.type,
         groupKey: 'approval-1',
         sourceEntityId: '1f9d8d1c-319f-48d4-b803-77665b6b2510',
         actions: [{ id: 'approve', label: 'Approve', commandId: 'sales.approve' }],
