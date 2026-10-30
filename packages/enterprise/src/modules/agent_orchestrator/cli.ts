@@ -8,6 +8,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AgentTokenUsage } from './lib/tokens/types'
 import {
   AgentCorrection,
+  AgentEvalSuiteRun,
   AgentProposal,
   AgentRun,
   AgentSpan,
@@ -18,7 +19,17 @@ import {
 import { recomputeProcessInstance } from './lib/processes/processProjection'
 import { EVAL_SET_EXPORT_CURRENT, EVAL_SET_SNAPSHOT_LATEST, evalSetSnapshotSchema } from './data/validators'
 import { runEvalGate } from './lib/eval/evalGate'
-import { parseEvalCliCallSettings } from './lib/eval/evalRunSettings'
+import { parseEvalCliCallSettings, readEvalRunToolSummary } from './lib/eval/evalRunSettings'
+import {
+  EVAL_TOOL_FIXTURE_TENANT_DATA_WARNING,
+  buildToolFixtureFile,
+  buildToolFixturesFromRun,
+  conventionalToolFixturePath,
+  findEvalCaseKeyForRun,
+  parseEvalCliToolFixtureFlags,
+  writeToolFixtureFile,
+} from './lib/eval/toolFixtures'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { manifestFromFile, type EvalSetFile } from './lib/eval/evalSetFile'
 import {
   evalSetFileForExport,
@@ -568,7 +579,7 @@ const EVAL_REPORT_FILE_NAMES: Record<EvalReportFormat, string> = {
   junit: 'junit.xml',
 }
 const EVAL_GATE_USAGE =
-  'Usage: mercato agent_orchestrator eval --agent <agentId> --tenant <tenantId> --org <organizationId> [--release <id>] [--eval-set-version <v> | --snapshot <sha256:...|latest> | --cases <file.json|.yaml|.yml>] [--require-snapshot true] [--baseline <suiteRunId>] [--repeat <n>] [--gate true] [--report <dir>] [--format json,md,junit] [--include-payloads true] [--fail-on-flaky true] [--min-pass-score <0..1>] [--temperature <n>] [--seed <int>]\n' +
+  'Usage: mercato agent_orchestrator eval --agent <agentId> --tenant <tenantId> --org <organizationId> [--release <id>] [--eval-set-version <v> | --snapshot <sha256:...|latest> | --cases <file.json|.yaml|.yml>] [--require-snapshot true] [--baseline <suiteRunId>] [--repeat <n>] [--gate true] [--report <dir>] [--format json,md,junit] [--include-payloads true] [--fail-on-flaky true] [--min-pass-score <0..1>] [--temperature <n>] [--seed <int>] [--record <dir> | --replay <dir>] [--on-fixture-miss error|live] [--fixtures-from-run <runId> --record <dir> [--case <key>]]\n' +
   '  --tenant/--org fall back to OM_EVAL_TENANT_ID/OM_EVAL_ORG_ID.'
 
 function isEvalReportFormat(value: string): value is EvalReportFormat {
@@ -631,7 +642,8 @@ function writeEvalErrorReport(dir: string, input: BuildEvalErrorReportInput): vo
  *     [--require-snapshot true] [--baseline <suiteRunId>] \
  *     [--repeat <n>] [--gate true] [--report <dir>] [--format json,md,junit] \
  *     [--include-payloads true] [--fail-on-flaky true] [--min-pass-score <0..1>] \
- *     [--temperature <n>] [--seed <int>]
+ *     [--temperature <n>] [--seed <int>] [--record <dir> | --replay <dir>] \
+ *     [--on-fixture-miss error|live] [--fixtures-from-run <runId> --record <dir> [--case <key>]]
  *
  * A thin wrapper over the SAME library the workbench uses — one scorer registry,
  * one replay engine, no second implementation to drift. With `--gate true` the
@@ -652,6 +664,16 @@ function writeEvalErrorReport(dir: string, input: BuildEvalErrorReportInput): vo
  * `--temperature`/`--seed` override the agent's `modelSettings` for this eval run
  * only and are recorded on the suite run (`summary.__evalRun`); invalid values
  * exit 2.
+ *
+ * `--record <dir>` runs live tools and writes each case's tool calls to
+ * `<dir>/<agentId>/<caseKey>.tools.json`; `--replay <dir>` (or a `--cases` file
+ * whose cases reference `fixtures.tools`) answers tool calls from those files
+ * without running handlers. A tool call with no fixture errors the case
+ * (`tool_fixture_missing`) unless `--on-fixture-miss live`, which runs the real
+ * tool and reports the suite as `mixed`. `--fixtures-from-run <runId>` writes a
+ * best-effort `fidelity: 'summary'` fixture from a stored run into `--record`
+ * and exits without running the suite. Native agents only: OpenCode agents run
+ * live and report `unsupported_runtime`.
  *
  * Exit codes: 0 passed or report-only; 1 gate failed (stored outcome, or narrowed
  * by `--fail-on-flaky`/`--min-pass-score`, or the run threw under `--gate true`);
@@ -743,6 +765,7 @@ const evalGate: ModuleCli = {
     }
     let casesFile: EvalSetFile | undefined
     let casesVersion: string | null = null
+    let evalSetDir: string | null = null
     if (casesPath !== undefined) {
       const read = readEvalSetFile(casesPath)
       if (!read.ok) {
@@ -764,6 +787,33 @@ const evalGate: ModuleCli = {
         return
       }
       casesFile = read.file
+      evalSetDir = path.dirname(read.resolvedPath)
+    }
+    const toolFixtures = parseEvalCliToolFixtureFlags({
+      record: args.record,
+      replay: args.replay,
+      onFixtureMiss: args['on-fixture-miss'],
+      fixturesFromRun: args['fixtures-from-run'],
+      casesFile: casesFile ?? null,
+      evalSetDir,
+    })
+    if (!toolFixtures.ok) {
+      console.error(toolFixtures.message)
+      process.exitCode = 2
+      return
+    }
+    if (args['fixtures-from-run'] !== undefined && toolFixtures.recordDir) {
+      process.exitCode = await exportFixturesFromRun({
+        runId: args['fixtures-from-run'],
+        caseKey: args.case ?? null,
+        agentDefinitionId,
+        recordDir: toolFixtures.recordDir,
+        scope: { tenantId, organizationId },
+      })
+      return
+    }
+    if (toolFixtures.recordDir) {
+      console.warn(`Warning: recording tool fixtures into ${toolFixtures.recordDir}. ${EVAL_TOOL_FIXTURE_TENANT_DATA_WARNING}`)
     }
     if (requireSnapshot && !snapshot && !casesFile) {
       console.error(
@@ -790,6 +840,7 @@ const evalGate: ModuleCli = {
         scope,
         triggeredBy: 'ci',
         ...(callSettings.value ? { callSettings: callSettings.value } : {}),
+        ...(toolFixtures.options ? { toolFixtures: toolFixtures.options } : {}),
       })
     } catch (error) {
       const message = errorMessageOf(error)
@@ -805,6 +856,17 @@ const evalGate: ModuleCli = {
     console.log(`Pass score:  ${result.passScore === null ? 'n/a (nothing measurable)' : result.passScore.toFixed(3)}`)
     console.log(`Baseline:    ${result.baselineSuiteRunId ?? 'none — first run for this agent'}`)
     console.log(`Outcome:     ${result.outcome.toUpperCase()}`)
+    if (toolFixtures.options) {
+      const em = (container.resolve('em') as EntityManager).fork()
+      const suiteRun = await findOneWithDecryption(em, AgentEvalSuiteRun, { id: result.suiteRunId, ...scope }, undefined, scope)
+      const tools = readEvalRunToolSummary(suiteRun?.summary)
+      if (tools) {
+        console.log(`Tool mode:   ${tools.mode}${tools.misses ? ` (${tools.misses} fixture miss(es))` : ''}`)
+        if (tools.summaryFidelityCases) {
+          console.warn(`Warning: ${tools.summaryFidelityCases} case(s) replayed summary-fidelity fixtures (redacted or truncated tool outputs).`)
+        }
+      }
+    }
 
     if (result.safetyRegressions.length) {
       console.log('')
@@ -869,6 +931,44 @@ const evalGate: ModuleCli = {
     }
     if (reportFailed) process.exitCode = 2
   },
+}
+
+async function exportFixturesFromRun(input: {
+  runId: string
+  caseKey: string | null
+  agentDefinitionId: string
+  recordDir: string
+  scope: { tenantId: string; organizationId: string }
+}): Promise<number> {
+  const container = await createRequestContainer()
+  const em = (container.resolve('em') as EntityManager).fork()
+  const stored = await buildToolFixturesFromRun(em, input.scope, input.runId)
+  if (!stored) {
+    console.error(`Run ${input.runId} was not found in this organization.`)
+    return 2
+  }
+  if (stored.agentId !== input.agentDefinitionId) {
+    console.error(`Run ${input.runId} belongs to agent "${stored.agentId}", not "${input.agentDefinitionId}".`)
+    return 2
+  }
+  const caseKey = input.caseKey ?? (await findEvalCaseKeyForRun(em, input.scope, input.runId))
+  if (!caseKey) {
+    console.error('No eval case was created from this run: pass --case <key> to name the fixture file.')
+    return 2
+  }
+  const filePath = conventionalToolFixturePath(input.recordDir, stored.agentId, caseKey)
+  try {
+    writeToolFixtureFile(
+      filePath,
+      buildToolFixtureFile({ agentId: stored.agentId, caseKey, fixtures: stored.fixtures, fidelity: 'summary' }),
+    )
+  } catch (error) {
+    console.error(`Could not write the fixture file: ${errorMessageOf(error)}`)
+    return 2
+  }
+  console.warn(`Warning: wrote ${filePath}. ${EVAL_TOOL_FIXTURE_TENANT_DATA_WARNING}`)
+  console.log(`Fixtures:    ${stored.fixtures.length} tool call(s), fidelity summary`)
+  return 0
 }
 
 const EVAL_SET_USAGE =

@@ -160,6 +160,30 @@ function baseSeed(): Map<unknown, Row[]> {
 }
 
 describe('buildEvalReport', () => {
+  it('reports the stored tool mode of a record/replay suite run', async () => {
+    const seed = baseSeed()
+    seed.set(AgentEvalSuiteRun, [
+      suiteRun('suite-1', {
+        summary: {
+          __evalRun: {
+            tools: {
+              mode: 'mixed',
+              requested: 'replay',
+              onMiss: 'live',
+              cases: { live: 0, replay: 1, record: 0, mixed: 1, unsupported_runtime: 0 },
+              misses: 1,
+              summaryFidelityCases: 0,
+            },
+          },
+        },
+      }),
+    ])
+    const { em } = createFakeEm(seed)
+    const report = await buildEvalReport(em, SCOPE, 'suite-1', { now: FIXED_NOW, env: {} })
+    expect(report?.environment.toolMode).toBe('mixed')
+    expect(() => evalReportSchema.parse(report)).not.toThrow()
+  })
+
   it('produces a report that validates against the versioned schema', async () => {
     const { em } = createFakeEm(baseSeed())
     const report = await buildEvalReport(em, SCOPE, 'suite-1', { now: FIXED_NOW, env: {} })

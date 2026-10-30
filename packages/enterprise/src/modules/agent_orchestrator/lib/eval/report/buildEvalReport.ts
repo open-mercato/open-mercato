@@ -24,6 +24,7 @@ import {
 } from '../manifest'
 import type { Json } from '../types'
 import { detectFlaky } from './flaky'
+import { readEvalRunToolMode } from '../evalRunSettings'
 import {
   EVAL_REPORT_SCHEMA,
   EVAL_REPORT_SCHEMA_VERSION,
@@ -436,7 +437,7 @@ export async function buildEvalReport(
     environment: {
       models,
       modelSettings: {},
-      toolMode: 'live',
+      toolMode: readEvalRunToolMode(suiteRun.summary),
       modelMode: env.OM_AI_PROVIDER === 'scripted' ? 'scripted' : 'live',
       gitSha: readString(env.GITHUB_SHA) ?? readString(env.OM_EVAL_GIT_SHA),
       cliVersion: options.cliVersion ?? null,

@@ -3,12 +3,36 @@ import {
   mergeCallSettings,
   type AiAgentCallSettings,
 } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/agent-call-contract'
+import { z } from 'zod'
+import { aggregateEvalToolMode, type EvalCaseToolOutcome, type EvalToolMode } from './toolFixtures'
 
 export const EVAL_RUN_SUMMARY_KEY = '__evalRun' as const
 
 export type EvalRunSettings = {
-  callSettings: AiAgentCallSettings
+  callSettings?: AiAgentCallSettings
+  tools?: EvalRunToolSummary
 }
+
+const evalToolModeSchema = z.enum(['live', 'replay', 'record', 'mixed', 'unsupported_runtime'])
+
+const caseModeCountsSchema = z.object({
+  live: z.number().int().min(0),
+  replay: z.number().int().min(0),
+  record: z.number().int().min(0),
+  mixed: z.number().int().min(0),
+  unsupported_runtime: z.number().int().min(0),
+})
+
+export const evalRunToolSummarySchema = z.object({
+  mode: evalToolModeSchema,
+  requested: z.enum(['record', 'replay']),
+  onMiss: z.enum(['error', 'live']).nullable(),
+  cases: caseModeCountsSchema,
+  misses: z.number().int().min(0),
+  summaryFidelityCases: z.number().int().min(0),
+})
+
+export type EvalRunToolSummary = z.infer<typeof evalRunToolSummarySchema>
 
 /**
  * Normalizes eval-run call settings to the declared keys only. Returns null when
@@ -73,4 +97,50 @@ export function parseEvalCliCallSettings(args: { temperature?: string; seed?: st
   const parsed = aiAgentCallSettingsSchema.safeParse(settings)
   if (!parsed.success) return { ok: false, message: '--temperature/--seed are invalid' }
   return { ok: true, value: normalizeEvalRunCallSettings(parsed.data) }
+}
+
+/**
+ * Builds the `__evalRun.tools` entry a record/replay suite run stores: the
+ * requested mode, the effective suite mode (`mixed` when any case fell back to
+ * live tools) and per-mode case counts. Only counts, never tool names or args.
+ */
+export function buildEvalRunToolSummary(
+  requested: { mode: 'record' | 'replay'; onMiss?: 'error' | 'live' },
+  outcomes: ReadonlyArray<EvalCaseToolOutcome>,
+): EvalRunToolSummary {
+  const cases: EvalRunToolSummary['cases'] = { live: 0, replay: 0, record: 0, mixed: 0, unsupported_runtime: 0 }
+  for (const outcome of outcomes) cases[outcome.mode] += 1
+  return {
+    mode: aggregateEvalToolMode(outcomes.map((outcome) => outcome.mode)),
+    requested: requested.mode,
+    onMiss: requested.mode === 'replay' ? requested.onMiss ?? 'error' : null,
+    cases,
+    misses: outcomes.reduce((sum, outcome) => sum + outcome.misses, 0),
+    summaryFidelityCases: outcomes.filter((outcome) => outcome.summaryFidelity).length,
+  }
+}
+
+export function readEvalRunToolSummary(summary: unknown): EvalRunToolSummary | null {
+  if (!summary || typeof summary !== 'object' || Array.isArray(summary)) return null
+  const entry = (summary as Record<string, unknown>)[EVAL_RUN_SUMMARY_KEY]
+  if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return null
+  const parsed = evalRunToolSummarySchema.safeParse((entry as Record<string, unknown>).tools)
+  return parsed.success ? parsed.data : null
+}
+
+/** The suite run's tool mode for the report; runs without record/replay are `live`. */
+export function readEvalRunToolMode(summary: unknown): EvalToolMode {
+  return readEvalRunToolSummary(summary)?.mode ?? 'live'
+}
+
+/** Writes the tool summary into `summary.__evalRun`, keeping its other entries (call settings). */
+export function withEvalRunToolSummary(summary: unknown, tools: EvalRunToolSummary): Record<string, unknown> {
+  const base = summary && typeof summary === 'object' && !Array.isArray(summary)
+    ? (summary as Record<string, unknown>)
+    : {}
+  const existing = base[EVAL_RUN_SUMMARY_KEY]
+  const current = existing && typeof existing === 'object' && !Array.isArray(existing)
+    ? (existing as Record<string, unknown>)
+    : {}
+  return { ...base, [EVAL_RUN_SUMMARY_KEY]: { ...current, tools } }
 }
