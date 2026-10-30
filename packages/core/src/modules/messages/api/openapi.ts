@@ -229,9 +229,16 @@ export const okResponseSchema = z.object({
   message: z.string().optional(),
 })
 
+const validationIssueSchema = z.object({
+  code: z.string(),
+  message: z.string(),
+  path: z.array(z.union([z.string(), z.number()])),
+}).catchall(z.unknown())
+
 export const errorResponseSchema = z.object({
   code: z.string().optional(),
   error: z.string(),
+  details: z.array(validationIssueSchema).optional(),
 })
 
 export const messageTypeResponseItemSchema = z.object({

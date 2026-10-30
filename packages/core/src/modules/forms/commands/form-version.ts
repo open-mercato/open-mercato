@@ -1,5 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
@@ -257,9 +258,10 @@ const forkDraftCommand: CommandHandler<FormVersionForkDraftCommandInput, { versi
     return version ? serializeFormVersionSnapshot(version) : null
   },
   buildLog: async ({ result, snapshots }) => {
+    const { translate } = await resolveTranslations()
     const after = snapshots.after as FormVersionSnapshot | undefined
     return {
-      actionLabel: 'forms.audit.form_version.fork_draft',
+      actionLabel: translate('forms.audit.form_version.fork_draft', 'Create draft form version'),
       resourceKind: FORM_VERSION_RESOURCE_KIND,
       resourceId: result.versionId,
       parentResourceKind: 'forms.form',
@@ -400,10 +402,11 @@ const updateDraftCommand: CommandHandler<FormVersionUpdateDraftCommandInput, { v
     return version ? serializeFormVersionSnapshot(version) : null
   },
   buildLog: async ({ result, snapshots }) => {
+    const { translate } = await resolveTranslations()
     const before = snapshots.before as FormVersionSnapshot | undefined
     const after = snapshots.after as FormVersionSnapshot | undefined
     return {
-      actionLabel: 'forms.audit.form_version.update_draft',
+      actionLabel: translate('forms.audit.form_version.update_draft', 'Update draft form version'),
       resourceKind: FORM_VERSION_RESOURCE_KIND,
       resourceId: result.versionId,
       parentResourceKind: 'forms.form',
@@ -607,13 +610,14 @@ const publishVersionCommand: CommandHandler<FormVersionPublishCommandInput, {
     return version ? serializeFormVersionSnapshot(version) : null
   },
   buildLog: async ({ result, snapshots, ctx }) => {
+    const { translate } = await resolveTranslations()
     const before = snapshots.before as FormVersionSnapshot | undefined
     const after = snapshots.after as FormVersionSnapshot | undefined
     const meta = (ctx as unknown as {
       __formsPublishMeta?: { previousCurrentPublishedVersionId?: string | null }
     }).__formsPublishMeta
     return {
-      actionLabel: 'forms.audit.form_version.publish',
+      actionLabel: translate('forms.audit.form_version.publish', 'Publish form version'),
       resourceKind: FORM_VERSION_RESOURCE_KIND,
       resourceId: result.versionId,
       parentResourceKind: 'forms.form',
@@ -746,10 +750,11 @@ const archiveVersionCommand: CommandHandler<FormVersionArchiveCommandInput, { ve
     return version ? serializeFormVersionSnapshot(version) : null
   },
   buildLog: async ({ result, snapshots }) => {
+    const { translate } = await resolveTranslations()
     const before = snapshots.before as FormVersionSnapshot | undefined
     const after = snapshots.after as FormVersionSnapshot | undefined
     return {
-      actionLabel: 'forms.audit.form_version.archive',
+      actionLabel: translate('forms.audit.form_version.archive', 'Archive form version'),
       resourceKind: FORM_VERSION_RESOURCE_KIND,
       resourceId: result.versionId,
       parentResourceKind: 'forms.form',

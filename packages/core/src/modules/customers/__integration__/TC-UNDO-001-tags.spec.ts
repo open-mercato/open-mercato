@@ -1,7 +1,7 @@
 import { expect, test, type APIRequestContext } from '@playwright/test'
 import { getAuthToken, apiRequest } from '@open-mercato/core/helpers/integration/api'
 import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
-import { createPersonFixture, deleteEntityIfExists } from '@open-mercato/core/helpers/integration/crmFixtures'
+import { createCompanyFixture, createPersonFixture, deleteEntityIfExists } from '@open-mercato/core/helpers/integration/crmFixtures'
 import {
   expectOperation,
   undoOk,
@@ -27,8 +27,10 @@ async function isTagAssigned(
   token: string,
   personId: string,
   tagId: string,
+  collection: 'people' | 'companies' = 'people',
 ): Promise<boolean> {
-  const res = await apiRequest(request, 'GET', `/api/customers/people/${encodeURIComponent(personId)}`, { token })
+  const res = await apiRequest(request, 'GET', `/api/customers/${collection}/${encodeURIComponent(personId)}`, { token })
+  expect(res.status()).toBe(200)
   const body = (await readJsonSafe(res)) as { tags?: Array<{ id: string }> } | null
   return Boolean(body?.tags?.some((tag) => tag.id === tagId))
 }
@@ -84,6 +86,83 @@ test.describe('TC-UNDO-001 customers.tags assign/unassign undo/redo', () => {
       if (tagId && personId) await apiRequest(request, 'POST', UNASSIGN, { token, data: { tagId, entityId: personId } }).catch(() => {})
       await deleteEntityIfExists(request, token, TAGS, tagId)
       await deleteEntityIfExists(request, token, '/api/customers/people', personId)
+    }
+  })
+
+  test('tag delete → undo restores people and companies → redo deletes memberships → undo skips deleted customers', async ({ request }) => {
+    const token = await getAuthToken(request, 'admin')
+    const stamp = Date.now()
+    const customers: Array<{ id: string; collection: 'people' | 'companies' }> = []
+    let tagId: string | null = null
+    try {
+      for (const index of [1, 2]) {
+        customers.push({
+          id: await createPersonFixture(request, token, {
+            firstName: 'Undo',
+            lastName: `TagDelete ${stamp}-${index}`,
+            displayName: `Undo TagDelete ${stamp}-${index}`,
+          }),
+          collection: 'people',
+        })
+        customers.push({
+          id: await createCompanyFixture(request, token, `Undo TagDelete Company ${stamp}-${index}`),
+          collection: 'companies',
+        })
+      }
+      const tagResponse = await apiRequest(request, 'POST', TAGS, {
+        token,
+        data: { slug: `undo-tag-delete-${stamp}`, label: `Undo TagDelete ${stamp}` },
+      })
+      expect(tagResponse.status()).toBe(201)
+      tagId = expectOperation(tagResponse, 'tags.create').resourceId
+      expect(tagId).toBeTruthy()
+      const restoredTagId = tagId as string
+      for (const customer of customers) {
+        const assigned = await apiRequest(request, 'POST', ASSIGN, {
+          token,
+          data: { tagId, entityId: customer.id },
+        })
+        expect(assigned.status()).toBe(201)
+        expect(await isTagAssigned(request, token, customer.id, restoredTagId, customer.collection)).toBe(true)
+      }
+
+      const deleted = await apiRequest(request, 'DELETE', `${TAGS}?id=${encodeURIComponent(restoredTagId)}`, { token })
+      expect(deleted.ok()).toBeTruthy()
+      const operation = expectOperation(deleted, 'tags.delete')
+      for (const customer of customers) {
+        expect(await isTagAssigned(request, token, customer.id, restoredTagId, customer.collection)).toBe(false)
+      }
+
+      await undoOk(request, token, operation.undoToken, 'undo tag delete')
+      for (const customer of customers) {
+        expect(await isTagAssigned(request, token, customer.id, restoredTagId, customer.collection)).toBe(true)
+      }
+      for (const collection of ['people', 'companies'] as const) {
+        const filtered = await apiRequest(request, 'GET', `/api/customers/${collection}?tagIds=${encodeURIComponent(restoredTagId)}`, { token })
+        expect(filtered.ok()).toBeTruthy()
+        const body = await readJsonSafe<{ items?: Array<{ id: string }> }>(filtered)
+        expect(body?.items?.map((item) => item.id).sort()).toEqual(
+          customers.filter((customer) => customer.collection === collection).map((customer) => customer.id).sort(),
+        )
+      }
+
+      const replay = await redoOk(request, token, operation.logId, 'redo tag delete')
+      for (const customer of customers) {
+        expect(await isTagAssigned(request, token, customer.id, restoredTagId, customer.collection)).toBe(false)
+      }
+      const removedCustomer = customers[0]
+      const removed = await apiRequest(request, 'DELETE', `/api/customers/${removedCustomer.collection}?id=${encodeURIComponent(removedCustomer.id)}`, { token })
+      expect(removed.ok()).toBeTruthy()
+      expect(replay.undoToken).toBeTruthy()
+      await undoOk(request, token, replay.undoToken as string, 'undo tag delete after customer deletion')
+      for (const customer of customers.slice(1)) {
+        expect(await isTagAssigned(request, token, customer.id, restoredTagId, customer.collection)).toBe(true)
+      }
+    } finally {
+      await deleteEntityIfExists(request, token, TAGS, tagId)
+      for (const customer of customers) {
+        await deleteEntityIfExists(request, token, `/api/customers/${customer.collection}`, customer.id)
+      }
     }
   })
 })

@@ -1,14 +1,18 @@
 #!/bin/bash
 # Publish all non-private packages to npm registry using yarn pack to resolve workspace:* references.
-# Usage: ./scripts/publish-packages.sh [--tag <tag>]
+# Usage: ./scripts/publish-packages.sh [--tag <tag>] [--reconcile-tag]
 #   --tag: npm dist-tag (default: "latest")
+#   --reconcile-tag: also point --tag at packages whose version is already published, so a
+#     resumed stable release leaves every package on the dist-tag that release resolved
 
 set -euo pipefail
 
 TAG="latest"
+RECONCILE_TAG=false
 while [[ $# -gt 0 ]]; do
   case $1 in
     --tag) TAG="$2"; shift 2 ;;
+    --reconcile-tag) RECONCILE_TAG=true; shift ;;
     *) echo "Unknown option: $1"; exit 1 ;;
   esac
 done
@@ -36,6 +40,14 @@ for pkg_dir in $PACKAGES; do
 
   if npm view "$PKG_NAME@$PKG_VERSION" version >/dev/null 2>&1; then
     echo "  Skipping $PKG_NAME@$PKG_VERSION (already published)"
+    if [ "$RECONCILE_TAG" = true ]; then
+      if npm dist-tag add "$PKG_NAME@$PKG_VERSION" "$TAG" >/dev/null 2>&1; then
+        echo "    ✓ dist-tag $TAG → $PKG_VERSION"
+      else
+        echo "    ✗ Failed to point dist-tag $TAG at $PKG_VERSION"
+        FAILED+=("$PKG_NAME")
+      fi
+    fi
     continue
   fi
 

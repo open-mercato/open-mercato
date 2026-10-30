@@ -81,6 +81,11 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findWithDecryption: jest.fn((...args: unknown[]) => mockFindWithDecryption(...args)),
 }))
 
+jest.mock('../../../../../lib/time-tracking/access', () => ({
+  ...jest.requireActual('../../../../../lib/time-tracking/access'),
+  resolveProjectAccess: jest.fn(async () => ({ canManageAll: true, projectIds: [], staffMemberId: null })),
+}))
+
 jest.mock('../../../../guards', () => ({
   ...jest.requireActual('../../../../guards'),
   resolveUserFeatures: jest.fn(() => ['staff.timesheets.manage_own']),

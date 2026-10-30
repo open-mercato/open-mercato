@@ -1,3 +1,6 @@
+import { createAttachmentAccessContext } from '../../lib/access-runner'
+import { requiresAttachmentAccessScan, scanAuthorizedAttachments } from '../../lib/access-query'
+import { withAttachmentAccessErrors } from '../../lib/access-errors'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
@@ -55,7 +58,7 @@ function formatDateValue(value: unknown): string {
   return toDate().toISOString()
 }
 
-export async function GET(req: Request) {
+async function listAttachments(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth || !auth.tenantId || (!auth.orgId && !auth.isSuperAdmin)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -69,7 +72,8 @@ export async function GET(req: Request) {
   const { page, pageSize, search, partition, tags, sortField, sortDir } = parsed.data
   const tagList = buildTagFilter(tags)
   const offset = (page - 1) * pageSize
-  const { resolve } = await createRequestContainer()
+  const container = await createRequestContainer()
+  const { resolve } = container
   const em = resolve('em') as EntityManager
   await ensureDefaultPartitions(em)
   let queryEngine: QueryEngine | null = null
@@ -100,15 +104,32 @@ export async function GET(req: Request) {
     createdAt: 'a.created_at',
   }
   const orderColumn = orderMap[sortField ?? 'createdAt'] ?? 'a.created_at'
-  qb.orderBy({ [orderColumn]: sortDir === 'asc' ? 'asc' : 'desc' })
+  qb.orderBy({ [orderColumn]: sortDir === 'asc' ? 'asc' : 'desc', 'a.id': 'asc' })
   qb.limit(pageSize).offset(offset)
 
-  const partitionsPromise = em.find(
-    AttachmentPartition,
-    {},
-    { orderBy: { title: 'asc' }, fields: ['code', 'title', 'description'] as any },
-  )
-  const [records, total, partitions] = await Promise.all([qb.getResultList(), countQb.getCount('a.id', true), partitionsPromise])
+  const partitions = await em.find(AttachmentPartition, {}, { orderBy: { title: 'asc' } })
+  const protectedScan = requiresAttachmentAccessScan(partitions)
+  const accessContext = createAttachmentAccessContext(container)
+  const deadline = Date.now() + 15_000
+  let records: Attachment[]
+  let total: number
+  let authorizedTags: string[] | null = null
+  if (protectedScan) {
+    const scanned = await scanAuthorizedAttachments({
+      auth, context: accessContext, partitions, offset, limit: pageSize, deadline,
+      loadBatch: (batchOffset, limit) => qb.clone().limit(limit).offset(batchOffset).getResultList(),
+    })
+    records = scanned.records
+    total = scanned.total
+    const facetQuery = em.createQueryBuilder(Attachment, 'a').where(baseFilter).orderBy({ 'a.id': 'asc' })
+    const facets = await scanAuthorizedAttachments({
+      auth, context: accessContext, partitions, limit: 0, collectTags: true, deadline,
+      loadBatch: (batchOffset, limit) => facetQuery.clone().limit(limit).offset(batchOffset).getResultList(),
+    })
+    authorizedTags = facets.tags
+  } else {
+    ;[records, total] = await Promise.all([qb.getResultList(), countQb.getCount('a.id', true)])
+  }
   const partitionTitleByCode = partitions.reduce<Record<string, string>>((acc, entry) => {
     if (entry.code) acc[entry.code] = entry.title ?? entry.code
     return acc
@@ -154,6 +175,8 @@ export async function GET(req: Request) {
     : items
 
   const totalPages = Math.max(1, Math.ceil(Number(total) / pageSize))
+  let availableTags = authorizedTags ?? []
+  if (!protectedScan) {
   const db = em.getKysely<any>() as any
   let tagQuery = db
     .selectFrom('attachments')
@@ -163,9 +186,10 @@ export async function GET(req: Request) {
     tagQuery = tagQuery.where('organization_id', '=', auth.orgId)
   }
   const tagRows = await tagQuery.orderBy('tag', 'asc').execute() as Array<{ tag?: string | null }>
-  const availableTags = tagRows
+  availableTags = tagRows
     .map((row) => (typeof row.tag === 'string' ? row.tag.trim() : ''))
     .filter((tag) => tag.length > 0)
+  }
 
   return NextResponse.json({
     items: enrichedItems,
@@ -180,8 +204,10 @@ export async function GET(req: Request) {
       description: entry.description ?? null,
       isPublic: entry.isPublic ?? false,
     })),
-  })
+  }, { headers: protectedScan ? { 'Cache-Control': 'private, no-store' } : undefined })
 }
+
+export const GET = withAttachmentAccessErrors(listAttachments)
 
 export const openApi: OpenApiRouteDoc = {
   tag: attachmentsTag,
@@ -197,6 +223,9 @@ export const openApi: OpenApiRouteDoc = {
       errors: [
         { status: 400, description: 'Invalid query parameters', schema: attachmentErrorSchema },
         { status: 401, description: 'Unauthorized', schema: attachmentErrorSchema },
+        { status: 403, description: 'Owner policy denies access', schema: attachmentErrorSchema },
+        { status: 404, description: 'Attachment or owner is unavailable', schema: attachmentErrorSchema },
+        { status: 504, description: 'Owner authorization timed out', schema: attachmentErrorSchema },
       ],
     },
   },

@@ -11,8 +11,10 @@ import { Input } from '@open-mercato/ui/primitives/input'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { LookupSelect } from '@open-mercato/ui/backend/inputs/LookupSelect'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@open-mercato/ui/primitives/tabs'
-import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
-import { deleteCrud, createCrud } from '@open-mercato/ui/backend/utils/crud'
+import { apiCall, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { deleteCrud, createCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { Switch } from '@open-mercato/ui/primitives/switch'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
@@ -102,6 +104,9 @@ type EmployeeAssignment = {
   assignedEndDate: string | null
   displayName: string | null
   teamName: string | null
+  isAssigner: boolean
+  hasUserAccount: boolean | null
+  updatedAt: string | null
 }
 
 type EmployeesResponse = {
@@ -113,6 +118,8 @@ type StaffMemberRecord = {
   id: string
   display_name?: string
   displayName?: string
+  user_id?: string | null
+  userId?: string | null
   team?: { id: string; name: string } | null
 }
 
@@ -177,7 +184,13 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const [isNotFound, setIsNotFound] = React.useState(false)
-  const [accessDenied, setAccessDenied] = React.useState(false)
+  // Keyed by project id so a route change to another project never shows the
+  // previous project's guard (with a live request button) while the new one loads.
+  const [accessDeniedProjectId, setAccessDeniedProjectId] = React.useState<string | null>(null)
+  const accessDenied = accessDeniedProjectId !== null && accessDeniedProjectId === projectId
+  // The id the last finished load was for. Until it matches the route, the page
+  // is still loading — never the previous project's error or empty state.
+  const [settledProjectId, setSettledProjectId] = React.useState<string | null>(null)
 
   const [employees, setEmployees] = React.useState<EmployeeAssignment[]>([])
   const [employeesLoading, setEmployeesLoading] = React.useState(false)
@@ -387,7 +400,6 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
       setLoading(true)
       setError(null)
       setIsNotFound(false)
-      setAccessDenied(false)
       try {
         const queryParams = new URLSearchParams({ page: '1', pageSize: '1', ids: projectId! })
         const call = await apiCall<ProjectResponse>(
@@ -396,9 +408,10 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
         // Screen 17: the route answers 404 with this discriminator for a project
         // the caller is not a member of, without naming it.
         if (call.status === 404 && readDenialReason(call.result) === NO_PROJECT_ACCESS_REASON) {
-          if (!cancelled) setAccessDenied(true)
+          if (!cancelled) setAccessDeniedProjectId(projectId ?? null)
           return
         }
+        if (!cancelled) setAccessDeniedProjectId(null)
         if (!call.ok) {
           throw new Error(t('staff.timesheets.projects.errors.load', 'Failed to load project.'))
         }
@@ -414,7 +427,10 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
           setError(loadError instanceof Error ? loadError.message : t('staff.timesheets.projects.errors.load', 'Failed to load project.'))
         }
       } finally {
-        if (!cancelled) setLoading(false)
+        if (!cancelled) {
+          setLoading(false)
+          setSettledProjectId(projectId ?? null)
+        }
       }
     }
     loadProject()
@@ -466,6 +482,9 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
             : null,
           displayName: staff?.display_name ?? staff?.displayName ?? null,
           teamName: staff?.team?.name ?? null,
+          isAssigner: item.is_assigner === true || item.isAssigner === true,
+          hasUserAccount: staff ? Boolean(staff.user_id ?? staff.userId) : null,
+          updatedAt: typeof (item.updated_at ?? item.updatedAt) === 'string' ? String(item.updated_at ?? item.updatedAt) : null,
         }
       })
 
@@ -552,6 +571,37 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
       flash(t('staff.timesheets.projects.employees.removeError', 'Failed to remove employee.'), 'error')
     }
   }, [projectId, confirm, employeeMutationContext, runMutation, t])
+
+  const handleToggleAssigner = React.useCallback(async (emp: EmployeeAssignment, nextValue: boolean) => {
+    const payload = { id: emp.id, isAssigner: nextValue }
+    try {
+      await runMutation({
+        operation: () =>
+          withScopedApiRequestHeaders(buildOptimisticLockHeader(emp.updatedAt), () =>
+            updateCrud(`staff/timesheets/time-projects/${projectId}/employees`, payload, {
+              errorMessage: t('staff.time_tracking.assigners.saveError', 'Could not change the assigner setting.'),
+            }),
+          ),
+        context: employeeMutationContext(emp.id),
+        mutationPayload: payload,
+      })
+      flash(
+        nextValue
+          ? t('staff.time_tracking.assigners.enabled', 'Member is now an assigner.')
+          : t('staff.time_tracking.assigners.disabled', 'Member is no longer an assigner.'),
+        'success',
+      )
+      setReloadToken((token) => token + 1)
+    } catch (toggleError) {
+      if (surfaceRecordConflict(toggleError, t, { onRefresh: () => setReloadToken((token) => token + 1) })) return
+      flash(
+        toggleError instanceof Error && toggleError.message
+          ? toggleError.message
+          : t('staff.time_tracking.assigners.saveError', 'Could not change the assigner setting.'),
+        'error',
+      )
+    }
+  }, [projectId, employeeMutationContext, runMutation, t])
 
   // --- Add employee dialog ---
   const openAddDialog = React.useCallback(() => {
@@ -649,7 +699,18 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
   }, [handleAddEmployee])
 
   // --- Render ---
-  if (loading) {
+  // Screen 17 — the caller may not open this project. The guard state names
+  // neither the customer nor the project (note 1), and the surrounding shell
+  // (sidebar, topbar) is untouched because the caller still has other projects
+  // (note 3). It is checked before `loading` and only cleared by a response that
+  // grants access, so a background reload (e.g. the organization scope
+  // resolving late) keeps the guard mounted instead of resetting a request the
+  // user has just sent.
+  if (accessDenied) {
+    return <NoProjectAccess timeProjectId={projectId} />
+  }
+
+  if (loading || settledProjectId !== (projectId ?? null)) {
     return (
       <Page>
         <PageBody>
@@ -657,14 +718,6 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
         </PageBody>
       </Page>
     )
-  }
-
-  // Screen 17 — the caller may not open this project. The guard state names
-  // neither the customer nor the project (note 1), and the surrounding shell
-  // (sidebar, topbar) is untouched because the caller still has other projects
-  // (note 3).
-  if (accessDenied) {
-    return <NoProjectAccess timeProjectId={projectId} />
   }
 
   if (isNotFound) {
@@ -1092,6 +1145,11 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
                           </div>
                         </div>
                         <div className="flex items-center gap-3 shrink-0">
+                          {emp.isAssigner ? (
+                            <Badge variant="info" data-testid={`project-member-assigner-badge-${emp.id}`}>
+                              {t('staff.time_tracking.assigners.badge', 'Assigner')}
+                            </Badge>
+                          ) : null}
                           <Badge
                             variant={(emp.status ?? 'active') === 'active' ? 'success' : 'neutral'}
                             className="capitalize"
@@ -1143,6 +1201,25 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
                                 <dd>{emp.teamName}</dd>
                               </div>
                             ) : null}
+                            <div className="col-span-2">
+                              <dt className="font-medium text-muted-foreground">
+                                {t('staff.time_tracking.assigners.label', 'Assigner')}
+                              </dt>
+                              <dd className="flex items-center gap-2 pt-1">
+                                <Switch
+                                  checked={emp.isAssigner}
+                                  disabled={!canManageProjects || emp.hasUserAccount === false}
+                                  onCheckedChange={(checked) => { void handleToggleAssigner(emp, checked === true) }}
+                                  aria-label={t('staff.time_tracking.assigners.label', 'Assigner')}
+                                  data-testid={`project-member-assigner-switch-${emp.id}`}
+                                />
+                                <span className="text-xs text-muted-foreground">
+                                  {emp.hasUserAccount === false
+                                    ? t('staff.time_tracking.assigners.needsUser', 'Only members with a user account can be assigners.')
+                                    : t('staff.time_tracking.assigners.help', 'Assigners are notified about new and released work and can claim unassigned tasks.')}
+                                </span>
+                              </dd>
+                            </div>
                           </dl>
                           {canManageProjects && (
                             <div className="flex justify-end">
