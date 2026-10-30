@@ -33,8 +33,11 @@ import { isComponentKind } from '../../lib/component-guard'
 import { buildStartedAtRange } from '../../lib/instance-date-filter'
 import { isWorkflowRunOutcome } from '../../lib/run-outcome'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 
 const logger = createLogger('workflows')
+
+const BUSINESS_KEY_ERROR_REASONS = new Set(['empty', 'tooLong', 'dryRun'])
 
 export const metadata = {
   requireAuth: true,
@@ -341,6 +344,7 @@ export async function POST(request: NextRequest) {
     })
 
     if (!created) {
+      const { translate } = await resolveTranslations()
       return NextResponse.json(
         {
           data: {
@@ -349,10 +353,16 @@ export async function POST(request: NextRequest) {
             execution: {
               status: instance.status,
               currentStep: instance.currentStepId,
-              message: 'Existing workflow instance returned for business key',
+              message: translate(
+                'workflows.instances.businessKey.reused.execution',
+                'Existing workflow instance returned for business key',
+              ),
             },
           },
-          message: 'Workflow instance already exists for this business key',
+          message: translate(
+            'workflows.instances.businessKey.reused.message',
+            'Workflow instance already exists for this business key',
+          ),
         },
         { status: 200 }
       )
@@ -409,7 +419,18 @@ export async function POST(request: NextRequest) {
           { status: 400 }
         )
       }
-      if (error.code === 'INVALID_DEFINITION' || error.code === 'INVALID_BUSINESS_KEY') {
+      if (error.code === 'INVALID_BUSINESS_KEY') {
+        const { translate } = await resolveTranslations()
+        const reason = (error.details as { reason?: unknown } | undefined)?.reason
+        const message = typeof reason === 'string' && BUSINESS_KEY_ERROR_REASONS.has(reason)
+          ? translate(`workflows.instances.businessKey.errors.${reason}`, error.message)
+          : error.message
+        return NextResponse.json(
+          { error: message },
+          { status: 400 }
+        )
+      }
+      if (error.code === 'INVALID_DEFINITION') {
         return NextResponse.json(
           { error: error.message },
           { status: 400 }

@@ -249,13 +249,22 @@ async function findBusinessKeyHolder(
     deletedAt: null,
     ...(excludeInstanceId ? { id: { $ne: excludeInstanceId } } : {}),
   }
-  const openHolder = await em.findOne(
+  const decryptionScope = { tenantId: scope.tenantId, organizationId: scope.organizationId }
+  const openHolder = await findOneWithDecryption(
+    em as PostgreSqlEntityManager,
     WorkflowInstance,
     { ...where, status: { $nin: [...WORKFLOW_TERMINAL_INSTANCE_STATUSES] } },
     { orderBy: { createdAt: 'DESC' } },
+    decryptionScope,
   )
   if (openHolder) return openHolder
-  return em.findOne(WorkflowInstance, where, { orderBy: { createdAt: 'DESC' } })
+  return findOneWithDecryption(
+    em as PostgreSqlEntityManager,
+    WorkflowInstance,
+    where,
+    { orderBy: { createdAt: 'DESC' } },
+    decryptionScope,
+  )
 }
 
 class BusinessKeyHeldByEndedInstance extends Error {

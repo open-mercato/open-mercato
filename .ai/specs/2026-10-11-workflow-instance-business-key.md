@@ -86,14 +86,17 @@ for it again (the run is already advancing, parked, or finished). Through DI the
 ### Algorithm (key present)
 
 1. Validate the key (trimmed, 1..255, not on a dry run → `INVALID_BUSINESS_KEY`).
-2. Read the latest instance with `(tenant, org, workflowId, businessKey)`, not deleted. If it is open,
-   return it. If it ended, return it unless the policy permits reuse for its status. This happens
+2. Find the key's holder among `(tenant, org, workflowId, businessKey)` instances, not deleted: the
+   OPEN holder first, whatever its age; otherwise the latest ENDED one. An open holder is returned.
+   An ended holder is returned unless the policy permits reuse for its status. Both reads go through
+   `findOneWithDecryption` with the caller's tenant/organization. This happens
    BEFORE definition validation on purpose: a redelivered start gets its instance back even if the
    definition was disabled since.
 3. Validate the definition exactly as today (not found / disabled / engine version / pre-conditions).
 4. Insert inside `em.transactional` (a SAVEPOINT when the caller already holds a transaction). On a
    unique violation (a concurrent start won), the savepoint rolls back — the caller's transaction is
-   not poisoned — and the latest keyed instance is re-read and returned with `created: false`.
+   not poisoned — and the holder is re-read by the same rule (open holder first, otherwise latest
+   ended holder) and returned with `created: false`.
    Postgres makes the losing insert wait for the winner's commit, so the re-read sees it.
 5. Only a created instance logs `WORKFLOW_STARTED` and emits `workflows.instance.created/started`.
 
@@ -152,3 +155,4 @@ their exact behaviour.
 
 - 2026-10-11 — Initial spec and implementation (#7182).
 - 2026-10-29 — Holder lookup prefers the scoped OPEN instance over a newer ended one (pre-check, post-insert re-check and unique-violation fallback), so a recovered older run keeps its key; added the PostgreSQL migration up/down/up round trip (TC-WF-067b).
+- 2026-10-30 — Holder reads use `findOneWithDecryption` with the caller's tenant/organization; the reuse response and `INVALID_BUSINESS_KEY` rejections are localized (`workflows.instances.businessKey.*`, resolved from the structured `details.reason`).

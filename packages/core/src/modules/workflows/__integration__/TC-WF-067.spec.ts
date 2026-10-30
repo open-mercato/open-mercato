@@ -1,5 +1,8 @@
 import { expect, test, type APIRequestContext } from '@playwright/test'
 import { randomUUID } from 'node:crypto'
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 import {
@@ -23,8 +26,16 @@ type StartBody = {
   data?: {
     created?: boolean
     instance?: { id?: string; status?: string; businessKey?: string | null }
+    execution?: { message?: string }
   }
+  message?: string
+  error?: string
 }
+
+const integrationDirectory = path.dirname(fileURLToPath(import.meta.url))
+const plDictionary = JSON.parse(
+  readFileSync(path.join(integrationDirectory, '../i18n/pl.json'), 'utf8'),
+) as Record<string, string>
 
 type ListedInstance = { id: string; businessKey?: string | null }
 type ListedTask = { id: string; workflowInstanceId?: string }
@@ -108,8 +119,9 @@ async function startInstance(
   request: APIRequestContext,
   token: string,
   data: Record<string, unknown>,
+  headers?: Record<string, string>,
 ): Promise<{ status: number; body: StartBody | null }> {
-  const response = await apiRequest(request, 'POST', '/api/workflows/instances', { token, data })
+  const response = await apiRequest(request, 'POST', '/api/workflows/instances', { token, data, headers })
   return { status: response.status(), body: await readJsonSafe<StartBody>(response) }
 }
 
@@ -169,6 +181,18 @@ test.describe('TC-WF-067: workflow instance business key and subject filters', (
       expect(repeat.status, JSON.stringify(repeat.body)).toBe(200)
       expect(repeat.body?.data?.created).toBe(false)
       expect(repeat.body?.data?.instance?.id).toBe(openInstanceId)
+      expect(repeat.body?.message).toBe('Workflow instance already exists for this business key')
+
+      const polishRepeat = await startInstance(
+        request,
+        token,
+        { workflowId: taskId, businessKey: openKey },
+        { 'Accept-Language': 'pl' },
+      )
+      expect(polishRepeat.status, JSON.stringify(polishRepeat.body)).toBe(200)
+      expect(polishRepeat.body?.data?.instance?.id).toBe(openInstanceId)
+      expect(polishRepeat.body?.message).toBe(plDictionary['workflows.instances.businessKey.reused.message'])
+      expect(polishRepeat.body?.data?.execution?.message).toBe(plDictionary['workflows.instances.businessKey.reused.execution'])
 
       const byKey = await listRows<ListedInstance>(request, token, instancesByKey(taskId, openKey))
       expect(byKey.map((row) => row.id)).toEqual([openInstanceId])
@@ -276,6 +300,16 @@ test.describe('TC-WF-067: workflow instance business key and subject filters', (
       })
       remember(dryRun)
       expect(dryRun.status, JSON.stringify(dryRun.body)).toBe(400)
+
+      const polishDryRun = await startInstance(
+        request,
+        token,
+        { workflowId: fastId, businessKey: `order:${stamp}:dry`, dryRun: true },
+        { 'Accept-Language': 'pl' },
+      )
+      remember(polishDryRun)
+      expect(polishDryRun.status, JSON.stringify(polishDryRun.body)).toBe(400)
+      expect(polishDryRun.body?.error).toBe(plDictionary['workflows.instances.businessKey.errors.dryRun'])
     } finally {
       for (const instanceId of instanceIds) {
         await cancelWorkflowInstanceIfExists(request, token, instanceId)

@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { describe, test, expect, jest, beforeEach } from '@jest/globals'
 import { UniqueConstraintViolationException, type EntityManager } from '@mikro-orm/core'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import * as workflowExecutor from '../workflow-executor'
 import {
   WorkflowDefinition,
@@ -25,6 +26,24 @@ jest.mock('../compensation-handler', () => ({
 
 jest.mock('../step-handler', () => ({
   executeStep: jest.fn(),
+}))
+
+jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
+  findOneWithDecryption: jest.fn(
+    async (
+      em: { findOne: (...args: unknown[]) => Promise<unknown> },
+      entity: unknown,
+      where: unknown,
+      options: unknown,
+      scope?: { tenantId?: string | null; organizationId?: string | null },
+    ) => {
+      const row = (await em.findOne(entity, where, options)) as Record<string, unknown> | null
+      const context = row?.context as { ciphertext?: string } | undefined
+      if (!row || !context?.ciphertext) return row
+      if (scope?.tenantId !== row.tenantId || scope?.organizationId !== row.organizationId) return row
+      return { ...row, context: { customerEmail: context.ciphertext.replace(/^enc:/, '') } }
+    },
+  ),
 }))
 
 const tenantId = '00000000-0000-4000-8000-000000000001'
@@ -238,6 +257,64 @@ describe('startOrReuseWorkflow with a business key', () => {
       const result = await start({ businessKey: 'order:42', reusePolicy: 'allow_duplicate' })
 
       expect(result).toEqual({ instance: retriedA, created: false })
+    })
+  })
+
+  describe('holder reads go through the caller-scoped decryption helper', () => {
+    const encryptedHolder = (id: string, status: WorkflowInstanceStatus) => {
+      const holder = buildInstance(id, status)
+      ;(holder as unknown as { context: unknown }).context = { ciphertext: 'enc:jane@example.com' }
+      return holder
+    }
+
+    const expectScopedDecryptionReads = () => {
+      const instanceReads = (findOneWithDecryption as unknown as jest.Mock).mock.calls.filter(
+        ([, entity]) => entity === WorkflowInstance,
+      )
+      expect(instanceReads.length).toBeGreaterThan(0)
+      for (const call of instanceReads) {
+        expect(call[4]).toEqual({ tenantId, organizationId })
+      }
+    }
+
+    beforeEach(() => {
+      ;(findOneWithDecryption as unknown as jest.Mock).mockClear()
+    })
+
+    test('a reused open holder comes back with its encrypted fields decrypted', async () => {
+      store.push(encryptedHolder('encrypted-open', 'RUNNING'))
+
+      const result = await start({ businessKey: 'order:42' })
+
+      expect(result.created).toBe(false)
+      expect(result.instance.id).toBe('encrypted-open')
+      expect(result.instance.context).toEqual({ customerEmail: 'jane@example.com' })
+      expectScopedDecryptionReads()
+    })
+
+    test('a reused ended holder comes back decrypted', async () => {
+      store.push(encryptedHolder('encrypted-ended', 'COMPLETED'))
+
+      const result = await start({ businessKey: 'order:42' })
+
+      expect(result.instance.id).toBe('encrypted-ended')
+      expect(result.instance.context).toEqual({ customerEmail: 'jane@example.com' })
+      expectScopedDecryptionReads()
+    })
+
+    test('the unique-violation fallback returns the winner decrypted', async () => {
+      em.transactional.mockImplementationOnce(async () => {
+        store.push(encryptedHolder('encrypted-winner', 'RUNNING'))
+        throw new UniqueConstraintViolationException(new Error('duplicate key value violates unique constraint'))
+      })
+
+      const result = await start({ businessKey: 'order:42' })
+
+      expect(result).toEqual({
+        instance: expect.objectContaining({ id: 'encrypted-winner', context: { customerEmail: 'jane@example.com' } }),
+        created: false,
+      })
+      expectScopedDecryptionReads()
     })
   })
 
