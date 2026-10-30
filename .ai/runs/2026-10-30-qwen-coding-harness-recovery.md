@@ -3,6 +3,8 @@
 ## Goal
 Explain every task from the stopped local Qwen 27B experiment, correct demonstrated shared harness defects in the fewest authoritative owners, and publish proposed fixes with honest before/after evidence.
 
+Source doc: .ai/specs/2026-10-30-coding-harness-contract-recovery.md
+
 ## Scope and decisions
 - Original experiment is stopped and frozen: 13 completed coding failures and one operator-interrupted task (OMH-060), plus four passing and one failing routing result. Pending tasks remain not run.
 - Analyze OMH-009/011/012/014/026/027/029/031/042/045/049/054/057 individually; account for interrupted OMH-060 separately.
@@ -26,10 +28,12 @@ Explain every task from the stopped local Qwen 27B experiment, correct demonstra
 
 ## Progress
 
+PR: #8262
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Evidence and contract
-- [ ] 1.1 Freeze and analyze every observed task and write the implementation spec.
+- [x] 1.1 Freeze and analyze every observed task and write the implementation spec. — 36230bca8
 
 ### Phase 2: Minimal shared fixes
 - [ ] 2.1 Add semantic regressions that fail before the fixes.
