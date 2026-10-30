@@ -169,9 +169,9 @@ describe('example todo bulk-complete route', () => {
   })
 
   it.each([
-    ['ids', { ids: [TODO_2] }, [TODO_2], IDEMPOTENCY_KEY],
-    ['key', { idempotencyKey: REVISED_IDEMPOTENCY_KEY }, [TODO_1, TODO_2], REVISED_IDEMPOTENCY_KEY],
-  ])('merges a guard rewrite of only the %s without dropping other validated fields', async (_label, modifiedPayload, expectedIds, expectedKey) => {
+    { label: 'ids', modifiedPayload: { ids: [TODO_2] }, expectedIds: [TODO_2], expectedKey: IDEMPOTENCY_KEY },
+    { label: 'key', modifiedPayload: { idempotencyKey: REVISED_IDEMPOTENCY_KEY }, expectedIds: [TODO_1, TODO_2], expectedKey: REVISED_IDEMPOTENCY_KEY },
+  ])('merges a guard rewrite of only the $label without dropping other validated fields', async ({ modifiedPayload, expectedIds, expectedKey }) => {
     guardOutcome.modifiedPayload = modifiedPayload
     scopedTodoCount.value = expectedIds.length
 
@@ -185,12 +185,12 @@ describe('example todo bulk-complete route', () => {
   })
 
   it.each([
-    ['empty ids', { ids: [] }],
-    ['invalid id', { ids: ['not-a-uuid'] }],
-    ['too many ids', { ids: Array.from({ length: 501 }, () => TODO_1) }],
-    ['invalid key', { idempotencyKey: 'not-a-uuid' }],
-    ['removed key', { idempotencyKey: undefined }],
-  ])('rejects guard-revised %s before scope queries or durable work', async (_label, modifiedPayload) => {
+    { label: 'empty ids', modifiedPayload: { ids: [] } },
+    { label: 'invalid id', modifiedPayload: { ids: ['not-a-uuid'] } },
+    { label: 'too many ids', modifiedPayload: { ids: Array.from({ length: 501 }, () => TODO_1) } },
+    { label: 'invalid key', modifiedPayload: { idempotencyKey: 'not-a-uuid' } },
+    { label: 'removed key', modifiedPayload: { idempotencyKey: undefined } },
+  ])('rejects guard-revised $label before scope queries or durable work', async ({ modifiedPayload }) => {
     guardOutcome.modifiedPayload = modifiedPayload
 
     const response = await POST(buildRequest({ ids: [TODO_1, TODO_2], idempotencyKey: IDEMPOTENCY_KEY }))
