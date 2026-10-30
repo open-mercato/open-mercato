@@ -72,7 +72,7 @@ test('progress totals include failed, blocked and skipped outcomes without treat
     failed: 2,
     blocked: 1,
     skipped: 1,
-    observed: false,
+    observed: true,
   })
 })
 
@@ -135,4 +135,33 @@ test('current live activity takes precedence over historical experiment samples'
     metrics: historical,
     caseId: null,
   })
+})
+
+test('prototype-name lanes match only explicitly reported outcomes', () => {
+  for (const laneId of ['constructor', 'toString', '__proto__']) {
+    const omitted = {
+      id: 'omitted',
+      title: 'No outcome',
+      group: '',
+      lanes: {},
+    }
+    const recorded = {
+      id: 'recorded',
+      title: 'Recorded outcome',
+      group: '',
+      lanes: Object.fromEntries([
+        [laneId, { status: 'pass', diagnostics: [] }],
+      ]),
+    }
+    assert.deepEqual(
+      filterCases([omitted, recorded], { laneId }).map((record) => record.id),
+      ['recorded'],
+    )
+    assert.deepEqual(
+      filterCases([omitted, recorded], { laneId, query: 'outcome' }).map(
+        (record) => record.id,
+      ),
+      ['recorded'],
+    )
+  }
 })

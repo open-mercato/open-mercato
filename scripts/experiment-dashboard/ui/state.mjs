@@ -7,7 +7,7 @@ export function experimentTotals(experiment) {
       failed: total.failed + (lane.counts.fail || 0) + (lane.counts.error || 0),
       blocked: total.blocked + (lane.counts.blocked || 0),
       skipped: total.skipped + (lane.counts.skipped || 0),
-      observed: total.observed && lane.totalSource === 'observed',
+      observed: total.observed || lane.totalSource === 'observed',
     }),
     {
       total: 0,
@@ -16,7 +16,7 @@ export function experimentTotals(experiment) {
       failed: 0,
       blocked: 0,
       skipped: 0,
-      observed: true,
+      observed: false,
     },
   )
 }
@@ -27,14 +27,16 @@ export function filterCases(
 ) {
   const normalizedQuery = query.trim().toLocaleLowerCase()
   return cases.filter((record) => {
+    const laneOutcome =
+      laneId && Object.hasOwn(record.lanes, laneId)
+        ? record.lanes[laneId]
+        : null
     const outcomes = laneId
-      ? [record.lanes[laneId]].filter(Boolean)
+      ? laneOutcome
+        ? [laneOutcome]
+        : []
       : Object.values(record.lanes)
-    if (
-      laneId &&
-      (!record.lanes[laneId] ||
-        record.lanes[laneId].status === 'not-applicable')
-    )
+    if (laneId && (!laneOutcome || laneOutcome.status === 'not-applicable'))
       return false
     if (group && record.group !== group) return false
     if (status && !outcomes.some((outcome) => outcome.status === status))

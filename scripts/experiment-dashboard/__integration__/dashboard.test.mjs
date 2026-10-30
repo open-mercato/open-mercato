@@ -20,7 +20,8 @@ function experiment() {
     updatedAt: new Date().toISOString(),
     lanes: [
       { id: 'implementation', label: 'Implementation', total: 57 },
-      { id: 'safety/品質', label: 'Safety', total: 57 },
+      { id: 'safety/品質', label: 'Safety' },
+      { id: 'constructor', label: 'Prototype lane', total: 1 },
     ],
     active: [
       {
@@ -64,6 +65,7 @@ function experiment() {
             },
           },
           'safety/品質': { status: 'pass' },
+          constructor: { status: 'pass' },
         },
       },
       ...Array.from({ length: 56 }, (_, index) => ({
@@ -167,7 +169,65 @@ test(
       await expect(
         page.getByText('Producer metrics unavailable').first(),
       ).toBeVisible()
+      await expect(
+        page.getByText(
+          'Observed results; the producer has not declared a complete target.',
+        ),
+      ).toBeVisible()
+      await expect(
+        page
+          .getByRole('row')
+          .filter({ hasText: 'fixture:0' })
+          .getByRole('button', {
+            name: 'Open fixture:0 in Prototype lane',
+            exact: true,
+          }),
+      ).toHaveCount(0)
+      await page
+        .getByRole('combobox', { name: 'Evaluation lane', exact: true })
+        .click()
+      await page
+        .getByRole('option', { name: 'Prototype lane', exact: true })
+        .click()
+      await expect(page.getByRole('row')).toHaveCount(2)
+      await page
+        .getByRole('table')
+        .getByRole('button', {
+          name: 'Open book/create in Prototype lane',
+          exact: true,
+        })
+        .click()
+      await expect(
+        page.getByRole('combobox', {
+          name: 'Case evaluation lane',
+          exact: true,
+        }),
+      ).toContainText('Prototype lane')
+      await page
+        .getByRole('button', { name: 'Close case inspection', exact: true })
+        .click()
+      await page
+        .getByRole('combobox', { name: 'Evaluation lane', exact: true })
+        .click()
+      await page.getByRole('option', { name: 'All lanes', exact: true }).click()
       await expect(page.getByRole('row')).toHaveCount(51)
+      await page
+        .getByRole('table')
+        .getByRole('button', {
+          name: 'Open fixture:0 in Implementation',
+          exact: true,
+        })
+        .click()
+      await page
+        .getByRole('combobox', { name: 'Case evaluation lane', exact: true })
+        .click()
+      await expect(
+        page.getByRole('option', { name: 'Prototype lane', exact: true }),
+      ).toHaveCount(0)
+      await page.keyboard.press('Escape')
+      await page
+        .getByRole('button', { name: 'Close case inspection', exact: true })
+        .click()
       await page.getByRole('button', { name: 'Next page', exact: true }).click()
       await expect(page.getByRole('row')).toHaveCount(8)
       await page

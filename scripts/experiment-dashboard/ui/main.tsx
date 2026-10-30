@@ -357,7 +357,7 @@ function CaseInspector({
   const detail = detailState.data
   const record = experiment.cases.find((item) => item.id === selected.caseId)
   const applicableLanes = experiment.lanes.filter(
-    (lane) => record?.lanes[lane.id],
+    (lane) => record && Object.hasOwn(record.lanes, lane.id),
   )
   return (
     <Card
@@ -1027,7 +1027,7 @@ function Dashboard() {
                             </TableCell>
                             {experiment.lanes.map((lane) => (
                               <TableCell key={lane.id}>
-                                {record.lanes[lane.id] ? (
+                                {Object.hasOwn(record.lanes, lane.id) ? (
                                   <Button
                                     type="button"
                                     variant="ghost"
