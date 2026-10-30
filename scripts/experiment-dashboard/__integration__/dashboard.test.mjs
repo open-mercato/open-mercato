@@ -472,3 +472,116 @@ test(
       await expect(page.locator('.activity-metrics strong')).toHaveCount(0)
     }),
 )
+
+test(
+  'case inspector presents readable captured prose and clean tabs at desktop and narrow widths',
+  { timeout: 30000 },
+  () =>
+    environment(async ({ page, alpha, alphaDirectory }) => {
+      const responseText =
+        'The books module is ready for review.\n\nThe implementation preserves the request and reports the generated files.\n\n' +
+        'long-artifact-identifier-'.repeat(60)
+      alpha.cases[0].lanes.implementation.responses[0].text = responseText
+      await writeSnapshot(alphaDirectory, alpha)
+      await page
+        .getByRole('table')
+        .getByRole('button', {
+          name: 'Open book/create in Implementation',
+          exact: true,
+        })
+        .click()
+      const response = page.getByTestId('agent-response')
+      await expect(response).toHaveText(responseText)
+      await expect(
+        page.getByText('Messages captured so far', { exact: true }),
+      ).toBeVisible()
+      assert.equal(
+        await response.evaluate(
+          (element) => getComputedStyle(element).fontFamily,
+        ),
+        await page
+          .locator('body')
+          .evaluate((element) => getComputedStyle(element).fontFamily),
+      )
+      assert.equal(
+        await page
+          .locator('.capture-note')
+          .evaluate((element) => getComputedStyle(element).backgroundColor),
+        'rgba(0, 0, 0, 0)',
+      )
+      const filesTab = page.getByRole('tab', { name: 'Files 2', exact: true })
+      const tabGeometry = await filesTab.evaluate((element) => {
+        const label = element
+          .querySelector('span:not([data-slot])')
+          .getBoundingClientRect()
+        const count = element
+          .querySelector('[data-slot="tabs-trigger-count"]')
+          .getBoundingClientRect()
+        const style = getComputedStyle(element)
+        return {
+          gap: count.left - label.right,
+          background: style.backgroundColor,
+          display: style.display,
+        }
+      })
+      assert.ok(
+        tabGeometry.gap >= 4,
+        'The count is visually separated from its tab label',
+      )
+      assert.equal(tabGeometry.background, 'rgba(0, 0, 0, 0)')
+      assert.match(tabGeometry.display, /^(inline-)?flex$/)
+      assert.ok(
+        await page
+          .getByRole('tablist', { name: 'Case result sections' })
+          .evaluate((element) => element.scrollHeight <= element.clientHeight),
+        'The desktop tab strip has no vertical scroll overflow',
+      )
+      await page.setViewportSize({ width: 390, height: 844 })
+      await expect(
+        page.getByRole('heading', {
+          name: 'Create a book module',
+          exact: true,
+        }),
+      ).toBeVisible()
+      await expect(
+        page.getByRole('combobox', {
+          name: 'Case evaluation lane',
+          exact: true,
+        }),
+      ).toBeVisible()
+      await expect(response).toHaveText(responseText)
+      assert.ok(
+        await page
+          .getByRole('tablist', { name: 'Case result sections' })
+          .evaluate((element) => element.scrollHeight <= element.clientHeight),
+        'The narrow tab strip has no vertical scroll overflow',
+      )
+      assert.ok(
+        await response.evaluate(
+          (element) => element.scrollWidth <= element.clientWidth + 1,
+        ),
+        'Long unbroken response tokens wrap within the reading area',
+      )
+      assert.ok(
+        await response.evaluate(
+          (element) =>
+            element.getBoundingClientRect().height >
+            parseFloat(getComputedStyle(element).lineHeight) * 4,
+        ),
+        'Multiline prose remains readable and wraps onto multiple lines',
+      )
+      assert.ok(
+        await page.evaluate(
+          () => document.documentElement.scrollWidth <= innerWidth,
+        ),
+        'An open inspector does not introduce page-wide horizontal overflow',
+      )
+      await filesTab.click()
+      await expect(
+        page.getByRole('tab', { name: 'Files 2', exact: true }),
+      ).toHaveAttribute('aria-selected', 'true')
+      await expect(page.getByTestId('file-content')).toHaveText(
+        'export const books = []',
+      )
+    }),
+)

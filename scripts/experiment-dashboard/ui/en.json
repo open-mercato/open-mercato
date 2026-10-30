@@ -127,5 +127,8 @@
   "dashboard.page": "Page {page} of {pages}",
   "ui.inputs.searchInput.clear": "Clear search",
   "ui.spinner.ariaLabel": "Loading",
-  "ui.spinner.srOnly": "Loading…"
+  "ui.spinner.srOnly": "Loading…",
+  "dashboard.laneLabel": "Lane",
+  "dashboard.capturedMessages": "Captured agent messages",
+  "dashboard.messagesSoFar": "Messages captured so far"
 }

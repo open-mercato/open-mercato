@@ -13,6 +13,7 @@ import {
   Download,
   FileCode2,
   FlaskConical,
+  Info,
   Layers3,
   Radio,
   RefreshCw,
@@ -377,42 +378,47 @@ function CaseInspector({
       id="case-inspector"
       aria-labelledby="inspection-title"
     >
-      <div className="section-heading">
-        <div>
-          <div className="eyebrow">{t('dashboard.inspection')}</div>
-          <h2 id="inspection-title">{record?.title ?? selected.caseId}</h2>
-          <div className="inspection-meta">
+      <div className="inspection-header">
+        <div className="inspection-identity">
+          <div className="inspection-kicker">
+            <span>{t('dashboard.inspection')}</span>
             <code>{selected.caseId}</code>
-            {detail && <StatusBadge status={detail.outcome.status} />}
           </div>
+          <h2 id="inspection-title">{record?.title ?? selected.caseId}</h2>
         </div>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          aria-label={t('dashboard.closeCase')}
-          onClick={onClose}
-        >
-          <X />
-        </Button>
-      </div>
-      <div className="inspection-lane">
-        <FilterSelect
-          label={t('dashboard.caseLane')}
-          value={`lane:${selected.laneId}`}
-          onChange={(value) =>
-            onSelect({ caseId: selected.caseId, laneId: value.slice(5) })
-          }
-          options={applicableLanes.map((lane) => ({
-            value: `lane:${lane.id}`,
-            label: lane.label,
-          }))}
-        />
+        <div className="inspection-controls">
+          {detail && <StatusBadge status={detail.outcome.status} />}
+          <div className="inspection-lane">
+            <span>{t('dashboard.laneLabel')}</span>
+            <FilterSelect
+              label={t('dashboard.caseLane')}
+              value={`lane:${selected.laneId}`}
+              onChange={(value) =>
+                onSelect({ caseId: selected.caseId, laneId: value.slice(5) })
+              }
+              options={applicableLanes.map((lane) => ({
+                value: `lane:${lane.id}`,
+                label: lane.label,
+              }))}
+            />
+          </div>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="inspection-close"
+            aria-label={t('dashboard.closeCase')}
+            onClick={onClose}
+          >
+            <X />
+          </Button>
+        </div>
       </div>
       {detailState.error && (
-        <p role="alert" className="error-banner">
-          {t('dashboard.caseError')}
-        </p>
+        <ErrorMessage
+          className="error-banner"
+          label={t('dashboard.caseError')}
+        />
       )}
       {!detail ? (
         <LoadingMessage
@@ -448,11 +454,24 @@ function CaseInspector({
               {detail.prompt && (
                 <details className="request">
                   <summary>{t('dashboard.originalRequest')}</summary>
-                  <pre>{detail.prompt}</pre>
+                  <div className="response-prose request-prose">
+                    {detail.prompt}
+                  </div>
                 </details>
               )}
               {detail.responseNote && (
-                <p className="notice">{detail.responseNote}</p>
+                <div className="capture-note">
+                  <Info aria-hidden="true" />
+                  <p>
+                    {detail.responses.length
+                      ? t(
+                          detail.outcome.status === 'running'
+                            ? 'dashboard.messagesSoFar'
+                            : 'dashboard.capturedMessages',
+                        )
+                      : detail.responseNote}
+                  </p>
+                </div>
               )}
               {detail.responses.length ? (
                 detail.responses.map((response, index) => (
@@ -464,7 +483,12 @@ function CaseInspector({
                       </span>
                       {response.attemptId && <code>{response.attemptId}</code>}
                     </div>
-                    <pre data-testid="agent-response">{response.text}</pre>
+                    <div
+                      className="response-prose"
+                      data-testid="agent-response"
+                    >
+                      {response.text}
+                    </div>
                   </section>
                 ))
               ) : (
