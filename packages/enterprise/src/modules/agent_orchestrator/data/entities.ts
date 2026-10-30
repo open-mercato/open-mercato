@@ -439,7 +439,7 @@ export class AgentCorrection {
   createdAt: Date = new Date()
 }
 
-export type AgentEvalCaseSourceType = 'correction' | 'golden_run'
+export type AgentEvalCaseSourceType = 'correction' | 'golden_run' | 'file'
 export type AgentEvalCaseStatus = 'draft' | 'approved' | 'archived'
 
 /**

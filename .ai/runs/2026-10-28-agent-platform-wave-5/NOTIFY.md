@@ -44,3 +44,9 @@
 ## 2026-10-30T04:06:31Z — step 7.4 decision
 - `eval-set export` writes DB `llm_judge` assertions stored with `gate` severity as `warn` and prints a warning listing their keys (research silent; the file format refuses judge gates). An export that still fails file validation is refused with exit 2.
 - `--cases` / `validate` accept only `.json`, `.yaml`, `.yml` (format by extension); `export --snapshot current` (default) is an alias of `latest`.
+
+## 2026-10-30T04:20:25Z — step 7.5 decisions
+- `POST /eval-sets/import` body: `{ file | text, format?, approve? }`; body capped at 2× OM_AGENT_EVAL_SET_MAX_BYTES (413, room for JSON-escaped `text`), the file itself at 1× (422 `eval_set_too_large`). Case names over the 200-char column are a 422 issue. No dry-run (research silent).
+- Idempotency: assertions upsert by (org, agentId, key), reviving soft-deleted rows (the unique key spans them); cases match `sourceType:'file'` + deterministic `sourceId`, and a key equal to an existing case id of the agent (what `current` export emits) updates that case. Content change demotes approved → draft unless `approve`.
+- No `enforceCommandOptimisticLock` in the import (bulk upsert by key, no client version) → no coverage-allowlist entry; undo/audit via the command. No per-case `eval_case.created` events (bulk).
+- Export: judge-gate downgrade reported in the `x-om-eval-set-downgraded` header (body is the file); `x-om-eval-set-version` = the file's hash, `x-om-eval-set-source-version` = the exported manifest's. `includeFixtures` not implemented (DB manifests carry no fixtures). No new ACL features (spec: reuse eval.manage/eval.export).

@@ -314,6 +314,7 @@ agents/<agent_id>/
 | `/trace/ingest` | POST | HMAC (no user auth) | Runtime-adapter trace webhook; idempotent on (runtime, externalRunId) |
 | `/corrections` | GET/POST | `trace.correct` | Record human correction (flywheel) |
 | `/eval-cases[/:id/approve][/export]`, `/eval-assertions` | CRUD | `eval.manage` / `eval.export` | Manage + export eval cases/assertions |
+| `/eval-sets/import`, `/eval-sets/:version/export` | POST / GET | `eval.manage` / `eval.export` | Import an eval-set file (undoable `evalSets.import`, idempotent by key); export `current` or `sha256:` as JSON/YAML |
 | `/context-bundles` | GET | `context.read` | Inspect TDCR bundles |
 | `/guardrail-checks` | GET | `guardrail.read` | Inspect guardrail audit |
 | `/processes`, `/processes/:id` | CRUD | `processes.view` / `processes.manage` | Author process definitions; optimistic-locked on `updated_at` |

@@ -2,12 +2,14 @@ import fs from 'node:fs'
 import path from 'node:path'
 import {
   EVAL_SET_FILE_ISSUE,
+  fileFromManifest,
+  validateEvalSetFile,
   type EvalSetFile,
   type EvalSetFileIssue,
   type EvalSetFileValidation,
 } from './evalSetFile'
 import { validateEvalSetText, type EvalSetTextFormat } from './evalSetYaml'
-import { resolveEvalSetMaxBytes } from './manifest'
+import { resolveEvalSetMaxBytes, type EvalSetManifest } from './manifest'
 import { getScorerDefinition } from './registry'
 
 export const EVAL_SET_FILE_EXTENSIONS: Readonly<Record<string, EvalSetTextFormat>> = {
@@ -95,4 +97,24 @@ export function downgradeJudgeGateAssertions(file: EvalSetFile): { file: EvalSet
     return { ...assertion, severity: 'warn' as const }
   })
   return downgradedKeys.length > 0 ? { file: { ...file, assertions }, downgradedKeys } : { file, downgradedKeys }
+}
+
+export type EvalSetFileExport =
+  | { ok: true; file: EvalSetFile; downgradedKeys: string[] }
+  | { ok: false; issues: EvalSetFileIssue[]; downgradedKeys: string[] }
+
+/**
+ * Turns a frozen manifest into an eval-set file for export (CLI and API): judge
+ * `gate` assertions are downgraded to `warn`, then the file is validated so an
+ * export never produces a file that `--cases` or the import API would refuse.
+ */
+export function evalSetFileForExport(
+  manifest: EvalSetManifest,
+  options: { maxBytes?: number } = {},
+): EvalSetFileExport {
+  const { file, downgradedKeys } = downgradeJudgeGateAssertions(fileFromManifest(manifest))
+  const validation = validateEvalSetFile(file, options)
+  return validation.ok
+    ? { ok: true, file: validation.file, downgradedKeys }
+    : { ok: false, issues: validation.issues, downgradedKeys }
 }

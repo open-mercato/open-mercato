@@ -16,14 +16,15 @@ import {
   type AgentSpanKind,
 } from './data/entities'
 import { recomputeProcessInstance } from './lib/processes/processProjection'
-import { EVAL_SET_SNAPSHOT_LATEST, evalSetSnapshotSchema } from './data/validators'
+import { EVAL_SET_EXPORT_CURRENT, EVAL_SET_SNAPSHOT_LATEST, evalSetSnapshotSchema } from './data/validators'
 import { runEvalGate } from './lib/eval/evalGate'
-import { fileFromManifest, manifestFromFile, validateEvalSetFile, type EvalSetFile } from './lib/eval/evalSetFile'
+import { manifestFromFile, type EvalSetFile } from './lib/eval/evalSetFile'
 import {
-  downgradeJudgeGateAssertions,
+  evalSetFileForExport,
   evalSetFormatFromPath,
   formatEvalSetFileIssues,
   readEvalSetFile,
+  type EvalSetFileExport,
 } from './lib/eval/evalSetFileIo'
 import { stringifyEvalSetFile, type EvalSetTextFormat } from './lib/eval/evalSetYaml'
 import { EvalSetUnresolvedError, resolveSnapshotPin } from './lib/eval/manifest'
@@ -863,7 +864,6 @@ const EVAL_SET_USAGE =
   '  export writes the current approved cases (or a frozen manifest) as an eval-set file; without --out it prints to stdout.\n' +
   '  validate checks the schema and scorer configs offline (no database access) and exits 2 on an invalid file.\n' +
   '  --tenant/--org fall back to OM_EVAL_TENANT_ID/OM_EVAL_ORG_ID.'
-const EVAL_SET_EXPORT_CURRENT = 'current'
 
 function isEvalSetTextFormat(value: string): value is EvalSetTextFormat {
   return value === 'json' || value === 'yaml'
@@ -905,13 +905,13 @@ async function runEvalSetExport(rest: string[]): Promise<void> {
   const snapshot = parsedSnapshot?.success ? parsedSnapshot.data : EVAL_SET_SNAPSHOT_LATEST
   const scope = { tenantId, organizationId }
 
-  let file: EvalSetFile
+  let exported: EvalSetFileExport
   let version: string
   try {
     const container = await createRequestContainer()
     const em = (container.resolve('em') as EntityManager).fork()
     const pinned = await resolveSnapshotPin(em, scope, agentDefinitionId, snapshot)
-    file = fileFromManifest(pinned.manifest)
+    exported = evalSetFileForExport(pinned.manifest)
     version = pinned.version
   } catch (error) {
     if (error instanceof EvalSetUnresolvedError) {
@@ -924,21 +924,19 @@ async function runEvalSetExport(rest: string[]): Promise<void> {
     return
   }
 
-  const downgraded = downgradeJudgeGateAssertions(file)
-  if (downgraded.downgradedKeys.length) {
+  if (exported.downgradedKeys.length) {
     console.error(
-      `Warning: llm_judge assertions cannot gate in an eval-set file; exported with severity "warn": ${downgraded.downgradedKeys.join(', ')}`,
+      `Warning: llm_judge assertions cannot gate in an eval-set file; exported with severity "warn": ${exported.downgradedKeys.join(', ')}`,
     )
   }
-  const validation = validateEvalSetFile(downgraded.file)
-  if (!validation.ok) {
+  if (!exported.ok) {
     console.error(`The eval set ${version} cannot be exported as a valid file:`)
-    for (const line of formatEvalSetFileIssues(validation.issues)) console.error(line)
+    for (const line of formatEvalSetFileIssues(exported.issues)) console.error(line)
     process.exitCode = 2
     return
   }
 
-  const text = stringifyEvalSetFile(validation.file, format)
+  const text = stringifyEvalSetFile(exported.file, format)
   if (!outPath) {
     process.stdout.write(text)
     return
@@ -958,7 +956,7 @@ async function runEvalSetExport(rest: string[]): Promise<void> {
     return
   }
   console.error(
-    `Exported ${validation.file.cases.length} case(s) and ${validation.file.assertions.length} assertion(s) from ${version} to ${resolvedOut}`,
+    `Exported ${exported.file.cases.length} case(s) and ${exported.file.assertions.length} assertion(s) from ${version} to ${resolvedOut}`,
   )
 }
 

@@ -685,7 +685,7 @@ export const EVAL_CASE_EXPORT_VERSION = 1 as const
 
 export type EvalCaseExportItem = {
   id: string
-  sourceType: 'correction' | 'golden_run'
+  sourceType: 'correction' | 'golden_run' | 'file'
   agentDefinitionId: string
   processType: string | null
   input: unknown
@@ -711,7 +711,7 @@ export const evalCaseExportQuerySchema = z
 export type EvalCaseExportQuery = z.infer<typeof evalCaseExportQuerySchema>
 
 export const evalCaseStatusSchema = z.enum(['draft', 'approved', 'archived'])
-export const evalCaseSourceTypeSchema = z.enum(['correction', 'golden_run'])
+export const evalCaseSourceTypeSchema = z.enum(['correction', 'golden_run', 'file'])
 
 /**
  * Query schema for the read-only GET /eval-cases list. The route projects
@@ -2194,6 +2194,45 @@ export const evalReportQuerySchema = z.object({
   evidenceMaxChars: z.coerce.number().int().min(100).max(20000).optional(),
 })
 export type EvalReportQuery = z.infer<typeof evalReportQuerySchema>
+
+export const EVAL_SET_EXPORT_CURRENT = 'current' as const
+export const EVAL_SET_TEXT_FORMATS = ['json', 'yaml'] as const
+
+/**
+ * `:version` of GET /eval-sets/:version/export: `current` freezes the approved
+ * cases on the fly, `sha256:<hex>` loads a manifest frozen by an earlier run.
+ */
+export const evalSetExportVersionSchema = z.union([
+  z.literal(EVAL_SET_EXPORT_CURRENT),
+  z.string().regex(EVAL_SET_HASH_PATTERN, 'version must be "current" or sha256:<64 lowercase hex>'),
+])
+
+export const evalSetExportQuerySchema = z.object({
+  agentDefinitionId: z.string().min(1).max(100),
+  format: z.enum(EVAL_SET_TEXT_FORMATS).default('json'),
+})
+export type EvalSetExportQuery = z.infer<typeof evalSetExportQuerySchema>
+
+/**
+ * POST /eval-sets/import. The set travels either parsed (`file`) or as the raw
+ * file text (`text`, JSON or YAML); the file itself is validated by
+ * `lib/eval/evalSetFile.ts`, so it stays `unknown` here.
+ */
+export const evalSetImportRequestSchema = z
+  .object({
+    file: z.unknown().optional(),
+    text: z.string().optional(),
+    format: z.enum([...EVAL_SET_TEXT_FORMATS, 'auto']).default('auto'),
+    approve: z.boolean().default(false),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    const provided = (value.file !== undefined ? 1 : 0) + (value.text !== undefined ? 1 : 0)
+    if (provided !== 1) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['file'], message: 'provide exactly one of file or text' })
+    }
+  })
+export type EvalSetImportRequest = z.infer<typeof evalSetImportRequestSchema>
 
 /**
  * Eval-case authoring. `input`/`expected` are free-form per agent (the agent's own

@@ -573,9 +573,11 @@ export default function AgentEvalRunDetailPage({ params }: { params?: { id?: str
     })()
   }, [])
 
+  const isFileSet = run?.evalSetSource === 'file'
+
   const toggleExpanded = React.useCallback((caseRunId: string, evalCaseId: string) => {
     setExpandedId((current) => (current === caseRunId ? null : caseRunId))
-    loadEvalCase(evalCaseId)
+    if (!isFileSet) loadEvalCase(evalCaseId)
     if (requestedResultsRef.current.has(caseRunId)) return
     requestedResultsRef.current.add(caseRunId)
     setResults((current) => ({ ...current, [caseRunId]: { status: 'loading', items: [] } }))
@@ -603,7 +605,7 @@ export default function AgentEvalRunDetailPage({ params }: { params?: { id?: str
         },
       }))
     })()
-  }, [suiteRunId, loadEvalCase])
+  }, [suiteRunId, loadEvalCase, isFileSet])
 
   // Live progress: case-run events patch the loaded rows in place (no refetch of
   // a list the very run is still writing). The suite-completion event refreshes
@@ -876,9 +878,14 @@ export default function AgentEvalRunDetailPage({ params }: { params?: { id?: str
                                 </IconButton>
                               </TableCell>
                               <TableCell>
-                                <StatusBadge variant={evalCaseRunStatusVariant[caseRun.status]} dot>
-                                  {t(`agent_orchestrator.evalRuns.caseStatus.${caseRun.status}`)}
-                                </StatusBadge>
+                                <div className="flex flex-wrap items-center gap-1">
+                                  <StatusBadge variant={evalCaseRunStatusVariant[caseRun.status]} dot>
+                                    {t(`agent_orchestrator.evalRuns.caseStatus.${caseRun.status}`)}
+                                  </StatusBadge>
+                                  {isFileSet ? (
+                                    <StatusBadge variant="neutral">{t('agent_orchestrator.evalRuns.fileCase.badge')}</StatusBadge>
+                                  ) : null}
+                                </div>
                               </TableCell>
                               <TableCell className="tabular-nums text-muted-foreground">
                                 {caseRun.trialIndex + 1}
@@ -939,12 +946,18 @@ export default function AgentEvalRunDetailPage({ params }: { params?: { id?: str
                                       title={t('agent_orchestrator.evalRuns.detail.goldenCase')}
                                       defaultCollapsed
                                     >
-                                      <GoldenCase
-                                        state={
-                                          evalCases[caseRun.evalCaseId] ?? { status: 'loading', evalCase: null }
-                                        }
-                                        evalCaseId={caseRun.evalCaseId}
-                                      />
+                                      {isFileSet ? (
+                                        <p className="py-2 text-sm text-muted-foreground">
+                                          {t('agent_orchestrator.evalRuns.detail.fileCaseNoRecord')}
+                                        </p>
+                                      ) : (
+                                        <GoldenCase
+                                          state={
+                                            evalCases[caseRun.evalCaseId] ?? { status: 'loading', evalCase: null }
+                                          }
+                                          evalCaseId={caseRun.evalCaseId}
+                                        />
+                                      )}
                                     </CollapsibleSection>
                                   </div>
                                 </TableCell>
