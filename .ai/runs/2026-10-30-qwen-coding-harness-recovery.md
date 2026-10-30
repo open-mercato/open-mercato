@@ -39,7 +39,9 @@ PR: #8262
 
 Fail-before evidence: evaluator delivery tests 6 fail / 2 control pass (existing helpers exported without behavior changes); structural recovery tests 13 fail / 13 pass; source-policy tests 16 fail / 12 pass; typed fixture contract 1 fail. Failures are semantic assertions, with separate setup failures discarded. Source-policy tests use actual source generators/inventories so disposable controller worktrees need no ignored build cache.
 - [x] 2.1 Add semantic regressions that fail before the fixes. — bb271631e
-- [ ] 2.2 Repair bounded reference delivery and explicit seeded entrypoint prompts. — ebe878abf; reopened for the proven Pi complete-text delivery defect
+- [x] 2.2 Repair bounded reference delivery and explicit seeded entrypoint prompts. — ebe878abf; Pi complete-text delivery added in 344f63c3b
+
+Pi delivery regression: four semantic failures/one control pass without the hook, 5/5 pass afterward. Source and normally built wizard/CLI delivery checks bring the focused total to 8/8. Actual emitted-asset loader, native converter, extension runner/session and provider serialization preserve full bounded text/hash inside the canonical sandbox without model calls or new tools. Round 3 is frozen at one canonical pass, one capability-read failure and twelve not run; both completed implementation oracles pass. Its additional app validation was blocked before commands by a private copier bug, so the next run will use the canonical target-preparation helper.
 - [x] 2.3 Align fixtures and structural oracles with real executable contracts. — bdb4530d8
 
 Coding context tests: 13 pass, including all 49 writable seed declarations and protected resume fixture. Source-policy tests: 30 pass, including real MCP trace accounting and actual installed adapter/descriptor preparation.
