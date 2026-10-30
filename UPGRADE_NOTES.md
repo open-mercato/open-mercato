@@ -210,6 +210,28 @@ This intentional tightening uses the Emergency Security Exception described in
 Human maintainer @haxiorz [approved the steps 1–3 waiver and acknowledged the client/operator migration](https://github.com/open-mercato/open-mercato/pull/6829#issuecomment-6505350022)
 on 2026-10-29. Independent review, QA and CI remain separate merge gates.
 
+### AI-generated keys respect per-user ACL restrictions (#7825)
+
+Persistent MCP keys generated after this upgrade carry the same user binding as
+AI session keys. Their effective feature and organization grants cannot exceed
+the owner's ACL, including after an ACL update while caches are warm. Unbound
+machine keys retain independent role grants. User-bound keys no longer expose a
+raw global super-admin scope-override flag.
+
+Operators must revoke and regenerate existing persistent MCP keys through AI
+Assistant settings: legacy keys did not store a reliable user-binding marker and
+cannot be distinguished safely from independent machine keys. Existing session
+keys already carry the binding and receive the ceiling automatically. Clients
+keep the same endpoint payloads and token formats; update MCP client secrets after
+regeneration. Custom delegated-key issuers should supply `sessionUserId` to
+`createApiKey`; leave it unset only for independently administered machine keys.
+
+Regenerated MCP keys are not available as Business Rules "call Open Mercato"
+API-key profiles; use independently administered machine keys for those actions.
+A regenerated MCP key becomes invalid if its owner's home organization changes,
+including a change from no home organization to a concrete one. Generate a new
+key and update the MCP client secret after such a change.
+
 ### Scoped attachment bytes no longer advertise shared caching (#7220)
 
 The attachment file and image byte routes now return `Cache-Control: private,
