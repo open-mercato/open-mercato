@@ -2363,5 +2363,6 @@
   "staff.timesheets.widgets.timeReporting.stop": "Zatrzymaj stoper",
   "staff.timesheets.widgets.timeReporting.stopError": "Nie udało się zatrzymać licznika czasu",
   "staff.timesheets.widgets.timeReporting.taskNote": "Zadanie / Notatka",
-  "staff.timesheets.widgets.timeReporting.unknownProject": "Nieznany projekt"
+  "staff.timesheets.widgets.timeReporting.unknownProject": "Nieznany projekt",
+  "staff.validation.nonNegativeAmount": "Oczekiwano kwoty nieujemnej."
 }

@@ -1,11 +1,21 @@
 import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
+import {
+  addDecimals,
+  decimalToNumber,
+  decimalToString,
+  decimalsEqual,
+  divideDecimals,
+  multiplyDecimals,
+  parseDecimal,
+  resolveAmountDecimalPlaces,
+  resolveIsoCurrencyDecimalPlaces,
+  roundDecimal,
+} from '@open-mercato/shared/lib/decimal'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { SalesTaxRate } from '@open-mercato/core/modules/sales/data/entities'
 import { isPromotionPriceKind } from '../lib/omnibusPresentedEntry'
 import type { PriceRow, PricingContext } from '../lib/pricing'
 import type { CatalogPricingService } from './catalogPricingService'
-
-const AMOUNT_PRECISION = 4
 
 /**
  * Pricing context for a single cart/order line: the buyer's scoping dimensions plus the
@@ -16,6 +26,8 @@ export type BuyerPricingContext = PricingContext & {
   currencyCode: string
   quantity: number
   date: Date
+  /** The tenant's configured decimal places for `currencyCode`; the ISO 4217 minor units when omitted. */
+  currencyDecimalPlaces?: number | null
 }
 
 export type BuyerPricingScope = {
@@ -34,6 +46,8 @@ export type LinePriceTier = {
   maxQuantity: number | null
   amountNet: number | null
   amountGross: number | null
+  amountNetExact?: string | null
+  amountGrossExact?: string | null
 }
 
 export type ResolvedLinePrice = {
@@ -41,6 +55,8 @@ export type ResolvedLinePrice = {
   priceRow: PriceRow | null
   amountNet: number | null
   amountGross: number | null
+  amountNetExact?: string | null
+  amountGrossExact?: string | null
   /** The percentage rate used to derive whichever side the winning row did not carry; `null` when neither side needed deriving or no rate could be resolved. */
   taxRatePercent: number | null
   /** `true` when the winning row's price kind is a promotional kind (same semantic as `EvaluateItem.priceIsPromotional`, SPEC-055 D-R4-16). */
@@ -76,20 +92,21 @@ export interface CatalogBuyerPricingService {
   ): Promise<ResolvedLinePrice>
 }
 
-function roundAmount(value: number): number {
-  const factor = 10 ** AMOUNT_PRECISION
-  return Math.round(value * factor) / factor
-}
-
 function parseAmount(value: string | number | null | undefined): number | null {
   if (value === null || value === undefined || value === '') return null
   const numeric = typeof value === 'number' ? value : Number(value)
   return Number.isFinite(numeric) ? numeric : null
 }
 
-function deriveSide(other: number, ratePercent: number, target: 'net' | 'gross'): number {
-  const factor = 1 + ratePercent / 100
-  return roundAmount(target === 'gross' ? other * factor : other / factor)
+function parseExactAmount(value: string | number | null | undefined): string | null {
+  const parsed = parseDecimal(value)
+  return parsed ? decimalToString(parsed) : null
+}
+
+function deriveSide(other: string, ratePercent: string, target: 'net' | 'gross', decimalPlaces: number): string {
+  const factor = addDecimals(1, divideDecimals(ratePercent, 100))
+  const derived = target === 'gross' ? multiplyDecimals(other, factor) : divideDecimals(other, factor)
+  return decimalToString(roundDecimal(derived, decimalPlaces))
 }
 
 type AmountSource = {
@@ -170,19 +187,46 @@ function createFallbackTaxRateLoader(
   }
 }
 
+type ResolvedSides = {
+  net: number | null
+  gross: number | null
+  netExact: string | null
+  grossExact: string | null
+  taxRatePercent: number | null
+}
+
+function toSides(netExact: string | null, grossExact: string | null, taxRatePercent: number | null): ResolvedSides {
+  return {
+    net: netExact === null ? null : decimalToNumber(netExact),
+    gross: grossExact === null ? null : decimalToNumber(grossExact),
+    netExact,
+    grossExact,
+    taxRatePercent,
+  }
+}
+
 async function resolveBothSides(
   source: AmountSource,
   fallbackRate: () => Promise<number | null>,
-): Promise<{ net: number | null; gross: number | null; taxRatePercent: number | null }> {
-  const net0 = parseAmount(source.net)
-  const gross0 = parseAmount(source.gross)
-  const rowRate = parseAmount(source.rowTaxRate)
-  if (net0 !== null && gross0 !== null) return { net: net0, gross: gross0, taxRatePercent: rowRate }
-  if (net0 === null && gross0 === null) return { net: null, gross: null, taxRatePercent: rowRate }
-  const rate = rowRate ?? (await fallbackRate())
-  if (rate === null) return { net: net0, gross: gross0, taxRatePercent: null }
-  if (net0 !== null) return { net: net0, gross: deriveSide(net0, rate, 'gross'), taxRatePercent: rate }
-  return { net: deriveSide(gross0 as number, rate, 'net'), gross: gross0, taxRatePercent: rate }
+  decimalPlaces: number,
+): Promise<ResolvedSides> {
+  const net0 = parseExactAmount(source.net)
+  const gross0 = parseExactAmount(source.gross)
+  const rowRate = parseExactAmount(source.rowTaxRate)
+  const rowRatePercent = rowRate === null ? null : decimalToNumber(rowRate)
+  if (net0 !== null && gross0 !== null) return toSides(net0, gross0, rowRatePercent)
+  if (net0 === null && gross0 === null) return toSides(null, null, rowRatePercent)
+  const fallback = rowRate === null ? await fallbackRate() : null
+  const rate = rowRate ?? (fallback === null ? null : parseExactAmount(fallback))
+  if (rate === null) return toSides(net0, gross0, null)
+  const ratePercent = decimalToNumber(rate)
+  if (net0 !== null) return toSides(net0, deriveSide(net0, rate, 'gross', decimalPlaces), ratePercent)
+  return toSides(deriveSide(gross0 as string, rate, 'net', decimalPlaces), gross0, ratePercent)
+}
+
+function sameExactAmount(left: string | null, right: string | null): boolean {
+  if (left === null || right === null) return left === right
+  return decimalsEqual(left, right)
 }
 
 function collectTierQuantities(rows: PriceRow[]): number[] {
@@ -198,16 +242,33 @@ async function buildLineTiers(
   quantities: number[],
   rows: Array<PriceRow | null>,
   fallbackRate: () => Promise<number | null>,
+  decimalPlaces: number,
 ): Promise<LinePriceTier[]> {
-  const collapsed: Array<{ minQuantity: number; amountNet: number | null; amountGross: number | null }> = []
+  const collapsed: Array<{
+    minQuantity: number
+    amountNet: number | null
+    amountGross: number | null
+    amountNetExact: string | null
+    amountGrossExact: string | null
+  }> = []
   for (let index = 0; index < quantities.length; index += 1) {
     const row = rows[index]
     if (!row) continue
-    const { net, gross } = await resolveBothSides(rowAmountSource(row), fallbackRate)
-    if (net === null && gross === null) continue
+    const sides = await resolveBothSides(rowAmountSource(row), fallbackRate, decimalPlaces)
+    if (sides.netExact === null && sides.grossExact === null) continue
     const previous = collapsed[collapsed.length - 1]
-    if (previous && previous.amountNet === net && previous.amountGross === gross) continue
-    collapsed.push({ minQuantity: quantities[index], amountNet: net, amountGross: gross })
+    if (
+      previous &&
+      sameExactAmount(previous.amountNetExact, sides.netExact) &&
+      sameExactAmount(previous.amountGrossExact, sides.grossExact)
+    ) continue
+    collapsed.push({
+      minQuantity: quantities[index],
+      amountNet: sides.net,
+      amountGross: sides.gross,
+      amountNetExact: sides.netExact,
+      amountGrossExact: sides.grossExact,
+    })
   }
   if (collapsed.length < 2) return []
   return collapsed.map((tier, index) => {
@@ -217,6 +278,8 @@ async function buildLineTiers(
       maxQuantity: next ? next.minQuantity - 1 : null,
       amountNet: tier.amountNet,
       amountGross: tier.amountGross,
+      amountNetExact: tier.amountNetExact,
+      amountGrossExact: tier.amountGrossExact,
     }
   })
 }
@@ -246,24 +309,29 @@ export class DefaultCatalogBuyerPricingService implements CatalogBuyerPricingSer
     scope: BuyerPricingScope,
   ): Promise<ResolvedLinePrice> {
     const fallbackRate = createFallbackTaxRateLoader(em, scope, context)
+    const decimalPlaces = resolveAmountDecimalPlaces(
+      context.currencyDecimalPlaces ?? resolveIsoCurrencyDecimalPlaces(context.currencyCode),
+    )
     const selected = await this.pricingService.resolvePrice(rows, context)
     const priceIsPromotional = isPromotionPriceKind(selected)
-    const { net: amountNet, gross: amountGross, taxRatePercent } = selected
-      ? await resolveBothSides(rowAmountSource(selected), fallbackRate)
-      : { net: null, gross: null, taxRatePercent: null }
+    const sides = selected
+      ? await resolveBothSides(rowAmountSource(selected), fallbackRate, decimalPlaces)
+      : toSides(null, null, null)
 
     const quantities = collectTierQuantities(rows)
     const tierRows = await this.pricingService.resolvePriceMany(
       quantities.map((quantity) => ({ rows, context: { ...context, quantity } })),
     )
-    const tiers = await buildLineTiers(quantities, tierRows, fallbackRate)
+    const tiers = await buildLineTiers(quantities, tierRows, fallbackRate, decimalPlaces)
     const { currentTier, nextTier } = selectCurrentAndNextTier(tiers, context.quantity)
 
     return {
       priceRow: selected,
-      amountNet,
-      amountGross,
-      taxRatePercent,
+      amountNet: sides.net,
+      amountGross: sides.gross,
+      amountNetExact: sides.netExact,
+      amountGrossExact: sides.grossExact,
+      taxRatePercent: sides.taxRatePercent,
       priceIsPromotional,
       currentTier,
       nextTier,

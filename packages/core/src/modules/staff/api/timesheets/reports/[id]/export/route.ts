@@ -46,6 +46,7 @@ import {
   readSearchParamsRecord,
   runTimesheetInterceptors,
 } from '../../../_shared/withTimesheetInterceptors'
+import { resolveCurrencyDecimalPlaces } from '@open-mercato/shared/lib/currencyPrecision'
 
 const logger = createLogger('staff').child({ component: 'api/timesheets/reports/export' })
 
@@ -132,9 +133,11 @@ function stripAmounts(groups: readonly ReportGroup[]): ReportGroup[] {
   return groups.map((group) => ({
     ...group,
     rate: null,
+    rateExact: null,
     amount: 0,
+    amountExact: '0',
     lines: group.lines.map(function strip(line): ReportGroup['lines'][number] {
-      return { ...line, rate: null, amount: 0, children: line.children.map(strip) }
+      return { ...line, rate: null, rateExact: null, amount: 0, amountExact: '0', children: line.children.map(strip) }
     }),
   }))
 }
@@ -185,6 +188,12 @@ export async function GET(req: Request) {
 
     const timeProjectIds = await loadReportProjectIds(em, report.id, { tenantId, organizationId })
     const labels = reportSheetLabels(translate)
+    const amountDecimalPlaces =
+      (await resolveCurrencyDecimalPlaces(container, {
+        code: report.currencyCode,
+        tenantId,
+        organizationId,
+      })) ?? undefined
     const sheet = await buildReportSheet({
       em,
       scope: { tenantId, organizationId },
@@ -192,12 +201,14 @@ export async function GET(req: Request) {
       timeProjectIds,
       labels,
       grouping,
+      amountDecimalPlaces,
     })
     const rows = buildReportRows({
       entries: sheet.entries,
       projects: sheet.projects,
       directory: sheet.directory,
       labels,
+      amountDecimalPlaces,
     })
 
     const periodFrom = formatReportPeriodDate(report.periodFrom) ?? ''
@@ -214,12 +225,16 @@ export async function GET(req: Request) {
       canSeeMoney,
       showRates: (report.showRates ?? true) && canSeeMoney,
       groups: canSeeMoney ? sheet.totals.groups : stripAmounts(sheet.totals.groups),
-      rows: canSeeMoney ? rows : rows.map((row) => ({ ...row, rate: null, amount: null })),
+      rows: canSeeMoney
+        ? rows
+        : rows.map((row) => ({ ...row, rate: null, rateExact: null, amount: null, amountExact: null })),
       totals: {
         billableMinutes: sheet.totals.billableMinutes,
         nonbillableMinutes: sheet.totals.nonbillableMinutes,
         totalAmount: canSeeMoney ? sheet.totals.totalAmount : 0,
+        totalAmountExact: canSeeMoney ? sheet.totals.totalAmountExact : '0',
       },
+      amountDecimalPlaces,
       roundingLabel: roundingLabel(
         translate,
         report.roundingUnitMinutes ?? 0,

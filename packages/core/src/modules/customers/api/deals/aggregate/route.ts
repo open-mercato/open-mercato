@@ -9,7 +9,9 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { resolveDealsOrganizationIds } from '../../../lib/dealsOrganizationScope'
 import { resolveOptionalBaseCurrencyCode } from '../../../lib/optionalBaseCurrency'
-import type { ExchangeRateService } from '@open-mercato/core/modules/currencies/services/exchangeRateService'
+import type { ExchangeRateService, RateResult } from '@open-mercato/core/modules/currencies/services/exchangeRateService'
+import { convertSumsToBase } from '../../../lib/dealsMetrics'
+import { compareDecimals, decimalToNumber, decimalToString, parseDecimal } from '@open-mercato/shared/lib/decimal'
 import { parseBooleanFromUnknown } from '@open-mercato/shared/lib/boolean'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import type { CrudCtx } from '@open-mercato/shared/lib/crud/factory'
@@ -92,6 +94,7 @@ function isDealsAggregateCacheEligible(searchParams: URLSearchParams): boolean {
 type StageBreakdownByCurrency = {
   currency: string
   total: number
+  totalExact: string
   count: number
 }
 
@@ -100,6 +103,7 @@ type StageAggregate = {
   count: number
   openCount: number
   totalInBaseCurrency: number
+  totalInBaseCurrencyExact: string
   byCurrency: StageBreakdownByCurrency[]
   /**
    * `true` when every currency present in `byCurrency` was either the base currency or
@@ -124,6 +128,7 @@ type AggregateResponse = {
 const stageBreakdownByCurrencySchema = z.object({
   currency: z.string(),
   total: z.number(),
+  totalExact: z.string().describe('Exact decimal string of `total`.'),
   count: z.number(),
 })
 
@@ -132,6 +137,7 @@ const stageAggregateSchema = z.object({
   count: z.number(),
   openCount: z.number(),
   totalInBaseCurrency: z.number(),
+  totalInBaseCurrencyExact: z.string().describe('Exact, unrounded decimal string of the converted total; `totalInBaseCurrency` is rounded to whole units.'),
   byCurrency: z.array(stageBreakdownByCurrencySchema),
   convertedAll: z.boolean(),
   missingRateCurrencies: z.array(z.string()),
@@ -401,7 +407,8 @@ export async function GET(req: Request) {
   const stageMap = new Map<string, StageAggregate>()
   for (const row of rows) {
     const stageId = row.stage_id ?? '__unassigned'
-    const total = Number(row.total ?? 0)
+    const totalExact = decimalToString(parseDecimal(row.total) ?? 0)
+    const total = decimalToNumber(totalExact)
     const count = Number(row.count ?? 0)
     const openCount = Number(row.open_count ?? 0)
     const currency = (row.currency ?? '').toString().trim()
@@ -412,6 +419,7 @@ export async function GET(req: Request) {
         count: 0,
         openCount: 0,
         totalInBaseCurrency: 0,
+        totalInBaseCurrencyExact: '0',
         byCurrency: [],
         convertedAll: true,
         missingRateCurrencies: [],
@@ -425,7 +433,7 @@ export async function GET(req: Request) {
     // doesn't silently drop deals whose amount happens to be zero. Rows with no
     // currency code at all still get folded into the stage totals via `count`.
     if (currency.length > 0) {
-      agg.byCurrency.push({ currency, total, count })
+      agg.byCurrency.push({ currency, total, totalExact, count })
     }
   }
 
@@ -442,28 +450,19 @@ export async function GET(req: Request) {
       }
     }
 
-    const rateCache = new Map<string, number>()
+    let rates: ReadonlyMap<string, RateResult> | null = null
     if (exchange && distinctCurrencies.size > 0) {
       const pairs = Array.from(distinctCurrencies).map((c) => ({
         fromCurrencyCode: c,
         toCurrencyCode: baseCurrencyCode,
       }))
       try {
-        const results = await exchange.getRates({
+        rates = await exchange.getRates({
           pairs,
           date: today,
           scope: { tenantId: effectiveTenantId, organizationId: orgFilterIds[0] },
           options: { maxDaysBack: 60, autoFetch: false },
         })
-        for (const [key, rateResult] of results) {
-          if (rateResult.rates.length > 0) {
-            // Pick the first matching rate (sources are equivalent for display purposes)
-            const rate = Number(rateResult.rates[0].rate)
-            if (Number.isFinite(rate) && rate > 0) {
-              rateCache.set(key, rate)
-            }
-          }
-        }
       } catch (err) {
         // Swallow — partial totals are still useful and we'll fall back to currency-native
         // sums. Logging at warn level so operators can correlate missing-rate disclosures in
@@ -473,32 +472,14 @@ export async function GET(req: Request) {
     }
 
     for (const agg of stageMap.values()) {
-      let totalBase = 0
-      let convertedAll = true
-      const missingRateCurrencies: string[] = []
-      for (const row of agg.byCurrency) {
-        if (!row.currency) continue
-        if (row.currency === baseCurrencyCode) {
-          totalBase += row.total
-          continue
-        }
-        const key = `${row.currency}/${baseCurrencyCode}`
-        const rate = rateCache.get(key)
-        if (rate !== undefined) {
-          totalBase += row.total * rate
-        } else {
-          convertedAll = false
-          if (!missingRateCurrencies.includes(row.currency)) {
-            missingRateCurrencies.push(row.currency)
-          }
-        }
-      }
       // Even when some rates are missing, totalInBaseCurrency reflects the converted slice.
       // `convertedAll`/`missingRateCurrencies` let the client distinguish a complete
       // conversion from a partial one and disclose which currencies were excluded.
-      agg.totalInBaseCurrency = Math.round(totalBase)
-      agg.convertedAll = convertedAll
-      agg.missingRateCurrencies = missingRateCurrencies
+      const converted = convertSumsToBase(agg.byCurrency, baseCurrencyCode, rates)
+      agg.totalInBaseCurrency = converted.total
+      agg.totalInBaseCurrencyExact = converted.totalExact
+      agg.convertedAll = converted.convertedAll
+      agg.missingRateCurrencies = converted.missingRateCurrencies
     }
   } else {
     // No base currency configured for the tenant — surface this by marking every stage as
@@ -515,7 +496,7 @@ export async function GET(req: Request) {
 
   // Sort byCurrency rows by total descending for stable display
   for (const agg of stageMap.values()) {
-    agg.byCurrency.sort((a, b) => b.total - a.total)
+    agg.byCurrency.sort((a, b) => compareDecimals(b.totalExact, a.totalExact))
   }
 
   const response: AggregateResponse = {

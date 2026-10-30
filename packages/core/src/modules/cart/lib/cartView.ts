@@ -30,6 +30,7 @@ import type { CartLineSnapshot } from '../commands/lines'
 import type { CartMergeSummary } from '../commands/merge'
 import type { CartPriceChange } from './reprice'
 import { resolveCartWarningMessage } from './warningMessages'
+import { resolveCartCurrencyDecimalPlaces, resolvedPriceString } from './exactPricing'
 
 // Step 5.2 — PLAN.md's own plan-correction note: Step 4.5's `commands/cart.ts` deferred
 // building "the richer public `CartView` envelope (§10.1 ... that lands with the routes and
@@ -68,8 +69,14 @@ function buildPricingRowFilterContext(cart: Cart): PricingContext {
   }
 }
 
-function buildBuyerPricingContext(cart: Cart, quantity: number, date: Date): BuyerPricingContext {
+function buildBuyerPricingContext(
+  cart: Cart,
+  quantity: number,
+  date: Date,
+  currencyDecimalPlaces: number | null,
+): BuyerPricingContext {
   return {
+    currencyDecimalPlaces,
     channelId: cart.salesChannelId ?? null,
     customerId: cart.customerId ?? null,
     customerIds: cart.customerIds ?? [],
@@ -216,6 +223,7 @@ function buildAvailabilityWarnings(lineViews: CartLineView[], translate: Transla
 export type CartLineNextTierView = {
   minQuantity: number
   unitAmount: number
+  unitAmountExact?: string
   formatted: string
   saving: string
 }
@@ -233,6 +241,12 @@ export type CartLineView = CartLineSnapshot & {
  */
 function pickTierAmount(tier: LinePriceTier, taxMode: CartTaxMode): number | null {
   return taxMode === 'gross' ? tier.amountGross ?? tier.amountNet : tier.amountNet ?? tier.amountGross
+}
+
+function pickTierAmountExact(tier: LinePriceTier, taxMode: CartTaxMode): string | null {
+  const gross = resolvedPriceString(tier.amountGrossExact, tier.amountGross)
+  const net = resolvedPriceString(tier.amountNetExact, tier.amountNet)
+  return taxMode === 'gross' ? gross ?? net : net ?? gross
 }
 
 /**
@@ -260,10 +274,12 @@ function buildNextTierView(resolved: ResolvedLinePrice, cart: Cart): CartLineNex
     currentAmount !== null && currentAmount > 0
       ? Math.max(0, Math.round(((currentAmount - nextAmount) / currentAmount) * 100))
       : 0
+  const nextAmountExact = pickTierAmountExact(next, cart.taxMode) ?? String(nextAmount)
   return {
     minQuantity: next.minQuantity,
     unitAmount: nextAmount,
-    formatted: formatCurrency(nextAmount, cart.currencyCode, cart.locale) ?? String(nextAmount),
+    unitAmountExact: nextAmountExact,
+    formatted: formatCurrency(nextAmountExact, cart.currencyCode, cart.locale) ?? nextAmountExact,
     saving: `${savingPercent}%`,
   }
 }
@@ -507,6 +523,7 @@ export async function buildCartResponseEnvelope(params: BuildCartResponseEnvelop
     : { byItem: {} }
 
   const now = new Date()
+  const currencyDecimalPlaces = lines.length ? await resolveCartCurrencyDecimalPlaces(params.container, cart) : null
   const lineViews: CartLineView[] = []
   // Sequential, not `Promise.all` — `resolveLinePrice` may itself run an `EntityManager`
   // read (the `SalesTaxRate` fallback lookup) on this SAME forked `em`; concurrent calls
@@ -516,7 +533,7 @@ export async function buildCartResponseEnvelope(params: BuildCartResponseEnvelop
     const rows = filterRowsForVariant(rowsByProduct.get(line.productId) ?? [], line.variantId ?? null)
     let nextTier: CartLineNextTierView | null = null
     if (rows.length) {
-      const context = buildBuyerPricingContext(cart, Number(line.quantity), now)
+      const context = buildBuyerPricingContext(cart, Number(line.quantity), now, currencyDecimalPlaces)
       const resolved = await buyerPricingService.resolveLinePrice(em, rows, context, scope)
       nextTier = buildNextTierView(resolved, cart)
     }

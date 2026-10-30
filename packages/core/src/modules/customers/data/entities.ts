@@ -1,5 +1,6 @@
 import { Collection, OptionalProps } from '@mikro-orm/core'
 import { Entity, Index, ManyToOne, OneToMany, OneToOne, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
+import { ExactDecimalType } from '@open-mercato/shared/lib/db/exactDecimalType'
 import type { DictionaryEntrySortMode } from '@open-mercato/core/modules/dictionaries/lib/entrySort'
 import type { CalendarEventTypeBehavior } from '../calendar-event-types'
 
@@ -282,7 +283,7 @@ export class CustomerCompanyProfile {
   @Property({ name: 'size_bucket', type: 'text', nullable: true })
   sizeBucket?: string | null
 
-  @Property({ name: 'annual_revenue', type: 'numeric', precision: 16, scale: 2, nullable: true })
+  @Property({ name: 'annual_revenue', type: ExactDecimalType, columnType: 'numeric', nullable: true })
   annualRevenue?: string | null
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
@@ -335,7 +336,7 @@ export class CustomerDeal {
   @Property({ name: 'pipeline_stage_id', type: 'uuid', nullable: true })
   pipelineStageId?: string | null
 
-  @Property({ name: 'value_amount', type: 'numeric', precision: 14, scale: 2, nullable: true })
+  @Property({ name: 'value_amount', type: ExactDecimalType, columnType: 'numeric', nullable: true })
   valueAmount?: string | null
 
   @Property({ name: 'value_currency', type: 'text', nullable: true })

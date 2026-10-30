@@ -54,9 +54,12 @@ import {
   ensureOrganizationScope,
   ensureSameScope,
   ensureTenantScope,
+  exactAmountString,
   extractUndoPayload,
   toNumericString,
 } from './shared'
+import { withExactAmounts } from '@open-mercato/shared/lib/decimal'
+import { SHIPPING_METHOD_EXACT_AMOUNT_FIELDS } from '../lib/exactAmountFields'
 
 type ChannelSnapshot = {
   id: string
@@ -1259,7 +1262,8 @@ const createShippingMethodCommand: CommandHandler<
 > = {
   id: 'sales.shipping-methods.create',
   async execute(rawInput, ctx) {
-    const { parsed, custom } = parseWithCustomFields(shippingMethodCreateSchema, rawInput)
+    const { parsed: parsedInput, custom } = parseWithCustomFields(shippingMethodCreateSchema, rawInput)
+    const parsed = withExactAmounts(parsedInput, rawInput, SHIPPING_METHOD_EXACT_AMOUNT_FIELDS)
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
@@ -1273,8 +1277,8 @@ const createShippingMethodCommand: CommandHandler<
       providerKey: parsed.providerKey ?? null,
       serviceLevel: parsed.serviceLevel ?? null,
       estimatedTransitDays: parsed.estimatedTransitDays ?? null,
-      baseRateNet: toNumericString(parsed.baseRateNet) ?? '0',
-      baseRateGross: toNumericString(parsed.baseRateGross) ?? '0',
+      baseRateNet: exactAmountString(parsed.baseRateNetExact, parsed.baseRateNet) ?? '0',
+      baseRateGross: exactAmountString(parsed.baseRateGrossExact, parsed.baseRateGross) ?? '0',
       currencyCode: parsed.currencyCode ?? null,
       metadata: mergeProviderSettings(parsed.metadata, parsed.providerSettings),
       isActive: parsed.isActive ?? true,
@@ -1374,7 +1378,8 @@ const updateShippingMethodCommand: CommandHandler<
     return snapshot ? { before: snapshot } : {}
   },
   async execute(rawInput, ctx) {
-    const { parsed, custom } = parseWithCustomFields(shippingMethodUpdateSchema, rawInput)
+    const { parsed: parsedInput, custom } = parseWithCustomFields(shippingMethodUpdateSchema, rawInput)
+    const parsed = withExactAmounts(parsedInput, rawInput, SHIPPING_METHOD_EXACT_AMOUNT_FIELDS)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const record = await em.findOne(SalesShippingMethod, { id: parsed.id, deletedAt: null })
     if (!record) throw notFound('Shipping method not found')
@@ -1391,10 +1396,10 @@ const updateShippingMethodCommand: CommandHandler<
       record.estimatedTransitDays = parsed.estimatedTransitDays ?? null
     }
     if (Object.prototype.hasOwnProperty.call(parsed, 'baseRateNet')) {
-      record.baseRateNet = toNumericString(parsed.baseRateNet) ?? '0'
+      record.baseRateNet = exactAmountString(parsed.baseRateNetExact, parsed.baseRateNet) ?? '0'
     }
     if (Object.prototype.hasOwnProperty.call(parsed, 'baseRateGross')) {
-      record.baseRateGross = toNumericString(parsed.baseRateGross) ?? '0'
+      record.baseRateGross = exactAmountString(parsed.baseRateGrossExact, parsed.baseRateGross) ?? '0'
     }
     if (parsed.currencyCode !== undefined) record.currencyCode = parsed.currencyCode ?? null
     if (parsed.metadata !== undefined || parsed.providerSettings !== undefined) {

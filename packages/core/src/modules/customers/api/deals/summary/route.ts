@@ -10,15 +10,22 @@ import { resolveDealsOrganizationIds } from '../../../lib/dealsOrganizationScope
 import { resolveOptionalBaseCurrencyCode } from '../../../lib/optionalBaseCurrency'
 import { loadDealsSummaryQueryRows } from '../../../lib/dealsSummaryQueries'
 import {
+  averageAmountExact,
   computeDelta,
   convertSumsToBase,
+  dominantCurrencyAmount,
   getPreviousQuarterWindow,
   getQuarterWindow,
   getTrailingMonths,
-  type CurrencySum,
+  normalizeCurrencyCode,
+  sumsByCurrency,
+  type AmountEntry,
+  type ConvertedAmount,
   type Delta,
 } from '../../../lib/dealsMetrics'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { decimalToString, parseDecimal, resolveAmountDecimalPlaces } from '@open-mercato/shared/lib/decimal'
+import { resolveCurrencyAmountDecimalPlaces } from '@open-mercato/shared/lib/currencyPrecision'
 
 const logger = createLogger('customers')
 
@@ -34,10 +41,15 @@ const deltaSchema = z.object({
   direction: z.enum(['up', 'down', 'unchanged']),
 })
 
+const exactAmountSchema = z
+  .string()
+  .describe('Exact decimal string of the sibling amount, unrounded. Prefer it over the rounded number.')
+
 const stageBreakdownSchema = z.object({
   stage: z.string().nullable(),
   count: z.number(),
   value: z.number(),
+  valueExact: exactAmountSchema,
 })
 
 const ownerCountSchema = z.object({
@@ -56,6 +68,7 @@ const summaryResponseSchema = z.object({
   missingRateCurrencies: z.array(z.string()),
   pipelineValue: z.object({
     value: z.number(),
+    valueExact: exactAmountSchema,
     delta: deltaSchema,
     stages: z.array(stageBreakdownSchema),
   }),
@@ -69,9 +82,11 @@ const summaryResponseSchema = z.object({
   }),
   wonThisQuarter: z.object({
     value: z.number(),
+    valueExact: exactAmountSchema,
     delta: deltaSchema,
     dealsClosed: z.number(),
     avgDeal: z.number(),
+    avgDealExact: exactAmountSchema,
   }),
   winRate: z.object({
     value: z.number(),
@@ -95,7 +110,7 @@ export const openApi: OpenApiRouteDoc = {
     GET: {
       summary: 'Pipeline KPI metrics with period-over-period deltas for the deals list',
       description:
-        'Returns the four list-level KPI cards (pipeline value, active deals, won this quarter, win rate) with quarter-over-quarter deltas, per-stage open-pipeline breakdown, top owners, and a 6-month win-rate series. Values are converted to the tenant base currency where rates are available; partial conversions are disclosed via convertedAll/missingRateCurrencies.',
+        'Returns the four list-level KPI cards (pipeline value, active deals, won this quarter, win rate) with quarter-over-quarter deltas, per-stage open-pipeline breakdown, top owners, and a 6-month win-rate series. Values are converted to the tenant base currency where rates are available; partial conversions are disclosed via convertedAll/missingRateCurrencies. Money values are rounded to whole units for display; each has a `<field>Exact` decimal-string sibling with the unrounded value (sums and FX conversions are exact; `avgDealExact` is rounded to max(4, currency decimal places)).',
       responses: [
         { status: 200, description: 'Deals KPI summary payload', schema: summaryResponseSchema },
       ],
@@ -117,14 +132,9 @@ function winRate(won: number, lost: number): number {
   return Math.round((100 * won) / denom)
 }
 
-function sumsByCurrency(entries: Array<{ currency: string | null; total: number }>): CurrencySum[] {
-  const byCurrency = new Map<string, number>()
-  for (const entry of entries) {
-    const currency = (entry.currency ?? '').toString().trim().toUpperCase()
-    if (!currency) continue
-    byCurrency.set(currency, (byCurrency.get(currency) ?? 0) + entry.total)
-  }
-  return Array.from(byCurrency.entries()).map(([currency, total]) => ({ currency, total }))
+function toExactAmount(value: string | number | null | undefined): string {
+  const parsed = parseDecimal(value)
+  return parsed ? decimalToString(parsed) : '0'
 }
 
 export async function GET(req: Request) {
@@ -171,21 +181,21 @@ export async function GET(req: Request) {
 
   // Reduce open rows: per-stage sums, distinct owners, owner counts, and a flat
   // per-currency list for the converted pipeline total.
-  const stageMap = new Map<string, { stage: string | null; count: number; byCurrency: CurrencySum[] }>()
+  const stageMap = new Map<string, { stage: string | null; count: number; byCurrency: AmountEntry[] }>()
   const openOwnerCounts = new Map<string, number>()
-  const openSums: Array<{ currency: string | null; total: number }> = []
+  const openSums: AmountEntry[] = []
   for (const row of openRows) {
     const stageKey = row.stage ?? '__null__'
-    const total = toNumber(row.total)
+    const amount = toExactAmount(row.total)
     const count = toNumber(row.count)
-    const currency = (row.currency ?? '').toString().trim().toUpperCase()
+    const currency = normalizeCurrencyCode(row.currency)
     if (!stageMap.has(stageKey)) {
       stageMap.set(stageKey, { stage: row.stage ?? null, count: 0, byCurrency: [] })
     }
     const stageAgg = stageMap.get(stageKey)!
     stageAgg.count += count
-    if (currency) stageAgg.byCurrency.push({ currency, total })
-    openSums.push({ currency, total })
+    if (currency) stageAgg.byCurrency.push({ currency, amount })
+    openSums.push({ currency, amount })
     if (row.owner_user_id) {
       openOwnerCounts.set(row.owner_user_id, (openOwnerCounts.get(row.owner_user_id) ?? 0) + count)
     }
@@ -232,44 +242,34 @@ export async function GET(req: Request) {
 
   // Degraded path: when there is no base currency, fall back to the dominant currency's
   // raw sum so the cards still show a number (mirrors the aggregate route's disclosure).
-  const dominantCurrencyTotal = (entries: Array<{ currency: string | null; total: number }>): number => {
-    const byCurrency = new Map<string, number>()
-    for (const entry of entries) {
-      const currency = (entry.currency ?? '').toString().trim().toUpperCase()
-      if (!currency) continue
-      byCurrency.set(currency, (byCurrency.get(currency) ?? 0) + entry.total)
-    }
-    let best = 0
-    for (const total of byCurrency.values()) {
-      if (Math.abs(total) > Math.abs(best)) best = total
-    }
-    return Math.round(best)
-  }
-
-  const convert = (entries: Array<{ currency: string | null; total: number }>): number => {
+  const convert = (entries: AmountEntry[]): ConvertedAmount => {
     if (!baseCurrencyCode) {
       convertedAll = false
       trackMissing(sumsByCurrency(entries).map((entry) => entry.currency))
-      return dominantCurrencyTotal(entries)
+      return dominantCurrencyAmount(entries)
     }
     const result = convertSumsToBase(sumsByCurrency(entries), baseCurrencyCode, rates)
     if (!result.convertedAll) convertedAll = false
     trackMissing(result.missingRateCurrencies)
-    return result.total
+    return { value: result.total, valueExact: result.totalExact, currencyCode: baseCurrencyCode }
   }
 
   // Pipeline value (open deals, converted) + per-stage converted breakdown.
   const pipelineValueTotal = convert(openSums)
-  const stages = Array.from(stageMap.values()).map((stageAgg) => ({
-    stage: stageAgg.stage,
-    count: stageAgg.count,
-    value: convert(stageAgg.byCurrency),
-  }))
+  const stages = Array.from(stageMap.values()).map((stageAgg) => {
+    const stageValue = convert(stageAgg.byCurrency)
+    return {
+      stage: stageAgg.stage,
+      count: stageAgg.count,
+      value: stageValue.value,
+      valueExact: stageValue.valueExact,
+    }
+  })
 
   // Pipeline inflow delta (open value created this vs previous quarter).
-  const inflowCurrent = convert(inflowRows.map((row) => ({ currency: row.currency, total: toNumber(row.current_total) })))
-  const inflowPrevious = convert(inflowRows.map((row) => ({ currency: row.currency, total: toNumber(row.previous_total) })))
-  const pipelineDelta: Delta = computeDelta(inflowCurrent, inflowPrevious)
+  const inflowCurrent = convert(inflowRows.map((row) => ({ currency: row.currency, amount: toExactAmount(row.current_total) })))
+  const inflowPrevious = convert(inflowRows.map((row) => ({ currency: row.currency, amount: toExactAmount(row.previous_total) })))
+  const pipelineDelta: Delta = computeDelta(inflowCurrent.value, inflowPrevious.value)
 
   // Active deals: count of open deals, owners, need-attention, top owners.
   const activeDealsCount = openRows.reduce((sum, row) => sum + toNumber(row.count), 0)
@@ -283,11 +283,19 @@ export async function GET(req: Request) {
   const ownersOverflow = Math.max(0, ownersCount - owners.length)
 
   // Won this quarter.
-  const wonCurrent = convert(wonRows.map((row) => ({ currency: row.currency, total: toNumber(row.current_total) })))
-  const wonPrevious = convert(wonRows.map((row) => ({ currency: row.currency, total: toNumber(row.previous_total) })))
+  const wonCurrent = convert(wonRows.map((row) => ({ currency: row.currency, amount: toExactAmount(row.current_total) })))
+  const wonPrevious = convert(wonRows.map((row) => ({ currency: row.currency, amount: toExactAmount(row.previous_total) })))
   const dealsClosed = wonRows.reduce((sum, row) => sum + toNumber(row.current_count), 0)
-  const wonDelta: Delta = computeDelta(wonCurrent, wonPrevious)
-  const avgDeal = dealsClosed > 0 ? Math.round(wonCurrent / dealsClosed) : 0
+  const wonDelta: Delta = computeDelta(wonCurrent.value, wonPrevious.value)
+  const avgDeal = dealsClosed > 0 ? Math.round(wonCurrent.value / dealsClosed) : 0
+  const avgDealDecimalPlaces = dealsClosed > 0 && wonCurrent.currencyCode
+    ? await resolveCurrencyAmountDecimalPlaces(container, {
+      code: wonCurrent.currencyCode,
+      tenantId: effectiveTenantId,
+      organizationId: orgFilterIds[0] ?? null,
+    })
+    : resolveAmountDecimalPlaces(null)
+  const avgDealExact = averageAmountExact(wonCurrent.valueExact, dealsClosed, avgDealDecimalPlaces)
 
   // Win rate (current + previous quarter) and pp delta.
   const winLoss = winLossRows[0]
@@ -318,7 +326,8 @@ export async function GET(req: Request) {
     convertedAll,
     missingRateCurrencies: Array.from(missingRateCurrencies),
     pipelineValue: {
-      value: pipelineValueTotal,
+      value: pipelineValueTotal.value,
+      valueExact: pipelineValueTotal.valueExact,
       delta: pipelineDelta,
       stages,
     },
@@ -331,10 +340,12 @@ export async function GET(req: Request) {
       ownersOverflow,
     },
     wonThisQuarter: {
-      value: wonCurrent,
+      value: wonCurrent.value,
+      valueExact: wonCurrent.valueExact,
       delta: wonDelta,
       dealsClosed,
       avgDeal,
+      avgDealExact,
     },
     winRate: {
       value: winRateValue,

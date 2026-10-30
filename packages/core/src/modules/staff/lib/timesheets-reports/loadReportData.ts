@@ -23,6 +23,7 @@ import {
   StaffTimeTask,
 } from '../../data/entities'
 import type { FrozenEntryValues, ReportDirectory, ReportInputEntry, ReportInputProject } from './reportTotals'
+import { decimalToString, parseDecimal } from '@open-mercato/shared/lib/decimal'
 
 export type ReportDataScope = {
   tenantId: string
@@ -54,6 +55,11 @@ function toNumberOrNull(value: unknown): number | null {
   if (value === null || value === undefined) return null
   const parsed = typeof value === 'number' ? value : Number.parseFloat(String(value))
   return Number.isFinite(parsed) ? parsed : null
+}
+
+function toExactOrNull(value: unknown): string | null {
+  const parsed = parseDecimal(value)
+  return parsed ? decimalToString(parsed) : null
 }
 
 function toIsoDate(value: Date | string | null | undefined): string {
@@ -186,6 +192,7 @@ export async function loadReportData(input: LoadReportDataInput): Promise<Report
     roundedMinutes: entry.roundedMinutes ?? null,
     isBillable: entry.isBillable ?? true,
     rateOverrideAmount: toNumberOrNull(entry.rateOverrideAmount),
+    rateOverrideAmountExact: toExactOrNull(entry.rateOverrideAmount),
     description: entry.notes ?? null,
     frozen: frozenByEntryId.get(entry.id) ?? null,
   }))
@@ -194,6 +201,7 @@ export async function loadReportData(input: LoadReportDataInput): Promise<Report
     id: project.id,
     name: project.name,
     hourlyRate: toNumberOrNull(project.hourlyRate),
+    hourlyRateExact: toExactOrNull(project.hourlyRate),
     currencyCode: project.currencyCode ?? null,
   }))
 
@@ -302,8 +310,10 @@ export async function loadFrozenValues(
       rawMinutes: row.frozenRawMinutes ?? 0,
       roundedMinutes: row.frozenRoundedMinutes ?? 0,
       rateAmount: toNumberOrNull(row.frozenRateAmount),
+      rateAmountExact: toExactOrNull(row.frozenRateAmount),
       currencyCode: row.frozenCurrencyCode ?? null,
       amount: toNumberOrNull(row.frozenAmount),
+      amountExact: toExactOrNull(row.frozenAmount),
       isBillable: row.frozenIsBillable ?? true,
     })
   }

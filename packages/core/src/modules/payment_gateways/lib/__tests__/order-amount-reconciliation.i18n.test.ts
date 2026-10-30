@@ -81,3 +81,56 @@ describe('session amount reconciliation — localized conflict messages (#4488)'
     })
   })
 })
+
+describe('session amount reconciliation tolerance', () => {
+  beforeEach(() => {
+    mockResolveTranslations.mockRejectedValue(new Error('[Bootstrap] Modules not registered.'))
+  })
+
+  afterEach(() => {
+    mockResolveTranslations.mockReset()
+  })
+
+  function reconcileExact(input: {
+    amountExact: string
+    total: PaymentOrderTotal
+    currencyDecimalPlaces?: number | null
+  }) {
+    return reconcileSessionAmountWithOrder({
+      orderId: ORDER_ID,
+      amount: Number(input.amountExact),
+      amountExact: input.amountExact,
+      currencyCode: input.total.currencyCode,
+      currencyDecimalPlaces: input.currencyDecimalPlaces,
+      scope,
+      resolver: makeResolver(input.total),
+    })
+  }
+
+  it('keeps the 0.0001 tolerance when the resolver only reports a float amount due', async () => {
+    const total = { orderId: ORDER_ID, currencyCode: 'USD', amountDue: 0.1 + 0.2 }
+    await expect(reconcileExact({ amountExact: '0.3', total })).resolves.toBeUndefined()
+    await expect(reconcileExact({ amountExact: '0.30009', total })).resolves.toBeUndefined()
+    await expect(reconcileExact({ amountExact: '0.3002', total })).rejects.toMatchObject({ status: 409 })
+  })
+
+  it('uses the currency amount precision when the exact amount due is known', async () => {
+    const total = { orderId: ORDER_ID, currencyCode: 'USD', amountDue: 100, amountDueExact: '100' }
+    await expect(reconcileExact({ amountExact: '100.00005', total, currencyDecimalPlaces: 2 })).resolves.toBeUndefined()
+    await expect(reconcileExact({ amountExact: '100.0002', total, currencyDecimalPlaces: 2 })).rejects.toMatchObject({ status: 409 })
+  })
+
+  it('narrows the tolerance for a higher-precision currency', async () => {
+    const total = { orderId: ORDER_ID, currencyCode: 'BTC', amountDue: 1.5, amountDueExact: '1.5' }
+    await expect(reconcileExact({ amountExact: '1.500000005', total, currencyDecimalPlaces: 8 })).resolves.toBeUndefined()
+    await expect(reconcileExact({ amountExact: '1.49999999', total, currencyDecimalPlaces: 8 })).rejects.toMatchObject({ status: 409 })
+    await expect(reconcileExact({ amountExact: '1.50000001', total, currencyDecimalPlaces: 8 })).rejects.toMatchObject({ status: 409 })
+  })
+
+  it('falls back to 4 decimals when the currency precision is unknown', async () => {
+    const total = { orderId: ORDER_ID, currencyCode: 'USD', amountDue: 1.5, amountDueExact: '1.5' }
+    await expect(reconcileExact({ amountExact: '1.50005', total, currencyDecimalPlaces: null })).resolves.toBeUndefined()
+    await expect(reconcileExact({ amountExact: '1.5001', total, currencyDecimalPlaces: null })).rejects.toMatchObject({ status: 409 })
+    await expect(reconcileExact({ amountExact: '1.5002', total })).rejects.toMatchObject({ status: 409 })
+  })
+})

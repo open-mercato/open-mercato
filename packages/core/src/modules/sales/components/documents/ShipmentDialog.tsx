@@ -21,7 +21,18 @@ import { cn } from '@open-mercato/shared/lib/utils'
 import { E } from '#generated/entities.ids.generated'
 import { emitSalesDocumentTotalsRefresh } from '@open-mercato/core/modules/sales/lib/frontend/documentTotalsEvents'
 import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
-import { formatMoney, normalizeNumber } from './lineItemUtils'
+import { formatMoney, roundAutoFilledAmount, toExactAmount, type CurrencyPrecision } from './lineItemUtils'
+import { loadCurrencyDecimalPlaces } from './currencyDecimalPlaces'
+import {
+  compareDecimals,
+  decimalToString,
+  divideDecimals,
+  maxDecimal,
+  minDecimal,
+  multiplyDecimals,
+  sumDecimals,
+  DEFAULT_AMOUNT_DECIMAL_PLACES,
+} from '@open-mercato/shared/lib/decimal'
 import type { OrderLine, ShipmentRow } from './shipmentTypes'
 import { formatAddressString, type AddressFormatStrategy, type AddressValue } from '@open-mercato/core/modules/customers/utils/addressFormat'
 import { normalizeCustomFieldSubmitValue, extractCustomFieldValues } from './customFieldHelpers'
@@ -34,10 +45,10 @@ type ShippingMethodOption = {
   name: string
   code: string
   currencyCode: string | null
-  baseRateNet: number | null
-  baseRateGross: number | null
-  minPrice: number | null
-  avgPrice: number | null
+  baseRateNet: string | null
+  baseRateGross: string | null
+  minPrice: string | null
+  avgPrice: string | null
 }
 
 type ShipmentDialogProps = {
@@ -131,14 +142,22 @@ const parseTrackingNumbers = (value: string | null | undefined): string[] =>
     .map((entry) => entry.trim())
     .filter((entry) => entry.length > 0)
 
-const normalizePrice = (value: unknown): number | null => {
-  const parsed = normalizeNumber(value, NaN)
-  if (!Number.isFinite(parsed)) return null
-  if (parsed <= 0) return null
+const normalizePrice = (value: unknown): string | null => {
+  const parsed = toExactAmount(value)
+  if (parsed === null) return null
+  if (compareDecimals(parsed, 0) <= 0) return null
   return parsed
 }
 
-const roundAmount = (value: number): number => Math.round((value + Number.EPSILON) * 100) / 100
+const resolveShippingAmount = (
+  unitAmount: string | null,
+  quantity: number,
+  currency: CurrencyPrecision,
+): string | null => {
+  if (unitAmount === null || !(quantity > 0)) return null
+  const amount = maxDecimal(multiplyDecimals(unitAmount, quantity), 0)
+  return roundAutoFilledAmount(amount, currency, unitAmount)
+}
 
 const readStringField = (input: Record<string, unknown>, keys: string[]): string | null => {
   for (const key of keys) {
@@ -566,9 +585,11 @@ export function ShipmentDialog({
       if (!id || !name) return null
       const baseRateNet = normalizePrice((item as any).baseRateNet ?? (item as any).base_rate_net)
       const baseRateGross = normalizePrice((item as any).baseRateGross ?? (item as any).base_rate_gross)
-      const prices = [baseRateNet, baseRateGross].filter((value): value is number => Number.isFinite(value))
-      const minPrice = prices.length ? Math.min(...prices) : null
-      const avgPrice = prices.length ? prices.reduce((acc, value) => acc + value, 0) / prices.length : null
+      const prices = [baseRateNet, baseRateGross].filter((value): value is string => value !== null)
+      const minPrice = prices.length ? decimalToString(minDecimal(...prices)) : null
+      const avgPrice = prices.length
+        ? decimalToString(divideDecimals(sumDecimals(prices), prices.length, DEFAULT_AMOUNT_DECIMAL_PLACES))
+        : null
       return {
         id,
         name,
@@ -1153,20 +1174,18 @@ export function ShipmentDialog({
             method?.minPrice ??
             (method?.baseRateNet ?? null)
           const unitNet = method?.baseRateNet ?? null
-          const amountGross =
-            typeof unitGross === 'number' && Number.isFinite(unitGross) && totalQuantity > 0
-              ? roundAmount(Math.max(unitGross * totalQuantity, 0))
-              : null
-          const amountNet =
-            typeof unitNet === 'number' && Number.isFinite(unitNet) && totalQuantity > 0
-              ? roundAmount(Math.max(unitNet * totalQuantity, 0))
-              : null
           const currency =
             typeof method?.currencyCode === 'string' && method.currencyCode.trim().length
               ? method.currencyCode.trim().toUpperCase()
             : typeof currencyCode === 'string' && currencyCode.trim().length
                 ? currencyCode.trim().toUpperCase()
                 : null
+          const currencyPrecision: CurrencyPrecision = {
+            code: currency,
+            decimalPlaces: await loadCurrencyDecimalPlaces(currency),
+          }
+          const amountGross = resolveShippingAmount(unitGross, totalQuantity, currencyPrecision)
+          const amountNet = resolveShippingAmount(unitNet, totalQuantity, currencyPrecision)
 
           if (amountGross !== null || amountNet !== null) {
             try {

@@ -1247,6 +1247,7 @@
   "sales.documents.status.documentPlaceholder": "Select new order/quote status",
   "sales.documents.status.linePlaceholder": "Select item status",
   "sales.documents.status.sectionTitle": "Status changes",
+  "sales.errors.amount_invalid": "Enter a valid amount.",
   "sales.errors.externalAdjustmentRefused": "This order carries amounts from an external system, so adjustments cannot be added or removed. Switch it to computed amounts first.",
   "sales.errors.externalAmountsIncomplete": "Line {{line}} has external amounts but is missing: {{fields}}. Partial specification is not a mode.",
   "sales.errors.externalModeMixed": "An order and all of its lines must share the same amounts mode.",

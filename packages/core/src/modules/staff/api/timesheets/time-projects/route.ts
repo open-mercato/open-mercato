@@ -21,6 +21,7 @@ import { MANAGE_PROJECTS_FEATURE, resolveProjectAccess, type ProjectAccess } fro
 import { readTimeTrackingSettings } from '../../../lib/time-tracking/settings'
 import { buildSqlInClause } from '../../../lib/time-tracking/sqlInClause'
 import { sanitizeSearchTerm, parseBooleanFlag } from '../../helpers'
+import { parseWithLocalizedIssues } from '../../../lib/validationIssues'
 import { createStaffCrudOpenApi, createPagedListResponseSchema, defaultOkResponseSchema } from '../../openapi'
 import { E } from '#generated/entities.ids.generated'
 
@@ -448,7 +449,7 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        return parseScopedCommandInput(staffTimeProjectCreateSchema, raw ?? {}, ctx, translate)
+        return parseWithLocalizedIssues(() => parseScopedCommandInput(staffTimeProjectCreateSchema, raw ?? {}, ctx, translate), translate)
       },
       response: ({ result }) => ({ id: result?.timeProjectId ?? null }),
       status: 201,
@@ -458,7 +459,7 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        return parseScopedCommandInput(staffTimeProjectUpdateSchema, raw ?? {}, ctx, translate)
+        return parseWithLocalizedIssues(() => parseScopedCommandInput(staffTimeProjectUpdateSchema, raw ?? {}, ctx, translate), translate)
       },
       response: () => ({ ok: true }),
     },

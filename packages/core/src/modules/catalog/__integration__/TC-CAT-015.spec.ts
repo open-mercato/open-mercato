@@ -231,9 +231,10 @@ test.describe("TC-CAT-015: Catalog price update error handling", () => {
 
       const cases = [
         {
-          label: "issue oversized integer",
+          label: "large integer beyond the former numeric(16,4) limit",
           updateValue: 9999999999778,
-          expectedStatus: 400,
+          expectedStatus: 200,
+          expectedStoredGross: "9999999999778",
         },
         {
           label: "issue localized decimal string",
@@ -244,23 +245,25 @@ test.describe("TC-CAT-015: Catalog price update error handling", () => {
           label: "issue zero value",
           updateValue: 0,
           expectedStatus: 200,
-          expectedStoredGross: 0,
+          expectedStoredGross: "0",
         },
         {
-          label: "largest 12-digit integer still inside precision",
+          label: "largest 12-digit integer",
           updateValue: 999999999999,
           expectedStatus: 200,
-          expectedStoredGross: 999999999999,
+          expectedStoredGross: "999999999999",
         },
         {
-          label: "first integer above numeric(16,4) precision",
-          updateValue: 1000000000000,
-          expectedStatus: 400,
+          label: "integer with more than 12 digits sent as a string",
+          updateValue: "123456789012345678901",
+          expectedStatus: 200,
+          expectedStoredGross: "123456789012345678901",
         },
         {
-          label: "value with more than four decimal places",
+          label: "value with more than four decimal places is stored exactly as entered",
           updateValue: "12.34567",
-          expectedStatus: 400,
+          expectedStatus: 200,
+          expectedStoredGross: "12.34567",
         },
       ] as const;
 
@@ -306,15 +309,13 @@ test.describe("TC-CAT-015: Catalog price update error handling", () => {
 
         const row = await readPriceRow(request, token, variantId, priceId);
         expect(row, `${testCase.label} should still exist after update`).toBeTruthy();
-        const gross = Number(
-          row?.unit_price_gross ?? row?.unitPriceGross ?? Number.NaN,
-        );
+        const gross = String(row?.unit_price_gross ?? row?.unitPriceGross ?? "");
         expect(
-          Number.isFinite(gross),
-          `${testCase.label} should persist a numeric gross amount`,
+          gross.length > 0,
+          `${testCase.label} should persist a gross amount`,
         ).toBeTruthy();
         if ('expectedStoredGross' in testCase) {
-          expect(gross).toBe(testCase.expectedStoredGross);
+          expect(gross.includes(".") ? gross.replace(/\.?0+$/, "") : gross).toBe(testCase.expectedStoredGross);
         }
       }
     } finally {

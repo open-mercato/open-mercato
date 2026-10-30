@@ -152,6 +152,7 @@
   "checkout.defaultCustomerFields.lastName.placeholder": "Doe",
   "checkout.defaultCustomerFields.phone.label": "Phone",
   "checkout.defaultCustomerFields.phone.placeholder": "+1 555 123 4567",
+  "checkout.errors.amountPrecisionExceeded": "El importe {amount} tiene más decimales de los que admite {currencyCode} ({decimalPlaces})",
   "checkout.errors.links.lockedEdit": "Este enlace de pago tiene transacciones activas y no se puede editar",
   "checkout.errors.links.notFound": "No se encontro el enlace de pago",
   "checkout.gatewaySettings.notices.chooseProvider": "Choose a gateway provider to configure checkout session settings.",

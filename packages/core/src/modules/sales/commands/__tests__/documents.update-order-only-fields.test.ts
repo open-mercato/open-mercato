@@ -238,6 +238,20 @@ describe('documentUpdateSchema — order-only fields', () => {
     expect(result.error?.issues.map((issue) => issue.path.join('.'))).toContain('exchangeRate')
   })
 
+  it.each([
+    ['a numeric 1e305', 1e305],
+    ['a string 1e305', '1e305'],
+    ['a 1001 significant digit string', `0.${'1'.repeat(1001)}`],
+  ])(
+    'rejects an exchangeRate of %s beyond the decimal size caps, matching the create schema',
+    (_label, exchangeRate) => {
+      const result = documentUpdateSchema.safeParse({ id: ORDER_ID, exchangeRate })
+
+      expect(result.success).toBe(false)
+      expect(result.error?.issues.map((issue) => issue.path.join('.'))).toContain('exchangeRate')
+    },
+  )
+
   it.each(['paymentStatusEntryId', 'fulfillmentStatusEntryId'])(
     'rejects a non-uuid %s',
     (field) => {

@@ -13,6 +13,7 @@ import { WarrantyClaimLine, WarrantyVendorPolicy } from '../../data/entities'
 import { requireScopedClaim, type WarrantyClaimScope } from '../../commands/shared'
 import { findVendorRecoveryMatches } from '../../lib/vendorPolicyRecovery'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { resolveCurrencyDecimalPlaces } from '@open-mercato/shared/lib/currencyPrecision'
 
 const logger = createLogger('warranty_claims')
 
@@ -46,6 +47,7 @@ type SuggestionsRouteContext = {
   scope: WarrantyClaimScope
   translate: (key: string, fallback?: string) => string
   em: EntityManager
+  container: Awaited<ReturnType<typeof createRequestContainer>>
 }
 
 export const metadata = {
@@ -83,6 +85,7 @@ async function resolveSuggestionsContext(req: Request): Promise<SuggestionsRoute
     scope: { tenantId: auth.tenantId, organizationId },
     translate,
     em,
+    container,
   }
 }
 
@@ -122,11 +125,19 @@ export async function GET(req: Request) {
       { orderBy: { vendorName: 'ASC', updatedAt: 'DESC' } },
       context.scope,
     )
+    const currencyDecimalPlaces = claim.currencyCode
+      ? await resolveCurrencyDecimalPlaces(context.container, {
+        code: claim.currencyCode,
+        tenantId: context.tenantId,
+        organizationId: context.organizationId,
+      })
+      : null
     const matches = findVendorRecoveryMatches({
       claim,
       lines,
       policies,
       requireWarrantyResolved: true,
+      currencyDecimalPlaces,
     })
     const suggestions = matches.map((match) => ({
       lineId: match.line.id,

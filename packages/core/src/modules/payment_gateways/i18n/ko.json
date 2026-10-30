@@ -2,6 +2,8 @@
   "payment_gateways.captureMethod.automatic": "자동",
   "payment_gateways.captureMethod.manual": "수동",
   "payment_gateways.column.gatewayStatus": "게이트웨이 상태",
+  "payment_gateways.errors.amountMustBePositive": "금액은 0보다 커야 합니다",
+  "payment_gateways.errors.amountPrecisionExceeded": "금액 {amount}의 소수 자릿수가 {currencyCode}에서 지원하는 자릿수({decimalPlaces})보다 많습니다",
   "payment_gateways.errors.sessionAmountMismatch": "결제 세션 금액 {amount}가 주문 {orderId}에 대한 금액과 일치하지 않습니다.",
   "payment_gateways.errors.sessionCurrencyMismatch": "결제 세션 통화 {currencyCode}가 주문 통화 {orderId}와 일치하지 않습니다.",
   "payment_gateways.errors.sessionOrderNotFound": "현재 범위에서 {orderId} 주문을 찾을 수 없습니다.",

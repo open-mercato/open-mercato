@@ -1247,6 +1247,7 @@
   "sales.documents.status.documentPlaceholder": "Neuen Bestell-/Angebotsstatus auswählen",
   "sales.documents.status.linePlaceholder": "Positionsstatus auswählen",
   "sales.documents.status.sectionTitle": "Statusänderungen",
+  "sales.errors.amount_invalid": "Geben Sie einen gültigen Betrag ein.",
   "sales.errors.externalAdjustmentRefused": "Dieser Auftrag führt Beträge aus einem externen System, daher können keine Anpassungen hinzugefügt oder entfernt werden. Stellen Sie ihn zuerst auf berechnete Beträge um.",
   "sales.errors.externalAmountsIncomplete": "Position {{line}} hat externe Beträge, aber es fehlen: {{fields}}. Eine unvollständige Angabe ist kein Modus.",
   "sales.errors.externalModeMixed": "Ein Auftrag und alle seine Positionen müssen denselben Betragsmodus verwenden.",

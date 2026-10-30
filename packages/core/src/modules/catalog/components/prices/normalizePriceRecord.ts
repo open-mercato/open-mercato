@@ -4,6 +4,8 @@
 // `unit_price_gross`, `min_quantity`, ...) — this normalizes either shape
 // into one camelCase record so UI code never has to guess which one it got.
 
+import { decimalToString } from '@open-mercato/shared/lib/decimal'
+
 export type NormalizedPriceRecord = {
   id: string
   productId: string | null
@@ -32,6 +34,12 @@ function str(record: Record<string, unknown>, camelKey: string, snakeKey: string
   return typeof value === 'string' && value.length ? value : null
 }
 
+function decimal(record: Record<string, unknown>, camelKey: string, snakeKey: string): string | null {
+  const value = record[camelKey] ?? record[snakeKey]
+  if (typeof value === 'number') return Number.isFinite(value) ? decimalToString(value) : null
+  return typeof value === 'string' && value.length ? value : null
+}
+
 function num(record: Record<string, unknown>, camelKey: string, snakeKey: string, fallback: number): number {
   const value = record[camelKey] ?? record[snakeKey]
   const parsed = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN
@@ -53,9 +61,9 @@ export function normalizePriceRecord(record: Record<string, unknown>): Normalize
     priceKindId: str(record, 'priceKindId', 'price_kind_id'),
     currencyCode: str(record, 'currencyCode', 'currency_code'),
     kind: str(record, 'kind', 'kind') ?? 'regular',
-    unitPriceNet: str(record, 'unitPriceNet', 'unit_price_net'),
-    unitPriceGross: str(record, 'unitPriceGross', 'unit_price_gross'),
-    taxRate: str(record, 'taxRate', 'tax_rate'),
+    unitPriceNet: decimal(record, 'unitPriceNet', 'unit_price_net'),
+    unitPriceGross: decimal(record, 'unitPriceGross', 'unit_price_gross'),
+    taxRate: decimal(record, 'taxRate', 'tax_rate'),
     minQuantity: num(record, 'minQuantity', 'min_quantity', 1),
     maxQuantity: numOrNull(record, 'maxQuantity', 'max_quantity'),
     startsAt: str(record, 'startsAt', 'starts_at'),

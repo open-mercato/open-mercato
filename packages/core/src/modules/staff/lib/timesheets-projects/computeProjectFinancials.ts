@@ -1,5 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { entryAmount, round2, sumAmounts } from '../time-tracking/cost'
+import { DEFAULT_STAFF_AMOUNT_DECIMAL_PLACES, entryAmountExact, sumAmountsExact } from '../time-tracking/cost'
+import { decimalToNumber, decimalToString, multiplyDecimals, parseDecimal } from '@open-mercato/shared/lib/decimal'
+import { resolveCurrencyDecimalPlaces } from '@open-mercato/shared/lib/currencyPrecision'
 
 /**
  * Per-project hours and cost for the projects list.
@@ -17,7 +19,8 @@ import { entryAmount, round2, sumAmounts } from '../time-tracking/cost'
 export type ProjectEntryGroup = {
   projectId: string
   isBillable: boolean
-  rateOverrideAmount: number | null
+  /** A number, or an exact decimal string for rates beyond float precision. */
+  rateOverrideAmount: number | string | null
   billingMinutes: number
   rawMinutes: number
   entryCount: number
@@ -27,6 +30,7 @@ export type ProjectFinancials = {
   totalMinutes: number
   billableMinutes: number
   cost: number | null
+  costExact?: string | null
 }
 
 export type ProjectFinancialsScope = {
@@ -34,8 +38,39 @@ export type ProjectFinancialsScope = {
   tenantId: string
   organizationId: string
   projectIds: string[]
-  hourlyRateByProjectId: ReadonlyMap<string, number | null>
+  hourlyRateByProjectId: ReadonlyMap<string, number | string | null>
+  /** Decimals each project's amounts round to (its currency's); 2 when absent. */
+  amountDecimalPlacesByProjectId?: Readonly<Record<string, number>>
   staffMemberId?: string | null
+}
+
+type CurrencyPrecisionContainer = Parameters<typeof resolveCurrencyDecimalPlaces>[0]
+
+/**
+ * Resolves each distinct project currency's decimals once, so a batch of
+ * projects costs one lookup per currency rather than one per project or entry.
+ */
+export async function resolveProjectAmountDecimalPlaces(
+  container: CurrencyPrecisionContainer,
+  projects: readonly { id: string; currencyCode?: string | null }[],
+  scope: { tenantId: string; organizationId: string },
+): Promise<Record<string, number>> {
+  const codeOf = (project: { currencyCode?: string | null }) =>
+    typeof project.currencyCode === 'string' ? project.currencyCode.trim().toUpperCase() : ''
+  const codes = Array.from(new Set(projects.map(codeOf).filter((code) => code.length > 0)))
+  const resolved = await Promise.all(
+    codes.map(async (code) => {
+      const decimalPlaces = await resolveCurrencyDecimalPlaces(container, { code, ...scope })
+      return [code, decimalPlaces ?? DEFAULT_STAFF_AMOUNT_DECIMAL_PLACES] as const
+    }),
+  )
+  const decimalPlacesByCode: Record<string, number> = Object.fromEntries(resolved)
+  return Object.fromEntries(
+    projects.map((project) => [
+      project.id,
+      decimalPlacesByCode[codeOf(project)] ?? DEFAULT_STAFF_AMOUNT_DECIMAL_PLACES,
+    ]),
+  )
 }
 
 type FinancialsRow = {
@@ -53,49 +88,54 @@ function toNumber(value: string | number | null | undefined): number {
   return Number.isFinite(parsed) ? parsed : 0
 }
 
-function toNullableNumber(value: string | number | null | undefined): number | null {
-  if (value === null || value === undefined) return null
-  const parsed = typeof value === 'number' ? value : Number(value)
-  return Number.isFinite(parsed) ? parsed : null
+function toNullableExact(value: string | number | null | undefined): string | null {
+  const parsed = parseDecimal(value)
+  return parsed ? decimalToString(parsed) : null
 }
 
 function emptyFinancials(): ProjectFinancials {
-  return { totalMinutes: 0, billableMinutes: 0, cost: null }
+  return { totalMinutes: 0, billableMinutes: 0, cost: null, costExact: null }
 }
 
 export function summarizeProjectEntryGroups(
   groups: readonly ProjectEntryGroup[],
-  hourlyRateByProjectId: ReadonlyMap<string, number | null>,
+  hourlyRateByProjectId: ReadonlyMap<string, number | string | null>,
   projectIds: readonly string[],
+  amountDecimalPlacesByProjectId: Readonly<Record<string, number>> = {},
 ): Map<string, ProjectFinancials> {
+  const decimalPlacesOf = (projectId: string) =>
+    amountDecimalPlacesByProjectId[projectId] ?? DEFAULT_STAFF_AMOUNT_DECIMAL_PLACES
   const result = new Map<string, ProjectFinancials>()
   for (const id of projectIds) result.set(id, emptyFinancials())
 
-  const amountsByProject = new Map<string, number[]>()
+  const amountsByProject = new Map<string, string[]>()
   for (const group of groups) {
     const bucket = result.get(group.projectId)
     if (!bucket) continue
     bucket.totalMinutes += group.rawMinutes
     if (group.isBillable) bucket.billableMinutes += group.rawMinutes
 
-    const amount = entryAmount(
+    const amount = entryAmountExact(
       {
         isBillable: group.isBillable,
         roundedMinutes: group.billingMinutes,
         rateOverrideAmount: group.rateOverrideAmount,
       },
       { hourlyRate: hourlyRateByProjectId.get(group.projectId) ?? null },
+      null,
+      decimalPlacesOf(group.projectId),
     )
     if (amount === null) continue
     const amounts = amountsByProject.get(group.projectId) ?? []
-    amounts.push(round2(amount * group.entryCount))
+    amounts.push(decimalToString(multiplyDecimals(amount, group.entryCount)))
     amountsByProject.set(group.projectId, amounts)
   }
 
   for (const [projectId, amounts] of amountsByProject) {
     const bucket = result.get(projectId)
     if (!bucket) continue
-    bucket.cost = sumAmounts(amounts)
+    bucket.costExact = sumAmountsExact(amounts, decimalPlacesOf(projectId))
+    bucket.cost = decimalToNumber(bucket.costExact)
   }
 
   return result
@@ -132,11 +172,16 @@ export async function computeProjectFinancials(
   const groups: ProjectEntryGroup[] = rows.map((row) => ({
     projectId: row.project_id,
     isBillable: Boolean(row.is_billable),
-    rateOverrideAmount: toNullableNumber(row.rate_override_amount),
+    rateOverrideAmount: toNullableExact(row.rate_override_amount),
     billingMinutes: toNumber(row.billing_minutes),
     rawMinutes: toNumber(row.raw_minutes),
     entryCount: toNumber(row.entry_count),
   }))
 
-  return summarizeProjectEntryGroups(groups, scope.hourlyRateByProjectId, scope.projectIds)
+  return summarizeProjectEntryGroups(
+    groups,
+    scope.hourlyRateByProjectId,
+    scope.projectIds,
+    scope.amountDecimalPlacesByProjectId,
+  )
 }

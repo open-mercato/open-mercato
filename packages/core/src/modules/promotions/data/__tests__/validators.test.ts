@@ -64,6 +64,13 @@ describe('promotion create schema', () => {
     expect(parsed.excludeFlags).toEqual({})
     expect(parsed.eligibleCurrencies).toEqual([])
   })
+
+  it('keeps every digit of a budget and rejects decimals past the size caps', () => {
+    const exact = promotionCreateSchema.parse({ name: 'X', order: 1, maxBudget: '0.000000000000000001', budgetCurrency: 'USD' })
+    expect(exact.maxBudget).toBe('0.000000000000000001')
+    const oversized = promotionCreateSchema.safeParse({ name: 'X', order: 1, maxBudget: '1'.repeat(400), budgetCurrency: 'USD' })
+    expect(oversized.success).toBe(false)
+  })
 })
 
 describe('promotion code update schema', () => {

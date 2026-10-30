@@ -57,6 +57,7 @@ import {
 } from '../lib/closureStage'
 import { canonicalDealStatus, isClosedDealStatus } from '../lib/dealStatus'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { decimalToString, parseDecimal, withExactAmounts } from '@open-mercato/shared/lib/decimal'
 
 const logger = createLogger('customers')
 
@@ -406,9 +407,9 @@ async function loadDealSnapshot(em: EntityManager, id: string): Promise<DealSnap
   }
 }
 
-function toNumericString(value: number | null | undefined): string | null {
-  if (value === undefined || value === null) return null
-  return value.toString()
+function toNumericString(value: number | string | null | undefined): string | null {
+  const parsed = parseDecimal(value)
+  return parsed ? decimalToString(parsed) : null
 }
 
 function sameLinkIdSet(next: Set<string>, current: Set<string>): boolean {
@@ -567,7 +568,8 @@ const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
   id: 'customers.deals.create',
   outputSchema: dealCommandOutputSchema,
   async execute(rawInput, ctx) {
-    const { parsed, custom } = parseWithCustomFields(dealCreateSchema, rawInput)
+    const { parsed: parsedInput, custom } = parseWithCustomFields(dealCreateSchema, rawInput)
+    const parsed = withExactAmounts(parsedInput, rawInput, ['valueAmount'] as const)
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
 
@@ -612,7 +614,7 @@ const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
           pipelineStage: resolvedPipelineStageLabel,
           pipelineId: pipelineAssignment.pipelineId,
           pipelineStageId: pipelineAssignment.pipelineStageId,
-          valueAmount: toNumericString(parsed.valueAmount),
+          valueAmount: toNumericString(parsed.valueAmountExact ?? parsed.valueAmount),
           valueCurrency: parsed.valueCurrency ?? null,
           probability: parsed.probability ?? null,
           expectedCloseAt: parsed.expectedCloseAt ?? null,
@@ -781,7 +783,8 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
     return snapshot ? { before: snapshot } : {}
   },
   async execute(rawInput, ctx) {
-    const { parsed, custom } = parseWithCustomFields(dealUpdateSchema, rawInput)
+    const { parsed: parsedInput, custom } = parseWithCustomFields(dealUpdateSchema, rawInput)
+    const parsed = withExactAmounts(parsedInput, rawInput, ['valueAmount'] as const)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const deal = await findOneWithDecryption(em, CustomerDeal, { id: parsed.id, deletedAt: null })
     const record = deal ?? null
@@ -887,7 +890,7 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
             record.pipelineStage = resolvedCurrentPipelineStageLabel
           }
 
-          if (parsed.valueAmount !== undefined) record.valueAmount = toNumericString(parsed.valueAmount)
+          if (parsed.valueAmount !== undefined) record.valueAmount = toNumericString(parsed.valueAmountExact ?? parsed.valueAmount)
           if (parsed.valueCurrency !== undefined) record.valueCurrency = parsed.valueCurrency ?? null
           if (parsed.probability !== undefined) record.probability = parsed.probability ?? null
           if (parsed.expectedCloseAt !== undefined) record.expectedCloseAt = parsed.expectedCloseAt ?? null

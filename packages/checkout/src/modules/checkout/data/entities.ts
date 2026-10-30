@@ -1,5 +1,6 @@
 import { OptionalProps } from '@mikro-orm/core'
 import { Entity, Index, PrimaryKey, Property } from '@mikro-orm/decorators/legacy'
+import { ExactDecimalType } from '@open-mercato/shared/lib/db/exactDecimalType'
 
 @Entity({ tableName: 'checkout_link_templates' })
 @Index({ properties: ['organizationId', 'tenantId', 'deletedAt'] })
@@ -94,7 +95,7 @@ export class CheckoutLinkTemplate {
   @Property({ name: 'pricing_mode', type: 'text' })
   pricingMode!: 'fixed' | 'custom_amount' | 'price_list'
 
-  @Property({ name: 'fixed_price_amount', type: 'numeric', precision: 12, scale: 2, nullable: true })
+  @Property({ name: 'fixed_price_amount', type: ExactDecimalType, columnType: 'numeric', nullable: true })
   fixedPriceAmount?: string | null
 
   @Property({ name: 'fixed_price_currency_code', type: 'text', nullable: true })
@@ -103,20 +104,20 @@ export class CheckoutLinkTemplate {
   @Property({ name: 'fixed_price_includes_tax', type: 'boolean', default: true })
   fixedPriceIncludesTax: boolean = true
 
-  @Property({ name: 'fixed_price_original_amount', type: 'numeric', precision: 12, scale: 2, nullable: true })
+  @Property({ name: 'fixed_price_original_amount', type: ExactDecimalType, columnType: 'numeric', nullable: true })
   fixedPriceOriginalAmount?: string | null
 
-  @Property({ name: 'custom_amount_min', type: 'numeric', precision: 12, scale: 2, nullable: true })
+  @Property({ name: 'custom_amount_min', type: ExactDecimalType, columnType: 'numeric', nullable: true })
   customAmountMin?: string | null
 
-  @Property({ name: 'custom_amount_max', type: 'numeric', precision: 12, scale: 2, nullable: true })
+  @Property({ name: 'custom_amount_max', type: ExactDecimalType, columnType: 'numeric', nullable: true })
   customAmountMax?: string | null
 
   @Property({ name: 'custom_amount_currency_code', type: 'text', nullable: true })
   customAmountCurrencyCode?: string | null
 
   @Property({ name: 'price_list_items', type: 'jsonb', nullable: true })
-  priceListItems?: Array<{ id: string; description: string; amount: number; currencyCode: string }> | null
+  priceListItems?: Array<{ id: string; description: string; amount: number; amountExact?: string | null; currencyCode: string }> | null
 
   @Property({ name: 'gateway_provider_key', type: 'text', nullable: true })
   gatewayProviderKey?: string | null
@@ -266,7 +267,7 @@ export class CheckoutTransaction {
   @Property({ type: 'text' })
   status!: 'pending' | 'processing' | 'completed' | 'failed' | 'cancelled' | 'expired'
 
-  @Property({ type: 'numeric', precision: 12, scale: 2 })
+  @Property({ type: ExactDecimalType, columnType: 'numeric' })
   amount!: string
 
   @Property({ name: 'currency_code', type: 'text' })

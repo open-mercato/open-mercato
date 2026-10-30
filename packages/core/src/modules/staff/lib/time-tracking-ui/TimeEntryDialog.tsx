@@ -60,6 +60,8 @@ import { reportDetailHref } from './reportLinks'
 import { formatDuration } from '../time-tracking/duration'
 import { parseClock } from '../time-tracking/interval'
 import { applicableRate, entryAmount } from '../time-tracking/cost'
+import { decimalToNumber, toDecimal } from '@open-mercato/shared/lib/decimal'
+import { parseLocaleDecimal } from '@open-mercato/shared/lib/number'
 import { roundMinutes, DEFAULT_ROUNDING_SETTINGS, type RoundingSettings } from '../time-tracking/rounding'
 import {
   combineDateAndClock,
@@ -69,6 +71,7 @@ import {
   readRowItems,
   readRowString,
   shiftIsoDate,
+  timeEntryRateOverrideText,
   todayIsoDate,
   toOverlapEntry,
   toProjectOption,
@@ -171,11 +174,21 @@ function readSettings(payload: unknown): SettingsPayload {
   }
 }
 
-function parseRateText(value: string): number | null {
-  const trimmed = value.trim().replace(',', '.')
-  if (!trimmed) return null
-  const parsed = Number(trimmed)
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null
+function parseRateText(value: string): string | null {
+  const parsed = parseLocaleDecimal(value)
+  return parsed !== null && !toDecimal(parsed).lt(0) ? parsed : null
+}
+
+/**
+ * A widget answering `onFieldChange` hands back the float copy of the rate it was
+ * given; writing that over the exact digits on screen would truncate the rate.
+ */
+function injectedRateText(current: string, value: unknown): string {
+  if (typeof value === 'number') {
+    const exact = parseRateText(current)
+    if (exact !== null && decimalToNumber(exact) === value) return current
+  }
+  return typeof value === 'number' || typeof value === 'string' ? String(value) : ''
 }
 
 /**
@@ -638,7 +651,7 @@ function DefaultTimeEntryDialog({
       end: string | null
       durationMinutes: number | null
       isBillable: boolean
-      rateOverrideAmount: number | null
+      rateOverrideText: string | null
       tagIds: string[]
     }) => {
       setTaskId(seed.taskId)
@@ -652,8 +665,9 @@ function DefaultTimeEntryDialog({
         }),
       )
       setIsBillable(seed.isBillable)
-      setRateOverrideEnabled(seed.rateOverrideAmount !== null)
-      setRateText(seed.rateOverrideAmount !== null ? String(seed.rateOverrideAmount) : '')
+      const seededRate = seed.rateOverrideText === null ? null : parseRateText(seed.rateOverrideText)
+      setRateOverrideEnabled(seed.rateOverrideText !== null)
+      setRateText(seed.rateOverrideText ?? '')
       setTagIds(seed.tagIds)
       setOverlaps([])
       setFieldIssues(NO_FIELD_ISSUES)
@@ -673,8 +687,8 @@ function DefaultTimeEntryDialog({
         endText: derived.endText,
         durationMinutes: derived.durationMinutes,
         isBillable: seed.isBillable,
-        rateOverrideEnabled: seed.rateOverrideAmount !== null,
-        rateOverrideAmount: seed.rateOverrideAmount,
+        rateOverrideEnabled: seed.rateOverrideText !== null,
+        rateOverrideAmount: seededRate === null ? null : decimalToNumber(seededRate),
         tagIds: seed.tagIds,
       })
     },
@@ -704,7 +718,7 @@ function DefaultTimeEntryDialog({
         end: entry.endText,
         durationMinutes: entry.durationMinutes,
         isBillable: entry.isBillable,
-        rateOverrideAmount: entry.rateOverrideAmount,
+        rateOverrideText: timeEntryRateOverrideText(entry),
         tagIds: entry.tagIds,
       })
       return
@@ -717,7 +731,7 @@ function DefaultTimeEntryDialog({
       end: defaults?.endClock ?? null,
       durationMinutes: defaults?.durationMinutes ?? null,
       isBillable: defaults?.isBillable ?? true,
-      rateOverrideAmount: null,
+      rateOverrideText: null,
       tagIds: defaults?.tagIds ?? [],
     })
   }, [defaults, entry, entryId, isEdit, open, resetForm])
@@ -787,7 +801,8 @@ function DefaultTimeEntryDialog({
     }
   }, [date, durationMinutes, endClock, entryId, isEdit, locked, open, settings.warnings.overlap, startClock])
 
-  const rateOverrideAmount = rateOverrideEnabled ? parseRateText(rateText) : null
+  const rateOverrideAmountExact = rateOverrideEnabled ? parseRateText(rateText) : null
+  const rateOverrideAmount = rateOverrideAmountExact === null ? null : decimalToNumber(rateOverrideAmountExact)
   const currencyCode = project?.currencyCode ?? entry?.currencyCode ?? null
 
   /**
@@ -876,7 +891,7 @@ function DefaultTimeEntryDialog({
         return
       case 'rateOverrideAmount':
         injectedFieldWritesRef.current.add(fieldId)
-        setRateText(typeof value === 'number' || typeof value === 'string' ? String(value) : '')
+        setRateText((current) => injectedRateText(current, value))
         return
       case 'tagIds':
         if (!Array.isArray(value)) return
@@ -950,9 +965,9 @@ function DefaultTimeEntryDialog({
     triggerEntryFormEvent,
   ])
   const roundedMinutes = roundMinutes(durationMinutes ?? 0, settings.rounding)
-  const rate = applicableRate({ rateOverrideAmount }, { hourlyRate: project?.hourlyRate ?? null })
+  const rate = applicableRate({ rateOverrideAmount: rateOverrideAmountExact }, { hourlyRate: project?.hourlyRate ?? null })
   const cost = entryAmount(
-    { isBillable, roundedMinutes, rateOverrideAmount },
+    { isBillable, roundedMinutes, rateOverrideAmount: rateOverrideAmountExact },
     { hourlyRate: project?.hourlyRate ?? null },
   )
 
@@ -1060,6 +1075,7 @@ function DefaultTimeEntryDialog({
     const startedAt = parseClock(startClock) !== null ? combineDateAndClock(date, startClock) : null
     const endedAt =
       parseClock(endClock) !== null ? combineDateAndClock(date, endClock, interval.crossesMidnight ? 1 : 0) : null
+    const submittedRate = rateOverrideEnabled ? rateOverrideAmountExact ?? (rateText.trim() || null) : null
     return {
       date,
       durationMinutes: durationMinutes ?? 0,
@@ -1070,7 +1086,7 @@ function DefaultTimeEntryDialog({
       description: description.trim() ? description.trim() : null,
       isBillable,
       tagIds,
-      rateOverrideAmount: canSeeMoney ? rateOverrideAmount : undefined,
+      rateOverrideAmount: canSeeMoney ? submittedRate : undefined,
     }
   }, [
     canSeeMoney,
@@ -1081,7 +1097,9 @@ function DefaultTimeEntryDialog({
     interval.crossesMidnight,
     isBillable,
     projectId,
-    rateOverrideAmount,
+    rateOverrideAmountExact,
+    rateOverrideEnabled,
+    rateText,
     startClock,
     tagIds,
     taskId,

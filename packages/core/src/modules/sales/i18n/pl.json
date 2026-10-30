@@ -1247,6 +1247,7 @@
   "sales.documents.status.documentPlaceholder": "Wybierz nowy status zamówienia/oferty",
   "sales.documents.status.linePlaceholder": "Wybierz status pozycji",
   "sales.documents.status.sectionTitle": "Zmiany statusu",
+  "sales.errors.amount_invalid": "Podaj prawidłową kwotę.",
   "sales.errors.externalAdjustmentRefused": "To zamówienie ma kwoty z systemu zewnętrznego, więc nie można dodawać ani usuwać korekt. Najpierw przełącz je na kwoty wyliczane.",
   "sales.errors.externalAmountsIncomplete": "Pozycja {{line}} ma kwoty zewnętrzne, ale brakuje: {{fields}}. Częściowa specyfikacja nie jest trybem.",
   "sales.errors.externalModeMixed": "Zamówienie i wszystkie jego pozycje muszą mieć ten sam tryb kwot.",

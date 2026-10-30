@@ -7,6 +7,7 @@ import { parseBooleanFromUnknown } from '@open-mercato/shared/lib/boolean'
 import { parseScopedCommandInput, withScopedPayload } from '@open-mercato/shared/lib/api/scoped'
 import { buildIlikeTerm } from '@open-mercato/shared/lib/db/buildIlikeTerm'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { withWarrantyExactAmounts } from '../commands/shared'
 import { E } from '#generated/entities.ids.generated'
 import { WarrantyClaim } from '../data/entities'
 import {
@@ -454,7 +455,7 @@ const crud = makeCrudRoute<ClaimCreateInput, ClaimUpdateInput, ClaimListQuery>({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        return parseScopedCommandInput(claimCreateSchema, raw ?? {}, ctx, translate)
+        return withWarrantyExactAmounts(parseScopedCommandInput(claimCreateSchema, raw ?? {}, ctx, translate), raw)
       },
       response: ({ result }: { result: Record<string, unknown> | null }) => ({
         id: typeof result?.claimId === 'string' ? result.claimId : null,
@@ -466,7 +467,7 @@ const crud = makeCrudRoute<ClaimCreateInput, ClaimUpdateInput, ClaimListQuery>({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        return parseScopedCommandInput(claimUpdateSchema, raw ?? {}, ctx, translate)
+        return withWarrantyExactAmounts(parseScopedCommandInput(claimUpdateSchema, raw ?? {}, ctx, translate), raw)
       },
       response: ({ result }: { result: Record<string, unknown> | null }) => ({
         ok: true,

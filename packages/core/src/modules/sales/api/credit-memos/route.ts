@@ -6,6 +6,7 @@ import { SalesCreditMemo } from '../../data/entities'
 import { creditMemoCreateSchema, creditMemoUpdateSchema } from '../../data/validators'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { withScopedPayload } from '../utils'
+import { withExactInvoiceInput } from '../../lib/exactAmountFields'
 import {
   createPagedListResponseSchema,
   createSalesCrudOpenApi,
@@ -101,7 +102,7 @@ const crud = makeCrudRoute({
         const { translate } = await resolveTranslations()
         const scoped = withScopedPayload(raw ?? {}, ctx, translate)
         const { base } = splitCustomFieldPayload(scoped)
-        return creditMemoCreateSchema.parse(base)
+        return withExactInvoiceInput(creditMemoCreateSchema.parse(base), base)
       },
     },
     update: {
@@ -111,7 +112,7 @@ const crud = makeCrudRoute({
         const { translate } = await resolveTranslations()
         const scoped = withScopedPayload(raw ?? {}, ctx, translate)
         const { base } = splitCustomFieldPayload(scoped)
-        return creditMemoUpdateSchema.parse(base)
+        return withExactInvoiceInput(creditMemoUpdateSchema.parse(base), base)
       },
     },
     delete: {

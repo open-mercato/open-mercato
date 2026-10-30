@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { decimalToNumber, decimalToString, parseDecimal, toDecimal } from '@open-mercato/shared/lib/decimal'
 import { NextResponse } from 'next/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
@@ -19,15 +20,6 @@ export const metadata = {
 }
 
 const paramsSchema = z.object({ id: z.string().uuid() })
-
-const toNumber = (value: unknown): number => {
-  if (typeof value === 'number') return value
-  if (typeof value === 'string') {
-    const parsed = Number(value)
-    if (!Number.isNaN(parsed)) return parsed
-  }
-  return 0
-}
 
 export async function GET(req: Request, ctx: { params: { id: string } }) {
   try {
@@ -69,12 +61,11 @@ export async function GET(req: Request, ctx: { params: { id: string } }) {
     )
 
     const totals = lines.reduce(
-      (acc, line) => {
-        acc.net += toNumber(line.totalNetAmount)
-        acc.gross += toNumber(line.totalGrossAmount)
-        return acc
-      },
-      { net: 0, gross: 0 },
+      (acc, line) => ({
+        net: acc.net.plus(parseDecimal(line.totalNetAmount) ?? 0),
+        gross: acc.gross.plus(parseDecimal(line.totalGrossAmount) ?? 0),
+      }),
+      { net: toDecimal(0), gross: toDecimal(0) },
     )
 
     return NextResponse.json({
@@ -89,8 +80,10 @@ export async function GET(req: Request, ctx: { params: { id: string } }) {
         returnedAt: header.returnedAt ? header.returnedAt.toISOString() : null,
         createdAt: header.createdAt ? header.createdAt.toISOString() : null,
         updatedAt: header.updatedAt ? header.updatedAt.toISOString() : null,
-        totalNetAmount: totals.net,
-        totalGrossAmount: totals.gross,
+        totalNetAmount: decimalToNumber(totals.net),
+        totalNetAmountExact: decimalToString(totals.net),
+        totalGrossAmount: decimalToNumber(totals.gross),
+        totalGrossAmountExact: decimalToString(totals.gross),
       },
       lines: lines.map((line) => ({
         id: line.id,
@@ -146,7 +139,9 @@ export const openApi: OpenApiRouteDoc = {
               createdAt: z.string().nullable(),
               updatedAt: z.string().nullable(),
               totalNetAmount: z.number(),
+              totalNetAmountExact: z.string(),
               totalGrossAmount: z.number(),
+              totalGrossAmountExact: z.string(),
             }),
             lines: z.array(returnLineSchema),
           }),

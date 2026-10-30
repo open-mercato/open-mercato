@@ -35,6 +35,7 @@ import {
   readSearchParamsRecord,
   runTimesheetInterceptors,
 } from '../../../_shared/withTimesheetInterceptors'
+import { resolveCurrencyDecimalPlaces } from '@open-mercato/shared/lib/currencyPrecision'
 
 const logger = createLogger('staff').child({ component: 'api/timesheets/reports/sheet' })
 
@@ -81,6 +82,12 @@ export async function GET(req: Request) {
 
     const timeProjectIds = await loadReportProjectIds(em, report.id, { tenantId, organizationId })
     const labels = reportSheetLabels(translate)
+    const amountDecimalPlaces =
+      (await resolveCurrencyDecimalPlaces(container, {
+        code: report.currencyCode,
+        tenantId,
+        organizationId,
+      })) ?? undefined
     const sheet = await buildReportSheet({
       em,
       scope: { tenantId, organizationId },
@@ -88,6 +95,7 @@ export async function GET(req: Request) {
       timeProjectIds,
       labels,
       grouping: readGrouping(session.searchParams),
+      amountDecimalPlaces,
     })
 
     const rows = buildReportRows({
@@ -95,6 +103,7 @@ export async function GET(req: Request) {
       projects: sheet.projects,
       directory: sheet.directory,
       labels,
+      amountDecimalPlaces,
     })
 
     const events = await em.find(
@@ -134,6 +143,7 @@ export async function GET(req: Request) {
         billableMinutes: sheet.totals.billableMinutes,
         nonbillableMinutes: sheet.totals.nonbillableMinutes,
         totalAmount: canSeeMoney ? sheet.totals.totalAmount : null,
+        totalAmountExact: canSeeMoney ? (sheet.totals.totalAmountExact ?? String(sheet.totals.totalAmount)) : null,
       },
       alreadyReportedCount: sheet.totals.alreadyReportedCount,
       alreadyReportedMinutes: sheet.totals.alreadyReportedMinutes,
@@ -141,7 +151,9 @@ export async function GET(req: Request) {
       rows: rows.slice(0, MAX_SHEET_ROWS).map((row) => ({
         ...row,
         rate: canSeeMoney ? row.rate : null,
+        rateExact: canSeeMoney ? (row.rateExact ?? null) : null,
         amount: canSeeMoney ? row.amount : null,
+        amountExact: canSeeMoney ? (row.amountExact ?? null) : null,
       })),
       rowCount: rows.length,
       rowsTruncated: rows.length > MAX_SHEET_ROWS,
@@ -174,9 +186,11 @@ function stripAmounts(groups: SheetGroups): SheetGroups {
   return groups.map((group) => ({
     ...group,
     rate: null,
+    rateExact: null,
     amount: 0,
+    amountExact: '0',
     lines: group.lines.map(function strip(line): SheetGroups[number]['lines'][number] {
-      return { ...line, rate: null, amount: 0, children: line.children.map(strip) }
+      return { ...line, rate: null, rateExact: null, amount: 0, amountExact: '0', children: line.children.map(strip) }
     }),
   }))
 }
@@ -197,6 +211,7 @@ const sheetResponseSchema = z.object({
     billableMinutes: z.number().int(),
     nonbillableMinutes: z.number().int(),
     totalAmount: z.number().nullable(),
+    totalAmountExact: z.string().nullable().optional(),
   }),
   rowCount: z.number().int(),
   rowsTruncated: z.boolean(),

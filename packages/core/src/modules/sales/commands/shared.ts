@@ -3,6 +3,17 @@ import { notFound } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import {
+  FX_DECIMAL_PLACES,
+  countDecimalPlaces,
+  decimalToNumber,
+  decimalToString,
+  divideDecimals,
+  parseDecimal,
+  resolveExactDecimal,
+  roundDecimal,
+  toDecimal,
+} from '@open-mercato/shared/lib/decimal'
 export { assertFound } from '@open-mercato/shared/lib/crud/errors'
 export { ensureOrganizationScope, ensureSameScope, ensureTenantScope } from '@open-mercato/shared/lib/commands/scope'
 export { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
@@ -51,27 +62,51 @@ export async function enforceSalesDocumentOptimisticLock(
 
 export { cloneJson } from '../lib/json'
 
-export function toNumericString(value: number | null | undefined): string | null {
-  if (value === undefined || value === null) return null
-  return value.toString()
+/** Plain decimal string (no exponent notation) for a numeric column, or `null`. */
+export function toNumericString(value: number | string | null | undefined): string | null {
+  const parsed = parseDecimal(value)
+  return parsed ? decimalToString(parsed) : null
 }
 
-/** Numeric scale of the `total_net_amount` / `total_gross_amount` line columns. */
+/**
+ * Exact decimal string for a numeric column from a dual `<field>` + `<field>Exact`
+ * pair (see `resolveExactDecimal`), or `null` when neither holds a value.
+ */
+export function exactAmountString(exact: unknown, legacy: unknown): string | null {
+  return resolveExactDecimal(exact, legacy)
+}
+
+function nonNegativeExact(value: unknown): string {
+  const parsed = parseDecimal(value)
+  return parsed && parsed.gt(0) ? decimalToString(parsed) : '0'
+}
+
+/**
+ * The order's recorded payment totals as calculation `existingTotals`, with the
+ * exact column values next to their float copies.
+ */
+export function resolveOrderPaymentTotals(order: {
+  paidTotalAmount?: string | number | null
+  refundedTotalAmount?: string | number | null
+}) {
+  const paidTotalAmountExact = nonNegativeExact(order.paidTotalAmount)
+  const refundedTotalAmountExact = nonNegativeExact(order.refundedTotalAmount)
+  return {
+    paidTotalAmount: decimalToNumber(paidTotalAmountExact),
+    paidTotalAmountExact,
+    refundedTotalAmount: decimalToNumber(refundedTotalAmountExact),
+    refundedTotalAmountExact,
+  }
+}
+
+/** Minimum decimal places a derived line net total keeps. */
 const LINE_AMOUNT_SCALE = 4
 
-function parseLineAmount(value: number | string | null | undefined): number {
-  if (typeof value === 'number') return Number.isFinite(value) ? value : 0
-  if (typeof value === 'string' && value.trim().length) {
-    const parsed = Number(value)
-    if (!Number.isNaN(parsed)) return parsed
-  }
-  return 0
+function parseLineAmount(value: number | string | null | undefined): string {
+  const parsed = parseDecimal(value)
+  return parsed ? decimalToString(parsed) : '0'
 }
 
-function roundLineAmount(value: number): number {
-  const factor = 10 ** LINE_AMOUNT_SCALE
-  return Math.round((value + Number.EPSILON) * factor) / factor
-}
 
 /**
  * Derive a sales line's net total from its gross total and tax rate.
@@ -90,14 +125,30 @@ export function deriveLineNetFromGross(
   gross: number | string | null | undefined,
   taxRate: number | string | null | undefined,
 ): number {
-  const netValue = parseLineAmount(net)
-  const grossValue = parseLineAmount(gross)
-  if (grossValue > 0 && netValue <= 0) {
-    const rate = parseLineAmount(taxRate)
-    const fraction = rate > 0 ? rate / 100 : 0
-    return roundLineAmount(fraction > 0 ? grossValue / (1 + fraction) : grossValue)
+  return decimalToNumber(deriveExactLineNetFromGross(net, gross, taxRate))
+}
+
+/**
+ * Exact-decimal variant of {@link deriveLineNetFromGross}: the derived net keeps
+ * at least 4 decimals, or as many as the gross total carries.
+ */
+export function deriveExactLineNetFromGross(
+  net: number | string | null | undefined,
+  gross: number | string | null | undefined,
+  taxRate: number | string | null | undefined,
+): string {
+  const netValue = toDecimal(parseLineAmount(net))
+  const grossText = parseLineAmount(gross)
+  const grossValue = toDecimal(grossText)
+  if (grossValue.gt(0) && netValue.lte(0)) {
+    const rate = toDecimal(parseLineAmount(taxRate))
+    const decimalPlaces = Math.max(LINE_AMOUNT_SCALE, countDecimalPlaces(grossText))
+    const derived = rate.gt(0)
+      ? divideDecimals(grossValue, divideDecimals(rate, 100, FX_DECIMAL_PLACES).plus(1), FX_DECIMAL_PLACES)
+      : grossValue
+    return decimalToString(roundDecimal(derived, decimalPlaces))
   }
-  return netValue
+  return decimalToString(netValue)
 }
 
 type LinePersistedTotals = {
@@ -116,11 +167,10 @@ type LinePersistedTotals = {
  * raises a zero/missing net to its derived value.
  */
 export function reconcileLinePersistedTotals<T extends LinePersistedTotals>(payload: T): T {
-  const gross = parseLineAmount(payload.totalGrossAmount)
-  const net = parseLineAmount(payload.totalNetAmount)
-  if (gross <= 0 || net > 0) return payload
-  const derivedNet = toNumericString(deriveLineNetFromGross(net, gross, payload.taxRate))
-  if (derivedNet == null) return payload
+  const gross = toDecimal(parseLineAmount(payload.totalGrossAmount))
+  const net = toDecimal(parseLineAmount(payload.totalNetAmount))
+  if (gross.lte(0) || net.gt(0)) return payload
+  const derivedNet = deriveExactLineNetFromGross(payload.totalNetAmount, payload.totalGrossAmount, payload.taxRate)
   return { ...payload, totalNetAmount: derivedNet } as T
 }
 

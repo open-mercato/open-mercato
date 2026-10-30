@@ -71,6 +71,8 @@ import { emitCartEvent } from '../events'
 // module-load cycle. See `dispatchCartRepriceForUndo` below for how the undo handlers call
 // `cart.reprice` without importing its handler object.
 import type { CartRepriceInput, CartRepriceResult } from './cart'
+import { resolveCartCurrencyDecimalPlaces, resolvedPriceString, samePrice } from '../lib/exactPricing'
+import { resolveAmountDecimalPlaces } from '@open-mercato/shared/lib/decimal'
 
 // Step 4.6 — `cart.lines.add`, `.update`, `.remove`, `.bulkAdd`. Builds directly on Step
 // 4.4's `evaluateCartVisibility` (§6a) and Step 4.5's `cart.create`/`cart.get` + the
@@ -267,7 +269,12 @@ function buildCartPricingRowFilterContext(cart: Cart): PricingContext {
   }
 }
 
-function buildBuyerPricingContext(cart: Cart, quantity: number, date: Date): BuyerPricingContext {
+function buildBuyerPricingContext(
+  cart: Cart,
+  quantity: number,
+  date: Date,
+  currencyDecimalPlaces: number | null,
+): BuyerPricingContext {
   return {
     channelId: cart.salesChannelId ?? null,
     customerId: cart.customerId ?? null,
@@ -277,6 +284,7 @@ function buildBuyerPricingContext(cart: Cart, quantity: number, date: Date): Buy
     priceKindId: cart.priceKindId ?? null,
     quantity,
     date,
+    currencyDecimalPlaces,
   }
 }
 
@@ -326,9 +334,10 @@ async function resolveLinePricing(
   rows: PriceRow[],
   quantity: number,
   date: Date,
+  currencyDecimalPlaces: number | null,
 ): Promise<ResolvedLinePrice> {
   const buyerPricingService = container.resolve<CatalogBuyerPricingService>('catalogBuyerPricingService')
-  const context = buildBuyerPricingContext(cart, quantity, date)
+  const context = buildBuyerPricingContext(cart, quantity, date, currencyDecimalPlaces)
   return buyerPricingService.resolveLinePrice(em, rows, context, {
     tenantId: cart.tenantId,
     organizationId: cart.organizationId,
@@ -336,8 +345,8 @@ async function resolveLinePricing(
 }
 
 function applyPriceSnapshot(line: CartLine, resolved: ResolvedLinePrice, pricedAt: Date): void {
-  line.unitPriceNet = resolved.amountNet !== null ? String(resolved.amountNet) : null
-  line.unitPriceGross = resolved.amountGross !== null ? String(resolved.amountGross) : null
+  line.unitPriceNet = resolvedPriceString(resolved.amountNetExact, resolved.amountNet)
+  line.unitPriceGross = resolvedPriceString(resolved.amountGrossExact, resolved.amountGross)
   line.taxRate = resolved.taxRatePercent !== null ? String(resolved.taxRatePercent) : null
   line.priceKindId = resolved.priceRow ? resolvePriceKindId(resolved.priceRow) : null
   line.priceRowId = resolved.priceRow?.id ?? null
@@ -392,8 +401,11 @@ async function computeLineTotals(
     quantity: number
     unitPriceNet: number | null
     unitPriceGross: number | null
+    unitPriceNetExact?: string | null
+    unitPriceGrossExact?: string | null
     taxRate: number | null
     configuration: Record<string, unknown> | null
+    amountDecimalPlaces: number
   },
 ): Promise<Record<string, unknown>> {
   const salesCalculationService = container.resolve<SalesCalculationService>('salesCalculationService')
@@ -408,10 +420,17 @@ async function computeLineTotals(
       currencyCode: cart.currencyCode,
       unitPriceNet: params.unitPriceNet,
       unitPriceGross: params.unitPriceGross,
+      unitPriceNetExact: params.unitPriceNetExact ?? null,
+      unitPriceGrossExact: params.unitPriceGrossExact ?? null,
       taxRate: params.taxRate,
       configuration: params.configuration,
     },
-    context: { tenantId: cart.tenantId, organizationId: cart.organizationId, currencyCode: cart.currencyCode },
+    context: {
+      tenantId: cart.tenantId,
+      organizationId: cart.organizationId,
+      currencyCode: cart.currencyCode,
+      amountDecimalPlaces: params.amountDecimalPlaces,
+    },
   })
   return result as unknown as Record<string, unknown>
 }
@@ -743,8 +762,9 @@ function buildCartPromotionsAndTotalsPhases(params: {
   createdGiftLines: CartLine[]
   removedGiftLines: CartLine[]
   promotionWarnings: CartPromotionWarning[]
+  currencyDecimalPlaces: number | null
 }): Array<() => Promise<void>> {
-  const { em, container, cart, scope, assortmentScope, now, createdGiftLines, removedGiftLines, promotionWarnings } = params
+  const { em, container, cart, scope, assortmentScope, now, createdGiftLines, removedGiftLines, promotionWarnings, currencyDecimalPlaces } = params
   container.register({ auth: asValue({ tenantId: cart.tenantId, orgId: cart.organizationId }) })
 
   const lines: CartLine[] = []
@@ -774,9 +794,10 @@ function buildCartPromotionsAndTotalsPhases(params: {
     warnings: promotionWarnings,
     createdGiftLines,
     removedGiftLines,
+    amountDecimalPlaces: resolveAmountDecimalPlaces(currencyDecimalPlaces),
   })
 
-  const totalsPhase = buildRecomputeCartTotalsPhase(container, cart, lines, now, changes, adjustments)
+  const totalsPhase = buildRecomputeCartTotalsPhase(container, cart, lines, now, changes, adjustments, currencyDecimalPlaces)
 
   return [fetchLinesPhase, promotionsPhase, totalsPhase]
 }
@@ -888,6 +909,8 @@ const addLineCommand: CommandHandler<CartLinesAddInput, CartLinesAddOutcome> = {
     const em = (ctx.container.resolve('em') as EntityManager).fork()
 
     const cart = await loadMutableCart(em, scope, input.cartId, { requireActive: true })
+    // Resolved before the locked transaction below, so it never needs a second pooled connection.
+    const currencyDecimalPlaces = await resolveCartCurrencyDecimalPlaces(ctx.container, cart)
     assertStorefrontHasRouteContext(cart, input)
     const assortmentScope = resolveEnforcedScope(cart, rawScope)
 
@@ -958,7 +981,7 @@ const addLineCommand: CommandHandler<CartLinesAddInput, CartLinesAddOutcome> = {
           }
           if (sumCheck.status === 'accepted_clamped') warnings.push('quantity_capped')
 
-          const resolved = await resolveLinePricing(em, ctx.container, cart, rows, sumCheck.quantity, now)
+          const resolved = await resolveLinePricing(em, ctx.container, cart, rows, sumCheck.quantity, now, currencyDecimalPlaces)
           if (!resolved.priceRow) {
             outcome = { status: 'rejected', reason: 'product_not_priceable' }
             return
@@ -973,6 +996,9 @@ const addLineCommand: CommandHandler<CartLinesAddInput, CartLinesAddOutcome> = {
             quantity: sumCheck.quantity,
             unitPriceNet: resolved.amountNet,
             unitPriceGross: resolved.amountGross,
+            unitPriceNetExact: resolved.amountNetExact,
+            unitPriceGrossExact: resolved.amountGrossExact,
+            amountDecimalPlaces: resolveAmountDecimalPlaces(currencyDecimalPlaces),
             taxRate: resolved.taxRatePercent,
             configuration: existing.configuration ?? null,
           })
@@ -983,7 +1009,7 @@ const addLineCommand: CommandHandler<CartLinesAddInput, CartLinesAddOutcome> = {
           return
         }
 
-        const resolved = await resolveLinePricing(em, ctx.container, cart, rows, acceptedQuantity, now)
+        const resolved = await resolveLinePricing(em, ctx.container, cart, rows, acceptedQuantity, now, currencyDecimalPlaces)
         if (!resolved.priceRow) {
           outcome = { status: 'rejected', reason: 'product_not_priceable' }
           return
@@ -1024,6 +1050,9 @@ const addLineCommand: CommandHandler<CartLinesAddInput, CartLinesAddOutcome> = {
           quantity: acceptedQuantity,
           unitPriceNet: resolved.amountNet,
           unitPriceGross: resolved.amountGross,
+          unitPriceNetExact: resolved.amountNetExact,
+          unitPriceGrossExact: resolved.amountGrossExact,
+          amountDecimalPlaces: resolveAmountDecimalPlaces(currencyDecimalPlaces),
           taxRate: resolved.taxRatePercent,
           configuration: fields.configuration,
         })
@@ -1036,6 +1065,7 @@ const addLineCommand: CommandHandler<CartLinesAddInput, CartLinesAddOutcome> = {
       // Step 8.2 (QA F12) — whole-cart promotions re-evaluation + totals recompute, gated
       // on the mutation phase above actually accepting the line (never on a rejection).
       ...buildCartPromotionsAndTotalsPhases({
+        currencyDecimalPlaces,
         em,
         container: ctx.container,
         cart,
@@ -1165,6 +1195,8 @@ const updateLineCommand: CommandHandler<CartLinesUpdateInput, CartLinesUpdateOut
     const em = (ctx.container.resolve('em') as EntityManager).fork()
 
     const cart = await loadMutableCart(em, scope, input.cartId, { requireActive: true })
+    // Resolved before the locked transaction below, so it never needs a second pooled connection.
+    const currencyDecimalPlaces = await resolveCartCurrencyDecimalPlaces(ctx.container, cart)
     assertStorefrontHasRouteContext(cart, input)
     const assortmentScope = resolveEnforcedScope(cart, rawScope)
 
@@ -1205,7 +1237,7 @@ const updateLineCommand: CommandHandler<CartLinesUpdateInput, CartLinesUpdateOut
       const pricingContext = buildCartPricingRowFilterContext(cart)
       const variantIds = line.variantId ? [line.variantId] : []
       const rows = filterRowsForVariant(await fetchPriceRowsBatch(em, scope, pricingContext, [line.productId], variantIds), line.variantId ?? null)
-      const resolved = await resolveLinePricing(em, ctx.container, cart, rows, finalQuantity, now)
+      const resolved = await resolveLinePricing(em, ctx.container, cart, rows, finalQuantity, now, currencyDecimalPlaces)
       if (!resolved.priceRow) return { status: 'rejected', reason: 'product_not_priceable' }
       const oldUnitPriceNet = line.unitPriceNet ?? null
       const oldUnitPriceGross = line.unitPriceGross ?? null
@@ -1217,12 +1249,15 @@ const updateLineCommand: CommandHandler<CartLinesUpdateInput, CartLinesUpdateOut
         quantity: finalQuantity,
         unitPriceNet: resolved.amountNet,
         unitPriceGross: resolved.amountGross,
+        unitPriceNetExact: resolved.amountNetExact,
+        unitPriceGrossExact: resolved.amountGrossExact,
+        amountDecimalPlaces: resolveAmountDecimalPlaces(currencyDecimalPlaces),
         taxRate: resolved.taxRatePercent,
         configuration: line.configuration ?? null,
       })
       const newUnitPriceNet = line.unitPriceNet ?? null
       const newUnitPriceGross = line.unitPriceGross ?? null
-      if (oldUnitPriceNet !== newUnitPriceNet || oldUnitPriceGross !== newUnitPriceGross) {
+      if (!samePrice(oldUnitPriceNet, newUnitPriceNet) || !samePrice(oldUnitPriceGross, newUnitPriceGross)) {
         priceChanges.push({
           lineId: line.id,
           productId: line.productId,
@@ -1252,6 +1287,7 @@ const updateLineCommand: CommandHandler<CartLinesUpdateInput, CartLinesUpdateOut
         line.quantity = String(finalQuantity)
       },
       ...buildCartPromotionsAndTotalsPhases({
+        currencyDecimalPlaces,
         em,
         container: ctx.container,
         cart,
@@ -1310,6 +1346,8 @@ const removeLineCommand: CommandHandler<CartLinesRemoveInput, CartLinesRemoveRes
     // line from a `merged`/`expired`/`converted` cart and the promotions/totals recompute
     // below would persist new `Cart.totals` on a cart whose order has already been finalized.
     const cart = await loadMutableCart(em, scope, input.cartId, { requireActive: true })
+    // Resolved before the locked transaction below, so it never needs a second pooled connection.
+    const currencyDecimalPlaces = await resolveCartCurrencyDecimalPlaces(ctx.container, cart)
     const assortmentScope = resolveEnforcedScope(cart, rawScope)
 
     const line = await findOneWithDecryption(em, CartLine, { id: input.lineId, cartId: cart.id, tenantId, organizationId, deletedAt: null }, {}, scope)
@@ -1332,6 +1370,7 @@ const removeLineCommand: CommandHandler<CartLinesRemoveInput, CartLinesRemoveRes
         line.deletedAt = now
       },
       ...buildCartPromotionsAndTotalsPhases({
+        currencyDecimalPlaces,
         em,
         container: ctx.container,
         cart,
@@ -1436,6 +1475,8 @@ const bulkAddLinesCommand: CommandHandler<CartLinesBulkAddInput, CartLinesBulkAd
     const em = (ctx.container.resolve('em') as EntityManager).fork()
 
     const cart = await loadMutableCart(em, scope, input.cartId, { requireActive: true })
+    // Resolved before the locked transaction below, so it never needs a second pooled connection.
+    const currencyDecimalPlaces = await resolveCartCurrencyDecimalPlaces(ctx.container, cart)
     assertStorefrontHasRouteContext(cart, input)
     const assortmentScope = resolveEnforcedScope(cart, rawScope)
     const actor = resolveLineActor(input, { addedByActorType: input.addedByActorType, addedByActorId: input.addedByActorId })
@@ -1557,7 +1598,7 @@ const bulkAddLinesCommand: CommandHandler<CartLinesBulkAddInput, CartLinesBulkAd
         }
         if (sumCheck.status === 'accepted_clamped') warnings.push('quantity_capped')
 
-        const resolved = await resolveLinePricing(em, ctx.container, cart, rows, sumCheck.quantity, now)
+        const resolved = await resolveLinePricing(em, ctx.container, cart, rows, sumCheck.quantity, now, currencyDecimalPlaces)
         if (!resolved.priceRow) {
           outcomes[index] = { index, status: 'rejected', reason: 'product_not_priceable' }
           return
@@ -1571,6 +1612,9 @@ const bulkAddLinesCommand: CommandHandler<CartLinesBulkAddInput, CartLinesBulkAd
           quantity: sumCheck.quantity,
           unitPriceNet: resolved.amountNet,
           unitPriceGross: resolved.amountGross,
+          unitPriceNetExact: resolved.amountNetExact,
+          unitPriceGrossExact: resolved.amountGrossExact,
+          amountDecimalPlaces: resolveAmountDecimalPlaces(currencyDecimalPlaces),
           taxRate: resolved.taxRatePercent,
           configuration: existingLine.configuration ?? null,
         })
@@ -1582,7 +1626,7 @@ const bulkAddLinesCommand: CommandHandler<CartLinesBulkAddInput, CartLinesBulkAd
         return
       }
 
-      const resolved = await resolveLinePricing(em, ctx.container, cart, rows, acceptedQuantity, now)
+      const resolved = await resolveLinePricing(em, ctx.container, cart, rows, acceptedQuantity, now, currencyDecimalPlaces)
       if (!resolved.priceRow) {
         outcomes[index] = { index, status: 'rejected', reason: 'product_not_priceable' }
         return
@@ -1618,6 +1662,9 @@ const bulkAddLinesCommand: CommandHandler<CartLinesBulkAddInput, CartLinesBulkAd
         quantity: acceptedQuantity,
         unitPriceNet: resolved.amountNet,
         unitPriceGross: resolved.amountGross,
+        unitPriceNetExact: resolved.amountNetExact,
+        unitPriceGrossExact: resolved.amountGrossExact,
+        amountDecimalPlaces: resolveAmountDecimalPlaces(currencyDecimalPlaces),
         taxRate: resolved.taxRatePercent,
         configuration: fields.configuration,
       })
@@ -1647,6 +1694,7 @@ const bulkAddLinesCommand: CommandHandler<CartLinesBulkAddInput, CartLinesBulkAd
       },
       ...phases,
       ...buildCartPromotionsAndTotalsPhases({
+        currencyDecimalPlaces,
         em,
         container: ctx.container,
         cart,

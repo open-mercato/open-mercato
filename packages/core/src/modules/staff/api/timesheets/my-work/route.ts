@@ -32,6 +32,7 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { decimalToString, parseDecimal } from '@open-mercato/shared/lib/decimal'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
@@ -42,7 +43,10 @@ import {
   StaffTimeProjectMember,
   StaffTimeTask,
 } from '../../../data/entities'
-import { computeProjectFinancials } from '../../../lib/timesheets-projects/computeProjectFinancials'
+import {
+  computeProjectFinancials,
+  resolveProjectAmountDecimalPlaces,
+} from '../../../lib/timesheets-projects/computeProjectFinancials'
 import { computeBudgetBurn } from '../../../lib/timesheets-projects/budgetBurn'
 import {
   addUtcDays,
@@ -59,6 +63,11 @@ import {
 } from '../_shared/withTimesheetInterceptors'
 
 const logger = createLogger('staff').child({ component: 'api/timesheets/my-work' })
+
+function toNullableExact(value: string | number | null | undefined): string | null {
+  const parsed = parseDecimal(value)
+  return parsed ? decimalToString(parsed) : null
+}
 
 const VIEW_FEATURE = 'staff.timesheets.view'
 const RATES_FEATURE = 'staff.timesheets.rates.view'
@@ -101,6 +110,7 @@ const projectSchema = z.object({
   myMinutes: z.number().int(),
   totalMinutes: z.number().int(),
   hourlyRate: z.number().nullable().optional(),
+  hourlyRateExact: z.string().nullable().optional(),
   currencyCode: z.string().nullable().optional(),
   budget: z
     .object({
@@ -291,12 +301,13 @@ export async function GET(req: Request) {
           )
         : []
 
-    const hourlyRateByProjectId = new Map<string, number | null>(
-      projects.map((project) => [
-        project.id,
-        project.hourlyRate === null || project.hourlyRate === undefined ? null : Number(project.hourlyRate),
-      ]),
+    const hourlyRateByProjectId = new Map<string, string | null>(
+      projects.map((project) => [project.id, project.hourlyRate ?? null]),
     )
+    const amountDecimalPlacesByProjectId = await resolveProjectAmountDecimalPlaces(container, projects, {
+      tenantId,
+      organizationId,
+    })
     const [mine, everyone] = await Promise.all([
       computeProjectFinancials({
         em,
@@ -304,6 +315,7 @@ export async function GET(req: Request) {
         organizationId,
         projectIds: projects.map((project) => project.id),
         hourlyRateByProjectId,
+        amountDecimalPlacesByProjectId,
         staffMemberId: staffMember.id,
       }),
       computeProjectFinancials({
@@ -312,6 +324,7 @@ export async function GET(req: Request) {
         organizationId,
         projectIds: projects.map((project) => project.id),
         hourlyRateByProjectId,
+        amountDecimalPlacesByProjectId,
       }),
     ])
 
@@ -413,7 +426,9 @@ export async function GET(req: Request) {
           totalMinutes: allFinancials?.totalMinutes ?? 0,
           ...(canSeeMoney
             ? {
-                hourlyRate: hourlyRateByProjectId.get(project.id) ?? null,
+                hourlyRate:
+                  project.hourlyRate === null || project.hourlyRate === undefined ? null : Number(project.hourlyRate),
+                hourlyRateExact: toNullableExact(project.hourlyRate),
                 currencyCode: project.currencyCode ?? null,
               }
             : {}),

@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { decimalToNumber, decimalToString, parseDecimal, toDecimal, type DecimalValue } from '@open-mercato/shared/lib/decimal'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
@@ -30,15 +31,6 @@ const routeMetadata = {
   POST: { requireAuth: true, requireFeatures: ['sales.returns.create'] },
   PUT: { requireAuth: true, requireFeatures: ['sales.returns.manage'] },
   DELETE: { requireAuth: true, requireFeatures: ['sales.returns.manage'] },
-}
-
-const toNumber = (value: unknown): number => {
-  if (typeof value === 'number') return value
-  if (typeof value === 'string') {
-    const parsed = Number(value)
-    if (!Number.isNaN(parsed)) return parsed
-  }
-  return 0
 }
 
 const crud = makeCrudRoute({
@@ -136,13 +128,14 @@ const crud = makeCrudRoute({
         {},
         { tenantId: ctx.auth?.tenantId ?? null, organizationId: ctx.auth?.orgId ?? null },
       )
-      const totals = lines.reduce<Map<string, { net: number; gross: number }>>((acc, line) => {
+      const totals = lines.reduce<Map<string, { net: DecimalValue; gross: DecimalValue }>>((acc, line) => {
         const returnId = typeof line.salesReturn === 'string' ? line.salesReturn : line.salesReturn?.id ?? null
         if (!returnId) return acc
-        const current = acc.get(returnId) ?? { net: 0, gross: 0 }
-        current.net += toNumber(line.totalNetAmount)
-        current.gross += toNumber(line.totalGrossAmount)
-        acc.set(returnId, current)
+        const current = acc.get(returnId) ?? { net: toDecimal(0), gross: toDecimal(0) }
+        acc.set(returnId, {
+          net: current.net.plus(parseDecimal(line.totalNetAmount) ?? 0),
+          gross: current.gross.plus(parseDecimal(line.totalGrossAmount) ?? 0),
+        })
         return acc
       }, new Map())
       items.forEach((item: unknown) => {
@@ -152,8 +145,10 @@ const crud = makeCrudRoute({
         if (typeof id !== 'string') return
         const sum = totals.get(id)
         if (!sum) return
-        map['total_net_amount'] = sum.net
-        map['total_gross_amount'] = sum.gross
+        map['total_net_amount'] = decimalToNumber(sum.net)
+        map['total_net_amount_exact'] = decimalToString(sum.net)
+        map['total_gross_amount'] = decimalToNumber(sum.gross)
+        map['total_gross_amount_exact'] = decimalToString(sum.gross)
       })
     },
   },
@@ -177,7 +172,9 @@ const returnSchema = z
     created_at: z.string(),
     updated_at: z.string(),
     total_net_amount: z.number().optional(),
+    total_net_amount_exact: z.string().optional(),
     total_gross_amount: z.number().optional(),
+    total_gross_amount_exact: z.string().optional(),
   })
   .passthrough()
 

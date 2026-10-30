@@ -2,18 +2,27 @@ import { createHmac, timingSafeEqual } from 'crypto'
 import bcrypt from 'bcryptjs'
 import { slugify } from '@open-mercato/shared/lib/slugify'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import {
+  decimalToNumber,
+  decimalToString,
+  parseDecimal,
+  resolveExactDecimal,
+  withExactAmounts,
+  type WithExactAmounts,
+} from '@open-mercato/shared/lib/decimal'
 import { normalizeCustomFieldResponse } from '@open-mercato/shared/lib/custom-fields/normalize'
 import { parseDecryptedFieldValue } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { getPaymentGatewayDescriptor } from '@open-mercato/shared/modules/payment_gateways/types'
 import { CheckoutLink, CheckoutLinkTemplate, CheckoutTransaction } from '../data/entities'
 import { buildCheckoutAttachmentPreviewUrl, normalizeOptionalString } from './client-utils'
-import type {
-  CreateLinkInput,
-  CreateTemplateInput,
-  PublicSubmitInput,
-  UpdateLinkInput,
-  UpdateTemplateInput,
+import {
+  assertExactCustomAmountRange,
+  type CreateLinkInput,
+  type CreateTemplateInput,
+  type PublicSubmitInput,
+  type UpdateLinkInput,
+  type UpdateTemplateInput,
 } from '../data/validators'
 import { CHECKOUT_TERMINAL_STATUSES } from './constants'
 export {
@@ -30,8 +39,18 @@ export type CheckoutScope = {
 
 export type CheckoutLinkStatus = 'draft' | 'active' | 'inactive'
 
+export const CHECKOUT_MONEY_FIELDS = [
+  'fixedPriceAmount',
+  'fixedPriceOriginalAmount',
+  'customAmountMin',
+  'customAmountMax',
+  'amount',
+] as const
+
+export type CheckoutMoneyField = (typeof CHECKOUT_MONEY_FIELDS)[number]
+
 export type CheckoutPayloadWithCustomFields<TInput> = {
-  parsed: TInput
+  parsed: WithExactAmounts<TInput, CheckoutMoneyField>
   customFields: Record<string, unknown>
 }
 
@@ -43,6 +62,10 @@ type TemplateOrLinkInput =
 
 type TemplateOrLinkMutationInput = Omit<CreateLinkInput, 'password'> & {
   password?: string | null
+  fixedPriceAmountExact?: string | null
+  fixedPriceOriginalAmountExact?: string | null
+  customAmountMinExact?: string | null
+  customAmountMaxExact?: string | null
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -68,8 +91,9 @@ export function pickExplicitParsedOverrides<TInput extends Record<string, unknow
   if (!isRecord(rawInput)) return {}
 
   const overrides: Partial<TInput> = {}
-  for (const key of Object.keys(parsed) as Array<keyof TInput>) {
-    if (!Object.prototype.hasOwnProperty.call(rawInput, key)) continue
+  for (const key of Object.keys(parsed) as Array<keyof TInput & string>) {
+    const sourceKey = key.endsWith('Exact') ? key.slice(0, -'Exact'.length) : key
+    if (!Object.prototype.hasOwnProperty.call(rawInput, key) && !Object.prototype.hasOwnProperty.call(rawInput, sourceKey)) continue
     overrides[key] = parsed[key]
   }
 
@@ -89,10 +113,16 @@ export function parseCheckoutInput<TInput>(raw: unknown, parser: (value: unknown
   const source = isRecord(raw) ? { ...raw } : {}
   const customFields = isRecord(source.customFields) ? source.customFields : {}
   delete source.customFields
-  return {
-    parsed: parser(source),
-    customFields,
+  const parsed = withExactAmounts(parser(source) as TInput & object, source, CHECKOUT_MONEY_FIELDS)
+  const items = (parsed as { priceListItems?: unknown }).priceListItems
+  if (Array.isArray(items)) {
+    const rawItems = Array.isArray(source.priceListItems) ? source.priceListItems : []
+    ;(parsed as { priceListItems?: unknown }).priceListItems = items.map((item, index) =>
+      isRecord(item) ? withExactAmounts(item, rawItems[index], ['amount'] as const) : item,
+    )
   }
+  assertExactCustomAmountRange(parsed)
+  return { parsed, customFields }
 }
 
 export function resolveLoadedCheckoutCustomFields(
@@ -114,9 +144,10 @@ export function toMoneyNumber(value: string | number | null | undefined): number
   return Number.isFinite(numeric) ? numeric : null
 }
 
+/** Exact decimal string for a money column (no rounding, no padding), or `null`. */
 export function toMoneyString(value: string | number | null | undefined): string | null {
-  const numeric = toMoneyNumber(value)
-  return numeric == null ? null : numeric.toFixed(2)
+  const parsed = parseDecimal(value)
+  return parsed ? decimalToString(parsed) : null
 }
 
 export { normalizeOptionalString, buildCheckoutAttachmentPreviewUrl } from './client-utils'
@@ -162,11 +193,15 @@ export function toTemplateOrLinkMutationInput(
     themeMode: record.themeMode,
     pricingMode: record.pricingMode,
     fixedPriceAmount: toMoneyNumber(record.fixedPriceAmount),
+    fixedPriceAmountExact: toMoneyString(record.fixedPriceAmount),
     fixedPriceCurrencyCode: record.fixedPriceCurrencyCode ?? null,
     fixedPriceIncludesTax: record.fixedPriceIncludesTax,
     fixedPriceOriginalAmount: toMoneyNumber(record.fixedPriceOriginalAmount),
+    fixedPriceOriginalAmountExact: toMoneyString(record.fixedPriceOriginalAmount),
     customAmountMin: toMoneyNumber(record.customAmountMin),
+    customAmountMinExact: toMoneyString(record.customAmountMin),
     customAmountMax: toMoneyNumber(record.customAmountMax),
+    customAmountMaxExact: toMoneyString(record.customAmountMax),
     customAmountCurrencyCode: record.customAmountCurrencyCode ?? null,
     priceListItems: record.priceListItems ?? null,
     gatewayProviderKey: record.gatewayProviderKey ?? '',
@@ -396,34 +431,41 @@ export function buildConsentProof(link: CheckoutLink, acceptedLegalConsents: Pub
   return proof
 }
 
-export function resolveSubmittedAmount(link: CheckoutLink, input: PublicSubmitInput): { amount: number; currencyCode: string; selectedPriceItemId: string | null } {
+/**
+ * The amount a payer is charged, compared exactly against the link configuration.
+ * `input.amountExact` (raw request digits) wins over the coerced float when present.
+ */
+export function resolveSubmittedAmount(
+  link: CheckoutLink,
+  input: PublicSubmitInput & { amountExact?: string | null },
+): { amount: number; amountExact: string; currencyCode: string; selectedPriceItemId: string | null } {
+  const submitted = input.amount == null ? null : parseDecimal(resolveExactDecimal(input.amountExact, input.amount))
   if (link.pricingMode === 'fixed') {
-    const expected = toMoneyNumber(link.fixedPriceAmount)
+    const expected = parseDecimal(link.fixedPriceAmount)
     if (expected == null || !link.fixedPriceCurrencyCode) {
       throw new CrudHttpError(422, { error: 'checkout.payPage.errors.submit' })
     }
-    if (input.amount != null && Number(input.amount) !== expected) {
+    if (input.amount != null && (!submitted || !submitted.eq(expected))) {
       throw new CrudHttpError(422, { error: 'checkout.payPage.errors.submit' })
     }
-    return { amount: expected, currencyCode: link.fixedPriceCurrencyCode, selectedPriceItemId: null }
+    return withAmount(expected, link.fixedPriceCurrencyCode, null)
   }
   if (link.pricingMode === 'custom_amount') {
-    if (input.amount == null || !link.customAmountCurrencyCode) {
+    if (input.amount == null || !submitted || !link.customAmountCurrencyCode) {
       throw new CrudHttpError(422, {
         error: 'checkout.payPage.validation.fixErrors',
         fieldErrors: { amount: 'checkout.payPage.validation.amountRequired' },
       })
     }
-    const min = toMoneyNumber(link.customAmountMin) ?? 0
-    const max = toMoneyNumber(link.customAmountMax)
-    const amount = Number(input.amount)
-    if (amount < min || (max != null && amount > max)) {
+    const min = parseDecimal(link.customAmountMin)
+    const max = parseDecimal(link.customAmountMax)
+    if ((min && submitted.lt(min)) || (!min && submitted.lt(0)) || (max && submitted.gt(max))) {
       throw new CrudHttpError(422, {
         error: 'checkout.payPage.validation.fixErrors',
         fieldErrors: { amount: 'checkout.payPage.errors.submit' },
       })
     }
-    return { amount, currencyCode: link.customAmountCurrencyCode, selectedPriceItemId: null }
+    return withAmount(submitted, link.customAmountCurrencyCode, null)
   }
   const selectedPriceItem = (link.priceListItems ?? []).find((item) => item.id === input.selectedPriceItemId)
   if (!selectedPriceItem) {
@@ -432,13 +474,19 @@ export function resolveSubmittedAmount(link: CheckoutLink, input: PublicSubmitIn
       fieldErrors: { selectedPriceItemId: 'checkout.payPage.validation.priceSelectionRequired' },
     })
   }
-  if (input.amount != null && Number(input.amount) !== Number(selectedPriceItem.amount)) {
+  const itemAmount = parseDecimal(resolveExactDecimal(selectedPriceItem.amountExact, selectedPriceItem.amount))
+  if (!itemAmount || (input.amount != null && (!submitted || !submitted.eq(itemAmount)))) {
     throw new CrudHttpError(422, { error: 'checkout.payPage.errors.submit' })
   }
+  return withAmount(itemAmount, selectedPriceItem.currencyCode, selectedPriceItem.id)
+}
+
+function withAmount(amount: NonNullable<ReturnType<typeof parseDecimal>>, currencyCode: string, selectedPriceItemId: string | null) {
   return {
-    amount: Number(selectedPriceItem.amount),
-    currencyCode: selectedPriceItem.currencyCode,
-    selectedPriceItemId: selectedPriceItem.id,
+    amount: decimalToNumber(amount),
+    amountExact: decimalToString(amount),
+    currencyCode,
+    selectedPriceItemId,
   }
 }
 
@@ -459,11 +507,15 @@ export function serializeTemplateOrLink(record: CheckoutLinkTemplate | CheckoutL
     themeMode: record.themeMode,
     pricingMode: record.pricingMode,
     fixedPriceAmount: toMoneyNumber(record.fixedPriceAmount),
+    fixedPriceAmountExact: toMoneyString(record.fixedPriceAmount),
     fixedPriceCurrencyCode: record.fixedPriceCurrencyCode ?? null,
     fixedPriceIncludesTax: record.fixedPriceIncludesTax,
     fixedPriceOriginalAmount: toMoneyNumber(record.fixedPriceOriginalAmount),
+    fixedPriceOriginalAmountExact: toMoneyString(record.fixedPriceOriginalAmount),
     customAmountMin: toMoneyNumber(record.customAmountMin),
+    customAmountMinExact: toMoneyString(record.customAmountMin),
     customAmountMax: toMoneyNumber(record.customAmountMax),
+    customAmountMaxExact: toMoneyString(record.customAmountMax),
     customAmountCurrencyCode: record.customAmountCurrencyCode ?? null,
     priceListItems: record.priceListItems ?? [],
     gatewayProviderKey: record.gatewayProviderKey ?? null,
@@ -510,6 +562,7 @@ export function serializeTransaction(record: CheckoutTransaction, link?: Checkou
     linkName: link?.name ?? null,
     linkSlug: link?.slug ?? null,
     amount: toMoneyNumber(record.amount),
+    amountExact: toMoneyString(record.amount),
     currencyCode: record.currencyCode,
     status: record.status,
     paymentStatus: record.paymentStatus ?? null,

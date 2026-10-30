@@ -52,7 +52,7 @@ export function generateUniqueCurrencyCode(): string {
 export async function createRandomCurrencyFixture(
   request: APIRequestContext,
   token: string,
-  input: { name: string; symbol?: string; isActive?: boolean },
+  input: { name: string; symbol?: string; isActive?: boolean; decimalPlaces?: number },
 ): Promise<{ id: string; code: string }> {
   const { organizationId, tenantId } = getTokenContext(token);
   let lastStatus = 0;
@@ -66,6 +66,7 @@ export async function createRandomCurrencyFixture(
       symbol: input.symbol ?? null,
     };
     if (typeof input.isActive === 'boolean') data.isActive = input.isActive;
+    if (typeof input.decimalPlaces === 'number') data.decimalPlaces = input.decimalPlaces;
     const response = await apiRequest(request, 'POST', '/api/currencies/currencies', { token, data });
     if (response.status() === 201) {
       const body = (await response.json()) as { id?: string };

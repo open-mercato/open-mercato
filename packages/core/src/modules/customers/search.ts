@@ -10,6 +10,7 @@ import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CUSTOMER_INTERACTION_TASK_SOURCE, EXAMPLE_TODO_SOURCE } from './lib/interactionCompatibility'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { decimalToString, parseDecimal } from '@open-mercato/shared/lib/decimal'
 
 const logger = createLogger('customers')
 
@@ -378,7 +379,9 @@ function formatDealValue(record: Record<string, unknown>): string | undefined {
   const amount = record.value_amount ?? record.valueAmount
   if (!amount) return undefined
   const currency = record.value_currency ?? record.valueCurrency ?? ''
-  return currency ? `${amount} ${currency}` : String(amount)
+  const parsedAmount = parseDecimal(amount)
+  const amountText = parsedAmount ? decimalToString(parsedAmount) : String(amount)
+  return currency ? `${amountText} ${currency}` : amountText
 }
 
 function snippet(text: unknown, max = 140): string | undefined {

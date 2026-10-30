@@ -7,7 +7,7 @@
 // report a successful save that changed nothing — worse than a disabled field.
 // The update payload MUST NOT carry it, whether or not the project has entries.
 import { staffTimeProjectUpdateSchema } from '../../../../../data/validators'
-import { buildProjectPayload, type ProjectFormValues } from '../projectFormConfig'
+import { buildProjectPayload, createProjectFormSchema, type ProjectFormValues } from '../projectFormConfig'
 
 const PROJECT_ID = '11111111-1111-4111-8111-111111111111'
 const CUSTOMER_ID = '22222222-2222-4222-8222-222222222222'
@@ -23,6 +23,29 @@ const BASE_VALUES: ProjectFormValues = {
 }
 
 describe('buildProjectPayload currency handling (D-3)', () => {
+  it('validates a name edit while preserving precise project rate and budget amounts', () => {
+    const values = createProjectFormSchema().parse({
+      ...BASE_VALUES,
+      id: PROJECT_ID,
+      name: 'Updated project name',
+      hourlyRate: '123,123456789012345678',
+      budgetEnabled: true,
+      budgetKind: 'amount',
+      budgetValue: '98765432109876543210.123456789012345678',
+    })
+    const payload = buildProjectPayload(values)
+    expect(payload.hourlyRate).toBe('123.123456789012345678')
+    expect(payload.budgetValue).toBe('98765432109876543210.123456789012345678')
+    const parsed = staffTimeProjectUpdateSchema.parse(payload)
+    expect(parsed.hourlyRate).toBe(payload.hourlyRate)
+    expect(parsed.budgetValue).toBe(payload.budgetValue)
+  })
+
+  it.each(['1e305', '1'.repeat(301), `0.${'1'.repeat(1001)}`, '-1'])('rejects invalid project amount %s', (amount) => {
+    const result = createProjectFormSchema().safeParse({ ...BASE_VALUES, hourlyRate: amount, budgetValue: amount })
+    expect(result.success).toBe(false)
+  })
+
   it('omits currencyCode when updating a project that has no entries', () => {
     const payload = buildProjectPayload({
       ...BASE_VALUES,

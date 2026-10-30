@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { isDecimalInput } from '@open-mercato/shared/lib/decimal'
 
 const uuid = () => z.string().uuid()
 
@@ -84,7 +85,10 @@ const clearableUuidSchema = z.preprocess(emptyStringToNull, uuid().nullable().op
 // this schema — rule thresholds, benefit discount values, cart/line amounts — is a
 // non-negative magnitude; a resolved effect's own sign (a discount subtracts) is applied
 // downstream in `lib/effect-resolvers.ts`, never carried in the input itself.
-const decimalStringSchema = z.string().regex(/^\d+(\.\d+)?$/, 'Must be a non-negative decimal string')
+const decimalStringSchema = z
+  .string()
+  .regex(/^\d+(\.\d+)?$/, 'Must be a non-negative decimal string')
+  .refine(isDecimalInput, 'Must be a non-negative decimal string')
 
 const clearableDecimalStringSchema = z.preprocess(emptyStringToNull, decimalStringSchema.nullable().optional())
 

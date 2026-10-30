@@ -81,6 +81,8 @@ import {
   type StaffCommandScope,
   type StaffSnapshotScope,
 } from './shared'
+import { resolveCurrencyDecimalPlaces } from '@open-mercato/shared/lib/currencyPrecision'
+import { DEFAULT_STAFF_AMOUNT_DECIMAL_PLACES } from '../lib/time-tracking/cost'
 
 export const staffTimeReportCommandIds = {
   create: 'staff.timesheets.reports.create',
@@ -927,6 +929,12 @@ const closeReportCommand: CommandHandler<StaffTimeReportCloseInput, StaffTimeRep
     const rounding = await readRoundingSnapshot(ctx, report.tenantId)
     const actorId = actorUserId(ctx)
     const labels = reportSheetLabels(translate)
+    const amountDecimalPlaces =
+      (await resolveCurrencyDecimalPlaces(ctx.container, {
+        code: report.currencyCode,
+        tenantId: report.tenantId,
+        organizationId: report.organizationId,
+      })) ?? DEFAULT_STAFF_AMOUNT_DECIMAL_PLACES
 
     type ClosePlanItem = {
       entry: ReturnType<typeof selectIncludedEntries>[number]
@@ -956,6 +964,7 @@ const closeReportCommand: CommandHandler<StaffTimeReportCloseInput, StaffTimeRep
             grouping: report.grouping,
             nonbillableMode: report.nonbillableMode,
             includeAlreadyReported: report.includeAlreadyReported ?? false,
+            amountDecimalPlaces,
           } as const
           const included = selectIncludedEntries(data.entries, options, report.id)
           if (included.length === 0) throw reportEmptyError(translate)
@@ -980,7 +989,7 @@ const closeReportCommand: CommandHandler<StaffTimeReportCloseInput, StaffTimeRep
           closePlan = included.map((entry) => ({
             entry,
             row: entryById.get(entry.id) ?? null,
-            values: resolveEntryValues(entry, projectById.get(entry.timeProjectId) ?? null),
+            values: resolveEntryValues(entry, projectById.get(entry.timeProjectId) ?? null, amountDecimalPlaces),
             currencyCode:
               projectById.get(entry.timeProjectId)?.currencyCode ?? report.currencyCode ?? '',
           }))
@@ -997,9 +1006,9 @@ const closeReportCommand: CommandHandler<StaffTimeReportCloseInput, StaffTimeRep
                 timeEntryId: item.entry.id,
                 frozenRawMinutes: item.values.rawMinutes,
                 frozenRoundedMinutes: item.values.minutes,
-                frozenRateAmount: item.values.rate === null ? null : String(item.values.rate),
+                frozenRateAmount: item.values.rateExact,
                 frozenCurrencyCode: item.currencyCode,
-                frozenAmount: item.values.amount === null ? null : item.values.amount.toFixed(2),
+                frozenAmount: item.values.amountExact,
                 frozenIsBillable: item.values.isBillable,
                 createdAt: now,
               }),
@@ -1022,7 +1031,7 @@ const closeReportCommand: CommandHandler<StaffTimeReportCloseInput, StaffTimeRep
           report.roundingDirection = rounding.direction
           report.totalBillableMinutes = totals.billableMinutes
           report.totalNonbillableMinutes = totals.nonbillableMinutes
-          report.totalAmount = totals.totalAmount.toFixed(2)
+          report.totalAmount = totals.totalAmountExact
           report.updatedAt = now
 
           em.persist(

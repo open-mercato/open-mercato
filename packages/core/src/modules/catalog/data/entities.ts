@@ -1,5 +1,6 @@
 import { Collection, OptionalProps } from '@mikro-orm/core'
 import { Entity, Enum, Index, ManyToOne, OneToMany, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
+import { ExactDecimalType } from '@open-mercato/shared/lib/db/exactDecimalType'
 import type {
   CatalogExciseCategory,
   CatalogGtinType,
@@ -836,16 +837,16 @@ export class CatalogProductPrice {
   @Property({ name: 'max_quantity', type: 'integer', nullable: true })
   maxQuantity?: number | null
 
-  @Property({ name: 'unit_price_net', type: 'numeric', precision: 16, scale: 4, nullable: true })
+  @Property({ name: 'unit_price_net', type: ExactDecimalType, columnType: 'numeric', nullable: true })
   unitPriceNet?: string | null
 
-  @Property({ name: 'unit_price_gross', type: 'numeric', precision: 16, scale: 4, nullable: true })
+  @Property({ name: 'unit_price_gross', type: ExactDecimalType, columnType: 'numeric', nullable: true })
   unitPriceGross?: string | null
 
   @Property({ name: 'tax_rate', type: 'numeric', precision: 7, scale: 4, nullable: true })
   taxRate?: string | null
 
-  @Property({ name: 'tax_amount', type: 'numeric', precision: 16, scale: 4, nullable: true })
+  @Property({ name: 'tax_amount', type: ExactDecimalType, columnType: 'numeric', nullable: true })
   taxAmount?: string | null
 
   @Property({ name: 'channel_id', type: 'uuid', nullable: true })
@@ -943,16 +944,16 @@ export class CatalogPriceHistoryEntry {
   @Property({ name: 'currency_code', type: 'varchar', length: 3 })
   currencyCode!: string
 
-  @Property({ name: 'unit_price_net', type: 'numeric', precision: 16, scale: 4, nullable: true })
+  @Property({ name: 'unit_price_net', type: ExactDecimalType, columnType: 'numeric', nullable: true })
   unitPriceNet?: string | null
 
-  @Property({ name: 'unit_price_gross', type: 'numeric', precision: 16, scale: 4, nullable: true })
+  @Property({ name: 'unit_price_gross', type: ExactDecimalType, columnType: 'numeric', nullable: true })
   unitPriceGross?: string | null
 
   @Property({ name: 'tax_rate', type: 'numeric', precision: 7, scale: 4, nullable: true })
   taxRate?: string | null
 
-  @Property({ name: 'tax_amount', type: 'numeric', precision: 16, scale: 4, nullable: true })
+  @Property({ name: 'tax_amount', type: ExactDecimalType, columnType: 'numeric', nullable: true })
   taxAmount?: string | null
 
   @Property({ name: 'min_quantity', type: 'integer', nullable: true })

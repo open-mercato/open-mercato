@@ -1,4 +1,11 @@
-import { formatLocaleNumberInput, parseLocaleNumber, parseNumberWithDefault, resolveLocaleNumberSeparators } from '../number'
+import {
+  formatLocaleDecimalInput,
+  formatLocaleNumberInput,
+  parseLocaleDecimal,
+  parseLocaleNumber,
+  parseNumberWithDefault,
+  resolveLocaleNumberSeparators,
+} from '../number'
 
 describe('parseNumberWithDefault', () => {
   it('returns the fallback when raw is missing or blank', () => {
@@ -122,6 +129,21 @@ describe('parseLocaleNumber', () => {
   })
 })
 
+describe('parseLocaleDecimal', () => {
+  it('keeps every digit a user typed', () => {
+    expect(parseLocaleDecimal('0,000000000000000000000001', 'pl-PL')).toBe('0.000000000000000000000001')
+    expect(parseLocaleDecimal('1 234,567891234567891234', 'pl-PL')).toBe('1234.567891234567891234')
+    expect(parseLocaleDecimal('12345678901234567890.5', 'en-US')).toBe('12345678901234567890.5')
+  })
+
+  it('normalizes padding and rejects garbage', () => {
+    expect(parseLocaleDecimal('40.0000', 'en-US')).toBe('40')
+    expect(parseLocaleDecimal('', 'en-US')).toBeNull()
+    expect(parseLocaleDecimal('abc', 'en-US')).toBeNull()
+    expect(parseLocaleDecimal('1 2', 'en-US')).toBeNull()
+  })
+})
+
 describe('formatLocaleNumberInput (issue #6309)', () => {
   it('uses the locale decimal separator instead of the dot String() always emits', () => {
     expect(formatLocaleNumberInput(2.5, 'pl-PL')).toBe('2,5')
@@ -140,6 +162,23 @@ describe('formatLocaleNumberInput (issue #6309)', () => {
     for (const value of [2.5, -0.125, 1234.56, 0.1 + 0.2, 7]) {
       for (const locale of ['pl-PL', 'de-DE', 'en-US', 'fr-FR']) {
         expect(parseLocaleNumber(formatLocaleNumberInput(value, locale), locale)).toBe(value)
+      }
+    }
+  })
+})
+
+describe('formatLocaleDecimalInput', () => {
+  it('redisplays an exact decimal with the locale separator and every digit', () => {
+    expect(formatLocaleDecimalInput('1234.567891234567891234', 'pl-PL')).toBe('1234,567891234567891234')
+    expect(formatLocaleDecimalInput('-0.000000000000000000000001', 'de-DE')).toBe('-0,000000000000000000000001')
+    expect(formatLocaleDecimalInput('40.0000', 'pl-PL')).toBe('40')
+    expect(formatLocaleDecimalInput(2.5, 'en-US')).toBe('2.5')
+  })
+
+  it('round-trips through parseLocaleDecimal', () => {
+    for (const value of ['1234.567891234567891234', '-0.125', '7', '0.000000000000000000000001']) {
+      for (const locale of ['pl-PL', 'de-DE', 'en-US', 'fr-FR']) {
+        expect(parseLocaleDecimal(formatLocaleDecimalInput(value, locale), locale)).toBe(value)
       }
     }
   })
