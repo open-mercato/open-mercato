@@ -36,7 +36,9 @@ PR: #8262
 - [x] 1.1 Freeze and analyze every observed task and write the implementation spec. — 36230bca8
 
 ### Phase 2: Minimal shared fixes
-- [ ] 2.1 Add semantic regressions that fail before the fixes.
+
+Fail-before evidence: evaluator delivery tests6 fail/2control pass (existing helpers exported without behavior changes); structural recovery tests14fail/12pass; source-policy tests16fail/12pass; typed fixture contract1fail. Failures are semantic assertions, with separate setup failures discarded. Source-policy tests use actual source generators/inventories so disposable controller worktrees need no ignored build cache.
+- [x] 2.1 Add semantic regressions that fail before the fixes. — bb271631e
 - [ ] 2.2 Repair bounded reference delivery and explicit seeded entrypoint prompts.
 - [ ] 2.3 Align fixtures and structural oracles with real executable contracts.
 
