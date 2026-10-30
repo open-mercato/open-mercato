@@ -1,0 +1,185 @@
+{
+  "runId": "7619_4211dda3",
+  "mode": "pr",
+  "target": {
+    "prNumber": 7619,
+    "title": "feat(security): notify MFA administrators of emergency bypass",
+    "branch": "feat/issue-5523-mfa-bypass-notification",
+    "headSha": "015256f42030ec8fbf6199a1a130fe45fcfd742a"
+  },
+  "verdict": "PASS",
+  "environment": {
+    "baseUrl": "http://127.0.0.1:58262",
+    "additionalBaseUrls": [
+      "http://127.0.0.1:59266",
+      "http://127.0.0.1:60182"
+    ],
+    "role": "isolated synthetic MFA managers and negative actors",
+    "startedByThisRepo": true,
+    "browserProvider": "playwright",
+    "status": "stopped"
+  },
+  "scenario": [
+    {
+      "step": 1,
+      "priority": "P0",
+      "action": "Native TC-SEC-015 via repository CLI, bypass=true",
+      "expected": "One executed pass, zero skipped/flaky/unexpected",
+      "observed": "1 passed; stats expected=1, skipped=0, unexpected=0, flaky=0",
+      "result": "PASS",
+      "screenshot": "native-desktop.png"
+    },
+    {
+      "step": 2,
+      "priority": "P0",
+      "action": "Scoped successful login with bypass ON",
+      "expected": "Eligible MFA managers receive one in-app warning",
+      "observed": "HTTP200 non-pending login; warning type, severity warning, in_app channel and translated keys verified",
+      "result": "PASS",
+      "screenshot": "native-desktop.png"
+    },
+    {
+      "step": 3,
+      "priority": "P0",
+      "action": "Exact, nested, module and global wildcard audiences",
+      "expected": "security.mfa.manage, security.mfa.*, security.* and * each receive one",
+      "observed": "All four API fixture users received exactly one scoped bypass warning",
+      "result": "PASS"
+    },
+    {
+      "step": 4,
+      "priority": "P0",
+      "action": "Recipient denials",
+      "expected": "Ordinary, security.admin.manage-only and role grant overridden by user ACL receive none",
+      "observed": "Each received zero bypass warnings",
+      "result": "PASS"
+    },
+    {
+      "step": 5,
+      "priority": "P0",
+      "action": "Other organization manager with visibility into observed org",
+      "expected": "No alert without membership in observed organization",
+      "observed": "Scoped read-only SQL: zero bypass rows before any login in other org; native test repeats exclusion",
+      "result": "PASS"
+    },
+    {
+      "step": 6,
+      "priority": "P0",
+      "action": "Unauthenticated and authenticated without MFA management",
+      "expected": "Unauthenticated inbox denied; authenticated unrelated user sees no bypass alert",
+      "observed": "Anonymous GET401; authenticated own inbox GET200 with zero bypass alerts (route is auth-only)",
+      "result": "PASS"
+    },
+    {
+      "step": 7,
+      "priority": "P0",
+      "action": "Cold host, panel responsiveness and long warning body",
+      "expected": "Useful shell and readable operator instruction; panel opens/closes",
+      "observed": "Backend DOM and settled shell captured after2227ms; panel visible1231ms after click incl400ms settle; closes without navigation",
+      "result": "PASS",
+      "screenshot": "step-02-warning-desktop.png"
+    },
+    {
+      "step": 8,
+      "priority": "P0",
+      "action": "Narrow viewport390x844",
+      "expected": "Warning title and long environment-variable instruction fit panel",
+      "observed": "Bounding-box width390px; warning and operator instruction visible; screenshot visually inspected",
+      "result": "PASS",
+      "screenshot": "native-mobile.png"
+    },
+    {
+      "step": 9,
+      "priority": "P0",
+      "action": "Ordinary user empty notification panel",
+      "expected": "No bypass warning; inherited empty state readable on mobile",
+      "observed": "Zero bypass alerts; after normal dismissal of own role-assignment alert, No notifications visible at390px",
+      "result": "PASS",
+      "screenshot": "step-08-ordinary-empty-mobile.png"
+    },
+    {
+      "step": 10,
+      "priority": "P0",
+      "action": "Dismiss actual warning through browser",
+      "expected": "Warning removed from panel",
+      "observed": "Clicked warning card Dismiss; title disappears and panel closes normally",
+      "result": "PASS",
+      "screenshot": "step-04-warning-dismissed.png"
+    },
+    {
+      "step": 11,
+      "priority": "P0",
+      "action": "Repeat login and page host after dismissal",
+      "expected": "No renewed daily warning; original row persists dismissed",
+      "observed": "HTTP200 login; same notification ID status dismissed, total dismissed1; active bypass total0; browser confirms absent",
+      "result": "PASS",
+      "screenshot": "step-05-no-redelivery.png"
+    },
+    {
+      "step": 12,
+      "priority": "P0",
+      "action": "Bypass OFF login negative in a fresh isolated database",
+      "expected": "No bypass warning for eligible exact-grant manager",
+      "observed": "HTTP200 normal login and zero bypass alerts",
+      "result": "PASS"
+    },
+    {
+      "step": 13,
+      "priority": "P0",
+      "action": "Bypass OFF overdue organization policy and backend navigation",
+      "expected": "Redirect unenrolled actor to MFA enrollment, emit no bypass alert",
+      "observed": "/backend redirects to /backend/profile/security/mfa; zero bypass alerts",
+      "result": "PASS",
+      "screenshot": "step-06-bypass-off-enforcement.png"
+    },
+    {
+      "step": 14,
+      "priority": "P0",
+      "action": "Bypass OFF forced MFA-only sudo target",
+      "expected": "No password downgrade and no bypass warning",
+      "observed": "HTTP400 for unenrolled actor; zero bypass alerts",
+      "result": "PASS"
+    },
+    {
+      "step": 15,
+      "priority": "P0",
+      "action": "Bypass ON overdue page producer isolated from login",
+      "expected": "Backend access permitted and fresh warning created by page observation",
+      "observed": "Own org/type warning rows removed and DB zero verified; no subsequent login; actor stays /backend and warning appears",
+      "result": "PASS",
+      "screenshot": "step-07-page-producer-on.png"
+    },
+    {
+      "step": 16,
+      "priority": "P0",
+      "action": "Bypass ON forced MFA-only sudo producer isolated from login/page",
+      "expected": "Password challenge plus fresh scoped bypass warning",
+      "observed": "Own org/type rows cleared again; HTTP200 required=true method=password; fresh warning ID differs from removed warning",
+      "result": "PASS"
+    },
+    {
+      "step": 17,
+      "priority": "P0",
+      "action": "Fixture and resource cleanup",
+      "expected": "Remove own records and stop only owned runtimes",
+      "observed": "API fixture cleanup completed; all owned app ports58262/59266/60182 closed; recorded owned Postgres containers removed; no residual task processes",
+      "result": "PASS"
+    }
+  ],
+  "hasUiTest": true,
+  "notes": [
+    "Evidence-only runtime verdict covers the listed scenarios. No QA labels, self-signoff, source edits, source commits, pushes or merges. Parent owns CI and final merge policy.",
+    "Existing native APPROVED reviews satisfy review-first gate; live PR head matched the exact QA SHA at checkout and before publication.",
+    "Runner local macOS, Node26.12.1 (repository runtime guard accepts>=24), Yarn4.17.1, Playwright1.61.1 Chromium; Docker Testcontainers disposable PostgreSQL. Each environment cold+warm readiness verified by generated local om-prepare-test-env entrypoint wrapping repository CLI.",
+    "All three runtimes built exact QA head: ON127.0.0.1:58262, OFF127.0.0.1:59266, ON producer isolation127.0.0.1:60182. Enterprise/security/SSO=true; bypass=true,false,true respectively. Production app build, isolated test database; no production data or credentials.",
+    "CLI test defaults include AUTO_SPAWN_WORKERS=true and OM_EVENTS_SINGLE_DELIVERY=false; real application APIs/subscribers/database and browser used, without mocking warning delivery. Worker-only production configuration was not separately exercised.",
+    "Fixtures: randomly named organizations, roles, example.test users with generated passwords; exact/nested/module/global and denied grants, other-org manager, scoped overdue enforcement and sudo configs. Notification SQL touched only test organization/type for producer isolation and cleanup. Standard seeded disposable superadmin used only for API fixture provisioning.",
+    "No deep link is expected: spec deliberately defines actions=[] and no linkHref because MFA-management permission does not imply access to administrative routes. API and browser both verified absence.",
+    "No custom UI component/loading/error state or .uxproof contract exists in this diff/worktree; the warning uses the existing notification panel. Cold shell, empty panel, API401 error, denied audience, full long body and mobile layout were observed. General notification transport-error UI was not fault-injected.",
+    "Not exercised live: queue outage/timeout, enforcement-service-unavailable and compliance-check-failed branches, next UTC-day rollover, process restart/concurrent delivery, separate tenant or disabled-module recipient cases, other locales. These are coverage limits, not claimed passes; existing source unit coverage was read but not counted as execution in this QA run.",
+    "Exploration corrections: initial expected403 for notifications.view absence was wrong because GET is auth-only; corrected probe passed200/empty plus anonymous401. A networkidle wait timed out on live backend connections; DOM/semantic readiness succeeded. Direct fixture SQL deletion left read cache stale; producer isolation was corrected to assert DB zero and require a new warning ID. No product defect inferred from these probe mistakes.",
+    "Screenshots visually inspected; only synthetic demo identities/organization labels appear. No token, password, secret, real user data or credential screen appears in published images.",
+    "Full configured CI gate not repeated: parent owns current hosted CI. Independently executed native feature integration scenario and documented environment build/generate/build/app preparation."
+  ],
+  "completedAt": "2026-10-30T23:09:34.017592+00:00"
+}
