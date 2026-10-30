@@ -49,6 +49,14 @@ export const OM_OTEL_TOOL_ATTRIBUTES = {
   latencyMs: 'om.tool.latency_ms',
 } as const
 
+export const OM_OTEL_CONTENT_ATTRIBUTES = {
+  truncated: 'om.truncated',
+  exportStatus: 'om.content.export_status',
+} as const
+
+export const OTEL_CONTENT_EXPORT_STATUSES = ['exported', 'unavailable', 'expired', 'over_budget', 'not_captured'] as const
+export type OtelContentExportStatus = (typeof OTEL_CONTENT_EXPORT_STATUSES)[number]
+
 export const OM_OTEL_SPAN_ATTRIBUTES = {
   spanName: 'om.span.name',
 } as const

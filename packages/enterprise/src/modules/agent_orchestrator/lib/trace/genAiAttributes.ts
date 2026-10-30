@@ -34,6 +34,10 @@ export const GEN_AI_ATTRIBUTES = {
   evaluationScoreValue: 'gen_ai.evaluation.score.value',
   evaluationScoreLabel: 'gen_ai.evaluation.score.label',
   outputType: 'gen_ai.output.type',
+  inputMessages: 'gen_ai.input.messages',
+  outputMessages: 'gen_ai.output.messages',
+  systemInstructions: 'gen_ai.system_instructions',
+  toolDefinitions: 'gen_ai.tool.definitions',
 } as const
 
 export const GEN_AI_EVENTS = {
