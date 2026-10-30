@@ -26,7 +26,7 @@ const widget: InjectionWidgetModule<Record<string, unknown>, Record<string, unkn
     id: 'customers.injection.ai-deal-detail-trigger',
     title: 'Customers AI Deal Detail Trigger',
     description:
-      'Renders an "Ask AI" button in the deal detail header that opens a sheet embedding the customers account assistant with deal-scoped page context.',
+      'Renders an "Ask AI" button in the deal detail header action cluster that opens a sheet embedding the customers account assistant with deal-scoped page context.',
     features: ['customers.deals.view', 'ai_assistant.view'],
     requiredModules: ['ai_assistant'],
     priority: 100,

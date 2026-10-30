@@ -590,7 +590,6 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
                     entityId={E.customers.customer_entity}
                     recordId={companyId}
                     title={t('customers.companies.detail.tabs.files', 'Files')}
-                    description={t('customers.companies.detail.files.subtitle', 'Upload and manage files linked to this company.')}
                   />
                 )}
 

@@ -80,7 +80,7 @@ export function CreateDealForm({ returnTo, initialValues }: CreateDealFormProps)
   const [isSubmitting, setIsSubmitting] = React.useState(false)
   const { runMutation, retryLastMutation } = useGuardedMutation({ contextId: CONTEXT_ID, blockedMessage: tr('ui.forms.flash.saveBlocked', 'Save blocked by validation') })
   const { pipelines, stages, loadStages } = useDealPipelines()
-  const { customFieldsLoaded, customCount, handleCustomAttributesLoaded, collectNormalizedCustomValues } = useDealCustomFields(tr)
+  const { customFieldsLoaded, handleCustomAttributesLoaded, collectNormalizedCustomValues } = useDealCustomFields(tr)
   const statusLabels = React.useMemo(
     () => createDictionarySelectLabels('deal-statuses', (key, fallback) => tr(key, fallback ?? key)),
     [tr],
@@ -145,7 +145,6 @@ export function CreateDealForm({ returnTo, initialValues }: CreateDealFormProps)
           <DealSectionCard
             icon={Briefcase}
             title={tr('customers.deals.create.title', 'Create deal')}
-            subtitle={tr('customers.deals.create.sections.details.subtitle', 'Core opportunity info')}
             actions={<>
               <Button type="button" variant="outline" onClick={handleCancel} disabled={isSubmitting}>{tr('customers.deals.create.cancel', 'Cancel')}</Button>
               <Button type="submit" form={CONTEXT_ID} disabled={isSubmitting || !customFieldsLoaded}>
@@ -179,11 +178,11 @@ export function CreateDealForm({ returnTo, initialValues }: CreateDealFormProps)
       column: 2,
       component: ({ values, setValue, errors, injectedFields }) => <>
         <DealCreateSidebar tr={tr} customValues={values} onCustomChange={setValue} errors={errors} disabled={isSubmitting}
-          customCount={customCount} manageHref={CUSTOM_FIELDS_MANAGE_HREF} onCustomLoaded={handleCustomAttributesLoaded} />
+          manageHref={CUSTOM_FIELDS_MANAGE_HREF} onCustomLoaded={handleCustomAttributesLoaded} />
         {injectedFields}
       </>,
     },
-  ], [tr, handleCancel, isSubmitting, customFieldsLoaded, loadStages, pipelines, stages, statusLabels, ownerInitialOption, customCount, handleCustomAttributesLoaded])
+  ], [tr, handleCancel, isSubmitting, customFieldsLoaded, loadStages, pipelines, stages, statusLabels, ownerInitialOption, handleCustomAttributesLoaded])
 
   return (
     <div className="mx-auto max-w-screen-2xl" onKeyDown={(event) => {

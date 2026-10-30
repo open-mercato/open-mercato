@@ -45,7 +45,6 @@ export function DealAssociationsSection({
     <DealSectionCard
       icon={Users}
       title={tr('customers.deals.create.sections.associations.title', 'Associations')}
-      subtitle={tr('customers.deals.create.sections.associations.subtitle', 'Link people and companies to this deal')}
     >
       <DealFormField fieldId="personIds" label={tr('customers.people.detail.deals.fields.people', 'People')}>
         <DealAssociationsField
