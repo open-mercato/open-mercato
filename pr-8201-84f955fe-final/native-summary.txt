@@ -1,0 +1,3 @@
+Exact QA head: 50c684412b12715b45b5b2180e0fb0a375014106
+Repository CLI: OM_INTEGRATION_MODULES=customers yarn mercato test:integration TC-CRM-(created-at-list|recently-created-preset)
+4passed,0failed,no retry. API sort/whole-day people+companies, Warsaw near-midnight UI, real-editor autumnDST reopen/reselect/reload.
