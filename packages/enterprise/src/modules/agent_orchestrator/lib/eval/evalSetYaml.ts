@@ -29,7 +29,7 @@ function sortedDeep(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(sortedDeep)
   if (!isPlainObject(value)) return value
   const result: Record<string, unknown> = {}
-  for (const key of Object.keys(value).sort()) {
+  for (const key of Object.keys(value).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))) {
     if (value[key] !== undefined) result[key] = sortedDeep(value[key])
   }
   return result

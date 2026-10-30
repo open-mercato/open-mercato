@@ -96,7 +96,7 @@ export function isKnownRubricRef(appliesTo: string, ref: string): boolean {
 export function listRubrics(agentId?: string | null): RubricDescriptor[] {
   const own = agentId ? agentRubrics.get(agentId) : undefined
   const agentEntries: RubricDescriptor[] = own
-    ? [...own.keys()].sort().map((key) => ({ key, title: key, source: 'agent' as const }))
+    ? [...own.keys()].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)).map((key) => ({ key, title: key, source: 'agent' as const }))
     : []
   const shadowed = new Set(agentEntries.map((entry) => entry.key))
   const builtinEntries: RubricDescriptor[] = BUILTIN_RUBRICS.filter((entry) => !shadowed.has(entry.key)).map((entry) => ({
