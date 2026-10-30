@@ -221,6 +221,8 @@ test('canonical permission projection excludes noncanonical targets and QA-only 
   const inventory = JSON.parse(fs.readFileSync(path.join(root, relative), 'utf8')) as { capabilities: Array<{ capabilityId: string; readStatus: string; sourcePaths: string[] }> }
   const capability = inventory.capabilities.find(entry => entry.capabilityId === 'data.migrations')!
   capability.sourcePaths.push('src/modules/library/private-source.ts')
+  inventory.capabilities.push({ capabilityId: 'qa.reference', readStatus: 'qa-only', sourcePaths: ['src/modules/example/qa-reference.ts'] })
+  write(root, 'src/modules/example/qa-reference.ts', 'export const fixtureQaOnly = true\n')
   write(root, relative, JSON.stringify(inventory))
   const paths = canonicalReadPaths(evaluator.buildPrompt(record, root, true))
   assert.ok(paths.every(relative => relative.startsWith('src/modules/example/')))

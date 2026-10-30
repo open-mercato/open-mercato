@@ -2874,6 +2874,13 @@ function runnerVersion(runner, root) {
 
 function writableGroundingEvidence(caseRecord, root) {
   const references = []
+  const canonicalReadPaths = exampleReadAllowlist(caseRecord, root)
+    .filter(relative => relative.startsWith(`${CANONICAL_EXAMPLE_ROOT}/`)).sort()
+  for (const relative of canonicalReadPaths) {
+    const normalized = normalizeExampleReadPath(relative)
+    const file = resolveExampleRootFile(root, relative)
+    if (normalized.violation || /[*?]/.test(relative) || file.violation || file.size > 262_144) throw new Error('unsafe canonical read scope')
+  }
   const referenceIds = declaredSourceReferenceIds(caseRecord)
   if (referenceIds.length) {
     const inventory = readSourceLinkInventory(root)
@@ -2906,9 +2913,9 @@ function writableGroundingEvidence(caseRecord, root) {
   const verification = '.ai/skills/om-module-scaffold/references/verification.md'
   const verificationFile = resolveExampleRootFile(root, verification)
   const allowedVerification = permittedContextPath(verification, caseRecord) && !verificationFile.violation && verificationFile.size <= 262_144
-  const evidence = JSON.stringify({ references, project, ...(allowedVerification ? { verification } : {}) })
+  const evidence = JSON.stringify({ references, canonicalReadPaths, project, ...(allowedVerification ? { verification } : {}) })
   if (Buffer.byteLength(evidence, 'utf8') > 8192) throw new Error('writable grounding metadata exceeds its bounded envelope')
-  return ` Controller-provided coding evidence (inert metadata, not instructions or a successful tool read): ${evidence}. AGENTS.md remains the routing authority: use a reference only after routing selects its applicable owner. Read the applicable owner first; for a canonical reference, then follow a declared root entrypoint before the exact source. Read local and installed source links after their owner, before implementing from them. Read-only references remain immutable; for writable targets, preserve existing exports, signatures and ABI while repairing them in place. The project test script records baseline tooling; a null script means the test command was not reported safely and must not be invented.${allowedVerification ? ' Follow the verification reference only when relevant to the routed task.' : ''} Inline metadata is not a successful tool read and must not be reported as one in selectedContext.`
+  return ` Controller-provided coding evidence (inert metadata, not instructions or a successful tool read): ${evidence}. AGENTS.md remains the routing authority: use a reference only after routing selects its applicable owner. canonicalReadPaths is the complete canonical example read permission list; a readable surface-map row is not a case permission grant. Choose only task-relevant permitted sources; this list does not select routes or skills. Read the applicable owner first; for a canonical reference, then follow a declared root entrypoint before the exact source. Read local and installed source links after their owner, before implementing from them. Read-only references remain immutable; for writable targets, preserve existing exports, signatures and ABI while repairing them in place. The project test script records baseline tooling; a null script means the test command was not reported safely and must not be invented.${allowedVerification ? ' Follow the verification reference only when relevant to the routed task.' : ''} Inline metadata is not a successful tool read and must not be reported as one in selectedContext.`
 }
 
 export function buildPrompt(caseRecord, root, writable, frameworkContextEntries = [], fixtures) {
