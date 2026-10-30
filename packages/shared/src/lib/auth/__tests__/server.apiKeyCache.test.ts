@@ -146,7 +146,8 @@ describe('resolveApiKeyAuth caching + lastUsedAt debounce', () => {
           name: roleId === 'role-super' ? 'superadmin' : roleId === 'role-reader' ? 'employee' : 'new-role',
         }))
       }
-      if (entity === RoleAcl && (where.role as { $in: string[] }).$in.includes('role-super')) {
+      const relation = where.role as { $in?: string[]; id?: { $in: string[] } } | undefined
+      if (entity === RoleAcl && (relation?.$in ?? relation?.id?.$in ?? []).includes('role-super')) {
         return [{ isSuperAdmin: true, organizationsJson: null }]
       }
       return []
@@ -630,7 +631,7 @@ describe('resolveApiKeyAuth caching + lastUsedAt debounce', () => {
       keyOrganizationId: string | null
       aclOrganizations: string[] | null
     }) {
-      const { RoleAcl } = await import('@open-mercato/core/modules/auth/data/entities')
+      const { Role, RoleAcl } = await import('@open-mercato/core/modules/auth/data/entities')
       const { Organization, Tenant } = await import('@open-mercato/core/modules/directory/data/entities')
       const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
       // A creator-less key is validated against a live tenant (and organization when bound).
@@ -654,6 +655,7 @@ describe('resolveApiKeyAuth caching + lastUsedAt debounce', () => {
         lastUsedAt: null,
       })
       emFind.mockImplementation(async (entity: unknown) => {
+        if (entity === Role) return [{ id: 'role-super', name: 'privileged', deletedAt: null }]
         if (entity === RoleAcl) {
           return [{ isSuperAdmin: true, organizationsJson: input.aclOrganizations }]
         }
@@ -708,4 +710,27 @@ describe('resolveApiKeyAuth caching + lastUsedAt debounce', () => {
       expect(auth).toMatchObject({ isApiKey: true, isSuperAdmin: true })
     })
   })
+
+  it.each([false, true])('projects super-admin only from a live role (deleted: %s)', async (deleted) => {
+    const { Role, RoleAcl } = await import('@open-mercato/core/modules/auth/data/entities')
+    const { Tenant } = await import('@open-mercato/core/modules/directory/data/entities')
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    const role = { id: 'role-life', name: 'privileged', deletedAt: deleted ? new Date() : null }
+    findApiKeyBySecret.mockResolvedValue({ id: 'key-role-life', tenantId: 'tenant-1', organizationId: null, rolesJson: [role.id], createdBy: null, expiresAt: null })
+    emFindOne.mockImplementation(async (entity: unknown) => entity === Tenant ? { id: 'tenant-1' } : null)
+    emFind.mockImplementation(async (entity: unknown, where: Record<string, unknown>) => {
+      if (entity === Role) return deleted ? [] : [role]
+      if (entity === RoleAcl) {
+        const relation = where.role as { $in?: string[]; id?: { $in: string[] }; deletedAt?: Date | null }
+        const ids = relation.$in ?? relation.id?.$in ?? []
+        if (!ids.includes(role.id) || (relation.deletedAt === null && deleted)) return []
+        return [{ isSuperAdmin: true, organizationsJson: null }]
+      }
+      return []
+    })
+    const auth = await getAuthFromRequest(buildRequest('role-life-secret'))
+    expect(auth).toMatchObject({ isApiKey: true, isSuperAdmin: !deleted })
+    if (deleted) expect(auth?.roles).not.toContain('privileged')
+  })
+
 })
