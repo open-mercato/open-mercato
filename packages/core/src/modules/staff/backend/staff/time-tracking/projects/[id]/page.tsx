@@ -174,6 +174,8 @@ function RailFact({ label, value }: { label: string; value: React.ReactNode }) {
 export default function TimesheetProjectDetailPage({ params }: { params?: { id?: string } }) {
   const projectId = params?.id
   const t = useT()
+  const translateRef = React.useRef(t)
+  React.useEffect(() => { translateRef.current = t }, [t])
   const scopeVersion = useOrganizationScopeVersion()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const router = useRouter()
@@ -413,7 +415,7 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
         }
         if (!cancelled) setAccessDeniedProjectId(null)
         if (!call.ok) {
-          throw new Error(t('staff.timesheets.projects.errors.load', 'Failed to load project.'))
+          throw new Error(translateRef.current('staff.timesheets.projects.errors.load', 'Failed to load project.'))
         }
         const payload = call.result
         const record = Array.isArray(payload?.items) ? payload.items[0] : null
@@ -424,7 +426,7 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
         if (!cancelled) setProject(record)
       } catch (loadError) {
         if (!cancelled) {
-          setError(loadError instanceof Error ? loadError.message : t('staff.timesheets.projects.errors.load', 'Failed to load project.'))
+          setError(loadError instanceof Error ? loadError.message : translateRef.current('staff.timesheets.projects.errors.load', 'Failed to load project.'))
         }
       } finally {
         if (!cancelled) {
@@ -435,7 +437,7 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
     }
     loadProject()
     return () => { cancelled = true }
-  }, [projectId, t, scopeVersion])
+  }, [projectId, scopeVersion])
 
   // --- Load employees with name resolution ---
   const loadEmployees = React.useCallback(async () => {
@@ -445,7 +447,7 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
       const payload = await readApiResultOrThrow<EmployeesResponse>(
         `/api/staff/timesheets/time-projects/${projectId}/employees?page=1&pageSize=100`,
         undefined,
-        { errorMessage: t('staff.timesheets.projects.employees.empty', 'No employees assigned yet.'), fallback: { items: [], total: 0 } },
+        { errorMessage: translateRef.current('staff.timesheets.projects.employees.empty', 'No employees assigned yet.'), fallback: { items: [], total: 0 } },
       )
       const items = Array.isArray(payload.items) ? payload.items : []
 
@@ -494,7 +496,7 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
     } finally {
       setEmployeesLoading(false)
     }
-  }, [projectId, accessDenied, t])
+  }, [projectId, accessDenied])
 
   React.useEffect(() => {
     void loadEmployees()
