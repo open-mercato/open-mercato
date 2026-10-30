@@ -4,6 +4,18 @@ import path from 'node:path'
 import { MikroORM } from '@mikro-orm/core'
 import { dbMigrate } from '../commands'
 import type { ModuleEntry, PackageResolver } from '../../resolver'
+import type { RequestQueryIndexReindexDeps } from '../migration-reindex'
+
+const bootstrapFromAppRoot = jest.fn<Promise<void>, [string | undefined]>()
+const createRequestContainer = jest.fn<Promise<{ resolve: jest.Mock; dispose: jest.Mock }>, []>()
+
+jest.mock('@open-mercato/shared/lib/bootstrap/dynamicLoader', () => ({
+  bootstrapFromAppRoot: (appRoot?: string) => bootstrapFromAppRoot(appRoot),
+}))
+
+jest.mock('@open-mercato/shared/lib/di/container', () => ({
+  createRequestContainer: () => createRequestContainer(),
+}))
 
 const collectQueryIndexReindexEntityTypes = jest.fn<Promise<string[]>, [any, any]>()
 const requestQueryIndexReindex = jest.fn<Promise<{ requested: string[]; queued: boolean }>, [any, any]>()
@@ -94,6 +106,9 @@ describe('dbMigrate discharges query-index reindex declarations', () => {
     initSpy = jest.spyOn(MikroORM, 'init').mockImplementation((...args: any[]) => ormInit(...args))
     collectQueryIndexReindexEntityTypes.mockReset()
     requestQueryIndexReindex.mockReset()
+    bootstrapFromAppRoot.mockReset()
+    bootstrapFromAppRoot.mockResolvedValue(undefined)
+    createRequestContainer.mockReset()
     isMigrationReindexEnabled.mockReset()
     isMigrationReindexEnabled.mockReturnValue(true)
     collectQueryIndexReindexEntityTypes.mockResolvedValue(['customers:customer_dictionary_entry'])
@@ -185,5 +200,70 @@ describe('dbMigrate discharges query-index reindex declarations', () => {
 
     expect(collectQueryIndexReindexEntityTypes).not.toHaveBeenCalled()
     expect(requestQueryIndexReindex).not.toHaveBeenCalled()
+  })
+
+  it('does not resolve the application directory when no migrations ran', async () => {
+    const moduleA = { id: 'alpha', dir: createTempModule('alpha') }
+    stubOrmsFor({ alpha: { pending: [] } })
+    const resolver = createMockResolver([moduleA])
+    const getAppDir = jest.spyOn(resolver, 'getAppDir').mockImplementation(() => {
+      throw new Error('application directory unavailable')
+    })
+
+    await expect(dbMigrate(resolver)).resolves.toBeUndefined()
+
+    expect(getAppDir).not.toHaveBeenCalled()
+    expect(bootstrapFromAppRoot).not.toHaveBeenCalled()
+    expect(requestQueryIndexReindex).not.toHaveBeenCalled()
+  })
+
+  it('bootstraps DI after migrations close and before creating the reindex container', async () => {
+    const moduleA = { id: 'alpha', dir: createTempModule('alpha') }
+    stubOrmsFor({ alpha: { pending: ['Migration20260901120000_reindex_alpha'] } })
+    let bootstrapped = false
+    bootstrapFromAppRoot.mockImplementation(async () => {
+      expect(ormCloses).toEqual(['alpha'])
+      bootstrapped = true
+    })
+    const emitEvent = jest.fn().mockResolvedValue(undefined)
+    const dispose = jest.fn().mockResolvedValue(undefined)
+    createRequestContainer.mockImplementation(async () => {
+      if (!bootstrapped) throw new Error('[Bootstrap] DI registrars not registered.')
+      return { resolve: jest.fn().mockReturnValue({ emitEvent }), dispose }
+    })
+    const actual = jest.requireActual<typeof import('../migration-reindex')>('../migration-reindex')
+    requestQueryIndexReindex.mockImplementationOnce((entityTypes: string[], deps: RequestQueryIndexReindexDeps) =>
+      actual.requestQueryIndexReindex(entityTypes, deps),
+    )
+
+    await dbMigrate(createMockResolver([moduleA]))
+
+    expect(bootstrapFromAppRoot).toHaveBeenCalledTimes(1)
+    expect(bootstrapFromAppRoot).toHaveBeenCalledWith('/tmp/test-app')
+    expect(emitEvent).toHaveBeenCalledWith(
+      'query_index.reindex',
+      { entityType: 'customers:customer_dictionary_entry', allowAllTenants: true, force: false },
+      { persistent: true },
+    )
+    expect(dispose).toHaveBeenCalledTimes(1)
+    expect(warnSpy).not.toHaveBeenCalled()
+  })
+
+  it('keeps manual reindex instructions when bootstrap fails without failing migrations', async () => {
+    const moduleA = { id: 'alpha', dir: createTempModule('alpha') }
+    stubOrmsFor({ alpha: { pending: ['Migration20260901120000_reindex_alpha'] } })
+    bootstrapFromAppRoot.mockRejectedValue(new Error('generated registry unavailable'))
+    const actual = jest.requireActual<typeof import('../migration-reindex')>('../migration-reindex')
+    requestQueryIndexReindex.mockImplementationOnce((entityTypes: string[], deps: RequestQueryIndexReindexDeps) =>
+      actual.requestQueryIndexReindex(entityTypes, deps),
+    )
+
+    await expect(dbMigrate(createMockResolver([moduleA]))).resolves.toBeUndefined()
+
+    expect(createRequestContainer).not.toHaveBeenCalled()
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('generated registry unavailable'))
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining(
+      'mercato query_index rebuild --entity customers:customer_dictionary_entry --global',
+    ))
   })
 })
