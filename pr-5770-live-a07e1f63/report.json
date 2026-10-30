@@ -1,0 +1,66 @@
+{
+  "runId": "a07e1f63-5770-live-readers",
+  "mode": "pr",
+  "target": {
+    "prNumber": 5770,
+    "title": "Canonical live ACL authorization",
+    "branch": "carry/pr-5764-ready",
+    "headSha": "e8923204ed712796435b84663218c00453f01b29"
+  },
+  "verdict": "PASS",
+  "environment": {
+    "baseUrl": "http://127.0.0.1:42217",
+    "role": "owned ordinary/super-admin API keys; superadmin fixture setup",
+    "startedByThisRepo": true,
+    "browserProvider": "playwright",
+    "startedAt": "2026-10-30T06:48:24Z"
+  },
+  "scenario": [
+    {
+      "step": 1,
+      "priority": "P0",
+      "action": "Read protected users API with a live ordinary role",
+      "expected": "HTTP200 for the live role positive control",
+      "observed": "HTTP200; isolated marker returns no real user records",
+      "result": "PASS",
+      "screenshot": "01-live-role.png"
+    },
+    {
+      "step": 2,
+      "priority": "P0",
+      "action": "Read protected users API with an unused key after only its role is deleted",
+      "expected": "HTTP403 and no effective feature grant despite the still-live ACL",
+      "observed": "HTTP403; API-key principal identity verified; feature-check returned ok:false/granted:[]",
+      "result": "PASS",
+      "screenshot": "02-deleted-role-denied.png"
+    },
+    {
+      "step": 3,
+      "priority": "P0",
+      "action": "Read protected users API with a live super-admin role",
+      "expected": "HTTP200 for the live role positive control",
+      "observed": "HTTP200; isolated marker returns no real user records",
+      "result": "PASS",
+      "screenshot": "03-live-role.png"
+    },
+    {
+      "step": 4,
+      "priority": "P0",
+      "action": "Read protected users API with an unused key after only its role is deleted",
+      "expected": "HTTP403 and no effective feature grant despite the still-live ACL",
+      "observed": "HTTP403; API-key principal identity verified; feature-check returned ok:false/granted:[]",
+      "result": "PASS",
+      "screenshot": "04-deleted-role-denied.png"
+    }
+  ],
+  "hasUiTest": false,
+  "notes": [
+    "Backend authorization change: verified the closest observable protected API in a real Chromium browser; no fresh staff form interaction is claimed.",
+    "Each API-key browser context is cookie-free. Unused keys prove fresh reads, not eviction of previously cached authority. Existing cache TTL/invalidations remain unchanged.",
+    "Only owned roles were soft-deleted; their ACLs deliberately remained live. All key/role fixtures were cleaned and role absence verified.",
+    "Separate native tests cover live-vs-revoked ACL role-grant refusal/success.",
+    "Evidence only; no independent review, QA approval or merge granted.",
+    "Final exact-head native rerun:4passed. Earlier2setupfailures were a fixture password policy mismatch; corrected only random character-class generation, not authorization assertions/timeouts/retries.",
+    "Runtime source213focusedtests/core+sharedtypechecks passed; laterchanges are test/spec-only."
+  ]
+}
