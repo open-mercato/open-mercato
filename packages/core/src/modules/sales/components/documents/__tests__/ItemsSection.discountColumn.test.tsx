@@ -51,6 +51,12 @@ jest.mock('@open-mercato/ui/primitives/button', () => ({
   Button: ({ children, ...props }: { children?: React.ReactNode }) => <button {...props}>{children}</button>,
 }))
 
+jest.mock('@open-mercato/ui/primitives/tooltip', () => ({
+  SimpleTooltip: ({ content, children }: { content: React.ReactNode; children: React.ReactNode }) => (
+    <span data-tooltip-content={String(content)}>{children}</span>
+  ),
+}))
+
 jest.mock('@open-mercato/ui/backend/injection/useInjectionDataWidgets', () => ({
   useInjectionDataWidgets: () => ({ widgets: [] }),
 }))
@@ -186,6 +192,36 @@ describe('SalesDocumentItemsSection discount column', () => {
     await screen.findByRole('columnheader', { name: 'Discount' })
     expect(screen.getByText('10%')).toBeTruthy()
     expect(screen.queryByText(/^−/)).toBeNull()
+  })
+
+  it('renders an externally supplied negative discount as a positive markup', async () => {
+    mockLines(lineFixture({ discount_amount: -5, total_net_amount: 35 }))
+    renderSection()
+
+    await screen.findByRole('columnheader', { name: 'Discount' })
+    expect(screen.getByText(`+${money(5)}`)).toBeTruthy()
+  })
+
+  it('exposes external-amount read-only reasons on focusable action wrappers', async () => {
+    mockLines(lineFixture({ amounts_mode: 'external' }))
+    render(
+      <SalesDocumentItemsSection
+        documentId="order-1"
+        kind="order"
+        currencyCode="USD"
+        organizationId="org-1"
+        tenantId="tenant-1"
+        amountsReadOnly
+      />,
+    )
+
+    await screen.findByText('Widget A')
+    const reason = 'Totals on this document come from an external system and are stored as supplied.'
+    const triggers = screen.getAllByLabelText(reason)
+    expect(triggers).toHaveLength(2)
+    for (const trigger of triggers) expect(trigger).toHaveAttribute('tabindex', '0')
+    expect(screen.getByRole('button', { name: 'Edit' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Delete' })).toBeDisabled()
   })
 
   it('leaves the cell empty on lines that carry no discount', async () => {

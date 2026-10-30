@@ -671,6 +671,8 @@ const documentUpdateFieldsSchema = z
     tags: z.array(z.string().uuid()).optional(),
     customFields: z.record(z.string(), z.unknown()).optional(),
     customFieldSetId: z.string().uuid().nullable().optional(),
+    // Quote creates have always stripped this order-only field. Valid quote
+    // updates preserve that compatibility behavior while quotes stay computed.
     totalsMode: amountsModeSchema.optional(),
     ...orderHeaderTotalsSchema.shape,
   });
@@ -5888,7 +5890,6 @@ const updateQuoteCommand: CommandHandler<
   },
   async execute(rawInput, ctx) {
     const parsed = documentUpdateSchema.parse(rawInput ?? {});
-    await assertAmountsModeUnsupportedOnQuote([parsed]);
     documentEditSchema.parse(rawInput ?? {});
     const em = (ctx.container.resolve("em") as EntityManager).fork();
     let quote!: SalesQuote;
