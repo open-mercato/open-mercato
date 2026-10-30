@@ -252,6 +252,46 @@ yarn mercato attachments structure dump --attachment <id> --tenant <tenantId> --
 
 Backfill never runs extraction inline. With OCR-enabled partitions a large backfill multiplies OCR cost; start with `--dry-run` and a `--limit`.
 
+### Section search
+
+When a partition has `indexDocumentSections` enabled, each section of a live extraction is indexed as the `attachments:attachment_document_section` search entity (strategies `fulltext`, `vector` and `tokens`). Off by default.
+
+:::warning Plaintext egress
+Indexed section text and heading paths are sent to the fulltext and vector stores in **plaintext**. Enable the flag only for corpora whose content may leave the encrypted database (DOC-Q3), such as public regulations or product manuals.
+:::
+
+**Gate.** A section is indexed only when its extraction is live (not superseded or deleted) and its partition has `indexDocumentSections` on. The gate is the entity's `shouldIndex` hook. It is enforced in `SearchIndexer` (every path, including manual reindex) and in the `query_index` token writer, which evaluates it per record before writing `search_tokens`. A rejected or failing check fails closed: the record is removed from every strategy. A manual `mercato search reindex` therefore cannot push sections of non-opted partitions.
+
+**What triggers sync.** Work runs on the `attachments-document-structure` queue as `section-search` jobs:
+
+- an extraction completes (sections are indexed when the partition opts in);
+- an extraction is superseded by a newer one (the old sections are deleted, even if the partition stopped indexing in the meantime);
+- an attachment is purged (the delete jobs are enqueued after the purge commits);
+- the partition flag is toggled (fan-out over the partition's `completed` and `partial` extractions: index on enable, delete on disable).
+
+Enqueue failures are reported as errors but never fail the extraction or the purge.
+
+**Backfill CLI.**
+
+```bash
+yarn mercato attachments structure search-sync --partition <code> [--tenant <tenantId>] [--org <orgId>] [--mode index|delete] [--dry-run]
+```
+
+- `--partition` is required; `--org` requires `--tenant`. Without `--tenant` all tenants using the partition are covered.
+- `--mode` defaults to the partition's current flag (`index` when enabled, `delete` when disabled). A mode that contradicts the flag is refused.
+- `--dry-run` scans and reports how many extractions would be enqueued without writing anything.
+- Exit codes: `0` success, `2` invalid or missing arguments, `1` partition not found, mode contradicting the partition flag, or partition outside the given tenant.
+
+**Results.** Search results show the citation as the title (for example `§8.12 Retention (p. 14)`), the attachment file name as the subtitle, and link to the attachments library (`/backend/storage/attachments`). Results require the `attachments.view` feature.
+
+:::caution Snippet visibility
+Search has no per-record post-filter for this entity. Any `attachments.view` holder in the organization can see snippets of indexed sections, including for attachments they could not open. Opening an attachment still enforces `checkAttachmentAccess`. Do not enable section search for partitions whose files have per-record access restrictions.
+:::
+
+**Known gap.** If an attachment is purged between a partition toggle-off and the delete job for its extraction, a few search records can remain until the next reindex.
+
+**AI citations.** The `attachments.get_document_sections` AI tool emits `attachment` citations for the sections it returns (label, page or number locator, a quote of up to 1000 characters, and a link to the attachments library), so answers can reference the exact section.
+
 ### Configuration
 
 | Variable | Default | Meaning |
