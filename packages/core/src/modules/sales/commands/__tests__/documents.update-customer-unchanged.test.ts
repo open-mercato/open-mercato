@@ -18,6 +18,7 @@ import { CustomerEntity, CustomerPersonProfile } from '@open-mercato/core/module
 import { SalesOrder, SalesQuote } from '../../data/entities'
 import '../documents'
 import type { DocumentUpdateInput } from '../documents'
+import { createSalesDocumentLockKyselyFixture } from './salesDocumentLockFixture'
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: async () => ({
@@ -136,6 +137,7 @@ function makeEm(document: DocumentRecord, documentClass: unknown): Record<string
     commit: jest.fn(async () => {}),
     rollback: jest.fn(async () => {}),
     fork: () => em,
+    getKysely: () => createSalesDocumentLockKyselyFixture(String(document.id)),
   }
   return em
 }
