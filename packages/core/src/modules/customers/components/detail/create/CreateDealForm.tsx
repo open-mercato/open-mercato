@@ -5,13 +5,18 @@ import { useRouter } from 'next/navigation'
 import { Briefcase, Save } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { createCrud } from '@open-mercato/ui/backend/utils/crud'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { InjectionSpot, useInjectionSpotEvents } from '@open-mercato/ui/backend/injection/InjectionSpot'
+import { withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { useCurrentUserId } from '@open-mercato/ui/backend/utils/useCurrentUserId'
 import { FormHeader } from '@open-mercato/ui/backend/forms'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
+import { extensionPoints } from '../../../extension-points'
 import { dealFormSchema } from '../DealForm'
 import { createDictionarySelectLabels } from '../utils'
 import { DealSectionCard } from './DealSectionCard'
@@ -22,9 +27,24 @@ import { useDealPipelines } from './useDealPipelines'
 import { useDealCustomFields } from './useDealCustomFields'
 import { EMPTY_VALUES, type BaseValues } from './dealFormTypes'
 
+const logger = createLogger('customers')
+
 const CONTEXT_ID = 'customers.deals.create'
 const DEAL_ENTITY_ID = 'customers:customer_deal'
 const CUSTOM_FIELDS_MANAGE_HREF = `/backend/entities/system/${encodeURIComponent(DEAL_ENTITY_ID)}`
+
+const DEAL_FORM_SPOT_ID = extensionPoints.hosts.dealForm.spotId
+
+type DealFormInjectionContext = {
+  formId: string
+  entityId: string
+  resourceKind: string
+  resourceId: string | undefined
+  recordId: string | undefined
+  isLoading: boolean
+  pending: boolean
+  operation: 'create'
+}
 
 export type CreateDealFormProps = {
   returnTo: string
@@ -47,6 +67,10 @@ export function CreateDealForm({ returnTo, initialValues }: CreateDealFormProps)
   })
   const [errors, setErrors] = React.useState<Record<string, string>>({})
   const [isSubmitting, setIsSubmitting] = React.useState(false)
+  // Guards the whole handler synchronously, unlike `isSubmitting` state, which only commits
+  // after the first `await` — a second call arriving before that commit would otherwise pass
+  // the `isSubmitting` check and start a second create.
+  const isSubmittingRef = React.useRef(false)
 
   // Default the owner to the current user, matching the pipeline quick-create dialog so a
   // deal created here does not start unowned (an unowned deal notifies nobody when it closes).
@@ -114,88 +138,153 @@ export function CreateDealForm({ returnTo, initialValues }: CreateDealFormProps)
     router.push(returnTo)
   }, [returnTo, router])
 
+  // `recordId` is intentionally absent — the deal does not exist yet, which is how
+  // record-scoped widgets detect create mode and render their empty state.
+  const injectionContext = React.useMemo<DealFormInjectionContext>(
+    () => ({
+      formId: CONTEXT_ID,
+      entityId: DEAL_ENTITY_ID,
+      resourceKind: 'customers.deal',
+      resourceId: undefined,
+      recordId: undefined,
+      isLoading: !customFieldsLoaded,
+      pending: isSubmitting,
+      operation: 'create' as const,
+    }),
+    [customFieldsLoaded, isSubmitting],
+  )
+
+  const { triggerEvent: triggerDealFormEvent } = useInjectionSpotEvents<
+    DealFormInjectionContext,
+    Record<string, unknown>
+  >(DEAL_FORM_SPOT_ID)
+
   const handleSubmit = React.useCallback(async () => {
-    if (isSubmitting) return
-    if (!customFieldsLoaded) {
-      flash(tr('customers.deals.create.sections.custom.loading', 'Loading custom fields...'), 'error')
-      return
-    }
-    const merged = { ...values, ...customValues }
-    const parsed = dealFormSchema.safeParse(merged)
-    if (!parsed.success) {
-      const fieldErrors: Record<string, string> = {}
-      for (const issue of parsed.error.issues) {
-        const key = typeof issue.path[0] === 'string' ? issue.path[0] : undefined
-        if (key && !fieldErrors[key]) fieldErrors[key] = tr(issue.message, issue.message)
-      }
-      setErrors(fieldErrors)
-      const firstMessage = Object.values(fieldErrors)[0]
-      if (firstMessage) flash(firstMessage, 'error')
-      return
-    }
-
-    const customFieldErrors = validateCustomFields(merged)
-    if (Object.keys(customFieldErrors).length) {
-      setErrors(customFieldErrors)
-      const firstMessage = Object.values(customFieldErrors)[0]
-      if (firstMessage) flash(firstMessage, 'error')
-      return
-    }
-
-    setErrors({})
-    setIsSubmitting(true)
+    if (isSubmittingRef.current) return
+    isSubmittingRef.current = true
     try {
-      const data = parsed.data
-      const expectedCloseAt =
-        data.expectedCloseAt && data.expectedCloseAt.length
-          ? new Date(data.expectedCloseAt).toISOString()
-          : undefined
-      const payload: Record<string, unknown> = {
-        title: data.title,
-        status: data.status || undefined,
-        pipelineId: data.pipelineId || undefined,
-        pipelineStageId: data.pipelineStageId || undefined,
-        valueAmount: typeof data.valueAmount === 'number' ? data.valueAmount : undefined,
-        valueCurrency: data.valueCurrency || undefined,
-        probability: typeof data.probability === 'number' ? data.probability : undefined,
-        expectedCloseAt,
-        description: data.description && data.description.length ? data.description : undefined,
-        // `null`, not omitted — matching DealForm, so both create surfaces send the same
-        // shape. `dealCreateSchema.ownerUserId` is `.optional().nullable()` (validators.ts:183)
-        // and createDealCommand maps null to null (commands/deals.ts:591).
-        ownerUserId: data.ownerUserId && data.ownerUserId.length ? data.ownerUserId : null,
-        personIds: values.personIds.length ? values.personIds : undefined,
-        companyIds: values.companyIds.length ? values.companyIds : undefined,
+      if (!customFieldsLoaded) {
+        flash(tr('customers.deals.create.sections.custom.loading', 'Loading custom fields...'), 'error')
+        return
       }
-      const custom = collectNormalizedCustomValues(merged)
-      if (Object.keys(custom).length) payload.customFields = custom
+      const merged = { ...values, ...customValues }
+      const parsed = dealFormSchema.safeParse(merged)
+      if (!parsed.success) {
+        const fieldErrors: Record<string, string> = {}
+        for (const issue of parsed.error.issues) {
+          const key = typeof issue.path[0] === 'string' ? issue.path[0] : undefined
+          if (key && !fieldErrors[key]) fieldErrors[key] = tr(issue.message, issue.message)
+        }
+        setErrors(fieldErrors)
+        const firstMessage = Object.values(fieldErrors)[0]
+        if (firstMessage) flash(firstMessage, 'error')
+        return
+      }
 
-      await runMutation({
-        operation: () =>
-          createCrud('customers/deals', payload, {
-            errorMessage: tr('customers.deals.create.error', 'Failed to create deal.'),
-          }),
-        context: { formId: CONTEXT_ID, resourceKind: 'customers.deal', retryLastMutation },
-        mutationPayload: payload,
-      })
-      flash(tr('customers.people.detail.deals.success', 'Deal created.'), 'success')
-      router.push(returnTo)
-    } catch (err) {
-      const message = err instanceof Error ? err.message : tr('customers.deals.create.error', 'Failed to create deal.')
-      flash(message, 'error')
+      const customFieldErrors = validateCustomFields(merged)
+      if (Object.keys(customFieldErrors).length) {
+        setErrors(customFieldErrors)
+        const firstMessage = Object.values(customFieldErrors)[0]
+        if (firstMessage) flash(firstMessage, 'error')
+        return
+      }
+
+      let injectionRequestHeaders: Record<string, string> | undefined
+      try {
+        const beforeSave = await triggerDealFormEvent('onBeforeSave', merged, injectionContext)
+        if (!beforeSave.ok) {
+          if (beforeSave.fieldErrors && Object.keys(beforeSave.fieldErrors).length) {
+            setErrors(beforeSave.fieldErrors)
+          }
+          flash(beforeSave.message || tr('ui.forms.flash.saveBlocked', 'Save blocked by validation'), 'error')
+          return
+        }
+        injectionRequestHeaders = beforeSave.requestHeaders
+      } catch (err) {
+        logger.error('Error in onBeforeSave', { spotId: DEAL_FORM_SPOT_ID, err })
+        getTelemetryRuntime()?.reportError(err, {
+          module: 'customers',
+          code: 'customers.deal_create_before_save_failed',
+          attributes: { spotId: DEAL_FORM_SPOT_ID },
+        })
+        flash(tr('ui.forms.flash.saveBlocked', 'Save blocked by validation'), 'error')
+        return
+      }
+
+      setErrors({})
+      setIsSubmitting(true)
+      try {
+        await triggerDealFormEvent('onSave', merged, injectionContext)
+        const data = parsed.data
+        const expectedCloseAt =
+          data.expectedCloseAt && data.expectedCloseAt.length
+            ? new Date(data.expectedCloseAt).toISOString()
+            : undefined
+        const payload: Record<string, unknown> = {
+          title: data.title,
+          status: data.status || undefined,
+          pipelineId: data.pipelineId || undefined,
+          pipelineStageId: data.pipelineStageId || undefined,
+          valueAmount: typeof data.valueAmount === 'number' ? data.valueAmount : undefined,
+          valueCurrency: data.valueCurrency || undefined,
+          probability: typeof data.probability === 'number' ? data.probability : undefined,
+          expectedCloseAt,
+          description: data.description && data.description.length ? data.description : undefined,
+          // `null`, not omitted — matching DealForm, so both create surfaces send the same
+          // shape. `dealCreateSchema.ownerUserId` is `.optional().nullable()` (validators.ts:183)
+          // and createDealCommand maps null to null (commands/deals.ts:591).
+          ownerUserId: data.ownerUserId && data.ownerUserId.length ? data.ownerUserId : null,
+          personIds: values.personIds.length ? values.personIds : undefined,
+          companyIds: values.companyIds.length ? values.companyIds : undefined,
+        }
+        const custom = collectNormalizedCustomValues(merged)
+        if (Object.keys(custom).length) payload.customFields = custom
+
+        const createDeal = () => runMutation({
+          operation: () =>
+            createCrud('customers/deals', payload, {
+              errorMessage: tr('customers.deals.create.error', 'Failed to create deal.'),
+            }),
+          context: { formId: CONTEXT_ID, resourceKind: 'customers.deal', retryLastMutation },
+          mutationPayload: payload,
+        })
+        if (injectionRequestHeaders && Object.keys(injectionRequestHeaders).length) {
+          await withScopedApiRequestHeaders(injectionRequestHeaders, createDeal)
+        } else {
+          await createDeal()
+        }
+        try {
+          await triggerDealFormEvent('onAfterSave', merged, injectionContext)
+        } catch (err) {
+          logger.error('Error in onAfterSave', { spotId: DEAL_FORM_SPOT_ID, err })
+          getTelemetryRuntime()?.reportError(err, {
+            module: 'customers',
+            code: 'customers.deal_create_after_save_failed',
+            attributes: { spotId: DEAL_FORM_SPOT_ID },
+          })
+        }
+        flash(tr('customers.people.detail.deals.success', 'Deal created.'), 'success')
+        router.push(returnTo)
+      } catch (err) {
+        const message = err instanceof Error ? err.message : tr('customers.deals.create.error', 'Failed to create deal.')
+        flash(message, 'error')
+      } finally {
+        setIsSubmitting(false)
+      }
     } finally {
-      setIsSubmitting(false)
+      isSubmittingRef.current = false
     }
   }, [
     collectNormalizedCustomValues,
     customFieldsLoaded,
     customValues,
-    isSubmitting,
+    injectionContext,
     retryLastMutation,
     returnTo,
     router,
     runMutation,
     tr,
+    triggerDealFormEvent,
     validateCustomFields,
     values,
   ])
@@ -216,6 +305,26 @@ export function CreateDealForm({ returnTo, initialValues }: CreateDealFormProps)
       handleSubmit()
     },
     [handleSubmit],
+  )
+
+  const injectionData = React.useMemo(
+    () => ({ ...values, ...customValues }),
+    [customValues, values],
+  )
+
+  const handleInjectionDataChange = React.useCallback(
+    (next: Record<string, unknown>) => {
+      const basePatch: Record<string, unknown> = {}
+      for (const [key, value] of Object.entries(next)) {
+        if (key.startsWith('cf_') || key.startsWith('cf:')) {
+          if (customValues[key] !== value) handleCustomChange(key, value)
+        } else if ((values as Record<string, unknown>)[key] !== value) {
+          basePatch[key] = value
+        }
+      }
+      if (Object.keys(basePatch).length) patch(basePatch as Partial<BaseValues>)
+    },
+    [customValues, handleCustomChange, patch, values],
   )
 
   const cancelLabel = tr('customers.deals.create.cancel', 'Cancel')
@@ -267,6 +376,14 @@ export function CreateDealForm({ returnTo, initialValues }: CreateDealFormProps)
             companyIds={values.companyIds}
             onPeopleChange={(next) => patch({ personIds: next })}
             onCompaniesChange={(next) => patch({ companyIds: next })}
+            disabled={isSubmitting}
+          />
+
+          <InjectionSpot
+            spotId={DEAL_FORM_SPOT_ID}
+            context={injectionContext}
+            data={injectionData}
+            onDataChange={handleInjectionDataChange}
             disabled={isSubmitting}
           />
         </div>
