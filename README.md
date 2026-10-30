@@ -49,7 +49,7 @@ Pick your row. Everyone who builds an app goes through the same four stages, and
 | A business owner without a terminal | [Open Mercato Cloud](#no-terminal-open-mercato-cloud) | the **In the Cloud** line of each stage, or a [Certified Partner Agency](#community-and-support) |
 | A developer | [Minute 10](#minute-10-a-running-back-office) in your terminal | Hour 1, Day 1, Month 1 |
 | An AI coding agent | the note at the top of this page | every stage in order, stopping at each **You decide** |
-| A module author | [Build and publish a module](#build-and-publish-a-module) | [create-mercato-module](https://github.com/open-mercato/create-mercato-module) |
+| A module author | [Build and publish a module](#build-and-publish-a-module) | [create-mercato-module](https://github.com/open-mercato/create-mercato-module), then list it in [Open Mercato Modules](https://modules.openmercato.com/submit) |
 | A core contributor | [Change Open Mercato Core](#change-open-mercato-core) | [CONTRIBUTING.md](CONTRIBUTING.md) |
 
 ### No terminal: Open Mercato Cloud
@@ -133,6 +133,8 @@ You will hand it real work in [Month 1](#month-1-unattended-work-with-cezar-upgr
 **Buy vs. build?** Now, you can have best of both. Use **Open Mercato** enterprise-ready business features like CRM, Sales, OMS, Encryption, and build the remaining **20&percnt;** that really makes the difference for your business. [Watch: Start with 80% done](https://www.youtube.com/watch?v=53jsDjAXXhQ)
 
 Your app already knows how it is built. Start every task with **om-help**: `/om-help` in Claude Code, `$om-help` in Codex, or the sentence `Use om-help: <task>` in any agent. It only routes: it returns the ordered list of guides and skills, why each one is needed, the delivery shape and the smallest set of checks. It never writes code, plans your business or loads data.
+
+Before you build, check whether it already exists: search [Open Mercato Modules](https://modules.openmercato.com), the catalog of official and community modules. Each module page shows what the module adds, its license, the Open Mercato versions it installed on in a nightly run, and the exact install command (`yarn mercato module add` for a module, `yarn add` for a library or adapter).
 
 ### Hour 1: a route and a spec
 
@@ -244,7 +246,7 @@ yarn test:integration:ephemeral     # integration tests, needs Docker
 
 ## Build and publish a module
 
-Built something other apps need too? [create-mercato-module](https://github.com/open-mercato/create-mercato-module) turns one module of your app into an npm package, optionally with its own GitHub repository, and installs it in any other Open Mercato app.
+Built something other apps need too? [create-mercato-module](https://github.com/open-mercato/create-mercato-module) turns one module of your app into an npm package, optionally with its own GitHub repository, and installs it in any other Open Mercato app. List the package in [Open Mercato Modules](https://modules.openmercato.com) so other developers and their agents find it before they build the same thing.
 
 **You decide:** a new module or one you already built? **new** · existing (skip `init`). A dedicated GitHub repository for it? **yes, public** · no.
 
@@ -258,12 +260,15 @@ gh auth login                              # only for the dedicated GitHub repos
 npx create-mercato-module publish visits   # asks for the package name, version and repository, publishes after you retype the name
 ```
 
-In the receiving app: `npx create-mercato-module install @your-name/mercato-visits`. A new app refuses third-party npm versions younger than 5 days (`npmMinimalAgeGate` in `.yarnrc.yml`), so install a fresh release from its GitHub repository instead: `npx create-mercato-module install your-name/mercato-visits` (needs `gh auth login`; agents add `--approve-git-repository`).
+**List it:** open `https://modules.openmercato.com/submit?npm=@your-name/mercato-visits`. The page checks the package, its license and the date a fresh app can install it, builds the catalog entry and opens GitHub with the file filled in; commit it and open the pull request. After the merge the catalog reads the module from its published source and installs it every night in a fresh app.
+
+In the receiving app: `npx create-mercato-module install @your-name/mercato-visits`, or the exact install command from the module page in the catalog. A new app refuses third-party npm versions younger than 5 days (`npmMinimalAgeGate` in `.yarnrc.yml`; while a fresh release is still inside the gate, the module page shows its **Installable from** date), so install a fresh release from its GitHub repository instead: `npx create-mercato-module install your-name/mercato-visits` (needs `gh auth login`; agents add `--approve-git-repository`).
 
 **Done when**
 
 - [ ] `npm view @your-name/mercato-visits version` prints the version you published
 - [ ] in the receiving app, the module's page opens under `/backend`
+- [ ] after the listing pull request is merged, `https://modules.openmercato.com/m/@your-name/mercato-visits` shows the module
 
 Step by step, with video: [publishing a module](https://help.openmercatocloud.com/pl/lessons/publikowanie-modulu/) and [installing a module](https://help.openmercatocloud.com/pl/lessons/instalowanie-modulu/) (Polish), and the [create-mercato-module guide](https://github.com/open-mercato/create-mercato-module/blob/main/docs/guide.md).
 
@@ -311,7 +316,7 @@ Manual setup, multiple local instances, watch scope, release channels, package p
 
 **Encryption:** tenant-scoped, field-level encryption that stays transparent to CRUD and APIs. Admins choose which system and custom columns are encrypted, and deterministic hashes keep lookups working. Read the [encryption guide](https://docs.openmercato.com/user-guide/encryption).
 
-**Custom CLI and official modules:** modules can expose their own commands as `yarn mercato <module> <command>` ([CLI reference](https://docs.openmercato.com/cli/overview)). [Official modules](https://docs.openmercato.com/framework/modules/official-modules) add features without forking, and `yarn mercato eject --list` shows the modules you can copy into your app and own fully.
+**Custom CLI and modules:** modules can expose their own commands as `yarn mercato <module> <command>` ([CLI reference](https://docs.openmercato.com/cli/overview)). [Open Mercato Modules](https://modules.openmercato.com) lists official and community modules with their anatomy and nightly install results, and `yarn mercato eject --list` shows the modules you can copy into your app and own fully.
 
 **Agent skills:** a new app ships 15 local skills from Open Mercato and 15 delivery skills from [open-mercato/skills](https://github.com/open-mercato/skills), pinned to a commit and installed for Claude Code, Codex or Cursor. The full collection is stack-agnostic and covers spec writing, autonomous PR creation, code review, CI stabilization, integration testing and merge management, and the om-* skills are moving there.
 
