@@ -1,0 +1,25 @@
+{
+  "runId": "b5ce1395",
+  "mode": "pr",
+  "target": {
+    "prNumber": 8110,
+    "branch": "repair/batch-a-8110-b5ce1395",
+    "headSha": "17cb5c3dfe94dd273157951389d7ff3c020609e4",
+    "publishedHead": "33c3a05dfb898b59f6b203b2729dfa8caaaa3b98"
+  },
+  "verdict": "PASS",
+  "environment": {
+    "baseUrl": null,
+    "role": "unit command/route mocks",
+    "startedByThisRepo": false,
+    "browserProvider": null
+  },
+  "scenario": [],
+  "hasUiTest": false,
+  "notes": [
+    "UI rendering n/a under repository skip-qa exemption: no rendering/DB/API-schema change. No live API/editor/browser QA claimed.",
+    "Current local merge17cb5c3 includes main3b2ea82ea7;55targeted cases in4suites pass in both UTC andPacific/Auckland (110executions),core typecheck passes.",
+    "Local fallback justified by new unpublished merged head lacking usable CI; full exact published-head CI separately succeeds.",
+    "Existing editor/default-UTC limitations#6371/#5877 remain. Required independent review and publication/new-headCI remain merge gates."
+  ]
+}

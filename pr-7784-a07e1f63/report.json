@@ -1,0 +1,307 @@
+{
+  "runId": "b5ce1395",
+  "mode": "pr",
+  "target": {
+    "prNumber": 7784,
+    "branch": "repair/batch-a-7784-b5ce1395",
+    "headSha": "5055106995bd58c6feda2fc09cfc25e50956299b",
+    "baseSha": "3b2ea82ea78fc478a6b71a99033e27463b0716cd"
+  },
+  "verdict": "PASS",
+  "environment": {
+    "baseUrl": "http://127.0.0.1:42105",
+    "role": "demo admin and native fixture roles",
+    "startedByThisRepo": true,
+    "browserProvider": "playwright Chromium149/APIRequestContext"
+  },
+  "scenario": [
+    {
+      "step": 1,
+      "priority": "P1",
+      "action": "order-01-native-empty-hosts",
+      "expected": "all archived browser scenario assertions pass",
+      "observed": "PASS; screenshot and script retained",
+      "result": "PASS",
+      "screenshot": "/home/pkarw/Projects/mercato-development/.ai/cezar/dispatch/a07e1f63-2656-4ccf-8d2c-35345a06d172/units/b5ce1395/evidence/pr-7784-qa/latest-main-local-5055106995bd/order-01-native-empty-hosts.png"
+    },
+    {
+      "step": 2,
+      "priority": "P1",
+      "action": "order-02-scoped-contributors",
+      "expected": "all archived browser scenario assertions pass",
+      "observed": "PASS; screenshot and script retained",
+      "result": "PASS",
+      "screenshot": "/home/pkarw/Projects/mercato-development/.ai/cezar/dispatch/a07e1f63-2656-4ccf-8d2c-35345a06d172/units/b5ce1395/evidence/pr-7784-qa/latest-main-local-5055106995bd/order-02-scoped-contributors.png"
+    },
+    {
+      "step": 3,
+      "priority": "P1",
+      "action": "order-03-long-content-mobile",
+      "expected": "all archived browser scenario assertions pass",
+      "observed": "PASS; screenshot and script retained",
+      "result": "PASS",
+      "screenshot": "/home/pkarw/Projects/mercato-development/.ai/cezar/dispatch/a07e1f63-2656-4ccf-8d2c-35345a06d172/units/b5ce1395/evidence/pr-7784-qa/latest-main-local-5055106995bd/order-03-long-content-mobile.png"
+    },
+    {
+      "step": 4,
+      "priority": "P1",
+      "action": "order-04-loader-pending-native-shell",
+      "expected": "all archived browser scenario assertions pass",
+      "observed": "PASS; screenshot and script retained",
+      "result": "PASS",
+      "screenshot": "/home/pkarw/Projects/mercato-development/.ai/cezar/dispatch/a07e1f63-2656-4ccf-8d2c-35345a06d172/units/b5ce1395/evidence/pr-7784-qa/latest-main-local-5055106995bd/order-04-loader-pending-native-shell.png"
+    },
+    {
+      "step": 5,
+      "priority": "P1",
+      "action": "order-05-loader-failure-native-shell",
+      "expected": "all archived browser scenario assertions pass",
+      "observed": "PASS; screenshot and script retained",
+      "result": "PASS",
+      "screenshot": "/home/pkarw/Projects/mercato-development/.ai/cezar/dispatch/a07e1f63-2656-4ccf-8d2c-35345a06d172/units/b5ce1395/evidence/pr-7784-qa/latest-main-local-5055106995bd/order-05-loader-failure-native-shell.png"
+    },
+    {
+      "step": 6,
+      "priority": "P1",
+      "action": "order-06-real-feature-filter",
+      "expected": "all archived browser scenario assertions pass",
+      "observed": "PASS; screenshot and script retained",
+      "result": "PASS",
+      "screenshot": "/home/pkarw/Projects/mercato-development/.ai/cezar/dispatch/a07e1f63-2656-4ccf-8d2c-35345a06d172/units/b5ce1395/evidence/pr-7784-qa/latest-main-local-5055106995bd/order-06-real-feature-filter.png"
+    },
+    {
+      "step": 7,
+      "priority": "P1",
+      "action": "order-07-read-error-500",
+      "expected": "all archived browser scenario assertions pass",
+      "observed": "PASS; screenshot and script retained",
+      "result": "PASS",
+      "screenshot": "/home/pkarw/Projects/mercato-development/.ai/cezar/dispatch/a07e1f63-2656-4ccf-8d2c-35345a06d172/units/b5ce1395/evidence/pr-7784-qa/latest-main-local-5055106995bd/order-07-read-error-500.png"
+    },
+    {
+      "step": 8,
+      "priority": "P1",
+      "action": "order-07-read-error-403",
+      "expected": "all archived browser scenario assertions pass",
+      "observed": "PASS; screenshot and script retained",
+      "result": "PASS",
+      "screenshot": "/home/pkarw/Projects/mercato-development/.ai/cezar/dispatch/a07e1f63-2656-4ccf-8d2c-35345a06d172/units/b5ce1395/evidence/pr-7784-qa/latest-main-local-5055106995bd/order-07-read-error-403.png"
+    },
+    {
+      "step": 9,
+      "priority": "P1",
+      "action": "order-08-real-no-permission",
+      "expected": "all archived browser scenario assertions pass",
+      "observed": "PASS; screenshot and script retained",
+      "result": "PASS",
+      "screenshot": "/home/pkarw/Projects/mercato-development/.ai/cezar/dispatch/a07e1f63-2656-4ccf-8d2c-35345a06d172/units/b5ce1395/evidence/pr-7784-qa/latest-main-local-5055106995bd/order-08-real-no-permission.png"
+    },
+    {
+      "step": 10,
+      "priority": "P1",
+      "action": "order-09-missing-record",
+      "expected": "all archived browser scenario assertions pass",
+      "observed": "PASS; screenshot and script retained",
+      "result": "PASS",
+      "screenshot": "/home/pkarw/Projects/mercato-development/.ai/cezar/dispatch/a07e1f63-2656-4ccf-8d2c-35345a06d172/units/b5ce1395/evidence/pr-7784-qa/latest-main-local-5055106995bd/order-09-missing-record.png"
+    },
+    {
+      "step": 11,
+      "priority": "P1",
+      "action": "quote-01-native-empty-hosts",
+      "expected": "all archived browser scenario assertions pass",
+      "observed": "PASS; screenshot and script retained",
+      "result": "PASS",
+      "screenshot": "/home/pkarw/Projects/mercato-development/.ai/cezar/dispatch/a07e1f63-2656-4ccf-8d2c-35345a06d172/units/b5ce1395/evidence/pr-7784-qa/latest-main-local-5055106995bd/quote-01-native-empty-hosts.png"
+    },
+    {
+      "step": 12,
+      "priority": "P1",
+      "action": "quote-02-scoped-contributors",
+      "expected": "all archived browser scenario assertions pass",
+      "observed": "PASS; screenshot and script retained",
+      "result": "PASS",
+      "screenshot": "/home/pkarw/Projects/mercato-development/.ai/cezar/dispatch/a07e1f63-2656-4ccf-8d2c-35345a06d172/units/b5ce1395/evidence/pr-7784-qa/latest-main-local-5055106995bd/quote-02-scoped-contributors.png"
+    },
+    {
+      "step": 13,
+      "priority": "P1",
+      "action": "quote-03-long-content-mobile",
+      "expected": "all archived browser scenario assertions pass",
+      "observed": "PASS; screenshot and script retained",
+      "result": "PASS",
+      "screenshot": "/home/pkarw/Projects/mercato-development/.ai/cezar/dispatch/a07e1f63-2656-4ccf-8d2c-35345a06d172/units/b5ce1395/evidence/pr-7784-qa/latest-main-local-5055106995bd/quote-03-long-content-mobile.png"
+    },
+    {
+      "step": 14,
+      "priority": "P1",
+      "action": "quote-04-loader-pending-native-shell",
+      "expected": "all archived browser scenario assertions pass",
+      "observed": "PASS; screenshot and script retained",
+      "result": "PASS",
+      "screenshot": "/home/pkarw/Projects/mercato-development/.ai/cezar/dispatch/a07e1f63-2656-4ccf-8d2c-35345a06d172/units/b5ce1395/evidence/pr-7784-qa/latest-main-local-5055106995bd/quote-04-loader-pending-native-shell.png"
+    },
+    {
+      "step": 15,
+      "priority": "P1",
+      "action": "quote-05-loader-failure-native-shell",
+      "expected": "all archived browser scenario assertions pass",
+      "observed": "PASS; screenshot and script retained",
+      "result": "PASS",
+      "screenshot": "/home/pkarw/Projects/mercato-development/.ai/cezar/dispatch/a07e1f63-2656-4ccf-8d2c-35345a06d172/units/b5ce1395/evidence/pr-7784-qa/latest-main-local-5055106995bd/quote-05-loader-failure-native-shell.png"
+    },
+    {
+      "step": 16,
+      "priority": "P1",
+      "action": "quote-06-real-feature-filter",
+      "expected": "all archived browser scenario assertions pass",
+      "observed": "PASS; screenshot and script retained",
+      "result": "PASS",
+      "screenshot": "/home/pkarw/Projects/mercato-development/.ai/cezar/dispatch/a07e1f63-2656-4ccf-8d2c-35345a06d172/units/b5ce1395/evidence/pr-7784-qa/latest-main-local-5055106995bd/quote-06-real-feature-filter.png"
+    },
+    {
+      "step": 17,
+      "priority": "P1",
+      "action": "quote-07-read-error-500",
+      "expected": "all archived browser scenario assertions pass",
+      "observed": "PASS; screenshot and script retained",
+      "result": "PASS",
+      "screenshot": "/home/pkarw/Projects/mercato-development/.ai/cezar/dispatch/a07e1f63-2656-4ccf-8d2c-35345a06d172/units/b5ce1395/evidence/pr-7784-qa/latest-main-local-5055106995bd/quote-07-read-error-500.png"
+    },
+    {
+      "step": 18,
+      "priority": "P1",
+      "action": "quote-07-read-error-403",
+      "expected": "all archived browser scenario assertions pass",
+      "observed": "PASS; screenshot and script retained",
+      "result": "PASS",
+      "screenshot": "/home/pkarw/Projects/mercato-development/.ai/cezar/dispatch/a07e1f63-2656-4ccf-8d2c-35345a06d172/units/b5ce1395/evidence/pr-7784-qa/latest-main-local-5055106995bd/quote-07-read-error-403.png"
+    },
+    {
+      "step": 19,
+      "priority": "P1",
+      "action": "quote-08-real-no-permission",
+      "expected": "all archived browser scenario assertions pass",
+      "observed": "PASS; screenshot and script retained",
+      "result": "PASS",
+      "screenshot": "/home/pkarw/Projects/mercato-development/.ai/cezar/dispatch/a07e1f63-2656-4ccf-8d2c-35345a06d172/units/b5ce1395/evidence/pr-7784-qa/latest-main-local-5055106995bd/quote-08-real-no-permission.png"
+    },
+    {
+      "step": 20,
+      "priority": "P1",
+      "action": "quote-09-missing-record",
+      "expected": "all archived browser scenario assertions pass",
+      "observed": "PASS; screenshot and script retained",
+      "result": "PASS",
+      "screenshot": "/home/pkarw/Projects/mercato-development/.ai/cezar/dispatch/a07e1f63-2656-4ccf-8d2c-35345a06d172/units/b5ce1395/evidence/pr-7784-qa/latest-main-local-5055106995bd/quote-09-missing-record.png"
+    },
+    {
+      "step": 1,
+      "priority": "P0",
+      "action": "standalone New deal page sends the owner it displays",
+      "expected": "native assertions and fixture cleanup complete",
+      "observed": "PASS; see native-results.json",
+      "result": "PASS",
+      "screenshot": null
+    },
+    {
+      "step": 2,
+      "priority": "P0",
+      "action": "person/company Add deal sends the owner it displays",
+      "expected": "native assertions and fixture cleanup complete",
+      "observed": "PASS; see native-results.json",
+      "result": "PASS",
+      "screenshot": null
+    },
+    {
+      "step": 3,
+      "priority": "P0",
+      "action": "deal detail assigns and then clears the owner",
+      "expected": "native assertions and fixture cleanup complete",
+      "observed": "PASS; see native-results.json",
+      "result": "PASS",
+      "screenshot": null
+    },
+    {
+      "step": 4,
+      "priority": "P0",
+      "action": "deals list bulk action sends the selected ids and owner",
+      "expected": "native assertions and fixture cleanup complete",
+      "observed": "PASS; see native-results.json",
+      "result": "PASS",
+      "screenshot": null
+    },
+    {
+      "step": 5,
+      "priority": "P0",
+      "action": "create card header does not collide with its actions at phone width",
+      "expected": "native assertions and fixture cleanup complete",
+      "observed": "PASS; see native-results.json",
+      "result": "PASS",
+      "screenshot": null
+    },
+    {
+      "step": 6,
+      "priority": "P0",
+      "action": "preserves the order header, status and details without extension placeholders",
+      "expected": "native assertions and fixture cleanup complete",
+      "observed": "PASS; see native-results.json",
+      "result": "PASS",
+      "screenshot": null
+    },
+    {
+      "step": 7,
+      "priority": "P0",
+      "action": "preserves the quote header, status and details without extension placeholders",
+      "expected": "native assertions and fixture cleanup complete",
+      "observed": "PASS; see native-results.json",
+      "result": "PASS",
+      "screenshot": null
+    },
+    {
+      "step": 8,
+      "priority": "P0",
+      "action": "mounts scoped order stage and closure contributions without document writes",
+      "expected": "native assertions and fixture cleanup complete",
+      "observed": "PASS; see native-results.json",
+      "result": "PASS",
+      "screenshot": null
+    },
+    {
+      "step": 9,
+      "priority": "P0",
+      "action": "mounts scoped quote stage and closure contributions without document writes",
+      "expected": "native assertions and fixture cleanup complete",
+      "observed": "PASS; see native-results.json",
+      "result": "PASS",
+      "screenshot": null
+    },
+    {
+      "step": 10,
+      "priority": "P0",
+      "action": "should NOT include _wms data in the quotes API response",
+      "expected": "native assertions and fixture cleanup complete",
+      "observed": "PASS; see native-results.json",
+      "result": "PASS",
+      "screenshot": null
+    }
+  ],
+  "hasUiTest": true,
+  "notes": [
+    "Fresh production app built from this exact local latest-main merge; cold and warm database-authenticated readiness passed.",
+    "Native tests retain all existing assertions and cleanup. No tests, retries, timeouts or checks weakened.",
+    "Published-head GitHub CI is historical relative to this unpublished merge. New-head remote CI requires Guard-authorized publication, unavailable in this scheduled run. No shared/evidence pushes or merges.",
+    "Evidence-only PASS grants no human QA approval. Independent review and existing QA/decision gates remain.",
+    "Performance is not benchmarked. Existing shared mobile-width/ancillary loading limits are visible in scoped UI screenshots and are not certified fixed.",
+    "Focused local tests on this merged head: five core suites/90 tests and one CLI activation-generator suite/22 tests passed."
+  ],
+  "nativeStats": {
+    "startTime": "2026-10-30T01:31:35.986Z",
+    "duration": 86573.387,
+    "expected": 10,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  },
+  "remainingFixtures": []
+}

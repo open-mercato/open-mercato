@@ -1,0 +1,184 @@
+{
+  "runId": "b5ce1395",
+  "mode": "pr",
+  "target": {
+    "prNumber": 8216,
+    "branch": "repair/batch-a-8216-b5ce1395",
+    "headSha": "5a63714e6c8939d02416dcd3f3ae17b0ee3e2f89",
+    "baseSha": "3b2ea82ea78fc478a6b71a99033e27463b0716cd"
+  },
+  "verdict": "PARTIAL",
+  "scopedVerdict": "PASS",
+  "environment": {
+    "baseUrl": "http://127.0.0.1:45989",
+    "role": "demo admin and native fixture roles",
+    "startedByThisRepo": true,
+    "browserProvider": "playwright Chromium149/APIRequestContext"
+  },
+  "scenario": [
+    {
+      "step": 1,
+      "priority": "P1",
+      "action": "01-source-default",
+      "expected": "all archived browser scenario assertions pass",
+      "observed": "PASS; screenshot and script retained",
+      "result": "PASS",
+      "screenshot": "/home/pkarw/Projects/mercato-development/.ai/cezar/dispatch/a07e1f63-2656-4ccf-8d2c-35345a06d172/units/b5ce1395/evidence/pr-8216-qa/latest-main-local-5a63714e6c89/01-source-default.png"
+    },
+    {
+      "step": 2,
+      "priority": "P1",
+      "action": "02-confirmation-Escape",
+      "expected": "all archived browser scenario assertions pass",
+      "observed": "PASS; screenshot and script retained",
+      "result": "PASS",
+      "screenshot": "/home/pkarw/Projects/mercato-development/.ai/cezar/dispatch/a07e1f63-2656-4ccf-8d2c-35345a06d172/units/b5ce1395/evidence/pr-8216-qa/latest-main-local-5a63714e6c89/02-confirmation-Escape.png"
+    },
+    {
+      "step": 3,
+      "priority": "P1",
+      "action": "03-empty-read-only-adjustments",
+      "expected": "all archived browser scenario assertions pass",
+      "observed": "PASS; screenshot and script retained",
+      "result": "PASS",
+      "screenshot": "/home/pkarw/Projects/mercato-development/.ai/cezar/dispatch/a07e1f63-2656-4ccf-8d2c-35345a06d172/units/b5ce1395/evidence/pr-8216-qa/latest-main-local-5a63714e6c89/03-empty-read-only-adjustments.png"
+    },
+    {
+      "step": 4,
+      "priority": "P1",
+      "action": "04-long-content-mobile-scroll",
+      "expected": "all archived browser scenario assertions pass",
+      "observed": "PASS; screenshot and script retained",
+      "result": "PASS",
+      "screenshot": "/home/pkarw/Projects/mercato-development/.ai/cezar/dispatch/a07e1f63-2656-4ccf-8d2c-35345a06d172/units/b5ce1395/evidence/pr-8216-qa/latest-main-local-5a63714e6c89/04-long-content-mobile-scroll.png"
+    },
+    {
+      "step": 5,
+      "priority": "P1",
+      "action": "05-loading",
+      "expected": "all archived browser scenario assertions pass",
+      "observed": "PASS; screenshot and script retained",
+      "result": "PASS",
+      "screenshot": "/home/pkarw/Projects/mercato-development/.ai/cezar/dispatch/a07e1f63-2656-4ccf-8d2c-35345a06d172/units/b5ce1395/evidence/pr-8216-qa/latest-main-local-5a63714e6c89/05-loading.png"
+    },
+    {
+      "step": 6,
+      "priority": "P1",
+      "action": "06-read-error-500",
+      "expected": "all archived browser scenario assertions pass",
+      "observed": "PASS; screenshot and script retained",
+      "result": "PASS",
+      "screenshot": "/home/pkarw/Projects/mercato-development/.ai/cezar/dispatch/a07e1f63-2656-4ccf-8d2c-35345a06d172/units/b5ce1395/evidence/pr-8216-qa/latest-main-local-5a63714e6c89/06-read-error-500.png"
+    },
+    {
+      "step": 7,
+      "priority": "P1",
+      "action": "06-read-error-403",
+      "expected": "all archived browser scenario assertions pass",
+      "observed": "PASS; screenshot and script retained",
+      "result": "PASS",
+      "screenshot": "/home/pkarw/Projects/mercato-development/.ai/cezar/dispatch/a07e1f63-2656-4ccf-8d2c-35345a06d172/units/b5ce1395/evidence/pr-8216-qa/latest-main-local-5a63714e6c89/06-read-error-403.png"
+    },
+    {
+      "step": 8,
+      "priority": "P1",
+      "action": "07-missing-record",
+      "expected": "all archived browser scenario assertions pass",
+      "observed": "PASS; screenshot and script retained",
+      "result": "PASS",
+      "screenshot": "/home/pkarw/Projects/mercato-development/.ai/cezar/dispatch/a07e1f63-2656-4ccf-8d2c-35345a06d172/units/b5ce1395/evidence/pr-8216-qa/latest-main-local-5a63714e6c89/07-missing-record.png"
+    },
+    {
+      "step": 9,
+      "priority": "P1",
+      "action": "08-real-view-only403",
+      "expected": "all archived browser scenario assertions pass",
+      "observed": "PASS; screenshot and script retained",
+      "result": "PASS",
+      "screenshot": "/home/pkarw/Projects/mercato-development/.ai/cezar/dispatch/a07e1f63-2656-4ccf-8d2c-35345a06d172/units/b5ce1395/evidence/pr-8216-qa/latest-main-local-5a63714e6c89/08-real-view-only403.png"
+    },
+    {
+      "step": 10,
+      "priority": "P1",
+      "action": "09-real-no-permission",
+      "expected": "all archived browser scenario assertions pass",
+      "observed": "PASS; screenshot and script retained",
+      "result": "PASS",
+      "screenshot": "/home/pkarw/Projects/mercato-development/.ai/cezar/dispatch/a07e1f63-2656-4ccf-8d2c-35345a06d172/units/b5ce1395/evidence/pr-8216-qa/latest-main-local-5a63714e6c89/09-real-no-permission.png"
+    },
+    {
+      "step": 11,
+      "priority": "P1",
+      "action": "10-real-stale409",
+      "expected": "all archived browser scenario assertions pass",
+      "observed": "PASS; screenshot and script retained",
+      "result": "PASS",
+      "screenshot": "/home/pkarw/Projects/mercato-development/.ai/cezar/dispatch/a07e1f63-2656-4ccf-8d2c-35345a06d172/units/b5ce1395/evidence/pr-8216-qa/latest-main-local-5a63714e6c89/10-real-stale409.png"
+    },
+    {
+      "step": 12,
+      "priority": "P1",
+      "action": "11-CtrlEnter-switch-correct-money",
+      "expected": "all archived browser scenario assertions pass",
+      "observed": "PASS; screenshot and script retained",
+      "result": "PASS",
+      "screenshot": "/home/pkarw/Projects/mercato-development/.ai/cezar/dispatch/a07e1f63-2656-4ccf-8d2c-35345a06d172/units/b5ce1395/evidence/pr-8216-qa/latest-main-local-5a63714e6c89/11-CtrlEnter-switch-correct-money.png"
+    },
+    {
+      "step": 13,
+      "priority": "P1",
+      "action": "12-switch-error500",
+      "expected": "all archived browser scenario assertions pass",
+      "observed": "PASS; screenshot and script retained",
+      "result": "PASS",
+      "screenshot": "/home/pkarw/Projects/mercato-development/.ai/cezar/dispatch/a07e1f63-2656-4ccf-8d2c-35345a06d172/units/b5ce1395/evidence/pr-8216-qa/latest-main-local-5a63714e6c89/12-switch-error500.png"
+    },
+    {
+      "step": 1,
+      "priority": "P0",
+      "action": "a mirrored order keeps its own header and line amounts across writes",
+      "expected": "native assertions and fixture cleanup complete",
+      "observed": "PASS; see native-results.json",
+      "result": "PASS",
+      "screenshot": null
+    },
+    {
+      "step": 2,
+      "priority": "P0",
+      "action": "returns, rejected writes and repeated writes never move the source-owned header",
+      "expected": "native assertions and fixture cleanup complete",
+      "observed": "PASS; see native-results.json",
+      "result": "PASS",
+      "screenshot": null
+    },
+    {
+      "step": 3,
+      "priority": "P0",
+      "action": "the migration defaults existing rows to computed and round-trips without touching amounts",
+      "expected": "native assertions and fixture cleanup complete",
+      "observed": "PASS; see native-results.json",
+      "result": "PASS",
+      "screenshot": null
+    }
+  ],
+  "hasUiTest": false,
+  "notes": [
+    "Fresh production app built from this exact local latest-main merge; cold and warm database-authenticated readiness passed.",
+    "Native tests retain all existing assertions and cleanup. No tests, retries, timeouts or checks weakened.",
+    "Published-head GitHub CI is historical relative to this unpublished merge. New-head remote CI requires Guard-authorized publication, unavailable in this scheduled run. No shared/evidence pushes or merges.",
+    "Evidence-only PASS grants no human QA approval. Independent review and existing QA/decision gates remain.",
+    "Performance is not benchmarked. Existing shared mobile-width/ancillary loading limits are visible in scoped UI screenshots and are not certified fixed.",
+    "Focused external-amount command/return/calculation tests:3suites/58tests passed on this local head. No shipped browser case covers the external-mode flow; a concrete automation follow-up accompanies the manual evidence.",
+    "Preserves local source repair d8cae70a9f: ItemsSection relative overflow-x-auto; direct product source repair by this run. A separate commit removes two inherited enterprise quote-session test.slow() overrides; its actual enterprise runtime validation remains pending (OSS QA environment does not activate record_locks). Assertions/shared runner settings are untouched. Existing Related-documents mobile overflow is tracked#7206; Low inherited QA observations tracked#8240. Spec decisions remain unfilled."
+  ],
+  "nativeStats": {
+    "startTime": "2026-10-30T01:41:26.354Z",
+    "duration": 24748.116,
+    "expected": 3,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  },
+  "remainingFixtures": [],
+  "uiTestFollowupUrl": "https://github.com/open-mercato/open-mercato/pull/8216#issuecomment-6512861747"
+}
