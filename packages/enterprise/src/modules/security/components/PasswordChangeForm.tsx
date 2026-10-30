@@ -174,6 +174,7 @@ export default function PasswordChangeForm() {
   return (
     <CrudForm<PasswordChangeValues>
       title={t('security.profile.password.form.title', 'Change password')}
+      titleHeadingLevel={1}
       key={formKey}
       formId={formId}
       schema={schema}

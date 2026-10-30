@@ -32,6 +32,7 @@ import {
   type RecordLockSettings,
   type RecordLockStrategy,
 } from './config'
+import { isRecordValue, valuesEqual } from './conflictValues'
 
 const ACTIVE_LOCK_STATUS: RecordLockStatus = 'active'
 const ACTIVE_SCOPE_UNIQUE_CONSTRAINTS = new Set([
@@ -295,10 +296,6 @@ function shouldSkipConflictField(path: string): boolean {
 
 const MISSING_CONFLICT_VALUE = Symbol('record_lock_conflict_missing_value')
 
-function isRecordValue(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value))
-}
-
 function parseDecryptedJsonLike(value: unknown): unknown {
   return typeof value === 'string' ? parseDecryptedFieldValue(value) : value
 }
@@ -320,53 +317,6 @@ function normalizeActionLogPayload(log: ActionLog | null): ActionLog | null {
   log.contextJson = readJsonRecordValue(log.contextJson)
   log.commandPayload = parseDecryptedJsonLike(log.commandPayload)
   return log
-}
-
-function toIsoDate(value: unknown): string | null {
-  if (value instanceof Date) {
-    if (Number.isNaN(value.getTime())) return null
-    return value.toISOString()
-  }
-  if (typeof value === 'string') {
-    const parsed = new Date(value)
-    return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString()
-  }
-  return null
-}
-
-function valuesEqual(a: unknown, b: unknown, seen?: Set<unknown>): boolean {
-  if (Object.is(a, b)) return true
-
-  if (a instanceof Date || b instanceof Date) {
-    const left = toIsoDate(a)
-    const right = toIsoDate(b)
-    return left !== null && right !== null && left === right
-  }
-
-  if (Array.isArray(a) && Array.isArray(b)) {
-    if (a.length !== b.length) return false
-    for (let index = 0; index < a.length; index += 1) {
-      if (!valuesEqual(a[index], b[index], seen)) return false
-    }
-    return true
-  }
-
-  if (isRecordValue(a) && isRecordValue(b)) {
-    if (!seen) seen = new Set()
-    if (seen.has(a) || seen.has(b)) return false
-    seen.add(a)
-    seen.add(b)
-    const aKeys = Object.keys(a)
-    const bKeys = Object.keys(b)
-    if (aKeys.length !== bKeys.length) return false
-    for (const key of aKeys) {
-      if (!Object.prototype.hasOwnProperty.call(b, key)) return false
-      if (!valuesEqual(a[key], b[key], seen)) return false
-    }
-    return true
-  }
-
-  return false
 }
 
 function readPathValue(source: unknown, path: string): unknown | typeof MISSING_CONFLICT_VALUE {

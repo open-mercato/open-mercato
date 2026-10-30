@@ -6,7 +6,7 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
-import { llmProviderRegistry } from '@open-mercato/shared/lib/ai/llm-provider-registry'
+import { llmProviderRegistry } from '../../../lib/llm-registry'
 import { AiTenantModelAllowlistRepository } from '../../../data/repositories/AiTenantModelAllowlistRepository'
 import {
   canonicalProviderId,

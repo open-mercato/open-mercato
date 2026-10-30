@@ -7,7 +7,7 @@ import { Settings2, SquarePen, Plus, Trash2, UserRoundPlus, ArrowRight } from 'l
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 type ChangelogActionType = 'create' | 'edit' | 'delete' | 'assign' | 'system'
-type ChangelogSource = 'ui' | 'api' | 'system'
+type ChangelogSource = 'ui' | 'api' | 'system' | 'agent'
 
 type ChangelogEntryRowProps = {
   entry: {
@@ -74,7 +74,9 @@ export function ChangelogEntryRow({ entry }: ChangelogEntryRowProps) {
     ? t('customers.changelog.source.api', 'API')
     : entry.source === 'system'
       ? t('customers.changelog.source.system', 'System')
-      : t('customers.changelog.source.ui', 'UI')
+      : entry.source === 'agent'
+        ? t('customers.changelog.source.agent', 'Agent')
+        : t('customers.changelog.source.ui', 'UI')
 
   return (
     <div className="grid grid-cols-[92px_190px_120px_1fr_80px] gap-3 px-5 py-3 text-sm">

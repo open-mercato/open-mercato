@@ -228,7 +228,7 @@ test.describe('TC-EXAMPLE-017: the module\'s bound DataTable and CrudForm hosts,
       const titleInput = page.locator('[data-crud-field-id="title"] input').first()
       await expect(page.getByText('Example Injection Widget')).toBeVisible({ timeout: 20_000 })
       await expect.poll(() => logs.some((entry) => entry.includes('Form loaded'))).toBe(true)
-      await page.locator('[data-crud-field-id="cf_priority"] input[type="number"]').first().fill('3')
+      await page.locator('[data-crud-field-id="cf_priority"] input').first().fill('3')
       await page.locator('[data-crud-field-id="cf_severity"]').getByRole('combobox').first().click()
       await page.getByRole('option', { name: 'Medium' }).click()
 

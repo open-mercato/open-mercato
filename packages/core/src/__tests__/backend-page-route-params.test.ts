@@ -34,6 +34,22 @@ import { join, relative, sep } from 'node:path'
 const USE_PARAMS = /\buseParams\b/
 
 /**
+ * Strip comments before scanning. The convention this guard enforces is worth
+ * documenting at the call site — `/backend/[[...slug]]` hands a page `slug`, not
+ * `id`, so a page that reaches for `useParams()` gets the wrong shape — and the
+ * clearest way to say that is to name `useParams()` in a comment explaining why
+ * it is not used. Matching raw file text punished exactly that, flagging two
+ * pages that read `params?.id` correctly and only mentioned the hook in prose.
+ *
+ * This narrows the scan to code, which is what the assertion below claims to
+ * measure; it is not an allowlist, and a page that actually calls the hook is
+ * still caught whether or not it also mentions it in a comment.
+ */
+function stripComments(source: string): string {
+  return source.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/[^\n]*/g, ' ')
+}
+
+/**
  * The generator treats `page.ts`, `page.tsx`, `page.js`, and `page.jsx` alike
  * (`MODULE_CODE_EXTENSIONS` in packages/cli/src/lib/generators/scanner.ts), so
  * scanning only `.tsx` would let a `page.ts` backend page regress unseen.
@@ -113,7 +129,7 @@ describe('backend module pages resolve route params from the params prop', () =>
 
   it('has no backend page that reads route params via useParams()', () => {
     const offenders = pages
-      .filter((file) => USE_PARAMS.test(readFileSync(file, 'utf8')))
+      .filter((file) => USE_PARAMS.test(stripComments(readFileSync(file, 'utf8'))))
       .map(toRepoRelative)
 
     expect(offenders).toEqual([])

@@ -9,6 +9,7 @@ import type { SsoProviderRegistry } from '../lib/registry'
 import type { AccountLinkingService } from './accountLinkingService'
 import { encryptStateCookie, decryptStateCookie, createFlowState } from '../lib/state-cookie'
 import { emitSsoEvent } from '../events'
+import { isSsoRolesRevokedError } from '../lib/errors'
 import type { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
@@ -122,7 +123,13 @@ export class SsoService {
     })
 
     const tenantId = config.tenantId ?? ''
-    const { user } = await this.accountLinkingService.resolveUser(config, idpPayload, tenantId)
+    let user: Awaited<ReturnType<AccountLinkingService['resolveUser']>>['user']
+    try {
+      ;({ user } = await this.accountLinkingService.resolveUser(config, idpPayload, tenantId))
+    } catch (err) {
+      if (isSsoRolesRevokedError(err)) await this.rbacService.invalidateUserCache(err.userId)
+      throw err
+    }
 
     await this.rbacService.invalidateUserCache(String(user.id))
 

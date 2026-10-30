@@ -983,6 +983,23 @@
           "collation": null,
           "enumItems": [],
           "mappedType": "uuid"
+        },
+        "visibility": {
+          "name": "visibility",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": "'private'",
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "text"
         }
       },
       "indexes": [

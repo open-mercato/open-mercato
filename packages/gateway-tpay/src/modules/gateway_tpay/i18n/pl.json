@@ -1,0 +1,16 @@
+{
+  "gateway_tpay.description": "Przyjmuj hostowane płatności w PLN, BLIK, kartą i przelewem bankowym przez Tpay.",
+  "gateway_tpay.description.fallback": "Płatność przez Tpay",
+  "gateway_tpay.errors.currencyNotSupported": "Tpay obsługuje wyłącznie płatności w PLN.",
+  "gateway_tpay.errors.invalidAmount": "Kwota płatności jest nieprawidłowa.",
+  "gateway_tpay.errors.invalidNotificationUrl": "Adres URL powiadomień jest nieprawidłowy.",
+  "gateway_tpay.errors.payerEmailRequired": "Adres e-mail płatnika jest wymagany.",
+  "gateway_tpay.errors.payerNameRequired": "Imię i nazwisko płatnika jest wymagane.",
+  "gateway_tpay.errors.providerUnavailable": "Tpay jest tymczasowo niedostępny. Spróbuj ponownie później.",
+  "gateway_tpay.errors.unsupportedOperation": "Ta operacja nie jest obsługiwana przez Tpay.",
+  "gateway_tpay.feature.configure": "Konfiguracja ustawień Tpay",
+  "gateway_tpay.feature.view": "Podgląd konfiguracji Tpay",
+  "gateway_tpay.health.healthy": "Połączenie z Tpay działa poprawnie.",
+  "gateway_tpay.health.unhealthy": "Nie udało się połączyć z Tpay. Sprawdź dane uwierzytelniające.",
+  "gateway_tpay.title": "Tpay"
+}

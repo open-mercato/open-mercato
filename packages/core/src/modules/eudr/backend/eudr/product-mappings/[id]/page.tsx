@@ -261,6 +261,7 @@ export default function EditEudrProductMappingPage({ params }: { params?: { id?:
       <PageBody>
         <CrudForm<ProductMappingFormValues>
           title={translate('eudr.productMappings.edit.title')}
+          titleHeadingLevel={1}
           backHref="/backend/eudr/product-mappings"
           cancelHref="/backend/eudr/product-mappings"
           deleteRedirect="/backend/eudr/product-mappings"

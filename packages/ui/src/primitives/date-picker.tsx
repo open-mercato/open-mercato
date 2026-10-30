@@ -11,6 +11,7 @@ import { Button } from './button'
 import { LinkButton } from './link-button'
 import { TimeInput } from '../backend/inputs/TimeInput'
 import { formatWithPublicDateFormat, resolvePublicDateFormat, resolvePublicDateTimeFormat } from './date-format'
+import { useDateFnsLocale } from './date-locale'
 
 export type DatePickerFooter = 'apply-cancel' | 'today-clear' | 'none'
 
@@ -56,6 +57,12 @@ export type DatePickerProps = {
   align?: 'start' | 'center' | 'end'
   minDate?: Date
   maxDate?: Date
+  /**
+   * date-fns locale for month/weekday names and the first day of the week.
+   * Defaults to the active `I18nProvider` locale (`undefined` outside a
+   * provider, matching pre-existing behavior); pass one explicitly to pin it
+   * regardless of the app locale.
+   */
   locale?: Locale
   displayFormat?: string
   className?: string
@@ -104,7 +111,7 @@ export function DatePicker({
   align = 'start',
   minDate,
   maxDate,
-  locale,
+  locale: localeProp,
   displayFormat,
   className,
   popoverClassName,
@@ -116,6 +123,14 @@ export function DatePicker({
 }: DatePickerProps) {
   const resolvedCloseOnSelect = closeOnSelect ?? footer === 'today-clear'
   const t = useT()
+  // Callers may pin a locale explicitly (e.g. a field-level override); absent
+  // that, fall back to the active app locale so every consumer of this
+  // primitive — not just the ones that remember to thread a `locale` prop —
+  // renders a localized month/weekday grid instead of silently defaulting to
+  // English. Outside an `I18nProvider` this resolves to `undefined`, same as
+  // not passing a locale at all today.
+  const appLocale = useDateFnsLocale()
+  const locale = localeProp ?? appLocale
   const [uncontrolledOpen, setUncontrolledOpen] = React.useState(false)
   const open = controlledOpen ?? uncontrolledOpen
   const setOpen = React.useCallback((next: boolean) => {

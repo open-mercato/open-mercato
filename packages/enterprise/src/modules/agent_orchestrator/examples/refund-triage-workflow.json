@@ -1,0 +1,210 @@
+{
+  "workflowId": "agent_orchestrator_refund_triage_v1",
+  "workflowName": "Refund Triage (Agent)",
+  "description": "Runs the support.refund_assessor agent on a refund request. Confident low-risk refunds auto-approve (>= 0.85); the rest raise a proposal reviewed by a Support Lead under an SLA. The agent's disposition then routes the run via outcome handles: approved -> issue the refund, rejected -> notify the customer, guardrailBlocked -> a compliance review task. Transient agent-capacity errors retry with backoff; a genuine agent failure parks the instance for triage (errorDirective failureQueue). Swap the placeholder refund command + email template for your tenant's real ones.",
+  "version": 1,
+  "enabled": true,
+  "metadata": {
+    "category": "Agents",
+    "tags": [
+      "agent",
+      "support",
+      "refunds"
+    ],
+    "icon": "badge-dollar-sign"
+  },
+  "definition": {
+    "contextSchema": {
+      "input": {
+        "fields": [
+          { "name": "refundId", "type": "text", "label": "Refund ID", "required": true },
+          { "name": "amount", "type": "number", "label": "Amount", "required": true },
+          { "name": "reason", "type": "text", "label": "Reason" },
+          { "name": "customerEmail", "type": "text", "label": "Customer email", "required": true }
+        ]
+      }
+    },
+    "steps": [
+      {
+        "stepId": "start",
+        "stepName": "Refund requested",
+        "stepType": "START",
+        "description": "Entry point — a refund request enters triage."
+      },
+      {
+        "stepId": "assess",
+        "stepName": "Assess refund",
+        "stepType": "AUTOMATED",
+        "description": "Run support.refund_assessor and disposition the proposal. Auto-approves when confident; otherwise raises a proposal for a Support Lead. Parks on the human path; signalConfig lets agent_orchestrator's proposal.ready resume it. A genuine agent failure parks the instance for triage.",
+        "signalConfig": {
+          "signalName": "agent_orchestrator.proposal.ready"
+        },
+        "errorDirective": {
+          "mode": "failureQueue"
+        },
+        "activities": [
+          {
+            "activityId": "invoke_refund_assessor",
+            "activityName": "Assess refund with AI",
+            "activityType": "INVOKE_AGENT",
+            "retryPolicy": {
+              "maxAttempts": 3,
+              "initialIntervalMs": 2000,
+              "backoffCoefficient": 2,
+              "maxIntervalMs": 20000
+            },
+            "config": {
+              "agentId": "support.refund_assessor",
+              "input": {
+                "refundId": "{{context.refundId}}",
+                "amount": "{{context.amount}}",
+                "reason": "{{context.reason}}"
+              },
+              "onResult": {
+                "autoApproveThreshold": 0.85
+              },
+              "review": {
+                "assignedToRoles": ["support_lead"],
+                "priority": "high",
+                "deadline": { "duration": "PT4H" },
+                "reminders": [{ "offset": "PT1H" }],
+                "onBreach": { "action": "reassign", "reassignTo": "refund_manager" }
+              },
+              "outputMapping": {
+                "refund.decision": "disposition",
+                "refund.riskTier": "data.riskTier"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "stepId": "issue_refund",
+        "stepName": "Issue refund",
+        "stepType": "AUTOMATED",
+        "description": "Effector — process the approved refund. Placeholder command: swap for your tenant's audited refund command.",
+        "activities": [
+          {
+            "activityId": "effector_issue_refund",
+            "activityName": "Process refund",
+            "activityType": "UPDATE_ENTITY",
+            "config": {
+              "commandId": "payments.refund.process",
+              "input": {
+                "id": "{{context.refundId}}",
+                "status": "approved"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "stepId": "notify_declined",
+        "stepName": "Notify decline",
+        "stepType": "AUTOMATED",
+        "description": "Email the customer that the refund was declined.",
+        "activities": [
+          {
+            "activityId": "effector_notify_declined",
+            "activityName": "Send decline email",
+            "activityType": "SEND_EMAIL",
+            "config": {
+              "to": "{{context.customerEmail}}",
+              "subject": "Refund request declined - {{context.refundId}}",
+              "template": "refund_declined",
+              "data": {
+                "refundId": "{{context.refundId}}",
+                "reason": "{{context.reason}}"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "stepId": "compliance_review",
+        "stepName": "Compliance review",
+        "stepType": "USER_TASK",
+        "description": "A guardrail block routes here — a human on the compliance queue reviews before the run continues.",
+        "userTaskConfig": {
+          "assignedToRoles": ["compliance"],
+          "formSchema": {
+            "fields": [
+              { "name": "decision", "type": "select", "label": "Decision", "required": true, "options": ["approve", "deny"] },
+              { "name": "notes", "type": "text", "label": "Notes" }
+            ]
+          }
+        }
+      },
+      {
+        "stepId": "end",
+        "stepName": "Done",
+        "stepType": "END",
+        "description": "Refund triage completed."
+      }
+    ],
+    "transitions": [
+      {
+        "transitionId": "t_start",
+        "transitionName": "Begin triage",
+        "fromStepId": "start",
+        "toStepId": "assess",
+        "trigger": "auto",
+        "priority": 100
+      },
+      {
+        "transitionId": "t_approved",
+        "transitionName": "Approved",
+        "fromStepId": "assess",
+        "toStepId": "issue_refund",
+        "trigger": "auto",
+        "priority": 100,
+        "kind": "outcome",
+        "outcomeKind": "approved"
+      },
+      {
+        "transitionId": "t_rejected",
+        "transitionName": "Rejected",
+        "fromStepId": "assess",
+        "toStepId": "notify_declined",
+        "trigger": "auto",
+        "priority": 90,
+        "kind": "outcome",
+        "outcomeKind": "rejected"
+      },
+      {
+        "transitionId": "t_guardrail",
+        "transitionName": "Guardrail blocked",
+        "fromStepId": "assess",
+        "toStepId": "compliance_review",
+        "trigger": "auto",
+        "priority": 80,
+        "kind": "outcome",
+        "outcomeKind": "guardrailBlocked"
+      },
+      {
+        "transitionId": "t_issued",
+        "transitionName": "Refund issued",
+        "fromStepId": "issue_refund",
+        "toStepId": "end",
+        "trigger": "auto",
+        "priority": 100
+      },
+      {
+        "transitionId": "t_declined",
+        "transitionName": "Decline sent",
+        "fromStepId": "notify_declined",
+        "toStepId": "end",
+        "trigger": "auto",
+        "priority": 100
+      },
+      {
+        "transitionId": "t_reviewed",
+        "transitionName": "Compliance reviewed",
+        "fromStepId": "compliance_review",
+        "toStepId": "end",
+        "trigger": "manual",
+        "priority": 100
+      }
+    ]
+  }
+}

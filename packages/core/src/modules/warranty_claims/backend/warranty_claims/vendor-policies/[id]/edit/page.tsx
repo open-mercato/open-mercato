@@ -109,6 +109,7 @@ export default function EditWarrantyVendorPolicyPage({ params }: { params?: { id
       <PageBody>
         <CrudForm<VendorPolicyFormValues>
           title={t('warranty_claims.vendorPolicies.edit.title', 'Edit vendor policy')}
+          titleHeadingLevel={1}
           backHref="/backend/warranty_claims/vendor-policies"
           fields={fields}
           groups={groups}

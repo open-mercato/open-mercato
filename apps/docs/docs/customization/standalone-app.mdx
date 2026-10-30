@@ -323,6 +323,65 @@ The scaffolded app includes three Compose files for different scenarios:
 | `docker-compose.fullapp.dev.yml` | **Containerized development** — runs the full stack including the app with hot reload. The app container exposes the dev splash progress page and backend URL on stable host ports. Recommended for Windows or fully containerized workflows. |
 | `docker-compose.fullapp.yml` | **Production-style deploy** — builds and runs the app in production mode inside Docker. Suitable for demos, staging, or deployment. |
 
+All three gate the optional `opencode` (and, in the full-stack files, `mcp`)
+services behind the `agents` Compose profile, so a plain `docker compose up`
+starts exactly what it always did. See
+[Agent Orchestrator](#agent-orchestrator-enterprise).
+
+### Agent Orchestrator (enterprise)
+
+The scaffolded app ships the Agent Orchestrator wiring switched off. It is a
+commercial module — the package installs from npm without a key, but production
+use requires a licence (see `packages/enterprise/LICENSE.md`).
+
+Turn on the in-process (`native`) runtime with two flags in `.env`:
+
+```bash
+OM_ENABLE_ENTERPRISE_MODULES=true
+OM_ENABLE_ENTERPRISE_MODULES_AGENTS=true
+```
+
+then `yarn generate && yarn db:migrate && yarn mercato auth sync-role-acls`.
+That is enough for agents declared with `defineAgent` in a module's
+`ai-agents.ts`, and for the example agents in `src/modules/agent_examples/`.
+
+**File-defined (OpenCode) agents** additionally need two containers, gated
+behind the `agents` Compose profile so they cost nothing until you ask for them:
+
+```bash
+# Containerized: app + mcp + opencode
+docker compose --profile agents -f docker-compose.fullapp.yml up
+
+# Hybrid: app and MCP on the host (yarn dev), only OpenCode in a container
+docker compose --profile agents up -d opencode
+```
+
+The `mcp` service is the tool plane the agents call back into; it provisions its
+own API key into a shared volume, which `opencode` reads. Both are described in
+[MCP Server](../framework/ai-assistant/mcp).
+
+The agent definitions themselves live in `src/modules/<module>/agents/<id>/`
+(`AGENT.md` + `OUTCOME.md`, plus optional `skills/`, `sub-agents/`, `tools/`).
+`yarn generate` compiles them into `docker/opencode/agents/` and
+`docker/opencode/skills/`, which the `opencode` container mounts read-only.
+OpenCode reads those files when a session starts and does not reliably
+hot-reload, so **restart the container after regenerating**:
+
+```bash
+yarn generate && docker compose --profile agents restart opencode
+```
+
+Two things worth knowing before exposing this beyond your own machine:
+
+- OpenCode has no authentication of its own. `docker-compose.fullapp.yml`
+  therefore does not publish port 4096 — the app reaches it over the Compose
+  network. The dev variants do publish it for convenience. Set
+  `OPENCODE_PASSWORD` before exposing it anywhere shared.
+- Agent runs are queued, so they need a worker. The default
+  `QUEUE_STRATEGY=local` processes jobs sequentially and is not suitable for
+  real agent load; see
+  [Agent orchestration scaling](../deployment/agent-orchestration-scaling).
+
 ### AI tooling
 
 When selected at scaffold time, the project includes the shared `AGENTS.md` router plus tool-specific Claude Code, Codex, and/or Cursor configuration. Durable standalone knowledge lives in `.ai/guides/` and `.ai/skills/`; installed skill discovery lives in `.agents/skills/`. Prefer extending the routed guide or skill that owns a rule over growing the root file. See [Set up the AI development harness](#set-up-the-ai-development-harness) for installation, exact framework context, evaluation, and release maintenance.

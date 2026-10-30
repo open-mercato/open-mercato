@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
-import { readJsonSafe } from '@open-mercato/core/modules/core/__integration__/helpers/generalFixtures'
+import { getTokenScope, readJsonSafe } from '@open-mercato/core/modules/core/__integration__/helpers/generalFixtures'
 import {
   cancelWorkflowInstanceIfExists,
   createWorkflowDefinitionFixture,
@@ -20,6 +20,7 @@ import {
 test.describe('TC-WF-021: user task after the join', () => {
   test('a USER_TASK following the JOIN is created, then completes the workflow', async ({ request }) => {
     const token = await getAuthToken(request, 'admin')
+    const callerUserId = getTokenScope(token).userId
     const timestamp = Date.now()
     const workflowId = `qa-wf-021-${timestamp}`
 
@@ -39,7 +40,11 @@ test.describe('TC-WF-021: user task after the join', () => {
             stepId: 'review',
             stepName: 'Review',
             stepType: 'USER_TASK',
-            userTaskConfig: { assignedTo: 'admin' },
+            // Addressed to the CALLER's real user id, not the literal 'admin'.
+            // Spec §6.4 made a task addressed to one person that person's to
+            // finish (`completeUserTask` → TASK_ASSIGNED_TO_ANOTHER_USER, 409),
+            // so a non-id placeholder now produces a task nobody can complete.
+            userTaskConfig: { assignedTo: callerUserId },
           },
           { stepId: 'end', stepName: 'End', stepType: 'END' },
         ],

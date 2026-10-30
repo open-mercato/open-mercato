@@ -77,6 +77,7 @@ jest.mock('@open-mercato/core/modules/staff/lib/staffMemberResolver', () => ({
 }))
 
 jest.mock('@open-mercato/core/modules/staff/api/guards', () => ({
+  ...jest.requireActual('@open-mercato/core/modules/staff/api/guards'),
   resolveUserFeatures: jest.fn(() => ['staff.timesheets.manage_own']),
   runStaffMutationGuards: jest.fn((...args: unknown[]) => mockRunStaffMutationGuards(...args)),
   runStaffMutationGuardAfterSuccess: jest.fn((...args: unknown[]) =>

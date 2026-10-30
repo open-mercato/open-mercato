@@ -16,6 +16,12 @@ import * as activityExecutor from './lib/activity-executor'
 import * as eventLogger from './lib/event-logger'
 import * as signalHandler from './lib/signal-handler'
 import * as timerHandler from './lib/timer-handler'
+import * as conditionHandler from './lib/condition-handler'
+import * as taskHandler from './lib/task-handler'
+import * as workInboxService from './lib/work-inbox/service'
+import { createWorkflowDefinitionAuthoring } from './lib/owned-definition'
+import { registerWorkInboxSources } from './lib/work-inbox/provider'
+import { userTaskWorkInboxSource, WORKFLOWS_MODULE_ID } from './lib/work-inbox/user-task-source'
 
 // Register the `workflows.definition` optimistic-lock reader at module-DI load
 // time (top-level, like sales/customers) so it is present in the global reader
@@ -34,6 +40,16 @@ registerOptimisticLockReaders({
   }),
 })
 
+// Registered at module-DI load time (top-level, like the optimistic-lock reader
+// above) so the `user_task` source is present before the first work-inbox
+// request resolves `workInboxService`. Registration merges by module id, so
+// `agent_orchestrator` registering `agent_disposition` from its own `di.ts` adds
+// to this set regardless of which module loads first — and when enterprise is
+// absent the inbox simply lists workflow tasks (spec §2.3).
+registerWorkInboxSources([
+  { moduleId: WORKFLOWS_MODULE_ID, sources: [userTaskWorkInboxSource] },
+])
+
 export function register(container: AwilixContainer): void {
   container.register({
     workflowExecutor: asFunction(() => workflowExecutor).scoped(),
@@ -43,5 +59,11 @@ export function register(container: AwilixContainer): void {
     eventLogger: asFunction(() => eventLogger).scoped(),
     signalHandler: asFunction(() => signalHandler).scoped(),
     timerHandler: asFunction(() => timerHandler).scoped(),
+    conditionHandler: asFunction(() => conditionHandler).scoped(),
+    taskHandler: asFunction(() => taskHandler).scoped(),
+    workInboxService: asFunction(() => workInboxService).scoped(),
+    // Lets another module own a real workflow definition instead of building a
+    // second executor for its simple case — see lib/owned-definition.ts.
+    workflowDefinitionAuthoring: asFunction(() => createWorkflowDefinitionAuthoring(container)).scoped(),
   })
 }

@@ -1,4 +1,4 @@
-import { DefaultDataEngine } from '../engine'
+import { DefaultDataEngine, clearDataEngineTableExistsCache } from '../engine'
 import { registerEntityIds } from '../../encryption/entityIds'
 
 const ENTITY_ID = 'example:todo'
@@ -88,6 +88,7 @@ function expectTenantScope(query: QueryCall, tenantId: string | null | undefined
 describe('custom-entity document storage tenant scope', () => {
   beforeEach(() => {
     registerEntityIds({ example: { todo: ENTITY_ID } })
+    clearDataEngineTableExistsCache()
   })
 
   afterEach(() => {

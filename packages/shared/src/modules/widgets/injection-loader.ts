@@ -141,11 +141,41 @@ function notifyInjectionRegistryChanged() {
   }))
 }
 
-export function registerCoreInjectionWidgets(entries: ModuleInjectionWidgetEntry[]) {
-  if (_coreInjectionWidgetEntries !== null && process.env.NODE_ENV === 'development') {
+export type RegisterCoreInjectionWidgetsOptions = {
+  /**
+   * `replace` (default) publishes `entries` as the whole registry.
+   *
+   * `merge` adds only the entries the registry does not already carry, keeping whatever a
+   * previous bootstrap published. A process may run more than one bootstrap partition (the
+   * API-only one and the full page one share a Node process in a mixed web host), and the
+   * partition that registers second must not shrink the registry the first one populated.
+   */
+  mode?: 'replace' | 'merge'
+}
+
+export function registerCoreInjectionWidgets(
+  entries: ModuleInjectionWidgetEntry[],
+  options: RegisterCoreInjectionWidgetsOptions = {},
+) {
+  if (_coreInjectionWidgetEntries !== null && process.env.NODE_ENV === 'development' && options.mode !== 'merge') {
     logger.debug('Core injection widgets re-registered (this may occur during HMR)')
   }
-  const finalEntries = applyInjectionWidgetOverridesToEntries(entries)
+  const incoming = applyInjectionWidgetOverridesToEntries(entries)
+  if (options.mode !== 'merge') {
+    _coreInjectionWidgetEntries = incoming
+    writeGlobalInjectionWidgets(incoming)
+    notifyInjectionRegistryChanged()
+    return
+  }
+
+  const existing = readGlobalInjectionWidgets() ?? _coreInjectionWidgetEntries ?? []
+  const known = new Set(existing.map((entry) => entry.key))
+  const added = incoming.filter((entry) => !known.has(entry.key))
+  // Nothing to contribute: leave the registry exactly as it was. Publishing an empty array here
+  // would turn "never registered" into "registered with no widgets", which downgrades the loud
+  // bootstrap error into silently missing contributions.
+  if (!added.length) return
+  const finalEntries = [...existing, ...added]
   _coreInjectionWidgetEntries = finalEntries
   writeGlobalInjectionWidgets(finalEntries)
   notifyInjectionRegistryChanged()
@@ -164,11 +194,20 @@ export function getCoreInjectionWidgets(): ModuleInjectionWidgetEntry[] {
   return _coreInjectionWidgetEntries
 }
 
-export function registerCoreInjectionTables(tables: Array<{ moduleId: string; table: ModuleInjectionTable }>) {
+/**
+ * `widgetEntries` is optional and carries the *unfiltered* generated entries so a
+ * `key`-spelled injection-widget override can be resolved to the `widgetId` the table
+ * slots reference (#5152). Bootstraps that skip core widget registration have no other
+ * source for that mapping, since the registered entries are already override-filtered.
+ */
+export function registerCoreInjectionTables(
+  tables: Array<{ moduleId: string; table: ModuleInjectionTable }>,
+  widgetEntries?: readonly ModuleInjectionWidgetEntry[],
+) {
   if (_coreInjectionTables !== null && process.env.NODE_ENV === 'development') {
     logger.debug('Core injection tables re-registered (this may occur during HMR)')
   }
-  const finalTables = applyInjectionWidgetOverridesToTables(tables)
+  const finalTables = applyInjectionWidgetOverridesToTables(tables, undefined, widgetEntries)
   _coreInjectionTables = finalTables
   writeGlobalInjectionTables(finalTables)
   notifyInjectionRegistryChanged()

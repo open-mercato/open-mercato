@@ -1,0 +1,64 @@
+# HANDOFF — Catalog Bulk-Create (Products & Categories)
+
+**PR:** #5610 (`feat/catalog-bulk-create` → `develop`, fork `adeptofvoltron/open-mercato`)
+**Status:** complete
+**Last commit:** `655f73d4a` (this HANDOFF/NOTIFY close-out commit follows)
+**Next concrete action:** none from this automation. An independent reviewer must approve the PR (GitHub blocked this automation from approving its own PR — the code review was posted as a PR comment instead) before it can move to `merge-queue`. The two new integration specs (`TC-CAT-036`/`TC-CAT-037`) should be confirmed passing for real (they were written and lint-clean but not executed against a live app in this worktree).
+
+## Finalization (Step 8-10, this resume)
+
+- Step 8 (`om-auto-review-pr`): ran the review inline (isolated worktree already in use). No blockers/majors. Attempted to submit as a formal GitHub approving review — blocked (`Can not approve your own pull request`) — posted as a PR comment instead. Two non-blocking notes: neither new route wires the mutation-guard registry (matches the `bulk-delete` reference pattern this PR was told to mirror, not a regression), and the two integration specs are unexecuted.
+- Step 9: comprehensive summary comment posted covering all five resumes.
+- Step 10: PR body `Status: complete`, draft → ready via `gh pr ready`, labels `priority-medium`/`risk-low`/`skip-qa`/`review` added (`review` because no pipeline label existed yet and self-approval was blocked, so this PR still needs an independent approval — not `merge-queue`), `in-progress` removed, label-rationale comment posted.
+
+## Current Tasks-table state (see PLAN.md for the authoritative table)
+
+All of Phase 1 (1.1–1.4), Phase 2 (2.1–2.4), and Phase 3 (3.1, 3.2) are `done`. The Non-goals section's original reference-data-memoization intent for products was formally dropped by operator decision (history below) — Phase 2 ships pre-validation only, matching Phase 1's design. The spec itself (`.ai/specs/2026-08-25-catalog-bulk-create.md`) has been corrected to match — see "Spec correction landed" below.
+
+**Spec correction landed:** `.ai/specs/2026-08-25-catalog-bulk-create.md` TLDR, Resolved Assumptions, Proposed Solution, Architecture, Data Model, UI/UX, Edge Cases, Risks, Phasing, and Implementation Plan sections all corrected to describe what actually ships (per-row-command unchanged, batch pre-validation, no reference-data cache) instead of the original identity-map-pre-warm design. Also fixed products' bulk-create item cap from an accidental 10000 (copy-pasted from categories) to the spec's own documented 2000.
+
+**Step 3.1 finding (no code change — verified no-op):** the plan assumed `ProgressTopBar` (and/or the progress module) holds a `jobType` → i18n-label registry that new job types must be added to. Verified this is not how the component works: `ProgressTopBar.tsx` renders `job.name`/`job.description` directly (no `jobType`-specific branching anywhere in `packages/ui/src/backend/progress/` or `packages/core/src/modules/progress/`), and `jobType` on `ProgressJob` is a free-form `z.string()`, not a validated enum requiring registration. Both new routes already set `name`/`description` inline (same pattern the existing `bulk-delete` route uses — also uninternationalized; out of scope to fix here per Non-goals "no changes to the existing bulk-delete route/worker"). There is nothing left to change for Step 3.1 under the actual architecture. Confirmed by grepping every `jobType` reference in `packages/ui/src` and `packages/core/src/modules/progress`.
+
+**Step 3.2 done:** added `/api/catalog/products/bulk-create` and `/api/catalog/categories/bulk-create` subsections to `apps/docs/docs/api/catalog.mdx`, placed after their respective non-bulk sections, matching the doc's existing style (permissions, payload shape, worker/queue behavior, result summary shape). Neither new endpoint's OpenAPI needed a manual doc file beyond this — the route files already export `openApi` for the auto-generated bundle.
+
+## What landed since resume start
+
+- Migrated the legacy flat plan into this run folder, committed the previously-unlanded spec doc.
+- Phase 1: categories bulk-create — route, validators, worker, lib (batch pre-validation + checkpoint/resume), 7 unit tests. Checkpoint 1 clean.
+- Step 1.3: integration-style test (loads the real `catalog.categories.create` command through the bulk worker) verifying `dataEngine.markOrmEntityChange` fires once per row with the command's unchanged event wiring. Documents that this command passes no `indexer` config today.
+- Phase 2: products bulk-create — route, validators (`productBulkCreateRowSchema`/`productsBulkCreateSchema`), worker, lib (SKU/handle pre-validation + checkpoint/resume, same pattern as Phase 1), 8 unit tests. This satisfies the redefined Step 2.3 (pre-validation fail-fast assertions, since no identity-map mechanism exists to measure) and Step 2.4 (checkpoint/resume parity) in the same test file.
+- Checkpoint 2 recorded in `checkpoint-2-checks.md`: `generate`, `build:packages`, `typecheck` (27/27), `test catalog` (1437/1438 suites — the one failure is the same pre-existing Polish-locale issue noted at checkpoint 1), `eslint` on every new/changed file, `i18n:check-hardcoded` (catalog module not flagged) — all clean.
+
+## Reference implementation
+
+`packages/core/src/modules/catalog/api/bulk-delete/route.ts`, `workers/catalog-product-bulk-delete.ts`, `lib/bulkDelete.ts` — the scaffolding pattern both phases mirror (route → `ProgressJob` → `@open-mercato/queue` → worker → lib).
+
+## Environment / worktree
+
+- Worktree: `~/workspace/OpenMercatoTest/.ai/tmp/om-auto-create-pr/catalog-bulk-create-20260825-115305` (branch `feat/catalog-bulk-create`, remote `fork` = `adeptofvoltron/open-mercato`, PR is cross-repository).
+- `.ai/agentic.config.json`: `baseBranch: develop`, `qaGate: true`, labels enabled, validation gate = `yarn build:packages`, `yarn generate`, `yarn build:packages`, `yarn i18n:check-sync`, `yarn i18n:check-usage`, `yarn typecheck`, `yarn test`, `yarn build:app`.
+
+## Remaining work
+
+1. **Step 8** — `om-auto-review-pr 5610 --autofix`.
+2. **Steps 9–10** — comprehensive summary comment (must explicitly state the products memoization goal was dropped and why, that the spec was corrected, and that the two new integration specs are unexecuted-in-this-pass), label normalization, draft→ready promotion, lock release.
+
+## Step 7 final gate — done (full detail in `final-gate-checks.md`)
+
+Full `validation.commands` gate clean (build:packages ×2, generate, i18n:check-sync, i18n:check-usage, typecheck, test, build:app) modulo the same pre-existing Polish-locale `warranty_claims` test failure noted at both checkpoints. `yarn lint` (style pass) clean, 0 errors. Added integration test coverage per AGENTS.md's rule (`TC-CAT-036`/`TC-CAT-037`, commit `c3249bb43`) — written and lint-clean, but **not executed against a live app**: no dev server/ephemeral QA env was available in this worktree, and a `playwright --list` attempt hung and was killed rather than pursued further (standing up a full ephemeral environment was judged out of proportion for this resume). Flagged as a known gap for the reviewer/CI, not silently skipped.
+
+## Decision history: reference-data caching (fully resolved — do not re-open)
+
+The spec's core premise — sharing one `EntityManager` across a batch so the create commands' internal reference-data lookups hit the identity map after the first occurrence — **does not work as designed**. `EntityManager.fork()` defaults `clear: true` in this repo's MikroORM version, and `createCategoryCommand.execute`/`createProductCommand.execute` both fork with no options, so every row's command call gets a fresh, empty identity map. A repo has no MikroORM result cache to serve a hit another way.
+
+Three sequential attempts at a fix, each caught and stopped before landing non-functional code:
+
+1. **`em.fork({ clear: false })` in the create commands** — would work, but touches a Resolved-Assumption-#3-protected contract surface (the create commands are supposed to stay entirely unchanged). **Operator rejected this.**
+2. **`export` the two lookup helpers (`resolveScopedTaxRate`, `resolveProductUnitDefaults`) for a worker-side memoization wrapper** — operator initially approved this as a smaller, additive-only edit. Before implementing, traced the actual call sites in `commands/products.ts` (`execute()` calls both functions by direct module-local reference) and found this is a **no-op**: exporting a function doesn't change what `execute()` itself calls, so a wrapper built around the exported copy is never consulted. No code was written against this plan once the no-op was confirmed.
+3. **Genuinely editing `execute()`'s call sites** to accept and use an optional batch-scoped cache — the only mechanism that would actually work, but a strictly bigger edit than either prior option, touching the same protected surface as option 1's rejected `.fork()` change.
+
+**Final operator decision (2026-08-25):** drop the reference-data memoization goal for products entirely. Do not edit `commands/categories.ts`/`commands/products.ts` in any way — this question is closed, not open for a fourth variant. Phase 2 ships pre-validation only (SKU/handle uniqueness, mirroring Phase 1's slug/parentId pattern), which is what landed. The spec itself needs a correction commit (see "Remaining work" above) so `.ai/specs/2026-08-25-catalog-bulk-create.md` states this as a known permanent constraint rather than a risk to verify.
+
+## Blockers
+
+None.

@@ -15,6 +15,8 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
 const ORG = '22222222-2222-4222-8222-222222222222'
 const TENANT = '33333333-3333-4333-8333-333333333333'
 
+const organization = { id: ORG, tenant: { id: TENANT } }
+
 function loadCommand(id: string): { execute: (input: Record<string, unknown>, ctx: unknown) => Promise<unknown> } {
   let command: unknown
   jest.isolateModules(() => {
@@ -30,8 +32,9 @@ type FlushBehavior = 'ok' | 'reject'
 function buildEm(opts: { existingRecord?: Record<string, unknown> | null; flush?: FlushBehavior } = {}) {
   const calls: string[] = []
   const em: Record<string, unknown> = {
-    findOne: jest.fn().mockImplementation(async () => {
+    findOne: jest.fn().mockImplementation(async (entity: unknown) => {
       calls.push('findOne')
+      if ((entity as { name?: string })?.name === 'Organization') return organization
       return opts.existingRecord ?? null
     }),
     create: jest.fn().mockImplementation((_entity: unknown, payload: Record<string, unknown>) => ({
@@ -59,6 +62,13 @@ function buildEm(opts: { existingRecord?: Record<string, unknown> | null; flush?
       calls.push('rollback')
     }),
   }
+  let inTransaction = false
+  ;(em.begin as jest.Mock).mockImplementation(async () => { calls.push('begin'); inTransaction = true })
+  ;(em.commit as jest.Mock).mockImplementation(async () => { calls.push('commit'); inTransaction = false })
+  ;(em.rollback as jest.Mock).mockImplementation(async () => { calls.push('rollback'); inTransaction = false })
+  em.isInTransaction = jest.fn(() => inTransaction)
+  em.execute = jest.fn().mockResolvedValue([])
+  em.find = jest.fn().mockResolvedValue([{ id: 'prior-base' }])
   ;(em as Record<string, unknown>).fork = jest.fn().mockReturnValue(em)
   ;(em as Record<string, unknown>).__calls = calls
   return em

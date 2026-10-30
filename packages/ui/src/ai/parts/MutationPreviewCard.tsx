@@ -9,7 +9,7 @@ import type { AiUiPartProps } from '../ui-part-registry'
 import { confirmPendingAction, cancelPendingAction } from './pending-action-api'
 import { useAiPendingActionPolling } from './useAiPendingActionPolling'
 import { FieldDiffCard } from './FieldDiffCard'
-import { ConfirmationCard } from './ConfirmationCard'
+import { ConfirmationCard, ConfirmationErrorAlert } from './ConfirmationCard'
 import { MutationResultCard } from './MutationResultCard'
 import type { AiPendingActionCardAction } from './types'
 
@@ -53,7 +53,7 @@ export function MutationPreviewCard(props: MutationPreviewCardProps) {
   const payload = (props.payload as MutationPreviewCardPayload | undefined) ?? {}
   const injected = props.initialAction ?? payload.pendingAction ?? null
 
-  const { action: polled, refresh } = useAiPendingActionPolling({
+  const { action: polled, refresh, unavailable } = useAiPendingActionPolling({
     pendingActionId,
     endpoint: props.endpoint,
     disabled: !pendingActionId,
@@ -78,9 +78,10 @@ export function MutationPreviewCard(props: MutationPreviewCardProps) {
       endpoint: props.endpoint,
     })
     if (!result.ok) {
-      // Network / timeout / 4xx / 5xx — surface the envelope and rewind the
-      // card to the preview phase so the operator can read the error,
-      // edit the proposal upstream, or retry.
+      // Network / timeout / 4xx / 5xx — rewind the card to the preview
+      // phase, which renders the envelope inline (e.g. the 412
+      // `stale_version` refusal with the stale rows) so the operator can
+      // read the error, ask for a re-proposal, or retry.
       setConfirmError(result.error)
       setPhase('preview')
       await refresh()
@@ -144,7 +145,7 @@ export function MutationPreviewCard(props: MutationPreviewCardProps) {
     onCancel: () => {
       void handleCancel()
     },
-    enabled: phase === 'preview' && !isTerminal,
+    enabled: phase === 'preview' && !isTerminal && !unavailable,
   })
 
   // Terminal — short-circuit into the result card.
@@ -180,7 +181,7 @@ export function MutationPreviewCard(props: MutationPreviewCardProps) {
 
   const batch = Array.isArray(action?.records) && action!.records!.length > 0 ? action!.records! : null
   const summary = batch ? summarizeBatch(batch) : null
-  const hasReviewDetails = Boolean(batch)
+  const hasReviewDetails = Boolean(batch) && !unavailable
 
   return (
     <section
@@ -209,39 +210,41 @@ export function MutationPreviewCard(props: MutationPreviewCardProps) {
         </div>
       </header>
 
-      <div className="mt-3" data-ai-mutation-preview-body>
-        {summary ? (
-          <div
-            className="rounded-md border border-border bg-muted/30 p-3 text-sm"
-            data-ai-mutation-preview-batch-summary
-          >
-            <p className="font-medium">
-              {t(
-                'ai_assistant.chat.mutation_cards.preview.batchSummary',
-                'Batch update',
-              )}
-              {': '}
-              <span data-ai-mutation-preview-count>{summary.count}</span>{' '}
-              <span>
+      {unavailable ? null : (
+        <div className="mt-3" data-ai-mutation-preview-body>
+          {summary ? (
+            <div
+              className="rounded-md border border-border bg-muted/30 p-3 text-sm"
+              data-ai-mutation-preview-batch-summary
+            >
+              <p className="font-medium">
                 {t(
-                  'ai_assistant.chat.mutation_cards.preview.batchRecords',
-                  'records',
+                  'ai_assistant.chat.mutation_cards.preview.batchSummary',
+                  'Batch update',
                 )}
-              </span>
-            </p>
-            {summary.labels.length > 0 ? (
-              <p className="mt-1 text-xs text-muted-foreground">
-                {summary.labels.join(', ')}
-                {summary.count > summary.labels.length
-                  ? ` +${summary.count - summary.labels.length}`
-                  : ''}
+                {': '}
+                <span data-ai-mutation-preview-count>{summary.count}</span>{' '}
+                <span>
+                  {t(
+                    'ai_assistant.chat.mutation_cards.preview.batchRecords',
+                    'records',
+                  )}
+                </span>
               </p>
-            ) : null}
-          </div>
-        ) : (
-          <FieldDiffCard fieldDiff={action?.fieldDiff ?? null} />
-        )}
-      </div>
+              {summary.labels.length > 0 ? (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {summary.labels.join(', ')}
+                  {summary.count > summary.labels.length
+                    ? ` +${summary.count - summary.labels.length}`
+                    : ''}
+                </p>
+              ) : null}
+            </div>
+          ) : (
+            <FieldDiffCard fieldDiff={action?.fieldDiff ?? null} />
+          )}
+        </div>
+      )}
 
       {expanded && hasReviewDetails ? (
         <div className="mt-3 rounded-md border border-border bg-muted/20 p-3" data-ai-mutation-preview-details>
@@ -250,6 +253,10 @@ export function MutationPreviewCard(props: MutationPreviewCardProps) {
             records={action?.records ?? null}
           />
         </div>
+      ) : null}
+
+      {confirmError && !unavailable ? (
+        <ConfirmationErrorAlert error={confirmError} records={action?.records ?? null} />
       ) : null}
 
       <div className="mt-3 flex items-center justify-between gap-2">
@@ -276,29 +283,38 @@ export function MutationPreviewCard(props: MutationPreviewCardProps) {
         ) : (
           <span aria-hidden />
         )}
-        <div className="flex items-center gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              void handleCancel()
-            }}
-            data-ai-mutation-preview-cancel
-          >
-            {t('ai_assistant.chat.mutation_cards.preview.cancel', 'Cancel')}
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            onClick={() => {
-              void handleConfirm()
-            }}
-            data-ai-mutation-preview-confirm
-          >
-            {t('ai_assistant.chat.mutation_cards.preview.confirm', 'Confirm')}
-          </Button>
-        </div>
+        {unavailable ? (
+          <p className="text-sm text-muted-foreground" data-ai-mutation-preview-unavailable>
+            {t(
+              'ai_assistant.chat.mutation_cards.preview.unavailable',
+              'This proposal is not available. It may have been resolved or removed, or it was requested by someone else.',
+            )}
+          </p>
+        ) : (
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                void handleCancel()
+              }}
+              data-ai-mutation-preview-cancel
+            >
+              {t('ai_assistant.chat.mutation_cards.preview.cancel', 'Cancel')}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => {
+                void handleConfirm()
+              }}
+              data-ai-mutation-preview-confirm
+            >
+              {t('ai_assistant.chat.mutation_cards.preview.confirm', 'Confirm')}
+            </Button>
+          </div>
+        )}
       </div>
     </section>
   )

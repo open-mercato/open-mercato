@@ -47,13 +47,18 @@ jest.mock('../commands/side-effects', () => ({
   bufferLinkMutationSideEffects: jest.fn(async () => undefined),
 }))
 
-jest.mock('../lib/collabMaterializer', () => ({
-  materializeDocumentHtml: jest.fn((html: string) => ({
-    yjsState: Buffer.from(`yjs:${html}`),
-    html,
-    text: html.replace(/<[^>]+>/g, ''),
-  })),
-}))
+jest.mock('../lib/collabMaterializer', () => {
+  const { htmlToPlainText } = jest.requireActual<typeof import('@open-mercato/shared/lib/html/htmlToPlainText')>(
+    '@open-mercato/shared/lib/html/htmlToPlainText',
+  )
+  return {
+    materializeDocumentHtml: jest.fn((html: string) => ({
+      yjsState: Buffer.from(`yjs:${html}`),
+      html,
+      text: htmlToPlainText(html),
+    })),
+  }
+})
 
 const mockReleaseAll = jest.fn(async () => [])
 

@@ -13,6 +13,8 @@ jest.mock('@open-mercato/shared/lib/crud/enricher-runner', () => ({
 }))
 
 jest.mock('@open-mercato/core/modules/messages/lib/routeHelpers', () => ({
+  // Keep the real feature helpers — only the request-context entry points are stubbed.
+  ...jest.requireActual('@open-mercato/core/modules/messages/lib/routeHelpers'),
   resolveMessageContext: (...args: unknown[]) => resolveMessageContextMock(...args),
   hasOrganizationAccess: () => true,
 }))

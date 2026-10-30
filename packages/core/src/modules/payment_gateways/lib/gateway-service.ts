@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { QueryOrder } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -182,6 +183,14 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
       code,
       payload: payload ?? null,
     }, scope)
+  }
+
+  async function stampLastPolledAt(transaction: GatewayTransaction, polledAt: Date): Promise<void> {
+    await em.nativeUpdate(
+      GatewayTransaction,
+      { id: transaction.id, organizationId: transaction.organizationId, tenantId: transaction.tenantId },
+      { lastPolledAt: polledAt },
+    )
   }
 
   async function resolveAdapterAndCredentials(providerKey: string, scope: { organizationId: string; tenantId: string }) {
@@ -685,23 +694,39 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
 
     async getPaymentStatus(transactionId: string, scope: { organizationId: string; tenantId: string }): Promise<GatewayPaymentStatus> {
       const transaction = await findTransactionOrThrow(transactionId, scope)
-      const { adapter, credentials } = await resolveAdapterAndCredentials(
-        transaction.providerKey,
-        { organizationId: transaction.organizationId, tenantId: transaction.tenantId },
-      )
+      let status: GatewayPaymentStatus
+      try {
+        const { adapter, credentials } = await resolveAdapterAndCredentials(
+          transaction.providerKey,
+          { organizationId: transaction.organizationId, tenantId: transaction.tenantId },
+        )
+        status = await adapter.getStatus({
+          sessionId: readProviderSessionId(transaction),
+          credentials,
+        })
+      } catch (error) {
+        try {
+          await stampLastPolledAt(transaction, new Date())
+        } catch (stampError) {
+          logger.warn('Failed to record last poll time after a failed status read', {
+            transactionId: transaction.id,
+            providerKey: transaction.providerKey,
+            err: stampError,
+          })
+        }
+        throw error
+      }
 
-      const status = await adapter.getStatus({
-        sessionId: readProviderSessionId(transaction),
-        credentials,
-      })
-
-      if (status.status !== transaction.unifiedStatus && isValidTransition(transaction.unifiedStatus as UnifiedPaymentStatus, status.status)) {
+      const polledAt = new Date()
+      const shouldApplyStatus = status.status !== transaction.unifiedStatus
+        && isValidTransition(transaction.unifiedStatus as UnifiedPaymentStatus, status.status)
+      if (shouldApplyStatus) {
         const previousStatus = transaction.unifiedStatus
         transaction.unifiedStatus = status.status
         alignCapturedAmountWithStatus(transaction, status.status)
         transaction.gatewayStatus = status.status
         transaction.gatewayMetadata = { ...readGatewayMetadata(transaction.gatewayMetadata), statusResult: status.providerData ?? null }
-        transaction.lastPolledAt = new Date()
+        transaction.lastPolledAt = polledAt
         await em.flush()
         await emitStatusEvent(status.status, {
           transactionId: transaction.id,
@@ -722,6 +747,8 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
             nextStatus: status.status,
           },
         )
+      } else {
+        await stampLastPolledAt(transaction, polledAt)
       }
 
       return status
@@ -846,7 +873,7 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
         GatewayTransaction,
         where,
         {
-          orderBy: { updatedAt: 'asc' },
+          orderBy: { lastPolledAt: QueryOrder.ASC_NULLS_FIRST, createdAt: QueryOrder.ASC },
           limit: scope?.limit ?? 100,
         },
         scope,

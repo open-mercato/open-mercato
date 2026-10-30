@@ -51,6 +51,7 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   }),
 }))
 
+import { CommandInterceptorError } from '@open-mercato/shared/lib/commands/errors'
 import { POST as assignResourceTag } from '../assign/route'
 import { POST as unassignResourceTag } from '../unassign/route'
 
@@ -141,5 +142,30 @@ describe('resources resource tag assignment routes', () => {
         metadata: { lockToken: 'guard-token' },
       }),
     )
+  })
+  it('surfaces the status and body of an interceptor rejection that carries one', async () => {
+    commandBusExecuteMock.mockRejectedValueOnce(
+      new CommandInterceptorError('Tagging blocked by policy', {
+        status: 422,
+        body: { error: 'Tagging blocked by policy', policy: 'tag-freeze' },
+      }),
+    )
+
+    const response = await assignResourceTag(buildTagRequest('/api/resources/resources/tags/assign'))
+
+    expect(response.status).toBe(422)
+    await expect(response.json()).resolves.toEqual({
+      error: 'Tagging blocked by policy',
+      policy: 'tag-freeze',
+    })
+  })
+
+  it('keeps the generic 400 when an interceptor rejection carries no status', async () => {
+    commandBusExecuteMock.mockRejectedValueOnce(new CommandInterceptorError('Blocked without a status'))
+
+    const response = await assignResourceTag(buildTagRequest('/api/resources/resources/tags/assign'))
+
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toEqual({ error: 'Failed to update tags.' })
   })
 })

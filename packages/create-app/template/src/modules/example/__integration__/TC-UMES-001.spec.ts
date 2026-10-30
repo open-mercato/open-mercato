@@ -10,6 +10,12 @@ test.describe('TC-UMES-001: Foundation and Menu Injection', () => {
     await page.waitForLoadState('domcontentloaded')
   })
 
+  test('TC-UMES-H01: renders one page heading with the form title nested beneath it', async ({ page }) => {
+    await expect(page.locator('main h1')).toHaveCount(1)
+    await expect(page.getByRole('heading', { level: 1, name: 'UMES Phase A-D Features Demo' })).toBeVisible()
+    await expect(page.getByRole('heading', { level: 2, name: 'CRUD form event harness' })).toBeVisible()
+  })
+
   test('should render injected sidebar item and navigate to todos page', async ({ page }) => {
     test.slow()
 

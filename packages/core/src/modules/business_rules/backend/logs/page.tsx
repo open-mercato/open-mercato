@@ -240,7 +240,8 @@ export default function ExecutionLogsPage() {
     <Page>
       <PageBody>
         <DataTable
-          title={t('business_rules.logs.list.title')}
+        title={t('business_rules.logs.list.title')}
+        titleHeadingLevel={1}
           columns={columns}
           data={data || []}
           filters={filters}

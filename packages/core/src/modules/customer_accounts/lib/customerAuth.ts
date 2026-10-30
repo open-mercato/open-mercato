@@ -3,6 +3,7 @@ import { verifyAudienceJwt, verifyJwt } from '@open-mercato/shared/lib/auth/jwt'
 import type { CustomerRbacService } from '@open-mercato/core/modules/customer_accounts/services/customerRbacService'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CUSTOMER_JWT_AUDIENCE } from '@open-mercato/core/modules/customer_accounts/services/customerSessionService'
+import { isCustomerTenantActive } from './tenantEligibility'
 
 export interface CustomerAuthContext {
   sub: string
@@ -18,6 +19,17 @@ export interface CustomerAuthContext {
   isPortalAdmin?: boolean
 }
 
+async function resolveSessionService(): Promise<
+  InstanceType<typeof import('@open-mercato/core/modules/customer_accounts/services/customerSessionService').CustomerSessionService>
+> {
+  const [{ createRequestContainer }, { CustomerSessionService }] = await Promise.all([
+    import('@open-mercato/shared/lib/di/container'),
+    import('@open-mercato/core/modules/customer_accounts/services/customerSessionService'),
+  ])
+  const container = await createRequestContainer()
+  return container.resolve('customerSessionService') as InstanceType<typeof CustomerSessionService>
+}
+
 async function assertSessionStillActive(input: {
   sessionId: string
   userId: string
@@ -25,17 +37,32 @@ async function assertSessionStillActive(input: {
   organizationId: string
 }): Promise<boolean> {
   try {
-    const [{ createRequestContainer }, { CustomerSessionService }] = await Promise.all([
-      import('@open-mercato/shared/lib/di/container'),
-      import('@open-mercato/core/modules/customer_accounts/services/customerSessionService'),
-    ])
-    const container = await createRequestContainer()
-    const service = container.resolve('customerSessionService') as InstanceType<typeof CustomerSessionService>
+    const service = await resolveSessionService()
     const session = await service.findActiveSessionForClaims(input)
     return session !== null
   } catch {
     // Fail closed: if we cannot verify the session, treat the token as revoked to prevent
     // replay of leaked JWTs when the backend is partially degraded.
+    return false
+  }
+}
+
+/**
+ * Liveness re-check for a legacy token that carries no `sid` claim. It cannot name the session it
+ * was issued for, so the check falls back to the strongest available statement: the customer must
+ * still be signed in somewhere. Once every session is revoked — logout, per-device revoke, admin
+ * action — the token stops authenticating instead of surviving until its own expiry.
+ */
+async function assertUserStillHasActiveSession(input: {
+  userId: string
+  tenantId: string
+  organizationId: string
+}): Promise<boolean> {
+  try {
+    const service = await resolveSessionService()
+    return await service.hasActiveSessionForUser(input)
+  } catch {
+    // Same fail-closed contract as the sid-bound check above.
     return false
   }
 }
@@ -77,6 +104,7 @@ export async function validateUserState(
   if (user.sessionsRevokedAt && typeof iat === 'number' && iat * 1000 < user.sessionsRevokedAt.getTime()) {
     return { valid: false }
   }
+  if (!(await isCustomerTenantActive(em, tenantId))) return { valid: false }
 
   const { CustomerRbacService } = await import(
     '@open-mercato/core/modules/customer_accounts/services/customerRbacService'
@@ -129,6 +157,9 @@ export async function getCustomerAuthFromRequest(req: Request): Promise<Customer
     const userId = String(payload.sub)
     const tenantId = String(payload.tenantId)
     const organizationId = String(payload.orgId)
+    // Every accepted token is re-checked for liveness, exactly like the SSR path does — a token
+    // without a `sid` is checked against the customer's remaining sessions rather than skipped,
+    // so session revocation is never structurally unreachable on the API path.
     const stillActive = sid
       ? await assertSessionStillActive({
           sessionId: sid,
@@ -136,7 +167,7 @@ export async function getCustomerAuthFromRequest(req: Request): Promise<Customer
           tenantId,
           organizationId,
         })
-      : true
+      : await assertUserStillHasActiveSession({ userId, tenantId, organizationId })
     if (!stillActive) return null
 
     const userState = await validateUserState(

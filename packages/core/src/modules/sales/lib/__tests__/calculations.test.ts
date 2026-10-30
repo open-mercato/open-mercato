@@ -1,9 +1,33 @@
+jest.mock('@open-mercato/shared/lib/logger', () => {
+  const globalStore = globalThis as typeof globalThis & { __omTestLoggerMock?: Record<string, jest.Mock> }
+  if (!globalStore.__omTestLoggerMock) {
+    const mocked: Record<string, jest.Mock> = {
+      debug: jest.fn(),
+      info: jest.fn(),
+      warn: jest.fn(),
+      error: jest.fn(),
+      child: jest.fn(),
+    }
+    mocked.child.mockImplementation(() => mocked)
+    globalStore.__omTestLoggerMock = mocked
+  }
+  const mocked = globalStore.__omTestLoggerMock
+  return { createLogger: jest.fn(() => mocked) }
+})
+
+const mockLogger = jest.requireMock('@open-mercato/shared/lib/logger').createLogger('test') as {
+  warn: jest.Mock
+}
+
 import {
   calculateDocumentTotals,
+  calculateLine,
   rebuildDocumentResult,
   registerSalesTotalsCalculator,
 } from '../calculations'
+import { mapOrderLineEntityToSnapshot } from '../lineSnapshots'
 import type { SalesAdjustmentDraft, SalesLineSnapshot } from '../types'
+import type { SalesOrderLine } from '../../data/entities'
 
 const baseContext = {
   tenantId: 'tenant-1',
@@ -574,6 +598,160 @@ describe('calculateDocumentTotals', () => {
     } finally {
       unregister()
     }
+  })
+})
+
+describe('buildBaseLineResult net amount reconciliation (issue #5644)', () => {
+  afterEach(() => {
+    mockLogger.warn.mockClear()
+  })
+
+  const callerLine = (overrides: Partial<SalesLineSnapshot> = {}): SalesLineSnapshot => ({
+    kind: 'product',
+    quantity: 2,
+    currencyCode: 'USD',
+    unitPriceNet: 100,
+    ...overrides,
+  })
+
+  it('keeps the computed net amount and warns when a supplied totalNetAmount diverges', async () => {
+    const result = await calculateLine({
+      documentKind: 'order',
+      line: callerLine({ id: 'line-42', productId: 'product-7', totalNetAmount: 150 }),
+      context: baseContext,
+    })
+
+    expect(result.netAmount).toBeCloseTo(200, 4)
+    expect(mockLogger.warn).toHaveBeenCalledTimes(1)
+    expect(mockLogger.warn).toHaveBeenCalledWith(
+      'Sales line totalNetAmount does not match the computed net amount; the computed value is used',
+      // The two ids are the whole operational value of the log line — which
+      // line is wrong — so they are pinned, not just the amounts.
+      {
+        lineId: 'line-42',
+        productId: 'product-7',
+        suppliedTotalNetAmount: 150,
+        computedNetAmount: 200,
+      },
+    )
+  })
+
+  it('does not warn when the supplied totalNetAmount matches the computed net amount', async () => {
+    const result = await calculateLine({
+      documentKind: 'order',
+      line: callerLine({ totalNetAmount: 200 }),
+      context: baseContext,
+    })
+
+    expect(result.netAmount).toBeCloseTo(200, 4)
+    expect(mockLogger.warn).not.toHaveBeenCalled()
+  })
+
+  it('does not warn when totalNetAmount is not supplied', async () => {
+    await calculateLine({
+      documentKind: 'order',
+      line: callerLine(),
+      context: baseContext,
+    })
+
+    expect(mockLogger.warn).not.toHaveBeenCalled()
+  })
+
+  it('tolerates a caller rounding money to two decimals against a four-decimal net', async () => {
+    // 3 x 33.3285 = 99.9855, which a caller posting money reports as 99.99.
+    // That is rounding, not a discrepancy, and must not read as one.
+    await calculateLine({
+      documentKind: 'order',
+      line: callerLine({ quantity: 3, unitPriceNet: 33.3285, totalNetAmount: 99.99 }),
+      context: baseContext,
+    })
+
+    expect(mockLogger.warn).not.toHaveBeenCalled()
+  })
+
+  it('still warns for a divergence just outside the rounding tolerance', async () => {
+    await calculateLine({
+      documentKind: 'order',
+      line: callerLine({ quantity: 1, unitPriceNet: 100, totalNetAmount: 100.006 }),
+      context: baseContext,
+    })
+
+    expect(mockLogger.warn).toHaveBeenCalledTimes(1)
+  })
+
+  it('warns rather than silently swallowing a non-finite supplied value', async () => {
+    // The prior fallback-to-computed reading made this compare equal and log
+    // nothing — the exact silent discard #5644 is about.
+    const result = await calculateLine({
+      documentKind: 'order',
+      line: callerLine({ id: 'line-9', totalNetAmount: Number.NaN }),
+      context: baseContext,
+    })
+
+    expect(result.netAmount).toBeCloseTo(200, 4)
+    expect(mockLogger.warn).toHaveBeenCalledTimes(1)
+    expect(mockLogger.warn).toHaveBeenCalledWith(
+      'Sales line totalNetAmount is not a finite number; the computed value is used',
+      expect.objectContaining({ lineId: 'line-9', computedNetAmount: 200 }),
+    )
+  })
+
+  it('stays silent for a rehydrated line whose stored net the discount contract is healing', async () => {
+    // #5640 lets a row whose discount the old engine dropped heal on the next
+    // recalculation, so the stored net is *supposed* to diverge here. Warning
+    // would fire per line, per recalculation, forever.
+    const snapshot = mapOrderLineEntityToSnapshot({
+      id: 'line-legacy',
+      lineNumber: 1,
+      kind: 'product',
+      productId: null,
+      productVariantId: null,
+      name: 'Widget',
+      description: null,
+      comment: null,
+      quantity: '3',
+      quantityUnit: null,
+      normalizedQuantity: null,
+      normalizedUnit: null,
+      uomSnapshot: null,
+      currencyCode: 'USD',
+      unitPriceNet: '85',
+      unitPriceGross: '85',
+      discountAmount: '0',
+      discountPercent: '5',
+      taxRate: '0',
+      taxAmount: null,
+      totalNetAmount: '255',
+      totalGrossAmount: '255',
+      configuration: null,
+      promotionCode: null,
+      metadata: null,
+      customFieldSetId: null,
+    } as unknown as SalesOrderLine)
+
+    const result = await calculateLine({
+      documentKind: 'order',
+      line: snapshot,
+      context: baseContext,
+    })
+
+    expect(result.netAmount).toBeCloseTo(242.25, 4)
+    expect(mockLogger.warn).not.toHaveBeenCalled()
+  })
+
+  it('stays silent for the NOT NULL DEFAULT zero a persisted row carries', async () => {
+    const snapshot: SalesLineSnapshot = {
+      kind: 'product',
+      quantity: 2,
+      currencyCode: 'USD',
+      unitPriceNet: 100,
+      totalNetAmount: 0,
+      totalsFromStoredRow: true,
+    }
+
+    await calculateLine({ documentKind: 'order', line: snapshot, context: baseContext })
+
+    expect(mockLogger.warn).not.toHaveBeenCalled()
   })
 })
 

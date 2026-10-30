@@ -1,10 +1,14 @@
-import type { EntityManager } from '@mikro-orm/postgresql'
-import { resolveNotificationService } from '../../notifications/lib/notificationService'
-import { buildNotificationFromType } from '../../notifications/lib/notificationBuilder'
 import { notificationTypes } from '../notifications'
-import { createLogger } from '@open-mercato/shared/lib/logger'
-
-const logger = createLogger('workflows')
+import {
+  notifyTaskLifecycleEvent,
+  type TaskLifecycleNotificationPayload,
+  type TaskNotificationResolverContext,
+} from '../lib/task-notifications'
+import {
+  buildTaskQuickActions,
+  resolveTaskPrimaryActionId,
+  type TaskQuickActionInput,
+} from '../lib/task-quick-action'
 
 export const metadata = {
   event: 'workflows.task.assigned',
@@ -12,45 +16,32 @@ export const metadata = {
   id: 'workflows:task-assigned-notification',
 }
 
-type TaskAssignedPayload = {
-  taskId: string
-  taskName: string
-  workflowName: string
-  assignedUserId: string
-  dueDate?: string | null
-  tenantId: string
-  organizationId?: string | null
+type TaskAssignedPayload = TaskLifecycleNotificationPayload & {
+  /**
+   * Present only when the emitter knows the task's decision/form shape. Absent
+   * means unknown, and the notification falls back to the deep link — a quick
+   * action is never offered on a guess.
+   */
+  quickAction?: TaskQuickActionInput | null
 }
 
-type ResolverContext = {
-  resolve: <T = unknown>(name: string) => T
-}
+export default async function handle(
+  payload: TaskAssignedPayload,
+  ctx: TaskNotificationResolverContext
+) {
+  const quickAction = payload?.quickAction ?? null
 
-export default async function handle(payload: TaskAssignedPayload, ctx: ResolverContext) {
-  if (!payload.assignedUserId) return
-
-  try {
-    const notificationService = resolveNotificationService(ctx)
-    const typeDef = notificationTypes.find((type) => type.type === 'workflows.task.assigned')
-    if (!typeDef) return
-
-    const notificationInput = buildNotificationFromType(typeDef, {
-      recipientUserId: payload.assignedUserId,
-      bodyVariables: {
-        taskName: payload.taskName,
-        workflowName: payload.workflowName,
-        dueDate: payload.dueDate ?? '',
-      },
-      sourceEntityType: 'workflows:user_task',
-      sourceEntityId: payload.taskId,
-      linkHref: `/backend/workflows/tasks/${payload.taskId}`,
-    })
-
-    await notificationService.create(notificationInput, {
-      tenantId: payload.tenantId,
-      organizationId: payload.organizationId ?? null,
-    })
-  } catch (err) {
-    logger.error('Failed to create notification', { component: 'task-assigned-notification', err })
-  }
+  await notifyTaskLifecycleEvent({
+    ctx,
+    notificationTypes,
+    notificationType: 'workflows.task.assigned',
+    payload,
+    ...(quickAction
+      ? {
+          actions: buildTaskQuickActions(quickAction),
+          primaryActionId: resolveTaskPrimaryActionId(quickAction),
+        }
+      : {}),
+    component: 'task-assigned-notification',
+  })
 }

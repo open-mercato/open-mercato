@@ -11,7 +11,7 @@ const createIcon = React.createElement(
 
 export const metadata = {
   requireAuth: true,
-  requireFeatures: ['workflows.create'],
+  requireFeatures: ['workflows.definitions.create'],
   pageTitle: 'Create Workflow Definition',
   pageTitleKey: 'workflows.create.title',
   pageGroup: 'Workflows',

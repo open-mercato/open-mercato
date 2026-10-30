@@ -14,11 +14,77 @@ import { forEachBatch } from './batch-stream'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import {
   captureTelemetryTrace,
+  getTelemetryRuntime,
   type TelemetrySpanAttributes,
 } from '@open-mercato/shared/lib/telemetry/runtime'
+import { groupableCode } from '@open-mercato/shared/lib/telemetry/error-code'
 import type { SyncRun } from '../data/entities'
 
 const logger = createLogger('data_sync').child({ component: 'sync-engine' })
+
+/**
+ * A run that finished with failed items. Raised so a partial success is one
+ * reported error with a count, at the granularity an operator acts on — a
+ * different fact from any single item's failure, which the per-item error rows
+ * report on their own.
+ */
+export class SyncRunPartialFailureError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'SyncRunPartialFailureError'
+  }
+}
+
+/**
+ * The fingerprint for a run that ended in a fault.
+ *
+ * One code for now. PR #5450's `classifySyncError` splits faults into transient
+ * and terminal; when it lands, this is the single place that becomes
+ * `data_sync.run_transient` / `data_sync.run_terminal`.
+ */
+const RUN_FAILED_CODE = 'data_sync.run_failed'
+
+/** Run identity for a reported error, mirroring `runSpanAttributes` minus the provider key. */
+function runEventAttributes(run: SyncRun, scope: SyncScope): TelemetrySpanAttributes {
+  return {
+    'data_sync.run_id': run.id,
+    'data_sync.integration_id': run.integrationId,
+    'data_sync.entity_type': run.entityType,
+    'data_sync.direction': run.direction,
+    'om.tenant_id': scope.tenantId,
+    'om.organization_id': scope.organizationId,
+  }
+}
+
+/**
+ * The failure fingerprint for a dead-lettered item.
+ *
+ * An adapter that classifies its own failures sets `errorCode` on the item's data
+ * (a stable `module.reason` token, never an interpolated string); anything that is
+ * not that shape falls back rather than being trusted, and the fallback is a real
+ * code rather than `unknown`, so grouping works even for an adapter that supplies
+ * nothing.
+ */
+function itemErrorCode(data: Record<string, unknown>, fallback: string): string {
+  return groupableCode(data.errorCode, fallback)
+}
+
+/**
+ * Report a `data_sync` failure that is otherwise only recorded (a dropped
+ * promise, a run's own summary). Wrapped: observability may never decide the fate
+ * of a batch that is already committed.
+ */
+function reportSyncError(
+  error: unknown,
+  code: string,
+  attributes: TelemetrySpanAttributes,
+): void {
+  try {
+    getTelemetryRuntime()?.reportError(error, { module: 'data_sync', code, attributes })
+  } catch (telemetryError) {
+    logger.warn('Failed to report a data sync error to telemetry', { code, err: telemetryError as Error })
+  }
+}
 
 type RunParameters = Record<string, RunParameterValue>
 
@@ -100,9 +166,6 @@ function applyExportCounters(batch: ExportBatch): SyncCounterDelta {
 // the per-interval round-trips for the whole life of a run.
 const HEARTBEAT_TICK_MS = (STALE_JOB_TIMEOUT_SECONDS * 1000) / 4
 
-// Runs `tick` on an interval only while the source iterator is pending, so heartbeats
-// stop the moment the producer dies and genuinely stale jobs still get swept. The outer
-// finally closes the adapter generator on early exits (cancellation, ownership conflict).
 // Our own abort, as opposed to a failure that merely coincided with one. Adapters are told to
 // return rather than throw, but `signal.throwIfAborted()` and an aborted `fetch` both surface as
 // this, and either is a cancellation rather than a fault.
@@ -116,21 +179,33 @@ function isAbortError(error: unknown): boolean {
   return typeof error === 'object' && error !== null && (error as { name?: unknown }).name === 'AbortError'
 }
 
+// The interval is armed once and spans the whole iteration, the `yield` included, rather than being
+// restarted around each `next()`. Producing a batch is not the only thing that can outlast the stale
+// sweep: the consumer body between `yield` and the next `next()` commits batch progress, refreshes
+// coverage snapshots, logs item failures and writes the operational log, and a coverage refresh over
+// a large query index is slow enough that a per-read timer left that window unheartbeated (#5370).
+// The generator body does not start until the first `next()`, so a stream nobody consumes still arms
+// nothing. Every way out of `forEachBatch` — drain, early close, a throwing read, a throwing consumer —
+// either completes this generator or calls `return()` on it, so the `finally` below always clears the
+// timer. That last part is a property of the consumer rather than of this helper: a consumer that
+// abandoned the generator mid-`yield` without closing it would leak the interval, which the old
+// per-read arming could not do. Any new consumer must honour `IteratorClose`.
+//
+// Every callback on this timer MUST use a forked EntityManager. The window now covers the consumer
+// body, where `commitBatchProgress` holds the shared EM inside `em.begin()`/`em.commit()`, so a tick
+// that read on the shared EM would issue a query into that open transaction and interleave with its
+// UnitOfWork — the shape `packages/core/AGENTS.md` bans and `withAtomicFlush` cannot guard against.
 async function* withHeartbeat<T>(source: AsyncIterable<T>, tick: () => void, intervalMs: number): AsyncGenerator<T, void, undefined> {
   const iterator = source[Symbol.asyncIterator]()
+  const timer = setInterval(tick, intervalMs)
   try {
     while (true) {
-      const timer = setInterval(tick, intervalMs)
-      let result: IteratorResult<T>
-      try {
-        result = await iterator.next()
-      } finally {
-        clearInterval(timer)
-      }
+      const result = await iterator.next()
       if (result.done) return
       yield result.value
     }
   } finally {
+    clearInterval(timer)
     await iterator.return?.()
   }
 }
@@ -205,8 +280,10 @@ export function createSyncEngine(deps: EngineDeps) {
 
   // Rides the heartbeat timer, which is the only thing that runs while the adapter is still
   // producing a batch — the engine's own cancellation check sits in the batch handler and is
-  // reached only after a yield. Swallows its own errors because it runs on a timer, where an
-  // unhandled rejection is fatal, and stops polling once it has aborted.
+  // reached only after a yield. Since that timer now spans the consumer body too, a cancel is
+  // also observed during the per-batch bookkeeping rather than waiting out the next read.
+  // Swallows its own errors because it runs on a timer, where an unhandled rejection is fatal,
+  // and stops polling once it has aborted.
   function makeCancellationTick(progressJobId: string | null | undefined, scope: SyncScope, controller: AbortController): () => void {
     if (!progressJobId) return () => {}
     let inFlight = false
@@ -232,14 +309,29 @@ export function createSyncEngine(deps: EngineDeps) {
   async function refreshCoverageSnapshots(entityTypes: string[] | undefined, scope: SyncScope): Promise<void> {
     if (!entityTypes || entityTypes.length === 0) return
 
-    await Promise.allSettled(
-      Array.from(new Set(entityTypes.filter((value) => typeof value === 'string' && value.trim().length > 0)))
-        .map((entityType) => refreshCoverageSnapshot(deps.em, {
-          entityType,
-          tenantId: scope.tenantId,
-          organizationId: scope.organizationId,
-        })),
+    const types = Array.from(
+      new Set(entityTypes.filter((value) => typeof value === 'string' && value.trim().length > 0)),
     )
+    const outcomes = await Promise.allSettled(
+      types.map((entityType) => refreshCoverageSnapshot(deps.em, {
+        entityType,
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+      })),
+    )
+    // `allSettled` keeps a failed refresh from failing a committed batch, which is
+    // right — but on its own it also discards the reason entirely, leaving no row,
+    // no log and no signal. Reporting is the whole difference between degrading and
+    // going silent.
+    outcomes.forEach((outcome, index) => {
+      if (outcome.status !== 'rejected') return
+      logger.warn('Coverage snapshot refresh failed', { entityType: types[index], err: outcome.reason as Error })
+      reportSyncError(outcome.reason, 'data_sync.coverage_refresh_failed', {
+        entityType: types[index],
+        'om.tenant_id': scope.tenantId,
+        'om.organization_id': scope.organizationId,
+      })
+    })
   }
 
   async function logImportItemFailures(
@@ -272,6 +364,7 @@ export function createSyncEngine(deps: EngineDeps) {
           runId,
           level: 'error',
           message,
+          code: itemErrorCode(item.data, 'data_sync.item_failed'),
           payload: item.data,
         },
         scope,
@@ -297,6 +390,7 @@ export function createSyncEngine(deps: EngineDeps) {
           runId,
           level: 'error',
           message,
+          code: 'data_sync.export_item_failed',
           payload: { kind: 'export-item-failure', summary: result.error },
         },
         scope,
@@ -304,6 +398,13 @@ export function createSyncEngine(deps: EngineDeps) {
     }
   }
 
+  /**
+   * The adapter-gated operational log. Deliberately carries no `code`: these rows
+   * are run status records, and every fault they narrate was already written — and
+   * therefore already reported — by a direct `level: 'error'` write that owns the
+   * fingerprint. A code here would double-report every fault for adapters that
+   * have `operationalTelemetry` on.
+   */
   async function writeOperationalLog(params: {
     integrationId: string
     runId: string
@@ -486,6 +587,25 @@ export function createSyncEngine(deps: EngineDeps) {
     }
 
     if (status === 'completed') {
+      // A run that finished with failures is a partial success, and the operator
+      // finds out here or not at all: the per-item rows carry the reasons but no
+      // count, and this is the only place that knows the run is over. Reported
+      // outside `writeOperationalLog` on purpose — that path is gated on an adapter
+      // opt-in, and an adapter flag may decide how chatty the operational log is,
+      // never whether a failure is observable.
+      if (run.failedCount > 0) {
+        reportSyncError(
+          new SyncRunPartialFailureError(`Sync run completed with ${run.failedCount} failed item(s)`),
+          'data_sync.run_partial_failure',
+          {
+            ...runEventAttributes(run, scope),
+            'data_sync.failed_count': run.failedCount,
+            'data_sync.created_count': run.createdCount,
+            'data_sync.updated_count': run.updatedCount,
+            'data_sync.skipped_count': run.skippedCount,
+          },
+        )
+      }
       await emitDataSyncEvent('data_sync.run.completed', {
         runId,
         integrationId: run.integrationId,
@@ -493,6 +613,10 @@ export function createSyncEngine(deps: EngineDeps) {
         direction: run.direction,
         tenantId: scope.tenantId,
         organizationId: scope.organizationId,
+        createdCount: run.createdCount,
+        updatedCount: run.updatedCount,
+        skippedCount: run.skippedCount,
+        failedCount: run.failedCount,
       })
       return
     }
@@ -726,6 +850,7 @@ export function createSyncEngine(deps: EngineDeps) {
             runId: run.id,
             level: 'error',
             message,
+            code: RUN_FAILED_CODE,
           },
           scope,
         )
@@ -948,6 +1073,7 @@ export function createSyncEngine(deps: EngineDeps) {
             runId: run.id,
             level: 'error',
             message,
+            code: RUN_FAILED_CODE,
           },
           scope,
         )

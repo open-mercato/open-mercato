@@ -27,6 +27,43 @@ export class TenantDataEncryptionError extends Error {
   }
 }
 
+const BASE64_PART = /^[A-Za-z0-9+/]+={0,2}$/
+
+/**
+ * Keyless structural check for the `base64(iv):base64(ciphertext):base64(tag):v1` envelope
+ * {@link encryptWithAesGcm} emits.
+ *
+ * Answers "is this column holding ciphertext?" without a DEK, which is the only question
+ * available once encryption has been switched off — the KMS is a noop by then, so
+ * {@link decryptWithAesGcm} cannot distinguish ciphertext from plaintext. A 12-byte IV and a
+ * 16-byte tag encode to exactly 16 and 24 base64 characters, so the shape is specific enough
+ * that plaintext colliding with it by accident is not a practical concern.
+ *
+ * Deliberate collision is, though: writing `<16 b64>:<b64>:<24 b64>:v1` is trivial, and
+ * `TenantDataEncryptionService` dropped a structural check of exactly this shape for that
+ * reason (#2720). So this is only safe on values the SERVER wrote — never as a test applied to
+ * attacker-supplied input while a DEK is reachable, where `isEncryptedWithDek` is the test to use.
+ * Callers that must run it over user-controlled data are responsible for confirming first that no
+ * DEK is reachable, which is what makes forgery pointless: there is nothing to impersonate.
+ *
+ * See also {@link isEncryptedPayloadShape}, which answers the stricter "would the decrypt path
+ * accept this?" question by decoded byte length instead of encoded character length. The two
+ * agree on anything the server actually wrote; use this one for offline detection with no DEK
+ * reachable, and that one to predict whether a decrypt attempt will succeed.
+ */
+export function looksLikeEncryptedPayload(value: unknown): boolean {
+  if (typeof value !== 'string') return false
+  const parts = value.split(':')
+  if (parts.length !== 4 || parts[3] !== 'v1') return false
+  const [iv, ciphertext, tag] = parts as [string, string, string, string]
+  return iv.length === 16
+    && tag.length === 24
+    && ciphertext.length > 0
+    && BASE64_PART.test(iv)
+    && BASE64_PART.test(ciphertext)
+    && BASE64_PART.test(tag)
+}
+
 export function generateDek(): string {
   return crypto.randomBytes(32).toString('base64')
 }
@@ -54,6 +91,44 @@ export function encryptWithAesGcm(value: string, dekBase64: string): EncryptionP
   ].join(':')
   logDebug('encrypt', { length: ciphertext.length })
   return { value: payload, raw: payload, version: 'v1' }
+}
+
+const AES_GCM_IV_BYTES = 12
+const AES_GCM_TAG_BYTES = 16
+
+/**
+ * Reports whether a value is a **structurally** well-formed `<iv>:<ct>:<tag>:v1` envelope —
+ * the same shape validation {@link decryptWithAesGcmStrict} performs before it attempts a
+ * decrypt, without needing a key.
+ *
+ * This is deliberately NOT an "is this encrypted" oracle: the shape is forgeable, so a caller
+ * deciding whether a value is already sealed MUST still bind that decision to a successful
+ * authenticated decrypt (issue #2720). Its purpose is to separate "ciphertext we cannot open
+ * with the key we hold" from "plaintext that happens to contain colons", so a write path can
+ * fail loudly on the former instead of silently wrapping it a second time (issue #5951).
+ *
+ * The byte-length checks matter: `Buffer.from(value, 'base64')` is lenient, so a loose
+ * four-segment check matches strings like `aaaa:bbbb:cccc:v1` that no AES-GCM payload could be.
+ *
+ * See also {@link looksLikeEncryptedPayload}, the pre-existing looser check by encoded character
+ * length. Use that one when no DEK is reachable at all (it needs none); use this one whenever the
+ * question is "will the encrypt/decrypt path accept this?", since it matches the same byte-length
+ * validation {@link decryptWithAesGcmStrict} performs.
+ */
+export function isEncryptedPayloadShape(value: unknown): value is string {
+  if (typeof value !== 'string') return false
+  const parts = value.split(':')
+  if (parts.length !== 4 || parts[3] !== 'v1') return false
+  const [ivB64, ciphertextB64, tagB64] = parts as [string, string, string, string]
+  try {
+    return (
+      Buffer.from(ivB64, 'base64').length === AES_GCM_IV_BYTES
+      && Buffer.from(tagB64, 'base64').length === AES_GCM_TAG_BYTES
+      && Buffer.from(ciphertextB64, 'base64').length > 0
+    )
+  } catch {
+    return false
+  }
 }
 
 function runAesGcmDecrypt(dek: Buffer, iv: Buffer, ciphertext: Buffer, tag: Buffer): string {

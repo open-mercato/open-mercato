@@ -1,4 +1,6 @@
-jest.mock('@/bootstrap', () => ({
+// The route imports `@/bootstrap-api` and calls `bootstrap()` at module scope,
+// so that exact module has to be mocked or importing the route boots the app.
+jest.mock('@/bootstrap-api', () => ({
   bootstrap: jest.fn(),
 }))
 

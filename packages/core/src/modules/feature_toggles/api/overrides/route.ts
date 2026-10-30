@@ -25,6 +25,7 @@ import {
 } from '../openapi'
 import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@open-mercato/shared/lib/openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 
 const logger = createLogger('feature_toggles').child({ component: 'overrides' })
 
@@ -185,6 +186,10 @@ export async function PUT(req: Request) {
   } catch (error) {
     if (isCrudHttpError(error)) {
       return NextResponse.json(error.body, { status: error.status })
+    }
+    const interceptorRejection = getCommandInterceptorHttpRejection(error)
+    if (interceptorRejection) {
+      return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
     }
     const message = error instanceof Error ? error.message : 'Unknown error'
     if (message === 'NOT_FOUND') return NextResponse.json({ error: 'Not found' }, { status: 404 })

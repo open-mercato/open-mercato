@@ -10,6 +10,7 @@ import {
   resolveActiveOrganizationId,
 } from '@open-mercato/shared/lib/auth/organizationScope'
 import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 import {
   runRouteMutationGuards,
   type RouteMutationGuardPassed,
@@ -526,6 +527,10 @@ export async function handleDocumentsRouteError(error: unknown, label: string): 
       : { error: 'api.errors.internal' }
     return NextResponse.json(await localizeRouteErrorBody(body), { status: error.status })
   }
+  const interceptorRejection = getCommandInterceptorHttpRejection(error)
+  if (interceptorRejection) {
+    return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
+  }
   if (error instanceof z.ZodError) {
     return NextResponse.json(
       await localizeRouteErrorBody({ error: 'api.errors.invalidPayload', details: error.issues }),
@@ -548,6 +553,23 @@ export async function loadScopedDocument(ctx: DocumentsRouteContext, id: string)
   }, undefined, { tenantId: ctx.tenantId, organizationId: ctx.organizationId })
   if (!document) throw new CrudHttpError(404, { error: 'documents.documents.notFound' })
   return document
+}
+
+/**
+ * Only the owner (or a documents manager) may learn that a document was
+ * removed, e.g. after undoing its creation; everyone else keeps the
+ * existence-hiding 403 so deleted ids stay indistinguishable from foreign ones.
+ */
+export async function isRemovedDocumentVisibleToActor(ctx: DocumentsRouteContext, id: string): Promise<boolean> {
+  const document = await findOneWithDecryption(ctx.em, Document, {
+    id,
+    tenantId: ctx.tenantId,
+    organizationId: ctx.organizationId,
+    deletedAt: { $ne: null },
+  }, { fields: ['id', 'ownerUserId'] }, { tenantId: ctx.tenantId, organizationId: ctx.organizationId })
+  if (!document) return false
+  if (hasDocumentsFeature(ctx.auth, 'documents.manage')) return true
+  return document.ownerUserId === resolveActorUserId(ctx.auth)
 }
 
 export async function loadScopedShare(

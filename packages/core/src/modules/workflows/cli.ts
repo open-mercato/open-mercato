@@ -149,7 +149,7 @@ const seedSalesPipeline: ModuleCli = {
         workflowId: pipelineData.workflowId,
         tenantId,
         organizationId,
-      })
+      }, { orderBy: { version: 'DESC' } })
 
       if (existing) {
         console.log(`ℹ️  Sales pipeline workflow '${pipelineData.workflowId}' already exists (ID: ${existing.id})`)

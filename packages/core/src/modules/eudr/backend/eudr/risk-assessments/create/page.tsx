@@ -195,6 +195,7 @@ export default function CreateEudrRiskAssessmentPage() {
       <PageBody>
         <CrudForm<RiskAssessmentFormValues>
           title={translate('eudr.riskAssessments.create.title')}
+          titleHeadingLevel={1}
           backHref="/backend/eudr/risk-assessments"
           cancelHref="/backend/eudr/risk-assessments"
           submitLabel={translate('eudr.riskAssessments.form.submitCreate')}

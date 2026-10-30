@@ -74,7 +74,13 @@ jest.mock('@open-mercato/shared/lib/commands/helpers', () => ({
   flushCrudSideEffects: jest.fn((...args: unknown[]) => mockFlushCrudSideEffects(...args)),
 }))
 
+jest.mock('../../../../../lib/time-tracking/access', () => ({
+  ...jest.requireActual('../../../../../lib/time-tracking/access'),
+  resolveProjectAccess: jest.fn(async () => ({ canManageAll: true, projectIds: [], staffMemberId: null })),
+}))
+
 jest.mock('../../../../guards', () => ({
+  ...jest.requireActual('../../../../guards'),
   resolveUserFeatures: jest.fn(() => ['staff.timesheets.manage_own']),
   runStaffMutationGuards: jest.fn((...args: unknown[]) => mockRunStaffMutationGuards(...args)),
   runStaffMutationGuardAfterSuccess: jest.fn((...args: unknown[]) =>
@@ -139,11 +145,11 @@ describe('POST /api/staff/timesheets/time-entries/bulk cache invalidation (#4970
 
     const flushedTags = deleteByTags.mock.calls[0][0] as string[]
     expect(flushedTags).toContain(
-      `crud:staff.timesheet:tenant:${tenantId}:org:${organizationId}:collection`,
+      `crud:staff.timesheets.time.entry:tenant:${tenantId}:org:${organizationId}:collection`,
     )
-    expect(flushedTags).toContain(`crud:staff.timesheet:tenant:${tenantId}:org:null:collection`)
+    expect(flushedTags).toContain(`crud:staff.timesheets.time.entry:tenant:${tenantId}:org:null:collection`)
     expect(flushedTags).toContain(
-      `crud:staff.timesheet:tenant:${tenantId}:record:${createdEntryId}`,
+      `crud:staff.timesheets.time.entry:tenant:${tenantId}:record:${createdEntryId}`,
     )
   })
 
@@ -174,8 +180,8 @@ describe('POST /api/staff/timesheets/time-entries/bulk cache invalidation (#4970
     expect(response.status).toBe(200)
     expect(deleteByTags).toHaveBeenCalledTimes(2)
     const allFlushedTags = deleteByTags.mock.calls.flatMap(([tags]) => tags as string[])
-    expect(allFlushedTags).toContain(`crud:staff.timesheet:tenant:${tenantId}:record:${createdEntryId}`)
-    expect(allFlushedTags).toContain(`crud:staff.timesheet:tenant:${tenantId}:record:${secondEntryId}`)
+    expect(allFlushedTags).toContain(`crud:staff.timesheets.time.entry:tenant:${tenantId}:record:${createdEntryId}`)
+    expect(allFlushedTags).toContain(`crud:staff.timesheets.time.entry:tenant:${tenantId}:record:${secondEntryId}`)
   })
 
   it('does not re-flush the same record twice when a payload repeats it', async () => {

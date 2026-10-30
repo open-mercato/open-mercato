@@ -1,4 +1,4 @@
-import { findEditorConflictItems } from '../conflicts'
+import { findConflicts, findEditorConflictItems, findEditorConflicts } from '../conflicts'
 import { createDefaultFormState, KIND_CONFIG, resolveSavedOwnerUserId } from '../editorPayload'
 import { expandOccurrences } from '../recurrence'
 import { makeCalendarItem, makePayload } from './fixtures'
@@ -28,6 +28,74 @@ function dailySeries(): ReturnType<typeof makeCalendarItem> {
 }
 
 describe('findEditorConflictItems', () => {
+  describe.each(['all', 'mine'] as const)('cross-role editor conflicts in scope %s', (scope) => {
+    it.each([true, false])('matches either editor role (draft owns shared user: %s)', (draftOwnsUser) => {
+      const other = makeCalendarItem({
+        id: 'other',
+        start: at(9, 30),
+        end: at(10, 30),
+        ownerUserId: draftOwnsUser ? 'other-owner' : 'shared-user',
+        participants: draftOwnsUser ? [{ userId: 'shared-user', name: 'Alex' }] : [],
+      })
+      const draft = {
+        start: at(9),
+        end: at(10),
+        ownerUserId: draftOwnsUser ? 'shared-user' : null,
+        participants: draftOwnsUser ? [] : [{ userId: 'shared-user', name: 'Alex' }],
+      }
+      const options = { scope, currentUserId: 'shared-user' }
+      const result = findEditorConflicts(draft, [other], null, options)
+      const gridDraft = makeCalendarItem({ id: 'draft', ...draft })
+
+      expect(result).toEqual([{
+        item: other,
+        shared: [{ kind: 'person', key: 'user:shared-user', label: 'Alex' }],
+      }])
+      expect(findEditorConflictItems(draft, [other], null, options)).toEqual([other])
+      expect(findConflicts([gridDraft, other], options).get('draft')).toEqual(['other'])
+      expect(findEditorConflicts(draft, [other], 'other', options)).toEqual([])
+    })
+  })
+
+  it('reports an actor once across owner and participant roles and preserves a participant label', () => {
+    const other = makeCalendarItem({
+      id: 'other',
+      start: at(9, 30),
+      end: at(10, 30),
+      ownerUserId: 'shared-user',
+      participants: [{ userId: 'shared-user', email: 'alex@example.org' }],
+    })
+    const [conflict] = findEditorConflicts(
+      {
+        start: at(9),
+        end: at(10),
+        ownerUserId: 'shared-user',
+        participants: [{ userId: 'shared-user', name: 'Alex' }, { userId: 'shared-user', name: 'Duplicate' }],
+        ownerLabel: 'Assignee fallback',
+      },
+      [other],
+      null,
+    )
+
+    expect(conflict?.shared).toEqual([{ kind: 'person', key: 'user:shared-user', label: 'Alex' }])
+  })
+
+  it('uses the editor owner label when a cross-role participant has no label', () => {
+    const other = makeCalendarItem({
+      id: 'other',
+      start: at(9, 30),
+      end: at(10, 30),
+      participants: [{ userId: 'shared-user' }],
+    })
+    const [conflict] = findEditorConflicts(
+      { start: at(9), end: at(10), ownerUserId: 'shared-user', participants: [], ownerLabel: 'Alex Assignee' },
+      [other],
+      null,
+    )
+
+    expect(conflict?.shared).toEqual([{ kind: 'person', key: 'user:shared-user', label: 'Alex Assignee' }])
+  })
+
   it('flags an overlapping item that shares the owner', () => {
     const others = [makeCalendarItem({ id: 'a', start: at(9, 30), end: at(10, 30), ownerUserId: 'owner-1' })]
     const result = findEditorConflictItems(
@@ -177,6 +245,85 @@ describe('resolveSavedOwnerUserId', () => {
   it('saves a new non-task ownerless (matches buildInteractionPayload omitting ownerUserId on create)', () => {
     const form = createDefaultFormState()
     expect(resolveSavedOwnerUserId(KIND_CONFIG.meeting, form, false, null)).toBeNull()
+  })
+
+  it('flags an overlapping item that books the same resource even when no person is shared', () => {
+    const room = { id: 'room-1', type: 'resource', label: 'Focus Room 1' }
+    const others = [
+      makeCalendarItem({ id: 'booked', start: at(9, 30), end: at(10, 30), raw: makePayload({ id: 'booked', linkedEntities: [room] }) }),
+      makeCalendarItem({ id: 'other-room', start: at(9, 30), end: at(10, 30), raw: makePayload({ id: 'other-room', linkedEntities: [{ id: 'room-2', type: 'resource', label: 'Focus Room 2' }] }) }),
+      makeCalendarItem({ id: 'deal-link', start: at(9, 30), end: at(10, 30), raw: makePayload({ id: 'deal-link', linkedEntities: [{ id: 'room-1', type: 'deal', label: 'Not a resource' }] }) }),
+    ]
+    const result = findEditorConflicts(
+      { start: at(9), end: at(10), ownerUserId: null, participants: [], resources: [{ id: 'room-1', label: 'Focus Room 1' }] },
+      others,
+      null,
+    )
+    expect(result.map((conflict) => conflict.item.id)).toEqual(['booked'])
+    expect(result[0]!.shared).toEqual([{ kind: 'resource', key: 'resource:room-1', label: 'Focus Room 1' }])
+  })
+
+  it('names every double-booked person and resource of a conflict', () => {
+    const others = [
+      makeCalendarItem({
+        id: 'visit',
+        start: at(9, 30),
+        end: at(10, 30),
+        participants: [{ userId: 'p-1', name: 'Alex Chen' }, { userId: 'p-2', name: 'Someone Else' }],
+        raw: makePayload({ id: 'visit', linkedEntities: [{ id: 'room-1', type: 'resource', label: 'Focus Room 1' }] }),
+      }),
+    ]
+    const [conflict] = findEditorConflicts(
+      {
+        start: at(9),
+        end: at(10),
+        ownerUserId: null,
+        participants: [{ userId: 'p-1', name: 'Alex Chen' }],
+        resources: [{ id: 'room-1', label: 'Focus Room 1' }],
+      },
+      others,
+      null,
+    )
+    expect(conflict!.shared.map((subject) => subject.label)).toEqual(['Alex Chen', 'Focus Room 1'])
+  })
+
+  it('flags a double-booked resource in the "mine" scope even when the current user is in neither event', () => {
+    const room = { id: 'room-1', type: 'resource', label: 'Focus Room 1' }
+    const others = [
+      makeCalendarItem({ id: 'booked', start: at(9, 30), end: at(10, 30), participants: [{ userId: 'p-9', name: 'Pat' }], raw: makePayload({ id: 'booked', linkedEntities: [room] }) }),
+      makeCalendarItem({ id: 'people-only', start: at(9, 30), end: at(10, 30), participants: [{ userId: 'p-1', name: 'Alex' }] }),
+    ]
+    const result = findEditorConflicts(
+      { start: at(9), end: at(10), ownerUserId: null, participants: [{ userId: 'p-1', name: 'Alex' }], resources: [{ id: 'room-1', label: 'Focus Room 1' }] },
+      others,
+      null,
+      { scope: 'mine', currentUserId: 'someone-else' },
+    )
+    expect(result.map((conflict) => conflict.item.id)).toEqual(['booked'])
+  })
+
+  it('names a shared owner who is not a participant when the editor knows the name', () => {
+    const others = [makeCalendarItem({ id: 'task', start: at(9, 30), end: at(10, 30), ownerUserId: 'owner-1' })]
+    const named = findEditorConflicts(
+      { start: at(9), end: at(10), ownerUserId: 'owner-1', participants: [], ownerLabel: 'Sam Assignee' },
+      others,
+      null,
+    )
+    expect(named[0]!.shared).toEqual([{ kind: 'person', key: 'user:owner-1', label: 'Sam Assignee' }])
+    const unnamed = findEditorConflicts({ start: at(9), end: at(10), ownerUserId: 'owner-1', participants: [] }, others, null)
+    expect(unnamed[0]!.shared).toEqual([{ kind: 'person', key: 'user:owner-1', label: '' }])
+  })
+
+  it('rings two grid events that book the same resource', () => {
+    const room = { id: 'room-1', type: 'resource', label: 'Focus Room 1' }
+    const conflicts = findConflicts([
+      makeCalendarItem({ id: 'a', start: at(9), end: at(10), raw: makePayload({ id: 'a', linkedEntities: [room] }) }),
+      makeCalendarItem({ id: 'b', start: at(9, 30), end: at(10, 30), raw: makePayload({ id: 'b', linkedEntities: [room] }) }),
+      makeCalendarItem({ id: 'c', start: at(9, 30), end: at(10, 30), raw: makePayload({ id: 'c' }) }),
+    ])
+    expect(conflicts.get('a')).toEqual(['b'])
+    expect(conflicts.get('b')).toEqual(['a'])
+    expect(conflicts.has('c')).toBe(false)
   })
 
   it('preserves the existing owner when editing a non-task', () => {

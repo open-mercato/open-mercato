@@ -16,6 +16,12 @@ const STATIC_TEST_IGNORES = [
   // otherwise pick those up and run them against the current dev server,
   // which produces thousands of false failures.
   `${normalizePath(path.join(projectRoot, '.ai', 'tmp'))}/**`,
+  // Same hazard, different tool: `.ai/cezar/worktrees/<id>/` holds full source
+  // trees with their own `__integration__/` folders and their own
+  // `node_modules`. A discovered spec path is a testDir-relative glob, so it
+  // matches the copy inside a worktree too — which both duplicates every spec
+  // and loads a SECOND @playwright/test from that tree, aborting the run.
+  `${normalizePath(path.join(projectRoot, '.ai', 'cezar'))}/**`,
   // The create-app template ships specs that mirror apps/mercato/example.
   // They are designed to run against a freshly scaffolded standalone app
   // via `yarn test:create-app:integration`. Running them here against the

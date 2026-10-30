@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
-import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
+import { resolveOrganizationScopeFilter, resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandRuntimeContext, CommandBus } from '@open-mercato/shared/lib/commands'
 import { CustomerPipelineStage, CustomerDictionaryEntry } from '../../data/entities'
@@ -25,6 +25,7 @@ import {
 } from '@open-mercato/shared/lib/crud/mutation-guard'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 
 const logger = createLogger('customers')
 
@@ -49,11 +50,11 @@ async function buildContext(
     container,
     auth,
     organizationScope: scope,
-    selectedOrganizationId: scope?.selectedId ?? auth.orgId ?? null,
+    selectedOrganizationId: resolveSingleOrganizationIdOrDeny(scope, auth) ?? null,
     organizationIds: scope?.filterIds ?? (auth.orgId ? [auth.orgId] : null),
     request: req,
   }
-  const organizationId = scope?.selectedId ?? auth.orgId ?? null
+  const organizationId = resolveSingleOrganizationIdOrDeny(scope, auth) ?? null
   const tenantId = auth.tenantId ?? null
   return { ctx, organizationId, tenantId, translate }
 }
@@ -174,6 +175,10 @@ export async function POST(req: Request) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
+    const interceptorRejection = getCommandInterceptorHttpRejection(err)
+    if (interceptorRejection) {
+      return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
+    }
     logger.error('customers.pipeline-stages POST failed', { err })
     return NextResponse.json({ error: 'Failed to create pipeline stage' }, { status: 400 })
   }
@@ -242,6 +247,10 @@ export async function PUT(req: Request) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
+    const interceptorRejection = getCommandInterceptorHttpRejection(err)
+    if (interceptorRejection) {
+      return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
+    }
     logger.error('customers.pipeline-stages PUT failed', { err })
     return NextResponse.json({ error: 'Failed to update pipeline stage' }, { status: 400 })
   }
@@ -294,6 +303,10 @@ export async function DELETE(req: Request) {
   } catch (err) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
+    }
+    const interceptorRejection = getCommandInterceptorHttpRejection(err)
+    if (interceptorRejection) {
+      return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
     }
     logger.error('customers.pipeline-stages DELETE failed', { err })
     return NextResponse.json({ error: 'Failed to delete pipeline stage' }, { status: 400 })

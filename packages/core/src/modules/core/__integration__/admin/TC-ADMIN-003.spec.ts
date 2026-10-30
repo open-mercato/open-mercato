@@ -15,6 +15,9 @@ test.describe('TC-ADMIN-003: View and Filter Audit Logs', () => {
     await login(page, 'admin');
     await page.goto('/backend/audit-logs');
 
+    await expect(page.getByRole('heading', { name: 'Audit Logs', level: 1 })).toBeVisible();
+    await expect(page.locator('main h1')).toHaveCount(1);
+
     // Verify Action Log tab is selected by default
     const actionLogTab = page.getByRole('tab', { name: 'Action Log' });
     await expect(actionLogTab).toBeVisible();

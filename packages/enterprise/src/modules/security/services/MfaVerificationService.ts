@@ -123,6 +123,8 @@ export class MfaVerificationService {
       id: method.id,
       type: method.type,
       userId: method.userId,
+      tenantId: method.tenantId,
+      organizationId: method.organizationId ?? null,
       secret: method.secret ?? null,
       providerMetadata: method.providerMetadata,
     }, context)
@@ -190,6 +192,8 @@ export class MfaVerificationService {
       id: method.id,
       type: method.type,
       userId: method.userId,
+      tenantId: method.tenantId,
+      organizationId: method.organizationId ?? null,
       secret: method.secret ?? null,
       providerMetadata: method.providerMetadata,
     }, payload, context, runtimeContext)

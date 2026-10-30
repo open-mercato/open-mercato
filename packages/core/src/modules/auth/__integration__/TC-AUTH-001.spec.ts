@@ -9,5 +9,7 @@ test.describe('TC-AUTH-001: Successful User Login', () => {
   test('should login with valid credentials and redirect to dashboard', async ({ page }) => {
     await login(page, 'admin');
     await expect(page).toHaveURL(/\/backend/);
+    await expect(page.getByRole('heading', { name: 'Dashboard', level: 1 })).toBeVisible();
+    await expect(page.locator('main h1')).toHaveCount(1);
   });
 });

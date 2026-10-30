@@ -34,6 +34,10 @@ jest.mock('@open-mercato/ui/backend/Page', () => ({
   PageBody: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }))
 
+jest.mock('../../../../../components/useDataSyncRunAccess', () => ({
+  useDataSyncRunAccess: () => ({ canRunSync: true, canConfigureSync: true }),
+}))
+
 jest.mock('next/navigation', () => ({
   usePathname: () => '/backend/data-sync/runs/run-1',
   useRouter: () => ({ push: jest.fn() }),
@@ -141,6 +145,31 @@ describe('SyncRunDetailPage logs pagination', () => {
 
     await waitFor(() => expect(logsCalls().length).toBeGreaterThan(0))
     expect(logsCalls().every(([url]) => String(url).includes('page=2'))).toBe(true)
+  })
+})
+
+describe('SyncRunDetailPage route id resolution', () => {
+  it('loads the run using the id from the params prop', async () => {
+    mockApiResponses(0)
+    renderWithProviders(<SyncRunDetailPage params={{ id: 'run-1' }} />)
+
+    await waitFor(() =>
+      expect(apiCallMock).toHaveBeenCalledWith(
+        '/api/data_sync/runs/run-1',
+        undefined,
+        { fallback: null },
+      ),
+    )
+  })
+
+  it('shows an error and issues no request when the id is missing', async () => {
+    mockApiResponses(0)
+    renderWithProviders(<SyncRunDetailPage params={{}} />)
+
+    await waitFor(() => {
+      expect(screen.getByText('data_sync.runs.detail.loadError')).toBeInTheDocument()
+    })
+    expect(apiCallMock).not.toHaveBeenCalled()
   })
 })
 

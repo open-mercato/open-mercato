@@ -15,6 +15,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
+import { useAppEventCoalesced } from '@open-mercato/ui/backend/injection/useAppEventCoalesced'
 import { Archive, ChevronDown, FilePenLine, Inbox, Layers, Send } from 'lucide-react'
 import { getMessageUiComponentRegistry } from './utils/typeUiRegistry'
 import { DefaultMessageListItem } from './defaults/DefaultMessageListItem'
@@ -90,8 +91,9 @@ export function MessagesInboxPageClient() {
     void queryClient.invalidateQueries({ queryKey: ['messages', 'list'] })
   }, [queryClient])
 
-  useAppEvent('messages.message.*', invalidateMessageListQueries, [invalidateMessageListQueries])
+  useAppEventCoalesced('messages.message.*', invalidateMessageListQueries, [invalidateMessageListQueries])
 
+  // Reconnect means events were missed while offline, so it refreshes uncoalesced.
   useAppEvent('om:bridge:reconnected', invalidateMessageListQueries, [invalidateMessageListQueries])
 
   const [folder, setFolder] = React.useState<MessageFolder>('inbox')
@@ -359,6 +361,7 @@ export function MessagesInboxPageClient() {
     <div className="space-y-4">
       <DataTable
         title={t('messages.title', 'Messages')}
+        titleHeadingLevel={1}
         // UMES extension surface — opt into widget injection at:
         //   data-table:messages:columns / :row-actions / :bulk-actions / :filters / :toolbar / :search-trailing
         // (SPEC-045d §9.3a — communication_channels hub renders channel badge + delivery status here)

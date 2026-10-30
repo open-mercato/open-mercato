@@ -17,6 +17,8 @@ import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWith
 import { EdgeEditDialog } from '../EdgeEditDialog'
 import { NodeEditDialog } from '../NodeEditDialog'
 
+jest.mock('next/navigation', () => ({ useRouter: () => ({ push: jest.fn() }) }))
+
 // jsdom does not implement the pointer-capture / scrollIntoView APIs Radix uses.
 if (typeof window !== 'undefined') {
   if (!Element.prototype.hasPointerCapture) Element.prototype.hasPointerCapture = () => false

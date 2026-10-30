@@ -188,6 +188,7 @@ export default function CreateOrganizationPage() {
       <PageBody>
         <CrudForm
           title={formTitle}
+          titleHeadingLevel={1}
           backHref="/backend/directory/organizations"
           fields={fields}
           groups={groups}

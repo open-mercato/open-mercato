@@ -21,7 +21,8 @@ import type { KmsService, TenantDek } from '@open-mercato/shared/lib/encryption/
 import crypto from 'node:crypto'
 import { formatPasswordRequirements, getPasswordPolicy, validatePassword } from '@open-mercato/shared/lib/auth/passwordPolicy'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
-import { getCliModules } from '@open-mercato/shared/modules/registry'
+import { getCliModules, type Module } from '@open-mercato/shared/modules/registry'
+import { lockUserRoleWriterAuthorizationState } from './lib/authorizationStateLocks'
 
 async function resolveTenantScopedRole(em: any, name: string, normalizedTenantId: string | null) {
   const existing = await em.findOne(Role, { name, tenantId: normalizedTenantId })
@@ -62,24 +63,37 @@ const addUser: ModuleCli = {
     if (!org) throw new Error('Organization not found')
     const orgTenantId = org.tenant?.id ? String(org.tenant.id) : null
     const normalizedTenantId = normalizeTenantId(orgTenantId ?? null) ?? null
-    const u = em.create(User, {
-      email,
-      emailHash: computeEmailHash(email),
-      passwordHash: await hash(password, 10),
-      isConfirmed: true,
-      organizationId: org.id,
-      tenantId: org.tenant.id,
-    })
-    await em.persist(u).flush()
-    if (rolesCsv) {
-      const names = parseCommaSeparatedList(rolesCsv)
-      for (const name of names) {
-        const role = await resolveTenantScopedRole(em, name, normalizedTenantId)
-        const link = em.create(UserRole, { user: u, role })
-        await em.persist(link).flush()
+    const passwordHash = await hash(password, 10)
+    let createdUserId: string | null = null
+    await em.transactional(async (tem: EntityManager) => {
+      const user = tem.create(User, {
+        email,
+        emailHash: computeEmailHash(email),
+        passwordHash,
+        isConfirmed: true,
+        organizationId: org.id,
+        tenantId: org.tenant.id,
+        createdAt: new Date(),
+      })
+      await tem.persist(user).flush()
+      const roles = rolesCsv
+        ? await Promise.all(
+            parseCommaSeparatedList(rolesCsv).map((name) => resolveTenantScopedRole(tem, name, normalizedTenantId)),
+          )
+        : []
+      if (roles.length) {
+        await lockUserRoleWriterAuthorizationState(tem, {
+          userIds: [String(user.id)],
+          roleIds: roles.map((role) => String(role.id)),
+        })
+        for (const role of roles) {
+          tem.persist(tem.create(UserRole, { user, role, createdAt: new Date() }))
+        }
+        await tem.flush()
       }
-    }
-    console.log('User created with id', u.id)
+      createdUserId = String(user.id)
+    })
+    console.log('User created with id', createdUserId)
   },
 }
 
@@ -784,6 +798,38 @@ const setPassword: ModuleCli = {
   },
 }
 
+const CUSTOMER_ACCOUNTS_MODULE_ID = 'customer_accounts'
+
+/**
+ * The portal half of the same sync.
+ *
+ * Staff roles pick up a module's newly declared features here; customer roles used
+ * to pick theirs up only at tenant bootstrap, so a portal feature that shipped
+ * after a tenant existed never reached that tenant's `Buyer`/`Viewer` roles and the
+ * page stayed invisible to every real customer.
+ *
+ * `customer_accounts` owns those entities and is optional, so the merge only runs
+ * where the deployment enabled it. Whether it did is a question for the module
+ * registry, not for the module loader: every core module ships inside
+ * `@open-mercato/core` whether or not `modules.ts` lists it, so the import always
+ * resolves and an import-failure guard never fires. ORM metadata, by contrast, is
+ * built from the enabled set — which is why guarding the import let a portal-less
+ * deployment reach `em.findOne(CustomerRole)` and die there on `Metadata for
+ * entity CustomerRole not found`, taking `mercato init` down with it.
+ */
+async function syncCustomerRoleAcls(
+  em: EntityManager,
+  tenantId: string,
+  modules: Module[],
+): Promise<{ updatedRoleSlugs: string[]; addedFeatures: string[] } | null> {
+  if (!modules.some((mod) => mod.id === CUSTOMER_ACCOUNTS_MODULE_ID)) return null
+  // Imported lazily so a portal-less deployment never loads the module's entities.
+  const { ensureDefaultCustomerRoleAcls } = await import(
+    '@open-mercato/core/modules/customer_accounts/lib/customerRoleAcls'
+  )
+  return ensureDefaultCustomerRoleAcls(em, tenantId, modules)
+}
+
 const syncRoleAcls: ModuleCli = {
   command: 'sync-role-acls',
   async run(rest) {
@@ -841,7 +887,13 @@ const syncRoleAcls: ModuleCli = {
     for (const tenantId of targetTenantIds) {
       await ensureDefaultRoleAcls(em, tenantId, modules, { includeSuperadminRole })
       await ensureCustomRoleAcls(em, tenantId, modules)
+      const portal = await syncCustomerRoleAcls(em, tenantId, modules)
       console.log(`✅ Synced role ACLs for tenant ${tenantId}`)
+      if (portal && portal.addedFeatures.length) {
+        console.log(
+          `   ↳ portal roles ${portal.updatedRoleSlugs.join(', ')} gained ${portal.addedFeatures.join(', ')}`,
+        )
+      }
     }
   },
 }

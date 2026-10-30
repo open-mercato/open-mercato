@@ -1,4 +1,5 @@
 /** @jest-environment node */
+import { CommandInterceptorError } from '@open-mercato/shared/lib/commands/errors'
 
 const mockGetAuthFromRequest = jest.fn()
 const mockResolveOrganizationScope = jest.fn()
@@ -35,7 +36,6 @@ jest.mock('@open-mercato/shared/lib/api/scoped', () => ({
 }))
 
 jest.mock('../../../guards', () => ({
-  resolveUserFeatures: jest.fn(() => ['staff.leave_requests.manage']),
   runStaffMutationGuards: jest.fn((...args: unknown[]) => mockRunStaffMutationGuards(...args)),
   runStaffMutationGuardAfterSuccess: jest.fn((...args: unknown[]) => mockRunStaffMutationGuardAfterSuccess(...args)),
 }))
@@ -89,7 +89,6 @@ describe('staff leave-requests accept route mutation guard', () => {
         operation: 'update',
         requestMethod: 'POST',
       }),
-      expect.any(Array),
     )
     expect(mockExecute).not.toHaveBeenCalled()
     expect(mockRunStaffMutationGuardAfterSuccess).not.toHaveBeenCalled()
@@ -121,5 +120,31 @@ describe('staff leave-requests accept route mutation guard', () => {
     expect(response.status).toBe(200)
     expect(mockExecute).toHaveBeenCalled()
     expect(mockRunStaffMutationGuardAfterSuccess).not.toHaveBeenCalled()
+  })
+
+  it('surfaces the status and body of an interceptor rejection that carries one', async () => {
+    mockExecute.mockRejectedValueOnce(
+      new CommandInterceptorError('Missing required fields', {
+        status: 422,
+        body: { error: 'Missing required fields', missingFields: ['decisionComment'] },
+      }),
+    )
+
+    const response = await postHandler(buildRequest())
+
+    expect(response.status).toBe(422)
+    await expect(response.json()).resolves.toEqual({
+      error: 'Missing required fields',
+      missingFields: ['decisionComment'],
+    })
+  })
+
+  it('keeps the generic response when an interceptor rejection carries no status', async () => {
+    mockExecute.mockRejectedValueOnce(new CommandInterceptorError('Blocked without a status'))
+
+    const response = await postHandler(buildRequest())
+
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toEqual({ error: 'Failed to approve leave request.' })
   })
 })
