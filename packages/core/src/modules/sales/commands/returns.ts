@@ -13,6 +13,8 @@ import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/
 import { SalesDocumentNumberGenerator } from '../services/salesDocumentNumberGenerator'
 import type { SalesCalculationService } from '../services/salesCalculationService'
 import type { SalesAdjustmentDraft, SalesLineSnapshot, SalesDocumentCalculationResult } from '../lib/types'
+import { isExternalAmountsMode } from '../lib/calculations'
+import { readPersistedHeaderTotals } from '../lib/externalAmounts'
 import { cloneJson, deriveLineNetFromGross, ensureOrganizationScope, ensureSameScope, ensureTenantScope, extractUndoPayload, toNumericString, enforceSalesDocumentOptimisticLock, SALES_RESOURCE_KIND_ORDER, SALES_RESOURCE_KIND_RETURN } from './shared'
 import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
 import { SalesOrder, SalesOrderAdjustment, SalesOrderLine, SalesReturn, SalesReturnLine } from '../data/entities'
@@ -135,6 +137,24 @@ function applyOrderTotals(order: SalesOrder, totals: SalesDocumentCalculationRes
   order.lineItemCount = lineCount
 }
 
+// Deliberate, not an omission: an external order's header belongs to the source
+// system, which issues its own credit document. The return itself is still recorded.
+function applyOrderTotalsUnlessExternal(
+  order: SalesOrder,
+  calculation: SalesDocumentCalculationResult,
+): void {
+  if (isExternalAmountsMode(order.totalsMode ?? 'computed')) return
+  applyOrderTotals(order, calculation.totals, calculation.lines.length)
+}
+
+function resolveOrderCalculationMode(order: SalesOrder) {
+  const totalsMode = order.totalsMode ?? 'computed'
+  return {
+    totalsMode,
+    suppliedTotals: isExternalAmountsMode(totalsMode) ? readPersistedHeaderTotals(order) : null,
+  }
+}
+
 function mapOrderAdjustmentToDraft(adjustment: SalesOrderAdjustment): SalesAdjustmentDraft {
   return {
     id: adjustment.id,
@@ -206,6 +226,7 @@ export async function recalculateOrderTotalsForDisplay(
     adjustments: adjustmentDrafts,
     context: buildCalculationContext(order),
     existingTotals: resolveExistingPaymentTotals(order),
+    ...resolveOrderCalculationMode(order),
   })
   return calculation.totals
 }
@@ -391,8 +412,9 @@ async function reverseReturnEffects(
           adjustments: adjustmentDrafts,
           context: buildCalculationContext(order),
           existingTotals: resolveExistingPaymentTotals(order),
+          ...resolveOrderCalculationMode(order),
         })
-        applyOrderTotals(order, calculation.totals, calculation.lines.length)
+        applyOrderTotalsUnlessExternal(order, calculation)
         order.updatedAt = new Date()
         em.persist(order)
       },
@@ -407,6 +429,13 @@ async function reverseReturnEffects(
  * recalculate the order totals. Shared by the create command's redo and the
  * delete command's undo. Returns the recreated return lines so callers can emit
  * index side effects. Throws a 404 when the order is gone.
+ *
+ * The order may have changed since the snapshot was taken (another return
+ * consumed the shipped quantity, a shipment was removed, an order line was
+ * deleted), so the snapshot quantities are re-checked against the currently
+ * returnable quantity — the same rule `sales.returns.create` enforces — under
+ * the order-line lock and before any write. A stale restore is refused with a
+ * 409 instead of returning and crediting the same shipped units twice.
  */
 async function restoreReturnEffects(
   em: EntityManager,
@@ -415,6 +444,7 @@ async function restoreReturnEffects(
 ): Promise<SalesReturnLine[]> {
   const returnId = snapshot.id
   const createdLines: SalesReturnLine[] = []
+  const { translate } = await resolveTranslations()
 
   await withAtomicFlush(
     em,
@@ -428,7 +458,7 @@ async function restoreReturnEffects(
           { tenantId: snapshot.tenantId, organizationId: snapshot.organizationId },
         )
         if (!order) {
-          throw notFound('sales.returns.orderMissing')
+          throw notFound(translate('sales.returns.orderMissing', 'Order not found.'))
         }
         ensureSameScope(order, snapshot.organizationId, snapshot.tenantId)
 
@@ -440,6 +470,34 @@ async function restoreReturnEffects(
           { tenantId: snapshot.tenantId, organizationId: snapshot.organizationId },
         )
         const lineMap = new Map(orderLines.map((line) => [line.id, line]))
+
+        const shippedByLine = await loadShippedQuantityByLine(em, order.id, {
+          tenantId: snapshot.tenantId,
+          organizationId: snapshot.organizationId,
+        })
+        const restoredByLine = new Map<string, { line: SalesOrderLine; quantity: number }>()
+        snapshot.lines.forEach((lineSnapshot) => {
+          const line = lineSnapshot.orderLineId ? lineMap.get(lineSnapshot.orderLineId) : undefined
+          if (!line) {
+            throw new CrudHttpError(409, {
+              error: translate('sales.returns.restoreLineMissing', 'This return cannot be restored: one of its order lines no longer exists.'),
+            })
+          }
+          const restored = restoredByLine.get(line.id)
+          restoredByLine.set(line.id, { line, quantity: (restored?.quantity ?? 0) + lineSnapshot.quantityReturned })
+        })
+        restoredByLine.forEach(({ line, quantity }, orderLineId) => {
+          const available = computeAvailableReturnQuantity({
+            quantity: toNumeric(line.quantity),
+            returnedQuantity: toNumeric(line.returnedQuantity),
+            shippedQuantity: shippedByLine.get(orderLineId) ?? 0,
+          })
+          if (quantity - 1e-6 > available) {
+            throw new CrudHttpError(409, {
+              error: translate('sales.returns.restoreQuantityUnavailable', 'This return cannot be restored: the order no longer has enough shipped quantity left to return.'),
+            })
+          }
+        })
 
         const existingAdjustments = await findWithDecryption(
           em,
@@ -541,8 +599,9 @@ async function restoreReturnEffects(
           adjustments: adjustmentDrafts,
           context: buildCalculationContext(order),
           existingTotals: resolveExistingPaymentTotals(order),
+          ...resolveOrderCalculationMode(order),
         })
-        applyOrderTotals(order, calculation.totals, calculation.lines.length)
+        applyOrderTotalsUnlessExternal(order, calculation)
         order.updatedAt = new Date()
         em.persist(order)
       },
@@ -727,8 +786,9 @@ const createReturnCommand: CommandHandler<ReturnCreateInput, { returnId: string 
         adjustments: adjustmentDrafts,
         context: buildCalculationContext(order),
         existingTotals: resolveExistingPaymentTotals(order),
+        ...resolveOrderCalculationMode(order),
       })
-      applyOrderTotals(order, calculation.totals, calculation.lines.length)
+      applyOrderTotalsUnlessExternal(order, calculation)
       order.updatedAt = new Date()
       tx.persist(order)
 
@@ -818,7 +878,8 @@ const createReturnCommand: CommandHandler<ReturnCreateInput, { returnId: string 
       { tenantId: after.tenantId, organizationId: after.organizationId },
     )
     if (!header) {
-      throw notFound('sales.returns.orderMissing')
+      const { translate } = await resolveTranslations()
+      throw notFound(translate('sales.returns.orderMissing', 'Order not found.'))
     }
 
     await invalidateOrderCache(ctx.container, {

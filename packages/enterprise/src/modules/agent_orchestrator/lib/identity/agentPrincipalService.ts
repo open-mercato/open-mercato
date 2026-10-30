@@ -2,6 +2,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { computeEmailHash } from '@open-mercato/core/modules/auth/lib/emailHash'
+import { lockAuthorizationState } from '@open-mercato/core/modules/auth/lib/authorizationStateLocks'
 import {
   provisionAgentPrincipalSchema,
   type ProvisionAgentPrincipalInput,
@@ -100,37 +101,6 @@ export async function provisionAgentPrincipal(
       await tem.flush()
     }
 
-    // The scoped role's ACL grants the agent's least-privilege features (merged
-    // idempotently on re-provision), never super-admin.
-    const existingAcl = await findOneWithDecryption(
-      tem,
-      auth.RoleAcl,
-      { role, tenantId },
-      {},
-      { tenantId, organizationId: null },
-    )
-    if (!existingAcl) {
-      tem.persist(
-        tem.create(auth.RoleAcl, {
-          role,
-          tenantId,
-          featuresJson: parsed.roleFeatures,
-          isSuperAdmin: false,
-          organizationsJson: [organizationId],
-          createdAt: new Date(),
-        }),
-      )
-      await tem.flush()
-    } else {
-      const current = Array.isArray(existingAcl.featuresJson) ? existingAcl.featuresJson : []
-      const merged = Array.from(new Set([...current, ...parsed.roleFeatures]))
-      if (merged.length !== current.length) {
-        existingAcl.featuresJson = merged
-        tem.persist(existingAcl)
-        await tem.flush()
-      }
-    }
-
     // ── Non-interactive agent User (find-or-create, idempotent) ───────────────
     const agentEmail = buildAgentUserEmail(parsed.agentDefinitionId, organizationId)
     let user = existingPrincipal
@@ -169,6 +139,42 @@ export async function provisionAgentPrincipal(
       // Defensive: an existing row resolved by the deterministic agent email must
       // be an agent principal. Never silently repurpose a human/service row.
       throw new Error('[internal] resolved a non-agent User for an agent principal')
+    }
+
+    await lockAuthorizationState(tem, {
+      userIds: [String(user.id)],
+      roleIds: [String(role.id)],
+    })
+
+    // The scoped role's ACL grants the agent's least-privilege features (merged
+    // idempotently on re-provision), never super-admin.
+    const existingAcl = await findOneWithDecryption(
+      tem,
+      auth.RoleAcl,
+      { role, tenantId },
+      {},
+      { tenantId, organizationId: null },
+    )
+    if (!existingAcl) {
+      tem.persist(
+        tem.create(auth.RoleAcl, {
+          role,
+          tenantId,
+          featuresJson: parsed.roleFeatures,
+          isSuperAdmin: false,
+          organizationsJson: [organizationId],
+          createdAt: new Date(),
+        }),
+      )
+      await tem.flush()
+    } else {
+      const current = Array.isArray(existingAcl.featuresJson) ? existingAcl.featuresJson : []
+      const merged = Array.from(new Set([...current, ...parsed.roleFeatures]))
+      if (merged.length !== current.length) {
+        existingAcl.featuresJson = merged
+        tem.persist(existingAcl)
+        await tem.flush()
+      }
     }
 
     // Link the agent User to its scoped role (idempotent).

@@ -1,12 +1,14 @@
 /** @jest-environment jsdom */
 import * as React from 'react'
 import { DataTable, writePerspectiveSnapshot, readPerspectiveSnapshot } from '../DataTable'
+import type { DataTableViewApi } from '../DataTable'
 import type { ColumnDef } from '@tanstack/react-table'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { I18nProvider } from '@open-mercato/shared/lib/i18n/context'
-import { render, act } from '@testing-library/react'
+import { render, act, fireEvent, screen } from '@testing-library/react'
 import type { PerspectivesIndexResponse } from '@open-mercato/shared/modules/perspectives/types'
-import { createEmptyTree } from '@open-mercato/shared/lib/query/advanced-filter-tree'
+import { createEmptyTree, serializeTreeForPersist } from '@open-mercato/shared/lib/query/advanced-filter-tree'
+import type { AdvancedFilterTree } from '@open-mercato/shared/lib/query/advanced-filter-tree'
 
 jest.mock('next/navigation', () => ({
   useRouter: () => ({ push: jest.fn(), replace: jest.fn(), prefetch: jest.fn() }),
@@ -119,6 +121,90 @@ function renderTable(response: PerspectivesIndexResponse, options?: { withAdvanc
     </QueryClientProvider>,
   )
   return { ...utils, searchChanges, appliedTrees, queryClient }
+}
+
+function buildFilterTree(value: string): AdvancedFilterTree {
+  return {
+    root: {
+      id: 'filter-root',
+      type: 'group',
+      combinator: 'and',
+      children: [
+        { id: 'filter-rule', type: 'rule', field: 'name', operator: 'contains', value },
+      ],
+    },
+  }
+}
+
+function renderAdvancedFilterTable(
+  response: PerspectivesIndexResponse,
+  options: { initialTree?: AdvancedFilterTree; strictMode?: boolean } = {},
+) {
+  const appliedTrees: AdvancedFilterTree[] = []
+  const searchChanges: string[] = []
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: { staleTime: Infinity, gcTime: Infinity, retry: false },
+      mutations: { retry: false },
+    },
+  })
+  queryClient.setQueryData(['feature-check', 'perspectives'], { use: true, roleDefaults: true })
+  queryClient.setQueryData(['table-perspectives', TABLE_ID], response)
+  const initialTree = options.initialTree ?? createEmptyTree()
+  const viewApiRef = React.createRef<DataTableViewApi>()
+  let currentTree = initialTree
+  let replaceHostTree: ((tree: AdvancedFilterTree) => void) | undefined
+
+  function Host() {
+    const [tree, setTree] = React.useState(initialTree)
+    const [searchValue, setSearchValue] = React.useState('')
+    currentTree = tree
+    replaceHostTree = setTree
+    return (
+      <DataTable<Row>
+        columns={columns}
+        data={[]}
+        searchValue={searchValue}
+        onSearchChange={(value) => {
+          searchChanges.push(value)
+          setSearchValue(value)
+        }}
+        perspective={{ tableId: TABLE_ID }}
+        viewApiRef={viewApiRef}
+        advancedFilter={{
+          fields: [{ key: 'name', label: 'Name', type: 'text' }],
+          value: tree,
+          onChange: setTree,
+          onApply: () => {},
+          onClear: () => setTree(createEmptyTree()),
+          onApplyTree: (restoredTree) => {
+            appliedTrees.push(restoredTree)
+            setTree(restoredTree)
+          },
+        }}
+      />
+    )
+  }
+
+  const table = <Host />
+  const utils = render(
+    <QueryClientProvider client={queryClient}>
+      <I18nProvider locale="en" dict={{}}>
+        {options.strictMode ? <React.StrictMode>{table}</React.StrictMode> : table}
+      </I18nProvider>
+    </QueryClientProvider>,
+  )
+  return {
+    ...utils,
+    appliedTrees,
+    searchChanges,
+    queryClient,
+    viewApiRef,
+    getTree: () => currentTree,
+    clear: () => {
+      act(() => { replaceHostTree?.(createEmptyTree()) })
+    },
+  }
 }
 
 describe('DataTable localStorage snapshot vs. server perspective reconciliation (#5113)', () => {
@@ -308,5 +394,237 @@ describe('DataTable localStorage snapshot vs. server perspective reconciliation 
 
     expect(searchChanges).toHaveLength(callsAfterReconcile)
     expect(searchChanges).not.toContain('refetched')
+  })
+
+  it.each([false, true])('restores the saved advanced filter on a bare revisit (StrictMode: %s)', (strictMode) => {
+    const savedTree = buildFilterTree('Alice')
+    const filters = { ...serializeTreeForPersist(savedTree) }
+    writePerspectiveSnapshot(TABLE_ID, {
+      perspectiveId: 'persp-1',
+      settings: { filters },
+      updatedAt: SERVER_UPDATED_AT_MS + 60_000,
+    })
+    const perspective = { ...buildPerspective('persp-1', ''), settings: { filters } }
+
+    const rendered = renderAdvancedFilterTable(buildIndexResponse([perspective]), { strictMode })
+
+    expect(rendered.getTree()).toEqual(savedTree)
+    expect(rendered.appliedTrees).toEqual([savedTree])
+    expect(rendered.viewApiRef.current?.getDirtyState().activePerspectiveId).toBe('persp-1')
+    expect(readPerspectiveSnapshot(TABLE_ID)?.settings.filters).toEqual(filters)
+  })
+
+  it('keeps a populated URL-derived tree ahead of the saved perspective filter', () => {
+    const savedTree = buildFilterTree('Alice')
+    const urlTree = buildFilterTree('Bob')
+    const filters = { ...serializeTreeForPersist(savedTree) }
+    writePerspectiveSnapshot(TABLE_ID, {
+      perspectiveId: 'persp-1',
+      settings: { filters },
+      updatedAt: SERVER_UPDATED_AT_MS + 60_000,
+    })
+    const perspective = { ...buildPerspective('persp-1', ''), settings: { filters } }
+
+    const rendered = renderAdvancedFilterTable(buildIndexResponse([perspective]), { initialTree: urlTree })
+
+    expect(rendered.getTree()).toEqual(urlTree)
+    expect(rendered.appliedTrees).toHaveLength(0)
+    expect(readPerspectiveSnapshot(TABLE_ID)?.settings.filters).toEqual(filters)
+  })
+
+  it('keeps a deliberately cleared advanced filter empty after remount', () => {
+    const savedTree = buildFilterTree('Alice')
+    const filters = { ...serializeTreeForPersist(savedTree) }
+    writePerspectiveSnapshot(TABLE_ID, {
+      perspectiveId: 'persp-1',
+      settings: { filters, columnSizing: { name: 240 } },
+      updatedAt: SERVER_UPDATED_AT_MS + 60_000,
+    })
+    const perspective = { ...buildPerspective('persp-1', ''), settings: { filters } }
+    const response = buildIndexResponse([perspective])
+    const rendered = renderAdvancedFilterTable(response)
+    expect(rendered.getTree()).toEqual(savedTree)
+
+    rendered.clear()
+
+    expect(readPerspectiveSnapshot(TABLE_ID)?.settings.filters).toBeUndefined()
+    expect(readPerspectiveSnapshot(TABLE_ID)?.settings.columnSizing).toEqual({ name: 240 })
+    expect(readPerspectiveSnapshot(TABLE_ID)?.perspectiveId).toBe('persp-1')
+    rendered.unmount()
+
+    const revisited = renderAdvancedFilterTable(response)
+    expect(revisited.getTree().root.children).toHaveLength(0)
+    expect(revisited.appliedTrees).toHaveLength(0)
+  })
+
+  it('does not resurrect a cleared snapshot filter when reconciling a newer server view', () => {
+    const filters = { ...serializeTreeForPersist(buildFilterTree('Alice')) }
+    writePerspectiveSnapshot(TABLE_ID, {
+      perspectiveId: 'persp-1',
+      settings: { searchValue: 'stale' },
+      updatedAt: SERVER_UPDATED_AT_MS - 60_000,
+    })
+    const perspective = { ...buildPerspective('persp-1', 'fresh'), settings: { searchValue: 'fresh', filters } }
+
+    const rendered = renderAdvancedFilterTable(buildIndexResponse([perspective]))
+
+    expect(rendered.searchChanges[rendered.searchChanges.length - 1]).toBe('fresh')
+    expect(rendered.getTree().root.children).toHaveLength(0)
+    expect(rendered.appliedTrees).toHaveLength(0)
+    expect(readPerspectiveSnapshot(TABLE_ID)?.settings.filters).toBeUndefined()
+  })
+
+  it('retains the restored filter snapshot when synchronous reconciliation runs before the host rerenders', () => {
+    const savedTree = buildFilterTree('Alice')
+    const filters = { ...serializeTreeForPersist(savedTree) }
+    writePerspectiveSnapshot(TABLE_ID, {
+      perspectiveId: 'persp-1',
+      settings: { searchValue: 'stale', filters },
+      updatedAt: SERVER_UPDATED_AT_MS - 60_000,
+    })
+    const perspective = { ...buildPerspective('persp-1', 'fresh'), settings: { searchValue: 'fresh', filters } }
+
+    const rendered = renderAdvancedFilterTable(buildIndexResponse([perspective]))
+
+    expect(rendered.searchChanges[rendered.searchChanges.length - 1]).toBe('fresh')
+    expect(rendered.getTree()).toEqual(savedTree)
+    expect(readPerspectiveSnapshot(TABLE_ID)?.settings.filters).toEqual(filters)
+    expect(rendered.viewApiRef.current?.getDirtyState().changedKeys).not.toContain('filters')
+  })
+
+  it('preserves the newly selected filter after switching through an unfiltered view and revisiting', () => {
+    const firstTree = buildFilterTree('Alice')
+    const nextTree = buildFilterTree('Bob')
+    const firstFilters = { ...serializeTreeForPersist(firstTree) }
+    const nextFilters = { ...serializeTreeForPersist(nextTree) }
+    writePerspectiveSnapshot(TABLE_ID, {
+      perspectiveId: 'persp-1',
+      settings: { filters: firstFilters },
+      updatedAt: SERVER_UPDATED_AT_MS + 60_000,
+    })
+    const response = buildIndexResponse([
+      { ...buildPerspective('persp-1', ''), settings: { filters: firstFilters } },
+      buildPerspective('persp-empty', ''),
+      { ...buildPerspective('persp-2', ''), settings: { filters: nextFilters } },
+    ])
+    const rendered = renderAdvancedFilterTable(response)
+
+    fireEvent.click(screen.getByRole('button', { name: 'persp-1' }))
+    fireEvent.click(screen.getByRole('button', { name: 'persp-empty' }))
+    expect(rendered.getTree().root.children).toHaveLength(0)
+
+    fireEvent.click(screen.getByRole('button', { name: 'persp-empty' }))
+    fireEvent.click(screen.getByRole('button', { name: 'persp-2' }))
+    expect(rendered.getTree()).toEqual(nextTree)
+    expect(readPerspectiveSnapshot(TABLE_ID)?.settings.filters).toEqual(nextFilters)
+    expect(readPerspectiveSnapshot(TABLE_ID)?.perspectiveId).toBe('persp-2')
+    rendered.unmount()
+
+    const revisited = renderAdvancedFilterTable(response)
+    expect(revisited.getTree()).toEqual(nextTree)
+    expect(revisited.viewApiRef.current?.getDirtyState().activePerspectiveId).toBe('persp-2')
+  })
+
+  it('clears a filter restored from an orphaned snapshot when no replacement view exists', () => {
+    const filters = { ...serializeTreeForPersist(buildFilterTree('Alice')) }
+    writePerspectiveSnapshot(TABLE_ID, {
+      perspectiveId: 'deleted-1',
+      settings: { searchValue: 'orphaned', filters },
+      updatedAt: SERVER_UPDATED_AT_MS - 60_000,
+    })
+
+    const rendered = renderAdvancedFilterTable(buildIndexResponse([]))
+
+    expect(rendered.getTree().root.children).toHaveLength(0)
+    expect(rendered.viewApiRef.current?.getDirtyState().activePerspectiveId).toBeNull()
+    expect(readPerspectiveSnapshot(TABLE_ID)).toBeNull()
+  })
+
+  it('replaces an orphaned snapshot filter with the unfiltered replacement view', () => {
+    const filters = { ...serializeTreeForPersist(buildFilterTree('Alice')) }
+    writePerspectiveSnapshot(TABLE_ID, {
+      perspectiveId: 'deleted-1',
+      settings: { searchValue: 'orphaned', filters },
+      updatedAt: SERVER_UPDATED_AT_MS - 60_000,
+    })
+    const response = buildIndexResponse(
+      [buildPerspective('persp-2', 'replacement')],
+      { defaultPerspectiveId: 'persp-2' },
+    )
+
+    const rendered = renderAdvancedFilterTable(response)
+
+    expect(rendered.getTree().root.children).toHaveLength(0)
+    expect(rendered.viewApiRef.current?.getDirtyState().activePerspectiveId).toBe('persp-2')
+    expect(readPerspectiveSnapshot(TABLE_ID)?.perspectiveId).toBe('persp-2')
+    expect(readPerspectiveSnapshot(TABLE_ID)?.settings.filters).toBeUndefined()
+  })
+
+  it('replaces a restored snapshot filter with the newer server filter before the host edits it', () => {
+    const savedTree = buildFilterTree('Alice')
+    const newerTree = buildFilterTree('Bob')
+    const savedFilters = { ...serializeTreeForPersist(savedTree) }
+    const newerFilters = { ...serializeTreeForPersist(newerTree) }
+    writePerspectiveSnapshot(TABLE_ID, {
+      perspectiveId: 'persp-1',
+      settings: { filters: savedFilters },
+      updatedAt: SERVER_UPDATED_AT_MS - 60_000,
+    })
+    const perspective = { ...buildPerspective('persp-1', ''), settings: { filters: newerFilters } }
+
+    const rendered = renderAdvancedFilterTable(buildIndexResponse([perspective]))
+
+    expect(rendered.getTree()).toEqual(newerTree)
+    expect(rendered.appliedTrees).toEqual([savedTree, newerTree])
+    expect(rendered.viewApiRef.current?.getDirtyState().changedKeys).not.toContain('filters')
+    expect(readPerspectiveSnapshot(TABLE_ID)?.settings.filters).toEqual(newerFilters)
+  })
+
+  it('preserves the URL filter while retaining the newer server filter for a bare revisit', () => {
+    const savedFilters = { ...serializeTreeForPersist(buildFilterTree('Alice')) }
+    const newerTree = buildFilterTree('Bob')
+    const newerFilters = { ...serializeTreeForPersist(newerTree) }
+    const urlTree = buildFilterTree('Charlie')
+    writePerspectiveSnapshot(TABLE_ID, {
+      perspectiveId: 'persp-1',
+      settings: { filters: savedFilters },
+      updatedAt: SERVER_UPDATED_AT_MS - 60_000,
+    })
+    const perspective = { ...buildPerspective('persp-1', ''), settings: { filters: newerFilters } }
+    const response = buildIndexResponse([perspective])
+
+    const rendered = renderAdvancedFilterTable(response, { initialTree: urlTree })
+
+    expect(rendered.getTree()).toEqual(urlTree)
+    expect(rendered.appliedTrees).toHaveLength(0)
+    expect(readPerspectiveSnapshot(TABLE_ID)?.settings.filters).toEqual(newerFilters)
+    rendered.unmount()
+
+    const revisited = renderAdvancedFilterTable(response)
+    expect(revisited.getTree()).toEqual(newerTree)
+    expect(revisited.viewApiRef.current?.getDirtyState().activePerspectiveId).toBe('persp-1')
+  })
+
+  it('retains the newer server filter when a URL filter overrides a snapshot without filters', () => {
+    const newerTree = buildFilterTree('Bob')
+    const newerFilters = { ...serializeTreeForPersist(newerTree) }
+    const urlTree = buildFilterTree('Charlie')
+    writePerspectiveSnapshot(TABLE_ID, {
+      perspectiveId: 'persp-1',
+      settings: {},
+      updatedAt: SERVER_UPDATED_AT_MS - 60_000,
+    })
+    const perspective = { ...buildPerspective('persp-1', ''), settings: { filters: newerFilters } }
+    const response = buildIndexResponse([perspective])
+
+    const rendered = renderAdvancedFilterTable(response, { initialTree: urlTree })
+
+    expect(rendered.getTree()).toEqual(urlTree)
+    expect(rendered.appliedTrees).toHaveLength(0)
+    expect(readPerspectiveSnapshot(TABLE_ID)?.settings.filters).toEqual(newerFilters)
+    rendered.unmount()
+
+    const revisited = renderAdvancedFilterTable(response)
+    expect(revisited.getTree()).toEqual(newerTree)
   })
 })

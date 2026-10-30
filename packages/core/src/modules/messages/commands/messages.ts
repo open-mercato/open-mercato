@@ -18,7 +18,7 @@ import {
   resolveActorFeatures,
   resolveMessageChannelThreadAccess,
 } from '../lib/channelThreadAccess'
-import { MESSAGE_ATTACHMENT_ENTITY_ID, MESSAGE_ENTITY_ID } from '../lib/constants'
+import { MESSAGE_ATTACHMENT_ENTITY_ID, MESSAGE_ENTITY_ID, SYSTEM_SENDER_USER_ID } from '../lib/constants'
 import { canUseChannelThreadFallback } from '../lib/routeHelpers'
 import { getMessageTypeOrDefault } from '../lib/message-types-registry'
 import { validateMessageObjectsForType } from '../lib/object-validation'
@@ -266,6 +266,13 @@ async function buildComposeResultFromExisting(
   }
 }
 
+/**
+ * `parentMessageId` is trusted: the thread is derived from it without a read
+ * check, because the acting `userId` is itself an input and server-side callers
+ * (channel ingest) pass parents the actor is not a participant of. Every surface
+ * that accepts a parent from a caller MUST resolve it against its own read rule
+ * first (`resolveReplyParentMessage` for the messages API).
+ */
 const composeMessageCommand: CommandHandler<unknown, { id: string; threadId: string | null; externalEmail: string | null; isDraft: boolean; recipientUserIds: string[]; deduplicated?: boolean }> = {
   id: 'messages.messages.compose',
   async execute(rawInput, ctx) {
@@ -315,14 +322,13 @@ const composeMessageCommand: CommandHandler<unknown, { id: string; threadId: str
         )?.threadId ?? input.parentMessageId
         : undefined
 
-      const isPublicVisibility = input.visibility === 'public'
-      // #6093: a channel-ingested message was RECEIVED, not sent. Ingest passes
-      // `sendViaEmail: false` on purpose; forcing it for public visibility would
-      // mail the assignee a copy and echo the message to its external sender
-      // (#6089) the moment the recipients waiver lets it compose. #6090 removes
-      // the forcing for every caller; until then it is skipped here for the
-      // ingest path only.
-      const sendViaEmail = isPublicVisibility && !input.inboundFromChannel ? true : input.sendViaEmail
+      // Honor the caller's explicit `sendViaEmail` (#6089, #6090). The messages API
+      // route forces email delivery for public messages a user composes; internal
+      // callers (communication_channels inbound ingest, send-as-user) compose
+      // `visibility: 'public'` with `sendViaEmail: false` on purpose. Forcing it
+      // here echoed every inbound email back to its sender through the tenant
+      // system email channel and made send-as-user deliver twice.
+      const sendViaEmail = input.sendViaEmail
       const message = trx.create(Message, {
         type: input.type,
         visibility: input.visibility ?? null,
@@ -428,8 +434,7 @@ const composeMessageCommand: CommandHandler<unknown, { id: string; threadId: str
         messageId,
         senderUserId: input.userId,
         recipientUserIds: input.recipients.map((recipient) => recipient.userId),
-        sendViaEmail:
-          input.visibility === 'public' && !input.inboundFromChannel ? true : input.sendViaEmail,
+        sendViaEmail: input.sendViaEmail,
         inboundFromChannel: input.inboundFromChannel === true,
         externalEmail: responseExternalEmail,
         tenantId: input.tenantId,
@@ -779,24 +784,25 @@ const replyMessageCommand: CommandHandler<unknown, { id: string; externalEmail: 
     const messageType = getMessageTypeOrDefault(original.type)
     if (messageType.allowReply === false) throw new Error('Reply is not allowed for this message type')
 
+    const isReplyRecipient = (userId: string) => userId !== input.userId && userId !== SYSTEM_SENDER_USER_ID
     const recipientIds = new Set(
       (input.recipients ?? [])
         .map((recipient) => recipient.userId)
-        .filter((recipientUserId) => recipientUserId !== input.userId),
+        .filter(isReplyRecipient),
     )
 
     if (recipientIds.size === 0) {
       const originalRecipients = await em.find(MessageRecipient, { messageId: original.id, deletedAt: null })
       if (input.replyAll) {
-        if (original.senderUserId !== input.userId) recipientIds.add(original.senderUserId)
+        if (isReplyRecipient(original.senderUserId)) recipientIds.add(original.senderUserId)
         for (const recipient of originalRecipients) {
-          if (recipient.recipientUserId !== input.userId) recipientIds.add(recipient.recipientUserId)
+          if (isReplyRecipient(recipient.recipientUserId)) recipientIds.add(recipient.recipientUserId)
         }
       } else if (original.senderUserId !== input.userId) {
-        recipientIds.add(original.senderUserId)
+        if (isReplyRecipient(original.senderUserId)) recipientIds.add(original.senderUserId)
       } else {
         for (const recipient of originalRecipients) {
-          if (recipient.recipientUserId !== input.userId) {
+          if (isReplyRecipient(recipient.recipientUserId)) {
             recipientIds.add(recipient.recipientUserId)
             break
           }
@@ -807,7 +813,9 @@ const replyMessageCommand: CommandHandler<unknown, { id: string; externalEmail: 
         recipientIds.add(input.userId)
       }
     }
-    if (recipientIds.size === 0) throw new Error('No recipients available for reply')
+    if (recipientIds.size === 0 && original.senderUserId !== SYSTEM_SENDER_USER_ID) {
+      throw new Error('No recipients available for reply')
+    }
 
     let messageId = ''
     let responseExternalEmail: string | null = null

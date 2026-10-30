@@ -1,5 +1,5 @@
 import { executeActionSchema } from '../../../data/validators'
-import { actionResultResponseSchema, errorResponseSchema } from '../../openapi'
+import { actionConflictResponseSchema, actionResultResponseSchema, errorResponseSchema } from '../../openapi'
 import {
   NOTIFICATION_RESOURCE_KIND,
   notificationCrudErrorResponse,
@@ -8,6 +8,7 @@ import {
   runGuardedNotificationWrite,
 } from '../../../lib/routeHelpers'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { resolveNotificationActionHref, toSafeNotificationHref } from '../../../lib/safeHref'
 
 export const metadata = {
   POST: { requireAuth: true },
@@ -41,7 +42,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const { notification, result } = guarded.result
 
     const action = notification.actionData?.actions?.find((a) => a.id === input.actionId)
-    const href = action?.href?.replace('{sourceEntityId}', notification.sourceEntityId ?? '')
+    const href = toSafeNotificationHref(resolveNotificationActionHref(action?.href, notification.sourceEntityId)) ?? undefined
 
     return Response.json({
       ok: true,
@@ -85,6 +86,14 @@ export const openApi = {
         content: {
           'application/json': {
             schema: actionResultResponseSchema,
+          },
+        },
+      },
+      409: {
+        description: 'The notification action was already executed (`code: notification_action_already_executed`), or a mutation guard or the action command reported a conflict',
+        content: {
+          'application/json': {
+            schema: actionConflictResponseSchema,
           },
         },
       },

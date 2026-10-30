@@ -65,7 +65,7 @@ import type {
 import { ComponentReplacementHandles } from '@open-mercato/shared/modules/widgets/component-registry'
 import { useRegisteredComponent } from './injection/useRegisteredComponent'
 import { dataTableExtensionSpotId, extensionSpotChildId } from '@open-mercato/shared/modules/widgets/extension-points'
-import { insertByInjectionPlacement } from '@open-mercato/shared/modules/widgets/injection-position'
+import { insertByInjectionPlacement, InjectionPosition, type InjectionPlacement } from '@open-mercato/shared/modules/widgets/injection-position'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import type {
   FilterFieldDef as AdvancedFilterFieldDef,
@@ -168,6 +168,49 @@ export function withDataTableNamespaces<T extends Record<string, unknown>>(
     ...mappedRow,
     ...namespaced,
   }
+}
+
+// Columns register in waves (injected columns and custom fields load asynchronously), so a
+// stored order rarely names every column. A column the order does not know yet takes its
+// place from the column definitions — right after its nearest known predecessor — instead
+// of being appended, which would discard an injected column's `placement` (#7083). One that
+// follows every known column is still appended, keeping the user's arrangement intact. An
+// injected column anchored `Before`/`After` a column already in the order follows that anchor
+// wherever the user moved it.
+function reconcileColumnOrder(
+  prev: string[],
+  ids: string[],
+  placements: ReadonlyMap<string, InjectionPlacement | undefined> = new Map(),
+): string[] {
+  const allowed = new Set(ids)
+  const result = prev.filter((id) => allowed.has(id))
+  const known = new Set(result)
+  ids.forEach((id, index) => {
+    if (known.has(id)) return
+    const placement = placements.get(id)
+    const anchorIndex = placement?.relativeTo ? result.indexOf(placement.relativeTo) : -1
+    if (anchorIndex !== -1 && (placement?.position === InjectionPosition.Before || placement?.position === InjectionPosition.After)) {
+      result.splice(placement.position === InjectionPosition.Before ? anchorIndex : anchorIndex + 1, 0, id)
+      known.add(id)
+      return
+    }
+    const hasKnownSuccessor = ids.slice(index + 1).some((candidate) => known.has(candidate))
+    if (!hasKnownSuccessor) {
+      result.push(id)
+    } else {
+      let insertAt = 0
+      for (let cursor = index - 1; cursor >= 0; cursor -= 1) {
+        const predecessorIndex = result.indexOf(ids[cursor])
+        if (predecessorIndex !== -1) {
+          insertAt = predecessorIndex + 1
+          break
+        }
+      }
+      result.splice(insertAt, 0, id)
+    }
+    known.add(id)
+  })
+  return result
 }
 
 function resolveDataTableRowId<T>(row: T, index: number): string {
@@ -510,6 +553,14 @@ const STICKY_RIGHT_SHADOW_CLASS =
   'md:before:absolute md:before:inset-y-0 md:before:-left-2 md:before:w-2 md:before:bg-gradient-to-l md:before:from-foreground/8 md:before:to-transparent md:before:pointer-events-none'
 const STICKY_LEFT_SHADOW_CLASS =
   'md:after:absolute md:after:inset-y-0 md:after:-right-2 md:after:w-2 md:after:bg-gradient-to-r md:after:from-foreground/8 md:after:to-transparent md:after:pointer-events-none'
+// Pinned cells need an opaque background so scrolled columns don't show through,
+// which also hides the translucent tints painted behind them (the `bg-muted/40`
+// header strip on `<thead>`, the `bg-muted/30` row hover on `<tr>`). A flat
+// gradient (equal stops) layers the same tint over the opaque surface, so the
+// pinned cell composites to exactly what the transparent cells show (#7414).
+const STICKY_HEADER_TINT_CLASS = 'md:bg-linear-to-r md:from-muted/40 md:to-muted/40'
+const STICKY_ROW_HOVER_TINT_CLASS =
+  'md:group-hover/row:bg-linear-to-r md:group-hover/row:from-muted/30 md:group-hover/row:to-muted/30'
 
 export type BulkActionExecuteResult = {
   ok: boolean
@@ -1397,6 +1448,11 @@ function DataTableImpl<T extends RowData>({
   // cannot serve here: applying a snapshot rewrites the stored copy with a
   // fresh `Date.now()`, which would make every server row look older than it is.
   const hydratedSnapshotRef = React.useRef<PerspectiveSnapshot | null>(null)
+  const hydratedAdvancedFilterRestoredRef = React.useRef(false)
+  const pendingPerspectiveFiltersRef = React.useRef<{ filters: PerspectiveSettings['filters'] } | null>(null)
+  React.useLayoutEffect(() => {
+    pendingPerspectiveFiltersRef.current = null
+  }, [advancedFilter?.value, perspectiveTableId])
   const initialSettingsSource = perspectiveConfig?.initialState?.initialSettings ?? null
   // Memoized on the host's own object: `sanitizePerspectiveSettings` returns a
   // fresh result on every call, so without this every effect keyed on the
@@ -1916,23 +1972,20 @@ function DataTableImpl<T extends RowData>({
     [baseInjectionContext, hasInjectedBulkActions, rowSelection],
   )
   React.useEffect(() => {
-    const ids = table.getAllLeafColumns().map((column) => column.id)
+    // `getAllLeafColumns()` is already sorted by `columnOrder`, which would hide where a new
+    // column sits in the definitions; flattening `getAllColumns()` keeps definition order.
+    const ids = table.getAllColumns().flatMap((column) => column.getLeafColumns()).map((column) => column.id)
     if (!ids.length) return
+    const placements = new Map(
+      injectedColumnDefs.map(({ def, placement }) => [(def as { id?: string }).id ?? '', placement] as const),
+    )
     setColumnOrder((prev) => {
       if (!prev.length) return ids
-      const allowed = ids
-      const filtered = prev.filter((id) => allowed.includes(id))
-      const seen = new Set(filtered)
-      for (const id of allowed) {
-        if (!seen.has(id)) {
-          filtered.push(id)
-          seen.add(id)
-        }
-      }
-      const changed = filtered.length !== prev.length || filtered.some((id, index) => id !== prev[index])
-      return changed ? filtered : prev
+      const next = reconcileColumnOrder(prev, ids, placements)
+      const changed = next.length !== prev.length || next.some((id, index) => id !== prev[index])
+      return changed ? next : prev
     })
-  }, [table, mergedColumns])
+  }, [table, mergedColumns, injectedColumnDefs])
 
   // Auto-hiding is a per-column default, applied once per column — not an enforcement.
   // It cannot be latched by a single has-run boolean: columns arrive in waves, because
@@ -2033,6 +2086,12 @@ function DataTableImpl<T extends RowData>({
     },
   ) => {
     const normalized = sanitizePerspectiveSettings(settings) ?? {}
+    if (!options?.preserveAdvancedFilter && advancedFilter?.onApplyTree) {
+      hydratedAdvancedFilterRestoredRef.current = false
+      pendingPerspectiveFiltersRef.current = {
+        filters: isPersistedFilterTree(normalized.filters) ? normalized.filters : undefined,
+      }
+    }
     // The applied settings replace the baseline outright, so the defaults hidden under
     // the *previous* view must not leak into it. The pass below re-runs and re-folds
     // whatever this view leaves undecided.
@@ -2043,7 +2102,12 @@ function DataTableImpl<T extends RowData>({
     // filter change the user never made.
     setViewBaseline(
       options?.preserveAdvancedFilter
-        ? { ...normalized, filters: getCurrentSettings().filters }
+        ? {
+            ...normalized,
+            filters: pendingPerspectiveFiltersRef.current
+              ? pendingPerspectiveFiltersRef.current.filters
+              : getCurrentSettings().filters,
+          }
         : normalized,
     )
     if (normalized.columnOrder && normalized.columnOrder.length) {
@@ -2111,7 +2175,14 @@ function DataTableImpl<T extends RowData>({
     if (perspectiveTableId) {
       writePerspectiveCookie(perspectiveTableId, nextId)
       if (nextId) {
-        const snapshot: PerspectiveSnapshot = { perspectiveId: nextId, settings: normalized, updatedAt: Date.now() }
+        const previousSnapshot = readPerspectiveSnapshot(perspectiveTableId) ?? initialSnapshotRef.current
+        const preserveClearedFilter = options?.preserveAdvancedFilter
+          && !getCurrentSettings().filters
+          && !previousSnapshot?.settings.filters
+        const snapshotSettings = preserveClearedFilter
+          ? { ...normalized, filters: undefined }
+          : normalized
+        const snapshot: PerspectiveSnapshot = { perspectiveId: nextId, settings: snapshotSettings, updatedAt: Date.now() }
         writePerspectiveSnapshot(perspectiveTableId, snapshot)
         initialSnapshotRef.current = snapshot
       } else if (normalized.columnSizing && Object.keys(normalized.columnSizing).length) {
@@ -2176,28 +2247,44 @@ function DataTableImpl<T extends RowData>({
     if (!perspectiveTableId) return
     if (snapshotHydratedTableRef.current === perspectiveTableId) return
     snapshotHydratedTableRef.current = perspectiveTableId
+    hydratedAdvancedFilterRestoredRef.current = false
     const snapshot = readPerspectiveSnapshot(perspectiveTableId)
     if (!snapshot) return
     initialSnapshotRef.current = snapshot
     hydratedSnapshotRef.current = snapshot
-    // When the host page wired an advanced-filter tree (`advancedFilter.onApplyTree`),
-    // the host owns filter persistence — typically by hydrating from / writing to the
-    // URL (see CRM People/Companies/Deals lazy useState initializers + URL writer
-    // effects). The mount-time snapshot from a prior session can be arbitrarily
-    // stale and MUST NOT override the host's filter — including the empty case
-    // (Clear all → refresh would otherwise resurrect the previously-saved rules).
-    // The snapshot still drives non-filter settings: column order, visibility,
-    // sorting, search. Explicit perspective selection and "No view" go through
-    // a different applyPerspectiveSettings call without this option, so they
-    // still update the host filter as expected.
-    const preserveAdvancedFilter = !!advancedFilter?.onApplyTree
+    const restoredTree = isPersistedFilterTree(snapshot.settings.filters)
+      ? deserializeTreeFromPersist(snapshot.settings.filters)
+      : null
+    const preserveAdvancedFilter = !!advancedFilter?.onApplyTree && (
+      advancedFilter.value.root.children.length > 0 || !restoredTree?.root.children.length
+    )
     applyPerspectiveSettings(
       snapshot.settings,
       snapshot.perspectiveId ?? null,
       { preserveAdvancedFilter },
     )
+    hydratedAdvancedFilterRestoredRef.current = !!advancedFilter?.onApplyTree && !preserveAdvancedFilter
     initialPerspectiveAppliedRef.current = true
   }, [perspectiveTableId, applyPerspectiveSettings, advancedFilter])
+
+  const previousAdvancedFilterRef = React.useRef<{
+    tableId: string | null
+    hasRules: boolean
+  } | null>(null)
+  const advancedFilterHasRules = !!advancedFilter?.value.root.children.length
+  React.useEffect(() => {
+    const previous = previousAdvancedFilterRef.current
+    previousAdvancedFilterRef.current = { tableId: perspectiveTableId, hasRules: advancedFilterHasRules }
+    if (!perspectiveTableId || !advancedFilter?.onApplyTree) return
+    if (previous?.tableId !== perspectiveTableId || !previous.hasRules || advancedFilterHasRules) return
+    const snapshot = readPerspectiveSnapshot(perspectiveTableId) ?? initialSnapshotRef.current
+    if (!snapshot) return
+    const settings = { ...snapshot.settings }
+    delete settings.filters
+    const clearedSnapshot: PerspectiveSnapshot = { ...snapshot, settings, updatedAt: Date.now() }
+    writePerspectiveSnapshot(perspectiveTableId, clearedSnapshot)
+    initialSnapshotRef.current = clearedSnapshot
+  }, [perspectiveTableId, advancedFilterHasRules, advancedFilter?.onApplyTree])
 
   type SavePerspectivePayload = {
     name: string
@@ -2717,11 +2804,23 @@ function DataTableImpl<T extends RowData>({
   React.useLayoutEffect(() => {
     if (!canUsePerspectives) return
     if (!perspectiveTableId) return
+    if (
+      (initialSnapshotRef.current || initialPerspectiveAppliedRef.current)
+      && serverReconciledTableRef.current === perspectiveTableId
+    ) return
 
     const source = perspectiveData ?? perspectiveConfig?.initialState?.response
     if (!source) return
 
     let orphanedSnapshotDropped = false
+    const currentFilters = pendingPerspectiveFiltersRef.current
+      ? pendingPerspectiveFiltersRef.current.filters
+      : getCurrentSettings().filters
+    const restoredFilterStillActive = hydratedAdvancedFilterRestoredRef.current && diffPerspectiveSettings(
+      { filters: currentFilters },
+      { filters: hydratedSnapshotRef.current?.settings.filters },
+    ).length === 0
+    const preserveAdvancedFilter = !!advancedFilter?.onApplyTree && !restoredFilterStillActive
 
     const tryResolve = (id: string | null | undefined): PerspectiveDto | RolePerspectiveDto | undefined => {
       if (!id) return undefined
@@ -2737,7 +2836,6 @@ function DataTableImpl<T extends RowData>({
     // localStorage entry (#5113). One-shot matters as much as reconciling at
     // all — a later refetch must not clobber edits made after mount.
     if (initialSnapshotRef.current || initialPerspectiveAppliedRef.current) {
-      if (serverReconciledTableRef.current === perspectiveTableId) return
       serverReconciledTableRef.current = perspectiveTableId
       // A snapshot only speaks for the active perspective: once the user has
       // picked a different view, reconciling the mount-time one would undo that
@@ -2769,7 +2867,7 @@ function DataTableImpl<T extends RowData>({
           // selection: on a host that owns filter persistence through the URL,
           // it must not overwrite the filter currently on screen.
           applyPerspectiveSettings(local.settings, local.id, {
-            preserveAdvancedFilter: !!advancedFilter?.onApplyTree,
+            preserveAdvancedFilter,
           })
           initialPerspectiveAppliedRef.current = true
         }
@@ -2809,7 +2907,7 @@ function DataTableImpl<T extends RowData>({
       applyPerspectiveSettings(
         target.settings,
         target.id,
-        orphanedSnapshotDropped ? { preserveAdvancedFilter: !!advancedFilter?.onApplyTree } : undefined,
+        orphanedSnapshotDropped ? { preserveAdvancedFilter } : undefined,
       )
     } else if (orphanedSnapshotDropped) {
       // Nothing is left to fall back to — the deleted view was the only one. The
@@ -2821,11 +2919,11 @@ function DataTableImpl<T extends RowData>({
       // another session — so it must not clear the filter a host that owns
       // filter persistence through the URL currently has on screen.
       applyPerspectiveSettings({}, null, {
-        preserveAdvancedFilter: !!advancedFilter?.onApplyTree,
+        preserveAdvancedFilter,
       })
     }
     initialPerspectiveAppliedRef.current = true
-  }, [canUsePerspectives, perspectiveData, perspectiveTableId, perspectiveConfig, applyPerspectiveSettings, activePerspectiveId, advancedFilter?.onApplyTree])
+  }, [canUsePerspectives, perspectiveData, perspectiveTableId, perspectiveConfig, applyPerspectiveSettings, activePerspectiveId, advancedFilter?.onApplyTree, getCurrentSettings])
 
   const scrollTableIntoView = React.useCallback(() => {
     const rect = containerRef.current?.getBoundingClientRect()
@@ -3498,20 +3596,27 @@ function DataTableImpl<T extends RowData>({
   // the wrapped action buttons rendered over it on narrow layouts.
   const headerContentClassName = 'flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between'
   const toolbarWrapperClassName = embedded ? 'mt-2' : 'mt-3 pt-3 border-t'
-  const tableScrollWrapperClassName = embedded ? '' : 'overflow-auto'
+  // `isolate` keeps the z-index of pinned cells local to the table so they
+  // scroll beneath the sticky app top bar instead of over it.
+  const tableScrollWrapperClassName = embedded ? 'isolate' : 'isolate overflow-auto'
+  // Non-embedded tables sit on the `bg-card` container above; embedded ones
+  // render on whatever surface hosts them, so they keep the page background.
+  const stickySurfaceClass = embedded ? 'md:bg-background' : 'md:bg-card'
+  const stickyHeaderSurfaceClass = `${stickySurfaceClass} ${STICKY_HEADER_TINT_CLASS}`
+  const stickyBodySurfaceClass = `${stickySurfaceClass} ${STICKY_ROW_HOVER_TINT_CLASS}`
 
   const virtualScrollRef = React.useRef<HTMLDivElement>(null)
-  // Measure the horizontal scroll viewport so the empty state can center within
+  // Measure the horizontal scroll viewport so the empty and error states can center within
   // the visible area instead of within the (often wider, overflowing) table.
   const [tableScrollEl, setTableScrollEl] = React.useState<HTMLDivElement | null>(null)
-  const [emptyStateViewportWidth, setEmptyStateViewportWidth] = React.useState<number | null>(null)
+  const [scrollViewportWidth, setScrollViewportWidth] = React.useState<number | null>(null)
   const setTableScrollWrapperRef = React.useCallback((node: HTMLDivElement | null) => {
     setTableScrollEl(node)
     virtualScrollRef.current = node
   }, [])
   React.useEffect(() => {
     if (!tableScrollEl || typeof ResizeObserver === 'undefined') return
-    const update = () => setEmptyStateViewportWidth(tableScrollEl.clientWidth)
+    const update = () => setScrollViewportWidth(tableScrollEl.clientWidth)
     update()
     const observer = new ResizeObserver(update)
     observer.observe(tableScrollEl)
@@ -3672,7 +3777,7 @@ function DataTableImpl<T extends RowData>({
                   const columnMeta = (header.column.columnDef as any)?.meta
                   const priority = resolvePriority(header.column)
                   const isFirstDataColumn = headerIndex === 0
-                  const stickyClass = stickyFirstColumn && isFirstDataColumn ? ` md:sticky md:left-0 md:z-10 md:bg-background ${STICKY_LEFT_SHADOW_CLASS}` : ''
+                  const stickyClass = stickyFirstColumn && isFirstDataColumn ? ` md:sticky md:left-0 md:z-10 ${stickyHeaderSurfaceClass} ${STICKY_LEFT_SHADOW_CLASS}` : ''
                   const isColumnSortable = sortable && !!header.column.getCanSort?.()
                   const headerContent = header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())
                   // Columns that can't be sorted (e.g. a manual "select" checkbox column) may render
@@ -3728,7 +3833,7 @@ function DataTableImpl<T extends RowData>({
                   <TableHead
                     className={cn(
                       actionsColumnAlign === 'center' ? 'w-0 text-center' : 'w-0 text-right',
-                      stickyActionsColumn && `md:sticky md:right-0 md:z-20 md:bg-background ${STICKY_RIGHT_SHADOW_CLASS}`,
+                      stickyActionsColumn && `md:sticky md:right-0 md:z-20 ${stickyHeaderSurfaceClass} ${STICKY_RIGHT_SHADOW_CLASS}`,
                     )}
                   >
                     {t('ui.dataTable.actionsColumn', 'Actions')}
@@ -3749,8 +3854,13 @@ function DataTableImpl<T extends RowData>({
               </TableRow>
             ) : error ? (
               <TableRow>
-                <TableCell colSpan={mergedColumns.length + (rowActions || injectedRowActions.length > 0 ? 1 : 0) + (hasInjectedBulkActions ? 1 : 0)} className="h-24 text-center text-destructive">
-                  {error}
+                <TableCell colSpan={mergedColumns.length + (rowActions || injectedRowActions.length > 0 ? 1 : 0) + (hasInjectedBulkActions ? 1 : 0)} className="p-0">
+                  <div
+                    className={cn('sticky left-0 flex min-h-24 items-center justify-center px-4 text-center text-destructive', scrollViewportWidth ? '' : 'w-fit')}
+                    style={scrollViewportWidth ? { width: scrollViewportWidth } : undefined}
+                  >
+                    {error}
+                  </div>
                 </TableCell>
               </TableRow>
             ) : allRows.length ? (
@@ -3774,7 +3884,7 @@ function DataTableImpl<T extends RowData>({
                   <TableRow 
                     key={row.id} 
                     data-state={row.getIsSelected() && 'selected'}
-                    className={isClickable ? 'cursor-pointer hover:bg-muted/50 transition-colors' : ''}
+                    className={cn('group/row', isClickable && 'cursor-pointer hover:bg-muted/50 transition-colors')}
                     onClick={isClickable ? (e) => {
                       // Don't trigger row click if clicking on actions cell
                       if ((e.target as HTMLElement).closest('[data-actions-cell]')) {
@@ -3889,7 +3999,7 @@ function DataTableImpl<T extends RowData>({
                       return (
                         <TableCell
                           key={cell.id}
-                          className={responsiveClass(priority, columnMeta?.hidden) + (isStickyCell ? ` md:sticky md:left-0 md:z-10 md:bg-background ${STICKY_LEFT_SHADOW_CLASS}` : '')}
+                          className={responsiveClass(priority, columnMeta?.hidden) + (isStickyCell ? ` md:sticky md:left-0 md:z-10 ${stickyBodySurfaceClass} ${STICKY_LEFT_SHADOW_CLASS}` : '')}
                           style={typeof sizedWidth === 'number' ? { width: sizedWidth, minWidth: sizedWidth, maxWidth: sizedWidth } : undefined}
                         >
                           {expandAffordance ? (
@@ -3905,7 +4015,7 @@ function DataTableImpl<T extends RowData>({
                       <TableCell
                         className={cn(
                           actionsColumnAlign === 'center' ? 'text-center whitespace-nowrap' : 'text-right whitespace-nowrap',
-                          stickyActionsColumn && `md:sticky md:right-0 md:z-10 md:bg-background ${STICKY_RIGHT_SHADOW_CLASS}`,
+                          stickyActionsColumn && `md:sticky md:right-0 md:z-10 ${stickyBodySurfaceClass} ${STICKY_RIGHT_SHADOW_CLASS}`,
                         )}
                         data-actions-cell
                       >
@@ -3926,8 +4036,8 @@ function DataTableImpl<T extends RowData>({
               <TableRow>
                 <TableCell colSpan={mergedColumns.length + (rowActions || injectedRowActions.length > 0 ? 1 : 0) + (hasInjectedBulkActions ? 1 : 0)} className="p-0">
                   <div
-                    className={cn('sticky left-0 flex justify-center py-6', emptyStateViewportWidth ? '' : 'w-fit')}
-                    style={emptyStateViewportWidth ? { width: emptyStateViewportWidth } : undefined}
+                    className={cn('sticky left-0 flex justify-center py-6', scrollViewportWidth ? '' : 'w-fit')}
+                    style={scrollViewportWidth ? { width: scrollViewportWidth } : undefined}
                   >
                     {filterAwareEmptyState?.active ? (
                       <FilteredEmptyResults

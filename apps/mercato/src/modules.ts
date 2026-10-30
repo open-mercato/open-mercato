@@ -94,6 +94,14 @@ export const enabledModules: ModuleEntry[] = [
   // case'). Run the om-refresh-standalone-harness skill to add that coverage,
   // then enable it in the template.
   { id: 'availability', from: '@open-mercato/core' },
+  // Ecommerce store module (SPEC-029): store, hostname and channel binding,
+  // buyer-context resolution and the public storefront read API.
+  { id: 'ecommerce', from: '@open-mercato/core' },
+  // Promotions engine (SPEC-055): rule-condition trees, codes, cart effect resolution.
+  { id: 'promotions', from: '@open-mercato/core' },
+  // Channel-agnostic basket module (cart-module spec): priced lines, promotions,
+  // totals, token-bound public access. Requires catalog, sales and customer_groups.
+  { id: 'cart', from: '@open-mercato/core' },
   { id: 'api_keys', from: '@open-mercato/core' },
   { id: 'devices', from: '@open-mercato/core' },
   { id: 'dictionaries', from: '@open-mercato/core' },
@@ -137,6 +145,7 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'checkout', from: '@open-mercato/checkout' },
   { id: 'documents', from: '@open-mercato/documents' },
   { id: 'gateway_stripe', from: '@open-mercato/gateway-stripe' },
+  { id: 'gateway_tpay', from: '@open-mercato/gateway-tpay' },
   // Per-user email channels for the Communications Hub (SPEC-045d / email
   // integration spec). Each provider package registers its `ChannelAdapter`
   // at import time via `setup.ts`; the hub picks them up by `providerKey`.
@@ -157,6 +166,7 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'sync_akeneo', from: '@open-mercato/sync-akeneo' },
   { id: 'tillio', from: '@open-mercato/tillio' },
   { id: 'shipping_carriers', from: '@open-mercato/core' },
+  { id: 'carrier_inpost', from: '@open-mercato/carrier-inpost' },
   { id: 'eudr', from: '@open-mercato/core' },
   { id: 'webhooks', from: '@open-mercato/webhooks' },
   // Same-origin OTLP proxy for browser RUM spans; inert unless
@@ -164,6 +174,11 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'telemetry', from: '@open-mercato/telemetry' },
   { id: 'customer_accounts', from: '@open-mercato/core' },
   { id: 'portal', from: '@open-mercato/core' },
+  // Audit-grade questionnaire/form primitive — versioned definitions, append-only
+  // submissions, role-sliced rendering, public runner + portal + embed surfaces.
+  // Listed after customer_accounts/portal because its portal pages and public
+  // runner resolve customer auth through them.
+  { id: 'forms', from: '@open-mercato/core' },
   {
     id: 'example',
     from: '@app',
@@ -176,6 +191,21 @@ export const enabledModules: ModuleEntry[] = [
       nav: parseBooleanWithDefault(process.env.OM_INTEGRATION_TEST, false)
         ? { groupOrder: ['example.nav.group'] }
         : undefined,
+      // An empty setup override is a no-op that still makes the setup domain dispatch, which is what
+      // TC-AUTH-SETUP-OVERRIDE-I18N-001 needs to guard locale-only registrations (#7243).
+      setup: parseBooleanWithDefault(process.env.OM_INTEGRATION_TEST, false) ? {} : undefined,
+      widgets: {
+        // Client-side override probe (#5844). Deliberately ungated: a `process.env.OM_*`
+        // guard would resolve on the server and evaluate to `false` in the browser, where
+        // Next inlines no server-only value — the widget would then reappear the moment
+        // `ClientBootstrap` re-registered the injection registry, and the probe would
+        // report a product bug that is really a probe bug.
+        //
+        // Keyed by the generated registry `key`, NOT by `example.injection.override-probe`:
+        // injection tables reference the `widgetId`, so this spelling only reaches the
+        // table filter through the alias resolution added for #5152.
+        injection: { 'example:override-probe:widget': null },
+      },
       routes: {
         api: {
           'GET /api/example/override-probe': {

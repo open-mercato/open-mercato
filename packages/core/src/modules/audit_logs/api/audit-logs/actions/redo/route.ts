@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { getAuthFromRequest, type AuthContext } from '@open-mercato/shared/lib/auth/server'
+import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/shared/lib/auth/organizationScope'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { resolveFeatureCheckContext, resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
@@ -14,6 +15,12 @@ import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
+import { authorizeAuditReplayWithEntityManager } from '@open-mercato/core/modules/audit_logs/lib/replayAuthorization'
+import {
+  actionLogBelongsToAuth,
+  resolveCanonicalAuthSubject,
+  resolveActionLogActorSubject,
+} from '@open-mercato/core/modules/audit_logs/lib/actorSubject'
 
 const logger = createLogger('audit_logs').child({ component: 'redo' })
 
@@ -42,6 +49,8 @@ const errorSchema = z.object({
 export async function POST(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const authSubject = resolveCanonicalAuthSubject(auth)
+  if (!authSubject) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = (await req.json().catch(() => null)) as RedoRequestBody | null
   const logId = typeof body?.logId === 'string' ? body.logId.trim() : ''
@@ -57,7 +66,14 @@ export async function POST(req: Request) {
     rbac = null
   }
 
-  const { organizationId } = await resolveFeatureCheckContext({ container, auth, request: req })
+  const { organizationId, scope } = await resolveFeatureCheckContext({ container, auth, request: req })
+  let singleOrganizationId: string | null
+  try {
+    singleOrganizationId = organizationId ?? resolveSingleOrganizationIdOrDeny(scope, auth)
+  } catch (err) {
+    if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
+    throw err
+  }
 
   const canRedoTenant = rbac
     ? await rbac.userHasAllFeatures(auth.sub, ['audit_logs.redo_tenant'], {
@@ -66,13 +82,20 @@ export async function POST(req: Request) {
       })
     : false
 
-  const scopedOrgId = canRedoTenant ? organizationId ?? null : organizationId ?? auth.orgId ?? null
+  const scopedOrgId = canRedoTenant ? organizationId ?? null : singleOrganizationId
   const log = await logs.findById(logId)
 
   if (!log || log.executionState !== 'undone') {
     return NextResponse.json({ error: 'Redo target not available' }, { status: 400 })
   }
-  if (log.actorUserId && log.actorUserId !== auth.sub && !canRedoTenant) {
+  const logActorSubject = resolveActionLogActorSubject(log)
+  const isLegacyApiKeyOwner = log.actorUserId === authSubject.storageId
+    && authSubject.kind === 'api_key'
+    && log.contextJson?.actorSubject === undefined
+  if (log.actorUserId && !logActorSubject && !isLegacyApiKeyOwner) {
+    return NextResponse.json({ error: 'Redo target not available' }, { status: 400 })
+  }
+  if (log.actorUserId && !actionLogBelongsToAuth(log, auth) && !canRedoTenant) {
     return NextResponse.json({ error: 'Redo target not available' }, { status: 400 })
   }
   // Fail closed on tenant scope: `audit_logs.redo_tenant` only widens scope WITHIN a
@@ -94,7 +117,9 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Redo target not available' }, { status: 400 })
   }
 
-  const lookupActorId = canRedoTenant ? (log.actorUserId ?? auth.sub) : auth.sub
+  const lookupActorId = canRedoTenant
+    ? (logActorSubject ?? (isLegacyApiKeyOwner ? authSubject.subject : auth.sub))
+    : authSubject.subject
   const latestUndoneOrganizationId = log.organizationId ?? null
   const latestUndone = await logs.latestUndoneForActor(lookupActorId, {
     tenantId: auth.tenantId ?? null,
@@ -103,9 +128,19 @@ export async function POST(req: Request) {
   if (!latestUndone || latestUndone.id !== log.id) {
     return NextResponse.json({ error: 'Redo target not available' }, { status: 400 })
   }
+  if (!rbac) return NextResponse.json({ error: 'Redo target not available' }, { status: 400 })
+  const replayRbac = rbac
 
   try {
     const ctx = await createRuntimeContext(container, auth, req)
+    ctx.replayTransactionGuard = ({ logEntry, transactionalEm }) =>
+      authorizeAuditReplayWithEntityManager(transactionalEm, replayRbac, logEntry, {
+        auth,
+        organizationId,
+        selfFeature: 'audit_logs.redo_self',
+        tenantFeature: 'audit_logs.redo_tenant',
+        unavailableMessage: 'Redo target not available',
+      })
     const contextRecord = log.contextJson && typeof log.contextJson === 'object' ? (log.contextJson as Record<string, unknown>) : null
     const cacheAliasesRaw = Array.isArray(contextRecord?.cacheAliases as unknown[])
       ? (contextRecord!.cacheAliases as unknown[])
@@ -133,13 +168,13 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Redo data unavailable for this action' }, { status: 400 })
     }
     const commandInput = resolvedInput
-    const { logEntry } = await commandBus.execute(log.commandId, {
+    const { logEntry, replaySourceFinalized } = await commandBus.execute(log.commandId, {
       input: commandInput,
       ctx,
       metadata,
       redoLogEntry: log,
     })
-    await logs.markRedone(log.id)
+    if (replaySourceFinalized !== true) await logs.markRedone(log.id)
     const actionLog = asActionLog(logEntry)
     const response = NextResponse.json({
       ok: true,

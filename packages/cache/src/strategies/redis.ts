@@ -3,10 +3,12 @@ import { CacheDependencyUnavailableError } from '../errors'
 import { getRedisUrlOrThrow, REDIS_WIRE_PROTOCOL } from '@open-mercato/shared/lib/redis/connection'
 import type { RedisProtocolVersion } from '@open-mercato/shared/lib/redis/connection'
 import { matchCacheKeyPattern } from '../patterns'
+import { decodeCacheText, encodeCacheText, resolveCacheCodecConfig } from '../codec'
+import type { CacheCodecOptions } from '../codec'
 
 type RedisPipeline = {
-  set(key: string, value: string): RedisPipeline
-  setex(key: string, ttlSeconds: number, value: string): RedisPipeline
+  set(key: string, value: string | Buffer): RedisPipeline
+  setex(key: string, ttlSeconds: number, value: string | Buffer): RedisPipeline
   sadd(key: string, value: string): RedisPipeline
   srem(key: string, member: string): RedisPipeline
   del(key: string): RedisPipeline
@@ -17,8 +19,9 @@ type RedisPipeline = {
 type RedisClient = {
   ping(): Promise<string>
   get(key: string): Promise<string | null>
-  set(key: string, value: string): Promise<unknown>
-  setex(key: string, ttlSeconds: number, value: string): Promise<unknown>
+  getBuffer(key: string): Promise<Buffer | null>
+  set(key: string, value: string | Buffer): Promise<unknown>
+  setex(key: string, ttlSeconds: number, value: string | Buffer): Promise<unknown>
   del(key: string): Promise<unknown>
   exists(key: string): Promise<number>
   keys(pattern: string): Promise<string[]>
@@ -102,8 +105,18 @@ function loadRedisModuleViaRequire(): PossibleRedisModule | null {
   }
 }
 
-function pickRedisConstructor(mod: PossibleRedisModule): RedisConstructor | null {
-  const queue: unknown[] = [mod]
+export function pickRedisConstructor(mod: PossibleRedisModule): RedisConstructor | null {
+  // `mod` goes last: a bundler-wrapped ESM namespace for a CJS module (e.g.
+  // Turbopack's `createNS`) can itself be a callable-but-not-constructible
+  // wrapper around the real class, while `.default`/`.Redis` still point at
+  // the real class. Checking them first costs nothing for a plain CJS
+  // `require()` or a real Node ESM namespace, where they already agree with
+  // `mod`.
+  const queue: unknown[] = [
+    (mod as { default?: unknown } | null | undefined)?.default,
+    (mod as { Redis?: unknown } | null | undefined)?.Redis,
+    mod,
+  ]
   const seen = new Set<unknown>()
   while (queue.length) {
     const current = queue.shift()
@@ -186,8 +199,9 @@ async function releaseRedisEntry(key: string, entry: RedisRegistryEntry): Promis
   }
 }
 
-export function createRedisStrategy(redisUrl?: string, options?: { defaultTtl?: number }): CacheStrategy {
+export function createRedisStrategy(redisUrl?: string, options?: { defaultTtl?: number } & CacheCodecOptions): CacheStrategy {
   const defaultTtl = options?.defaultTtl
+  const codec = resolveCacheCodecConfig(options)
   const keyPrefix = 'cache:'
   const tagPrefix = 'tag:'
   const connectionUrl = redisUrl || getRedisUrlOrThrow('CACHE')
@@ -217,12 +231,12 @@ export function createRedisStrategy(redisUrl?: string, options?: { defaultTtl?: 
   const get = async (key: string, options?: CacheGetOptions): Promise<CacheValue | null> => {
     const client = await getRedisClient()
     const cacheKey = getCacheKey(key)
-    const data = await client.get(cacheKey)
+    const data = await client.getBuffer(cacheKey)
 
     if (!data) return null
 
     try {
-      const entry: CacheEntry = JSON.parse(data)
+      const entry: CacheEntry = JSON.parse(decodeCacheText(data))
 
       if (isExpired(entry)) {
         if (options?.returnExpired) {
@@ -246,10 +260,10 @@ export function createRedisStrategy(redisUrl?: string, options?: { defaultTtl?: 
     const cacheKey = getCacheKey(key)
 
     // Remove old entry from tag index if it exists
-    const oldData = await client.get(cacheKey)
+    const oldData = await client.getBuffer(cacheKey)
     if (oldData) {
       try {
-        const oldEntry: CacheEntry = JSON.parse(oldData)
+        const oldEntry: CacheEntry = JSON.parse(decodeCacheText(oldData))
         // Remove from old tags
         const pipeline = client.pipeline()
         for (const tag of oldEntry.tags) {
@@ -276,7 +290,7 @@ export function createRedisStrategy(redisUrl?: string, options?: { defaultTtl?: 
     const pipeline = client.pipeline()
 
     // Store the entry
-    const serialized = JSON.stringify(entry)
+    const serialized = encodeCacheText(JSON.stringify(entry), codec)
     if (ttl) {
       pipeline.setex(cacheKey, Math.ceil(ttl / 1000), serialized)
     } else {
@@ -299,11 +313,11 @@ export function createRedisStrategy(redisUrl?: string, options?: { defaultTtl?: 
     if (!exists) return false
 
     // Check if expired
-    const data = await client.get(cacheKey)
+    const data = await client.getBuffer(cacheKey)
     if (!data) return false
 
     try {
-      const entry: CacheEntry = JSON.parse(data)
+      const entry: CacheEntry = JSON.parse(decodeCacheText(data))
       if (isExpired(entry)) {
         await deleteKey(key)
         return false
@@ -319,11 +333,11 @@ export function createRedisStrategy(redisUrl?: string, options?: { defaultTtl?: 
     const cacheKey = getCacheKey(key)
 
     // Get entry to remove from tag index
-    const data = await client.get(cacheKey)
+    const data = await client.getBuffer(cacheKey)
     if (!data) return false
 
     try {
-      const entry: CacheEntry = JSON.parse(data)
+      const entry: CacheEntry = JSON.parse(decodeCacheText(data))
       const pipeline = client.pipeline()
 
       // Remove from tag index
@@ -447,10 +461,10 @@ export function createRedisStrategy(redisUrl?: string, options?: { defaultTtl?: 
     
     let expired = 0
     for (const cacheKey of cacheKeys) {
-      const data = await client.get(cacheKey)
+      const data = await client.getBuffer(cacheKey)
       if (data) {
         try {
-          const entry: CacheEntry = JSON.parse(data)
+          const entry: CacheEntry = JSON.parse(decodeCacheText(data))
           if (isExpired(entry)) {
             expired++
           }
@@ -469,10 +483,10 @@ export function createRedisStrategy(redisUrl?: string, options?: { defaultTtl?: 
     
     let removed = 0
     for (const cacheKey of cacheKeys) {
-      const data = await client.get(cacheKey)
+      const data = await client.getBuffer(cacheKey)
       if (data) {
         try {
-          const entry: CacheEntry = JSON.parse(data)
+          const entry: CacheEntry = JSON.parse(decodeCacheText(data))
           if (isExpired(entry)) {
             const key = cacheKey.substring(keyPrefix.length)
             await deleteKey(key)

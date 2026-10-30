@@ -1,6 +1,6 @@
 # Per-Provider Payment Gateway Webhook Body Limits
 
-- **Status:** planned
+- **Status:** implemented (#4512)
 - **Date:** 2026-08-01
 - **Type:** OSS shared/core webhook resource-bound capability
 - **Hub:** `payment_gateways`
@@ -82,7 +82,7 @@ No UI changes. Automated boundary tests qualify the implementation for `skip-qa`
 
 Land independently; no registration changes are required. Consumers opt in one provider at a time. Rollback removes enforcement after disabling registrations that rely on its overflow classification.
 
-Add counters for declared-length rejection, streamed overflow, stream failure, and accepted body-size histogram without body contents.
+Rejections are logged without body contents; the generic outcome log from `.ai/specs/2026-08-01-payment-gateway-webhook-response-formatting.md` records `payload_too_large`.
 
 ## Testing Strategy and Acceptance Criteria
 
@@ -111,7 +111,7 @@ Acceptance requires bounded fixture requests to prove exact-limit acceptance and
 - **Severity:** High
 - **Affected area:** Web process availability.
 - **Mitigation:** Existing rate limit, preflight optimization, enforced streaming limit, immediate cancel, no downstream work.
-- **Residual risk:** Providers that do not opt in retain legacy behavior for compatibility.
+- **Residual risk:** Providers that do not opt in retain legacy behavior for compatibility. Stripe opted in on 2026-10-13 (#7222).
 
 ### Valid provider payload rejection
 
@@ -163,6 +163,18 @@ None identified; architecture review remains required for the public registratio
 Fully compliant — ready for implementation.
 
 ## Changelog
+
+### 2026-10-13
+
+- Stripe now registers `maxBodyBytes` (the 1 MiB framework maximum, or `OM_WEBHOOK_MAX_BODY_BYTES` when that is lower), closing the unbounded unauthenticated read this spec had left as a residual risk (#7222).
+
+### 2026-10-09 (implementation)
+
+- Added the route test proving no locator, credential, or verifier work after a body-limit overflow (with and without a response formatter).
+
+### 2026-10-09
+
+- Marked implemented: registration validation, header preflight, streamed limit, `413`, OpenAPI, unit tests, and `UPGRADE_NOTES.md` landed in #4512. A route test proving no locator/credential/verifier work after overflow is added with the webhook extensions PR.
 
 ### 2026-08-01
 

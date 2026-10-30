@@ -15,9 +15,8 @@ import {
  * Figma `1788:3701`).
  *
  * The toolbar gear (`button[aria-label="Calendar settings"]`) opens the
- * Customization dialog: Event Categories + Activity Types tag inputs (the
- * Activity Types list is seeded from the tenant `activity-types` dictionary, so
- * the "Meeting" default type appears as a chip) and four preference switches.
+ * Customization dialog: a link to the Activity Types manager and four
+ * preference switches.
  *
  * "Show weekends" is a per-user view preference persisted to localStorage.
  * Default OFF → the week renders Mon–Fri (5 day-columns, no Sat/Sun headers).
@@ -67,13 +66,6 @@ test.describe('TC-CAL-007: Calendar settings / customization modal', () => {
       });
 
       await login(page, 'admin');
-      // The Activity Types tag input is seeded from the activity-types dictionary fetched on
-      // mount; wait for that exact response (set up before navigation) rather than
-      // `networkidle`, which never settles because the backend AppShell holds a persistent
-      // `/api/events/stream` SSE connection open.
-      const activityTypesLoaded = page.waitForResponse((response) =>
-        response.url().includes('/api/customers/dictionaries/activity-types'),
-      );
       await page.goto('/backend/calendar');
       await waitForCalendarLoaded(page);
 
@@ -86,22 +78,16 @@ test.describe('TC-CAL-007: Calendar settings / customization modal', () => {
       await expect(saturdayHeader).toBeHidden();
       await expect(sundayHeader).toBeHidden();
 
-      // The seed must be populated before the modal snapshots it on first open.
-      await activityTypesLoaded;
-
       // -- Gear opens the Customization dialog -----------------------------------
       await page.getByRole('button', { name: 'Calendar settings' }).click();
       const dialog = page.getByRole('dialog');
       await expect(dialog).toBeVisible();
       await expect(dialog.getByText('Customization').first()).toBeVisible();
-      await expect(dialog.getByText('Event Categories', { exact: true })).toBeVisible();
       await expect(dialog.getByText('Activity Types', { exact: true })).toBeVisible();
+      await expect(dialog.getByRole('link', { name: 'Manage activity types' }))
+        .toHaveAttribute('href', '/backend/config/customers#customer-dictionary-activity-types');
       const weekendSwitch = dialog.getByRole('switch', { name: 'Show weekends' });
       await expect(weekendSwitch).toBeVisible();
-
-      // -- Activity Types tag input seeded from the activity-types dictionary -----
-      // ("meeting" is a seeded default → its "Meeting" label renders as a chip).
-      await expect(dialog.getByText('Meeting', { exact: true })).toBeVisible();
 
       // -- Conflict scope: nested under Conflict warnings, defaults to "My meetings" --
       const conflictWarningsSwitch = dialog.getByRole('switch', { name: 'Conflict warnings' });

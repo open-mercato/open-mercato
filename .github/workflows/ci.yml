@@ -1,4 +1,4 @@
-name: CI for Develop&Main
+name: CI for Main & Release Lines
 permissions:
   contents: read
 
@@ -72,19 +72,21 @@ env:
   # explicitly allows them.
   NEXT_PUBLIC_DOCUMENTS_COLLAB_URL: 'ws://127.0.0.1:4101'
 
+# `release/v*` are the release lines (CONTRIBUTING.md § Releasing): backport PRs into them must
+# run the same checks as PRs into main, or a backport merges untested.
 # `feat/wms` is a temporary stacking base. PRs stacked on it target that branch rather than
-# `develop`, and while it is absent from these lists no job is scheduled for them at all.
-# Drop the entry once its stack has landed on `develop`.
+# `main`, and while it is absent from these lists no job is scheduled for them at all.
+# Drop the entry once its stack has landed on `main`.
 on:
   push:
     branches:
       - main
-      - develop
+      - 'release/v*'
       - feat/wms
   pull_request:
     branches:
       - main
-      - develop
+      - 'release/v*'
       - feat/wms
 
 # Cancel any in-progress run on the same branch when a new push arrives.
@@ -300,7 +302,7 @@ jobs:
             # the base branch. The merge commit is frozen when the run is created,
             # while the base branch keeps moving: diffing against a freshly fetched
             # `origin/<base>` also reports every file the base branch changed since
-            # then, so a re-run of a UI-only PR after develop bumped `yarn.lock`
+            # then, so a re-run of a UI-only PR after main bumped `yarn.lock`
             # ran (and failed) the audit (#6753).
             CHANGED=$(git diff --name-only HEAD^1 HEAD)
           else
@@ -396,7 +398,7 @@ jobs:
         # This job gates the CHANGE, so it fails only on advisories the change
         # introduces: an advisory already flagged on the base yarn.lock is
         # reported but not blocking. Otherwise a PR adding one clean dependency
-        # stays red for every advisory already on develop (#5868). Those are
+        # stays red for every advisory already on main (#5868). Those are
         # owned by the scheduled `.github/workflows/audit.yml`, which audits
         # without a baseline and keeps a tracking issue open until fixed.
         # When no baseline can be resolved the audit runs strict (fails closed).
@@ -784,8 +786,8 @@ jobs:
         # above uses --filter=[base]... which selects packages by the dependency graph
         # and never pulls in create-mercato-app when only apps/mercato changes — so on
         # PRs the parity tests can silently skip while the post-merge push build (full,
-        # unfiltered `yarn test`) turns develop red (see #3779). Run the create-app unit
-        # suite unconditionally here so template drift fails the PR, not develop.
+        # unfiltered `yarn test`) turns main red (see #3779). Run the create-app unit
+        # suite unconditionally here so template drift fails the PR, not main.
         run: yarn workspace create-mercato-app test
 
       - name: Run repo-wide audit guards (always, unfiltered)
@@ -793,7 +795,7 @@ jobs:
         # tests are repo-wide AUDITS rather than package unit tests: they deliberately scan
         # other packages, apps/ or scripts/. The turbo filter selects packages, not paths, so
         # a PR touching only scripts/ selects no package and those audits never run — the
-        # violation then lands on develop and the post-merge unfiltered `yarn test` goes red
+        # violation then lands on main and the post-merge unfiltered `yarn test` goes red
         # for everyone (#4527). Run them unconditionally so they fail their own PR — do not
         # move this step behind an `if:`, or the silent skip comes straight back.
         #
@@ -808,6 +810,65 @@ jobs:
         # above), `yarn agents:check-budget`, `yarn test:scripts`. All guards are static file
         # scans — the whole set is ~10 s, so it stays on the common PR path.
         run: yarn test:repo-wide-guards
+
+  # ── Core suite under a non-UTC timezone ────────────────────────────────────
+  # Runners default to UTC, where wall-clock/timezone defects are invisible: the
+  # planner DTSTART bug (#5862) was built from the host clock, yet every suite
+  # passed at TZ=UTC with it fully present, because the fixtures only ever used
+  # `...Z` values. This job re-runs @open-mercato/core under a positive-offset
+  # zone whose local date differs from UTC for part of the day, so host-clock
+  # leakage fails the build instead of shipping. Kept as its own job rather than
+  # a step in `test`, which is sharded and would repeat the run per shard.
+  core-timezone:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: [prepare, audit-scope, audit, lint]
+    if: |
+      always() &&
+      needs.prepare.result == 'success' &&
+      needs.audit-scope.result == 'success' &&
+      (needs.audit.result == 'success' || needs.audit.result == 'skipped') &&
+      needs.lint.result == 'success'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24.19.0
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Cache Yarn packages
+        uses: actions/cache@v6
+        with:
+          path: .yarn/cache
+          key: yarn-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
+          restore-keys: yarn-${{ runner.os }}-
+
+      - name: Cache node_modules
+        id: nm-cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            node_modules
+            packages/*/node_modules
+            apps/*/node_modules
+          key: node-modules-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
+
+      - name: Install dependencies
+        if: steps.nm-cache.outputs.cache-hit != 'true'
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/yarn-retry-on-install-crash.sh" yarn install --immutable
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v8
+        with:
+          name: build-artifacts
+
+      - name: Run core suite at TZ=Pacific/Auckland
+        run: yarn workspace @open-mercato/core test:tz
 
   # ── Documents multi-instance durability ────────────────────────────────────
   # The standard Documents Jest suite intentionally skips this infrastructure
@@ -865,6 +926,18 @@ jobs:
       - name: Run real two-sidecar durability regression
         run: yarn workspace @open-mercato/documents test:multi-instance
 
+      - name: Run advisory lock suite against real Postgres
+        if: ${{ !cancelled() }}
+        run: yarn workspace @open-mercato/shared test:pg-integration
+
+      - name: Run integrations module suites against real Postgres
+        if: ${{ !cancelled() }}
+        run: yarn workspace @open-mercato/core test:pg-integration
+
+      - name: Check OAuth grant import paths resolve against the built dist
+        if: ${{ !cancelled() }}
+        run: node scripts/check-oauth-publish-shape.mjs
+
   # ── Integration tests ───────────────────────────────────────────────────────
   # Boots an ephemeral app server and runs the Playwright suite.
   # Starts as soon as 'prepare' completes — runs in PARALLEL with 'test' so
@@ -873,7 +946,7 @@ jobs:
   #
   # On PRs: a single runner executes only affected modules (OM_INTEGRATION_MODULES).
   #         If no module-level code changed the job is skipped entirely.
-  # On pushes to main/develop: 15 parallel shards run the full suite, cutting
+  # On pushes to main and release/v*: 15 parallel shards run the full suite, cutting
   #         wall time from ~45 min to ~6 min. A merge-coverage job then
   #         combines per-shard coverage reports.
   ephemeral-integration:
@@ -901,6 +974,7 @@ jobs:
       # SELF_SERVICE_ONBOARDING_ENABLED is workflow-level for the same reason.
       OM_DISABLE_EMAIL_DELIVERY: '0'
       OM_ENABLE_TEST_CHANNEL_SEEDING: 'true'
+      OM_ENABLE_TEST_OAUTH_GRANTS: 'true'
       SYSTEM_EMAIL_PROVIDER: '__test_seed__'
       EMAIL_FROM: 'system@test-seed.local'
       NOTIFICATIONS_EMAIL_FROM: 'notifications@test-seed.local'
@@ -914,6 +988,13 @@ jobs:
       DOCUMENTS_COLLAB_JWT_SECRET_V2: 'ci-documents-collaboration-v2-secret-32-bytes'
       JWT_SECRET: 'ci-ephemeral-test-jwt-secret-32-chars-min'
       OM_SECURITY_MFA_SETUP_SECRET: 'ci-ephemeral-test-mfa-setup-secret'
+      # The forms module refuses its DEV-ONLY deterministic KMS adapter under
+      # NODE_ENV=production, which is how the ephemeral harness runs the app.
+      # Without a master key `formsEncryptionService` does not resolve and every
+      # route that touches an encrypted payload answers a bare 500 — the whole
+      # public and portal runtime, the submissions inbox, revisions, audit,
+      # anonymize, export, PDF and analytics. Must decode to exactly 32 bytes.
+      FORMS_ENCRYPTION_MASTER_KEY: '63692d657068656d6572616c2d746573742d666f726d732d6d61737465722d31'
       OM_WEBHOOKS_ALLOW_PRIVATE_URLS: '1'
       # The mock inbound webhook adapter now requires a real HMAC-SHA256
       # signature (#2707). The ephemeral harness spawns the app under

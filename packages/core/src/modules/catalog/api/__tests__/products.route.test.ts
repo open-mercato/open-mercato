@@ -6,7 +6,10 @@ import {
 } from '../products/route'
 import { parseBooleanFlag, sanitizeSearchTerm } from '../helpers'
 import { buildCustomFieldFiltersFromQuery } from '@open-mercato/shared/lib/crud/custom-fields'
-import { IMMUTABLE_UNACCENT_FUNCTION } from '@open-mercato/shared/lib/db/accentInsensitiveSearch'
+import {
+  IMMUTABLE_UNACCENT_FUNCTION,
+  buildAccentInsensitiveContainsPatternSql,
+} from '@open-mercato/shared/lib/db/accentInsensitiveSearch'
 import { warnOnEncryptedLikeFilter } from '@open-mercato/shared/lib/encryption/likeFilterWarning'
 import { PRODUCT_SEARCH_EXPRESSION_SQL } from '../../lib/productSearch'
 
@@ -125,8 +128,28 @@ describe('catalog products route helpers', () => {
     // PostgreSQL silently falls back to a sequential scan.
     expect(searchSymbol!.description).toContain(PRODUCT_SEARCH_EXPRESSION_SQL)
     const searchCondition = (where as any)[searchSymbol!]
-    expect(searchCondition.$ilike.sql).toBe(`${IMMUTABLE_UNACCENT_FUNCTION}(?)`)
-    expect(searchCondition.$ilike.params).toEqual(['%hustawka%'])
+    expect(searchCondition.$ilike.sql).toBe(buildAccentInsensitiveContainsPatternSql())
+    expect(searchCondition.$ilike.sql).toContain(`${IMMUTABLE_UNACCENT_FUNCTION}(?)`)
+    expect(searchCondition.$ilike.params).toEqual(['hustawka'])
+  })
+
+  it('binds fullwidth LIKE look-alikes raw so they are escaped after unaccent folds them (issue #6465)', async () => {
+    const forkedEm = {
+      find: jest.fn().mockResolvedValue([]),
+    }
+    const em = { fork: () => forkedEm }
+    const container = { resolve: jest.fn().mockReturnValue(em) }
+    ;(buildCustomFieldFiltersFromQuery as jest.Mock).mockResolvedValueOnce({})
+
+    await buildProductFilters(
+      { search: 'Hu\uFF3Ftawka \uFF05 \uFF3C' } as any,
+      { container, auth: { tenantId: 'tenant-1' } } as any,
+    )
+
+    const where = forkedEm.find.mock.calls[0][1] as Record<string, unknown>
+    const searchCondition = (where as any)[findSearchSymbol(where)!]
+    expect(searchCondition.$ilike.sql).toBe(buildAccentInsensitiveContainsPatternSql())
+    expect(searchCondition.$ilike.params).toEqual(['Hu\uFF3Ftawka \uFF05 \uFF3C'])
   })
 
   it('raises the encrypted-ILIKE diagnostic for the searched columns the raw() key hides (issue #5051)', async () => {

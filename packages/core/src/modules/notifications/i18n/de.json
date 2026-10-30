@@ -85,6 +85,7 @@
   "notifications.settings.types.saveSuccess": "Einstellungen des Benachrichtigungstyps gespeichert",
   "notifications.settings.types.title": "Zustellkanäle pro Typ",
   "notifications.settings.types.typeColumn": "Benachrichtigungstyp",
+  "notifications.settings.types.uncategorized": "Weitere Benachrichtigungen",
   "notifications.title": "Benachrichtigungen",
   "notifications.toast.actionError": "Aktion konnte nicht ausgeführt werden",
   "notifications.toast.actionSuccess": "Aktion erfolgreich ausgeführt",

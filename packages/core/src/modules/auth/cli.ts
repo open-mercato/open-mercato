@@ -22,6 +22,7 @@ import crypto from 'node:crypto'
 import { formatPasswordRequirements, getPasswordPolicy, validatePassword } from '@open-mercato/shared/lib/auth/passwordPolicy'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { getCliModules, type Module } from '@open-mercato/shared/modules/registry'
+import { lockUserRoleWriterAuthorizationState } from './lib/authorizationStateLocks'
 
 async function resolveTenantScopedRole(em: any, name: string, normalizedTenantId: string | null) {
   const existing = await em.findOne(Role, { name, tenantId: normalizedTenantId })
@@ -62,24 +63,37 @@ const addUser: ModuleCli = {
     if (!org) throw new Error('Organization not found')
     const orgTenantId = org.tenant?.id ? String(org.tenant.id) : null
     const normalizedTenantId = normalizeTenantId(orgTenantId ?? null) ?? null
-    const u = em.create(User, {
-      email,
-      emailHash: computeEmailHash(email),
-      passwordHash: await hash(password, 10),
-      isConfirmed: true,
-      organizationId: org.id,
-      tenantId: org.tenant.id,
-    })
-    await em.persist(u).flush()
-    if (rolesCsv) {
-      const names = parseCommaSeparatedList(rolesCsv)
-      for (const name of names) {
-        const role = await resolveTenantScopedRole(em, name, normalizedTenantId)
-        const link = em.create(UserRole, { user: u, role })
-        await em.persist(link).flush()
+    const passwordHash = await hash(password, 10)
+    let createdUserId: string | null = null
+    await em.transactional(async (tem: EntityManager) => {
+      const user = tem.create(User, {
+        email,
+        emailHash: computeEmailHash(email),
+        passwordHash,
+        isConfirmed: true,
+        organizationId: org.id,
+        tenantId: org.tenant.id,
+        createdAt: new Date(),
+      })
+      await tem.persist(user).flush()
+      const roles = rolesCsv
+        ? await Promise.all(
+            parseCommaSeparatedList(rolesCsv).map((name) => resolveTenantScopedRole(tem, name, normalizedTenantId)),
+          )
+        : []
+      if (roles.length) {
+        await lockUserRoleWriterAuthorizationState(tem, {
+          userIds: [String(user.id)],
+          roleIds: roles.map((role) => String(role.id)),
+        })
+        for (const role of roles) {
+          tem.persist(tem.create(UserRole, { user, role, createdAt: new Date() }))
+        }
+        await tem.flush()
       }
-    }
-    console.log('User created with id', u.id)
+      createdUserId = String(user.id)
+    })
+    console.log('User created with id', createdUserId)
   },
 }
 

@@ -34,7 +34,7 @@ You do **not** need `MCP_SERVER_API_KEY` for `mcp:dev`. The `MCP_SERVER_API_KEY 
 :::
 
 :::info Route modules outside Next.js
-Both servers run in plain Node, and a tool call imports the API route module behind it. Route modules say `from 'next/server'`, a bare subpath only a bundler resolves (`next` ships no `exports` map). The `mercato ai_assistant` commands therefore install a small resolve hook at startup that retries `next/<subpath>.js` when Node cannot resolve `next/<subpath>`. If you embed the operation runner in your own Node process instead of these commands, call `installNextSubpathResolveHook()` from `@open-mercato/ai-assistant/modules/ai_assistant/lib/next-subpath-resolve-hook` before the first tool call, or tools backed by such routes fail with `Failed to load route module: Cannot find module '…/next/server'`.
+Both servers run in plain Node, and a tool call imports the API route module behind it. Route modules say `from 'next/server'`, a bare subpath only a bundler resolves (`next` ships no `exports` map). The `mercato` CLI (and with it every `mercato ai_assistant` command) therefore installs a small resolve hook at startup that retries `next/<subpath>.js` when Node cannot resolve `next/<subpath>`. If you embed the operation runner in your own Node process instead of these commands, call `installNextSubpathResolveHook()` from `@open-mercato/shared/lib/bootstrap/next-subpath-resolve-hook` (also re-exported from `@open-mercato/ai-assistant/modules/ai_assistant/lib/next-subpath-resolve-hook`) before the first tool call, or tools backed by such routes fail with `Failed to load route module: Cannot find module '…/next/server'`.
 :::
 
 ### How ACL gates which tools appear
@@ -186,6 +186,8 @@ To reach **any** endpoint from MCP, use the two Code Mode meta-tools — `search
    ```
 
 `execute` runs in a `node:vm` sandbox: `fetch`, `require`, `process`, and `fs` are blocked, there is a 30-second timeout, and a maximum of 50 API calls per execution. Between `search` and `execute`, the entire documented API surface is reachable from MCP — via code, not via one-tool-per-route.
+
+Code Mode's `api.request({ method, path, query, body })` does not follow HTTP redirects, including redirects within the application. A redirect returns `{ success: false, statusCode: 307, error: "API redirect 307 blocked" }` with the actual 3xx status. Redirect headers and bodies are omitted so credentials, request bodies, and sensitive redirect URLs cannot reach another endpoint or the model. Call the intended documented API path directly; browser flows such as SSO login must run in the browser.
 
 :::note Tools vs agents
 

@@ -79,6 +79,7 @@ export async function buildReportSheet(input: BuildReportSheetInput): Promise<Re
     timeProjectIds: input.timeProjectIds,
     periodFrom: toDate(report.periodFrom, new Date(0)),
     periodTo: toDate(report.periodTo, new Date()),
+    currentReportId: report.id,
   })
 
   // A closed report shows only what it froze. An entry logged into the period

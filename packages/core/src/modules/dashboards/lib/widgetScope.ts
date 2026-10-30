@@ -4,6 +4,7 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { isUnrestrictedOrganizationScope } from '@open-mercato/shared/lib/auth/organizationAccess'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 
 export type WidgetScopeContext = {
   container: AppContainer
@@ -74,13 +75,7 @@ export async function resolveWidgetScope(
     throw forbiddenScope()
   }
 
-  const organizationIds = (() => {
-    if (scope?.selectedId) return [scope.selectedId]
-    if (Array.isArray(scope?.filterIds) && scope.filterIds.length > 0) return scope.filterIds
-    if (scope?.allowedIds === null) return null
-    if (auth.orgId) return [auth.orgId]
-    return [] as string[]
-  })()
+  const organizationIds = resolveOrganizationScopeFilter(scope, auth).organizationIds ?? null
 
   if (organizationIds !== null && organizationIds.length === 0) {
     throw new CrudHttpError(400, { error: translate('dashboards.errors.organization_required', 'Organization context is required') })

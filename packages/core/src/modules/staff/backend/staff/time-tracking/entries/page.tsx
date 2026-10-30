@@ -81,6 +81,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { TimeEntryDialog } from '../../../../lib/time-tracking-ui/TimeEntryDialog'
+import { REPORTS_PATH, reportDetailHref } from '../../../../lib/time-tracking-ui/reportLinks'
 import { TimeEntryDurationCell } from '../../../../lib/time-tracking-ui/TimeEntryDurationCell'
 import { TimeEntriesSummaryFooter } from '../../../../lib/time-tracking-ui/TimeEntriesSummaryFooter'
 import {
@@ -120,7 +121,6 @@ const MANAGE_ALL_FEATURE = 'staff.timesheets.manage_all'
  * ordinary filter values, so they carry a removable chip like anything else.
  */
 const DEEP_LINK_PARAMS = ['taskId', 'ids'] as const
-const REPORTS_PATH = '/backend/staff/time-tracking/reports'
 const MUTATION_CONTEXT_ID = 'staff.time_tracking.entriesList'
 const RESOURCE_KIND = 'staff.timesheets.time_entry'
 
@@ -353,7 +353,7 @@ export default function TimeTrackingEntriesPage() {
         }
       }
       const [selfRes, projectsRes, tagsRes, peopleRes] = await Promise.all([
-        safeCall<{ member?: { id?: string } | null }>('/api/staff/team-members/self'),
+        safeCall<{ member?: { id?: string; displayName?: string } | null }>('/api/staff/team-members/self'),
         safeCall<{ items?: Array<Record<string, unknown>> }>('/api/staff/timesheets/time-projects?page=1&pageSize=100'),
         safeCall<{ items?: Array<Record<string, unknown>> }>('/api/staff/timesheets/tags?page=1&pageSize=100'),
         safeCall<{ items?: Array<Record<string, unknown>> }>('/api/staff/team-members?page=1&pageSize=100'),
@@ -399,19 +399,25 @@ export default function TimeTrackingEntriesPage() {
       )
 
       const people = peopleRes?.ok && Array.isArray(peopleRes.result?.items) ? peopleRes.result.items : []
-      setPeopleOptions(
-        people
-          .map((row: Record<string, unknown>) => {
-            const id = typeof row.id === 'string' ? row.id : null
-            const label = typeof row.display_name === 'string'
-              ? row.display_name
-              : typeof row.displayName === 'string'
-                ? row.displayName
-                : null
-            return id && label ? { value: id, label } : null
-          })
-          .filter((option): option is { value: string; label: string } => option !== null),
-      )
+      const personOptions = people
+        .map((row: Record<string, unknown>) => {
+          const id = typeof row.id === 'string' ? row.id : null
+          const label = typeof row.display_name === 'string'
+            ? row.display_name
+            : typeof row.displayName === 'string'
+              ? row.displayName
+              : null
+          return id && label ? { value: id, label } : null
+        })
+        .filter((option): option is { value: string; label: string } => option !== null)
+      // The team list is closed to a caller without team-member access, yet the
+      // self filter is seeded for everyone — name it from the self lookup so its
+      // chip never falls back to the raw member id.
+      const selfName = selfRes?.ok ? selfRes.result?.member?.displayName : undefined
+      if (selfId && selfName && !personOptions.some((option) => option.value === selfId)) {
+        personOptions.push({ value: selfId, label: selfName })
+      }
+      setPeopleOptions(personOptions)
     })()
     return () => { cancelled = true }
   }, [scopeVersion])
@@ -1171,7 +1177,7 @@ export default function TimeTrackingEntriesPage() {
                     id: 'show-report',
                     label: labels.showReport,
                     href: row.lockedReportId
-                      ? `${REPORTS_PATH}?id=${encodeURIComponent(row.lockedReportId)}`
+                      ? reportDetailHref(row.lockedReportId)
                       : REPORTS_PATH,
                   },
                 ]}

@@ -108,6 +108,7 @@ function buildMonthCaption(
   locale: Locale | undefined,
   totalMonths: number,
   onOpenMonthGrid: (() => void) | null,
+  monthGridTriggerRef: React.Ref<HTMLButtonElement>,
 ) {
   return function MonthCaption({
     calendarMonth,
@@ -137,6 +138,7 @@ function buildMonthCaption(
         )}
         {labelInteractive ? (
           <button
+            ref={monthGridTriggerRef}
             type="button"
             onClick={onOpenMonthGrid ?? undefined}
             aria-label={t('ui.calendar.openMonthYearNavigation', '{month} – open month and year navigation', { month: label })}
@@ -172,15 +174,49 @@ function MonthGrid({
   locale,
   onSelectMonth,
   onClose,
+  onRestoreFocus,
 }: {
   initialYear: number
   selectedMonth: Date
   locale?: Locale
   onSelectMonth: (month: Date) => void
   onClose: () => void
+  onRestoreFocus: () => void
 }) {
   const t = useCalendarT()
   const [year, setYear] = React.useState(initialYear)
+  const gridRef = React.useRef<HTMLDivElement>(null)
+  const selectedMonthRef = React.useRef<HTMLButtonElement>(null)
+  React.useEffect(() => {
+    selectedMonthRef.current?.focus()
+    return onRestoreFocus
+  }, [onRestoreFocus])
+
+  React.useEffect(() => {
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || !(event.target instanceof Node) || !gridRef.current?.contains(event.target)) return
+      event.preventDefault()
+      event.stopPropagation()
+      onClose()
+    }
+    window.addEventListener('keydown', handleEscape, true)
+    return () => window.removeEventListener('keydown', handleEscape, true)
+  }, [onClose])
+
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== 'Tab') return
+
+    const buttons = event.currentTarget.querySelectorAll<HTMLButtonElement>('button:not(:disabled)')
+    const firstButton = buttons[0]
+    const lastButton = buttons[buttons.length - 1]
+    if (event.shiftKey && document.activeElement === firstButton) {
+      event.preventDefault()
+      lastButton?.focus()
+    } else if (!event.shiftKey && document.activeElement === lastButton) {
+      event.preventDefault()
+      firstButton?.focus()
+    }
+  }
   const today = new Date()
   const monthLabels = React.useMemo(
     () =>
@@ -192,9 +228,11 @@ function MonthGrid({
   const yearLabel = format(new Date(year, 0, 1), 'yyyy', locale ? { locale } : undefined)
   return (
     <div
+      ref={gridRef}
       className="absolute inset-0 z-10 flex flex-col rounded-md bg-popover p-3"
       role="dialog"
       aria-label={t('ui.calendar.selectMonthAndYear', 'Select month and year')}
+      onKeyDown={handleKeyDown}
     >
       <div className="flex items-center justify-between gap-2 mb-3">
         <button
@@ -235,6 +273,7 @@ function MonthGrid({
           return (
             <button
               key={monthIndex}
+              ref={monthIndex === selectedMonth.getMonth() ? selectedMonthRef : undefined}
               type="button"
               aria-pressed={isSelected}
               onClick={() => onSelectMonth(new Date(year, monthIndex, 1))}
@@ -279,6 +318,10 @@ export function Calendar({
     () => month ?? defaultMonth ?? new Date(),
   )
   const [showMonthGrid, setShowMonthGrid] = React.useState(false)
+  const monthGridTriggerRef = React.useRef<HTMLButtonElement>(null)
+  const restoreDayViewFocus = React.useCallback(() => {
+    monthGridTriggerRef.current?.focus()
+  }, [])
 
   // Honor a controlled `month` prop when consumers drive navigation externally.
   React.useEffect(() => {
@@ -307,6 +350,7 @@ export function Calendar({
         locale as Locale | undefined,
         numberOfMonths,
         monthGridEnabled ? () => setShowMonthGrid(true) : null,
+        monthGridTriggerRef,
       ),
     [locale, numberOfMonths, monthGridEnabled],
   )
@@ -315,8 +359,9 @@ export function Calendar({
     <CalendarLabelsContext.Provider value={labels}>
       <div className={monthGridEnabled ? 'relative' : 'contents'}>
         <div
-          className={monthGridEnabled && showMonthGrid ? 'pointer-events-none' : 'contents'}
+          className={monthGridEnabled && showMonthGrid ? 'invisible pointer-events-none' : 'contents'}
           aria-hidden={monthGridEnabled && showMonthGrid ? true : undefined}
+          inert={monthGridEnabled && showMonthGrid ? true : undefined}
         >
           <DayPicker
             showOutsideDays={showOutsideDays}
@@ -402,6 +447,7 @@ export function Calendar({
             locale={locale as Locale | undefined}
             onSelectMonth={handleSelectMonth}
             onClose={() => setShowMonthGrid(false)}
+            onRestoreFocus={restoreDayViewFocus}
           />
         ) : null}
       </div>
