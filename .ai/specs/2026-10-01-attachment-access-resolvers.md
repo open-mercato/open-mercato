@@ -180,7 +180,7 @@ No screen, component or visual design change. Library lists use existing empty/e
 | Database | Nullable column plus narrow repeat-safe historical backfill; preserve old values and all attachment/provider data. Update affected snapshot. |
 | HTTP/behavior | Success shapes unchanged; adopted policies introduce documented denials/filtering. Unadopted owners preserve behavior. |
 
-Documents adoption closes the existing same-org disclosure. The Emergency Security Exception requires named human maintainer acknowledgment before merge, including the intentional access tightening and migration. **Acknowledgment is pending; agent review does not provide it.** The implementation also adds the required dated `BACKWARD_COMPATIBILITY.md` entry naming the surface, classification, qualifying argument and migration path. No merge is authorized here.
+Documents adoption closes the existing same-org disclosure. The Emergency Security Exception requires named human maintainer acknowledgment before merge, including the intentional access tightening and migration. **Human maintainer @haxiorz explicitly approved the steps 1–3 waiver and acknowledged the client/operator migration on 2026-10-29 ([recorded acknowledgment](https://github.com/open-mercato/open-mercato/pull/6829#issuecomment-6505350022)).** Independent code review, QA and CI remain separate gates. The implementation also adds the required dated `BACKWARD_COMPATIBILITY.md` entry naming the surface, classification, qualifying argument and migration path. No merge is authorized here.
 
 Upgrade: run the additive migration, regenerate/build registrations, then synchronize enabled declarations before new protected uploads. Backfill protects existing Documents references even when Documents was disabled before upgrade. Missing partitions remain denied by the host/storage-validation error path.
 
@@ -253,7 +253,7 @@ Fault/disabled-registry tests may use controlled registry real-route fixtures; l
 
 - Scope: one attachment authorization capability with real Documents adoption; other owner-policy migrations/storage validation excluded.
 - Architecture: attachments owns persistence/runner; Documents owns ACL; generated registration avoids core importing Documents runtime.
-- Contracts: additive extension/schema; preserved check/service signatures; intentional access tightening with pending named-human waiver.
+- Contracts: additive extension/schema; preserved check/service signatures; intentional access tightening with the named-human waiver and migration acknowledgment recorded above.
 - Data: no new personal fields, cross-module ORM relations, credentials or developer database mutation.
 - Framework: existing discovery, DI, scoped encrypted queries, RBAC, guards, events, diagnostics and i18n remain authoritative.
 - Tests: all host paths, real adopter and disabled-on-upgrade case covered in the plan; no implementation/test success claimed here.
@@ -266,3 +266,5 @@ Fault/disabled-registry tests may use controlled registry real-route fixtures; l
 - 2026-10-01: Readiness audit clarified legacy single-object assignment normalization, transactional locking for owner-changing mutations, and stricter metadata/export authorization for multiple Documents targets.
 
 - 2026-10-01: Independent design review required preserving malformed declared owners during matching, host-isolated resolver cache namespaces, and disclosure of predeployment cache-purge limitations; incorporated before publication.
+
+- 2026-10-29: Record @haxiorz’s explicit Emergency Security Exception waiver and migration acknowledgment; preserve independent review, QA and CI gates.

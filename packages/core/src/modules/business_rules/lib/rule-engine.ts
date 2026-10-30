@@ -6,6 +6,7 @@ import * as ruleEvaluator from './rule-evaluator'
 import * as actionExecutor from './action-executor'
 import type { RuleEvaluationContext } from './rule-evaluator'
 import type { ActionContext, ActionExecutionOutcome } from './action-executor'
+import type { RbacService } from '../../auth/services/rbacService'
 import { ruleEngineContextSchema, ruleDiscoveryOptionsSchema, directRuleExecutionContextSchema, ruleIdExecutionContextSchema } from '../data/validators'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
@@ -148,6 +149,15 @@ export function resolveBusinessRuleDiscoveryCache(resolve: (token: string) => un
   }
 }
 
+export function resolveBusinessRuleRbacService(resolve: (token: string) => unknown): RbacService | undefined {
+  try {
+    const rbacService = resolve('rbacService')
+    return rbacService ? rbacService as RbacService : undefined
+  } catch {
+    return undefined
+  }
+}
+
 function getRuleDiscoveryCacheTags(options: Pick<RuleDiscoveryOptions, 'organizationId'>): string[] {
   return [
     'business_rules:discovery',
@@ -231,6 +241,7 @@ export async function invalidateBusinessRuleDiscoveryCache(
 export type RuleEngineExecutionOptions = {
   eventBus?: Pick<EventBus, 'emitEvent'> | null
   cache?: RuleDiscoveryCache | null
+  rbacService?: RbacService
 }
 
 type RuleExecutionFailedPayload = {
@@ -539,6 +550,8 @@ export async function executeSingleRule(
           organizationId: context.organizationId,
           executedBy: context.executedBy ?? context.user?.id ?? null,
           em: em as any,
+          ruleAuthorId: rule.updatedBy ?? rule.createdBy ?? null,
+          rbacService: options.rbacService,
         }
 
         // Execute actions
@@ -687,7 +700,8 @@ export async function findApplicableRules(
  */
 export async function executeRuleById(
   em: EntityManager,
-  context: DirectRuleExecutionContext
+  context: DirectRuleExecutionContext,
+  options: RuleEngineExecutionOptions = {}
 ): Promise<DirectRuleExecutionResult> {
   const startTime = Date.now()
 
@@ -778,7 +792,7 @@ export async function executeRuleById(
   }
 
   // Execute via existing executeSingleRule
-  const result = await executeSingleRule(em, rule, engineContext)
+  const result = await executeSingleRule(em, rule, engineContext, options)
 
   return {
     success: !result.error,
@@ -799,7 +813,8 @@ export async function executeRuleById(
  */
 export async function executeRuleByRuleId(
   em: EntityManager,
-  context: RuleIdExecutionContext
+  context: RuleIdExecutionContext,
+  options: RuleEngineExecutionOptions = {}
 ): Promise<DirectRuleExecutionResult> {
   const startTime = Date.now()
 
@@ -890,7 +905,7 @@ export async function executeRuleByRuleId(
   }
 
   // Execute via existing executeSingleRule
-  const result = await executeSingleRule(em, rule, engineContext)
+  const result = await executeSingleRule(em, rule, engineContext, options)
 
   return {
     success: !result.error,

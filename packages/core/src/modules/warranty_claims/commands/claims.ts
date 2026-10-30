@@ -64,6 +64,7 @@ import type { WarrantyEntitlementInput, WarrantyEntitlementResolver } from '../s
 import {
   WARRANTY_CLAIM_RESOURCE_KIND,
   appendClaimEvent,
+  assertUniqueClaimLineNumbers,
   enforceWarrantyClaimOptimisticLock,
   ensureOrganizationScope,
   ensureTenantScope,
@@ -242,7 +243,7 @@ type ReferenceValidationInput = {
   salesReturnId?: string | null
   replacementOrderId?: string | null
   creditMemoId?: string | null
-  lineOrderRefs?: Array<{ orderLineId: string; orderId: string | null }>
+  lineOrderRefs?: Array<{ orderLineId: string; orderId: string | null; allowMissing?: boolean }>
 }
 
 const intakeStatuses = new Set<WarrantyClaimStatus>(['draft', 'submitted', 'in_review', 'info_requested'])
@@ -675,9 +676,25 @@ async function assertUndoSnapshotCurrent(ctx: CommandRuntimeContext, after: Clai
 
 async function restoreSnapshot(em: EntityManager, before: ClaimSnapshot, after: ClaimSnapshot): Promise<WarrantyClaim> {
   const { claim, lines } = await requireCurrentUndoSnapshot(em, after)
-  restoreClaimDelta(claim, before, after)
   const beforeLinesById = new Map((Array.isArray(before.lines) ? before.lines : []).map((line) => [line.id, line]))
   const afterLinesById = new Map((Array.isArray(after.lines) ? after.lines : []).map((line) => [line.id, line]))
+  const projectedLines = []
+  for (const line of lines) {
+    const beforeLine = beforeLinesById.get(line.id)
+    const afterLine = afterLinesById.get(line.id)
+    if (!beforeLine || !afterLine) return throwClaimUndoConflict()
+    const deletedAt = beforeLine.deletedAt !== afterLine.deletedAt ? beforeLine.deletedAt : line.deletedAt
+    const lineNo = beforeLine.lineNo !== afterLine.lineNo ? beforeLine.lineNo : line.lineNo
+    projectedLines.push({ id: line.id, lineNo, deletedAt, changesNumber: Boolean(line.deletedAt) || lineNo !== line.lineNo })
+  }
+  for (const projected of projectedLines) {
+    if (projected.deletedAt || !projected.changesNumber) continue
+    await assertUniqueClaimLineNumbers([
+      projected.lineNo,
+      ...projectedLines.filter((line) => !line.deletedAt && line.id !== projected.id && line.lineNo === projected.lineNo).map((line) => line.lineNo),
+    ])
+  }
+  restoreClaimDelta(claim, before, after)
   for (const line of lines) {
     const beforeLine = beforeLinesById.get(line.id)
     const afterLine = afterLinesById.get(line.id)
@@ -1364,6 +1381,7 @@ export async function validateClaimReferences(
   for (const lineRef of lineRefs) {
     const result = lineRowsById.get(lineRef.orderLineId)
     if (!result) {
+      if (lineRef.allowMissing) continue
       throw new CrudHttpError(400, { error: 'warranty_claims.errors.invalidReference' })
     }
     if (lineRef.orderId && readString(result, 'order_id') !== lineRef.orderId) {
@@ -1421,7 +1439,7 @@ function assertClaimUpdateFields(claim: WarrantyClaim, input: ClaimUpdateInput):
 
 function applyClaimUpdate(claim: WarrantyClaim, input: ClaimUpdateInput, customerName: string | null, orderNumber: string | null): void {
   if (hasOwn(input, 'customerId')) claim.customerId = input.customerId ?? null
-  if (hasOwn(input, 'customerName')) claim.customerName = customerName
+  if (hasOwn(input, 'customerId') || hasOwn(input, 'customerName')) claim.customerName = customerName
   if (hasOwn(input, 'orderId')) {
     claim.orderId = input.orderId ?? null
     claim.orderNumber = orderNumber
@@ -1510,6 +1528,7 @@ const createClaimCommand: CommandHandler<ClaimCreateInput, { claimId: string }> 
   isUndoable: true,
   async execute(rawInput, ctx) {
     const input = parseCommandInput(claimCreateSchema, rawInput)
+    await assertUniqueClaimLineNumbers((input.lines ?? []).map((line, index) => line.lineNo ?? index + 1))
     const scope = resolveScope(ctx, input)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     await validateClaimReferences(ctx, scope, {
@@ -1659,24 +1678,49 @@ const updateClaimCommand: CommandHandler<ClaimUpdateInput, { claimId: string }> 
     const claim = await requireScopedClaim(em, input.id, scope)
     await enforceWarrantyClaimOptimisticLock(ctx, claim)
     assertClaimUpdateFields(claim, input)
+    const effectiveOrderId = hasOwn(input, 'orderId') ? (input.orderId ?? null) : (claim.orderId ?? null)
+    const orderChanged = effectiveOrderId !== (claim.orderId ?? null)
     await validateClaimReferences(ctx, scope, {
-      orderId: hasOwn(input, 'orderId') && (input.orderId ?? null) !== (claim.orderId ?? null) ? input.orderId ?? null : null,
+      orderId: orderChanged ? effectiveOrderId : null,
       salesReturnId: hasOwn(input, 'salesReturnId') && (input.salesReturnId ?? null) !== (claim.salesReturnId ?? null) ? input.salesReturnId ?? null : null,
       replacementOrderId: hasOwn(input, 'replacementOrderId') && (input.replacementOrderId ?? null) !== (claim.replacementOrderId ?? null) ? input.replacementOrderId ?? null : null,
       creditMemoId: hasOwn(input, 'creditMemoId') && (input.creditMemoId ?? null) !== (claim.creditMemoId ?? null) ? input.creditMemoId ?? null : null,
     })
-    const effectiveOrderId = hasOwn(input, 'orderId') ? (input.orderId ?? null) : (claim.orderId ?? null)
     const effectiveCustomerId = hasOwn(input, 'customerId') ? (input.customerId ?? null) : (claim.customerId ?? null)
     await assertOrderBelongsToCustomer(em, scope, effectiveOrderId, effectiveCustomerId)
     const customerChanged = hasOwn(input, 'customerId') && (input.customerId ?? null) !== (claim.customerId ?? null)
     const shouldRefreshCustomerName = hasOwn(input, 'customerId') || hasOwn(input, 'customerName')
     const customerName = shouldRefreshCustomerName
-      ? await resolveCustomerName(ctx, input.customerId ?? claim.customerId, scope, input.customerName ?? claim.customerName, { strict: customerChanged })
+      ? await resolveCustomerName(ctx, effectiveCustomerId, scope, customerChanged ? input.customerName : (input.customerName ?? claim.customerName), { strict: customerChanged })
       : claim.customerName ?? null
     const orderNumber = hasOwn(input, 'orderId')
       ? await resolveOrderNumber(ctx, input.orderId, scope, (input.orderId ?? null) === (claim.orderId ?? null) ? claim.orderNumber : null)
       : claim.orderNumber ?? null
     await withAtomicFlush(em, [
+      async () => {
+        if (!hasOwn(input, 'orderId')) return
+        await requireScopedClaim(em, claim.id, scope, { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true })
+        await enforceWarrantyClaimOptimisticLock(ctx, claim)
+        assertClaimUpdateFields(claim, input)
+        await assertOrderBelongsToCustomer(
+          em, scope, input.orderId ?? null, hasOwn(input, 'customerId') ? (input.customerId ?? null) : (claim.customerId ?? null),
+        )
+        if ((input.orderId ?? null) === (claim.orderId ?? null)) return
+        const retainedLines = await findWithDecryption(
+          em,
+          WarrantyClaimLine,
+          { claim: claim.id, tenantId: scope.tenantId, organizationId: scope.organizationId, deletedAt: null },
+          {},
+          scope,
+        )
+        const lineOrderRefs = retainedLines.flatMap((line) => line.orderLineId
+          ? [{ orderLineId: line.orderLineId, orderId: input.orderId ?? null }]
+          : [])
+        if (lineOrderRefs.length > 0 && !input.orderId) {
+          throw new CrudHttpError(400, { error: 'warranty_claims.errors.invalidReference' })
+        }
+        await validateClaimReferences(ctx, scope, { lineOrderRefs })
+      },
       () => applyClaimUpdate(claim, input, customerName, orderNumber),
     ], { transaction: true, label: 'warranty_claims.claim.update' })
     await emitClaimCrud(ctx, 'updated', claim)
