@@ -566,6 +566,8 @@ Spec: [`.ai/specs/2026-10-21-mcp-tool-exposure-parity-and-audit.md`](.ai/specs/2
 - **Capture env vars:** `OM_AI_RUN_TRACE_CAPTURE` (`full` by default, or `metadata` / `off`), `OM_AI_RUN_TRACE_CAPTURE_PROMPT` and `OM_AI_RUN_TRACE_MAX_PAYLOAD_BYTES`.
 - **Retention:** a daily `ai-agent-run-prune` worker deletes runs after `AI_AGENT_RUNS_RETENTION_DAYS` (30). On existing tenants, refresh the structural cache so the schedule registers.
 - **Action for custom runners** that call `runAiAgentText` / `runAiAgentObject` and persist their own trace: pass `trace: { persist: false }`, or each run is recorded twice. The Agent Orchestrator native runner already does this.
+- **Runs API and pages:** `GET /api/ai_assistant/ai/runs`, `/ai/runs/:id` and `/ai/conversations/:conversationId/runs`, plus **Agent runs** under `/backend/config/ai-assistant/runs`. They need the new ACL features `ai_assistant.runs.view` (`admin` and `employee`) and `ai_assistant.runs.view_all` (`admin`; lifts the own-or-shared-conversation scope). **Action for existing tenants:** run `yarn mercato auth sync-role-acls` (idempotent, additive).
+- **Citations:** read tools can call `emitCitations(ctx, [...])` to attach sources; the chat shows them as a Sources list and runs captured at `full` keep up to 50 in `ai_agent_runs.citations` (no migration). `search.hybrid_search` and `search.get_record_context` now emit `record` citations. See `apps/docs/docs/framework/ai-assistant/citations.mdx`.
 
 **`tool-loop-agent` system prompt.** Agents with `executionEngine: 'tool-loop-agent'` previously ran without their composed system prompt. They now receive it, so their responses can change. Re-check any prompt-level workaround you added to compensate.
 

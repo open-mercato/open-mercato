@@ -445,6 +445,7 @@ const sidebars: SidebarsConfig = {
             "framework/ai-assistant/developer-guide",
             "framework/ai-assistant/agents",
             "framework/ai-assistant/ui-parts",
+            "framework/ai-assistant/citations",
             "framework/ai-assistant/attachments",
             "framework/ai-assistant/web-research",
             "framework/ai-assistant/agent-trace-capture",

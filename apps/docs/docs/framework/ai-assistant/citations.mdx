@@ -1,0 +1,117 @@
+---
+title: Citations
+description: Let read tools cite the records, documents and pages an answer is based on — the emitCitations API, the payload schema, href safety, client resolvers and run persistence.
+---
+
+# Citations
+
+A **citation** tells the operator where an answer came from. Read tools emit citations for the records, documents or pages they returned; the chat renders them as a numbered **Sources** list under the assistant message, and the run trace keeps them so a reviewer can check the sources later.
+
+Citations ride on the [UI parts](./ui-parts) pipeline: `emitCitations` enqueues one `ai_assistant:citations` part on the tool's per-call `ctx.uiParts` collector, and the part travels in the tool output's `uiParts` envelope.
+
+## Emitting citations from a tool
+
+```ts
+import { defineAiTool, emitCitations } from '@open-mercato/ai-assistant'
+
+export const searchHandbook = defineAiTool({
+  name: 'support.search_handbook',
+  description: 'Search the support handbook.',
+  isMutation: false,
+  requiredFeatures: ['support.view'],
+  inputSchema: z.object({ q: z.string().min(1) }),
+  async handler(args, ctx) {
+    const hits = await searchHandbookPages(ctx, args.q)
+    emitCitations(
+      ctx,
+      hits.map((hit) => ({
+        kind: 'handbook_page',
+        ref: hit.id,
+        label: hit.title,
+        quote: hit.snippet,
+        locator: `section ${hit.section}`,
+        href: `/backend/support/handbook/${hit.id}`,
+      })),
+      { title: 'Handbook pages' },
+    )
+    return { items: hits }
+  },
+})
+```
+
+`emitCitations(ctx, citations, options?)`:
+
+- validates every entry against `aiCitationSchema` and **drops** invalid ones (logged as a warning, never thrown);
+- deduplicates by `kind` + `ref` + `locator`;
+- caps the list at **20 per call** (`AI_CITATIONS_MAX_PER_CALL`);
+- enqueues one `ai_assistant:citations` part with `{ citations, title? }` (`options.title` is trimmed to 200 characters);
+- returns the accepted citations. When `ctx.uiParts` is not set (MCP calls, `POST /api/ai_assistant/tools/execute`, approval-gated mutation tools) it is a no-op that still returns the accepted list.
+
+Emitting citations does not change the tool's own result; agents that ignore the part behave exactly as before. Tell the model in the prompt that sources are shown to the operator so it does not repeat them as plain-text links.
+
+The built-in `search.hybrid_search` and `search.get_record_context` tools emit `record` citations for the hits they return (`ref` is `<entityId>:<recordId>`, `label` is the search presenter title, `href` is the record URL when it is safe).
+
+## Payload schema
+
+| Field | Type | Rules |
+|-------|------|-------|
+| `kind` | string | Required. `[a-z0-9_.:-]{1,64}`. Selects the client resolver. |
+| `ref` | string | Required. 1–512 chars. Stable id of the source within its kind. |
+| `label` | string | Optional, ≤ 200. Shown as the title when no resolver supplies one. |
+| `version` | string | Optional, ≤ 64. Version of the cited source. |
+| `quote` | string | Optional, ≤ 1000. Excerpt; clamped to three lines with a "Show more" toggle. |
+| `locator` | string | Optional, ≤ 200. Page, section or anchor inside the source. |
+| `href` | string | Optional, ≤ 2048. Must pass the href safety rules below or the entry is dropped. |
+| `steps` | string[] | Optional, ≤ 20 entries of ≤ 64 chars. Ids a resolver can expand into steps. |
+
+The part payload is `{ citations: AiCitation[], title?: string }`. Types: `AiCitation`, `AiCitationsPartPayload` from `@open-mercato/ai-assistant`; `AiCitationRef` from `@open-mercato/ui/ai`.
+
+## Href safety
+
+Citation text may originate from tool data the model or a user influenced, so links are checked twice — on the server (`isSafeHref`, `@open-mercato/ai-assistant`) and again in the browser (`isSafeCitationHref`, `@open-mercato/ui/ai`). Both share one test matrix. An href is safe only when it is:
+
+- an absolute `http:` or `https:` URL with a host, written with `//` after the scheme; or
+- a same-origin path starting with a single `/` (not `//`).
+
+Everything else is rejected: `javascript:`, `data:`, `vbscript:`, protocol-relative `//host`, backslashes, whitespace and control or invisible characters anywhere in the value. On the server an unsafe `href` invalidates the whole entry; in the browser an unsafe href is simply not linked and the title renders as plain text.
+
+External links open in a new tab with `rel="noopener noreferrer"`; same-origin paths use in-app navigation.
+
+## Resolving citations on the client
+
+The `CitationsPart` renders each entry through the citation resolver registry. Without a resolver the title is `label ?? ref` and the link is the (safe) `href`. Register a resolver per `kind` to compute a better title, a link, or expandable steps:
+
+```ts
+'use client'
+import { registerCitationResolver } from '@open-mercato/ui/ai'
+
+registerCitationResolver('handbook_page', async (citation) => ({
+  title: citation.label ?? `Handbook page ${citation.ref}`,
+  href: `/backend/support/handbook/${encodeURIComponent(citation.ref)}`,
+}))
+```
+
+- The registry is global (stored on `globalThis`), so a module bootstrap and the chat share it across bundles; the last registration for a kind wins.
+- A resolver may return `null` / `undefined` or throw — the entry falls back to `label ?? ref` and the citation's own safe href.
+- A resolver's `href` passes through `isSafeCitationHref` too; an unsafe value is dropped.
+- `unregisterCitationResolver`, `getCitationResolver` and `listCitationResolverKinds` are available for tests and tooling.
+
+Consecutive citations parts on one assistant message are merged into a single deduplicated list.
+
+## Persistence and capture level
+
+- **Chat transcript.** The part is stored with the assistant message (`ai_chat_messages.ui_parts`), so reopening a conversation renders the same Sources list.
+- **Run trace.** When a turn is recorded (see [Model call settings and run tracing](./agents#model-call-settings-and-run-tracing)), the recorder collects the citations from every tool output of the run, revalidates them, deduplicates by `kind` + `ref` + `locator` across tool calls and caps the run at **50** citations. They are stored encrypted in `ai_agent_runs.citations`, returned by `GET /api/ai_assistant/ai/runs/:id` as `run.citations` (never in the runs list) and shown in the **Sources** section of the run detail page.
+- **Capture level.** Quotes are content, so run citations are kept only at `OM_AI_RUN_TRACE_CAPTURE=full`. At `metadata` the column stays `null` and the run detail page shows no Sources section.
+
+## MUST rules
+
+- MUST emit citations through `emitCitations`, never a hand-built `ai_assistant:citations` part — it is the only path that validates hrefs and applies the caps.
+- MUST only cite sources the tool actually returned to the model; never fabricate refs.
+- MUST keep `kind` stable once shipped — resolvers and stored runs key on it.
+- MUST NOT put secrets or signed URLs in `href` or `quote`; both are persisted with the transcript and the run.
+
+## See also
+
+- [UI Parts](./ui-parts) — the `ctx.uiParts` collector and the part registry
+- [AI Agents](./agents) — run tracing and capture levels

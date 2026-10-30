@@ -71,7 +71,7 @@
 | 6 | 6.1 | Add emitCitations and carry citations in tool output | dispatch:capable | done | pending |
 | 6 | 6.2 | Add the citation resolver registry and citations UI part | dispatch | done | pending |
 | 6 | 6.3 | Persist run citations and show Sources | dispatch | done | pending |
-| 6 | 6.4 | Cover citations with integration tests and docs | dispatch | todo | — |
+| 6 | 6.4 | Cover citations with integration tests and docs | dispatch | done | pending |
 | 7 | 7.1 | Define the eval-set file format | dispatch | todo | — |
 | 7 | 7.2 | Read and write eval sets as YAML | dispatch:cheap | todo | — |
 | 7 | 7.3 | Start eval runs from a file manifest | dispatch:capable | todo | — |

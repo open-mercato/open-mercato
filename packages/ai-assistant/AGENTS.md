@@ -211,9 +211,10 @@ async handler(args, ctx) {
 MUST rules for UI parts:
 
 - MUST use a namespaced component id (`<module>:<kind>`). Reserved ids (`mutation-preview-card`, `field-diff-card`, `confirmation-card`, `mutation-result-card`) are FROZEN; never reuse.
-- MUST keep props serializable (no functions, no class instances, no circular refs — the SSE encoder drops them).
+- MUST keep props serializable (the SSE encoder drops functions, class instances, circular refs).
 - MUST gate any privileged action inside the part behind the same ACL features as the originating tool.
-- MUST keep prompt instructions in sync with the tool — without a prompt rule the model will paraphrase instead of emitting the part.
+- MUST keep prompt instructions in sync with the tool, or the model paraphrases instead of emitting the part.
+- Cite sources via `emitCitations(ctx, [...])`: validates, drops unsafe hrefs, dedupes, caps 20/call and 50/run (`citations.mdx`).
 
 Full reference: `apps/docs/docs/framework/ai-assistant/ui-parts.mdx`.
 

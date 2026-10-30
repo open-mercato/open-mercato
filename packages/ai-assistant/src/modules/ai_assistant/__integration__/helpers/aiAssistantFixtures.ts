@@ -282,6 +282,7 @@ export interface SeedAgentRunInput {
   outputText?: string | null;
   stepText?: string | null;
   toolCalls?: SeedAgentRunToolCallInput[];
+  citations?: Array<Record<string, unknown>> | null;
 }
 
 export const SEEDED_AGENT_RUN_DEFINITION_HASH = 'sha256:it-agent-run-fixture';
@@ -307,14 +308,14 @@ export async function seedAgentRunInDb(input: SeedAgentRunInput): Promise<string
           provider_id, model_id, model_params, effective_mutation_policy, tool_names, status,
           finish_reason, input_tokens, output_tokens, step_count, tool_call_count, duration_ms,
           started_at, completed_at, input_text, output_text, content_truncated, system_prompt_hash,
-          capture_level, created_at, updated_at)
+          capture_level, citations, created_at, updated_at)
        values
          (gen_random_uuid(), $1, $2, $3, $4, $5, $6,
           $7, 'chat', $8, $9, gen_random_uuid(),
           'it-fixture-provider', $10, '{}'::jsonb, 'read-only', $11::text[], $12,
           'stop', 42, 17, 1, $13, 1200,
           now() - interval '2 seconds', now(), $14, $15, false, 'sha256:it-system-prompt',
-          $16, now(), now())
+          $16, $17::jsonb, now(), now())
        returning id`,
       [
         input.tenantId,
@@ -333,6 +334,7 @@ export async function seedAgentRunInDb(input: SeedAgentRunInput): Promise<string
         contentCaptured ? (input.inputText ?? 'Integration fixture question') : null,
         contentCaptured ? (input.outputText ?? 'Integration fixture answer') : null,
         captureLevel,
+        contentCaptured && input.citations ? JSON.stringify(input.citations) : null,
       ],
     );
     const runId = runResult.rows[0].id;

@@ -41,6 +41,7 @@ export type AgentRunDetailBody = {
     promptOverrideVersion: number | null;
     inputText: string | null;
     outputText: string | null;
+    citations?: Array<Record<string, unknown>> | null;
   };
   steps: Array<{ stepIndex: number; text: string | null }>;
   toolCalls: AgentRunToolCall[];

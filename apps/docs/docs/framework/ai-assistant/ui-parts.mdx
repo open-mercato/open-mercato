@@ -12,7 +12,7 @@ There are two kinds of UI parts:
 | Kind | Rendered from | Examples |
 |------|---------------|----------|
 | **Record cards** | Fenced code blocks the agent emits as plain text (parsed client-side) | `open-mercato:product`, `open-mercato:deal`, `open-mercato:person`, `open-mercato:company`, `open-mercato:activity` |
-| **Server-emitted parts** | `AiUiPart` objects pushed onto the runtime's UI-part queue and streamed as `data-aiui` | `mutation-preview-card`, `field-diff-card`, `confirmation-card`, `mutation-result-card`, plus your own |
+| **Server-emitted parts** | `AiUiPart` objects pushed onto the runtime's UI-part queue and streamed as `data-aiui`, or enqueued by a read tool on `ctx.uiParts` and carried in its tool output | `mutation-preview-card`, `field-diff-card`, `confirmation-card`, `mutation-result-card`, `ai_assistant:citations`, plus your own |
 
 ## Record cards (the easy path)
 
@@ -111,7 +111,11 @@ import { AI_MUTATION_APPROVAL_CARDS, defaultAiUiPartRegistry } from '@open-merca
 />
 ```
 
-The `defaultAiUiPartRegistry` is a singleton that already includes the approval cards. You only need to extend it when you ship custom parts.
+The `defaultAiUiPartRegistry` is a singleton that already includes the approval cards and the `ai_assistant:citations` sources list. You only need to extend it when you ship custom parts.
+
+### Citations (`ai_assistant:citations`)
+
+Read tools that ground an answer in records, documents or pages call `emitCitations(ctx, [...])` from `@open-mercato/ai-assistant`. It validates the entries, drops unsafe links and enqueues one `ai_assistant:citations` part on `ctx.uiParts`; the chat renders it as a numbered **Sources** list and the run trace keeps it. See [Citations](./citations) for the payload schema, href rules, resolvers and persistence.
 
 ## Visible task plans
 
@@ -199,7 +203,7 @@ registry.register('sales:snapshot-card', SalesSnapshotCard)
 
 #### 3. Push the part from a tool
 
-In a read tool, return the part inline as part of your handler's response — the runtime will queue it onto the next SSE chunk:
+In a read tool, enqueue the part on the per-call `ctx.uiParts` collector. When the handler returns, the runtime merges the collected parts into the tool output's `uiParts` envelope; the chat picks them up from the `tool-output-available` chunk and persists them with the assistant message, so they survive a reload:
 
 ```ts
 import { defineAiTool } from '@open-mercato/ai-assistant'
@@ -229,7 +233,13 @@ export const showSalesSnapshot = defineAiTool({
 })
 ```
 
-For mutation tools, push the part from inside `prepareMutation({ uiPart: ... })` so it travels with the pending action — see [Mutation Approvals](./mutation-approvals).
+How the collector merges into the output:
+
+- a plain-object result gets a `uiParts` array (appended to when the tool already returns one; a non-array `uiParts` field is left untouched and the emitted parts are dropped with a warning);
+- any other result (string, array, number) becomes `{ result, uiParts }`, but only when at least one part was emitted;
+- a result is returned unchanged when nothing was enqueued.
+
+The collector is not set for mutation tools gated by the approval flow, for MCP calls or for `POST /api/ai_assistant/tools/execute`, so always use optional chaining (`ctx.uiParts?.enqueue`). For mutation tools, push the part from inside `prepareMutation({ uiPart: ... })` so it travels with the pending action — see [Mutation Approvals](./mutation-approvals).
 
 #### 4. Make sure the agent's prompt mentions it
 
@@ -251,6 +261,7 @@ data: {"type":"tool-input-available","toolCallId":"...","input":{...}}
 data: {"type":"tool-output-available","toolCallId":"...","output":"..."}
 data: {"type":"data-agent-task-plan","planId":"turn_...","tasks":[{"id":"search-products","label":"Search matching products","state":"pending","source":"agent"}]}
 data: {"type":"data-agent-task-update","planId":"turn_...","task":{"id":"search-products","label":"Search matching products","state":"done","source":"agent","toolCallId":"call_..."}}}
+data: {"type":"tool-output-available","toolCallId":"...","output":{"items":[...],"uiParts":[{"componentId":"ai_assistant:citations","payload":{"citations":[...]}}]}}
 data: {"type":"data-aiui","payload":{"componentId":"mutation-preview-card","props":{...}}}
 data: [DONE]
 ```
@@ -261,7 +272,7 @@ data: [DONE]
 |-------|----------|
 | `text-delta` | `message.content` |
 | `reasoning-delta` | `message.reasoning` (rendered in the collapsible Reasoning panel) |
-| `tool-input-*` / `tool-output-*` | `message.toolCalls[]` |
+| `tool-input-*` / `tool-output-*` | `message.toolCalls[]`; a `uiPart` / `uiParts` envelope in the output also lands on `message.uiParts[]` |
 | `data-agent-task-plan` / `data-agent-task-update` | `message.taskPlan[]` (client-local live plan) |
 | `data-aiui` | `message.uiParts[]` resolved by the registry |
 
@@ -269,8 +280,8 @@ data: [DONE]
 
 Use the playground (`/backend/config/ai-assistant/playground`) for manual smoke tests. Tools that emit UI parts should also have a unit test that:
 
-1. Calls the tool handler with a synthetic `McpToolContext`.
-2. Asserts the queue has the expected `componentId` + props shape.
+1. Calls the tool handler with a synthetic `McpToolContext` whose `uiParts` is `{ enqueue: jest.fn() }`.
+2. Asserts `enqueue` received the expected `componentId` + `payload` shape.
 3. Optionally asserts the registry resolves the component when given that id.
 
 Reference: `packages/ui/src/ai/__tests__/AiChat.registry.test.tsx` covers the registry resolution path.
@@ -285,6 +296,7 @@ Reference: `packages/ui/src/ai/__tests__/AiChat.registry.test.tsx` covers the re
 ## See also
 
 - [AI Agents](./agents) — agent contract + `defineAiTool`
+- [Citations](./citations) — `emitCitations`, the sources part and run citations
 - [Mutation Approvals](./mutation-approvals) — built-in approval cards in detail
 - [Architecture](./architecture) — where UI parts sit in the request flow
 - [Global Launcher](./launcher) — the topbar surface that hosts every agent

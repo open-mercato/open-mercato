@@ -393,6 +393,10 @@ Recording is best-effort: a failed write is logged and reported, never surfaced 
 | `OM_AI_RUN_TRACE_MAX_PAYLOAD_BYTES` | `16384` | Per-field cap; longer content is truncated and flagged. |
 | `AI_AGENT_RUNS_RETENTION_DAYS` | `30` | The daily `ai-agent-run-prune` worker deletes older runs (and runs soft-deleted with their conversation). Run it manually with `yarn mercato ai_assistant run-agent-run-prune`. |
 
+Tool calls that cite their sources with [`emitCitations`](./citations) are aggregated into the run's `citations` (deduplicated, at most 50, `full` capture only) and shown in the **Sources** section of the run detail page.
+
+Runs are browsable on the **Agent runs** page (`/backend/config/ai-assistant/runs`) and through `GET /api/ai_assistant/ai/runs`, `/ai/runs/:id` and `/ai/conversations/:conversationId/runs`. Both require `ai_assistant.runs.view` and show the caller's own runs plus runs of conversations they own, participate in or that are organization-visible; `ai_assistant.runs.view_all` lifts that rule within the tenant and organization. Out-of-scope runs return `404`, and list rows never carry content.
+
 After the run commits, the runtime emits `ai_assistant.agent_run.completed` with ids only (`runId`, `tenantId`, `organizationId`, `agentId`, `channel`, `status`, `conversationId`). Server code reads runs through the DI service `aiAgentRunReader` (`getRun`, `listSteps`, `listToolCalls`), which is tenant/organization scoped and decrypts content.
 
 ## Using the Vercel AI SDK natively

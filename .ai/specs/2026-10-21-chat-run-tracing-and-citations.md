@@ -628,3 +628,30 @@ Docs to update in the same change: `apps/docs/docs/framework/ai-assistant/ui-par
   - At `metadata` capture, `citations` are dropped with the other content. A JSON payload over the cap is stored as a truncated JSON string.
   - The `ai_assistant.runs.view` / `.view_all` features ship with the Phase 3 routes that consume them.
 - Pre-existing defect fixed in the same change: the `tool-loop-agent` engine never passed the composed system prompt to `ToolLoopAgent`, so those turns ran without one. It now sends it as `instructions`.
+
+### 2026-10-30
+- Phase 3 implemented (agent platform wave 5):
+  - ACL features `ai_assistant.runs.view` (admin, employee) and `ai_assistant.runs.view_all` (admin) with list/detail query validators.
+  - `lib/agent-run-access.ts` holds the scope rule. Custom handlers serve `GET /ai/runs`, `/ai/runs/:id` and `/ai/conversations/:conversationId/runs`, all with `openApi`.
+  - Agent runs list and detail pages live under `/backend/config/ai-assistant/runs`. The chat message footer links to the run trace, and `LoopTracePanel` is translated and gains an "Open full trace" link.
+  - Integration tests TC-AI-RUN-TRACE-015/017/018 and TC-AI-RUN-UI-019.
+- Phase 4 implemented:
+  - `lib/citations.ts` (`aiCitationSchema`, `isSafeHref`, `emitCitations`) and a per-call `ctx.uiParts` collector (`lib/tool-ui-parts.ts`) set by `adaptToolToAiSdk`.
+  - `@open-mercato/ui/ai` gains the citation resolver registry (`registerCitationResolver`) and `CitationsPart`, registered in the default UI-part registry.
+  - The recorder aggregates citations into `ai_agent_runs.citations`. The run detail page shows them as Sources, and the search pack emits `record` citations.
+  - Integration test TC-AI-CITATIONS-020 and the docs: `citations.mdx`, `ui-parts.mdx`, `agents.mdx`.
+- Deviations and clarifications:
+  - `conversationId` filters accept 1–128 character strings, not only UUIDs, matching the client-generated conversation ids.
+  - Org-visible conversations grant run access. This is wider than the conversation `getById` check today, but nothing sets that visibility yet.
+  - Only `ai_assistant.runs.view_all` widens the run scope.
+  - The runs list returns an exact `total`, so it is allowlisted in the pagination guard.
+  - The runs page sidebar icon is an inline SVG.
+  - The `ui.ai.loopTrace.*` keys live in the ai_assistant locales, with 4 extra keys.
+  - Roadmap F18 is resolved by implementing `ctx.uiParts.enqueue`; `props` is accepted as an alias of `payload`.
+  - The citation dedupe key is `kind` + `ref` + `locator`.
+  - A non-object tool output becomes `{ result, uiParts }` only when parts were emitted.
+  - Approval-gated tool calls get no `uiParts` collector.
+  - `@open-mercato/ui` keeps a local `isSafeCitationHref`, because ui cannot import ai-assistant. A shared test matrix keeps it identical to `isSafeHref`.
+  - Run citations are capped at 50. Search citations use the ref `<entityId>:<recordId>`.
+  - The citations part travels in the tool-output `uiParts` envelope (field `payload`), not as a `data-aiui` chunk.
+  - Chat-run integration fixtures seed runs directly in the DB, because a run is only recorded after a live LLM turn. Cases that need a real turn skip when no provider is configured.
