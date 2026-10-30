@@ -271,6 +271,16 @@ export type ListConfig<TList> = {
    * filters/sorts, `search_tokens` fulltext filtering, and vector-search branches are bypassed.
    */
   omitAutomaticTenantOrgScope?: boolean
+  /**
+   * When false, the query engine returns encrypted fields as stored (ciphertext) and performs no
+   * DEK lookup. Defaults to true — today's behaviour. Set it on generic, entity-agnostic list
+   * surfaces that select every column and do not need plaintext.
+   *
+   * Caveat: declining also disables the plaintext-sort path, so a sort on an encrypted field
+   * degrades to SQL `ORDER BY` over ciphertext. The query engine logs one warning when that
+   * combination is requested.
+   */
+  decryptEncryptedFields?: boolean
   /** When true, skip server-side CRUD GET cache for this list (avoids stale empty payloads after mutations). */
   disableListCache?: boolean
 }
@@ -1692,6 +1702,18 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       const exportFullRequested = exportRequested && (exportScope === 'full' || parseBooleanToken((queryParams as any).full) === true)
       profiler.mark('export_configured', { exportRequested, exportFullRequested })
 
+      // A full export still owes the route's own visibility predicate. Routes with
+      // `omitAutomaticTenantOrgScope` own their entire scope inside `buildFilters` — the
+      // query engine/ORM fallback add no tenant/org predicate of their own for them — so
+      // dropping to `{}` here would leak every tenant's rows (#7806). Re-run `buildFilters`
+      // with an empty query so only its scope branches apply, not the caller's UI filters.
+      const resolveFullExportBaseFilters = async () => {
+        if (opts.list?.omitAutomaticTenantOrgScope && opts.list.buildFilters) {
+          return opts.list.buildFilters({} as TList, ctx)
+        }
+        return {} as Where<Record<string, unknown>>
+      }
+
       const cacheEnabled =
         isCrudCacheEnabled() && !exportRequested && !opts.list?.disableListCache
       const cacheTimerStart = cacheEnabled && isCrudCacheDebugEnabled()
@@ -1903,7 +1925,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           ? { page: 1, pageSize: exportPageSize }
           : { page: requestedPage, pageSize: requestedPageSize }
         const baseFilters = exportFullRequested
-          ? ({} as Where<any>)
+          ? await resolveFullExportBaseFilters()
           : (opts.list.buildFilters ? await opts.list.buildFilters(validated as any, ctx) : ({} as Where<any>))
         const filters = exportFullRequested
           ? baseFilters
@@ -1976,6 +1998,9 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         }
         if (opts.list.omitAutomaticTenantOrgScope) {
           queryOpts.omitAutomaticTenantOrgScope = true
+        }
+        if (opts.list.decryptEncryptedFields === false) {
+          queryOpts.decryptEncryptedFields = false
         }
         const queryEntity = String(opts.list.entityId)
         profiler.mark('query_options_ready')
@@ -2206,7 +2231,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         return response
       }
       const fallbackBaseFilters = exportFullRequested
-        ? ({} as Where<any>)
+        ? await resolveFullExportBaseFilters()
         : (opts.list.buildFilters ? await opts.list.buildFilters(validated as any, ctx) : ({} as Where<any>))
       const fallbackFilters = exportFullRequested
         ? fallbackBaseFilters

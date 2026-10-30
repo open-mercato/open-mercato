@@ -40,6 +40,8 @@ npx create-mercato-app <app-name> [options]
 | `--preset <id>` | Select the `classic`, `empty`, `crm`, or `wms` starter without prompting |
 | `--agents <list>` | Set up `claude-code`, `codex`, `cursor`, a comma-separated subset, `all`, or `none` without prompting |
 | `--skip-agentic-setup` | Skip the interactive agentic setup wizard |
+| `--modules <list>` | Plan modules from the [Open Mercato Modules](https://modules.openmercato.com/) catalog, verified on this Open Mercato line. Prints the `yarn mercato module add` commands; installs nothing |
+| `--module-picker` | Pick catalog modules interactively, with origin, license, level and any catalog warning shown first |
 | `--init-git` | Initialize a local Git repository after scaffolding |
 | `--no-init-git` | Do not prompt for or initialize a local Git repository |
 | `--registry <url>` | Custom npm registry URL |
