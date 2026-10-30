@@ -219,3 +219,4 @@ This catalog indexes 165 focused lessons. Route the task first, then read only r
 
 - [Credit the author, not the merger, when generating a changelog](lessons/credit-the-author-not-the-merger-in-a-changelog.md) — area:spec-pr,ai-workflow; module:platform; topic:data-integrity,generated-files
 - [Write Open Mercato specifications in English](lessons/write-open-mercato-specifications-in-english.md) — area:spec-pr,ai-workflow; module:platform; topic:specifications,documentation-language
+- [Preserve generated fact row selectors when compacting](lessons/preserve-generated-fact-row-selectors-when-compacting.md) — area:testing,debugging; module:cli,create_app; topic:generated-files,context-budgets,backward-compatibility
