@@ -3,7 +3,7 @@
   "sourceRevision": "b478b301e4ee3af3e78380a6e4df0c398ee95617",
   "runId": "06e4d9e8-e10f-4744-87f9-10da249c1eb1",
   "startedAt": "2026-10-30T17:34:54.761Z",
-  "updatedAt": "2026-10-30T17:54:43.729Z",
+  "updatedAt": "2026-10-30T18:01:42.899Z",
   "status": "running",
   "cases": [
     {
@@ -54,21 +54,30 @@
     },
     {
       "caseId": "OMH-012",
-      "status": "running",
-      "implementationOracle": "pending",
-      "attempts": null,
-      "corrections": null,
-      "durationMs": null,
-      "finishedAt": null,
-      "evaluatorSha256": null,
-      "generatedSha256": null,
-      "captureSha256": [],
-      "shortCause": null,
-      "deliveryCounts": null
+      "status": "fail",
+      "implementationOracle": "fail",
+      "attempts": 1,
+      "corrections": 0,
+      "durationMs": 600013,
+      "finishedAt": "2026-10-30T18:01:00.041Z",
+      "evaluatorSha256": "ab9dd25cc938605c1d4e342720c1a0d969fbbdcbc50614340a9409087caf555b",
+      "generatedSha256": "7766ecc1d3104820360c51296d9f9d2318551413098255eb1a47dfe57d63753b",
+      "captureSha256": [
+        "8659371a7f947ad3df301ee3ef60dceb0041d2ca99da51cf9661b3d6b4691365"
+      ],
+      "shortCause": "Timed out; required mutation-guard/atomic calls absent and generated entity typecheck fails; undeclared reads also rejected.",
+      "deliveryCounts": {
+        "successfulReads": 11,
+        "attestedReads": 11,
+        "missingMetadata": 0,
+        "immutableCompared": 10,
+        "immutableMatches": 10,
+        "immutableMismatches": 0
+      }
     },
     {
       "caseId": "OMH-014",
-      "status": "pending",
+      "status": "running",
       "implementationOracle": "pending",
       "attempts": null,
       "corrections": null,
@@ -222,11 +231,11 @@
     }
   ],
   "deliveryTotals": {
-    "successfulReads": 33,
-    "attestedReads": 33,
+    "successfulReads": 44,
+    "attestedReads": 44,
     "missingMetadata": 0,
-    "immutableCompared": 21,
-    "immutableMatches": 21,
+    "immutableCompared": 31,
+    "immutableMatches": 31,
     "immutableMismatches": 0
   }
 }

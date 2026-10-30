@@ -8,8 +8,8 @@ The complete case includes routing, required observed context, permitted reads a
 |---|---|---|---|---|
 | OMH-009 | fail | fail | 1 / 0 | Generated Jest test globals missing; undeclared source read and extra UMES route (root wording is ambiguous). |
 | OMH-011 | fail | pass | 1 / 0 | Implementation oracle passed; full case failed on an undeclared customer-priorities API example read. |
-| OMH-012 | running | pending | — | In progress. |
-| OMH-014 | pending | pending | — | Not run yet. |
+| OMH-012 | fail | fail | 1 / 0 | Timed out; required mutation-guard/atomic calls absent and generated entity typecheck fails; undeclared reads also rejected. |
+| OMH-014 | running | pending | — | In progress. |
 | OMH-026 | pending | pending | — | Not run yet. |
 | OMH-027 | pending | pending | — | Not run yet. |
 | OMH-029 | pending | pending | — | Not run yet. |
@@ -28,6 +28,8 @@ OMH-009 has 19 successful reads with finalized byte/hash metadata; all twelve in
 OMH-009 followed all three declared source references and completed without a timeout or format retry. Its generated tests use undeclared Jest globals (`describe`, `it`, `expect`), causing the real typecheck failure. The complete case also rejects an undeclared example-index read and an extra UMES route. The root router contains broad UMES wording that conflicts with its narrower app-owned-module table, so that extra route has ambiguous instructions rather than being wholly unsupported. A separate denied command-example attempt remains visible in the capture even though the compact evaluator refusal field is empty. Complete source delivery does not establish that the model used it correctly; the generated test failure is genuine, while the shared routing wording needs clarification. Jest and its types are installed and the actual Jest script was supplied; the model did not read the linked verification reference requiring explicit `@jest/globals` imports.
 
 OMH-011 completes with its implementation oracle passing. Its sole scored violation is a customer-priorities example read outside the declared capability. Both required CRUD/OpenAPI references were followed. An additional denied compatibility-document read exposes a scope conflict: the root and scaffold skill literally require the existing file for route/schema changes, while the new-app case explicitly excludes that compatibility context. This is recorded separately and is not an invented additional scored violation. Across both completed cases, all 33 successful reads carry metadata and all 21 independently comparable immutable hashes match.
+
+OMH-012 times out at 600,013 ms without final routing JSON (one attempt, no correction). The required command example was delivered and followed, but the generated command lacks mutation guards and atomic flush, the original endpoint remains unchanged, and the generated entity fails real typechecking. All eleven successful reads carry metadata; all ten comparable immutable hashes match. The timeout leaves model resource/completion limits uncertain and does not establish a missing command-source grant. Across three completed cases the aggregate is 44/44 delivery metadata and 31/31 immutable matches.
 
 [Machine-readable results and evidence hashes](2026-10-30-qwen27b-round4-results.json) are content-free. Responses, tool calls and generated files remain available in the local experiment dashboard. [The recovery analysis](2026-10-30-qwen27b-coding-failures.md) records the actual runtime fixes, failure-first proofs and historical runs.
 
