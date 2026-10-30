@@ -73,12 +73,12 @@ test('Pi harness delivery accepts the existing server UTF-8 byte boundary and re
 test('Pi harness delivery fails closed when a successful exact read lacks one bounded original text block', async () => {
   const handler = await registeredHandler()
   for (const original of [undefined, null, [], {}, { content: [] }, { content: [{ type: 'text', text: 42 }] }, { content: [{ type: 'image', data: 'value' }] }, { content: [{ type: 'resource', resource: {} }] }, { content: [{ type: 'text', text: 'one' }, { type: 'text', text: 'two' }] }, { content: [{ type: 'text', text: 'body' }], isError: 'false' }]) {
-    const event = originalRead('original')
+    const event = originalRead('READ_BODY_MUST_NOT_LEAK')
     event.structuredContent = original
     const patch = handler(event)
     assert.equal(patch?.isError, true, 'a partial read must not silently masquerade as restored delivery')
     assert.equal(patch?.structuredContent, undefined)
-    assert.equal(visible(patch, event).includes('original'), false)
+    assert.equal(visible(patch, event).includes('READ_BODY_MUST_NOT_LEAK'), false)
   }
 })
 
