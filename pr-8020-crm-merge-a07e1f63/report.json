@@ -1,0 +1,135 @@
+{
+  "skill": "om-auto-qa-pr",
+  "mode": "evidence-only",
+  "head": "d90d49bd17325c6e0e7a32b6c0780c4de1c02c9f",
+  "mainHead": "caea616ebfe8bb1bec3f277b4988b14a24b26e8b",
+  "verdict": "PASS",
+  "nativePassed": 13,
+  "skipped": 0,
+  "finishedAt": "2026-10-30T18:34:35.501725+00:00",
+  "cases": [
+    {
+      "number": 1,
+      "source": "packages/core/src/modules/communication_channels/__integration__/TC-CHANNEL-API-009.spec.ts:55:3",
+      "case": "TC-CHANNEL-API-009: reaction routes mask other users' personal mailboxes \u203a a non-owner gets the same 404 as for an unknown message or reaction",
+      "duration": "1.3s",
+      "result": "PASS"
+    },
+    {
+      "number": 2,
+      "source": "packages/core/src/modules/communication_channels/__integration__/TC-CHANNEL-API-009.spec.ts:113:3",
+      "case": "TC-CHANNEL-API-009: reaction routes mask other users' personal mailboxes \u203a the reaction bar shows the localized refusal to the mailbox owner",
+      "duration": "5.2s",
+      "result": "PASS"
+    },
+    {
+      "number": 3,
+      "source": "packages/core/src/modules/customers/__integration__/TC-CRM-8020-injected-tab-priority.spec.ts:14:3",
+      "case": "TC-CRM-8020: company detail orders contributed tabs without changing its default",
+      "duration": "3.9s",
+      "result": "PASS"
+    },
+    {
+      "number": 4,
+      "source": "packages/core/src/modules/customers/__integration__/TC-CRM-8020-injected-tab-priority.spec.ts:14:3",
+      "case": "TC-CRM-8020: person detail orders contributed tabs without changing its default",
+      "duration": "4.0s",
+      "result": "PASS"
+    },
+    {
+      "number": 5,
+      "source": "packages/core/src/modules/customers/__integration__/TC-CRM-8020-injected-tab-priority.spec.ts:14:3",
+      "case": "TC-CRM-8020: deal detail orders contributed tabs without changing its default",
+      "duration": "3.3s",
+      "result": "PASS"
+    },
+    {
+      "number": 6,
+      "source": "packages/core/src/modules/customers/__integration__/TC-CRM-UMES-PRIORITY-001.spec.ts:12:5",
+      "case": "TC-CRM-UMES-PRIORITY-001: Real contributor detail round trips \u203a people loads, saves and reloads native and owning-module fields",
+      "duration": "5.1s",
+      "result": "PASS"
+    },
+    {
+      "number": 7,
+      "source": "packages/core/src/modules/customers/__integration__/TC-CRM-UMES-PRIORITY-001.spec.ts:12:5",
+      "case": "TC-CRM-UMES-PRIORITY-001: Real contributor detail round trips \u203a companies loads, saves and reloads native and owning-module fields",
+      "duration": "4.5s",
+      "result": "PASS"
+    },
+    {
+      "number": 8,
+      "source": "packages/core/src/modules/customers/__integration__/TC-CRM-UMES-PRIORITY-001.spec.ts:12:5",
+      "case": "TC-CRM-UMES-PRIORITY-001: Real contributor detail round trips \u203a deals loads, saves and reloads native and owning-module fields",
+      "duration": "4.8s",
+      "result": "PASS"
+    },
+    {
+      "number": 9,
+      "source": "packages/core/src/modules/customers/__integration__/TC-CRM-UMES-PRIORITY-002.spec.ts:7:1",
+      "case": "TC-CRM-UMES-PRIORITY-002: Owning-module failure remains visible after native save",
+      "duration": "3.6s",
+      "result": "PASS"
+    },
+    {
+      "number": 10,
+      "source": "packages/core/src/modules/customers/__integration__/TC-CRM-UMES-PRIORITY-002.spec.ts:40:1",
+      "case": "TC-CRM-UMES-PRIORITY-002: Create failure feedback survives the successful native redirect",
+      "duration": "2.7s",
+      "result": "PASS"
+    },
+    {
+      "number": 11,
+      "source": "packages/core/src/modules/customers/__integration__/TC-CRM-UMES-SIDEBAR-001.spec.ts:37:3",
+      "case": "TC-CRM-UMES-SIDEBAR-001: person external IDs remain fresh and fit the responsive sidebar",
+      "duration": "5.5s",
+      "result": "PASS"
+    },
+    {
+      "number": 12,
+      "source": "packages/core/src/modules/customers/__integration__/TC-CRM-UMES-SIDEBAR-001.spec.ts:37:3",
+      "case": "TC-CRM-UMES-SIDEBAR-001: company external IDs remain fresh and fit the responsive sidebar",
+      "duration": "4.9s",
+      "result": "PASS"
+    },
+    {
+      "number": 13,
+      "source": "packages/core/src/modules/customers/__integration__/TC-CRM-UMES-SIDEBAR-001.spec.ts:37:3",
+      "case": "TC-CRM-UMES-SIDEBAR-001: deal external IDs remain fresh and fit the responsive sidebar",
+      "duration": "4.6s",
+      "result": "PASS"
+    }
+  ],
+  "images": [
+    "deals-priority-reloaded.png",
+    "person-tab-priority-mobile.png",
+    "person-tab-priority.png",
+    "company-desktop.png",
+    "company-empty.png",
+    "company-narrow-long.png",
+    "deal-desktop.png",
+    "deal-empty.png",
+    "deal-narrow-long.png",
+    "priority-owning-save-failure.png",
+    "reaction-refusal-pl.png",
+    "priority-owning-create-failure.png",
+    "person-desktop.png",
+    "person-empty.png",
+    "person-narrow-long.png",
+    "people-priority-reloaded.png",
+    "person-priority-narrow.png",
+    "companies-priority-reloaded.png",
+    "deal-tab-priority-mobile.png",
+    "deal-tab-priority.png",
+    "company-tab-priority-mobile.png",
+    "company-tab-priority.png"
+  ],
+  "notes": [
+    "This exact published merged head passed45scoped unit tests/6suites (including3new loading/dedup/priority/default-selection regressions), core/shared/UI package builds, generation/typechecks and normal commit/template hooks.",
+    "The4conflicts against mainCRM8269 were resolved by retaining its loading flags/native-ID exports/deduplication/recovery/event/custom-field fixes AND this PR\u2019s priority propagation/stable order/native defaults. Two page mocks now import the real native-ID constants; original assertions remain intact.",
+    "All13native CLI cases passed, zero skipped:2channel isolation/refusal cases,3original customer priority cases,3real owning-module/native field roundtrips,2owning-module failure-feedback cases,3responsive fresh external-ID sidebar cases.",
+    "The channel stale-view test retains its real initial GET response to model a stale client; authorization and reaction mutations remain real and actual UI DELETE404 is asserted. Owning-module save/create failures in PRIORITY002 are controlled fixtures, not production failures. No original assertion, test timeout or retry policy was weakened.",
+    "22fresh PNGs were captured by the actual browser cases. Representative reloaded fields, controlled failure banners, narrow/empty sidebars and Polish reaction refusal were visually inspected. Test fixtures use per-test finally cleanup; the disposable environment is stopped.",
+    "This is evidence-only OSS validation. No enterprise runtime exercise, independent review, human QA approval or PR merge is claimed. Required GitHub CI on this head remains separate."
+  ]
+}
