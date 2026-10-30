@@ -57,6 +57,24 @@ describe('catalog pricing helpers', () => {
     expect(channelId).toBe('channel-2')
   })
 
+  it('treats the validity window as half-open so a price stops matching at its endsAt instant', () => {
+    const promotion = baseRow({
+      id: 'promotion',
+      customerId: 'customer-1',
+      priceKind: { id: 'pk-promo', code: 'promo', isPromotion: true } as any,
+      unitPriceNet: '5.00',
+      unitPriceGross: '6.15',
+      startsAt: new Date('2026-07-01T00:00:00Z'),
+      endsAt: new Date('2026-08-01T00:00:00Z'),
+    })
+    const contract = baseRow({ id: 'contract', customerId: 'customer-1' })
+    const pricingCtx = { ...ctx, customerId: 'customer-1' }
+
+    expect(selectBestPrice([promotion, contract], { ...pricingCtx, date: new Date('2026-08-01T00:00:00Z') })?.id).toBe('contract')
+    expect(selectBestPrice([promotion, contract], { ...pricingCtx, date: new Date('2026-07-31T23:59:59Z') })?.id).toBe('promotion')
+    expect(selectBestPrice([promotion, contract], { ...pricingCtx, date: new Date('2026-07-01T00:00:00Z') })?.id).toBe('promotion')
+  })
+
   it('selects the highest scoring price with deterministic tie breakers', () => {
     // `base` has score 2 (regular kind, no scoping). Both variant rows share kind, variant,
     // and channel scoping so they tie at score 17 — verifying that scorePrice wins first
