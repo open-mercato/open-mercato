@@ -206,13 +206,16 @@ export async function lockAuthorizationState(
         { tenantId: null, organizationId: null },
       )
     : []
+  const explicitApiKeySnapshots = new Map(explicitApiKeys.map((apiKey) => [String(apiKey.id), {
+    sessionUserId: apiKey.sessionUserId ?? null,
+    roles: Array.isArray(apiKey.rolesJson) ? [...apiKey.rolesJson] : [],
+  }]))
+  const apiKeySnapshots = [...explicitApiKeySnapshots.values()]
   const userIds = uniqueSortedIds([
     ...(targets.userIds ?? []),
-    ...explicitApiKeys.flatMap((apiKey) => apiKey.sessionUserId ? [apiKey.sessionUserId] : []),
+    ...apiKeySnapshots.flatMap((apiKey) => apiKey.sessionUserId ? [apiKey.sessionUserId] : []),
   ])
-  const explicitApiKeyRoleIds = uniqueSortedIds(explicitApiKeys.flatMap((apiKey) => (
-    Array.isArray(apiKey.rolesJson) ? apiKey.rolesJson : []
-  )))
+  const explicitApiKeyRoleIds = uniqueSortedIds(apiKeySnapshots.flatMap((apiKey) => apiKey.roles))
   const discoveredBeforeLocks = userIds.length
     ? await findWithDecryption(
         em,
@@ -239,8 +242,8 @@ export async function lockAuthorizationState(
   for (const apiKey of lockedApiKeys) {
     const id = String(apiKey.id)
     if (!apiKeyIds.includes(id)) continue
-    const before = explicitApiKeys.find((candidate) => String(candidate.id) === id)
-    const beforeRoles = Array.isArray(before?.rolesJson) ? before.rolesJson : []
+    const before = explicitApiKeySnapshots.get(id)
+    const beforeRoles = before?.roles ?? []
     const lockedRoles = Array.isArray(apiKey.rolesJson) ? apiKey.rolesJson : []
     if (!sameIds(beforeRoles, lockedRoles) || (before?.sessionUserId ?? null) !== (apiKey.sessionUserId ?? null)) {
       throw authorizationStateDrift()

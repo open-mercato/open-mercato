@@ -16,7 +16,7 @@ Intersect each bound key's role-derived features and organization visibility wit
 
 `loadAcl`, `loadAclWithEntityManager`, and `resolveFeatureOrganizationAccess` apply the same owner ceiling. Resolve the owner in the key's tenant and fail closed for missing owners or mismatched scopes. Intersect wildcard grants using shared matching primitives; authoritative checks continue through the existing feature policy. Transactional authorization reads the owner using the supplied EntityManager. Cache entries carry the owner's invalidation tag. User-bound keys never get a role-only raw super-admin flag in the authentication cache.
 
-Replay authorization locks include the bound owner's user, membership, ACL, and role rows. A binding changed during lock acquisition returns the existing authorization-state drift conflict.
+Replay authorization locks include the bound owner's user, membership, ACL, and role rows. A binding changed during lock acquisition returns the existing authorization-state drift conflict. Discovery snapshots the owner ID and a copied role list before any ORM refresh; in-place hydration of a managed entity cannot erase the pre-lock state.
 
 Bound keys also retain the live-role intersection from #8034: an issued role removed from the owner is rejected without relying on cache invalidation. Bound-key projections bypass the key ACL cache while the owner ceiling remains enforced across all three projections. Session markers use the current `sessionTokenHash` field.
 
@@ -57,3 +57,5 @@ Tenant-bound owner lookups, existing schema, no cross-module ORM relations, shar
 - 2026-10-28: Added owner-dependent invalidation for the optional organization-scope cache, with a regression for a floating delegated principal.
 
 - 2026-10-30: Reconciled the ceiling with live session-role revocation, owner revalidation, and hashed session markers; added combined role-revocation coverage.
+
+- 2026-10-30: Preserve replay discovery snapshots across same-instance ORM refresh, with owner-binding and in-place role-array drift regressions.
