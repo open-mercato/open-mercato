@@ -18,6 +18,11 @@ This catalog indexes 144 focused lessons. Route the task first, then read only r
 
 ## Catalog
 
+<<<<<<< HEAD
+=======
+- [Verify integration fixture cleanup against the actual endpoint](lessons/verify-integration-fixture-cleanup-contracts.md) — area:testing,integration; module:resources,entities,customers,sales,warranty_claims; topic:testing,fixture-cleanup,fixture-setup,api-contracts,schema-validation
+
+>>>>>>> 59e670c16 (fix(customers): prevent private email exposure through interaction mutations (#8027))
 ### architecture
 
 - [Durable quota reservations need fenced leases, conditional creates, and bounded sizes](lessons/durable-quota-reservations-need-fenced-leases.md) — area:architecture,module-data; module:attachments,storage_s3; topic:data-scoping,command-pattern,database-migrations

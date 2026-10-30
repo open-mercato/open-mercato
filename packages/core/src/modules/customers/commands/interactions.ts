@@ -48,7 +48,8 @@ import {
   INTERACTION_STATUS_COMPLETED,
   INTERACTION_STATUS_PLANNED,
 } from '../lib/interactionStatus'
-import { canChangeEmailVisibility } from '../lib/visibilityFilter'
+import { canChangeEmailVisibility, isEmailHiddenFrom } from '../lib/visibilityFilter'
+import { listGrantsForViewerOnPerson, listSharedChannelIds } from '../lib/conversationShares'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('customers')
@@ -132,9 +133,77 @@ const INTERACTION_UNDO_DATE_OPTIONS = {
   datePaths: ['before.interaction.scheduledAt', 'before.interaction.occurredAt', 'before.interaction.recurrenceEnd'],
 }
 
-async function loadInteractionSnapshot(em: EntityManager, id: string): Promise<InteractionSnapshot | null> {
+async function ensureInteractionMutationAccess(
+  ctx: CommandRuntimeContext,
+  em: EntityManager,
+  interaction: CustomerInteraction | (InteractionSnapshot['interaction'] & { channelId?: string | null }),
+): Promise<void> {
+  ensureTenantScope(ctx, interaction.tenantId)
+  ensureOrganizationScope(ctx, interaction.organizationId)
+  const currentUserId = ctx.auth?.isApiKey ? null : ctx.auth?.sub ?? null
+  const personEntityId = 'entityId' in interaction
+    ? interaction.entityId
+    : typeof interaction.entity === 'string' ? interaction.entity : interaction.entity.id
+  const visibility = {
+    interactionType: interaction.interactionType,
+    visibility: interaction.visibility,
+    authorUserId: interaction.authorUserId,
+    currentUserId,
+    personEntityId,
+    channelId: interaction.channelId,
+  }
+  if (!isEmailHiddenFrom(visibility)) return
+  const scope = { tenantId: interaction.tenantId, organizationId: interaction.organizationId }
+  const sharedConversations = await listGrantsForViewerOnPerson(em, scope, currentUserId, personEntityId)
+  const sharedChannelIds = await listSharedChannelIds(em, scope, currentUserId)
+  if (isEmailHiddenFrom({ ...visibility, sharedConversations, sharedChannelIds })) {
+    const { translate } = await resolveTranslations()
+    throw notFound(translate('customers.errors.entity_not_found', 'Entity not found'))
+  }
+}
+
+async function ensureInteractionPrivacyChangeAccess(
+  ctx: CommandRuntimeContext,
+  interaction: CustomerInteraction,
+  next: { interactionType?: string; authorUserId?: string | null; visibility?: string | null },
+): Promise<void> {
+  if (interaction.interactionType !== 'email') return
+  const actorUserId = ctx.auth?.isApiKey ? null : ctx.auth?.sub ?? null
+  const changesOwnership = next.authorUserId !== undefined && (next.authorUserId ?? null) !== (interaction.authorUserId ?? null)
+  const changesType = next.interactionType !== undefined && next.interactionType !== interaction.interactionType
+  if (
+    ((changesOwnership || changesType) && (!actorUserId || actorUserId !== interaction.authorUserId)) ||
+    (next.visibility !== undefined && !canChangeEmailVisibility({
+      interactionType: interaction.interactionType,
+      currentVisibility: interaction.visibility,
+      nextVisibility: next.visibility,
+      authorUserId: interaction.authorUserId,
+      actorUserId,
+      userFeatures: undefined,
+    }))
+  ) {
+    const { translate } = await resolveTranslations()
+    throw notFound(translate('customers.errors.entity_not_found', 'Entity not found'))
+  }
+}
+
+async function ensureInteractionRestoreAccess(
+  ctx: CommandRuntimeContext,
+  em: EntityManager,
+  current: CustomerInteraction | null,
+  restored: InteractionSnapshot['interaction'],
+): Promise<void> {
+  if (current) {
+    await ensureInteractionMutationAccess(ctx, em, current)
+    await ensureInteractionPrivacyChangeAccess(ctx, current, { ...restored, visibility: restored.visibility ?? null })
+  }
+  await ensureInteractionMutationAccess(ctx, em, { ...restored, channelId: current?.channelId })
+}
+
+async function loadInteractionSnapshot(em: EntityManager, id: string, ctx?: CommandRuntimeContext): Promise<InteractionSnapshot | null> {
   const interaction = await findOneWithDecryption(em, CustomerInteraction, { id }, { populate: ['entity'] })
   if (!interaction) return null
+  if (ctx) await ensureInteractionMutationAccess(ctx, em, interaction)
   const custom = await loadCustomFieldSnapshot(em, {
     entityId: INTERACTION_ENTITY_ID,
     recordId: interaction.id,
@@ -495,6 +564,7 @@ const createInteractionCommand: CommandHandler<InteractionCreateInput, { interac
     const result = await runInTransaction(em, async (trx) => {
       const record = await findOneWithDecryption(trx, CustomerInteraction, { id: interactionId })
       if (!record) return null
+      await ensureInteractionMutationAccess(ctx, trx, record)
       const entityId = typeof record.entity === 'string' ? record.entity : record.entity.id
       trx.remove(record)
       await trx.flush()
@@ -524,6 +594,7 @@ const createInteractionCommand: CommandHandler<InteractionCreateInput, { interac
     const { interaction, nextInteractionId } = await runInTransaction(em, async (trx) => {
       const entity = await requireTimelineParentEntity(trx, after.interaction.entityId, { tenantId: after.interaction.tenantId, organizationId: after.interaction.organizationId })
       let interaction = await findOneWithDecryption(trx, CustomerInteraction, { id: after.interaction.id })
+      await ensureInteractionRestoreAccess(ctx, trx, interaction, after.interaction)
       if (!interaction) {
         interaction = buildInteractionGraph(trx, {
           id: after.interaction.id,
@@ -631,6 +702,16 @@ const createInteractionCommand: CommandHandler<InteractionCreateInput, { interac
 
 // ─── Update ─────────────────────────────────────────────────────────
 
+<<<<<<< HEAD
+=======
+async function prepareUpdateInteractionSnapshot(rawInput: InteractionUpdateInput, ctx: CommandRuntimeContext) {
+  const { parsed } = parseWithCustomFields(interactionUpdateSchema, rawInput)
+  const em = ctx.transactionalEm ?? (ctx.container.resolve('em') as EntityManager).fork()
+  const snapshot = await loadInteractionSnapshot(em, parsed.id, ctx)
+  return snapshot ? { before: snapshot } : {}
+}
+
+>>>>>>> 59e670c16 (fix(customers): prevent private email exposure through interaction mutations (#8027))
 const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interactionId: string }> = {
   id: 'customers.interactions.update',
   async prepare(rawInput, ctx) {
@@ -650,6 +731,7 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
       }
       ensureTenantScope(ctx, interaction.tenantId)
       ensureOrganizationScope(ctx, interaction.organizationId)
+      await ensureInteractionMutationAccess(ctx, trx, interaction)
 
       // Concurrent-edit guard for command-driven callers (e.g. the legacy
       // /api/customers/todos route, which bypasses the makeCrudRoute lock guard):
@@ -663,6 +745,7 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
         request: ctx.request ?? null,
       })
 
+<<<<<<< HEAD
       // Email visibility is an access-controlled field: only the interaction's
       // author may change a
       // private email's visibility (mirrors the dedicated PATCH .../visibility
@@ -691,6 +774,87 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
           throw notFound('Email not found')
         }
       }
+=======
+      await ensureInteractionPrivacyChangeAccess(ctx, interaction, parsed)
+
+      const nextType = parsed.interactionType ?? interaction.interactionType
+      const changingType = nextType !== interaction.interactionType
+      const enforceSelectableType = requestsSelectableTypeEnforcement(rawInput)
+      const { behavior, organizationIds } = await resolveInteractionTypeBehavior(
+        ctx, trx, interaction.tenantId, interaction.organizationId, nextType, !changingType, enforceSelectableType,
+      )
+      const currentCoreValues = {
+        durationMinutes: interaction.durationMinutes,
+        timezone: interaction.timezone ?? null,
+        allDay: interaction.allDay,
+        recurrenceRule: interaction.recurrenceRule,
+        recurrenceEnd: interaction.recurrenceEnd,
+        location: interaction.location,
+        participants: interaction.participants,
+        priority: interaction.priority,
+        linkedEntities: interaction.linkedEntities,
+      }
+      const typeChangeFields = changingType && enforceSelectableType ? omitHiddenCoreClears(behavior, parsed) : parsed
+      const coreValues = { ...currentCoreValues, ...typeChangeFields }
+      const inapplicableCore = findInapplicableCoreFields(behavior, changingType ? coreValues : parsed)
+      const confirmsDiscard = parsed.confirmDiscardInapplicableValues === true
+      const currentCustom = changingType && (enforceSelectableType || confirmsDiscard)
+        ? await loadCustomFieldSnapshot(trx, {
+          entityId: INTERACTION_ENTITY_ID,
+          recordId: interaction.id,
+          tenantId: interaction.tenantId,
+          organizationId: interaction.organizationId,
+        })
+        : {}
+      const customValues = changingType ? { ...currentCustom, ...custom } : custom
+      const customKeys = Object.keys(customValues).length
+        ? await loadApplicableCustomFieldKeys(trx, interaction.tenantId, organizationIds, behavior)
+        : null
+      const inapplicableCustom = customKeys ? inapplicableCustomFieldKeys(customValues, customKeys) : []
+      if (!changingType && enforceSelectableType && (inapplicableCore.length || inapplicableCustom.length)) {
+        const { translate } = await resolveTranslations()
+        throw inapplicableFieldError(
+          [...inapplicableCore, ...inapplicableCustom.map((key) => `cf_${key}`)],
+          translate('customers.calendar.activityTypes.errors.fieldNotApplicable', 'Field is not applicable to this activity type'),
+        )
+      }
+      if (changingType && enforceSelectableType && (inapplicableCore.length || inapplicableCustom.length) && !confirmsDiscard) {
+        const { translate } = await resolveTranslations()
+        throw new CrudHttpError(409, {
+          error: translate('customers.calendar.activityTypes.errors.changeConfirmationRequired', 'Changing type will clear existing values'),
+          code: 'calendar_type_change_confirmation_required',
+          fields: [...inapplicableCore, ...inapplicableCustom.map((key) => `cf_${key}`)],
+        })
+      }
+      // The type-change 409 is scoped to the selectable-type opt-in, and stored
+      // values are cleared only on an explicit `confirmDiscardInapplicableValues`.
+      // A legacy caller (the schedule dialog, the deal composer, the kanban quick
+      // actions, a direct API client) sends a partial payload and does not handle
+      // the 409, so judging it on the merged stored row rejected switches it has
+      // always been able to make — e.g. a Task carrying a priority becoming a
+      // Meeting. Those callers keep the pre-catalog behavior exactly: the fields
+      // they sent are written and nothing stored is cleared, even when the new
+      // type cannot display it.
+      const discardsInapplicableValues = changingType && confirmsDiscard
+      const clearedCore = discardsInapplicableValues
+        ? clearInapplicableCoreFields(behavior, coreValues)
+        : {}
+      const clearedCustom = discardsInapplicableValues
+        ? Object.fromEntries(inapplicableCustom.map((key) => [key, Array.isArray(customValues[key]) ? [] : null]))
+        : {}
+      // Narrowing a same-type edit (ignoring explicit clears of hidden core fields,
+      // dropping custom fields outside the type's fieldsets) is part of the opt-in
+      // contract too: a legacy caller's write is accepted as sent.
+      const sameTypeFields = changingType
+        ? typeChangeFields
+        : preserveHiddenCoreValuesOnSameTypeEdit(behavior, currentCoreValues, parsed, {
+          ignoreHiddenClears: enforceSelectableType,
+        })
+      const sameTypeCustom = changingType || !customKeys || !enforceSelectableType
+        ? custom
+        : Object.fromEntries(Object.entries(custom).filter(([key]) =>
+          !customKeys.defined.has(key.toLowerCase()) || customKeys.allowed.has(key.toLowerCase())))
+>>>>>>> 59e670c16 (fix(customers): prevent private email exposure through interaction mutations (#8027))
 
       // Re-link to a different person/company (#5938). Resolved before any scalar
       // mutation below so the lookup never lands between a mutation and `trx.flush()`
@@ -820,6 +984,7 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const { interaction, projections } = await runInTransaction(em, async (trx) => {
       let interaction = await findOneWithDecryption(trx, CustomerInteraction, { id: before.interaction.id })
+      await ensureInteractionRestoreAccess(ctx, trx, interaction, before.interaction)
       const entity = await requireTimelineParentEntity(trx, before.interaction.entityId, { tenantId: before.interaction.tenantId, organizationId: before.interaction.organizationId })
 
       if (!interaction) {
@@ -945,7 +1110,7 @@ const completeInteractionCommand: CommandHandler<InteractionCompleteInput, { int
   async prepare(rawInput, ctx) {
     const parsed = interactionCompleteSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const snapshot = await loadInteractionSnapshot(em, parsed.id)
+    const snapshot = await loadInteractionSnapshot(em, parsed.id, ctx)
     return snapshot ? { before: snapshot } : {}
   },
   async execute(rawInput, ctx) {
@@ -959,6 +1124,7 @@ const completeInteractionCommand: CommandHandler<InteractionCompleteInput, { int
       }
       ensureTenantScope(ctx, interaction.tenantId)
       ensureOrganizationScope(ctx, interaction.organizationId)
+      await ensureInteractionMutationAccess(ctx, trx, interaction)
 
       await enforceCommandOptimisticLockWithGuards(ctx.container, {
         resourceKind: 'customers.interaction',
@@ -1039,6 +1205,7 @@ const completeInteractionCommand: CommandHandler<InteractionCompleteInput, { int
     const result = await runInTransaction(em, async (trx) => {
       const interaction = await findOneWithDecryption(trx, CustomerInteraction, { id: before.interaction.id })
       if (!interaction) return null
+      await ensureInteractionMutationAccess(ctx, trx, interaction)
 
       interaction.status = before.interaction.status
       interaction.occurredAt = before.interaction.occurredAt
@@ -1085,7 +1252,7 @@ const cancelInteractionCommand: CommandHandler<InteractionCancelInput, { interac
   async prepare(rawInput, ctx) {
     const parsed = interactionCancelSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const snapshot = await loadInteractionSnapshot(em, parsed.id)
+    const snapshot = await loadInteractionSnapshot(em, parsed.id, ctx)
     return snapshot ? { before: snapshot } : {}
   },
   async execute(rawInput, ctx) {
@@ -1099,6 +1266,7 @@ const cancelInteractionCommand: CommandHandler<InteractionCancelInput, { interac
       }
       ensureTenantScope(ctx, interaction.tenantId)
       ensureOrganizationScope(ctx, interaction.organizationId)
+      await ensureInteractionMutationAccess(ctx, trx, interaction)
 
       await enforceCommandOptimisticLockWithGuards(ctx.container, {
         resourceKind: 'customers.interaction',
@@ -1177,6 +1345,7 @@ const cancelInteractionCommand: CommandHandler<InteractionCancelInput, { interac
     const result = await runInTransaction(em, async (trx) => {
       const interaction = await findOneWithDecryption(trx, CustomerInteraction, { id: before.interaction.id })
       if (!interaction) return null
+      await ensureInteractionMutationAccess(ctx, trx, interaction)
 
       interaction.status = before.interaction.status
       await trx.flush()
@@ -1223,7 +1392,7 @@ const deleteInteractionCommand: CommandHandler<{ body?: Record<string, unknown>;
     async prepare(input, ctx) {
       const id = requireId(input, 'Interaction id required')
       const em = (ctx.container.resolve('em') as EntityManager).fork()
-      const snapshot = await loadInteractionSnapshot(em, id)
+      const snapshot = await loadInteractionSnapshot(em, id, ctx)
       return snapshot ? { before: snapshot } : {}
     },
     async execute(input, ctx) {
@@ -1237,6 +1406,7 @@ const deleteInteractionCommand: CommandHandler<{ body?: Record<string, unknown>;
         }
         ensureTenantScope(ctx, interaction.tenantId)
         ensureOrganizationScope(ctx, interaction.organizationId)
+        await ensureInteractionMutationAccess(ctx, trx, interaction)
 
         await enforceCommandOptimisticLockWithGuards(ctx.container, {
           resourceKind: 'customers.interaction',
@@ -1302,6 +1472,7 @@ const deleteInteractionCommand: CommandHandler<{ body?: Record<string, unknown>;
       const { interaction, nextInteractionId } = await runInTransaction(em, async (trx) => {
         const entity = await requireTimelineParentEntity(trx, before.interaction.entityId, { tenantId: before.interaction.tenantId, organizationId: before.interaction.organizationId })
         let interaction = await findOneWithDecryption(trx, CustomerInteraction, { id: before.interaction.id })
+        await ensureInteractionRestoreAccess(ctx, trx, interaction, before.interaction)
         if (!interaction) {
           interaction = trx.create(CustomerInteraction, {
             id: before.interaction.id,
