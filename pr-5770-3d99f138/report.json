@@ -1,18 +1,27 @@
 {
-  "runId": "3d99f138-resume",
+  "runId": "3d99f138-final",
   "mode": "pr",
   "target": {
     "prNumber": 5770,
     "title": "Canonical live ACL grants and targets",
     "branch": "cez-b-5770",
-    "headSha": "3e661f863e9666d648ace536fc14cdca1567a45a"
+    "headSha": "c40ce18e5c4de72572ca918c9d4f1929b5c71988"
   },
   "verdict": "PASS",
   "environment": {
     "baseUrl": "http://127.0.0.1:5001",
     "role": "self-created principals; admin/superadmin setup",
     "startedByThisRepo": true,
-    "browserProvider": "playwright"
+    "browserProvider": "playwright",
+    "headSha": "c40ce18e5c4de72572ca918c9d4f1929b5c71988",
+    "startedAt": "2026-10-30T01:27:15.493Z",
+    "provenance": {
+      "sourceCapturedAt": "2026-10-30T01:22:29.933Z",
+      "runtimeStartedAt": "2026-10-30T01:27:15.493Z",
+      "buildCompletedAt": 1793323625931,
+      "sourceFingerprint": "42d667468c8349e00ef5a9d45bdd490b5588a84a71cf27532973f81d2bc076c0",
+      "generation": "bf295fab-5895-4a91-b8d5-4411c5db9cba"
+    }
   },
   "scenario": [
     {
@@ -21,7 +30,7 @@
       "mode": "user-live",
       "action": "Evaluate isolated user-live principal",
       "expected": "Feature check and protected list allow",
-      "observed": "{\"featureGranted\": true, \"listStatus\": 200, \"loginStatus\": 200}",
+      "observed": "{\"loginStatus\": 200, \"featureGranted\": true, \"listStatus\": 200}",
       "result": "PASS",
       "screenshot": null
     },
@@ -31,7 +40,7 @@
       "mode": "role-live",
       "action": "Evaluate isolated role-live principal",
       "expected": "Feature check and protected list allow",
-      "observed": "{\"featureGranted\": true, \"listStatus\": 200, \"loginStatus\": 200}",
+      "observed": "{\"loginStatus\": 200, \"featureGranted\": true, \"listStatus\": 200}",
       "result": "PASS",
       "screenshot": null
     },
@@ -41,7 +50,7 @@
       "mode": "user-revoked",
       "action": "Evaluate isolated user-revoked principal",
       "expected": "No revoked, deleted, foreign or tenantless privilege",
-      "observed": "{\"featureGranted\": false, \"listStatus\": 403, \"loginStatus\": 200}",
+      "observed": "{\"loginStatus\": 200, \"featureGranted\": false, \"listStatus\": 403}",
       "result": "PASS",
       "screenshot": null
     },
@@ -51,7 +60,7 @@
       "mode": "role-revoked",
       "action": "Evaluate isolated role-revoked principal",
       "expected": "No revoked, deleted, foreign or tenantless privilege",
-      "observed": "{\"featureGranted\": false, \"listStatus\": 403, \"loginStatus\": 200}",
+      "observed": "{\"loginStatus\": 200, \"featureGranted\": false, \"listStatus\": 403}",
       "result": "PASS",
       "screenshot": null
     },
@@ -61,7 +70,7 @@
       "mode": "membership-revoked",
       "action": "Evaluate isolated membership-revoked principal",
       "expected": "No revoked, deleted, foreign or tenantless privilege",
-      "observed": "{\"featureGranted\": false, \"listStatus\": 403, \"loginStatus\": 200}",
+      "observed": "{\"loginStatus\": 200, \"featureGranted\": false, \"listStatus\": 403}",
       "result": "PASS",
       "screenshot": null
     },
@@ -71,7 +80,7 @@
       "mode": "role-deleted",
       "action": "Evaluate isolated role-deleted principal",
       "expected": "No revoked, deleted, foreign or tenantless privilege",
-      "observed": "{\"featureGranted\": false, \"listStatus\": 403, \"loginStatus\": 200}",
+      "observed": "{\"loginStatus\": 200, \"featureGranted\": false, \"listStatus\": 403}",
       "result": "PASS",
       "screenshot": null
     },
@@ -81,7 +90,7 @@
       "mode": "foreign-superadmin",
       "action": "Evaluate isolated foreign-superadmin principal",
       "expected": "No revoked, deleted, foreign or tenantless privilege",
-      "observed": "{\"featureGranted\": false, \"listStatus\": 403, \"loginStatus\": 200}",
+      "observed": "{\"loginStatus\": 200, \"featureGranted\": false, \"listStatus\": 403}",
       "result": "PASS",
       "screenshot": null
     },
@@ -91,43 +100,43 @@
       "mode": "tenantless-superadmin",
       "action": "Evaluate isolated tenantless-superadmin principal",
       "expected": "No revoked, deleted, foreign or tenantless privilege",
-      "observed": "{\"featureGranted\": false, \"listStatus\": 403, \"loginStatus\": 200}",
+      "observed": "{\"loginStatus\": 200, \"featureGranted\": false, \"listStatus\": 403}",
       "result": "PASS",
       "screenshot": null
     },
     {
-      "step": 9,
-      "priority": "P1",
       "action": "Actual user edit and current access-control panel finish loading",
       "result": "PASS",
       "screenshot": "access-ready.png",
+      "step": 9,
+      "priority": "P1",
       "expected": "Actual user edit and current access-control panel finish loading",
       "observed": "Actual user edit and current access-control panel finish loading"
     },
     {
-      "step": 10,
-      "priority": "P1",
       "action": "User edit remains accessible at390px",
       "result": "PASS",
       "screenshot": "access-mobile.png",
+      "step": 10,
+      "priority": "P1",
       "expected": "User edit remains accessible at390px",
       "observed": "User edit remains accessible at390px"
     },
     {
-      "step": 11,
-      "priority": "P1",
       "action": "User list displays self-created fixtures after loading",
       "result": "PASS",
       "screenshot": "users-ready.png",
+      "step": 11,
+      "priority": "P1",
       "expected": "User list displays self-created fixtures after loading",
       "observed": "User list displays self-created fixtures after loading"
     },
     {
-      "step": 12,
-      "priority": "P1",
       "action": "A real principal with a revoked override cannot render the guarded user list",
       "result": "PASS",
       "screenshot": "revoked-access-denied.png",
+      "step": 12,
+      "priority": "P1",
       "expected": "A real principal with a revoked override cannot render the guarded user list",
       "observed": "A real principal with a revoked override cannot render the guarded user list"
     }
@@ -149,8 +158,12 @@
   ],
   "notes": [
     "8 live security API scenarios and4 browser checkpoints passed.",
-    "11 committed auth/locking integration cases passed without retry.",
-    "Actual PostgreSQL migration up/down2/2 passed at the same local head.",
-    "Evidence-only; no QA approval granted."
+    "6 committed auth API integration cases and5 committed optimistic-lock integration cases passed without retry.",
+    "Fixtures created via API; historical-corruption setup scoped to own identities and tenant/organization before first target authorization read.",
+    "Own fixture users/roles/tenant cleaned in finally; app/database stopped; tracked runtime email-capture file restored without reading or publishing its content.",
+    "Real revoked-principal UI Access Denied is not a simulated response.",
+    "Exploration corrections: fixture password changed to satisfy existing complexity policy; exact observed Access Denied label used. No product or committed test source, assertions, retries or CI checks weakened.",
+    "No shared/evidence branch pushed; historical QA labels preserved without renewal.",
+    "Fresh execution at the final local latest-main integration. Captured immutable prepared head before launch; live owner/worktree/start and source checks, cold readiness and warm reuse PASS. No publication or QA approval."
   ]
 }
