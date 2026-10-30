@@ -91,7 +91,9 @@ function withoutExcludedCustomFields(
   if (!exclusion) return customFields
   const filtered: Record<string, unknown> = {}
   for (const [key, value] of Object.entries(customFields)) {
+    const isPrefixed = key.startsWith('cf:') || key.startsWith('cf_')
     if (isExcludedCustomField(key, exclusion)) continue
+    if (isPrefixed && isExcludedCustomField(key.slice(3), exclusion)) continue
     filtered[key] = value
   }
   return filtered
@@ -247,7 +249,8 @@ export class SearchIndexer {
 
   /**
    * Returns a lookup of the custom fields to keep out of build contexts, memoized per entity and
-   * tenant for one indexing call. A missing resolver or a failed resolution excludes every custom field.
+   * tenant for one indexing call or reindex run. A missing resolver or a failed resolution excludes
+   * every custom field; a failed resolution is retried on the next lookup.
    */
   private createCustomFieldExclusionLookup(): CustomFieldExclusionLookup {
     const resolver = this.encryptedCustomFieldKeysResolver
@@ -263,6 +266,7 @@ export class SearchIndexer {
             error: error instanceof Error ? error.message : error,
           })
           reportSearchError('SearchIndexer', error, 'search.encrypted_custom_fields_unresolved', { entityId })
+          cache.delete(cacheKey)
           return 'all'
         })
         cache.set(cacheKey, pending)
@@ -629,6 +633,7 @@ export class SearchIndexer {
     }
 
     // Paginate through all records
+    const exclusions = this.createCustomFieldExclusionLookup()
     let page = 1
     const pageSize = 200
     let hasMore = true
@@ -656,6 +661,7 @@ export class SearchIndexer {
           params.organizationId ?? null,
           items,
           config,
+          exclusions,
         )
 
         // Bulk index records via SearchService (sends to all strategies)
@@ -875,6 +881,7 @@ export class SearchIndexer {
       }
 
       // Fetch and index records with pagination
+      const exclusions = this.createCustomFieldExclusionLookup()
       const pageSize = 200
       let page = 1
       let totalProcessed = 0
@@ -913,6 +920,7 @@ export class SearchIndexer {
             params.organizationId ?? null,
             queryResult.items,
             config,
+            exclusions,
           )
           result.recordsDropped = (result.recordsDropped ?? 0) + dropped
 

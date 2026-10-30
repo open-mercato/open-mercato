@@ -239,6 +239,42 @@ describe('SearchIndexer encrypted custom fields', () => {
     expect(indexed.fields['cf:tax_number']).toBe('GB123456')
   })
 
+  it('excludes encrypted keys passed with a cf: or cf_ prefix in customFields', async () => {
+    const { indexer, contexts, record } = setup({ resolver: encryptedTaxNumber })
+
+    await indexer.indexRecord({
+      entityId: companyEntityId,
+      recordId: record.id,
+      tenantId: 'tenant-1',
+      record: { ...record },
+      customFields: { 'cf:tax_number': 'GB123456', cf_tax_number: 'GB123456', 'cf:industry_note': 'Wholesale' },
+    })
+
+    expect(contexts[0].customFields).toEqual({ 'cf:industry_note': 'Wholesale' })
+  })
+
+  it('retries a failed definition lookup for the next record of the same batch', async () => {
+    const resolver = jest.fn(encryptedTaxNumber).mockRejectedValueOnce(new Error('database unavailable'))
+    const { indexer, contexts, record } = setup({ resolver })
+    const records = ['profile-1', 'profile-2'].map((id) => ({ ...record, id }))
+    ;(indexer as unknown as { queryEngine: QueryEngine }).queryEngine = {
+      query: jest.fn(async (entity, opts) => {
+        if (entity === parentEntityId) return { items: [], total: 0, page: 1, pageSize: 1 } as QueryResult
+        const wantedId = (opts?.filters as { id?: string } | undefined)?.id
+        const items = records.filter((candidate) => candidate.id === wantedId)
+        return { items, total: items.length, page: 1, pageSize: 1 } as QueryResult
+      }),
+    }
+
+    await indexer.indexRecordsById({
+      items: records.map((candidate) => ({ entityId: companyEntityId, recordId: candidate.id })),
+      tenantId: 'tenant-1',
+    })
+
+    const customFieldKeys = contexts.map((ctx) => Object.keys(ctx.record).filter((key) => key.startsWith('cf')))
+    expect(customFieldKeys).toEqual([[], ['cf:industry_note']])
+  })
+
   it('excludes every custom field when the encrypted definitions cannot be resolved', async () => {
     const { indexer, searchService, contexts, record } = setup({
       resolver: async () => {
