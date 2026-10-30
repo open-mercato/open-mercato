@@ -65,13 +65,23 @@ test.describe('TC-LOCK-OSS-049: conflict bar is reachable while a dialog is open
       })
       expect(bumped.status(), await bumped.text()).toBe(200)
 
-      await labelInput.fill(`${label} stale`)
-      await dialog.getByRole('button', { name: /^save$/i }).click()
+      const staleLabel = `${label} stale`
+      await labelInput.fill(staleLabel)
+      const saveButton = dialog.getByRole('button', { name: /^save$/i })
+      await saveButton.click()
 
       const banner = dialog.getByTestId(CONFLICT_BANNER_TESTID)
       await expect(banner).toBeVisible({ timeout: 15_000 })
       await expect(banner).toHaveAttribute('data-placement', 'modal')
       await expect(dialog).toBeVisible()
+
+      await banner.getByRole('button', { name: /dismiss/i }).click()
+      await expect(page.getByTestId(CONFLICT_BANNER_TESTID)).toHaveCount(0)
+      await expect(dialog, 'dismissing the conflict must not close the dialog').toBeVisible()
+      await expect(labelInput, 'the attempted edit must survive dismissing the conflict').toHaveValue(staleLabel)
+
+      await saveButton.click()
+      await expect(banner).toBeVisible({ timeout: 15_000 })
 
       const refresh = banner.getByRole('button', { name: /refresh/i })
       const refreshIsTopmost = await refresh.evaluate((button) => {

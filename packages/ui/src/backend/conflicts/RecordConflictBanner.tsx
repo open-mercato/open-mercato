@@ -24,10 +24,12 @@ function findTopmostOpenModalContent(): HTMLElement | null {
   return candidates.length > 0 ? candidates[candidates.length - 1] : null
 }
 
+const useIsomorphicLayoutEffect = typeof window === 'undefined' ? React.useEffect : React.useLayoutEffect
+
 function useTopmostOpenModalContent(active: boolean): HTMLElement | null {
   const [container, setContainer] = React.useState<HTMLElement | null>(null)
 
-  React.useEffect(() => {
+  useIsomorphicLayoutEffect(() => {
     if (!active || typeof document === 'undefined' || typeof MutationObserver === 'undefined') {
       setContainer(null)
       return
@@ -92,7 +94,7 @@ export function RecordConflictBanner() {
       data-placement={modalContainer ? 'modal' : 'page'}
       className={cn(
         modalContainer
-          ? cn('order-first shrink-0', MODAL_PLACEMENT_CLASS[modalContainer.dataset.slot ?? ''])
+          ? cn('sticky top-0 z-sticky order-first shrink-0', MODAL_PLACEMENT_CLASS[modalContainer.dataset.slot ?? ''])
           : 'mb-4',
         'flex items-center justify-between gap-3 rounded-md border border-status-error-border bg-status-error-bg pl-3 pr-2 py-2 text-sm text-status-error-text shadow-xs sm:pr-3',
       )}
