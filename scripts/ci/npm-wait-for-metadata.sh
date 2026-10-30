@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -uo pipefail
 
-MAX_ATTEMPTS="${NPM_METADATA_MAX_ATTEMPTS:-120}"
+MAX_ATTEMPTS="${NPM_METADATA_MAX_ATTEMPTS:-180}"
 SLEEP_SECONDS="${NPM_METADATA_RETRY_SLEEP:-10}"
 
 if [ "$#" -lt 2 ]; then
