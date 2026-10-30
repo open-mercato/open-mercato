@@ -775,6 +775,11 @@ Injected fields can participate in the same CRUD request as the host form by
 using the request-scoped widget payload provided by `CrudForm`. The host page
 does not need to forward a second callback argument:
 
+Use this path when the module needs the host request result, such as the ID of a
+newly created record. For ordinary independent field persistence, keep using
+the Phase G triad (`enricher` → injected field → widget `onSave`). Do not persist
+the same concern in both `onSave` and an API interceptor.
+
 ```ts
 import { z } from 'zod'
 

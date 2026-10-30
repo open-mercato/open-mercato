@@ -12,7 +12,7 @@
 
 ## Goal
 
-Allow modules to inject fields into existing CrudForm groups using the **triad pattern**: enricher loads data → field widget renders → `onSave` persists through module's own API. The core API never sees injected field data.
+Allow modules to inject fields into existing CrudForm groups using the **triad pattern**: enricher loads data → field widget renders → `onSave` persists through the module's own API. The host entity schema never sees injected field data. When a create flow must combine widget data with the newly created host ID, the optional request sidecar can instead expose that data to the host route's API interceptor without adding it to the entity input.
 
 ---
 
@@ -21,7 +21,8 @@ Allow modules to inject fields into existing CrudForm groups using the **triad p
 ```
 Step 1 — LOAD:    Response Enricher adds data to API response (Phase D)
 Step 2 — RENDER:  Field widget displays enriched data as editable field
-Step 3 — SAVE:    Widget onSave persists via module's own API (NOT core API)
+Step 3 — SAVE:    Widget onSave persists via its own API (default), or the host
+                  request sidecar supplies it to an API interceptor
 ```
 
 ### Complete Save Flow
@@ -37,15 +38,16 @@ User edits injected field and clicks Save (Cmd+Enter)
   ├─ transformFormData pipeline runs (if extended events enabled)
   ├─ Widget onBeforeSave handlers run (can validate injected fields, can block)
   ├─ setPending(true)
-  ├─ Widget onSave handlers run FIRST (each saves its own data):
+  ├─ Widget onSave handlers run FIRST (default triad; each saves its own data):
   │  POST /api/example/customer-priorities  { customerId, priority: 'high' }
-  ├─ CrudForm sends core fields to core API SECOND (onSubmit):
+  ├─ CrudForm sends core fields to core API SECOND (onSubmit); apiCall may add
+  │  a private extension sidecar for an interceptor:
   │  PUT /api/customers/people  { id, firstName, ... }
-  │  (_example fields NOT sent to core API)
+  │  (the factory strips extension values before the entity schema runs)
   └─ Widget onAfterSave handlers run (cleanup, refresh)
 ```
 
-**Key design**: The core API never sees injected fields. Each widget saves its own data through its own API.
+**Key design**: The host entity schema never sees injected fields. The triad remains the default persistence path. Use the request sidecar only when the module must coordinate widget data with the host request result, such as a newly created ID. A widget must not persist the same concern in both `onSave` and an API interceptor.
 
 **Important**: Widget `onSave` fires BEFORE the core API call (`onSubmit`). This means injected field data is persisted before the core entity is updated. If the core save fails after widget saves succeed, the system may be in an inconsistent state. To mitigate this:
 - Widget save endpoints SHOULD be **idempotent** (safe to retry)
