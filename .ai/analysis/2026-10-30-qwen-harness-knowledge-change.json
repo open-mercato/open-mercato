@@ -255,7 +255,8 @@
     "packages/create-app/src/lib/coding-context-delivery.test.ts",
     "packages/create-app/src/lib/coding-fixture-contracts.test.ts",
     "packages/create-app/src/lib/writable-ast-oracles.test.ts",
-    "packages/create-app/src/lib/harness-build-cache.test.ts"
+    "packages/create-app/src/lib/harness-build-cache.test.ts",
+    "packages/create-app/src/lib/pi-harness-extension.test.ts"
   ],
   "authoritativeFiles": [
     {
@@ -277,6 +278,10 @@
     {
       "path": "turbo.json",
       "sha256": "391f6413b060f761bfc18ab55382c2d24ac016fd033869778513be5f13117e25"
+    },
+    {
+      "path": "packages/create-app/agentic/shared/scripts/pi-harness-extension.mjs",
+      "sha256": "a606dd1d305261ff3ab66831b89107e9767f4f36bb07b94deadb38b6084fbe44"
     }
   ],
   "generatedFiles": [
