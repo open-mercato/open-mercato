@@ -4,6 +4,8 @@ import { setCustomFieldsIfAny } from '@open-mercato/shared/lib/commands/helpers'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { E } from '#generated/entities.ids.generated'
 import {
   CatalogOffer,
@@ -260,6 +262,34 @@ function restoreConflict(kind: string, id: string): Error {
   return new Error(`[internal] Cannot restore catalog product ${kind} ${id}: it does not belong to the restored product`)
 }
 
+async function assertVariantSkusAvailable(
+  em: EntityManager,
+  owner: ProductDeleteOwner,
+  variants: ProductDeleteVariantSnapshot[],
+  ownVariantIds: Set<string>,
+): Promise<void> {
+  const skus = Array.from(new Set(variants.map((variant) => variant.sku).filter((sku): sku is string => Boolean(sku))))
+  if (!skus.length) return
+  const scope = { tenantId: owner.tenantId, organizationId: owner.organizationId }
+  const holders = await findWithDecryption(
+    em,
+    CatalogProductVariant,
+    { sku: { $in: skus }, tenantId: owner.tenantId, organizationId: owner.organizationId },
+    {},
+    scope,
+  )
+  const blocker = holders.find((holder) => !ownVariantIds.has(holder.id))
+  if (!blocker?.sku) return
+  const { translate } = await resolveTranslations()
+  throw new CrudHttpError(409, {
+    error: translate(
+      'catalog.products.errors.undoVariantSkuInUse',
+      'This product cannot be restored because SKU {sku} is already used by another variant. Change or remove that variant\'s SKU, then undo again.',
+      { sku: blocker.sku },
+    ),
+  })
+}
+
 function sameScope(row: { tenantId: string; organizationId: string }, owner: ProductDeleteOwner): boolean {
   return row.tenantId === owner.tenantId && row.organizationId === owner.organizationId
 }
@@ -375,10 +405,13 @@ export async function planProductDeleteChildrenRestore(
   const productAvailable = (id: string | null) =>
     id === null || id === owner.id || availableForeignProductIds.has(id)
 
+  const variantsToRestore = variantSnapshots.filter((entry) => !existingVariantIds.has(entry.id))
+  await assertVariantSkusAvailable(em, owner, variantsToRestore, ownVariantIds)
+
   return {
     optionSchemaTemplate: templateSnapshot && !existingTemplate ? templateSnapshot : null,
     unitConversions: conversionSnapshots.filter((entry) => !existingConversionIds.has(entry.id)),
-    variants: variantSnapshots.filter((entry) => !existingVariantIds.has(entry.id)),
+    variants: variantsToRestore,
     prices: priceSnapshots
       .filter(
         (entry) =>

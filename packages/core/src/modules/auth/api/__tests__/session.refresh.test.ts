@@ -55,6 +55,19 @@ describe('/api/auth/session/refresh', () => {
     expect(setCookie).toContain('session_token=;')
   })
 
+  it('GET treats a session_token with a malformed %-escape as missing instead of 500ing', async () => {
+    const response = await GET(new Request('https://demo.openmercato.com/api/auth/session/refresh?redirect=%2Fbackend', {
+      headers: { cookie: 'session_token=%E0%A4%A' },
+    }))
+
+    expect(response.status).toBe(307)
+    expect(response.headers.get('location')).toBe('https://demo.openmercato.com/login?redirect=%2Fbackend')
+    expect(refreshFromSessionToken).not.toHaveBeenCalled()
+    const setCookie = response.headers.get('set-cookie') || ''
+    expect(setCookie).toContain('auth_token=;')
+    expect(setCookie).toContain('session_token=;')
+  })
+
   it('GET falls back to a host-relative redirect when the request origin is not allowlisted', async () => {
     const response = await GET(new Request('https://develop.openmercato.com/api/auth/session/refresh?redirect=%2Fbackend'))
 

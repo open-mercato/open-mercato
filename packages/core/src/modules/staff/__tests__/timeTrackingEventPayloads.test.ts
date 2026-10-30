@@ -102,6 +102,7 @@ describe('clientBroadcast payloads carry no money', () => {
         'staff.timesheets.time_report.closed',
         'staff.timesheets.time_report.unlocked',
         'staff.timesheets.time_task.status_changed',
+        'staff.timesheets.time_task.assignee_changed',
       ].sort(),
     )
   })
