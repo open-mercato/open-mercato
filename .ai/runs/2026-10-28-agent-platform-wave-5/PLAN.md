@@ -87,6 +87,7 @@
 | 7 | 7.11 | Document the eval CI recipe | dispatch:cheap | done | 0492ad80b |
 | 7 | 7.12 | Cover eval-set import, export and settings with integration tests | dispatch | done | 8905381bc |
 | 8 | 8.1 | Update the roadmap and upgrade notes for wave 5 | inline | done | 84ad938ba |
+| 8 | 8.1-review-fix | Re-measure the module-facts size caps on the wave-5 union | inline | done | pending |
 
 ## Goal
 
