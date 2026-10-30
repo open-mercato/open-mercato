@@ -32,6 +32,8 @@ Shared build cleanup affects every package: preserve outputs owned by other sour
 
 ## Progress
 
+PR: #8272
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Preserve runtime build outputs
@@ -45,5 +47,13 @@ Shared build cleanup affects every package: preserve outputs owned by other sour
 ### Phase 3: Repair shutdown, verify, and publish
 
 - [x] 3.0 Fix Ctrl+C descendant cleanup, stale session recovery, and listener diagnostics — 01e85243e
-- [ ] 3.1 Run focused tests and the configured validation gate
-- [ ] 3.2 Complete authoritative review and publish the ready PR
+- [x] 3.1 Run focused tests and the configured validation gate — 4f825faa8
+- [x] 3.2 Complete authoritative review and publish the ready PR — 4f825faa8
+
+## Verification outcome
+
+Local macOS runner, Node 24.22.2. All eight configured validation commands passed, including the full 51-task test run and the production app build. Final focused build/import/lifecycle suite: 110/110 passed. Post-MCP package refresh: 42/42 tasks passed. Template sync and lessons checks passed.
+
+Automated review found no remaining actionable code findings: https://github.com/open-mercato/open-mercato/pull/8272#pullrequestreview-5715415459. GitHub rejected author self-approval, so the assessment is posted as a non-approving review; independent human approval remains required. The latest main merged cleanly in a read-only merge-tree check. Remote CI remains queued/running and continues to gate merge; this run does not wait for or promise further CI monitoring.
+
+The old invoking-checkout MCP process was verified and terminated, its ports and stale lock were released, and reviewed source/test fixes were copied back without changing the user's branch or untracked mise.toml.
