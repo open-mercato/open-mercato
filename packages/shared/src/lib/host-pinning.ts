@@ -82,7 +82,8 @@ export function isInternalHost(rawHost: string): boolean {
   if (!host) return false
   if (FORBIDDEN_HOST_NAMES.has(host) || host.endsWith('.localhost')) return true
   if (host.includes(':')) {
-    const address = host.replace(/%.*$/, '')
+    const zoneIndex = host.indexOf('%')
+    const address = zoneIndex === -1 ? host : host.slice(0, zoneIndex)
     return isIP(address) !== 6 || isPrivateIPv6(address)
   }
   if (isObfuscatedIpv4(host)) return true
