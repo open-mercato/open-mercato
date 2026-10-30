@@ -39,6 +39,29 @@ creation time from the stored after-snapshot when available. A historical log
 that lacks that timestamp cannot recover the original time. Rolling back the
 code does not remove tombstones or release their slugs.
 
+### Agent page reads enforce domain rules before redirected egress (#7548)
+
+`web_search` inline content and `web_fetch` now check agent domain rules before
+each HTTP request, including redirects. Permitted inline content uses the final
+page URL. Internal adapter services remain reachable under the operator's
+separate `OM_WEB_SEARCH_ALLOW_PRIVATE_HOSTS` setting.
+
+**Operator action:** with a nonempty domain allowlist or denylist, content reads
+stay on guarded HTTP: automatic browser rendering is skipped and explicit
+`render: 'always'` returns a blocked outcome. Keep domain restrictions configured;
+rendered page reads require future browser redirect-policy enforcement. Restricted
+searches bypass result caches automatically, including previously enriched entries.
+No cache purge or database migration is needed.
+
+**Adapter author action:** existing contract version 1 adapters remain supported
+by the version 2 loader and shared contract-test kit. Adapters rebuilt against
+the current `CONTRACT_VERSION` advertise version 2 and require a host supporting
+version 2; upgrade the host before deploying those rebuilt descriptors.
+Custom HTTP clients must honor the new optional
+`HttpRequestInit.assertUrlAllowed(url)` callback, awaiting synchronous or async
+assertions before DNS and transmission for initial requests and every redirect.
+No tool input or result-field migration is required.
+
 ### Workflow webhook responses have resource limits (#7814)
 
 Each `CALL_WEBHOOK` attempt now defaults to a 30-second deadline covering the
