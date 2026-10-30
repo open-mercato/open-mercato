@@ -7,13 +7,16 @@ import type { OtelExportJobPayload } from '../../queue'
 import {
   isExportEnabledFor,
   readOtelExportSettings,
+  resolveContentExportMode,
   resolveOtelExportDeployment,
+  type OtelContentExportMode,
   type OtelExportContainer,
 } from './exportSettings'
 import { recordOtelExportHealth } from './exportHealth'
 import type { RunExportBundle } from './loadRunExportBundle'
+import { loadRunExportContent, type RunExportContent } from './loadRunExportContent'
 import { mapAgentRunToOtlp } from './mapAgentRunToOtlp'
-import { encodeOtlpTraceRequest } from './otlpJson'
+import { encodeOtlpTraceRequest, type OtlpResourceSpansInput } from './otlpJson'
 import type { OtlpExportResult, PostOtlpTracesInput } from './otlpHttpClient'
 
 const logger = createLogger('agent_orchestrator').child({ component: 'otel-export-job' })
@@ -22,6 +25,7 @@ export const OTEL_EXPORT_MAX_ATTEMPTS = 5
 export const OTEL_EXPORT_BACKOFF_BASE_MS = 5_000
 export const OTEL_EXPORT_BACKOFF_MAX_MS = 5 * 60 * 1000
 export const OTEL_EXPORT_RETRY_AFTER_MAX_MS = OTEL_EXPORT_BACKOFF_MAX_MS * 12
+export const OTEL_EXPORT_MAX_REQUEST_BYTES = 4 * 1024 * 1024
 
 export const OTEL_EXPORT_ERROR_CODES = {
   failed: 'agent_orchestrator.otel_export_failed',
@@ -64,6 +68,41 @@ export function readDeploymentEnvironment(env: EnvLike = process.env): string | 
     if (key === 'deployment.environment') legacy = value
   }
   return legacy
+}
+
+function encodeRequestBody(chunk: OtlpResourceSpansInput): string {
+  return JSON.stringify(encodeOtlpTraceRequest(chunk))
+}
+
+function withSpans(chunk: OtlpResourceSpansInput, spans: OtlpResourceSpansInput['scopeSpans'][number]['spans']): OtlpResourceSpansInput {
+  const [scopeSpans] = chunk.scopeSpans
+  return { resource: chunk.resource, scopeSpans: [{ ...scopeSpans, spans }] }
+}
+
+function splitChunkByBytes(chunk: OtlpResourceSpansInput, maxBytes: number, bodies: string[]): void {
+  const body = encodeRequestBody(chunk)
+  const spans = chunk.scopeSpans.length === 1 ? chunk.scopeSpans[0].spans : null
+  if (Buffer.byteLength(body, 'utf8') <= maxBytes || !spans || spans.length <= 1) {
+    bodies.push(body)
+    return
+  }
+  const middle = Math.ceil(spans.length / 2)
+  splitChunkByBytes(withSpans(chunk, spans.slice(0, middle)), maxBytes, bodies)
+  splitChunkByBytes(withSpans(chunk, spans.slice(middle)), maxBytes, bodies)
+}
+
+/**
+ * OTLP/JSON request bodies for the mapped chunks, each at most `maxBytes`
+ * uncompressed: a chunk over the limit is halved by spans until it fits (a
+ * single span is sent as is), on top of the span-count chunking of the mapper.
+ */
+export function encodeOtlpRequestBodies(
+  chunks: readonly OtlpResourceSpansInput[],
+  maxBytes: number = OTEL_EXPORT_MAX_REQUEST_BYTES,
+): string[] {
+  const bodies: string[] = []
+  for (const chunk of chunks) splitChunkByBytes(chunk, maxBytes, bodies)
+  return bodies
 }
 
 function reportExportError(error: unknown, code: string, attributes: Record<string, string | number | undefined>): void {
@@ -222,11 +261,14 @@ export type OtelExportJobOutcome =
   | 'rejected'
   | 'error'
 
+export type LoadOtelExportContent = (bundle: RunExportBundle, mode: OtelContentExportMode) => Promise<RunExportContent>
+
 export type ProcessOtelExportJobDeps = {
   container: AwilixContainer
   loadBundle: (runId: string) => Promise<RunExportBundle | null>
   post: (input: PostOtlpTracesInput) => Promise<OtlpExportResult>
   enqueue: EnqueueOtelExport
+  loadContent?: LoadOtelExportContent
   env?: EnvLike
 }
 
@@ -243,6 +285,7 @@ function readJobPayload(payload: unknown): OtelExportJobPayload | null {
 
 async function postAllChunks(
   bundle: RunExportBundle,
+  content: RunExportContent | null,
   deployment: ReturnType<typeof resolveOtelExportDeployment>,
   exportUserIds: boolean,
   env: EnvLike,
@@ -250,15 +293,14 @@ async function postAllChunks(
 ): Promise<OtlpExportResult | null> {
   const endpoint = deployment.endpoint
   if (!endpoint) return null
-  const chunks = mapAgentRunToOtlp(bundle, {
+  const chunks = mapAgentRunToOtlp({ ...bundle, content: content ?? undefined }, {
     exportUserIds,
     serviceName: deployment.serviceName,
     serviceVersion: APP_VERSION,
     environment: readDeploymentEnvironment(env),
     scopeVersion: APP_VERSION,
   })
-  for (const chunk of chunks) {
-    const body = JSON.stringify(encodeOtlpTraceRequest(chunk))
+  for (const body of encodeOtlpRequestBodies(chunks)) {
     const result = await post({ endpoint, headers: deployment.headers, body })
     if (result.outcome !== 'ok') return result
   }
@@ -304,7 +346,11 @@ async function handleUnexpectedJobFailure(
 /**
  * One OTel export job. Only `runId` is trusted from the payload: the run row
  * gives the tenant, agent and source, and the tenant settings are re-read here
- * so a revoked opt-in stops queued jobs. Expected failures never throw (the
+ * so a revoked opt-in stops queued jobs. Content (prompts, completions, tool
+ * arguments/results) is loaded and attached only when all three locks hold for
+ * this job — deployment allow-switch, tenant `content: 'full'` and the run's
+ * captured level `full` — and each request body stays within
+ * {@link OTEL_EXPORT_MAX_REQUEST_BYTES} uncompressed. Expected failures never throw (the
  * queue's own retry would duplicate the backoff): `retry` and unexpected
  * failures (loader, settings, DB, queue) re-enqueue with `attempt + 1`
  * (Retry-After honored up to 1 h, max 5 attempts), `drop` is reported.
@@ -333,7 +379,11 @@ export async function processOtelExportJob(
     })
     if (!enabled) return 'not_enabled'
 
-    const failure = await postAllChunks(bundle, deployment, settings.exportUserIds, env, deps.post)
+    const mode = resolveContentExportMode({ deployment, tenant: settings, runCapture: bundle.manifest?.['om.capture'] })
+    const loadContent: LoadOtelExportContent =
+      deps.loadContent ?? ((target, contentMode) => loadRunExportContent(deps.container, target, { mode: contentMode }))
+    const content = mode === 'full' ? await loadContent(bundle, mode) : null
+    const failure = await postAllChunks(bundle, content, deployment, settings.exportUserIds, env, deps.post)
     if (!failure) {
       await recordOtelExportHealth(deps.container, tenantId, { outcome: 'success' })
       return 'exported'

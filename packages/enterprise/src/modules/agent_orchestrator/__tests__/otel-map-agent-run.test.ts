@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
 import { describe, expect, test } from '@jest/globals'
 import { GEN_AI_SEMCONV_VERSION } from '../lib/trace/genAiAttributes'
 import { agentSpanId, dispositionSpanId, runSpanId, traceIdFor, workflowSpanId } from '../lib/trace/otel/ids'
@@ -21,6 +23,8 @@ import {
   type OtlpResourceSpansInput,
   type OtlpSpanInput,
 } from '../lib/trace/otel/otlpJson'
+import { indexToolCallContent } from '../lib/trace/otel/genAiContent'
+import type { RunExportContent } from '../lib/trace/otel/loadRunExportContent'
 
 const TENANT_ID = '11111111-1111-4111-8111-111111111111'
 const ORG_ID = '22222222-2222-4222-8222-222222222222'
@@ -799,5 +803,149 @@ describe('mapAgentRunToOtlp', () => {
   test('the mapping is deterministic across calls', () => {
     const bundle: RunExportBundle = standaloneBundle()
     expect(mapAgentRunToOtlp(bundle, OPTIONS)).toEqual(mapAgentRunToOtlp(bundle, OPTIONS))
+  })
+
+  test('without content the encoded output matches the metadata golden byte for byte', () => {
+    const golden = readFileSync(path.join(__dirname, 'fixtures', 'otel', 'map-run-metadata.golden.json'), 'utf8')
+    const encode = (bundle: MapAgentRunBundle) =>
+      `${JSON.stringify(encodeOtlpTraceRequest(mapAgentRunToOtlp(bundle, { ...OPTIONS, environment: 'staging' })), null, 2)}\n`
+    expect(encode(standaloneBundle())).toBe(golden)
+    expect(encode({ ...standaloneBundle(), content: undefined })).toBe(golden)
+  })
+})
+
+const CONTENT_SECRET_EMAIL = 'buyer@example.com'
+const LLM_REQUEST = {
+  schema: 'om.llm_request.v1',
+  provider: 'openai',
+  modelId: 'gpt-test',
+  system: 'You draft quotes.',
+  messages: [
+    { role: 'user', content: `Quote for ${CONTENT_SECRET_EMAIL}` },
+    {
+      role: 'assistant',
+      content: [{ type: 'tool-call', toolCallId: 'call-1', toolName: 'catalog.search', input: { query: 'chairs' } }],
+    },
+    {
+      role: 'tool',
+      content: [
+        {
+          type: 'tool-result',
+          toolCallId: 'call-1',
+          toolName: 'catalog.search',
+          output: { type: 'json', value: { hits: 3 } },
+        },
+      ],
+    },
+  ],
+  tools: [{ name: 'catalog.search', description: 'Search the catalog', inputSchema: { type: 'object' } }],
+  params: {},
+}
+const LLM_RESPONSE = {
+  schema: 'om.llm_response.v1',
+  finishReason: 'stop',
+  content: [{ type: 'text', text: 'Three chairs found.' }],
+  usage: {},
+}
+
+function contentFor(entry: RunExportContent['bySpanId'] extends Map<string, infer V> ? V : never): RunExportContent {
+  return {
+    bySpanId: new Map([[LLM_SPAN_ID, entry]]),
+    toolCalls: indexToolCallContent(
+      entry.request === undefined ? [] : [entry.request],
+      entry.response === undefined ? [] : [entry.response],
+    ),
+  }
+}
+
+function contentBundle(content: RunExportContent, toolAttributes: Record<string, unknown> = { 'gen_ai.tool.call.id': 'call-1' }): MapAgentRunBundle {
+  const base = standaloneBundle()
+  return {
+    ...base,
+    spans: base.spans.map((span) => (span.id === TOOL_SPAN_ID ? { ...span, attributes: { ...span.attributes, ...toolAttributes } } : span)),
+    content,
+  }
+}
+
+describe('mapAgentRunToOtlp content', () => {
+  const exported = () => contentFor({ status: 'exported', request: LLM_REQUEST, response: LLM_RESPONSE })
+
+  test('the chat span carries the inference details event at span end and the tool span its call content', () => {
+    const output = mapAgentRunToOtlp(contentBundle(exported()), OPTIONS)
+    expectExportSafe(output)
+    const chatSpan = spanByName(output, 'chat gpt-test-2026')
+    expect(attr(chatSpan, 'om.content.export_status')).toBe('exported')
+    expect(chatSpan.events).toHaveLength(1)
+    const [event] = chatSpan.events ?? []
+    expect(event.name).toBe('gen_ai.client.inference.operation.details')
+    expect(event.time).toEqual(chatSpan.endTime)
+    expect(Object.keys(event.attributes ?? {}).sort()).toEqual([
+      'gen_ai.input.messages',
+      'gen_ai.output.messages',
+      'gen_ai.system_instructions',
+      'gen_ai.tool.definitions',
+    ])
+    const input = JSON.parse(String(event.attributes?.['gen_ai.input.messages'])) as Array<{ role: string }>
+    expect(input.map((message) => message.role)).toEqual(['user', 'assistant', 'tool'])
+    expect(JSON.stringify(event)).not.toContain(CONTENT_SECRET_EMAIL)
+
+    const toolSpan = spanByName(output, 'execute_tool catalog.search')
+    expect(toolSpan.attributes).toMatchObject({
+      'gen_ai.tool.call.id': 'call-1',
+      'gen_ai.tool.call.arguments': JSON.stringify({ query: 'chairs' }),
+      'gen_ai.tool.call.result': JSON.stringify({ hits: 3 }),
+    })
+    expect(toolSpan.events).toBeUndefined()
+  })
+
+  test('the encoded output with content matches the content golden', () => {
+    const golden = readFileSync(path.join(__dirname, 'fixtures', 'otel', 'map-run-content.golden.json'), 'utf8')
+    const encoded = encodeOtlpTraceRequest(mapAgentRunToOtlp(contentBundle(exported()), { ...OPTIONS, environment: 'staging' }))
+    expect(`${JSON.stringify(encoded, null, 2)}\n`).toBe(golden)
+  })
+
+  test('a span whose content was not exported records the status without an event', () => {
+    for (const status of ['expired', 'unavailable', 'over_budget', 'not_captured'] as const) {
+      const output = mapAgentRunToOtlp(contentBundle(contentFor({ status })), OPTIONS)
+      const chatSpan = spanByName(output, 'chat gpt-test-2026')
+      expect(attr(chatSpan, 'om.content.export_status')).toBe(status)
+      expect(chatSpan.events).toBeUndefined()
+      const toolSpan = spanByName(output, 'execute_tool catalog.search')
+      expect(attr(toolSpan, 'gen_ai.tool.call.arguments')).toBeUndefined()
+      expect(attr(toolSpan, 'gen_ai.tool.call.id')).toBeUndefined()
+    }
+  })
+
+  test('an llm span missing from the loaded content is not_captured', () => {
+    const output = mapAgentRunToOtlp(contentBundle({ bySpanId: new Map(), toolCalls: new Map() }), OPTIONS)
+    expect(attr(spanByName(output, 'chat gpt-test-2026'), 'om.content.export_status')).toBe('not_captured')
+  })
+
+  test('a tool span without a recorded call id exports no arguments or results', () => {
+    const output = mapAgentRunToOtlp(contentBundle(exported(), {}), OPTIONS)
+    const toolSpan = spanByName(output, 'execute_tool catalog.search')
+    expect(attr(toolSpan, 'gen_ai.tool.call.id')).toBeUndefined()
+    expect(attr(toolSpan, 'gen_ai.tool.call.arguments')).toBeUndefined()
+    expect(attr(toolSpan, 'gen_ai.tool.call.result')).toBeUndefined()
+  })
+
+  test('a recorded call id without content exports nothing new', () => {
+    const { content: _content, ...withoutContent } = contentBundle(exported())
+    const output = mapAgentRunToOtlp(withoutContent, OPTIONS)
+    const toolSpan = spanByName(output, 'execute_tool catalog.search')
+    expect(attr(toolSpan, 'gen_ai.tool.call.id')).toBeUndefined()
+    expect(attr(spanByName(output, 'chat gpt-test-2026'), 'om.content.export_status')).toBeUndefined()
+    expect(JSON.stringify(encodeOtlpTraceRequest(output))).not.toContain('gen_ai.client.inference.operation.details')
+  })
+
+  test('truncated tool content is flagged with om.truncated', () => {
+    const content: RunExportContent = {
+      bySpanId: new Map([[LLM_SPAN_ID, { status: 'exported' }]]),
+      toolCalls: new Map([['call-1', { arguments: { value: '{}', truncated: true } }]]),
+    }
+    const output = mapAgentRunToOtlp(contentBundle(content), OPTIONS)
+    const toolSpan = spanByName(output, 'execute_tool catalog.search')
+    expect(attr(toolSpan, 'om.truncated')).toBe(true)
+    expect(attr(toolSpan, 'gen_ai.tool.call.result')).toBeUndefined()
   })
 })

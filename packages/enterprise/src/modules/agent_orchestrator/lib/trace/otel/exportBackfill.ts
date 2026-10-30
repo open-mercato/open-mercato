@@ -10,10 +10,9 @@ import {
   resolveOtelExportDeployment,
   type OtelExportContainer,
 } from './exportSettings'
-import { readDeploymentEnvironment } from './exportJob'
+import { encodeOtlpRequestBodies, readDeploymentEnvironment } from './exportJob'
 import type { RunExportBundle } from './loadRunExportBundle'
 import { mapAgentRunToOtlp } from './mapAgentRunToOtlp'
-import { encodeOtlpTraceRequest } from './otlpJson'
 
 export const OTEL_EXPORT_BACKFILL_DEFAULT_LIMIT = 100
 export const OTEL_EXPORT_BACKFILL_MAX_LIMIT = 1000
@@ -111,19 +110,21 @@ export function buildOtelExportBackfillFilter(args: OtelExportBackfillArgs): Ote
 
 /**
  * One OTLP/JSON export request per line (NDJSON), built exactly like the
- * exporter builds them. User ids are never included; service name/version fall
- * back to the deployment-independent defaults when the deployment is off.
+ * exporter builds them. User ids and content (prompts, completions, tool
+ * arguments/results) are never included, whatever the deployment, tenant or run
+ * capture settings; service name/version fall back to the deployment-independent
+ * defaults when the deployment is off.
  */
 export function buildOtelExportDryRunLines(bundle: RunExportBundle, env: EnvLike = process.env): string[] {
   const deployment = resolveOtelExportDeployment(env)
-  const chunks = mapAgentRunToOtlp(bundle, {
+  const chunks = mapAgentRunToOtlp({ ...bundle, content: undefined }, {
     exportUserIds: false,
     serviceName: deployment.enabled ? deployment.serviceName : OTEL_EXPORT_DEFAULT_SERVICE_NAME,
     serviceVersion: APP_VERSION,
     environment: readDeploymentEnvironment(env),
     scopeVersion: APP_VERSION,
   })
-  return chunks.map((chunk) => JSON.stringify(encodeOtlpTraceRequest(chunk)))
+  return encodeOtlpRequestBodies(chunks)
 }
 
 export type OtelExportBackfillRunRow = {

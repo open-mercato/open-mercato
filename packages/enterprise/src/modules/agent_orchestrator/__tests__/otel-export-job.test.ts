@@ -11,9 +11,17 @@ jest.mock('../lib/trace/otel/exportHealth', () => ({
   recordOtelExportHealth: (...args: unknown[]) => recordOtelExportHealth(...args),
 }))
 
+const loadRunExportContent = jest.fn<(...args: unknown[]) => Promise<unknown>>()
+
+jest.mock('../lib/trace/otel/loadRunExportContent', () => ({
+  loadRunExportContent: (...args: unknown[]) => loadRunExportContent(...args),
+}))
+
 import {
   OTEL_EXPORT_BACKOFF_MAX_MS,
   OTEL_EXPORT_ERROR_CODES,
+  OTEL_EXPORT_MAX_REQUEST_BYTES,
+  encodeOtlpRequestBodies,
   OTEL_EXPORT_RETRY_AFTER_MAX_MS,
   enqueueOtelExportForFinishedProcess,
   enqueueOtelExportForRunEvent,
@@ -22,6 +30,8 @@ import {
   readDeploymentEnvironment,
 } from '../lib/trace/otel/exportJob'
 import type { RunExportBundle, RunExportRun, RunExportSpan } from '../lib/trace/otel/loadRunExportBundle'
+import type { RunExportContent } from '../lib/trace/otel/loadRunExportContent'
+import type { OtelContentExportMode } from '../lib/trace/otel/exportSettings'
 import type { OtlpExportResult, PostOtlpTracesInput } from '../lib/trace/otel/otlpHttpClient'
 import type { OtelExportJobPayload } from '../lib/queue'
 import type { ExportableTopLevelRunFilter } from '../lib/trace/otel/exportJob'
@@ -160,6 +170,7 @@ function makeJobDeps(options: {
 }
 
 beforeEach(() => {
+  loadRunExportContent.mockReset()
   reportError.mockReset()
   recordOtelExportHealth.mockReset()
   recordOtelExportHealth.mockResolvedValue(undefined)
@@ -535,3 +546,141 @@ describe('enqueueOtelExportForFinishedProcess', () => {
     )
   })
 })
+
+const LLM_SPAN_ID = '77777777-7777-4777-8777-aaaaaaaaaaaa'
+const CONTENT_SENTINEL = 'otel-job-sentinel-prompt'
+const INFERENCE_EVENT = 'gen_ai.client.inference.operation.details'
+
+function llmSpan(id: string, index: number): RunExportSpan {
+  return {
+    id,
+    externalSpanId: id,
+    parentSpanId: null,
+    sequence: index,
+    name: 'llm.step',
+    kind: 'llm',
+    status: 'ok',
+    startedAt: new Date(T0.getTime() + index * 10),
+    endedAt: new Date(T0.getTime() + index * 10 + 5),
+    durationMs: 5,
+    attributes: { 'gen_ai.request.model': 'gpt-test' },
+  }
+}
+
+function llmContent(spanIds: string[], text: string): RunExportContent {
+  return {
+    bySpanId: new Map(
+      spanIds.map((id) => [
+        id,
+        {
+          status: 'exported' as const,
+          request: { schema: 'om.llm_request.v1', system: text, messages: [{ role: 'user', content: text }], tools: [] },
+          response: { schema: 'om.llm_response.v1', finishReason: 'stop', content: [{ type: 'text', text }] },
+        },
+      ]),
+    ),
+    toolCalls: new Map(),
+  }
+}
+
+function capturedBundle(level: string | null, spans: RunExportSpan[] = [llmSpan(LLM_SPAN_ID, 1)]): RunExportBundle {
+  return buildBundle({ manifest: level ? { 'om.capture': { level } } : null, spans })
+}
+
+const CONTENT_ENV = { ...ENABLED_ENV, OM_AGENT_OTEL_EXPORT_CONTENT: 'allow' }
+
+describe('processOtelExportJob content lock matrix', () => {
+  const payload: OtelExportJobPayload = { runId: RUN_ID, attempt: 0 }
+  const cases: Array<{ name: string; env: Record<string, string>; content: string; level: string | null; exported: boolean }> = [
+    { name: 'deployment denies content', env: ENABLED_ENV, content: 'full', level: 'full', exported: false },
+    { name: 'tenant chose no content', env: CONTENT_ENV, content: 'none', level: 'full', exported: false },
+    { name: 'run captured metadata only', env: CONTENT_ENV, content: 'full', level: 'metadata', exported: false },
+    { name: 'run without a capture manifest', env: CONTENT_ENV, content: 'full', level: null, exported: false },
+    { name: 'all three locks open', env: CONTENT_ENV, content: 'full', level: 'full', exported: true },
+  ]
+
+  test.each(cases)('$name', async ({ env, content, level, exported }) => {
+    const harness = makeJobDeps({ env, settings: { enabled: true, content }, bundle: capturedBundle(level) })
+    const loadContent = jest.fn(async (_bundle: RunExportBundle, _mode: OtelContentExportMode) =>
+      llmContent([LLM_SPAN_ID], CONTENT_SENTINEL),
+    )
+    expect(await processOtelExportJob(payload, { ...harness.deps, loadContent })).toBe('exported')
+    const body = harness.post.mock.calls.map(([input]) => input.body).join('\n')
+    if (exported) {
+      expect(loadContent).toHaveBeenCalledWith(expect.objectContaining({ run: expect.objectContaining({ id: RUN_ID }) }), 'full')
+      expect(body).toContain(INFERENCE_EVENT)
+      expect(body).toContain(CONTENT_SENTINEL)
+      expect(body).toContain('om.content.export_status')
+    } else {
+      expect(loadContent).not.toHaveBeenCalled()
+      expect(body).not.toContain(INFERENCE_EVENT)
+      expect(body).not.toContain(CONTENT_SENTINEL)
+      expect(body).not.toContain('om.content.export_status')
+    }
+  })
+
+  test('re-resolves the mode per job, so a tenant that turns content off stops the next job', async () => {
+    const harness = makeJobDeps({
+      env: CONTENT_ENV,
+      settings: [{ enabled: true, content: 'full' }, { enabled: true, content: 'none' }],
+      bundle: capturedBundle('full'),
+    })
+    const loadContent = jest.fn(async () => llmContent([LLM_SPAN_ID], CONTENT_SENTINEL))
+    await processOtelExportJob(payload, { ...harness.deps, loadContent })
+    await processOtelExportJob(payload, { ...harness.deps, loadContent })
+    expect(loadContent).toHaveBeenCalledTimes(1)
+    expect(harness.post.mock.calls[0][0].body).toContain(CONTENT_SENTINEL)
+    expect(harness.post.mock.calls[1][0].body).not.toContain(CONTENT_SENTINEL)
+  })
+
+  test('loads content through loadRunExportContent with the job container and the full mode by default', async () => {
+    const harness = makeJobDeps({ env: CONTENT_ENV, settings: { enabled: true, content: 'full' }, bundle: capturedBundle('full') })
+    loadRunExportContent.mockResolvedValue(llmContent([LLM_SPAN_ID], CONTENT_SENTINEL))
+    expect(await processOtelExportJob(payload, harness.deps)).toBe('exported')
+    expect(loadRunExportContent).toHaveBeenCalledWith(harness.deps.container, expect.objectContaining({ run: expect.anything() }), { mode: 'full' })
+    expect(harness.post.mock.calls[0][0].body).toContain(INFERENCE_EVENT)
+  })
+
+  test('splits a content-heavy run into requests of at most 4 MiB uncompressed', async () => {
+    const spanIds = Array.from({ length: 30 }, (_unused, index) => `77777777-7777-4777-8777-${String(index).padStart(12, '0')}`)
+    const spans = spanIds.map((id, index) => llmSpan(id, index + 1))
+    const harness = makeJobDeps({ env: CONTENT_ENV, settings: { enabled: true, content: 'full' }, bundle: capturedBundle('full', spans) })
+    const text = 'lorem ipsum dolor '.repeat(3500)
+    const loadContent = jest.fn(async () => llmContent(spanIds, text))
+    expect(await processOtelExportJob(payload, { ...harness.deps, loadContent })).toBe('exported')
+    expect(harness.post.mock.calls.length).toBeGreaterThan(1)
+    let spanCount = 0
+    for (const [input] of harness.post.mock.calls) {
+      expect(Buffer.byteLength(input.body, 'utf8')).toBeLessThanOrEqual(OTEL_EXPORT_MAX_REQUEST_BYTES)
+      const request = JSON.parse(input.body) as { resourceSpans: Array<{ scopeSpans: Array<{ spans: unknown[] }> }> }
+      spanCount += request.resourceSpans[0].scopeSpans[0].spans.length
+    }
+    expect(spanCount).toBe(spans.length + 1)
+  })
+})
+
+describe('encodeOtlpRequestBodies', () => {
+  test('halves a chunk over the byte limit and keeps a single oversized span in its own request', () => {
+    const spans = Array.from({ length: 4 }, (_unused, index) => ({
+      traceId: '0af7651916cd43dd8448eb211c80319c',
+      spanId: `00f067aa0ba902b${index}`,
+      name: `span-${index}`,
+      kind: 'internal' as const,
+      startTime: T0,
+      endTime: T0,
+      attributes: { 'om.note': 'x'.repeat(index === 3 ? 900 : 100) },
+    }))
+    const chunk = { resource: { attributes: { 'service.name': 'svc' } }, scopeSpans: [{ scope: { name: 'scope' }, spans }] }
+    expect(encodeOtlpRequestBodies([chunk], 1_000_000)).toHaveLength(1)
+    const bodies = encodeOtlpRequestBodies([chunk], 800)
+    const names = bodies.map((body) => {
+      const request = JSON.parse(body) as { resourceSpans: Array<{ resource: unknown; scopeSpans: Array<{ spans: Array<{ name: string }> }> }> }
+      expect(request.resourceSpans[0].resource).toEqual({ attributes: [{ key: 'service.name', value: { stringValue: 'svc' } }] })
+      return request.resourceSpans[0].scopeSpans[0].spans.map((span) => span.name)
+    })
+    expect(names.flat()).toEqual(['span-0', 'span-1', 'span-2', 'span-3'])
+    expect(names[names.length - 1]).toEqual(['span-3'])
+    for (const body of bodies.slice(0, -1)) expect(Buffer.byteLength(body, 'utf8')).toBeLessThanOrEqual(800)
+  })
+})
+

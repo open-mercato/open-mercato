@@ -256,6 +256,35 @@ describe('buildOtelExportDryRunLines', () => {
     expect(line).toContain('agents-staging')
     expect(line).not.toContain('enduser.id')
   })
+
+  test('never prints content, even for a full-capture run with content allowed by the deployment and the tenant', () => {
+    const bundle = bundleWithSteps()
+    const smuggled = {
+      ...bundle,
+      manifest: { 'om.capture': { level: 'full' } },
+      content: {
+        bySpanId: new Map([
+          [
+            LLM_SPAN_ID,
+            {
+              status: 'exported',
+              request: { schema: 'om.llm_request.v1', system: CONTENT_SENTINEL, messages: [{ role: 'user', content: CONTENT_SENTINEL }] },
+              response: { schema: 'om.llm_response.v1', finishReason: 'stop', content: [{ type: 'text', text: CONTENT_SENTINEL }] },
+            },
+          ],
+        ]),
+        toolCalls: new Map([['call-1', { arguments: { value: CONTENT_SENTINEL, truncated: false } }]]),
+      },
+    } as RunExportBundle
+    const lines = buildOtelExportDryRunLines(smuggled, { ...ENABLED_ENV, OM_AGENT_OTEL_EXPORT_CONTENT: 'allow' })
+    const output = lines.join('\n')
+    expect(lines.length).toBeGreaterThan(0)
+    expect(output).not.toContain(CONTENT_SENTINEL)
+    expect(output).not.toContain('gen_ai.client.inference.operation.details')
+    expect(output).not.toContain('gen_ai.input.messages')
+    expect(output).not.toContain('gen_ai.tool.call.arguments')
+    expect(output).not.toContain('om.content.export_status')
+  })
 })
 
 describe('runOtelExportBackfill', () => {
