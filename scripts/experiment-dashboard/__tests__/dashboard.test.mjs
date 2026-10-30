@@ -133,6 +133,10 @@ test('duplicate case/lane identities and unknown statuses are rejected', () => f
   assert.equal((await loadExperiment(root)).status, 'error')
   await write(root, 'experiment.json', snapshot({ lanes: [{ id: 'same', label: 'A' }, { id: 'same', label: 'B' }] }))
   assert.equal((await loadExperiment(root)).status, 'error')
+  const unknown = snapshot()
+  unknown.cases[0].lanes['quality/品質'].status = 'almost-passed'
+  await write(root, 'experiment.json', unknown)
+  assert.equal((await loadExperiment(root)).status, 'error')
 }))
 
 test('HTTP APIs observe multiple registered experiments and atomic producer updates', () => fixture(async root => {
@@ -256,3 +260,15 @@ test('CLI requires explicit registrations and emits only authoritative foundatio
   assert.doesNotMatch(tokens, /do-not-copy|secret/)
   assert.throws(() => extractFoundations(':root { --broken: true;'), /Unterminated/)
 })
+
+
+test('unsupported artifact formats remain unavailable and sensitive evidence fields are redacted', () => fixture(async root => {
+  const run = snapshot()
+  run.cases[0].lanes['quality/品質'] = { status: 'pass', artifactIds: ['future'], evidence: { environment: { API_KEY: 'PRIVATE_ENV' }, selectedRouter: ['safe'] } }
+  await write(root, 'experiment.json', run)
+  await write(root, 'artifacts/future.json', { schemaVersion: 99, responses: [{ text: 'NOT_VALID_RESPONSE' }] })
+  const detail = await loadCaseDetail(root, 'case/α', 'quality/品質')
+  assert.equal(detail.responses.length, 0)
+  assert.doesNotMatch(JSON.stringify(detail), /PRIVATE_ENV|NOT_VALID_RESPONSE/)
+  assert.ok(detail.notices.some(notice => notice.includes('unsupported')))
+}))

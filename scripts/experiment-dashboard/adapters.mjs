@@ -3,7 +3,7 @@ import constants from 'node:constants'
 import path from 'node:path'
 import { cleanText, errorExperiment, isRecord, MAX_JSON_BYTES, MAX_TEXT_BYTES, normalizeExperiment, OUTCOME_STATUSES } from './model.mjs'
 
-const SENSITIVE = /^(?:\.env(?:\..*)?|\.git|\.ssh|\.aws|node_modules|auth\.json|\.?credentials\.json|mcp-auth\.json|secrets?|.*\.(?:pem|key|p12|pfx))$/i
+const SENSITIVE = /^(?:\.env(?:\..*)?|\.git|\.ssh|\.aws|node_modules|auth\.json|\.?credentials\.json|mcp-auth\.json|\.npmrc|\.netrc|secrets?(?:\.json)?|.*\.(?:pem|key|p12|pfx))$/i
 const ARTIFACT_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/
 const MAX_DIRECTORY_FILES = 2000
 
@@ -144,7 +144,11 @@ export async function loadCaseDetail(root, caseId, laneId) {
   if (record.source === 'generic') {
     for (const artifactId of caseRecord.lanes[laneId].artifactIds || []) {
       if (!ARTIFACT_ID.test(artifactId) || SENSITIVE.test(artifactId + '.json')) { notices.push('An unsafe artifact reference was omitted'); continue }
-      try { combine(output, normalizeArtifacts((await readJson(record.root, 'artifacts/' + artifactId + '.json')).data, artifactId, notices)) } catch { notices.push('A referenced artifact is unavailable or unreadable') }
+      try {
+        const artifact = (await readJson(record.root, 'artifacts/' + artifactId + '.json')).data
+        if (!isRecord(artifact) || artifact.schemaVersion !== 1) { notices.push('A referenced artifact has an unsupported format'); continue }
+        combine(output, normalizeArtifacts(artifact, artifactId, notices))
+      } catch { notices.push('A referenced artifact is unavailable or unreadable') }
     }
     evidence = isRecord(rawOutcome.evidence) ? safeEvidence(rawOutcome.evidence) : null
   } else if (record.source === 'legacy-summary') {
