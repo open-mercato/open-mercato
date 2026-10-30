@@ -167,6 +167,53 @@ async function seedOrder(
 }
 
 test.describe('TC-SALES-2979: bulk order-line upsert over HTTP', () => {
+  test('external batches preserve supplied totals and reject incomplete or mixed writes atomically', async ({ request }) => {
+    const token = await getAuthToken(request, 'admin')
+    const totals = { subtotalNetAmount: 21.03, subtotalGrossAmount: 25.23, discountTotalAmount: 0, taxTotalAmount: 4.2, grandTotalNetAmount: 21.03, grandTotalGrossAmount: 25.23 }
+    const sourceLine = { ...body(`External batch ${randomUUID()}`, 2, 10), unitPriceGross: 12, taxRate: 20, totalNetAmount: 21, taxAmount: 4.2, totalGrossAmount: 25.2 }
+    let orderId: string | null = null
+    try {
+      const created = await apiRequest(request, 'POST', ORDERS_PATH, { token, data: { currencyCode: CURRENCY, totalsMode: 'external', ...totals, lines: [sourceLine] } })
+      expect(created.status()).toBe(201)
+      const payload = await readJsonSafe<{ id: string }>(created)
+      expect(payload?.id).toBeTruthy()
+      orderId = payload!.id
+      const original = await readLines(request, token, orderId)
+      const reject = async (data: Record<string, unknown>) => {
+        const response = await apiRequest(request, 'POST', BATCH_PATH, { token, data: { orderId, ...data } })
+        expect(response.status()).toBe(400)
+        expect(fingerprint(await readLines(request, token, orderId!))).toBe(fingerprint(original))
+        expect(orderGrossOf(await readOrder(request, token, orderId!))).toBe(25.23)
+      }
+      await reject({ lines: [sourceLine] })
+      await reject({ orderTotals: totals, lines: [{ ...sourceLine, amountsMode: 'computed' }] })
+      for (const priceMode of ['net', 'gross']) {
+        await reject({ orderTotals: totals, lines: [{ ...sourceLine, priceMode, unitPriceNet: undefined, unitPriceGross: undefined }] })
+      }
+      const added = await apiRequest(request, 'POST', BATCH_PATH, { token, data: { orderId, orderTotals: totals, lines: [sourceLine, { ...sourceLine, quantity: 1, priceMode: 'gross', unitPriceNet: undefined, unitPriceGross: 0, totalNetAmount: 0, taxAmount: 0, totalGrossAmount: 0 }] } })
+      expect(added.status()).toBe(200)
+      const after = await readLines(request, token, orderId)
+      expect(after).toHaveLength(3)
+      expect(after.map(lineGrossOf)).toEqual([25.2, 25.2, 0])
+      expect(after.every(line => (line.amountsMode ?? line.amounts_mode) === 'external')).toBeTruthy()
+      expect(orderNetOf(await readOrder(request, token, orderId))).toBe(21.03)
+      expect(orderGrossOf(await readOrder(request, token, orderId))).toBe(25.23)
+      const deleted = await apiRequest(request, 'POST', BATCH_PATH, { token, data: { orderId, orderTotals: totals, deleteIds: [after[1].id] } })
+      expect(deleted.status()).toBe(200)
+      expect(await readLines(request, token, orderId)).toHaveLength(2)
+      expect(orderGrossOf(await readOrder(request, token, orderId))).toBe(25.23)
+    } finally {
+      if (orderId) {
+        const removed = await apiRequest(request, 'DELETE', ORDERS_PATH, { token, data: { id: orderId } })
+        expect(removed.status()).toBe(200)
+        expect(await readLines(request, token, orderId)).toHaveLength(0)
+        const remaining = await apiRequest(request, 'GET', `${ORDERS_PATH}?id=${orderId}`, { token })
+        expect(remaining.status()).toBe(200)
+        expect((await readJsonSafe<{ items: OrderRecord[] }>(remaining))?.items).toHaveLength(0)
+      }
+    }
+  })
+
   for (const role of ['admin', 'superadmin', 'employee'] as const) {
     test(`a rejected organization selection refuses every batch operation for ${role} (#8015)`, async ({ request }) => {
       const token = await getAuthToken(request, role)

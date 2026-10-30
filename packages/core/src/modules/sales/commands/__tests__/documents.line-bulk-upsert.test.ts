@@ -489,6 +489,24 @@ describe('sales.orders.lines.upsert_many', () => {
     expect(bulkWorld.order.lineItemCount).toBe(4)
   })
 
+  it('requires restated header totals for an external batch before writing anything', async () => {
+    const world = makeWorld(1)
+    world.order.totalsMode = 'external'
+    const before = orderedLines(world).map(projectLine)
+    const result = await runBulk(world, { lines: [newLineBody(1)] })
+    expect(result.caught).toMatchObject({ status: 400 })
+    expect(orderedLines(world).map(projectLine)).toEqual(before)
+    expect(result.em.flush).not.toHaveBeenCalled()
+  })
+
+  it('rejects mixed line modes without persisting a partial batch', async () => {
+    const world = makeWorld(1)
+    const result = await runBulk(world, { lines: [newLineBody(1, { amountsMode: 'external' })] })
+    expect(result.caught).toMatchObject({ status: 400 })
+    expect(world.lines).toHaveLength(1)
+    expect(result.em.flush).not.toHaveBeenCalled()
+  })
+
   it('persists custom fields and fieldset selection for each supplied line', async () => {
     const world = makeWorld(1)
     const customFieldSetId = '77777777-7777-4777-8777-777777777777'

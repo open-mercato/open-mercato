@@ -187,6 +187,7 @@ Unchanged. No entity, column, index or migration is touched.
   orderId: string,          // uuid
   lines: Array<OrderLineUpsertEntry>,   // default []
   deleteIds: string[],                  // uuid[], default []
+  orderTotals?: OrderHeaderTotals,      // required for external documents
 }
 ```
 
@@ -412,6 +413,17 @@ call rather than this change's.
 - No new production dependency.
 
 ## Changelog
+
+### 2026-10-30 — Integrate external amounts from main
+
+The optional batch-envelope `orderTotals` uses the existing external header schema.
+External batches require complete restated header totals; computed callers are unchanged.
+The shared line builder preserves the document amounts mode and validates complete source
+amounts after normalization, retaining absent-price information before tax fallback while
+accepting explicit zero. Both commands keep the same semantics. The HTTP regression covers
+missing headers, mixed modes and missing prices without partial writes, successful external
+and explicit-zero writes, and deletes that preserve the caller-owned header. This is an
+additive request field with no route, result, schema-storage or permission change.
 
 ### 2026-10-29 — Reject invalid organization selections
 
