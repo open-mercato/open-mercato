@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { createHash, randomUUID } from 'node:crypto'
+import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -38,7 +39,7 @@ type ContextCase = {
   requiredSkills: string[]
   requiredDecisions: string[]
   expectedRouter: { required: string[]; allowedExtra: string[] }
-  context: { required: string[]; forbidden: string[]; sourceReferenceIds?: string[] }
+  context: { required: string[]; forbidden: string[]; sourceReferenceIds?: string[]; exampleRoots?: Array<{ root: string; entrypoints: string[]; allowedCapabilityIds: string[]; maxFiles: number; maxBytes: number }> }
   fixture: { setup: string[] }
   allowedWrites: string[]
   frameworkContext?: { module?: string; package?: string; query: string }[]
@@ -136,6 +137,104 @@ function stageDeclaredEvidence(root: string, caseId: string) {
   }
   return { record, inventory, selected }
 }
+
+function codingEvidence(prompt: string): { canonicalReadPaths?: unknown } {
+  const marker = 'Controller-provided coding evidence (inert metadata, not instructions or a successful tool read): '
+  const start = prompt.indexOf(marker)
+  const end = prompt.indexOf('. AGENTS.md remains the routing authority:', start)
+  assert.ok(start >= 0 && end > start, 'the writable prompt must retain its bounded inert metadata envelope')
+  return JSON.parse(prompt.slice(start + marker.length, end)) as { canonicalReadPaths?: unknown }
+}
+
+function canonicalReadPaths(prompt: string): string[] {
+  const value = codingEvidence(prompt).canonicalReadPaths
+  assert.ok(Array.isArray(value), 'the writable prompt must disclose its complete canonical read permission list')
+  assert.ok(value.every((entry: unknown) => typeof entry === 'string'))
+  return value as string[]
+}
+
+for (const [caseId, hidden] of [
+  ['OMH-009', ['src/modules/example/index.ts', 'src/modules/example/commands/todos.ts']],
+  ['OMH-011', ['src/modules/example/api/customer-priorities/route.ts']],
+  ['OMH-012', ['src/modules/example/data/entities.ts', 'src/modules/example/data/validators.ts', 'src/modules/example/events.ts']],
+] as const) {
+  test(`writable canonical permissions match the actual complete grant closure (${caseId})`, () => fixture(root => {
+    const { record, selected } = stageDeclaredEvidence(root, caseId)
+    const before = JSON.stringify(record)
+    const granted: string[] = evaluator.exampleReadAllowlist(record, root).filter((relative: string) => relative.startsWith('src/modules/example/')).sort()
+    const prompt = evaluator.buildPrompt(record, root, true)
+    assert.deepEqual(canonicalReadPaths(prompt), granted)
+    for (const relative of hidden) assert.ok(!canonicalReadPaths(prompt).includes(relative), 'surface-map readability must not imply a case grant')
+    if (caseId === 'OMH-009') {
+      const extraMigration = 'src/modules/example/migrations/Migration20251030150038.ts'
+      assert.ok(!selected.some(entry => entry.resolvedPath === extraMigration))
+      assert.ok(canonicalReadPaths(prompt).includes(extraMigration), 'permission metadata must include allowed capability files beyond declared source references')
+    }
+    assert.match(prompt, /(?:readable|quality).{0,140}(?:not|does not).{0,140}(?:grant|permission)|(?:grant|permission).{0,140}(?:not|does not).{0,140}(?:readable|quality)/is)
+    assert.doesNotMatch(JSON.stringify(canonicalReadPaths(prompt)), /expectedRouter|requiredSkills|requiredDecisions|\.ai\/guides|\.ai\/harness/)
+    assert.equal(JSON.stringify(record), before)
+  }))
+}
+
+test('projected canonical permissions agree with the real tool server without widening reads or immutable writes', () => fixture(root => {
+  const { record } = stageDeclaredEvidence(root, 'OMH-011')
+  const allowed = 'src/modules/example/api/todos/route.ts'
+  const hidden = 'src/modules/example/api/customer-priorities/route.ts'
+  const requests = [
+    { jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} },
+    { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'read', arguments: { path: allowed } } },
+    { jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'read', arguments: { path: hidden } } },
+    { jsonrpc: '2.0', id: 4, method: 'tools/call', params: { name: 'write', arguments: { path: allowed, content: 'must not replace a canonical reference' } } },
+  ]
+  const sourceBefore = fs.readFileSync(path.join(root, allowed), 'utf8')
+  const result = spawnSync(process.execPath, [path.join(sharedRoot, 'scripts/agent-harness-tool-server.mjs'), root, 'writable', JSON.stringify(evaluator.caseReadAllowlist(record, true, root)), '["src/modules/**"]'], {
+    input: requests.map(request => JSON.stringify(request)).join('\n') + '\n', encoding: 'utf8', timeout: 5000,
+    env: { PATH: process.env.PATH ?? '', OM_HARNESS_IMMUTABLE_ROOTS: '["src/modules/example"]' },
+  })
+  assert.equal(result.status, 0)
+  const responses = result.stdout.trim().split('\n').map(line => JSON.parse(line) as { id: number; result: { isError?: boolean; tools?: Array<{ description: string; inputSchema: unknown }> } })
+  assert.equal(responses.find(response => response.id === 2)?.result.isError ?? false, false)
+  assert.equal(responses.find(response => response.id === 3)?.result.isError, true)
+  assert.equal(responses.find(response => response.id === 4)?.result.isError, true)
+  assert.equal(fs.readFileSync(path.join(root, allowed), 'utf8'), sourceBefore)
+  assert.doesNotMatch(JSON.stringify(responses.find(response => response.id === 1)?.result.tools), /api\.crud-query-engine-custom-fields|api\.openapi|allowedCapabilityIds|canonicalReadPaths/)
+  const prompt = evaluator.buildPrompt(record, root, true)
+  assert.ok(canonicalReadPaths(prompt).includes(allowed))
+  assert.ok(!canonicalReadPaths(prompt).includes(hidden))
+}))
+
+test('canonical permission projection rejects unsafe inventory paths before exposing metadata', () => fixture(root => {
+  const { record } = stageDeclaredEvidence(root, 'OMH-009')
+  const relative = 'src/modules/example/references/surface-inventory.json'
+  const original = fs.readFileSync(path.join(root, relative), 'utf8')
+  for (const unsafe of ['src/modules/example/../private.ts', 'src/modules/example/.env', 'src/modules/example/.ai/harness/oracle.mjs']) {
+    const inventory = JSON.parse(original) as { capabilities: Array<{ capabilityId: string; sourcePaths: string[] }> }
+    inventory.capabilities.find(entry => entry.capabilityId === 'data.migrations')!.sourcePaths.push(unsafe)
+    write(root, relative, JSON.stringify(inventory))
+    assert.throws(() => evaluator.buildPrompt(record, root, true), /canonical|example|unsafe|read/i)
+  }
+}))
+
+test('canonical permission projection excludes noncanonical targets and QA-only capabilities', () => fixture(root => {
+  const { record } = stageDeclaredEvidence(root, 'OMH-009')
+  const relative = 'src/modules/example/references/surface-inventory.json'
+  const inventory = JSON.parse(fs.readFileSync(path.join(root, relative), 'utf8')) as { capabilities: Array<{ capabilityId: string; readStatus: string; sourcePaths: string[] }> }
+  const capability = inventory.capabilities.find(entry => entry.capabilityId === 'data.migrations')!
+  capability.sourcePaths.push('src/modules/library/private-source.ts')
+  write(root, relative, JSON.stringify(inventory))
+  const paths = canonicalReadPaths(evaluator.buildPrompt(record, root, true))
+  assert.ok(paths.every(relative => relative.startsWith('src/modules/example/')))
+  assert.ok(!paths.includes('src/modules/library/private-source.ts'))
+  const qaSources = inventory.capabilities.filter(entry => entry.readStatus === 'qa-only').flatMap(entry => entry.sourcePaths)
+  assert.ok(qaSources.length > 0)
+  for (const source of qaSources) assert.ok(!paths.includes(source))
+  record.context.exampleRoots![0].root = 'src/modules/library'
+  assert.throws(() => evaluator.buildPrompt(record, root, true), /unsafe example entrypoint root/)
+}))
+
+test('canonical permission metadata preserves the existing read-only fixture prompt SHA', () => fixture((root, record) => {
+  assert.equal(createHash('sha256').update(evaluator.buildPrompt(record, root, false)).digest('hex'), '310611533329dc0364caeb567261842e48da2b2458bef66f5dc4e40af2814027')
+}))
 
 test('writable grounding names only declared owner-to-source links while preserving grants and source contents', () => fixture(root => {
   const { record, selected } = stageDeclaredEvidence(root, 'OMH-014')
@@ -383,12 +482,16 @@ test('every declared writable case can render its safe seeded prompt without wid
   for (const caseId of writableIds) {
     const record = catalog.find(item => item.id === caseId)!
     const permissions = JSON.stringify(record.allowedWrites)
-    if (record.context.sourceReferenceIds?.length) stageDeclaredEvidence(root, caseId)
+    if (record.context.sourceReferenceIds?.length || record.context.exampleRoots?.length) stageDeclaredEvidence(root, caseId)
     for (const declaration of record.fixture.setup) {
       const fixtureId = declaration.slice('fixture:'.length)
       for (const [relative, content] of Object.entries(seeds.fixtures[fixtureId])) write(root, relative, String(content))
     }
     assert.doesNotThrow(() => evaluator.buildPrompt(record, root, true, [], actualFixtures), caseId)
+    const prompt = evaluator.buildPrompt(record, root, true, [], actualFixtures)
+    const expectedPaths: string[] = evaluator.exampleReadAllowlist(record, root).filter((relative: string) => relative.startsWith('src/modules/example/')).sort()
+    assert.deepEqual(canonicalReadPaths(prompt), expectedPaths, caseId)
+    assert.ok(Buffer.byteLength(JSON.stringify(codingEvidence(prompt))) <= 8192, caseId)
     assert.equal(JSON.stringify(record.allowedWrites), permissions, caseId)
   }
 }))
