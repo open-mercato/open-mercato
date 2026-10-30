@@ -43,9 +43,11 @@ PR: #8259
 
 ### Phase 3: React dashboard
 
-- [ ] 3.1 Build experiment overview and live progress/filtering and measured token throughput.
-- [ ] 3.2 Build response, generated-file and evaluator detail views.
-- [ ] 3.3 Verify browser interactions and producer updates with evidence.
+Local runner: package build, 21 focused tests, strict tooling typecheck and the standalone real-browser integration passed. Browser proof uses synthetic experiments; live producer updates preserve filters, the active tab and selected generated file. Open Mercato logo and app chrome are verified.
+
+- [x] 3.1 Build experiment overview and live progress/filtering and measured token throughput. — d991c8376
+- [x] 3.2 Build response, generated-file and evaluator detail views. — d991c8376
+- [x] 3.3 Verify browser interactions and producer updates with evidence. — d991c8376
 
 ### Phase 4: Workflow knowledge
 
