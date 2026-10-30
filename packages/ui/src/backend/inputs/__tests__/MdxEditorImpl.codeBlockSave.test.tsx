@@ -2,26 +2,6 @@
 import * as React from 'react'
 import { act, fireEvent, render, screen } from '@testing-library/react'
 
-// Regression coverage for the #7036 QA NO-GO (@droalina, tracked as #7469):
-// changing a code block's language via its dropdown, or deleting a block with
-// its trash icon, is lost on save unless the user also types something
-// afterward.
-//
-// Root cause: the code block's language-select / delete controls apply their
-// change through a Lexical editor update that resolves *after* the click
-// handler returns (the toolbar also moves DOM focus out of the editor as
-// part of the same interaction, e.g. Radix Select's `onCloseAutoFocus`
-// prevention for the language dropdown). MdxEditorImpl only flushed a
-// pending edit to its `onChange` prop on `blur`, so the sequence was:
-// blur fires (nothing pending yet) -> commit() no-ops -> the Lexical update
-// resolves afterward and buffers the real change -> no further blur ever
-// arrives to retry it, so the edit never reaches the form.
-//
-// This test drives MdxEditorImpl's internal MDXEditor `onChange` callback
-// directly (mocked below) to control exactly when the "Lexical update"
-// resolves relative to where DOM focus is, without depending on the real
-// @mdxeditor/editor + Lexical + CodeMirror stack (which is ESM-only and not
-// configured for Jest's transform pipeline).
 
 type PluginMarker = { plugin: string; params?: Record<string, unknown> }
 
@@ -43,8 +23,6 @@ jest.mock('@mdxeditor/editor', () => {
   return {
     MDXEditor: React.forwardRef((props: { onChange: (markdown: string, initialMarkdownNormalize?: boolean) => void }, _ref: unknown) => {
       capturedOnChange = props.onChange
-      // Stands in for the contentEditable region / toolbar controls: a
-      // focusable element that lives *inside* MdxEditorImpl's wrapping div.
       return React.createElement('button', { type: 'button', 'data-testid': 'mdx-fake-editable' })
     }),
     headingsPlugin: marker('headings'),
@@ -87,17 +65,11 @@ describe('MdxEditorImpl code block save', () => {
     render(<MdxEditorImpl value="original" onChange={onChange} />)
     expect(capturedOnChange).not.toBeNull()
 
-    // Something outside the editor — e.g. the form's "Save changes" button —
-    // currently holds focus, exactly as it does once a toolbar control (the
-    // code block language select, or its own unmount after a delete) has
-    // already pushed focus out of the editor and nothing refocused it yet.
     const outsideButton = document.createElement('button')
     document.body.appendChild(outsideButton)
     outsideButton.focus()
     expect(document.activeElement).toBe(outsideButton)
 
-    // The deferred Lexical update now resolves and reports the new markdown.
-    // No blur event follows — in the real bug, none ever did.
     act(() => {
       capturedOnChange!('code block language changed')
     })
@@ -107,12 +79,6 @@ describe('MdxEditorImpl code block save', () => {
   })
 
   it('does not flush MDXEditor initial-markdown normalization even when focus is outside the editor', () => {
-    // MDXEditor also calls onChange once at mount, with initialMarkdownNormalize
-    // === true, when its re-serialization of the initial markdown differs from
-    // the input — before the user has touched anything. At that point focus is
-    // on document.body, which also satisfies the "focus already left" check, so
-    // without this guard the immediate-flush fix above would wrongly commit the
-    // mount-time normalization and dirty a form the user never edited.
     const onChange = jest.fn()
     render(<MdxEditorImpl value="original" onChange={onChange} />)
     expect(capturedOnChange).not.toBeNull()
@@ -137,7 +103,6 @@ describe('MdxEditorImpl code block save', () => {
     act(() => {
       capturedOnChange!('typed text')
     })
-    // Buffered: committing on every keystroke would re-render the whole form.
     expect(onChange).not.toHaveBeenCalled()
 
     fireEvent.blur(screen.getByTestId('mdx-editor-container'))

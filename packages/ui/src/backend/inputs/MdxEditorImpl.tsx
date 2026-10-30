@@ -97,16 +97,7 @@ export default function MdxEditorImpl({ value = '', onChange }: MdxEditorImplPro
         onChange={(markdown, initialMarkdownNormalize) => {
           typingRef.current = true
           latestRef.current = markdown
-          // MDXEditor also calls onChange once at mount when it normalizes the initial
-          // markdown (initialMarkdownNormalize === true), before the user has touched
-          // anything. Buffer that call but never flush it immediately below.
           if (initialMarkdownNormalize) return
-          // Some toolbar controls (code block language select, delete) move focus out of
-          // the editor before this callback runs, so the `blur` that would normally
-          // trigger `commit` fires first and finds `typingRef` still false. Once that
-          // happens no further blur arrives to retry, so the edit is silently dropped.
-          // If focus has already left the editor by the time we get here, there is no
-          // more blur coming — flush immediately instead of waiting for one.
           if (containerRef.current && !containerRef.current.contains(document.activeElement)) {
             commit()
           }
