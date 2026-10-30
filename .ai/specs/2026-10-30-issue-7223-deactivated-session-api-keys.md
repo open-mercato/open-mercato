@@ -53,9 +53,9 @@ Focused shared tests cover the HTTP auth resolver with mocked persistence, inclu
 
 ## Final Compliance Report
 
-Implemented without public signature, token, cache-interface, schema, dependency or root compatibility/upgrade-document changes. The shared authentication suite passes 10 suites/217 tests. Running the expanded cache suite against the original resolver produced 41 failures/42 passes. The focused Playwright configuration discovers both API regression cases; live execution remains unverified because no application/database is running and migrations are outside this task's authority.
+Implemented without public signature, token, cache-interface, schema, dependency or root compatibility/upgrade-document changes. The shared authentication suite passes 10 suites/217 tests. Running the expanded cache suite against the original resolver produced 41 failures/42 passes. Both self-contained `TC-AUTH-071` API regressions passed in hosted CI at `b7d3c951c2e5fe4a8a172ecb681049eb977b97ee`, including cold/warm deactivation, external organization movement, and the regular-key control ([CI run](https://github.com/open-mercato/open-mercato/actions/runs/41014056059)).
 
-Runner: local; all resource-intensive gate runs use `flock /tmp/cezar-93432443-validation.lock`, with logs under `/tmp/issue-7223-*`.
+Historical local validation follows; the hosted CI result below supersedes its readiness blocker. Runner: local; all resource-intensive gate runs use `flock /tmp/cezar-93432443-validation.lock`, with logs under `/tmp/issue-7223-*`.
 
 | Configured command, in order | Result |
 | --- | --- |
@@ -68,8 +68,11 @@ Runner: local; all resource-intensive gate runs use `flock /tmp/cezar-93432443-v
 | `yarn test` | Failed, exit 129: docs Docusaurus build exhausts the forced 1 GB heap; Turbo stops remaining work |
 | `yarn build:app` | Pass |
 
-`TMPDIR=/tmp yarn template:sync` passes. Translation and template commands initially failed because the inherited temporary directory exceeds the Unix socket path limit used by `tsx`. The first split non-docs run additionally hit that path problem in two unrelated bootstrap tests (2 failed, 2,976 passed, 16 skipped in shared). Isolated docs validation with a 4 GB heap passes all 24 tests. These supplemental runs do not make the exact configured `yarn test` command green. Its heap configuration and a provisioned live API regression run remain validation work outside this scoped patch.
+`TMPDIR=/tmp yarn template:sync` passes. Translation and template commands initially failed because the inherited temporary directory exceeds the Unix socket path limit used by `tsx`. The first split non-docs run additionally hit that path problem in two unrelated bootstrap tests (2 failed, 2,976 passed, 16 skipped in shared). Isolated docs validation with a 4 GB heap passes all 24 tests. These supplemental runs do not make the exact configured `yarn test` command green. Hosted CI subsequently completed successfully at the unchanged source head: 32 successful checks and 3 intentionally skipped checks. The single initial cart concurrency failure passed a failed-job-only rerun without source or assertion changes; it is tracked separately in #8090. The latest-base merge must receive its own current-head checks before merge readiness is asserted.
+
+The automated-verification exemption in `.ai/docs/pr-workflow.md` applies: no UI-rendering files, database structure, API surface or public contract changes, with both unit and live HTTP integration coverage in the same PR. This is a `skip-qa` basis, not a claim of manual QA or `qa-approved`.
 
 ## Changelog
 
 - 2026-10-30: Defined and implemented the scoped session-owner revocation fix and regression coverage for #7223.
+- 2026-10-30: Reconciled historical local validation limits with successful hosted API/CI evidence and recorded the automated-verification QA basis.
