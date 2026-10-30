@@ -15,6 +15,7 @@ import {
   SALES_DOCUMENT_AMOUNT_FIELDS,
   SALES_LINE_RESULT_AMOUNT_FIELDS,
   type SalesAdjustmentDraft,
+  type SalesAmountsMode,
   type SalesCalculationContext,
   type CalculateDocumentOptions,
   type CalculateLineOptions,
@@ -169,7 +170,60 @@ function resolveLineDiscountTotal(
   return line.discountAmountBasis === 'line' ? amount : amount.times(quantity)
 }
 
+/** The header fields a caller owns under `external`; the rest stay core-derived. */
+export const EXTERNAL_HEADER_FIELDS = [
+  'subtotalNetAmount',
+  'subtotalGrossAmount',
+  'discountTotalAmount',
+  'taxTotalAmount',
+  'shippingNetAmount',
+  'shippingGrossAmount',
+  'surchargeTotalAmount',
+  'grandTotalNetAmount',
+  'grandTotalGrossAmount',
+] as const
+
+export function isExternalAmountsMode(mode: SalesAmountsMode | null | undefined): boolean {
+  return mode === 'external'
+}
+
+function resolveSuppliedTotals(
+  supplied: Partial<SalesDocumentAmounts> | null | undefined,
+  decimalPlaces: number,
+): Partial<SalesDocumentAmounts> {
+  const round = createRounder(decimalPlaces)
+  let resolved: Partial<SalesDocumentAmounts> = {}
+  for (const field of EXTERNAL_HEADER_FIELDS) {
+    const amount = exactAmount(supplied?.[`${field}Exact`], supplied?.[field]) ?? ZERO
+    resolved = withExactAmount(resolved, field, round(amount))
+  }
+  return resolved
+}
+
+// The derived discount is signed and unclamped: a markup is a negative discount.
+function buildExternalLineResult(line: SalesLineSnapshot, decimalPlaces: number): SalesLineCalculationResult {
+  const round = createRounder(decimalPlaces)
+  const quantity = maxOf(toDecimal(toNumber(line.quantity, 0)), ZERO)
+  const unitNet = exactAmount(line.unitPriceNetExact, line.unitPriceNet) ?? ZERO
+  const netAmount = round(exactAmount(line.totalNetAmountExact, line.totalNetAmount) ?? ZERO)
+  let result: SalesLineCalculationResult = {
+    line,
+    netAmount: 0,
+    grossAmount: 0,
+    taxAmount: 0,
+    discountAmount: 0,
+    amountDecimalPlaces: decimalPlaces,
+    adjustments: [],
+  }
+  result = withExactAmount(result, 'netAmount', netAmount)
+  result = withExactAmount(result, 'grossAmount', round(exactAmount(line.totalGrossAmountExact, line.totalGrossAmount) ?? ZERO))
+  result = withExactAmount(result, 'taxAmount', round(exactAmount(line.taxAmountExact, line.taxAmount) ?? ZERO))
+  result = withExactAmount(result, 'discountAmount', round(unitNet.times(quantity).minus(netAmount)))
+  return result
+}
+
 function buildBaseLineResult(line: SalesLineSnapshot, decimalPlaces: number): SalesLineCalculationResult {
+  if (isExternalAmountsMode(line.amountsMode)) return buildExternalLineResult(line, decimalPlaces)
   const round = createRounder(decimalPlaces)
   const quantity = maxOf(toDecimal(toNumber(line.quantity, 0)), ZERO)
   const taxRate = percentToFraction(toNumber(line.taxRate, 0))
@@ -267,6 +321,8 @@ function buildBaseDocumentResult(params: {
   currencyCode: string
   existingTotals?: CalculateDocumentOptions['existingTotals']
   amountDecimalPlaces?: number
+  totalsMode?: SalesAmountsMode | null
+  suppliedTotals?: Partial<SalesDocumentAmounts> | null
 }): SalesDocumentCalculationResult {
   const { documentKind, lines, adjustments, currencyCode } = params
   const decimalPlaces = resolveDecimalPlaces(params.amountDecimalPlaces)
@@ -392,6 +448,27 @@ function buildBaseDocumentResult(params: {
     ZERO,
   )
   const outstandingAmount = maxOf(grandTotalGross.minus(paidTotalAmount).plus(refundedTotalAmount), ZERO)
+
+  if (isExternalAmountsMode(params.totalsMode)) {
+    const suppliedTotals = resolveSuppliedTotals(params.suppliedTotals, decimalPlaces)
+    const suppliedGrandTotalGross =
+      exactAmount(suppliedTotals.grandTotalGrossAmountExact, suppliedTotals.grandTotalGrossAmount) ?? ZERO
+    let totals = withExactAmount(suppliedTotals, 'paidTotalAmount', paidTotalAmount)
+    totals = withExactAmount(totals, 'refundedTotalAmount', refundedTotalAmount)
+    totals = withExactAmount(
+      totals,
+      'outstandingAmount',
+      round(maxOf(suppliedGrandTotalGross.minus(paidTotalAmount).plus(refundedTotalAmount), ZERO)),
+    )
+    return {
+      kind: documentKind,
+      currencyCode,
+      lines,
+      adjustments: resolvedAdjustments,
+      metadata: {},
+      totals: totals as SalesDocumentAmounts,
+    }
+  }
 
   return {
     kind: documentKind,
@@ -669,11 +746,36 @@ class SalesCalculationRegistry {
       )
     }
 
+    // Re-applied after the registry and events, which may otherwise overwrite it.
+    if (isExternalAmountsMode(line.amountsMode)) {
+      const supplied = buildExternalLineResult(line, decimalPlaces)
+      current = {
+        ...current,
+        netAmount: supplied.netAmount,
+        netAmountExact: supplied.netAmountExact,
+        grossAmount: supplied.grossAmount,
+        grossAmountExact: supplied.grossAmountExact,
+        taxAmount: supplied.taxAmount,
+        taxAmountExact: supplied.taxAmountExact,
+        discountAmount: supplied.discountAmount,
+        discountAmountExact: supplied.discountAmountExact,
+      }
+    }
+
     return current
   }
 
   async calculateDocument(opts: CalculateDocumentOptions): Promise<SalesDocumentCalculationResult> {
-    const { documentKind, lines, adjustments = [], context, eventBus, existingTotals } = opts
+    const {
+      documentKind,
+      lines,
+      adjustments = [],
+      context,
+      eventBus,
+      existingTotals,
+      totalsMode,
+      suppliedTotals,
+    } = opts
     const resolvedLines: SalesLineCalculationResult[] = []
 
     for (const line of lines) {
@@ -688,6 +790,8 @@ class SalesCalculationRegistry {
       currencyCode: context.currencyCode,
       existingTotals,
       amountDecimalPlaces: context.amountDecimalPlaces,
+      totalsMode,
+      suppliedTotals,
     })
 
     const decimalPlaces = resolveDecimalPlaces(context.amountDecimalPlaces)
@@ -721,6 +825,7 @@ class SalesCalculationRegistry {
           context,
           current,
           eventBus,
+          totalsMode,
         })
         if (next) current = next
       })
@@ -747,14 +852,20 @@ class SalesCalculationRegistry {
     // outstanding back to the full grand total), producing a stale paid/
     // outstanding display after a payment. Re-apply the input totals last and
     // recompute outstanding against the post-calculation grand total.
-    if (existingTotals) {
+    // Totals calculators rebuild the header from the lines, and core registers one
+    // itself by module side effect (lib/providers/index.ts) - so this always runs.
+    if (isExternalAmountsMode(totalsMode)) {
+      current.totals = { ...current.totals, ...resolveSuppliedTotals(suppliedTotals, decimalPlaces) }
+    }
+
+    if (existingTotals || isExternalAmountsMode(totalsMode)) {
       const round = createRounder(decimalPlaces)
       const paidTotalAmount = maxOf(
-        exactAmount(existingTotals.paidTotalAmountExact, existingTotals.paidTotalAmount) ?? ZERO,
+        exactAmount(existingTotals?.paidTotalAmountExact, existingTotals?.paidTotalAmount) ?? ZERO,
         ZERO,
       )
       const refundedTotalAmount = maxOf(
-        exactAmount(existingTotals.refundedTotalAmountExact, existingTotals.refundedTotalAmount) ?? ZERO,
+        exactAmount(existingTotals?.refundedTotalAmountExact, existingTotals?.refundedTotalAmount) ?? ZERO,
         ZERO,
       )
       const grandTotalGross =

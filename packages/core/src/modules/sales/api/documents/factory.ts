@@ -426,6 +426,7 @@ export function buildDocumentCrudOptions(binding: DocumentBinding) {
 
   const orderOnlyFields = [
     'expected_delivery_at',
+    'totals_mode',
     'shipping_net_amount',
     'shipping_gross_amount',
     'surcharge_total_amount',
@@ -553,6 +554,7 @@ export function buildDocumentCrudOptions(binding: DocumentBinding) {
           refundedTotalAmountExact: toExact(item.refunded_total_amount),
           outstandingAmount: toNumber(item.outstanding_amount),
           outstandingAmountExact: toExact(item.outstanding_amount),
+          ...(binding.kind === 'order' ? { totalsMode: item.totals_mode ?? 'computed' } : {}),
           customerSnapshot: normalizeJsonRecord(item.customer_snapshot),
           billingAddressSnapshot: normalizeJsonRecord(item.billing_address_snapshot),
           shippingAddressSnapshot: normalizeJsonRecord(item.shipping_address_snapshot),
@@ -685,6 +687,7 @@ export function buildDocumentOpenApi(binding: DocumentBinding) {
     refundedTotalAmountExact: z.string().nullable().optional(),
     outstandingAmount: z.number().nullable().optional(),
     outstandingAmountExact: z.string().nullable().optional(),
+    totalsMode: z.enum(['computed', 'external']).optional(),
     createdAt: z.string(),
     updatedAt: z.string(),
     customFields: z.record(z.string(), z.unknown()).optional(),

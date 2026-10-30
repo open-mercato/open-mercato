@@ -16,6 +16,8 @@ import type { SalesAdjustmentDraft, SalesLineSnapshot, SalesDocumentCalculationR
 import { cloneJson, deriveExactLineNetFromGross, ensureOrganizationScope, ensureSameScope, ensureTenantScope, exactAmountString, extractUndoPayload, resolveOrderPaymentTotals, toNumericString, enforceSalesDocumentOptimisticLock, SALES_RESOURCE_KIND_ORDER, SALES_RESOURCE_KIND_RETURN } from './shared'
 import { FX_DECIMAL_PLACES, decimalToString, divideDecimals, roundDecimal, toDecimal } from '@open-mercato/shared/lib/decimal'
 import { resolveCurrencyAmountDecimalPlaces } from '@open-mercato/shared/lib/currencyPrecision'
+import { isExternalAmountsMode } from '../lib/calculations'
+import { readPersistedHeaderTotals } from '../lib/externalAmounts'
 import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
 import { SalesOrder, SalesOrderAdjustment, SalesOrderLine, SalesReturn, SalesReturnLine } from '../data/entities'
 import { mapOrderLineEntityToSnapshot } from '../lib/lineSnapshots'
@@ -138,6 +140,24 @@ function applyOrderTotals(order: SalesOrder, totals: SalesDocumentCalculationRes
   order.lineItemCount = lineCount
 }
 
+// Deliberate, not an omission: an external order's header belongs to the source
+// system, which issues its own credit document. The return itself is still recorded.
+function applyOrderTotalsUnlessExternal(
+  order: SalesOrder,
+  calculation: SalesDocumentCalculationResult,
+): void {
+  if (isExternalAmountsMode(order.totalsMode ?? 'computed')) return
+  applyOrderTotals(order, calculation.totals, calculation.lines.length)
+}
+
+function resolveOrderCalculationMode(order: SalesOrder) {
+  const totalsMode = order.totalsMode ?? 'computed'
+  return {
+    totalsMode,
+    suppliedTotals: isExternalAmountsMode(totalsMode) ? readPersistedHeaderTotals(order) : null,
+  }
+}
+
 function mapOrderAdjustmentToDraft(adjustment: SalesOrderAdjustment): SalesAdjustmentDraft {
   return {
     id: adjustment.id,
@@ -211,6 +231,7 @@ export async function recalculateOrderTotalsForDisplay(
     adjustments: adjustmentDrafts,
     context: buildCalculationContext(order),
     existingTotals: resolveExistingPaymentTotals(order),
+    ...resolveOrderCalculationMode(order),
   })
   return calculation.totals
 }
@@ -400,8 +421,9 @@ async function reverseReturnEffects(
           adjustments: adjustmentDrafts,
           context: buildCalculationContext(order),
           existingTotals: resolveExistingPaymentTotals(order),
+          ...resolveOrderCalculationMode(order),
         })
-        applyOrderTotals(order, calculation.totals, calculation.lines.length)
+        applyOrderTotalsUnlessExternal(order, calculation)
         order.updatedAt = new Date()
         em.persist(order)
       },
@@ -586,8 +608,9 @@ async function restoreReturnEffects(
           adjustments: adjustmentDrafts,
           context: buildCalculationContext(order),
           existingTotals: resolveExistingPaymentTotals(order),
+          ...resolveOrderCalculationMode(order),
         })
-        applyOrderTotals(order, calculation.totals, calculation.lines.length)
+        applyOrderTotalsUnlessExternal(order, calculation)
         order.updatedAt = new Date()
         em.persist(order)
       },
@@ -781,8 +804,9 @@ const createReturnCommand: CommandHandler<ReturnCreateInput, { returnId: string 
         adjustments: adjustmentDrafts,
         context: buildCalculationContext(order),
         existingTotals: resolveExistingPaymentTotals(order),
+        ...resolveOrderCalculationMode(order),
       })
-      applyOrderTotals(order, calculation.totals, calculation.lines.length)
+      applyOrderTotalsUnlessExternal(order, calculation)
       order.updatedAt = new Date()
       tx.persist(order)
 

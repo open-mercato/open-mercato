@@ -44,6 +44,8 @@ type SalesDocumentAdjustmentsSectionProps = {
   tenantId?: string | null
   onActionChange?: (action: SectionAction | null) => void
   onRowsChange?: (rows: AdjustmentRow[]) => void
+  /** Withdraws adjustment writes: on an external order they would all be refused. */
+  amountsReadOnly?: boolean
 }
 
 const FALLBACK_ADJUSTMENT_KIND_VALUES: SalesAdjustmentKind[] = [
@@ -78,6 +80,7 @@ export function SalesDocumentAdjustmentsSection({
   tenantId: tenantFromProps,
   onActionChange,
   onRowsChange,
+  amountsReadOnly = false,
 }: SalesDocumentAdjustmentsSectionProps) {
   const t = useT()
   const runDocumentMutation = useSalesDocumentMutation(kind, documentId)
@@ -283,10 +286,14 @@ export function SalesDocumentAdjustmentsSection({
     setDialogOpen(true)
   }, [])
 
-  const handleEdit = React.useCallback((row: AdjustmentRow) => {
-    setActiveAdjustment(row)
-    setDialogOpen(true)
-  }, [])
+  const handleEdit = React.useCallback(
+    (row: AdjustmentRow) => {
+      if (amountsReadOnly) return
+      setActiveAdjustment(row)
+      setDialogOpen(true)
+    },
+    [amountsReadOnly]
+  )
 
   const handleCloseDialog = React.useCallback(() => {
     setDialogOpen(false)
@@ -298,10 +305,10 @@ export function SalesDocumentAdjustmentsSection({
     onActionChange({
       label: t('sales.documents.adjustments.add', 'Add adjustment'),
       onClick: handleOpenCreate,
-      disabled: false,
+      disabled: amountsReadOnly,
     })
     return () => onActionChange(null)
-  }, [handleOpenCreate, onActionChange, t])
+  }, [amountsReadOnly, handleOpenCreate, onActionChange, t])
 
   const handleFormSubmit = React.useCallback(
     async (values: AdjustmentSubmitPayload) => {
@@ -453,24 +460,25 @@ export function SalesDocumentAdjustmentsSection({
   const showLoadingState = loading && rows.length === 0
 
   const renderRowActions = React.useCallback(
-    (row: AdjustmentRow) => (
-      <RowActions
-        items={[
-          {
-            id: 'edit',
-            label: t('ui.actions.edit', 'Edit'),
-            onSelect: () => handleEdit(row),
-          },
-          {
-            id: 'delete',
-            label: t('ui.actions.delete', 'Delete'),
-            destructive: true,
-            onSelect: () => handleDelete(row),
-          },
-        ]}
-      />
-    ),
-    [handleDelete, handleEdit, t]
+    (row: AdjustmentRow) =>
+      amountsReadOnly ? null : (
+        <RowActions
+          items={[
+            {
+              id: 'edit',
+              label: t('ui.actions.edit', 'Edit'),
+              onSelect: () => handleEdit(row),
+            },
+            {
+              id: 'delete',
+              label: t('ui.actions.delete', 'Delete'),
+              destructive: true,
+              onSelect: () => handleDelete(row),
+            },
+          ]}
+        />
+      ),
+    [amountsReadOnly, handleDelete, handleEdit, t]
   )
 
   return (
@@ -489,7 +497,7 @@ export function SalesDocumentAdjustmentsSection({
           columns={columns}
           isLoading={loading && rows.length > 0}
           embedded
-          onRowClick={handleEdit}
+          onRowClick={amountsReadOnly ? undefined : handleEdit}
           rowActions={renderRowActions}
           emptyState={
             <TabEmptyState
@@ -497,6 +505,7 @@ export function SalesDocumentAdjustmentsSection({
               description={t('sales.documents.empty.adjustments.description', 'Add discounts, fees, or taxes to refine totals.')}
               actionLabel={t('sales.documents.adjustments.add', 'Add adjustment')}
               onAction={handleOpenCreate}
+              disabled={amountsReadOnly}
             />
           }
         />
