@@ -531,7 +531,7 @@ Spec: [`.ai/specs/2026-09-08-error-reporting-policy.md`](.ai/specs/2026-09-08-er
 
 STABLE `PUT /api/security/mfa/provider/passkey`: unverified keys bypass verification; a bridge preserves the exploit. [@haxiorz approved waiver/migration](https://github.com/open-mercato/open-mercato/pull/6824#issuecomment-6505351158).
 
-Clients use WebAuthn; operators audit key provenance, re-enroll with recovery. [Spec](.ai/specs/enterprise/2026-10-01-passkey-enrollment-require-webauthn-attestation.md); [migration](UPGRADE_NOTES.md#080--090-2026-10-09).
+Clients use WebAuthn; operators audit key provenance, re-enroll with recovery. [Spec](.ai/specs/enterprise/2026-10-01-passkey-enrollment-require-webauthn-attestation.md); [migration](UPGRADE_NOTES.md#090--091-unreleased).
 
 ## Atomic Auth Command Replay (2026-10-04)
 
