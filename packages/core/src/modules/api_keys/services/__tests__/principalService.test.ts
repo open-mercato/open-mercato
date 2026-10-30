@@ -20,7 +20,7 @@ describe('DefaultApiKeyPrincipalService session role revocation', () => {
     jest.clearAllMocks()
     key = Object.assign(new ApiKey(), {
       id: 'key-1', tenantId: 'tenant-1', organizationId: 'org-1',
-      sessionUserId: 'user-1', sessionToken: 'sess_principal',
+      sessionUserId: 'user-1', sessionTokenHash: 'sess_principal',
       rolesJson: ['role-reader', 'role-privileged'], expiresAt: null, deletedAt: null,
     })
     currentRoleIds = ['role-reader', 'role-privileged']
@@ -46,7 +46,7 @@ describe('DefaultApiKeyPrincipalService session role revocation', () => {
       ApiKey,
       expect.objectContaining({ id: key.id, tenantId: scope.tenantId, deletedAt: null }),
       { fields: expect.arrayContaining([
-        'rolesJson', 'expiresAt', 'tenantId', 'sessionUserId', 'sessionToken', 'sessionSecretEncrypted', 'opencodeSessionId',
+        'rolesJson', 'expiresAt', 'tenantId', 'sessionUserId', 'sessionTokenHash', 'sessionSecretEncrypted', 'opencodeSessionId',
       ]) },
       scope,
     )
@@ -65,7 +65,7 @@ describe('DefaultApiKeyPrincipalService session role revocation', () => {
 
   it('preserves independent-key assignments and normalization without requiring user memberships', async () => {
     key.sessionUserId = null
-    key.sessionToken = null
+    key.sessionTokenHash = null
     key.rolesJson = [' role-reader ', 'role-reader', 'role-privileged']
     currentRoleIds = []
 

@@ -52,7 +52,7 @@ function createFixture(): FixtureState {
       tenantId,
       organizationId: null,
       rolesJson: [readRole.id, privilegedRole.id],
-      sessionToken: 'session-1',
+      sessionTokenHash: 'session-1',
       sessionUserId: ownerId,
       expiresAt: null,
       deletedAt: null,
@@ -180,7 +180,7 @@ describe('RbacService session API-key role revocation', () => {
 
   it('preserves independent API-key grants without reading user memberships', async () => {
     const state = createFixture()
-    state.key.sessionToken = null
+    state.key.sessionTokenHash = null
     state.key.sessionUserId = null
     state.key.createdBy = ownerId
     state.memberships = []
@@ -271,10 +271,10 @@ describe('RbacService session API-key role revocation', () => {
   })
 
   it.each([
-    { marker: 'session token', binding: { sessionToken: 'session-1', sessionUserId: null } },
-    { marker: 'session owner', binding: { sessionToken: null, sessionUserId: '   ' } },
-    { marker: 'encrypted session secret', binding: { sessionToken: null, sessionUserId: null, sessionSecretEncrypted: 'encrypted' } },
-    { marker: 'OpenCode session', binding: { sessionToken: null, sessionUserId: null, opencodeSessionId: 'opencode-1' } },
+    { marker: 'session token', binding: { sessionTokenHash: 'session-1', sessionUserId: null } },
+    { marker: 'session owner', binding: { sessionTokenHash: null, sessionUserId: '   ' } },
+    { marker: 'encrypted session secret', binding: { sessionTokenHash: null, sessionUserId: null, sessionSecretEncrypted: 'encrypted' } },
+    { marker: 'OpenCode session', binding: { sessionTokenHash: null, sessionUserId: null, opencodeSessionId: 'opencode-1' } },
   ])('fails closed for a $marker binding with no valid session owner', async ({ binding }) => {
     const state = createFixture()
     Object.assign(state.key, binding)

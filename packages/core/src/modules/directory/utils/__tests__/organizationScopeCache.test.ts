@@ -141,7 +141,7 @@ describe('resolveOrganizationScopeForRequest caching (Phase 4)', () => {
   it.each(['session key', 'missing key'])('ignores a pre-existing organization cache for a %s', async (keyState) => {
     process.env.OM_ORG_SCOPE_CACHE_TTL_MS = '60000'
     const key = keyState === 'session key'
-      ? Object.assign(new ApiKey(), { id: 'session-key', sessionToken: 'session-token' })
+      ? Object.assign(new ApiKey(), { id: 'session-key', sessionTokenHash: 'session-token' })
       : null
     const em = createMockEm([{ id: 'org-home', descendantIds: [] }], key)
     const rbac = createMockRbac(['org-home'])

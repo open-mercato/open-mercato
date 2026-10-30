@@ -25,7 +25,7 @@ export class DefaultApiKeyPrincipalService implements ApiKeyPrincipalService {
         deletedAt: null,
         $or: [{ organizationId: null }, { organizationId: scope.organizationId }],
       } as FilterQuery<ApiKey>,
-      { fields: ['rolesJson', 'expiresAt', 'tenantId', 'sessionToken', 'sessionUserId', 'sessionSecretEncrypted', 'opencodeSessionId'] as const },
+      { fields: ['rolesJson', 'expiresAt', 'tenantId', 'sessionTokenHash', 'sessionUserId', 'sessionSecretEncrypted', 'opencodeSessionId'] as const },
       scope,
     )
     if (!apiKey || (apiKey.expiresAt && apiKey.expiresAt.getTime() <= Date.now())) return []

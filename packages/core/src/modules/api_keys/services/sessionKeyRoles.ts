@@ -4,7 +4,7 @@ import { UserRole } from '@open-mercato/core/modules/auth/data/entities'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 export function isSessionBoundApiKey(key: ApiKey): boolean {
-  return Boolean(key.sessionToken || key.sessionUserId || key.sessionSecretEncrypted || key.opencodeSessionId)
+  return Boolean(key.sessionTokenHash || key.sessionUserId || key.sessionSecretEncrypted || key.opencodeSessionId)
 }
 
 export async function resolveApiKeyRoleIds(
