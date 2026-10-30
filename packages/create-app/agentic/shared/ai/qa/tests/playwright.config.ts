@@ -13,6 +13,7 @@ const projectRoot = path.resolve(__dirname, '..', '..', '..')
 const qaTestResultsRoot = path.join(projectRoot, '.ai', 'qa', 'test-results')
 const normalizePath = (value: string) => value.split(path.sep).join('/')
 const STATIC_TEST_IGNORES = [
+  `${normalizePath(path.join(projectRoot, '.mercato'))}/**`,
   `${normalizePath(path.join(projectRoot, '.claude'))}/**`,
   `${normalizePath(path.join(projectRoot, '.codex'))}/**`,
   `${normalizePath(path.join(projectRoot, '.cursor'))}/**`,
