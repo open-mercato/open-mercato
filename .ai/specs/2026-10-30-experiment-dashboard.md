@@ -56,7 +56,7 @@ This is an additive repository CLI and JSON API. No database, module, event, ACL
 Follow `.ai/runs/2026-10-30-experiment-dashboard.md`: failure-first contracts; server/adapters; React UI and browser checks; skills/docs; validation and review.
 
 ## Final compliance report
-Implemented in `scripts/experiment-dashboard/` with Open Mercato branding, explicit experiment registration, read-only adapters, retained artifacts and measured throughput. Local verification passes 23 focused tests, strict tooling typechecking, two real-Chrome integrations, and the knowledge-change controller with base-plus-test failure/head success. The authoritative review fixed arbitrary-lane ownership, partial-target notices and live-metric expiry during network outages; independent review and manual QA remain required.
+Implemented in `scripts/experiment-dashboard/` with Open Mercato branding, a refined case inspector, explicit experiment registration, read-only adapters, retained artifacts and measured throughput. Local verification passes 23 focused tests, strict tooling typechecking, three real-Chrome integrations, and the knowledge-change controller with base-plus-test failure/head success. The authoritative review fixed arbitrary-lane ownership, partial-target notices and live-metric expiry during network outages; independent review and manual QA remain required.
 
 The ordered local repository gate passes package builds, generation, translation checks, repository typechecking and the production app build. Its first test run hit one unchanged CrudForm timing assertion; the isolated test and all 302 UI suites pass on retry. The full retry fails 13 create-app harness tests because the macOS/Node 26 sandbox denies a parent package-config read before the fake runner executes. A representative test reproduces the same failure at the pinned base. The draft PR remains in progress until the full gate passes in a compatible environment.
 
@@ -65,3 +65,4 @@ A separate current-scaffold deterministic check passes 236/240 with four unchang
 ## Changelog
 - 2026-10-30: Initial implementation specification and autonomous scope decisions.
 - 2026-10-30: Implemented the dashboard and workflow skills; recorded browser, knowledge-controller and repository-gate evidence with baseline/environment limits.
+- 2026-10-30: Refined inspector tabs, controls and response typography from screenshot feedback; added desktop/mobile style and overflow regression coverage.
