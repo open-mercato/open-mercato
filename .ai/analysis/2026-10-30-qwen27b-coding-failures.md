@@ -65,6 +65,8 @@ Hashes identify the local sanitized evaluator record and retained generated-file
 
 The first three recovery experiments are stopped. The fourth complete fourteen-case run started at 17:34:54 UTC on 2026-10-30, frozen to source `b478b301e4ee3af3e78380a6e4df0c398ee95617`, after all preparation and repository checks passed. Full-case results and implementation-oracle results are recorded separately; neither is a complete release certificate. The frozen-target attribution below remains historical evidence.
 
+Round 4 follow-ups are now implemented in candidate `c4bc1ab10`: exact canonical permissions in the existing prompt, corrected public-contract delivery classification, and root ownership/Jest clarification. [Read-scope regression evidence](2026-10-30-qwen-harness-read-scope-regression.json) and [compatibility-read evidence](2026-10-30-qwen-harness-bc-read-regression.json) record focused checks. Fresh model, exact final-test knowledge and complete repository/packed validation for this candidate remain pending; the following pass belongs specifically to the earlier scored source.
+
 The true-base knowledge controller passes at source commit `b478b301e4ee3af3e78380a6e4df0c398ee95617`, against `fd7c06569bd5fa282716b28e1375d2ddb2cc1eea`. Each focused test is overlaid alone onto the base, and the same test runs against the complete fixed tree:
 
 | Focused regression | Base exit | Fixed exit |

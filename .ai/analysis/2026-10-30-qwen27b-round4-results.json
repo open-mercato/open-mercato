@@ -3,7 +3,7 @@
   "sourceRevision": "b478b301e4ee3af3e78380a6e4df0c398ee95617",
   "runId": "06e4d9e8-e10f-4744-87f9-10da249c1eb1",
   "startedAt": "2026-10-30T17:34:54.761Z",
-  "updatedAt": "2026-10-30T18:12:57.408Z",
+  "updatedAt": "2026-10-30T18:21:33.515Z",
   "status": "running",
   "cases": [
     {
@@ -19,7 +19,7 @@
       "captureSha256": [
         "4f830cee44fd61f431a16b45514fa92b443a18cfd1365f8b5243b28739a0dd3b"
       ],
-      "shortCause": "Generated Jest test globals missing; undeclared source read and extra UMES route (root wording is ambiguous).",
+      "shortCause": "Generated Jest test globals missing; extra UMES ambiguity and undisclosed example-read boundary also affect full-case failure.",
       "deliveryCounts": {
         "successfulReads": 19,
         "attestedReads": 19,
@@ -42,7 +42,7 @@
       "captureSha256": [
         "12c4e06b44454985b6b3632d86900df978fbb3be16e4dc077e5e9d56804a9186"
       ],
-      "shortCause": "Implementation oracle passed; full case failed on an undeclared customer-priorities API example read.",
+      "shortCause": "Implementation oracle passed; undeclared example read caused full failure across an undisclosed per-case boundary.",
       "deliveryCounts": {
         "successfulReads": 14,
         "attestedReads": 14,
@@ -65,7 +65,7 @@
       "captureSha256": [
         "8659371a7f947ad3df301ee3ef60dceb0041d2ca99da51cf9661b3d6b4691365"
       ],
-      "shortCause": "Timed out; required mutation-guard/atomic calls absent and generated entity typecheck fails; undeclared reads also rejected.",
+      "shortCause": "Timed out; mutation-guard/atomic calls absent and entity typecheck fails; example boundary was undisclosed.",
       "deliveryCounts": {
         "successfulReads": 11,
         "attestedReads": 11,
@@ -100,21 +100,30 @@
     },
     {
       "caseId": "OMH-026",
-      "status": "running",
-      "implementationOracle": "pending",
-      "attempts": null,
-      "corrections": null,
-      "durationMs": null,
-      "finishedAt": null,
-      "evaluatorSha256": null,
-      "generatedSha256": null,
-      "captureSha256": [],
-      "shortCause": null,
-      "deliveryCounts": null
+      "status": "fail",
+      "implementationOracle": "fail",
+      "attempts": 1,
+      "corrections": 0,
+      "durationMs": 468734,
+      "finishedAt": "2026-10-30T18:20:47.560Z",
+      "evaluatorSha256": "54ea42f7e5229adb3071ac1c33c6604cf50f46fc6f55c61f037474897cf5942a",
+      "generatedSha256": "ac914cf1b8888e146d39879068ea4a0ca3770c12adc6becb27d6179244e241cc",
+      "captureSha256": [
+        "b199f71b29465f693cdf52dd82ec7ee059669a26fb58ed16101ee72d987af9e5"
+      ],
+      "shortCause": "Missing interceptor/write roundtrip and unsupported widget clearable property; required sources read before their owner.",
+      "deliveryCounts": {
+        "successfulReads": 31,
+        "attestedReads": 31,
+        "missingMetadata": 0,
+        "immutableCompared": 17,
+        "immutableMatches": 17,
+        "immutableMismatches": 0
+      }
     },
     {
       "caseId": "OMH-027",
-      "status": "pending",
+      "status": "running",
       "implementationOracle": "pending",
       "attempts": null,
       "corrections": null,
@@ -240,11 +249,11 @@
     }
   ],
   "deliveryTotals": {
-    "successfulReads": 66,
-    "attestedReads": 66,
+    "successfulReads": 97,
+    "attestedReads": 97,
     "missingMetadata": 0,
-    "immutableCompared": 52,
-    "immutableMatches": 52,
+    "immutableCompared": 69,
+    "immutableMatches": 69,
     "immutableMismatches": 0
   }
 }

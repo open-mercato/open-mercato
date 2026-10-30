@@ -1,0 +1,25 @@
+{
+  "artifactType": "canonical-permission-projection-regression",
+  "sourceRevision": "c4bc1ab106e34239bbe6e009525d7ac3cff3d58a",
+  "failureFirstCommit": "26687c241",
+  "before": {
+    "passed": 29,
+    "failed": 7
+  },
+  "after": {
+    "passed": 36,
+    "failed": 0
+  },
+  "fixtureCorrection": "An explicit inert QA-only row replaces an incorrect assumption that the emitted fixture contains QA rows; no assertion was removed. Exact final-test true-base replay remains part of the pending knowledge gate.",
+  "writableCasesChecked": 49,
+  "maximumCanonicalPaths": 14,
+  "existingMetadataByteLimit": 8192,
+  "policySource": "exampleReadAllowlist",
+  "newGrants": false,
+  "instructionAllowlistProjected": false,
+  "expectedRoutingAnswersProjected": false,
+  "readOnlyFixturePromptSha256": "310611533329dc0364caeb567261842e48da2b2458bef66f5dc4e40af2814027",
+  "evaluatorSha256": "bf7c49e16ac0ccd25445eb5ac74bca90effe935b1b7602c124d72fc239a7593b",
+  "candidateModelStatus": "not-run",
+  "repositoryAndPackedValidation": "pending-after-frozen-round4"
+}
