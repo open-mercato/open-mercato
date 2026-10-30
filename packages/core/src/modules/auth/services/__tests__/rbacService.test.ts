@@ -336,11 +336,11 @@ describe('RbacService', () => {
       expect(acl.features).toEqual(expected)
     })
 
-    it('caps a super-admin role by the non-super owner ACL', async () => {
+    it('caps a scoped super-admin role by the non-super owner ACL', async () => {
       em.find.mockImplementation(async (entity: unknown) => entity === UserRole
         ? ownerRoleIds.map((roleId) => ({ role: { id: roleId } }))
         : entity === RoleAcl ? [{
-        featuresJson: [], organizationsJson: null, isSuperAdmin: true,
+        featuresJson: [], organizationsJson: ['org-1'], isSuperAdmin: true,
       }] : [])
       const acl = await service.loadAcl('api_key:delegated-key', { tenantId: 'tenant-1', organizationId: 'org-1' })
       expect(acl).toEqual({ isSuperAdmin: false, features: ownerFeatures, organizations: ['org-1'] })
