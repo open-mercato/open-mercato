@@ -56,4 +56,3 @@ Local macOS runner, Node 24.22.2. All eight configured validation commands passe
 
 Automated review found no remaining actionable code findings: https://github.com/open-mercato/open-mercato/pull/8272#pullrequestreview-5715415459. GitHub rejected author self-approval, so the assessment is posted as a non-approving review; independent human approval remains required. The latest main merged cleanly in a read-only merge-tree check. Remote CI remains queued/running and continues to gate merge; this run does not wait for or promise further CI monitoring.
 
-The old invoking-checkout MCP process was verified and terminated, its ports and stale lock were released, and reviewed source/test fixes were copied back without changing the user's branch or untracked mise.toml.
