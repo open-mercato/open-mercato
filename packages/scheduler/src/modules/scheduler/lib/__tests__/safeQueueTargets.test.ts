@@ -68,9 +68,6 @@ beforeAll(() => {
       ],
     },
     {
-      // A module whose id carries an underscore while its workers spell theirs
-      // with a hyphen — the shape every `*_*` module in the tree actually has.
-      // Queue ownership must come from the registry, not from the worker id.
       id: 'gamma_module',
       workers: [
         {
