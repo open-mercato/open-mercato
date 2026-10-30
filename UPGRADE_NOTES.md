@@ -40,6 +40,7 @@ synchronous `WAIT` activity of that length resolved after 1 ms instead (Node's `
   WAIT longer than ~24.8 days anywhere else now fails with an explicit error instead of resolving early.
 - `OM_WORKFLOWS_MAX_CONDITION_ATTEMPTS` is now the floor of the poll cap: each `WAIT_FOR_CONDITION` waiter may poll
   as many times as its own `timeout / pollIntervalMs` requires.
+
 ### Passkey enrollment requires a WebAuthn registration response (#6800)
 
 Enterprise Security no longer accepts the passkey confirmation shortcut
