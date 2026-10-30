@@ -2,8 +2,9 @@
 
 /**
  * The tenant's OTel export settings: whether its agent runs are sent to the
- * deployment's OpenTelemetry backend, whether user ids travel with them, and
- * which agents are exported. The deployment configuration is shown read-only
+ * deployment's OpenTelemetry backend or the organization's own collector (the
+ * agent_orchestrator_otel_export integration), whether user ids travel with
+ * them, and which agents are exported. The deployment configuration is shown read-only
  * as booleans and the protocol only — never the endpoint, headers or trace
  * link template. "Send test span" checks the endpoint and records the outcome
  * as the export health shown below it.
@@ -12,7 +13,8 @@
  */
 
 import * as React from 'react'
-import { Send, Trash2 } from 'lucide-react'
+import Link from 'next/link'
+import { ExternalLink, Send, Trash2 } from 'lucide-react'
 import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives/alert'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@open-mercato/ui/primitives/card'
@@ -42,19 +44,25 @@ import {
   addAllowlistAgent,
   canAddAllowlistAgent,
   canEditContentMode,
+  canEditDestination,
   classifyOtelExportSaveError,
   formSignature,
   formToSettings,
+  isOtelExportDestinationErrorCode,
+  OTEL_EXPORT_INTEGRATION_HREF,
   parseOtelExportSettingsResponse,
   parseOtelExportTestResponse,
   removeAllowlistAgent,
   settingsToForm,
   type OtelExportContentMode,
   type OtelExportDeploymentView,
+  type OtelExportDestinationErrorCode,
   type OtelExportHealthView,
+  type OtelExportIntegrationView,
   type OtelExportSettingsForm,
   type OtelExportSettingsResponse,
 } from '../../../lib/trace/otel/exportSettingsForm'
+import type { OtelExportDestinationKind } from '../../../data/validators'
 
 const SETTINGS_URL = '/api/agent_orchestrator/otel-export/settings'
 const TEST_URL = '/api/agent_orchestrator/otel-export/test'
@@ -64,9 +72,43 @@ const CONTEXT_ID = 'agent_orchestrator.otel_export.settings'
 type TestOutcome =
   | { kind: 'ok'; httpStatus: number | null; latencyMs: number }
   | { kind: 'failed'; errorCode: string }
+  | { kind: 'destination'; errorCode: OtelExportDestinationErrorCode }
   | { kind: 'disabled' }
   | { kind: 'rateLimited' }
   | { kind: 'error' }
+
+function destinationErrorMessage(
+  code: OtelExportDestinationErrorCode,
+  t: ReturnType<typeof useT>,
+): string {
+  switch (code) {
+    case 'integration_unconfigured':
+      return t(
+        'agent_orchestrator.settings.otelExport.test.destination.integrationUnconfigured',
+        'The integration has no valid endpoint for this organization. Configure it first.',
+      )
+    case 'integration_disabled':
+      return t(
+        'agent_orchestrator.settings.otelExport.test.destination.integrationDisabled',
+        'The integration is disabled for this organization. Enable it first.',
+      )
+    case 'tenant_endpoints_denied':
+      return t(
+        'agent_orchestrator.settings.otelExport.test.destination.tenantEndpointsDenied',
+        'This installation does not allow sending traces to tenant endpoints.',
+      )
+    case 'endpoint_blocked':
+      return t(
+        'agent_orchestrator.settings.otelExport.test.destination.endpointBlocked',
+        'The integration endpoint is not allowed: it must be a public HTTPS address.',
+      )
+    case 'deployment_unconfigured':
+      return t(
+        'agent_orchestrator.settings.otelExport.test.destination.deploymentUnconfigured',
+        'The operator has not configured a usable endpoint for this installation.',
+      )
+  }
+}
 
 function FactBadge({ label, value, variant }: { label: string; value: string; variant: StatusBadgeVariant }) {
   return (
@@ -85,6 +127,7 @@ export default function OtelExportSettingsPage() {
   const [source, setSource] = React.useState<OtelExportSettingsResponse['source']>('default')
   const [deployment, setDeployment] = React.useState<OtelExportDeploymentView | null>(null)
   const [health, setHealth] = React.useState<OtelExportHealthView | null>(null)
+  const [integration, setIntegration] = React.useState<OtelExportIntegrationView | null>(null)
   const [updatedAt, setUpdatedAt] = React.useState<string | null>(null)
   const [agentOptions, setAgentOptions] = React.useState<AgentOption[]>([])
   const [isLoading, setIsLoading] = React.useState(true)
@@ -110,6 +153,7 @@ export default function OtelExportSettingsPage() {
     setSource(parsed.source)
     setDeployment(parsed.deployment)
     setHealth(parsed.health)
+    setIntegration(parsed.integration)
     setUpdatedAt(parsed.updatedAt)
     return true
   }, [])
@@ -181,7 +225,12 @@ export default function OtelExportSettingsPage() {
       if (!surfaceRecordConflict(error, t, { onRefresh: () => void load() })) {
         const kind = classifyOtelExportSaveError(error, result.settings.content)
         flash(
-          kind === 'contentForbidden'
+          kind === 'tenantEndpointsNotAllowed'
+            ? t(
+                'agent_orchestrator.settings.otelExport.destinationNotAllowed',
+                'This installation does not allow sending traces to tenant endpoints. Choose the deployment endpoint.',
+              )
+            : kind === 'contentForbidden'
             ? t(
                 'agent_orchestrator.settings.otelExport.contentRequiresViewContent',
                 'Exporting prompts and responses needs access to trace content.',
@@ -217,7 +266,9 @@ export default function OtelExportSettingsPage() {
         const parsed = call.ok ? parseOtelExportTestResponse(call.result) : null
         if (!parsed) setTestOutcome({ kind: 'error' })
         else if (parsed.ok) setTestOutcome({ kind: 'ok', httpStatus: parsed.httpStatus, latencyMs: parsed.latencyMs })
-        else setTestOutcome({ kind: 'failed', errorCode: parsed.errorCode ?? 'unknown' })
+        else if (isOtelExportDestinationErrorCode(parsed.errorCode)) {
+          setTestOutcome({ kind: 'destination', errorCode: parsed.errorCode })
+        } else setTestOutcome({ kind: 'failed', errorCode: parsed.errorCode ?? 'unknown' })
       }
     } catch {
       setTestOutcome({ kind: 'error' })
@@ -247,7 +298,7 @@ export default function OtelExportSettingsPage() {
       </Page>
     )
   }
-  if (!form || !deployment || !health) return null
+  if (!form || !deployment || !health || !integration) return null
 
   const isDirty = formSignature(form) !== baselineSignature
   const update = (patch: Partial<OtelExportSettingsForm>) => setForm({ ...form, ...patch })
@@ -261,6 +312,11 @@ export default function OtelExportSettingsPage() {
     canManage,
     canViewContent,
     contentAllowed: deployment.contentAllowed,
+  })
+  const destinationEditable = canEditDestination({
+    canManage,
+    tenantEndpointsAllowed: deployment.tenantEndpointsAllowed,
+    destination: form.destination,
   })
 
   return (
@@ -423,6 +479,76 @@ export default function OtelExportSettingsPage() {
                 </div>
               </div>
 
+              <div className="space-y-3">
+                <div className="space-y-1.5 sm:max-w-sm">
+                  <Label>{t('agent_orchestrator.settings.otelExport.destination', 'Destination')}</Label>
+                  <Select
+                    value={form.destination}
+                    disabled={!destinationEditable}
+                    onValueChange={(next) => update({ destination: next as OtelExportDestinationKind })}
+                  >
+                    <SelectTrigger aria-label={t('agent_orchestrator.settings.otelExport.destination', 'Destination')}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="deployment">
+                        {t('agent_orchestrator.settings.otelExport.destinationDeployment', 'Deployment endpoint')}
+                      </SelectItem>
+                      <SelectItem value="integration">
+                        {t('agent_orchestrator.settings.otelExport.destinationIntegration', 'Tenant integration')}
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    {deployment.tenantEndpointsAllowed
+                      ? t(
+                          'agent_orchestrator.settings.otelExport.destinationHint',
+                          'Send traces to the collector configured for this installation, or to this organization’s own collector set up as an integration.',
+                        )
+                      : t(
+                          'agent_orchestrator.settings.otelExport.destinationDenied',
+                          'This installation sends traces only to its own collector. The operator has not allowed tenant endpoints.',
+                        )}
+                  </p>
+                </div>
+                {form.destination === 'integration' ? (
+                  <div className="space-y-3 rounded-md border border-border p-3">
+                    <div className="flex flex-wrap gap-6 text-sm">
+                      <FactBadge
+                        label={t('agent_orchestrator.settings.otelExport.integrationCredentials', 'Integration endpoint')}
+                        value={
+                          integration.configured
+                            ? t('agent_orchestrator.settings.otelExport.configured', 'Configured')
+                            : t('agent_orchestrator.settings.otelExport.notConfigured', 'Not configured')
+                        }
+                        variant={integration.configured ? 'success' : 'warning'}
+                      />
+                      <FactBadge
+                        label={t('agent_orchestrator.settings.otelExport.integrationState', 'Integration')}
+                        value={
+                          integration.enabled
+                            ? t('agent_orchestrator.settings.otelExport.integrationEnabled', 'Enabled')
+                            : t('agent_orchestrator.settings.otelExport.integrationDisabled', 'Disabled')
+                        }
+                        variant={integration.enabled ? 'success' : 'warning'}
+                      />
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      {t(
+                        'agent_orchestrator.settings.otelExport.integrationHint',
+                        'The integration holds this organization’s endpoint and credentials. Traces are sent only while it is configured and enabled; otherwise they are not exported.',
+                      )}
+                    </p>
+                    <Button asChild variant="outline" size="sm">
+                      <Link href={OTEL_EXPORT_INTEGRATION_HREF}>
+                        <ExternalLink className="mr-2 size-4" />
+                        {t('agent_orchestrator.settings.otelExport.integrationLink', 'Open the integration settings')}
+                      </Link>
+                    </Button>
+                  </div>
+                ) : null}
+              </div>
+
               <div className="space-y-1.5 sm:max-w-sm">
                 <Label>{t('agent_orchestrator.settings.otelExport.content', 'Content')}</Label>
                 <Select
@@ -465,10 +591,15 @@ export default function OtelExportSettingsPage() {
                   </AlertTitle>
                   <AlertDescription>
                     <p>
-                      {t(
-                        'agent_orchestrator.settings.otelExport.contentWarning',
-                        'Prompts, responses and tool data are sent to the collector configured for this installation. They are sent only for runs where all three locks hold:',
-                      )}
+                      {form.destination === 'integration'
+                        ? t(
+                            'agent_orchestrator.settings.otelExport.contentWarningIntegration',
+                            'Prompts, responses and tool data are sent to this organization’s collector configured in the integration. They are sent only for runs where all three locks hold:',
+                          )
+                        : t(
+                            'agent_orchestrator.settings.otelExport.contentWarning',
+                            'Prompts, responses and tool data are sent to the collector configured for this installation. They are sent only for runs where all three locks hold:',
+                          )}
                     </p>
                     <ul className="mt-1 list-disc space-y-0.5 pl-5">
                       <li>
@@ -611,17 +742,19 @@ export default function OtelExportSettingsPage() {
                               'The backend did not accept the test span: {code}.',
                               { code: testOutcome.errorCode },
                             )
-                          : testOutcome.kind === 'disabled'
-                            ? t(
-                                'agent_orchestrator.settings.otelExport.test.disabled',
-                                'OTel export is not enabled for this installation.',
-                              )
-                            : testOutcome.kind === 'rateLimited'
+                          : testOutcome.kind === 'destination'
+                            ? destinationErrorMessage(testOutcome.errorCode, t)
+                            : testOutcome.kind === 'disabled'
                               ? t(
-                                  'agent_orchestrator.settings.otelExport.test.rateLimited',
-                                  'Wait a few seconds before sending another test span.',
+                                  'agent_orchestrator.settings.otelExport.test.disabled',
+                                  'OTel export is not enabled for this installation.',
                                 )
-                              : t('agent_orchestrator.settings.otelExport.test.error', 'Could not send the test span.')}
+                              : testOutcome.kind === 'rateLimited'
+                                ? t(
+                                    'agent_orchestrator.settings.otelExport.test.rateLimited',
+                                    'Wait a few seconds before sending another test span.',
+                                  )
+                                : t('agent_orchestrator.settings.otelExport.test.error', 'Could not send the test span.')}
                     </p>
                   ) : null}
                 </div>

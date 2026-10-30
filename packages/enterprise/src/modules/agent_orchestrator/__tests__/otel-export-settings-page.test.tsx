@@ -82,7 +82,7 @@ describe('OTel export settings page', () => {
     expect(screen.getByText('Assess claims')).toBeTruthy()
     expect(screen.getByText('http/json')).toBeTruthy()
     expect(screen.getByText(/http_503/)).toBeTruthy()
-    expect(screen.queryByText(/collector/)).toBeNull()
+    expect(screen.queryByText(/Prompts, responses and tool data are sent/)).toBeNull()
   })
 
   it('labels settings inherited from the installation row', async () => {
@@ -194,5 +194,106 @@ describe('OTel export settings page', () => {
     await waitFor(() => expect(flashMock).toHaveBeenCalledWith(message, 'error'))
     const [, init] = readApiResultMock.mock.calls[0] as [string, RequestInit]
     expect(JSON.parse(String(init.body)).content).toBe('full')
+  })
+
+  function withDestination(
+    destination: 'deployment' | 'integration',
+    tenantEndpointsAllowed: boolean,
+    integration: { configured: boolean; enabled: boolean } = { configured: false, enabled: false },
+  ) {
+    return {
+      ...SETTINGS,
+      settings: { ...SETTINGS.settings, destination },
+      deployment: { ...SETTINGS.deployment, tenantEndpointsAllowed },
+      integration,
+    }
+  }
+
+  async function destinationSelect() {
+    return screen.findByRole('combobox', { name: 'Destination' })
+  }
+
+  it.each([
+    ['allowed tenant endpoints', 'deployment', true, ['agent_orchestrator.*'], false],
+    ['denied tenant endpoints', 'deployment', false, ['agent_orchestrator.*'], true],
+    ['a stored integration destination on a denying deployment', 'integration', false, ['agent_orchestrator.*'], false],
+    ['a viewer without agent management', 'deployment', true, ['agent_orchestrator.trace.view'], true],
+  ] as const)('destination select with %s', async (_label, destination, allowed, features, disabled) => {
+    mockApi({ result: { ok: true, httpStatus: 200, latencyMs: 42, errorCode: null } }, withDestination(destination, allowed))
+    grant([...features])
+    renderWithProviders(<OtelExportSettingsPage />)
+    const select = await destinationSelect()
+    expect(select.hasAttribute('disabled')).toBe(disabled)
+  })
+
+  it('explains why the destination cannot be changed when tenant endpoints are denied', async () => {
+    mockApi({ result: { ok: true, httpStatus: 200, latencyMs: 42, errorCode: null } }, withDestination('deployment', false))
+    grant(['agent_orchestrator.*'])
+    renderWithProviders(<OtelExportSettingsPage />)
+    expect(await screen.findByText(/The operator has not allowed tenant endpoints/)).toBeTruthy()
+    expect(screen.queryByRole('link', { name: 'Open the integration settings' })).toBeNull()
+  })
+
+  it('shows the integration status and links to the integration for the integration destination', async () => {
+    mockApi(
+      { result: { ok: true, httpStatus: 200, latencyMs: 42, errorCode: null } },
+      withDestination('integration', true, { configured: true, enabled: false }),
+    )
+    grant(['agent_orchestrator.*'])
+    renderWithProviders(<OtelExportSettingsPage />)
+    const link = await screen.findByRole('link', { name: 'Open the integration settings' })
+    expect(link.getAttribute('href')).toBe('/backend/integrations/agent_orchestrator_otel_export')
+    expect(screen.getByText('Integration endpoint')).toBeTruthy()
+    expect(screen.getAllByText('Configured').length).toBeGreaterThan(0)
+    expect(screen.getByText('Disabled')).toBeTruthy()
+  })
+
+  it('refers the content warning to the organization collector for the integration destination', async () => {
+    mockApi(
+      { result: { ok: true, httpStatus: 200, latencyMs: 42, errorCode: null } },
+      {
+        ...withDestination('integration', true, { configured: true, enabled: true }),
+        settings: { ...SETTINGS.settings, destination: 'integration', content: 'full' },
+        deployment: { ...SETTINGS.deployment, tenantEndpointsAllowed: true, contentAllowed: true },
+      },
+    )
+    grant(['agent_orchestrator.*'])
+    renderWithProviders(<OtelExportSettingsPage />)
+    expect(await screen.findByText(/this organization’s collector configured in the integration/)).toBeTruthy()
+    expect(screen.queryByText(/sent to the collector configured for this installation/)).toBeNull()
+  })
+
+  it('surfaces a 422 tenant_endpoints_not_allowed save error', async () => {
+    mockApi({ result: { ok: true, httpStatus: 200, latencyMs: 42, errorCode: null } }, withDestination('integration', true))
+    grant(['agent_orchestrator.*'])
+    readApiResultMock.mockRejectedValue(
+      Object.assign(new Error('tenant_endpoints_not_allowed'), { status: 422, error: 'tenant_endpoints_not_allowed' }),
+    )
+    renderWithProviders(<OtelExportSettingsPage />)
+    fireEvent.click(await screen.findByRole('switch', { name: 'Include user ids' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() =>
+      expect(flashMock).toHaveBeenCalledWith(
+        'This installation does not allow sending traces to tenant endpoints. Choose the deployment endpoint.',
+        'error',
+      ),
+    )
+    const [, init] = readApiResultMock.mock.calls[0] as [string, RequestInit]
+    expect(JSON.parse(String(init.body)).destination).toBe('integration')
+  })
+
+  it.each([
+    ['integration_unconfigured', 'The integration has no valid endpoint for this organization. Configure it first.'],
+    ['integration_disabled', 'The integration is disabled for this organization. Enable it first.'],
+    ['tenant_endpoints_denied', 'This installation does not allow sending traces to tenant endpoints.'],
+    ['endpoint_blocked', 'The integration endpoint is not allowed: it must be a public HTTPS address.'],
+    ['deployment_unconfigured', 'The operator has not configured a usable endpoint for this installation.'],
+  ])('explains the %s destination error of a test span', async (errorCode, message) => {
+    mockApi({ result: { ok: false, httpStatus: null, latencyMs: 0, errorCode } }, withDestination('integration', true))
+    grant(['agent_orchestrator.*'])
+    renderWithProviders(<OtelExportSettingsPage />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Send test span' }))
+    expect(await screen.findByText(message)).toBeTruthy()
+    expect(screen.queryByText(/did not accept the test span/)).toBeNull()
   })
 })

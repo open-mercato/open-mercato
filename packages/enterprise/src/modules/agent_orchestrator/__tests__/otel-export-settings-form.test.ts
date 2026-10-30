@@ -2,7 +2,11 @@ import {
   addAllowlistAgent,
   canAddAllowlistAgent,
   canEditContentMode,
+  canEditDestination,
   classifyOtelExportSaveError,
+  isOtelExportDestinationErrorCode,
+  OTEL_EXPORT_INTEGRATION_HREF,
+  OTEL_EXPORT_TENANT_ENDPOINTS_NOT_ALLOWED,
   formSignature,
   formToSettings,
   parseOtelExportSettingsResponse,
@@ -11,6 +15,8 @@ import {
   settingsToForm,
 } from '../lib/trace/otel/exportSettingsForm'
 import { OTEL_EXPORT_AGENT_ALLOWLIST_MAX } from '../data/validators'
+import { OTEL_EXPORT_DESTINATION_ERRORS } from '../lib/trace/otel/exportDestination'
+import { OTEL_EXPORT_DESTINATION_SETTING_ERRORS } from '../commands/otelExport'
 
 const RESPONSE = {
   settings: { enabled: true, content: 'none', exportUserIds: false, agentAllowlist: ['support.triage', 'claims.assess'] },
@@ -128,5 +134,48 @@ describe('otel export settings form mapping', () => {
     expect(classifyOtelExportSaveError({ status: '422' }, 'full')).toBe('generic')
     expect(classifyOtelExportSaveError({ status: 403 }, 'none')).toBe('generic')
     expect(classifyOtelExportSaveError(null, 'full')).toBe('generic')
+  })
+
+  it('classifies a refused integration destination before the content checks', () => {
+    const refused = { status: 422, error: OTEL_EXPORT_TENANT_ENDPOINTS_NOT_ALLOWED }
+    expect(OTEL_EXPORT_TENANT_ENDPOINTS_NOT_ALLOWED).toBe(OTEL_EXPORT_DESTINATION_SETTING_ERRORS.tenantEndpointsNotAllowed)
+    expect(classifyOtelExportSaveError(refused, 'none')).toBe('tenantEndpointsNotAllowed')
+    expect(classifyOtelExportSaveError(refused, 'full')).toBe('tenantEndpointsNotAllowed')
+    expect(classifyOtelExportSaveError({ status: 400, error: OTEL_EXPORT_TENANT_ENDPOINTS_NOT_ALLOWED }, 'none')).toBe('generic')
+    expect(classifyOtelExportSaveError({ status: 422, error: 'content_export_not_allowed' }, 'full')).toBe('contentNotAllowed')
+  })
+
+  it('lets only managers pick the destination, and only while tenant endpoints are allowed', () => {
+    const cases: Array<[boolean, boolean, 'deployment' | 'integration', boolean]> = [
+      [true, true, 'deployment', true],
+      [true, true, 'integration', true],
+      [true, false, 'deployment', false],
+      [true, false, 'integration', true],
+      [false, true, 'deployment', false],
+      [false, false, 'integration', false],
+    ]
+    for (const [canManage, tenantEndpointsAllowed, destination, expected] of cases) {
+      expect(canEditDestination({ canManage, tenantEndpointsAllowed, destination })).toBe(expected)
+    }
+  })
+
+  it('recognizes exactly the destination error codes', () => {
+    for (const code of Object.values(OTEL_EXPORT_DESTINATION_ERRORS)) {
+      expect(isOtelExportDestinationErrorCode(code)).toBe(true)
+    }
+    expect(isOtelExportDestinationErrorCode('http_401')).toBe(false)
+    expect(isOtelExportDestinationErrorCode(null)).toBe(false)
+  })
+
+  it('parses the integration status and defaults it when absent', () => {
+    expect(parseOtelExportSettingsResponse(RESPONSE)?.integration).toEqual({ configured: false, enabled: false })
+    expect(
+      parseOtelExportSettingsResponse({ ...RESPONSE, integration: { configured: true, enabled: true } })?.integration,
+    ).toEqual({ configured: true, enabled: true })
+    expect(parseOtelExportSettingsResponse({ ...RESPONSE, integration: { configured: 'yes' } })).toBeNull()
+  })
+
+  it('links to the export integration detail page', () => {
+    expect(OTEL_EXPORT_INTEGRATION_HREF).toBe('/backend/integrations/agent_orchestrator_otel_export')
   })
 })

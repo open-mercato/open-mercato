@@ -239,6 +239,7 @@ describe('GET /otel-export/settings', () => {
         traceLinkConfigured: false,
       },
       health: { lastSuccessAt: null, lastErrorAt: null, lastErrorCode: null },
+      integration: { configured: false, enabled: false },
     })
   })
 
@@ -280,6 +281,57 @@ describe('GET /otel-export/settings', () => {
   test('rejects an anonymous caller', async () => {
     getAuthFromRequest.mockResolvedValue(null)
     expect((await GET(new Request('http://localhost/x'))).status).toBe(401)
+  })
+
+  const INTEGRATION_ENDPOINT = 'https://tenant-collector.example.test/v1/traces'
+  const INTEGRATION_SECRET = 'tenant-integration-secret-value'
+  const INTEGRATION_CREDENTIALS = {
+    endpoint: INTEGRATION_ENDPOINT,
+    headers: `x-api-key=${INTEGRATION_SECRET}`,
+    protocol: 'http/json',
+  }
+
+  test.each([
+    ['configured and enabled', INTEGRATION_CREDENTIALS, true, { configured: true, enabled: true }],
+    ['configured but disabled', INTEGRATION_CREDENTIALS, false, { configured: true, enabled: false }],
+    ['missing credentials', null, true, { configured: false, enabled: true }],
+    ['invalid credentials', { endpoint: 'not a url' }, true, { configured: false, enabled: true }],
+  ])('reports the integration as %s without its endpoint or headers', async (_label, credentials, enabled, expected) => {
+    enableDeployment({ OM_AGENT_OTEL_EXPORT_TENANT_ENDPOINTS: 'allow' })
+    const { container, integrationCredentials } = makeContainer({ integration: { credentials, enabled } })
+    createRequestContainer.mockResolvedValue(container)
+    getAuthFromRequest.mockResolvedValue(authOf())
+
+    const response = await GET(new Request('http://localhost/x'))
+    const text = await response.text()
+
+    expect(response.status).toBe(200)
+    expect(JSON.parse(text).integration).toEqual(expected)
+    expect(integrationCredentials).toHaveBeenCalledWith('agent_orchestrator_otel_export', {
+      tenantId: TENANT,
+      organizationId: ORG,
+    })
+    expect(text).not.toContain('tenant-collector.example.test')
+    expect(text).not.toContain(INTEGRATION_SECRET)
+    expect(text).not.toContain('x-api-key')
+  })
+
+  test('reports no integration for a caller without an organization', async () => {
+    const { container, integrationCredentials } = makeContainer({
+      integration: { credentials: INTEGRATION_CREDENTIALS, enabled: true },
+    })
+    createRequestContainer.mockResolvedValue(container)
+    getAuthFromRequest.mockResolvedValue(authOf({ orgId: null }))
+
+    const body = await (await GET(new Request('http://localhost/x'))).json()
+
+    expect(body.integration).toEqual({ configured: false, enabled: false })
+    expect(integrationCredentials).not.toHaveBeenCalled()
+  })
+
+  test('documents the integration status in the response schema', () => {
+    const schema = openApi.methods.GET?.responses?.[0]?.schema as { shape?: Record<string, unknown> } | undefined
+    expect(schema?.shape && 'integration' in schema.shape).toBe(true)
   })
 })
 

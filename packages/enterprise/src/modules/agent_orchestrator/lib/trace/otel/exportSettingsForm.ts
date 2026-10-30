@@ -6,6 +6,7 @@ import {
   type OtelExportDestinationKind,
   type OtelExportSettings,
 } from '../../../data/validators'
+import { OTEL_EXPORT_DESTINATION_ERRORS, OTEL_EXPORT_INTEGRATION_ID } from './exportIntegrationIds'
 
 /**
  * Pure mapping between the OTel export settings page's editable form and the
@@ -40,16 +41,25 @@ const healthSchema = z.object({
   lastErrorCode: z.string().nullable(),
 })
 
+const integrationSchema = z.object({
+  configured: z.boolean(),
+  enabled: z.boolean(),
+})
+
 const settingsResponseSchema = z.object({
   settings: otelExportSettingsSchema,
   source: z.enum(['tenant', 'instance', 'default']),
   updatedAt: z.string().nullable().optional(),
   deployment: deploymentSchema,
   health: healthSchema,
+  integration: integrationSchema.default({ configured: false, enabled: false }),
 })
 
 export type OtelExportDeploymentView = z.infer<typeof deploymentSchema>
 export type OtelExportHealthView = z.infer<typeof healthSchema>
+export type OtelExportIntegrationView = z.infer<typeof integrationSchema>
+
+export const OTEL_EXPORT_INTEGRATION_HREF = `/backend/integrations/${OTEL_EXPORT_INTEGRATION_ID}`
 
 export type OtelExportSettingsResponse = {
   settings: OtelExportSettings
@@ -57,6 +67,7 @@ export type OtelExportSettingsResponse = {
   updatedAt: string | null
   deployment: OtelExportDeploymentView
   health: OtelExportHealthView
+  integration: OtelExportIntegrationView
 }
 
 export function parseOtelExportSettingsResponse(value: unknown): OtelExportSettingsResponse | null {
@@ -149,7 +160,37 @@ export function canEditContentMode(access: OtelExportContentAccess): boolean {
   return access.canManage && access.canViewContent && access.contentAllowed
 }
 
-export type OtelExportSaveErrorKind = 'contentForbidden' | 'contentNotAllowed' | 'generic'
+export type OtelExportDestinationAccess = {
+  canManage: boolean
+  tenantEndpointsAllowed: boolean
+  destination: OtelExportDestinationKind
+}
+
+/**
+ * The destination can be picked only by an agent manager while the deployment
+ * allows tenant endpoints. A stored `integration` destination stays editable
+ * after the deployment denies them so the tenant can move back to the
+ * deployment endpoint; the server refuses to save `integration` meanwhile.
+ */
+export function canEditDestination(access: OtelExportDestinationAccess): boolean {
+  if (!access.canManage) return false
+  return access.tenantEndpointsAllowed || access.destination === 'integration'
+}
+
+export type OtelExportDestinationErrorCode =
+  (typeof OTEL_EXPORT_DESTINATION_ERRORS)[keyof typeof OTEL_EXPORT_DESTINATION_ERRORS]
+
+const DESTINATION_ERROR_CODES: ReadonlySet<string> = new Set(Object.values(OTEL_EXPORT_DESTINATION_ERRORS))
+
+export function isOtelExportDestinationErrorCode(code: string | null): code is OtelExportDestinationErrorCode {
+  return code !== null && DESTINATION_ERROR_CODES.has(code)
+}
+
+export type OtelExportSaveErrorKind =
+  | 'contentForbidden'
+  | 'contentNotAllowed'
+  | 'tenantEndpointsNotAllowed'
+  | 'generic'
 
 function readErrorStatus(error: unknown): number | null {
   if (typeof error !== 'object' || error === null || !('status' in error)) return null
@@ -157,12 +198,23 @@ function readErrorStatus(error: unknown): number | null {
   return typeof status === 'number' ? status : null
 }
 
+function readErrorCode(error: unknown): string | null {
+  if (typeof error !== 'object' || error === null || !('error' in error)) return null
+  const code = (error as { error: unknown }).error
+  return typeof code === 'string' ? code : null
+}
+
+export const OTEL_EXPORT_TENANT_ENDPOINTS_NOT_ALLOWED = 'tenant_endpoints_not_allowed'
+
 export function classifyOtelExportSaveError(
   error: unknown,
   content: OtelExportContentMode,
 ): OtelExportSaveErrorKind {
-  if (content !== 'full') return 'generic'
   const status = readErrorStatus(error)
+  if (status === 422 && readErrorCode(error) === OTEL_EXPORT_TENANT_ENDPOINTS_NOT_ALLOWED) {
+    return 'tenantEndpointsNotAllowed'
+  }
+  if (content !== 'full') return 'generic'
   if (status === 403) return 'contentForbidden'
   if (status === 422) return 'contentNotAllowed'
   return 'generic'

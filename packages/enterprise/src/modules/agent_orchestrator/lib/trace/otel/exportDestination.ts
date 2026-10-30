@@ -13,18 +13,12 @@ import {
   type OtelExportHealthDestinationResolver,
   type OtelExportIntegrationCredentialsParsed,
 } from './exportIntegration'
-import { OTEL_EXPORT_INTEGRATION_ID } from './exportIntegrationIds'
+import { OTEL_EXPORT_DESTINATION_ERRORS, OTEL_EXPORT_INTEGRATION_ID } from './exportIntegrationIds'
 import { vetTenantOtlpEndpoint } from './tenantEndpoint'
 
 type EnvLike = Record<string, string | undefined>
 
-export const OTEL_EXPORT_DESTINATION_ERRORS = {
-  deploymentUnconfigured: 'deployment_unconfigured',
-  integrationUnconfigured: 'integration_unconfigured',
-  integrationDisabled: 'integration_disabled',
-  tenantEndpointsDenied: 'tenant_endpoints_denied',
-  endpointBlocked: 'endpoint_blocked',
-} as const
+export { OTEL_EXPORT_DESTINATION_ERRORS }
 
 export type OtelExportDestinationError =
   (typeof OTEL_EXPORT_DESTINATION_ERRORS)[keyof typeof OTEL_EXPORT_DESTINATION_ERRORS]
@@ -127,6 +121,30 @@ async function resolveIntegrationScopeDestination(
     return { error: OTEL_EXPORT_DESTINATION_ERRORS.integrationDisabled }
   }
   return resolveOtelExportIntegrationDestination(parsed.credentials, deployment, options)
+}
+
+export type OtelExportIntegrationStatus = {
+  configured: boolean
+  enabled: boolean
+}
+
+/**
+ * Whether the organization's `agent_orchestrator_otel_export` integration has
+ * valid credentials and is enabled. Only the two booleans leave this function:
+ * never the endpoint or header values.
+ */
+export async function readOtelExportIntegrationStatus(
+  container: OtelExportContainer,
+  scope: OtelExportDestinationScope,
+): Promise<OtelExportIntegrationStatus> {
+  if (!scope.organizationId) return { configured: false, enabled: false }
+  const integrationScope = { tenantId: scope.tenantId, organizationId: scope.organizationId }
+  const credentialsService = tryResolve<IntegrationCredentialsServiceLike>(container, 'integrationCredentialsService')
+  const raw = credentialsService ? await credentialsService.resolve(OTEL_EXPORT_INTEGRATION_ID, integrationScope) : null
+  const configured = raw !== null && parseOtelExportIntegrationCredentials(raw).ok
+  const stateService = tryResolve<IntegrationStateServiceLike>(container, 'integrationStateService')
+  const enabled = stateService ? await stateService.isEnabled(OTEL_EXPORT_INTEGRATION_ID, integrationScope) : false
+  return { configured, enabled }
 }
 
 /**

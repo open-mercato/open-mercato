@@ -17,6 +17,10 @@ import {
   type OtelExportHealth,
 } from '../../../lib/trace/otel/exportHealth'
 import {
+  readOtelExportIntegrationStatus,
+  type OtelExportIntegrationStatus,
+} from '../../../lib/trace/otel/exportDestination'
+import {
   OTEL_EXPORT_CONTENT_WRITE_FEATURES,
   OTEL_EXPORT_WRITE_FEATURES,
   UPDATE_OTEL_EXPORT_SETTINGS_COMMAND_ID,
@@ -34,6 +38,8 @@ import { agentOrchestratorTag } from '../../openapi'
  * Reading uses the trace view gate and returns only a redacted view of the
  * deployment configuration: whether an endpoint and a trace link template are
  * configured, never the endpoint URL, the headers or the template itself.
+ * The caller organization's export integration is reduced to whether it is
+ * configured and enabled.
  * Writing needs `agents.manage` (plus `trace.view_content` to ask for content
  * export) and goes through an undoable command whose `updatedAt` is the
  * optimistic-lock version of the tenant's config row.
@@ -63,6 +69,15 @@ async function readHealth(container: AwilixContainer, tenantId: string | null): 
   return readOtelExportHealth(container, tenantId)
 }
 
+async function readIntegration(
+  container: AwilixContainer,
+  tenantId: string | null,
+  organizationId: string | null,
+): Promise<OtelExportIntegrationStatus> {
+  if (!tenantId) return { configured: false, enabled: false }
+  return readOtelExportIntegrationStatus(container, { tenantId, organizationId })
+}
+
 export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -71,7 +86,8 @@ export async function GET(req: Request) {
   const tenantId = auth.tenantId ?? null
   const { settings, source, updatedAt } = await readOtelExportSettings(container, tenantId)
   const health = await readHealth(container, tenantId)
-  return NextResponse.json({ settings, source, updatedAt, deployment: deploymentView(), health })
+  const integration = await readIntegration(container, tenantId, auth.orgId ?? null)
+  return NextResponse.json({ settings, source, updatedAt, deployment: deploymentView(), health, integration })
 }
 
 export async function PUT(req: Request) {
@@ -135,7 +151,8 @@ export async function PUT(req: Request) {
       ctx: commandCtx,
     })
     const health = await readHealth(container, auth.tenantId)
-    return NextResponse.json({ ...result, deployment: deploymentView(), health })
+    const integration = await readIntegration(container, auth.tenantId, auth.orgId ?? null)
+    return NextResponse.json({ ...result, deployment: deploymentView(), health, integration })
   } catch (err) {
     if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
     throw err
@@ -169,6 +186,10 @@ const settingsResponseSchema = z.object({
     lastErrorAt: z.string().nullable(),
     lastErrorCode: z.string().nullable(),
   }),
+  integration: z.object({
+    configured: z.boolean(),
+    enabled: z.boolean(),
+  }),
 })
 
 const conflictSchema = z.object({
@@ -185,7 +206,7 @@ export const openApi: OpenApiRouteDoc = {
     GET: {
       summary: 'Read the tenant OTel export settings',
       description:
-        'Returns the tenant’s OTel export settings (or the disabled default), the row version for optimistic locking, a redacted view of the deployment configuration and the last export success/error. The endpoint URL, headers and trace link template are never returned. Gated by agent_orchestrator.trace.view.',
+        'Returns the tenant’s OTel export settings (or the disabled default), the row version for optimistic locking, a redacted view of the deployment configuration, whether the caller organization’s agent_orchestrator_otel_export integration is configured and enabled, and the last export success/error. The endpoint URLs, headers and trace link template are never returned. Gated by agent_orchestrator.trace.view.',
       responses: [{ status: 200, description: 'Resolved settings', schema: settingsResponseSchema }],
       errors: [
         { status: 401, description: 'Unauthorized', schema: errorSchema },
