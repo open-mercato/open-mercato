@@ -30,7 +30,7 @@ import {
   resolveAttachmentMaxBytes,
   resolveAttachmentMultipartMaxBytes,
 } from './upload-limits'
-import { purgeDocumentStructure } from './documentStructure/purge'
+import { enqueuePurgedSectionSearchDelete, purgeDocumentStructure } from './documentStructure/purge'
 
 const logger = createLogger('attachments').child({ component: 'attachment-service' })
 
@@ -180,7 +180,8 @@ export interface AttachmentService {
    * Permanently deletes an attachment row and its stored object once no other row references it.
    *
    * With `{ flush: false }` call it inside your own transaction and run the returned cleanup after
-   * commit; `undefined` means another row still references the stored object.
+   * commit; it deletes the stored object when no other row references it and queues removal of the
+   * purged sections' search records. `undefined` means there is nothing left to clean up.
    *
    * @deprecated Calling it with `{ flush: false }` outside a transaction. It still works for one
    * minor version but logs a warning, and its reference check is not locked, so two racing releases
@@ -490,13 +491,18 @@ export class DefaultAttachmentService implements AttachmentService {
         : await lockAttachmentStorageReferences(em, attachment)
       const removal = resolveAttachmentStorageRelease(referenceIds, attachment.id)
       if (!removal.removed) throw new CrudHttpError(404, { error: 'Attachment not found' })
-      await purgeDocumentStructure(
+      const purge = await purgeDocumentStructure(
         em,
         { attachmentId: attachment.id, tenantId: input.tenantId, organizationId: input.organizationId },
         { flush: false },
       )
       em.remove(attachment)
-      return removal.releaseStorage ? deleteProviderBytes : undefined
+      const { indexedSectionIds } = purge
+      if (!removal.releaseStorage && indexedSectionIds.length === 0) return undefined
+      return async () => {
+        if (indexedSectionIds.length > 0) await enqueuePurgedSectionSearchDelete(scope, indexedSectionIds)
+        if (removal.releaseStorage) await deleteProviderBytes()
+      }
     }
     const removal = await removeAttachmentRecord(em, attachment)
     if (!removal.removed) throw new CrudHttpError(404, { error: 'Attachment not found' })

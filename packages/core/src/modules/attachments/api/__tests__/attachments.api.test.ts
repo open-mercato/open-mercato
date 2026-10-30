@@ -126,7 +126,7 @@ const mockRequestOcrProcessing = jest.requireMock('@open-mercato/core/modules/at
   .requestOcrProcessing as jest.Mock
 
 jest.mock('@open-mercato/core/modules/attachments/lib/documentStructure/purge', () => ({
-  purgeDocumentStructure: jest.fn(async () => ({ extractionCount: 0, sectionCount: 0 })),
+  purgeDocumentStructure: jest.fn(async () => ({ extractionCount: 0, sectionCount: 0, indexedSectionIds: [] })),
 }))
 const mockPurgeDocumentStructure = jest.requireMock('@open-mercato/core/modules/attachments/lib/documentStructure/purge')
   .purgeDocumentStructure as jest.Mock

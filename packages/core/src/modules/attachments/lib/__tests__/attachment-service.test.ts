@@ -3,7 +3,7 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { Attachment, AttachmentPartition } from '../../data/entities'
 import { DefaultAttachmentService } from '../attachment-service'
-import { purgeDocumentStructure } from '../documentStructure/purge'
+import { enqueuePurgedSectionSearchDelete, purgeDocumentStructure } from '../documentStructure/purge'
 import type { StorageDriverFactory } from '../drivers'
 import type { AttachmentQuotaService } from '../quota-service'
 import { ScopedAttachmentUploadService } from '../scoped-upload-service'
@@ -40,7 +40,8 @@ jest.mock('@open-mercato/shared/lib/logger', () => {
 jest.mock('../ocrQueue', () => ({ requestOcrProcessing: jest.fn(async () => undefined) }))
 
 jest.mock('../documentStructure/purge', () => ({
-  purgeDocumentStructure: jest.fn(async () => ({ extractionCount: 0, sectionCount: 0 })),
+  purgeDocumentStructure: jest.fn(async () => ({ extractionCount: 0, sectionCount: 0, indexedSectionIds: [] })),
+  enqueuePurgedSectionSearchDelete: jest.fn(async () => undefined),
 }))
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
@@ -235,7 +236,16 @@ async function expectStatus(promise: Promise<unknown>, status: number) {
 
 beforeEach(() => {
   jest.mocked(purgeDocumentStructure).mockClear()
+  jest.mocked(enqueuePurgedSectionSearchDelete).mockClear()
 })
+
+function purgeWithIndexedSections(sectionIds: string[]) {
+  jest.mocked(purgeDocumentStructure).mockResolvedValueOnce({
+    extractionCount: 1,
+    sectionCount: sectionIds.length,
+    indexedSectionIds: sectionIds,
+  })
+}
 
 describe('DefaultAttachmentService', () => {
   afterEach(() => {
@@ -760,5 +770,72 @@ describe('DefaultAttachmentService', () => {
 
     expect(em.remove).not.toHaveBeenCalled()
     expect(driver.delete).not.toHaveBeenCalled()
+  })
+  it('queues section search cleanup only after its own release transaction commits', async () => {
+    const { service, driver, em } = createHarness()
+    purgeWithIndexedSections(['section-1', 'section-2'])
+
+    await service.releaseScoped({
+      attachmentId: 'attachment-1',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      expectedOwner: { entityId: 'documents:document', recordId: 'document-1' },
+      expectedAssignment: { type: 'documents:document', id: 'document-1' },
+    })
+
+    expect(enqueuePurgedSectionSearchDelete).toHaveBeenCalledWith(
+      { tenantId: 'tenant-1', organizationId: 'org-1' },
+      ['section-1', 'section-2'],
+    )
+    expect(em.commit.mock.invocationCallOrder[0]).toBeLessThan(
+      jest.mocked(enqueuePurgedSectionSearchDelete).mock.invocationCallOrder[0],
+    )
+    expect(driver.delete).toHaveBeenCalledTimes(1)
+  })
+
+  it('queues section search cleanup from the deferred callback after the owning transaction commits', async () => {
+    const { service, driver, em } = createHarness({
+      storageReferenceIds: ['attachment-1', 'attachment-copy'],
+    })
+    purgeWithIndexedSections(['section-1'])
+    let cleanup: (() => Promise<void>) | void = undefined
+
+    await withAtomicFlush(em, [async () => {
+      cleanup = await service.releaseScoped({
+        attachmentId: 'attachment-1',
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+        expectedOwner: { entityId: 'documents:document', recordId: 'document-1' },
+        expectedAssignment: { type: 'documents:document', id: 'document-1' },
+      }, { em, flush: false })
+    }], { transaction: true, label: 'attachments.release' })
+
+    expect(enqueuePurgedSectionSearchDelete).not.toHaveBeenCalled()
+    expect(cleanup).toEqual(expect.any(Function))
+    await cleanup!()
+    expect(enqueuePurgedSectionSearchDelete).toHaveBeenCalledWith(
+      { tenantId: 'tenant-1', organizationId: 'org-1' },
+      ['section-1'],
+    )
+    expect(driver.delete).not.toHaveBeenCalled()
+  })
+
+  it('never queues section search cleanup when the owning transaction rolls back', async () => {
+    const { service, em } = createHarness()
+    purgeWithIndexedSections(['section-1'])
+
+    await expect(withAtomicFlush(em, [
+      async () => { await service.releaseScoped({
+        attachmentId: 'attachment-1',
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+        expectedOwner: { entityId: 'documents:document', recordId: 'document-1' },
+        expectedAssignment: { type: 'documents:document', id: 'document-1' },
+      }, { em, flush: false }) },
+      () => { throw new Error('later document mutation failed') },
+    ], { transaction: true, label: 'attachments.release' })).rejects.toThrow('later document mutation failed')
+
+    expect(em.rollback).toHaveBeenCalledTimes(1)
+    expect(enqueuePurgedSectionSearchDelete).not.toHaveBeenCalled()
   })
 })

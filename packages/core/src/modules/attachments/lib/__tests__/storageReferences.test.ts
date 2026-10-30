@@ -8,7 +8,7 @@ import {
 } from '../storageReferences'
 
 jest.mock('../documentStructure/purge', () => ({
-  purgeDocumentStructure: jest.fn(async () => ({ extractionCount: 1, sectionCount: 3 })),
+  purgeDocumentStructure: jest.fn(async () => ({ extractionCount: 1, sectionCount: 3, indexedSectionIds: [] })),
 }))
 
 const purgeMock = jest.mocked(purgeDocumentStructure)

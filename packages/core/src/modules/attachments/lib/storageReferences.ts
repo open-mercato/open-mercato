@@ -1,7 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import type { Attachment } from '../data/entities'
-import { purgeDocumentStructure } from './documentStructure/purge'
+import { enqueuePurgedSectionSearchDelete, purgeDocumentStructure } from './documentStructure/purge'
 
 type AttachmentStorageReferenceRow = {
   id: string
@@ -80,7 +80,8 @@ export function resolveAttachmentStorageRelease(
  * Provider bytes must only be deleted after this resolves with `releaseStorage: true`; any other
  * attachment row still referencing the same object keeps it alive. `removed: false` means a
  * concurrent request already deleted the row. When the row is removed, its document structure
- * (extractions and sections) is purged in the same transaction, so every delete path drops it.
+ * (extractions and sections) is purged in the same transaction, so every delete path drops it;
+ * the search records of its indexed sections are queued for deletion only after commit.
  * `beforeRemove` runs inside the same transaction, only when the row is about to be removed, for
  * any extra dependent rows a caller owns.
  */
@@ -94,21 +95,17 @@ export async function removeAttachmentRecord(
     throw new Error('[internal] removeAttachmentRecord must commit its own transaction before provider bytes are deleted')
   }
   let removal: AttachmentRecordRemoval = { removed: false, releaseStorage: false }
+  let indexedSectionIds: string[] = []
+  const scope = { tenantId: attachment.tenantId ?? null, organizationId: attachment.organizationId ?? null }
   await withAtomicFlush(em, [async () => {
     const lockedReferenceIds = await lockAttachmentStorageReferences(em, attachment)
     removal = resolveAttachmentStorageRelease(lockedReferenceIds, attachment.id)
     if (!removal.removed) return
-    await purgeDocumentStructure(
-      em,
-      {
-        attachmentId: attachment.id,
-        tenantId: attachment.tenantId ?? null,
-        organizationId: attachment.organizationId ?? null,
-      },
-      { flush: false },
-    )
+    const purge = await purgeDocumentStructure(em, { attachmentId: attachment.id, ...scope }, { flush: false })
+    indexedSectionIds = purge.indexedSectionIds
     if (options.beforeRemove) await options.beforeRemove()
     em.remove(attachment)
   }], { transaction: true, label: 'attachments.attachment.delete' })
+  if (indexedSectionIds.length > 0) await enqueuePurgedSectionSearchDelete(scope, indexedSectionIds)
   return removal
 }
