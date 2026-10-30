@@ -51,7 +51,7 @@ Local runner: package build, 21 focused tests, strict tooling typecheck and the 
 
 ### Phase 4: Workflow knowledge
 
-- [ ] 4.1 Document producer integration and update eval/harness skills.
+- [x] 4.1 Document producer integration and update eval/harness skills. — 89001eb29
 - [ ] 4.2 Run applicable skill and knowledge-change checks.
 
 ### Phase 5: Publication
