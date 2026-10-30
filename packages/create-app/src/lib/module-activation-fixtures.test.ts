@@ -208,24 +208,25 @@ test('enabling the design_system module in a generated app registers the gallery
   await runFixture(DESIGN_SYSTEM_ACTIVATION_ENTRY, assertDesignSystemActivation)
 })
 
-test('standalone integration activation preserves the app-level example override contracts', () => {
-  const targetRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'standalone-integration-entry-'))
-  const modulesPath = path.join(targetRoot, 'modules.ts')
-  fs.writeFileSync(modulesPath, "const exampleModuleEntry = { id: 'example', from: '@app' }\nconst enabledModules: ModuleEntry[] = [\n]\n")
-
+test('standalone integration activation evaluates the example overrides with design_system', async () => {
+  const { appDir, generate } = await prepareFixtureApp()
+  const modulesPath = path.join(appDir, 'src', 'modules.ts')
+  const baselineSource = fs.readFileSync(modulesPath, 'utf8')
   try {
     enableModuleEntry(modulesPath, EXAMPLE_INTEGRATION_ACTIVATION_ENTRY)
+    enableModuleEntry(modulesPath, DESIGN_SYSTEM_ACTIVATION_ENTRY)
+    await generate()
+    assertAppModulesEvaluate(appDir)
+
     const source = fs.readFileSync(modulesPath, 'utf8')
     assert.match(source, /features: \{ 'example\.manage': null \}/)
     assert.doesNotMatch(source, /exampleCalendarOverrides/)
     assert.match(source, /groupOrder: \['example\.nav\.group'\]/)
-    // The injection override is what TC-UMES-023 asserts in a scaffolded app; without
-    // it that spec would report a client-dispatch regression that is really a missing
-    // activation fixture.
     assert.match(source, /injection: \{ 'example:override-probe:widget': null \}/)
     assert.match(source, /'GET \/api\/example\/override-probe'/)
     assert.match(source, /source: 'modules\.ts override'/)
   } finally {
-    fs.rmSync(targetRoot, { recursive: true, force: true })
+    fs.writeFileSync(modulesPath, baselineSource)
+    await generate()
   }
 })
