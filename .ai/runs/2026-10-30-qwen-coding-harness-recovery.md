@@ -39,8 +39,10 @@ PR: #8262
 
 Fail-before evidence: evaluator delivery tests 6 fail / 2 control pass (existing helpers exported without behavior changes); structural recovery tests 13 fail / 13 pass; source-policy tests 16 fail / 12 pass; typed fixture contract 1 fail. Failures are semantic assertions, with separate setup failures discarded. Source-policy tests use actual source generators/inventories so disposable controller worktrees need no ignored build cache.
 - [x] 2.1 Add semantic regressions that fail before the fixes. — bb271631e
-- [ ] 2.2 Repair bounded reference delivery and explicit seeded entrypoint prompts.
+- [x] 2.2 Repair bounded reference delivery and explicit seeded entrypoint prompts. — ebe878abf
 - [x] 2.3 Align fixtures and structural oracles with real executable contracts. — bdb4530d8
+
+Coding context tests: 13 pass, including all 49 writable seed declarations and protected resume fixture. Source-policy tests: 30 pass, including real MCP trace accounting and actual installed adapter/descriptor preparation.
 
 Structural and typed-seed final focused validation: 65 tests pass; real typecheck/behavior gates remain unchanged.
 
