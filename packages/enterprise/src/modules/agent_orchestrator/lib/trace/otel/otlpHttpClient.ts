@@ -5,6 +5,8 @@ const gzipAsync = promisify(gzip)
 
 export const OTLP_HTTP_DEFAULT_TIMEOUT_MS = 10_000
 export const OTEL_EXPORT_MARKER_HEADER = 'x-om-otel-export'
+export const OTLP_JSON_CONTENT_TYPE = 'application/json'
+export const OTLP_PROTOBUF_CONTENT_TYPE = 'application/x-protobuf'
 export const OTLP_RETRYABLE_STATUSES: readonly number[] = [429, 502, 503, 504]
 
 export const OTLP_ERROR_CODES = {
@@ -31,7 +33,8 @@ type FetchLike = (input: string, init: RequestInit) => Promise<Response>
 export type PostOtlpTracesInput = {
   endpoint: string
   headers?: Record<string, string>
-  body: string
+  body: string | Uint8Array
+  contentType?: typeof OTLP_JSON_CONTENT_TYPE | typeof OTLP_PROTOBUF_CONTENT_TYPE
   timeoutMs?: number
   fetchImpl?: FetchLike
   now?: () => number
@@ -79,7 +82,9 @@ async function discardBody(response: Response): Promise<void> {
 }
 
 /**
- * POSTs one gzip-compressed OTLP/JSON trace request. Never throws and never
+ * POSTs one gzip-compressed OTLP trace request — OTLP/JSON (a string body,
+ * `application/json`, the default) or OTLP/protobuf (a byte body,
+ * `application/x-protobuf`). Never throws and never
  * logs the endpoint or header values: the outcome is `ok` (2xx), `retry`
  * (429/502/503/504, network error, timeout; `Retry-After` honored) or `drop`
  * (any other status, an invalid endpoint, or an encoding failure). Redirects
@@ -103,7 +108,8 @@ export async function postOtlpTraces(input: PostOtlpTracesInput): Promise<OtlpEx
 
   let compressed: Buffer
   try {
-    compressed = await gzipAsync(Buffer.from(input.body, 'utf8'))
+    const raw = typeof input.body === 'string' ? Buffer.from(input.body, 'utf8') : Buffer.from(input.body)
+    compressed = await gzipAsync(raw)
   } catch {
     return result('drop', { errorCode: OTLP_ERROR_CODES.encoding })
   }
@@ -121,7 +127,7 @@ export async function postOtlpTraces(input: PostOtlpTracesInput): Promise<OtlpEx
       method: 'POST',
       headers: {
         ...(input.headers ?? {}),
-        'content-type': 'application/json',
+        'content-type': input.contentType ?? OTLP_JSON_CONTENT_TYPE,
         'content-encoding': 'gzip',
         [OTEL_EXPORT_MARKER_HEADER]: '1',
       },

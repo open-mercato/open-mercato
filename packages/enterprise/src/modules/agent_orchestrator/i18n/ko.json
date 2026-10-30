@@ -1327,7 +1327,7 @@
   "agent_orchestrator.settings.otelExport.off": "꺼짐",
   "agent_orchestrator.settings.otelExport.on": "켜짐",
   "agent_orchestrator.settings.otelExport.protocol": "프로토콜",
-  "agent_orchestrator.settings.otelExport.protocolUnsupported": "{protocol} (지원되지 않음)",
+  "agent_orchestrator.settings.otelExport.protocolUnsupported": "{protocol} (지원되지 않음; http/json 또는 http/protobuf 사용)",
   "agent_orchestrator.settings.otelExport.readOnly": "이 설정을 볼 수는 있지만 변경할 수는 없습니다. 변경하려면 에이전트 관리 권한이 필요합니다.",
   "agent_orchestrator.settings.otelExport.removeAgent": "에이전트 제거",
   "agent_orchestrator.settings.otelExport.save": "저장",

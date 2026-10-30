@@ -109,8 +109,8 @@ export function buildOtelExportBackfillFilter(args: OtelExportBackfillArgs): Ote
 }
 
 /**
- * One OTLP/JSON export request per line (NDJSON), built exactly like the
- * exporter builds them. User ids and content (prompts, completions, tool
+ * One OTLP/JSON export request per line (NDJSON), built like the exporter
+ * builds them but always as OTLP/JSON, whatever the deployment protocol. User ids and content (prompts, completions, tool
  * arguments/results) are never included, whatever the deployment, tenant or run
  * capture settings; service name/version fall back to the deployment-independent
  * defaults when the deployment is off.

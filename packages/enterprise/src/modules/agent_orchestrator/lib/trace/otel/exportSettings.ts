@@ -22,7 +22,19 @@ export const OTEL_EXPORT_ENV = {
   platformHeaders: 'OTEL_EXPORTER_OTLP_HEADERS',
 } as const
 
+/** The default OTLP protocol (`http/json`); every accepted value is in {@link OTEL_EXPORT_SUPPORTED_PROTOCOLS}. */
 export const OTEL_EXPORT_SUPPORTED_PROTOCOL = 'http/json'
+export const OTEL_EXPORT_SUPPORTED_PROTOCOLS = ['http/json', 'http/protobuf'] as const
+export type OtelExportProtocol = (typeof OTEL_EXPORT_SUPPORTED_PROTOCOLS)[number]
+
+export function isSupportedOtelExportProtocol(value: string): value is OtelExportProtocol {
+  return (OTEL_EXPORT_SUPPORTED_PROTOCOLS as readonly string[]).includes(value)
+}
+
+/** The wire protocol for a deployment: its configured protocol when supported, else the `http/json` default. */
+export function resolveOtelExportWireProtocol(protocol: string): OtelExportProtocol {
+  return isSupportedOtelExportProtocol(protocol) ? protocol : OTEL_EXPORT_SUPPORTED_PROTOCOL
+}
 export const OTEL_EXPORT_DEFAULT_DELAY_MS = 30_000
 export const OTEL_EXPORT_MAX_DELAY_MS = 24 * 60 * 60 * 1000
 export const OTEL_EXPORT_DEFAULT_SERVICE_NAME = 'open-mercato-agents'
@@ -187,18 +199,18 @@ function readContentAllowed(env: EnvLike): boolean {
 
 /**
  * Deployment-level OTel export configuration from the environment. `enabled`
- * requires the master switch, the supported protocol (`http/json`; anything
- * else disables export with a one-time warning) and a usable endpoint. The
+ * requires the master switch, a supported protocol (`http/json` or
+ * `http/protobuf`; anything else disables export with a one-time warning) and a usable endpoint. The
  * endpoint and headers stay server-side and are never logged.
  */
 export function resolveOtelExportDeployment(env: EnvLike = process.env): OtelExportDeploymentConfig {
   const switchOn = readSwitch(env)
   const protocol = (readTrimmed(env, OTEL_EXPORT_ENV.protocol) ?? OTEL_EXPORT_SUPPORTED_PROTOCOL).toLowerCase()
-  const protocolSupported = protocol === OTEL_EXPORT_SUPPORTED_PROTOCOL
+  const protocolSupported = isSupportedOtelExportProtocol(protocol)
   if (switchOn && !protocolSupported) {
     warnOnce(`protocol:${protocol}`, 'unsupported otel export protocol; export disabled', {
       variable: OTEL_EXPORT_ENV.protocol,
-      supported: OTEL_EXPORT_SUPPORTED_PROTOCOL,
+      supported: OTEL_EXPORT_SUPPORTED_PROTOCOLS.join(','),
     })
   }
   const endpoint = resolveOtelExportEndpoint(env)

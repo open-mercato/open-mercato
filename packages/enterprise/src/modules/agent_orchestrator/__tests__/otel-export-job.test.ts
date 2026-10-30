@@ -22,6 +22,7 @@ import {
   OTEL_EXPORT_ERROR_CODES,
   OTEL_EXPORT_MAX_REQUEST_BYTES,
   encodeOtlpRequestBodies,
+  encodeOtlpRequests,
   OTEL_EXPORT_RETRY_AFTER_MAX_MS,
   enqueueOtelExportForFinishedProcess,
   enqueueOtelExportForRunEvent,
@@ -135,6 +136,10 @@ function makeContainer(settingsValues: unknown[] | unknown) {
       },
     },
   }
+}
+
+function bodyText(input: PostOtlpTracesInput): string {
+  return typeof input.body === 'string' ? input.body : Buffer.from(input.body).toString('utf8')
 }
 
 function result(outcome: OtlpExportResult['outcome'], fields: Partial<OtlpExportResult> = {}): OtlpExportResult {
@@ -304,7 +309,7 @@ describe('processOtelExportJob', () => {
     const input = harness.post.mock.calls[0][0]
     expect(input.endpoint).toBe(ENDPOINT)
     expect(input.headers).toEqual({ authorization: 'Bearer token-value' })
-    const body = JSON.parse(input.body) as {
+    const body = JSON.parse(bodyText(input)) as {
       resourceSpans: Array<{ resource: { attributes: Array<{ key: string; value: { stringValue?: string } }> } }>
     }
     expect(body.resourceSpans).toHaveLength(1)
@@ -318,6 +323,35 @@ describe('processOtelExportJob', () => {
     expect(recordOtelExportHealth).toHaveBeenCalledWith(expect.anything(), TENANT_ID, { outcome: 'success' })
     expect(harness.enqueue).not.toHaveBeenCalled()
     expect(reportError).not.toHaveBeenCalled()
+  })
+
+  test('posts http/json by default with the JSON content type', async () => {
+    const harness = makeJobDeps({})
+    expect(await processOtelExportJob(payload, harness.deps)).toBe('exported')
+    const input = harness.post.mock.calls[0][0]
+    expect(input.contentType).toBe('application/json')
+    expect(typeof input.body).toBe('string')
+  })
+
+  test('posts OTLP/protobuf bytes when the deployment protocol is http/protobuf', async () => {
+    const harness = makeJobDeps({ env: { ...ENABLED_ENV, OM_AGENT_OTEL_EXPORT_PROTOCOL: 'http/protobuf' } })
+    expect(await processOtelExportJob(payload, harness.deps)).toBe('exported')
+    expect(harness.post).toHaveBeenCalledTimes(1)
+    const input = harness.post.mock.calls[0][0]
+    expect(input.endpoint).toBe(ENDPOINT)
+    expect(input.headers).toEqual({ authorization: 'Bearer token-value' })
+    expect(input.contentType).toBe('application/x-protobuf')
+    expect(input.body).toBeInstanceOf(Uint8Array)
+    const bytes = Buffer.from(input.body as Uint8Array)
+    expect(bytes.includes(Buffer.from(TENANT_ID))).toBe(true)
+    expect(() => JSON.parse(bytes.toString('utf8'))).toThrow()
+    expect(recordOtelExportHealth).toHaveBeenCalledWith(expect.anything(), TENANT_ID, { outcome: 'success' })
+  })
+
+  test('an unsupported protocol keeps the job disabled', async () => {
+    const harness = makeJobDeps({ env: { ...ENABLED_ENV, OM_AGENT_OTEL_EXPORT_PROTOCOL: 'grpc' } })
+    expect(await processOtelExportJob(payload, harness.deps)).toBe('disabled')
+    expect(harness.post).not.toHaveBeenCalled()
   })
 
   test('posts one request per chunk for a large run', async () => {
@@ -605,7 +639,7 @@ describe('processOtelExportJob content lock matrix', () => {
       llmContent([LLM_SPAN_ID], CONTENT_SENTINEL),
     )
     expect(await processOtelExportJob(payload, { ...harness.deps, loadContent })).toBe('exported')
-    const body = harness.post.mock.calls.map(([input]) => input.body).join('\n')
+    const body = harness.post.mock.calls.map(([input]) => bodyText(input)).join('\n')
     if (exported) {
       expect(loadContent).toHaveBeenCalledWith(expect.objectContaining({ run: expect.objectContaining({ id: RUN_ID }) }), 'full')
       expect(body).toContain(INFERENCE_EVENT)
@@ -651,8 +685,8 @@ describe('processOtelExportJob content lock matrix', () => {
     expect(harness.post.mock.calls.length).toBeGreaterThan(1)
     let spanCount = 0
     for (const [input] of harness.post.mock.calls) {
-      expect(Buffer.byteLength(input.body, 'utf8')).toBeLessThanOrEqual(OTEL_EXPORT_MAX_REQUEST_BYTES)
-      const request = JSON.parse(input.body) as { resourceSpans: Array<{ scopeSpans: Array<{ spans: unknown[] }> }> }
+      expect(Buffer.byteLength(bodyText(input), 'utf8')).toBeLessThanOrEqual(OTEL_EXPORT_MAX_REQUEST_BYTES)
+      const request = JSON.parse(bodyText(input)) as { resourceSpans: Array<{ scopeSpans: Array<{ spans: unknown[] }> }> }
       spanCount += request.resourceSpans[0].scopeSpans[0].spans.length
     }
     expect(spanCount).toBe(spans.length + 1)
@@ -684,3 +718,41 @@ describe('encodeOtlpRequestBodies', () => {
   })
 })
 
+describe('encodeOtlpRequests', () => {
+  const spans = Array.from({ length: 4 }, (_unused, index) => ({
+    traceId: '0af7651916cd43dd8448eb211c80319c',
+    spanId: `00f067aa0ba902b${index}`,
+    name: `span-${index}`,
+    kind: 'internal' as const,
+    startTime: T0,
+    endTime: T0,
+    attributes: { 'om.note': 'x'.repeat(index === 3 ? 900 : 100) },
+  }))
+  const chunk = { resource: { attributes: { 'service.name': 'svc' } }, scopeSpans: [{ scope: { name: 'scope' }, spans }] }
+
+  test('encodes http/json as text with the JSON content type', () => {
+    const [request] = encodeOtlpRequests([chunk], 'http/json')
+    expect(request.contentType).toBe('application/json')
+    expect(typeof request.body).toBe('string')
+    expect(request.byteLength).toBe(Buffer.byteLength(request.body as string, 'utf8'))
+  })
+
+  test('chunks protobuf bodies by their byte length', () => {
+    const whole = encodeOtlpRequests([chunk], 'http/protobuf', 1_000_000)
+    expect(whole).toHaveLength(1)
+    expect(whole[0].contentType).toBe('application/x-protobuf')
+    expect(whole[0].body).toBeInstanceOf(Uint8Array)
+    expect(whole[0].byteLength).toBe((whole[0].body as Uint8Array).byteLength)
+    const limit = 600
+    expect(whole[0].byteLength).toBeGreaterThan(limit)
+    const requests = encodeOtlpRequests([chunk], 'http/protobuf', limit)
+    expect(requests.length).toBeGreaterThan(1)
+    const names = requests.map((request) => {
+      const bytes = Buffer.from(request.body as Uint8Array)
+      return spans.filter((span) => bytes.includes(Buffer.from(span.name))).map((span) => span.name)
+    })
+    expect(names.flat()).toEqual(['span-0', 'span-1', 'span-2', 'span-3'])
+    expect(names[names.length - 1]).toEqual(['span-3'])
+    for (const request of requests.slice(0, -1)) expect(request.byteLength).toBeLessThanOrEqual(limit)
+  })
+})

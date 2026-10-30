@@ -9,8 +9,10 @@ import {
   readOtelExportSettings,
   resolveContentExportMode,
   resolveOtelExportDeployment,
+  resolveOtelExportWireProtocol,
   type OtelContentExportMode,
   type OtelExportContainer,
+  type OtelExportProtocol,
 } from './exportSettings'
 import { recordOtelExportHealth } from './exportHealth'
 import type { RunExportBundle } from './loadRunExportBundle'
@@ -18,6 +20,7 @@ import { loadRunExportContent, type RunExportContent } from './loadRunExportCont
 import { mapAgentRunToOtlp } from './mapAgentRunToOtlp'
 import { encodeOtlpTraceRequest, type OtlpResourceSpansInput } from './otlpJson'
 import type { OtlpExportResult, PostOtlpTracesInput } from './otlpHttpClient'
+import { encodeOtlpRequestBody, type OtlpRequestBody } from './otlpRequestBody'
 
 const logger = createLogger('agent_orchestrator').child({ component: 'otel-export-job' })
 
@@ -70,39 +73,56 @@ export function readDeploymentEnvironment(env: EnvLike = process.env): string | 
   return legacy
 }
 
-function encodeRequestBody(chunk: OtlpResourceSpansInput): string {
-  return JSON.stringify(encodeOtlpTraceRequest(chunk))
-}
-
 function withSpans(chunk: OtlpResourceSpansInput, spans: OtlpResourceSpansInput['scopeSpans'][number]['spans']): OtlpResourceSpansInput {
   const [scopeSpans] = chunk.scopeSpans
   return { resource: chunk.resource, scopeSpans: [{ ...scopeSpans, spans }] }
 }
 
-function splitChunkByBytes(chunk: OtlpResourceSpansInput, maxBytes: number, bodies: string[]): void {
-  const body = encodeRequestBody(chunk)
+function splitChunkByBytes<TBody extends { byteLength: number }>(
+  chunk: OtlpResourceSpansInput,
+  maxBytes: number,
+  encode: (chunk: OtlpResourceSpansInput) => TBody,
+  bodies: TBody[],
+): void {
+  const body = encode(chunk)
   const spans = chunk.scopeSpans.length === 1 ? chunk.scopeSpans[0].spans : null
-  if (Buffer.byteLength(body, 'utf8') <= maxBytes || !spans || spans.length <= 1) {
+  if (body.byteLength <= maxBytes || !spans || spans.length <= 1) {
     bodies.push(body)
     return
   }
   const middle = Math.ceil(spans.length / 2)
-  splitChunkByBytes(withSpans(chunk, spans.slice(0, middle)), maxBytes, bodies)
-  splitChunkByBytes(withSpans(chunk, spans.slice(middle)), maxBytes, bodies)
+  splitChunkByBytes(withSpans(chunk, spans.slice(0, middle)), maxBytes, encode, bodies)
+  splitChunkByBytes(withSpans(chunk, spans.slice(middle)), maxBytes, encode, bodies)
 }
 
 /**
- * OTLP/JSON request bodies for the mapped chunks, each at most `maxBytes`
- * uncompressed: a chunk over the limit is halved by spans until it fits (a
- * single span is sent as is), on top of the span-count chunking of the mapper.
+ * OTLP request bodies for the mapped chunks in the wire protocol (OTLP/JSON
+ * text or OTLP/protobuf bytes), each at most `maxBytes` uncompressed: a chunk
+ * over the limit is halved by spans until it fits (a single span is sent as
+ * is), on top of the span-count chunking of the mapper.
  */
+export function encodeOtlpRequests(
+  chunks: readonly OtlpResourceSpansInput[],
+  protocol: OtelExportProtocol,
+  maxBytes: number = OTEL_EXPORT_MAX_REQUEST_BYTES,
+): OtlpRequestBody[] {
+  const bodies: OtlpRequestBody[] = []
+  for (const chunk of chunks) splitChunkByBytes(chunk, maxBytes, (entry) => encodeOtlpRequestBody(entry, protocol), bodies)
+  return bodies
+}
+
+/** OTLP/JSON request bodies for the mapped chunks; see {@link encodeOtlpRequests}. */
 export function encodeOtlpRequestBodies(
   chunks: readonly OtlpResourceSpansInput[],
   maxBytes: number = OTEL_EXPORT_MAX_REQUEST_BYTES,
 ): string[] {
-  const bodies: string[] = []
-  for (const chunk of chunks) splitChunkByBytes(chunk, maxBytes, bodies)
-  return bodies
+  const bodies: Array<{ body: string; byteLength: number }> = []
+  const encode = (chunk: OtlpResourceSpansInput) => {
+    const body = JSON.stringify(encodeOtlpTraceRequest(chunk))
+    return { body, byteLength: Buffer.byteLength(body, 'utf8') }
+  }
+  for (const chunk of chunks) splitChunkByBytes(chunk, maxBytes, encode, bodies)
+  return bodies.map((entry) => entry.body)
 }
 
 function reportExportError(error: unknown, code: string, attributes: Record<string, string | number | undefined>): void {
@@ -300,8 +320,14 @@ async function postAllChunks(
     environment: readDeploymentEnvironment(env),
     scopeVersion: APP_VERSION,
   })
-  for (const body of encodeOtlpRequestBodies(chunks)) {
-    const result = await post({ endpoint, headers: deployment.headers, body })
+  const protocol = resolveOtelExportWireProtocol(deployment.protocol)
+  for (const request of encodeOtlpRequests(chunks, protocol)) {
+    const result = await post({
+      endpoint,
+      headers: deployment.headers,
+      body: request.body,
+      contentType: request.contentType,
+    })
     if (result.outcome !== 'ok') return result
   }
   return null
@@ -349,7 +375,8 @@ async function handleUnexpectedJobFailure(
  * so a revoked opt-in stops queued jobs. Content (prompts, completions, tool
  * arguments/results) is loaded and attached only when all three locks hold for
  * this job — deployment allow-switch, tenant `content: 'full'` and the run's
- * captured level `full` — and each request body stays within
+ * captured level `full` — and each request body, encoded in the deployment's
+ * protocol (`http/json` or `http/protobuf`), stays within
  * {@link OTEL_EXPORT_MAX_REQUEST_BYTES} uncompressed. Expected failures never throw (the
  * queue's own retry would duplicate the backoff): `retry` and unexpected
  * failures (loader, settings, DB, queue) re-enqueue with `attempt + 1`

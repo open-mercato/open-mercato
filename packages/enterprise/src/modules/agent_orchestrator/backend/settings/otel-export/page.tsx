@@ -354,7 +354,7 @@ export default function OtelExportSettingsPage() {
                 value={
                   deployment.protocolSupported
                     ? deployment.protocol
-                    : t('agent_orchestrator.settings.otelExport.protocolUnsupported', '{protocol} (unsupported)', {
+                    : t('agent_orchestrator.settings.otelExport.protocolUnsupported', '{protocol} (unsupported; use http/json or http/protobuf)', {
                         protocol: deployment.protocol,
                       })
                 }

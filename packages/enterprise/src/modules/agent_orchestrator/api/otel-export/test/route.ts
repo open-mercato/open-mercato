@@ -13,12 +13,13 @@ import {
 } from '@open-mercato/shared/lib/ratelimit/helpers'
 import { APP_VERSION } from '@open-mercato/shared/lib/version'
 import { resolveRateLimiter } from '../../../lib/guardrails/publicEndpointRateLimit'
-import { resolveOtelExportDeployment } from '../../../lib/trace/otel/exportSettings'
+import { resolveOtelExportDeployment, resolveOtelExportWireProtocol } from '../../../lib/trace/otel/exportSettings'
 import { recordOtelExportHealth } from '../../../lib/trace/otel/exportHealth'
 import { OTEL_SPAN_ID_BYTES, OTEL_TRACE_ID_BYTES, nonZeroHex } from '../../../lib/trace/otel/ids'
 import { OTEL_EXPORT_SCOPE_NAME } from '../../../lib/trace/otel/mapAgentRunToOtlp'
-import { encodeOtlpTraceRequest, type OtlpResourceSpansInput } from '../../../lib/trace/otel/otlpJson'
+import type { OtlpResourceSpansInput } from '../../../lib/trace/otel/otlpJson'
 import { postOtlpTraces } from '../../../lib/trace/otel/otlpHttpClient'
+import { encodeOtlpRequestBody } from '../../../lib/trace/otel/otlpRequestBody'
 import { OM_OTEL_RESOURCE_ATTRIBUTES, OTEL_STANDARD_ATTRIBUTES } from '../../../lib/trace/otel/otelAttributes'
 import { OTEL_EXPORT_WRITE_FEATURES, hasOtelExportFeatures } from '../../../commands/otelExport'
 import { agentOrchestratorTag } from '../../openapi'
@@ -108,18 +109,20 @@ export async function POST(req: Request) {
     if (rateLimited) return rateLimited
   }
 
-  const request = encodeOtlpTraceRequest(
+  const request = encodeOtlpRequestBody(
     buildTestSpan({
       tenantId: auth.tenantId,
       organizationId: auth.orgId ?? null,
       serviceName: deployment.serviceName,
       nowMs: Date.now(),
     }),
+    resolveOtelExportWireProtocol(deployment.protocol),
   )
   const result = await postOtlpTraces({
     endpoint: deployment.endpoint,
     headers: deployment.headers,
-    body: JSON.stringify(request),
+    body: request.body,
+    contentType: request.contentType,
   })
   const ok = result.outcome === 'ok'
   const errorCode = ok ? null : result.errorCode ?? (result.httpStatus ? `http_${result.httpStatus}` : 'unknown')

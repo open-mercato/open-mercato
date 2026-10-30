@@ -2,6 +2,7 @@ import { describe, expect, jest, test } from '@jest/globals'
 import { gunzipSync } from 'node:zlib'
 import {
   OTEL_EXPORT_MARKER_HEADER,
+  OTLP_PROTOBUF_CONTENT_TYPE,
   classifyOtlpStatus,
   parseRetryAfter,
   postOtlpTraces,
@@ -85,6 +86,29 @@ describe('postOtlpTraces', () => {
     })
     const sent = Buffer.from(init.body as Uint8Array)
     expect(gunzipSync(sent).toString('utf8')).toBe(BODY)
+  })
+
+  test('posts a gzip protobuf body with the protobuf content type', async () => {
+    const { fetchImpl, calls } = respondWith(200)
+    const bytes = new Uint8Array([0x0a, 0x00, 0xff, 0x80, 0x01, 0x00])
+    const result = await postOtlpTraces({
+      endpoint: ENDPOINT,
+      headers: { 'api-key': 'secret', 'content-type': 'application/json' },
+      body: bytes,
+      contentType: OTLP_PROTOBUF_CONTENT_TYPE,
+      fetchImpl,
+    })
+    expect(result).toMatchObject({ outcome: 'ok', httpStatus: 200 })
+    const { init } = calls[0]
+    expect(init.redirect).toBe('manual')
+    expect(init.headers).toEqual({
+      'api-key': 'secret',
+      'content-type': 'application/x-protobuf',
+      'content-encoding': 'gzip',
+      [OTEL_EXPORT_MARKER_HEADER]: '1',
+    })
+    const sent = gunzipSync(Buffer.from(init.body as Uint8Array))
+    expect(new Uint8Array(sent)).toEqual(bytes)
   })
 
   test('retries a 503 and honors Retry-After', async () => {

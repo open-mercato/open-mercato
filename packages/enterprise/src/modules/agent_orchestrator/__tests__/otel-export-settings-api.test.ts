@@ -658,7 +658,8 @@ describe('POST /otel-export/test', () => {
     const call = postOtlpTraces.mock.calls[0][0] as PostOtlpTracesInput
     expect(call.endpoint).toBe(ENDPOINT)
     expect(call.headers).toEqual({ authorization: `Bearer ${HEADER_SECRET}` })
-    const sent = JSON.parse(call.body)
+    expect(call.contentType).toBe('application/json')
+    const sent = JSON.parse(call.body as string)
     const resource = sent.resourceSpans[0].resource.attributes as Array<{ key: string; value: { stringValue?: string } }>
     const attributeMap = Object.fromEntries(resource.map((entry) => [entry.key, entry.value.stringValue]))
     expect(attributeMap).toMatchObject({
@@ -674,6 +675,24 @@ describe('POST /otel-export/test', () => {
     expect(spans[0].traceId).not.toMatch(/^0+$/)
     expect(spans[0].spanId).not.toMatch(/^0+$/)
     expect(store.healthRow()?.value).toMatchObject({ lastSuccessAt: expect.any(String), lastErrorCode: null })
+  })
+
+  test('sends the synthetic span as OTLP/protobuf when the deployment protocol is http/protobuf', async () => {
+    enableDeployment({ OM_AGENT_OTEL_EXPORT_PROTOCOL: 'http/protobuf' })
+    postOtlpTraces.mockResolvedValue({ outcome: 'ok', httpStatus: 200, retryAfterMs: null, errorCode: null, latencyMs: 5 })
+    const { container } = makeContainer({ features: [MANAGE] })
+    createRequestContainer.mockResolvedValue(container)
+    getAuthFromRequest.mockResolvedValue(authOf())
+
+    const response = await postTestSpan(testRequest())
+
+    expect(response.status).toBe(200)
+    const call = postOtlpTraces.mock.calls[0][0] as PostOtlpTracesInput
+    expect(call.contentType).toBe('application/x-protobuf')
+    expect(call.body).toBeInstanceOf(Uint8Array)
+    const bytes = Buffer.from(call.body as Uint8Array)
+    expect(bytes.includes(Buffer.from('om.export.test'))).toBe(true)
+    expect(bytes.includes(Buffer.from(TENANT))).toBe(true)
   })
 
   test('reports a backend rejection as ok false and records the error', async () => {

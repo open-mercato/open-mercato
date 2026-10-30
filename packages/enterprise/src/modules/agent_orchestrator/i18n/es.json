@@ -1327,7 +1327,7 @@
   "agent_orchestrator.settings.otelExport.off": "Desactivada",
   "agent_orchestrator.settings.otelExport.on": "Activada",
   "agent_orchestrator.settings.otelExport.protocol": "Protocolo",
-  "agent_orchestrator.settings.otelExport.protocolUnsupported": "{protocol} (no compatible)",
+  "agent_orchestrator.settings.otelExport.protocolUnsupported": "{protocol} (no compatible; usa http/json o http/protobuf)",
   "agent_orchestrator.settings.otelExport.readOnly": "Puedes ver estos ajustes pero no cambiarlos. Para cambiarlos necesitas acceso de gestión de agentes.",
   "agent_orchestrator.settings.otelExport.removeAgent": "Quitar agente",
   "agent_orchestrator.settings.otelExport.save": "Guardar",

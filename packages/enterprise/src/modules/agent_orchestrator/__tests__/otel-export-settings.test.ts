@@ -5,12 +5,15 @@ import {
   OTEL_EXPORT_CONFIG_MODULE,
   OTEL_EXPORT_CONFIG_NAME,
   OTEL_EXPORT_DEFAULT_DELAY_MS,
+  OTEL_EXPORT_SUPPORTED_PROTOCOL,
+  OTEL_EXPORT_SUPPORTED_PROTOCOLS,
   isExportEnabledFor,
   parseOtlpHeaders,
   readOtelExportSettings,
   resolveContentExportMode,
   resolveOtelExportDeployment,
   resolveOtelExportEndpoint,
+  resolveOtelExportWireProtocol,
   type OtelExportDeploymentConfig,
 } from '../lib/trace/otel/exportSettings'
 
@@ -140,6 +143,23 @@ describe('resolveOtelExportDeployment', () => {
       OTEL_EXPORTER_OTLP_HEADERS: 'platform=1',
     })
     expect(config.headers).toEqual({ agent: '1' })
+  })
+
+  test.each(['http/json', 'http/protobuf', 'HTTP/PROTOBUF'])('accepts the %s protocol', (protocol) => {
+    const config = resolveOtelExportDeployment({
+      OM_AGENT_OTEL_EXPORT: 'on',
+      OM_AGENT_OTEL_EXPORT_ENDPOINT: 'http://collector:4318/v1/traces',
+      OM_AGENT_OTEL_EXPORT_PROTOCOL: protocol,
+    })
+    expect(config).toMatchObject({ enabled: true, protocol: protocol.toLowerCase(), protocolSupported: true })
+  })
+
+  test('the wire protocol falls back to http/json for an unsupported value', () => {
+    expect(resolveOtelExportWireProtocol('http/protobuf')).toBe('http/protobuf')
+    expect(resolveOtelExportWireProtocol('http/json')).toBe('http/json')
+    expect(resolveOtelExportWireProtocol('grpc')).toBe('http/json')
+    expect(OTEL_EXPORT_SUPPORTED_PROTOCOLS).toEqual(['http/json', 'http/protobuf'])
+    expect(OTEL_EXPORT_SUPPORTED_PROTOCOL).toBe('http/json')
   })
 
   test('an unsupported protocol disables export', () => {
