@@ -199,14 +199,22 @@ export class SearchService {
     }
 
     // Merge and rank results
-    const merged = mergeAndRankResults(allResults, this.mergeConfig)
     const { isTenantGlobalEntityType } = await import(
       '@open-mercato/core/modules/query_index/lib/tenant-global'
     )
-    const scoped = filterResultsByOrganizationScope(merged, options, isTenantGlobalEntityType)
+    const seenCatalogueHits = new Set<string>()
+    const scoped = filterResultsByOrganizationScope(allResults, options, isTenantGlobalEntityType)
+      .flatMap((result) => {
+        if (!isTenantGlobalEntityType(result.entityId)) return [result]
+        const key = JSON.stringify([result.source, result.entityId, result.recordId])
+        if (seenCatalogueHits.has(key)) return []
+        seenCatalogueHits.add(key)
+        return [{ ...result, organizationId: null }]
+      })
+    const merged = mergeAndRankResults(scoped, this.mergeConfig)
 
     // Enrich results missing presenter or navigation metadata
-    return this.enrichResultsWithPresenter(scoped, options.tenantId, options.organizationId)
+    return this.enrichResultsWithPresenter(merged, options.tenantId, options.organizationId)
   }
 
   /**

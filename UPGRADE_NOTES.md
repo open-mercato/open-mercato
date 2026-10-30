@@ -542,6 +542,12 @@ Only the projection moves. Vector work for a declared catalogue keeps the caller
 `removeOrphans` - because the vector consumers need a real tenant and nothing defines a
 shared vector; its vectors stay filed per tenant, as before.
 
+The search strategy's single and batch token writes also use the canonical null/null
+scope, including writes from the real vector worker. Search results for declared catalogues
+are fused across token, vector and fulltext strategies after organization filtering, while
+vector/fulltext storage retains caller scope. Document filters resolve the live canonical
+projection for declared types; ordinary types keep their tenant correlation.
+
 **Action for module authors.** None beyond the declaration the previous note describes.
 An entity type that is not declared is unaffected in every reader and writer.
 
@@ -550,7 +556,8 @@ An entity type that is not declared is unaffected in every reader and writer.
 the canonical rows, then retires every row an earlier sweep stamped with a caller scope,
 whichever tenant stamped it: the projections, their `search_tokens` and their
 `entity_index_coverage` rows. Until then an organization that reindexed before the upgrade
-can be served its old copy alongside the canonical one. The equivalent manual cleanup,
+can be served its old copy alongside the canonical one, with duplicate token contributions
+inflating its search rank. The equivalent manual cleanup,
 safe to run once the canonical rows exist, per declared entity type:
 
 ```sql

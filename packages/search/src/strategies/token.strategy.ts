@@ -206,6 +206,7 @@ export class TokenSearchStrategy implements SearchStrategy {
           entityTypeRef: 'search_tokens.entity_type',
           recordIdRef: 'search_tokens.entity_id',
           tenantIdRef: 'search_tokens.tenant_id',
+          tenantGlobalEntityTypes: globalEntityTypes,
         }),
       )
     }
@@ -240,11 +241,13 @@ export class TokenSearchStrategy implements SearchStrategy {
       '@open-mercato/core/modules/query_index/lib/search-tokens'
     )
 
+    const { isTenantGlobalEntityType } = await import('@open-mercato/core/modules/query_index/lib/tenant-global')
+    const global = isTenantGlobalEntityType(record.entityId)
     await replaceSearchTokensForRecord(this.db, {
       entityType: record.entityId,
       recordId: record.recordId,
-      tenantId: record.tenantId,
-      organizationId: record.organizationId,
+      tenantId: global ? null : record.tenantId,
+      organizationId: global ? null : record.organizationId,
       doc: normalizeCustomFieldKeys(record.fields),
     })
   }
@@ -255,10 +258,11 @@ export class TokenSearchStrategy implements SearchStrategy {
       '@open-mercato/core/modules/query_index/lib/search-tokens'
     )
 
+    const { isTenantGlobalEntityType } = await import('@open-mercato/core/modules/query_index/lib/tenant-global')
     await deleteSearchTokensForRecord(this.db, {
       entityType: entityId,
       recordId,
-      tenantId,
+      tenantId: isTenantGlobalEntityType(entityId) ? null : tenantId,
     })
   }
 
@@ -269,11 +273,12 @@ export class TokenSearchStrategy implements SearchStrategy {
       '@open-mercato/core/modules/query_index/lib/search-tokens'
     )
 
+    const { isTenantGlobalEntityType } = await import('@open-mercato/core/modules/query_index/lib/tenant-global')
     const payloads = records.map((record) => ({
       entityType: record.entityId,
       recordId: record.recordId,
-      tenantId: record.tenantId,
-      organizationId: record.organizationId,
+      tenantId: isTenantGlobalEntityType(record.entityId) ? null : record.tenantId,
+      organizationId: isTenantGlobalEntityType(record.entityId) ? null : record.organizationId,
       doc: normalizeCustomFieldKeys(record.fields) as Record<string, unknown>,
     }))
 

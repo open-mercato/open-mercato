@@ -94,7 +94,7 @@ describe('index-doc filter compilation', () => {
     expect(compiled.sql).toContain('exists (select 1 from entity_indexes as "om_index_doc" where')
     expect(compiled.sql).toContain('"om_index_doc"."entity_type" = "search_tokens"."entity_type"')
     expect(compiled.sql).toContain('"om_index_doc"."entity_id" = ("search_tokens"."entity_id")::text')
-    expect(compiled.sql).toContain('"om_index_doc"."tenant_id" = "search_tokens"."tenant_id"')
+    expect(compiled.sql).toContain('"om_index_doc"."tenant_id" is not distinct from "search_tokens"."tenant_id"')
     expect(compiled.sql).toContain('"om_index_doc"."deleted_at" is null')
   })
 
@@ -178,7 +178,7 @@ describe('pgvector driver with an index-doc filter', () => {
     expect(text).toContain('"om_index_doc"."entity_id" = ("vector_search"."record_id")::text')
     expect(text).toContain('LIMIT $6')
     expect(similarity?.params?.[5]).toBe(8)
-    expect(similarity?.params?.slice(6)).toEqual(['true', ['cat:a', 'cat:b'], ['tag:x'], ['p-9'], 'true', ['tag:sale']])
+    expect(similarity?.params?.slice(6)).toEqual(['feature_toggles:feature_toggle', 'feature_toggles:feature_toggle', 'true', ['cat:a', 'cat:b'], ['tag:x'], ['p-9'], 'true', ['tag:sale']])
   })
 
   it('keeps the six-parameter query when no filter is passed', async () => {

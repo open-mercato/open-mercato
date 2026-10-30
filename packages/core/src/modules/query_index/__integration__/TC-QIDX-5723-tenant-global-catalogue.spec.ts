@@ -115,7 +115,7 @@ test.describe('TC-QIDX-5723: platform-wide catalogue in the query index', () => 
       await expect.poll(() => projectionScopes(createdId), { timeout: REINDEX_TIMEOUT_MS })
         .toEqual([{ tenant_id: null, organization_id: null }])
       await expect.poll(() => countStampedRows('search_tokens', tenantId), { timeout: REINDEX_TIMEOUT_MS }).toBe(0)
-      expect(await countStampedRows('entity_index_coverage', tenantId)).toBe(0)
+      await expect.poll(() => countStampedRows('entity_index_coverage', tenantId), { timeout: REINDEX_TIMEOUT_MS }).toBe(0)
 
       const update = await apiRequest(request, 'PUT', '/api/feature_toggles/global', {
         token,

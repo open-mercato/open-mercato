@@ -421,6 +421,7 @@ export function createPgVectorDriver(opts: PgVectorDriverOptions = {}): VectorDr
       Array.isArray(filter.entityIds) && filter.entityIds.length ? filter.entityIds : null,
       input.limit ?? 20,
     ]
+    const { listTenantGlobalEntityTypes } = await import('@open-mercato/core/modules/query_index/lib/tenant-global')
     const indexDocClause = filter.indexDocFilter
       ? compileIndexDocFilterExists(
           filter.indexDocFilter,
@@ -428,6 +429,7 @@ export function createPgVectorDriver(opts: PgVectorDriverOptions = {}): VectorDr
             entityTypeRef: `${tableName}.entity_id`,
             recordIdRef: `${tableName}.record_id`,
             tenantIdRef: `${tableName}.tenant_id`,
+            tenantGlobalEntityTypes: listTenantGlobalEntityTypes(),
           },
           params.length + 1,
         )

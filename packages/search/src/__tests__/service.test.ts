@@ -255,6 +255,49 @@ describe('SearchService', () => {
       expect(results.map((result) => result.recordId)).toEqual(['rec-a', 'rec-b'])
     })
 
+    it('fuses only declared catalogue hits across tokens, vectors and fulltext after scope filtering', async () => {
+      const entityId = 'feature_toggles:feature_toggle'
+      const strategy = (id: string, organizationId: string | null, title: string) => createMockStrategy({
+        id,
+        search: jest.fn().mockResolvedValue([createMockResult({ entityId, source: id, organizationId, presenter: { title } })]),
+      })
+      const service = new SearchService({ strategies: [
+        strategy('tokens', null, 'Canonical'),
+        strategy('vector', 'org-456', 'Vector'),
+        strategy('fulltext', 'org-456', 'Fulltext'),
+        strategy('foreign', 'org-foreign', 'Forbidden'),
+      ], defaultStrategies: ['tokens', 'vector', 'fulltext', 'foreign'] })
+
+      const results = await service.search('catalogue', { tenantId: 'tenant-123', organizationId: 'org-456' })
+      expect(results).toHaveLength(1)
+      expect(results[0].organizationId).toBeNull()
+      expect(new Set(results[0].metadata?._sources as string[])).toEqual(new Set(['tokens', 'vector', 'fulltext']))
+      expect(results[0].presenter?.title).not.toBe('Forbidden')
+    })
+
+    it('counts one catalogue contribution per strategy when several organizations hold a vector', async () => {
+      const entityId = 'feature_toggles:feature_toggle'
+      const strategy = createMockStrategy({ id: 'vector', search: jest.fn().mockResolvedValue([
+        createMockResult({ entityId, source: 'vector', organizationId: 'org-456' }),
+        createMockResult({ entityId, source: 'vector', organizationId: 'org-789' }),
+      ]) })
+      const service = new SearchService({ strategies: [strategy], defaultStrategies: ['vector'] })
+      const results = await service.search('catalogue', { tenantId: 'tenant-123' })
+      expect(results).toHaveLength(1)
+      expect(results[0].score).toBeCloseTo(1 / 61)
+      expect(results[0].metadata?._sources).toEqual(['vector'])
+    })
+
+    it('keeps ordinary organization identities separate when searching all organizations', async () => {
+      const strategy = createMockStrategy({ search: jest.fn().mockResolvedValue([
+        createMockResult({ organizationId: 'org-456' }),
+        createMockResult({ organizationId: 'org-789' }),
+      ]) })
+      const service = new SearchService({ strategies: [strategy], defaultStrategies: ['mock'] })
+      const results = await service.search('ordinary', { tenantId: 'tenant-123' })
+      expect(results.map((result) => result.organizationId).sort()).toEqual(['org-456', 'org-789'])
+    })
+
     it('keeps an organization-less hit only for a declared platform-wide catalogue', async () => {
       const strategy = createMockStrategy({
         id: 'test',

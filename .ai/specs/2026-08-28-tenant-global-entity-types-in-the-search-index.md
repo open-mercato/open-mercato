@@ -179,6 +179,22 @@ source table, which has no `tenant_id` column, and returns before enqueueing;
 `vector_purge` returns at once for a null tenant — and nothing defines a shared vector
 across dispatch, storage and reads.
 
+### 7. Search indexing, fusion and document filters use canonical catalogue identity
+
+Token strategy single and batch writes (including the vector worker's all-strategy
+indexing path) use null tenant and organization for declared catalogues. Vector and
+fulltext storage retain caller scope. SearchService filters foreign organizations before
+normalizing declared catalogue result identity to a null organization for reciprocal-rank
+fusion, so tokens, vectors and fulltext contribute one result and presenter. Ordinary
+entities retain organization-based separation.
+
+Document-filter correlation uses null-safe tenant equality. Token and pgvector callers
+also supply the declaration list: declared types correlate only to their canonical
+null/null live projection, while undeclared types still correlate to their own tenant.
+A caller-tenant vector can therefore satisfy a catalogue filter without admitting a
+private null-tenant projection. No table, column, unique key, event payload or required
+public field changes. `IndexDocFilterTarget.tenantGlobalEntityTypes` is optional.
+
 ## Rejected alternatives
 
 **Add `tenant_id_coalesced` to the unique key and let each tenant keep a copy.** It does
@@ -234,7 +250,25 @@ search. §4 adds it.
   private tenant-less type, the organization predicate unchanged, ordinary entities
   unchanged) and say so in their own comments.
 
+- `packages/search/src/__tests__/tenant-global-pipeline.pg.test.ts` — real PostgreSQL
+  and pgvector, retirement followed by the actual vector worker, SearchIndexer,
+  SearchService and token/vector strategies. Covers retry, canonical token scopes,
+  retained vector scope, one token/hybrid result, match-all/matching/nonmatching filters,
+  deleted/private projections and wrong tenant/organization controls. Runs with
+  `OM_QUERY_INDEX_PG_URL` pointing to a disposable database.
+- Service regressions also cover fulltext fusion and foreign-organization rejection.
+- The API integration coverage retirement assertion polls independently of token deletion.
+
 ## Changelog
+
+### 2026-10-30
+
+- Fixed inherited review 5640170132: canonical token writes through real worker and batch
+  indexing, declaration-gated fusion across strategies, canonical document-filter lookup,
+  coverage assertion synchronization and precise types on the new cleanup helpers.
+- Integrated current main while retaining both sides' upgrade entries. Fresh functional
+  QA is required; the original manual approval predates these repairs.
+
 
 ### 2026-10-20
 

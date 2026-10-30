@@ -499,6 +499,16 @@ the operator action, including the index residue this change does not clean up.
 aligns the sweep writer with the incremental one on `tenant_id = NULL` for declared
 platform-wide catalogues, and gives both index readers the matching NULL branch.
 
+Search strategy single/batch token writes also use the canonical null/null scope, including
+writes performed by the vector worker. Caller-scoped vectors and fulltext retain storage
+scope; SearchService filters organization access before fusing declared catalogue identity.
+Ordinary organization identities remain separate. Document-filter correlation is null-safe
+and can use the declared catalogue's null/null projection for a caller-scoped vector.
+`IndexDocFilterTarget` gains only an optional `tenantGlobalEntityTypes` list; callers that
+omit it retain same-tenant correlation. No database schema or existing public signature
+is removed or narrowed.
+
+
 | Surface | Change | Classification |
 |---------|--------|----------------|
 | Function signatures | `reindexEntity`, `createPresenterEnricher`, `TokenSearchStrategy.search` — all unchanged | ✓ No change |

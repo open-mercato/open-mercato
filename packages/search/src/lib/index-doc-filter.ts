@@ -31,6 +31,7 @@ export type IndexDocFilterTarget = {
   recordIdRef: string
   /** Column of the ranked table holding the tenant id. */
   tenantIdRef: string
+  tenantGlobalEntityTypes?: readonly string[]
 }
 
 const DOC_REF = `${INDEX_DOC_FILTER_ALIAS}.doc`
@@ -72,7 +73,12 @@ export function buildIndexDocFilterPredicate(filter: SearchIndexDocFilter): RawB
  */
 export function buildIndexDocFilterExists(filter: SearchIndexDocFilter, target: IndexDocFilterTarget): RawBuilder<boolean> {
   const alias = (column: string) => sql.ref(`${INDEX_DOC_FILTER_ALIAS}.${column}`)
-  return sql<boolean>`exists (select 1 from entity_indexes as ${sql.id(INDEX_DOC_FILTER_ALIAS)} where ${alias('entity_type')} = ${sql.ref(target.entityTypeRef)} and ${alias('entity_id')} = (${sql.ref(target.recordIdRef)})::text and ${alias('tenant_id')} = ${sql.ref(target.tenantIdRef)} and ${alias('deleted_at')} is null and ${buildIndexDocFilterPredicate(filter)})`
+  const globalTypes = target.tenantGlobalEntityTypes ?? []
+  const sameTenant = sql<boolean>`${alias('tenant_id')} is not distinct from ${sql.ref(target.tenantIdRef)}`
+  const tenantScope = globalTypes.length
+    ? sql<boolean>`((${alias('entity_type')} in (${sql.join(globalTypes)}) and ${alias('tenant_id')} is null and ${alias('organization_id')} is null) or (${alias('entity_type')} not in (${sql.join(globalTypes)}) and ${sameTenant}))`
+    : sameTenant
+  return sql<boolean>`exists (select 1 from entity_indexes as ${sql.id(INDEX_DOC_FILTER_ALIAS)} where ${alias('entity_type')} = ${sql.ref(target.entityTypeRef)} and ${alias('entity_id')} = (${sql.ref(target.recordIdRef)})::text and ${tenantScope} and ${alias('deleted_at')} is null and ${buildIndexDocFilterPredicate(filter)})`
 }
 
 let compileOnlyDb: Kysely<Record<string, never>> | null = null

@@ -139,6 +139,11 @@ type RetireScopedCatalogueRowsOptions = {
   excludeRecordIds?: string[]
 }
 
+type CatalogueRetirementDatabase = {
+  entity_indexes: { entity_type: string; entity_id: string; tenant_id: string | null; organization_id: string | null }
+  search_tokens: { entity_type: string; entity_id: string; tenant_id: string | null; organization_id: string | null }
+}
+
 /**
  * Retire the projections and tokens a declared platform-wide catalogue accumulated before
  * its canonical scope became `tenant_id = NULL, organization_id = NULL`.
@@ -153,7 +158,7 @@ type RetireScopedCatalogueRowsOptions = {
  * `reindexEntity` writes as a global projection.
  */
 export async function retireScopedCatalogueRows(
-  db: Kysely<any>,
+  db: Kysely<CatalogueRetirementDatabase>,
   options: RetireScopedCatalogueRowsOptions,
 ): Promise<void> {
   const { entityType, partitionIndex, partitionCount } = options
