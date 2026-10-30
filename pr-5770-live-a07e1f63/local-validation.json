@@ -1,0 +1,109 @@
+{
+  "head": "e8923204ed712796435b84663218c00453f01b29",
+  "runner": "local",
+  "scope": "core/shared package selectors and auth/API-key unit suites; full configured app build; local OSS module mode",
+  "startedAt": "2026-10-30T07:35:25.112820+00:00",
+  "finishedAt": "2026-10-30T07:47:07.978723+00:00",
+  "outcome": "PASS",
+  "commands": [
+    {
+      "configured": "yarn build:packages",
+      "argv": [
+        "yarn",
+        "build:packages",
+        "--filter=@open-mercato/core",
+        "--filter=@open-mercato/shared",
+        "--concurrency=2"
+      ],
+      "scope": "core/shared packages",
+      "exitCode": 0
+    },
+    {
+      "configured": "yarn generate",
+      "argv": [
+        "yarn",
+        "generate"
+      ],
+      "scope": "configured repository command",
+      "exitCode": 0
+    },
+    {
+      "configured": "yarn build:packages",
+      "argv": [
+        "yarn",
+        "build:packages",
+        "--filter=@open-mercato/core",
+        "--filter=@open-mercato/shared",
+        "--concurrency=2"
+      ],
+      "scope": "core/shared packages",
+      "exitCode": 0
+    },
+    {
+      "configured": "yarn i18n:check-sync",
+      "argv": [
+        "yarn",
+        "i18n:check-sync"
+      ],
+      "scope": "configured repository command",
+      "exitCode": 0
+    },
+    {
+      "configured": "yarn i18n:check-usage",
+      "argv": [
+        "yarn",
+        "i18n:check-usage"
+      ],
+      "scope": "configured repository command",
+      "exitCode": 0
+    },
+    {
+      "configured": "yarn typecheck",
+      "argv": [
+        "yarn",
+        "typecheck",
+        "--filter=@open-mercato/core",
+        "--filter=@open-mercato/shared",
+        "--concurrency=2"
+      ],
+      "scope": "core/shared packages",
+      "exitCode": 0
+    },
+    {
+      "configured": "yarn test",
+      "argv": [
+        "yarn",
+        "test",
+        "--filter=@open-mercato/core",
+        "--filter=@open-mercato/shared",
+        "--",
+        "--runInBand",
+        "(/modules/(auth|api_keys)/|/lib/auth/)"
+      ],
+      "scope": "auth/API-key unit suites in core/shared; repository built-in concurrency=2 retained",
+      "exitCode": 0
+    },
+    {
+      "configured": "yarn build:app",
+      "argv": [
+        "yarn",
+        "build:app"
+      ],
+      "scope": "full configured app build",
+      "exitCode": 0
+    }
+  ],
+  "tests": {
+    "passed": 1245,
+    "skipped": 2,
+    "passedSuites": 129,
+    "skippedSuites": 1
+  },
+  "notes": [
+    "Some package/app tasks used valid Turbo caches.",
+    "Opt-in PostgreSQL migration cases were skipped in this gate; earlier real migration evidence remains linked and migration source is unchanged.",
+    "A duplicate concurrency option in the local launcher was corrected before any tests executed; the repository built-in setting and assertions were unchanged.",
+    "Local evidence does not substitute for required GitHub checks.",
+    "The single CI watch ended at07:32UTC and was not restarted."
+  ]
+}
