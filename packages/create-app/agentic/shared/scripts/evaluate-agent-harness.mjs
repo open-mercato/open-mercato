@@ -2090,23 +2090,62 @@ function readProvenance(value) {
 // Tool-call identifiers whose paired result reported an error. The evaluator-owned MCP
 // server is fail-closed: a read outside the case allowlist is refused and transfers no
 // bytes, so such an attempt must not be scored as content the model actually loaded.
-function collectRefusedToolCallIds(value, refused) {
+function collectToolCallOutcomes(value, outcomes, violations) {
   if (Array.isArray(value)) {
-    for (const item of value) collectRefusedToolCallIds(item, refused)
+    for (const item of value) collectToolCallOutcomes(item, outcomes, violations)
     return
   }
   if (!isPlainObject(value)) return
-  const isError = value.isError === true || value.is_error === true || value.status === 'failed'
-  // Only an entry that explicitly REFERENCES a tool call, or that IS a tool-call record,
-  // may mark one refused. A bare `id` on an arbitrary object is not accepted: an unrelated
-  // error event carrying one would otherwise suppress a genuine successful
-  // out-of-allowlist read, which must always fail closed.
   const isToolCallRecord = value.type === 'mcp_tool_call' || value.type === 'tool_use'
     || (typeof value.tool === 'string' && typeof value.server === 'string')
+  const isToolResult = value.type === 'tool_result'
   const identifier = value.tool_use_id ?? value.toolUseId ?? value.call_id ?? value.callId
     ?? (isToolCallRecord ? value.id : undefined)
-  if (isError && typeof identifier === 'string' && identifier) refused.add(identifier)
-  for (const child of Object.values(value)) collectRefusedToolCallIds(child, refused)
+  const identifiers = [value.tool_use_id, value.toolUseId, value.call_id, value.callId]
+    .filter((entry) => typeof entry === 'string' && entry)
+  const ambiguousIdentity = new Set(identifiers).size > 1
+  if (isToolCallRecord || isToolResult) {
+    if (typeof identifier === 'string' && identifier) {
+      if (!outcomes.has(identifier)) outcomes.set(identifier, { declarations: 0, calls: new Set(), results: [], ambiguous: false })
+      const outcome = outcomes.get(identifier)
+      outcome.ambiguous ||= ambiguousIdentity
+      if (isToolCallRecord) {
+        const rawName = String(value.name ?? value.tool_name ?? value.tool ?? '').toLowerCase()
+        const name = rawName === 'read' || /(?:^|__)read$/.test(rawName) ? 'read' : rawName
+        if (value.type === 'tool_use') outcome.declarations += 1
+        const input = value.input ?? value.arguments
+        if (input !== undefined) outcome.calls.add(JSON.stringify([name, input]))
+      }
+      const result = isPlainObject(value.result) ? value.result : null
+      const flags = [value.isError, value.is_error, result?.isError, result?.is_error].filter((entry) => typeof entry === 'boolean')
+      const error = isPlainObject(value.error) || typeof value.error === 'string'
+      const failed = value.status === 'failed'
+      if ((flags.includes(true) && flags.includes(false)) || ((failed || error) && flags.includes(false))
+        || (error && Array.isArray(result?.content) && result.content.length && !flags.includes(true))) outcome.ambiguous = true
+      const pending = ['in_progress', 'pending', 'running'].includes(value.status)
+      if (!pending && (isToolResult || failed || value.status === 'completed' || flags.length || error)) {
+        outcome.results.push(flags.includes(true) || failed || error)
+      }
+    } else if (isToolResult) violations.add('unpaired tool-call result identity')
+  }
+  for (const child of Object.values(value)) collectToolCallOutcomes(child, outcomes, violations)
+}
+
+function refusedToolCallIds(outcomes, violations) {
+  const refused = new Set()
+  for (const [identifier, outcome] of outcomes) {
+    const calls = [...outcome.calls].map((call) => JSON.parse(call))
+    if (!calls.some((call) => call[0] === 'read')) {
+      if (outcome.results.length && !outcome.calls.size) violations.add('unpaired tool-call result identity')
+      continue
+    }
+    if (outcome.ambiguous || outcome.declarations > 1 || outcome.calls.size > 1 || outcome.results.length > 1) {
+      violations.add('ambiguous tool-call result identity')
+      continue
+    }
+    if (outcome.results[0] === true) refused.add(identifier)
+  }
+  return refused
 }
 
 function recursivelyFindTraceCandidates(value, state, inheritedContentTool = false, inheritedName = '', inheritedCallId = undefined) {
@@ -2129,6 +2168,8 @@ function recursivelyFindTraceCandidates(value, state, inheritedContentTool = fal
   const isContentTool = inheritedContentTool || ownContentTool
   const explicitCallId = (typeof value.call_id === 'string' && value.call_id)
     || (typeof value.tool_use_id === 'string' && value.tool_use_id)
+    || (typeof value.callId === 'string' && value.callId)
+    || (typeof value.toolUseId === 'string' && value.toolUseId)
   const ownCallId = explicitCallId || (ownTool && typeof value.id === 'string' && value.id)
   const callId = ownTool ? ownCallId : ownCallId || inheritedCallId
   const refusedCall = Boolean(callId) && state.refusedCallIds.has(callId)
@@ -2561,20 +2602,33 @@ export function observedContext(stdout, root, caseRecord, writable, reviewExpect
   }
   // Refusals are emitted after the call they answer, so collect them before walking the
   // trace for read candidates.
-  for (const event of events) collectRefusedToolCallIds(event, state.refusedCallIds)
+  const toolCallOutcomes = new Map()
+  for (const event of events) collectToolCallOutcomes(event, toolCallOutcomes, state.violations)
+  state.refusedCallIds = refusedToolCallIds(toolCallOutcomes, state.violations)
   for (const event of events) recursivelyFindTraceCandidates(event, state)
   const paths = new Set()
   const readOrder = []
   const refusedReads = new Set()
+  const refusedPermittedReads = new Set()
   const metadataPaths = new Set()
   let metadataEntries = 0
   let metadataBytes = 0
   const violations = new Set(state.violations)
   const exampleReads = []
+  let allowedRefusedReads
+  let allowedRefusedExamples
   if (!state.available) violations.add('runner trace unavailable; observed context cannot be verified')
   for (const candidate of state.candidates) {
     const normalized = normalizeObservedCandidate(candidate.raw, root)
-    if (normalized.relative && (!candidate.metadataOnly || candidate.listDirectory)) {
+    let refusedPermittedRead = false
+    if (candidate.refused && normalized.relative && !normalized.unsafe
+      && !candidate.metadataOnly && !candidate.listDirectory && !candidate.expand && !/[*?]/.test(normalized.relative)) {
+      allowedRefusedReads ??= caseReadAllowlist(caseRecord, writable, root)
+      const canonical = normalized.relative === CANONICAL_EXAMPLE_ROOT || normalized.relative.startsWith(`${CANONICAL_EXAMPLE_ROOT}/`)
+      if (canonical) allowedRefusedExamples ??= exampleReadAllowlist(caseRecord, root)
+      refusedPermittedRead = matchesAny(normalized.relative, canonical ? allowedRefusedExamples : allowedRefusedReads)
+    }
+    if (!refusedPermittedRead && normalized.relative && (!candidate.metadataOnly || candidate.listDirectory)) {
       exampleReads.push({
         path: normalized.relative,
         kind: candidate.listDirectory ? 'list' : candidate.expand ? 'glob' : 'read',
@@ -2636,6 +2690,10 @@ export function observedContext(stdout, root, caseRecord, writable, reviewExpect
         continue
       }
     }
+    if (refusedPermittedRead) {
+      refusedPermittedReads.add(relative)
+      continue
+    }
     if (!isAllowedObservedPath(relative, caseRecord, writable)) {
       // The fail-closed MCP server already refused this exact call, so nothing was read:
       // scoring it as loaded content would be factually wrong. Record it as a bounded
@@ -2669,8 +2727,6 @@ export function observedContext(stdout, root, caseRecord, writable, reviewExpect
   if (refusedReads.size > MAX_REFUSED_CONTEXT_READS) {
     violations.add(`refused context read budget exceeded: ${refusedReads.size}/${MAX_REFUSED_CONTEXT_READS}`)
   }
-  // Cases without `context.exampleRoots` never enter the example read policy, so their
-  // evaluator semantics stay byte-identical.
   const exampleReadPolicy = evaluateExampleReadPolicy({ caseRecord, appRoot: root, reads: exampleReads })
   if (exampleReadPolicy.firstViolation) violations.add(exampleReadPolicy.firstViolation)
   return {
@@ -2678,7 +2734,7 @@ export function observedContext(stdout, root, caseRecord, writable, reviewExpect
     exampleReadPolicy,
     paths: [...paths].sort(),
     readOrder,
-    refusedPaths: [...refusedReads].sort(),
+    refusedPaths: [...new Set([...refusedReads, ...refusedPermittedReads])].sort(),
     metadataPaths: [...metadataPaths].sort(),
     metadataEntries,
     metadataBytes,
@@ -2872,15 +2928,8 @@ function runnerVersion(runner, root) {
   return String(result.stdout || result.stderr).trim().slice(0, 200)
 }
 
-function writableGroundingEvidence(caseRecord, root) {
+function writableSourceReferences(caseRecord, root) {
   const references = []
-  const canonicalReadPaths = exampleReadAllowlist(caseRecord, root)
-    .filter(relative => relative.startsWith(`${CANONICAL_EXAMPLE_ROOT}/`)).sort()
-  for (const relative of canonicalReadPaths) {
-    const normalized = normalizeExampleReadPath(relative)
-    const file = resolveExampleRootFile(root, relative)
-    if (normalized.violation || /[*?]/.test(relative) || file.violation || file.size > 262_144) throw new Error('unsafe canonical read scope')
-  }
   const referenceIds = declaredSourceReferenceIds(caseRecord)
   if (referenceIds.length) {
     const inventory = readSourceLinkInventory(root)
@@ -2898,6 +2947,33 @@ function writableGroundingEvidence(caseRecord, root) {
         && !isProtectedExampleRootPath(resolved.resolvedPath, caseRecord) && matchesAny(resolved.resolvedPath, caseRecord.allowedWrites ?? [])
       references.push({ owner: resolved.originAsset, source: resolved.resolvedPath, access: editable ? 'writable-target' : 'read-only-reference' })
     }
+  }
+  return references
+}
+
+function writableReadPrerequisites(caseRecord, root) {
+  const declaration = exampleRootDeclarations(caseRecord).find(entry => declaredExampleRoot(entry) === CANONICAL_EXAMPLE_ROOT)
+  if (!declaration) return []
+  const entrypoints = (declaration.entrypoints ?? []).map(relative => `${CANONICAL_EXAMPLE_ROOT}/${relative}`)
+  const prerequisites = new Map()
+  for (const reference of writableSourceReferences(caseRecord, root)) {
+    if (reference.source.startsWith(`${CANONICAL_EXAMPLE_ROOT}/`) && !prerequisites.has(reference.source)) {
+      prerequisites.set(reference.source, { path: reference.source, owner: reference.owner, entrypoints })
+    }
+  }
+  const policy = [...prerequisites.values()]
+  if (policy.length > 128 || Buffer.byteLength(JSON.stringify(policy)) > 16_384) throw new Error('canonical read prerequisites exceed the bounded policy size')
+  return policy
+}
+
+function writableGroundingEvidence(caseRecord, root) {
+  const references = writableSourceReferences(caseRecord, root)
+  const canonicalReadPaths = exampleReadAllowlist(caseRecord, root)
+    .filter(relative => relative.startsWith(`${CANONICAL_EXAMPLE_ROOT}/`)).sort()
+  for (const relative of canonicalReadPaths) {
+    const normalized = normalizeExampleReadPath(relative)
+    const file = resolveExampleRootFile(root, relative)
+    if (normalized.violation || /[*?]/.test(relative) || file.violation || file.size > 262_144) throw new Error('unsafe canonical read scope')
   }
   const packageFile = resolveExampleRootFile(root, 'package.json')
   if (packageFile.violation || packageFile.size > 65_536) throw new Error('baseline package.json must be a bounded regular file')
@@ -3037,7 +3113,7 @@ function codexEnableArguments() {
     .flatMap((feature) => ['--enable', feature])
 }
 
-function harnessMcpConfig(root, writable, allowedReads, allowedWrites, immutableRoots) {
+function harnessMcpConfig(root, writable, allowedReads, allowedWrites, immutableRoots, readPrerequisites) {
   const server = TOOL_SERVER_PATH
   if (!fs.existsSync(server)) throw new Error('agent harness tool server is missing; rerun `yarn mercato agentic:init --update-harness`')
   return {
@@ -3046,14 +3122,15 @@ function harnessMcpConfig(root, writable, allowedReads, allowedWrites, immutable
       // Read-only declared roots travel as an explicit variable in the otherwise cleared server
       // environment, so the positional allowlist contract stays exactly as published.
       '-i', `OM_HARNESS_IMMUTABLE_ROOTS=${JSON.stringify(immutableRoots ?? [])}`,
+      ...(readPrerequisites?.length ? [`OM_HARNESS_READ_PREREQUISITES=${JSON.stringify(readPrerequisites)}`] : []),
       fs.realpathSync(process.execPath), server, root, writable ? 'writable' : 'read-only',
       JSON.stringify(allowedReads ?? []), JSON.stringify(allowedWrites ?? []),
     ],
   }
 }
 
-function buildRunnerInvocation({ runner, root, schemaPath, outputPath, model, reasoningEffort, writable, allowedReads, allowedWrites, immutableRoots }) {
-  const mcp = harnessMcpConfig(root, writable, allowedReads, allowedWrites, immutableRoots)
+function buildRunnerInvocation({ runner, root, schemaPath, outputPath, model, reasoningEffort, writable, allowedReads, allowedWrites, immutableRoots, readPrerequisites }) {
+  const mcp = harnessMcpConfig(root, writable, allowedReads, allowedWrites, immutableRoots, readPrerequisites)
   if (runner === 'codex') {
     const args = [
       'exec', '--json', '--ephemeral', '--ignore-user-config', '--skip-git-repo-check',
@@ -3176,7 +3253,7 @@ export function routingResponseSchemaForCase(schema, caseRecord) {
   }
 }
 
-function runAgentOnce({ runner, root, schemaPath, responseSchema, prompt, timeout, model, reasoningEffort, writable, allowedReads = [], allowedWrites = [], immutableRoots = [], validateResponse = validateRoutingResponse }) {
+function runAgentOnce({ runner, root, schemaPath, responseSchema, prompt, timeout, model, reasoningEffort, writable, allowedReads = [], allowedWrites = [], immutableRoots = [], readPrerequisites = [], validateResponse = validateRoutingResponse }) {
   const canonicalRoot = fs.realpathSync(root)
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'om-harness-result-'))
   const outputPath = path.join(tempDir, 'structured.json')
@@ -3184,7 +3261,7 @@ function runAgentOnce({ runner, root, schemaPath, responseSchema, prompt, timeou
   const canonicalSchema = responseSchema ?? readJson(schemaPath)
   const transportSchema = runner === 'codex' ? codexOutputSchema(canonicalSchema) : canonicalSchema
   fs.writeFileSync(isolatedSchemaPath, `${JSON.stringify(transportSchema)}\n`, { flag: 'wx', mode: 0o600 })
-  const invocation = buildRunnerInvocation({ runner, root: canonicalRoot, schemaPath: isolatedSchemaPath, outputPath, model, reasoningEffort, writable, allowedReads, allowedWrites, immutableRoots })
+  const invocation = buildRunnerInvocation({ runner, root: canonicalRoot, schemaPath: isolatedSchemaPath, outputPath, model, reasoningEffort, writable, allowedReads, allowedWrites, immutableRoots, readPrerequisites })
   const runnerEnv = narrowRunnerEnv(runner)
   if (runner === 'codex') {
     const isolatedCodexHome = path.join(tempDir, 'codex-home')
@@ -3982,11 +4059,12 @@ function liveRun({ options, selected, registry, releaseMatrix, fixtures, root, h
       // Root immutability is resolved before writable-pattern matching, including inside the
       // fail-closed tool server, so a declared example root can never be written.
       const immutableRoots = immutableExampleRoots(evaluationCase)
+      const readPrerequisites = writable ? writableReadPrerequisites(evaluationCase, runRoot) : []
       const timeout = resolveLiveCaseTimeout(options, model, caseRecord.timeoutMs ?? 0)
       const responseSchema = routingResponseSchemaForCase(routingResponseSchema, evaluationCase)
       const executions = [runAgentOnce({
         runner: options.runner, root: runRoot, schemaPath, responseSchema, prompt, timeout, model, reasoningEffort: options.reasoningEffort, writable,
-        allowedReads, allowedWrites: writable ? caseRecord.allowedWrites ?? [] : [], immutableRoots,
+        allowedReads, allowedWrites: writable ? caseRecord.allowedWrites ?? [] : [], immutableRoots, readPrerequisites,
       })]
       let execution = executions[0]
       if (isProviderEnvironmentFailure(execution)) {
@@ -3998,7 +4076,7 @@ function liveRun({ options, selected, registry, releaseMatrix, fixtures, root, h
           : `${prompt}\n\nThis is retry attempt 2 after a transient provider failure. Continue with the same routing contract.`
         execution = runAgentOnce({
           runner: options.runner, root: runRoot, schemaPath, responseSchema, prompt: retryPrompt, timeout, model, reasoningEffort: options.reasoningEffort, writable,
-          allowedReads, allowedWrites: writable ? caseRecord.allowedWrites ?? [] : [], immutableRoots,
+          allowedReads, allowedWrites: writable ? caseRecord.allowedWrites ?? [] : [], immutableRoots, readPrerequisites,
         })
         executions.push(execution)
         if (isProviderEnvironmentFailure(execution)) {
