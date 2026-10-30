@@ -31,6 +31,7 @@
       "om-close-fixed-issues",
       "om-verify-in-repo",
       "om-pr-autopilot",
+      "om-create-skill",
       "om-help",
       "om-judge-agent-session",
       "om-share-this-session"
@@ -47,7 +48,6 @@
         "om-pre-implement-spec",
         "om-smart-test",
         "om-create-agents-md",
-        "om-skill-creator",
         "om-fix-specs",
         "om-migrate-mikro-orm",
         "om-create-ai-agent",
