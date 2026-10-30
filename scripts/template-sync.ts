@@ -439,6 +439,23 @@ export const TEMPLATE_COMMENTED_MODULES: Record<string, { source: string; templa
   // om-refresh-standalone-harness skill to add that coverage, then enable it in the template.
   // { id: 'cart', from: '@open-mercato/core' },`,
   },
+  assisted_selling: {
+    source: `  // Staff- and AI-authored priced proposals on a buyer's basket, accepted as a cart
+  // merge (.ai/specs/2026-09-22-assisted-selling.md, D-R5-11/D-R5-36). Step 4.4: \`cart\` is now
+  // a hard \`requires\` (thread/proposal commands wrap \`cart.proposal.create\`/\`.reject\`);
+  // \`ecommerce\`'s \`storeContextService.resolveForBuyer\` stays a soft \`tryResolve\` peer.
+  { id: 'assisted_selling', from: '@open-mercato/core' },`,
+    template: `  // Staff- and AI-authored priced proposals on a buyer's basket, accepted as a cart merge
+  // (.ai/specs/2026-09-22-assisted-selling.md). Stays commented out with cart, customer_groups
+  // and promotions above until the module-sets \`commerce\` preset enables the suite together
+  // with its standalone-harness coverage: no case in
+  // packages/create-app/agentic/shared/ai/harness/cases.json lists
+  // .ai/guides/modules/assisted_selling/index.md in context.required, so enabling it here
+  // trips packages/create-app/src/lib/module-facts-build.test.ts ('every module fact-sheet a
+  // scaffold ships is required by at least one catalog case'). Run the
+  // om-refresh-standalone-harness skill to add that coverage, then enable it in the template.
+  // { id: 'assisted_selling', from: '@open-mercato/core' },`,
+  },
 }
 
 function commentOutTemplateModules(content: string, rel: string): string {

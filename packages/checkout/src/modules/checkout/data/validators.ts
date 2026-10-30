@@ -292,4 +292,67 @@ export type CreateLinkInput = z.infer<typeof createLinkSchema>
 export type UpdateLinkInput = z.infer<typeof updateLinkSchema>
 export type CreateTransactionInput = z.infer<typeof transactionCreateSchema>
 export type UpdateTransactionStatusInput = z.infer<typeof transactionUpdateStatusSchema>
+
+// Release 5, Step 2.12 (B.1) / Step 3.5 (B.2, §9.0). `{ source: 'cart' }` is the
+// buyer-initiated path (X-Cart-Token). `{ source: 'link' }` is merchant-initiated
+// (D-R5-19): a bare `slug` of a `checkoutType: 'simple_checkout'` `CheckoutLink` — a
+// `checkoutType: 'pay_link'` link never reaches `checkout.session.create` at all (Phase A
+// keeps its own cart-less path, C10).
+export const checkoutSessionCreateSchema = z.discriminatedUnion('source', [
+  z.object({
+    source: z.literal('cart'),
+  }),
+  z.object({
+    source: z.literal('link'),
+    slug: requiredTrimmedString('checkout.validation.common.required'),
+  }),
+])
+
+// §9's route table: `PATCH /sessions/current` — "Contact, addresses, consent, terms
+// acceptance". Step/delivery/payment fields (§5.2, B.3) are not part of this Step's
+// skeleton. Every field is optional — the route applies only the keys the caller sends.
+const optionalAddressSchema = z.record(z.string(), z.unknown()).optional().nullable()
+
+export const checkoutSessionUpdateSchema = z.object({
+  email: optionalTrimmedString,
+  phone: optionalTrimmedString,
+  shippingAddress: optionalAddressSchema,
+  billingAddress: optionalAddressSchema,
+  billingSameAsShipping: z.boolean().optional(),
+  locale: optionalTrimmedString,
+  consentFlags: z.record(z.string(), z.unknown()).optional().nullable(),
+  termsAccepted: z.boolean().optional(),
+})
+
+// §9's route table: `POST /sessions/current/delivery` (B.3, §5.3). The buyer sends back
+// only the `deliveryMethodCode` of one of the options `GET .../delivery-options` just
+// offered — never a price (§13 Entitlement: "a client asking for a method without
+// entitlement is refused, never trusted"). The route re-resolves the real rate server-side
+// and refuses an unknown code with `422 delivery_unavailable`.
+export const checkoutSessionDeliverySelectSchema = z.object({
+  deliveryMethodCode: requiredTrimmedString('checkout.validation.common.required'),
+})
+
+// Release 5, Step 4.2 (B.4, §9's route table: `POST /sessions/current/submit`).
+// `paymentMethodCode` is the command's own direct input per Step 4.1's resolved decision
+// ("submit takes the method as a direct input... no `POST /sessions/current/payment`
+// selection route is built"); the Idempotency-Key header (§7.1 precondition 2) is
+// validated at the route, not in this schema.
+//
+// Release 5, Step 5.1 (B.5, §8.4/§9's route table: "POST .../payment | Select a method;
+// PO number"). The spec names a dedicated payment-selection route as the PO number's
+// input point, but Step 4.1 already resolved "no selection route, submit takes the method
+// directly" for `paymentMethodCode` — `poNumber` follows the SAME resolved shape rather
+// than reopening that decision for one more field. Optional at the schema level; the
+// command itself (`commands/submit.ts`) is what refuses a missing PO number with `422
+// purchase_order_number_required` when the resolved `requiresPoNumber` term demands one.
+export const checkoutSessionSubmitSchema = z.object({
+  paymentMethodCode: requiredTrimmedString('checkout.validation.common.required'),
+  poNumber: optionalTrimmedString,
+})
+
+export type CheckoutSessionCreateInput = z.infer<typeof checkoutSessionCreateSchema>
+export type CheckoutSessionUpdateInput = z.infer<typeof checkoutSessionUpdateSchema>
+export type CheckoutSessionDeliverySelectInput = z.infer<typeof checkoutSessionDeliverySelectSchema>
+export type CheckoutSessionSubmitInput = z.infer<typeof checkoutSessionSubmitSchema>
 export type PublicSubmitInput = z.infer<typeof publicSubmitSchema>

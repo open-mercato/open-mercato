@@ -225,6 +225,16 @@ const codeRuleConfigSchema = z
   })
   .strict()
 
+// Un-hidden in Release 5 (D-R5-17, amends D-R4-14): checkout is the data source this rule
+// lacked in Release 4 (`deliveryMethodCode` on `EvaluateInput`/`EvaluationContext`,
+// `lib/types.ts`). Kept next to the still-hidden configs below rather than moved up next
+// to the other shipped configs, so this Step's diff stays a single, easy-to-review block.
+const deliveryMethodRuleConfigSchema = z
+  .object({
+    deliveryMethodCode: z.string().trim().min(1).max(100),
+  })
+  .strict()
+
 // --- Hidden rule types (§Data Models) — modelled so the discriminated union never needs
 // a second migration later, but excluded from `ruleInputSchema` (the Release 4 write-path
 // schema) below. No admin UI, no Phase 1-3 evaluator registration.
@@ -242,12 +252,6 @@ const excludePharmaceuticalConfigSchema = z.object({}).strict()
 const consentFlagConfigSchema = z
   .object({
     flagKey: z.string().trim().min(1).max(100),
-  })
-  .strict()
-
-const deliveryMethodRuleConfigSchema = z
-  .object({
-    deliveryMethodCode: z.string().trim().min(1).max(100),
   })
   .strict()
 
@@ -285,6 +289,8 @@ const shippedRuleVariants = [
   ruleEnvelope('category', categoryConfigSchema),
   ruleEnvelope('customer_group', customerGroupConfigSchema),
   ruleEnvelope('code', codeRuleConfigSchema),
+  // D-R5-17 (amends D-R4-14): un-hidden in Release 5 — checkout is now the data source.
+  ruleEnvelope('delivery_method', deliveryMethodRuleConfigSchema),
 ] as const
 
 const hiddenRuleVariants = [
@@ -294,11 +300,14 @@ const hiddenRuleVariants = [
   ruleEnvelope('producer', producerConfigSchema),
   ruleEnvelope('exclude_pharmaceutical', excludePharmaceuticalConfigSchema),
   ruleEnvelope('consent_flag', consentFlagConfigSchema),
-  ruleEnvelope('delivery_method', deliveryMethodRuleConfigSchema),
   ruleEnvelope('payment_method', paymentMethodConfigSchema),
   ruleEnvelope('shipping_address', shippingAddressConfigSchema),
 ] as const
 
+// Name kept as-is (not renamed to "RELEASE_5_...") to avoid churning every import site —
+// the set itself grew by one: `delivery_method` joined in Release 5 (D-R5-17, amends
+// D-R4-14, checkout is now its data source). Still "every rule type the admin write path
+// accepts", just no longer frozen at the original eight.
 export const RELEASE_4_SHIPPED_RULE_TYPES = [
   'order_value',
   'order_date',
@@ -308,6 +317,7 @@ export const RELEASE_4_SHIPPED_RULE_TYPES = [
   'category',
   'customer_group',
   'code',
+  'delivery_method',
 ] as const
 
 export const PROMOTIONS_HIDDEN_RULE_TYPES = [
@@ -317,16 +327,15 @@ export const PROMOTIONS_HIDDEN_RULE_TYPES = [
   'producer',
   'exclude_pharmaceutical',
   'consent_flag',
-  'delivery_method',
   'payment_method',
   'shipping_address',
 ] as const
 
-// Write-path schema (§Implementation Plan Phase 1, step 3): only the eight Release 4
-// rule types are accepted here. A request naming a hidden type fails to match any
-// variant's `ruleType` literal and the discriminated union rejects it — the rejection
-// a hidden-rule-type write test (`TC-PROM-0xx`) exercises, not merely hiding the type
-// from the admin UI combobox.
+// Write-path schema (§Implementation Plan Phase 1, step 3): only the shipped rule types
+// (Release 4's original eight plus Release 5's `delivery_method`, D-R5-17) are accepted
+// here. A request naming a still-hidden type fails to match any variant's `ruleType`
+// literal and the discriminated union rejects it — the rejection a hidden-rule-type write
+// test (`TC-PROM-0xx`) exercises, not merely hiding the type from the admin UI combobox.
 export const ruleInputSchema = z.discriminatedUnion('ruleType', [...shippedRuleVariants])
 
 // Full model (all seventeen types, shipped + hidden) — kept so the discriminated union
@@ -494,8 +503,8 @@ const cartDiscountConfigSchema = z
   .strict()
   .superRefine(rejectPercentageOver100)
 
-// Hidden from the admin tree builder in Release 4 (D-R4-14); the type and its config
-// schema stay in the model per §Data Models.
+// Un-hidden in Release 5 (D-R5-17, amends D-R4-14): checkout is the data source this
+// benefit's `delivery_method` rule lacked in Release 4.
 const deliveryDiscountConfigSchema = z
   .object({
     deliveryMethodCode: z.string().trim().min(1).max(100),
@@ -568,24 +577,29 @@ const shippedBenefitVariants = [
   benefitEnvelope('free_product', freeProductConfigSchema, ['order'] as const, 'order'),
   benefitEnvelope('buy_x_get_y', buyXGetYConfigSchema, ['line', 'unit'] as const, 'unit'),
   benefitEnvelope('tiered_discount', tieredDiscountConfigSchema, ['order', 'line', 'unit'] as const, 'order'),
-] as const
-
-// Hidden from the admin tree builder in Release 4 (D-R4-14) — same rejection mechanism
-// as the hidden rule types: excluded from `benefitInputSchema`, kept in
-// `benefitInputSchemaFull` for the model.
-const hiddenBenefitVariants = [
+  // D-R5-17 (amends D-R4-14): un-hidden in Release 5 — checkout is now the data source.
   benefitEnvelope('delivery_discount', deliveryDiscountConfigSchema, ['order'] as const, 'order'),
 ] as const
 
+// No longer any hidden benefit variant — Release 5 (D-R5-17) un-hid the only one
+// (`delivery_discount`). Kept as an empty array, rather than removed outright, so
+// `benefitInputSchemaFull` below (every benefit type, shipped + hidden, for the model)
+// does not need its own call-site rewrite if a future release hides a new type here.
+const hiddenBenefitVariants = [] as const
+
+// Name kept as-is (not renamed to "RELEASE_5_...") to avoid churning every import site —
+// the set itself grew by one: `delivery_discount` joined in Release 5 (D-R5-17, amends
+// D-R4-14).
 export const RELEASE_4_SHIPPED_BENEFIT_TYPES = [
   'product_discount',
   'cart_discount',
   'free_product',
   'buy_x_get_y',
   'tiered_discount',
+  'delivery_discount',
 ] as const
 
-export const PROMOTIONS_HIDDEN_BENEFIT_TYPES = ['delivery_discount'] as const
+export const PROMOTIONS_HIDDEN_BENEFIT_TYPES = [] as const
 
 const withQuantityCapGuard = <T extends z.ZodTypeAny>(schema: T) =>
   schema.superRefine((value: any, ctx) => {
@@ -623,7 +637,13 @@ export function benefitRequiresSingleEligibleCurrency(
 ): boolean {
   if (benefitType === 'tiered_discount') return true
   if (
-    (benefitType === 'product_discount' || benefitType === 'cart_discount' || benefitType === 'buy_x_get_y') &&
+    (benefitType === 'product_discount' ||
+      benefitType === 'cart_discount' ||
+      benefitType === 'buy_x_get_y' ||
+      // D-R5-17: `delivery_discount` carries the same fixed/percentage `discountType`
+      // shape as `cart_discount` (both `appliesTo: 'order'`) — a fixed amount is
+      // currency-denominated the same way, so it needs the same single-currency guard.
+      benefitType === 'delivery_discount') &&
     config.discountType === 'fixed'
   ) {
     return true
@@ -928,11 +948,25 @@ export const codeUseInputSchema = z.object({
   codeId: uuid(),
   codeString: z.string().trim().min(1).max(100),
   cartId: uuid(),
+  // Additive (Release 5 C5/SPEC-055 amendment) — see `lib/types.ts`'s `UseCodeInput`.
+  orderId: z.string().trim().min(1).max(200).nullable().optional(),
   customerId: requiredNullableCustomerIdSchema,
   type: promotionCodeTypeSchema,
 })
 
 export type CodeUseInput = z.infer<typeof codeUseInputSchema>
+
+// Release 5 C5/SPEC-055 amendment, additive: the `promotions.code.use.revert` command
+// payload (§Public TypeScript Contract `RevertCodeUseInput`). At least one of
+// `cartId`/`orderId` is required — enforced by `PromotionCodeService.revertCodeUse`
+// itself, not here, the same split as every other "needs at least one of" rule in this
+// module (plain structural validation at the zod boundary, business rule in the service).
+export const revertCodeUseInputSchema = z.object({
+  cartId: uuid().optional(),
+  orderId: z.string().trim().min(1).max(200).optional(),
+})
+
+export type RevertCodeUseCommandInput = z.infer<typeof revertCodeUseInputSchema>
 
 // ---------------------------------------------------------------------------
 // PromotionUsage

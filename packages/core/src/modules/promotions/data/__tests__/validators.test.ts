@@ -17,7 +17,9 @@ import {
   clearableEndOfDayDateSchema,
   ruleInputSchema,
   ruleInputSchemaFull,
+  benefitInputSchema,
   PROMOTIONS_HIDDEN_RULE_TYPES,
+  PROMOTIONS_HIDDEN_BENEFIT_TYPES,
 } from '../validators'
 
 const PROMOTION_ID = '11111111-1111-4111-8111-111111111111'
@@ -234,5 +236,38 @@ describe('rule types without a data source', () => {
 
   it.each(hiddenRules)('keeps the $ruleType model in the full schema', (rule) => {
     expect(ruleInputSchemaFull.safeParse(rule).success).toBe(true)
+  })
+})
+
+describe('delivery_method rule / delivery_discount benefit un-hidden (D-R5-17, amends D-R4-14)', () => {
+  it('delivery_method is no longer in PROMOTIONS_HIDDEN_RULE_TYPES and is accepted on the write path', () => {
+    expect(PROMOTIONS_HIDDEN_RULE_TYPES).not.toContain('delivery_method')
+    const rule = { ruleType: 'delivery_method', config: { deliveryMethodCode: 'standard' } }
+    expect(ruleInputSchema.safeParse(rule).success).toBe(true)
+  })
+
+  it('delivery_discount is no longer in PROMOTIONS_HIDDEN_BENEFIT_TYPES and is accepted on the write path', () => {
+    expect(PROMOTIONS_HIDDEN_BENEFIT_TYPES).not.toContain('delivery_discount')
+    const benefit = {
+      benefitType: 'delivery_discount',
+      appliesTo: 'order',
+      config: { deliveryMethodCode: 'standard', discountType: 'percentage', value: '10', labels: { en: 'Free delivery' } },
+    }
+    expect(benefitInputSchema.safeParse(benefit).success).toBe(true)
+  })
+
+  it('rejects a delivery_discount with a quantity cap, same as cart_discount (both appliesTo: order only)', () => {
+    const benefit = {
+      benefitType: 'delivery_discount',
+      appliesTo: 'order',
+      config: {
+        deliveryMethodCode: 'standard',
+        discountType: 'percentage',
+        value: '10',
+        labels: { en: 'Free delivery' },
+        maxQuantity: 5,
+      },
+    }
+    expect(benefitInputSchema.safeParse(benefit).success).toBe(false)
   })
 })

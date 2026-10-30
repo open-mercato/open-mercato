@@ -144,6 +144,22 @@ function lineDiscountEffect(amountNet: string): ResolvedEffect {
   }
 }
 
+// D-R5-17 (amends D-R4-14): a DELIVERY_DISCOUNT effect, used to prove `registerUsage`
+// accounts for it exactly like any other amount-carrying effect type — nothing in this
+// file excludes it from `computeTotalDiscountAmount`'s sum.
+function deliveryDiscountEffect(amountNet: string): ResolvedEffect {
+  return {
+    type: 'DELIVERY_DISCOUNT',
+    appliesTo: 'order',
+    currency: 'USD',
+    label: {},
+    deliveryMethodCode: 'standard',
+    amountNet,
+    amountGross: amountNet,
+    basis: 'net',
+  }
+}
+
 function freeItemEffect(promotionId: string): ResolvedEffect {
   return {
     type: 'ADD_FREE_ITEM',
@@ -375,6 +391,63 @@ describe('PromotionUsageService.registerUsage', () => {
     expect(result).toEqual({ ok: true, budgetExceeded: [cappedPromotion.id] })
     const rows = tables.get(PromotionUsage) ?? []
     expect(rows.map((row) => row.promotionId)).toEqual([uncappedPromotion.id])
+  })
+
+  // D-R5-17/C5: budget registration must treat a delivery discount exactly like any
+  // other discount type — no effect-type-specific exclusion anywhere in this service.
+  it('counts a DELIVERY_DISCOUNT effect into total_discount_amount the same as any other amount-carrying effect', async () => {
+    const { em, tables } = createFakeEm()
+    const promotion = seedPromotion(tables)
+    const service = new PromotionUsageService()
+
+    const result = await service.registerUsage(
+      asEm(em),
+      {
+        orderId: 'order-1',
+        orderType: 'order',
+        customerId: null,
+        currency: 'USD',
+        appliedPromotions: [appliedPromotion(promotion.id as string, [deliveryDiscountEffect('-5.00')])],
+      },
+      SCOPE,
+    )
+
+    expect(result).toEqual({ ok: true, budgetExceeded: [] })
+    const rows = tables.get(PromotionUsage) ?? []
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({ totalDiscountAmount: '5.00' })
+  })
+
+  it('blocks a DELIVERY_DISCOUNT-producing promotion once it would exceed max_budget, same as any other effect type', async () => {
+    const { em, tables } = createFakeEm()
+    const promotion = seedPromotion(tables, { maxBudget: '5.00', budgetCurrency: 'USD' })
+    const service = new PromotionUsageService()
+
+    const first = await service.registerUsage(
+      asEm(em),
+      {
+        orderId: 'order-1',
+        orderType: 'order',
+        customerId: null,
+        currency: 'USD',
+        appliedPromotions: [appliedPromotion(promotion.id as string, [deliveryDiscountEffect('-5.00')])],
+      },
+      SCOPE,
+    )
+    expect(first).toEqual({ ok: true, budgetExceeded: [] })
+
+    const second = await service.registerUsage(
+      asEm(em),
+      {
+        orderId: 'order-2',
+        orderType: 'order',
+        customerId: null,
+        currency: 'USD',
+        appliedPromotions: [appliedPromotion(promotion.id as string, [deliveryDiscountEffect('-1.00')])],
+      },
+      SCOPE,
+    )
+    expect(second).toEqual({ ok: true, budgetExceeded: [promotion.id] })
   })
 })
 

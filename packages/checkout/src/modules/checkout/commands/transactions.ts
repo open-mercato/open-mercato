@@ -262,7 +262,11 @@ const updateTransactionStatusCommand: CommandHandler<Record<string, unknown>, { 
       if (nextTerminal && previousStatus !== nextStatus) {
         terminalEventPayload = {
           transactionId: transaction.id,
-          linkId: transaction.linkId,
+          // This command path 404s above when `link` cannot be resolved by
+          // `transaction.linkId`, so it is provably non-null here — `linkId` only
+          // became optional on the entity (Step 4.2, §4.4) for the session-backed rows
+          // this link-only command never touches.
+          linkId: transaction.linkId as string,
           templateId: link.templateId ?? null,
           slug: link.slug,
           status: transaction.status,

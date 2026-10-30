@@ -13,7 +13,13 @@ const scopedSchema = z.object({
 const warehouseLocationTypeSchema = z.enum(['zone', 'aisle', 'rack', 'bin', 'slot', 'dock', 'staging'])
 const inventoryStrategySchema = z.enum(['fifo', 'lifo', 'fefo'])
 const inventoryLotStatusSchema = z.enum(['available', 'hold', 'quarantine', 'expired'])
-const inventoryReservationSourceTypeSchema = z.enum(['order', 'transfer', 'manual'])
+// A16: widened to include 'checkout' so the general reservation type/list schemas (and
+// `InventoryReservationCreateInput`'s TS shape) accept it for in-process callers
+// (`wmsReservationService.reserveLinesForCheckout`, `availability`'s reserve/commit). The
+// PUBLIC route/command still rejects it explicitly in `commands/inventory-actions.ts` —
+// a runtime guard, not a narrower schema, so this one definition stays the single source
+// of truth for the type.
+const inventoryReservationSourceTypeSchema = z.enum(['order', 'transfer', 'manual', 'checkout'])
 const inventoryReservationStatusSchema = z.enum(['active', 'released', 'fulfilled'])
 const inventoryMovementTypeSchema = z.enum([
   'receipt',

@@ -10,6 +10,7 @@ import {
   ProductInventoryProfile,
   Warehouse,
 } from '../../data/entities'
+import { WmsReservationService } from '../../lib/wmsReservationService'
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: async () => ({
@@ -67,12 +68,23 @@ function createEm() {
   return em
 }
 
+// A1 extraction (`.ai/specs/analysis/ANALYSIS-2026-10-26-availability-release-5.md`):
+// `wms.inventory.reserve`/`.release` now resolve their core logic from the
+// `wmsReservationService` DI token (`commands/inventory-actions.ts`'s thin
+// wrappers) instead of running it inline, so the fake container here must be
+// able to resolve it too — same shape as the existing `em`/`dataEngine` stubs.
+// A real `WmsReservationService` instance is used (not a mock) because this
+// suite's whole point is to exercise that service's reserve/release logic
+// through the command, unchanged.
+const wmsReservationService = new WmsReservationService()
+
 function createCtx(em: ReturnType<typeof createEm>) {
   return {
     container: {
       resolve: (name: string) => {
         if (name === 'em') return em
         if (name === 'dataEngine') return {}
+        if (name === 'wmsReservationService') return wmsReservationService
         throw new Error(`Unexpected resolve: ${name}`)
       },
     },
@@ -174,6 +186,24 @@ describe('wms inventory reserve command', () => {
     expect(result).toMatchObject({ reservationId: expect.any(String) })
     expect(em.persist).toHaveBeenCalled()
     expect(em.flush).toHaveBeenCalled()
+  })
+
+  // Release 5 Phase 3 (A16, Step 2.2, `.ai/specs/2026-08-14-availability-contract.md` §4.4):
+  // `'checkout'` is a system-only source written only by `wmsReservationService
+  // .reserveLinesForCheckout` (`availability`'s own reserve). The public command — and so
+  // the public `POST /api/wms/inventory/reserve` route, which validates with the SAME
+  // schema and calls this SAME command — must reject it before touching any balance, so a
+  // tenant can never hand-create a `'checkout'` row the expiry sweep would later release.
+  it('rejects sourceType "checkout" with 400 and writes nothing (A16)', async () => {
+    const em = createEm()
+
+    const handler = commandRegistry.get('wms.inventory.reserve')
+    await expect(
+      handler!.execute!(makeReserveInput({ sourceType: 'checkout' }), createCtx(em)),
+    ).rejects.toMatchObject({ status: 400, body: { error: 'checkout_reservation_is_system_only' } })
+
+    expect(em.persist).not.toHaveBeenCalled()
+    expect(em.flush).not.toHaveBeenCalled()
   })
 
   it('throws insufficient_stock when no available quantity exists', async () => {
