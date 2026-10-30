@@ -3,6 +3,8 @@
 ## Goal
 Ship a React dashboard for inspecting any explicitly registered local experiment, live progress, responses, generated files and evaluator outcomes, with a reusable producer contract and documented harness workflows.
 
+Source doc: .ai/specs/2026-10-30-experiment-dashboard.md
+
 ## Scope and decisions
 - Repository-owned tool in `scripts/experiment-dashboard/`, launched with `yarn experiments:dashboard`; existing React, React DOM, esbuild and test tooling only.
 - Multiple experiment directories, arbitrary experiment/case/lane IDs and dynamic totals. Versioned generic snapshots plus read-only adapters for official harness results and existing summary reports.
@@ -26,11 +28,13 @@ Ship a React dashboard for inspecting any explicitly registered local experiment
 
 ## Progress
 
+PR: #8259
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Contract and regression
 
-- [ ] 1.1 Write implementation spec and failing contract/security tests.
+- [x] 1.1 Write implementation spec and failing contract/security tests. — f8f3add95
 
 ### Phase 2: Reusable server
 
