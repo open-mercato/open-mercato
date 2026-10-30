@@ -15,7 +15,13 @@ import {
   type EvalScope,
   type SuiteAggregate,
 } from '../evalReplayService'
-import { EVAL_SET_UNRESOLVED, readEvalSetPointer, resolveManifest, type EvalSetManifestCase } from '../manifest'
+import {
+  EVAL_SET_UNRESOLVED,
+  readEvalSetPointer,
+  resolveManifest,
+  type EvalSetManifest,
+  type EvalSetManifestCase,
+} from '../manifest'
 import type { Json } from '../types'
 import { detectFlaky } from './flaky'
 import {
@@ -116,9 +122,11 @@ function sumOrNull(values: ReadonlyArray<number | null | undefined>): number | n
   return present.length ? present.reduce((sum, value) => sum + value, 0) : null
 }
 
+type AssertionInfo = { scorerKey: string; type: string }
+
 function summarizeBuckets(
   results: ReadonlyArray<AgentEvalResult>,
-  assertionsById: Map<string, AgentEvalAssertion>,
+  assertionsById: Map<string, AssertionInfo>,
 ): SuiteAggregate['summary'] {
   const summary: SuiteAggregate['summary'] = {}
   for (const result of results) {
@@ -169,11 +177,16 @@ async function loadAssertions(
   em: EntityManager,
   scope: EvalScope,
   results: ReadonlyArray<AgentEvalResult>,
-): Promise<Map<string, AgentEvalAssertion>> {
+  manifest: EvalSetManifest | null,
+): Promise<Map<string, AssertionInfo>> {
   const assertionIds = Array.from(new Set(results.map((result) => result.assertionId)))
   if (!assertionIds.length) return new Map()
   const assertions = await findWithDecryption(em, AgentEvalAssertion, { id: { $in: assertionIds }, ...scope }, undefined, scope)
-  return new Map(assertions.map((assertion) => [assertion.id, assertion]))
+  const byId = new Map<string, AssertionInfo>(
+    (manifest?.assertions ?? []).map((assertion) => [assertion.id, assertion]),
+  )
+  for (const assertion of assertions) byId.set(assertion.id, assertion)
+  return byId
 }
 
 /**
@@ -210,7 +223,17 @@ export async function buildEvalReport(
       : null
   const baseline = baselineRun ? await loadSuite(em, scope, baselineRun.id) : null
 
-  const assertionsById = await loadAssertions(em, scope, [...current.results, ...(baseline?.results ?? [])])
+  const pointer = readEvalSetPointer(suiteRun.summary)
+  const manifest = pointer
+    ? await resolveManifest(em, scope, suiteRun.agentDefinitionId, pointer.version)
+    : null
+
+  const assertionsById = await loadAssertions(
+    em,
+    scope,
+    [...current.results, ...(baseline?.results ?? [])],
+    manifest,
+  )
   const currentBuckets = summarizeBuckets(current.results, assertionsById)
   const baselineBuckets = baseline ? summarizeBuckets(baseline.results, assertionsById) : null
   const comparison = compareToBaseline(currentBuckets, baselineBuckets, baselineRun?.id ?? null)
@@ -221,10 +244,6 @@ export async function buildEvalReport(
     : []
   const casesById = new Map(cases.map((entry) => [entry.id, entry]))
 
-  const pointer = readEvalSetPointer(suiteRun.summary)
-  const manifest = pointer
-    ? await resolveManifest(em, scope, suiteRun.agentDefinitionId, pointer.version)
-    : null
   const frozenCasesById = new Map<string, EvalSetManifestCase>(
     (manifest?.cases ?? []).map((entry) => [entry.id, entry]),
   )
@@ -318,9 +337,9 @@ export async function buildEvalReport(
     const frozenCase = frozenCasesById.get(caseId)
     const reportCase: EvalReportCase = {
       id: caseId,
-      key: caseId,
+      key: frozenCase?.key ?? caseId,
       name: frozenCase ? frozenCase.name : evalCase?.name ?? null,
-      source: 'db',
+      source: frozenCase && manifest ? manifest.source : 'db',
       flaky: flaky.flakyCaseIds.has(caseId),
       baselineStatus: baseline ? baselineStatusOf(baselineTrialsByCase.get(caseId) ?? []) : 'absent',
       trials: (trialsByCase.get(caseId) ?? []).map(buildTrial),

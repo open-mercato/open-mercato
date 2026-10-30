@@ -4,6 +4,7 @@ import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib
 import { AgentEvalCase, AgentEvalSuiteRun } from '../../data/entities'
 import type { EvalSetSnapshot } from '../../data/validators'
 import { replaySuiteRun } from './evalReplayService'
+import type { EvalSetFile } from './evalSetFile'
 import type {
   CompleteEvalRunCommandInput,
   CompleteEvalRunCommandResult,
@@ -27,6 +28,12 @@ export type EvalGateInput = {
    * `evalSetVersion`.
    */
   snapshot?: EvalSetSnapshot
+  /**
+   * Runs an eval-set FILE instead of the database cases. The file is frozen into
+   * a `source: 'file'` manifest and the suite run is pinned to its hash; cannot
+   * be combined with `snapshot` or `evalSetVersion`.
+   */
+  cases?: EvalSetFile
   /** Overrides automatic baseline selection (previous completed run for this agent). */
   baselineSuiteRunId?: string | null
   repeatCount?: number
@@ -73,7 +80,7 @@ export async function runEvalGate(
 
   // Only APPROVED cases form the regression set — a draft has not been reviewed,
   // so its expected value cannot serve as a baseline for blocking a release.
-  const cases = input.snapshot
+  const cases = input.snapshot || input.cases
     ? null
     : await em.find(AgentEvalCase, {
         ...scope,
@@ -104,6 +111,7 @@ export async function runEvalGate(
         agentDefinitionId: input.agentDefinitionId,
         ...(cases ? { evalCaseIds: cases.map((entry) => entry.id) } : {}),
         ...(input.snapshot ? { snapshot: input.snapshot } : {}),
+        ...(input.cases ? { evalSet: input.cases } : {}),
         repeatCount: input.repeatCount ?? 1,
         trigger: 'ci',
         // CI never lets a judge gate — see the doc comment.

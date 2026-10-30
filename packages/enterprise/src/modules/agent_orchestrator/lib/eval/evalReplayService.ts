@@ -253,7 +253,11 @@ export async function executeCaseRun(
   const finished = await em.findOne(AgentEvalCaseRun, { id: caseRunId, ...scope })
   if (finished) {
     const evalCase = await em.findOne(AgentEvalCase, { id: finished.evalCaseId, ...scope })
-    await emitCaseProgress('completed', finished, evalCase?.agentDefinitionId ?? '', scope)
+    const agentDefinitionId =
+      evalCase?.agentDefinitionId ??
+      (await em.findOne(AgentEvalSuiteRun, { id: finished.suiteRunId, ...scope }))?.agentDefinitionId ??
+      ''
+    await emitCaseProgress('completed', finished, agentDefinitionId, scope)
   }
   return result
 }

@@ -74,7 +74,7 @@
 | 6 | 6.4 | Cover citations with integration tests and docs | dispatch | done | 27b4b02d7 |
 | 7 | 7.1 | Define the eval-set file format | dispatch | done | pending |
 | 7 | 7.2 | Read and write eval sets as YAML | dispatch:cheap | done | pending |
-| 7 | 7.3 | Start eval runs from a file manifest | dispatch:capable | todo | — |
+| 7 | 7.3 | Start eval runs from a file manifest | dispatch:capable | done | pending |
 | 7 | 7.4 | Add CLI --cases and eval-set export and validate | dispatch | todo | — |
 | 7 | 7.5 | Add eval-set import and export APIs | dispatch:capable | todo | — |
 | 7 | 7.6 | Add the tool replay seam to ai-assistant | dispatch:capable | todo | — |

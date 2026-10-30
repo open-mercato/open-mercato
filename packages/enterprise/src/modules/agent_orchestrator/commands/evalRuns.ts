@@ -19,6 +19,7 @@ import {
   resolveSnapshotPin,
   type EvalSetManifest,
 } from '../lib/eval/manifest'
+import { manifestFromFile, validateEvalSetFile } from '../lib/eval/evalSetFile'
 import { evalSetSnapshotSchema, type EvalSetSnapshot } from '../data/validators'
 import { emitAgentOrchestratorEvent } from '../events'
 
@@ -37,6 +38,7 @@ const startEvalRunCommandSchema = z.object({
   agentDefinitionId: z.string().min(1).max(100),
   evalCaseIds: z.array(z.string().uuid()).min(1).optional(),
   snapshot: evalSetSnapshotSchema.optional(),
+  evalSet: z.unknown().optional(),
   repeatCount: z.number().int().min(1).max(20).default(1),
   trigger: z.enum(['manual', 'ci', 'scheduled']).default('manual'),
   judgeMayGate: z.boolean().default(true),
@@ -44,11 +46,22 @@ const startEvalRunCommandSchema = z.object({
   evalSetVersion: z.string().max(100).nullable().optional(),
   triggeredBy: z.string().max(100).nullable().optional(),
 }).superRefine((value, ctx) => {
-  if (!value.snapshot && !value.evalCaseIds) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['evalCaseIds'], message: 'evalCaseIds is required without snapshot' })
+  const hasEvalSet = value.evalSet !== undefined
+  if (!value.snapshot && !hasEvalSet && !value.evalCaseIds) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['evalCaseIds'],
+      message: 'evalCaseIds is required without snapshot or evalSet',
+    })
   }
   if (value.snapshot && value.evalSetVersion) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['evalSetVersion'], message: 'evalSetVersion cannot be combined with snapshot' })
+  }
+  if (hasEvalSet && value.snapshot) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['evalSet'], message: 'evalSet cannot be combined with snapshot' })
+  }
+  if (hasEvalSet && value.evalSetVersion) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['evalSetVersion'], message: 'evalSetVersion cannot be combined with evalSet' })
   }
 })
 export type StartEvalRunCommandInput = z.infer<typeof startEvalRunCommandSchema>
@@ -83,6 +96,42 @@ async function freezeEvalSet(
   }
 }
 
+/**
+ * Freezes an eval-set FILE (already parsed from JSON/YAML) into a manifest. The
+ * hash is always recomputed here from the validated file, never taken from the
+ * caller, so a file run pins exactly the dataset it replays.
+ */
+function freezeFileEvalSet(raw: unknown, agentId: string): { manifest: EvalSetManifest; version: string } {
+  const validation = validateEvalSetFile(raw)
+  if (!validation.ok) {
+    throw new CrudHttpError(422, {
+      error: '[internal] eval set file is invalid',
+      code: 'eval_set_file_invalid',
+      issues: validation.issues,
+    })
+  }
+  if (validation.file.agentId !== agentId) {
+    throw new CrudHttpError(422, {
+      error: '[internal] eval set file belongs to a different agent',
+      code: 'eval_set_agent_mismatch',
+      agentId: validation.file.agentId,
+    })
+  }
+  try {
+    return manifestFromFile(validation.file)
+  } catch (error) {
+    if (error instanceof EvalSetTooLargeError) {
+      throw new CrudHttpError(422, {
+        error: '[internal] eval set manifest exceeds the size limit',
+        code: error.code,
+        bytes: error.bytes,
+        maxBytes: error.maxBytes,
+      })
+    }
+    throw error
+  }
+}
+
 function selectManifestCaseIds(manifest: EvalSetManifest, requested: string[] | undefined): string[] {
   const manifestIds = manifest.cases.map((entry) => entry.id)
   if (!requested) return manifestIds
@@ -102,9 +151,11 @@ const startEvalRunCommand: CommandHandler<StartEvalRunCommandInput, StartEvalRun
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const scope = { tenantId: input.tenantId, organizationId: input.organizationId }
 
-    const pinned = input.snapshot
-      ? await freezeEvalSet(em, scope, input.agentDefinitionId, { snapshot: input.snapshot })
-      : null
+    const pinned = input.evalSet !== undefined
+      ? freezeFileEvalSet(input.evalSet, input.agentDefinitionId)
+      : input.snapshot
+        ? await freezeEvalSet(em, scope, input.agentDefinitionId, { snapshot: input.snapshot })
+        : null
 
     // Only approved cases are replayable: a draft has not been reviewed, so its
     // expected value cannot be trusted as a regression baseline.
