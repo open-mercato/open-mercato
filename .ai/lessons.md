@@ -24,7 +24,7 @@ This catalog indexes 164 focused lessons. Route the task first, then read only r
 
 - [Serialize dev-session stale recovery across ownership changes](lessons/serialize-dev-session-stale-recovery.md) — area:architecture,testing,debugging; module:create_app; topic:dev-runtime,concurrency,template-sync
 
-- [Business extensions belong to the owning module](lessons/business-extensions-belong-to-the-owning-module.md) — area:architecture,backend-ui,testing; module:customers,example,shared,ui; topic:module-boundaries,testing,template-sync
+- [Business extensions belong to the owning module](lessons/business-extensions-belong-to-the-owning-module.md) — area:architecture,backend-ui,testing; module:customers,example,shared,ui; topic:module-boundaries,testing,template-sync,public-contracts
 - [Durable owner policies need visible partition state](lessons/durable-owner-policies-need-visible-partition-state.md) — area:module-data,architecture,testing; module:attachments; topic:access-control,data-integrity,database-migrations
 - [Real WebAuthn tests need a valid relying-party hostname](lessons/real-webauthn-tests-need-valid-rp-hostname.md) — area:testing,integration; module:security; topic:webauthn,testing
 - [Provider validation boundaries must catch synchronous errors](lessons/provider-validation-boundaries-must-catch-synchronous-errors.md) — area:architecture,testing; module:security; topic:validation-errors,provider-lifecycle
