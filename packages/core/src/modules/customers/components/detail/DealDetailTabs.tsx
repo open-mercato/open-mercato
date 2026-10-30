@@ -7,6 +7,8 @@ import { registerComponent } from '@open-mercato/shared/modules/widgets/componen
 import { useRegisteredComponent } from '@open-mercato/ui/backend/injection/useRegisteredComponent'
 import { Tabs, TabsList, TabsTrigger } from '@open-mercato/ui/primitives/tabs'
 
+export const DEAL_DETAIL_TAB_IDS = ['activities', 'people', 'companies', 'notes', 'files', 'changelog'] as const
+
 export type DealTabId =
   | 'activities'
   | 'people'
@@ -30,6 +32,7 @@ export type DealDetailTabsProps = {
   activeTab: DealTabId
   onTabChange: (tab: DealTabId) => void
   injectedTabs?: Array<{ id: string; label: string; priority?: number }>
+  isLoadingInjectedTabs?: boolean
   hiddenTabIds?: string[]
   peopleCount?: number
   companiesCount?: number
@@ -54,6 +57,7 @@ function DefaultDealDetailTabs({
   activeTab,
   onTabChange,
   injectedTabs = [],
+  isLoadingInjectedTabs = false,
   hiddenTabIds = [],
   peopleCount = 0,
   companiesCount = 0,
@@ -104,7 +108,7 @@ function DefaultDealDetailTabs({
     const hidden = new Set(hiddenTabIds)
     return [
       ...builtInTabs,
-      ...injectedTabs.map((tab) => ({
+      ...injectedTabs.filter((tab, index) => !builtInTabs.some((native) => native.id === tab.id) && injectedTabs.findIndex((candidate) => candidate.id === tab.id) === index).map((tab) => ({
         id: tab.id as DealTabId,
         label: tab.label,
         priority: tab.priority,
@@ -113,6 +117,12 @@ function DefaultDealDetailTabs({
       .sort((left, right) => (right.priority ?? 0) - (left.priority ?? 0))
       .filter((tab) => !hidden.has(tab.id))
   }, [builtInTabs, hiddenTabIds, injectedTabs])
+
+  React.useEffect(() => {
+    if (isLoadingInjectedTabs || allTabs.some((tab) => tab.id === activeTab)) return
+    const fallback = allTabs[0]?.id
+    if (fallback) onTabChange(fallback)
+  }, [activeTab, allTabs, isLoadingInjectedTabs, onTabChange])
 
   return (
     <div>

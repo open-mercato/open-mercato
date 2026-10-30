@@ -132,6 +132,7 @@ jest.mock('../../../../../components/detail/CompanyKpiBar', () => ({
 }))
 
 jest.mock('../../../../../components/detail/CompanyDetailTabs', () => ({
+  COMPANY_DETAIL_TAB_IDS: jest.requireActual<typeof import('../../../../../components/detail/CompanyDetailTabs')>('../../../../../components/detail/CompanyDetailTabs').COMPANY_DETAIL_TAB_IDS,
   resolveLegacyTab: (tab?: string | null) => {
     if (tab === 'activity-log' || tab === 'files') {
       return tab

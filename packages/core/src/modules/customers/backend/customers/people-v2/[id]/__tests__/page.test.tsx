@@ -114,6 +114,7 @@ jest.mock('../../../../../components/detail/PersonDetailHeader', () => ({
 }))
 
 jest.mock('../../../../../components/detail/PersonDetailTabs', () => ({
+  PERSON_DETAIL_TAB_IDS: jest.requireActual<typeof import('../../../../../components/detail/PersonDetailTabs')>('../../../../../components/detail/PersonDetailTabs').PERSON_DETAIL_TAB_IDS,
   resolveLegacyTab: (tab?: string | null) => {
     if (tab === 'activities' || tab === 'companies' || tab === 'tasks' || tab === 'deals' || tab === 'files' || tab === 'changelog' || tab === 'addresses') {
       return tab

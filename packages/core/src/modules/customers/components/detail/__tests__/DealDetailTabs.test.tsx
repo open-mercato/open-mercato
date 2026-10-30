@@ -14,6 +14,38 @@ function tabOrder() {
 }
 
 describe('DealDetailTabs', () => {
+  it('preserves a pending injected selection and native defaults while sorting deduplicated tabs', () => {
+    const onTabChange = jest.fn()
+    const { rerender } = render(
+      <DealDetailTabs activeTab="crm.pending" onTabChange={onTabChange} isLoadingInjectedTabs>
+        <div>content</div>
+      </DealDetailTabs>,
+    )
+    expect(onTabChange).not.toHaveBeenCalled()
+    const injectedTabs = [
+      { id: 'crm.pending', label: 'Pending', priority: 1000 },
+      { id: 'crm.pending', label: 'Duplicate', priority: 2000 },
+      { id: 'activities', label: 'Spoofed native', priority: 3000 },
+    ]
+    rerender(
+      <DealDetailTabs activeTab="crm.pending" onTabChange={onTabChange} injectedTabs={injectedTabs}>
+        <div>content</div>
+      </DealDetailTabs>,
+    )
+    expect(screen.getAllByRole('tab')[0]).toHaveTextContent('Pending')
+    expect(screen.getByRole('tab', { name: 'Pending', exact: true })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.queryByRole('tab', { name: 'Duplicate', exact: true })).toBeNull()
+    expect(screen.queryByRole('tab', { name: 'Spoofed native', exact: true })).toBeNull()
+    expect(onTabChange).not.toHaveBeenCalled()
+    rerender(
+      <DealDetailTabs activeTab="activities" onTabChange={onTabChange} injectedTabs={injectedTabs}>
+        <div>content</div>
+      </DealDetailTabs>,
+    )
+    expect(screen.getByRole('tab', { name: 'Activities' })).toHaveAttribute('aria-selected', 'true')
+    expect(onTabChange).not.toHaveBeenCalled()
+  })
+
   it('renders the built-in tabs', () => {
     render(
       <DealDetailTabs activeTab="activities" onTabChange={() => {}}>
