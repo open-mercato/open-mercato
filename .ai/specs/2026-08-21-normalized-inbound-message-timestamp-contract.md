@@ -78,6 +78,8 @@ No public HTTP request schema gains authority to set `Message.sentAt`; internal 
 
 User-facing surfaces render the canonical timestamp when present and a translated “Unknown date” fallback otherwise. Local `createdAt` may be shown separately only when a surface explicitly presents import or diagnostic metadata.
 
+The CRM subscriber reads the scoped platform message for canonical occurrence time. A legacy event whose message no longer exists may use its valid event-carried provider timestamp; neither an absent nor malformed timestamp falls back to link creation time. This supersedes the createdAt fallback described in the 2026-09-15 #6095 amendment of the CRM email specification.
+
 ## 📝 Edge Cases & Failure Scenarios
 
 - Invalid MIME dates are ignored without throwing.

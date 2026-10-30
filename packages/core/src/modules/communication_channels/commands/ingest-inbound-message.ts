@@ -586,7 +586,7 @@ const ingestInboundMessageCommand: CommandHandler<IngestInboundMessageInput, Ing
         // this worker ran. Carried here so no consumer has to read the
         // ExternalMessage row across the module boundary. ISO string because a
         // persistent event is serialized onto the queue; null when the adapter
-        // supplied no timestamp, which leaves the consumer's own fallback.
+        // supplied no provider-native timestamp.
         providerTimestamp:
           externalMessage.providerTimestamp instanceof Date
             ? externalMessage.providerTimestamp.toISOString()

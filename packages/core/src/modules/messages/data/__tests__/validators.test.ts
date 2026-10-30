@@ -245,6 +245,20 @@ describe('messages validators', () => {
     })
   })
 
+  it('preserves an internal unknown timestamp while stripping client timestamp authority', () => {
+    const input = {
+      subject: 'Timestamp boundary',
+      body: 'Internal message',
+      recipients: [{ userId: '550e8400-e29b-41d4-a716-446655440077', type: 'to' }],
+      sentAt: null,
+    }
+    const internal = composeMessageSchema.parse(input)
+    const publicRequest = composeMessageRequestSchema.parse(input)
+
+    expect(internal.sentAt).toBeNull()
+    expect(publicRequest).not.toHaveProperty('sentAt')
+  })
+
   it('allows saving draft without recipients, subject, or body', () => {
     const result = composeMessageSchema.safeParse({
       isDraft: true,
