@@ -12,7 +12,7 @@ for (const permitted of [false, true]) {
     const superadminToken = await getAuthToken(request, 'superadmin')
     const { tenantId, organizationId } = getTokenContext(superadminToken)
     const stamp = randomUUID()
-    const password = randomBytes(24).toString('hex')
+    const password = `Aa1!${randomBytes(20).toString('hex')}`
     const email = `acl-live-${stamp}@example.com`
     const keyName = `QA ACL live grant ${stamp}`
     const roleIds: string[] = []
