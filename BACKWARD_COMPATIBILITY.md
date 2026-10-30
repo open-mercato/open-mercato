@@ -609,7 +609,7 @@ Spec: [`.ai/specs/2026-09-08-error-reporting-policy.md`](.ai/specs/2026-09-08-er
 
 ---
 
-## Search Build Contexts Omit Encrypted Custom Fields (2026-10-23)
+## Search Build Contexts Omit Encrypted Custom Fields (2026-10-30)
 
 Every module's search `buildSource` received custom fields decrypted, so a source that turns them into text, as the customers Company and Person sources do, sent the plaintext of custom fields declared `encrypted` to the embedding provider, and any callback could copy it into a stored presenter or link, against `packages/search/AGENTS.md` ("Never include encrypted or sensitive fields in `buildSource` text output"). `SearchIndexer` now keeps them out of every build context. Spec: [`.ai/specs/2026-10-30-search-build-context-encrypted-custom-fields.md`](.ai/specs/2026-10-30-search-build-context-encrypted-custom-fields.md).
 

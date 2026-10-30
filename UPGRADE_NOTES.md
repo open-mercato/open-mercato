@@ -96,7 +96,7 @@ are unchanged. Host-local proxies and diagnostics can use a final loopback-only
 override. See [migration, override examples, WSS routing, and deployment checks](docker/traefik/README.md#private-application-ports-and-migration).
 No application API, database, or module-code migration is required.
 
-### Search sources no longer receive the plaintext of encrypted custom fields
+### Search sources no longer receive the plaintext of encrypted custom fields (#7872)
 
 `SearchIndexer` now leaves custom fields whose definition is `encrypted` out of the records and custom fields it hands to search sources (`buildSource`, `formatResult`, `resolveUrl`, `resolveLinks`), including records a source loads through `ctx.queryEngine`. Before, the customers Company and Person sources wrote such values into their search text, which the vector strategy sends to the embedding provider and stores with the vector document, and any source could copy them into the presenter or links stored in the fulltext and vector indexes. The record fields an index receives (`IndexableRecord.fields`) are unchanged: the hashed `search_tokens` index still covers encrypted custom fields, the fulltext driver keeps applying the entity's `fieldPolicy` (`SEARCH_EXCLUDE_ENCRYPTED_FIELDS` covers encryption-map fields, not custom fields, so an entity without a `searchable` whitelist still sends encrypted custom fields there; tracked in #7894), and the vector strategy's fallback text for a record without source text is built from them as before.
 

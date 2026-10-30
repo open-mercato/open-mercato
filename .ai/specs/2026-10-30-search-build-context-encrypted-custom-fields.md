@@ -71,7 +71,7 @@ No route changes. Public TypeScript surface:
 
 ## Migration & Backward Compatibility
 
-This narrows the documented behaviour of `SearchBuildContext`, a public contract, under the Emergency Security Exception of `BACKWARD_COMPATIBILITY.md`; the dated entry "Search Build Contexts Omit Encrypted Custom Fields (2026-10-23)" records it.
+This narrows the documented behaviour of `SearchBuildContext`, a public contract, under the Emergency Security Exception of `BACKWARD_COMPATIBILITY.md`; the dated entry "Search Build Contexts Omit Encrypted Custom Fields (2026-10-30)" records it.
 
 - **Qualifying condition.** The surface is the decrypted value of an encrypted custom field in a build context. Callback output is stored in the fulltext and vector indexes or sent to the embedding provider, so keeping the old context for any window, behind a flag, or for indexers built without the resolver would keep the plaintext reaching those stores, for the first-party customers sources as well as third-party ones.
 - **Narrowest removal.** Only custom fields declared `encrypted` are removed when the definitions are known; everything else in the context is unchanged, and `IndexableRecord.fields` is untouched. Removing every custom field is limited to the cases where the indexer cannot tell which are encrypted (no resolver, or the lookup fails).
