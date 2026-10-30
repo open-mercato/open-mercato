@@ -9,6 +9,21 @@ export const injectionTable: ModuleInjectionTable = {
     widgetId: 'staff.injection.time-entries-summary-footer',
     priority: 100,
   },
+  'staff.time_tracking.settings:tabs': [
+    {
+      widgetId: 'staff.injection.time-tracking-settings-support',
+      kind: 'tab',
+      groupId: 'support',
+      groupLabel: 'staff.support.settings.title',
+      priority: 50,
+    },
+  ],
+  'portal:dashboard:sections': [
+    {
+      widgetId: 'staff.injection.portal-support-tickets',
+      priority: 20,
+    },
+  ],
 }
 
 export default injectionTable
