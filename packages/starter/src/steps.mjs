@@ -440,6 +440,11 @@ export const workspaceInstallStep = {
   },
 }
 
+const WORKSPACE_BUILD_ARTIFACTS = [
+  ['packages', 'cli', 'dist', 'bin.js'],
+  ['packages', 'core', 'dist', 'generated', 'entities.ids.generated.js'],
+]
+
 export const workspaceBuildStep = {
   id: 'workspace-build',
   expectation: '1-3 minutes on the first run, cached by turbo afterwards',
@@ -448,12 +453,18 @@ export const workspaceBuildStep = {
     // The database step shells out to the `mercato` CLI, which only exists
     // after packages are built (turbo's db:migrate task declares no build
     // dependency) — so this must converge before any DB work on a fresh clone.
-    const cliBuilt = fs.existsSync(path.join(ctx.repoRoot, 'packages', 'cli', 'dist', 'bin.js'))
-    return { ok: cliBuilt && !ctx.installChanged, detail: cliBuilt && !ctx.installChanged ? 'packages built, dependencies unchanged' : 'building (turbo caches make re-runs fast)' }
+    // core's dist/generated only exists once `generate` ran AND packages were
+    // rebuilt afterwards, so it proves the whole sequence converged.
+    const built = WORKSPACE_BUILD_ARTIFACTS.every((segments) => fs.existsSync(path.join(ctx.repoRoot, ...segments)))
+    return { ok: built && !ctx.installChanged, detail: built && !ctx.installChanged ? 'packages built, dependencies unchanged' : 'building (turbo caches make re-runs fast)' }
   },
   async apply(ctx) {
-    runYarn(ctx, ['build:packages'])
-    runYarn(ctx, ['generate'])
+    // Mirrors the root `yarn build`: core only compiles `generated/**` into
+    // dist/generated when it exists, which on a fresh clone is after `generate`.
+    const run = ctx.runYarnImpl ?? runYarn
+    run(ctx, ['build:packages'])
+    run(ctx, ['generate'])
+    run(ctx, ['build:packages'])
   },
 }
 

@@ -12,6 +12,7 @@ import { readEndpointRateLimitConfig } from '@open-mercato/shared/lib/ratelimit/
 import { checkAuthRateLimit } from '@open-mercato/core/modules/auth/lib/rateLimitCheck'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { emitAuthEvent } from '@open-mercato/core/modules/auth/events'
+import { withTenantHintPath } from '@open-mercato/core/modules/auth/lib/tenantHint'
 
 const logger = createLogger('auth').child({ component: 'reset-confirm' })
 
@@ -60,7 +61,7 @@ export async function POST(req: Request) {
   } catch (err) {
     logger.error('Failed to create notification', { err })
   }
-  return NextResponse.json({ ok: true, redirect: '/login' })
+  return NextResponse.json({ ok: true, redirect: withTenantHintPath('/login', user.tenantId) })
 }
 
 export const metadata = { requireAuth: false }
@@ -81,7 +82,7 @@ export const openApi: OpenApiRouteDoc = {
   methods: {
     POST: {
       summary: 'Complete password reset',
-      description: 'Validates the reset token and updates the user password.',
+      description: 'Validates the reset token and updates the user password. The returned `redirect` carries the resolved user\'s tenant as a navigation hint (`/login?tenant=...`) so a tenant-bound user lands on the tenant login entry; tenantless users get `/login`.',
       requestBody: {
         contentType: 'application/x-www-form-urlencoded',
         schema: confirmPasswordResetSchema,

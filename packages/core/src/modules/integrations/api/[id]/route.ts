@@ -1,12 +1,17 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
-import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { createRequestContainer, type AppContainer } from '@open-mercato/shared/lib/di/container'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi/types'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { getBundle, getBundleIntegrations, getIntegration } from '@open-mercato/shared/modules/integrations/types'
 import { CredentialsEncryptionUnavailableError, type CredentialsService } from '../../lib/credentials-service'
 import type { IntegrationStateService } from '../../lib/state-service'
 import type { IntegrationLogService } from '../../lib/log-service'
 import { deriveIntegrationHealthStatus, getEffectiveHealthCheckConfig } from '../../lib/health-service'
+import type { OAuthGrantReadStatus } from '../../lib/oauth/descriptor'
+import type { IntegrationOAuthGrantService } from '../../lib/oauth/grant-service'
+import { integrationDetailResponseSchema } from '../openapi'
 import {
   finalizeIntegrationsReadResponse,
   integrationApiRoutePaths,
@@ -20,9 +25,45 @@ export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['integrations.view'] },
 }
 
-export const openApi = {
-  tags: ['Integrations'],
+const errorResponseSchema = z.object({ error: z.string(), code: z.string().optional() })
+
+export const openApi: OpenApiRouteDoc = {
+  tag: 'Integrations',
   summary: 'Get integration detail',
+  methods: {
+    GET: {
+      summary: 'Get integration detail',
+      description:
+        'Returns the integration definition (including detailPage.connectTabId), its state, credentials presence, health, analytics and oauthGrant: the status of the tenant-level OAuth grant of the active organization, or null without a live grant.',
+      responses: [{ status: 200, description: 'Integration detail', schema: integrationDetailResponseSchema }],
+      errors: [
+        { status: 400, description: 'Invalid integration id, or the organization scope cannot be resolved', schema: errorResponseSchema },
+        { status: 401, description: 'Unauthorized', schema: errorResponseSchema },
+        { status: 404, description: 'Integration not found', schema: errorResponseSchema },
+      ],
+    },
+  },
+}
+
+const OAUTH_GRANT_READ_FAILED_CODE = 'integrations.oauth_inspect_failed'
+
+async function readOAuthGrantSummary(
+  container: AppContainer,
+  integrationId: string,
+  scope: { tenantId: string; organizationId: string },
+): Promise<{ status: OAuthGrantReadStatus } | null> {
+  try {
+    const grantService = container.resolve<IntegrationOAuthGrantService>('integrationOAuthGrantService')
+    const status = await grantService.readGrantStatus(integrationId, scope)
+    return status ? { status } : null
+  } catch (error) {
+    getTelemetryRuntime()?.reportError(error, {
+      module: 'integrations',
+      code: OAUTH_GRANT_READ_FAILED_CODE,
+      attributes: { integrationId, tenantId: scope.tenantId, organizationId: scope.organizationId },
+    })
+    return { status: 'unavailable' }
+  }
 }
 
 export async function GET(req: Request, ctx: { params?: Promise<{ id?: string }> | { id?: string } }) {
@@ -64,7 +105,7 @@ export async function GET(req: Request, ctx: { params?: Promise<{ id?: string }>
   const logService = container.resolve('integrationLogService') as IntegrationLogService
   const scope = { organizationId: organizationId, tenantId: auth.tenantId }
 
-  const [credentials, credentialsUpdatedAt, state, analyticsMap] = await Promise.all([
+  const [credentials, credentialsUpdatedAt, state, analyticsMap, oauthGrant] = await Promise.all([
     credentialsService.resolve(integration.id, scope).catch((err) => {
       if (err instanceof CredentialsEncryptionUnavailableError) return null
       throw err
@@ -75,6 +116,7 @@ export async function GET(req: Request, ctx: { params?: Promise<{ id?: string }>
     }),
     stateService.resolveState(integration.id, scope),
     logService.aggregateAnalytics([integration.id], scope, 30),
+    readOAuthGrantSummary(container, integration.id, scope),
   ])
 
   const hasCredentials = credentials != null && Object.keys(credentials).length > 0
@@ -148,6 +190,7 @@ export async function GET(req: Request, ctx: { params?: Promise<{ id?: string }>
       credentialsUpdatedAt: credentialsUpdatedAt?.toISOString() ?? null,
       healthStatus,
       analytics,
+      oauthGrant,
     },
   })
 }

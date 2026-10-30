@@ -6,6 +6,7 @@ import { toHeaderLabel } from '@open-mercato/shared/lib/crud/exporters'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { isOrganizationReadAccessAllowed } from '@open-mercato/core/modules/directory/utils/organizationScopeGuard'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
@@ -93,7 +94,7 @@ export async function POST(req: Request) {
 
     const body = registerDeviceAdminSchema.parse(await readJsonSafe(req, {}))
     const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
-    const organizationId = scope?.selectedId ?? auth.orgId ?? null
+    const organizationId = resolveSingleOrganizationIdOrDeny(scope, auth) ?? null
 
     // Validate the on-behalf-of target before registering. `body.userId` is caller-supplied, and the
     // fan-out delivers by `(tenant, org, user)` — so without this an admin could register their OWN push

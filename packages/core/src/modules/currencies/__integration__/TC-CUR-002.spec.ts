@@ -68,4 +68,53 @@ test.describe('TC-CUR-002: Exchange Rate CRUD via API', () => {
       await deleteCurrenciesEntityIfExists(request, token, '/api/currencies/currencies', toCurrencyId);
     }
   });
+
+  test('deletes an exchange rate when the id is sent in the request body, as the backend UI does (#3566)', async ({ request }) => {
+    let token: string | null = null;
+    let rateId: string | null = null;
+    let fromCurrencyId: string | null = null;
+    let toCurrencyId: string | null = null;
+
+    try {
+      token = await getAuthToken(request, 'admin');
+      const { organizationId, tenantId } = getTokenContext(token);
+
+      const randLetter = () => String.fromCharCode(65 + Math.floor(Math.random() * 26));
+      const fromCode = `F${randLetter()}${randLetter()}`;
+      const toCode = `T${randLetter()}${randLetter()}`;
+      fromCurrencyId = await createCurrencyFixture(request, token, { code: fromCode, name: 'QA TC-CUR-002b From' });
+      toCurrencyId = await createCurrencyFixture(request, token, { code: toCode, name: 'QA TC-CUR-002b To' });
+
+      const createResponse = await apiRequest(request, 'POST', '/api/currencies/exchange-rates', {
+        token,
+        data: {
+          organizationId,
+          tenantId,
+          fromCurrencyCode: fromCode,
+          toCurrencyCode: toCode,
+          rate: '1.10',
+          date: new Date().toISOString(),
+          source: 'QA-Manual',
+        },
+      });
+      expect(createResponse.status(), 'POST /api/currencies/exchange-rates should return 201').toBe(201);
+      const createBody = (await createResponse.json()) as { id?: string };
+      rateId = createBody.id ?? null;
+      expect(rateId, 'Response should contain an id').toBeTruthy();
+
+      // The backend UI sends the id in the DELETE body, not as a ?id= query param
+      // (packages/core/src/modules/currencies/backend/exchange-rates/page.tsx). The route
+      // previously read only the query param, so this shape returned 400 and never deleted.
+      const deleteResponse = await apiRequest(request, 'DELETE', '/api/currencies/exchange-rates', {
+        token,
+        data: { id: rateId, organizationId, tenantId },
+      });
+      expect(deleteResponse.status(), 'DELETE with id in the body should return 200').toBe(200);
+      rateId = null;
+    } finally {
+      await deleteCurrenciesEntityIfExists(request, token, '/api/currencies/exchange-rates', rateId);
+      await deleteCurrenciesEntityIfExists(request, token, '/api/currencies/currencies', fromCurrencyId);
+      await deleteCurrenciesEntityIfExists(request, token, '/api/currencies/currencies', toCurrencyId);
+    }
+  });
 });

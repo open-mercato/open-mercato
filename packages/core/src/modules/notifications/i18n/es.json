@@ -85,6 +85,7 @@
   "notifications.settings.types.saveSuccess": "Ajustes del tipo de notificación guardados",
   "notifications.settings.types.title": "Canales de entrega por tipo",
   "notifications.settings.types.typeColumn": "Tipo de notificación",
+  "notifications.settings.types.uncategorized": "Otras notificaciones",
   "notifications.title": "Notificaciones",
   "notifications.toast.actionError": "No se pudo ejecutar la acción",
   "notifications.toast.actionSuccess": "Acción completada correctamente",

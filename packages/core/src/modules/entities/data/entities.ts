@@ -203,6 +203,16 @@ export class CustomEntityStorage {
   name: 'cf_values_entity_record_tenant_idx',
   properties: ['entityId', 'recordId', 'tenantId'],
 })
+// The logical key of a value row. Non-unique on purpose: a multi-value custom field
+// legitimately stores one row per selected value, all sharing this tuple, so the
+// invariant "one live row per single-value field" is enforced by the write path in
+// lib/helpers.ts rather than by a constraint. This index backs that write path's
+// scope-reconciliation lookup and the reader join, which matches entity_id +
+// record_id + field_key without pinning organization_id.
+@Index({
+  name: 'cf_values_entity_record_key_idx',
+  properties: ['entityId', 'recordId', 'fieldKey'],
+})
 export class CustomFieldValue {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -253,6 +263,11 @@ export class CustomFieldValue {
 @Index({
   name: 'encryption_maps_entity_scope_idx',
   properties: ['entityId', 'tenantId', 'organizationId'],
+})
+@Index({
+  name: 'encryption_maps_entity_scope_live_unique',
+  expression:
+    'create unique index "encryption_maps_entity_scope_live_unique" on "encryption_maps" ("entity_id", "tenant_id", "organization_id") nulls not distinct where deleted_at is null',
 })
 export class EncryptionMap {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })

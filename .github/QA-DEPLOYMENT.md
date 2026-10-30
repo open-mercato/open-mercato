@@ -25,7 +25,7 @@ There are two ways to get a QA environment:
 
 For pull requests opened **directly from the repository** (i.e. by core contributors, not from forks), a dedicated preview environment is provisioned automatically in Dokploy when both conditions are met:
 
-- The PR targets the **`develop`** branch.
+- The PR targets the **`main`** branch.
 - The PR has the **`preview-env`** label.
 
 ### Preview URL

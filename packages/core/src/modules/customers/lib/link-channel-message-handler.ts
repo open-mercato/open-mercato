@@ -34,6 +34,13 @@ type LinkChannelMessagePayload = {
   organizationId?: string | null
   providerKey?: string | null
   direction?: 'inbound' | 'outbound' | null
+  /**
+   * The provider's own receive/send time, carried by the hub on the event
+   * (#6095). An ISO string when the event rode the queue, a Date for an
+   * in-process emit. Absent on events enqueued before the field existed and on
+   * adapters that supply no timestamp.
+   */
+  providerTimestamp?: string | Date | null
 }
 
 type SubscriberContext = {
@@ -88,6 +95,17 @@ export default async function handler(
   const metaJson = (link.channelMetadata ?? null) as Record<string, unknown> | null
   const payloadJson = (link.channelPayload ?? null) as Record<string, unknown> | null
 
+  // ── (1b) Resolve when the email actually happened ─────────────────────
+  //
+  // `link.createdAt` is when the hub ingested the message, which for a history
+  // import is the import minute, not the day the mail arrived (#6095). The hub
+  // carries the provider's own timestamp on the event payload, so take it from
+  // there: reading the communication_channels ExternalMessage row here would
+  // cross the storage boundary (Cross-Module Coupling in AGENTS.md) and add a
+  // peer-table query per event. Resolved once and threaded through every branch
+  // below so the address-match and threading-inheritance paths agree.
+  const occurredAt = resolveOccurredAt(payload, link)
+
   // ── (2) Resolve the channel to get its owner userId ───────────────────
   //
   // The channel.userId is needed for two purposes:
@@ -96,6 +114,11 @@ export default async function handler(
   //
   // We look up the channel only when channelId is provided in the event payload.
   let channelUserId: string | null = null
+  // Denormalized onto each interaction so a read path can ask "is this row's
+  // channel shared?" without a three-join hop. NULL when the event carried no
+  // channelId — every predicate treats that as not shared (fail closed).
+  const resolvedChannelId: string | null =
+    typeof payload.channelId === 'string' && payload.channelId ? payload.channelId : null
   if (typeof payload.channelId === 'string' && payload.channelId) {
     const channel = (await findOneWithDecryption(
       em,
@@ -172,7 +195,7 @@ export default async function handler(
   // Early exit: no addresses AND no hint → nothing to link.
   if (normalized.length === 0 && !crmPersonId) {
     // Before giving up, try threading-inheritance (TC-CRM-EMAIL-005).
-    await handleThreadingInheritance(em, link, linkId, tenantId, organizationId, channelUserId, metaJson, payloadJson)
+    await handleThreadingInheritance(em, link, linkId, tenantId, organizationId, channelUserId, resolvedChannelId, metaJson, payloadJson, occurredAt)
     return
   }
 
@@ -183,7 +206,7 @@ export default async function handler(
 
   if (personIdSet.size === 0) {
     // Try threading-inheritance before giving up.
-    await handleThreadingInheritance(em, link, linkId, tenantId, organizationId, channelUserId, metaJson, payloadJson)
+    await handleThreadingInheritance(em, link, linkId, tenantId, organizationId, channelUserId, resolvedChannelId, metaJson, payloadJson, occurredAt)
     return
   }
 
@@ -211,7 +234,6 @@ export default async function handler(
         ? (payloadJson!.text as string)
         : null
 
-  const occurredAt = link.createdAt instanceof Date ? link.createdAt : new Date()
   const providerKey =
     typeof link.providerKey === 'string' ? (link.providerKey as string) : null
 
@@ -230,6 +252,7 @@ export default async function handler(
       occurredAt,
       visibility,
       channelProviderKey: providerKey,
+      channelId: resolvedChannelId,
     },
   )
 }
@@ -255,8 +278,10 @@ async function handleThreadingInheritance(
   tenantId: string,
   organizationId: string | null,
   channelUserId: string | null,
+  channelId: string | null,
   metaJson: Record<string, unknown> | null,
   payloadJson: Record<string, unknown> | null,
+  occurredAt: Date,
 ): Promise<void> {
   // ── Primary: inherit Person(s) from the hub's authoritative thread ──────
   //
@@ -325,7 +350,6 @@ async function handleThreadingInheritance(
           : typeof metaJson?.bodyText === 'string'
             ? (metaJson.bodyText as string)
             : null
-      const occurredAt = _link.createdAt instanceof Date ? (_link.createdAt as Date) : new Date()
       const providerKey = typeof _link.providerKey === 'string' ? (_link.providerKey as string) : null
       await persistInteractions(em, threadPersonIds, {
         linkId,
@@ -336,8 +360,14 @@ async function handleThreadingInheritance(
         body: bodyText,
         authorUserId: channelUserId,
         occurredAt,
-        visibility: channelUserId ? 'private' : 'shared',
+        // Single source of truth for the ingestion default (see resolveVisibility).
+        // The threading-inheritance path deliberately passes no metadata and no
+        // direction: a reply is matched by parent-thread lookup and its metadata is
+        // provider-derived, so it must never be able to downgrade privacy via the
+        // `crmVisibility` override.
+        visibility: resolveVisibility(null, channelUserId, null),
         channelProviderKey: providerKey,
+        channelId,
       })
       return
     }
@@ -415,12 +445,13 @@ async function handleThreadingInheritance(
 
   if (inheritedPersonIdSet.size === 0) return
 
-  const visibility: 'private' | 'shared' = channelUserId ? 'private' : 'shared'
+  // Same single source of truth as the primary ingestion path; no metadata and no
+  // direction on the inheritance path (see the sibling call above).
+  const visibility: 'private' | 'shared' = resolveVisibility(null, channelUserId, null)
   const link = _link
   const inheritedMeta = (link.channelMetadata ?? null) as Record<string, unknown> | null
   const subject =
     typeof inheritedMeta?.subject === 'string' ? (inheritedMeta.subject as string) : null
-  const occurredAt = link.createdAt instanceof Date ? (link.createdAt as Date) : new Date()
   const providerKey =
     typeof link.providerKey === 'string' ? (link.providerKey as string) : null
 
@@ -438,11 +469,39 @@ async function handleThreadingInheritance(
       occurredAt,
       visibility,
       channelProviderKey: providerKey,
+      channelId,
     },
   )
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────
+
+/**
+ * When the linked email happened, for `CustomerInteraction.occurredAt` (#6095).
+ *
+ * Preference order:
+ *   1. `payload.providerTimestamp` — the provider's own receive/send time, put
+ *      on the hub event by ingest / delivery;
+ *   2. `MessageChannelLink.createdAt` — the ingest time, the only date this
+ *      handler knew before #6095, and the compatibility path for events that
+ *      were enqueued before the field existed;
+ *   3. now, for a link row with no usable `createdAt` (test stubs).
+ */
+function resolveOccurredAt(
+  payload: LinkChannelMessagePayload,
+  link: Record<string, unknown>,
+): Date {
+  const ingestedAt = link.createdAt instanceof Date ? link.createdAt : new Date()
+  const carried = payload.providerTimestamp
+  if (carried instanceof Date) {
+    return Number.isNaN(carried.getTime()) ? ingestedAt : carried
+  }
+  if (typeof carried === 'string' && carried) {
+    const parsed = new Date(carried)
+    if (!Number.isNaN(parsed.getTime())) return parsed
+  }
+  return ingestedAt
+}
 
 interface InteractionData {
   linkId: string
@@ -455,6 +514,12 @@ interface InteractionData {
   occurredAt: Date
   visibility: 'private' | 'shared'
   channelProviderKey: string | null
+  /**
+   * Denormalized channel id, so a read path can ask "is this row's channel
+   * shared?" without a three-join hop. NULL when the event carried no channelId
+   * (the predicate then treats the row as not shared — fail closed).
+   */
+  channelId: string | null
 }
 
 async function persistInteractions(
@@ -488,6 +553,7 @@ async function persistInteractions(
       externalMessageId: data.linkId,
       visibility: data.visibility,
       channelProviderKey: data.channelProviderKey,
+      channelId: data.channelId,
     } as any)
     try {
       await rowEm.flush()

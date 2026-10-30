@@ -30,6 +30,7 @@ import { resolveCustomersRequestContext } from '../../lib/interactionRequestCont
 import { hydrateCanonicalInteractions } from '../../lib/interactionReadModel'
 import { resolveCanonicalActivityTargetId } from '../../lib/legacyActivityBridge'
 import { buildEmailVisibilityMikroFilter } from '../../lib/visibilityFilter'
+import { listGrantsForViewer, listSharedChannelIds } from '../../lib/conversationShares'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 
@@ -322,11 +323,20 @@ async function listCanonicalActivities(
   // the deprecated /activities surface (mirrors the /interactions Layer-1 filter).
   // v1 strict owner-only — no admin bypass (the filter ignores caller features).
   const activitiesViewerUserId = auth.keyId ? null : (auth.sub ?? auth.userId ?? null)
+  // Conversation shares widen this surface identically to /interactions, so the
+  // deprecated timeline cannot disagree with the canonical one.
+  const activitiesEmailScope = { tenantId, organizationId: selectedOrganizationId }
+  const [activitiesShareGrants, activitiesSharedChannelIds] = await Promise.all([
+    listGrantsForViewer(em, activitiesEmailScope, activitiesViewerUserId),
+    listSharedChannelIds(em, activitiesEmailScope, activitiesViewerUserId),
+  ])
   Object.assign(
     where,
     buildEmailVisibilityMikroFilter({
       currentUserId: activitiesViewerUserId,
       userFeatures: undefined,
+      sharedConversations: activitiesShareGrants,
+      sharedChannelIds: activitiesSharedChannelIds,
     }),
   )
 

@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
+import { isPrivateIPv6 } from '@open-mercato/shared/lib/network'
 
 /**
  * SSRF guard: reject hostnames that resolve to internal networks. Operators
@@ -10,6 +11,7 @@ import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
  *
  * The check is string-based: it rejects literal internal IPs, `localhost`, and
  * the obfuscated encodings that exist to evade such filters (IPv4-mapped IPv6,
+ * NAT64 / 6to4 / IPv4-compatible IPv6 embedding an internal IPv4,
  * decimal/hex/octal/short-form IPv4, bracketed and expanded IPv6). It does NOT
  * by itself catch a public hostname that resolves — or is DNS-rebound — to a
  * private address; that gap is closed at connect time by `resolveSafeHostAddress`
@@ -82,7 +84,10 @@ export function isInternalHost(rawHost: string): boolean {
   const host = normalizeHost(rawHost)
   if (!host) return false
   if (FORBIDDEN_HOST_NAMES.has(host) || host.endsWith('.localhost')) return true
-  if (host.includes(':')) return PRIVATE_IPV6_PATTERNS.some((pattern) => pattern.test(host))
+  if (host.includes(':')) {
+    const address = host.replace(/%.*$/, '')
+    return PRIVATE_IPV6_PATTERNS.some((pattern) => pattern.test(address)) || isPrivateIPv6(address)
+  }
   if (isObfuscatedIpv4(host)) return true
   // Only treat the private-range patterns as internal for a real dotted-decimal
   // quad. Otherwise a hostname whose first label merely looks like a private
