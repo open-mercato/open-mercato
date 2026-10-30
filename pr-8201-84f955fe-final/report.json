@@ -1,0 +1,269 @@
+{
+  "runId": "84f955fe",
+  "mode": "pr",
+  "target": {
+    "prNumber": 8201,
+    "branch": "carry/pr-6448-ready",
+    "headSha": "50c684412b12715b45b5b2180e0fb0a375014106"
+  },
+  "verdict": "PASS",
+  "environment": {
+    "baseUrl": "http://127.0.0.1:60647",
+    "role": "admin",
+    "startedByThisRepo": true,
+    "browserProvider": "playwright",
+    "timezone": "Europe/Warsaw",
+    "build": "fresh production app, forced rebuild",
+    "coldBootstrapSeconds": 341,
+    "warmReuse": true,
+    "browserVersion": "Playwright 1.62.1 / Chromium 1228",
+    "sourceTree": "5c178d2ac6fc3edc725bdc821bfc526642dd5921",
+    "stoppedAfterQa": true
+  },
+  "scenario": [
+    {
+      "step": 1,
+      "priority": "P1",
+      "action": "companies-default-long",
+      "expected": "Two owned records show distinct local Created dates, long names remain usable.",
+      "observed": "Both records and local10/23,10/24dates visible; long fixture present.",
+      "result": "PASS",
+      "screenshot": "01-companies-default-long.png"
+    },
+    {
+      "step": 2,
+      "priority": "P1",
+      "action": "companies-sort-asc",
+      "expected": "Created sort updates URL and orders actual records.",
+      "observed": "sortField=createdAt;sortDir=asc;actual row order correct.",
+      "result": "PASS",
+      "screenshot": "02-companies-sort-asc.png"
+    },
+    {
+      "step": 3,
+      "priority": "P1",
+      "action": "companies-sort-desc",
+      "expected": "Created sort updates URL and orders actual records.",
+      "observed": "sortField=createdAt;sortDir=desc;actual row order correct.",
+      "result": "PASS",
+      "screenshot": "03-companies-sort-desc.png"
+    },
+    {
+      "step": 4,
+      "priority": "P1",
+      "action": "companies-date-editor",
+      "expected": "The real Created is date editor filters the displayed local day.",
+      "observed": "Date is10/24 includes local-midnight record and excludes preceding instant; URL retains bare day.",
+      "result": "PASS",
+      "screenshot": "04-companies-date-editor.png"
+    },
+    {
+      "step": 5,
+      "priority": "P1",
+      "action": "companies-reload",
+      "expected": "Filter and displayed results survive reload.",
+      "observed": "Same local-day result and bare URL value after reload.",
+      "result": "PASS",
+      "screenshot": "05-companies-reload.png"
+    },
+    {
+      "step": 6,
+      "priority": "P1",
+      "action": "companies-narrow",
+      "expected": "At390px the Created date and table controls remain usable.",
+      "observed": "390px viewport, Created column reachable through table horizontal scroll.",
+      "result": "PASS",
+      "screenshot": "06-companies-narrow.png"
+    },
+    {
+      "step": 7,
+      "priority": "P1",
+      "action": "companies-controlled-500",
+      "expected": "Failed requests show visible error feedback and a usable page.",
+      "observed": "ControlledHTTP500 displayed visible load failure; shell remains usable.",
+      "result": "PASS",
+      "screenshot": "07-companies-controlled-500.png"
+    },
+    {
+      "step": 8,
+      "priority": "P1",
+      "action": "companies-controlled-403",
+      "expected": "Failed requests show visible error feedback and a usable page.",
+      "observed": "ControlledHTTP403 displayed visible load failure; shell remains usable.",
+      "result": "PASS",
+      "screenshot": "08-companies-controlled-403.png"
+    },
+    {
+      "step": 9,
+      "priority": "P1",
+      "action": "companies-empty",
+      "expected": "An empty successful list has a helpful empty state.",
+      "observed": "Successful empty payload renders the localized No results found state.",
+      "result": "PASS",
+      "screenshot": "09-companies-empty.png"
+    },
+    {
+      "step": 10,
+      "priority": "P1",
+      "action": "companies-loading",
+      "expected": "A delayed list request shows the loading shell.",
+      "observed": "Loading table status visible while owned request is delayed.",
+      "result": "PASS",
+      "screenshot": "10-companies-loading.png"
+    },
+    {
+      "step": 11,
+      "priority": "P1",
+      "action": "people-default-long",
+      "expected": "Two owned records show distinct local Created dates, long names remain usable.",
+      "observed": "Both records and local10/23,10/24dates visible; long fixture present.",
+      "result": "PASS",
+      "screenshot": "11-people-default-long.png"
+    },
+    {
+      "step": 12,
+      "priority": "P1",
+      "action": "people-sort-asc",
+      "expected": "Created sort updates URL and orders actual records.",
+      "observed": "sortField=createdAt;sortDir=asc;actual row order correct.",
+      "result": "PASS",
+      "screenshot": "12-people-sort-asc.png"
+    },
+    {
+      "step": 13,
+      "priority": "P1",
+      "action": "people-sort-desc",
+      "expected": "Created sort updates URL and orders actual records.",
+      "observed": "sortField=createdAt;sortDir=desc;actual row order correct.",
+      "result": "PASS",
+      "screenshot": "13-people-sort-desc.png"
+    },
+    {
+      "step": 14,
+      "priority": "P1",
+      "action": "people-date-editor",
+      "expected": "The real Created is date editor filters the displayed local day.",
+      "observed": "Date is10/24 includes local-midnight record and excludes preceding instant; URL retains bare day.",
+      "result": "PASS",
+      "screenshot": "14-people-date-editor.png"
+    },
+    {
+      "step": 15,
+      "priority": "P1",
+      "action": "people-reload",
+      "expected": "Filter and displayed results survive reload.",
+      "observed": "Same local-day result and bare URL value after reload.",
+      "result": "PASS",
+      "screenshot": "15-people-reload.png"
+    },
+    {
+      "step": 16,
+      "priority": "P1",
+      "action": "people-narrow",
+      "expected": "At390px the Created date and table controls remain usable.",
+      "observed": "390px viewport, Created column reachable through table horizontal scroll.",
+      "result": "PASS",
+      "screenshot": "16-people-narrow.png"
+    },
+    {
+      "step": 17,
+      "priority": "P1",
+      "action": "people-controlled-500",
+      "expected": "Failed requests show visible error feedback and a usable page.",
+      "observed": "ControlledHTTP500 displayed visible load failure; shell remains usable.",
+      "result": "PASS",
+      "screenshot": "17-people-controlled-500.png"
+    },
+    {
+      "step": 18,
+      "priority": "P1",
+      "action": "people-controlled-403",
+      "expected": "Failed requests show visible error feedback and a usable page.",
+      "observed": "ControlledHTTP403 displayed visible load failure; shell remains usable.",
+      "result": "PASS",
+      "screenshot": "18-people-controlled-403.png"
+    },
+    {
+      "step": 19,
+      "priority": "P1",
+      "action": "people-empty",
+      "expected": "An empty successful list has a helpful empty state.",
+      "observed": "Successful empty payload renders the localized No results found state.",
+      "result": "PASS",
+      "screenshot": "19-people-empty.png"
+    },
+    {
+      "step": 20,
+      "priority": "P1",
+      "action": "people-loading",
+      "expected": "A delayed list request shows the loading shell.",
+      "observed": "Loading table status visible while owned request is delayed.",
+      "result": "PASS",
+      "screenshot": "20-people-loading.png"
+    },
+    {
+      "step": 21,
+      "priority": "P1",
+      "action": "company-dst-preset",
+      "expected": "Recently created starts at local midnight seven calendar days back through autumn DST.",
+      "observed": "Warsaw10/31late evening:10/24midnight included;preceding instant excluded.",
+      "result": "PASS",
+      "screenshot": "21-company-dst-preset.png"
+    },
+    {
+      "step": 22,
+      "priority": "P1",
+      "action": "company-preset-reopened",
+      "expected": "Reopening the real editor shows a selectable is after operator.",
+      "observed": "Operator displays is after and can be reselected; cutoff10/23.",
+      "result": "PASS",
+      "screenshot": "22-company-preset-reopened.png"
+    },
+    {
+      "step": 23,
+      "priority": "P1",
+      "action": "company-editor-narrow-keyboard",
+      "expected": "Editor fits390px and Escape cancels.",
+      "observed": "Editor within390px; Escape closes it.",
+      "result": "PASS",
+      "screenshot": "23-company-editor-narrow-keyboard.png"
+    },
+    {
+      "step": 24,
+      "priority": "P1",
+      "action": "companies-tokyo-boundary",
+      "expected": "The same bare day follows the reader timezone.",
+      "observed": "Tokyo10/24 includes both adjacent UTC instants; Warsaw included only one.",
+      "result": "PASS",
+      "screenshot": "24-companies-tokyo-boundary.png"
+    },
+    {
+      "step": 25,
+      "priority": "P1",
+      "action": "people-tokyo-boundary",
+      "expected": "The same bare day follows the reader timezone.",
+      "observed": "Tokyo10/24 includes both adjacent UTC instants; Warsaw included only one.",
+      "result": "PASS",
+      "screenshot": "25-people-tokyo-boundary.png"
+    }
+  ],
+  "hasUiTest": true,
+  "notes": [
+    "Controlled500/403 verify rendering only, not server authorization.",
+    "Owned disposable database and fixtures only; no production data.",
+    "Controlled 403 verifies UI rendering only, not server authorization.",
+    "Current-head hosted CI is a separate merge gate.",
+    "Existing DataTable and semantic styling visually inspected; no .uxproof contract present."
+  ],
+  "cleanup": {
+    "ownedFixtures": 4,
+    "remainingActive": 0,
+    "environment": "Owned app listener and disposable database absent after graceful teardown"
+  },
+  "nativeIntegration": {
+    "passed": 4,
+    "failed": 0,
+    "retriesUsed": 0,
+    "command": "OM_INTEGRATION_MODULES=customers yarn mercato test:integration TC-CRM-(created-at-list|recently-created-preset)"
+  }
+}
