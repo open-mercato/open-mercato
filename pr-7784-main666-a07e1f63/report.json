@@ -1,0 +1,78 @@
+{
+  "skill": "om-auto-qa-pr",
+  "mode": "evidence-only",
+  "pr": 7784,
+  "head": "e923be8bdb8e5916fb97dc8d247933be78abb0ec",
+  "mainHead": "666ed40a1887e3076adaf49c6a75257f32d392cf",
+  "verdict": "PASS",
+  "nativePassed": 8,
+  "skipped": 0,
+  "flaky": 0,
+  "finishedAt": "2026-10-30T21:32:34.328954+00:00",
+  "cases": [
+    {
+      "source": "packages/core/src/modules/catalog/__integration__/TC-CAT-044-markdown-code-block.spec.ts",
+      "title": "product description with fenced and tagged code blocks loads in rich-text mode",
+      "result": "PASS",
+      "durationMs": 5271
+    },
+    {
+      "source": "packages/core/src/modules/catalog/__integration__/TC-CAT-045-markdown-code-block-save.spec.ts",
+      "title": "changing a code block language from the dropdown is saved without typing afterward",
+      "result": "PASS",
+      "durationMs": 4304
+    },
+    {
+      "source": "packages/core/src/modules/catalog/__integration__/TC-CAT-045-markdown-code-block-save.spec.ts",
+      "title": "deleting a code block with the trash icon is saved without typing afterward",
+      "result": "PASS",
+      "durationMs": 4558
+    },
+    {
+      "source": "packages/core/src/modules/sales/__integration__/TC-SALES-7782-document-extension-regions.spec.ts",
+      "title": "preserves the order header, status and details without extension placeholders",
+      "result": "PASS",
+      "durationMs": 3793
+    },
+    {
+      "source": "packages/core/src/modules/sales/__integration__/TC-SALES-7782-document-extension-regions.spec.ts",
+      "title": "preserves the quote header, status and details without extension placeholders",
+      "result": "PASS",
+      "durationMs": 3273
+    },
+    {
+      "source": "packages/core/src/modules/sales/__integration__/TC-SALES-7782-document-extension-regions.spec.ts",
+      "title": "mounts scoped order stage and closure contributions without document writes",
+      "result": "PASS",
+      "durationMs": 2476
+    },
+    {
+      "source": "packages/core/src/modules/sales/__integration__/TC-SALES-7782-document-extension-regions.spec.ts",
+      "title": "mounts scoped quote stage and closure contributions without document writes",
+      "result": "PASS",
+      "durationMs": 2467
+    },
+    {
+      "source": "packages/core/src/modules/wms/__integration__/TC-WMS-STOCK-COL-002.spec.ts",
+      "title": "should NOT include _wms data in the quotes API response",
+      "result": "PASS",
+      "durationMs": 745
+    }
+  ],
+  "images": [
+    "order-native-document.png",
+    "quote-native-document.png",
+    "order-contributors-desktop.png",
+    "order-contributors-mobile.png",
+    "quote-contributors-desktop.png",
+    "quote-contributors-mobile.png"
+  ],
+  "notes": [
+    "Fresh evidence-only OSS run on this exact published head, including main666ed40a (created-at lists, staff team assignment and shared rich-text fixes). All cases passed once, zero retries/skips; original assertions/timeouts/checks unchanged.",
+    "Real production app and disposable PostgreSQL were provisioned by the generated test-environment entrypoint. Fixtures have test-owned cleanup. The environment is stopped; no enterprise runtime exercise or human QA signoff is claimed.",
+    "The PR feature code is byte-identical across this clean main merge. Shared new-base integration was validated on082660dc with354focused core/shared/UI tests, package builds, generation and typechecks before publication. This is separate from this PR\u2019s required current-head GitHub CI.",
+    "Three rich-text cases prove fenced/tagged code blocks load and language-change/deletion saves without additional typing. Their automatic final screenshots scrolled to unrelated panels and are omitted from the curated visual evidence; assertions are in the actual executed case list.",
+    "Four real order/quote browser cases verify native empty hosts and scoped stage/closure contributions without document writes. The quote API case proves no WMS stock enrichment. Synthetic diagnostic contributor text in screenshots is an intentional test fixture, not production copy.",
+    "Representative quote desktop/mobile contributor captures were visually inspected; long fixture text wraps and the native header/tabs/totals remain visible. Native host and order captures are included."
+  ]
+}
