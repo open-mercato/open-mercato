@@ -1,7 +1,7 @@
 # Coding harness contract recovery
 
 ## TLDR
-Correct demonstrated source-delivery, seeded-entrypoint and executable-oracle mismatches from a stopped local Qwen experiment. Keep genuine model/type/safety failures visible. Use four existing runtime owners plus one optional Pi delivery hook rather than adding case-specific prose across skills.
+Correct demonstrated source-delivery, seeded-entrypoint, executable-oracle and fresh-scaffold guard mismatches from a stopped local Qwen experiment. Keep genuine model/type/safety failures visible. Use focused authoritative owners rather than adding case-specific prose across skills.
 
 ## Overview and problem
 The analysis at `.ai/analysis/2026-10-30-qwen27b-coding-failures.md` accounts for thirteen completed failures and one interruption. Models invent imports and APIs after legitimate linked examples are denied, guess replacement files while the real seeded seam remains broken, and encounter structural predicates inconsistent with the installed API. Some required context closures cannot fit their declared bounds.
@@ -18,6 +18,7 @@ Related intent: `2026-07-24-standalone-ai-development-harness`, `2026-08-01-stan
 - Fixture seed: express a deliberately incorrect behavior through the current typed interceptor contract rather than teaching an obsolete API. The before-fail requirement remains.
 - Cached delivery: declare the exact external knowledge inputs copied by the CLI builder, retaining caching and the existing create-app dependency edge. A normal cached build must deliver the same harness bytes as the authoritative sources.
 - Optional Pi delivery: ship one portable shared extension using Pi's supported `tool_result` hook. For the exact successful harness read identity, restore the original single text block from structured MCP content in memory, bounded by the canonical server's 256 KiB limit. Preserve errors and unrelated tools; malformed or oversized successful-read envelopes become explicit delivery errors. Add no filesystem recovery, tools, read grants, provider dependencies or official runner registration.
+- Fresh scaffold compatibility: recognize the current factory-generated Yarn policy, including its exact five-day age gate and single Open Mercato preapproval, in the existing validator. Preserve legacy recognized forms, registry safety checks and byte-identical config copying. Reject modified policy, arbitrary/executable directives, credentials and environment interpolation; do not strip or replace generated security settings or change release lanes.
 
 Each independent assertion has one primary owner. Case declarations select existing source capabilities; implementation checks belong to the oracle; trusted seed disclosure and prepared-context bounds belong to the evaluator. The optional Pi extension owns client-side complete-text delivery, and existing recursive copying ships it. The build-input declaration owns cached packaging of the knowledge owners. Tests and inventory/doc synchronization support them.
 
@@ -33,6 +34,7 @@ No production data model or application HTTP API changes. Existing case metadata
 - Fresh coherent classic/codex scaffold and applicable packed/Verdaccio surface; emitted/source/link/hash parity; deterministic catalog and knowledge-change controller.
 - Real Turbo cache restoration before and after a copied-authority mutation, unchanged-input cache-hit controls, and transitive create-app hash/output freshness.
 - Semantic clipped-result regressions for the Pi hook, including multibyte byte limits, exact identity/success checks, malformed/resource/foreign/write/error negatives, actual installed converter-to-hook evidence without model calls, and emitted extension parity through both scaffold generators.
+- Actual template/registry-generator output through canonical target preparation, with unchanged config/dependency bindings and unsafe policy/plugin/auth/environment/unknown-setting negatives.
 - Separate fresh local Qwen attempts for all fourteen observed tasks. Run target generate/typecheck/lint/build, smallest generated tests and isolated judgment for eligible results. Full release certification requires the supported runner and platform lanes; explicitly report unavailable gates.
 
 ## Migration and backward compatibility

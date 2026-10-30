@@ -29,7 +29,7 @@ Raw private captures remain local. Early 009/011/012/014 attempts have retained 
 
 ## Shared owners and protected checks
 
-The initial fixes use four existing runtime owners: the case/context catalog, evaluator prompt/preparation, writable structural oracles and fixture seed catalog. Recovery additionally requires one optional Pi delivery hook for demonstrated client-side truncation. A validation-discovered CLI cache defect also requires its external build-input declaration. Supporting regression tests and generated inventories are required; do not add one prose rule per observed failure.
+The initial fixes use four existing runtime owners: the case/context catalog, evaluator prompt/preparation, writable structural oracles and fixture seed catalog. Recovery additionally requires an optional Pi delivery hook for demonstrated client-side truncation and current-factory recognition in the existing fresh-scaffold config validator. A validation-discovered CLI cache defect also requires its external build-input declaration. Supporting regression tests and generated inventories are required; do not add one prose rule per observed failure.
 
 - Writable self-reads are already permitted and excluded from instruction budgets. Unexpected selectedContext entries in 029/031 are model/protocol violations; clarify instruction/fact-only bookkeeping without broadening the security allowlist.
 - Reference delivery must use existing exact, readable source capabilities and preserve QA-only, unrelated-source, traversal and credential denials.
@@ -137,6 +137,12 @@ The focused regression has four semantic failures and one passing control withou
 Round 3 stopped cleanly after two completed cases: OMH-009 passed on its first attempt with zero corrections; OMH-011 failed only for an undeclared reference attempt. Both implementation oracles passed. No case was killed, and twelve remain not run. The frozen analysis hashes are `30012ecb734ef560273d3f487498f0fccbdd7acc49701e5647753a22af1a6934` (Markdown) and `1f35949e1bef35e9578d3a6a83b3e92103c4be9c46d4e53bdd65e318a2dceaf2` (JSON).
 
 Additional OMH-009 app validation failed during workspace preparation, before any generate/typecheck/lint/build command ran. The private experiment copier omitted `verbatimSymlinks`; Node changed a safe 48-byte relative skill alias into a 103-byte absolute backlink to the controller. The canonical validator correctly rejects this already-escaping target, and its own scaffold-copy helper correctly remaps contained aliases. The next experiment will reuse exported canonical target preparation. No upstream guard change, old-target mutation or passing validation attestation is justified. The symlink audit SHA-256 is `62e436618ae86e30096cd2bdef10afafa8726b4488e6c09c9ca090446a6fe79c`; actual failed validation returns are pinned by `a1f0ece28059e4ef4a48566f904790ebae43408fe17632845fdd3a889c553e15`.
+
+## Current generated Yarn-config compatibility
+
+Canonical preparation of the next fresh scaffold rejects its valid generated `.yarnrc.yml`. The wizard proof and controller files are byte-identical (901 bytes, SHA-256 `a2a97744f00de02ebe41e020f742263bf4bc08f1093f1aef5c3a415ab4f84502`) and exactly match the current template prefix/suffix and registry generator. The existing recognizer accepts older bare/migrated forms but not the current comments, `npmMinimalAgeGate: 5d` and sole `@open-mercato/*` preapproval. This is a shipped compatibility defect, distinct from the earlier private symlink-copy mistake.
+
+The failure-first regression uses the real template, real registry renderer and exported canonical target preparation. Default, loopback-HTTP and HTTPS factory variants fail at the stale guard; sixteen unsafe mutations remain rejected. The fix must accept only the known generated policy while preserving legacy forms and registry safety. It must not strip or rewrite security settings, introduce config exceptions or change release commands/lanes. The content-free independent audit SHA-256 is `157d73c21bb9c3f5581308fe6f46a7eecb131b5f5dbc77acb7c478ba8fc77d0c`. No model or target was created on this candidate, and its failed preflight remains retained.
 
 ## Offline attribution on the frozen generated targets
 
