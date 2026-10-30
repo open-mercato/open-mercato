@@ -740,7 +740,7 @@ export function SalesDocumentItemsSection({
           }}
         />
       ) : (
-        <div className="overflow-hidden rounded border">
+        <div className="relative overflow-x-auto rounded border">
           <table className="w-full text-sm">
             <thead className="bg-muted">
               <tr className="text-left">
