@@ -11,10 +11,12 @@ import {
   Building2,
   Check,
   History,
+  MoreHorizontal,
   Paperclip,
   Plus,
   MapPin,
 } from 'lucide-react'
+import { Popover, PopoverClose, PopoverContent, PopoverTrigger } from '@open-mercato/ui/primitives/popover'
 import type { SectionAction } from '@open-mercato/ui/backend/detail'
 import { registerComponent } from '@open-mercato/shared/modules/widgets/component-registry'
 import { useRegisteredComponent } from '@open-mercato/ui/backend/injection/useRegisteredComponent'
@@ -57,6 +59,9 @@ export type PersonDetailTabsProps = {
   sectionAction?: SectionAction | null
   children: React.ReactNode
 }
+
+/** Tabs shown inline; everything after this count folds into the More menu unless it is active. */
+const PRIMARY_TAB_LIMIT = 6
 
 const SUPPORTED_TAB_IDS = new Set<PersonTabId>(['activities', 'emails', 'deals', 'companies', 'addresses', 'tasks', 'changelog', 'files'])
 
@@ -115,28 +120,28 @@ function DefaultPersonDetailTabs({
         count: formatTabCount(companiesCount),
       },
       {
-        id: 'addresses',
-        label: t('customers.people.detail.tabs.addresses', 'Addresses'),
-        icon: <MapPin className="size-4" />,
-        count: formatTabCount(addressesCount),
-      },
-      {
         id: 'tasks',
         label: t('customers.people.detail.tabs.tasks', 'Tasks'),
         icon: <Check className="size-4" />,
         count: formatTabCount(tasksCount),
       },
       {
-        id: 'changelog',
-        label: t('customers.people.detail.tabs.changelog', 'Change log'),
-        icon: <History className="size-4" />,
-        count: 'NEW',
-      },
-      {
         id: 'files',
         label: t('customers.people.detail.tabs.files', 'Files'),
         icon: <Paperclip className="size-4" />,
         count: formatTabCount(filesCount),
+      },
+      {
+        id: 'addresses',
+        label: t('customers.people.detail.tabs.addresses', 'Addresses'),
+        icon: <MapPin className="size-4" />,
+        count: formatTabCount(addressesCount),
+      },
+      {
+        id: 'changelog',
+        label: t('customers.people.detail.tabs.changelog', 'Change log'),
+        icon: <History className="size-4" />,
+        count: 'NEW',
       },
     ],
     [t, activitiesCount, dealsCount, companiesCount, addressesCount, tasksCount, filesCount],
@@ -162,27 +167,75 @@ function DefaultPersonDetailTabs({
     if (fallback) onTabChange(fallback)
   }, [activeTab, allTabs, isLoadingInjectedTabs, onTabChange])
 
+  const { visibleTabs, overflowTabs } = React.useMemo(() => {
+    const visible = allTabs.slice(0, PRIMARY_TAB_LIMIT)
+    const overflow = allTabs.slice(PRIMARY_TAB_LIMIT)
+    const activeInOverflow = overflow.find((tab) => tab.id === activeTab)
+    return activeInOverflow
+      ? { visibleTabs: [...visible, activeInOverflow], overflowTabs: overflow.filter((tab) => tab.id !== activeTab) }
+      : { visibleTabs: visible, overflowTabs: overflow }
+  }, [activeTab, allTabs])
+
   return (
     <div>
-      {/* Tab navigation — full width above both zones */}
       <div className="flex items-end justify-between gap-2 border-b">
-        <Tabs
-          value={activeTab}
-          onValueChange={(value) => onTabChange(value as PersonTabId)}
-          variant="underline"
-          className="min-w-0 flex-1"
-        >
-          <TabsList
-            aria-label={t('customers.people.detail.tabs.label', 'Person detail sections')}
-            className="-mb-px w-full overflow-x-auto border-b-0 px-1"
+        <div className="flex min-w-0 flex-1 flex-wrap items-end">
+          <Tabs
+            value={activeTab}
+            onValueChange={(value) => onTabChange(value as PersonTabId)}
+            variant="underline"
+            className="min-w-0"
           >
-            {allTabs.map((tab) => (
-              <TabsTrigger key={tab.id} value={tab.id} leading={tab.icon} count={tab.count}>
-                {tab.label}
-              </TabsTrigger>
-            ))}
-          </TabsList>
-        </Tabs>
+            <TabsList
+              aria-label={t('customers.people.detail.tabs.label', 'Person detail sections')}
+              className="-mb-px flex-wrap border-b-0 px-1"
+            >
+              {visibleTabs.map((tab) => (
+                <TabsTrigger key={tab.id} value={tab.id} leading={tab.icon} count={tab.count}>
+                  {tab.label}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </Tabs>
+          {overflowTabs.length > 0 ? (
+            <Popover>
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  aria-haspopup="menu"
+                  className="group relative -mb-px inline-flex shrink-0 items-center gap-2 rounded-t-md border-b-2 border-transparent px-3 py-2 text-sm font-medium text-muted-foreground outline-none transition-colors hover:bg-accent-indigo/10 hover:text-accent-indigo focus-visible:shadow-focus"
+                >
+                  <span aria-hidden="true" className="inline-flex size-5 shrink-0 items-center justify-center text-muted-foreground group-hover:text-accent-indigo">
+                    <MoreHorizontal className="size-5" />
+                  </span>
+                  {t('customers.people.detail.tabs.more', 'More')}
+                </button>
+              </PopoverTrigger>
+              <PopoverContent align="start" className="w-52 p-1">
+                <div role="menu" aria-label={t('customers.people.detail.tabs.more', 'More')} className="flex flex-col">
+                  {overflowTabs.map((tab) => (
+                    <PopoverClose key={tab.id} asChild>
+                      <Button
+                        type="button"
+                        role="menuitem"
+                        variant="ghost"
+                        size="sm"
+                        className="w-full justify-start"
+                        onClick={() => onTabChange(tab.id)}
+                      >
+                        {tab.icon}
+                        <span className="min-w-0 flex-1 truncate text-left">{tab.label}</span>
+                        {tab.count !== undefined ? (
+                          <span className="text-xs text-muted-foreground">{tab.count}</span>
+                        ) : null}
+                      </Button>
+                    </PopoverClose>
+                  ))}
+                </div>
+              </PopoverContent>
+            </Popover>
+          ) : null}
+        </div>
         {sectionAction ? (
           <Button
             type="button"

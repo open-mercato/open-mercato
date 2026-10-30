@@ -2,7 +2,7 @@
  * @jest-environment jsdom
  */
 import * as React from 'react'
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { registerComponentOverrides } from '@open-mercato/shared/modules/widgets/component-registry'
 import {
   PERSON_DETAIL_TABS_COMPONENT_ID,
@@ -56,13 +56,28 @@ describe('PersonDetailTabs', () => {
     registerComponentOverrides([])
   })
 
-  it('renders an Addresses tab', () => {
+  it('keeps six tabs inline and folds Addresses into the More menu', () => {
+    const onTabChange = jest.fn()
     render(
-      <PersonDetailTabs activeTab="activities" onTabChange={() => {}}>
+      <PersonDetailTabs activeTab="activities" onTabChange={onTabChange}>
         <div>content</div>
       </PersonDetailTabs>,
     )
-    expect(screen.getByRole('tab', { name: /address/i })).toBeInTheDocument()
+    expect(screen.getAllByRole('tab')).toHaveLength(6)
+    expect(screen.queryByRole('tab', { name: /address/i })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: /^More/ }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /address/i }))
+    expect(onTabChange).toHaveBeenCalledWith('addresses')
+  })
+
+  it('lifts the active overflow tab inline so the selection stays visible', () => {
+    render(
+      <PersonDetailTabs activeTab="addresses" onTabChange={() => {}}>
+        <div>content</div>
+      </PersonDetailTabs>,
+    )
+    expect(screen.getByRole('tab', { name: /address/i })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getAllByRole('tab')).toHaveLength(7)
   })
 
   it.each([
@@ -96,8 +111,9 @@ describe('PersonDetailTabs', () => {
       </PersonDetailTabs>,
     )
     expect(screen.queryByRole('tab', { name: /emails/i })).toBeNull()
-    expect(screen.queryByRole('tab', { name: 'Custom' })).toBeNull()
-    expect(screen.getByRole('tab', { name: 'Other' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /^More/ }))
+    expect(screen.queryByRole('menuitem', { name: 'Custom' })).toBeNull()
+    expect(screen.getByRole('menuitem', { name: 'Other' })).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: /activities/i })).toBeInTheDocument()
   })
 
