@@ -13,13 +13,91 @@ import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import type { Queue } from '@open-mercato/queue'
 import type { FulltextIndexJobPayload } from '../queue/fulltext-indexing'
 import type { VectorIndexJobPayload, VectorBatchRecord } from '../queue/vector-indexing'
-import { searchDebug, searchDebugWarn, searchError } from '../lib/debug'
+import { reportSearchError, searchDebug, searchDebugWarn, searchError, searchWarn } from '../lib/debug'
+import type { EncryptedCustomFieldKeysResolver } from '../lib/encrypted-custom-field-resolver'
+import { normalizeDefinitionKey } from '@open-mercato/shared/lib/crud/custom-field-definition-index'
 
 /**
  * Maximum number of pages to process during reindex to prevent infinite loops.
  * At 50 records per page, this allows up to 500,000 records per entity.
  */
 const MAX_PAGES = 10000
+
+/**
+ * Custom fields kept out of the build context: the normalized keys of encrypted
+ * definitions, every custom field when they could not be resolved, or none.
+ */
+type CustomFieldExclusion = Set<string> | 'all' | null
+
+type CustomFieldExclusionLookup = (entityId: EntityId, tenantId: string | null) => Promise<CustomFieldExclusion>
+
+function mergeCustomFieldExclusions(exclusions: CustomFieldExclusion[]): CustomFieldExclusion {
+  if (exclusions.includes('all')) return 'all'
+  const sets = exclusions.filter((exclusion): exclusion is Set<string> => exclusion instanceof Set)
+  if (!sets.length) return null
+  if (sets.length === 1) return sets[0]
+  return new Set(sets.flatMap((set) => Array.from(set)))
+}
+
+function isExcludedCustomField(key: string, exclusion: CustomFieldExclusion): boolean {
+  if (!exclusion) return false
+  if (exclusion === 'all') return true
+  return exclusion.has(normalizeDefinitionKey(key))
+}
+
+function withoutExcludedRecordCustomFields(
+  record: Record<string, unknown>,
+  exclusion: CustomFieldExclusion,
+): Record<string, unknown> {
+  if (!exclusion) return record
+  const filtered: Record<string, unknown> = {}
+  let removed = false
+  for (const [key, value] of Object.entries(record)) {
+    const isCustomField = key.startsWith('cf:') || key.startsWith('cf_')
+    if (isCustomField && isExcludedCustomField(key.slice(3), exclusion)) {
+      removed = true
+      continue
+    }
+    filtered[key] = value
+  }
+  return removed ? filtered : record
+}
+
+/**
+ * Build callbacks may enrich the record they receive (for example with a hydrated parent);
+ * those changes reach the indexed fields as they did before the record was filtered.
+ */
+function applyBuildRecordChanges(
+  buildRecord: Record<string, unknown>,
+  record: Record<string, unknown>,
+  exclusion: CustomFieldExclusion,
+): void {
+  if (buildRecord === record) return
+  for (const [key, value] of Object.entries(buildRecord)) {
+    if (record[key] !== value) record[key] = value
+  }
+  for (const key of Object.keys(record)) {
+    if (key in buildRecord) continue
+    const isCustomField = key.startsWith('cf:') || key.startsWith('cf_')
+    if (isCustomField && isExcludedCustomField(key.slice(3), exclusion)) continue
+    delete record[key]
+  }
+}
+
+function withoutExcludedCustomFields(
+  customFields: Record<string, unknown>,
+  exclusion: CustomFieldExclusion,
+): Record<string, unknown> {
+  if (!exclusion) return customFields
+  const filtered: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(customFields)) {
+    const isPrefixed = key.startsWith('cf:') || key.startsWith('cf_')
+    if (isExcludedCustomField(key, exclusion)) continue
+    if (isPrefixed && isExcludedCustomField(key.slice(3), exclusion)) continue
+    filtered[key] = value
+  }
+  return filtered
+}
 
 /**
  * Parameters for indexing a record.
@@ -122,6 +200,13 @@ export type SearchIndexerOptions = {
   fulltextQueue?: Queue<FulltextIndexJobPayload>
   /** Queue for vector batch indexing */
   vectorQueue?: Queue<VectorIndexJobPayload>
+  /**
+   * Resolves the custom fields declared `encrypted` for an entity, so their values never reach
+   * buildSource, formatResult, resolveUrl or resolveLinks and stay out of the plain text a
+   * strategy stores or embeds. Without it, every custom field is left out of those callbacks.
+   * `IndexableRecord.fields` keeps them for hash-only tokens.
+   */
+  encryptedCustomFieldKeysResolver?: EncryptedCustomFieldKeysResolver
 }
 
 /**
@@ -133,6 +218,7 @@ export class SearchIndexer {
   private readonly queryEngine?: QueryEngine
   private readonly fulltextQueue?: Queue<FulltextIndexJobPayload>
   private readonly vectorQueue?: Queue<VectorIndexJobPayload>
+  private readonly encryptedCustomFieldKeysResolver?: EncryptedCustomFieldKeysResolver
 
   constructor(
     private readonly searchService: SearchService,
@@ -143,6 +229,15 @@ export class SearchIndexer {
     this.queryEngine = options?.queryEngine
     this.fulltextQueue = options?.fulltextQueue
     this.vectorQueue = options?.vectorQueue
+    this.encryptedCustomFieldKeysResolver = options?.encryptedCustomFieldKeysResolver
+    if (!this.encryptedCustomFieldKeysResolver) {
+      searchWarn('SearchIndexer', 'No encrypted custom-field resolver; excluding every custom field from build contexts')
+      reportSearchError(
+        'SearchIndexer',
+        new Error('[internal] SearchIndexer has no encryptedCustomFieldKeysResolver; excluding every custom field from build contexts'),
+        'search.encrypted_custom_fields_resolver_missing',
+      )
+    }
     for (const moduleConfig of moduleConfigs) {
       for (const entityConfig of moduleConfig.entities) {
         if (entityConfig.enabled !== false) {
@@ -153,14 +248,57 @@ export class SearchIndexer {
   }
 
   /**
+   * Returns a lookup of the custom fields to keep out of build contexts, memoized per entity and
+   * tenant for one indexing call or reindex run. A missing resolver or a failed resolution excludes
+   * every custom field; a failed resolution is retried on the next lookup.
+   */
+  private createCustomFieldExclusionLookup(): CustomFieldExclusionLookup {
+    const resolver = this.encryptedCustomFieldKeysResolver
+    const cache = new Map<string, Promise<CustomFieldExclusion>>()
+    return (entityId, tenantId) => {
+      if (!resolver) return Promise.resolve('all')
+      const cacheKey = `${entityId}\u0000${tenantId ?? ''}`
+      let pending = cache.get(cacheKey)
+      if (!pending) {
+        pending = Promise.resolve().then(() => resolver(entityId, tenantId)).catch((error): CustomFieldExclusion => {
+          searchWarn('SearchIndexer', 'Encrypted custom fields could not be resolved; excluding every custom field', {
+            entityId,
+            error: error instanceof Error ? error.message : error,
+          })
+          reportSearchError('SearchIndexer', error, 'search.encrypted_custom_fields_unresolved', { entityId })
+          cache.delete(cacheKey)
+          return 'all'
+        })
+        cache.set(cacheKey, pending)
+      }
+      return pending
+    }
+  }
+
+  /**
    * Returns a wrapped QueryEngine that forces skipAutoReindex: true on every query.
    * Used to prevent feedback loops when search indexing callbacks (buildSource, formatResult)
-   * call queryEngine.query() to hydrate related entities.
+   * call queryEngine.query() to hydrate related entities. Encrypted custom fields are removed
+   * from the hydrated records, as from the indexed record itself, including those joined in
+   * from `customFieldSources`. A query without a tenant is checked against every tenant's definitions.
    */
-  private get noReindexQueryEngine(): QueryEngine | undefined {
+  private createBuildQueryEngine(exclusions: CustomFieldExclusionLookup): QueryEngine | undefined {
     if (!this.queryEngine) return undefined
+    const queryEngine = this.queryEngine
     const wrapped: QueryEngine = {
-      query: (entity, opts) => this.queryEngine!.query(entity, { ...opts, skipAutoReindex: true }),
+      query: async (entity, opts) => {
+        const result = await queryEngine.query(entity, { ...opts, skipAutoReindex: true })
+        const sourceEntityIds = [entity, ...(opts?.customFieldSources ?? []).map((source) => source.entityId)]
+        const tenantId = opts?.tenantId ?? null
+        const exclusion = mergeCustomFieldExclusions(
+          await Promise.all(sourceEntityIds.map((sourceEntityId) => exclusions(sourceEntityId as EntityId, tenantId))),
+        )
+        if (!exclusion || !Array.isArray(result?.items)) return result
+        return {
+          ...result,
+          items: result.items.map((item: Record<string, unknown>) => withoutExcludedRecordCustomFields(item, exclusion)),
+        }
+      },
     }
     return wrapped
   }
@@ -196,12 +334,14 @@ export class SearchIndexer {
       return // Entity not configured for search
     }
 
+    const exclusions = this.createCustomFieldExclusionLookup()
+    const exclusion = await exclusions(params.entityId, params.tenantId)
     const buildContext: SearchBuildContext = {
-      record: params.record,
-      customFields: params.customFields ?? {},
+      record: withoutExcludedRecordCustomFields(params.record, exclusion),
+      customFields: withoutExcludedCustomFields(params.customFields ?? {}, exclusion),
       organizationId: params.organizationId,
       tenantId: params.tenantId,
-      queryEngine: this.noReindexQueryEngine,
+      queryEngine: this.createBuildQueryEngine(exclusions),
     }
 
     // Try buildSource first (provides text, presenter, links, checksumSource)
@@ -270,6 +410,8 @@ export class SearchIndexer {
         })
       }
     }
+
+    applyBuildRecordChanges(buildContext.record, params.record, exclusion)
 
     // Build IndexableRecord
     const indexableRecord: IndexableRecord = {
@@ -371,6 +513,7 @@ export class SearchIndexer {
       list.push(item.recordId)
       recordIdsByEntity.set(item.entityId, list)
     }
+    const exclusions = this.createCustomFieldExclusionLookup()
 
     const allRecords: IndexableRecord[] = []
     let skipped = 0
@@ -405,6 +548,7 @@ export class SearchIndexer {
             organizationId ?? null,
             [record],
             config,
+            exclusions,
           )
           skipped += dropped
           allRecords.push(...built)
@@ -489,6 +633,7 @@ export class SearchIndexer {
     }
 
     // Paginate through all records
+    const exclusions = this.createCustomFieldExclusionLookup()
     let page = 1
     const pageSize = 200
     let hasMore = true
@@ -516,6 +661,7 @@ export class SearchIndexer {
           params.organizationId ?? null,
           items,
           config,
+          exclusions,
         )
 
         // Bulk index records via SearchService (sends to all strategies)
@@ -589,6 +735,7 @@ export class SearchIndexer {
    */
   async bulkIndexRecords(params: IndexRecordParams[]): Promise<void> {
     const indexableRecords: IndexableRecord[] = []
+    const exclusions = this.createCustomFieldExclusionLookup()
 
     for (const param of params) {
       const config = this.entityConfigMap.get(param.entityId)
@@ -596,9 +743,10 @@ export class SearchIndexer {
         continue
       }
 
+      const exclusion = await exclusions(param.entityId, param.tenantId)
       const buildContext: SearchBuildContext = {
-        record: param.record,
-        customFields: param.customFields ?? {},
+        record: withoutExcludedRecordCustomFields(param.record, exclusion),
+        customFields: withoutExcludedCustomFields(param.customFields ?? {}, exclusion),
         organizationId: param.organizationId,
         tenantId: param.tenantId,
       }
@@ -632,6 +780,8 @@ export class SearchIndexer {
           // Skip links on error
         }
       }
+
+      applyBuildRecordChanges(buildContext.record, param.record, exclusion)
 
       indexableRecords.push({
         entityId: param.entityId,
@@ -731,6 +881,7 @@ export class SearchIndexer {
       }
 
       // Fetch and index records with pagination
+      const exclusions = this.createCustomFieldExclusionLookup()
       const pageSize = 200
       let page = 1
       let totalProcessed = 0
@@ -769,6 +920,7 @@ export class SearchIndexer {
             params.organizationId ?? null,
             queryResult.items,
             config,
+            exclusions,
           )
           result.recordsDropped = (result.recordsDropped ?? 0) + dropped
 
@@ -1127,9 +1279,12 @@ export class SearchIndexer {
     organizationId: string | null,
     items: Record<string, unknown>[],
     config: SearchEntityConfig,
+    exclusions: CustomFieldExclusionLookup = this.createCustomFieldExclusionLookup(),
   ): Promise<{ records: IndexableRecord[]; dropped: number }> {
     const records: IndexableRecord[] = []
     let dropped = 0
+    const exclusion = await exclusions(entityId, tenantId)
+    const buildQueryEngine = this.createBuildQueryEngine(exclusions)
 
     // Debug: log first item to see structure
     if (items.length > 0) {
@@ -1141,7 +1296,6 @@ export class SearchIndexer {
         firstName: items[0].first_name,
         lastName: items[0].last_name,
         preferredName: items[0].preferred_name,
-        sampleItem: JSON.stringify(items[0]).slice(0, 500),
       })
     }
 
@@ -1163,11 +1317,11 @@ export class SearchIndexer {
       }
 
       const buildContext: SearchBuildContext = {
-        record: item,
-        customFields,
+        record: withoutExcludedRecordCustomFields(item, exclusion),
+        customFields: withoutExcludedCustomFields(customFields, exclusion),
         organizationId,
         tenantId,
-        queryEngine: this.noReindexQueryEngine,
+        queryEngine: buildQueryEngine,
       }
 
       // Try buildSource first (provides text, presenter, links, checksumSource)
@@ -1224,6 +1378,8 @@ export class SearchIndexer {
           // Skip links on error
         }
       }
+
+      applyBuildRecordChanges(buildContext.record, item, exclusion)
 
       records.push({
         entityId,
