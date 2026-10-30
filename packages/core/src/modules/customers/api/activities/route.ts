@@ -149,14 +149,14 @@ async function legacyAdaptersDisabledResponse(): Promise<Response> {
 
 function buildLegacyOrderBy(sortField: string | undefined, sortDir: 'asc' | 'desc') {
   if (sortField === 'createdAt') {
-    return { createdAt: sortDir }
+    return { createdAt: sortDir, id: sortDir }
   }
   return buildInteractionOccurredAtOrderBy(sortDir)
 }
 
 function buildCanonicalOrderBy(sortField: string | undefined, sortDir: 'asc' | 'desc') {
   if (sortField === 'createdAt') {
-    return { createdAt: sortDir }
+    return { createdAt: sortDir, id: sortDir }
   }
   return buildInteractionOccurredAtOrderBy(sortDir)
 }
@@ -179,6 +179,13 @@ function sortActivityItems(
     const leftValue = resolveActivitySortValue(left, sortField)
     const rightValue = resolveActivitySortValue(right, sortField)
     if (leftValue === rightValue) {
+      const leftCreatedAt = resolveActivitySortValue(left, 'createdAt')
+      const rightCreatedAt = resolveActivitySortValue(right, 'createdAt')
+      if (leftCreatedAt !== rightCreatedAt) {
+        if (leftCreatedAt === null) return 1
+        if (rightCreatedAt === null) return -1
+        return sortDir === 'asc' ? leftCreatedAt - rightCreatedAt : rightCreatedAt - leftCreatedAt
+      }
       return sortDir === 'asc'
         ? left.id.localeCompare(right.id)
         : right.id.localeCompare(left.id)

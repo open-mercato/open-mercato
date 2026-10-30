@@ -87,6 +87,7 @@ The CRM subscriber reads the scoped platform message for canonical occurrence ti
 - A valid provider receipt time takes precedence over a different MIME date, retaining upstream #6095 behavior and its future-date guard. The canonical field does not retain both source facts.
 - When only provider time exists, it supplies both the canonical occurrence time and `providerTimestamp`.
 - When neither exists, both values are `null`; local import time is not substituted.
+- Activity pagination keeps unknown occurrence dates last, then orders by creation time and ID in the requested direction. These are secondary ordering keys only: the occurrence date stays null.
 - A mixed thread derives its summary and ordering date from its newest dated message; an undated message cannot erase a known thread date. When a thread is capped, newest dated messages are retained before undated messages.
 - Replay and dedup continue to use `(channelId, externalMessageId)`, not timestamps.
 
@@ -134,6 +135,7 @@ Ensure every affected projection, ordering path, and UI handles nullable canonic
 - Shared MIME and Gmail/IMAP normalization suites preserve provider-first precedence, reject invalid/far-future dates, and propagate unknown as null. The exported legacy `resolveInboundTimestamp` helper retains its existing `Date` return and now fallback; normalization uses the nullable internal resolver.
 - Ingest command tests pass known and null timestamps across the command boundary; the real compose-command harness verifies persisted sent time and ordinary-compose defaults. Subscriber tests verify canonical occurrence time and nullable legacy events.
 - `messages/__integration__/TC-MSG-UNKNOWN-TIMESTAMP-001.spec.ts` creates and cleans an undated message fixture and exercises list/detail APIs, forwarding preview, and the detail-header UI. Existing CRM activities and email-thread integration paths cover the ORM query consumers.
+- Limit-aware merged activity regressions traverse null-date pages and creation-time ties in both directions for legacy, canonical, and mixed sources; the ORM query test verifies the same total order.
 - The unrelated ActivitiesSection client fallback to createdAt remains preexisting follow-up work; no current QA pass is claimed by this spec.
 
 ## Final Compliance Report

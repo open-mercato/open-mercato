@@ -13,7 +13,7 @@ const customerInteractionSchema = new EntitySchema({
 })
 
 describe('buildInteractionOccurredAtOrderBy', () => {
-  it('generates MikroORM-compatible nulls-last SQL ordering', async () => {
+  it.each(['asc', 'desc'] as const)('generates a stable nulls-last SQL order (%s)', async (sortDir) => {
     const orm = await MikroORM.init({
       driver: PostgreSqlDriver,
       dbName: 'test',
@@ -25,11 +25,12 @@ describe('buildInteractionOccurredAtOrderBy', () => {
       const query = orm.em
         .createQueryBuilder('CustomerInteraction')
         .select('*')
-        .orderBy(buildInteractionOccurredAtOrderBy('desc'))
+        .orderBy(buildInteractionOccurredAtOrderBy(sortDir))
         .getQuery()
 
-      expect(query).toContain('order by occurred_at desc nulls last')
-      expect(query).toContain('"c0"."created_at" desc')
+      expect(query).toContain(
+        `order by occurred_at ${sortDir} nulls last, "c0"."created_at" ${sortDir}, "c0"."id" ${sortDir}`,
+      )
     } finally {
       await orm.close(true)
     }

@@ -4,5 +4,6 @@ export function buildInteractionOccurredAtOrderBy(sortDir: 'asc' | 'desc') {
   return [
     { [raw('occurred_at')]: `${sortDir} nulls last` },
     { createdAt: sortDir },
+    { id: sortDir },
   ]
 }
