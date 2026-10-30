@@ -1193,19 +1193,33 @@ async function applyDocumentUpdate({
   }
 
   if (input.customerEntityId !== undefined) {
-    entity.customerEntityId = input.customerEntityId ?? null;
+    const nextCustomerEntityId = input.customerEntityId ?? null;
+    const customerChanged =
+      (nextCustomerEntityId?.toLowerCase() ?? null) !==
+      (entity.customerEntityId?.toLowerCase() ?? null);
+    const snapshotContactId =
+      input.customerContactId !== undefined
+        ? input.customerContactId
+        : customerChanged
+          ? null
+          : entity.customerContactId ?? null;
+    if (customerChanged) {
+      entity.customerEntityId = nextCustomerEntityId;
+    }
     entity.customerSnapshot = await resolveCustomerSnapshot(
       em,
       organizationId,
       tenantId,
-      input.customerEntityId,
-      input.customerContactId ?? entity.customerContactId ?? null,
+      entity.customerEntityId ?? null,
+      snapshotContactId,
     );
-    entity.customerContactId = input.customerContactId ?? null;
-    entity.billingAddressId = null;
-    entity.shippingAddressId = null;
-    entity.billingAddressSnapshot = null;
-    entity.shippingAddressSnapshot = null;
+    if (customerChanged) {
+      entity.customerContactId = input.customerContactId ?? null;
+      entity.billingAddressId = null;
+      entity.shippingAddressId = null;
+      entity.billingAddressSnapshot = null;
+      entity.shippingAddressSnapshot = null;
+    }
   }
   if (input.customerContactId !== undefined) {
     entity.customerContactId = input.customerContactId ?? null;
