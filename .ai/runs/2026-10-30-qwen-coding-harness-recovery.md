@@ -37,10 +37,12 @@ PR: #8262
 
 ### Phase 2: Minimal shared fixes
 
-Fail-before evidence: evaluator delivery tests6 fail/2control pass (existing helpers exported without behavior changes); structural recovery tests14fail/12pass; source-policy tests16fail/12pass; typed fixture contract1fail. Failures are semantic assertions, with separate setup failures discarded. Source-policy tests use actual source generators/inventories so disposable controller worktrees need no ignored build cache.
+Fail-before evidence: evaluator delivery tests 6 fail / 2 control pass (existing helpers exported without behavior changes); structural recovery tests 13 fail / 13 pass; source-policy tests 16 fail / 12 pass; typed fixture contract 1 fail. Failures are semantic assertions, with separate setup failures discarded. Source-policy tests use actual source generators/inventories so disposable controller worktrees need no ignored build cache.
 - [x] 2.1 Add semantic regressions that fail before the fixes. — bb271631e
 - [ ] 2.2 Repair bounded reference delivery and explicit seeded entrypoint prompts.
-- [ ] 2.3 Align fixtures and structural oracles with real executable contracts.
+- [x] 2.3 Align fixtures and structural oracles with real executable contracts. — bdb4530d8
+
+Structural and typed-seed final focused validation: 65 tests pass; real typecheck/behavior gates remain unchanged.
 
 ### Phase 3: Evaluation evidence
 - [ ] 3.1 Verify deterministic, emitted/packed scaffold and knowledge-change gates.

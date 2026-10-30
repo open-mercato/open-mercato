@@ -29,6 +29,7 @@ type Evaluator = {
   evaluateExampleReadPolicy: (input: { caseRecord: CodingCase; appRoot: string; reads: Array<{ path: string }> }) => { firstViolation: string | null }
   validateExampleReadPolicyDeclaration: (record: CodingCase, root: string) => string[]
   prepareCaseFrameworkContext: (record: CodingCase, controller: string, target: string, options: { writable: boolean }) => { patterns: string[]; entries: Array<{ manifest: string; searchResult: string; sourceRoot: string; sourceFiles: string[] }> }
+  observedContext: (stdout: string, root: string, record: CodingCase, writable: boolean) => { paths: string[]; violations: string[]; exampleReadPolicy: { reads: Array<{ path: string }>; references: { followed: Array<{ resolvedPath: string }> } } }
 }
 type Reply = { id: number; result: { isError?: boolean; content: Array<{ text: string }> } }
 
@@ -175,6 +176,27 @@ test('the page override case can read and edit its exact module registry without
     assert.notEqual(replies[1].result.isError, true)
     assert.equal(replies[2].result.isError, true)
     assert.equal(replies[3].result.isError, true)
+  } finally { fs.rmSync(root, { recursive: true, force: true }) }
+})
+
+test('successful declared example reads retain separate reference accounting from target self-reads', () => {
+  const root = stageApp()
+  try {
+    const record = codingCase('OMH-009')
+    const source = 'src/modules/example/data/entities.ts'
+    const target = 'src/modules/library/index.ts'
+    fs.mkdirSync(path.dirname(path.join(root, target)), { recursive: true })
+    fs.writeFileSync(path.join(root, target), "export const metadata = { id: 'library' }\n")
+    const paths = ['AGENTS.md', '.ai/skills/om-data-model-design/references/schema-design.md', 'src/modules/example/README.md', source, target]
+    const replies = toolCalls(root, record, paths.map(filename => ({ name: 'read', arguments: { path: filename } })))
+    for (const reply of replies) assert.notEqual(reply.result.isError, true)
+    const events = replies.map((reply, index) => JSON.stringify({ type: 'mcp_tool_call', id: `read-${reply.id}`, name: 'mcp__harness__read', status: 'completed', input: { path: paths[index] } }))
+    const observed = evaluator.observedContext(events.join('\n'), root, record, true)
+    assert.deepEqual(observed.violations, [])
+    assert.ok(!observed.paths.includes(source), 'canonical example source is accounted separately from routing context')
+    assert.ok(observed.exampleReadPolicy.reads.some(read => read.path === source))
+    assert.ok(observed.exampleReadPolicy.references.followed.some(reference => reference.resolvedPath === source))
+    assert.ok(!observed.paths.includes(target), 'writable target self-reads are implementation input')
   } finally { fs.rmSync(root, { recursive: true, force: true }) }
 })
 
