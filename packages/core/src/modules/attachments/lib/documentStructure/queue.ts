@@ -21,6 +21,53 @@ export const documentStructureJobSchema = z.object({
 })
 export type DocumentStructureJob = z.infer<typeof documentStructureJobSchema>
 
+export const DOCUMENT_SECTION_SEARCH_JOB_KIND = 'section-search'
+export const DOCUMENT_SECTION_SEARCH_MAX_IDS = 1000
+
+export const documentSectionSearchJobSchema = z
+  .object({
+    kind: z.literal(DOCUMENT_SECTION_SEARCH_JOB_KIND),
+    mode: z.enum(['index', 'delete']),
+    tenantId: z.string().uuid().nullable(),
+    organizationId: z.string().uuid().nullable(),
+    extractionId: z.string().uuid().optional(),
+    sectionIds: z.array(z.string().uuid()).min(1).max(DOCUMENT_SECTION_SEARCH_MAX_IDS).optional(),
+    partitionCode: z.string().trim().min(1).max(120).optional(),
+    afterOrdinal: z.number().int().min(-1).optional(),
+  })
+  .strict()
+  .superRefine((job, ctx) => {
+    const targets = [job.extractionId, job.sectionIds, job.partitionCode].filter((value) => value !== undefined)
+    if (targets.length !== 1) {
+      ctx.addIssue({
+        code: 'custom',
+        message: '[internal] Exactly one of extractionId, sectionIds or partitionCode is required',
+      })
+    }
+    if (job.afterOrdinal !== undefined && job.extractionId === undefined) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['afterOrdinal'],
+        message: '[internal] afterOrdinal requires extractionId',
+      })
+    }
+  })
+export type DocumentSectionSearchJob = z.infer<typeof documentSectionSearchJobSchema>
+export type DocumentSectionSearchMode = DocumentSectionSearchJob['mode']
+
+export const documentStructureQueueJobSchema = z.union([documentSectionSearchJobSchema, documentStructureJobSchema])
+export type DocumentStructureQueueJob = DocumentStructureJob | DocumentSectionSearchJob
+
+export function isDocumentSectionSearchJob(payload: unknown): payload is { kind: typeof DOCUMENT_SECTION_SEARCH_JOB_KIND } {
+  return (
+    typeof payload === 'object' &&
+    payload !== null &&
+    (payload as { kind?: unknown }).kind === DOCUMENT_SECTION_SEARCH_JOB_KIND
+  )
+}
+
+export type EnqueueDocumentSectionSearchInput = Omit<DocumentSectionSearchJob, 'kind'>
+
 export type EnqueueDocumentStructureInput = {
   attachmentId: string
   tenantId: string | null
@@ -44,11 +91,11 @@ export function resolveDocumentStructureWorkerConcurrency(): number {
   return Math.min(MAX_WORKER_CONCURRENCY, Math.floor(parsed))
 }
 
-let defaultQueue: Queue<DocumentStructureJob> | null = null
+let defaultQueue: Queue<DocumentStructureQueueJob> | null = null
 
-function getDefaultDocumentStructureQueue(): Queue<DocumentStructureJob> {
+function getDefaultDocumentStructureQueue(): Queue<DocumentStructureQueueJob> {
   if (!defaultQueue) {
-    defaultQueue = createModuleQueue<DocumentStructureJob>(DOCUMENT_STRUCTURE_QUEUE_NAME, {
+    defaultQueue = createModuleQueue<DocumentStructureQueueJob>(DOCUMENT_STRUCTURE_QUEUE_NAME, {
       concurrency: resolveDocumentStructureWorkerConcurrency(),
     })
   }
@@ -57,9 +104,9 @@ function getDefaultDocumentStructureQueue(): Queue<DocumentStructureJob> {
 
 function resolveDocumentStructureQueue(
   container: DocumentStructureQueueContainer | null | undefined,
-): Queue<DocumentStructureJob> {
+): Queue<DocumentStructureQueueJob> {
   if (container && container.hasRegistration(DOCUMENT_STRUCTURE_QUEUE_DI_KEY)) {
-    return container.resolve<Queue<DocumentStructureJob>>(DOCUMENT_STRUCTURE_QUEUE_DI_KEY)
+    return container.resolve<Queue<DocumentStructureQueueJob>>(DOCUMENT_STRUCTURE_QUEUE_DI_KEY)
   }
   return getDefaultDocumentStructureQueue()
 }
@@ -77,6 +124,24 @@ export async function enqueueDocumentStructureExtraction(
     ...(input.onDemand ? { onDemand: true } : {}),
     ...(input.ocr ? { ocr: input.ocr } : {}),
     ...(input.requestedByUserId ? { requestedByUserId: input.requestedByUserId } : {}),
+  })
+  return resolveDocumentStructureQueue(container).enqueue(payload)
+}
+
+export async function enqueueDocumentSectionSearch(
+  container: DocumentStructureQueueContainer | null | undefined,
+  input: EnqueueDocumentSectionSearchInput,
+): Promise<string> {
+  assertAttachmentScopeInvariant({ tenantId: input.tenantId, organizationId: input.organizationId })
+  const payload = documentSectionSearchJobSchema.parse({
+    kind: DOCUMENT_SECTION_SEARCH_JOB_KIND,
+    mode: input.mode,
+    tenantId: input.tenantId ?? null,
+    organizationId: input.organizationId ?? null,
+    ...(input.extractionId !== undefined ? { extractionId: input.extractionId } : {}),
+    ...(input.sectionIds !== undefined ? { sectionIds: input.sectionIds } : {}),
+    ...(input.partitionCode !== undefined ? { partitionCode: input.partitionCode } : {}),
+    ...(input.afterOrdinal !== undefined ? { afterOrdinal: input.afterOrdinal } : {}),
   })
   return resolveDocumentStructureQueue(container).enqueue(payload)
 }

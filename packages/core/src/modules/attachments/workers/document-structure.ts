@@ -37,9 +37,18 @@ import {
   DOCUMENT_STRUCTURE_QUEUE_NAME,
   DOCUMENT_STRUCTURE_WORKER_ID,
   documentStructureJobSchema,
+  enqueueDocumentSectionSearch,
+  isDocumentSectionSearchJob,
   resolveDocumentStructureWorkerConcurrency,
   type DocumentStructureJob,
+  type DocumentStructureQueueContainer,
+  type DocumentStructureQueueJob,
 } from '../lib/documentStructure/queue'
+import {
+  runDocumentSectionSearchSync,
+  type DocumentSectionSearchEventBus,
+  type DocumentSectionSearchSyncDeps,
+} from '../lib/documentStructure/sectionSearchSync'
 import { structureDocument } from '../lib/documentStructure/structurer'
 import {
   isReusableDocumentExtraction,
@@ -572,9 +581,31 @@ export function resolveDocumentStructureWorkerDeps(ctx: HandlerContext): Documen
   }
 }
 
+function toQueueContainer(ctx: HandlerContext): DocumentStructureQueueContainer {
+  return {
+    hasRegistration(name: string): boolean {
+      return resolveOptional<unknown>(ctx, name) != null
+    },
+    resolve: <T>(name: string): T => ctx.resolve<T>(name),
+  }
+}
+
+export function resolveDocumentSectionSearchSyncDeps(ctx: HandlerContext): DocumentSectionSearchSyncDeps {
+  const container = toQueueContainer(ctx)
+  return {
+    em: ctx.resolve<EntityManager>('em').fork(),
+    eventBus: ctx.resolve<DocumentSectionSearchEventBus>('eventBus'),
+    enqueue: (input) => enqueueDocumentSectionSearch(container, input),
+  }
+}
+
 export default async function handle(
-  job: QueuedJob<DocumentStructureJob>,
+  job: QueuedJob<DocumentStructureQueueJob>,
   ctx: HandlerContext,
 ): Promise<void> {
+  if (isDocumentSectionSearchJob(job.payload)) {
+    await runDocumentSectionSearchSync(job.payload, resolveDocumentSectionSearchSyncDeps(ctx))
+    return
+  }
   await runDocumentStructureExtraction(job.payload, resolveDocumentStructureWorkerDeps(ctx))
 }

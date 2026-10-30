@@ -38,7 +38,7 @@
 | 3 | 3.6 | Document OTel export phase 2 and mirror env vars | dispatch:cheap | done | pending |
 | 4 | 4.1 | Add a shouldIndex hook to search entity configs | dispatch:capable | done | pending |
 | 4 | 4.2 | Declare the document section search entity | dispatch:capable | done | pending |
-| 4 | 4.3 | Add section search sync jobs to the structure queue | dispatch:capable | todo | — |
+| 4 | 4.3 | Add section search sync jobs to the structure queue | dispatch:capable | done | pending |
 | 4 | 4.4 | Index sections when an extraction completes | dispatch | todo | — |
 | 4 | 4.5 | Remove section search records when structure is purged | dispatch:capable | todo | — |
 | 4 | 4.6 | Sync section search when a partition toggles indexing | dispatch | todo | — |
