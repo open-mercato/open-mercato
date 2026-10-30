@@ -29,7 +29,7 @@ Raw private captures remain local. Early 009/011/012/014 attempts have retained 
 
 ## Shared owners and protected checks
 
-Four existing runtime owners carry the fixes: the case/context catalog, evaluator prompt/preparation, writable structural oracles and fixture seed catalog. A validation-discovered CLI cache defect also requires its external build-input declaration. Supporting regression tests and generated inventories are required; do not add one prose rule per observed failure.
+The initial fixes use four existing runtime owners: the case/context catalog, evaluator prompt/preparation, writable structural oracles and fixture seed catalog. Recovery additionally requires one optional Pi delivery hook for demonstrated client-side truncation. A validation-discovered CLI cache defect also requires its external build-input declaration. Supporting regression tests and generated inventories are required; do not add one prose rule per observed failure.
 
 - Writable self-reads are already permitted and excluded from instruction budgets. Unexpected selectedContext entries in 029/031 are model/protocol violations; clarify instruction/fact-only bookkeeping without broadening the security allowlist.
 - Reference delivery must use existing exact, readable source capabilities and preserve QA-only, unrelated-source, traversal and credential denials.
@@ -122,6 +122,16 @@ Round 3 retains the same model, system prompt, timeout, correction policy, canon
 The final parser passes 31/31 synthetic regressions, compared with the frozen Round 2 parser's 17/31 on the same tests. The parent independently reviewed ordinary Markdown/code examples, later invalid answers, standalone inline answers, nested containers, quote/multiline handling and resource bounds. Parser SHA-256: `01053bc7a7588115b2dd8e77df6a40c2fdc55f90c0aa55c452e3f9f1146823b8`. Both previously observed response shapes normalize to their exact schema-valid objects; no earlier score changes.
 
 Fresh fourteen-case fixture/before-oracle, prompt/framework projection and selected deterministic checks pass. Authenticated collector self-tests, version-only canonical sandbox and dry-run checks pass before inference; the source/dependency cohort is unchanged. The sanitized preflight summary SHA-256 is `2802ca1591872962a9bdca743fe80ee3e19be7fba1aac7c4654e9d7479746fb4`. The complete model-result matrix is pending; these setup checks are not model passes.
+
+## Confirmed native Pi MCP truncation
+
+The installed Pi 1.4 CLI bundle middle-truncates direct MCP text above 20,480 bytes. In Round 3, OMH-009 successfully read a 47,378-byte canonical surface map and a 20,970-byte migration snapshot. Applying that exact installed converter to those immutable source bytes produces approximately 20 KiB plus a truncation warning, omitting 91 and two complete nonempty lines respectively. The full-output pointer is unusable: built-in filesystem/shell tools are disabled, and `harness.read` permits neither the absolute temporary path nor offset/limit recovery. The read ledger therefore measures successful server reads, not complete model delivery.
+
+All fourteen cases have eligible guide/source files above this limit, including both optional and mandatory context. This is not a claim that every case actually read every oversized file. The content-free audit pins the paths, byte counts, source hashes, actual bundled converter and deterministic reproduction; its SHA-256 is `af5c3883fc9d3425c1976a72c9c0c31ac007e7bede4cd978b325eb40115a10f2`. Captures retain paths/status rather than raw read bodies, so the proof is exact-version reconstruction, not a captured wire attestation. Specific coding-error causation remains unproven; key OMH-009 contract markers survive the clipped map.
+
+The proposed minimal correction is one optional shared Pi extension. Its supported `tool_result` hook receives the original untruncated structured MCP result after conversion and can replace model-visible content in memory. The hook will require the exact successful harness read identity and one text block within the server's existing 256 KiB bound; it will preserve unrelated tools/errors and explicitly fail malformed or oversized successful-read delivery. It needs no filesystem recovery, additional tool/read grant, provider dependency, model change or grader change. Existing recursive scaffold copying and Turbo inputs cover the new asset. Tests, actual SDK pipeline proof, emitted parity and a fresh model run are required before claiming recovery.
+
+Round 3 has one canonical first-attempt pass so far: OMH-009, with its implementation oracle passing and zero corrections. Additional generated-app checks remain pending. OMH-011 had already begun when a graceful stop was requested; it will finish normally, and later cases will remain not run. The earlier scores remain frozen.
 
 ## Offline attribution on the frozen generated targets
 
