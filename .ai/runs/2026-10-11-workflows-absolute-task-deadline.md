@@ -41,9 +41,14 @@ due date is computed elsewhere still get reminders and breach handling.
 
 ## Risks
 
-- Contract: the exported `TaskDeadline` / `taskDeadlineSchema` stay duration-only (maintainer review on
-  #7189). The `at` form lives in the additive `TaskDeadlineSpec` / `taskDeadlineSpecSchema`, used by
-  `userTaskConfig.deadline`; `data/task-primitives.typecheck.tsx` guards `TaskDeadline['duration']` as `string`.
+- Contract: the exported `TaskDeadline` / `taskDeadlineSchema`, `UserTaskConfig` / `userTaskConfigSchema`,
+  `TaskDeadlinePersistence` and `resolveTaskDeadlinePersistence` stay duration-only (maintainer reviews on
+  #7189). The `at` form lives in the additive `TaskDeadlineSpec`, `UserTaskConfigSpec`,
+  `TaskDeadlineSpecPersistence` and `resolveTaskDeadlineSpecPersistence`; `workflowStepSchema` validates
+  `userTaskConfig` with `userTaskConfigSpecSchema`. `data/task-primitives.typecheck.tsx` guards the nested
+  contracts.
+- i18n: deadline diagnostics carry `workflows.validation.taskDeadline.*` keys, localized at the API
+  response and Studio display boundaries.
 
 ## Implementation Plan
 

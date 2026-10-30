@@ -28,6 +28,7 @@ import {
 } from '../../openapi'
 import { invalidateTriggerCache } from '../../../lib/event-trigger-service'
 import { normalizeDefinitionValidationIssues } from '../../../lib/definition-error-body'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { getCodeWorkflow, getAllCodeWorkflows } from '../../../lib/code-registry'
 import { codeWorkflowUuid } from '../../../lib/find-definition'
 import {
@@ -190,10 +191,11 @@ export async function PUT(
     // Validate input
     const validation = updateWorkflowDefinitionInputCheckedSchema.safeParse(body)
     if (!validation.success) {
+      const { translate } = await resolveTranslations()
       return NextResponse.json(
         {
           error: 'Validation failed',
-          details: normalizeDefinitionValidationIssues(validation.error),
+          details: normalizeDefinitionValidationIssues(validation.error, translate),
         },
         { status: 400 }
       )

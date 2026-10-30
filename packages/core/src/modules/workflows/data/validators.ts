@@ -21,6 +21,7 @@ import {
   isValidIsoDateString,
 } from './activity-config-schemas'
 import {
+  taskDeadlineSchema,
   taskDeadlineSpecSchema,
   taskPrioritySchema,
   taskReminderSchema,
@@ -325,7 +326,7 @@ export const userTaskConfigSchema = z.object({
   entityBindings: z.array(taskEntityBindingSchema).optional(),
   // "When": priority, deadline, reminders, and what happens on breach.
   priority: taskPrioritySchema.optional(),
-  deadline: taskDeadlineSpecSchema.optional(),
+  deadline: taskDeadlineSchema.optional(),
   reminders: z.array(taskReminderSchema).optional(),
   onBreach: taskOnBreachSchema.optional(),
   // "Decisions": buttons bound 1:1 to outgoing routes, plus the subset of form
@@ -334,6 +335,22 @@ export const userTaskConfigSchema = z.object({
   editablePrefilled: z.array(z.string()).optional(),
 })
 export type UserTaskConfig = z.infer<typeof userTaskConfigSchema>
+
+/**
+ * The USER_TASK config the engine validates and runs (#7181): `userTaskConfig`
+ * whose `deadline` may also be an absolute `at` (`TaskDeadlineSpec`).
+ *
+ * Additive on purpose. `userTaskConfigSchema` / `UserTaskConfig` keep their
+ * duration-only `deadline: TaskDeadline`, so consumer code that narrows
+ * `config.deadline` and reads `deadline.duration` as a `string` keeps compiling
+ * (BACKWARD_COMPATIBILITY.md §2-3, guarded by `task-primitives.typecheck.tsx`).
+ * Every value `userTaskConfigSchema` accepts, this accepts too. Read a stored
+ * step's `userTaskConfig` as this type when it may carry an absolute deadline.
+ */
+export const userTaskConfigSpecSchema = userTaskConfigSchema.extend({
+  deadline: taskDeadlineSpecSchema.optional(),
+})
+export type UserTaskConfigSpec = z.infer<typeof userTaskConfigSpecSchema>
 
 // Sub-workflow configuration (Phase 8)
 export const subWorkflowConfigSchema = z.object({
@@ -655,7 +672,7 @@ export const workflowStepSchema = z.object({
   stepType: workflowStepTypeSchema,
   description: z.string().max(1000).optional(),
   config: z.record(z.string(), z.any()).optional(),
-  userTaskConfig: userTaskConfigSchema.optional(),
+  userTaskConfig: userTaskConfigSpecSchema.optional(),
   subWorkflowConfig: subWorkflowConfigSchema.optional(),
   signalConfig: z.object({
     signalName: z.string().min(1),

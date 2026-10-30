@@ -13,7 +13,7 @@ import type { Activity } from '../components/fields/ActivityArrayEditor'
 import type { Mapping } from '../components/fields/MappingArrayEditor'
 import type { StartPreCondition } from '../components/fields/StartPreConditionsEditor'
 import type { AgentInvokeConfigValue, AgentSubjectValue } from '../components/fields/AgentInvokeConfigField'
-import type { InvokeAgentConfig, UserTaskAssigneeKind, UserTaskConfig } from '../data/validators'
+import type { InvokeAgentConfig, UserTaskAssigneeKind, UserTaskConfigSpec } from '../data/validators'
 import { sanitizeId } from './graph-utils'
 import { isFutureIsoDateString, isValidDurationString } from '../data/validators'
 import { isPlainRecord, parseAdvancedConfigValue } from './advanced-config'
@@ -35,7 +35,7 @@ import {
   remindersToOffsets,
   resolveTaskAssigneeKindPersistence,
   readTaskDeadlineDraft,
-  resolveTaskDeadlinePersistence,
+  resolveTaskDeadlineSpecPersistence,
   type TaskAssignmentMode,
   type TaskDecisionDraft,
   type TaskEntityBindingDraft,
@@ -268,14 +268,14 @@ export interface NodeFormValues {
  * copy FIRST (`node.data[key] ?? node.data.userTaskConfig?.[key]`). Reading it
  * the same way here is what keeps the dialog showing what a save would persist.
  */
-function readUserTaskInspectorConfig(node: Node): Partial<UserTaskConfig> {
+function readUserTaskInspectorConfig(node: Node): Partial<UserTaskConfigSpec> {
   const nodeData = (node.data ?? {}) as Record<string, unknown>
   const stored = isPlainRecord(nodeData.userTaskConfig) ? nodeData.userTaskConfig : {}
   const merged: Record<string, unknown> = { ...stored }
   for (const key of USER_TASK_INSPECTOR_NODE_KEYS) {
     if (nodeData[key] !== undefined) merged[key] = nodeData[key]
   }
-  return merged as Partial<UserTaskConfig>
+  return merged as Partial<UserTaskConfigSpec>
 }
 
 function normalizeAssignedToRoles(value: unknown): string[] {
@@ -571,7 +571,7 @@ export function formValuesToNodeUpdates(
     // absent-by-default: a step whose inspector sections were never touched
     // produces exactly the config it produced before this section existed.
     const inspectorConfig = readUserTaskInspectorConfig(node)
-    const deadline = resolveTaskDeadlinePersistence(inspectorConfig, values.slaDuration ?? '')
+    const deadline = resolveTaskDeadlineSpecPersistence(inspectorConfig, values.slaDuration ?? '')
     const instructions = applyEditedTaskText(inspectorConfig.instructions, values.taskInstructions ?? '')
     const entityBindings = draftsToEntityBindings(values.taskEntityBindings)
     const priority = isTaskPriority(values.taskPriority) ? values.taskPriority : undefined

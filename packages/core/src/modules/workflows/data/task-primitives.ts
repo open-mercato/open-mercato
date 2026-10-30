@@ -20,8 +20,29 @@ import { parseAbsoluteDeadline } from '../lib/duration'
 export const taskPrioritySchema = z.enum(['low', 'medium', 'high', 'extreme'])
 export type TaskPriority = z.infer<typeof taskPrioritySchema>
 
-export const TASK_DEADLINE_AT_ERROR =
-  'Deadline "at" must be an ISO date (YYYY-MM-DD) or an ISO datetime with a timezone offset or Z'
+/**
+ * The deadline diagnostics, as an i18n key plus the English fallback. The zod
+ * issue carries the fallback as its `message` and the key as
+ * `params.i18nKey`, so every display/response boundary can localize it
+ * (`resolveIssueMessage`, `lib/definition-error-body.ts`) while a caller with no
+ * dictionary still reads English.
+ */
+export const TASK_DEADLINE_MESSAGES = {
+  bothForms: {
+    key: 'workflows.validation.taskDeadline.bothForms',
+    fallback: 'A deadline is either a duration or an absolute "at", not both',
+  },
+  missingForm: {
+    key: 'workflows.validation.taskDeadline.missingForm',
+    fallback: 'A deadline needs a duration or an absolute "at"',
+  },
+  invalidAt: {
+    key: 'workflows.validation.taskDeadline.invalidAt',
+    fallback: 'Deadline "at" must be an ISO date (YYYY-MM-DD) or an ISO datetime with a timezone offset or Z',
+  },
+} as const
+
+export const TASK_DEADLINE_AT_ERROR = TASK_DEADLINE_MESSAGES.invalidAt.fallback
 
 /**
  * Business-word deadline, anchored to task creation. A strict superset of
@@ -60,19 +81,22 @@ export const taskDeadlineSpecSchema = z
       ctx.addIssue({
         code: 'custom',
         path: ['at'],
-        message: 'A deadline is either a duration or an absolute "at", not both',
+        message: TASK_DEADLINE_MESSAGES.bothForms.fallback,
+        params: { i18nKey: TASK_DEADLINE_MESSAGES.bothForms.key },
       })
     } else if (!hasDuration && !hasAt) {
       ctx.addIssue({
         code: 'custom',
         path: ['duration'],
-        message: 'A deadline needs a duration or an absolute "at"',
+        message: TASK_DEADLINE_MESSAGES.missingForm.fallback,
+        params: { i18nKey: TASK_DEADLINE_MESSAGES.missingForm.key },
       })
     } else if (deadline.at !== undefined && !deadline.at.includes('{{') && !parseAbsoluteDeadline(deadline.at)) {
       ctx.addIssue({
         code: 'custom',
         path: ['at'],
-        message: TASK_DEADLINE_AT_ERROR,
+        message: TASK_DEADLINE_MESSAGES.invalidAt.fallback,
+        params: { i18nKey: TASK_DEADLINE_MESSAGES.invalidAt.key },
       })
     }
   })

@@ -4,6 +4,7 @@ import type {
   TaskLocalizedString,
   UserTaskAssigneeKind,
   UserTaskConfig,
+  UserTaskConfigSpec,
 } from '../data/validators'
 import { parseAbsoluteDeadline } from './duration'
 
@@ -266,7 +267,7 @@ export function resolveTaskDecisions(
  * exactly as `deadline.duration` does.
  */
 export function resolveTaskDeadlineDuration(
-  config: Pick<UserTaskConfig, 'deadline' | 'slaDuration'>
+  config: Pick<UserTaskConfigSpec, 'deadline' | 'slaDuration'>
 ): string | null {
   if (typeof config.deadline?.at === 'string' && config.deadline.at.length) return null
   const duration = config.deadline?.duration ?? config.slaDuration
@@ -296,7 +297,7 @@ export type ResolvedTaskDeadline =
  * reminder and the breach.
  */
 export function resolveTaskDeadline(
-  config: Pick<UserTaskConfig, 'deadline' | 'slaDuration'>,
+  config: Pick<UserTaskConfigSpec, 'deadline' | 'slaDuration'>,
   interpolate: TaskInterpolate
 ): ResolvedTaskDeadline | null {
   const authoredAt = config.deadline?.at

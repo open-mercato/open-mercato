@@ -42,9 +42,12 @@ import {
  *    details the code is thrown with, and those are what is asserted.
  * 4. **`duration` and `at` are mutually exclusive** — refused on save, not left
  *    for the engine to pick one.
+ * 5. **The refusal is localized.** The deadline diagnostics are user-facing, so
+ *    a Polish request reads the Polish message in `details[].message`.
  */
 
 const DEADLINE_TEMPLATE = '{{context.dueDate}}'
+const POLISH_BOTH_FORMS_MESSAGE = 'Termin to albo czas trwania, albo bezwzględne "at" — nie oba naraz'
 const DAY_MS = 24 * 60 * 60 * 1000
 
 function isoDateInDays(days: number): string {
@@ -210,6 +213,35 @@ test.describe('TC-WF-069: absolute user-task deadline (deadline.at) from the run
       expect(response.status(), `duration + at must be refused on save (got ${JSON.stringify(body)})`).toBe(400)
       const issue = body?.details?.find((detail) => detail.path?.join('.').endsWith('deadline.at'))
       expect(issue?.message, 'the refusal points at deadline.at and says why').toContain('not both')
+    } finally {
+      await deleteWorkflowDefinitionIfExists(request, token, definitionId)
+    }
+  })
+
+  test('localizes the deadline refusal for the request locale', async ({ request }) => {
+    const token = await getAuthToken(request, 'admin')
+    const stamp = `${Date.now()}-${randomInt(1_000_000)}`
+    let definitionId: string | null = null
+
+    try {
+      const definition = buildAbsoluteDeadlineDefinition(stamp, 'both-pl', {
+        duration: 'P3D',
+        at: DEADLINE_TEMPLATE,
+      })
+      const response = await apiRequest(request, 'POST', '/api/workflows/definitions', {
+        token,
+        data: definition,
+        headers: { Cookie: 'locale=pl', 'Accept-Language': 'pl' },
+      })
+      const body = await readJsonSafe<{
+        data?: { id?: string }
+        details?: Array<{ path?: Array<string | number>; message?: string }>
+      }>(response)
+      definitionId = body?.data?.id ?? null
+
+      expect(response.status(), `duration + at must be refused on save (got ${JSON.stringify(body)})`).toBe(400)
+      const issue = body?.details?.find((detail) => detail.path?.join('.').endsWith('deadline.at'))
+      expect(issue?.message, 'a Polish request reads the Polish deadline diagnostic').toBe(POLISH_BOTH_FORMS_MESSAGE)
     } finally {
       await deleteWorkflowDefinitionIfExists(request, token, definitionId)
     }
