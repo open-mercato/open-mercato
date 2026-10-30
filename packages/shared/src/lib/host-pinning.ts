@@ -1,5 +1,6 @@
 import { lookup as dnsLookup } from 'node:dns/promises'
 import { isIP } from 'node:net'
+import { isPrivateIPv4, isPrivateIPv6 } from './network'
 
 /**
  * SSRF guard for operator-supplied *host:port* endpoints — mail relays, IMAP
@@ -16,7 +17,8 @@ import { isIP } from 'node:net'
  *
  * - {@link isInternalHost} — cheap, synchronous, string-based. Runs inside zod
  *   credential schemas. Rejects literal internal IPs, `localhost`, and the
- *   obfuscated encodings that exist to evade such filters (IPv4-mapped IPv6,
+ *   obfuscated encodings that exist to evade such filters (IPv4-mapped, NAT64,
+ *   6to4 and IPv4-compatible IPv6 embedding an internal IPv4,
  *   decimal/hex/octal/short-form IPv4, bracketed and expanded IPv6). It cannot
  *   catch a public hostname that resolves to a private address.
  * - {@link resolveSafeHostAddress} — asynchronous, runs at connect time. Closes
@@ -24,11 +26,12 @@ import { isIP } from 'node:net'
  *   result if *any* address is internal, and returning the validated IP for the
  *   caller to dial, so there is no second lookup an attacker could race.
  *
- * Deliberately independent of `network.ts`'s `isBlockedHostname` /
- * `isPrivateIpAddress`, which are tuned for URL hostnames: they classify an empty
- * string as blocked and do not detect obfuscated IPv4 literals. Callers here need
- * the opposite bias — an empty host is a missing-field error for the schema to
- * report, not an SSRF attempt.
+ * Address classification reuses `network.ts`'s CIDR logic (`isPrivateIPv4` /
+ * `isPrivateIPv6`), which covers every non-global IPv4/IPv6 range. Host-name
+ * handling stays separate from `isBlockedHostname`, which is tuned for URL
+ * hostnames: it classifies an empty string as blocked and does not detect
+ * obfuscated IPv4 literals. Callers here need the opposite bias — an empty host
+ * is a missing-field error for the schema to report, not an SSRF attempt.
  */
 
 const FORBIDDEN_HOST_NAMES = new Set([
@@ -38,25 +41,6 @@ const FORBIDDEN_HOST_NAMES = new Set([
   'ip6-loopback',
   'metadata.google.internal',
 ])
-
-const PRIVATE_IPV4_PATTERNS: RegExp[] = [
-  /^(127|10)\./,                                    // 127/8 loopback, 10/8 private
-  /^172\.(1[6-9]|2[0-9]|3[01])\./,                  // 172.16/12 private
-  /^192\.168\./,                                    // 192.168/16 private
-  /^169\.254\./,                                    // link-local + cloud metadata (169.254.169.254)
-  /^100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\./, // CGNAT 100.64/10
-  /^0\./,                                           // 0.0.0.0/8 reserved
-]
-
-const PRIVATE_IPV6_PATTERNS: RegExp[] = [
-  /^::$/,                                            // unspecified
-  /^::1$/,                                           // loopback
-  /^::ffff:/,                                        // IPv4-mapped (hex-group form; dotted form is unwrapped first)
-  /^(fc|fd)[0-9a-f]{0,2}:/,                          // unique-local fc00::/7
-  /^fe80:/,                                          // link-local
-  /^(0{1,4}:){7}0{0,3}1$/,                           // fully-expanded loopback
-  /^(0{1,4}:){7}0{1,4}$/,                            // fully-expanded unspecified
-]
 
 function isDottedDecimalQuad(host: string): boolean {
   const parts = host.split('.')
@@ -97,14 +81,17 @@ export function isInternalHost(rawHost: string): boolean {
   const host = normalizeHost(rawHost)
   if (!host) return false
   if (FORBIDDEN_HOST_NAMES.has(host) || host.endsWith('.localhost')) return true
-  if (host.includes(':')) return PRIVATE_IPV6_PATTERNS.some((pattern) => pattern.test(host))
+  if (host.includes(':')) {
+    const address = host.replace(/%.*$/, '')
+    return isIP(address) !== 6 || isPrivateIPv6(address)
+  }
   if (isObfuscatedIpv4(host)) return true
-  // Only treat the private-range patterns as internal for a real dotted-decimal
-  // quad. Otherwise a hostname whose first label merely looks like a private
-  // range (e.g. `0.mx.example.com`, `10.example.com`) is wrongly rejected.
-  // Obfuscated/short IPv4 forms were already caught above, so anything reaching
-  // here is either a quad or a genuine hostname.
-  return isDottedDecimalQuad(host) && PRIVATE_IPV4_PATTERNS.some((pattern) => pattern.test(host))
+  // Only classify a real dotted-decimal quad as an address. Otherwise a hostname
+  // whose first label merely looks like a private range (e.g. `0.mx.example.com`,
+  // `10.example.com`) is wrongly rejected. Obfuscated/short IPv4 forms were
+  // already caught above, so anything reaching here is either a quad or a
+  // genuine hostname.
+  return isDottedDecimalQuad(host) && isPrivateIPv4(host)
 }
 
 export type HostLookup = (hostname: string) => Promise<Array<{ address: string; family: number }>>
