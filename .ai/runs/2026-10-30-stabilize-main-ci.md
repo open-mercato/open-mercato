@@ -44,9 +44,9 @@ Restore the current `main` branch workflows to green by identifying each failing
 - `main` SHA `440f7c2b4cdcb69d820423ecbb9db71e4a8494f9` failed [Develop Snapshot Release run 41132875987](https://github.com/open-mercato/open-mercato/actions/runs/41132875987) only in `Release snapshot`.
 - `@open-mercato/channel-fcm` and `@open-mercato/events` each failed with npm `TLOG_CREATE_ENTRY_ERROR`: Rekor returned HTTP 409 because an equivalent transparency-log entry already existed. Their snapshot versions remained absent from npm, while every other package published.
 - This is the Sigstore retry-after-success defect fixed upstream in [sigstore-js#1709](https://github.com/sigstore/sigstore-js/pull/1709): the transparency entry is committed, a retry receives the valid duplicate, and the current client treats that duplicate as fatal. The fix merged on 2026-10-27 but is not present in the published Sigstore version used by npm in the workflow.
-- The smallest repository safeguard is a bounded wrapper that retries only this exact two-part error signature, preserves `--provenance`, and fails immediately for all other npm errors. The caller also verifies registry state after a client failure so a completed publish is not falsely reported as failed.
+- The smallest repository safeguard is a bounded wrapper that retries only this exact two-part error signature, preserves `--provenance`, and fails immediately for all other npm errors. Exhausted retries remain fatal; registry presence alone is never accepted after a failed provenance client, preserving the supply-chain boundary identified by the PR security scan.
 - The snapshot's standalone-app follow-up also exposed a deterministic activation defect: `scripts/lib/module-activation-fixtures.ts` still injected the removed `exampleCalendarOverrides` symbol, so evaluating the generated `src/modules.ts` failed with `ReferenceError`. The fixture now relies on the example module's own calendar registration and its test bundles and evaluates every activated module configuration instead of checking generated structure alone.
-- Snapshot attempt 2 proved npm can accept a large package while keeping its metadata unavailable long after the workflow's five-minute ceiling: `@open-mercato/core` published successfully at 22:17:28Z, but remained `E404` through at least 22:44:23Z. Both snapshot workflows now share a bounded thirty-minute metadata wait and retain a hard failure when npm never exposes the version.
+- Snapshot attempt 2 proved npm can accept a large package while keeping its metadata unavailable long after the workflow's five-minute ceiling: `@open-mercato/core` published successfully at 22:17:28Z, but remained `E404` through at least 22:52:04Z. Both snapshot workflows now share a bounded forty-five-minute metadata wait and retain a hard failure when npm never exposes the version.
 
 ## Progress
 
@@ -59,10 +59,10 @@ Restore the current `main` branch workflows to green by identifying each failing
 
 ### Phase 2: Correct root causes
 
-- [x] 2.1 Implement minimal fixes with regression coverage for every actionable failure. — 4c20fce5cc, 343ebfffcd, d4f8e125c2
-- [x] 2.2 Run targeted validation and confirm the original failure signatures are resolved. — 4c20fce5cc, 343ebfffcd, d4f8e125c2
+- [x] 2.1 Implement minimal fixes with regression coverage for every actionable failure. — 4c20fce5cc, 343ebfffcd, d4f8e125c2, e03e45454f, 7759f12594
+- [x] 2.2 Run targeted validation and confirm the original failure signatures are resolved. — 4c20fce5cc, 343ebfffcd, d4f8e125c2, e03e45454f, 7759f12594
 
 ### Phase 3: Verify and hand off
 
-- [ ] 3.1 Run the repository's full configured validation gate and push the completed fix set.
+- [x] 3.1 Run the repository's full configured validation gate and push the completed fix set. — 523653d278
 - [ ] 3.2 Confirm pull-request CI reaches green and obtain an independent final review verdict.
