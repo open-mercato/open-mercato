@@ -2,7 +2,7 @@
 
 ## Goal
 
-Keep compiled modules available during overlapping package builds and bootstrap DI before queuing post-migration query-index rebuilds.
+Make greenfield startup and Ctrl+C shutdown reliable: preserve compiled modules, bootstrap migration reindex DI, terminate managed descendants, and recover abandoned session ownership.
 
 ## Scope
 
@@ -20,14 +20,15 @@ Non-goals: reset local data, apply migrations, change package dependency version
 
 2.1 Port lazy application bootstrap before queue container creation, with tests for successful scheduling, bootstrap failure, and no-migration runs.
 
-### Phase 3: Verify and publish
+### Phase 3: Repair shutdown, verify, and publish
 
+3.0 Fix surviving child processes and stale/reused PID ownership after Ctrl+C; include listener diagnostics while preserving active startup ownership.
 3.1 Run focused tests and the configured validation commands with the local runner.
 3.2 Run the authoritative PR review, address actionable findings, and publish the ready PR with validation evidence.
 
 ## Risks
 
-Shared build cleanup affects every package: preserve outputs owned by other source roots and copied assets, and prune only obsolete compiled outputs identified by source maps. Reindex scheduling must remain non-fatal and must never replace a migration failure. The invoking checkout's first broad test run hit an intermittent CrudForm transform assertion; its focused retry passed. Validation must be repeated on the isolated branch.
+Shared build cleanup affects every package: preserve outputs owned by other source roots and copied assets, and prune only obsolete compiled outputs identified by source maps. Reindex scheduling must remain non-fatal and must never replace a migration failure. The invoking checkout's first broad test run hit an intermittent CrudForm transform assertion; its focused retry passed. Validation must be repeated on the isolated branch. A free TCP port does not prove the workspace is idle while initialization or builds still run; preserve live ownership throughout startup and shutdown. Scope expanded after the user reproduced a dead-owner conflict after Ctrl+C.
 
 ## Progress
 
@@ -41,7 +42,8 @@ Shared build cleanup affects every package: preserve outputs owned by other sour
 
 - [x] 2.1 Port lazy application bootstrap and migration reindex regression tests — 9b4eb2fa1
 
-### Phase 3: Verify and publish
+### Phase 3: Repair shutdown, verify, and publish
 
+- [ ] 3.0 Fix Ctrl+C descendant cleanup, stale session recovery, and listener diagnostics
 - [ ] 3.1 Run focused tests and the configured validation gate
 - [ ] 3.2 Complete authoritative review and publish the ready PR
