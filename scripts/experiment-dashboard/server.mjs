@@ -4,7 +4,7 @@ import path from 'node:path'
 import { loadExperiment, loadCaseDetail } from './adapters.mjs'
 import { experimentSummary, MAX_JSON_BYTES } from './model.mjs'
 
-const STATIC = new Map([['/', ['index.html', 'text/html; charset=utf-8']], ['/index.html', ['index.html', 'text/html; charset=utf-8']], ['/app.js', ['app.js', 'text/javascript; charset=utf-8']], ['/styles.css', ['styles.css', 'text/css; charset=utf-8']], ['/app.css', ['app.css', 'text/css; charset=utf-8']], ['/foundation.css', ['foundation.css', 'text/css; charset=utf-8']]])
+const STATIC = new Map([['/', ['index.html', 'text/html; charset=utf-8']], ['/index.html', ['index.html', 'text/html; charset=utf-8']], ['/app.js', ['app.js', 'text/javascript; charset=utf-8']], ['/styles.css', ['styles.css', 'text/css; charset=utf-8']], ['/app.css', ['app.css', 'text/css; charset=utf-8']], ['/foundation.css', ['foundation.css', 'text/css; charset=utf-8']], ['/open-mercato.svg', ['open-mercato.svg', 'image/svg+xml']]])
 export async function startDashboardServer({ experiments, port = 8768, assetsDir } = {}) {
   if (!Array.isArray(experiments) || experiments.length === 0 || experiments.length > 32 || experiments.some(root => typeof root !== 'string' || !root)) throw new Error('Register between 1 and 32 experiment directories')
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error('Invalid dashboard port')

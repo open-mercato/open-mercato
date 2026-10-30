@@ -146,8 +146,13 @@ test('HTTP APIs observe multiple registered experiments and atomic producer upda
   await fs.mkdir(assets)
   await fs.writeFile(path.join(assets, 'index.html'), '<h1>Dashboard</h1>')
   await fs.writeFile(path.join(assets, 'app.js'), 'console.log("dashboard")')
+  await fs.writeFile(path.join(assets, 'open-mercato.svg'), '<svg xmlns="http://www.w3.org/2000/svg"/>')
   const server = await startDashboardServer({ experiments: [first, second], port: 0, assetsDir: assets })
   try {
+    const logo = await fetch(server.url + 'open-mercato.svg')
+    assert.equal(logo.status, 200)
+    assert.equal(logo.headers.get('content-type'), 'image/svg+xml')
+    assert.match(await logo.text(), /^<svg/)
     const listing = await (await fetch(server.url + 'api/experiments')).json()
     assert.equal(listing.experiments.length, 2)
     assert.notEqual(listing.experiments[0].id, listing.experiments[1].id)

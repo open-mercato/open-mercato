@@ -51,7 +51,10 @@ export async function buildDashboardAssets({ root = repository, cacheDir } = {})
     await build({
       entryPoints: [path.join(source, 'main.tsx')], outfile: path.join(output, 'app.js'), bundle: true,
       platform: 'browser', format: 'esm', target: ['es2022'], jsx: 'automatic', sourcemap: false,
-      minify: true, define: { 'process.env.NODE_ENV': '"production"' },
+      minify: true, define: {
+        'process.env.NODE_ENV': '"production"',
+        'process.env.NEXT_PUBLIC_OM_UNDO_BANNER_TIMEOUT_MS': 'undefined',
+      },
       plugins: [{ name: 'workspace-source-imports', setup(builder) {
         builder.onResolve({ filter: /^@open-mercato\/(?:ui|shared)\// }, async args => {
           const match = /^@open-mercato\/(ui|shared)\/(.+)$/.exec(args.path)
@@ -66,6 +69,7 @@ export async function buildDashboardAssets({ root = repository, cacheDir } = {})
     const html = await fs.readFile(path.join(source, 'index.html'), 'utf8').catch(() => '<!doctype html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Experiment dashboard</title><link rel="stylesheet" href="/foundation.css"><link rel="stylesheet" href="/styles.css"><script type="module" src="/app.js"></script></head><body><div id="root"></div></body></html>')
     await fs.writeFile(path.join(output, 'index.html'), html)
     await fs.copyFile(path.join(source, 'styles.css'), path.join(output, 'styles.css'))
+    await fs.copyFile(path.join(root, 'apps/mercato/public/open-mercato.svg'), path.join(output, 'open-mercato.svg'))
     const css = await fs.readFile(path.join(root, 'apps/mercato/src/app/globals.css'), 'utf8')
     await fs.writeFile(path.join(output, 'foundation.css'), extractFoundations(css))
     return output

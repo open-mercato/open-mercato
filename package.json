@@ -129,7 +129,9 @@
     "build-storybook": "yarn storybook:generate && storybook build -c packages/ui/.storybook -o packages/ui/storybook-static --disable-telemetry",
     "test:storybook": "node scripts/storybook-smoke.mjs",
     "experiments:dashboard": "node scripts/experiment-dashboard/cli.mjs",
-    "test:experiments-dashboard": "node --test scripts/experiment-dashboard/__tests__/*.test.mjs"
+    "test:experiments-dashboard": "node --test scripts/experiment-dashboard/__tests__/*.test.mjs",
+    "test:experiments-dashboard:browser": "node --test scripts/experiment-dashboard/__integration__/*.test.mjs",
+    "test:experiments-dashboard:typecheck": "tsc --project scripts/experiment-dashboard/tsconfig.json"
   },
   "dependencies": {
     "@ai-sdk/openai": "^4.0.50",
