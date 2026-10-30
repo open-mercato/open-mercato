@@ -34,6 +34,7 @@ import {
   resolveMaxDocumentStructureBytes,
 } from '../lib/documentStructure/engines/text'
 import {
+  DOCUMENT_SECTION_SEARCH_MAX_IDS,
   DOCUMENT_STRUCTURE_QUEUE_NAME,
   DOCUMENT_STRUCTURE_WORKER_ID,
   documentStructureJobSchema,
@@ -43,6 +44,7 @@ import {
   type DocumentStructureJob,
   type DocumentStructureQueueContainer,
   type DocumentStructureQueueJob,
+  type EnqueueDocumentSectionSearchInput,
 } from '../lib/documentStructure/queue'
 import {
   runDocumentSectionSearchSync,
@@ -71,6 +73,7 @@ const UNSUPPORTED_ENGINE: { id: DocumentStructureEngineName; version: number } =
 const PDF_ENGINE_ID: DocumentStructureEngineName = 'pdf_layout'
 const POSTGRES_UNIQUE_VIOLATION = '23505'
 const LIVE_EXTRACTION_UNIQUE_CONSTRAINT = 'attachment_document_extractions_live_unique'
+const SEARCH_INDEXABLE_STATUSES: ReadonlySet<ExtractionStatus> = new Set(['completed', 'partial'])
 
 const logger = createLogger('attachments').child({ component: 'document-structure-worker' })
 
@@ -83,6 +86,7 @@ export type DocumentStructureWorkerDeps = {
   ocrOptions?: OcrStructureOptions
   timeoutMs?: number
   maxBytes?: number
+  enqueueSectionSearch?: (input: EnqueueDocumentSectionSearchInput) => Promise<string>
 }
 
 export type DocumentStructureRunOutcome =
@@ -104,6 +108,18 @@ type ExtractionDraft = {
 }
 
 type ScopePair = { tenantId: string | null; organizationId: string | null }
+
+type SectionSearchFollowUp = {
+  indexExtractionId: string | null
+  deleteSectionIds: string[]
+}
+
+type WriteDraftResult = {
+  outcome: DocumentStructureRunOutcome
+  searchFollowUp: SectionSearchFollowUp
+}
+
+const NO_SEARCH_FOLLOW_UP: SectionSearchFollowUp = { indexExtractionId: null, deleteSectionIds: [] }
 
 class DocumentStructureTimeoutError extends Error {
   readonly code = 'timeout'
@@ -302,12 +318,59 @@ function buildSectionRows(
   }))
 }
 
+function isSearchIndexedExtraction(extraction: AttachmentDocumentExtraction): boolean {
+  return extraction.stats?.searchIndexed === true
+}
+
+function chunkIds(ids: string[], size: number): string[][] {
+  const chunks: string[][] = []
+  for (let offset = 0; offset < ids.length; offset += size) chunks.push(ids.slice(offset, offset + size))
+  return chunks
+}
+
+async function enqueueSectionSearchSafely(
+  enqueue: (input: EnqueueDocumentSectionSearchInput) => Promise<string>,
+  input: EnqueueDocumentSectionSearchInput,
+): Promise<void> {
+  try {
+    await enqueue(input)
+  } catch (error) {
+    logger.error('Failed to enqueue document section search sync', {
+      mode: input.mode,
+      extractionId: input.extractionId,
+      sectionCount: input.sectionIds?.length,
+      err: error,
+    })
+    getTelemetryRuntime()?.reportError(error, {
+      module: 'attachments',
+      code: 'attachments.document_structure_search_enqueue_failed',
+    })
+  }
+}
+
+async function dispatchSectionSearchFollowUp(
+  followUp: SectionSearchFollowUp,
+  scope: ScopePair,
+  enqueue: (input: EnqueueDocumentSectionSearchInput) => Promise<string>,
+): Promise<void> {
+  if (!scope.tenantId || !scope.organizationId) return
+  const target = { tenantId: scope.tenantId, organizationId: scope.organizationId }
+  for (const sectionIds of chunkIds(followUp.deleteSectionIds, DOCUMENT_SECTION_SEARCH_MAX_IDS)) {
+    await enqueueSectionSearchSafely(enqueue, { mode: 'delete', ...target, sectionIds })
+  }
+  if (followUp.indexExtractionId) {
+    await enqueueSectionSearchSafely(enqueue, { mode: 'index', ...target, extractionId: followUp.indexExtractionId })
+  }
+}
+
 async function persistDraft(
   em: EntityManager,
   attachment: Attachment,
+  partition: AttachmentPartition,
   draft: ExtractionDraft,
   contentSha256: string,
   requestedByUserId: string | null,
+  enqueueSectionSearch: (input: EnqueueDocumentSectionSearchInput) => Promise<string>,
 ): Promise<DocumentStructureRunOutcome> {
   const scope: ScopePair = {
     tenantId: attachment.tenantId ?? null,
@@ -315,7 +378,11 @@ async function persistDraft(
   }
   assertAttachmentScopeInvariant(scope)
   try {
-    return await em.transactional((tx) => writeDraft(tx, attachment, draft, contentSha256, requestedByUserId, scope))
+    const written = await em.transactional((tx) =>
+      writeDraft(tx, attachment, partition, draft, contentSha256, requestedByUserId, scope),
+    )
+    await dispatchSectionSearchFollowUp(written.searchFollowUp, scope, enqueueSectionSearch)
+    return written.outcome
   } catch (error) {
     if (!isLiveExtractionUniqueViolation(error)) throw error
     const concurrent = await findLiveExtractionForContent(em, attachment.id, scope, contentSha256, draft.engineVersion)
@@ -370,14 +437,34 @@ async function findReusableLiveExtraction(
   return extractions.find((extraction) => isReusableDocumentExtraction(extraction)) ?? null
 }
 
+async function collectSectionIdsOfIndexedExtractions(
+  tx: EntityManager,
+  extractions: AttachmentDocumentExtraction[],
+  scope: ScopePair,
+): Promise<string[]> {
+  const sectionIds: string[] = []
+  for (const extraction of extractions.filter(isSearchIndexedExtraction)) {
+    const sections = await findWithDecryption(
+      tx,
+      AttachmentDocumentSection,
+      { extractionId: extraction.id, tenantId: scope.tenantId, organizationId: scope.organizationId },
+      { fields: ['id'] },
+      scope,
+    )
+    for (const section of sections) sectionIds.push(section.id)
+  }
+  return sectionIds
+}
+
 async function writeDraft(
   tx: EntityManager,
   attachment: Attachment,
+  partition: AttachmentPartition,
   draft: ExtractionDraft,
   contentSha256: string,
   requestedByUserId: string | null,
   scope: ScopePair,
-): Promise<DocumentStructureRunOutcome> {
+): Promise<WriteDraftResult> {
   const stillExists = await findOneWithDecryption(
     tx,
     Attachment,
@@ -385,7 +472,7 @@ async function writeDraft(
     { lockMode: LockMode.PESSIMISTIC_READ },
     scope,
   )
-  if (!stillExists) return { kind: 'aborted' } satisfies DocumentStructureRunOutcome
+  if (!stillExists) return { outcome: { kind: 'aborted' }, searchFollowUp: NO_SEARCH_FOLLOW_UP }
   const now = new Date()
   const liveFilter = {
     attachmentId: attachment.id,
@@ -393,15 +480,23 @@ async function writeDraft(
     organizationId: scope.organizationId,
     deletedAt: null,
   }
+  const liveExtractions = await findWithDecryption(tx, AttachmentDocumentExtraction, liveFilter, undefined, scope)
   const previousGood =
     draft.status === 'failed'
-      ? (await findWithDecryption(tx, AttachmentDocumentExtraction, liveFilter, undefined, scope)).find(
-          (extraction) => REUSABLE_STATUSES.has(extraction.status),
-        ) ?? null
+      ? liveExtractions.find((extraction) => REUSABLE_STATUSES.has(extraction.status)) ?? null
       : null
+  const supersededSectionIds = previousGood
+    ? []
+    : await collectSectionIdsOfIndexedExtractions(tx, liveExtractions, scope)
   if (!previousGood) {
     await tx.nativeUpdate(AttachmentDocumentExtraction, liveFilter, { deletedAt: now, updatedAt: now })
   }
+  const searchIndexed =
+    !previousGood &&
+    partition.indexDocumentSections === true &&
+    SEARCH_INDEXABLE_STATUSES.has(draft.status) &&
+    scope.tenantId !== null &&
+    scope.organizationId !== null
   const extractionId = randomUUID()
   const result = draft.result
   const extraction = tx.create(AttachmentDocumentExtraction, {
@@ -421,7 +516,7 @@ async function writeDraft(
     ocrPageCount: result?.ocrPageCount ?? null,
     normalizedText: result?.normalizedText ?? null,
     failureReason: draft.failureReason,
-    stats: draft.stats,
+    stats: searchIndexed ? { ...draft.stats, searchIndexed: true } : draft.stats,
     requestedByUserId,
     completedAt: now,
     deletedAt: previousGood ? now : null,
@@ -436,12 +531,17 @@ async function writeDraft(
   await tx.flush()
   if (previousGood) {
     return {
-      kind: 'failed_previous_kept',
-      extractionId,
-      previousExtractionId: previousGood.id,
-    } satisfies DocumentStructureRunOutcome
+      outcome: { kind: 'failed_previous_kept', extractionId, previousExtractionId: previousGood.id },
+      searchFollowUp: NO_SEARCH_FOLLOW_UP,
+    }
   }
-  return { kind: 'persisted', extractionId, status: draft.status } satisfies DocumentStructureRunOutcome
+  return {
+    outcome: { kind: 'persisted', extractionId, status: draft.status },
+    searchFollowUp: {
+      indexExtractionId: searchIndexed ? extractionId : null,
+      deleteSectionIds: supersededSectionIds,
+    },
+  }
 }
 
 export async function runDocumentStructureExtraction(
@@ -540,7 +640,17 @@ export async function runDocumentStructureExtraction(
       }
     }
 
-    const outcome = await persistDraft(em, attachment, draft, contentSha256, requestedByUserId)
+    const enqueueSectionSearch =
+      deps.enqueueSectionSearch ?? ((input: EnqueueDocumentSectionSearchInput) => enqueueDocumentSectionSearch(null, input))
+    const outcome = await persistDraft(
+      em,
+      attachment,
+      partition,
+      draft,
+      contentSha256,
+      requestedByUserId,
+      enqueueSectionSearch,
+    )
     if (outcome.kind === 'persisted') {
       logger.info('Document structure extraction stored', {
         attachmentId: attachment.id,
@@ -574,10 +684,12 @@ function resolveOptional<T>(ctx: HandlerContext, name: string): T | undefined {
 }
 
 export function resolveDocumentStructureWorkerDeps(ctx: HandlerContext): DocumentStructureWorkerDeps {
+  const container = toQueueContainer(ctx)
   return {
     em: ctx.resolve<EntityManager>('em'),
     storageDriverFactory: ctx.resolve<StorageDriverFactory>('storageDriverFactory'),
     registry: resolveOptional<DocumentStructureEngineRegistry>(ctx, DOCUMENT_STRUCTURE_ENGINES_DI_KEY),
+    enqueueSectionSearch: (input) => enqueueDocumentSectionSearch(container, input),
   }
 }
 

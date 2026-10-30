@@ -102,6 +102,7 @@ function seed(
     fileName: string
     mimeType: string
     extractDocumentStructure?: boolean
+    indexDocumentSections?: boolean
     requiresOcr?: boolean
     tenantId?: string | null
     organizationId?: string | null
@@ -110,6 +111,7 @@ function seed(
   fake.table(AttachmentPartition).push({
     code: 'privateAttachments',
     extractDocumentStructure: options.extractDocumentStructure ?? true,
+    indexDocumentSections: options.indexDocumentSections ?? false,
     requiresOcr: options.requiresOcr ?? false,
     ocrModel: null,
   })
@@ -158,6 +160,7 @@ function buildDeps(
     em: fake.em as unknown as EntityManager,
     storageDriverFactory: { resolveForPartition } as unknown as DocumentStructureWorkerDeps['storageDriverFactory'],
     registry: { resolve: (mimeType: string) => engines.find((engine) => engine.supports(mimeType)) ?? null },
+    enqueueSectionSearch: jest.fn(async () => 'section-search-job'),
     ...overrides,
     cleanup,
     resolveForPartition,
@@ -662,6 +665,239 @@ describe('document structure worker', () => {
         buildDeps(fake, filePath, [textEngine()]),
       ),
     ).rejects.toThrow('scope invariant')
+  })
+})
+
+describe('document structure worker section search follow-up', () => {
+  function sectionIdsOf(fake: FakeEm, extractionId: string | null): string[] {
+    return fake
+      .table(AttachmentDocumentSection)
+      .filter((section) => section.extractionId === extractionId)
+      .map((section) => section.id as string)
+  }
+
+  it('marks the extraction search-indexed and enqueues an index job after the transaction commits', async () => {
+    const fake = createFakeEm()
+    seed(fake, { fileName: 'rules.txt', mimeType: 'text/plain', indexDocumentSections: true })
+    const filePath = await writeFile('rules-index.txt', 'rules index')
+    const committed: string[] = []
+    const transactional = fake.em.transactional
+    fake.em.transactional = async (work) => {
+      const result = await transactional(work)
+      committed.push('commit')
+      return result
+    }
+    const enqueueSectionSearch = jest.fn(async () => {
+      expect(committed).toEqual(['commit'])
+      return 'job-1'
+    })
+
+    const outcome = await runDocumentStructureExtraction(job, buildDeps(fake, filePath, [textEngine()], { enqueueSectionSearch }))
+
+    const extractionId = outcome.kind === 'persisted' ? outcome.extractionId : null
+    expect(liveExtractions(fake)[0].stats).toEqual(expect.objectContaining({ searchIndexed: true }))
+    expect(enqueueSectionSearch).toHaveBeenCalledTimes(1)
+    expect(enqueueSectionSearch).toHaveBeenCalledWith({
+      mode: 'index',
+      tenantId: TENANT_A,
+      organizationId: ORG_A,
+      extractionId,
+    })
+  })
+
+  it('does nothing when the partition does not index document sections', async () => {
+    const fake = createFakeEm()
+    seed(fake, { fileName: 'rules.txt', mimeType: 'text/plain' })
+    const filePath = await writeFile('rules-no-index.txt', 'rules no index')
+    const deps = buildDeps(fake, filePath, [textEngine()])
+
+    await runDocumentStructureExtraction(job, deps)
+
+    expect(liveExtractions(fake)[0].stats).not.toHaveProperty('searchIndexed')
+    expect(deps.enqueueSectionSearch).not.toHaveBeenCalled()
+  })
+
+  it('enqueues a delete for the sections of a superseded search-indexed extraction', async () => {
+    const fake = createFakeEm()
+    seed(fake, { fileName: 'rules.txt', mimeType: 'text/plain', indexDocumentSections: true })
+    const filePath = await writeFile('rules-supersede-index.txt', 'rules supersede index')
+    const first = await runDocumentStructureExtraction(job, buildDeps(fake, filePath, [textEngine()]))
+    const previousId = first.kind === 'persisted' ? first.extractionId : null
+    const previousSectionIds = sectionIdsOf(fake, previousId)
+    expect(previousSectionIds.length).toBeGreaterThan(0)
+    const deps = buildDeps(fake, filePath, [textEngine()])
+
+    const forced = await runDocumentStructureExtraction({ ...job, force: true }, deps)
+
+    expect(deps.enqueueSectionSearch).toHaveBeenCalledWith({
+      mode: 'delete',
+      tenantId: TENANT_A,
+      organizationId: ORG_A,
+      sectionIds: previousSectionIds,
+    })
+    expect(deps.enqueueSectionSearch).toHaveBeenCalledWith({
+      mode: 'index',
+      tenantId: TENANT_A,
+      organizationId: ORG_A,
+      extractionId: forced.kind === 'persisted' ? forced.extractionId : null,
+    })
+  })
+
+  it('enqueues the superseded delete even when the partition stopped indexing', async () => {
+    const fake = createFakeEm()
+    seed(fake, { fileName: 'rules.txt', mimeType: 'text/plain', indexDocumentSections: true })
+    const filePath = await writeFile('rules-supersede-disabled.txt', 'rules supersede disabled')
+    const first = await runDocumentStructureExtraction(job, buildDeps(fake, filePath, [textEngine()]))
+    const previousSectionIds = sectionIdsOf(fake, first.kind === 'persisted' ? first.extractionId : null)
+    fake.table(AttachmentPartition)[0].indexDocumentSections = false
+    const deps = buildDeps(fake, filePath, [textEngine()])
+
+    await runDocumentStructureExtraction({ ...job, force: true }, deps)
+
+    expect(deps.enqueueSectionSearch).toHaveBeenCalledTimes(1)
+    expect(deps.enqueueSectionSearch).toHaveBeenCalledWith(
+      expect.objectContaining({ mode: 'delete', sectionIds: previousSectionIds }),
+    )
+    expect(liveExtractions(fake)[0].stats).not.toHaveProperty('searchIndexed')
+  })
+
+  it('splits superseded section deletes into chunks of at most 1000 ids', async () => {
+    const fake = createFakeEm()
+    seed(fake, { fileName: 'rules.txt', mimeType: 'text/plain', indexDocumentSections: true })
+    const filePath = await writeFile('rules-supersede-chunks.txt', 'rules supersede chunks')
+    const previousId = '66666666-6666-4666-8666-666666666666'
+    fake.table(AttachmentDocumentExtraction).push({
+      id: previousId,
+      attachmentId: ATTACHMENT_ID,
+      tenantId: TENANT_A,
+      organizationId: ORG_A,
+      contentSha256: 'stale',
+      engineVersion: 1,
+      status: 'completed',
+      stats: { searchIndexed: true },
+      deletedAt: null,
+    })
+    for (let index = 0; index < 1001; index += 1) {
+      fake.table(AttachmentDocumentSection).push({
+        id: `77777777-7777-4777-8777-${String(index).padStart(12, '0')}`,
+        extractionId: previousId,
+        tenantId: TENANT_A,
+        organizationId: ORG_A,
+      })
+    }
+    const deps = buildDeps(fake, filePath, [textEngine()])
+
+    await runDocumentStructureExtraction(job, deps)
+
+    const deleteCalls = jest
+      .mocked(deps.enqueueSectionSearch!)
+      .mock.calls.map(([input]) => input)
+      .filter((input) => input.mode === 'delete')
+    expect(deleteCalls.map((input) => input.sectionIds?.length)).toEqual([1000, 1])
+  })
+
+  it('skips search sync for a global tenant-less attachment', async () => {
+    const fake = createFakeEm()
+    seed(fake, {
+      fileName: 'rules.txt',
+      mimeType: 'text/plain',
+      indexDocumentSections: true,
+      tenantId: null,
+      organizationId: null,
+    })
+    const filePath = await writeFile('rules-global.txt', 'rules global')
+    const deps = buildDeps(fake, filePath, [textEngine()])
+
+    const outcome = await runDocumentStructureExtraction(
+      { attachmentId: ATTACHMENT_ID, tenantId: null, organizationId: null },
+      deps,
+    )
+
+    expect(outcome.kind).toBe('persisted')
+    expect(liveExtractions(fake)[0].stats).not.toHaveProperty('searchIndexed')
+    expect(deps.enqueueSectionSearch).not.toHaveBeenCalled()
+  })
+
+  it('changes nothing when a failed re-extraction keeps the previous indexed extraction', async () => {
+    const fake = createFakeEm()
+    seed(fake, { fileName: 'rules.txt', mimeType: 'text/plain', indexDocumentSections: true })
+    const filePath = await writeFile('rules-index-fail.txt', 'rules index fail')
+    await runDocumentStructureExtraction(job, buildDeps(fake, filePath, [textEngine()]))
+    const failing = fakeEngine('text', 1, async () => {
+      throw new Error('engine crashed')
+    }, (mimeType) => mimeType === 'text/plain')
+    const deps = buildDeps(fake, filePath, [failing])
+
+    const outcome = await runDocumentStructureExtraction({ ...job, force: true }, deps)
+
+    expect(outcome.kind).toBe('failed_previous_kept')
+    expect(deps.enqueueSectionSearch).not.toHaveBeenCalled()
+    const failed = fake.table(AttachmentDocumentExtraction).find((row) => row.status === 'failed')
+    expect(failed?.stats).not.toHaveProperty('searchIndexed')
+  })
+
+  it('does not index a failed extraction without a previous one', async () => {
+    const fake = createFakeEm()
+    seed(fake, { fileName: 'rules.txt', mimeType: 'text/plain', indexDocumentSections: true })
+    const filePath = await writeFile('rules-index-first-fail.txt', 'rules index first fail')
+    const failing = fakeEngine('text', 1, async () => {
+      throw new Error('engine crashed')
+    }, (mimeType) => mimeType === 'text/plain')
+    const deps = buildDeps(fake, filePath, [failing])
+
+    const outcome = await runDocumentStructureExtraction(job, deps)
+
+    expect(outcome).toEqual(expect.objectContaining({ kind: 'persisted', status: 'failed' }))
+    expect(deps.enqueueSectionSearch).not.toHaveBeenCalled()
+  })
+
+  it('keeps the extraction when enqueueing the search sync fails', async () => {
+    const fake = createFakeEm()
+    seed(fake, { fileName: 'rules.txt', mimeType: 'text/plain', indexDocumentSections: true })
+    const filePath = await writeFile('rules-index-enqueue-fail.txt', 'rules index enqueue fail')
+    const enqueueSectionSearch = jest.fn(async (): Promise<string> => {
+      throw new Error('queue down')
+    })
+
+    const outcome = await runDocumentStructureExtraction(
+      job,
+      buildDeps(fake, filePath, [textEngine()], { enqueueSectionSearch }),
+    )
+
+    expect(outcome).toEqual(expect.objectContaining({ kind: 'persisted', status: 'completed' }))
+    expect(enqueueSectionSearch).toHaveBeenCalledTimes(1)
+    expect(liveExtractions(fake)[0].stats).toEqual(expect.objectContaining({ searchIndexed: true }))
+  })
+
+  it('enqueues nothing when the transaction rolls back', async () => {
+    const fake = createFakeEm()
+    seed(fake, { fileName: 'rules.txt', mimeType: 'text/plain', indexDocumentSections: true })
+    const filePath = await writeFile('rules-index-rollback.txt', 'rules index rollback')
+    await runDocumentStructureExtraction(job, buildDeps(fake, filePath, [textEngine()]))
+    fake.em.flush = async () => {
+      throw new Error('write failed')
+    }
+    const deps = buildDeps(fake, filePath, [textEngine()])
+
+    await expect(runDocumentStructureExtraction({ ...job, force: true }, deps)).rejects.toThrow('write failed')
+    expect(deps.enqueueSectionSearch).not.toHaveBeenCalled()
+  })
+
+  it('does not enqueue when the attachment is deleted mid-job', async () => {
+    const fake = createFakeEm()
+    seed(fake, { fileName: 'rules.txt', mimeType: 'text/plain', indexDocumentSections: true })
+    const filePath = await writeFile('rules-index-aborted.txt', 'rules index aborted')
+    const deps = buildDeps(fake, filePath, [textEngine()])
+    const transactional = fake.em.transactional
+    fake.em.transactional = async (work) => {
+      fake.table(Attachment).splice(0)
+      return transactional(work)
+    }
+
+    const outcome = await runDocumentStructureExtraction(job, deps)
+
+    expect(outcome).toEqual({ kind: 'aborted' })
+    expect(deps.enqueueSectionSearch).not.toHaveBeenCalled()
   })
 })
 
