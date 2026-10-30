@@ -91,6 +91,7 @@ const fullSettings = {
   targets: { dailyHours: 6 },
   warnings: { overlap: false, runningTimer: false },
   access: { assignmentGraceDays: 30 },
+  support: { referencePrefix: 'SUP' },
 }
 
 describe('staff time tracking settings route', () => {
@@ -123,6 +124,7 @@ describe('staff time tracking settings route', () => {
       targets: { dailyHours: 8 },
       warnings: { overlap: true, runningTimer: true },
       access: { assignmentGraceDays: 14 },
+      support: { referencePrefix: 'SUP' },
     })
   })
 
@@ -165,6 +167,48 @@ describe('staff time tracking settings route', () => {
       ...DEFAULT_TIME_TRACKING_SETTINGS,
       targets: { dailyHours: null },
     })
+  })
+
+  it('keeps the stored support reference prefix when an older client omits the support group', async () => {
+    configStore.set(storeKey(tenantA, 'support.referencePrefix'), 'HELP')
+    const { support: _omittedSupport, ...legacySettings } = fullSettings
+
+    const response = await PUT(putRequest(legacySettings))
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({ ...fullSettings, support: { referencePrefix: 'HELP' } })
+    expect(setValueSpy).toHaveBeenCalledWith(
+      STAFF_TIME_TRACKING_MODULE_ID,
+      'support.referencePrefix',
+      'HELP',
+      { tenantId: tenantA },
+    )
+    expect(setValueSpy).toHaveBeenCalledTimes(TIME_TRACKING_SETTING_KEYS.length)
+  })
+
+  it('keeps the stored support reference prefix when the support group omits it', async () => {
+    configStore.set(storeKey(tenantA, 'support.referencePrefix'), 'HELP')
+
+    const response = await PUT(putRequest({ ...fullSettings, support: {} }))
+
+    await expect(response.json()).resolves.toEqual({ ...fullSettings, support: { referencePrefix: 'HELP' } })
+  })
+
+  it('overwrites the stored support reference prefix when the payload carries one', async () => {
+    configStore.set(storeKey(tenantA, 'support.referencePrefix'), 'HELP')
+
+    const response = await PUT(putRequest({ ...fullSettings, support: { referencePrefix: 'TCK' } }))
+
+    await expect(response.json()).resolves.toEqual({ ...fullSettings, support: { referencePrefix: 'TCK' } })
+    expect(configStore.get(storeKey(tenantA, 'support.referencePrefix'))).toBe('TCK')
+  })
+
+  it('falls back to the default prefix when nothing is stored and the payload omits it', async () => {
+    const { support: _omittedSupport, ...legacySettings } = fullSettings
+
+    const response = await PUT(putRequest(legacySettings))
+
+    await expect(response.json()).resolves.toEqual({ ...fullSettings, support: { referencePrefix: 'SUP' } })
   })
 
   it('rejects an invalid payload with 400', async () => {

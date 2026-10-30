@@ -71,6 +71,7 @@ describe('built-in setting keys', () => {
       targets: { dailyHours: 8 },
       warnings: { overlap: true, runningTimer: true },
       access: { assignmentGraceDays: 14 },
+      support: { referencePrefix: 'SUP' },
     })
     expect(DEFAULT_TIME_TRACKING_SETTINGS).toEqual(buildDefaultTimeTrackingSettings())
   })

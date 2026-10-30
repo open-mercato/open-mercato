@@ -4,6 +4,7 @@ import {
   draftRounding,
   formatSignedMinutes,
   isSettingsDraftDirty,
+  rebaseSettingsDraft,
   settingsDraftErrors,
   toSettingsDraft,
   toSettingsPayload,
@@ -16,6 +17,7 @@ const settings: TimeTrackingSettings = {
   targets: { dailyHours: 8 },
   warnings: { overlap: true, runningTimer: true },
   access: { assignmentGraceDays: 14 },
+  support: { referencePrefix: 'SUP' },
 }
 
 describe('buildRoundingExamples', () => {
@@ -149,5 +151,54 @@ describe('settings draft', () => {
     expect(toSettingsPayload(toSettingsDraft(DEFAULT_TIME_TRACKING_SETTINGS))).toEqual(
       DEFAULT_TIME_TRACKING_SETTINGS,
     )
+  })
+})
+
+describe('rebaseSettingsDraft', () => {
+  it('takes a value another tab saved while keeping the fields the user edited', () => {
+    const previous = toSettingsDraft(settings)
+    const draft = { ...previous, roundingUnitMinutes: 5 as const, dailyHoursText: '7' }
+    const next = toSettingsDraft({ ...settings, support: { referencePrefix: 'HELP' } })
+
+    const rebased = rebaseSettingsDraft(draft, previous, next)
+
+    expect(rebased.supportReferencePrefix).toBe('HELP')
+    expect(rebased.roundingUnitMinutes).toBe(5)
+    expect(rebased.dailyHoursText).toBe('7')
+    expect(toSettingsPayload(rebased)?.support).toEqual({ referencePrefix: 'HELP' })
+  })
+
+  it('keeps an edit of the same field over the saved value', () => {
+    const previous = toSettingsDraft(settings)
+    const draft = { ...previous, supportReferencePrefix: 'MINE' }
+    const next = toSettingsDraft({ ...settings, support: { referencePrefix: 'HELP' } })
+
+    expect(rebaseSettingsDraft(draft, previous, next).supportReferencePrefix).toBe('MINE')
+  })
+
+  it('is clean against the new baseline when nothing was edited', () => {
+    const previous = toSettingsDraft(settings)
+    const next = toSettingsDraft({ ...settings, support: { referencePrefix: 'HELP' } })
+
+    expect(isSettingsDraftDirty(rebaseSettingsDraft(previous, previous, next), next)).toBe(false)
+  })
+
+  it('keeps an unsaved entry mode when another tab saves', () => {
+    const previous = toSettingsDraft(settings)
+    const draft = { ...previous, defaultsEntryMode: 'project' as const }
+    const next = toSettingsDraft({ ...settings, support: { referencePrefix: 'HELP' } })
+
+    const rebased = rebaseSettingsDraft(draft, previous, next)
+
+    expect(rebased.defaultsEntryMode).toBe('project')
+    expect(toSettingsPayload(rebased)?.defaults.entryMode).toBe('project')
+    expect(isSettingsDraftDirty(rebased, next)).toBe(true)
+  })
+
+  it('takes an entry mode another tab saved when the user did not edit it', () => {
+    const previous = toSettingsDraft(settings)
+    const next = toSettingsDraft({ ...settings, defaults: { ...settings.defaults, entryMode: 'project' } })
+
+    expect(rebaseSettingsDraft(previous, previous, next).defaultsEntryMode).toBe('project')
   })
 })

@@ -37,6 +37,7 @@ const legacyDraft: TimeTrackingSettingsDraft = {
   warningsOverlap: true,
   warningsRunningTimer: true,
   assignmentGraceDaysText: '14',
+  supportReferencePrefix: 'SUP',
   contributed: {},
 }
 
