@@ -21,7 +21,7 @@ export function MessageDetailThreadSection({ detail }: { detail: MessageDetail }
         {(detail.thread ?? []).map((threadItem) => (
           <article key={threadItem.id} className="rounded border p-3">
             <p className="text-xs text-muted-foreground">
-              {getMessageParticipantLabel(threadItem)} • {formatDateTime(threadItem.sentAt)}
+              {getMessageParticipantLabel(threadItem)} • {formatDateTime(threadItem.sentAt, t('messages.unknownDate', 'Unknown date'))}
             </p>
             <div className="mt-2 max-h-[60vh] overflow-y-auto pr-1">
               <MarkdownContent

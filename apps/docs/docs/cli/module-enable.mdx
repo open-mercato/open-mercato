@@ -1,10 +1,10 @@
 ---
 title: mercato module enable
 sidebar_label: module enable
-description: Registers an already-installed official module package in your app, with optional source ejection, without reinstalling dependencies.
+description: Registers an already-installed module package in your app, with optional source ejection, without reinstalling dependencies.
 ---
 
-`yarn mercato module enable` registers an official module package that is already present in `node_modules` into your app's `src/modules.ts` and runs the code generators. It does **not** install any npm dependencies. Pass `--eject` if you want the module copied into `src/modules/<moduleId>/` and loaded as a local `@app` module instead of directly from the installed package.
+`yarn mercato module enable` registers a module package that is already present in `node_modules` (an official `@open-mercato/*` package, a module built into `@open-mercato/core` selected with `--module <moduleId>`, or a third-party package with `--allow-third-party`) into your app's `src/modules.ts` and runs the code generators. It does **not** install any npm dependencies. Pass `--eject` if you want the module copied into `src/modules/<moduleId>/` and loaded as a local `@app` module instead of directly from the installed package.
 
 This command is useful when you pin a module package directly in your workspace `package.json` (for example, in a monorepo where a package is already a workspace dependency) and only need to activate it in the app.
 
