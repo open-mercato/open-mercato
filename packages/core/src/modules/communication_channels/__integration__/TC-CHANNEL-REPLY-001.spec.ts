@@ -77,8 +77,8 @@ function readTokenUserId(token: string): string {
 
 /**
  * The outbound path is asynchronous: `messages.message.sent` reaches the bridge
- * through the events queue, which enqueues the delivery job. Drain both, then
- * re-read the channel's health totals until the outbound record shows up.
+ * through the events queue, which enqueues the delivery job. Reuse enabled
+ * harness workers or drain both queues, then re-read the channel's health totals.
  */
 async function drainUntilOutbound(
   request: APIRequestContext,
