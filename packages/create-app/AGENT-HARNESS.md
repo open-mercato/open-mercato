@@ -77,9 +77,9 @@ The release gate wraps this in a larger ordered sequence.
    file and byte ceilings. `exampleReadAllowlist()` expands that declaration to exact
    files — entrypoints, the inventory, and each declared capability's mapped sources —
    and the root is resolved as immutable *before* any writable pattern, so a
-    `src/modules/**` grant can never reach inside it. Nine cases,
-    `OMH-181` and `OMH-203`…`OMH-226`, declare it today; every other case is byte-identical to
-    before. Seven are read-only. `OMH-181` and `OMH-223` are the two writable declarers:
+    `src/modules/**` grant can never reach inside it. Ten cases,
+    `OMH-181`, `OMH-203`…`OMH-226` and `OMH-238`, declare it today; every other case is byte-identical to
+    before. Eight are read-only. `OMH-181` and `OMH-223` are the two writable declarers:
     the former adapts the canonical DataTable bulk-action and operation-progress seams while
     proving their shared `progressJobId`; the latter writes only `.ai/specs/**`. Immutability
     refuses either case a write inside the reference root regardless.

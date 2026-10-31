@@ -270,10 +270,13 @@ export function PortalShell({
       <div className="flex min-h-svh flex-col bg-background" data-portal-handle={PORTAL_SHELL_HANDLE}>
         <header className="sticky top-0 z-sticky border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80" data-portal-handle={PORTAL_HEADER_HANDLE}>
           <div className="mx-auto flex h-16 w-full max-w-screen-lg items-center justify-between px-6">
-            <Link href={portalHome} className="flex items-center gap-2.5 text-foreground transition hover:opacity-80" aria-label={headerTitle}>
+            {/* A plain anchor, not a client-side Link: for a signed-in customer on a public
+                auth route the root is across the public/authenticated boundary, and only a
+                full page load re-runs the layout that hands the session back (#6362). */}
+            <a href={portalHome} className="flex items-center gap-2.5 text-foreground transition hover:opacity-80" aria-label={headerTitle}>
               <Image src={logo?.src ?? "/open-mercato.svg"} alt={logo?.alt ?? ""} width={28} height={28} className="" priority />
               <span className="text-base font-semibold tracking-tight">{headerTitle}</span>
-            </Link>
+            </a>
             <nav aria-label="Primary" className="flex items-center gap-1">
               <Button asChild variant="ghost" size="sm" className="text-sm">
                 <Link href={loginHref}>{t('portal.nav.login', 'Log In')}</Link>
@@ -293,10 +296,10 @@ export function PortalShell({
 
         <footer className="border-t" data-portal-handle={PORTAL_FOOTER_HANDLE}>
           <div className="mx-auto flex w-full max-w-screen-lg items-center justify-between px-6 py-6">
-            <Link href={portalHome} className="flex items-center gap-2 text-muted-foreground transition hover:text-foreground">
+            <a href={portalHome} className="flex items-center gap-2 text-muted-foreground transition hover:text-foreground">
               <Image src={logo?.src ?? "/open-mercato.svg"} alt={logo?.alt ?? ""} width={20} height={20} className="" />
               <span className="text-sm font-medium text-foreground">{headerTitle}</span>
-            </Link>
+            </a>
             <p className="text-xs text-muted-foreground/60">
               {t('portal.footer.copyright', '\u00A9 {year} All rights reserved.', { year: new Date().getFullYear() })}
             </p>

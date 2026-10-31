@@ -86,6 +86,22 @@ describe('computeAvailabilityCached', () => {
     expect(cache.set).toHaveBeenCalledTimes(2)
   })
 
+  it('does not serve a cached result computed for a different location scope', async () => {
+    const em = makeEm()
+    const cache = makeCache()
+    const container = makeContainer(cache)
+    await computeAvailabilityCached(em, container, makeQuery())
+    expect(cache.set).toHaveBeenCalledTimes(1)
+
+    const scoped = await computeAvailabilityCached(em, container, makeQuery({ locationIds: ['loc-2', 'loc-1'] }))
+    expect(scoped.byItem['p1:v1'].isAuthoritative).toBe(true)
+    expect(cache.set).toHaveBeenCalledTimes(2)
+
+    const reordered = await computeAvailabilityCached(em, container, makeQuery({ locationIds: ['loc-1', 'loc-2'] }))
+    expect(reordered.byItem['p1:v1'].isAuthoritative).toBe(false)
+    expect(cache.set).toHaveBeenCalledTimes(2)
+  })
+
   it('always computes live when bypassCache is set, never reading or writing the cache', async () => {
     const em = makeEm()
     const cache = makeCache()

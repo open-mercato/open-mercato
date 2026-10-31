@@ -9,25 +9,29 @@ Every guide below is **self-contained** — it covers all prerequisites, infrast
 
 ## Choose your path
 
-### 🔧 Monorepo — core development & demoing
+### 📦 Standalone app — build your own app (start here)
 
-Clone the full platform source to contribute to the core, work on framework features, or run a complete local demo.
-
-| Platform | |
-|---|---|
-| 🍎 macOS | [Open guide →](./monorepo#macos) |
-| 🐧 Linux | [Open guide →](./monorepo#linux) |
-| 🪟 Windows | [Open guide →](./monorepo#windows) |
-
-### 📦 Standalone app — build without touching the core
-
-Scaffold a standalone project that pulls Open Mercato packages from npm. Your modules, overrides, and customisations live in your repo while the core stays untouched and upgradeable.
+Scaffold a standalone project that pulls Open Mercato packages from npm. Your modules, overrides, and customisations live in your repo while the core stays untouched and upgradeable. This is the right path for building a product on Open Mercato and for trying it for the first time.
 
 | Platform | |
 |---|---|
 | 🍎 macOS | [Open guide →](./standalone#macos) |
 | 🐧 Linux | [Open guide →](./standalone#linux) |
 | 🪟 Windows | [Open guide →](./standalone#windows) |
+
+:::tip Working with an AI coding agent?
+Let `create-mercato-app` set up the agent harness (the wizard asks, or pass `--agents claude-code`, `codex`, `cursor` or `all`), then ask your agent to use the **`om-help`** skill. It maps what you want to build to the right guides and skills in your app.
+:::
+
+### 🔧 Monorepo — contribute to the core
+
+Clone the full platform source to contribute to the core, work on framework features, or run a complete local demo. You do not need it to build your own app.
+
+| Platform | |
+|---|---|
+| 🍎 macOS | [Open guide →](./monorepo#macos) |
+| 🐧 Linux | [Open guide →](./monorepo#linux) |
+| 🪟 Windows | [Open guide →](./monorepo#windows) |
 
 ### 🐳 Docker dev setup — full stack in containers
 

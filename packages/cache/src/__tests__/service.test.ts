@@ -46,16 +46,22 @@ describe('Cache Service', () => {
     })
 
     it('should respect defaultTtl option', async () => {
+      const initialTime = 1_000_000
+      const now = jest.spyOn(Date, 'now').mockReturnValue(initialTime)
       const cache = createCacheService({ 
         strategy: 'memory',
         defaultTtl: 100
       })
-      
-      await cache.set('test', 'value') // Should use default TTL
-      expect(await cache.get('test')).toBe('value')
-      
-      await new Promise((resolve) => setTimeout(resolve, 150))
-      expect(await cache.get('test')).toBeNull()
+
+      try {
+        await cache.set('test', 'value') // Should use default TTL
+        expect(await cache.get('test')).toBe('value')
+
+        now.mockReturnValue(initialTime + 101)
+        expect(await cache.get('test')).toBeNull()
+      } finally {
+        now.mockRestore()
+      }
     })
 
     it('should keep file-backed cache defaults under .mercato', async () => {
@@ -390,5 +396,59 @@ describe('Cache Service stats() counter gating', () => {
     expect(stats.evictions).toBe(7)
     expect(stats.sweeps).toBe(2)
     expect(stats.lastSweepReclaimed).toBe(3)
+  })
+})
+
+describe('Cache Service compression resolution (CACHE_COMPRESSION)', () => {
+  afterEach(() => {
+    delete process.env.CACHE_COMPRESSION
+    delete process.env.CACHE_COMPRESSION_MIN_BYTES
+    jest.restoreAllMocks()
+  })
+
+  const captureSqliteOptions = () => {
+    const spy = jest.spyOn(sqliteStrategyModule, 'createSqliteStrategy')
+    spy.mockImplementation((_path, options) => {
+      return memoryStrategyModule.createMemoryStrategy({ defaultTtl: options?.defaultTtl })
+    })
+    return spy
+  }
+
+  it('passes the env compression settings to persistent strategies', () => {
+    process.env.CACHE_COMPRESSION = 'zstd'
+    process.env.CACHE_COMPRESSION_MIN_BYTES = '2048'
+    const spy = captureSqliteOptions()
+
+    createCacheService({ strategy: 'sqlite' })
+
+    expect(spy.mock.calls[0][1]).toMatchObject({ compression: 'zstd', compressionMinBytes: 2048 })
+  })
+
+  it('lets explicit options override the env', () => {
+    process.env.CACHE_COMPRESSION = 'zstd'
+    const spy = captureSqliteOptions()
+
+    createCacheService({ strategy: 'sqlite', compression: 'gzip', compressionMinBytes: 512 })
+
+    expect(spy.mock.calls[0][1]).toMatchObject({ compression: 'gzip', compressionMinBytes: 512 })
+  })
+
+  it('keeps compression off for an unknown env value and warns', () => {
+    process.env.CACHE_COMPRESSION = 'lz4-service-test'
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    const spy = captureSqliteOptions()
+
+    createCacheService({ strategy: 'sqlite' })
+
+    expect(spy.mock.calls[0][1]).toMatchObject({ compression: 'off' })
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('lz4-service-test'))
+  })
+
+  it('defaults to off with no env and no options', () => {
+    const spy = captureSqliteOptions()
+
+    createCacheService({ strategy: 'sqlite' })
+
+    expect(spy.mock.calls[0][1]).toMatchObject({ compression: 'off', compressionMinBytes: undefined })
   })
 })

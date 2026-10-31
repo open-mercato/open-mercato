@@ -192,6 +192,15 @@ describe('aggregations', () => {
       expect(result?.params).toContain('{org-1,org-2}')
     })
 
+    it('turns an explicit empty organization scope into an always-false predicate', () => {
+      const result = buildAggregationQuery({
+        ...baseOptions,
+        scope: { tenantId: 'tenant-123', organizationIds: [] },
+      })
+      expect(result?.sql).toContain('organization_id = ANY(?::uuid[])')
+      expect(result?.params).toContain('{}')
+    })
+
     it('includes date range filter', () => {
       const start = new Date('2024-01-01')
       const end = new Date('2024-01-31')

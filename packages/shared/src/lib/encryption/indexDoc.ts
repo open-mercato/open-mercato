@@ -1,4 +1,5 @@
 import { decryptCustomFieldValue } from './customFieldValues'
+import { resolveCustomFieldKind, type CustomFieldKindMap } from '../custom-fields/kinds'
 import type { TenantDataEncryptionService } from './tenantDataEncryptionService'
 
 export type IndexDocScope = {
@@ -10,12 +11,15 @@ async function decryptValue(
   value: unknown,
   scope: IndexDocScope,
   service: TenantDataEncryptionService | null,
-  cache?: Map<string | null, string | null>,
+  cache: Map<string | null, string | null> | undefined,
+  kind: string | null,
 ): Promise<unknown> {
   if (Array.isArray(value)) {
-    return Promise.all(value.map((entry) => decryptCustomFieldValue(entry, scope.tenantId, service, cache)))
+    return Promise.all(
+      value.map((entry) => decryptCustomFieldValue(entry, scope.tenantId, service, cache, { kind })),
+    )
   }
-  return decryptCustomFieldValue(value, scope.tenantId, service, cache)
+  return decryptCustomFieldValue(value, scope.tenantId, service, cache, { kind })
 }
 
 export async function decryptIndexDocCustomFields(
@@ -23,6 +27,7 @@ export async function decryptIndexDocCustomFields(
   scope: IndexDocScope,
   service: TenantDataEncryptionService | null,
   cache?: Map<string | null, string | null>,
+  kinds?: CustomFieldKindMap | null,
 ): Promise<Record<string, unknown>> {
   // HybridQueryEngine aliases cf keys as `cf_<key>` (sanitized), while index docs use `cf:<key>`.
   // Support both shapes to keep decryption consistent across query paths.
@@ -33,7 +38,10 @@ export async function decryptIndexDocCustomFields(
   await Promise.all(
     keys.map(async (key) => {
       try {
-        working[key] = await decryptValue(working[key], scope, service, cache)
+        // Without the field's kind, `decryptCustomFieldValue` falls back to `JSON.parse` and
+        // retypes string-typed values whose plaintext looks like JSON — `"123"` becomes 123
+        // and `"true"` becomes true (issue #5968). An unresolved kind keeps the legacy path.
+        working[key] = await decryptValue(working[key], scope, service, cache, resolveCustomFieldKind(kinds, key))
       } catch {
         // ignore; keep original value
       }
@@ -48,12 +56,13 @@ export async function decryptIndexDocForSearch(
   scope: IndexDocScope,
   service: TenantDataEncryptionService | null,
   cache?: Map<string | null, string | null>,
+  kinds?: CustomFieldKindMap | null,
 ): Promise<Record<string, unknown>> {
   if (!service || typeof service.decryptEntityPayload !== 'function') {
-    return decryptIndexDocCustomFields(doc, scope, service, cache)
+    return decryptIndexDocCustomFields(doc, scope, service, cache, kinds)
   }
   if (service.isEnabled?.() === false) {
-    return decryptIndexDocCustomFields(doc, scope, service, cache)
+    return decryptIndexDocCustomFields(doc, scope, service, cache, kinds)
   }
 
   let working: Record<string, unknown> = doc
@@ -72,7 +81,7 @@ export async function decryptIndexDocForSearch(
     await decryptEntity('customers:customer_entity')
   }
 
-  return decryptIndexDocCustomFields(working, scope, service, cache)
+  return decryptIndexDocCustomFields(working, scope, service, cache, kinds)
 }
 
 export async function encryptIndexDocForStorage(

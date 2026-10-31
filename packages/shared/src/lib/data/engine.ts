@@ -2,7 +2,7 @@ import type { EntityData, EntityName, FilterQuery, RequiredEntityData } from '@m
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
 import { type Kysely, sql } from 'kysely'
-import { setRecordCustomFields } from '@open-mercato/core/modules/entities/lib/helpers'
+import { encryptCustomEntityRecordDocument, setRecordCustomFields } from '@open-mercato/core/modules/entities/lib/helpers'
 import { validateCustomFieldValuesServer } from '@open-mercato/core/modules/entities/lib/validation'
 import { sanitizeCustomFieldHtmlRichTextValuesServer } from '@open-mercato/core/modules/entities/lib/htmlRichTextSanitizer'
 import type { EventBus } from '@open-mercato/events/types'
@@ -23,6 +23,7 @@ import { isReadProjectionAlwaysConsistent } from './consistency'
 import { isEventDeclared } from '../../modules/events'
 import { createLogger } from '../logger'
 import { createBoundedTtlMemo } from '../query/bounded-ttl-memo'
+import type { TenantDataEncryptionService } from '../encryption/tenantDataEncryptionService'
 
 const logger = createLogger('shared').child({ component: 'data-engine' })
 
@@ -98,6 +99,9 @@ export interface DataEngine {
     tenantId?: string | null
     values: Record<string, string | number | boolean | null | undefined | Array<string | number | boolean | null | undefined>>
     notify?: boolean // default true -> emit '<module>.<entity>.updated'
+    // Forwarded to `setRecordCustomFields` — see its doc for when a caller must pass
+    // true (a recordId that is not unique across organizations for this entityId).
+    pinOrganizationId?: boolean
   }): Promise<void>
 
   // Storage for user-defined entities (doc-based)
@@ -287,6 +291,7 @@ export class DefaultDataEngine implements DataEngine {
       tenantId,
       values: sanitizedValues,
       encryptionService,
+      pinOrganizationId: opts.pinOrganizationId === true,
     })
     if (opts.notify !== false) {
       let bus: EventBus | null = null
@@ -331,6 +336,14 @@ export class DefaultDataEngine implements DataEngine {
     try {
       return parseBooleanToken(process.env.ENTITIES_BACKCOMPAT_EAV_FOR_CUSTOM ?? '') === true
     } catch { return false }
+  }
+
+  private resolveCustomEntityEncryptionService(): TenantDataEncryptionService | null {
+    try {
+      return this.container.resolve<TenantDataEncryptionService>('tenantEncryptionService')
+    } catch {
+      return null
+    }
   }
 
   private getKysely(): Kysely<any> {
@@ -413,7 +426,11 @@ export class DefaultDataEngine implements DataEngine {
     })() : rawId
     const orgId = opts.organizationId ?? null
     const tenantId = opts.tenantId ?? null
-    const doc: Record<string, unknown> = { id, ...this.normalizeDocValues(sanitizedValues || {}) }
+    const doc = await encryptCustomEntityRecordDocument(this.em, {
+      entityId: opts.entityId, organizationId: orgId, tenantId,
+      doc: { id, ...this.normalizeDocValues(sanitizedValues || {}) },
+      encryptionService: this.resolveCustomEntityEncryptionService(),
+    })
 
     const now = sql`now()`
     const payload = {
@@ -473,6 +490,10 @@ export class DefaultDataEngine implements DataEngine {
         tenantId: tenantId,
         values: normalizeCustomFieldValues(sanitizedValues),
         notify: opts.notify, // defaults to true
+        // custom_entities_storage upserts on (entity_type, entity_id, organization_id),
+        // so `id` is unique only within this organization, not across organizations —
+        // pin the reconciling delete/lookup to this organization (#6034 review).
+        pinOrganizationId: true,
       })
     }
 
@@ -510,7 +531,11 @@ export class DefaultDataEngine implements DataEngine {
       db.selectFrom('custom_entities_storage' as any).select(['doc' as any])
     ).executeTakeFirst()
     const prevDoc: Record<string, unknown> = (row as any)?.doc || { id }
-    const nextDoc: Record<string, unknown> = { ...prevDoc, ...this.normalizeDocValues(sanitizedValues || {}), id }
+    const nextDoc = await encryptCustomEntityRecordDocument(this.em, {
+      entityId: opts.entityId, organizationId: orgId, tenantId,
+      doc: { ...prevDoc, ...this.normalizeDocValues(sanitizedValues || {}), id },
+      encryptionService: this.resolveCustomEntityEncryptionService(),
+    })
     try {
       const updated = await applyScope(
         db.updateTable('custom_entities_storage' as any).set({
@@ -544,6 +569,10 @@ export class DefaultDataEngine implements DataEngine {
         tenantId: tenantId,
         values: normalizeCustomFieldValues(sanitizedValues),
         notify: opts.notify, // defaults to true
+        // custom_entities_storage upserts on (entity_type, entity_id, organization_id),
+        // so `id` is unique only within this organization, not across organizations —
+        // pin the reconciling delete/lookup to this organization (#6034 review).
+        pinOrganizationId: true,
       })
     }
   }

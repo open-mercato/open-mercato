@@ -11,6 +11,16 @@ export interface TenantScope {
   tenantId: string
 }
 
+/**
+ * The scope of a concrete channel row. `organizationId` is `null` for a
+ * tenant-wide channel (`communication_channels.organization_id IS NULL`); it is
+ * never replaced by the tenant id.
+ */
+export interface ChannelScope {
+  organizationId: string | null
+  tenantId: string
+}
+
 // ── Capabilities ──────────────────────────────────────────────
 
 export interface ChannelCapabilities {
@@ -164,7 +174,10 @@ export interface NormalizedInboundMessage {
   body: string
   bodyFormat: 'text' | 'markdown' | 'html'
   attachments?: NormalizedAttachment[]
-  timestamp: Date
+  /** Best meaningful occurrence time selected by the adapter; null when unknown. */
+  timestamp: Date | null
+  /** Provider-native transport or storage time when separately available. */
+  providerTimestamp?: Date | null
   replyToExternalId?: string
   channelPayload: Record<string, unknown>
   channelContentType: string
@@ -226,7 +239,7 @@ export interface SendReactionInput {
   conversationId: string
   emoji: string
   credentials: Record<string, unknown>
-  scope: TenantScope
+  scope: ChannelScope
 }
 
 export interface RemoveReactionInput {
@@ -234,7 +247,7 @@ export interface RemoveReactionInput {
   conversationId: string
   emoji: string
   credentials: Record<string, unknown>
-  scope: TenantScope
+  scope: ChannelScope
 }
 
 // ── Edit / delete ─────────────────────────────────────────────
@@ -261,7 +274,7 @@ export interface FetchHistoryInput {
   credentials: Record<string, unknown>
   cursor?: string
   limit?: number
-  scope: TenantScope
+  scope: ChannelScope
   /**
    * Provider-specific resumption state opaque to the hub. Provider adapters
    * encode their own incremental cursor (Gmail historyId, IMAP
@@ -346,7 +359,7 @@ export interface UnregisterPushInput {
  */
 export interface ApplyPushNotificationInput {
   credentials: Record<string, unknown>
-  scope: TenantScope
+  scope: ChannelScope
   channelState: Record<string, unknown>
   /** Provider-shaped notification payload. */
   notification: Record<string, unknown>
@@ -496,8 +509,8 @@ export interface RefreshCredentialsInput {
    * - For OAuth providers (Gmail): MUST be present; the adapter uses
    *   `clientId` + `clientSecret` to call the provider's token endpoint.
    * - For static-credential providers (IMAP, WhatsApp): ignored.
-   * - When `undefined`: legacy `credentials._client` path is read by the
-   *   adapter (deprecated; will be removed in the next minor release).
+   * - When `undefined`: Gmail refresh fails with a clear error (legacy
+   *   `credentials._client` fallback was removed — see #3828 / UPGRADE_NOTES).
    */
   oauthClient?: OAuthClientConfig
 }

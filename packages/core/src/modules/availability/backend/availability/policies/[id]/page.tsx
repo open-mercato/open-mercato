@@ -13,13 +13,15 @@ import { hasFeature } from '@open-mercato/shared/security/features'
 import { ScopeFields, type PolicyScope } from '../ScopeFields'
 import { ResolutionPreviewPanel } from '../ResolutionPreviewPanel'
 import { buildPolicyFieldGroups } from '../formGroups'
+import { findIntegerFieldAboveMax, toIsoDateTimeOrNull } from '../policyPayload'
+import { fromStockManagedChoice, toStockManagedChoice } from '../StockManagedField'
 
 type PolicyRecord = {
   id: string
   storeId: string | null
   productId: string | null
   variantId: string | null
-  isStockManaged: boolean
+  isStockManaged: boolean | null
   allowBackorder: boolean
   backorderLeadTimeDays: number | null
   preorderReleaseAt: string | null
@@ -33,7 +35,7 @@ type PolicyRecord = {
 }
 
 type FormValues = {
-  isStockManaged?: boolean
+  isStockManaged?: string | null
   allowBackorder?: boolean
   backorderLeadTimeDays?: number | string | null
   preorderReleaseAt?: string | null
@@ -93,7 +95,7 @@ export default function AvailabilityPolicyEditPage({ params }: { params?: { id?:
 
   const groups = React.useMemo(() => buildPolicyFieldGroups(t), [t])
 
-  if (isLoading) return <LoadingMessage label={t('common.loading')} />
+  if (isLoading) return <LoadingMessage label={t('availability.common.loading')} />
   if (error || !policy) return <ErrorMessage label={error ?? t('availability.policies.edit.notFound')} />
 
   return (
@@ -104,11 +106,16 @@ export default function AvailabilityPolicyEditPage({ params }: { params?: { id?:
       fields={[]}
       groups={groups}
       readOnly={!canManage}
+      readOnlyOverlay={(
+        <div className="rounded-xl border border-border/70 bg-background/95 px-4 py-3 text-sm text-muted-foreground shadow-sm">
+          {t('availability.policies.edit.readOnly')}
+        </div>
+      )}
       submitLabel={t('availability.policies.form.action.save')}
       cancelHref="/backend/availability/policies"
       optimisticLockUpdatedAt={policy.updatedAt ?? null}
       initialValues={{
-        isStockManaged: policy.isStockManaged,
+        isStockManaged: toStockManagedChoice(policy.isStockManaged),
         allowBackorder: policy.allowBackorder,
         backorderLeadTimeDays: policy.backorderLeadTimeDays,
         preorderReleaseAt: policy.preorderReleaseAt,
@@ -150,6 +157,19 @@ export default function AvailabilityPolicyEditPage({ params }: { params?: { id?:
         }
         const min = toNullableInt(values.minOrderQuantity)
         const max = toNullableInt(values.maxOrderQuantity)
+        const integerFieldAboveMax = findIntegerFieldAboveMax({
+          backorderLeadTimeDays: toNullableInt(values.backorderLeadTimeDays),
+          lowStockThreshold: toNullableInt(values.lowStockThreshold),
+          minOrderQuantity: min,
+          maxOrderQuantity: max,
+          quantityIncrement: toNullableInt(values.quantityIncrement),
+        })
+        if (integerFieldAboveMax) {
+          throw createCrudFormError(
+            t('availability.policies.errors.integerTooLarge'),
+            { [integerFieldAboveMax]: t('availability.policies.errors.integerTooLarge') },
+          )
+        }
         if (min != null && max != null && max < min) {
           throw createCrudFormError(
             t('availability.policies.errors.maxBelowMin'),
@@ -162,10 +182,10 @@ export default function AvailabilityPolicyEditPage({ params }: { params?: { id?:
           productId: scope.productId || null,
           variantId: scope.variantId || null,
           storeId: scope.storeId || null,
-          isStockManaged: !!values.isStockManaged,
+          isStockManaged: fromStockManagedChoice(values.isStockManaged),
           allowBackorder: !!values.allowBackorder,
           backorderLeadTimeDays: toNullableInt(values.backorderLeadTimeDays),
-          preorderReleaseAt: values.preorderReleaseAt || null,
+          preorderReleaseAt: toIsoDateTimeOrNull(values.preorderReleaseAt),
           lowStockThreshold: toNullableInt(values.lowStockThreshold),
           minOrderQuantity: min,
           maxOrderQuantity: max,

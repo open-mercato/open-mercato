@@ -1,8 +1,10 @@
+import { enrichCustomerDetailResponse } from '../../../lib/detailResponseEnrichment'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { isExplicitlyEmptyOrganizationScope } from '@open-mercato/shared/lib/auth/organizationScope'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import {
   CustomerEntity,
@@ -42,9 +44,11 @@ import { denyCustomerDetailReadAsNotFound } from '../../../lib/detailReadAccess'
 import { loadPersonCompanyLinks, summarizePersonCompanies } from '../../../lib/personCompanies'
 import { normalizeCustomerDetailCustomFields } from '../../detailCustomFields'
 import { buildEmailVisibilityMikroFilter } from '../../../lib/visibilityFilter'
+import { listGrantsForViewerOnPerson, listSharedChannelIds } from '../../../lib/conversationShares'
 import { resolveCustomerDetailTenantScope } from '../../../lib/detailTenantScope'
 import { runWithCacheTenant } from '@open-mercato/cache'
-import { buildCollectionTags, canonicalizeResourceTag, isCrudCacheEnabled, resolveCrudCache } from '@open-mercato/shared/lib/crud/cache'
+import { isCrudCacheEnabled, resolveCrudCache } from '@open-mercato/shared/lib/crud/cache'
+import { buildPersonDetailCacheTags } from '../../../lib/personDetailCacheTags'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('customers')
@@ -70,15 +74,6 @@ const paramsSchema = z.object({
 // personCompanyLink) produce the SAME tag the command bus deletes on
 // write/undo/redo — otherwise the cache would never be invalidated for them.
 const PERSON_DETAIL_TTL_MS = 60_000
-const PERSON_DETAIL_TAG_RESOURCES = [
-  'customers.person',
-  'customers.address',
-  'customers.tagAssignment',
-  'customers.labelAssignment',
-  'customers.personCompanyLink',
-  'customers.interaction',
-  'customers.activity',
-] as const
 
 function buildPersonDetailCacheKey(params: {
   personId: string
@@ -105,14 +100,6 @@ function buildPersonDetailCacheKey(params: {
   ].join(':')
 }
 
-function buildPersonDetailCacheTags(tenantId: string | null, organizationId: string | null): string[] {
-  const tags: string[] = []
-  for (const resource of PERSON_DETAIL_TAG_RESOURCES) {
-    const canonical = canonicalizeResourceTag(resource) ?? resource
-    tags.push(...buildCollectionTags(canonical, tenantId, [organizationId]))
-  }
-  return tags
-}
 
 function parseIncludeParams(request: Request): Set<string> {
   const url = new URL(request.url)
@@ -521,6 +508,17 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
       return notFound('Person not found')
     }
 
+    // An explicitly empty organization scope is deny-all: the caller can see no
+    // organization, so every person is not-found. Answering here keeps the #5504
+    // existence-oracle collapse intact (a foreign-org id and a non-existent id
+    // stay indistinguishable) and keeps the deny from escaping as an unhandled
+    // throw — this handler re-raises, so a thrown 403 would surface as a 500.
+    if (isExplicitlyEmptyOrganizationScope(scope)) {
+      statusCode = 404
+      profileMeta = { reason: 'organization_scope_empty' }
+      return notFound('Person not found')
+    }
+
     const person = await findOneWithDecryption(
       em,
       CustomerEntity,
@@ -528,7 +526,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
       {},
       {
         tenantId: scope?.tenantId ?? auth.tenantId ?? null,
-        organizationId: scope?.selectedId ?? auth.orgId ?? null,
+        organizationId: (scope?.selectedId ?? auth.orgId) ?? null,
       },
     )
     profiler.mark('person_loaded', { found: !!person })
@@ -566,7 +564,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
           tenantId: personDetailTenantId,
           organizationId: personDetailOrganizationId,
           callerId: auth.sub ?? null,
-          selectedOrganizationId: scope?.selectedId ?? auth.orgId ?? null,
+          selectedOrganizationId: (scope?.selectedId ?? auth.orgId) ?? null,
           scopedOrganizationIds: Array.isArray(scope?.filterIds) ? scope.filterIds : [],
           interactionMode,
           includeTokens: Array.from(includeTokens),
@@ -582,7 +580,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
         statusCode = 200
         profileMeta = { cacheHit: true, include: Array.from(includeTokens), interactionMode }
         profiler.mark('cache_hit')
-        return NextResponse.json(cached)
+        return NextResponse.json(await enrichCustomerDetailResponse(cached as Record<string, unknown>, 'person', { auth, container, em, tenantId: personDetailTenantId, organizationId: personDetailOrganizationId }))
       }
     }
 
@@ -600,9 +598,21 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
     // legacy null-visibility rows pass through. v1 is strict owner-only: there is
     // NO admin bypass — the filter ignores caller features, and
     // `customers.email.view_private` is reserved (inert) for v2 oversight.
+    // Conversation shares that widen this viewer's access to THIS person's email.
+    const emailShareScope = {
+      tenantId: person.tenantId ?? auth.tenantId ?? null,
+      organizationId: person.organizationId ?? auth.orgId ?? null,
+    } as never
+    const [sharedConversations, sharedChannelIds] = await Promise.all([
+      listGrantsForViewerOnPerson(em, emailShareScope, viewerUserId, person.id),
+      listSharedChannelIds(em, emailShareScope, viewerUserId),
+    ])
+
     const emailVisibilityFilter = buildEmailVisibilityMikroFilter({
       currentUserId: viewerUserId,
       userFeatures: undefined,
+      sharedConversations,
+      sharedChannelIds,
     })
 
     const personScope = { tenantId: person.tenantId ?? auth.tenantId ?? null, organizationId: person.organizationId ?? auth.orgId ?? null }
@@ -659,7 +669,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
           em,
           container,
           auth,
-          selectedOrganizationId: scope?.selectedId ?? auth.orgId ?? null,
+          selectedOrganizationId: (scope?.selectedId ?? auth.orgId) ?? null,
           interactions: canonicalActiveInteractions,
           enrich: includeInteractions,
         })
@@ -682,7 +692,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
           em,
           container,
           auth,
-          selectedOrganizationId: scope?.selectedId ?? auth.orgId ?? null,
+          selectedOrganizationId: (scope?.selectedId ?? auth.orgId) ?? null,
           interactions: await findWithDecryption(
             em,
             CustomerInteraction,
@@ -1125,7 +1135,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
       } catch {}
     }
 
-    const response = NextResponse.json(payload)
+    const response = NextResponse.json(await enrichCustomerDetailResponse(payload, 'person', { auth, container, em, tenantId: personDetailTenantId, organizationId: personDetailOrganizationId }))
     statusCode = 200
     profileMeta = {
       include: Array.from(includeTokens),

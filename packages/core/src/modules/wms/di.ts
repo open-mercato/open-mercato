@@ -11,7 +11,7 @@ import {
   WarehouseLocation,
   WarehouseZone,
 } from './data/entities'
-import { createWmsAvailabilityProvider } from './lib/availabilityProvider'
+import { WMS_AVAILABILITY_PROVIDER_ID, wmsAvailabilityProvider } from './lib/availabilityProvider'
 
 export function register(container: AppContainer) {
   container.register({
@@ -25,7 +25,7 @@ export function register(container: AppContainer) {
     InventoryMovement: asValue(InventoryMovement),
   })
 
-  // Explicit, idempotent (replace-by-id) registration into the shared,
-  // dependency-free registry — never "same DI key, load order wins" (§3.1).
-  availabilityProviderRegistry.register(createWmsAvailabilityProvider(container))
+  if (availabilityProviderRegistry.get(WMS_AVAILABILITY_PROVIDER_ID) !== wmsAvailabilityProvider) {
+    availabilityProviderRegistry.register(wmsAvailabilityProvider)
+  }
 }

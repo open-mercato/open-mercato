@@ -51,8 +51,9 @@ export class AvailabilityPolicy {
   @Property({ name: 'variant_id', type: 'uuid', nullable: true })
   variantId?: string | null
 
-  @Property({ name: 'is_stock_managed', type: 'boolean', default: false })
-  isStockManaged: boolean = false
+  /** `null` = inherit from the next less-specific row, then the §5.2 module default. */
+  @Property({ name: 'is_stock_managed', type: 'boolean', nullable: true })
+  isStockManaged?: boolean | null
 
   @Property({ name: 'allow_backorder', type: 'boolean', default: false })
   allowBackorder: boolean = false

@@ -60,9 +60,24 @@ export type AvailabilityResult = {
   byItem: Record<string, AvailabilityItemResult>
 }
 
+/** Narrow DI port a provider resolves its per-call dependencies (`em`, cache, services) from. */
+export type AvailabilityDependencyResolver = {
+  resolve: <T = unknown>(name: string) => T
+}
+
+/**
+ * Per-call context handed to a provider. `container` is the calling
+ * request's DI container; a provider MUST resolve its dependencies from it
+ * (or build its own when absent) and never from a container captured at
+ * registration time — the registry is process-wide.
+ */
+export type AvailabilityProviderContext = {
+  container?: AvailabilityDependencyResolver | null
+}
+
 export interface AvailabilityProvider {
   id: string
-  getAvailability(query: AvailabilityQuery): Promise<AvailabilityResult>
+  getAvailability(query: AvailabilityQuery, context?: AvailabilityProviderContext): Promise<AvailabilityResult>
 }
 
 /** Builds the stable `AvailabilityResult.byItem` key for an item. */

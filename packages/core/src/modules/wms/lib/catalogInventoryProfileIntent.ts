@@ -3,6 +3,15 @@ import { z } from 'zod'
 const inventoryStrategySchema = z.enum(['fifo', 'lifo', 'fefo'])
 
 export const catalogInventoryProfileIntentSchema = z.object({
+  // Identifies which host CrudForm (product vs. variant) computed this intent.
+  // CrudForm scopes `onBeforeSave` request headers around the whole `onSubmit`
+  // callback, not around a single HTTP call, so a page whose submit handler
+  // creates secondary records (e.g. the product-create wizard implicitly
+  // creating its default variant) can leak this header onto those unrelated
+  // requests. Each interceptor only acts when this matches its own target
+  // entity, so a leaked intent is ignored rather than creating a profile the
+  // user never asked for on that other entity.
+  sourceEntityId: z.string(),
   manageInventory: z.boolean(),
   defaultUom: z.string().trim().max(32).nullable().optional(),
   defaultStrategy: inventoryStrategySchema.optional(),

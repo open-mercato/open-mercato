@@ -1,10 +1,15 @@
 import type { CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
+import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
+import { buildStockManagedOptions } from './StockManagedField'
 
 /**
  * Shared field groups for the create and edit policy forms. Scope fields
  * (productId/variantId/storeId) live outside this list — see `ScopeFields`.
  */
-export function buildPolicyFieldGroups(t: (key: string) => string): CrudFormGroup[] {
+export function buildPolicyFieldGroups(
+  t: TranslateFn,
+  options: { resolvedStockManaged?: boolean | null } = {},
+): CrudFormGroup[] {
   return [
     {
       id: 'sell-policy',
@@ -13,9 +18,10 @@ export function buildPolicyFieldGroups(t: (key: string) => string): CrudFormGrou
       fields: [
         {
           id: 'isStockManaged',
-          type: 'checkbox',
+          type: 'select',
           label: t('availability.policies.form.field.isStockManaged'),
           description: t('availability.policies.form.field.isStockManaged.help'),
+          options: buildStockManagedOptions(t, options.resolvedStockManaged ?? null),
         },
         {
           id: 'allowBackorder',

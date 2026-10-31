@@ -14,6 +14,7 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import * as startValidator from '../../../lib/start-validator'
 import {
   workflowsTag,
@@ -22,6 +23,7 @@ import {
   workflowErrorSchema,
 } from '../../openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
 const logger = createLogger('workflows')
 
@@ -56,7 +58,7 @@ export async function POST(request: NextRequest) {
 
     const scope = await resolveOrganizationScopeForRequest({ container, auth, request })
     const tenantId = auth.tenantId
-    const organizationId = scope?.selectedId ?? auth.orgId
+    const organizationId = resolveSingleOrganizationIdOrDeny(scope, auth)
 
     if (!tenantId || !organizationId) {
       return NextResponse.json(
@@ -96,6 +98,7 @@ export async function POST(request: NextRequest) {
       validatedRules: result.validatedRules.length > 0 ? result.validatedRules : undefined,
     })
   } catch (error) {
+    if (isCrudHttpError(error)) return NextResponse.json(error.body, { status: error.status })
     logger.error('Error validating workflow start', { err: error })
     return NextResponse.json(
       { error: 'Failed to validate workflow start' },

@@ -1,10 +1,12 @@
 import path from 'node:path'
+import { createServer } from 'node:net'
 
 export const MCP_DEFAULT_PORT = 3001
 export const MCP_MAX_FAST_CRASHES = 5
 export const MCP_FAST_CRASH_UPTIME_MS = 60_000
 export const MCP_HEALTH_TIMEOUT_MS = 180_000
 export const MCP_HEALTH_POLL_INTERVAL_MS = 2_000
+export const MCP_MAX_PORT_SELECTION_ATTEMPTS = 5
 
 const ENABLED_TOKENS = ['1', 'true', 'yes', 'on']
 const DISABLED_TOKENS = ['0', 'false', 'no', 'off']
@@ -25,12 +27,79 @@ export function shouldStartMcp({ args = [], env = {}, appOnly = false } = {}) {
   return true
 }
 
+/**
+ * Bind address for the host-side MCP server `yarn dev` spawns. Loopback unless the
+ * OpenCode sidecar needs to reach it: on native Linux `host-gateway` resolves to the
+ * bridge IP, which a loopback-only socket refuses, so there (and only there) the server
+ * binds 0.0.0.0. Docker Desktop reaches host loopback, so it keeps the default. An
+ * explicit MCP_HTTP_HOST always wins. Returns `null` for "no --host flag, use default".
+ */
+export function resolveDevMcpHost({ platform = process.platform, env = {} } = {}) {
+  const explicit = typeof env.MCP_HTTP_HOST === 'string' ? env.MCP_HTTP_HOST.trim() : ''
+  if (explicit) return explicit
+  if (platform === 'linux') return '0.0.0.0'
+  return null
+}
+
 export function resolveMcpPort(env = {}) {
   const raw = typeof env.MCP_PORT === 'string' ? env.MCP_PORT.trim() : ''
   if (!raw) return MCP_DEFAULT_PORT
   const parsed = Number.parseInt(raw, 10)
   if (!Number.isInteger(parsed) || parsed < 1 || parsed > 65535) return MCP_DEFAULT_PORT
   return parsed
+}
+
+function probeMcpBind(port, host) {
+  return new Promise((resolve, reject) => {
+    const server = createServer()
+    server.once('error', reject)
+    server.listen({ port, host, exclusive: true }, () => {
+      const address = server.address()
+      server.close((error) => {
+        if (error) {
+          reject(error)
+          return
+        }
+        resolve(typeof address === 'object' && address ? address.port : port)
+      })
+    })
+  })
+}
+
+async function probeMcpPort(port) {
+  const selectedPort = await probeMcpBind(port)
+  for (const host of ['0.0.0.0', '127.0.0.1', '::1']) {
+    try {
+      await probeMcpBind(selectedPort, host)
+    } catch (error) {
+      if (host === '::1' && ['EAFNOSUPPORT', 'EADDRNOTAVAIL', 'EPROTONOSUPPORT'].includes(error?.code)) continue
+      throw error
+    }
+  }
+  return selectedPort
+}
+
+export async function selectAvailableMcpPort(preferredPort, options = {}) {
+  const maxAttempts = Number.isInteger(options.maxAttempts) && options.maxAttempts > 0
+    ? options.maxAttempts
+    : MCP_MAX_PORT_SELECTION_ATTEMPTS
+
+  try {
+    return await probeMcpPort(preferredPort)
+  } catch (error) {
+    if (error?.code !== 'EADDRINUSE' && error?.code !== 'EACCES') throw error
+  }
+
+  let lastError = null
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    try {
+      return await probeMcpPort(0)
+    } catch (error) {
+      lastError = error
+    }
+  }
+
+  throw new Error(`Unable to select a free MCP port after ${maxAttempts} attempts`, { cause: lastError })
 }
 
 // The key file is shared with the OpenCode container via a bind mount
@@ -67,6 +136,32 @@ export function deriveMcpHealthUrl(port) {
   return `http://localhost:${port}/health`
 }
 
+export function buildManagedMcpAppEnv({ enabled, port, keyFilePath, env = {} }) {
+  if (!enabled) return {}
+  return {
+    ...(!env.MCP_SERVER_API_KEY && !env.MCP_SERVER_API_KEY_FILE
+      ? { MCP_SERVER_API_KEY_FILE: keyFilePath }
+      : {}),
+    ...(!env.MCP_URL ? { MCP_URL: `http://localhost:${port}` } : {}),
+  }
+}
+
+export function isManagedMcpReadiness({ childListening, childExitCode, childSignalCode, attemptedPort, currentPort, responseOk }) {
+  return childListening === true
+    && childExitCode === null
+    && childSignalCode === null
+    && attemptedPort === currentPort
+    && responseOk === true
+}
+
+export function looksLikeMcpPortCollision(outputLines = []) {
+  return outputLines.some((line) => /EADDRINUSE|address already in use/i.test(String(line)))
+}
+
+export function looksLikeMcpServerListening(outputLines = []) {
+  return outputLines.some((line) => /Server listening/i.test(String(line)))
+}
+
 export function looksLikePermissionError(outputLines = []) {
   return outputLines.some((line) => /EACCES|EPERM|permission denied/i.test(String(line)))
 }
@@ -84,6 +179,17 @@ export function looksLikeMissingKeyOwner(outputLines = []) {
   return outputLines.some((line) =>
     /MCP API key owner not found|no active user with email|Run "?mercato init"?/i.test(String(line)),
   )
+}
+
+// The CLI dispatcher exits 1 with `Module not found: "ai_assistant"` when the
+// app intentionally omits the module (empty/wms starter presets). That is a
+// configuration state, not a transient startup failure, so it must not be retried.
+export function looksLikeMissingAiAssistantModule(outputLines = []) {
+  return outputLines.some((line) => /Module not found: "ai_assistant"(?![\w-])/.test(String(line)))
+}
+
+export function shouldRetryMcpProvisioning(outputLines = []) {
+  return !looksLikeMissingAiAssistantModule(outputLines)
 }
 
 export function isKeyRotationOutput(outputLines = []) {
