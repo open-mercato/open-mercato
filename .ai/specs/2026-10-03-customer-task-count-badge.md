@@ -66,6 +66,15 @@ One phase delivers a shared count calculation and its two overview consumers.
 2. Wire both overview routes to the helper and test route totals and existing person badge rendering/refresh behavior.
 3. Run relevant tests and the configured validation gate, review the diff, and publish the implementation PR referencing this spec PR and closing #6068.
 
+## Integration Test Coverage
+
+`packages/core/src/modules/customers/__integration__/TC-CRM-6068.spec.ts` runs against the real application and Postgres, with self-contained fixtures cleaned up in `finally`:
+
+- `GET /api/customers/people/:id`: `counts.todos` is 0, then 2 after two `POST /api/customers/todos` tasks, still 2 after one is completed through `PUT`, and 1 after the other is deleted through `DELETE`.
+- `GET /api/customers/companies/:id`: the same lifecycle for a company.
+- Compatibility mode: a legacy link bridged by an adapter task counts once, and keeps being suppressed after that task is deleted; an unbridged legacy link still counts.
+- `/backend/customers/people-v2/:id`: the Tasks tab badge shows 2 for two adapter tasks.
+
 ## Final Compliance Report
 
 The design stays within the customers module, reuses existing list semantics and tab primitives, preserves all public contracts and scoping, and changes no persisted data. One capability is delivered: an accurate linked-task total for profile badges.
@@ -74,3 +83,4 @@ The design stays within the customers module, reuses existing list semantics and
 
 - 2026-10-03: Specified the task total correction after tracing the missing badge to compatibility-mode storage.
 - 2026-10-03: Incorporated independent review: aggregate compatibility totals in the database and suppress bridges with a scoped ORM subquery.
+- 2026-10-08: Listed the route-level integration coverage requested in the implementation review.
