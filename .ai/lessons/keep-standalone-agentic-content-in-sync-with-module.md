@@ -2,7 +2,11 @@
 title: "Keep standalone agentic content in sync with module conventions"
 modules: ["create_app","documents","events","cli"]
 areas: ["architecture","framework-context"]
+<<<<<<< HEAD
 topics: ["auto-discovery","events","generated-files","package-runtime","session-export","testing"]
+=======
+topics: ["context-budget","testing","auto-discovery","generated-files","package-runtime","session-export"]
+>>>>>>> b50ba56bf (fix(ci): restore main validation and snapshot health (#8310))
 ---
 
 # Keep standalone agentic content in sync with module conventions
@@ -16,3 +20,12 @@ topics: ["auto-discovery","events","generated-files","package-runtime","session-
 When an enabled package-backed module adds a generated fact sheet, add or expand a harness case whose prompt makes that module fact necessary and lists `.ai/guides/modules/<id>.md` in `context.required`. Putting the fact sheet only in `allowedExtra` makes it available but does not prove an agent reads it, so the emitted-fact coverage guard must continue to reject that state.
 
 **Applies to**: `packages/create-app/agentic/shared/`, `packages/create-app/agentic/claude-code/`, `packages/create-app/agentic/codex/`, `packages/create-app/agentic/cursor/`.
+<<<<<<< HEAD
+=======
+
+Compatibility guidance is also retrieved by standalone harness cases. Adding to root `BACKWARD_COMPATIBILITY.md` increases their required context even when no create-app source changes. Keep compatibility summaries concise and link rollout detail in `UPGRADE_NOTES.md`; run `packages/create-app/src/lib/compatibility-context-budget.test.ts` after such additions. Preserve the existing context caps rather than increasing them to accommodate verbose notes.
+
+When compacting standalone guidance, preserve phrases asserted by its contract tests or update the source and assertion together when the contract intentionally changes. Run `context-guidance-contracts.test.ts` beside the relevant context-budget test so byte savings cannot silently invalidate the emitted guidance contract.
+
+Measure concurrently prepared release entries in one materialized document, counting shared formatting savings once. Preserve initial budgets, read sets and containment. A deterministic pass does not establish packed-preset or certified release evidence.
+>>>>>>> b50ba56bf (fix(ci): restore main validation and snapshot health (#8310))
