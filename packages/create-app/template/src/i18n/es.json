@@ -297,6 +297,7 @@
   "entityMissing": "Entity is missing.",
   "error": "Error",
   "errors.invalid_input": "Entrada no válida",
+  "errors.unique_violation": "Ya existe un registro con los mismos valores únicos",
   "example.admin.page.description": "Recursos de demostración para el módulo de ejemplo.",
   "example.admin.page.resources": "Recursos",
   "example.admin.page.title": "Administración de ejemplo",
