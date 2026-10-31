@@ -434,19 +434,19 @@ Deleting a user who had customised their sidebar failed on the `user_sidebar_pre
 
 ## Passkey MFA Verification Payload (2026-08-14)
 
-Issue #3852 removed the non-cryptographic passkey verification shape from `PasskeyProvider` in the enterprise `security` module. This is a **deliberate breaking change to a STABLE contract surface (category 7, API request shapes)** that ships under the [Emergency Security Exception](#emergency-security-exception) rather than the ordinary deprecation protocol.
+Issue #3852 removes the non-cryptographic verification shape from enterprise `security`’s `PasskeyProvider`: a **deliberate STABLE category 7 API-request break** under the [Emergency Security Exception](#emergency-security-exception).
 
-**Classification.** The removed shape was a *publicly supported* surface, not an undocumented accident: it was part of the exported `MfaProviderInterface.verifySchema` union that a third-party client could validate against, and the enterprise test suite pinned it in a case named *"supports legacy verification payload for backward compatibility"*. It is therefore a genuine STABLE-surface break, and the exception — not a claim that no contract existed — is what authorizes it.
+**Classification.** This publicly supported shape belonged to exported `MfaProviderInterface.verifySchema`, available to third-party validators, and was pinned by the enterprise test *"supports legacy verification payload for backward compatibility"*. Its removal breaks STABLE compatibility and requires the exception.
 
 **Exception requirements, as met by this change:**
 
-|Requirement|How it is satisfied|
-|---|---|
-|1. Qualifying condition argued|See *Why the deprecation protocol does not apply* below — both values the removed shape compared are disclosed by the server, so accepting it *is* the bypass|
-|2. Narrowest removal, no retained vulnerable branch|Only `verifyPayloadSchema` and the two non-cryptographic acceptance paths are deleted. The `{ response }` path, the challenge TTL check and the signature-counter update are untouched, and **no flag, config toggle or opt-in keeps the old shape reachable**|
-|3. Steps 4 and 5|[`UPGRADE_NOTES.md`](UPGRADE_NOTES.md) `0.6.7 → 0.7.0` (client *and* operator actions); spec [`.ai/specs/enterprise/2026-08-14-passkey-mfa-require-webauthn-assertion.md`](.ai/specs/enterprise/2026-08-14-passkey-mfa-require-webauthn-assertion.md) § Migration & Backward Compatibility|
-|4. Dated entry|This section|
-|5. Maintainer sign-off|PR carries the `security` label; the waiver is called out in the PR body for explicit human approval|
+| Requirement | How it is satisfied |
+|-------------|--------------------|
+| 1. Qualifying condition argued | The server discloses both compared values: accepting the old shape *is* the bypass (rationale below) |
+| 2. Narrowest removal, no retained vulnerable branch | Delete only `verifyPayloadSchema` and both non-cryptographic paths; preserve `{ response }`, challenge TTL and signature-counter update. **No flag, config toggle or opt-in retains the old shape** |
+| 3. Steps 4 and 5 | [`UPGRADE_NOTES.md`](UPGRADE_NOTES.md) `0.6.7 → 0.7.0` (client *and* operator actions); spec [`.ai/specs/enterprise/2026-08-14-passkey-mfa-require-webauthn-assertion.md`](.ai/specs/enterprise/2026-08-14-passkey-mfa-require-webauthn-assertion.md) § Migration & Backward Compatibility |
+| 4. Dated entry | This section |
+| 5. Maintainer sign-off | PR carries the `security` label; the waiver is called out in the PR body for explicit human approval |
 
 |Surface|Change|Classification|
 |---|---|---|
@@ -456,7 +456,7 @@ Issue #3852 removed the non-cryptographic passkey verification shape from `Passk
 |Failure mode|A payload that fails the schema, and an assertion the verifier throws on, return `false` instead of throwing — so they answer the documented `401` and count toward the challenge attempt limit instead of logging a `500` that skipped lockout|✓ Strictly safer (no verdict flips from negative to positive)|
 |API route URLs, HTTP methods, response schemas, database schema, event IDs, ACL features, DI names, CLI commands|No change|✓ n/a|
 
-**Why the deprecation protocol does not apply.** The protocol exists to give downstream authors a bridge release. Here the request shape being removed *is* the vulnerability: both values it compared are disclosed by the server, so a bridge would keep the passkey second factor bypassable for a minor version in both login MFA and sudo step-up. A security fix that leaves the hole open is not a fix.
+**Why no bridge.** The removed request shape *is* the vulnerability: the server discloses both compared values. Retaining it for a bridge minor release would preserve the passkey bypass in both login MFA and sudo step-up.
 
 **Migration path.** Send `startAuthentication()` output as `payload.response`. The first-party `PasskeyChallengeVerify` component already does, so shipped UIs are unaffected. Credentials enrolled through the setup path's client-supplied `publicKey` shortcut are **not** reliably rendered unusable by this change — depending on what the client supplied, such a row holds either a key nobody can sign with or a keypair the enroller controls, and the second kind produces assertions this change accepts. That shortcut is a separate open surface (#5296); operator-facing remediation is in [`UPGRADE_NOTES.md`](UPGRADE_NOTES.md).
 
@@ -624,6 +624,10 @@ STABLE HTTP/service BREAK (403/404/504), Documents only: org-wide files bypass s
 ## Public pay links (2026-10-27, #7823)
 
 STABLE API §7: `GET /api/checkout/pay/:slug` omits admin fields; retaining them preserves disclosure. Client/operator migration: [notes](UPGRADE_NOTES.md). @haxiorz [approved](https://github.com/open-mercato/open-mercato/pull/8087#issuecomment-6505348826) on 2026-10-29: steps 1–3 waived for all 18 admin fields; client/operator migration acknowledged.
+
+## Unique Bootstrap Superadmin Password (2026-10-29, #7809)
+
+Init defaults/bypass and Compose/starter credentials: Security narrowing; a bridge preserves vulnerable provisioning. Waiver: [@haxiorz](https://github.com/open-mercato/open-mercato/pull/8175#issuecomment-6505346223). Supply unique policy-valid credentials; rotate suspect passwords. [Spec](.ai/specs/2026-10-29-unique-bootstrap-superadmin-password.md), [migration](UPGRADE_NOTES.md#initialization-requires-a-unique-superadmin-password-7809).
 
 ## #3805 2026-10-31
 

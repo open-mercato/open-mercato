@@ -9,7 +9,7 @@ export { getCliModules, hasCliModules, registerCliModules }
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { getSslConfig } from '@open-mercato/shared/lib/db/ssl'
 import { getRedisUrl, getRedisUrlOrThrow, parseRedisUrl } from '@open-mercato/shared/lib/redis/connection'
-import { resolveInitDerivedSecrets } from './lib/init-secrets'
+import { resolveInitDerivedSecrets, resolveInitSuperadminPassword } from './lib/init-secrets'
 import {
   resolveAutoSpawnWorkersMode,
   resolveLazySpawnMode,
@@ -925,6 +925,7 @@ const TOP_LEVEL_COMMAND_HELP: Record<string, string[]> = {
   init: [
     'Usage: mercato init [--reinstall|-r] [--no-examples] [--no-demo-users] [--stresstest [--lite] [--count=<n>]]',
     'Initializes this app: installs dependencies, runs generators, applies migrations and seeds data.',
+    'Requires a unique, policy-compliant OM_INIT_SUPERADMIN_PASSWORD or --password=<password>.',
   ],
   'agentic:init': [
     'Usage: mercato agentic:init [--force]',
@@ -990,6 +991,7 @@ export async function run(argv = process.argv) {
     try {
       const initArgs = parts.slice(1).filter(Boolean)
       const reinstall = initArgs.includes('--reinstall') || initArgs.includes('-r')
+      if (reinstall) resolveInitSuperadminPassword(initArgs)
       process.env.OM_INIT_FLOW = 'true'
       if (reinstall) {
         process.env.OM_INIT_REINSTALL = 'true'
@@ -1135,8 +1137,6 @@ export async function run(argv = process.argv) {
         }
 
         const { Client } = await import('pg')
-        const dbExists = await ensureDatabaseExists(dbUrl)
-        if (!dbExists) return 1
         const client = new Client({ connectionString: dbUrl, ssl: getSslConfig() })
         try {
           await client.connect()
@@ -1161,11 +1161,21 @@ export async function run(argv = process.argv) {
               return 1
             }
           }
+        } catch (error: unknown) {
+          if (typeof error !== 'object' || error === null || !('code' in error) || error.code !== '3D000') {
+            throw error
+          }
         } finally {
           try {
             await client.end()
           } catch {}
         }
+      }
+
+      const password = resolveInitSuperadminPassword(initArgs)
+      if (!reinstall) {
+        const dbExists = await ensureDatabaseExists(process.env.DATABASE_URL!)
+        if (!dbExists) return 1
       }
 
       // Step 1: Run generators directly (no process spawn)
@@ -1222,10 +1232,8 @@ export async function run(argv = process.argv) {
         return undefined
       }
       const defaultEmail = readEnvDefault('OM_INIT_SUPERADMIN_EMAIL') ?? 'superadmin@acme.com'
-      const defaultPassword = readEnvDefault('OM_INIT_SUPERADMIN_PASSWORD') ?? 'secret'
       const orgName = findArgValue(['--org=', '--orgName='], 'Acme Corp')
       const email = findArgValue(['--email='], defaultEmail)
-      const password = findArgValue(['--password='], defaultPassword)
       const derivedSecrets = resolveInitDerivedSecrets({ email, env: process.env })
       const adminEmailDerived = derivedSecrets.adminEmail
       const employeeEmailDerived = derivedSecrets.employeeEmail
@@ -1236,15 +1244,6 @@ export async function run(argv = process.argv) {
         process.env.OM_INIT_EMPLOYEE_PASSWORD = derivedSecrets.employeePassword
       }
       const roles = findArgValue(['--roles='], 'superadmin,admin,employee')
-      const skipPasswordPolicyRaw = initArgs.find((arg) =>
-        arg === '--skip-password-policy' ||
-        arg.startsWith('--skip-password-policy=') ||
-        arg === '--allow-weak-password' ||
-        arg.startsWith('--allow-weak-password=')
-      )
-      const skipPasswordPolicy = skipPasswordPolicyRaw
-        ? parseBooleanToken(skipPasswordPolicyRaw.split('=')[1] ?? 'true') ?? true
-        : true
 
       console.log('🔐 Setting up RBAC and users...')
       // Run auth setup command via CLI
@@ -1261,9 +1260,6 @@ export async function run(argv = process.argv) {
         // setup command no longer seeds those accounts by default.
         // `--no-demo-users` opts a caller (e.g. a production `init`) out of them.
         setupArgs.push('--include-demo-users')
-      }
-      if (skipPasswordPolicy) {
-        setupArgs.push('--skip-password-policy')
       }
       await runModuleCommand(allModules, 'auth', 'setup', setupArgs)
       // Query DB to get tenant/org IDs using pg directly

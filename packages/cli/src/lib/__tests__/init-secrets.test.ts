@@ -1,4 +1,58 @@
-import { resolveInitDerivedSecrets } from '../init-secrets'
+import { resolveInitDerivedSecrets, resolveInitSuperadminPassword } from '../init-secrets'
+
+describe('resolveInitSuperadminPassword', () => {
+  const validPassword = 'Bootstrap-7gQ!m9zR'
+
+  it.each([undefined, '', '   '])('rejects missing or empty credentials (%s)', (password) => {
+    expect(() => resolveInitSuperadminPassword([], { OM_INIT_SUPERADMIN_PASSWORD: password }))
+      .toThrow(/required/)
+  })
+
+  it.each(['password', 'secret', 'ChangeMe', ' Password123! ', 'Secret123!', 'ChangeMe123!'])(
+    'rejects the known placeholder %s even when policy is relaxed',
+    (password) => {
+      expect(() => resolveInitSuperadminPassword([], {
+        OM_INIT_SUPERADMIN_PASSWORD: password,
+        OM_PASSWORD_MIN_LENGTH: '1',
+        OM_PASSWORD_REQUIRE_DIGIT: 'false',
+        OM_PASSWORD_REQUIRE_UPPERCASE: 'false',
+        OM_PASSWORD_REQUIRE_SPECIAL: 'false',
+      })).toThrow(/placeholder/)
+    },
+  )
+
+  it.each(['--skip-password-policy', '--allow-weak-password', '--skip-password-policy=true'])(
+    'enforces the configured policy with %s',
+    (flag) => {
+      expect(() => resolveInitSuperadminPassword([flag], { OM_INIT_SUPERADMIN_PASSWORD: 'weak' }))
+        .toThrow(/password policy/)
+    },
+  )
+
+  it('uses the configured policy rather than a separate bootstrap policy', () => {
+    expect(() => resolveInitSuperadminPassword([], {
+      OM_INIT_SUPERADMIN_PASSWORD: validPassword,
+      OM_PASSWORD_MIN_LENGTH: '30',
+    })).toThrow(/password policy/)
+  })
+
+  it('accepts a compliant environment credential without changing its bytes', () => {
+    expect(resolveInitSuperadminPassword([], { OM_INIT_SUPERADMIN_PASSWORD: ` ${validPassword} ` }))
+      .toBe(` ${validPassword} `)
+  })
+
+  it('gives an explicit CLI credential precedence over the environment', () => {
+    expect(resolveInitSuperadminPassword([`--password=${validPassword}`], {
+      OM_INIT_SUPERADMIN_PASSWORD: 'password',
+    })).toBe(validPassword)
+  })
+
+  it('rejects an explicitly empty CLI credential instead of falling back to the environment', () => {
+    expect(() => resolveInitSuperadminPassword(['--password='], {
+      OM_INIT_SUPERADMIN_PASSWORD: validPassword,
+    })).toThrow(/required/)
+  })
+})
 
 describe('resolveInitDerivedSecrets', () => {
   it("seeds the well-known 'secret' password in non-production when no env overrides are set", () => {

@@ -1094,6 +1094,7 @@ export async function runRailwayDeploy(
   const localEnv = options.cleanup ? {} : parseEnvFile(readFileSync(envFile, 'utf8'))
   let protectedSecrets = options.dryRun
     ? {
+        OM_INIT_SUPERADMIN_PASSWORD: localEnv.OM_INIT_SUPERADMIN_PASSWORD || 'generated-at-deploy',
         AUTH_SECRET: 'generated-at-deploy',
         JWT_SECRET: 'generated-at-deploy',
         TENANT_DATA_ENCRYPTION_FALLBACK_KEY: 'generated-at-deploy',
@@ -1435,6 +1436,7 @@ export async function runRailwayDeploy(
     console.log(`  Health:      ${domain.url}/api/healthz`)
     if (workerServiceId) console.log('  Worker:      mercato-worker (running)')
     console.log(`  State:       ${statePath}`)
+    console.log(`  Bootstrap:   OM_INIT_SUPERADMIN_PASSWORD in the app service's Railway variables${options.writeEnv ? ` and ${envFile}` : ''}`)
     if (tokenResult.cached) console.log(`  Token cache: ${railwayTokenConfigPath()}`)
     console.log('')
     console.log(`DEPLOY_URL=${domain.url}`)

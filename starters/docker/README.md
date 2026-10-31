@@ -31,6 +31,20 @@ external proxies or deliberate direct access. Existing installations must
 recreate affected containers and migrate direct-port probes/collaboration
 URLs. See [private ports, overrides, WSS, and deployment checks](../../docker/traefik/README.md#private-application-ports-and-migration).
 
+## First-run superadmin password
+
+Before the first initialization, set `OM_INIT_SUPERADMIN_PASSWORD` in the repo-root `.env` or deployment environment to a unique password generated for that deployment. Replace this illustrative placeholder with your own value:
+
+```dotenv
+OM_INIT_SUPERADMIN_PASSWORD="<unique password from your password manager>"
+```
+
+The password must satisfy the configured `OM_PASSWORD_*` policy. Both full-app stacks pass the value through without a default; this also applies to generated standalone-app Compose files and the legacy root duplicates. `mercato init` rejects missing, empty, known-placeholder, or policy-invalid values before install, generation, migrations, or destructive reinstall work. Init policy-bypass flags cannot disable this check.
+
+When using the cross-platform `@open-mercato/starter`, a new environment receives a unique generated password in the root `.env` and the matching app `.env`. Startup summaries show where to retrieve `OM_INIT_SUPERADMIN_PASSWORD` locally, and newly created environment files use `0600` permissions on POSIX systems. Existing configured values and file permissions are preserved. Its 68-character generated password satisfies the default policy; a custom minimum length above 68 requires an explicit compliant value. See [starter credential behavior](../../packages/starter/README.md#bootstrap-credentials).
+
+Already-initialized deployments can follow their normal restart and migration path without the bootstrap password. This change does not rotate existing credentials: review privileged accounts created with earlier defaults and change their passwords through the existing account-management or password-reset flow. Updating `.env` alone does not change a stored password.
+
 ## Root duplicates (temporary backwards compatibility)
 
 Deployments that predate this directory invoke the compose files by their old repo-root names (`docker-compose.yml`, `docker-compose.fullapp*.yml`, `docker-compose.preview.yaml`). Those names exist again at the repo root as byte-identical duplicates of the files here (plus a header pointing back). The files in this directory stay canonical — edit them, then copy the change into the root duplicate; `scripts/__tests__/root-compose-backcompat.test.mjs` fails CI on any drift. The duplicates (and the test) go away once existing deployments migrate to the `starters/docker/` paths.

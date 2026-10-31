@@ -452,7 +452,13 @@ jobs:
 
       - name: Initialize standalone app database
         working-directory: /tmp/standalone-app
-        run: yarn initialize
+        run: |
+          export OM_INIT_SUPERADMIN_PASSWORD="${OM_INIT_SUPERADMIN_PASSWORD-$(node -e 'process.stdout.write(`Aa1!${require("node:crypto").randomBytes(32).toString("hex")}`)')}"
+          printf '::add-mask::%s\n' "$OM_INIT_SUPERADMIN_PASSWORD"
+          printf 'OM_INIT_SUPERADMIN_PASSWORD=%s\n' "$OM_INIT_SUPERADMIN_PASSWORD" >> "$GITHUB_ENV"
+          chmod 600 .env
+          printf '\nOM_INIT_SUPERADMIN_PASSWORD=%s\n' "$OM_INIT_SUPERADMIN_PASSWORD" >> .env
+          yarn initialize
 
       - name: Build standalone app
         working-directory: /tmp/standalone-app
