@@ -1,4 +1,8 @@
 {
+  "attachments.access.forbidden": "Forbidden",
+  "attachments.access.notFound": "Attachment not found.",
+  "attachments.access.timeout": "Attachment authorization timed out. Please try again.",
+  "attachments.access.unauthorized": "Unauthorized",
   "attachments.errors.activeContentBlocked": "Active content uploads are not allowed.",
   "attachments.errors.dangerousExecutable": "Executable file types are not allowed as attachments.",
   "attachments.errors.maxUploadSize": "Attachment exceeds the maximum upload size.",
