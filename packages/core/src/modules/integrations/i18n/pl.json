@@ -37,7 +37,7 @@
   "integrations.detail.health.neverChecked": "Nigdy nie sprawdzano",
   "integrations.detail.health.title": "Stan zdrowia",
   "integrations.detail.health.unconfigured": "Nieskonfigurowana",
-  "integrations.detail.health.unhealthy": "Niezdrowy",
+  "integrations.detail.health.unhealthy": "Nieprawidłowy",
   "integrations.detail.health.unknown": "Nieznany",
   "integrations.detail.hub.label": "Hub",
   "integrations.detail.loadError": "Nie udało się załadować integracji",
