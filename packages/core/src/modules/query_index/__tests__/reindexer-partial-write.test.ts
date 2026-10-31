@@ -55,6 +55,12 @@ function createFakeDb(pages: Array<Array<{ id: string }>>) {
       groupBy: () => chain,
       set: () => chain,
       execute: async () => {
+        // `todos` carries `tenant_id` / `organization_id`; the reindexer refuses a
+        // tenant-scoped sweep of a table whose column probe reports no tenant
+        // column, so the probe has to answer with the real shape.
+        if (table === 'information_schema.columns') {
+          return ['id', 'tenant_id', 'organization_id', 'deleted_at'].map((column_name) => ({ column_name }))
+        }
         if (table.startsWith('todos')) {
           baseTableSelects.push(table)
           return remainingPages.shift() ?? []
