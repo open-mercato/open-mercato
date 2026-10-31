@@ -1,3 +1,5 @@
+import { createFallbackTranslator } from '@open-mercato/shared/lib/i18n/translate'
+import polishTranslations from '../../i18n/pl.json'
 import type { WorkflowDefinitionData } from '../../data/entities'
 import { evaluateWorkflowDefinition } from '../definition-evaluation'
 import {
@@ -110,4 +112,21 @@ describe('workflow mapping target authoring validation', () => {
       ]),
     )
   })
+
+  test('localizes API issues and displayed AI problems without changing paths or codes', () => {
+    const translate = createFallbackTranslator(polishTranslations)
+    const evaluation = evaluateWorkflowDefinition(definitionWithMappings(), { translate })
+    const message = polishTranslations['workflows.validation.unsafeMappingTarget']
+
+    expect(evaluation.valid).toBe(false)
+    expect(evaluation.issues).toContainEqual({
+      path: ['steps', 1, 'config', 'inputMapping', '__proto__.polluted'],
+      code: 'custom',
+      message,
+    })
+    expect(evaluation.problems).toEqual(expect.arrayContaining([
+      expect.objectContaining({ severity: 'error', nodeId: 'sub', message: expect.stringContaining(message) }),
+    ]))
+  })
+
 })

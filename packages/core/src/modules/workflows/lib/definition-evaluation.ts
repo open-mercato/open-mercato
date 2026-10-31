@@ -34,6 +34,8 @@ import { definitionToGraph, validateWorkflowGraph } from './graph-utils'
 import {
   collectUnsafeMappingTargetIssues,
   mappingTargetIssuesForApi,
+  UNSAFE_MAPPING_TARGET_MESSAGE,
+  UNSAFE_MAPPING_TARGET_MESSAGE_KEY,
 } from './mapping-target-validation'
 
 /**
@@ -79,6 +81,7 @@ export interface EvaluateWorkflowDefinitionOptions {
    * those warnings are skipped (they are advisory and never blocking).
    */
   ledger?: ContextLedger | null
+  translate?: WorkflowIssueTranslator
 }
 
 export interface WorkflowDefinitionEvaluation {
@@ -132,7 +135,10 @@ export function evaluateWorkflowDefinition(
   const { nodes, edges } = definitionToGraph(definition, { autoLayout: false })
   const graphErrors = validateWorkflowGraph(nodes, edges)
   const parsed = workflowDefinitionDataSchema.safeParse(definition)
-  const mappingIssues = collectUnsafeMappingTargetIssues(definition)
+  const mappingMessage = options.translate
+    ? options.translate(UNSAFE_MAPPING_TARGET_MESSAGE_KEY, UNSAFE_MAPPING_TARGET_MESSAGE, {})
+    : UNSAFE_MAPPING_TARGET_MESSAGE
+  const mappingIssues = collectUnsafeMappingTargetIssues(definition, mappingMessage)
   const zodIssues: ZodIssueLike[] = [
     ...(parsed.success ? [] : parsed.error.issues),
     ...mappingIssues,
@@ -160,7 +166,7 @@ export function evaluateWorkflowDefinition(
     warningCount: warnings,
     issues: [
       ...(parsed.success ? [] : normalizeDefinitionValidationIssues(parsed.error)),
-      ...mappingTargetIssuesForApi(definition),
+      ...mappingTargetIssuesForApi(definition, [], mappingMessage),
     ],
     problems,
   }
