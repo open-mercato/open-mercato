@@ -441,7 +441,12 @@ same use case today.
 `registerComponent` and resolved with `useRegisteredComponent`. Every one publishes a zod
 `propsSchema`, which `useRegisteredComponent` parses in development — a replacement that
 does not satisfy it falls back to the original component. Catalogued in
-[`widgets/components.ts`](./widgets/components.ts).
+[`widgets/components.ts`](./widgets/components.ts). The time entry dialog's schema is a
+named export (STABLE contract, additive-only): a replacement imports it,
+`import { timeEntryDialogPropsSchema } from '@open-mercato/core/modules/staff/lib/time-tracking-ui/TimeEntryDialog'`,
+and passes it as the top-level `propsSchema` of its `ComponentOverride` (next to
+`replacement`, not inside `metadata`) instead of copying it. The export is typed
+`z.ZodType<TimeEntryDialogProps>`; wrap with `z.intersection` to add fields.
 
 | Handle | Component |
 |---|---|
@@ -476,7 +481,7 @@ in [`extension-points.ts`](./extension-points.ts).
 | 39 | `staff.time_tracking.project_code_generator` | `registerProjectCodeGenerator({ id, priority?, generate(name, taken, ctx) })` — [`lib/time-tracking/projectCode.ts`](./lib/time-tracking/projectCode.ts) | `staff.time_tracking.project_code.initials` | single winner |
 | 40 | `staff.time_tracking.capacity_provider` | `registerCapacityProvider({ id, priority?, resolve(staffMemberId, dateRange, ctx) })` — [`lib/time-tracking/capacity.ts`](./lib/time-tracking/capacity.ts) | `staff.time_tracking.capacity.flat_daily_hours` | single winner |
 | 41 | `staff.time_tracking.report_approval_policy` | `registerReportApprovalPolicy({ id, priority?, canClose?, canUnlock?, onClosed? })` — [`lib/timesheets-reports/reportApprovalPolicies.ts`](./lib/timesheets-reports/reportApprovalPolicies.ts) | `staff.time_tracking.report_approval.acl_only` | conjunction, first refusal |
-| 42 | `staff.time_tracking.setting_key` | `registerTimeTrackingSettingKey({ group, key, schema, default, labelKey, priority? })` — [`lib/time-tracking/settingKeys.ts`](./lib/time-tracking/settingKeys.ts) | the eight frozen keys | keyed by `<group>.<key>` |
+| 42 | `staff.time_tracking.setting_key` | `registerTimeTrackingSettingKey({ group, key, schema, default, labelKey, priority? })` — [`lib/time-tracking/settingKeys.ts`](./lib/time-tracking/settingKeys.ts) | the nine frozen built-in keys | keyed by `<group>.<key>` |
 | 51 | `staff.time_tracking.recalculation` | `registerTimeTrackingRecalculation({ id, labelKey, priority?, run(ctx) })` — [`lib/time-tracking/recalculations.ts`](./lib/time-tracking/recalculations.ts) | `staff.time_tracking.recalculation.rounding` | keyed by id, run in order |
 
 ### The four resolution orders
@@ -567,14 +572,28 @@ EP-42…EP-45. Four declaration surfaces. Read the "does not" column of each bef
 building on one — three of the four are contracts that a later phase still has to make
 load-bearing, and pretending otherwise is how a third-party module ships a broken screen.
 
+### Time entry dialog modes (#6989)
+
+`TimeEntryDialog` logs against a **task** (default; project derived from the task and
+shown read-only) or a **project** (required project field over the access-scoped
+`GET /api/staff/timesheets/time-projects?status=active`, task optional and filtered by
+`timeProjectId`). Precedence lives in `resolveTimeEntryDialogMode`
+(`lib/time-tracking-ui/timeEntryDialogState.ts`): an entry with a project and no task →
+project; else the optional `mode` prop; else the tenant's `defaults.entryMode`; else task.
+The setting is applied late (once per seed, pristine form only) because the settings
+query may answer after the seed. Writes stay authorised by the command's project access
+check; the dialog adds no access logic. The project field is the `TimeEntryProjectField`
+leaf; `TimeEntryDialog.tsx` is over the 300-LOC client guard under a capped exception, so new
+dialog UI goes into new leaves (decomposition: #7135).
+
 ### Contributed settings keys (EP-42 — BC surface #2, STABLE)
 
 `TIME_TRACKING_SETTING_KEYS`, `normalizeTimeTrackingSettings` and
 `staffTimeTrackingSettingsSchema` all read
-[`lib/time-tracking/settingKeys.ts`](./lib/time-tracking/settingKeys.ts) now. The eight
-keys the module shipped are registered there as built-ins, so with no contribution the
-defaults, the validating schema, the read and the eight `ModuleConfigService` rows are
-what they always were.
+[`lib/time-tracking/settingKeys.ts`](./lib/time-tracking/settingKeys.ts) now. The nine
+built-in keys (the original eight plus `defaults.entryMode`, #6989) are registered there,
+so with no contribution the defaults, the validating schema, the read and the
+`ModuleConfigService` rows are what the module ships.
 
 ```ts
 registerTimeTrackingSettingKey({
@@ -601,12 +620,12 @@ registerTimeTrackingSettingKey({
   const is the load-time snapshot and stays for backward compatibility.
 - **A stored value that no longer validates falls back to the registered default**, the
   same way a stored rounding unit the schema stopped accepting always did. Registering a
-  key whose id collides with one of the eight built-ins throws.
+  key whose id collides with one of the built-ins throws.
 - **Rendering it.** Pair the key with a widget on `staff.time_tracking.settings:sections`
   (EP-26). The spot context carries `{ moduleId, canManage, keys, values, setValue }`:
   `keys` is `contributedTimeTrackingSettingKeys()`, `values` is keyed by `<group>.<key>`
   and holds contributed keys only, and `setValue(id, value)` writes into the page draft
-  so the page's own Save round-trips a key it knows nothing about. The eight built-ins
+  so the page's own Save round-trips a key it knows nothing about. The built-ins
   are absent from `values` — the page renders those itself.
 
 ### Time-tracking custom fields (EP-43)
