@@ -10,6 +10,18 @@ import type { SearchEntityConfig, IndexableRecord } from '../types'
 import type { QueryEngine, QueryResult } from '@open-mercato/shared/lib/query/types'
 import type { EncryptedCustomFieldKeysResolver } from '../lib/encrypted-custom-field-resolver'
 import { replaceSearchTokensForRecord, replaceSearchTokensForBatch } from '@open-mercato/core/modules/query_index/lib/search-tokens'
+import { resolveQueryIndexSearchScope } from '@open-mercato/core/modules/query_index/lib/search-scope'
+
+jest.mock('@open-mercato/core/modules/query_index/lib/search-scope', () => ({
+  ...jest.requireActual<typeof import('@open-mercato/core/modules/query_index/lib/search-scope')>('@open-mercato/core/modules/query_index/lib/search-scope'),
+  resolveQueryIndexSearchScope: jest.fn(async () => ({
+    searchableEntityTypes: ['example:todo'],
+    registeredSourceTypes: ['example:todo'],
+    blockedEntityTypes: [],
+    tenantGlobalEntityTypes: [],
+    customEntityStorage: false,
+  })),
+}))
 
 jest.mock('@open-mercato/core/modules/query_index/lib/search-tokens', () => ({
   replaceSearchTokensForRecord: jest.fn(async () => {}),
@@ -107,6 +119,29 @@ beforeEach(() => {
 })
 
 describe('plaintext custom-field boundaries (#7894)', () => {
+  it.each(['single', 'bulk'] as const)('retains the real token source-scope rejection through %s indexing', async (entryPoint) => {
+    jest.mocked(resolveQueryIndexSearchScope).mockResolvedValueOnce({
+      searchableEntityTypes: [],
+      registeredSourceTypes: [entityId],
+      blockedEntityTypes: [entityId],
+      tenantGlobalEntityTypes: [],
+      customEntityStorage: false,
+    })
+    const harness = createHarness()
+    const params = { entityId, recordId: 'record-1', tenantId: 'tenant-1', record: makeFields() }
+
+    if (entryPoint === 'single') {
+      await harness.indexer.indexRecord(params)
+    } else {
+      await harness.indexer.bulkIndexRecords([params])
+    }
+
+    expectPlaintextSafe(harness)
+    expect(resolveQueryIndexSearchScope).toHaveBeenCalledTimes(1)
+    expect(replaceSearchTokensForRecord).not.toHaveBeenCalled()
+    expect(replaceSearchTokensForBatch).not.toHaveBeenCalled()
+  })
+
   it('filters canonical, aliased and sanitized keys before real fulltext/vector strategies, retaining token input and the original record', async () => {
     const harness = createHarness()
     const fields = makeFields()
