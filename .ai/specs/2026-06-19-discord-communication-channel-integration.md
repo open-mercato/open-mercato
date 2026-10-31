@@ -729,11 +729,7 @@ before translations, JSON parsing, candidate lookup, signature verification, or 
 An absent, malformed, or understated Content-Length cannot bypass actual byte counting;
 an exact-limit body continues through the existing signature and interaction path.
 
-Accepting unlimited bodies is itself the unauthenticated memory-exhaustion vulnerability,
-so an unlimited compatibility bridge would preserve the exploit. This is the narrow
-emergency security exception recorded in `BACKWARD_COMPATIBILITY.md`. On 2026-10-29,
-[@haxiorz approved the steps 1–3 waiver and acknowledged the client/operator migration](https://github.com/open-mercato/open-mercato/pull/8233#issuecomment-6506241518).
-Independent review and QA remain required. Route URLs, signature format,
+Route URLs, signature format,
 tenant resolution, and accepted-payload responses remain unchanged. No schema migration,
 credential rotation, or stored-data remediation is needed.
 
@@ -1199,14 +1195,14 @@ rule 3), and no variant should be considered done without it.
 
 ## Changelog
 
-### 2026-10-29 — Signed-body waiver acknowledgment
+### 2026-10-31 — Clarify signed-body migration guidance (#7241)
 
-- Recorded @haxiorz’s explicit steps 1–3 waiver and client/operator migration acknowledgment for #8233; review, CI, and QA gates remain.
+- Clarify signed request size limits, client/operator migration guidance, and route regression coverage.
 
 ### 2026-10-29 — Bound public signed interaction bodies (#7241)
 
 - Reuse the shared streamed byte cap after header screening and before candidate lookup;
-  document 413, boundary coverage, and client/operator migration under the security exception.
+  document 413, boundary coverage, and client/operator migration.
 
 ### 2026-10-25 — Integrate approval refusals with authenticated proposals (#7356)
 
