@@ -17,6 +17,22 @@ const mockGetTelemetryRuntime = getTelemetryRuntime as jest.MockedFunction<typeo
 /** Thrown by the stub the moment the reindexer gets PAST the guard. */
 class ReachedSweep extends Error {}
 
+function createMetadataRegistry(columns: string[] = []) {
+  const classNames = [
+    'UserRole', 'Tenant', 'CustomerDealPersonLink', 'MessageRecipient',
+    'CustomerUserRole', 'SomeFutureJoinRow', 'FeatureToggle', 'Plan', 'CustomerPersonProfile',
+  ]
+  const metadata = new Map(classNames.map((className) => [className, {
+    className,
+    tableName: className,
+    properties: {
+      ...(columns.includes('tenant_id') ? { tenantId: { fieldNames: ['tenant_id'] } } : {}),
+      ...(columns.includes('organization_id') ? { organizationId: { fieldNames: ['organization_id'] } } : {}),
+    },
+  }]))
+  return { find: (className: string) => metadata.get(className), getAll: () => metadata }
+}
+
 /** An entity manager whose `information_schema` probe fails with `message`. */
 function createProbeFailingEm(message: string) {
   const chain: Record<string | symbol, unknown> = new Proxy({}, {
@@ -30,7 +46,7 @@ function createProbeFailingEm(message: string) {
   })
   return {
     getKysely: () => ({ selectFrom: () => chain }),
-    getMetadata: () => ({ find: (className: string) => ({ tableName: className }), getAll: () => [] }),
+    getMetadata: () => createMetadataRegistry(),
   }
 }
 
@@ -78,10 +94,7 @@ function makeEm(columns: string[]) {
     getKysely: () => db,
     // Every entity type used below resolves to a table named after it, so the
     // real `resolveRegisteredEntityTableName` is exercised rather than mocked.
-    getMetadata: () => ({
-      find: (className: string) => ({ tableName: className }),
-      getAll: () => [],
-    }),
+    getMetadata: () => createMetadataRegistry(columns),
   }
   return { em, seen }
 }
@@ -190,7 +203,7 @@ describe('reindexEntity refuses a tenant-scoped sweep it cannot scope', () => {
           return chain
         },
       }),
-      getMetadata: () => ({ find: (className: string) => ({ tableName: className }), getAll: () => [] }),
+      getMetadata: () => createMetadataRegistry(),
     }
 
     const result = await reindexEntity(em, { entityType: 'auth:user_role', tenantId: TENANT })
@@ -220,7 +233,7 @@ describe('reindexEntity refuses a tenant-scoped sweep it cannot scope', () => {
           return chain
         },
       }),
-      getMetadata: () => ({ find: (className: string) => ({ tableName: className }), getAll: () => [] }),
+      getMetadata: () => createMetadataRegistry(),
     }
 
     const result = await reindexEntity(em, { entityType: 'billing:plan', tenantId: TENANT })

@@ -34,9 +34,9 @@ export async function resolveQueryIndexSearchScope(entityManager?: EntityManager
       return { searchableEntityTypes: [], tenantGlobalEntityTypes: [], blockedEntityTypes: [...new Set(Object.values(getEntityIds(false)).flatMap((entities) => Object.values(entities)))] }
     }
   }
-  const entityTypes = [...new Set(Object.values(getEntityIds(false)).flatMap((entities) => Object.values(entities)))].sort()
+  const entityTypes = [...new Set(Object.values(getEntityIds(false)).flatMap((entities) => Object.values(entities)))].sort((leftType, rightType) => leftType.localeCompare(rightType))
   if (!entityTypes.length) throw new Error('[internal] Query-index source registry is unavailable; refusing unverified search')
-  const declaredTypes = listTenantGlobalEntityTypes().sort()
+  const declaredTypes = listTenantGlobalEntityTypes().sort((leftType, rightType) => leftType.localeCompare(rightType))
   const metadataSignature = listEntityMetadata(manager).map((metadata) => [metadata.className, metadata.tableName, metadata.schema, metadata.properties?.tenantId?.fieldNames, metadata.properties?.organizationId?.fieldNames])
   const signature = JSON.stringify([entityTypes, declaredTypes, metadataSignature])
   const key = manager.getDriver()
