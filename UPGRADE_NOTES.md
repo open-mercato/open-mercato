@@ -1228,6 +1228,46 @@ migration and the rollback is unrecoverable — users must reopen their chat win
 same one-time-TTL (120-minute) cost paid by any session mid-flight at rollback, not an ongoing
 state.
 
+### Workflows: a user-task deadline can be an absolute `at` — new additive deadline/config types (#7181)
+
+A `USER_TASK` deadline (`userTaskConfig.deadline`) now takes exactly one of `duration` (anchored to
+task creation, as before) or `at` (an ISO date or an ISO datetime with `Z` or an offset, usually
+interpolated from the run context, e.g. `{{context.dueDate}}`). Every definition that was valid before
+still parses and runs unchanged.
+
+**No exported contract changes.** These keep their exact shape, with `deadline.duration` a required
+`string` (compile-guarded by `packages/core/src/modules/workflows/data/task-primitives.typecheck.tsx`):
+
+- `taskDeadlineSchema` / `TaskDeadline` (`data/task-primitives`, re-exported from `data/validators`);
+- `userTaskConfigSchema` / `UserTaskConfig` (`data/validators`) — `deadline?: TaskDeadline`;
+- `TaskDeadlinePersistence` and `resolveTaskDeadlinePersistence(config, edited)`
+  (`lib/task-inspector-config`) — same signature, same return type, same behavior.
+
+The absolute form lives on NEW, additive exports, each a strict superset of its legacy counterpart:
+
+| Legacy (unchanged, duration-only) | Extended (new, `duration` or `at`) |
+|---|---|
+| `taskDeadlineSchema` / `TaskDeadline` | `taskDeadlineSpecSchema` / `TaskDeadlineSpec` |
+| `userTaskConfigSchema` / `UserTaskConfig` | `userTaskConfigSpecSchema` / `UserTaskConfigSpec` |
+| `TaskDeadlinePersistence` | `TaskDeadlineSpecPersistence` |
+| `resolveTaskDeadlinePersistence` | `resolveTaskDeadlineSpecPersistence` |
+
+`workflowStepSchema.userTaskConfig` — what the definition API and the engine validate — uses
+`userTaskConfigSpecSchema`, so the request-input types inferred from it
+(`CreateWorkflowDefinitionInput`, `UpdateWorkflowDefinitionInput`, …) accept the `at` form; that is a
+widening of what a request may carry, not of any type a consumer reads. `readTaskDeadlineDraft`,
+`resolveTaskDeadlineDuration` and `resolveTaskDeadline` accept either config (a widened parameter).
+
+**Migration:** none required. The legacy exports are not deprecated and have no removal window — they
+stay the duration-only view. Code that reads a stored step's `userTaskConfig` and wants to honour an
+absolute deadline should type it as `UserTaskConfigSpec` and check which of `deadline.duration` /
+`deadline.at` is set; such code must not assume `deadline.duration` exists on a definition authored
+with `at`.
+
+The deadline validation messages carry i18n keys (`workflows.validation.taskDeadline.*`) and are
+localized in the definition API's `details[]` and the Studio Problems / Code view. The English text in
+`details[].message` is unchanged when no locale dictionary is available.
+
 ### Payment gateway webhooks: opt-in transport, locator and response options; ambiguous matches are rejected
 
 `registerWebhookHandler(...)` accepts new optional options for providers that sign form-encoded bodies or expect a specific acknowledgement:

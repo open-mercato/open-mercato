@@ -28,6 +28,7 @@ import {
 } from '../openapi'
 import { invalidateTriggerCache } from '../../lib/event-trigger-service'
 import { normalizeDefinitionValidationIssues } from '../../lib/definition-error-body'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { getAllCodeWorkflows } from '../../lib/code-registry'
 import {
   authorizeWorkflowGrantChange,
@@ -252,10 +253,11 @@ export async function POST(request: NextRequest) {
     // Validate input
     const validation = createWorkflowDefinitionInputCheckedSchema.safeParse(body)
     if (!validation.success) {
+      const { translate } = await resolveTranslations()
       return NextResponse.json(
         {
           error: 'Validation failed',
-          details: normalizeDefinitionValidationIssues(validation.error),
+          details: normalizeDefinitionValidationIssues(validation.error, translate),
         },
         { status: 400 }
       )
