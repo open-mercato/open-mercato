@@ -6,6 +6,7 @@ import {
   CustomerUserPasswordReset,
 } from '@open-mercato/core/modules/customer_accounts/data/entities'
 import { generateSecureToken, hashToken } from '@open-mercato/core/modules/customer_accounts/lib/tokenGenerator'
+import { isCustomerTenantActive } from '@open-mercato/core/modules/customer_accounts/lib/tenantEligibility'
 
 function getKysely(em: EntityManager): Kysely<any> {
   return (em as unknown as { getKysely: () => Kysely<any> }).getKysely()
@@ -74,6 +75,7 @@ export class CustomerTokenService {
 
     const user = record.user as CustomerUser
     if (tenantId && user?.tenantId !== tenantId) return null
+    if (purpose === 'magic_link' && !(await isCustomerTenantActive(this.em, user?.tenantId))) return null
 
     const db = getKysely(this.em)
     const updateResult = await db

@@ -503,6 +503,45 @@ export function serializeTemplateOrLink(record: CheckoutLinkTemplate | CheckoutL
   }
 }
 
+export function serializePublicPayLink(record: CheckoutLink) {
+  return {
+    id: record.id,
+    slug: record.slug,
+    name: record.name,
+    title: record.title ?? null,
+    subtitle: record.subtitle ?? null,
+    description: record.description ?? null,
+    logoUrl: record.logoUrl ?? null,
+    logoPreviewUrl: buildCheckoutAttachmentPreviewUrl(record.logoAttachmentId) ?? record.logoUrl ?? null,
+    primaryColor: record.primaryColor ?? null,
+    secondaryColor: record.secondaryColor ?? null,
+    backgroundColor: record.backgroundColor ?? null,
+    themeMode: record.themeMode,
+    pricingMode: record.pricingMode,
+    fixedPriceAmount: toMoneyNumber(record.fixedPriceAmount),
+    fixedPriceCurrencyCode: record.fixedPriceCurrencyCode ?? null,
+    fixedPriceIncludesTax: record.fixedPriceIncludesTax,
+    fixedPriceOriginalAmount: toMoneyNumber(record.fixedPriceOriginalAmount),
+    customAmountMin: toMoneyNumber(record.customAmountMin),
+    customAmountMax: toMoneyNumber(record.customAmountMax),
+    customAmountCurrencyCode: record.customAmountCurrencyCode ?? null,
+    priceListItems: record.priceListItems ?? [],
+    gatewayProviderKey: record.gatewayProviderKey ?? null,
+    collectCustomerDetails: record.collectCustomerDetails,
+    customerFieldsSchema: record.customerFieldsSchema ?? [],
+    legalDocuments: record.legalDocuments ?? {},
+    displayCustomFieldsOnPage: record.displayCustomFieldsOnPage,
+    successTitle: record.successTitle ?? null,
+    successMessage: record.successMessage ?? null,
+    cancelTitle: record.cancelTitle ?? null,
+    cancelMessage: record.cancelMessage ?? null,
+    errorTitle: record.errorTitle ?? null,
+    errorMessage: record.errorMessage ?? null,
+    status: record.status,
+    checkoutType: record.checkoutType,
+  }
+}
+
 export function serializeTransaction(record: CheckoutTransaction, link?: CheckoutLink | null, includePii = false) {
   return {
     id: record.id,
