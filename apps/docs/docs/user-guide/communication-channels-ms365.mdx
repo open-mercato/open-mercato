@@ -87,7 +87,7 @@ Once connected the channel shows **Connected**, and new Inbox mail appears withi
 
 - **Inbox only.** Mail in other folders (or rules that move mail out of the Inbox before Open Mercato polls) is not picked up.
 - **From connect time onward.** Nothing older is imported automatically. Use **Import history** on the channel to back-fill up to a year of Inbox mail, optionally limited to known CRM contacts.
-- A message *moved* into the Inbox later, whose received date is older than the channel's sync point, is skipped by polling. **Import history** covers it.
+- A message *moved* into the Inbox later is skipped by polling if it was received before the channel was connected (or last re-synced). **Import history** covers it.
 
 ---
 

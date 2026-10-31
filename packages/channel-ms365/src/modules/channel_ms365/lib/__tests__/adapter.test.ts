@@ -478,7 +478,7 @@ describe('Ms365ChannelAdapter.fetchHistory', () => {
     expect(typeof state.receivedWatermark).toBe('string')
   })
 
-  it('incremental: ingests every non-draft, non-removed item — including mail moved into the Inbox with an old receivedDateTime — and advances the cursor', async () => {
+  it('incremental: ingests every non-draft, non-removed item the delta reports — no client-side receivedDateTime cutoff (mail moved back into the Inbox) — and advances the cursor', async () => {
     const mimeFetches: string[] = []
     setGraphMailClient({
       ...emptyGraph(),

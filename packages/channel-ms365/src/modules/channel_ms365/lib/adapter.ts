@@ -130,10 +130,13 @@ function isTransientGraphError(error: unknown): boolean {
  *   - Bootstrap: start an Inbox delta filtered to the last `BOOTSTRAP_OVERLAP_MS`,
  *     drain to a deltaLink, persist `{ deltaLink, receivedWatermark }`.
  *   - Incremental: follow `nextLink` (mid-drain) or `deltaLink`; ingest every
- *     non-draft, non-tombstone item the page reports, whatever its
- *     `receivedDateTime`. A message moved *into* the Inbox later (rescued from
- *     Junk, an Outlook rule, another client) keeps its original timestamp, so a
- *     watermark cutoff here would drop it for good once the token advances.
+ *     non-draft, non-tombstone item the page reports, without a client-side
+ *     `receivedDateTime` cutoff. A message moved *into* the Inbox later (rescued
+ *     from Junk, an Outlook rule, another client) keeps its original timestamp,
+ *     so a watermark cutoff here would drop it for good once the token advances.
+ *     Graph still applies the bootstrap's `receivedDateTime ge` filter (encoded
+ *     in the delta token), so only mail received after the current baseline
+ *     (connect, or the last re-sync) can surface; older mail needs `importHistory`.
  *     Flag/read updates on mail we already have are re-read and deduped by the
  *     hub on `(channel_id, external_message_id)`.
  *   - `receivedWatermark` is therefore only a floor for the next bootstrap /
