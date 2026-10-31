@@ -14,17 +14,17 @@
 // the platform and its apps rely on.
 import type { Locale, LocaleRegistry } from './config'
 
-// 1. Unaugmented, `Locale` is still the exact five-member union.
-type Expected = 'en' | 'pl' | 'es' | 'de' | 'ko'
+// 1. Unaugmented, `Locale` is still the exact six-member union.
+type Expected = 'en' | 'pl' | 'es' | 'de' | 'ko' | 'pt'
 type MutuallyAssignable<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false
-const localeUnionIsUnchanged: MutuallyAssignable<Locale, Expected> = true
+const localeUnionMatchesExpected: MutuallyAssignable<Locale, Expected> = true
 
 // 2. It has NOT collapsed to `string` — that would make the union check above
 //    pass vacuously in one direction and destroy exhaustiveness everywhere.
 const localeIsNotWidenedToString: MutuallyAssignable<Locale, string> = false
 
 // 3. Every shipped code is assignable.
-const shipped: Locale[] = ['en', 'pl', 'es', 'de', 'ko']
+const shipped: Locale[] = ['en', 'pl', 'es', 'de', 'ko', 'pt']
 
 // 4. A code nobody registered is still rejected.
 // @ts-expect-error 'cs' is not a member of Locale until an app augments LocaleRegistry
@@ -38,6 +38,7 @@ const exhaustiveLabels: Record<Locale, string> = {
   es: 'Español',
   de: 'Deutsch',
   ko: '한국어',
+  pt: 'Português',
 }
 
 // @ts-expect-error a Record<Locale, …> missing `ko` must stay an error
@@ -46,12 +47,13 @@ const nonExhaustiveLabels: Record<Locale, string> = {
   pl: 'Polski',
   es: 'Español',
   de: 'Deutsch',
+  pt: 'Português',
 }
 
 // 6. The registry keys and the union stay in lockstep.
 const registryKeysMatchLocale: MutuallyAssignable<keyof LocaleRegistry & string, Locale> = true
 
-void localeUnionIsUnchanged
+void localeUnionMatchesExpected
 void localeIsNotWidenedToString
 void shipped
 void unregistered

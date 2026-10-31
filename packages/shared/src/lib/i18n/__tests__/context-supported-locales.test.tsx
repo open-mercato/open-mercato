@@ -33,7 +33,7 @@ describe('useSupportedLocales', () => {
   it('reflects locales the app registered at runtime', () => {
     registerLocales(['cs'])
 
-    expect(render({ locale: 'en', dict: {} })).toContain('en,pl,es,de,ko,cs')
+    expect(render({ locale: 'en', dict: {} })).toContain('en,pl,es,de,ko,pt,cs')
   })
 
   it('prefers the server-resolved prop over the process-local registry', () => {

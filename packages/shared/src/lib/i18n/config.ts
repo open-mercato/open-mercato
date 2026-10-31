@@ -12,7 +12,7 @@
  * }
  * ```
  *
- * Unaugmented, `Locale` resolves to exactly `'en' | 'pl' | 'es' | 'de' | 'ko'`,
+ * Unaugmented, `Locale` resolves to exactly `'en' | 'pl' | 'es' | 'de' | 'ko' | 'pt'`,
  * so existing exhaustive `Record<Locale, T>` maps keep their drift-guard value —
  * and an app that opts in keeps exhaustiveness over its own extended set. This
  * is the same `keyof SomeRegistry` + declaration-merging idiom TypeScript uses
@@ -30,6 +30,7 @@ export interface LocaleRegistry {
   es: true
   de: true
   ko: true
+  pt: true
 }
 
 export type Locale = keyof LocaleRegistry & string
@@ -37,5 +38,5 @@ export type Locale = keyof LocaleRegistry & string
 // NOTE: `scripts/dev.mjs` reads the next two declarations by regex (it parses
 // this file as text to build the dev splash screen before the app compiles).
 // Keep them as literal `export const <name>: <Type> = <literal>` statements.
-export const locales: Locale[] = ['en', 'pl', 'es', 'de', 'ko']
+export const locales: Locale[] = ['en', 'pl', 'es', 'de', 'ko', 'pt']
 export const defaultLocale: Locale = 'en'

@@ -23,6 +23,8 @@ async function loadAppDictionary(locale: Locale): Promise<Record<string, unknown
       return import('../../i18n/de.json').then((module) => module.default)
     case 'ko':
       return import('../../i18n/ko.json').then((module) => module.default)
+    case 'pt':
+      return import('../../i18n/pt.json').then((module) => module.default)
     default:
       return import('../../i18n/en.json').then((module) => module.default)
   }

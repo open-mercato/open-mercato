@@ -1,0 +1,20 @@
+{
+  "progress.actions.cancel": "Cancelar",
+  "progress.actions.dismiss": "Dispensar",
+  "progress.actions.retry": "Tentar novamente",
+  "progress.activeCount": "{count} operações em andamento",
+  "progress.errors.alreadyFinished": "A operação já foi concluída",
+  "progress.errors.cannotCancel": "Esta operação não pode ser cancelada",
+  "progress.errors.notFound": "Operação não encontrada",
+  "progress.eta.hoursMinutes": "{hours}h {minutes}m restantes",
+  "progress.eta.minutes": "{count}m restantes",
+  "progress.eta.seconds": "{count}s restantes",
+  "progress.processed": "processado",
+  "progress.recentlyCompleted": "{count} operações concluídas",
+  "progress.status.cancelled": "Cancelada",
+  "progress.status.completed": "Concluída",
+  "progress.status.failed": "Falhou",
+  "progress.status.pending": "Pendente",
+  "progress.status.running": "Em andamento",
+  "progress.title": "Progresso"
+}
