@@ -16,7 +16,10 @@ import { apiCall, withScopedApiRequestHeaders } from "@open-mercato/ui/backend/u
 import { useSalesDocumentMutation } from "./useSalesDocumentMutation";
 import { buildOptimisticLockHeader } from "@open-mercato/ui/backend/utils/optimisticLock";
 import { createCrud, updateCrud } from "@open-mercato/ui/backend/utils/crud";
-import { createCrudFormError } from "@open-mercato/ui/backend/utils/serverErrors";
+import {
+  createCrudFormError,
+  normalizeCrudServerError,
+} from "@open-mercato/ui/backend/utils/serverErrors";
 import { handleSectionMutationError } from "./optimisticLock";
 import {
   Dialog,
@@ -53,6 +56,7 @@ import {
   formatMoney,
   normalizeNumber,
   resolveCatalogPriceAmount,
+  translateLineItemServerError,
 } from "./lineItemUtils";
 import type { SalesLineRecord } from "./lineItemTypes";
 import { prepareShippedLineUpdatePayload } from "./lineItemShipmentLock";
@@ -1765,6 +1769,13 @@ export function LineItemDialog({
         ) {
           closeDialog();
           return;
+        }
+        const serverError = normalizeCrudServerError(err);
+        if (serverError.message === "uom.unit_not_found") {
+          throw new Error(
+            translateLineItemServerError(serverError.message, t),
+            { cause: err },
+          );
         }
         throw err;
       }
