@@ -8,8 +8,11 @@ const rootYarnrcPath = path.resolve('.yarnrc.yml')
 const templateYarnrcPath = path.resolve('packages/create-app/template/.yarnrc.yml.template')
 const retryScriptPath = path.resolve('scripts/ci/npm-retry-on-quarantine.sh')
 const dependabotConfigPath = path.resolve('.github/dependabot.yml')
+const rootPackagePath = path.resolve('package.json')
+const documentsPackagePath = path.resolve('packages/documents/package.json')
 
 const AGREED_MINIMAL_AGE_GATE = '5d'
+const REVIEWED_TIPTAP_VERSION = '3.32.0'
 
 const DURATION_UNIT_IN_DAYS = { m: 1 / 1440, h: 1 / 24, d: 1, w: 7 }
 
@@ -107,6 +110,30 @@ test('scaffolded apps preapprove the first-party scope against yarn minimum rele
   assert.ok(
     preapprovalIndex >= 0 && registryConfigIndex > preapprovalIndex,
     'npmPreapprovedPackages must stay at the top level, before the {{REGISTRY_CONFIG}} block, so it is not parsed as part of npmScopes'
+  )
+})
+
+test('the published Documents TipTap peer graph stays exact and reviewed before entering standalone resolution', () => {
+  const rootPackage = JSON.parse(readText(rootPackagePath))
+  const documentsPackage = JSON.parse(readText(documentsPackagePath))
+  const tiptapDependencies = Object.entries(documentsPackage.dependencies).filter(([name]) => name.startsWith('@tiptap/'))
+
+  assert.ok(tiptapDependencies.length > 0, 'the Documents package must declare its TipTap runtime dependencies')
+
+  for (const [name, version] of tiptapDependencies) {
+    const expectedVersion = name === '@tiptap/y-tiptap' ? '3.0.7' : REVIEWED_TIPTAP_VERSION
+
+    assert.equal(
+      version,
+      expectedVersion,
+      `${name} must stay exactly pinned to the reviewed peer graph; ranged releases let a fresh, untested TipTap patch bypass the monorepo lockfile and fail standalone installs under npmMinimalAgeGate`
+    )
+  }
+
+  assert.equal(
+    rootPackage.resolutions?.['@tiptap/core'],
+    REVIEWED_TIPTAP_VERSION,
+    'the root TipTap resolution must match the exact Documents peer graph tested in the monorepo'
   )
 })
 
