@@ -460,6 +460,10 @@ Issue #3852 removed the non-cryptographic passkey verification shape from `Passk
 
 **Migration path.** Send `startAuthentication()` output as `payload.response`. The first-party `PasskeyChallengeVerify` component already does, so shipped UIs are unaffected. Credentials enrolled through the setup path's client-supplied `publicKey` shortcut are **not** reliably rendered unusable by this change — depending on what the client supplied, such a row holds either a key nobody can sign with or a keypair the enroller controls, and the second kind produces assertions this change accepts. That shortcut is a separate open surface (#5296); operator-facing remediation is in [`UPGRADE_NOTES.md`](UPGRADE_NOTES.md).
 
+## Query-index scope (2026-08-28)
+
+[Reindex/catalogue contracts and migration](UPGRADE_NOTES.md).
+
 ## Data Sync Start Control Applicability (2026-09-02)
 
 [`.ai/specs/2026-09-02-data-sync-adapter-start-controls.md`](.ai/specs/2026-09-02-data-sync-adapter-start-controls.md) lets a `DataSyncAdapter` declare, per entity type, which of the Data Sync dashboard's manual-start controls apply, so the dashboard stops offering controls that cannot mean anything for the selected entity type. **All changes are additive** and pass the contract-surface checks above:
@@ -488,9 +492,9 @@ Spec: [`.ai/specs/2026-09-08-error-reporting-policy.md`](.ai/specs/2026-09-08-er
 |`queue` failure paths, `data_sync` engine|Existing `logger.error` lines keep their text and gain a `reportError` call with a `code`|✓ ADDITIVE|
 |`reportError`'s `code`|A value that is not shaped `module.reason` is dropped rather than published, so it cannot become an unbounded, unredacted metric label. No in-repo caller passes one; a caller that did reported exactly as one passing no `code`, which is the pre-PR behaviour|✓ ADDITIVE|
 |`integration_logs` message text for the payment status poller and the Stripe webhook processor|The failure cause moves from `payload` **into** the message (`Payment status polling failed: {cause}`), because the payload is deliberately never reported. `payload` keeps the same fields|✓ ADDITIVE (row content, no schema or field change)|
-| `integration_logs.code` for the payment status poller | Previously `null`, now `payment_gateways.status_poll_failed`, so it groups apart from the `integrations.log_error` catch-all. The column and its API field already existed | ✓ ADDITIVE (a value where there was none) |
-| `IntegrationLogError` (`core:integrations`), `SyncRunPartialFailureError` (`core:data_sync`) | New exported error classes | ✓ ADDITIVE |
-| API route URLs, response schemas, database schema, event IDs, ACL features, DI names, CLI commands, env vars | No change — the policy adds no configuration | ✓ n/a |
+|`integration_logs.code` for the payment status poller|Previously `null`, now `payment_gateways.status_poll_failed`, so it groups apart from the `integrations.log_error` catch-all. The column and its API field already existed|✓ ADDITIVE (a value where there was none)|
+|`IntegrationLogError` (`core:integrations`), `SyncRunPartialFailureError` (`core:data_sync`)|New exported error classes|✓ ADDITIVE|
+|API route URLs, response schemas, database schema, event IDs, ACL features, DI names, CLI commands, env vars|No change — the policy adds no configuration|✓ n/a|
 
 **Operator note — terminal queue failures.** Not a contract break, but visible in an alert rule: on the **local** strategy a job's final attempt previously emitted both `queue.job_failed` and `queue.job_exhausted`; it now emits only `queue.job_exhausted`, matching the `async` strategy. An alert thresholding on `queue.job_failed` alone stops seeing terminal failures — page on `queue.job_exhausted`.
 
@@ -500,13 +504,13 @@ Spec: [`.ai/specs/2026-09-08-error-reporting-policy.md`](.ai/specs/2026-09-08-er
 
 [`.ai/specs/2026-09-16-data-sync-retry-resume-actions.md`](.ai/specs/2026-09-16-data-sync-retry-resume-actions.md) splits the Data Sync dashboard's single overloaded "Retry" button into three named operator actions — **Retry** (labelled **Resume** on a cancelled run), **Retry from the beginning**, and **Run again** — and states, on the run detail page, where a retry would resume. **All changes are additive** and pass the contract-surface checks above:
 
-| Surface | Change | Classification |
+|Surface|Change|Classification|
 |---|---|---|
-| Type definitions (§2) | New exported types `ResumePoint` (a discriminated union of `none` / `noCommittedBatch` / `resumes`) and `ResumePointRun` | ✓ ADDITIVE (new types, nothing renamed — same shape as the `StartControlMap` addition before it) |
-| Import paths (§4) | New module `data_sync/lib/resume-point.ts` exporting `resolveResumePoint`, `isRetryableRunStatus`, `ResumePoint`, `ResumePointRun` | ✓ ADDITIVE (new path; nothing moved or re-exported) |
-| API route URLs (§7) | **No change.** `POST /api/data_sync/runs/[id]/retry` and `POST /api/data_sync/run` are untouched — no new request field, no new response field, no new status code and no new error code. The UI starts sending the already-accepted `fromBeginning: true` for the first time, and reads `cursor` / `initialCursor` / `batchesCompleted`, all of which `GET /api/data_sync/runs` and `GET /api/data_sync/runs/[id]` have returned since 2026-08-12 | ✓ n/a |
-| Database schema (§8) | No change. No entity, column, migration or `.snapshot-open-mercato.json` update; no new run status — the vestigial `paused` status is left exactly as it was | ✓ n/a |
-| Auto-discovery, function signatures, event IDs, widget spot IDs, DI names, ACL features, notification IDs, CLI commands, generated files | No change | ✓ n/a |
+|Type definitions (§2)|New exported types `ResumePoint` (a discriminated union of `none` / `noCommittedBatch` / `resumes`) and `ResumePointRun`|✓ ADDITIVE (new types, nothing renamed — same shape as the `StartControlMap` addition before it)|
+|Import paths (§4)|New module `data_sync/lib/resume-point.ts` exporting `resolveResumePoint`, `isRetryableRunStatus`, `ResumePoint`, `ResumePointRun`|✓ ADDITIVE (new path; nothing moved or re-exported)|
+|API route URLs (§7)|**No change.** `POST /api/data_sync/runs/[id]/retry` and `POST /api/data_sync/run` are untouched — no new request field, no new response field, no new status code and no new error code. The UI starts sending the already-accepted `fromBeginning: true` for the first time, and reads `cursor` / `initialCursor` / `batchesCompleted`, all of which `GET /api/data_sync/runs` and `GET /api/data_sync/runs/[id]` have returned since 2026-08-12|✓ n/a|
+|Database schema (§8)|No change. No entity, column, migration or `.snapshot-open-mercato.json` update; no new run status — the vestigial `paused` status is left exactly as it was|✓ n/a|
+|Auto-discovery, function signatures, event IDs, widget spot IDs, DI names, ACL features, notification IDs, CLI commands, generated files|No change|✓ n/a|
 
 **Contract commitments**: the retry endpoint deliberately does **not** enforce `supportsStartControl('fullSync', entityType)` before honouring `fromBeginning: true`. [§ Data Sync Start Control Applicability (2026-09-02)](#data-sync-start-control-applicability-2026-09-02) already commits that the declaration "governs what the dashboard **offers**, never what the run API **accepts**", and `fromBeginning: true` on `retry` requests the identical thing as `fullSync: true` on `run` — a `null` start cursor — so the two siblings MUST answer identically. An adapter-declared restriction hides the from-the-beginning action in the UI and nothing more; a scripted or API client keeps the documented escape hatch. Making either endpoint strict is a breaking change under §7 and needs the deprecation protocol, not a UI spec.
 
@@ -518,12 +522,12 @@ Spec: [`.ai/specs/2026-09-08-error-reporting-policy.md`](.ai/specs/2026-09-08-er
 
 [`.ai/specs/2026-09-16-customers-quick-create-injection-spot-bridge.md`](.ai/specs/2026-09-16-customers-quick-create-injection-spot-bridge.md) binds the sales document form's Person/Company quick-create dialogs to the customers module's declared `crud-form:customers.person` / `…company` hosts. The dialogs previously had no `injectionSpotId`, so `CrudForm` auto-derived `crud-form:customers.customer_entity` (§6, FROZEN) there instead.
 
-| Surface | Change | Classification |
+|Surface|Change|Classification|
 |---|---|---|
-| Widget Injection Spot IDs (§6) | `CrudForm` gains an additive `legacyInjectionSpotId?: string` prop. When set, its header/body/field widgets are dual-published alongside the primary `injectionSpotId`'s — `crud-form:customers.customer_entity` stays live on these two dialogs via the bridge, so nothing that already targets it stops rendering | ✓ ADDITIVE (bridge, not a removal — see Deprecation Protocol steps 1–3) |
-| Widget Injection Spot IDs (§6) | The two dialogs now also publish `crud-form:customers.person` / `…company` (previously published only by the person/company detail pages) | ✓ ADDITIVE ("MAY add new spot IDs to new or existing pages") |
-| Context passed to widgets at `crud-form:customers.person` / `…company` | These hosts' widgets now also mount with `operation: 'create'` and no `recordId` on the two quick-create dialogs, for the first time — previously always `operation: 'update'` with a concrete `recordId` | Disclosed in [`UPGRADE_NOTES.md`](UPGRADE_NOTES.md) "Action for module authors"; not itself a contract surface change (§6 permits "new optional context fields", and `operation`/`recordId` were always part of the injection context shape) |
-| Type definitions (§2) | New optional `CrudForm` prop `legacyInjectionSpotId?: string` | ✓ ADDITIVE |
+|Widget Injection Spot IDs (§6)|`CrudForm` gains an additive `legacyInjectionSpotId?: string` prop. When set, its header/body/field widgets are dual-published alongside the primary `injectionSpotId`'s — `crud-form:customers.customer_entity` stays live on these two dialogs via the bridge, so nothing that already targets it stops rendering|✓ ADDITIVE (bridge, not a removal — see Deprecation Protocol steps 1–3)|
+|Widget Injection Spot IDs (§6)|The two dialogs now also publish `crud-form:customers.person` / `…company` (previously published only by the person/company detail pages)|✓ ADDITIVE ("MAY add new spot IDs to new or existing pages")|
+|Context passed to widgets at `crud-form:customers.person` / `…company`|These hosts' widgets now also mount with `operation: 'create'` and no `recordId` on the two quick-create dialogs, for the first time — previously always `operation: 'update'` with a concrete `recordId`|Disclosed in [`UPGRADE_NOTES.md`](UPGRADE_NOTES.md) "Action for module authors"; not itself a contract surface change (§6 permits "new optional context fields", and `operation`/`recordId` were always part of the injection context shape)|
+|Type definitions (§2)|New optional `CrudForm` prop `legacyInjectionSpotId?: string`|✓ ADDITIVE|
 
 **Deprecation window.** `legacyInjectionSpotId` is scoped to these two call sites and intended for removal after at least one minor version (Deprecation Protocol step 1), tracked in the spec's Changelog and in `UPGRADE_NOTES.md`. No maintainer waiver was needed — nothing is removed by this change.
 
@@ -537,11 +541,11 @@ Clients use WebAuthn; operators audit key provenance, re-enroll with recovery. [
 
 [`.ai/specs/2026-07-28-protected-roles-and-audit-seam.md`](.ai/specs/2026-07-28-protected-roles-and-audit-seam.md) closes the auth undo/redo transaction, authorization, and membership-phantom gaps without changing existing command handlers by default.
 
-| Surface | Change | Classification |
+|Surface|Change|Classification|
 |---|---|---|
-| Type definitions (`CommandHandler`, `CommandRuntimeContext`, `CommandExecuteResult`) | New optional `atomicReplay?: boolean` and `stabilizeReplay(...)` handler capabilities, optional `replayTransactionGuard` request guard, optional caller-owned `transactionLifetime`, and optional `replaySourceFinalized?: boolean` result signal. `TransactionLifetime` plus its observation/completion-registration helpers are new exports; lifetime creation/completion remains owned by `withAtomicFlush` | ✓ ADDITIVE (optional fields and exports; omitted handlers and contexts keep the prior flow) |
-| `ActionLogService` method signatures | `log`, `claimForUndo`, `releaseUndoClaim`, and `markUndone` accept an optional trailing transactional `EntityManager`; new `claimForRedo` method | ✓ ADDITIVE (optional parameters appended and a new method; existing calls retain behavior) |
-| `RbacService` | New `loadAclWithEntityManager`, `userHasAllFeaturesWithEntityManager`, and `getGrantedFeaturesWithEntityManager` methods bypass caches and bind every query to the supplied transaction | ✓ ADDITIVE (new methods; existing cache-backed methods are unchanged) |
+|Type definitions (`CommandHandler`, `CommandRuntimeContext`, `CommandExecuteResult`)|New optional `atomicReplay?: boolean` and `stabilizeReplay(...)` handler capabilities, optional `replayTransactionGuard` request guard, optional caller-owned `transactionLifetime`, and optional `replaySourceFinalized?: boolean` result signal. `TransactionLifetime` plus its observation/completion-registration helpers are new exports; lifetime creation/completion remains owned by `withAtomicFlush`|✓ ADDITIVE (optional fields and exports; omitted handlers and contexts keep the prior flow)|
+|`ActionLogService` method signatures|`log`, `claimForUndo`, `releaseUndoClaim`, and `markUndone` accept an optional trailing transactional `EntityManager`; new `claimForRedo` method|✓ ADDITIVE (optional parameters appended and a new method; existing calls retain behavior)|
+|`RbacService`|New `loadAclWithEntityManager`, `userHasAllFeaturesWithEntityManager`, and `getGrantedFeaturesWithEntityManager` methods bypass caches and bind every query to the supplied transaction|✓ ADDITIVE (new methods; existing cache-backed methods are unchanged)|
 | Auth command replay behavior | Auth user/role handlers opt in so source-log state, domain changes, undo trace or new redo log, and redo source finalization commit or roll back together. Before the request guard or feature interceptors run, `stabilizeReplay` discovers and seals one actor/target/destination footprint and locks API keys, users, roles, tenant/organization hierarchy, and authorization children in a total order using the same transaction | ⚠️ Intentional security hardening. A race that previously could deadlock or replay with stale authority is rejected with the existing domain `409`; successful, authorized replay keeps the same response shape |
 | Action-log actor persistence and self replay | `actor_user_id` remains a UUID; new entries also store the canonical user or `api_key:<uuid>` subject in `context.actorSubject`. API-key list ownership, undo/redo ownership, exact-EM RBAC, locks, and latest replay queries use the canonical subject. Canonical history is selected before the legacy bare-UUID fallback, which additionally requires a coherent live `isApiKey`/`keyId`/`sub` tuple | ✓ Database-compatible additive context metadata; same-UUID user, malformed, or ambiguous ownership cannot shadow canonical key history and fails closed |
 | Auth authorization-state writers | First-party `UserRole`, `UserAcl`, and `RoleAcl` writers in commands, setup, CLI, execution principals, SSO, and agent orchestration now share the canonical parent-lock protocol; SSO membership and grant rows commit together | ⚠️ Intentional concurrency hardening; no request, response, schema, import-path, event, feature, or CLI contract changes |

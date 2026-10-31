@@ -729,8 +729,7 @@ before translations, JSON parsing, candidate lookup, signature verification, or 
 An absent, malformed, or understated Content-Length cannot bypass actual byte counting;
 an exact-limit body continues through the existing signature and interaction path.
 
-Route URLs, signature format,
-tenant resolution, and accepted-payload responses remain unchanged. No schema migration,
+Route URLs, signature format, tenant resolution, and accepted-payload responses remain unchanged. No schema migration,
 credential rotation, or stored-data remediation is needed.
 
 Clients must keep encoded interaction bodies within the configured limit; retrying an
@@ -1194,10 +1193,6 @@ rule 3), and no variant should be considered done without it.
 ---
 
 ## Changelog
-
-### 2026-10-31 — Clarify signed-body migration guidance (#7241)
-
-- Clarify signed request size limits, client/operator migration guidance, and route regression coverage.
 
 ### 2026-10-29 — Bound public signed interaction bodies (#7241)
 
