@@ -298,6 +298,23 @@ describe('completeUserTask with completion guards', () => {
     expect(exitStep).toHaveBeenCalledTimes(1)
   })
 
+  test('a closed run refuses with WORKFLOW_NOT_ACTIVE before any guard is consulted', async () => {
+    const task = makeTask()
+    const { em, flush, instance } = makeEm(task)
+    instance.status = 'CANCELLED'
+    const guard = vetoGuard()
+    registerTaskCompletionGuards([{ moduleId: 'host', guards: [guard] }])
+
+    const failure = await complete(em).catch((error: unknown) => error)
+
+    expect(failure).toBeInstanceOf(UserTaskError)
+    expect(isTaskCompletionBlockedError(failure)).toBe(false)
+    expect(failure).toMatchObject({ code: 'WORKFLOW_NOT_ACTIVE' })
+    expect(guard.evaluate).not.toHaveBeenCalled()
+    expect(task.status).toBe('PENDING')
+    expect(flush).not.toHaveBeenCalled()
+  })
+
   test('a guard selecting another workflow does not apply', async () => {
     const task = makeTask()
     const { em } = makeEm(task)

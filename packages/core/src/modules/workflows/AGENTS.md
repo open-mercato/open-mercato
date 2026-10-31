@@ -230,7 +230,8 @@ as it always did (guarded by a regression test in `lib/__tests__/error-routing.t
 - **`lib/task-completion-guards.ts` is the ONE veto seam for finishing a task.** Host modules call
   `registerTaskCompletionGuards([{ moduleId, guards }])` from their `di.ts` (merge-by-module, stored on
   `globalThis` like the work-inbox sources); the module namespace is also in DI as `taskCompletionGuards`.
-- **Enforced inside `completeUserTask`**, after lookup/ownership/form/decision and BEFORE any mutation,
+- **Enforced inside `completeUserTask`**, after lookup/ownership/form/decision and the closed-run
+  refusal (`WORKFLOW_NOT_ACTIVE` wins over a veto) and BEFORE any mutation,
   so the complete route, the `workflows.tasks.complete` command and in-process callers share one check.
   A veto throws `TaskCompletionBlockedError` (`code` = the guard's code, `status` 409); the routes and the
   command answer `resolveTaskCompletionBlockedBody(error.block)` — the same body with `error` in the
