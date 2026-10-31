@@ -31,7 +31,7 @@ import {
   type PromotionCodeUpdateInput,
   type PromotionCodeDeleteInput,
 } from '../data/validators'
-import { PromotionCodeService, type PromotionsCodeScope } from '../lib/code-service'
+import { PromotionCodeService, hasRemainingGlobalUses, type PromotionsCodeScope } from '../lib/code-service'
 import type { PromotionCodeGenerationService } from '../services/code-generation'
 import type { CodeReservationResult, CodeUseResult } from '../lib/types'
 
@@ -201,6 +201,11 @@ function getCodeIdentifiers(code: Code) {
 
 async function loadCode(em: EntityManager, id: string): Promise<Code | null> {
   return em.findOne(Code, { id, deletedAt: null })
+}
+
+function resolveUndoActiveFlag(code: Code, before: CodeSnapshot, after: CodeSnapshot | null | undefined): boolean {
+  if (!before.active || code.active || after?.active === false) return before.active
+  return code.type !== 'static' || hasRemainingGlobalUses(code)
 }
 
 // Mirrors `commands/promotions.ts`'s `resolveActorScope` — a new code's scope is always
@@ -390,6 +395,7 @@ const updateCodeCommand: CommandHandler<PromotionCodeUpdateInput, { codeId: stri
     const payload = extractUndoPayload<CodeUndoPayload>(logEntry)
     const before = payload?.before
     if (!before) return
+    const after = payload?.after
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const code = await em.findOne(Code, { id: before.id })
     if (!code) return
@@ -408,7 +414,7 @@ const updateCodeCommand: CommandHandler<PromotionCodeUpdateInput, { codeId: stri
           code.usage = before.usage
           code.usageAmount = before.usageAmount
           code.usagePerCustomer = before.usagePerCustomer
-          code.active = before.active
+          code.active = resolveUndoActiveFlag(code, before, after)
         },
       ],
       { transaction: true, label: 'promotions.code.update.undo' },

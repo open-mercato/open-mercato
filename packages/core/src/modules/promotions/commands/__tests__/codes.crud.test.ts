@@ -324,6 +324,82 @@ describe('promotions.code.update command', () => {
     await updateCodeCommand.undo!({ logEntry: { commandPayload: logEntry!.payload } as any, ctx, input: {} as any })
     expect(code.name).toBe('Original')
   })
+
+  async function runLoggedUpdate(em: FakeEm, code: Row, input: Row) {
+    const ctx = fakeCtx(em, { dataEngine: fakeDataEngine() })
+    const updateInput = { id: code.id, ...input } as any
+    const prepared = await updateCodeCommand.prepare!(updateInput, ctx)
+    await updateCodeCommand.execute(updateInput, ctx)
+    const after = await updateCodeCommand.captureAfter!(updateInput, { codeId: code.id as string }, ctx)
+    const logEntry = await updateCodeCommand.buildLog!({
+      input: updateInput,
+      result: { codeId: code.id as string },
+      ctx,
+      snapshots: { before: prepared && 'before' in prepared ? prepared.before : undefined, after },
+    })
+    return () => updateCodeCommand.undo!({ logEntry: { commandPayload: logEntry!.payload } as any, ctx, input: {} as any })
+  }
+
+  it('undo does not reactivate a code that was used up after the update it reverts', async () => {
+    const { em, tables } = createFakeEm()
+    const code = seedCode(tables, { name: 'Original', usage: 'single', used: 0, active: true })
+    const undo = await runLoggedUpdate(em, code, { name: 'Changed' })
+
+    code.used = 1
+    code.active = false
+
+    await undo()
+    expect(code.name).toBe('Original')
+    expect(code.active).toBe(false)
+  })
+
+  it('undo reactivates a code used up after the update when the restored usage limit leaves uses again', async () => {
+    const { em, tables } = createFakeEm()
+    const code = seedCode(tables, { usage: 'multiple', usageAmount: 5, used: 0, active: true })
+    const undo = await runLoggedUpdate(em, code, { usageAmount: 3 })
+
+    code.used = 3
+    code.active = false
+
+    await undo()
+    expect(code.usageAmount).toBe(5)
+    expect(code.active).toBe(true)
+  })
+
+  it('undo keeps a used-up code inactive when the log entry carries no after snapshot', async () => {
+    const { em, tables } = createFakeEm()
+    const code = seedCode(tables, { name: 'Original', usage: 'single', used: 0, active: true })
+    const ctx = fakeCtx(em, { dataEngine: fakeDataEngine() })
+    const before = { ...code, updatedAt: (code.updatedAt as Date).toISOString() }
+    code.name = 'Changed'
+    code.used = 1
+    code.active = false
+
+    await updateCodeCommand.undo!({ logEntry: { commandPayload: { undo: { before } } } as any, ctx, input: {} as any })
+    expect(code.name).toBe('Original')
+    expect(code.active).toBe(false)
+  })
+
+  it('undo still restores the active flag of a dynamic code deactivated after the update', async () => {
+    const { em, tables } = createFakeEm()
+    const code = seedCode(tables, { type: 'dynamic', code: null, usage: 'single', used: 1, active: true })
+    const undo = await runLoggedUpdate(em, code, { name: 'Changed' })
+
+    code.active = false
+
+    await undo()
+    expect(code.active).toBe(true)
+  })
+
+  it('undo of a deactivation still reactivates a used-up code', async () => {
+    const { em, tables } = createFakeEm()
+    const code = seedCode(tables, { usage: 'single', used: 1, active: true })
+    const undo = await runLoggedUpdate(em, code, { active: false })
+    expect(code.active).toBe(false)
+
+    await undo()
+    expect(code.active).toBe(true)
+  })
 })
 
 describe('promotions.code.delete command', () => {
