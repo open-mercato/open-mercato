@@ -12,6 +12,15 @@ import { ChannelMutationBlockedError, guardOutboundCreate } from './mutation-gua
 import { COMMUNICATION_CHANNELS_QUEUES, getCommunicationChannelsQueue } from './queue'
 import type { OutboundDeliveryPayload } from '../workers/outbound-delivery'
 import { htmlToText } from './email-mime'
+import type { ChannelAdapterRegistry } from './registry'
+import {
+  OUTBOUND_ATTACHMENTS_METADATA_KEY,
+  omitOutboundAttachments,
+  parseOutboundAttachmentRefs,
+  validateOutboundAttachments,
+  type OutboundAttachmentRef,
+  type StoredOutboundAttachment,
+} from './outbound-attachments'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('communication_channels')
@@ -49,9 +58,19 @@ export type SendAsUserInput = {
    * Free-form metadata persisted on the resulting MessageChannelLink. Used by
    * downstream subscribers (e.g. the customers module's link-channel-message
    * subscriber) to anchor the sent message back to a CRM Person or honor a
-   * caller-specified visibility flag. The hub does not interpret these keys.
+   * caller-specified visibility flag. The hub does not interpret these keys,
+   * except that it owns `outboundAttachments` and drops a caller-supplied value.
    */
   channelMetadata?: Record<string, unknown>
+  /**
+   * Files from the attachments module to send with the message. Each ref names
+   * the record that owns the file; like `parentMessageId`, the caller MUST have
+   * established that the actor can read that record. The hub checks the rest:
+   * the adapter ships files (`fileSharing`), the file is readable in the
+   * actor's tenant and organization and owned by `owner`, its type and size fit
+   * the adapter. Only the refs are stored; the bytes are read at delivery.
+   */
+  attachments?: OutboundAttachmentRef[]
 }
 
 export type SendAsUserResult =
@@ -62,7 +81,7 @@ export type SendAsUserResult =
       channelId: string
       providerKey: string
     }
-  | { ok: false; status: number; error: string; fieldErrors?: Record<string, string> }
+  | { ok: false; status: number; error: string; fieldErrors?: Record<string, string>; code?: string }
 
 /**
  * In-process send-as-user facade.
@@ -123,6 +142,29 @@ export async function sendAsUser(
       status: 409,
       error: `Channel is in status '${channel.status}' (not connected)`,
     }
+  }
+
+  // Re-parsed for the same reason as `to`: DI callers skip the route's schema.
+  const attachmentRefs = input.attachments === undefined ? [] : parseOutboundAttachmentRefs(input.attachments)
+  if (!attachmentRefs) {
+    return { ok: false, status: 422, error: '[internal] attachments must be attachment references' }
+  }
+
+  let storedAttachments: StoredOutboundAttachment[] = []
+  if (attachmentRefs.length) {
+    const adapterRegistry = container.resolve('channelAdapterRegistry') as ChannelAdapterRegistry
+    const adapter = adapterRegistry.get(channel.providerKey)
+    if (!adapter) return { ok: false, status: 409, error: '[internal] No channel adapter registered for this provider' }
+    const validation = await validateOutboundAttachments({
+      container,
+      scope: { userId: actor.userId, tenantId, organizationId },
+      refs: attachmentRefs,
+      capabilities: adapter.capabilities,
+    })
+    if (!validation.ok) {
+      return { ok: false, status: validation.status, error: validation.error, code: validation.code }
+    }
+    storedAttachments = validation.stored
   }
 
   // Create the Message via the messages module compose command. The outbound
@@ -254,14 +296,17 @@ export async function sendAsUser(
       channelMetadata: {
         // Caller-supplied pass-through metadata merged FIRST so the validated
         // routing fields below always win — a caller cannot override the
-        // recipients/subject/threading headers via `channelMetadata`.
-        ...(input.channelMetadata ?? {}),
+        // recipients/subject/threading headers via `channelMetadata`. The
+        // attachment refs key is hub-owned: a caller-supplied value is dropped
+        // so no ref can skip the checks above.
+        ...omitOutboundAttachments(input.channelMetadata),
         to: input.to,
         cc: input.cc ?? [],
         bcc: input.bcc ?? [],
         subject: input.subject,
         inReplyTo: input.inReplyTo ?? null,
         references: input.references ?? [],
+        ...(storedAttachments.length ? { [OUTBOUND_ATTACHMENTS_METADATA_KEY]: storedAttachments } : {}),
       },
       tenantId,
       organizationId,
