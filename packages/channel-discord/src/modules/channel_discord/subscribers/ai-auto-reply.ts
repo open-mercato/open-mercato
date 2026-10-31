@@ -4,10 +4,7 @@ import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { CommunicationChannel } from '@open-mercato/core/modules/communication_channels/data/entities'
 import { Message } from '@open-mercato/core/modules/messages/data/entities'
-import {
-  COMMUNICATION_CHANNELS_SYSTEM_USER_ID,
-  resolveCommunicationChannelsSystemUserId,
-} from '@open-mercato/core/modules/communication_channels/lib/system-user'
+import { resolveCommunicationChannelsSystemUserId } from '@open-mercato/core/modules/communication_channels/lib/system-user'
 import {
   CHANNEL_DISCORD_AUTO_REPLY_AGENT_ID,
   discordAutoReplyOutputSchema,
@@ -24,6 +21,7 @@ import {
 import { DISCORD_CHANNEL_TYPE } from '../lib/channel-identity'
 import { fileDiscordReplyProposal } from '../lib/ai-proposal'
 import { CHANNEL_DISCORD_AI_PROPOSAL_SOURCE_ENTITY_TYPE } from '../lib/ai-proposal-contract'
+import { DISCORD_PROPOSAL_ORIGIN_KEY_LIKE } from '../lib/ai-proposal-origin'
 import { CHANNEL_DISCORD_AI_PROPOSAL_MESSAGE_TYPE } from '../message-types'
 import { resolveDiscordAiPrincipal, type DiscordAiPrincipal } from '../lib/ai-service-principal'
 import { recordDiscordAutoReplyOutcome } from '../lib/channel-state-store'
@@ -219,9 +217,8 @@ async function draftAndRoute(args: {
 }): Promise<void> {
   const { ctx, em, message, channelId, conversationId, agentId, body, scope, tier, classificationReason } = args
 
-  const botUserId = await resolveCommunicationChannelsSystemUserId(em, scope.tenantId, null)
   const autoReplyKey = `${CHANNEL_DISCORD_AUTO_REPLY_IDEMPOTENCY_PREFIX}${message.id}`
-  if (await wasAlreadyHandled({ em, scope, inboundMessageId: message.id, autoReplyKey, botUserId })) return
+  if (await wasAlreadyHandled({ em, scope, inboundMessageId: message.id, autoReplyKey })) return
 
   const principal = await resolveDiscordAiPrincipal({ em, resolver: { resolve: (name) => resolveFromCtx(ctx, name) }, scope })
 
@@ -241,6 +238,7 @@ async function draftAndRoute(args: {
     selectedOrganizationId: scope.organizationId,
     organizationIds: scope.organizationId ? [scope.organizationId] : null,
   }
+  const botUserId = await resolveCommunicationChannelsSystemUserId(em, scope.tenantId, null)
 
   if (!autoSend) {
     const reason = draft.requiresHuman
@@ -301,18 +299,19 @@ async function draftAndRoute(args: {
  * the reply again nor file a second proposal, so an inbound message that already
  * has this subscriber's reply or proposal is left alone. Soft-deleted rows count
  * too: an undone reply was still posted, and a removed proposal must not come
- * back on a retry. A proposal is also matched when the first run filed it under
- * the sentinel sender, because the bot-user lookup falls back to the sentinel on
- * a transient error.
+ * back on a retry. A proposal is recognised by the origin key it was filed with,
+ * not by its sender: the bot-user lookup falls back to the sentinel on a
+ * transient error, so the sender can differ between attempts. The message API
+ * cannot set an idempotency key, so a key with that prefix is never
+ * user-supplied.
  */
 async function wasAlreadyHandled(params: {
   em: EntityManager
   scope: { tenantId: string; organizationId: string | null }
   inboundMessageId: string
   autoReplyKey: string
-  botUserId: string
 }): Promise<boolean> {
-  const { em, scope, inboundMessageId, autoReplyKey, botUserId } = params
+  const { em, scope, inboundMessageId, autoReplyKey } = params
   const existing = await em.count(Message, {
     tenantId: scope.tenantId,
     organizationId: scope.organizationId,
@@ -322,7 +321,7 @@ async function wasAlreadyHandled(params: {
         type: CHANNEL_DISCORD_AI_PROPOSAL_MESSAGE_TYPE,
         sourceEntityType: CHANNEL_DISCORD_AI_PROPOSAL_SOURCE_ENTITY_TYPE,
         sourceEntityId: inboundMessageId,
-        senderUserId: { $in: [botUserId, COMMUNICATION_CHANNELS_SYSTEM_USER_ID] },
+        idempotencyKey: { $like: DISCORD_PROPOSAL_ORIGIN_KEY_LIKE },
       },
     ],
   })

@@ -341,7 +341,7 @@ describe('channel_discord ai-auto-reply subscriber — routing', () => {
           type: CHANNEL_DISCORD_AI_PROPOSAL_MESSAGE_TYPE,
           sourceEntityType: CHANNEL_DISCORD_AI_PROPOSAL_SOURCE_ENTITY_TYPE,
           sourceEntityId: 'm-1',
-          senderUserId: { $in: ['system-user-id', '00000000-0000-0000-0000-000000000000'] },
+          idempotencyKey: { $like: 'channel\\_discord:ai\\_reply\\_proposal:v1:%' },
         },
       ],
     })
@@ -376,7 +376,8 @@ describe('channel_discord ai-auto-reply subscriber — routing', () => {
     expect(args.input.type).toBe(proposalMatch.type)
     expect(args.input.sourceEntityType).toBe(proposalMatch.sourceEntityType)
     expect(args.input.sourceEntityId).toBe(proposalMatch.sourceEntityId)
-    expect(proposalMatch.senderUserId.$in).toContain(args.input.userId)
+    expect(args.input.idempotencyKey.startsWith('channel_discord:ai_reply_proposal:v1:')).toBe(true)
+    expect(proposalMatch).not.toHaveProperty('senderUserId')
     expect(args.input.tenantId).toBe(where.tenantId)
     expect(args.input.organizationId).toBe(where.organizationId)
   })
