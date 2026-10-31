@@ -60,7 +60,11 @@ const mockEm = {
   commit: jest.fn(async () => undefined),
   rollback: jest.fn(async () => undefined),
   getKysely: () => ({ selectFrom: () => lookupChain }),
-  transactional: async (work: (manager: { persist: typeof mockPersist }) => Promise<void>) => work({ persist: mockPersist }),
+  transactional: async (work: (manager: EntityManager) => Promise<unknown>): Promise<unknown> => {
+    const result = await work(mockEm as unknown as EntityManager)
+    await mockEm.commit()
+    return result
+  },
 }
 const reservation = {
   id: 'reservation-test', status: 'storing', expiresAt: new Date(0), leaseToken: 'lease-test',

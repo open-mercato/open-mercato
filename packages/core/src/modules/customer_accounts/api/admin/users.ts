@@ -7,6 +7,7 @@ import { RbacService } from '@open-mercato/core/modules/auth/services/rbacServic
 import { CustomerUserService } from '@open-mercato/core/modules/customer_accounts/services/customerUserService'
 import { CustomerUser, CustomerUserRole, CustomerRole } from '@open-mercato/core/modules/customer_accounts/data/entities'
 import { Organization } from '@open-mercato/core/modules/directory/data/entities'
+import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { adminCreateUserSchema } from '@open-mercato/core/modules/customer_accounts/data/validators'
 import { emitCustomerAccountsEvent } from '@open-mercato/core/modules/customer_accounts/events'
@@ -46,10 +47,22 @@ export async function GET(req: Request) {
   const roleId = url.searchParams.get('roleId')
   const search = url.searchParams.get('search')
 
+  const organizationScope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
   const where: Record<string, unknown> = {
     tenantId: auth.tenantId,
-    organizationId: auth.orgId,
     deletedAt: null,
+  }
+  if (Array.isArray(organizationScope.filterIds)) {
+    if (organizationScope.filterIds.length === 0) {
+      return NextResponse.json({
+        ok: true,
+        items: [],
+        total: 0,
+        totalPages: 1,
+        page,
+      })
+    }
+    where.organizationId = { $in: organizationScope.filterIds }
   }
 
   if (status === 'active') {

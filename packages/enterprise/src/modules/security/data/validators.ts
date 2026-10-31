@@ -6,6 +6,12 @@ import { readSecurityModuleConfig } from '../lib/security-config'
 const passwordSchema = buildPasswordSchema()
 const securityConfig = readSecurityModuleConfig()
 
+export const mfaEmergencyBypassEventSchema = z.object({
+  tenantId: z.string().uuid(),
+  organizationId: z.string().uuid(),
+  observedAt: z.string().datetime(),
+})
+
 export const changePasswordSchema = z.object({
   currentPassword: z.string().min(1),
   newPassword: passwordSchema,

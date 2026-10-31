@@ -32,3 +32,20 @@ export {
   type AttachmentStorageValidator,
   type AttachmentStorageConfigurationReason,
 } from './lib/drivers/storageValidation'
+export type {
+  AttachmentAccessAction,
+  AttachmentAccessDecision,
+  AttachmentAccessInput,
+  AttachmentAccessPartition,
+  AttachmentAccessRecord,
+  AttachmentAccessRequirement,
+  AttachmentAccessResolver,
+  AttachmentAccessResolverEntry,
+  AttachmentAccessSubject,
+  AttachmentAccessTarget,
+  ProtectedAttachmentTarget,
+} from './lib/access-types'
+export { registerAttachmentAccessResolvers } from './lib/access-registry'
+export { syncAttachmentAccessProtection } from './lib/access-protection'
+export { createAttachmentAccessContext, evaluateAttachmentAccess } from './lib/access-runner'
+export type { AttachmentAccessContext, AttachmentAccessResult } from './lib/access-runner'

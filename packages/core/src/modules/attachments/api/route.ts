@@ -1,6 +1,13 @@
 import { attachmentErrorSchema } from './openapi'
 import { withAttachmentStorageErrors } from '@open-mercato/core/modules/attachments/lib/storageErrors'
 import { assertAttachmentStoragePartitionExists, getAttachmentStoragePolicy } from '@open-mercato/core/modules/attachments/lib/drivers/storageValidation'
+import { LockMode } from '@mikro-orm/core'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { prepareAttachmentMutation } from '../lib/access-mutation'
+import { throwAttachmentAccessError } from '../lib/access-errors'
+import { createAttachmentAccessContext } from '../lib/access-runner'
+import { assertAttachmentOwnerAccess, requiresAttachmentAccessScan, scanAuthorizedAttachments } from '../lib/access-query'
+import { withAttachmentAccessErrors } from '../lib/access-errors'
 import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
@@ -8,6 +15,7 @@ import { z } from 'zod'
 import { sql } from 'kysely'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { buildAttachmentFileUrl, buildAttachmentImageUrl, slugifyAttachmentFileName } from '../lib/imageUrls'
+import { ensureAttachmentPartitionProtection } from '../lib/access-protection'
 import { ensureDefaultPartitions, resolveDefaultPartitionCode, sanitizePartitionCode } from '../lib/partitions'
 import { Attachment, AttachmentPartition } from '../data/entities'
 import { extractAttachmentContent } from '../lib/textExtraction'
@@ -15,7 +23,7 @@ import { requestOcrProcessing } from '../lib/ocrQueue'
 import { StorageDriverFactory } from '../lib/drivers'
 import { OcrService, shouldUseLlmOcr } from '../lib/ocrService'
 import { clearAttachmentThumbnailCache } from '../lib/thumbnailCache'
-import { removeAttachmentRecord } from '../lib/storageReferences'
+import { lockAttachmentStorageReferences, resolveAttachmentStorageRelease } from '../lib/storageReferences'
 import { assertAttachmentScopeInvariant } from '../lib/access'
 import { resolveAttachmentRequestScope } from '../lib/requestScope'
 import {
@@ -196,7 +204,7 @@ function parseFormAssignments(value: FormDataEntryValue | null): AttachmentAssig
   }
 }
 
-export async function GET(req: Request) {
+async function listRecordAttachments(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth || !auth.tenantId || (!auth.orgId && !auth.isSuperAdmin)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const url = new URL(req.url)
@@ -220,29 +228,29 @@ export async function GET(req: Request) {
   if (orgId) filter.organizationId = orgId
   const orderBy: Record<string, 'ASC' | 'DESC'> = { createdAt: 'DESC', id: 'DESC' }
   const usePaging = typeof page === 'number' && typeof pageSize === 'number'
-  const total = usePaging ? await em.count(Attachment, filter) : null
   const currentPage = usePaging ? Math.max(1, page) : null
   const currentPageSize = usePaging ? pageSize : null
-  const totalPages = usePaging && total !== null ? Math.max(1, Math.ceil(total / currentPageSize!)) : null
   const pageOffset = usePaging ? (currentPage! - 1) * currentPageSize! : undefined
-  const items = await findWithDecryption(
-    em,
-    Attachment,
-    filter,
-    {
-      orderBy,
-      ...(usePaging
-        ? {
-            limit: currentPageSize!,
-            offset: pageOffset,
-          }
-        : { limit: ATTACHMENT_LIST_MAX_PAGE_SIZE }),
-    },
-    {
-      tenantId: auth.tenantId ?? null,
-      organizationId: orgId ?? null,
-    },
-  )
+  const partitions = await em.find(AttachmentPartition, {})
+  const protectedScan = requiresAttachmentAccessScan(partitions)
+  const scope = { tenantId: auth.tenantId ?? null, organizationId: orgId ?? null }
+  let items: Attachment[]
+  let total: number | null
+  if (protectedScan) {
+    const scanned = await scanAuthorizedAttachments({
+      auth: { ...auth, orgId }, context: createAttachmentAccessContext(container), partitions,
+      offset: pageOffset, limit: currentPageSize ?? ATTACHMENT_LIST_MAX_PAGE_SIZE,
+      loadBatch: (offset, limit) => findWithDecryption(em, Attachment, filter, { orderBy, offset, limit }, scope),
+    })
+    items = scanned.records
+    total = usePaging ? scanned.total : null
+  } else {
+    total = usePaging ? await em.count(Attachment, filter) : null
+    items = await findWithDecryption(em, Attachment, filter, {
+      orderBy, ...(usePaging ? { limit: currentPageSize!, offset: pageOffset } : { limit: ATTACHMENT_LIST_MAX_PAGE_SIZE }),
+    }, scope)
+  }
+  const totalPages = usePaging && total !== null ? Math.max(1, Math.ceil(total / currentPageSize!)) : null
   return NextResponse.json({
     items: items.map((a: any) => {
       const metadata = readAttachmentMetadata(a.storageMetadata)
@@ -272,8 +280,10 @@ export async function GET(req: Request) {
           totalPages,
         }
       : {}),
-  })
+  }, { headers: protectedScan ? { 'Cache-Control': 'private, no-store' } : undefined })
 }
+
+export const GET = withAttachmentAccessErrors(listRecordAttachments)
 
 async function uploadAttachment(req: Request) {
   const { t } = await resolveTranslations()
@@ -463,6 +473,7 @@ async function uploadAttachment(req: Request) {
     assertAttachmentStoragePartitionExists(false)
     return NextResponse.json({ error: 'Storage partition is not configured.' }, { status: 400 })
   }
+  await ensureAttachmentPartitionProtection(em, partition)
   const requestedPublicOverride =
     typeof partitionOverride === 'string' &&
     partitionOverride.length > 0 &&
@@ -729,20 +740,34 @@ async function deleteAttachment(req: Request) {
   const orgId = deleteScope.organizationId
   const deleteFilter: Record<string, unknown> = { id, tenantId: auth.tenantId! }
   if (orgId) deleteFilter.organizationId = orgId
-  const record = await em.findOne(Attachment, deleteFilter)
-  if (!record) return NextResponse.json({ error: 'Attachment not found' }, { status: 404 })
-  const delDriver = record.storagePath
-    ? await storageDriverFactory.resolveForPartition(record.partitionCode, {
-      tenantId: record.tenantId ?? auth.tenantId!,
-      organizationId: record.organizationId ?? orgId ?? '',
+  const scopedAuth = { ...auth, orgId }
+  const outcome = await em.transactional(async (tx) => {
+    const candidate = await findOneWithDecryption(tx, Attachment, deleteFilter, undefined, {
+      tenantId: auth.tenantId, organizationId: orgId,
     })
-    : null
-  const removal = await removeAttachmentRecord(em, record)
-  if (!removal.removed) return NextResponse.json({ error: 'Attachment not found' }, { status: 404 })
+    if (!candidate) return throwAttachmentAccessError(404)
+    const referenceIds = await lockAttachmentStorageReferences(tx, candidate)
+    const removal = resolveAttachmentStorageRelease(referenceIds, candidate.id)
+    if (!removal.removed) return throwAttachmentAccessError(404)
+    const record = await findOneWithDecryption(tx, Attachment, deleteFilter, {
+      lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true,
+    }, { tenantId: auth.tenantId, organizationId: orgId })
+    if (!record) return throwAttachmentAccessError(404)
+    const guard = await prepareAttachmentMutation({ container, req, auth: scopedAuth, recordId: record.id, operation: 'delete' })
+    await assertAttachmentOwnerAccess({ em: tx, context: createAttachmentAccessContext(container), auth: scopedAuth, attachment: record, action: 'delete' })
+    const driver = record.storagePath ? await storageDriverFactory.resolveForPartition(record.partitionCode, {
+      tenantId: record.tenantId ?? auth.tenantId!, organizationId: record.organizationId ?? orgId ?? '',
+    }) : null
+    tx.remove(record)
+    await tx.flush()
+    return { record, driver, guard, releaseStorage: removal.releaseStorage }
+  })
+  const { record } = outcome
   await clearAttachmentThumbnailCache(record.partitionCode, record.id).catch((error) => {
     logger.error('Failed to cleanup cached thumbnails', { err: error })
   })
-  if (delDriver && removal.releaseStorage) await delDriver.delete(record.partitionCode, record.storagePath)
+  if (outcome.driver && outcome.releaseStorage) await outcome.driver.delete(record.partitionCode, record.storagePath)
+  await outcome.guard.runAfterSuccess()
   if (dataEngine) {
     await emitCrudSideEffects({
       dataEngine,
@@ -761,8 +786,8 @@ async function deleteAttachment(req: Request) {
   return NextResponse.json({ ok: true })
 }
 
-export const POST = withAttachmentStorageErrors(uploadAttachment)
-export const DELETE = withAttachmentStorageErrors(deleteAttachment)
+export const POST = withAttachmentAccessErrors(withAttachmentStorageErrors(uploadAttachment))
+export const DELETE = withAttachmentAccessErrors(withAttachmentStorageErrors(deleteAttachment))
 
 export const openApi: OpenApiRouteDoc = {
   summary: 'Manage entity attachments',
@@ -778,6 +803,9 @@ export const openApi: OpenApiRouteDoc = {
       errors: [
         { status: 400, description: 'Missing entity or record identifiers', schema: errorSchema },
         { status: 401, description: 'Unauthorized', schema: errorSchema },
+        { status: 403, description: 'Owner policy denies access', schema: errorSchema },
+        { status: 404, description: 'Attachment or owner is unavailable', schema: errorSchema },
+        { status: 504, description: 'Owner authorization timed out', schema: errorSchema },
       ],
     },
     POST: {
@@ -809,6 +837,9 @@ export const openApi: OpenApiRouteDoc = {
         { status: 503, description: 'Attachment storage configuration rejected by policy', schema: attachmentErrorSchema },
         { status: 400, description: 'Missing attachment identifier', schema: errorSchema },
         { status: 401, description: 'Unauthorized', schema: errorSchema },
+        { status: 403, description: 'Owner policy denies access', schema: errorSchema },
+        { status: 404, description: 'Attachment or owner is unavailable', schema: errorSchema },
+        { status: 504, description: 'Owner authorization timed out', schema: errorSchema },
       ],
     },
   },
