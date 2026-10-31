@@ -199,7 +199,7 @@ const crud = makeCrudRoute<
       if (organizationConstraint) {
         const tenantWideAccess = isOrganizationAccessAllowed({
           targetOrganizationId: null,
-          allowedOrganizationIds: ctx.organizationScope?.allowedIds ?? null,
+          allowedOrganizationIds: ctx.organizationScope ? ctx.organizationScope.allowedIds : [],
           isSuperAdmin: await resolveIsSuperAdmin(ctx),
         })
         qb.andWhere(tenantWideAccess

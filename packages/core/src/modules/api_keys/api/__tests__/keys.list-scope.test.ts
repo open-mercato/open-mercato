@@ -86,6 +86,18 @@ describe('API-key list organization policy', () => {
     expect(queryBuilder.andWhere.mock.calls).toEqual([[{ tenantId }]])
   })
 
+  it('withholds tenant-wide keys when organization policy is unavailable', async () => {
+    const { queryBuilder, context } = listFixture([selectedOrganization], null, selectedOrganization)
+    context.organizationScope = null
+
+    await expect(beforeList?.({}, context)).rejects.toBeInstanceOf(Response)
+
+    expect(queryBuilder.andWhere.mock.calls).toEqual([
+      [{ tenantId }],
+      [{ organizationId: { $in: [selectedOrganization] } }],
+    ])
+  })
+
   it('returns an empty collection before querying for an empty resolved scope', async () => {
     const { createQueryBuilder, context } = listFixture([], [], selectedOrganization)
     jest.mocked(resolveIsSuperAdmin).mockResolvedValue(true)
