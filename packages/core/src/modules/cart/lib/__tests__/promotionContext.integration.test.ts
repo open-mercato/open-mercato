@@ -254,4 +254,52 @@ describeWithPostgres('cart promotion evaluation with no spare PostgreSQL connect
     expect(Number(committed[0].totalDiscountGranted)).toBe(outcome === 'rollback' ? 0 : 25)
     expect(TransactionContext.getEntityManager('cart')).toBeUndefined()
   })
+
+  it('bounds transactional promotion reads to five queries with 200 budget-capped promotions', async () => {
+    const em = database().em.fork()
+    const scope = { tenantId: randomUUID(), organizationId: randomUUID() }
+    const promotions = Array.from({ length: 200 }, (_, order) => em.create(promotionEntities.Promotion, {
+      ...scope, name: `Budget promotion ${order}`, order, active: true, maxBudget: '100', budgetCurrency: order % 2 === 0 ? 'USD' : 'EUR',
+    }))
+    em.persist(promotions)
+    await em.flush()
+    em.persist(promotions.flatMap((promotion) => [
+      em.create(promotionEntities.RuleGroup, { ...scope, promotionId: promotion.id, operator: 'and' }),
+      em.create(promotionEntities.PromotionUsage, {
+        ...scope, promotionId: promotion.id, orderId: randomUUID(), orderType: 'order',
+        currency: promotion.budgetCurrency ?? 'USD', totalDiscountAmount: '3', effectsSnapshot: [],
+      }),
+      em.create(promotionEntities.PromotionUsage, {
+        ...scope, promotionId: promotion.id, orderId: randomUUID(), orderType: 'order',
+        currency: promotion.budgetCurrency === 'USD' ? 'EUR' : 'USD', totalDiscountAmount: '1000', effectsSnapshot: [],
+      }),
+    ]))
+    em.persist([
+      em.create(promotionEntities.PromotionUsage, {
+        ...scope, tenantId: randomUUID(), promotionId: promotions[0].id, orderId: randomUUID(), orderType: 'order',
+        currency: 'USD', totalDiscountAmount: '1000', effectsSnapshot: [],
+      }),
+      em.create(promotionEntities.PromotionUsage, {
+        ...scope, promotionId: promotions[0].id, orderId: randomUUID(), orderType: 'order', revertedAt: new Date(),
+        currency: 'USD', totalDiscountAmount: '1000', effectsSnapshot: [],
+      }),
+    ])
+    await em.flush()
+    const cache = createMemoryStrategy()
+    const services: Record<string, unknown> = { em: database().em.fork(), cache }
+    const container = { resolve<T = unknown>(key: string): T { return services[key] as T } }
+    const service = new PromotionCacheService(container)
+    const queries = jest.spyOn(em.getConnection(), 'execute')
+    try {
+      await TransactionContext.create(em, () => withAtomicFlush(em, [async () => {
+        const result = await service.getActivePromotions(scope.tenantId, scope.organizationId)
+        expect(result).toHaveLength(200)
+        expect(result.every((promotion) => Number(promotion.totalDiscountGranted) === 3)).toBe(true)
+      }], { transaction: true }))
+      const reads = queries.mock.calls.filter(([query]) => typeof query === 'string' && /select/i.test(query) && /promotion/i.test(query))
+      expect(reads).toHaveLength(5)
+    } finally {
+      queries.mockRestore()
+    }
+  })
 })

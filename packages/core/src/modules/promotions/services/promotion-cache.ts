@@ -304,6 +304,11 @@ export class PromotionCacheService {
   constructor(private readonly container: PromotionCacheContainer) {}
 
   async getActivePromotions(tenantId: string, organizationId: string): Promise<NormalizedPromotion[]> {
+    const em = resolvePromotionEm(this.container)
+    if (em.isInTransaction()) {
+      const promotions = await this.buildActivePromotionTrees(tenantId, organizationId)
+      return this.buildTransactionalUsageSnapshot(em, promotions, tenantId, organizationId)
+    }
     const cache = resolvePromotionCacheStrategy(this.container)
     const treeKey = buildPromotionTreeCacheKey(tenantId, organizationId)
 
@@ -318,6 +323,35 @@ export class PromotionCacheService {
     return Promise.all(
       promotions.map((promotion) => this.overlayUsageCounter(promotion, tenantId, organizationId)),
     )
+  }
+
+  private async buildTransactionalUsageSnapshot(
+    em: EntityManager,
+    promotions: NormalizedPromotion[],
+    tenantId: string,
+    organizationId: string,
+  ): Promise<NormalizedPromotion[]> {
+    const budgeted = promotions.filter((promotion) => promotion.maxBudget !== null)
+    const currencies = [...new Set(budgeted.map((promotion) => promotion.budgetCurrency).filter((currency): currency is string => !!currency))]
+    const totals = new Map<string, string>()
+    if (budgeted.length > 0 && currencies.length > 0) {
+      const promotionIds = budgeted.map((promotion) => promotion.id)
+      const promotionSlots = promotionIds.map(() => '?').join(', ')
+      const currencySlots = currencies.map(() => '?').join(', ')
+      const rows = await em.execute<Array<{ promotion_id: string; currency: string; total: string }>>(
+        `SELECT promotion_id, currency, COALESCE(SUM(total_discount_amount), 0)::text AS total
+         FROM promotion_usages
+         WHERE promotion_id IN (${promotionSlots}) AND currency IN (${currencySlots})
+           AND organization_id = ? AND tenant_id = ? AND reverted_at IS NULL
+         GROUP BY promotion_id, currency`,
+        [...promotionIds, ...currencies, organizationId, tenantId],
+      )
+      for (const row of rows) totals.set(`${row.promotion_id}:${row.currency}`, row.total)
+    }
+    return promotions.map((promotion) => promotion.maxBudget === null ? promotion : freezeOutsideProduction({
+      ...promotion,
+      totalDiscountGranted: totals.get(`${promotion.id}:${promotion.budgetCurrency}`) ?? '0',
+    }))
   }
 
   // §Cache Build Contract item 4: "read only for budget-capped promotions" — an
