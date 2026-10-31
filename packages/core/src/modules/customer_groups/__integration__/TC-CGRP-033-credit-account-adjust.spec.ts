@@ -125,6 +125,35 @@ test.describe('TC-CGRP-033: manual credit adjustment (/adjust)', () => {
       const listAfterUpBody = await readJsonSafe<{ items?: Array<{ id: string; exposure?: string | null }> }>(listAfterUp);
       expect((listAfterUpBody?.items ?? []).find((item) => item.id === accountId)?.exposure).toBe('150.00');
 
+      // --- undo appends the INVERSE entry, never a delete (G20) ---
+      // Undone right here, while the +150.00 adjustment is still the latest undoable
+      // action on this account: the generic undo route only ever honors a token for the
+      // LATEST undoable action on its resource (issue #2398's own invariant), so a token
+      // captured earlier stops resolving the moment a later adjustment on the SAME
+      // account supersedes it.
+      const undoResponse = await apiRequest(request, 'POST', UNDO_PATH, {
+        token: adminToken,
+        data: { undoToken: operation?.undoToken },
+      });
+      expect(undoResponse.status(), `undo failed: ${undoResponse.status()} ${await undoResponse.text()}`).toBe(200);
+
+      const ledgerResponse = await apiRequest(request, 'GET', ledgerPath(accountId!, '?pageSize=10'), { token: adminToken });
+      const ledgerBody = await readJsonSafe<LedgerBody>(ledgerResponse);
+      const entries = ledgerBody?.items ?? [];
+      expect(entries).toHaveLength(2);
+      // The forward +150.00 entry is still present (never deleted) ...
+      expect(entries.some((entry) => entry.id === forwardEntryId && entry.amount === '150.00')).toBe(true);
+      // ... and a new -150.00 reversal, linked to it, now sits beside it.
+      const reversal = entries.find((entry) => entry.relatedEntryId === forwardEntryId);
+      expect(reversal?.amount).toBe('-150.00');
+
+      const listAfterUndo = await apiRequest(request, 'GET', `${CREDIT_ACCOUNTS_PATH}?customerId=${encodeURIComponent(companyId)}`, {
+        token: adminToken,
+      });
+      const listAfterUndoBody = await readJsonSafe<{ items?: Array<{ id: string; exposure?: string | null }> }>(listAfterUndo);
+      // 150 (forward) - 150 (reversal) = 0.00
+      expect((listAfterUndoBody?.items ?? []).find((item) => item.id === accountId)?.exposure).toBe('0.00');
+
       // --- negative adjustment: the manual-settlement path (D-R5-2) ---
       const downResponse = await request.fetch(adjustPath(accountId!), {
         method: 'POST',
@@ -133,13 +162,14 @@ test.describe('TC-CGRP-033: manual credit adjustment (/adjust)', () => {
       });
       expect(downResponse.status(), 'negative adjustment should be 200').toBe(200);
       const downBody = (await readJsonSafe<{ entry?: EntryBody }>(downResponse))?.entry;
-      expect(downBody).toMatchObject({ entryType: 'adjust', amount: '-50.00', balanceAfter: '100.00' });
+      expect(downBody).toMatchObject({ entryType: 'adjust', amount: '-50.00', balanceAfter: '-50.00' });
 
       const listAfterDown = await apiRequest(request, 'GET', `${CREDIT_ACCOUNTS_PATH}?customerId=${encodeURIComponent(companyId)}`, {
         token: adminToken,
       });
       const listAfterDownBody = await readJsonSafe<{ items?: Array<{ id: string; exposure?: string | null }> }>(listAfterDown);
-      expect((listAfterDownBody?.items ?? []).find((item) => item.id === accountId)?.exposure).toBe('100.00');
+      // 0 (post-undo) - 50 (settle) = -50.00
+      expect((listAfterDownBody?.items ?? []).find((item) => item.id === accountId)?.exposure).toBe('-50.00');
 
       // --- validation: .strict() body, zero amount, missing note ---
       const zeroResponse = await apiRequest(request, 'POST', adjustPath(accountId!), {
@@ -162,30 +192,6 @@ test.describe('TC-CGRP-033: manual credit adjustment (/adjust)', () => {
         data: { amount: '10.00', note: 'x', organizationId: randomUUID() },
       });
       expect(smuggledScopeResponse.status(), 'strict body must reject organizationId').toBe(400);
-
-      // --- undo appends the INVERSE entry, never a delete (G20) ---
-      const undoResponse = await apiRequest(request, 'POST', UNDO_PATH, {
-        token: adminToken,
-        data: { undoToken: operation?.undoToken },
-      });
-      expect(undoResponse.status(), `undo failed: ${undoResponse.status()} ${await undoResponse.text()}`).toBe(200);
-
-      const ledgerResponse = await apiRequest(request, 'GET', ledgerPath(accountId!, '?pageSize=10'), { token: adminToken });
-      const ledgerBody = await readJsonSafe<LedgerBody>(ledgerResponse);
-      const entries = ledgerBody?.items ?? [];
-      expect(entries).toHaveLength(3);
-      // The forward +150.00 entry is still present (never deleted) ...
-      expect(entries.some((entry) => entry.id === forwardEntryId && entry.amount === '150.00')).toBe(true);
-      // ... and a new -150.00 reversal, linked to it, now sits beside it.
-      const reversal = entries.find((entry) => entry.relatedEntryId === forwardEntryId);
-      expect(reversal?.amount).toBe('-150.00');
-
-      const listAfterUndo = await apiRequest(request, 'GET', `${CREDIT_ACCOUNTS_PATH}?customerId=${encodeURIComponent(companyId)}`, {
-        token: adminToken,
-      });
-      const listAfterUndoBody = await readJsonSafe<{ items?: Array<{ id: string; exposure?: string | null }> }>(listAfterUndo);
-      // 150 (forward) - 50 (settle) - 150 (reversal) = -50.00
-      expect((listAfterUndoBody?.items ?? []).find((item) => item.id === accountId)?.exposure).toBe('-50.00');
 
       // --- cross-TENANT isolation ---
       crossTenantActor = await createSecondTenantActor(request, superadminToken, stamp, [
