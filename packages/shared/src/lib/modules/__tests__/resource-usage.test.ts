@@ -2,6 +2,7 @@ import {
   clearModuleResourceUsageData,
   getModuleResourceUsageReport,
   resetModuleResourceUsage,
+  waitForModuleResourceUsageSnapshotWrites,
   withModuleResourceUsage,
 } from '../resource-usage'
 import fs from 'node:fs'
@@ -24,7 +25,8 @@ describe('module resource usage tracker', () => {
     delete process.env.OM_MODULE_RESOURCE_HEAVY_CPU_MS
   })
 
-  afterEach(() => {
+  afterEach(async () => {
+    await waitForModuleResourceUsageSnapshotWrites()
     resetModuleResourceUsage()
     if (tempDir) fs.rmSync(tempDir, { recursive: true, force: true })
     tempDir = null
@@ -272,12 +274,8 @@ describe('module resource usage tracker', () => {
 
     // The flush is fire-and-forget (no fs.*Sync calls on the hot path), so wait for the async
     // write to land instead of asserting on it synchronously.
+    await waitForModuleResourceUsageSnapshotWrites()
     const ownSnapshotPath = path.join(tempDir!, `process-${process.pid}.json`)
-    const start = Date.now()
-    while (!fs.existsSync(ownSnapshotPath)) {
-      if (Date.now() - start > 2000) throw new Error('Timed out waiting for async snapshot flush')
-      await new Promise((resolve) => setTimeout(resolve, 10))
-    }
     const ownPayload = JSON.parse(fs.readFileSync(ownSnapshotPath, 'utf8'))
     expect(ownPayload.entries.some((entry: { moduleId: string }) => entry.moduleId === 'customers')).toBe(true)
 
@@ -339,13 +337,21 @@ describe('module resource usage tracker', () => {
     )
 
     // readSnapshotPayloads() runs as part of building the report; the prune it triggers is
-    // fire-and-forget, so poll for the file to disappear instead of asserting synchronously.
+    // fire-and-forget, so wait for it instead of asserting synchronously.
     getModuleResourceUsageReport()
-    const start = Date.now()
-    while (fs.existsSync(stalePath)) {
-      if (Date.now() - start > 2000) throw new Error('Timed out waiting for stale snapshot to be pruned')
-      await new Promise((resolve) => setTimeout(resolve, 10))
-    }
+    await waitForModuleResourceUsageSnapshotWrites()
     expect(fs.existsSync(stalePath)).toBe(false)
+  })
+
+  it('waits for the report\'s in-flight snapshot write and leaves no temp file behind', async () => {
+    process.env.OM_MODULE_RESOURCE_USAGE_SNAPSHOT = 'on'
+    const ownSnapshotPath = path.join(tempDir!, `process-${process.pid}.json`)
+
+    getModuleResourceUsageReport()
+    expect(fs.existsSync(ownSnapshotPath)).toBe(false)
+
+    await waitForModuleResourceUsageSnapshotWrites()
+    expect(fs.readdirSync(tempDir!)).toEqual([`process-${process.pid}.json`])
+    expect(JSON.parse(fs.readFileSync(ownSnapshotPath, 'utf8')).pid).toBe(process.pid)
   })
 })

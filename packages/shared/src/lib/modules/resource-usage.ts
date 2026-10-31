@@ -4,6 +4,7 @@ import { parseBooleanWithDefault } from '../boolean'
 import { parseNumberWithDefault } from '../number'
 
 const GLOBAL_KEY = '__openMercatoModuleResourceUsage__'
+const PENDING_SNAPSHOT_IO_KEY = '__openMercatoModuleResourceUsagePendingSnapshotIo__'
 const NS_PER_MS = 1_000_000
 const MICROS_PER_MS = 1000
 const DEFAULT_RECENT_SAMPLE_LIMIT = 128
@@ -800,20 +801,53 @@ function registerSnapshotShutdownHook(state: ResourceUsageState): void {
 // first.
 let snapshotWriteSequence = 0
 
+// Kept on globalThis under its own key, like the usage state, so every module instance (dev hot
+// reload, standalone server chunks) sees the same in-flight I/O; resetModuleResourceUsage() replaces
+// the usage state and must not drop I/O that is still running.
+function getPendingSnapshotIo(): Set<Promise<void>> {
+  const globalRecord = globalThis as Record<string, unknown>
+  const existing = globalRecord[PENDING_SNAPSHOT_IO_KEY]
+  if (existing instanceof Set) return existing as Set<Promise<void>>
+  const created = new Set<Promise<void>>()
+  globalRecord[PENDING_SNAPSHOT_IO_KEY] = created
+  return created
+}
+
+function trackSnapshotIo(operation: Promise<void>): void {
+  const pending = getPendingSnapshotIo()
+  const settle = () => {
+    pending.delete(operation)
+  }
+  pending.add(operation)
+  operation.then(settle, settle)
+}
+
+// Resolves once every snapshot write and stale-snapshot prune started so far has settled. The
+// tracked call path never waits on this; it is for callers that read or remove the snapshot
+// directory right after a report, such as tests that delete their temporary snapshot directory.
+export async function waitForModuleResourceUsageSnapshotWrites(): Promise<void> {
+  const pending = getPendingSnapshotIo()
+  while (pending.size > 0) {
+    await Promise.allSettled(Array.from(pending))
+  }
+}
+
 // Writes atomically: serialize to a unique temp file, then rename onto the final path. rename is
 // atomic on POSIX, so a concurrent reader (this process's report, another process's directory scan,
 // or a test) always observes either the previous complete file or the new complete file — never the
 // empty/partial content window that a direct writeFile to snapshotPath would briefly expose.
 function writeSnapshotFileAsync(dir: string, snapshotPath: string, payload: unknown): void {
   const tempPath = `${snapshotPath}.${process.pid}.${snapshotWriteSequence++}.tmp`
-  fs.promises.mkdir(dir, { recursive: true })
-    .then(() => fs.promises.writeFile(tempPath, JSON.stringify(payload, null, 2)))
-    .then(() => fs.promises.rename(tempPath, snapshotPath))
-    .catch(() => {
-      // Snapshot files are diagnostic only; in-memory reporting still works. Best-effort cleanup of
-      // the temp file if the rename never happened; ignore if it is already gone.
-      fs.promises.unlink(tempPath).catch(() => {})
-    })
+  trackSnapshotIo(
+    fs.promises.mkdir(dir, { recursive: true })
+      .then(() => fs.promises.writeFile(tempPath, JSON.stringify(payload, null, 2)))
+      .then(() => fs.promises.rename(tempPath, snapshotPath))
+      .catch(() =>
+        // Snapshot files are diagnostic only; in-memory reporting still works. Best-effort cleanup of
+        // the temp file if the rename never happened; ignore if it is already gone.
+        fs.promises.unlink(tempPath).catch(() => {}),
+      ),
+  )
 }
 
 function flushModuleResourceUsageSnapshot(force: boolean): void {
@@ -858,9 +892,11 @@ function isFreshSnapshot(payload: SnapshotPayload): boolean {
 // stale ones opportunistically here (best-effort, never blocks the read) so the directory doesn't
 // grow without bound in a long-running deployment.
 function pruneStaleSnapshotFile(filePath: string): void {
-  fs.promises.unlink(filePath).catch(() => {
-    // Snapshot files are diagnostic only; leave it for a later pass if it can't be removed now.
-  })
+  trackSnapshotIo(
+    fs.promises.unlink(filePath).catch(() => {
+      // Snapshot files are diagnostic only; leave it for a later pass if it can't be removed now.
+    }),
+  )
 }
 
 function readSnapshotPayloads(): SnapshotPayload[] {
