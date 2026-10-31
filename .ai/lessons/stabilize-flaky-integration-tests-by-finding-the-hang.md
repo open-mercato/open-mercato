@@ -1,11 +1,13 @@
 ---
 title: "Stabilize flaky integration tests by finding the hang, not by raising the timeout"
-modules: ["events","queue","ui","auth","example","record_locks","warranty_claims","customers","phone_calls","search","cache","query_index","sales","sync_excel","workflows","data_sync","communication_channels","forms","security"]
+modules: ["events","queue","ui","auth","example","record_locks","warranty_claims","customers","phone_calls","search","cache","query_index","sales","sync_excel","workflows","data_sync","communication_channels","forms","security","documents"]
 areas: ["integration","testing","backend-ui","debugging"]
 topics: ["events","testing","workers","hydration","component-overrides","timers"]
 ---
 
 # Stabilize flaky integration tests by finding the hang, not by raising the timeout
+
+**Cumulative UI journeys**: The retry trace for `TC-DOCUMENTS-014` in PR #7654, run `40930241301`, shard 14 showed all eight host-route widget, title-link, href, and URL checks passing before the unchanged 60-second budget expired during the next link-existing flow. Split independent host families and interactive flows into fixture-isolated cases with the same timeout and complete teardown; retain every route and assertion rather than raising the cap or removing coverage.
 
 `TC-FORMS-UI-002` deterministically doubled its name after a merge retained both `fillControlledInput(nameInput, name)` and `nameInput.pressSequentially(name)`. Reconcile the complete interaction sequence when merging test setup: keep one authoritative value entry and retain every hydration, payload and persistence assertion.
 
