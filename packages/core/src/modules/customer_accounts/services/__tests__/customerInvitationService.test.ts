@@ -13,6 +13,10 @@ import {
   CustomerUserRole,
 } from '@open-mercato/core/modules/customer_accounts/data/entities'
 
+jest.mock('@open-mercato/core/modules/customer_accounts/lib/tenantEligibility', () => ({
+  isCustomerTenantActive: jest.fn(async () => true),
+}))
+
 jest.mock('@open-mercato/core/modules/customer_accounts/lib/tokenGenerator', () => ({
   generateSecureToken: jest.fn(() => 'raw-token'),
   hashToken: jest.fn(() => 'hashed-token'),

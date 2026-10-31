@@ -47,6 +47,7 @@ type DealDetailHeaderProps = {
   onDelete: () => Promise<void> | void
   isDirty: boolean
   isSaving: boolean
+  actions?: React.ReactNode
 }
 
 function formatCurrency(amount: string | null, currency: string | null): string | null {
@@ -201,6 +202,7 @@ export function DealDetailHeader({
   onDelete,
   isDirty,
   isSaving,
+  actions,
 }: DealDetailHeaderProps) {
   const t = useT()
   const amountLabel = React.useMemo(
@@ -309,7 +311,8 @@ export function DealDetailHeader({
         </div>
       </div>
 
-      <div className="flex items-center gap-2 xl:justify-end">
+      <div className="flex flex-wrap items-center gap-2 xl:justify-end">
+        {actions}
         {canMoveStage ? (
           <StageActionButton
             vocabulary={vocabulary}
