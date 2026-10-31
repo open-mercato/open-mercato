@@ -18,6 +18,7 @@ import {
 } from '@open-mercato/shared/lib/custom-fields/kinds'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { extractFallbackPresenter } from './fallback-presenter'
+import { extractSearchableFields } from './field-policy'
 import { needsSearchResultEnrichment } from './search-result-enrichment'
 
 /** Maximum number of record IDs per batch query to avoid hitting DB parameter limits */
@@ -308,7 +309,7 @@ async function computePresenterAndLinks(
 
   // Fallback presenter: extract from doc fields directly
   if (!presenter) {
-    presenter = extractFallbackPresenter(doc, entityId, recordId)
+    presenter = extractFallbackPresenter(extractSearchableFields(doc, { fieldPolicy: config?.fieldPolicy }), entityId, recordId)
   }
 
   // Resolve URL from config

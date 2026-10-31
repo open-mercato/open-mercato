@@ -8,6 +8,7 @@ import { buildAttachmentFileUrl } from './imageUrls'
 import { mergeAttachmentMetadata, upsertAssignment } from './metadata'
 import { assertAttachmentScopeInvariant } from './access'
 import { attachmentCrudEvents, attachmentCrudIndexer } from './crud'
+import { ensureAttachmentPartitionProtection } from './access-protection'
 
 /** DataEngine handle whose exact type is derived from `emitCrudSideEffects` (no `any`). */
 type CrudDataEngine = Parameters<typeof emitCrudSideEffects>[0]['dataEngine']
@@ -57,6 +58,8 @@ export async function createAttachmentFromBuffer(input: CreateAttachmentFromBuff
     partition = await em.findOne(AttachmentPartition, { code })
   }
   if (!partition) throw new Error(`[internal] attachment partition "${code}" is not available`)
+
+  await ensureAttachmentPartitionProtection(em, partition)
 
   const driver = await new StorageDriverFactory(em).resolveForPartition(partition.code, {
     tenantId: input.tenantId,

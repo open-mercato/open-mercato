@@ -1,6 +1,6 @@
 ---
 title: "Stabilize flaky integration tests by finding the hang, not by raising the timeout"
-modules: ["events","queue","ui","auth","example","record_locks","warranty_claims","customers","phone_calls","search","cache","query_index","sales","sync_excel","workflows","cart"]
+modules: ["events","queue","ui","auth","example","record_locks","warranty_claims","customers","phone_calls","search","cache","query_index","sales","sync_excel","workflows","forms","security","cart"]
 areas: ["integration","testing","backend-ui","module-data"]
 topics: ["events","testing","workers","hydration","component-overrides","timers"]
 ---
@@ -8,6 +8,12 @@ topics: ["events","testing","workers","hydration","component-overrides","timers"
 # Stabilize flaky integration tests by finding the hang, not by raising the timeout
 
 **Context**: `TC-CUR-004` ("Set Base Currency from UI") failed ~1/60 in the `ephemeral-integration` CI shards with `Test timeout of 30000ms exceeded` plus a secondary `apiRequestContext.fetch: Target page, context or browser has been closed` reported from the `finally` teardown.
+
+`TC-FORMS-UI-001` changed a live admin page's cookies to an employee session while admin list and navigation requests were still running. An in-flight timesheet request returned 401 after the cookie swap, scheduling the shared client's auth-session refresh; that redirect aborted employee navigation with `ERR_ABORTED`, although the captured page already rendered the employee's Access Denied state. Use a separate browser context for the second identity and close it in teardown; keep the admin positive-list assertions, employee API 403, explicit denial, and absence of form data. Do not swallow navigation errors or relax authorization assertions.
+
+`TC-SEC-005` reached its whole-test timeout while updating the enforcement deadline. The retry trace began teardown before logging in the overdue user, then closed the browser before the banner assertion; the apparent missing banner was a consequence of timeout, not evidence that the notice was absent. Put policy/user setup in the existing setup hook, including an unchanged update that repeats the initial policy's already-past deadline. Track each successful fixture for cleanup and keep every status assertion, both redirects/banner texts, provider filtering and compliance assertion. The unchanged test budget then measures the behavior rather than setup.
+
+`TC-LOCK-SALES-quote-session` used an order-only `surchargeTotalAmount` field to verify a quote fixture. The real adjustment command/calculator persisted the surcharge and advanced totals, but the quote DTO returned that field as null. Check the saved adjustment's surcharge kind and net/gross amounts together with the parent quote's net/gross total delta. A regression through the real REST mapping, command, calculator and DTO transform must reject negative, zero and wrong-kind fixtures; do not change a correct payload or relax the five-unit precondition.
 
 `TC-WC-023` failed after successfully receiving and quarantining a claim line because it required the emitted event to remain in the local queue file. The ephemeral harness runs queue workers concurrently, and the local strategy removes completed jobs, so queue residency was a race rather than durable evidence of emission. The stable assertion accepts either a still-queued job or the command's durable `line_received` quarantine timeline record.
 
