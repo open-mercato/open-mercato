@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { getAuthToken } from '@open-mercato/core/helpers/integration/api';
+import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api';
 import type { CartResponseEnvelope } from '../lib/cartView';
 import {
   CART_CURRENT_PATH,
@@ -31,6 +31,11 @@ test.describe('TC-CART-CONC-06/07/08: concurrent bulk and single additions', () 
     product = await createCartProductFixture(request, token, {
       stamp: uniqueStamp(), label: 'bulk-conc', salesChannelId: store.salesChannelId,
     });
+    const priceUpdate = await apiRequest(request, 'PUT', '/api/catalog/prices', {
+      token,
+      data: { id: product.priceId, unitPriceNet: 10, taxRate: 20 },
+    });
+    expect(priceUpdate.status(), await priceUpdate.text()).toBe(200);
   });
 
   test.afterAll(async ({ request }) => {

@@ -15,6 +15,7 @@ import { createContainer, asValue, InjectionMode } from 'awilix'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import { SalesOrder, SalesQuote } from '../../data/entities'
 import { documentUpdateSchema, type DocumentUpdateInput } from '../documents'
+import { createSalesDocumentLockKyselyFixture } from './salesDocumentLockFixture'
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: async () => ({
@@ -100,6 +101,7 @@ function makeEm(document: StoredDocument, entityClass: unknown = SalesOrder) {
     getReference: jest.fn((_entityClass: unknown, id: string) => ({ id })),
     flush: jest.fn(async () => {}),
     begin: jest.fn(async () => {}),
+    getKysely: () => createSalesDocumentLockKyselyFixture(String(document.id)),
     commit: jest.fn(async () => {}),
     rollback: jest.fn(async () => {}),
     fork: () => em,
