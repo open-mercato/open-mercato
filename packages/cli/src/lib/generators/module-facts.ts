@@ -2658,7 +2658,7 @@ function renderLinkedFactsSection(
   context: ModuleFactsRenderContext,
 ): string {
   if (facts.length === 0) return `${heading}\n\n${EMPTY_SECTION_MARKER}`
-  const rows = facts.map((fact) => `| ${fact.label} | ${renderSourceLink(fact.sourcePath, context)} |`)
+  const rows = facts.map((fact) => `|${fact.label} | ${renderSourceLink(fact.sourcePath, context)}|`)
   return [heading, '', '| ID / path | Source |', '|---|---|', ...rows].join('\n')
 }
 
