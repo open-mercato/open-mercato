@@ -212,6 +212,16 @@ export type InjectionWidgetPlacement = {
    * - 'stack' → render inline (default)
    */
   kind?: 'tab' | 'group' | 'stack'
+  /**
+   * Ordering hint, higher first, default 0. Mirrors the entry-level `priority`
+   * declared in an injection table and is populated by the injection loader.
+   *
+   * On `kind: 'tab'` spots the host orders the contributed tab against its own
+   * built-in tabs, which sit at 0: a positive priority places the tab before
+   * them, a negative one after. Entries sharing a priority keep declaration
+   * order.
+   */
+  priority?: number
 }
 
 /**
@@ -244,6 +254,14 @@ export type InjectionWidgetModule<TContext = unknown, TData = unknown> = {
   metadata: InjectionWidgetMetadata
   Widget: ComponentType<InjectionWidgetComponentProps<TContext, TData>>
   eventHandlers?: WidgetInjectionEventHandlers<TContext, TData>
+}
+
+export type InjectionEventParticipant<TContext = unknown, TData = unknown> = {
+  widgetId: string
+  moduleId: string
+  key: string
+  module: Pick<InjectionWidgetModule<TContext, TData>, 'metadata' | 'eventHandlers'>
+  placement?: InjectionWidgetPlacement & { priority?: number }
 }
 
 export type InjectionColumnDefinition = {

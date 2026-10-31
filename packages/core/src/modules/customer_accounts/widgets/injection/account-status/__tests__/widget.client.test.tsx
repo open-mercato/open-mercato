@@ -458,3 +458,11 @@ describe('customer_accounts AccountStatusWidget invite form', () => {
     expect(screen.getByText('Invitation pending')).toBeInTheDocument()
   })
 })
+
+
+it('renders no portal-account content before a person record exists', () => {
+  mockApiCall.mockClear()
+  const { container } = render(<AccountStatusWidget context={{}} />)
+  expect(container).toBeEmptyDOMElement()
+  expect(mockApiCall).not.toHaveBeenCalled()
+})
