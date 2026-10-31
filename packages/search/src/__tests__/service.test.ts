@@ -582,21 +582,26 @@ describe('SearchService', () => {
         availabilityCacheTtlMs: 0,
       })
 
-      const start = Date.now()
-      await service.search('q', { tenantId: 't-1' })
-      const elapsed = Date.now() - start
-      const timings = Object.values(probeTimings)
-      const latestStart = Math.max(...timings.map((timing) => timing.start))
-      const earliestEnd = Math.min(...timings.map((timing) => timing.end))
+      jest.useFakeTimers({ now: 0 })
+      try {
+        const start = Date.now()
+        const search = service.search('q', { tenantId: 't-1' })
+        await jest.runAllTimersAsync()
+        await search
+        const elapsed = Date.now() - start
+        const timings = Object.values(probeTimings)
+        const latestStart = Math.max(...timings.map((timing) => timing.start))
+        const earliestEnd = Math.min(...timings.map((timing) => timing.end))
 
-      // Sequential probes would not overlap. Parallel probes must overlap in time,
-      // and total elapsed time should stay well below a fully sequential run.
-      expect(timings).toHaveLength(3)
-      expect(latestStart).toBeLessThan(earliestEnd)
-      expect(elapsed).toBeLessThan(450)
-      expect(slowA.isAvailable).toHaveBeenCalledTimes(1)
-      expect(slowB.isAvailable).toHaveBeenCalledTimes(1)
-      expect(slowC.isAvailable).toHaveBeenCalledTimes(1)
+        expect(timings).toHaveLength(3)
+        expect(latestStart).toBeLessThan(earliestEnd)
+        expect(elapsed).toBeLessThan(450)
+        expect(slowA.isAvailable).toHaveBeenCalledTimes(1)
+        expect(slowB.isAvailable).toHaveBeenCalledTimes(1)
+        expect(slowC.isAvailable).toHaveBeenCalledTimes(1)
+      } finally {
+        jest.useRealTimers()
+      }
     })
 
     it('caches positive availability checks within the TTL window', async () => {

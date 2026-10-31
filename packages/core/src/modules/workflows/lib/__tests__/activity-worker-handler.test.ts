@@ -249,4 +249,37 @@ describe('Activity Worker Handler (registry dispatch)', () => {
       expect.objectContaining({ eventType: 'ACTIVITY_FAILED' })
     )
   })
+
+  test('honors a webhook timeout longer than the 30-second default in the worker', async () => {
+    jest.useFakeTimers()
+    const originalFetch = global.fetch
+    const originalAllowPrivate = process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS
+    process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS = '1'
+    global.fetch = jest.fn(() => new Promise<Response>((resolve) => {
+      setTimeout(() => resolve(new Response('complete')), 60000)
+    }))
+    try {
+      const handler = createActivityWorkerHandler(mockEm, mockContainer)
+      const pending = handler(makeJob(makePayload({
+        activityType: 'CALL_WEBHOOK',
+        activityConfig: { url: 'https://example.com/webhook' },
+        timeoutMs: 120000,
+      })), jobCtx)
+      const assertion = expect(pending).resolves.toBeUndefined()
+
+      await jest.advanceTimersByTimeAsync(60000)
+
+      await assertion
+      expect(mockLogWorkflowEvent).toHaveBeenCalledWith(mockEm, expect.objectContaining({
+        eventType: 'ACTIVITY_COMPLETED',
+        eventData: expect.objectContaining({ output: expect.objectContaining({ result: 'complete' }) }),
+      }))
+      expect(jest.getTimerCount()).toBe(0)
+    } finally {
+      global.fetch = originalFetch
+      if (originalAllowPrivate === undefined) delete process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS
+      else process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS = originalAllowPrivate
+      jest.useRealTimers()
+    }
+  })
 })
