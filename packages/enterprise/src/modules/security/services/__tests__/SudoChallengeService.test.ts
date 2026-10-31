@@ -15,6 +15,8 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
 
 import * as securityConfig from '../../lib/security-config'
 
+const mockRequestBypassNotification = jest.spyOn(securityConfig, 'requestMfaEmergencyBypassNotification').mockResolvedValue(undefined)
+
 const mockEmitBypassWarning = jest.spyOn(securityConfig, 'emitMfaEmergencyBypassActiveWarning').mockImplementation(() => {})
 
 type ConfigRecord = {
@@ -581,6 +583,7 @@ describe('SudoChallengeService', () => {
 
     expect(result.method).toBe('password')
     expect(mfaVerificationService.createChallenge).not.toHaveBeenCalled()
+    expect(mockRequestBypassNotification).toHaveBeenCalledWith({ tenantId: 'tenant-1', organizationId: 'org-1' })
     expect(mockEmitBypassWarning).toHaveBeenCalledWith(
       'sudo challenge downgraded to password',
       expect.objectContaining({
@@ -607,6 +610,7 @@ describe('SudoChallengeService', () => {
     })
 
     expect(result.method).toBe('password')
+    expect(mockRequestBypassNotification).not.toHaveBeenCalled()
     expect(mockEmitBypassWarning).not.toHaveBeenCalled()
   })
 
@@ -626,6 +630,7 @@ describe('SudoChallengeService', () => {
     })
 
     expect(result.method).toBe('mfa')
+    expect(mockRequestBypassNotification).not.toHaveBeenCalled()
     expect(mockEmitBypassWarning).not.toHaveBeenCalled()
   })
 
