@@ -184,6 +184,7 @@ function runEvaluator(root: string, args: string[] = [], env: NodeJS.ProcessEnv 
 function installFakeRunner(root: string, name: 'codex' | 'claude', source: string): string {
   const bin = path.join(root, 'fake-bin')
   fs.mkdirSync(bin, { recursive: true })
+  fs.writeFileSync(path.join(bin, 'package.json'), '{"type":"commonjs"}\n')
   const fake = path.join(bin, name)
   fs.writeFileSync(fake, `#!/usr/bin/env node\n${source}`)
   fs.chmodSync(fake, 0o755)
@@ -1098,6 +1099,7 @@ test('live Codex adapter starts one ephemeral host-contained process and stores 
   const root = stageApp()
   const bin = path.join(root, 'fake-bin')
   fs.mkdirSync(bin)
+  fs.writeFileSync(path.join(bin, 'package.json'), '{"type":"commonjs"}\n')
   const fake = path.join(bin, 'codex')
   fs.writeFileSync(fake, `#!/usr/bin/env node
 const fs = require('node:fs')
@@ -1189,6 +1191,7 @@ test('live Claude adapter exposes only the discovery tool, allowlists the harnes
   const root = stageApp()
   const bin = path.join(root, 'fake-bin')
   fs.mkdirSync(bin)
+  fs.writeFileSync(path.join(bin, 'package.json'), '{"type":"commonjs"}\n')
   const fake = path.join(bin, 'claude')
   fs.writeFileSync(fake, `#!/usr/bin/env node
 const args = process.argv.slice(2)
@@ -3583,6 +3586,7 @@ test('writable mode rejects a disposable marker prepared for another case', { sk
   const target = stageWritableTarget(root)
   const bin = path.join(root, 'fake-bin')
   fs.mkdirSync(bin)
+  fs.writeFileSync(path.join(bin, 'package.json'), '{"type":"commonjs"}\n')
   const fake = path.join(bin, 'codex')
   fs.writeFileSync(fake, `#!/usr/bin/env node
 if (process.argv[2] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }

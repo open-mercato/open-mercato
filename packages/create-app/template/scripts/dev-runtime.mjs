@@ -133,7 +133,8 @@ const {
   inferDevMemoryMarkerFromLine,
   resolveMemoryTraceIntervalMs,
 } = await import(resolveMemorySamplerImport())
-const { acquireDevSession } = await import(resolveDevSessionGuardImport())
+const { acquireDevSession, assertDevSessionPortAvailable, describeDevSessionConflict } = await import(resolveDevSessionGuardImport())
+const { getSessionProcessTargets, killProcessTree, waitForProcessTreesExit } = await import(new URL('./dev-shutdown-utils.mjs', resolveDevSessionGuardImport()).href)
 
 const mercatoInvocation = resolveMercatoInvocation()
 const classic = process.argv.includes('--classic') || isEnabledEnvFlag(process.env.OM_DEV_CLASSIC)
@@ -264,10 +265,12 @@ try {
     workspaceRoot: resolveDevSessionWorkspaceRoot(),
     mode: `app-runtime:${classic ? 'classic' : verbose ? 'verbose' : 'compact'}`,
     url: devSessionUrl,
+    listenUrl: `http://127.0.0.1:${process.env.PORT?.trim() || '3000'}`,
     role: 'app-runtime',
   })
+  await assertDevSessionPortAvailable(devSession)
 } catch (error) {
-  console.error(`❌ ${error instanceof Error ? error.message : String(error)}`)
+  console.error(`❌ ${await describeDevSessionConflict(error)}`)
   process.exit(1)
 }
 
@@ -685,6 +688,8 @@ function spawnMercato(args) {
     stdio: rawPassthrough ? 'inherit' : 'pipe',
     env: {
       ...process.env,
+      ...devSession.childEnv,
+      OM_DEV_PROCESS_OWNER_PID: String(process.pid),
       OM_CLI_QUIET: rawPassthrough ? process.env.OM_CLI_QUIET : '1',
       DOTENV_CONFIG_QUIET: rawPassthrough ? process.env.DOTENV_CONFIG_QUIET : 'true',
       ...(!rawPassthrough ? { OM_DEV_SPLASH_RUNTIME_WRAPPER: '1' } : {}),
@@ -1361,22 +1366,22 @@ function shutdown(exitCode = 0) {
     console.log(message)
   }
 
-  const alive = Array.from(children).filter((child) => !child.killed)
+  const alive = [...children, ...getSessionProcessTargets(devSession)]
   if (alive.length === 0) {
     void finalizeRuntimeProcess(exitCode)
     return
   }
 
   for (const child of alive) {
-    child.kill('SIGTERM')
+    killProcessTree(child, 'SIGTERM')
   }
 
-  setTimeout(() => {
-    for (const child of children) {
-      if (!child.killed) {
-        child.kill('SIGKILL')
-      }
+  setTimeout(async () => {
+    for (const child of alive) {
+      killProcessTree(child, 'SIGKILL')
     }
+    const exited = await waitForProcessTreesExit(alive)
+    if (!exited) console.error('Managed process cleanup could not confirm exit. Workspace ownership remains protected while recorded session processes are alive; stop them before retrying.')
     void finalizeRuntimeProcess(exitCode)
   }, 3000)
 }

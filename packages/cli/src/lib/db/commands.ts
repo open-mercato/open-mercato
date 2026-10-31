@@ -540,7 +540,7 @@ export async function dbMigrate(resolver: PackageResolver, options: DbOptions = 
     }
   } finally {
     console.log(results.join('\n'))
-    await dischargeQueryIndexReindexRequests(appliedMigrations)
+    await dischargeQueryIndexReindexRequests(appliedMigrations, () => resolver.getAppDir())
   }
 }
 
@@ -555,6 +555,7 @@ export async function dbMigrate(resolver: PackageResolver, options: DbOptions = 
  */
 export async function dischargeQueryIndexReindexRequests(
   applied: readonly AppliedMigration[],
+  resolveAppRoot?: () => string,
 ): Promise<void> {
   if (!applied.length || !isMigrationReindexEnabled()) return
 
@@ -567,8 +568,10 @@ export async function dischargeQueryIndexReindexRequests(
 
     await requestQueryIndexReindex(entityTypes, {
       createContainer: async () => {
+        const { bootstrapFromAppRoot } = await import('@open-mercato/shared/lib/bootstrap/dynamicLoader')
+        await bootstrapFromAppRoot(resolveAppRoot?.())
         const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
-        return (await createRequestContainer()) as any
+        return await createRequestContainer()
       },
       onInfo: (message) => {
         if (!QUIET_MODE) console.log(message)

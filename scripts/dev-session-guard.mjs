@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
+import { createConnection, createServer } from 'node:net'
+import { getProcessIdentity, matchesProcessRecord, readProcessTable, readSessionProcessTable } from './dev-process-state.mjs'
 
 const LOCK_DIRECTORY_NAME = 'dev-session.lock'
 const OWNER_FILE_NAME = 'owner.json'
@@ -28,16 +30,6 @@ function readJsonFile(filePath) {
   }
 }
 
-function isProcessAlive(pid) {
-  if (!Number.isInteger(pid) || pid <= 0) return false
-  try {
-    process.kill(pid, 0)
-    return true
-  } catch (error) {
-    return error?.code === 'EPERM'
-  }
-}
-
 function writeJsonAtomically(filePath, value) {
   const temporaryPath = `${filePath}.${process.pid}.${randomUUID()}.tmp`
   fs.writeFileSync(temporaryPath, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 })
@@ -56,9 +48,13 @@ function readMembers(lockDirectory) {
   }
 }
 
-function findLiveMember(lockDirectory, owner) {
-  const candidates = [owner, ...readMembers(lockDirectory)].filter(Boolean)
-  return candidates.find((candidate) => isProcessAlive(candidate.pid)) ?? null
+function findLiveMember(lockDirectory, owner, ignoredPid = null) {
+  const candidates = [owner, ...readMembers(lockDirectory)].filter((candidate) => candidate && (!owner?.token || candidate.token === owner.token))
+  const processes = readProcessTable()
+  const liveMember = candidates.find((candidate) => candidate.pid !== ignoredPid && matchesProcessRecord(candidate, processes))
+  if (liveMember) return liveMember
+  const orphan = readSessionProcessTable(owner?.token).find((entry) => entry.pid !== ignoredPid && !entry.state.startsWith('Z'))
+  return orphan ? { pid: orphan.pid, processIdentity: orphan.identity, token: owner.token, role: 'orphaned-session-process' } : null
 }
 
 function removeStaleLock(lockDirectory) {
@@ -80,6 +76,8 @@ function withSessionAcquisition(lockDirectory, operation) {
       pid: process.pid,
       token: randomUUID(),
       mode: 'claiming',
+      processIdentity: getProcessIdentity(process.pid),
+      startedAt: new Date().toISOString(),
     }), { mode: 0o600 })
 
     while (!acquired) {
@@ -97,7 +95,7 @@ function withSessionAcquisition(lockDirectory, operation) {
       try {
         const generation = fs.statSync(acquisitionDirectory, { bigint: true })
         const owner = readJsonFile(path.join(acquisitionDirectory, OWNER_FILE_NAME))
-        if (typeof owner?.token === 'string' && /^[0-9a-f-]{36}$/i.test(owner.token) && Number.isInteger(owner.pid) && !isProcessAlive(owner.pid)) {
+        if (typeof owner?.token === 'string' && /^[0-9a-f-]{36}$/i.test(owner.token) && Number.isInteger(owner.pid) && !matchesProcessRecord(owner)) {
           const currentOwner = readJsonFile(path.join(acquisitionDirectory, OWNER_FILE_NAME))
           const currentGeneration = fs.statSync(acquisitionDirectory, { bigint: true })
           if (currentOwner?.token !== owner.token || currentGeneration.dev !== generation.dev || currentGeneration.ino !== generation.ino) continue
@@ -122,7 +120,7 @@ function withSessionAcquisition(lockDirectory, operation) {
   }
 }
 
-function registerMember(lockDirectory, token, pid, role) {
+function registerMember(lockDirectory, token, pid, role, processIdentity, registeredAt) {
   const owner = readJsonFile(path.join(lockDirectory, OWNER_FILE_NAME))
   if (!owner || owner.token !== token) return null
 
@@ -134,6 +132,8 @@ function registerMember(lockDirectory, token, pid, role) {
     role,
     token,
     heartbeatAt: new Date().toISOString(),
+    processIdentity,
+    registeredAt,
   })
   return memberPath
 }
@@ -142,10 +142,12 @@ export class DevSessionConflictError extends Error {
   constructor(owner, workspaceRoot) {
     const pid = Number.isInteger(owner?.pid) ? owner.pid : 'unknown'
     const mode = typeof owner?.mode === 'string' && owner.mode ? owner.mode : 'unknown'
+    const role = typeof owner?.role === 'string' && owner.role ? `, role ${owner.role}` : ''
     const url = typeof owner?.url === 'string' && owner.url ? owner.url : 'unavailable'
     super([
-      `Another Open Mercato dev session already owns this workspace (PID ${pid}, mode ${mode}, URL ${url}).`,
+      `Another Open Mercato dev session already owns this workspace (PID ${pid}, mode ${mode}${role}, URL ${url}).`,
       'Stop that session with Ctrl+C and retry, or use an isolated checkout with a separate database.',
+      'If its original terminal is gone, stop the live PID shown above before retrying.',
       `Workspace: ${workspaceRoot}`,
       'The conflicting launch stopped before build artifacts, runtime files, or the database were changed.',
     ].join('\n'))
@@ -161,33 +163,42 @@ function createHandle({ lockDirectory, owner, ownsLock, role }) {
 
   const trackPid = (pid, memberRole) => {
     if (!Number.isInteger(pid) || pid <= 0 || released) return null
-    const memberPath = registerMember(lockDirectory, owner.token, pid, memberRole)
+    const registeredAt = new Date().toISOString()
+    const processIdentity = getProcessIdentity(pid)
+    const memberPath = registerMember(lockDirectory, owner.token, pid, memberRole, processIdentity, registeredAt)
     if (!memberPath) return null
-    trackedMembers.set(pid, { memberPath, role: memberRole })
+    trackedMembers.set(pid, { memberPath, role: memberRole, processIdentity, registeredAt })
     return memberPath
   }
 
   trackPid(process.pid, role)
 
   const heartbeat = setInterval(() => {
+    const processes = readProcessTable()
     for (const [pid, member] of trackedMembers) {
-      if (!isProcessAlive(pid)) {
+      if (!matchesProcessRecord({ pid, processIdentity: member.processIdentity, registeredAt: member.registeredAt }, processes)) {
         trackedMembers.delete(pid)
         fs.rmSync(member.memberPath, { force: true })
         continue
       }
-      registerMember(lockDirectory, owner.token, pid, member.role)
+      registerMember(lockDirectory, owner.token, pid, member.role, member.processIdentity, member.registeredAt)
     }
   }, HEARTBEAT_INTERVAL_MS)
   heartbeat.unref?.()
 
   return {
     token: owner.token,
+    ownsLock,
     workspaceRoot: owner.workspaceRoot,
     owner,
     childEnv: {
       OM_DEV_SESSION_TOKEN: owner.token,
       OM_DEV_SESSION_WORKSPACE_ROOT: owner.workspaceRoot,
+    },
+    getProcessRecords(processes = readProcessTable()) {
+      const records = readMembers(lockDirectory)
+      return records.filter((record) => record.token === owner.token && record.pid !== process.pid
+        && (ownsLock || trackedMembers.has(record.pid)) && matchesProcessRecord(record, processes))
     },
     registerChild(child, childRole = 'managed-child') {
       const pid = child?.pid
@@ -203,8 +214,9 @@ function createHandle({ lockDirectory, owner, ownsLock, role }) {
       return withSessionAcquisition(lockDirectory, () => {
         released = true
         clearInterval(heartbeat)
+        const processes = readProcessTable()
         for (const [pid, member] of trackedMembers) {
-          if (pid === process.pid || !isProcessAlive(pid)) {
+          if (pid === process.pid || !matchesProcessRecord({ pid, processIdentity: member.processIdentity, registeredAt: member.registeredAt }, processes)) {
             fs.rmSync(member.memberPath, { force: true })
           }
         }
@@ -215,12 +227,13 @@ function createHandle({ lockDirectory, owner, ownsLock, role }) {
           && (ownsLock || (currentOwner.transferredAt && currentOwner.pid === process.pid))
         if (!canFinalizeOwnership) return
 
-        const survivingMember = findLiveMember(lockDirectory, null)
+        const survivingMember = findLiveMember(lockDirectory, { token: currentOwner.token }, process.pid)
         if (survivingMember) {
           writeJsonAtomically(ownerPath, {
             ...currentOwner,
             pid: survivingMember.pid,
             role: survivingMember.role,
+            processIdentity: survivingMember.processIdentity,
             transferredAt: new Date().toISOString(),
           })
           return
@@ -235,6 +248,8 @@ export function acquireDevSession({
   workspaceRoot = process.cwd(),
   mode = 'dev',
   url = null,
+  listenUrl = null,
+  bindHost = null,
   token = process.env.OM_DEV_SESSION_TOKEN?.trim() || null,
   role = 'dev-runner',
 } = {}) {
@@ -252,8 +267,11 @@ export function acquireDevSession({
           version: 1,
           token: token || randomUUID(),
           pid: process.pid,
+          processIdentity: getProcessIdentity(process.pid),
           mode,
           url,
+          listenUrl,
+          bindHost,
           workspaceRoot: canonicalWorkspaceRoot,
           startedAt: new Date().toISOString(),
         }
@@ -271,7 +289,7 @@ export function acquireDevSession({
 
       const liveMember = findLiveMember(lockDirectory, owner)
       if (liveMember) {
-        throw new DevSessionConflictError(owner ?? liveMember, canonicalWorkspaceRoot)
+        throw new DevSessionConflictError({ ...owner, ...liveMember, listenUrl: owner?.listenUrl ?? listenUrl }, canonicalWorkspaceRoot)
       }
 
       if (!owner) {
@@ -290,4 +308,75 @@ export function acquireDevSession({
 
     throw new DevSessionConflictError(readJsonFile(path.join(lockDirectory, OWNER_FILE_NAME)), canonicalWorkspaceRoot)
   })
+}
+
+async function probeListener(url) {
+  let address
+  try {
+    address = new URL(url)
+    if (!['http:', 'https:'].includes(address.protocol)) return null
+  } catch {
+    return null
+  }
+  const host = address.hostname.replace(/^\[|\]$/g, '')
+  const port = Number(address.port || (address.protocol === 'https:' ? 443 : 80))
+  const status = await new Promise((resolve) => {
+    const socket = createConnection({ host, port })
+    const finish = (state) => {
+      socket.destroy()
+      resolve(state)
+    }
+    socket.setTimeout(500, () => finish('unknown'))
+    socket.once('connect', () => finish('listening'))
+    socket.once('error', (error) => {
+      const refused = error.code === 'ECONNREFUSED'
+        || (Array.isArray(error.errors) && error.errors.length > 0 && error.errors.every((entry) => entry.code === 'ECONNREFUSED'))
+      const unsupported = ['EAFNOSUPPORT', 'EADDRNOTAVAIL', 'EPROTONOSUPPORT'].includes(error.code)
+        || (host === '::1' && error.code === 'ENETUNREACH')
+      finish(refused ? 'free' : unsupported ? 'unsupported' : 'unknown')
+    })
+  })
+  return { host, port, status }
+}
+
+async function probeBinding(port, bindHost) {
+  const host = bindHost ?? '::'
+  const status = await new Promise((resolve) => {
+    const server = createServer()
+    server.once('error', (error) => {
+      if (error.code === 'EADDRINUSE') resolve('occupied')
+      else if (['EAFNOSUPPORT', 'EADDRNOTAVAIL', 'EPROTONOSUPPORT'].includes(error.code)) resolve('unsupported')
+      else resolve('unknown')
+    })
+    server.listen({ host, port, exclusive: true, ...(host.includes(':') ? { ipv6Only: false } : {}) }, () => {
+      server.close(() => resolve('free'))
+    })
+  })
+  if (status === 'unsupported' && bindHost === null) return probeBinding(port, '0.0.0.0')
+  return status
+}
+
+export async function assertDevSessionPortAvailable(session) {
+  if (!session.ownsLock) return
+  const probe = await probeListener(session.owner.listenUrl ?? session.owner.url)
+  const wildcard = session.owner.bindHost === null || session.owner.bindHost === undefined || session.owner.bindHost === '::'
+  const ipv6 = wildcard && probe?.status === 'free' ? await probeListener(`http://[::1]:${probe.port}`) : null
+  const binding = probe?.status === 'free' && ipv6?.status !== 'listening' && ipv6?.status !== 'unknown'
+    ? await probeBinding(probe.port, session.owner.bindHost ?? null) : null
+  if (binding === 'free') return
+  session.release()
+  if (!probe || ['unknown', 'unsupported'].includes(probe.status) || ipv6?.status === 'unknown' || ['unknown', 'unsupported'].includes(binding)) {
+    throw new Error('Unable to verify the local app port. Check the local bind address and network permissions before starting dev; startup work did not run.')
+  }
+  throw new Error(`Port ${probe.port} at ${probe.host} already has a TCP listener or another bound socket. Stop that service or select another app port before starting dev. No process was stopped and startup work did not run.`)
+}
+
+export async function describeDevSessionConflict(error) {
+  if (!(error instanceof DevSessionConflictError)) return error instanceof Error ? error.message : String(error)
+  const probe = await probeListener(error.owner?.listenUrl ?? error.owner?.url)
+  if (!probe) return error.message
+  if (['unknown', 'unsupported'].includes(probe.status)) return `${error.message}\nTCP listener status at ${probe.host}:${probe.port} could not be determined; the live process still owns the workspace.`
+  return `${error.message}\n${probe.status === 'listening'
+    ? `TCP listener reached at ${probe.host}:${probe.port}.`
+    : `No TCP listener reached at ${probe.host}:${probe.port}; the live initializer, build, or cleanup process still owns the workspace.`}`
 }

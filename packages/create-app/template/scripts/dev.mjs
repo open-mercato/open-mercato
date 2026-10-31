@@ -31,7 +31,7 @@ import {
   resolveRequestedDevBundler,
 } from './dev-inotify-limits.mjs'
 import { DOCKER_PROBE_TIMEOUT_MS, classifyDockerProbe } from './dev-docker-availability.mjs'
-import { killProcessTree } from './dev-shutdown-utils.mjs'
+import { getSessionProcessTargets, killProcessTree, waitForProcessTreesExit } from './dev-shutdown-utils.mjs'
 import {
   MCP_DEFAULT_PORT,
   MCP_HEALTH_POLL_INTERVAL_MS,
@@ -70,11 +70,12 @@ import { createDevRuntimeGateway } from './dev-runtime-gateway.mjs'
 import { createDevRuntimeActionRunner } from './dev-runtime-actions.mjs'
 import { isMatchingDevRuntimeToken } from './dev-runtime-diagnostics.mjs'
 import {
+  formatBaseUrl,
   resolveDevBaseUrl,
   resolveSplashUrl as resolveSplashAccessUrl,
 } from './dev-splash-url.mjs'
 import { resolveDatabaseNameOverride } from './dev-database-url.mjs'
-import { acquireDevSession } from './dev-session-guard.mjs'
+import { acquireDevSession, assertDevSessionPortAvailable, describeDevSessionConflict } from './dev-session-guard.mjs'
 import { describeWatchMode, parseWatchScopeArgs, resolveWatchScope } from './watch-scope.mjs'
 import {
   DEFAULT_MEMORY_TRACE_OUT_DIR,
@@ -444,6 +445,12 @@ function resolveExpectedAppBaseUrl() {
   return resolveDevBaseUrl(process.env).url
 }
 
+function resolveLocalAppListenUrl() {
+  const hostname = gatewayMode && !['0.0.0.0', '::'].includes(splashBindHost) ? splashBindHost : '127.0.0.1'
+  const port = gatewayMode ? publicAppPort : (parsePortNumber(process.env.PORT) ?? 3000)
+  return formatBaseUrl({ protocol: 'http:', hostname, port })
+}
+
 function resolveRuntimeProbeBaseUrl() {
   return selectRuntimeProbeBaseUrl({
     upstreamPort: gatewayMode ? devUpstreamPort : null,
@@ -538,6 +545,8 @@ function spawnCommand(command, commandArgs, options = {}) {
     cwd: options.cwd ?? process.cwd(),
     env: {
       ...process.env,
+      ...devSession?.childEnv,
+      OM_DEV_PROCESS_OWNER_PID: String(process.pid),
       TURBO_NO_UPDATE_NOTIFIER: '1',
       ...(teeActive && process.stdout.isTTY && !process.env.FORCE_COLOR ? { FORCE_COLOR: '1' } : {}),
       ...options.env,
@@ -1646,7 +1655,7 @@ function shutdown(exitCode = 0) {
   shuttingDown = true
   announceShutdown()
 
-  const alive = Array.from(children).filter((child) => !child.killed)
+  const alive = [...children, ...getSessionProcessTargets(devSession)]
   if (alive.length === 0) {
     void finalizeDevProcess(exitCode)
     return
@@ -1656,12 +1665,12 @@ function shutdown(exitCode = 0) {
     killProcessTree(child, 'SIGTERM')
   }
 
-  setTimeout(() => {
-    for (const child of children) {
-      if (!child.killed) {
-        killProcessTree(child, 'SIGKILL')
-      }
+  setTimeout(async () => {
+    for (const child of alive) {
+      killProcessTree(child, 'SIGKILL')
     }
+    const exited = await waitForProcessTreesExit(alive)
+    if (!exited) console.error('Managed process cleanup could not confirm exit. Workspace ownership remains protected while recorded session processes are alive; stop them before retrying.')
     void finalizeDevProcess(exitCode)
   }, 3000)
 }
@@ -2875,10 +2884,13 @@ try {
     workspaceRoot: process.env.OM_DEV_SESSION_WORKSPACE_ROOT?.trim() || process.cwd(),
     mode: resolveDevSessionMode(),
     url: resolveExpectedAppBaseUrl(),
+    listenUrl: resolveLocalAppListenUrl(),
+    bindHost: gatewayMode ? splashBindHost : null,
     role: 'dev-runner',
   })
+  await assertDevSessionPortAvailable(devSession)
 } catch (error) {
-  console.error(`❌ ${error instanceof Error ? error.message : String(error)}`)
+  console.error(`❌ ${await describeDevSessionConflict(error)}`)
   process.exit(1)
 }
 

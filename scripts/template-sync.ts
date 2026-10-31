@@ -45,6 +45,11 @@ const EXPLICIT_TEMPLATE_FILE_MAPPINGS = [
     rel: 'scripts/dev-mcp.mjs',
   },
   {
+    sourceFile: path.join(ROOT, 'scripts', 'dev-process-state.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-process-state.mjs'),
+    rel: 'scripts/dev-process-state.mjs',
+  },
+  {
     sourceFile: path.join(ROOT, 'scripts', 'dev-session-guard.mjs'),
     templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-session-guard.mjs'),
     rel: 'scripts/dev-session-guard.mjs',
