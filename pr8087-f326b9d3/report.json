@@ -106,6 +106,7 @@
     "No real payment submission, external gateway, email delivery, mobile layout or stored production data exercised.",
     "Initial environment launcher selected Node26 through mise Yarn shim; torn down before QA, corrected local launcher to actual Node24/Yarn binaries and prepared fresh environment.",
     "First admin navigation waited for networkidle and timed out on the backend event-streaming page; replaced the harness wait with DOM-content-loaded plus actual detail-response and field assertions, without increasing any timeout or altering source/test assertions.",
-    "API TC-CHKT-045 is committed; browser privacy regression flow was exploratory and has no dedicated committed UI test."
+    "API TC-CHKT-045 is committed; browser privacy regression flow was exploratory and has no dedicated committed UI test.",
+    "Human QA reviewer required: shared STABLE API removal is inferred risk-high under om-auto-qa-pr even with current risk-medium label; automatic self-signoff is prohibited. No QA approval labels granted; parent owns risk normalization."
   ]
 }
