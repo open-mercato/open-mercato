@@ -1,3 +1,4 @@
+import { createRequire } from 'node:module'
 import { TiptapTransformer } from '@hocuspocus/transformer'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { getSchema, type Extensions, type JSONContent } from '@tiptap/core'
@@ -7,14 +8,23 @@ import {
   Node as ProseMirrorNode,
   type ParseOptions,
 } from '@tiptap/pm/model'
-import { Window } from 'happy-dom'
 import * as Y from 'yjs'
 import { deriveContentTextFromHtml } from './contentService'
 import { COLLAB_FRAGMENT_FIELD, getDocumentEditorExtensions } from './editorConfig'
 import { assertDocumentContentResourceLimits } from './resourceLimits'
 
-function createHtmlWindow(): Window {
-  return new Window({
+type HappyDomModule = typeof import('happy-dom')
+type HappyDomWindow = InstanceType<HappyDomModule['Window']>
+
+const requireFromHere = createRequire(import.meta.url)
+let happyDomModule: HappyDomModule | null = null
+
+function createHtmlWindow(): HappyDomWindow {
+  if (!happyDomModule) {
+    happyDomModule = requireFromHere('happy-dom') as HappyDomModule
+  }
+
+  return new happyDomModule.Window({
     settings: {
       disableJavaScriptEvaluation: true,
       disableJavaScriptFileLoading: true,
