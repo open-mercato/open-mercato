@@ -48,7 +48,7 @@ Without a formal CLI layer, official modules remain technically possible but ope
 
 ## Proposed Solution
 
-Introduce a `mercato module` command namespace with a manifest-driven install flow limited to official Open Mercato module packages.
+Introduce a `mercato module` command namespace with a manifest-driven install flow. Official Open Mercato module packages are accepted by default; third-party npm and GitHub sources require the explicit `--allow-third-party` opt-in and the same structural validation.
 
 Planned MVP command surface:
 
@@ -75,7 +75,6 @@ This spec explicitly defers:
 - `mercato.modules.json`
 - update discovery
 - outdated/upgrade/doctor lifecycle commands from SPEC-061
-- support for non-`@open-mercato/*` packages
 - automatic removal of the origin package after source extraction
 
 ### Design Decisions
@@ -86,7 +85,7 @@ This spec explicitly defers:
 | Eject copy scope | Copy module directory only, not whole npm package |
 | Resolver compatibility | Keep current `src/modules/<moduleId>` and `dist/modules/<moduleId>` contract |
 | App registration source of truth | Continue using app-level `src/modules.ts` |
-| Official package scope | Support only `@open-mercato/*` packages with explicit official module metadata |
+| Package trust boundary | Accept `@open-mercato/*` by default; require `--allow-third-party` for other canonical package names |
 | `--eject` package retention | Keep package installed after extraction |
 | Lifecycle state file | Deferred to SPEC-061 phase |
 
@@ -141,20 +140,13 @@ Rules:
 - `module enable` MUST NOT install dependencies; with `--eject`, it may also copy source into app `src/modules/`.
 - `module eject` is additive and MUST NOT remove or rename the existing top-level `eject` command.
 
-### Official Package Eligibility
+### Package Eligibility
 
-This MVP supports only official Open Mercato module packages.
+Official `@open-mercato/*` packages are accepted by default. A package with another canonical manifest name is eligible only when the operator passes `--allow-third-party`; that opt-in changes the trust boundary, not the structural checks.
 
-A package is eligible only if all conditions are met:
+Every package must have a valid manifest name, matching `src/modules/<moduleId>` and `dist/modules/<moduleId>` trees, a statically readable module descriptor, compiled runtime counterparts for generated source entrypoints, and available package-export targets for generated imports when an `exports` map is present.
 
-1. package name is under `@open-mercato/`
-2. package `package.json` contains an `open-mercato` block
-3. `open-mercato.kind === "module-package"`
-4. `open-mercato.moduleId` exists and matches the module folder
-5. package contains `dist/modules/<moduleId>`
-6. package contains `src/modules/<moduleId>`
-
-This explicit contract prevents accidental treatment of platform packages such as `@open-mercato/core` or `@open-mercato/ui` as installable optional modules.
+This explicit trust and structure contract prevents unrelated packages from being treated as installable modules while preserving deliberate multi-module selection such as `@open-mercato/core --module <moduleId>`.
 
 ### Package Manifest Contract
 
@@ -467,7 +459,7 @@ Compatibility rules:
 ### Phase 1 — Manifest and Registration Contract
 1. Add official module package manifest parser/validator in `packages/cli/src/lib/`.
 2. Add `src/modules.ts` update utility that is idempotent and preserves existing conditional pushes.
-3. Keep install validation limited to official manifest and module layout checks.
+3. Keep install validation limited to manifest, module layout, runtime-artifact and generated-export checks.
 
 ### Phase 2 — Package Mode Install
 1. Add `mercato module add` and `mercato module enable` command parsing in `packages/cli/src/mercato.ts`.
@@ -681,7 +673,7 @@ None.
 ### Phase 1 — Detailed Progress
 - [x] Step 1: Add official module package manifest parser/validator in `packages/cli/src/lib/`
 - [x] Step 2: Add `src/modules.ts` update utility that is idempotent and preserves existing conditional pushes
-- [x] Step 3: Keep install validation limited to official manifest and module layout checks
+- [x] Step 3: Keep install validation limited to manifest, module layout, runtime-artifact and generated-export checks
 
 ### Phase 2 — Detailed Progress
 - [x] Step 1: Add `mercato module add` and `mercato module enable` command parsing in `packages/cli/src/mercato.ts`
@@ -710,3 +702,4 @@ None.
 
 ### 2026-10-31
 - Rebuilt as focused replacement PR #8309 on current main. Retains locator/collision lifecycle behavior, CLI regression coverage, additive scaffold types and focused OMH-239 guidance; general harness controller/oracle/routing repairs and historical qualification dumps remain outside this change.
+- Clarified the implemented third-party opt-in and direct GitHub flows, and required compiled runtime counterparts for every generated source entrypoint before enablement.

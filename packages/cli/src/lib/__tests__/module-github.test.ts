@@ -32,6 +32,7 @@ test.each([
     locator: 'github:pkarw/consents', moduleIds: ['marketing_consents'],
   })
   expect(execute).toHaveBeenCalledWith('gh', ['api', `repos/pkarw/consents/contents/package.json?ref=${sha}`], expect.objectContaining({ cwd: '/app' }))
+  expect(execute).toHaveBeenCalledWith('gh', expect.any(Array), expect.objectContaining({ maxBuffer: 16 * 1024 * 1024 }))
 })
 
 test('resolves selected refs once and inspects the same immutable revision', () => {
@@ -69,6 +70,14 @@ test('rejects an exact GitHub revision denying a generated subpath before instal
     'src/modules/marketing_consents/index.ts', 'src/modules/marketing_consents/di.ts',
   ])
   expect(() => resolveGithubModuleTarget('github:pkarw/consents#main', '/app')).toThrow('@pkarw/consents/modules/marketing_consents/di')
+})
+
+test('allows source-only GitHub repositories to produce generated runtime artifacts during installation', () => {
+  mockGithub({ name: '@pkarw/consents', exports: { './modules/marketing_consents/*': './dist/modules/marketing_consents/*.js' } }, [
+    'src/modules/marketing_consents/index.ts', 'src/modules/marketing_consents/di.ts',
+  ])
+
+  expect(() => resolveGithubModuleTarget('github:pkarw/consents#main', '/app')).not.toThrow()
 })
 
 test('checks every active sibling against GitHub exports even when selecting another module', () => {

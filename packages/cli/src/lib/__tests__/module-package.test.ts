@@ -173,6 +173,17 @@ describe('module-package', () => {
     expect(() => resolveInstalledOfficialModulePackage(resolver, 'candidate_consents')).toThrow('candidate_consents/modules/test_package/index')
   })
 
+  it('rejects an installed package whose generated source entrypoint has no runtime artifact', () => {
+    const appDir = path.join(tmpDir, 'app')
+    const packageRoot = path.join(appDir, 'node_modules', 'candidate_consents')
+    copyDir(fixturePackageRoot, packageRoot)
+    fs.writeFileSync(path.join(packageRoot, 'src', 'modules', 'test_package', 'di.ts'), 'export const register = () => undefined\n')
+    fs.writeFileSync(path.join(packageRoot, 'package.json'), JSON.stringify({ name: '@open-mercato/test-package', exports: { './modules/test_package/*': './dist/modules/test_package/*.js' } }))
+    const resolver = { getAppDir: () => appDir, getPackageRoot: () => packageRoot } as unknown as PackageResolver
+
+    expect(() => resolveInstalledOfficialModulePackage(resolver, 'candidate_consents')).toThrow('candidate_consents/modules/test_package/di')
+  })
+
   it('accepts ESM import-only and nested node conditions without requiring CommonJS exports', () => {
     const files = ['dist/modules/consents/index.js', 'dist/modules/consents/di.js', 'esm/consents/index.mjs', 'esm/consents/di.mjs']
     const manifest = { exports: { './modules/consents/*': { types: './types/*.d.ts', node: { import: './esm/consents/*.mjs', require: null }, default: './dist/modules/consents/*.js' } } }
@@ -187,6 +198,17 @@ describe('module-package', () => {
 
     expect(() => assertModulePackageExports(blocked, 'consents_candidate', 'consents', files)).toThrow('consents_candidate/modules/consents/di')
     expect(() => assertModulePackageExports(missing, 'consents_candidate', 'consents', files)).toThrow('consents_candidate/modules/consents/index')
+  })
+
+  it('rejects a source-discovered generated entrypoint without a compiled runtime artifact', () => {
+    const files = [
+      'src/modules/consents/index.ts',
+      'src/modules/consents/di.ts',
+      'dist/modules/consents/index.js',
+    ]
+    const manifest = { exports: { './modules/consents/*': './dist/modules/consents/*.js' } }
+
+    expect(() => assertModulePackageExports(manifest, 'consents_candidate', 'consents', files)).toThrow('missing the compiled runtime entrypoint')
   })
 
   it('keeps private helper files private while validating generated convention imports', () => {

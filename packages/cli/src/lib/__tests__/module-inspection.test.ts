@@ -62,6 +62,23 @@ describe('module artifact inspection', () => {
     expect(() => inspectNpmModuleTarget(specifier, '@vendor/example', root)).toThrow('backend/orders/page')
   })
 
+  it.each(['directory', 'archive'])('rejects a %s artifact missing a generated runtime entrypoint', (kind) => {
+    const packageRoot = path.join(root, 'package')
+    for (const relativePath of ['src/modules/example/index.ts', 'src/modules/example/di.ts', 'dist/modules/example/index.js']) {
+      fs.mkdirSync(path.dirname(path.join(packageRoot, relativePath)), { recursive: true })
+      fs.writeFileSync(path.join(packageRoot, relativePath), 'export const value = true\n')
+    }
+    fs.writeFileSync(path.join(packageRoot, 'package.json'), JSON.stringify({
+      name: '@vendor/example',
+      version: '1.0.0',
+      exports: { './modules/example/*': './dist/modules/example/*.js' },
+    }))
+    if (kind === 'archive') childProcess.execFileSync('tar', ['-czf', path.join(root, 'candidate.tgz'), '-C', root, 'package'])
+    const specifier = '@vendor/example@file:./' + (kind === 'archive' ? 'candidate.tgz' : 'package')
+
+    expect(() => inspectNpmModuleTarget(specifier, '@vendor/example', root)).toThrow('missing the compiled runtime entrypoint')
+  })
+
   it('inspects file packages without executing package scripts or writing app files', () => {
     const packageRoot = path.join(root, 'candidate')
     fs.mkdirSync(path.join(packageRoot, 'src/modules/example'), { recursive: true })

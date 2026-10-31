@@ -428,7 +428,6 @@ export function assertModulePackageExports(
   packageFiles: readonly string[],
   readSource?: (relativePath: string) => string,
 ): void {
-  if (manifest.exports === undefined) return
   const normalizedFiles = new Set(packageFiles.map((file) => file.replaceAll('\\', '/').replace(/^\.\//, '')))
   const sourcePrefix = `src/modules/${moduleId}/`
   const distPrefix = `dist/modules/${moduleId}/`
@@ -444,12 +443,18 @@ export function assertModulePackageExports(
     }
     return source
   } : undefined
-  for (const relativePath of distFiles) {
-    const sourcePath = sourceFiles.length > 0
-      ? sourceFiles.find((file) => stripModuleCodeExtension(file) === stripModuleCodeExtension(relativePath))
-      : relativePath
-    if (!sourcePath || !isGeneratedModuleImport(sourcePath, moduleFiles, readModuleSource) || !/\.(?:jsx?|json)$/.test(relativePath)) continue
-    const publicPath = `./modules/${moduleId}/${stripModuleCodeExtension(relativePath)}`
+  const generatedCandidates = sourceFiles.length > 0 ? sourceFiles : distFiles
+  for (const sourcePath of generatedCandidates) {
+    if (!isGeneratedModuleImport(sourcePath, moduleFiles, readModuleSource)) continue
+    const isCode = /\.[jt]sx?$/.test(sourcePath)
+    const runtimePath = sourceFiles.length > 0 && isCode
+      ? distFiles.find((file) => /\.jsx?$/.test(file) && stripModuleCodeExtension(file) === stripModuleCodeExtension(sourcePath))
+      : sourcePath
+    const publicPath = `./modules/${moduleId}/${stripModuleCodeExtension(sourcePath)}`
+    if (!runtimePath) {
+      throw Object.assign(new Error(`Package binding "${binding}" cannot import "${binding}/${publicPath.slice(2)}": the package artifact is missing the compiled runtime entrypoint. Build the package before enabling it.`), { code: 'MODULE_PACKAGE_EXPORT_UNAVAILABLE' })
+    }
+    if (manifest.exports === undefined) continue
     const target = resolvePackageSubpathExport(manifest.exports, publicPath)
     if (!target || !normalizedFiles.has(target.slice(2))) {
       throw Object.assign(new Error(`Package binding "${binding}" cannot import "${binding}/${publicPath.slice(2)}": the package exports do not provide an available ESM target. Keep the current provider and use a package exposing this module subpath before enabling it.`), { code: 'MODULE_PACKAGE_EXPORT_UNAVAILABLE' })
