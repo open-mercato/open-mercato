@@ -218,6 +218,65 @@ describe('poll-channel worker behaviour', () => {
     expect(channel.lastPolledAt?.getTime() ?? 0).toBeGreaterThan(beforePoll.getTime())
   })
 
+  describe('adapter scope (#6331)', () => {
+    const tenantId = '22222222-2222-2222-2222-222222222222'
+    const organizationId = '33333333-3333-3333-3333-333333333333'
+
+    function makeScopedCtx(channel: Record<string, unknown>) {
+      const fetchHistory = jest.fn(async () => ({ messages: [] }))
+      const credentialsResolve = jest.fn(async () => ({}))
+      const { ctx, em } = makeCtx(channel, { providerKey: 'imap' }, fetchHistory)
+      const baseResolve = ctx.resolve
+      ctx.resolve = (<T>(name: string): T =>
+        name === 'integrationCredentialsService'
+          ? ({ resolve: credentialsResolve } as T)
+          : baseResolve<T>(name)) as typeof ctx.resolve
+      return { ctx, em, fetchHistory, credentialsResolve }
+    }
+
+    function makeChannel(channelOrganizationId: string | null) {
+      return {
+        id: 'c',
+        isActive: true,
+        status: 'connected',
+        providerKey: 'imap',
+        channelType: 'email',
+        capabilities: { realtimePush: false },
+        credentialsRef: 'cred-ref',
+        organizationId: channelOrganizationId,
+        userId: null,
+      }
+    }
+
+    it('passes organizationId: null to fetchHistory for a channel with no organization', async () => {
+      const { ctx, em, fetchHistory } = makeScopedCtx(makeChannel(null))
+      await handler(makeJob({ scope: { tenantId, organizationId: null } }), ctx)
+      expect(em.findOne.mock.calls[0][1]).toMatchObject({ tenantId, organizationId: null })
+      expect(fetchHistory).toHaveBeenCalledTimes(1)
+      expect(fetchHistory.mock.calls[0][0]).toMatchObject({
+        scope: { tenantId, organizationId: null },
+      })
+    })
+
+    it("passes the channel's organization to fetchHistory for an organization-scoped channel", async () => {
+      const { ctx, fetchHistory } = makeScopedCtx(makeChannel(organizationId))
+      await handler(makeJob({ scope: { tenantId, organizationId } }), ctx)
+      expect(fetchHistory.mock.calls[0][0]).toMatchObject({
+        scope: { tenantId, organizationId },
+      })
+    })
+
+    it('keeps resolving credentials of an organization-less channel under the tenant key they are written with', async () => {
+      const { ctx, credentialsResolve } = makeScopedCtx(makeChannel(null))
+      await handler(makeJob({ scope: { tenantId, organizationId: null } }), ctx)
+      expect(credentialsResolve).toHaveBeenCalledWith('channel_imap', {
+        tenantId,
+        organizationId: tenantId,
+        userId: null,
+      })
+    })
+  })
+
   // TC-CHANNEL-EMAIL-028 — a permanently-unprocessable message must not stall
   // the channel: it lands in the dead-letter table and the cursor advances.
   it('writes a dead-letter and advances the cursor on a PERMANENT ingest failure', async () => {

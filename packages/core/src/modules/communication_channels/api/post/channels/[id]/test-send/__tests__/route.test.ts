@@ -21,10 +21,13 @@ class ChannelAccessDeniedErrorMock extends Error {}
 
 const em = { fork: () => em }
 
+let credentialsService: { resolve: jest.Mock } | null = null
+
 const container = {
   resolve: jest.fn((name: string) => {
     if (name === 'em') return em
     if (name === 'rbacService') return { loadAcl: loadAclMock }
+    if (name === 'integrationCredentialsService' && credentialsService) return credentialsService
     throw new Error(`Unexpected container resolve: ${name}`)
   }),
 }
@@ -97,6 +100,7 @@ function invokeWithoutRecipient() {
 describe('POST /api/communication_channels/channels/[id]/test-send — recipient validation', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    credentialsService = null
     getAuthFromRequestMock.mockResolvedValue({
       sub: USER_ID,
       tenantId: TENANT_ID,
@@ -218,5 +222,89 @@ describe('POST /api/communication_channels/channels/[id]/test-send — recipient
     expect(response.status).toBe(422)
     expect(findOneWithDecryptionMock).not.toHaveBeenCalled()
     expect(validateRouteMutationGuardMock).not.toHaveBeenCalled()
+  })
+})
+
+// #6454: the system email env preset creates a tenant-wide channel with no
+// `credentials_ref` and saves the credentials separately under
+// `channel_<provider>`. The route skipped resolution for it, so the adapter got
+// `{}` and the test-send 502'd with a raw zod dump.
+describe('POST /api/communication_channels/channels/[id]/test-send — credential resolution', () => {
+  const SMTP_CREDENTIALS = { host: 'smtp.example.com', port: 587, fromAddress: 'noreply@example.com' }
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    credentialsService = { resolve: jest.fn(async () => SMTP_CREDENTIALS) }
+    getAuthFromRequestMock.mockResolvedValue({ sub: USER_ID, tenantId: TENANT_ID, orgId: ORGANIZATION_ID })
+    loadAclMock.mockResolvedValue({ isSuperAdmin: true, features: ['*'], organizations: null })
+    assertCanManageChannelMock.mockImplementation(() => {})
+    validateRouteMutationGuardMock.mockResolvedValue({ afterSuccess: afterSuccessMock })
+    refreshCredentialsIfNeededMock.mockImplementation(async ({ credentials }) => ({ credentials }))
+  })
+
+  function mockChannel(overrides: Record<string, unknown>) {
+    findOneWithDecryptionMock.mockResolvedValue({
+      id: CHANNEL_ID,
+      providerKey: 'smtp',
+      organizationId: ORGANIZATION_ID,
+      userId: null,
+      isActive: true,
+      status: 'connected',
+      credentialsRef: null,
+      ...overrides,
+    })
+  }
+
+  it('resolves provider credentials for a preset-created tenant-wide channel with no credentialsRef', async () => {
+    mockChannel({})
+    const adapter = buildAdapter('email')
+    getChannelAdapterMock.mockReturnValue(adapter)
+
+    const response = await invoke('qa@example.com')
+
+    expect(response.status).toBe(200)
+    expect(credentialsService?.resolve).toHaveBeenCalledWith('channel_smtp', {
+      tenantId: TENANT_ID,
+      organizationId: ORGANIZATION_ID,
+      userId: null,
+    })
+    expect(adapter.sendMessage.mock.calls[0][0].credentials).toEqual(SMTP_CREDENTIALS)
+  })
+
+  it('keys a tenant-wide channel with a NULL organization on the tenant id', async () => {
+    mockChannel({ organizationId: null })
+    getChannelAdapterMock.mockReturnValue(buildAdapter('email'))
+
+    await invoke('qa@example.com')
+
+    expect(credentialsService?.resolve).toHaveBeenCalledWith('channel_smtp', {
+      tenantId: TENANT_ID,
+      organizationId: TENANT_ID,
+      userId: null,
+    })
+  })
+
+  it('does not resolve credentials for a user-owned channel without a credentialsRef', async () => {
+    mockChannel({ providerKey: 'imap', userId: USER_ID })
+    const adapter = buildAdapter('email')
+    getChannelAdapterMock.mockReturnValue(adapter)
+
+    await invoke('qa@example.com')
+
+    expect(credentialsService?.resolve).not.toHaveBeenCalled()
+    expect(adapter.sendMessage.mock.calls[0][0].credentials).toEqual({})
+  })
+
+  it('still resolves credentials for a user-owned channel that carries a credentialsRef', async () => {
+    mockChannel({ providerKey: 'gmail', userId: USER_ID, credentialsRef: 'cred-1' })
+    getChannelAdapterMock.mockReturnValue(buildAdapter('email'))
+
+    await invoke('qa@example.com')
+
+    expect(credentialsService?.resolve).toHaveBeenCalledWith('channel_gmail', {
+      tenantId: TENANT_ID,
+      organizationId: ORGANIZATION_ID,
+      userId: USER_ID,
+    })
   })
 })

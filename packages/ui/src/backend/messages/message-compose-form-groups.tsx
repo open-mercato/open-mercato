@@ -184,6 +184,45 @@ function MarkdownBodySection({
   )
 }
 
+const PLATFORM_SENDER_VALUE = '__platform__'
+
+function SenderSelector({ compose }: ComposeProps) {
+  if (compose.senderOptions.length === 0) return null
+
+  const fieldError = compose.submitFieldErrors?.senderChannelId ?? null
+
+  return (
+    <div className="space-y-2">
+      <Label htmlFor="messages-compose-sender">{compose.t('messages.sendFrom', 'Send from')}</Label>
+      <Select
+        value={compose.senderChannelId || PLATFORM_SENDER_VALUE}
+        onValueChange={(value) => compose.setSenderChannelId(value === PLATFORM_SENDER_VALUE ? '' : value)}
+      >
+        <SelectTrigger id="messages-compose-sender" aria-invalid={fieldError ? true : undefined}>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={PLATFORM_SENDER_VALUE}>
+            {compose.t('messages.sendFromPlatform', 'Platform sender (default)')}
+          </SelectItem>
+          {compose.senderOptions.map((option) => (
+            <SelectItem key={option.id} value={option.id}>
+              {option.description ? `${option.label} (${option.description})` : option.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      {fieldError ? (
+        <p className="text-sm text-destructive" role="alert">{fieldError}</p>
+      ) : (
+        <p className="text-xs text-muted-foreground">
+          {compose.t('messages.sendFromHint', 'Replies to a message sent from your own mailbox come back into this thread.')}
+        </p>
+      )}
+    </div>
+  )
+}
+
 function ComposeModeFields({ compose }: ComposeProps) {
   return (
     <>
@@ -212,6 +251,8 @@ function ComposeModeFields({ compose }: ComposeProps) {
             <VisibilitySelector compose={compose} />
           </div>
         </div>
+
+        <SenderSelector compose={compose} />
 
         <ContextActionsSection compose={compose} />
       </div>

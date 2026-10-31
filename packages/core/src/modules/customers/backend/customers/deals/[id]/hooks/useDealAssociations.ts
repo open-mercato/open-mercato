@@ -42,7 +42,6 @@ type UseDealAssociationsResult = {
   companiesSaving: boolean
   handlePeopleAssociationsChange: (nextIds: string[]) => Promise<void>
   handleCompaniesAssociationsChange: (nextIds: string[]) => Promise<void>
-  loadLinkedPeoplePage: (page: number, query: string) => Promise<LinkedPageResult>
   loadLinkedCompaniesPage: (page: number, query: string) => Promise<LinkedPageResult>
 }
 
@@ -63,33 +62,6 @@ export function useDealAssociations({
     setPeopleEditorIds(data?.linkedPersonIds ?? [])
     setCompaniesEditorIds(data?.linkedCompanyIds ?? [])
   }, [data?.linkedCompanyIds, data?.linkedPersonIds])
-
-  const loadLinkedPeoplePage = React.useCallback(
-    async (page: number, query: string): Promise<LinkedPageResult> => {
-      if (!currentDealId) {
-        return { items: [], totalPages: 1, total: 0 }
-      }
-      const params = new URLSearchParams({
-        page: String(page),
-        pageSize: '20',
-        sort: 'name-asc',
-      })
-      if (query.trim().length > 0) {
-        params.set('search', query.trim())
-      }
-      const payload = await readApiResultOrThrow<{
-        items?: DealAssociation[]
-        total?: number
-        totalPages?: number
-      }>(`/api/customers/deals/${encodeURIComponent(currentDealId)}/people?${params.toString()}`)
-      return {
-        items: Array.isArray(payload.items) ? payload.items : [],
-        totalPages: typeof payload.totalPages === 'number' ? payload.totalPages : 1,
-        total: typeof payload.total === 'number' ? payload.total : 0,
-      }
-    },
-    [currentDealId],
-  )
 
   const loadLinkedCompaniesPage = React.useCallback(
     async (page: number, query: string): Promise<LinkedPageResult> => {
@@ -147,11 +119,13 @@ export function useDealAssociations({
               }
             : prev,
         )
-        // runMutationWithContext already surfaces the conflict bar on a 409; only
-        // fall back to the generic flash when this is not a record conflict.
         if (!surfaceRecordConflict(error, t, { onRefresh })) {
-          flash(t('customers.deals.detail.peopleUpdateError', 'Failed to update linked people.'), 'error')
+          const message = error instanceof Error && error.message
+            ? error.message
+            : t('customers.deals.detail.peopleUpdateError', 'Failed to update linked people.')
+          flash(message, 'error')
         }
+        throw error
       } finally {
         setPeopleSaving(false)
       }
@@ -188,11 +162,13 @@ export function useDealAssociations({
               }
             : prev,
         )
-        // runMutationWithContext already surfaces the conflict bar on a 409; only
-        // fall back to the generic flash when this is not a record conflict.
         if (!surfaceRecordConflict(error, t, { onRefresh })) {
-          flash(t('customers.deals.detail.companiesUpdateError', 'Failed to update linked companies.'), 'error')
+          const message = error instanceof Error && error.message
+            ? error.message
+            : t('customers.deals.detail.companiesUpdateError', 'Failed to update linked companies.')
+          flash(message, 'error')
         }
+        throw error
       } finally {
         setCompaniesSaving(false)
       }
@@ -216,7 +192,6 @@ export function useDealAssociations({
     companiesSaving,
     handlePeopleAssociationsChange,
     handleCompaniesAssociationsChange,
-    loadLinkedPeoplePage,
     loadLinkedCompaniesPage,
   }
 }

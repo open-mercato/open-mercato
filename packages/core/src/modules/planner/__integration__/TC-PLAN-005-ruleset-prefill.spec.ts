@@ -12,6 +12,7 @@ import {
 
 test.describe('TC-PLAN-005: Availability editor hydrates saved rule set', () => {
   test('shows the saved rule set when it is outside the first loaded options page', async ({ page, request }) => {
+    test.setTimeout(90_000)
     const token = await getAuthToken(request, 'admin')
     const stamp = Date.now()
     const ruleSetIds: string[] = []
@@ -63,8 +64,10 @@ test.describe('TC-PLAN-005: Availability editor hydrates saved rule set', () => 
       await expect(ruleSetSelect).toContainText(selectedRuleSetName)
     } finally {
       await deleteStaffEntityIfExists(request, token, '/api/staff/team-members', memberId)
-      for (const ruleSetId of ruleSetIds.reverse()) {
-        await deleteAvailabilityRuleSetIfExists(request, token, ruleSetId)
+      for (let start = 0; start < ruleSetIds.length; start += 25) {
+        await Promise.all(
+          ruleSetIds.slice(start, start + 25).map((ruleSetId) => deleteAvailabilityRuleSetIfExists(request, token, ruleSetId)),
+        )
       }
     }
   })

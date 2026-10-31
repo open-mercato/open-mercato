@@ -222,6 +222,21 @@ async function emitStepMilestone(em: EntityManager, stepInstance: StepInstance):
   }
 }
 
+/**
+ * `step_instances.execution_time_ms` is a Postgres `integer`, so a step that
+ * lasted 2^31 ms (~24.86 days) or longer cannot be stored there — the flush
+ * that completes the step would throw after its task already committed,
+ * stranding the run. Such a duration persists as `null` (every reader already
+ * falls back to `exitedAt - enteredAt`); the exact value still travels on the
+ * `STEP_EXITED` event, whose payload is jsonb.
+ */
+export const MAX_PERSISTED_EXECUTION_TIME_MS = 2_147_483_647
+
+export function toPersistableExecutionTimeMs(executionTimeMs: number | null): number | null {
+  if (executionTimeMs === null || !Number.isFinite(executionTimeMs)) return null
+  return Math.abs(executionTimeMs) > MAX_PERSISTED_EXECUTION_TIME_MS ? null : executionTimeMs
+}
+
 export async function exitStep(
   em: EntityManager,
   stepInstance: StepInstance,
@@ -239,7 +254,7 @@ export async function exitStep(
   stepInstance.status = 'COMPLETED'
   stepInstance.outputData = outputData || null
   stepInstance.exitedAt = now
-  stepInstance.executionTimeMs = executionTimeMs
+  stepInstance.executionTimeMs = toPersistableExecutionTimeMs(executionTimeMs)
   stepInstance.updatedAt = now
 
   await em.flush()
@@ -1384,6 +1399,9 @@ async function handleWaitForSignalStep(
  *
  * Reads `duration` (relative, e.g. "PT5M") or `until` (ISO 8601 datetime) from
  * `stepDef.config` (preferred — matches StepsEditor) or `stepDef.timerConfig`.
+ * Either value may be a `{{...}}` template: the definition validator accepts
+ * templates there, so they are resolved here, once, against the run context
+ * with the definition's interpolation mode.
  * Enqueues a delayed timer job on the workflow-activities queue; when the job
  * is processed by the activity worker, it calls `timerHandler.fireTimer` to
  * resume the workflow.
@@ -1397,10 +1415,8 @@ async function handleWaitForTimerStep(
   branch?: WorkflowBranchInstance | null
 ): Promise<StepExecutionResult> {
   const timerConfig = stepDef.config || stepDef.timerConfig || {}
-  const duration: string | undefined = timerConfig.duration
-  const until: string | undefined = timerConfig.until
 
-  if (!duration && !until) {
+  if (!timerConfig.duration && !timerConfig.until) {
     throw new StepExecutionError(
       'WAIT_FOR_TIMER requires either "duration" (e.g., "PT5M") or "until" (ISO 8601 datetime)',
       'TIMER_CONFIG_MISSING',
@@ -1408,20 +1424,15 @@ async function handleWaitForTimerStep(
     )
   }
 
-  let fireAtMs: number
-  if (until) {
-    const targetDate = new Date(until)
-    if (isNaN(targetDate.getTime())) {
-      throw new StepExecutionError(
-        `WAIT_FOR_TIMER invalid "until" datetime: ${until}`,
-        'TIMER_CONFIG_INVALID',
-        { until }
-      )
-    }
-    fireAtMs = targetDate.getTime()
-  } else {
-    fireAtMs = Date.now() + parseDuration(duration as string)
-  }
+  const { interpolateVariables } = await import('./activity-executor')
+  const resolveTimerValue = (value: unknown): unknown =>
+    value ? interpolateVariables(value, context.workflowContext, instance, { mode: context.interpolationMode }) : undefined
+  const duration = resolveTimerValue(timerConfig.duration)
+  const until = resolveTimerValue(timerConfig.until)
+
+  const fireAtMs = timerConfig.until
+    ? resolveTimerUntilMs(until, stepDef.stepId)
+    : Date.now() + resolveTimerDurationMs(duration, stepDef.stepId)
 
   const delayMs = fireAtMs - Date.now()
   const fireAt = new Date(fireAtMs)
@@ -1491,6 +1502,34 @@ async function handleWaitForTimerStep(
       until,
       jobId,
     },
+  }
+}
+
+function resolveTimerUntilMs(until: unknown, stepId: string | undefined): number {
+  const targetDate =
+    until instanceof Date ? until : typeof until === 'string' || typeof until === 'number' ? new Date(until) : null
+  if (!targetDate || isNaN(targetDate.getTime())) {
+    throw new StepExecutionError(
+      `WAIT_FOR_TIMER invalid "until" datetime: ${String(until)}`,
+      'TIMER_CONFIG_INVALID',
+      { stepId, until }
+    )
+  }
+  return targetDate.getTime()
+}
+
+function resolveTimerDurationMs(duration: unknown, stepId: string | undefined): number {
+  const invalidDuration = (reason: string) =>
+    new StepExecutionError(
+      `WAIT_FOR_TIMER invalid "duration": ${String(duration)}`,
+      'TIMER_CONFIG_INVALID',
+      { stepId, duration, reason }
+    )
+  if (typeof duration !== 'string') throw invalidDuration('the duration is not a string')
+  try {
+    return parseDuration(duration)
+  } catch (error) {
+    throw invalidDuration(error instanceof Error ? error.message : String(error))
   }
 }
 
@@ -1716,10 +1755,15 @@ function mapOutputData(
 }
 
 /**
- * Map a completed sub-workflow's child context to parent output and validate it
- * against the child's declared output ports. Shared by the synchronous
- * (inline) completion branch in `handleSubWorkflowStep` and the async parent
- * resume path so both apply identical mapping/validation rules. Returns the
+ * Validate a completed sub-workflow's child context against the child's
+ * declared output ports, then map it to parent output. Shared by the
+ * synchronous (inline) completion branch in `handleSubWorkflowStep` and the
+ * async parent resume path so both apply identical mapping/validation rules.
+ *
+ * Output ports are named in the CHILD's vocabulary, while `outputMapping` is
+ * `{ parentKey: childPath }`, so validation and coercion run on the child
+ * context before mapping — validating the mapped result would look ports up
+ * under caller-chosen parent keys and reject any renamed mapping. Returns the
  * mapped `outputData` on success or an `error` message on port-validation
  * failure (never throws).
  */
@@ -1728,15 +1772,15 @@ export function mapSubWorkflowOutput(
   outputMapping: Record<string, string>,
   ioContract?: WorkflowIoContract
 ): { outputData: Record<string, any>; error?: undefined } | { outputData?: undefined; error: string } {
-  let outputData = mapOutputData(childContext, outputMapping || {})
+  let childOutput = childContext
 
   if (ioContract?.outputs?.length) {
-    const { coerced, errors } = validateAgainstPorts(outputData, ioContract.outputs)
+    const { coerced, errors } = validateAgainstPorts(childContext, ioContract.outputs)
     if (errors.length > 0) {
       return { error: `Sub-workflow output validation failed: ${errors.map((e) => e.message).join('; ')}` }
     }
-    outputData = coerced
+    childOutput = coerced
   }
 
-  return { outputData }
+  return { outputData: mapOutputData(childOutput, outputMapping || {}) }
 }

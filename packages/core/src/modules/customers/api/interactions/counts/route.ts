@@ -6,9 +6,11 @@ import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/er
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { applyEmailVisibilityFilter } from '../../../lib/visibilityFilter'
+import { listGrantsForViewer, listSharedChannelIds } from '../../../lib/conversationShares'
 import { TERMINAL_INTERACTION_STATUS_LIST } from '../../../lib/interactionStatus'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
@@ -70,11 +72,13 @@ export async function GET(req: Request) {
     }
 
     const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
-    const organizationIds = Array.isArray(scope?.filterIds) && scope.filterIds.length > 0
-      ? scope.filterIds
-      : auth.orgId
-        ? [auth.orgId]
-        : []
+    const { organizationIds } = resolveOrganizationScopeFilter(scope, auth)
+    if (organizationIds?.length === 0) {
+      return NextResponse.json({
+        ok: true,
+        result: { call: 0, email: 0, meeting: 0, note: 0, task: 0, total: 0 },
+      })
+    }
     const em = (container.resolve('em') as EntityManager).fork()
     const kysely = em.getKysely<any>()
 
@@ -84,9 +88,9 @@ export async function GET(req: Request) {
       .where('tenant_id', '=', auth.tenantId)
       .where('deleted_at', 'is', null)
 
-    if (organizationIds.length === 1) {
+    if (organizationIds?.length === 1) {
       baseQuery = baseQuery.where('organization_id', '=', organizationIds[0])
-    } else if (organizationIds.length > 1) {
+    } else if (organizationIds && organizationIds.length > 1) {
       baseQuery = baseQuery.where('organization_id', 'in', organizationIds)
     }
 
@@ -100,9 +104,23 @@ export async function GET(req: Request) {
     // per-type counts so the `email` total matches the visibility-filtered list.
     // v1 strict owner-only — no admin bypass (the filter ignores caller features).
     const viewerUserId = auth.isApiKey ? null : auth.sub ?? null
+    // Conversation shares must widen the counts too, or the `email` total would
+    // disagree with the visibility-filtered list it labels.
+    const emailShareScope = {
+      tenantId: auth.tenantId as string,
+      // Grants are org-scoped; with a multi-org scope fall back to tenant-wide
+      // (the predicate still matches on person + owner, never on org alone).
+      organizationId: organizationIds?.length === 1 ? organizationIds[0] : null,
+    }
+    const [emailShareGrants, emailSharedChannelIds] = await Promise.all([
+      listGrantsForViewer(em, emailShareScope, viewerUserId),
+      listSharedChannelIds(em, emailShareScope, viewerUserId),
+    ])
     baseQuery = applyEmailVisibilityFilter(baseQuery, {
       currentUserId: viewerUserId,
       userFeatures: undefined,
+      sharedConversations: emailShareGrants,
+      sharedChannelIds: emailSharedChannelIds,
     })
 
     // Raw SELECT: reads only unencrypted columns (id, interaction_type); title/notes are excluded to avoid ciphertext leakage.

@@ -186,7 +186,7 @@ export default async function handle(
       channelState: (channel.channelState as Record<string, unknown> | null) ?? undefined,
       scope: {
         tenantId: scope.tenantId,
-        organizationId: scope.organizationId ?? scope.tenantId,
+        organizationId: channel.organizationId ?? null,
       },
       // `contactFilter.sinceDays` is a hint to provider adapters about how far
       // back to look on first-poll bootstrap. For UID-incremental polls (every

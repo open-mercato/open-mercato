@@ -201,6 +201,23 @@ describe('acting on work that is yours', () => {
   })
 })
 
+describe('completing a task whose run is closed', () => {
+  test('the handler refusal is a 409 carrying its code, not a 500', async () => {
+    setTask(makeTask({ assignedTo: USER_ID, assignedToRoles: null }))
+    taskHandler.completeUserTask.mockImplementation(async () => {
+      throw Object.assign(new Error('Workflow is no longer active'), {
+        code: 'WORKFLOW_NOT_ACTIVE',
+      })
+    })
+
+    const { status, body } = await bodyAndStatus(await runComplete())
+
+    expect(taskHandler.completeUserTask).toHaveBeenCalledTimes(1)
+    expect(status).toBe(409)
+    expect(body).toEqual({ error: 'Workflow is no longer active', code: 'WORKFLOW_NOT_ACTIVE' })
+  })
+})
+
 describe('acting on work that is not yours', () => {
   test('a colleague in the same queue cannot complete what the claimant claimed', async () => {
     // The owner is `claimedBy ?? assignedTo`. Holding the queued role gets you
@@ -411,5 +428,30 @@ describe('act-gate cost', () => {
 
     expect(stubs.rbacService.loadAcl).toHaveBeenCalledTimes(1)
     expect(stubs.execute).not.toHaveBeenCalled()
+  })
+})
+
+describe('an explicitly empty organization scope', () => {
+  beforeEach(() => {
+    const {
+      resolveOrganizationScopeForRequest,
+    } = require('@open-mercato/core/modules/directory/utils/organizationScope')
+    resolveOrganizationScopeForRequest.mockResolvedValue({ selectedId: null, filterIds: [], allowedIds: [] })
+    setTask(makeTask({ status: 'IN_PROGRESS', claimedBy: USER_ID }))
+  })
+
+  test('claim answers 403, not 500', async () => {
+    const { status, body } = await bodyAndStatus(await runClaim())
+
+    expect(status).toBe(403)
+    expect(body).toEqual({ error: 'Forbidden' })
+    expect(taskHandler.claimUserTask).not.toHaveBeenCalled()
+  })
+
+  test('unclaim and complete answer 403, not 500', async () => {
+    expect((await runUnclaim()).status).toBe(403)
+    expect((await runComplete()).status).toBe(403)
+    expect(taskHandler.releaseUserTask).not.toHaveBeenCalled()
+    expect(taskHandler.completeUserTask).not.toHaveBeenCalled()
   })
 })

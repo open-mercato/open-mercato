@@ -134,4 +134,22 @@ describe('sales document-history route authorization', () => {
     const noteFilter = (findWithDecryption as jest.Mock).mock.calls[0][2]
     expect(noteFilter).not.toHaveProperty('organizationId')
   })
+
+  it('denies an explicit empty scope before RBAC, action-log, or note data calls', async () => {
+    ;(resolveOrganizationScopeForRequest as jest.Mock).mockResolvedValue({
+      selectedId: null,
+      allowedIds: [],
+      filterIds: [],
+      tenantId: 'tenant-1',
+    })
+
+    const response = await GET(requestFor('order'))
+
+    expect(response.status).toBe(403)
+    await expect(response.json()).resolves.toEqual({ error: 'Forbidden' })
+    expect(mockRbac.userHasAllFeatures).not.toHaveBeenCalled()
+    expect(mockActionLogService.list).not.toHaveBeenCalled()
+    expect(mockEm.fork).not.toHaveBeenCalled()
+    expect(findWithDecryption).not.toHaveBeenCalled()
+  })
 })

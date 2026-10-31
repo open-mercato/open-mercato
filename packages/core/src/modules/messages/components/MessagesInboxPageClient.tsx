@@ -15,6 +15,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
+import { useAppEventCoalesced } from '@open-mercato/ui/backend/injection/useAppEventCoalesced'
 import { Archive, ChevronDown, FilePenLine, Inbox, Layers, Send } from 'lucide-react'
 import { getMessageUiComponentRegistry } from './utils/typeUiRegistry'
 import { DefaultMessageListItem } from './defaults/DefaultMessageListItem'
@@ -44,6 +45,7 @@ type MessageListItem = {
   sourceEntityType?: string | null
   priority: string
   status: string
+  isDraft: boolean
   hasObjects: boolean
   objectCount: number
   hasAttachments: boolean
@@ -90,8 +92,9 @@ export function MessagesInboxPageClient() {
     void queryClient.invalidateQueries({ queryKey: ['messages', 'list'] })
   }, [queryClient])
 
-  useAppEvent('messages.message.*', invalidateMessageListQueries, [invalidateMessageListQueries])
+  useAppEventCoalesced('messages.message.*', invalidateMessageListQueries, [invalidateMessageListQueries])
 
+  // Reconnect means events were missed while offline, so it refreshes uncoalesced.
   useAppEvent('om:bridge:reconnected', invalidateMessageListQueries, [invalidateMessageListQueries])
 
   const [folder, setFolder] = React.useState<MessageFolder>('inbox')
@@ -302,6 +305,7 @@ export function MessagesInboxPageClient() {
               bodyFormat: 'text' as const,
               priority: (item.priority as 'low' | 'normal' | 'high' | 'urgent') ?? 'normal',
               sentAt: item.sentAt ? new Date(item.sentAt) : null,
+              isDraft: item.isDraft,
               senderName: getMessageListParticipantLabel(item, folder, t),
               hasObjects: item.hasObjects,
               objectCount: item.objectCount,

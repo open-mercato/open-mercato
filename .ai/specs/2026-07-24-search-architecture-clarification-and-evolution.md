@@ -71,13 +71,58 @@ Prerequisites for the fulltext path to actually drain: `QUEUE_STRATEGY=async` + 
 
 - **Global search / Cmd+K palette** — `GET /api/search/global` uses the tenant's saved strategy set (default `['fulltext','vector','tokens']`; ignores URL `strategies`). `GET /api/search` accepts a `strategies` override. Fulltext (Meili) is the intended fuzzy/typo-tolerant backend; tokens participate as an always-available fallback.
 - **AI assistant** — `search.hybrid_search` / `search.get_record_context` tools resolve the same `SearchService`.
-- **DataTable list / column filters** — do **not** go through `SearchService`. List routes for customers, auth users, customer accounts, messages, checkout transactions, and inbox proposals query **`search_tokens` directly** (hash-token lookup) because searchable PII columns are **encrypted at rest**, so `ILIKE` on ciphertext can't match plaintext. The shared `findEntityIdsBySearchTokens` helper applies field and tenant/organization scope consistently. This is why tokens must always exist even when Meili is configured. With `OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS=true` (default false) the query engines route only *encrypted* base columns through tokens; plaintext base columns run exact SQL ILIKE — token matching is approximate (prefix-based, word-order independent, fragments under `OM_SEARCH_MIN_LEN` vanish), which over-matches short document numbers.
+- **DataTable list / column filters** — do **not** go through `SearchService`. List routes for customers, auth users, customer accounts, messages, checkout transactions, and inbox proposals query **`search_tokens` directly** (hash-token lookup) because searchable PII columns are **encrypted at rest**, so `ILIKE` on ciphertext can't match plaintext. The shared `findEntityIdsBySearchTokens` helper applies field and tenant/organization scope consistently. This is why tokens must always exist even when Meili is configured. With `OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS=true` (**off by default per #5383**, pending making tokenization ILIKE-equivalent) the query engines route only *encrypted* base columns through tokens; plaintext base columns run SQL ILIKE, one containment predicate per word of the term, ANDed (`lib/search/containment`). Token matching is approximate (prefix-based, fragments under `OM_SEARCH_MIN_LEN` vanish), which can over-match short document numbers badly enough to return the *wrong* record (`?search=2026-08` answering with the `2026-01` row — #5803) — a deployment that hits this can opt in ahead of #5383. The per-word ANDing is what preserves the token path's word-order independence when enabled — `?search=Warehouse 12` still matches `Warehouse A 12`, which `TC-RESO-009` pins — so only prefix expansion is given up. Leaving the var unset keeps the legacy rewrite for every column.
 - **Non-canonical creation events** — modules whose lifecycle event does not use the canonical `<module>.<entity>.created` entity name must add an explicit subscriber that emits `query_index.upsert_one`. Checkout transactions (`checkout.transaction.created`) and inbox proposals (`inbox_ops.proposal.created`) use this bridge so direct token lookups stay current.
 - **Exact-match on encrypted PII** (`fieldPolicy.hashOnly`: email, phone, tax_id) — served by token-hash presence (list routes require **all** query tokens to match; `TokenSearchStrategy` uses a 50% `minMatchRatio`), plus a dedicated `emailHash` column for email exact lookups.
 
 ### A.4 Configuration surface
 
-Six env vars (`packages/shared/src/lib/search/config.ts`) are **token/Postgres-only** — none affect fulltext or vector:
+#### Customer vector privacy invariant (#7826)
+
+Custom `buildSource` functions must enforce their own allowlists: the default
+vector source's `fieldPolicy` filtering does not sanitize custom text. Person and
+company sources now select approved scalar fields, with `hashOnly`/`excluded`
+taking precedence across snake/camel and custom-field prefixes. Fields declared
+encrypted by the module are excluded from embedding text, including encrypted
+names. Sources resolve the live tenant/organization encryption policy for both the
+profile and related customer entity, union it with module defaults, and normalize
+field aliases before exclusion. Search DI supplies the existing `container` context
+to source callbacks. Tenant-wide indexing also unions organization declarations
+from the loaded profile/related rows; row scope never replaces the trusted tenant
+or weakens the context's exclusions. A missing policy dependency or failed lookup
+skips vector writes. Person/company vector writes are also skipped when `TENANT_DATA_ENCRYPTION`
+is disabled, because the real policy service returns no declarations in that state.
+Encryption-at-rest behavior is unchanged; other search strategies continue.
+Related customer contact details and arbitrary record/custom-field fallback
+serialization are excluded. Customer-account source text uses the account ID;
+email stays hash-only. Presenters retain permitted display names but no contact
+email or phone, and source checksums use only the resulting safe source/presenter.
+
+The legacy `VectorIndexService` also applies the existing field-policy filter to
+snapshot, title, and subtitle fallback fields, including sources without a presenter.
+Regression tests call the real customer source
+builders through `SearchIndexer` → `SearchService` → `VectorSearchStrategy`, with a
+fake embedding provider and captured vector driver writes. These tests
+cover direct, by-ID, and bulk entry points. Bulk indexing shares source preparation
+with single-record indexing. Configured source errors, null, and empty text skip
+vector embedding rather than activating raw-field fallback; other strategies still
+run. Provider-boundary tests exercise these cases through single, by-ID, queued
+batch, and bulk paths, plus scoped live encryption additions and lookup failures.
+Real-service regressions cover the encryption toggle both on and off, with an
+unhealthy fake KMS, active scoped declarations, and captured provider/write boundaries.
+Read-time presenter fallback also applies `fieldPolicy` after formatter failures.
+Direct builder tests
+cover aliases, sparse records, policy precedence, and nested values. Legacy service
+tests cover excluded, hash-only, and unlisted snapshot fields. No live customer
+data or external embedding call is required for these checks.
+
+Migration & Backward Compatibility: search registration, entity IDs, types, API
+routes, database schema, and tenant/organization scoping remain unchanged. Existing
+vectors and presenter metadata require operator purge and reindex after all
+workers are upgraded; see `UPGRADE_NOTES.md` (#7826). No destructive remediation
+runs automatically, and provider retention must be handled separately.
+
+Seven env vars (`packages/shared/src/lib/search/config.ts`) are **token/Postgres-only** — none affect fulltext or vector:
 
 | Env var | Default | Controls |
 |---|---|---|
@@ -87,6 +132,7 @@ Six env vars (`packages/shared/src/lib/search/config.ts`) are **token/Postgres-o
 | `OM_SEARCH_HASH_ALGO` | `sha256` | Token hash algorithm (`sha1`/`md5` accepted). |
 | `OM_SEARCH_STORE_RAW_TOKENS` | `false` | Stores plaintext token alongside the hash — **security-sensitive** (plaintext of otherwise-hashed values). |
 | `OM_SEARCH_FIELD_BLOCKLIST` | `[]` (+ built-in `password,token,secret,hash`) | Extra field names excluded from tokenization. |
+| `OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS` | `false` | Set to `true` to apply a declared base-column `like`/`ilike` on a **plaintext** column as SQL ILIKE, one containment predicate per word of the term, instead of the legacy rewrite-everything behavior — fixes #5803 ahead of #5383, which will make tokenization ILIKE-equivalent so this can default on. |
 
 Fulltext/vector are configured by a **disjoint** set: `MEILISEARCH_HOST` / `MEILISEARCH_API_KEY` / `MEILISEARCH_INDEX_PREFIX`, `SEARCH_EXCLUDE_ENCRYPTED_FIELDS`, embedding-provider vars (`OPENAI_API_KEY`, Ollama), and `QUEUE_STRATEGY` / `REDIS_URL`. (`OM_SEARCH_DEBUG` is read in query_index, not `config.ts`.)
 
@@ -242,6 +288,12 @@ Memoization is per engine instance; engines are constructed per request (`create
 - **Phase 4 (when implemented)**: `yarn workspace @open-mercato/shared test` + `yarn workspace @open-mercato/core test`; the four probe-count tests from #4723 pass without modification; new `BasicQueryEngine` parity and memoization tests as listed in B.4; no integration tests required (no API/DB/UI surface changes — same exemption #4723 claims).
 
 ## Changelog
+
+- 2026-10-29 — Made person/company vector sources fail closed when the encryption toggle disables declaration lookup; added real-service coverage for active maps across four indexing entry points and documented the skipped-vector behavior.
+
+- 2026-10-28 — Closed independent-review gaps for #7826: scoped live encryption declarations, config-aware bulk sources, fail-closed source errors/null/empty text, and protected read-time presenter fallback.
+
+- 2026-10-27 — Added the customer vector privacy invariant and #7826 regression/remediation contract: allowlisted sources and presenters, encrypted-field exclusion from embedding text, policy-filtered snapshot fallback, and operator purge/reindex.
 
 - 2026-07-24 — Initial draft: current-architecture clarification (Part A) + evolution roadmap (Part B).
 - 2026-07-31 — Added Phase 4 (B.4): unified read-path token-availability resolver shared by both query engines — makes the #4723 probe gate structural, extends it to `BasicQueryEngine`, and gives the future durable probe fix a single landing site. Renumbered the decision matrix to B.5 and added its row.

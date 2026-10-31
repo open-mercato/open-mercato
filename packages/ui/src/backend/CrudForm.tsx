@@ -99,13 +99,17 @@ import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import { parseLocaleNumber, resolveLocaleNumberSeparators } from '@open-mercato/shared/lib/number'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { useInjectionDataWidgets } from './injection/useInjectionDataWidgets'
+import { mergeInjectionEventParticipants } from './injection/injectionEventParticipants'
+import { useRegisteredComponent } from './injection/useRegisteredComponent'
+import { isResponseEnricherNamespace } from '@open-mercato/shared/lib/crud/response-enricher-namespaces'
 import { CollapsibleGroup, type CollapsibleGroupHandle } from './crud/CollapsibleGroup'
 import { SortableGroupHandleProvider, type SortableGroupHandleProps } from './crud/SortableGroupHandle'
 import { useGroupOrder } from './crud/useGroupOrder'
 import { InjectedField } from './injection/InjectedField'
 import type { InjectionFieldDefinition, FieldContext } from '@open-mercato/shared/modules/widgets/injection'
-import { insertByInjectionPlacement } from '@open-mercato/shared/modules/widgets/injection-position'
+import { placeInjectedFieldsInGroups, type InjectedFieldWidgetPlacement } from './crud/injectedFieldGroups'
 import { evaluateInjectedVisibility } from './injection/visibility-utils'
 import { ComponentReplacementHandles } from '@open-mercato/shared/modules/widgets/component-registry'
 import { crudFormExtensionSpotId, extensionSpotChildId } from '@open-mercato/shared/modules/widgets/extension-points'
@@ -293,6 +297,10 @@ export type CrudField = CrudBuiltinField | CrudCustomField
 
 type CrudFormValues<TValues extends Record<string, unknown>> = Partial<TValues> & Record<string, unknown>
 
+export type CrudFormSubmitResult = {
+  resourceId?: string
+}
+
 export type CrudFormSubmitContext = {
   submitter?: {
     id?: string
@@ -319,7 +327,8 @@ export type CrudFormProps<TValues extends Record<string, unknown>> = {
   cancelHref?: string
   successRedirect?: string
   deleteRedirect?: string
-  onSubmit?: (values: TValues, context?: CrudFormSubmitContext) => Promise<void> | void
+  onSubmit?: (values: TValues, context?: CrudFormSubmitContext) => Promise<void | CrudFormSubmitResult> | void | CrudFormSubmitResult
+  onSubmitSuccess?: (values: TValues, result: void | CrudFormSubmitResult) => Promise<void> | void
   onDelete?: () => Promise<void> | void
   // When true, shows Delete button whenever onDelete is provided, even without an id
   deleteVisible?: boolean
@@ -367,8 +376,37 @@ export type CrudFormProps<TValues extends Record<string, unknown>> = {
   // form-editable custom fields automatically to the provided `fields`.
   entityId?: string
   entityIds?: string[]
+  resourceKind?: string
+  resourceId?: string
+  injectionGroupAliases?: Readonly<Record<string, string>>
   // Optional grouped layout rendered in two responsive columns (1 on mobile).
   groups?: CrudFormGroup[]
+  /**
+   * Hide the groups whose `CrudFormGroup.id` appears in this list, so a host can
+   * omit built-in cards without rebuilding the whole `groups` array.
+   *
+   * Presentation-only: hidden groups are removed before layout, so they reserve
+   * no column space and contribute no header, sortable entry, collapsible state
+   * or validation focus target. Fields that live only in a hidden group keep
+   * their current values and are still submitted unchanged — hiding a group
+   * never clears data. A `required` field that lives only in a hidden group is
+   * skipped by the built-in required check (mirroring `visibleWhen`), but a
+   * host-supplied zod `schema` is NOT bypassed: do not hide a group whose
+   * fields the schema requires unless defaults supply them.
+   *
+   * Hiding an injection widget's card (`widget:<widgetId>`) hides the card only —
+   * the widget's handlers belong to the spot, not to its card, so `onBeforeSave`
+   * and `transformFormData` still run and its fields stay required. Do not hide a
+   * widget group that gates saving; disable the widget instead.
+   *
+   * A user's persisted group order is preserved across hiding: a hidden group
+   * keeps its saved position and returns to it once it is shown again.
+   *
+   * Ids that match no declared group are ignored (dev-only warning). Strictly
+   * additive: when the prop is absent or empty the form behaves exactly as
+   * before.
+   */
+  hiddenGroupIds?: readonly string[]
   // Loading state for the entire form (e.g., when loading record data)
   isLoading?: boolean
   loadingMessage?: string
@@ -417,6 +455,20 @@ export type CrudFormProps<TValues extends Record<string, unknown>> = {
   customFieldsManageMode?: 'inline' | 'page'
   // Optional injection spot ID for widget injection
   injectionSpotId?: string
+  /**
+   * One prior injection spot ID whose header, body (stack/group), and field
+   * (`:fields`) widgets are dual-published alongside `injectionSpotId` — a
+   * compatibility bridge for a host that changed its declared spot id, so a
+   * widget still targeting the old id keeps rendering. See
+   * BACKWARD_COMPATIBILITY.md §6 for the deprecation protocol this supports.
+   *
+   * Body, group, and `:fields` widgets are deduped by id (`mergeByKey`), so a
+   * widget registered on both `injectionSpotId` and `legacyInjectionSpotId`
+   * renders once. The header is the exception: it renders through two
+   * independent `<InjectionSpot>` elements (not the merged list), so a widget
+   * registered on both header spots renders twice.
+   */
+  legacyInjectionSpotId?: string
   replacementHandle?: string
   // Enable collapsible group headers with localStorage persistence.
   // Pass `true` to enable with auto-generated pageType, or `{ pageType }` for explicit key.
@@ -444,6 +496,7 @@ export type CrudFormGroupComponentProps = {
    * to show a required marker that appears/disappears with the widget.
    */
   requiredFieldIds?: ReadonlySet<string>
+  injectedFields?: React.ReactNode
 }
 
 // Special group kind for automatic Custom Fields section
@@ -462,6 +515,16 @@ export type CrudFormGroup = {
   bare?: boolean
 }
 
+// Appends `legacy` entries not already present in `primary` (by `keyOf`), so a
+// `legacyInjectionSpotId` bridge never renders the same widget twice when it is
+// registered on both the primary and the legacy spot.
+function mergeByKey<T>(primary: T[], legacy: T[], keyOf: (item: T) => string): T[] {
+  if (!legacy.length) return primary
+  const seen = new Set(primary.map(keyOf))
+  const extra = legacy.filter((item) => !seen.has(keyOf(item)))
+  return extra.length ? [...primary, ...extra] : primary
+}
+
 function readByDotPath(source: Record<string, unknown> | undefined, path: string): unknown {
   if (!source || !path) return undefined
   if (Object.prototype.hasOwnProperty.call(source, path)) return source[path]
@@ -478,6 +541,10 @@ function readByDotPath(source: Record<string, unknown> | undefined, path: string
 // Guard against them so a declared field id such as `__proto__.polluted` can
 // never reach into Object.prototype (prototype-pollution hardening).
 const PROTO_POLLUTING_KEYS = new Set(['__proto__', 'prototype', 'constructor'])
+
+// Shared empty set so forms that pass no `hiddenGroupIds` keep a stable identity
+// across renders and never invalidate the memos that depend on it.
+const EMPTY_HIDDEN_GROUP_IDS: ReadonlySet<string> = new Set<string>()
 
 function isProtoPollutingKey(key: string): boolean {
   return PROTO_POLLUTING_KEYS.has(key)
@@ -557,7 +624,7 @@ function readRenderedFieldValue(
   if (fieldId.startsWith('cf:')) {
     return readInitialCustomFieldValue(source, fieldId.slice(3))
   }
-  return undefined
+  return fieldId.includes('.') ? readByDotPath(source, fieldId) : undefined
 }
 
 function serializeIssuePath(path: ReadonlyArray<string | number | symbol>): string | null {
@@ -721,7 +788,21 @@ function SortableGroupItem({ id, children, disabled }: { id: string; children: R
   )
 }
 
-export function CrudForm<TValues extends Record<string, unknown>>({
+const CrudFormFallback = CrudFormImpl as React.ComponentType<CrudFormProps<Record<string, unknown>>>
+
+export function CrudForm<TValues extends Record<string, unknown>>(props: CrudFormProps<TValues>) {
+  const entityKey = buildResolvedEntityIdsKey(props.entityId, props.entityIds)
+  const primaryEntityId = entityKey.split('\0')[0]
+  const [handle] = React.useState(() => props.replacementHandle
+    ?? ComponentReplacementHandles.crudForm(primaryEntityId ? primaryEntityId.replace(/[:]+/g, '.') : 'unknown'))
+  const Resolved = useRegisteredComponent<CrudFormProps<TValues>>(
+    handle,
+    CrudFormFallback as unknown as React.ComponentType<CrudFormProps<TValues>>,
+  )
+  return <Resolved {...props} />
+}
+
+function CrudFormImpl<TValues extends Record<string, unknown>>({
   schema,
   fields,
   initialValues,
@@ -734,6 +815,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   successRedirect,
   deleteRedirect,
   onSubmit,
+  onSubmitSuccess,
   onDelete,
   deleteVisible,
   optimisticLockUpdatedAt,
@@ -744,7 +826,11 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   backHref,
   entityId,
   entityIds,
+  resourceKind,
+  resourceId,
+  injectionGroupAliases,
   groups,
+  hiddenGroupIds,
   isLoading = false,
   loadingMessage,
   customEntity = false,
@@ -761,6 +847,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   customFieldsetBindings,
   customFieldsManageMode = 'inline',
   injectionSpotId,
+  legacyInjectionSpotId,
   replacementHandle,
   collapsibleGroups,
   sortableGroups,
@@ -867,20 +954,24 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   const headerInjectionSpotId = resolvedInjectionSpotId
     ? extensionSpotChildId(resolvedInjectionSpotId, 'header')
     : undefined
-  
+  const legacyHeaderInjectionSpotId = legacyInjectionSpotId
+    ? extensionSpotChildId(legacyInjectionSpotId, 'header')
+    : undefined
+
   const recordId = React.useMemo(() => {
     const raw = values.id
     if (typeof raw === 'string') return raw
     if (typeof raw === 'number') return String(raw)
     return undefined
   }, [values])
-  const fallbackRecordId = recordId || (
+  const explicitResourceId = resourceId?.trim() || undefined
+  const fallbackRecordId = explicitResourceId || recordId || (
     versionHistory?.resourceId === undefined || versionHistory.resourceId === null
       ? undefined
       : String(versionHistory.resourceId).trim() || undefined
   )
 
-  const operation = recordId ? 'update' : 'create'
+  const operation = explicitResourceId || recordId ? 'update' : 'create'
 
   // Resolve the optimistic-lock version used to build the extension header.
   // Explicit `optimisticLockUpdatedAt` (including `null`) always wins. When the
@@ -903,16 +994,24 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     return null
   }, [disableOptimisticLock, optimisticLockUpdatedAt, initialValues])
 
+  const setInjectedFormValue = React.useCallback((id: string, value: unknown) => {
+    const nextValues = { ...valuesRef.current, [id]: value } as CrudFormValues<TValues>
+    valuesRef.current = nextValues
+    setValues(nextValues)
+  }, [])
+
   const injectionContext = React.useMemo(() => ({
     formId,
-    entityId: primaryEntityId,
-    resourceKind: versionHistory?.resourceKind,
-    resourceId: recordId ?? versionHistory?.resourceId,
+    setFormValue: setInjectedFormValue,
+    t,
+    entityId: entityId ?? primaryEntityId,
+    resourceKind: resourceKind ?? versionHistory?.resourceKind,
+    resourceId: explicitResourceId ?? recordId ?? versionHistory?.resourceId,
     recordId: fallbackRecordId,
     isLoading,
     pending,
     operation,
-  }), [formId, primaryEntityId, versionHistory?.resourceKind, versionHistory?.resourceId, recordId, fallbackRecordId, isLoading, pending, operation])
+  }), [formId, setInjectedFormValue, t, entityId, primaryEntityId, resourceKind, explicitResourceId, versionHistory?.resourceKind, versionHistory?.resourceId, recordId, fallbackRecordId, isLoading, pending, operation])
   const injectionContextRef = React.useRef(injectionContext)
   React.useEffect(() => {
     injectionContextRef.current = injectionContext
@@ -949,7 +1048,16 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   const navigationConfirmPendingRef = React.useRef(false)
   const submitNavigationBypassRef = React.useRef(false)
   const submitNavigationBypassTimeoutRef = React.useRef<number | null>(null)
-  const [hasUnsavedChanges, setHasUnsavedChanges] = React.useState(false)
+  const [hasUnsavedChanges, setHasUnsavedChangesState] = React.useState(false)
+  const hasUnsavedChangesRef = React.useRef(false)
+  // Writing a state hook the value it already holds still re-runs this whole
+  // component once before React bails out. The dirty check runs on every edit,
+  // so the flag is only written when it actually flips.
+  const setHasUnsavedChanges = React.useCallback((next: boolean) => {
+    if (hasUnsavedChangesRef.current === next) return
+    hasUnsavedChangesRef.current = next
+    setHasUnsavedChangesState(next)
+  }, [])
   const popStateRollbackRef = React.useRef(false)
   const shouldBypassUnsavedChangesGuardRef = React.useRef(shouldBypassUnsavedChangesGuard)
   React.useEffect(() => {
@@ -974,7 +1082,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     const dirty = currentSnapshot !== snapshot
     isDirtyRef.current = dirty
     setHasUnsavedChanges(dirty)
-  }, [embedded, trackDirtyWhenEmbedded, values])
+  }, [embedded, trackDirtyWhenEmbedded, values, setHasUnsavedChanges])
 
   React.useEffect(() => {
     onDirtyChange?.(hasUnsavedChanges)
@@ -1024,7 +1132,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     everEditedFieldIdsRef.current.clear()
     isDirtyRef.current = false
     setHasUnsavedChanges(false)
-  }, [])
+  }, [setHasUnsavedChanges])
 
   const confirmUnsavedChanges = React.useCallback(async (): Promise<boolean> => {
     if (!isDirtyRef.current || typeof window === 'undefined') return true
@@ -1142,19 +1250,43 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       window.history.pushState = originalPushState
       window.history.replaceState = originalReplaceState
     }
-  }, [allowNextNavigation, clearDirtyState, confirmUnsavedChanges, embedded, hasUnsavedChanges, router, trackDirtyWhenEmbedded])
+  }, [allowNextNavigation, clearDirtyState, confirmUnsavedChanges, embedded, hasUnsavedChanges, router, trackDirtyWhenEmbedded, setHasUnsavedChanges])
 
-  const { widgets: injectionWidgets } = useInjectionWidgets(resolvedInjectionSpotId, {
+  const { widgets: primaryInjectionWidgets, loading: primaryInjectionLoading } = useInjectionWidgets(resolvedInjectionSpotId, {
     context: injectionContext,
-    triggerOnLoad: true,
+    triggerOnLoad: false,
   })
-  const { widgets: injectedFieldWidgets } = useInjectionDataWidgets(
+  const { widgets: legacyInjectionWidgets, loading: legacyInjectionLoading } = useInjectionWidgets(legacyInjectionSpotId, {
+    context: injectionContext,
+    triggerOnLoad: false,
+  })
+  const injectionWidgets = React.useMemo(
+    () => mergeByKey(primaryInjectionWidgets, legacyInjectionWidgets, (w) => w.widgetId),
+    [primaryInjectionWidgets, legacyInjectionWidgets],
+  )
+  const { widgets: primaryFieldWidgets, isLoading: primaryFieldsLoading } = useInjectionDataWidgets(
     resolvedInjectionSpotId
       ? extensionSpotChildId(resolvedInjectionSpotId, 'fields')
       : '__disabled__:fields'
   )
-  
-  const { triggerEvent: triggerInjectionEvent } = useInjectionSpotEvents(resolvedInjectionSpotId ?? '', injectionWidgets)
+  const { widgets: legacyFieldWidgets, isLoading: legacyFieldsLoading } = useInjectionDataWidgets(
+    legacyInjectionSpotId
+      ? extensionSpotChildId(legacyInjectionSpotId, 'fields')
+      : '__disabled__:fields'
+  )
+  const injectedFieldWidgets = React.useMemo(
+    () => mergeByKey(primaryFieldWidgets, legacyFieldWidgets, (w) => w.metadata.id),
+    [primaryFieldWidgets, legacyFieldWidgets],
+  )
+
+  const injectionParticipants = React.useMemo(
+    () => mergeInjectionEventParticipants(injectionWidgets, injectedFieldWidgets),
+    [injectionWidgets, injectedFieldWidgets],
+  )
+  const { triggerEvent: triggerInjectionEvent } = useInjectionSpotEvents(resolvedInjectionSpotId ?? '', injectionParticipants, {
+    context: injectionContext,
+    triggerOnLoad: !isLoading && !primaryInjectionLoading && !legacyInjectionLoading && !primaryFieldsLoading && !legacyFieldsLoading,
+  })
   const extendedInjectionEventsEnabled = CRUDFORM_EXTENDED_EVENTS_ENABLED && Boolean(resolvedInjectionSpotId)
 
   // Fields that active injection widgets declare as required (e.g. the SEO helper
@@ -1162,13 +1294,13 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   // enforcement stays in the widget's own onBeforeSave validation.
   const widgetRequiredFieldIds = React.useMemo(() => {
     const ids = new Set<string>()
-    for (const widget of injectionWidgets ?? []) {
+    for (const widget of injectionParticipants) {
       const metadata = widget.module?.metadata
       if (!metadata || metadata.enabled === false) continue
       for (const fieldId of metadata.requiredFields ?? []) ids.add(fieldId)
     }
     return ids
-  }, [injectionWidgets])
+  }, [injectionParticipants])
 
   const transformValidationErrors = React.useCallback(
     async (fieldErrors: Record<string, string>): Promise<Record<string, string>> => {
@@ -1510,10 +1642,11 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   
   // Determine whether this form is creating a new record (no `id` yet)
   const isNewRecord = React.useMemo(() => {
+    if (explicitResourceId) return false
     const rawId = values.id
     if (rawId === undefined || rawId === null) return true
     return typeof rawId === 'string' ? rawId.trim().length === 0 : false
-  }, [values])
+  }, [explicitResourceId, values])
   const showDelete = Boolean(onDelete) && (typeof deleteVisible === 'boolean' ? deleteVisible : !isNewRecord)
   const versionHistoryEnabled = Boolean(versionHistory?.resourceId && String(versionHistory.resourceId).trim().length > 0)
   const versionHistoryAction = (
@@ -1524,20 +1657,42 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       autoCheckAcl={versionHistory?.autoCheckAcl}
     />
   )
-  const headerInjectionAction = headerInjectionSpotId ? (
-    <InjectionSpot
-      spotId={headerInjectionSpotId}
-      context={injectionContext}
-      data={values}
-      onDataChange={(newData) => setValues(newData as CrudFormValues<TValues>)}
-      disabled={pending}
-    />
+  const headerInjectionAction = (headerInjectionSpotId || legacyHeaderInjectionSpotId) ? (
+    <>
+      {headerInjectionSpotId ? (
+        <InjectionSpot
+          spotId={headerInjectionSpotId}
+          context={injectionContext}
+          data={values}
+          onDataChange={(newData) => setValues(newData as CrudFormValues<TValues>)}
+          disabled={pending}
+        />
+      ) : null}
+      {legacyHeaderInjectionSpotId ? (
+        <InjectionSpot
+          spotId={legacyHeaderInjectionSpotId}
+          context={injectionContext}
+          data={values}
+          onDataChange={(newData) => setValues(newData as CrudFormValues<TValues>)}
+          disabled={pending}
+        />
+      ) : null}
+    </>
   ) : null
   const headerExtraActions = versionHistoryEnabled || headerInjectionAction || extraActions ? (
     <>
       {versionHistoryEnabled ? versionHistoryAction : null}
       {headerInjectionAction}
       {extraActions}
+    </>
+  ) : undefined
+  const renderFooterActions = !hideFooterActions && !formReadOnly
+  const embeddedExtraActions = renderFooterActions ? undefined : extraActions
+  const embeddedHeaderActions = versionHistoryEnabled || headerInjectionAction || embeddedExtraActions ? (
+    <>
+      {versionHistoryEnabled ? versionHistoryAction : null}
+      {headerInjectionAction}
+      {embeddedExtraActions}
     </>
   ) : undefined
 
@@ -1803,13 +1958,33 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   const injectedFieldDefinitions = React.useMemo<InjectionFieldDefinition[]>(() => {
     const definitions: InjectionFieldDefinition[] = []
     for (const widget of injectedFieldWidgets) {
-      if (!('fields' in widget)) continue
+      if (!('fields' in widget) || widget.metadata?.enabled === false) continue
       for (const field of widget.fields ?? []) {
-        definitions.push(field as InjectionFieldDefinition)
+        definitions.push({ ...field, group: injectionGroupAliases?.[field.group] ?? field.group })
       }
     }
     return definitions
+  }, [injectedFieldWidgets, injectionGroupAliases])
+
+  const injectedFieldPlacements = React.useMemo(() => {
+    const placements = new Map<string, InjectedFieldWidgetPlacement | undefined>()
+    for (const widget of injectedFieldWidgets) {
+      if (!('fields' in widget)) continue
+      for (const field of widget.fields ?? []) {
+        placements.set((field as InjectionFieldDefinition).id, widget.placement)
+      }
+    }
+    return placements
   }, [injectedFieldWidgets])
+
+  const groupsWithInjectedFields = React.useMemo(() => {
+    if (!groups || groups.length === 0 || injectedFieldDefinitions.length === 0) return groups
+    return placeInjectedFieldsInGroups(groups, injectedFieldDefinitions, injectedFieldPlacements, (definition) => {
+      if (process.env.NODE_ENV !== 'production') {
+        logger.warn('Injected field targets a group that does not exist; appended to the last plain-field group', { fieldId: definition.id, group: definition.group })
+      }
+    })
+  }, [groups, injectedFieldDefinitions, injectedFieldPlacements])
 
   const injectedFieldContext = React.useMemo<FieldContext>(() => {
     const recordValues = values as Record<string, unknown>
@@ -1835,6 +2010,48 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     return hidden
   }, [fields, values])
 
+  // Joined key so a host passing a fresh array literal each render does not
+  // invalidate every memo that depends on the resolved set.
+  const hiddenGroupIdsKey = (hiddenGroupIds ?? []).join('\0')
+  const hiddenGroupIdSet = React.useMemo(
+    () => (hiddenGroupIdsKey ? new Set(hiddenGroupIdsKey.split('\0')) : EMPTY_HIDDEN_GROUP_IDS),
+    [hiddenGroupIdsKey],
+  )
+
+  const placedCustomFieldIds = React.useMemo(() => {
+    const placed = new Set<string>()
+    for (const other of (groups ?? [])) {
+      if (other.kind === 'customFields' || !other.fields) continue
+      for (const entry of other.fields) {
+        if (typeof entry === 'string') placed.add(entry)
+        else if (entry && typeof (entry as CrudField).id === 'string') placed.add((entry as CrudField).id)
+      }
+    }
+    return placed
+  }, [groups])
+
+  // Field ids that appear in a hidden group and in no visible one. Those controls
+  // are never rendered, so gating submit on them would strand the user with an
+  // error they cannot reach — the same reason `hiddenBaseFieldIds` exists for
+  // `visibleWhen`. A field shared with a visible group stays validated.
+  const hiddenGroupFieldIds = React.useMemo(() => {
+    if (hiddenGroupIdSet.size === 0) return EMPTY_HIDDEN_GROUP_IDS
+    const groupFieldIds = (group: CrudFormGroup): string[] => {
+      if (group.kind === 'customFields') {
+        return cfFields.filter((field) => !placedCustomFieldIds.has(field.id)).map((field) => field.id)
+      }
+      return (group.fields ?? []).map((entry) => (typeof entry === 'string' ? entry : entry.id))
+    }
+    const hidden = new Set<string>()
+    const visible = new Set<string>()
+    for (const group of groupsWithInjectedFields ?? []) {
+      const target = hiddenGroupIdSet.has(group.id) ? hidden : visible
+      for (const fieldId of groupFieldIds(group)) target.add(fieldId)
+    }
+    for (const fieldId of visible) hidden.delete(fieldId)
+    return hidden
+  }, [cfFields, groupsWithInjectedFields, hiddenGroupIdSet, placedCustomFieldIds])
+
   const hiddenInjectedFieldIds = React.useMemo(() => {
     const hidden = new Set<string>()
     for (const definition of injectedFieldDefinitions) {
@@ -1848,6 +2065,67 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     () => new Set(injectedFieldDefinitions.map((definition) => definition.id)),
     [injectedFieldDefinitions],
   )
+  // An injected field may reuse a host-declared field id to replace the host's built-in
+  // input for that field (the later, injected entry wins in `fieldById`) — e.g.
+  // `customer_groups`' `GroupPickerField` replacing catalog's plain-text `customerGroupId`.
+  // Such a field is still a host schema field, so its value must reach `coreValues` and the
+  // host `onSubmit` payload. Only an injected field with NO host-declared counterpart is an
+  // "extra" field that is stripped before schema validation/submission (widgets still see
+  // it via `onBeforeSave`/`onSave`). See UPGRADE_NOTES.md (0.8.1). Host fields declared
+  // inline in `groups[].fields` count as host-declared too.
+  const hostFieldIdSet = React.useMemo(() => {
+    const ids = new Set(fields.map((field) => field.id))
+    for (const group of groups ?? []) {
+      for (const entry of group.fields ?? []) {
+        if (typeof entry !== 'string') ids.add(entry.id)
+      }
+    }
+    return ids
+  }, [fields, groups])
+  const injectedOnlyFieldIdSet = React.useMemo(
+    () => new Set(Array.from(injectedFieldIdSet).filter((id) => !hostFieldIdSet.has(id))),
+    [injectedFieldIdSet, hostFieldIdSet],
+  )
+
+  const projectWidgetValues = React.useCallback((source: Record<string, unknown>) => {
+    const projected = { ...source }
+    const updatePath = (record: Record<string, unknown>, segments: string[], value: unknown, remove: boolean): Record<string, unknown> => {
+      const [segment, ...rest] = segments
+      if (!segment || segments.some(isProtoPollutingKey)) return record
+      const next = { ...record }
+      if (!rest.length) {
+        if (remove) delete next[segment]
+        else next[segment] = value
+      } else {
+        const child = next[segment]
+        next[segment] = updatePath(child && typeof child === 'object' && !Array.isArray(child) ? child as Record<string, unknown> : {}, rest, value, remove)
+      }
+      return next
+    }
+    for (const definition of injectedFieldDefinitions) {
+      const hidden = hiddenInjectedFieldIds.has(definition.id)
+      if (hidden) delete projected[definition.id]
+      const segments = definition.id.split('.')
+      if (segments.length < 2 || !isResponseEnricherNamespace(segments[0])) continue
+      if (!hidden && !Object.prototype.hasOwnProperty.call(source, definition.id)) continue
+      Object.assign(projected, updatePath(projected, segments, source[definition.id], hidden))
+    }
+    return projected
+  }, [hiddenInjectedFieldIds, injectedFieldDefinitions])
+
+  const injectedNamespaceSet = React.useMemo(() => new Set(
+    Array.from(injectedOnlyFieldIdSet)
+      .map((id) => id.split('.')[0])
+      .filter((namespace) => isResponseEnricherNamespace(namespace) && !hostFieldIdSet.has(namespace)),
+  ), [hostFieldIdSet, injectedOnlyFieldIdSet])
+
+  const projectNativeValues = React.useCallback((source: Record<string, unknown>) => {
+    const projected = { ...source }
+    for (const key of Object.keys(projected)) {
+      if (injectedNamespaceSet.has(key.split('.')[0]) || injectedOnlyFieldIdSet.has(key)) delete projected[key]
+    }
+    return projected
+  }, [injectedNamespaceSet, injectedOnlyFieldIdSet])
 
   const injectedCrudFields = React.useMemo<CrudField[]>(() => {
     return injectedFieldDefinitions.map((definition) => {
@@ -1900,8 +2178,9 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   }, [allFields])
 
   // Declared base fields whose id is a dot-path (e.g. `metadata.category`).
-  // Injected and custom (cf) fields already get dot-path/cf-path hydration and
-  // are excluded here so their dedicated handling is preserved. CrudForm hydrates
+  // Injected-only and custom (cf) fields already get dot-path/cf-path hydration and
+  // are excluded here so their dedicated handling is preserved; an injected field
+  // that reuses a host field id stays a host field and is collapsed. CrudForm hydrates
   // these flat keys from nested initial values on load and projects them back into
   // nested objects before schema.safeParse on submit. See issue #2503.
   const dotPathBaseFieldIds = React.useMemo(() => {
@@ -1910,13 +2189,13 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     for (const field of allFields) {
       const fieldId = field.id
       if (!fieldId.includes('.')) continue
-      if (injectedFieldIdSet.has(fieldId)) continue
+      if (injectedOnlyFieldIdSet.has(fieldId)) continue
       if (fieldId.startsWith('cf_') || fieldId.startsWith('cf:')) continue
       if (cfFieldIds.has(fieldId)) continue
       ids.add(fieldId)
     }
     return ids
-  }, [allFields, injectedFieldIdSet, cfFields])
+  }, [allFields, injectedOnlyFieldIdSet, cfFields])
 
   const validateFieldOnBlur = React.useCallback(async (
     fieldId: string,
@@ -1926,6 +2205,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     const field = fieldById.get(fieldId)
     if (!field || field.disabled) return
     if (hiddenBaseFieldIds.has(fieldId) || hiddenInjectedFieldIds.has(fieldId)) return
+    if (hiddenGroupFieldIds.has(fieldId)) return
     if (!everEditedFieldIdsRef.current.has(fieldId)) return
 
     const nextValues = sourceValues ?? valuesRef.current
@@ -1987,10 +2267,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       for (const hiddenId of hiddenInjectedFieldIds) {
         delete widgetValues[hiddenId]
       }
-      const coreValues = { ...widgetValues }
-      for (const injectedId of injectedFieldIdSet) {
-        delete coreValues[injectedId]
-      }
+      const coreValues = projectNativeValues(widgetValues)
       const result = schema.safeParse(collapseDotPathFields(coreValues, dotPathBaseFieldIds))
       if (!result.success) {
         const schemaFieldErrors: Record<string, string> = {}
@@ -2035,8 +2312,9 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     fieldById,
     formReadOnly,
     hiddenBaseFieldIds,
+    hiddenGroupFieldIds,
     hiddenInjectedFieldIds,
-    injectedFieldIdSet,
+    injectedOnlyFieldIdSet,
     mapDefsForValidation,
     schema,
     t,
@@ -2080,44 +2358,45 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     return pairs.map((p) => p.group)
   }, [injectionWidgets, injectionContext, pending, setValues, values])
   
-  const groupsWithInjectedFields = React.useMemo(() => {
-    if (!groups || groups.length === 0 || injectedFieldDefinitions.length === 0) return groups
-    const cloned = groups.map((group) => ({ ...group, fields: [...(group.fields ?? [])] }))
-    const fallbackIndex = cloned.length - 1
-    for (const definition of injectedFieldDefinitions) {
-      const targetIndex = cloned.findIndex((group) => group.id === definition.group)
-      const index = targetIndex >= 0 ? targetIndex : fallbackIndex
-      if (targetIndex < 0 && process.env.NODE_ENV !== 'production') {
-        logger.warn('Injected field targets a group that does not exist; appended to last group', { fieldId: definition.id, group: definition.group })
-      }
-      if (index < 0) continue
-      const fieldEntries = cloned[index].fields ?? []
-      const alreadyPresent = fieldEntries.some((entry) => {
-        const entryId = typeof entry === 'string' ? entry : entry.id
-        return entryId === definition.id
-      })
-      cloned[index].fields = alreadyPresent
-        ? fieldEntries
-        : insertByInjectionPlacement(
-            fieldEntries,
-            definition.id,
-            definition.placement,
-            (entry) => (typeof entry === 'string' ? entry : entry.id),
-          )
-    }
-    return cloned
-  }, [groups, injectedFieldDefinitions])
-
   const shouldAutoGroup = (!groupsWithInjectedFields || groupsWithInjectedFields.length === 0) && injectionGroupCards.length > 0
-  const resolvedGroupsForLayout = React.useMemo(() => {
+  const declaredGroupsForLayout = React.useMemo(() => {
     const baseGroups = groupsWithInjectedFields && groupsWithInjectedFields.length ? groupsWithInjectedFields : []
     const autoGroup = shouldAutoGroup ? [{ id: '__auto-fields__', fields: allFields }] as CrudFormGroup[] : []
     return [...(baseGroups.length ? baseGroups : autoGroup), ...injectionGroupCards]
   }, [allFields, groupsWithInjectedFields, injectionGroupCards, shouldAutoGroup])
-  const useGroupedLayout = resolvedGroupsForLayout.length > 0
 
-  // Sortable group order
-  const defaultGroupIds = React.useMemo(() => resolvedGroupsForLayout.map((g) => g.id), [resolvedGroupsForLayout])
+  // Hiding is applied at this single chokepoint: the grouped layout, the sortable
+  // order, collapsible auto-expand, the autofocus scan and both column renders all
+  // derive from `resolvedGroupsForLayout`, so filtering here keeps hidden groups
+  // out of every one of them without threading a flag through each call site.
+  const resolvedGroupsForLayout = React.useMemo(() => {
+    if (hiddenGroupIdSet.size === 0) return declaredGroupsForLayout
+    return declaredGroupsForLayout.filter((group) => !hiddenGroupIdSet.has(group.id))
+  }, [declaredGroupsForLayout, hiddenGroupIdSet])
+
+  React.useEffect(() => {
+    if (process.env.NODE_ENV === 'production' || hiddenGroupIdSet.size === 0) return
+    const declaredIds = new Set(declaredGroupsForLayout.map((group) => group.id))
+    for (const hiddenId of hiddenGroupIdSet) {
+      if (!declaredIds.has(hiddenId)) {
+        logger.warn('hiddenGroupIds names a group that does not exist on this form', { groupId: hiddenId })
+      }
+    }
+  }, [declaredGroupsForLayout, hiddenGroupIdSet])
+
+  // Keyed off the DECLARED groups, not the filtered ones: testing
+  // `resolvedGroupsForLayout.length > 0` would drop a fully-hidden form into the
+  // ungrouped branch and render every field flat — the opposite of hiding them.
+  const useGroupedLayout = declaredGroupsForLayout.length > 0
+
+  // Sortable group order. Keyed off the DECLARED ids, not the filtered ones:
+  // `useGroupOrder` prunes every saved id missing from its defaults and writes the
+  // pruned list back to localStorage on the next reorder, so passing the filtered
+  // list would permanently erase a hidden group's saved position — a persisted side
+  // effect from a presentation-only prop. Hidden ids are inert downstream: the
+  // rendered order sorts `resolvedGroupsForLayout` by index into this list, and the
+  // sortable context is built from the visible groups only.
+  const defaultGroupIds = React.useMemo(() => declaredGroupsForLayout.map((g) => g.id), [declaredGroupsForLayout])
   const { orderedIds: sortedGroupIds, reorder: reorderGroups } = useGroupOrder(
     sortablePageType,
     defaultGroupIds,
@@ -2151,18 +2430,6 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     () => (injectionWidgets ?? []).filter((widget) => (widget.placement?.kind ?? 'stack') === 'stack'),
     [injectionWidgets],
   )
-
-  const placedCustomFieldIds = React.useMemo(() => {
-    const placed = new Set<string>()
-    for (const other of (groups ?? [])) {
-      if (other.kind === 'customFields' || !other.fields) continue
-      for (const entry of other.fields) {
-        if (typeof entry === 'string') placed.add(entry)
-        else if (entry && typeof (entry as CrudField).id === 'string') placed.add((entry as CrudField).id)
-      }
-    }
-    return placed
-  }, [groups])
 
   const resolveGroupFields = React.useCallback((g: CrudFormGroup): CrudField[] => {
     if (g.kind === 'customFields') {
@@ -2229,11 +2496,14 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       if (fromCol2) return fromCol2
     }
 
+    // `allFields` is unfiltered, so a form whose groups are all hidden would fall
+    // through to a field that renders nowhere and hand autofocus a target the user
+    // cannot reach.
     for (const field of allFields) {
-      if (field?.id && !field.disabled) return field.id
+      if (field?.id && !field.disabled && !hiddenGroupFieldIds.has(field.id)) return field.id
     }
     return null
-  }, [allFields, resolveGroupFields, resolvedGroupsForLayout, useGroupedLayout])
+  }, [allFields, hiddenGroupFieldIds, resolveGroupFields, resolvedGroupsForLayout, useGroupedLayout])
 
   const requestSubmit = React.useCallback(() => {
     if (formReadOnly) return
@@ -2512,18 +2782,29 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       ) {
         activeFieldChangeDispatchRef.current = null
       }
+      // Re-run the dispatcher only when an edit queued behind this dispatch is
+      // still waiting. Bumping unconditionally re-rendered the whole form a
+      // second time for every keystroke, even with no widget listening.
       if (
         fieldChangeDispatcherMountedRef.current &&
-        fieldChangeFormGenerationRef.current === dispatchToken.formGeneration
+        fieldChangeFormGenerationRef.current === dispatchToken.formGeneration &&
+        pendingFieldChangeEventsRef.current.length > 0
       ) {
         setFieldChangeDispatchVersion((version) => version + 1)
       }
     })
   }, [extendedInjectionEventsEnabled, fieldChangeDispatchVersion, triggerInjectionEvent, values])
 
-  const onBlurRequest = React.useCallback((fieldId: string) => {
-    void validateFieldOnBlur(fieldId)
+  // `validateFieldOnBlur` is rebuilt whenever the form values change. Passing
+  // that identity down would invalidate every memoized field control on each
+  // keystroke, so the fields get a stable callback that reads the latest one.
+  const validateFieldOnBlurRef = React.useRef(validateFieldOnBlur)
+  React.useLayoutEffect(() => {
+    validateFieldOnBlurRef.current = validateFieldOnBlur
   }, [validateFieldOnBlur])
+  const onBlurRequest = React.useCallback((fieldId: string) => {
+    void validateFieldOnBlurRef.current(fieldId)
+  }, [])
 
   const handleFieldsetSelectionChange = React.useCallback(
     (entityId: string, nextCode: string | null) => {
@@ -2597,6 +2878,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       initialValues,
       injectedFieldIds: injectedFieldDefinitions.map((definition) => definition.id),
       injectionWidgetIds: injectionWidgets.map((widget) => `${widget.moduleId}:${widget.widgetId}:${widget.key}`),
+      injectionParticipantIds: injectionParticipants.map((widget) => `${widget.moduleId}:${widget.widgetId}:${widget.key}`),
       customFieldMappings: cfDefinitions.map((definition) => definition.key),
       dotPathBaseFieldIds: Array.from(dotPathBaseFieldIds),
     })
@@ -2617,7 +2899,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       mergedRecord[key] = value
     }
     for (const definition of injectedFieldDefinitions) {
-      if (mergedValues[definition.id] !== undefined) continue
+      if (editedFieldIds.has(definition.id)) continue
       const extracted = readByDotPath(initialRecord, definition.id)
       if (extracted !== undefined) {
         mergedRecord[definition.id] = extracted
@@ -2696,6 +2978,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     extendedInjectionEventsEnabled,
     initialValues,
     injectedFieldDefinitions,
+    injectionParticipants,
     injectionWidgets,
     triggerInjectionEvent,
   ])
@@ -2707,10 +2990,11 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   // initialValues={} don't get mis-detected as create flows.
   const cfDefaultsAppliedRef = React.useRef(false)
   const initialValuesHasId = React.useMemo(() => {
+    if (explicitResourceId) return true
     if (!initialValues) return false
     const raw = (initialValues as Record<string, unknown>).id
     return raw !== undefined && raw !== null && raw !== ''
-  }, [initialValues])
+  }, [explicitResourceId, initialValues])
 
   React.useEffect(() => {
     // Do not fire while the host is still loading the record
@@ -2814,6 +3098,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       if (!field.required) continue
       if (field.disabled) continue
       if (hiddenBaseFieldIds.has(field.id) || hiddenInjectedFieldIds.has(field.id)) continue
+      if (hiddenGroupFieldIds.has(field.id)) continue
       const v = values[field.id]
       const isArray = Array.isArray(v)
       const isString = typeof v === 'string'
@@ -2879,14 +3164,8 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       }
     }
 
-    const widgetValues = { ...(valuesRef.current as Record<string, unknown>) }
-    for (const hiddenId of hiddenInjectedFieldIds) {
-      delete widgetValues[hiddenId]
-    }
-    const coreValues = { ...widgetValues }
-    for (const injectedId of injectedFieldIdSet) {
-      delete coreValues[injectedId]
-    }
+    const widgetValues = projectWidgetValues(valuesRef.current as Record<string, unknown>)
+    const coreValues = projectNativeValues(widgetValues)
     if (customEntity) {
       const allowedKeys = new Set(cfDefinitions.map((definition) => definition.key).filter(Boolean))
       for (const key of Object.keys(coreValues)) {
@@ -2922,10 +3201,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
         const result = await triggerInjectionEvent('transformFormData', submitValues, injectionContext)
         if (result.data) {
           submitValues = result.data as TValues
-          const projectedCoreValues = { ...(result.data as Record<string, unknown>) }
-          for (const injectedId of injectedFieldIdSet) {
-            delete projectedCoreValues[injectedId]
-          }
+          const projectedCoreValues = projectNativeValues(result.data as Record<string, unknown>)
           if (customEntity) {
             const allowedKeys = new Set(cfDefinitions.map((definition) => definition.key).filter(Boolean))
             for (const key of Object.keys(projectedCoreValues)) {
@@ -3028,18 +3304,18 @@ export function CrudForm<TValues extends Record<string, unknown>>({
         ...(injectionRequestHeaders ?? {}),
         ...optimisticLockHeader,
       }
-      if (Object.keys(mergedSubmitHeaders).length > 0) {
-        await withScopedApiRequestHeaders(mergedSubmitHeaders, async () => {
-          await onSubmit?.(coreSubmitValues, submitContext)
-        })
-      } else {
-        await onSubmit?.(coreSubmitValues, submitContext)
-      }
+      const submitResult = Object.keys(mergedSubmitHeaders).length > 0
+        ? await withScopedApiRequestHeaders(mergedSubmitHeaders, async () => onSubmit?.(coreSubmitValues, submitContext))
+        : await onSubmit?.(coreSubmitValues, submitContext)
+      const createdResourceId = operation === 'create' && submitResult?.resourceId?.trim()
+      const afterSaveContext = createdResourceId
+        ? { ...injectionContext, recordId: createdResourceId, resourceId: createdResourceId }
+        : injectionContext
       
       // Trigger onAfterSave event for injection widgets
       if (resolvedInjectionSpotId) {
         try {
-          await triggerInjectionEvent('onAfterSave', submitValues, injectionContext)
+          await triggerInjectionEvent('onAfterSave', submitValues, afterSaveContext)
         } catch (err) {
           logger.error('Error in onAfterSave', { err })
         }
@@ -3047,6 +3323,12 @@ export function CrudForm<TValues extends Record<string, unknown>>({
 
       markFormAsClean(valuesRef.current as Record<string, unknown>)
       keepSubmitNavigationBypassAlive()
+      try {
+        await onSubmitSuccess?.(coreSubmitValues, submitResult)
+      } catch (err) {
+        logger.error('Error in onSubmitSuccess', { err })
+        getTelemetryRuntime()?.reportError(err, { module: 'ui', code: 'ui.form_submit_success_failed' })
+      }
       if (successRedirect) await navigateWithGuard(successRedirect)
     } catch (err: unknown) {
       clearSubmitNavigationBypass()
@@ -3276,7 +3558,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
               onSubmitRequest={requestSubmit}
               wrapperClassName={wrapperClassName}
               entityIdForField={primaryEntityId ?? undefined}
-              recordId={recordId}
+              recordId={explicitResourceId ?? recordId}
               markRequired={widgetRequiredFieldIds.has(f.id)}
             />
           )
@@ -3617,7 +3899,13 @@ export function CrudForm<TValues extends Record<string, unknown>>({
           continue
         }
 
-        const componentNode = g.component ? g.component({ values, setValue, errors, requiredFieldIds: widgetRequiredFieldIds }) : null
+        const componentNode = g.component ? g.component({
+          values,
+          setValue,
+          errors,
+          requiredFieldIds: widgetRequiredFieldIds,
+          injectedFields: g.bare ? renderFields(resolveGroupFields(g).filter((field) => injectedOnlyFieldIdSet.has(field.id))) : undefined,
+        }) : null
         if (g.bare) {
           if (componentNode) {
             nodes.push(<React.Fragment key={g.id}>{componentNode}</React.Fragment>)
@@ -3711,8 +3999,8 @@ export function CrudForm<TValues extends Record<string, unknown>>({
               submit: formReadOnly ? undefined : { formId, pending: pending, label: resolvedSubmitLabel, pendingLabel: savingLabel, icon: submitIcon },
             }}
           />
-        ) : headerExtraActions ? (
-          <div className="flex justify-end gap-2 mb-2">{headerExtraActions}</div>
+        ) : embeddedHeaderActions ? (
+          <div className="flex justify-end gap-2 mb-2">{embeddedHeaderActions}</div>
         ) : null}
         {contentHeader}
         <DataLoader
@@ -3750,7 +4038,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
               {hasSecondaryColumn ? <div className={densityStackMd} data-crud-injection-region>{col2Content}</div> : null}
             </div>
             {formError && !Object.keys(errors).length ? <div className="text-sm text-status-error-text">{formError}</div> : null}
-            {hideFooterActions || formReadOnly ? null : (
+            {renderFooterActions ? (
               <FormFooter
                 embedded={embedded}
                 className={dialogFooterClass}
@@ -3764,7 +4052,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
                   submit: { pending: pending, label: resolvedSubmitLabel, pendingLabel: savingLabel, icon: submitIcon }
                 }}
               />
-            )}
+            ) : null}
             </form>,
           )}
         </DataLoader>
@@ -3794,8 +4082,8 @@ export function CrudForm<TValues extends Record<string, unknown>>({
             submit: formReadOnly ? undefined : { formId, pending: pending, label: resolvedSubmitLabel, pendingLabel: savingLabel, icon: submitIcon },
           }}
         />
-      ) : headerExtraActions ? (
-        <div className="flex justify-end gap-2 mb-2">{headerExtraActions}</div>
+      ) : embeddedHeaderActions ? (
+        <div className="flex justify-end gap-2 mb-2">{embeddedHeaderActions}</div>
       ) : null}
       {contentHeader}
       <DataLoader
@@ -3830,7 +4118,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
                   <FieldControl
                     key={f.id}
                     field={f}
-                    value={values[f.id]}
+                    value={readRenderedFieldValue(values as Record<string, unknown>, f.id)}
                     error={errors[f.id]}
                     options={fieldOptionsById.get(f.id) || EMPTY_OPTIONS}
                     setValue={setValue}
@@ -3841,14 +4129,14 @@ export function CrudForm<TValues extends Record<string, unknown>>({
                     onSubmitRequest={requestSubmit}
                     wrapperClassName={wrapperClassName}
                     entityIdForField={primaryEntityId ?? undefined}
-                    recordId={recordId}
+                    recordId={explicitResourceId ?? recordId}
                     markRequired={widgetRequiredFieldIds.has(f.id)}
                   />
                 )
               })}
             </div>
             {formError && !Object.keys(errors).length ? <div className="text-sm text-status-error-text">{formError}</div> : null}
-            {hideFooterActions || formReadOnly ? null : (
+            {renderFooterActions ? (
               <FormFooter
                 embedded={embedded}
                 className={dialogFooterClass}
@@ -3862,7 +4150,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
                   submit: { pending: pending, label: resolvedSubmitLabel, pendingLabel: savingLabel, icon: submitIcon },
                 }}
               />
-            )}
+            ) : null}
           </form>
           </div>,
         )}
@@ -4049,12 +4337,16 @@ function NumberInput({
   placeholder,
   autoFocus,
   onSubmit,
+  disabled,
+  readOnly,
 }: {
   value: number | string | null | undefined
   onChange: (v: number | undefined) => void
   placeholder?: string
   autoFocus?: boolean
   onSubmit?: () => void
+  disabled?: boolean
+  readOnly?: boolean
 }) {
   const locale = useOptionalLocale()
   const serializedValue = value !== undefined && value !== null ? String(value) : ''
@@ -4136,6 +4428,8 @@ function NumberInput({
       onFocus={handleFocus}
       onBlur={handleBlur}
       autoFocus={autoFocus}
+      disabled={disabled}
+      readOnly={readOnly}
       data-crud-focus-target=""
     />
   )
@@ -4526,6 +4820,8 @@ const FieldControl = React.memo(function FieldControlImpl({
           onChange={fieldSetValue}
           autoFocus={autoFocusField}
           onSubmit={onSubmitRequest}
+          disabled={disabled}
+          readOnly={readOnly}
         />
       )}
       {field.type === 'date' && (
@@ -4625,6 +4921,7 @@ const FieldControl = React.memo(function FieldControlImpl({
           suppressInitialSuggestionsOnFocus={autoFocusField}
           suggestions={options.map((opt) => ({ value: opt.value, label: opt.label }))}
           loadSuggestions={loadFieldSuggestions}
+          disabled={disabled}
         />
       )}
       {field.type === 'combobox' && (

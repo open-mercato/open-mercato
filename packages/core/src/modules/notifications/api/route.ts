@@ -9,6 +9,7 @@ import {
   resolveCrudCache,
 } from '@open-mercato/shared/lib/crud/cache'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi/types'
+import { NOTIFICATION_ACTION_COMMAND_NOT_ALLOWED_ERROR_CODE } from '@open-mercato/shared/modules/notifications/types'
 import { Notification } from '../data/entities'
 import { listNotificationsSchema, createNotificationSchema } from '../data/validators'
 import { toNotificationDto } from '../lib/notificationMapper'
@@ -21,12 +22,14 @@ import {
   NOTIFICATION_RESOURCE_KIND,
   notificationCrudErrorResponse,
   notificationValidationErrorResponse,
+  rejectNotificationActionCommands,
   resolveGuardedNotificationContext,
   resolveNotificationContext,
   runGuardedNotificationWrite,
   TENANT_SCOPE_REQUIRED_ERROR_CODE,
 } from '../lib/routeHelpers'
 import {
+  actionConflictResponseSchema,
   buildNotificationsCrudOpenApi,
   createPagedListResponseSchema,
   notificationItemSchema,
@@ -216,6 +219,8 @@ export async function POST(req: Request) {
   if (!parsed.success) {
     return notificationValidationErrorResponse(parsed.error)
   }
+  const commandRejection = await rejectNotificationActionCommands(parsed.data)
+  if (commandRejection) return commandRejection
 
   try {
     const guarded = await runGuardedNotificationWrite(
@@ -251,6 +256,7 @@ const notificationsCrudOpenApi = buildNotificationsCrudOpenApi({
 })
 
 const notificationsCrudGet = notificationsCrudOpenApi.methods?.GET ?? {}
+const notificationsCrudPost = notificationsCrudOpenApi.methods?.POST ?? {}
 
 // The CRUD factory documents errors only for DELETE, and POST already gets an auto-generated 403
 // from its `requireFeatures` metadata. GET is authenticated-only, so its tenant-scope rejection has
@@ -267,6 +273,17 @@ export const openApi: OpenApiRouteDoc = {
           status: 403,
           description: `Request could not be resolved to a tenant scope (code: ${TENANT_SCOPE_REQUIRED_ERROR_CODE})`,
           schema: scopeErrorResponseSchema,
+        },
+      ],
+    },
+    POST: {
+      ...notificationsCrudPost,
+      errors: [
+        ...(notificationsCrudPost.errors ?? []),
+        {
+          status: 400,
+          description: `Invalid payload, or an action carries a \`commandId\` (code: ${NOTIFICATION_ACTION_COMMAND_NOT_ALLOWED_ERROR_CODE})`,
+          schema: actionConflictResponseSchema,
         },
       ],
     },

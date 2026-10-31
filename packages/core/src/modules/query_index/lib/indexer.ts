@@ -1,5 +1,6 @@
+import { resolveQueryIndexSourceTableMetadata } from './subscriber-scope'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { resolveEntityTableName } from '@open-mercato/shared/lib/query/engine'
+import { resolveEntityTableName as resolveFallbackEntityTableName } from '@open-mercato/shared/lib/query/engine'
 import { resolveTenantEncryptionService } from '@open-mercato/shared/lib/encryption/customFieldValues'
 import { decryptIndexDocForSearch, encryptIndexDocForStorage } from '@open-mercato/shared/lib/encryption/indexDoc'
 import {
@@ -10,8 +11,14 @@ import {
 } from '@open-mercato/shared/lib/crud/custom-field-definition-index'
 import { type Kysely, type Transaction, sql } from 'kysely'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { resolveSearchConfig } from '@open-mercato/shared/lib/search/config'
 import { replaceSearchTokensForRecord, deleteSearchTokensForRecord } from './search-tokens'
-import { attachAggregateSearchField } from './document'
+import { attachAggregateSearchField, rebuildAggregateSearchField } from './document'
+import { applyIndexDocEnrichers } from './doc-enrichers'
+
+function resolveEntityTableName(em: EntityManager, entity: string): string {
+  return resolveQueryIndexSourceTableMetadata(em, entity)?.table ?? resolveFallbackEntityTableName(em, entity)
+}
 
 const logger = createLogger('query_index').child({ component: 'indexer' })
 
@@ -196,6 +203,13 @@ export async function buildIndexDoc(em: EntityManager, params: BuildDocParams): 
       }
     }
   } catch {}
+
+  await applyIndexDocEnrichers(db, params.entityType, [{
+    recordId: String(params.recordId),
+    doc,
+    tenantId: params.tenantId ?? null,
+    organizationId: params.organizationId ?? null,
+  }])
 
   // Kept outside the guard below: a failure while building the aggregate search field is a
   // bug in the aggregation or its configuration, and must surface instead of being mistaken
@@ -400,12 +414,24 @@ export async function reindexSearchTokensForRecord(
       dekKeyCache,
     )
   })()
+  // Rebuilt on the decrypted document: the aggregate stored in `entity_indexes` was
+  // composed from the row as it sits at rest, so for every encryption-mapped field it
+  // holds ciphertext no user query can ever match (#5625). `resolveSearchConfig` re-parses
+  // the environment on every call, so it is resolved once and threaded into both the
+  // rebuild and the token writer — that also makes the aggregate's blocklist filter and
+  // the per-field one provably read the same snapshot, as the batch path already does.
+  const searchConfig = resolveSearchConfig()
+  const searchDoc = rebuildAggregateSearchField(await tokenDoc, {
+    entityType: args.entityType,
+    config: searchConfig,
+  })
   await replaceSearchTokensForRecord(db, {
     entityType: args.entityType,
     recordId: args.recordId,
     organizationId: args.organizationId ?? null,
     tenantId: args.tenantId ?? null,
-    doc: await tokenDoc,
+    doc: searchDoc,
+    config: searchConfig,
   }, { trx: args.trx })
 }
 

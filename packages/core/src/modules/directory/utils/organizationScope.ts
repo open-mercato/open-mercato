@@ -2,6 +2,8 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { FilterQuery } from '@mikro-orm/core'
 import type { AwilixContainer } from 'awilix'
 import { Organization } from '@open-mercato/core/modules/directory/data/entities'
+import { ApiKey } from '@open-mercato/core/modules/api_keys/data/entities'
+import { isSessionBoundApiKey } from '@open-mercato/core/modules/api_keys/services/sessionKeyRoles'
 import { isAllOrganizationsSelection } from '@open-mercato/core/modules/directory/constants'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
@@ -25,7 +27,7 @@ export type { OrganizationScope }
 // (every ACL/role grant change goes through it — see buildOrgScopeUserCacheTag)
 // and per-tenant entries by the directory.organization.* subscriber plus
 // RbacService.invalidateTenantCache (role-ACL changes).
-const ORG_SCOPE_CACHE_KEY_PREFIX = 'org-scope'
+const ORG_SCOPE_CACHE_KEY_PREFIX = 'org-scope:v2'
 // Phase 4 default-off until the same readiness probe (`GET /api/customers/people`)
 // stays green with the cache layer engaged. Set `OM_ORG_SCOPE_CACHE_TTL_MS=60000`
 // (or any positive integer) to opt in once cross-request safety is re-verified.
@@ -47,7 +49,8 @@ function buildOrgScopeCacheKey(parts: {
 }): string {
   const selected = parts.selectedOrgId ?? 'none'
   const requested = parts.requestedTenantId ?? 'none'
-  return `${ORG_SCOPE_CACHE_KEY_PREFIX}:${parts.userId}:${parts.effectiveTenantId}:${selected}:${requested}`
+  const namespace = parts.userId.startsWith('api_key:') ? `${ORG_SCOPE_CACHE_KEY_PREFIX}:delegated-v1` : ORG_SCOPE_CACHE_KEY_PREFIX
+  return `${namespace}:${parts.userId}:${parts.effectiveTenantId}:${selected}:${requested}`
 }
 
 // Tag builders are exported so the modules that own the "this user's scope
@@ -63,10 +66,11 @@ export function buildOrgScopeTenantCacheTag(tenantId: string): string {
   return `${ORG_SCOPE_CACHE_KEY_PREFIX}:tenant:${tenantId}`
 }
 
-function buildOrgScopeCacheTags(parts: { userId: string; effectiveTenantId: string }): string[] {
+function buildOrgScopeCacheTags(parts: { userId: string; effectiveTenantId: string; ownerUserId: string | null }): string[] {
   return [
     buildOrgScopeUserCacheTag(parts.userId),
     buildOrgScopeTenantCacheTag(parts.effectiveTenantId),
+    ...(parts.ownerUserId ? [buildOrgScopeUserCacheTag(parts.ownerUserId)] : []),
   ]
 }
 
@@ -135,6 +139,14 @@ export async function invalidateOrganizationScopeCacheForTenant(
 // dropped with the request object by the GC.
 const orgScopeRequestMemo = new WeakMap<object, Map<string, Promise<OrganizationScope>>>()
 
+type BoundFeatureScope = {
+  userId: string
+  scope: OrganizationScope
+  organizationId: string | null
+}
+
+const featureScopeRequestMemo = new WeakMap<object, BoundFeatureScope>()
+
 function getRequestScopeMemo(request: unknown): Map<string, Promise<OrganizationScope>> | null {
   if (!request || (typeof request !== 'object' && typeof request !== 'function')) return null
   const key = request as object
@@ -144,6 +156,24 @@ function getRequestScopeMemo(request: unknown): Map<string, Promise<Organization
     orgScopeRequestMemo.set(key, memo)
   }
   return memo
+}
+
+function bindFeatureScopeToRequest(request: unknown, binding: BoundFeatureScope): void {
+  if (!request || (typeof request !== 'object' && typeof request !== 'function')) return
+  featureScopeRequestMemo.set(request as object, binding)
+}
+
+function getFeatureScopeForRequest(
+  request: unknown,
+  userId: string,
+  tenantOverride: string | null | undefined,
+): BoundFeatureScope | null {
+  if (!request || (typeof request !== 'object' && typeof request !== 'function')) return null
+  const entry = featureScopeRequestMemo.get(request as object)
+  if (!entry || entry.userId !== userId) return null
+  if (tenantOverride === undefined) return entry
+  const requestedTenantId = typeof tenantOverride === 'string' ? tenantOverride.trim() : ''
+  return requestedTenantId.length > 0 && requestedTenantId === entry.scope.tenantId ? entry : null
 }
 
 function normalizeOrganizationId(value: unknown): string | null {
@@ -308,13 +338,6 @@ export async function resolveOrganizationScope({
     allowedSet = expandWithDescendants(orgDescendants, accessibleList)
   }
 
-  if (allowedSet && allowedSet.size === 0 && fallbackOrgId) {
-    const computed = loadFallbackSet()
-    if (computed && computed.size > 0) {
-      allowedSet = computed
-    }
-  }
-
   const hasUnrestrictedAccess = effectiveSuperAdmin || (accessibleList === null)
   const noOrgSelection = normalizedSelectedId === null && !explicitAllOrgsChoice
   const widenToAllOrgs =
@@ -357,7 +380,7 @@ export async function resolveOrganizationScope({
     }
   }
 
-  if ((!filterSet || filterSet.size === 0) && fallbackOrgId && !widenToAllOrgs) {
+  if (allowedSet === null && (!filterSet || filterSet.size === 0) && fallbackOrgId && !widenToAllOrgs) {
     const computed = loadFallbackSet()
     if (computed && computed.size > 0) {
       filterSet = computed
@@ -400,6 +423,11 @@ export async function resolveOrganizationScopeForRequest({
 }): Promise<OrganizationScope> {
   if (!auth || !auth.sub) {
     return { selectedId: null, filterIds: null, allowedIds: null, tenantId: null }
+  }
+
+  if (selectedId === undefined) {
+    const boundFeatureScope = getFeatureScopeForRequest(request, auth.sub, tenantOverride)
+    if (boundFeatureScope) return boundFeatureScope.scope
   }
 
   let em: EntityManager | null = null
@@ -462,6 +490,7 @@ export async function resolveOrganizationScopeForRequest({
     : null
 
   const userId = typeof auth.sub === 'string' && auth.sub.length > 0 ? auth.sub : null
+  const ownerUserId = auth.isApiKey && typeof auth.userId === 'string' && auth.userId.length > 0 ? auth.userId : null
   const ttlMs = resolveOrgScopeTtlMs()
   const cache = ttlMs > 0 ? resolveCacheFromContainer(container) : null
   const cacheKey = userId
@@ -480,9 +509,14 @@ export async function resolveOrganizationScopeForRequest({
   }
 
   const resolveScope = async (): Promise<OrganizationScope> => {
-    if (cache && cacheKey && typeof cache.get === 'function') {
+    let crossRequestCache = cache
+    if (crossRequestCache && userId?.startsWith('api_key:')) {
+      const key = await em.findOne(ApiKey, { id: userId.slice('api_key:'.length), deletedAt: null })
+      if (!key || isSessionBoundApiKey(key)) crossRequestCache = null
+    }
+    if (crossRequestCache && cacheKey && typeof crossRequestCache.get === 'function') {
       try {
-        const cached = await cache.get(cacheKey)
+        const cached = await crossRequestCache.get(cacheKey)
         if (isValidCachedScope(cached)) return cached
       } catch (err) {
         logger.warn('Cache read failed', { err })
@@ -497,11 +531,11 @@ export async function resolveOrganizationScopeForRequest({
       tenantId: effectiveTenantId,
     })
 
-    if (cache && cacheKey && userId && typeof cache.set === 'function') {
+    if (crossRequestCache && cacheKey && userId && typeof crossRequestCache.set === 'function') {
       try {
-        await cache.set(cacheKey, baseScope, {
+        await crossRequestCache.set(cacheKey, baseScope, {
           ttl: ttlMs,
-          tags: buildOrgScopeCacheTags({ userId, effectiveTenantId }),
+          tags: buildOrgScopeCacheTags({ userId, effectiveTenantId, ownerUserId }),
         })
       } catch (err) {
         logger.warn('Cache write failed', { err })
@@ -532,20 +566,83 @@ export async function resolveFeatureCheckContext({
   request,
   selectedId,
   tenantId,
+  requiredFeatures,
 }: {
   container: AwilixContainer
   auth: AuthContext | null | undefined
-  request?: Request | { cookies?: { get: (name: string) => { value: string } | undefined } }
+  request?: Request | {
+    cookies?: { get: (name: string) => { value: string } | undefined }
+    headers?: { get(name: string): string | null }
+  }
   selectedId?: string | null
   tenantId?: string | null
+  requiredFeatures?: readonly string[]
 }): Promise<FeatureCheckContext> {
-  const scope = await resolveOrganizationScopeForRequest({ container, auth, request, selectedId, tenantId })
+  const boundFeatureScope = auth?.sub && selectedId === undefined
+    ? getFeatureScopeForRequest(request, auth.sub, tenantId)
+    : null
+  let scope = boundFeatureScope
+    ? boundFeatureScope.scope
+    : await resolveOrganizationScopeForRequest({ container, auth, request, selectedId, tenantId })
+  const organizationId = boundFeatureScope
+    ? boundFeatureScope.organizationId
+    : resolveFeatureCheckOrganizationId(scope, auth)
+  if (
+    auth?.sub
+    && request
+    && scope.selectedId === null
+    && scope.tenantId
+    && Array.isArray(requiredFeatures)
+    && requiredFeatures.length > 0
+  ) {
+    const em = container.resolve<EntityManager>('em')
+    const rbac = container.resolve<RbacService>('rbacService')
+    const featureAccess = await rbac.resolveFeatureOrganizationAccess(
+      auth.sub,
+      requiredFeatures,
+      { tenantId: scope.tenantId },
+    )
+    if (!featureAccess.unrestricted) {
+      const organizationFilter: FilterQuery<Organization> = {
+        tenant: scope.tenantId,
+        deletedAt: null,
+        ...(Array.isArray(scope.filterIds) ? { id: { $in: scope.filterIds } } : {}),
+      }
+      const organizations = await em.find(Organization, organizationFilter, {
+        fields: ['id', 'ancestorIds'],
+      })
+      const candidateOrganizationIds = new Set(
+        organizations.map((organization) => String(organization.id)),
+      )
+      const featureOrganizationIds = featureAccess.filterOrganizationIds(
+        organizations.map((organization) => ({
+          id: String(organization.id),
+          ancestorIds: Array.isArray(organization.ancestorIds) ? organization.ancestorIds : [],
+        })),
+      )
+      const approvedOrganizationIds = Array.from(new Set(
+        featureOrganizationIds.filter((featureOrganizationId) => candidateOrganizationIds.has(featureOrganizationId)),
+      ))
+      scope = {
+        selectedId: null,
+        filterIds: approvedOrganizationIds,
+        allowedIds: approvedOrganizationIds,
+        tenantId: scope.tenantId,
+      }
+    }
+    bindFeatureScopeToRequest(request, { userId: auth.sub, scope, organizationId })
+  }
+
+  return { organizationId, scope, allowedOrganizationIds: scope.allowedIds ?? null }
+}
+
+function resolveFeatureCheckOrganizationId(
+  scope: OrganizationScope,
+  auth: AuthContext | null | undefined,
+): string | null {
   const allowedOrganizationIds = scope.allowedIds ?? null
   const authOrgId = auth?.orgId ?? null
-  const organizationId =
-    scope.selectedId
+  return scope.selectedId
     ?? (authOrgId && (!Array.isArray(allowedOrganizationIds) || allowedOrganizationIds.includes(authOrgId)) ? authOrgId : null)
     ?? (Array.isArray(allowedOrganizationIds) && allowedOrganizationIds.length ? allowedOrganizationIds[0] : null)
-
-  return { organizationId, scope, allowedOrganizationIds }
 }

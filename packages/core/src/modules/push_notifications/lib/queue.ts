@@ -1,8 +1,4 @@
-import type { EntityManager } from '@mikro-orm/postgresql'
 import { createModuleQueue, type Queue } from '@open-mercato/queue'
-import { createLogger } from '@open-mercato/shared/lib/logger'
-
-const logger = createLogger('push_notifications')
 
 export interface PushDeliveryJob {
   deliveryId: string
@@ -17,7 +13,6 @@ export const PUSH_DELIVERIES_QUEUE = 'push-deliveries'
 export const PUSH_STUCK_RECLAIM_QUEUE = 'push-stuck-reclaim'
 
 const queues = new Map<string, Queue<PushDeliveryJob>>()
-const LOCAL_WORKER_PROMISE_KEY = '__openMercatoPushLocalWorkerPromise__'
 
 export function getPushQueue(queueName: string = PUSH_DELIVERIES_QUEUE): Queue<PushDeliveryJob> {
   const existing = queues.get(queueName)
@@ -30,45 +25,21 @@ export function getPushQueue(queueName: string = PUSH_DELIVERIES_QUEUE): Queue<P
   return created
 }
 
-// In local (dev/test) queue mode jobs are processed in-process. In async mode the
-// auto-discovered `workers/send-push.worker.ts` handles them, so this is a no-op there.
-async function ensureLocalPushQueueWorkerStarted(): Promise<void> {
-  if (process.env.QUEUE_STRATEGY === 'async') return
-
-  const globalStore = globalThis as typeof globalThis & {
-    [LOCAL_WORKER_PROMISE_KEY]?: Promise<void>
-  }
-
-  if (globalStore[LOCAL_WORKER_PROMISE_KEY]) {
-    await globalStore[LOCAL_WORKER_PROMISE_KEY]
-    return
-  }
-
-  globalStore[LOCAL_WORKER_PROMISE_KEY] = (async () => {
-    const queue = getPushQueue()
-
-    await queue.process(async (job) => {
-      const [{ createRequestContainer }, { processPushDeliveryJob }] = await Promise.all([
-        import('@open-mercato/shared/lib/di/container'),
-        import('./push-delivery'),
-      ])
-
-      const container = await createRequestContainer()
-      const em = (container.resolve('em') as EntityManager).fork()
-      await processPushDeliveryJob(em, job.payload, (name) => container.resolve(name))
-    })
-  })().catch((error) => {
-    delete globalStore[LOCAL_WORKER_PROMISE_KEY]
-    logger.error('Failed to start local delivery worker', { error })
-    throw error
-  })
-
-  await globalStore[LOCAL_WORKER_PROMISE_KEY]
-}
-
+/**
+ * Enqueue only. The send is owned by the auto-discovered `workers/send-push.worker.ts`
+ * in BOTH queue strategies — a worker process in `async` mode, the local worker runner
+ * (`yarn dev`, `drainIntegrationQueue`) in local mode.
+ *
+ * This deliberately never starts a consumer itself. Booting one from the request path
+ * deadlocked the caller: the local strategy's `process()` does not return until its
+ * first drain finishes, so awaiting it ran the send handler INSIDE the enqueueing
+ * request — and a retryable send re-enqueues from within that handler, which awaited
+ * the very bootstrap promise it was running under. The first push whose delivery failed
+ * retryably therefore wedged `POST /api/notifications` forever, and because the promise
+ * was cached on `globalThis` every later push in the process awaited it too. It also put
+ * a second consumer on a queue directory the local strategy documents as single-consumer.
+ */
 export async function enqueuePushDelivery(job: PushDeliveryJob, delayMs?: number): Promise<string> {
   const queue = getPushQueue()
-  const jobId = await queue.enqueue(job, delayMs && delayMs > 0 ? { delayMs } : undefined)
-  await ensureLocalPushQueueWorkerStarted()
-  return jobId
+  return queue.enqueue(job, delayMs && delayMs > 0 ? { delayMs } : undefined)
 }

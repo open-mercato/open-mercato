@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from '@jest/globals'
+import { createHash } from 'node:crypto'
 import {
   scheduleCreateSchema,
   scheduleUpdateSchema,
@@ -780,4 +781,32 @@ describe('scheduleRunsQuerySchema', () => {
     expect(result.sort).toBe('startedAt')
     expect(result.order).toBe('asc')
   })
+})
+
+describe('schedule id format', () => {
+  const hex = createHash('sha256').update('payment_gateways:session-initialization-prune').digest('hex')
+  const moduleScheduleId = `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`
+  const nonRfcScheduleId = 'a1b2c3d4-e5f6-a7b8-c9d0-e1f2a3b4c5d6'
+
+  it.each([moduleScheduleId, nonRfcScheduleId])(
+    'accepts a UUID-formatted id without RFC 4122 version/variant bits (%s)',
+    (id) => {
+      expect(scheduleTriggerSchema.parse({ id }).id).toBe(id)
+      expect(scheduleDeleteSchema.parse({ id }).id).toBe(id)
+      expect(scheduleUpdateSchema.parse({ id, name: 'Renamed' }).id).toBe(id)
+      expect(scheduleListQuerySchema.parse({ id }).id).toBe(id)
+      expect(scheduleRunsQuerySchema.parse({ scheduledJobId: id }).scheduledJobId).toBe(id)
+    }
+  )
+
+  it.each(['not-a-uuid', 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6', 'g1b2c3d4-e5f6-a7b8-c9d0-e1f2a3b4c5d6'])(
+    'rejects a non-UUID string (%s)',
+    (id) => {
+      expect(scheduleTriggerSchema.safeParse({ id }).success).toBe(false)
+      expect(scheduleDeleteSchema.safeParse({ id }).success).toBe(false)
+      expect(scheduleUpdateSchema.safeParse({ id }).success).toBe(false)
+      expect(scheduleListQuerySchema.safeParse({ id }).success).toBe(false)
+      expect(scheduleRunsQuerySchema.safeParse({ scheduledJobId: id }).success).toBe(false)
+    }
+  )
 })

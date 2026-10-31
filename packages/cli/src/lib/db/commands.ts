@@ -10,6 +10,13 @@ import { getSslConfig } from '@open-mercato/shared/lib/db/ssl'
 import type { PackageResolver, ModuleEntry } from '../resolver'
 import { quotePostgresIdentifier } from './identifiers'
 import {
+  checkEncryptionMapBackfills,
+  isEncryptionBackfillCheckEnabled,
+  readDeclaredEncryptionMaps,
+  type DeclaredEncryptionMap,
+  type EncryptionMapRow,
+} from './encryption-backfill-check'
+import {
   collectQueryIndexReindexEntityTypes,
   isMigrationReindexEnabled,
   requestQueryIndexReindex,
@@ -59,18 +66,47 @@ function sortModules(mods: ModuleEntry[]): ModuleEntry[] {
 }
 
 /**
- * Custom dynamic import provider for MikroORM that properly handles Windows paths.
- * MikroORM's built-in handling has a bug where it converts file:// URLs back to
- * Windows paths when the extension isn't in require.extensions (which is always
- * true for .ts files in ESM mode).
+ * Convert a filesystem path into a specifier `import()` can resolve under plain
+ * Node ESM on every platform (#6238).
+ *
+ * Windows already needed `file:` URLs for drive-letter absolute paths. On POSIX,
+ * cwd-relative paths such as `node_modules/.../Migration.js` are treated as
+ * bare package names (`node_modules`), so migration reindex declarations were
+ * logged and skipped. Absolute paths become `file:` URLs on every platform.
+ * Already-URL / `node:` / bare package (and package-subpath) specifiers stay as-is.
+ */
+export function toImportableModuleSpecifier(id: string): string {
+  if (
+    id.startsWith('file:') ||
+    id.startsWith('data:') ||
+    id.startsWith('node:') ||
+    id.startsWith('http:') ||
+    id.startsWith('https:')
+  ) {
+    return id
+  }
+
+  const isWindowsAbsolute = /^[a-zA-Z]:[\\/]/.test(id)
+  const isFilesystemRelative =
+    id.startsWith('./') ||
+    id.startsWith('../') ||
+    id.startsWith('.\\') ||
+    id.startsWith('..\\') ||
+    /(^|[\\/])node_modules([\\/]|$)/.test(id)
+
+  if (path.isAbsolute(id) || isWindowsAbsolute || isFilesystemRelative) {
+    return pathToFileURL(path.resolve(id)).href
+  }
+
+  return id
+}
+
+/**
+ * Custom dynamic import provider for MikroORM and migration reindex loading.
+ * Always converts filesystem paths to `file:` URLs before `import()` (#6238).
  */
 async function dynamicImportProvider(id: string): Promise<any> {
-  // On Windows, convert absolute paths to file:// URLs
-  // Check if it's a Windows absolute path (e.g., C:\... or D:\...)
-  if (process.platform === 'win32' && /^[a-zA-Z]:[\\/]/.test(id)) {
-    id = pathToFileURL(id).href
-  }
-  return import(id)
+  return import(toImportableModuleSpecifier(id))
 }
 
 /**
@@ -228,6 +264,72 @@ function getMigrationsPath(entry: ModuleEntry, resolver: PackageResolver): strin
   return path.join(roots.pkgBase, 'migrations').replace(/\\/g, '/')
 }
 
+async function loadModuleEncryptionMaps(entry: ModuleEntry, resolver: PackageResolver): Promise<DeclaredEncryptionMap[]> {
+  const roots = resolver.getModulePaths(entry)
+  const appFile = path.join(roots.appBase, 'encryption.ts')
+  const pkgFile = path.join(roots.pkgBase, 'encryption.ts')
+  try {
+    if (fs.existsSync(appFile)) return readDeclaredEncryptionMaps(entry.id, await importWithTypeScriptFile(appFile))
+    if (entry.from === '@app' || resolver.isMonorepo()) {
+      return fs.existsSync(pkgFile) ? readDeclaredEncryptionMaps(entry.id, await importWithTypeScriptFile(pkgFile)) : []
+    }
+    return readDeclaredEncryptionMaps(entry.id, await import(`${resolver.getModuleImportBase(entry).pkgBase}/encryption`))
+  } catch {
+    return []
+  }
+}
+
+function readModuleMigrationSources(modules: ModuleEntry[], resolver: PackageResolver): string[] {
+  const sources: string[] = []
+  for (const entry of modules) {
+    const migrationsPath = getMigrationsPath(entry, resolver)
+    if (!fs.existsSync(migrationsPath)) continue
+    for (const file of fs.readdirSync(migrationsPath)) {
+      if (!/^Migration.*\.(ts|js)$/.test(file) || file.endsWith('.d.ts')) continue
+      sources.push(fs.readFileSync(path.join(migrationsPath, file), 'utf8'))
+    }
+  }
+  return sources
+}
+
+async function queryEncryptionMapRows(): Promise<EncryptionMapRow[] | null> {
+  const { Client } = await import('pg')
+  const client = new Client({ connectionString: getClientUrl(), ssl: getSslConfig(), connectionTimeoutMillis: 5000 })
+  await client.connect()
+  try {
+    const table = await client.query(`select to_regclass('encryption_maps') is not null as "exists"`)
+    if (!table.rows[0]?.exists) return null
+    const result = await client.query(
+      `select "tenant_id", "organization_id", "entity_id", "fields_json", "is_active" from "encryption_maps" where "deleted_at" is null`,
+    )
+    return result.rows.map((row) => ({
+      tenantId: row.tenant_id ?? null,
+      organizationId: row.organization_id ?? null,
+      entityId: String(row.entity_id),
+      fieldsJson: row.fields_json,
+      isActive: row.is_active === true,
+    }))
+  } finally {
+    try {
+      await client.end()
+    } catch { }
+  }
+}
+
+export async function warnAboutMissingEncryptionMapBackfills(modules: ModuleEntry[], resolver: PackageResolver): Promise<void> {
+  if (!isEncryptionBackfillCheckEnabled()) return
+  await checkEncryptionMapBackfills({
+    loadDeclaredMaps: async () => {
+      const declared: DeclaredEncryptionMap[] = []
+      for (const entry of modules) declared.push(...(await loadModuleEncryptionMaps(entry, resolver)))
+      return declared
+    },
+    loadMigrationSources: () => readModuleMigrationSources(modules, resolver),
+    queryEncryptionMaps: queryEncryptionMapRows,
+    warn: (message) => console.warn(message),
+  })
+}
+
 export interface DbOptions {
   quiet?: boolean
 }
@@ -338,6 +440,7 @@ export async function dbGenerate(resolver: PackageResolver, options: DbOptions =
   }
 
   console.log(results.join('\n'))
+  await warnAboutMissingEncryptionMapBackfills(ordered, resolver)
 }
 
 export async function dbMigrate(resolver: PackageResolver, options: DbOptions = {}): Promise<void> {

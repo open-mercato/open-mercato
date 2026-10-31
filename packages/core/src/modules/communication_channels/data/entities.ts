@@ -85,6 +85,7 @@ export class CommunicationChannel {
     | 'organizationId'
     | 'userId'
     | 'isPrimary'
+    | 'visibility'
     | 'pollIntervalSeconds'
     | 'lastPolledAt'
     | 'status'
@@ -131,6 +132,26 @@ export class CommunicationChannel {
    */
   @Property({ name: 'is_primary', type: 'boolean', default: false })
   isPrimary: boolean = false
+
+  /**
+   * Who may read the CRM email this channel ingests.
+   *
+   *   `private` — only the owner (`userId`). The default, and the only state a
+   *               personal mailbox has ever had.
+   *   `shared`  — every user with CRM access to the linked record: a team mailbox.
+   *
+   * Made explicit rather than inferred from `userId` so a PERSONAL mailbox can be
+   * team-visible without surrendering owner-only management. Tenant-scoped rows
+   * (`userId IS NULL`) are `shared` — the migration sets that in the same
+   * statement as the column addition, otherwise every existing FCM/APNs/Expo push
+   * channel would be silently un-shared on deploy.
+   *
+   * Enforcement is READ-TIME: flipping this never rewrites
+   * `customer_interactions.visibility`, so flipping back is instant and lossless.
+   * Stored as open text to match the sibling per-email `visibility` column.
+   */
+  @Property({ name: 'visibility', type: 'text', default: 'private' })
+  visibility: string = 'private'
 
   /**
    * Polling cadence in seconds. NULL means "this channel does not poll" — i.e. it

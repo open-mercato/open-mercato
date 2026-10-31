@@ -13,6 +13,7 @@ import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { validateCrudMutationGuard, runCrudMutationGuardAfterSuccess } from '@open-mercato/shared/lib/crud/mutation-guard'
 import { WorkflowDefinition } from '../../../../data/entities'
 import { serializeWorkflowDefinition } from '../../serialize'
@@ -20,6 +21,7 @@ import { workflowDefinitionMutationResponseSchema, workflowErrorSchema } from '.
 import { getCodeWorkflow } from '../../../../lib/code-registry'
 import { invalidateTriggerCache } from '../../../../lib/event-trigger-service'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
 const logger = createLogger('workflows')
 
@@ -47,7 +49,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
     const scope = await resolveOrganizationScopeForRequest({ container, auth, request })
     const tenantId = auth.tenantId
-    const organizationId = scope?.selectedId ?? auth.orgId
+    const organizationId = resolveSingleOrganizationIdOrDeny(scope, auth)
 
     if (!params.id.startsWith('code:')) {
       return NextResponse.json(
@@ -167,6 +169,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       message: 'Workflow definition customized successfully',
     })
   } catch (error) {
+    if (isCrudHttpError(error)) return NextResponse.json(error.body, { status: error.status })
     logger.error('Error customizing workflow definition', { err: error })
     return NextResponse.json({ error: 'Failed to customize workflow definition' }, { status: 500 })
   }

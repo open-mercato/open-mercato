@@ -428,7 +428,8 @@ inbound-processor (existing hub logic, unchanged by this spec):
   • Dedup by (channel_id, external_message_id)
   • Resolve ChannelThreadMapping (RFC2822 Message-ID/In-Reply-To/References lookup)
   • Create or reuse Message thread in messages module
-  • Create Message (type: 'channel.email', body from normalized text/html)
+  • Create Message (type: 'channel.email', body from normalized text/html,
+                    sentAt = NormalizedInboundMessage.timestamp — the provider's time, not the ingest time)
   • Create MessageChannelLink (channelPayload: full MIME, channelContentType: 'email/mime',
                                  channelMetadata: { messageId, inReplyTo, references, from, to, cc, bcc })
   • Create ExternalMessage (direction='inbound')
@@ -768,8 +769,8 @@ Routes that mutate (everything except the OAuth callback, which is GET-with-side
 ### `GET /api/communication_channels/oauth/[provider]/callback`
 - No auth feature (state cookie carries identity)
 - Query: `code`, `state` (Google)
-- Response: 302 to `returnUrl` (default `/backend/profile/communication-channels?flash=connected`) or `?flash=error&code=...`
-- Errors: invalid state, expired state, userId mismatch, exchange failure — all redirect with `flash=error`.
+- Response: 302 to `returnUrl` (default `/backend/profile/communication-channels?oauth=connected`) or `?oauth=error&code=...`
+- Errors: invalid state, expired state, userId mismatch, exchange failure — all redirect with `oauth=error`.
 
 ### `POST /api/communication_channels/channels/connect/credentials`
 - Features: `communication_channels.connect_user_channel`
@@ -948,7 +949,7 @@ If any line above fails, return to the hub-foundation PR before continuing.
 17. Module-local integration tests (`packages/core/src/modules/communication_channels/__integration__/`):
     - `TC-CHANNEL-EMAIL-HUB-001` per-user channel isolation: User A cannot list User B's channels via API
     - `TC-CHANNEL-EMAIL-HUB-002` polling scheduler enqueues `poll-channel` jobs at correct cadence (uses time-mocking to advance the scheduler)
-    - `TC-CHANNEL-EMAIL-HUB-003` OAuth state-cookie userId mismatch rejected at callback (302 to flash=error)
+    - `TC-CHANNEL-EMAIL-HUB-003` OAuth state-cookie userId mismatch rejected at callback (302 to oauth=error)
     - `TC-CHANNEL-EMAIL-HUB-004` `send-as-user` requires `user_id` ownership (cannot send via someone else's channel)
     - `TC-CHANNEL-EMAIL-HUB-005` `messages.message.sent` subscriber re-fetches by ID, no payload-shape coupling (simulate by emitting with a minimal payload and asserting routing still works)
     - `TC-CHANNEL-EMAIL-HUB-006` `channel_requires_reauth` notification raised when `markRequiresReauth` command runs; UMES `useNotificationEffect` handler triggers reconnect dialog (rendered, not OAuth-completed)
@@ -1248,6 +1249,35 @@ None.
 
 ## Changelog
 
+### 2026-09-27 — OAuth connect result travels in `?oauth=`, not `?flash=` (#6402)
+
+- The callback redirected with `?flash=<connected|error>`, but the global `<FlashMessages>` host reads `?flash=` as the message text (the `ui/backend/utils/flash.ts` convention), so users saw a green toast reading `error`/`connected`, or nothing after a cross-origin return from the provider. The outcome now travels in `?oauth=` (plus the unchanged `code` / `provider` / `channelId`), and the profile page maps it to its translated message.
+- The page's `flash()` call runs from a mount effect. On a full page load hydration is split across Suspense boundaries, so that effect could commit before any `<FlashMessages>` host attached its listener, and the event was dropped. `flash()` now keeps the latest undelivered message for up to 5 s and the hosts that start listening in the same commit show it.
+- The page strips `oauth` / `code` / `provider` / `channelId` from the URL once it has shown the toast, so a reload or Back navigation does not show it again.
+- The toast never echoes `?code=` or `?provider=`: a link from another site can set both, and this toast is not behind the `?flash=` referrer check. Codes with a dedicated message (`oauth_client_not_configured`, `mailbox_already_connected`, `replay`, `state_store_unavailable`) keep it; every other code shows the generic "Failed to connect channel." The provider is shown only through its `communication_channels.channel.providers.<key>` label; an unknown key shows "Channel connected." (QA S1 on #6521, #7103).
+- A custom `returnUrl` page that parsed `flash=connected|error` must read `oauth` instead; no such consumer exists in the repository.
+
+### 2026-09-17 — The per-user channel owner is the default assignee at ingest (#6106)
+
+- The rule "per-user channel owner becomes the default `ChannelThreadMapping.assigned_user_id`" was never implemented: ingest created the conversation and the thread mapping without an assignee, and addressed the message only to `mapping.assignedUserId`. The first message of every thread (no mapping yet) and every message on an unassigned thread therefore had no `MessageRecipient`, and the participant-scoped inbox list showed it to nobody, the channel owner included.
+- Fix: `ingest-inbound-message` routes to `mapping.assignedUserId ?? channel.userId` and stamps `channel.userId` as `assignedUserId` on a newly created `ExternalConversation` and `ChannelThreadMapping`. A manual assignment still wins; existing mappings are not rewritten; tenant-wide channels (`user_id` NULL) stay unassigned. The inbox list scope (`applyMessageParticipantScope`) is unchanged, so nobody gains visibility into another user's messages. Relies on the #6093 `inboundFromChannel` waiver above.
+
+### 2026-09-15 — Ingested messages dated with the provider timestamp (#6095)
+
+- `ingest-inbound-message` now passes the adapter's `timestamp` to `messages.messages.compose` as `sentAt`, so `Message.sentAt` is when the provider received the mail rather than when the poll or history-import worker ran. Before this, a 90-day "Import history" produced 300+ messages with `sent_at` inside the import minute, and the inbox (sorted on `sent_at`) showed the whole mailbox as one block in import order.
+- `sentAt` is a server-only compose field: `composeMessageRequestSchema` omits it and `POST /api/messages` strips any client-sent value, mirroring the `sourceChannelType` treatment from #4975. Adapters that supply no `timestamp` keep the previous "now" behaviour.
+- The CRM side of the same bug (`CustomerInteraction.occurredAt = link.createdAt`) is fixed in the customers subscriber; see the changelog of `implemented/2026-05-27-crm-email-integration.md`.
+- **Where consumers get the timestamp (review follow-up on #6115).** `ingest-inbound-message` and `deliver-outbound-message` carry the resolved time on their existing events as an optional ISO `providerTimestamp`, so a consuming module dates its own rows from the event instead of reading the `ExternalMessage` row across the storage boundary. The field is additive: an event without it leaves the consumer's own fallback in place.
+- **Which timestamp (review follow-up).** `normalizeMimeInbound` used to take the MIME `Date` header first and the provider's internal date only as a fallback. The header is written by the sender's client, so once it dates the platform message and the CRM interaction a forged or skewed header could pin a message in the future or hide it in the past. `NormalizeMimeInboundOptions` gains `receivedAt` (Gmail `internalDate`, IMAP `INTERNALDATE`), which now wins; the Gmail and IMAP adapters pass it. Without a receipt time the header is still used, except when unparsable or more than a day ahead of the clock, in which case `fallbackDate` and then "now" apply (`resolveInboundTimestamp`). `fallbackDate` stays for third-party adapters.
+- Tests: `messages/data/__tests__/validators.test.ts` (server-supplied `sentAt`), `messages/commands/__tests__/messages.compose-sent-at.test.ts`, `messages/api/__tests__/compose-channel-type.test.ts` (client `sentAt` dropped), `communication_channels/commands/__tests__/ingest-inbound-message.test.ts` (provider timestamp forwarded).
+
+### 2026-09-15 — Assigned conversations no longer drop inbound messages (#6093)
+
+- The design decision "per-user channel owner becomes the default `ChannelThreadMapping.assigned_user_id`" relies on ingest addressing each inbound message to that assignee as a `MessageRecipient` (that row is what puts the message in the assignee's inbox). The messages validator, older than this spec, rejected any recipient on a `visibility: 'public'` message, so the two rules could only both hold while a conversation was unassigned. Once assigned — by `reassign_conversation`, or simply by replying from the panel, since `send-as-user` sets `assignedUserId` on first reply — every later inbound message failed compose with `recipients must be empty when visibility is public`, the poll/import workers classified that as a permanent failure, and the thread silently stopped receiving mail (12 of 321 messages in a 90-day import in the reported case).
+- Fix: `composeMessageBaseSchema` gains a server-only `inboundFromChannel` flag. `ingest-inbound-message` sets it, the validator skips the recipients rule when it is set (every other public-visibility rule still applies), `composeMessageRequestSchema` omits it and `POST /api/messages` strips a client-sent value, mirroring `sourceChannelType` (#4975). User-composed public messages are validated exactly as before.
+- The assignee now actually receives the `messages.new` in-app notification for each inbound message in an assigned conversation, as this spec intended. Two things had to follow for that to be safe (review follow-up): compose no longer forces `sendViaEmail: true` for a public message that carries `inboundFromChannel` (ingest passes `false`: the message was received, not sent), so the assignee gets no email copy and the external sender no echo; #6090 removes the forcing for every caller and subsumes this. And the `messages.new` notification names the external correspondent (`Message.externalName`, else `externalEmail`) instead of the channel's system user, because `senderUserId` on an ingested message is the bot or the assignee fallback; compose passes `inboundFromChannel` on the `messages.message.sent` payload for that.
+- Tests: `messages/data/__tests__/validators.test.ts` (waiver, unassigned case, non-ingested and explicit-false still rejected, other rules kept, absent from the client contract), `messages/api/__tests__/compose-channel-type.test.ts` (client flag dropped), `communication_channels/commands/__tests__/ingest-inbound-message.test.ts` (assignee as recipient, payload validates, unassigned still empty), `messages/commands/__tests__/messages.compose-inbound-from-channel.test.ts` (no forced email for an ingested message, still forced for a user-composed public one), `messages/subscribers/__tests__/message-notification.test.ts` (notification names the correspondent, no email job).
+
 ### 2026-06-02 — Scope narrowed to Gmail + IMAP
 
 The shipping email providers are **Gmail + IMAP+SMTP** only. The provider-key union is `'gmail' | 'imap'`. Work-mailboxes that do not offer a usable OAuth path connect via IMAP + SMTP with an app password.
@@ -1387,3 +1417,31 @@ The previous draft is superseded. This spec is the canonical email integration d
 - [x] `yarn build:packages` succeeds (20/20 packages); `yarn test` succeeds (21/21 packages)
 - [ ] Live IMAP/SMTP end-to-end test against a real server — covered manually by user when connecting a real account; not part of CI
 - [ ] Phase 4 widget injections (profile + integrations + data tables) — deferred to slice 3f when shared with the Gmail provider
+
+---
+
+## Amendment — Single-Use OAuth State (PR #6267, 2026-09-20)
+
+Adds a fourth security control to the state-cookie design described in § Hub Deltas → Delta 7 / § OSS Independence (§ OAuth State Cookie):
+
+| Control | Mechanism |
+|---|---|
+| Crypto integrity | AES-256-GCM AEAD (unchanged) |
+| Binding | userId + providerKey + state nonce in AEAD payload (unchanged) |
+| TTL | 5-minute `expiresAt` in payload (unchanged) |
+| **Single-use** | **Short-TTL cache marker keyed by `tenantId:state` (new)** |
+
+### New cache dependency
+
+`GET /communication_channels/oauth/[provider]/callback` now requires the `cache` DI binding to be a valid `CacheStrategy`. On startup it is always registered via `bootstrap.ts`, but if the resolved instance lacks `has`/`set` (e.g., all `createCacheService` attempts failed) the callback redirects with `code=state_store_unavailable` rather than proceeding.
+
+**Multi-replica requirement**: the single-use marker is written to the resolved cache instance. With `CACHE_STRATEGY=memory` (default) the marker is process-local — a replayed callback against a different replica will still succeed. Production multi-replica deployments MUST set `CACHE_STRATEGY=redis` to share the marker across all replicas.
+
+### New error codes on the callback flash redirect
+
+| Code | Meaning |
+|---|---|
+| `replay` | State nonce already consumed — user is replaying or refreshing the callback URL |
+| `state_store_unavailable` | Cache unavailable at callback time; fail-closed rather than skipping single-use protection |
+
+Both codes are i18n-mapped in the profile page (`communication_channels.profile.flash.replayedState`, `communication_channels.profile.flash.stateStoreUnavailable`).

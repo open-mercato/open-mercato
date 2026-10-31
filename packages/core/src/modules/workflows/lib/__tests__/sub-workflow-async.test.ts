@@ -214,6 +214,7 @@ describe('resumeParentAfterSubWorkflow', () => {
     parent: Record<string, unknown> | null,
     child: Record<string, unknown> | null = childInstance as any,
     def: Partial<WorkflowDefinition> | null = parentDefinition,
+    childDef: Record<string, unknown> | null = null,
   ): EntityManager {
     const findOne = jest.fn(async (entity: any, where: any) => {
       const name = typeof entity === 'function' ? entity.name : entity
@@ -222,7 +223,7 @@ describe('resumeParentAfterSubWorkflow', () => {
         if (where?.id === childInstanceId) return child
         return null
       }
-      if (name === 'WorkflowDefinition') return def
+      if (name === 'WorkflowDefinition') return where?.workflowId ? childDef : def
       if (name === 'StepInstance') return { id: stepInstanceId, status: 'ACTIVE' }
       return null
     })
@@ -282,6 +283,88 @@ describe('resumeParentAfterSubWorkflow', () => {
 
     await expect(resumeParentAfterSubWorkflow(em, container, makeResumeJob())).rejects.toThrow(/not parked yet/)
     expect(sendSignalMock).not.toHaveBeenCalled()
+  })
+
+  describe('with declared child output ports', () => {
+    const parkedParent = () => ({
+      id: parentInstanceId, definitionId: parentDefinitionId, currentStepId: parentStepId, status: 'PAUSED', context: {}, tenantId, organizationId,
+    })
+
+    function parentWithOutputMapping(outputMapping: Record<string, string>): Partial<WorkflowDefinition> {
+      const definition = parentDefinition.definition!
+      const steps = definition.steps.map((step) =>
+        step.stepId === parentStepId ? { ...step, config: { ...step.config, outputMapping } } : step,
+      )
+      return { ...parentDefinition, definition: { ...definition, steps } }
+    }
+
+    const childDefWithOutputs = {
+      id: '00000000-0000-4000-8000-000000000008',
+      workflowId: 'child-workflow',
+      version: 1,
+      enabled: true,
+      definition: {
+        steps: [],
+        transitions: [],
+        io: {
+          outputs: [
+            { name: 'childValue', type: 'text', label: 'Child Value', required: true },
+            { name: 'childAmount', type: 'number', label: 'Child Amount' },
+          ],
+        },
+      },
+      tenantId,
+      organizationId,
+    }
+
+    test('renamed required port resumes the parent with the renamed, coerced keys', async () => {
+      const em = makeEm(
+        parkedParent(),
+        { id: childInstanceId, context: { childValue: 'port-alpha', childAmount: '12.5' }, tenantId, organizationId },
+        parentWithOutputMapping({ renamedValue: 'childValue', renamedAmount: 'childAmount' }),
+        childDefWithOutputs,
+      )
+
+      await resumeParentAfterSubWorkflow(em, {} as AwilixContainer, makeResumeJob())
+
+      expect(sendSignalMock).toHaveBeenCalledTimes(1)
+      const [, , options] = sendSignalMock.mock.calls[0] as [unknown, unknown, { signalName: string; payload: Record<string, unknown> }]
+      expect(options.signalName).toBe(SUB_WORKFLOW_SIGNAL_NAME)
+      expect(options.payload).toEqual({ renamedValue: 'port-alpha', renamedAmount: 12.5 })
+    })
+
+    test('identity mapping still resumes the parent', async () => {
+      const em = makeEm(
+        parkedParent(),
+        { id: childInstanceId, context: { childValue: 'port-alpha' }, tenantId, organizationId },
+        parentWithOutputMapping({ childValue: 'childValue' }),
+        childDefWithOutputs,
+      )
+
+      await resumeParentAfterSubWorkflow(em, {} as AwilixContainer, makeResumeJob())
+
+      const [, , options] = sendSignalMock.mock.calls[0] as [unknown, unknown, { payload: Record<string, unknown> }]
+      expect(options.payload).toEqual({ childValue: 'port-alpha' })
+    })
+
+    test('missing required child port fails the parent instead of resuming it', async () => {
+      const completeSpy = jest.spyOn(workflowExecutor, 'completeWorkflow').mockResolvedValue(undefined)
+      const em = makeEm(
+        parkedParent(),
+        { id: childInstanceId, context: { childAmount: 3 }, tenantId, organizationId },
+        parentWithOutputMapping({ renamedValue: 'childValue' }),
+        childDefWithOutputs,
+      )
+      const container = {} as AwilixContainer
+
+      await resumeParentAfterSubWorkflow(em, container, makeResumeJob())
+
+      expect(sendSignalMock).not.toHaveBeenCalled()
+      expect(completeSpy).toHaveBeenCalledWith(em, container, parentInstanceId, 'FAILED', {
+        error: 'Sub-workflow output validation failed: Required port "childValue" is missing',
+      })
+      completeSpy.mockRestore()
+    })
   })
 })
 
