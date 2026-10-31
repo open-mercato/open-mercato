@@ -1,5 +1,7 @@
+import http from 'node:http'
 import path from 'node:path'
 import { createServer } from 'node:net'
+import { stripHopByHopHeaders } from './dev-runtime-gateway.mjs'
 
 export const MCP_DEFAULT_PORT = 3001
 export const MCP_MAX_FAST_CRASHES = 5
@@ -25,6 +27,14 @@ export function shouldStartMcp({ args = [], env = {}, appOnly = false } = {}) {
     if (ENABLED_TOKENS.includes(token)) return true
   }
   return true
+}
+
+// The lazy proxy is the default; OM_DEV_MCP_LAZY=0/false/no/off restores the
+// eager start, and an unrecognized token keeps the default.
+export function shouldStartMcpLazily(env = {}) {
+  const raw = env.OM_DEV_MCP_LAZY
+  if (typeof raw !== 'string') return true
+  return !DISABLED_TOKENS.includes(raw.trim().toLowerCase())
 }
 
 /**
@@ -125,11 +135,8 @@ export function isFastMcpCrash(uptimeMs) {
   return typeof uptimeMs === 'number' && uptimeMs >= 0 && uptimeMs < MCP_FAST_CRASH_UPTIME_MS
 }
 
-export function buildMcpCliArgs(subcommandArgs, { isMonorepo = true } = {}) {
-  const prefix = isMonorepo
-    ? ['workspace', '@open-mercato/app', 'mercato', 'ai_assistant']
-    : ['mercato', 'ai_assistant']
-  return [...prefix, ...subcommandArgs]
+export function buildMcpCliArgs(subcommandArgs) {
+  return ['ai_assistant', ...subcommandArgs]
 }
 
 export function deriveMcpHealthUrl(port) {
@@ -152,6 +159,127 @@ export function isManagedMcpReadiness({ childListening, childExitCode, childSign
     && childSignalCode === null
     && attemptedPort === currentPort
     && responseOk === true
+}
+
+/**
+ * Owns the public MCP port so `yarn dev` does not keep the MCP server resident
+ * until a client needs it. While no upstream is published, `/health` is
+ * answered in-process (503 until `arm()`, then 200). After `arm()` the first
+ * other request resolves `firstUse` and waits for `setUpstream()`; from then on
+ * every request is streamed to the real server unbuffered.
+ */
+export function createLazyMcpProxy({ upstreamTimeoutMs = MCP_HEALTH_TIMEOUT_MS } = {}) {
+  let armed = false
+  let upstream = null
+  let notifyFirstUse = () => {}
+  const firstUse = new Promise((resolve) => { notifyFirstUse = resolve })
+  const waiters = new Set()
+
+  function sendJson(req, res, status, payload) {
+    res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' })
+    res.end(req.method === 'HEAD' ? undefined : JSON.stringify(payload))
+  }
+
+  function waitForUpstream(res) {
+    return new Promise((resolve) => {
+      const settle = (outcome) => {
+        clearTimeout(timer)
+        res.off('close', onClose)
+        waiters.delete(settle)
+        resolve(outcome)
+      }
+      const onClose = () => settle('closed')
+      const timer = setTimeout(settle, upstreamTimeoutMs, 'timeout')
+      res.once('close', onClose)
+      waiters.add(settle)
+    })
+  }
+
+  function forward(req, res, target) {
+    const upstreamRequest = http.request({
+      host: target.host,
+      port: target.port,
+      method: req.method,
+      path: req.url,
+      headers: stripHopByHopHeaders(req.headers),
+      agent: false,
+    }, (upstreamResponse) => {
+      res.writeHead(upstreamResponse.statusCode ?? 502, stripHopByHopHeaders(upstreamResponse.headers))
+      res.flushHeaders()
+      upstreamResponse.on('error', () => res.destroy())
+      upstreamResponse.pipe(res)
+    })
+    upstreamRequest.on('error', () => {
+      if (res.headersSent || res.destroyed) {
+        res.destroy()
+        return
+      }
+      sendJson(req, res, 502, { error: 'MCP server did not answer' })
+    })
+    res.on('close', () => { if (!res.writableFinished) upstreamRequest.destroy() })
+    req.pipe(upstreamRequest)
+  }
+
+  const server = http.createServer((req, res) => {
+    if (!upstream && (req.url ?? '/').split('?')[0] === '/health') {
+      if (armed) sendJson(req, res, 200, { status: 'ok', lazy: true, timestamp: new Date().toISOString() })
+      else sendJson(req, res, 503, { status: 'starting' })
+      return
+    }
+    if (upstream) {
+      forward(req, res, upstream)
+      return
+    }
+    if (!armed) {
+      sendJson(req, res, 503, { error: 'MCP server is not ready yet' })
+      return
+    }
+    notifyFirstUse()
+    void waitForUpstream(res).then((outcome) => {
+      if (outcome === 'closed') return
+      if (outcome === 'ready' && upstream) forward(req, res, upstream)
+      else sendJson(req, res, 503, { error: 'MCP server did not become ready' })
+    })
+  })
+
+  return {
+    server,
+    firstUse,
+    arm() {
+      armed = true
+    },
+    setUpstream(target) {
+      upstream = target
+      if (!target) return
+      for (const settle of [...waiters]) settle('ready')
+    },
+    listen(port, host) {
+      return new Promise((resolve, reject) => {
+        const handleError = (error) => {
+          server.off('listening', handleListening)
+          reject(error)
+        }
+        const handleListening = () => {
+          server.off('error', handleError)
+          resolve(server.address())
+        }
+        server.once('error', handleError)
+        server.once('listening', handleListening)
+        server.listen(port, host)
+      })
+    },
+    close() {
+      for (const settle of [...waiters]) settle('closed')
+      return new Promise((resolve) => {
+        if (!server.listening) {
+          resolve()
+          return
+        }
+        server.close(() => resolve())
+        server.closeAllConnections()
+      })
+    },
+  }
 }
 
 export function looksLikeMcpPortCollision(outputLines = []) {

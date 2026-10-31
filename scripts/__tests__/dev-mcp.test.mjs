@@ -1,5 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { once } from 'node:events'
+import http from 'node:http'
 import { readFileSync } from 'node:fs'
 import { createServer } from 'node:net'
 import path from 'node:path'
@@ -10,6 +12,7 @@ import {
   MCP_DEFAULT_PORT,
   buildManagedMcpAppEnv,
   buildMcpCliArgs,
+  createLazyMcpProxy,
   deriveMcpHealthUrl,
   isFastMcpCrash,
   isManagedMcpReadiness,
@@ -28,6 +31,7 @@ import {
   selectAvailableMcpPort,
   shouldRetryMcpProvisioning,
   shouldStartMcp,
+  shouldStartMcpLazily,
 } from '../dev-mcp.mjs'
 
 test('shouldStartMcp defaults to on', () => {
@@ -155,14 +159,14 @@ test('isFastMcpCrash classifies by uptime', () => {
   assert.equal(isFastMcpCrash(-1), false)
 })
 
-test('buildMcpCliArgs routes through the app workspace in monorepo mode', () => {
+test('buildMcpCliArgs prefixes the ai_assistant module for a direct mercato CLI invocation', () => {
   assert.deepEqual(
-    buildMcpCliArgs(['mcp:serve-http', '--port', '3001'], { isMonorepo: true }),
-    ['workspace', '@open-mercato/app', 'mercato', 'ai_assistant', 'mcp:serve-http', '--port', '3001'],
+    buildMcpCliArgs(['mcp:serve-http', '--port', '3001']),
+    ['ai_assistant', 'mcp:serve-http', '--port', '3001'],
   )
   assert.deepEqual(
-    buildMcpCliArgs(['mcp:ensure-api-key', '--file', 'x'], { isMonorepo: false }),
-    ['mercato', 'ai_assistant', 'mcp:ensure-api-key', '--file', 'x'],
+    buildMcpCliArgs(['mcp:ensure-api-key', '--file', 'x']),
+    ['ai_assistant', 'mcp:ensure-api-key', '--file', 'x'],
   )
 })
 
@@ -275,5 +279,165 @@ test('dev runner returns without retrying when ai_assistant is missing, in root 
     const retry = source.indexOf('nextMcpKeyRetryDelayMs(attempt)')
     assert.ok(guard > 0 && guard < retry, file)
     assert.match(source.slice(guard, retry), /return false/, file)
+  }
+})
+
+test('shouldStartMcpLazily defaults to lazy and only an explicit disabling token restores the eager start', () => {
+  assert.equal(shouldStartMcpLazily({}), true)
+  for (const token of ['0', 'false', 'no', 'off', ' OFF ']) {
+    assert.equal(shouldStartMcpLazily({ OM_DEV_MCP_LAZY: token }), false, token)
+  }
+  for (const token of ['1', 'true', 'yes', 'on', '', 'banana']) {
+    assert.equal(shouldStartMcpLazily({ OM_DEV_MCP_LAZY: token }), true, token)
+  }
+})
+
+async function listenOnLoopback(server) {
+  server.listen(0, '127.0.0.1')
+  await once(server, 'listening')
+  return server.address().port
+}
+
+function sendRequest(port, { method = 'GET', path: requestPath = '/', headers = {}, body } = {}) {
+  return new Promise((resolve, reject) => {
+    const request = http.request({ host: '127.0.0.1', port, method, path: requestPath, headers, agent: false }, (response) => {
+      const chunks = []
+      response.on('data', (chunk) => chunks.push(chunk))
+      response.on('end', () => resolve({ status: response.statusCode, headers: response.headers, body: Buffer.concat(chunks).toString('utf8') }))
+    })
+    request.on('error', reject)
+    request.end(body)
+  })
+}
+
+async function startLazyProxy(options) {
+  const proxy = createLazyMcpProxy(options)
+  const { port } = await proxy.listen(0, '127.0.0.1')
+  let firstUseSeen = false
+  void proxy.firstUse.then(() => { firstUseSeen = true })
+  return { proxy, port, firstUseSeen: () => firstUseSeen }
+}
+
+test('lazy MCP proxy answers /health itself and never starts the server for it', async () => {
+  const { proxy, port, firstUseSeen } = await startLazyProxy()
+  try {
+    const beforeArm = await sendRequest(port, { path: '/health' })
+    assert.equal(beforeArm.status, 503)
+    assert.equal(JSON.parse(beforeArm.body).status, 'starting')
+
+    const blocked = await sendRequest(port, { method: 'POST', path: '/mcp', body: '{}' })
+    assert.equal(blocked.status, 503)
+
+    proxy.arm()
+    const armed = await sendRequest(port, { path: '/health?probe=1' })
+    assert.equal(armed.status, 200)
+    assert.equal(armed.headers['content-type'], 'application/json')
+    assert.equal(JSON.parse(armed.body).status, 'ok')
+    const head = await sendRequest(port, { method: 'HEAD', path: '/health' })
+    assert.equal(head.status, 200)
+    assert.equal(head.body, '')
+
+    await new Promise((resolve) => setImmediate(resolve))
+    assert.equal(firstUseSeen(), false)
+  } finally {
+    await proxy.close()
+  }
+})
+
+test('lazy MCP proxy starts on the first request, holds it until the upstream is ready, then forwards everything', async () => {
+  const { proxy, port, firstUseSeen } = await startLazyProxy()
+  const upstream = http.createServer((req, res) => {
+    const chunks = []
+    req.on('data', (chunk) => chunks.push(chunk))
+    req.on('end', () => {
+      if (req.url === '/health') {
+        res.writeHead(200, { 'content-type': 'application/json' })
+        res.end(JSON.stringify({ status: 'ok', tools: 3 }))
+        return
+      }
+      res.writeHead(201, { 'content-type': 'application/json', 'x-upstream': 'real' })
+      res.end(JSON.stringify({
+        method: req.method,
+        url: req.url,
+        apiKey: req.headers['x-api-key'],
+        body: Buffer.concat(chunks).toString('utf8'),
+      }))
+    })
+  })
+  try {
+    proxy.arm()
+    const pending = sendRequest(port, {
+      method: 'POST',
+      path: '/mcp?x=1',
+      headers: { 'content-type': 'application/json', 'x-api-key': 'omk_test' },
+      body: '{"jsonrpc":"2.0","id":1,"method":"initialize"}',
+    })
+    await proxy.firstUse
+    assert.equal(firstUseSeen(), true)
+    const upstreamPort = await listenOnLoopback(upstream)
+    proxy.setUpstream({ host: '127.0.0.1', port: upstreamPort })
+
+    const forwarded = await pending
+    assert.equal(forwarded.status, 201)
+    assert.equal(forwarded.headers['x-upstream'], 'real')
+    assert.deepEqual(JSON.parse(forwarded.body), {
+      method: 'POST',
+      url: '/mcp?x=1',
+      apiKey: 'omk_test',
+      body: '{"jsonrpc":"2.0","id":1,"method":"initialize"}',
+    })
+
+    const health = await sendRequest(port, { path: '/health' })
+    assert.deepEqual(JSON.parse(health.body), { status: 'ok', tools: 3 })
+
+    proxy.setUpstream(null)
+    const localHealth = await sendRequest(port, { path: '/health' })
+    assert.equal(JSON.parse(localHealth.body).status, 'ok')
+    assert.equal(JSON.parse(localHealth.body).tools, undefined)
+  } finally {
+    await proxy.close()
+    if (upstream.listening) await new Promise((resolve) => upstream.close(resolve))
+  }
+})
+
+test('lazy MCP proxy streams SSE unbuffered and aborts the upstream when the client disconnects', async () => {
+  const { proxy, port } = await startLazyProxy()
+  let upstreamClosed
+  const upstreamClosedPromise = new Promise((resolve) => { upstreamClosed = resolve })
+  const upstream = http.createServer((req, res) => {
+    res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' })
+    res.flushHeaders()
+    res.write('event: message\ndata: {"n":1}\n\n')
+    res.on('close', () => upstreamClosed(res.writableFinished))
+  })
+  try {
+    const upstreamPort = await listenOnLoopback(upstream)
+    proxy.arm()
+    proxy.setUpstream({ host: '127.0.0.1', port: upstreamPort })
+
+    const request = http.get({ host: '127.0.0.1', port, path: '/mcp', headers: { accept: 'text/event-stream' }, agent: false })
+    const [response] = await once(request, 'response')
+    assert.equal(response.statusCode, 200)
+    assert.equal(response.headers['content-type'], 'text/event-stream')
+    const [firstChunk] = await once(response, 'data')
+    assert.equal(firstChunk.toString('utf8'), 'event: message\ndata: {"n":1}\n\n')
+
+    request.destroy()
+    assert.equal(await upstreamClosedPromise, false)
+  } finally {
+    await proxy.close()
+    upstream.closeAllConnections()
+    await new Promise((resolve) => upstream.close(resolve))
+  }
+})
+
+test('lazy MCP proxy answers 503 when the server never becomes ready', async () => {
+  const { proxy, port } = await startLazyProxy({ upstreamTimeoutMs: 50 })
+  try {
+    proxy.arm()
+    const response = await sendRequest(port, { method: 'POST', path: '/mcp', body: '{}' })
+    assert.equal(response.status, 503)
+  } finally {
+    await proxy.close()
   }
 })
