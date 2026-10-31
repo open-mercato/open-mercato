@@ -16,7 +16,7 @@ The staff module publishes ten replaceable time-tracking components (EP-31). Eac
 
 ## 📝 Problem Statement
 
-- In `useRegisteredComponent` (`packages/ui/src/backend/injection/useRegisteredComponent.tsx`), development mode parses a replacement's props against the replacement's own `metadata.propsSchema` and renders the default component when parsing fails.
+- In `useRegisteredComponent` (`packages/ui/src/backend/injection/useRegisteredComponent.tsx`), development mode parses a replacement's props against the `propsSchema` of its `ComponentOverride`. That is a top-level field next to `replacement` (`packages/shared/src/modules/widgets/component-registry.ts`), read at `useRegisteredComponent.tsx` line 168. When parsing fails, the hook renders the default component. The host's own `ComponentRegistryEntry.metadata.propsSchema` is not used for this check.
 - The nine schemas below are `const` declarations, invisible outside their files. A replacement author re-declares the shape. When upstream adds an optional prop, the copy does not change. If the author forgot a callback, or typed it more strictly, the replacement disappears in development only. That bug is hard to see, because production behaves differently.
 
 ## 📝 Proposed Solution
@@ -45,7 +45,8 @@ Each of the nine `const xPropsSchema` declarations becomes `export const`. Nothi
 | Area | Change |
 |------|--------|
 | The nine component files (table above) | `const` → `export const` on the `propsSchema` declaration only. |
-| `lib/time-tracking-ui/__tests__/componentPropsSchemas.test.tsx` | Created by #7001 for the dialog. This spec adds the nine schemas to it. Each export must be the exact object registered for its handle (`getComponentEntry(componentId).metadata.propsSchema`), and together with the dialog's export the list covers all ten handles exactly once. |
+| `lib/time-tracking-ui/__tests__/componentPropsSchemas.test.tsx` | Created by #7001 for the dialog. This spec adds the nine schemas to it. **Host identity:** each export must be the exact object the host registered for its handle (`getComponentEntry(componentId).metadata.propsSchema`), and together with the dialog's export the list covers all ten handles exactly once. |
+| `lib/time-tracking-ui/__tests__/componentPropsSchemas.replacement.test.tsx` (new) | **Consumer side:** proves a replacement built the documented way works through the real resolver. See Implementation Plan step 3. |
 | Staff `AGENTS.md` (Replaceable components) and EP-31 in `.ai/specs/2026-08-24-time-tracking-umes-extension-points.md` | The handle table gains a "Schema export" column, and the EP-31 note lists all ten exports. |
 
 **Dependency on #7001.** Implementation starts after #7001 merges, for two reasons. #7001 creates the test file this spec extends. It also fixes `optionalCallbackProp` in `lib/time-tracking/componentContracts.ts` so that it marks its key optional: under zod 4, an omitted optional callback failed the dev-time check. Three of the nine schemas (`kanbanCardPropsSchema`, `kanbanColumnPropsSchema`, `listViewPropsSchema`) use `optionalCallbackProp`, so exporting them before that fix would publish contracts that reject valid props.
@@ -61,7 +62,24 @@ None.
 ## 📝 API Contracts
 
 - **Nine new named exports** (table above). Under `BACKWARD_COMPATIBILITY.md` (types and import paths) they become STABLE contract: from now on, their shape changes are additive-only.
-- Each export keeps its declared type `z.ZodType<Props>`. It is meant to be passed, unchanged, as a replacement's `metadata.propsSchema`. A consumer that wants to add fields wraps it with `z.intersection`, because `.extend()` is not available on `ZodType`. EP-31 and the staff `AGENTS.md` document this next to the exports.
+- Each export keeps its declared type `z.ZodType<Props>`. A replacement passes it, unchanged, as the top-level `propsSchema` of its `ComponentOverride`, next to `replacement`. It does not go into `metadata`: an override's `metadata` carries only `module`. A consumer that wants to add fields wraps it with `z.intersection`, because `.extend()` is not available on `ZodType`. EP-31 and the staff `AGENTS.md` document this next to the exports, with this example:
+
+  ```ts
+  // <your module>/widgets/components.ts
+  import type { ComponentOverride } from '@open-mercato/shared/modules/widgets/component-registry'
+  import { timerBarPropsSchema } from '@open-mercato/core/modules/staff/lib/timesheets-ui/TimerBar'
+  import { MyTimerBar } from '../components/MyTimerBar'
+
+  export const componentOverrides: ComponentOverride[] = [
+    {
+      target: { componentId: 'staff.timer_bar' },
+      priority: 50,
+      metadata: { module: 'my_module' },
+      replacement: MyTimerBar,
+      propsSchema: timerBarPropsSchema,
+    },
+  ]
+  ```
 - No HTTP route, event, ACL feature, DI key, widget spot or database change.
 
 ## 📝 Risks & Impact Review
@@ -73,7 +91,8 @@ None.
 | Shipping before #7001's `optionalCallbackProp` fix | Medium | Dev-time validation | The implementation PR is gated on #7001 being merged (see Architecture). | None once sequenced. |
 
 - **Blast radius:** low. No runtime behaviour changes.
-- **Rollback:** revert the PR. Consumers that already import a schema would break, which is why the exports are STABLE once released.
+- **Rollback (before publication):** while the exports exist only on `main` and in no released version, a straight revert is allowed.
+- **After publication:** a revert is not allowed. Removing a released export breaks the STABLE import/type contract in `BACKWARD_COMPATIBILITY.md`. Fix forward instead and keep every name and import path, or re-export it from its old path if the schema has to move. A later removal follows the deprecation protocol: `@deprecated` JSDoc, a bridge for at least one minor version, an `UPGRADE_NOTES.md` entry and a spec with a migration section.
 
 ## 📋 Phasing
 
@@ -82,13 +101,19 @@ One phase, independently shippable after #7001: the nine exports, the extended t
 ## 📋 Implementation Plan
 
 1. Change the nine `const …PropsSchema` declarations to `export const`. Verify: `yarn typecheck`.
-2. Extend `componentPropsSchemas.test.tsx` with the nine exports. Each must be the registered schema for its handle, and the ten exports together must cover the ten handles exactly once. Verify: the staff Jest suite.
-3. Docs: add the "Schema export" column to the staff `AGENTS.md` handle table, list the ten exports in the EP-31 note, and add an `UPGRADE_NOTES.md` entry ("the nine remaining time-tracking component `propsSchema`s are named exports"). Verify: `yarn agents:check-budget`.
-4. Run the full validation gate.
+2. **Host identity.** Extend `componentPropsSchemas.test.tsx` with the nine exports. Each must be the registered schema for its handle, and the ten exports together must cover the ten handles exactly once. Verify: the staff Jest suite.
+3. **Consumer side.** Add `componentPropsSchemas.replacement.test.tsx` (jsdom, `NODE_ENV` left at `test`, so the development check runs). It imports the schemas through their documented package paths (`@open-mercato/core/modules/staff/...`), not relative ones. For each handle, it registers a typed `ComponentOverride` with a stub `replacement` and the exported schema as its top-level `propsSchema`, through `registerComponentOverrides`. It then renders through the unmocked `useRegisteredComponent(handle, Fallback)` and checks three things:
+   - valid minimal props render the replacement, including props that leave every optional callback out (`optionalCallbackProp`);
+   - a non-function value for a required callback renders the fallback (the host's default component), and the replacement is not mounted;
+   - the registry is isolated: `afterEach` calls `registerComponentOverrides([])`, so one handle's override never leaks into the next case.
+
+   The cases are table-driven over the nine handles, with one minimal valid props object per handle. Verify: the staff Jest suite.
+4. Docs: add the "Schema export" column to the staff `AGENTS.md` handle table, list the ten exports in the EP-31 note, and add an `UPGRADE_NOTES.md` entry ("the nine remaining time-tracking component `propsSchema`s are named exports"). The docs show the override example from API Contracts, with the schema as the override's top-level `propsSchema`. Verify: `yarn agents:check-budget`.
+5. Run the full validation gate.
 
 ## 🧪 Integration Coverage
 
-No API path or UI path changes, so there is no new integration case. The contract is covered by the unit test in step 2, which checks each export against the live component registry.
+No API path or UI path changes, so there is no new Playwright case. Coverage has two parts. Step 2 checks each export against the host's registration. Step 3 checks how replacements use the exports: a typed override is rendered through the real `useRegisteredComponent`, and the test covers both a valid render and the fallback.
 
 ## ✅ Final Compliance Report
 
@@ -96,11 +121,12 @@ No API path or UI path changes, so there is no new integration case. The contrac
 |------|--------|
 | One independently deployable capability | Pass. The schema exports only, split from project mode. |
 | Tenant scoping, data model, ORM relations | N/A. No data access. |
-| Backward compatibility | Pass. Additive only: nine new exports, nothing renamed or removed. |
+| Backward compatibility | Pass. Additive only: nine new exports, nothing renamed or removed. A revert is limited to before publication; afterwards the exports are fixed forward or deprecated (Risks). |
 | i18n, DS tokens | N/A. No user-facing strings or styles. |
-| Integration coverage | N/A, with justification above. Unit coverage is planned. |
+| Integration coverage | No API/UI path change (justified above). Host-identity and consumer-side tests are planned (steps 2–3). |
 | Frontend Architecture Contract | Pass. No boundary, budget or provider change. |
 
 ## 📝 Changelog
 
 - 2026-10-30. Initial spec, split out of #7000 on spec review (pkarw, review 5718058063): the nine sibling `propsSchema` exports are an independently deployable capability, separate from the time entry dialog project mode.
+- 2026-10-30. Spec review on #8291 (haxiorz, review 5719611884): a replacement passes the exported schema as the top-level `ComponentOverride.propsSchema`, not `metadata.propsSchema`, and a typed override example is added. The plan adds a consumer-side test that renders a typed override through the unmocked `useRegisteredComponent` (valid render, fallback, registry isolation). A revert is allowed only before publication; after release, fix forward and use the deprecation protocol.
