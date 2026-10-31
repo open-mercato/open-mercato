@@ -1,0 +1,20 @@
+[
+  {
+    "variant": "public",
+    "unauthenticatedPreviewStatus": 401,
+    "deleteStatus": 200,
+    "readAfterDeleteStatus": 404
+  },
+  {
+    "variant": "password",
+    "unauthenticatedPreviewStatus": 401,
+    "deleteStatus": 200,
+    "readAfterDeleteStatus": 404
+  },
+  {
+    "variant": "draft",
+    "unauthenticatedPreviewStatus": 401,
+    "deleteStatus": 200,
+    "readAfterDeleteStatus": 404
+  }
+]
