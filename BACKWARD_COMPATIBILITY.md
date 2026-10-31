@@ -357,7 +357,7 @@ Files in `apps/mercato/.mercato/generated/` are produced by the CLI generators. 
 |HTTP response shapes — deliberately **not** covered|17 routes call the bus where no `catch` can receive the rejection (tracked in [#5435](https://github.com/open-mercato/open-mercato/issues/5435)), and the two `eudr` batch routes (`plots/import`, `product-mappings/suggestions/apply`) keep their published `HTTP 200` + `failed[]` contract because every bus call there sits behind a per-item `catch`|✓ No change (both exemption lists are asserted in both directions by the static guard, so neither can rot silently)|
 |Database schema, event IDs, ACL features, DI names, CLI commands|No change|✓ n/a|
 
-**Migration path for existing modules**: no action required. The capability is opt-in per rejection — an interceptor that never sets `status` produces exactly the responses it produced before. Interceptors that want a deliberate status add `status` (and optionally `body`) to the `{ ok: false, message }` verdict they already return. First-party transports that call `commandBus.execute` inside their own `try/catch` **now do** honour the contract as of [#5181](https://github.com/open-mercato/open-mercato/pull/5181): every such route consults `getCommandInterceptorHttpRejection(err)` — directly, or through the module-level error mapper it already delegates to — immediately after its `isCrudHttpError` branch, or first in the `catch` where there is none, and the static coverage guard fails when a new bus-calling route ships without it. Third-party transports honour the same contract in the same two lines via `getCommandInterceptorHttpRejection(err)`, which validates the status is an integer in 400-599 before returning it.
+**Migration**: no action required. The capability is opt-in per rejection — an interceptor that never sets `status` produces exactly the responses it produced before. Interceptors that want a deliberate status add `status` (and optionally `body`) to the `{ ok: false, message }` verdict they already return. First-party transports that call `commandBus.execute` inside their own `try/catch` **now do** honour the contract as of [#5181](https://github.com/open-mercato/open-mercato/pull/5181): every such route consults `getCommandInterceptorHttpRejection(err)` — directly, or through the module-level error mapper it already delegates to — immediately after its `isCrudHttpError` branch, or first in the `catch` where there is none, and the static coverage guard fails when a new bus-calling route ships without it. Third-party transports honour the same contract in the same two lines via `getCommandInterceptorHttpRejection(err)`, which validates the status is an integer in 400-599 before returning it.
 
 ---
 
@@ -375,7 +375,7 @@ to a handler but did not select its exact `before` interceptor.
 |Request cloning/reconstruction|Dispatcher identity survives `Request.clone()` and `new Request(request.url, request)`. Unknown, forged, or evicted internal continuity metadata fails closed; unbound direct handlers retain legacy URL-derived matching|✓ Behavior-preserving for valid dispatches; intentional security narrowing for forged metadata|
 |Handler ordering|Authorization and interceptor `before`/`after` positions are unchanged|✓ Behavior-preserving for normally spelled requests|
 
-**Migration path for existing modules**: none. Keep authored `targetRoute` values.
+**Migration**: none. Keep authored `targetRoute` values.
 Callers that dispatch through the framework catch-all receive canonical binding
 automatically; direct three-argument matcher consumers continue to work unchanged.
 Synthetic dispatchers should pass the exact request they invoke as argument four.
@@ -396,7 +396,7 @@ Deleting a user who had customised their sidebar failed on the `user_sidebar_pre
 |Command behaviour (`auth.users.delete`, `auth.users.create` undo)|The dependent-row cascade also clears `user_sidebar_preferences` and `sidebar_variants`. Those rows are not captured by `UserUndoSnapshot`, so undoing a user delete restores the user, roles, ACLs and custom fields but not the sidebar customisation. `user_consents` is deliberately left untouched|✓ Behaviour-preserving for every delete that succeeded before; deletes that previously failed with `500` now succeed|
 |Event IDs, ACL features, DI names, CLI commands|No change|✓ n/a|
 
-**Migration path for existing modules**: no action required. A client that branched on `5xx` for foreign-key failures should treat `409` with `code: 'FOREIGN_KEY_VIOLATION'` as the same condition; it was never retryable.
+**Migration**: no action required. A client that branched on `5xx` for foreign-key failures should treat `409` with `code: 'FOREIGN_KEY_VIOLATION'` as the same condition; it was never retryable.
 
 ---
 
@@ -412,13 +412,13 @@ Deleting a user who had customised their sidebar failed on the `user_sidebar_pre
 |CLI behaviour (`mercato entities rotate-encryption-key`, `… backfill-system-encryption`)|A row whose ciphertext opens under neither `--old-key` nor the current tenant key is reported and skipped instead of rewritten; the backfill no longer passes already-encrypted columns to the encrypt path. Rows that rotated or backfilled successfully before are unaffected|✓ Behaviour-preserving for every row that succeeded before; a row that was previously corrupted is now skipped instead — `rotate-encryption-key --old-key` reports it in the run summary, while `backfill-system-encryption` and `rotate-encryption-key` without `--old-key` skip it silently (see UPGRADE_NOTES.md)|
 |DB schema, API routes, event IDs, ACL features, DI names|No change|✓ n/a|
 
-**Migration path for existing modules**: no action required. Operationally, a write touching a record whose encrypted field is sealed under a stale key now fails loudly until the rotation is finished (`mercato entities rotate-encryption-key --old-key …`) or the sealing DEK is restored — a deliberate trade of availability for integrity, since the previous outcome was silent, undetectable corruption. This change does not repair envelopes that were already nested before the upgrade.
+**Migration**: no action required. Operationally, a write touching a record whose encrypted field is sealed under a stale key now fails loudly until the rotation is finished (`mercato entities rotate-encryption-key --old-key …`) or the sealing DEK is restored — a deliberate trade of availability for integrity, since the previous outcome was silent, undetectable corruption. This change does not repair envelopes that were already nested before the upgrade.
 
 ---
 
 ## Module Registry Registration Listeners (2026-08-12)
 
-[`.ai/specs/2026-08-12-module-registry-registration-listeners.md`](.ai/specs/2026-08-12-module-registry-registration-listeners.md) adds a public subscription to the module registry so a cache derived from the module list can drop what it built from an incomplete one ([#5103](https://github.com/open-mercato/open-mercato/issues/5103)). **All changes are additive** and pass the contract-surface checks above:
+[Registry listener spec](.ai/specs/2026-08-12-module-registry-registration-listeners.md) adds a public subscription to the module registry so a cache derived from the module list can drop what it built from an incomplete one ([#5103](https://github.com/open-mercato/open-mercato/issues/5103)). **All changes are additive** and pass the contract-surface checks above:
 
 |Surface|Change|Classification|
 |---|---|---|
@@ -430,7 +430,7 @@ Deleting a user who had customised their sidebar failed on the `user_sidebar_pre
 
 **Contract commitments**: listeners are notified synchronously after `setGlobalModules()` (so `getModules()` is readable inside a listener) and only when the registered set actually changed, as decided by an immutable per-registration snapshot of module ids, top-level contract keys and array-valued contract elements. Accessor-declared contracts are never invoked by that snapshot and always count as changed. The contract is fail-soft on both paths: a synchronous throw and an asynchronous rejection are each observed and logged, and neither can fail `registerModules()`. Change detection MAY become more sensitive without a deprecation cycle (over-invalidation only drops a warm cache); it MUST NOT become less sensitive, since that direction serves a stale registry.
 
-**Migration path for existing modules**: no action required. Nothing subscribes unless a module opts in, and with no subscribers the notification iterates an empty set. Test suites that call `registerModules()` MUST clear `__openMercatoModulesRegistrySnapshot__` alongside the two pre-existing registry globals, because all three survive `jest.resetModules()`.
+**Migration**: no action required. Nothing subscribes unless a module opts in, and with no subscribers the notification iterates an empty set. Test suites that call `registerModules()` MUST clear `__openMercatoModulesRegistrySnapshot__` alongside the two pre-existing registry globals, because all three survive `jest.resetModules()`.
 
 ## Passkey MFA Verification Payload (2026-08-14)
 
@@ -466,7 +466,7 @@ Issue #3852 removed the non-cryptographic passkey verification shape from `Passk
 
 ## Data Sync Start Control Applicability (2026-09-02)
 
-[`.ai/specs/2026-09-02-data-sync-adapter-start-controls.md`](.ai/specs/2026-09-02-data-sync-adapter-start-controls.md) lets a `DataSyncAdapter` declare, per entity type, which of the Data Sync dashboard's manual-start controls apply, so the dashboard stops offering controls that cannot mean anything for the selected entity type. **All changes are additive** and pass the contract-surface checks above:
+[Start-control spec](.ai/specs/2026-09-02-data-sync-adapter-start-controls.md) lets a `DataSyncAdapter` declare, per entity type, which of the Data Sync dashboard's manual-start controls apply, so the dashboard stops offering controls that cannot mean anything for the selected entity type. **All changes are additive** and pass the contract-surface checks above:
 
 |Surface|Change|Classification|
 |---|---|---|
@@ -481,7 +481,7 @@ Issue #3852 removed the non-cryptographic passkey verification shape from `Passk
 
 ## Error Reporting Policy (2026-09-08)
 
-Spec: [`.ai/specs/2026-09-08-error-reporting-policy.md`](.ai/specs/2026-09-08-error-reporting-policy.md). Every change is additive; no existing path emits less than it did before.
+Spec: [Error-reporting spec](.ai/specs/2026-09-08-error-reporting-policy.md). Every change is additive; no existing path emits less than it did before.
 
 |Surface|Change|Classification|
 |---|---|---|
@@ -502,7 +502,7 @@ Spec: [`.ai/specs/2026-09-08-error-reporting-policy.md`](.ai/specs/2026-09-08-er
 
 ## Data Sync Retry, Resume and Run Again (2026-09-16)
 
-[`.ai/specs/2026-09-16-data-sync-retry-resume-actions.md`](.ai/specs/2026-09-16-data-sync-retry-resume-actions.md) splits the Data Sync dashboard's single overloaded "Retry" button into three named operator actions — **Retry** (labelled **Resume** on a cancelled run), **Retry from the beginning**, and **Run again** — and states, on the run detail page, where a retry would resume. **All changes are additive** and pass the contract-surface checks above:
+[Retry/resume spec](.ai/specs/2026-09-16-data-sync-retry-resume-actions.md) splits the Data Sync dashboard's single overloaded "Retry" button into three named operator actions — **Retry** (labelled **Resume** on a cancelled run), **Retry from the beginning**, and **Run again** — and states, on the run detail page, where a retry would resume. **All changes are additive** and pass the contract-surface checks above:
 
 |Surface|Change|Classification|
 |---|---|---|
@@ -520,7 +520,7 @@ Spec: [`.ai/specs/2026-09-08-error-reporting-policy.md`](.ai/specs/2026-09-08-er
 
 ## Customers Quick-Create Injection Spot Bridge (2026-09-16)
 
-[`.ai/specs/2026-09-16-customers-quick-create-injection-spot-bridge.md`](.ai/specs/2026-09-16-customers-quick-create-injection-spot-bridge.md) binds the sales document form's Person/Company quick-create dialogs to the customers module's declared `crud-form:customers.person` / `…company` hosts. The dialogs previously had no `injectionSpotId`, so `CrudForm` auto-derived `crud-form:customers.customer_entity` (§6, FROZEN) there instead.
+[Quick-create spec](.ai/specs/2026-09-16-customers-quick-create-injection-spot-bridge.md) binds the sales document form's Person/Company quick-create dialogs to the customers module's declared `crud-form:customers.person` / `…company` hosts. The dialogs previously had no `injectionSpotId`, so `CrudForm` auto-derived `crud-form:customers.customer_entity` (§6, FROZEN) there instead.
 
 |Surface|Change|Classification|
 |---|---|---|
@@ -539,7 +539,7 @@ Clients use WebAuthn; operators audit key provenance, re-enroll with recovery. [
 
 ## Atomic Auth Command Replay (2026-10-04)
 
-[`.ai/specs/2026-07-28-protected-roles-and-audit-seam.md`](.ai/specs/2026-07-28-protected-roles-and-audit-seam.md) closes the auth undo/redo transaction, authorization, and membership-phantom gaps without changing existing command handlers by default.
+[Auth replay spec](.ai/specs/2026-07-28-protected-roles-and-audit-seam.md) closes the auth undo/redo transaction, authorization, and membership-phantom gaps without changing existing command handlers by default.
 
 |Surface|Change|Classification|
 |---|---|---|
@@ -552,7 +552,7 @@ Clients use WebAuthn; operators audit key provenance, re-enroll with recovery. [
 | Non-auth command replay | Handlers that omit `atomicReplay` retain the existing undo claim/release compensation and route-level redo finalization | ✓ Behavior-preserving |
 | API routes, response schemas, database schema, event IDs, ACL feature IDs, DI names, CLI commands, generated files | No shape or identifier change | ✓ n/a |
 
-**Migration path for existing modules**: none. Third-party commands remain on the established replay lifecycle unless they explicitly set `atomicReplay: true`. An opting-in handler must perform all replay database work through `ctx.transactionalEm`; when authorization depends on mutable domain rows it may add `stabilizeReplay` to acquire its complete footprint before guards and interceptors. The command bus supplies and owns the transaction by default. A caller deliberately composing replay inside an already-active `ctx.transactionalEm` must open that outer transaction with `withAtomicFlush(..., { transaction: true })`, obtain its exact `TransactionLifetime` inside the phase, and pass it as `ctx.transactionLifetime`; otherwise replay fails before mutation. Commit-only hooks and redo-finalization reporting follow the true outer completion. The capability does not claim that legacy non-opted-in action-log and domain writes are transactionally atomic.
+**Migration**: none. Third-party commands remain on the established replay lifecycle unless they explicitly set `atomicReplay: true`. An opting-in handler must perform all replay database work through `ctx.transactionalEm`; when authorization depends on mutable domain rows it may add `stabilizeReplay` to acquire its complete footprint before guards and interceptors. The command bus supplies and owns the transaction by default. A caller deliberately composing replay inside an already-active `ctx.transactionalEm` must open that outer transaction with `withAtomicFlush(..., { transaction: true })`, obtain its exact `TransactionLifetime` inside the phase, and pass it as `ctx.transactionLifetime`; otherwise replay fails before mutation. Commit-only hooks and redo-finalization reporting follow the true outer completion. The capability does not claim that legacy non-opted-in action-log and domain writes are transactionally atomic.
 
 ---
 
@@ -566,7 +566,7 @@ Clients use WebAuthn; operators audit key provenance, re-enroll with recovery. [
 | API routes (`PUT /api/directory/organizations`, `PUT /api/directory/organization-branding`) | Same URLs, request schema (`organizationUpdateSchema` already declares both fields optional) and response shapes | ✓ No shape change |
 | Database schema, event IDs, ACL features, DI names, CLI commands | No change | ✓ n/a |
 
-**Migration path for existing modules**: send `parentId: null` / `childIds: []` where clearing is intended. Trees flattened before the upgrade are not repaired (see UPGRADE_NOTES.md).
+**Migration**: send `parentId: null` / `childIds: []` where clearing is intended. Trees flattened before the upgrade are not repaired (see UPGRADE_NOTES.md).
 
 ---
 
@@ -581,7 +581,7 @@ Clients use WebAuthn; operators audit key provenance, re-enroll with recovery. [
 | `auth.logout` event | Emitted only for a verified staff `auth_token` (now incl. MFA-pending); `session_token`-only revocation emits none | ✓ No ID or payload change |
 | Database schema, ACL features, DI names, CLI commands | No change | ✓ n/a |
 
-**Migration path for existing modules**: none. A client that read a logout `401` as "already signed out" gets the redirect instead.
+**Migration**: none. A client that read a logout `401` as "already signed out" gets the redirect instead.
 
 ## Discord AI Proposals (2026-10-13)
 
@@ -591,7 +591,7 @@ Clients use WebAuthn; operators audit key provenance, re-enroll with recovery. [
 
 ## OAuth2 Grant Lifecycle Core (2026-10-12)
 
-[`.ai/specs/2026-10-01-oauth2-grant-lifecycle-core.md`](.ai/specs/2026-10-01-oauth2-grant-lifecycle-core.md) (parent: [`.ai/specs/2026-09-27-app-spec-oauth2-grant-lifecycle.md`](.ai/specs/2026-09-27-app-spec-oauth2-grant-lifecycle.md) §10.1) adds a tenant-level OAuth2 grant core to `integrations` that no existing integration uses yet. **All changes are additive** except the reserved `__oauth_grant` suffix, an intentional security narrowing that no first-party integration or bundle id hits. Developer guide: `apps/docs/docs/framework/modules/integrations-oauth-grants.mdx`.
+[OAuth2 core spec](.ai/specs/2026-10-01-oauth2-grant-lifecycle-core.md) (parent: [OAuth2 app spec](.ai/specs/2026-09-27-app-spec-oauth2-grant-lifecycle.md) §10.1) adds a tenant-level OAuth2 grant core to `integrations` that no existing integration uses yet. **All changes are additive** except the reserved `__oauth_grant` suffix, an intentional security narrowing that no first-party integration or bundle id hits. Developer guide: `apps/docs/docs/framework/modules/integrations-oauth-grants.mdx`.
 
 | Surface | Change | Classification |
 |---|---|---|
@@ -611,7 +611,7 @@ Clients use WebAuthn; operators audit key provenance, re-enroll with recovery. [
 | Not contracts | The test-only route `POST /api/integrations/test-oauth-grants`, its helper `@open-mercato/core/helpers/integration/oauthGrantTestRoute`, the flag `OM_ENABLE_TEST_OAUTH_GRANTS` (apart from the testing contract above) and the `test_oauth_grant` integration (like `test-seed`) | n/a |
 | Event IDs, database schema, ACL features, notification types, AI agent and tool IDs, CLI commands | No change | ✓ n/a |
 
-**Migration path for existing modules**: none for first-party code. Third-party modules must not register an integration or bundle id that ends in `__oauth_grant` (see `UPGRADE_NOTES.md`).
+**Migration**: none for first-party code. Third-party modules must not register an integration or bundle id that ends in `__oauth_grant` (see `UPGRADE_NOTES.md`).
 
 ---
 
@@ -632,3 +632,9 @@ STABLE API §7: `GET /api/checkout/pay/:slug` omits admin fields; retaining them
 ## #3805 2026-10-31
 
 STABLE tools/execute writes bypass approval; no bridge. [Migrate](UPGRADE_NOTES.md#issue-3805)
+
+## Workflow List Pagination Bounds (2026-10-29, #7534)
+
+STABLE API (§7): supported `limit=101`/`offset=100001` now return 400. Unbounded reads/offsets amplify authenticated resource use; bridging retains it. Emergency Security Exception: named human maintainer approval required before merge; no automated waiver.
+
+Migration: clients page/filter and handle 400; operators deploy, no DB/config changes. [Details](UPGRADE_NOTES.md#workflow-list-pagination-bounds-7534); [spec](.ai/specs/implemented/2026-04-14-code-based-workflow-definitions.md).

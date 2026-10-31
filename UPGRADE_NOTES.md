@@ -367,6 +367,12 @@ A regenerated MCP key becomes invalid if its owner's home organization changes,
 including a change from no home organization to a concrete one. Generate a new
 key and update the MCP client secret after such a change.
 
+### Workflow list pagination bounds (#7534)
+
+Workflow definitions, instances, instance events and global events now reject invalid pagination with HTTP 400. Page sizes are integers from 1 to 100; offsets are integers from 0 to 100,000 (including the offset derived from global-events `page`/`pageSize`). Defaults and response fields are unchanged. Existing task, work-inbox, portal-task, step, would-do and failure-queue lists retain their size clamps and fallback behavior for malformed or negative inputs, but return HTTP 400 when the normalized requested offset exceeds 100,000 rather than returning a different page. The same offset validation applies to `POST /api/workflows/work-inbox/next` before selecting or claiming a task.
+
+**Client action:** split requests larger than 100 into pages, send whole nonnegative offsets, and narrow filters before reaching 100,000. Handle 400 responses for out-of-range offsets on every listed route, including Work Inbox claim-next. The seven fallback/clamping routes return the stable `WORKFLOW_LIST_OFFSET_EXCEEDED` error string; the four strict list endpoints return validation errors and also reject malformed pagination. **Operator action:** deploy the updated application; no database migration or new configuration is required. Definitions now fetch a small DB window around the requested page instead of materializing its entire prefix. Definitions also use consistent UTF-8 byte ordering (`COLLATE "C"` in PostgreSQL): uppercase names precede lowercase names and accented names follow ASCII. This replaces the mixed database/Node locale ordering, so case/accent positions can change; use server-provided ordering across pages.
+
 ### Scoped attachment bytes no longer advertise shared caching (#7220)
 
 The attachment file and image byte routes now return `Cache-Control: private,

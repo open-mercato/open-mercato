@@ -1,6 +1,6 @@
 # Lessons
 
-This catalog indexes 166 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
+This catalog indexes 167 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
 
 ## How to use this catalog
 
@@ -22,6 +22,7 @@ This catalog indexes 166 focused lessons. Route the task first, then read only r
 
 ### architecture
 
+- [Bounded merged pagination needs a shared ordering](lessons/bounded-merged-pagination-needs-shared-ordering.md) — area:architecture,module-data,testing; module:workflows; topic:pagination,database-queries,sorting,pagination-boundaries
 - [Serialize dev-session stale recovery across ownership changes](lessons/serialize-dev-session-stale-recovery.md) — area:architecture,testing,debugging; module:create_app; topic:dev-runtime,concurrency,template-sync
 
 - [Business extensions belong to the owning module](lessons/business-extensions-belong-to-the-owning-module.md) — area:architecture,backend-ui,testing; module:customers,example,shared,ui; topic:module-boundaries,testing,template-sync,public-contracts

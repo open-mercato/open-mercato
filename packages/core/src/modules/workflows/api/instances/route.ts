@@ -20,6 +20,7 @@ import {
   type StartWorkflowApiInput,
   workflowInstanceStatusSchema,
   workflowRunOutcomeSchema,
+  workflowListPaginationSchema,
 } from '../../data/validators'
 import {
   workflowInstanceResponseSchema,
@@ -78,8 +79,14 @@ export async function GET(request: NextRequest) {
     const hasParent = parseBooleanToken(searchParams.get('hasParent'))
     const attention = parseBooleanToken(searchParams.get('attention'))
     const dryRun = parseBooleanToken(searchParams.get('dryRun'))
-    const limit = parseInt(searchParams.get('limit') || '50')
-    const offset = parseInt(searchParams.get('offset') || '0')
+    const pagination = workflowListPaginationSchema.safeParse({
+      limit: searchParams.get('limit') ?? 50,
+      offset: searchParams.get('offset') ?? undefined,
+    })
+    if (!pagination.success) {
+      return NextResponse.json({ error: pagination.error.message }, { status: 400 })
+    }
+    const { limit, offset } = pagination.data
 
     // Spec 8.3 run-list date filter. An unparseable bound is a 400, never a
     // dropped predicate — a query built from an Invalid Date answers nothing
@@ -425,8 +432,8 @@ export const openApi = {
         attention: z.boolean().optional().describe('true = only instances parked by a failure-queue error directive; false = only instances without an attention marker.'),
         startedFrom: z.string().optional().describe('Lower bound on startedAt. A calendar day (YYYY-MM-DD) is taken from 00:00:00.000Z; a full ISO timestamp is taken verbatim.'),
         startedTo: z.string().optional().describe('Upper bound on startedAt, inclusive. A calendar day (YYYY-MM-DD) covers the whole day up to 23:59:59.999Z.'),
-        limit: z.number().int().positive().default(50).optional(),
-        offset: z.number().int().min(0).default(0).optional(),
+        limit: workflowListPaginationSchema.shape.limit.default(50),
+        offset: workflowListPaginationSchema.shape.offset,
       }),
       responses: [
         {
