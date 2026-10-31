@@ -67,7 +67,7 @@ export type ReindexEntityParams = {
   entityId: EntityId
   tenantId: string
   organizationId?: string | null
-  /** Whether to recreate the index first (default: true) */
+  /** Whether to clear this entity's documents (scoped to `organizationId` when set) first (default: true) */
   recreateIndex?: boolean
   /** Callback for progress tracking */
   onProgress?: (progress: ReindexProgress) => void
@@ -81,7 +81,7 @@ export type ReindexEntityParams = {
 export type ReindexAllParams = {
   tenantId: string
   organizationId?: string | null
-  /** Whether to recreate the index first (default: true) */
+  /** Whether to clear indexed documents first (default: true): the whole tenant index, or only `organizationId`'s documents when set */
   recreateIndex?: boolean
   /** Callback for progress tracking */
   onProgress?: (progress: ReindexProgress) => void
@@ -681,9 +681,8 @@ export class SearchIndexer {
         processed: 0,
       })
 
-      // Recreate index if requested (default: true)
       if (params.recreateIndex !== false) {
-        await fulltext.recreateIndex(params.tenantId)
+        await fulltext.purge(params.entityId, params.tenantId, params.organizationId ?? null)
       }
 
       // Fetch and index records with pagination
@@ -820,8 +819,9 @@ export class SearchIndexer {
       return result
     }
 
-    // Recreate index once before processing all entities
-    if (params.recreateIndex !== false) {
+    const clearIndex = params.recreateIndex !== false
+    const organizationScoped = Boolean(params.organizationId)
+    if (clearIndex && !organizationScoped) {
       await fulltext.recreateIndex(params.tenantId)
     }
 
@@ -832,7 +832,7 @@ export class SearchIndexer {
         entityId,
         tenantId: params.tenantId,
         organizationId: params.organizationId,
-        recreateIndex: false, // Already recreated above
+        recreateIndex: clearIndex && organizationScoped,
         onProgress: params.onProgress,
         useQueue: params.useQueue,
       })
