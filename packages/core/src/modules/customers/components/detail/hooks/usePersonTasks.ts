@@ -30,7 +30,7 @@ type CustomerTodoRow = {
   createdAt: string
 }
 
-// `/api/customers/todos` also reports `totalPages`, deliberately left out of
+// `/api/customers/interactions/tasks` also reports `totalPages`, deliberately left out of
 // this type: the load-more affordance terminates on a short page instead — see
 // `hasMoreFromPage`. `total` stays because it feeds the section's count badge,
 // where an under-report is cosmetic rather than a way to strand rows.
@@ -219,11 +219,19 @@ export function usePersonTasks({
         pageSize: String(pageSize),
         entityId,
       })
-      return readApiResultOrThrow<CustomerTodosResponse>(
-        `/api/customers/todos?${params.toString()}`,
+      const readPage = (path: string) => readApiResultOrThrow<CustomerTodosResponse>(
+        `${path}?${params.toString()}`,
         undefined,
         { errorMessage: 'Failed to load tasks.' },
       )
+      try {
+        return await readPage('/api/customers/interactions/tasks')
+      } catch (error) {
+        if (typeof error !== 'object' || error === null || !('status' in error) || error.status !== 403) {
+          throw error
+        }
+        return readPage('/api/customers/todos')
+      }
     },
     [entityId, pageSize],
   )

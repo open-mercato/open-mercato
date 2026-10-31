@@ -9,6 +9,12 @@ import { TasksSection } from '../TasksSection'
 const usePersonTasksMock = jest.fn()
 const useInteractionsMock = jest.fn()
 const confirmMock = jest.fn()
+const readApiResultOrThrowMock = jest.fn()
+
+jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
+  ...jest.requireActual('@open-mercato/ui/backend/utils/apiCall'),
+  readApiResultOrThrow: (...args: unknown[]) => readApiResultOrThrowMock(...args),
+}))
 
 jest.mock('@open-mercato/ui/backend/confirm-dialog', () => ({
   useConfirmDialog: () => ({
@@ -136,6 +142,78 @@ describe('TasksSection', () => {
     )
     expect(screen.queryByRole('button', { name: 'Create task' })).toBeNull()
     expect(screen.getByText('No tasks yet')).toBeInTheDocument()
+  })
+
+  it('loads native and legacy tasks through the mounted compatibility loader after remounting', async () => {
+    const nativeRow = {
+      id: 'native-task',
+      todoId: 'native-task',
+      todoSource: 'customers:interaction',
+      todoTitle: 'Native follow up',
+      todoIsDone: true,
+      todoUpdatedAt: '2026-10-16T10:00:00.000Z',
+      createdAt: '2026-10-16T09:00:00.000Z',
+    }
+    const legacyRow = {
+      ...nativeRow,
+      id: 'legacy-link',
+      todoId: 'legacy-todo',
+      todoSource: 'example:todo',
+      todoTitle: 'Legacy follow up',
+      todoIsDone: false,
+    }
+    readApiResultOrThrowMock.mockImplementation(async (path: string) => ({
+      items: path.startsWith('/api/customers/interactions/tasks?') ? [nativeRow, legacyRow] : [legacyRow],
+      total: 2,
+      page: 1,
+      pageSize: 20,
+    }))
+    usePersonTasksMock.mockImplementation(jest.requireActual('../hooks/usePersonTasks').usePersonTasks)
+    const section = (
+      <TasksSection
+        entityId="customer-1"
+        initialTasks={[]}
+        emptyLabel="No date"
+        addActionLabel="Create task"
+        emptyState={{ title: 'No tasks yet', actionLabel: 'Create task' }}
+      />
+    )
+
+    const firstMount = renderWithProviders(section)
+    expect(await screen.findByText('Native follow up')).toBeInTheDocument()
+    expect(screen.getByText('Legacy follow up')).toBeInTheDocument()
+    expect(screen.queryByText('No tasks yet')).toBeNull()
+    expect(screen.getAllByRole('button', { name: 'Edit' })).toHaveLength(2)
+    expect(screen.getAllByRole('button', { name: 'Delete' })).toHaveLength(2)
+    expect(screen.getAllByRole('checkbox').filter((checkbox) => (checkbox as HTMLInputElement).checked)).toHaveLength(1)
+
+    firstMount.unmount()
+    renderWithProviders(section)
+
+    expect(await screen.findByText('Native follow up')).toBeInTheDocument()
+    expect(screen.getByText('Legacy follow up')).toBeInTheDocument()
+  })
+
+  it('continues to render unified tasks from the canonical interactions loader', () => {
+    useInteractionsMock.mockReturnValue({
+      ...useInteractionsMock(),
+      interactions: [{ ...sampleTask, id: 'native-task', todoId: 'native-task', title: 'Unified task', status: 'canceled' }],
+    })
+
+    renderWithProviders(
+      <TasksSection
+        entityId="customer-1"
+        initialTasks={[]}
+        useCanonicalInteractions
+        emptyLabel="No date"
+        addActionLabel="Create task"
+        emptyState={{ title: 'No tasks yet', actionLabel: 'Create task' }}
+      />,
+    )
+
+    expect(screen.getByText('Unified task')).toBeInTheDocument()
+    expect(screen.getByRole('checkbox')).toBeDisabled()
+    expect(useInteractionsMock).toHaveBeenLastCalledWith({ entityId: 'customer-1', typeFilter: 'task' })
   })
 
   describe('delete confirmation (#5937)', () => {

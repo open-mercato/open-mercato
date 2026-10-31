@@ -21,6 +21,7 @@ import {
   deleteCategory,
   deleteTask,
   ensureFallback,
+  ensureSeededFallback,
   fileTicket,
   getPortalTicket,
   getStaffTask,
@@ -57,7 +58,7 @@ test.describe('TC-STAFF-SUP-011: Support ticket routing variants', () => {
     const cleanup = new Cleanup()
     try {
       const admin = await adminToken(request)
-      const fallback = await ensureFallback(request, admin)
+      const fallback = await ensureSeededFallback(request, admin)
       await pointFallbackAt(request, admin, cleanup, fallback.timeProjectId)
       const category = await createCategory(request, admin, cleanup, 'nocustomer')
       const customer = await createPortalCustomer(request, admin, cleanup, { features: [PORTAL_VIEW, PORTAL_MANAGE], label: 'nocustomer' })
