@@ -78,9 +78,9 @@ test.describe('TC-FORMS-ATT-002: uploads are gated on the field type', () => {
         const unknownFieldBody = await readJsonSafe<{ error?: string; id?: string }>(unknownFieldRes)
         expect(
           unknownFieldRes.status(),
-          `uploading to an undeclared field must be refused (got ${unknownFieldRes.status()}: ${JSON.stringify(unknownFieldBody)})`,
-        ).toBe(422)
-        expect(unknownFieldBody?.error).toBe('INVALID_FIELD')
+          `an undeclared field must have the same denial as a hidden field (got ${unknownFieldRes.status()}: ${JSON.stringify(unknownFieldBody)})`,
+        ).toBe(404)
+        expect(unknownFieldBody).toEqual({ error: 'NOT_FOUND' })
         expect(unknownFieldBody?.id, 'nothing was stored').toBeFalsy()
 
         // Malformed multipart: no `field_key` part.
