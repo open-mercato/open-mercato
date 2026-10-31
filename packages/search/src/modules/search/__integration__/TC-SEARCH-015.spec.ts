@@ -38,6 +38,8 @@ async function countFulltextCompanyHits(request: APIRequestContext, token: strin
  * Meilisearch keeps one index per tenant shared by every entity type and organization.
  * POST /api/search/reindex with an `entityId` must clear and rebuild only that entity's
  * documents; it must not drop the tenant index and leave other entity types unsearchable.
+ * Meilisearch applies writes asynchronously and the API exposes no task status, so the
+ * company is re-checked over a short window after the people reindex instead of once.
  * Skips when the environment has no fulltext (Meilisearch) backend.
  */
 test.describe('TC-SEARCH-015: entity-scoped fulltext reindex keeps other entity types searchable', () => {
