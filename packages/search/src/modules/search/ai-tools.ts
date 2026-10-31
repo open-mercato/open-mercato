@@ -586,7 +586,7 @@ const searchReindexTool: AiToolDefinition = {
       .optional()
       .default(false)
       .describe(
-        'Whether to clear existing documents first, limited to the given entity type and the current organization; only reindexing all entities without an organization recreates the whole index (default: false)'
+        'Fulltext only: whether to clear the reindexed documents first (the given entity type, within the current organization when one is set); reindexing all entities with no organization recreates the whole index (default: false)'
       ),
   }),
   requiredFeatures: ['search.reindex'],

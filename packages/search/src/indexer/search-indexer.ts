@@ -820,7 +820,7 @@ export class SearchIndexer {
     }
 
     const clearIndex = params.recreateIndex !== false
-    const organizationScoped = Boolean(params.organizationId)
+    const organizationScoped = typeof params.organizationId === 'string' && params.organizationId.trim().length > 0
     if (clearIndex && !organizationScoped) {
       await fulltext.recreateIndex(params.tenantId)
     }

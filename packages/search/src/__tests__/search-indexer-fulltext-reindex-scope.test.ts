@@ -181,6 +181,7 @@ describe('SearchIndexer fulltext reindex keeps other entities and organizations 
     expect(driver.recreateIndex).toHaveBeenCalledWith(TENANT)
     expect(driver.purge).not.toHaveBeenCalled()
   })
+
   it('reindexEntityToFulltext in queue mode clears the scoped documents before enqueueing and indexes nothing directly', async () => {
     const order: string[] = []
     const enqueue = jest.fn(async () => {
@@ -241,5 +242,22 @@ describe('SearchIndexer fulltext reindex keeps other entities and organizations 
     expect(result.success).toBe(false)
     expect(result.errors).toEqual([{ entityId: 'test:product', error: 'purge unavailable' }])
     expect(driver.bulkIndex).not.toHaveBeenCalled()
+  })
+
+  it('reindexAllToFulltext scoped to an organization reports a failed clear per entity and keeps indexing the rest', async () => {
+    const { indexer, driver, keys } = await setup()
+    ;(driver.purge as jest.Mock).mockRejectedValueOnce(new Error('purge unavailable'))
+
+    const result = await indexer.reindexAllToFulltext({ tenantId: TENANT, organizationId: ORG_A })
+
+    expect(result.success).toBe(false)
+    expect(result.errors).toEqual([{ entityId: 'test:product', error: 'purge unavailable' }])
+    expect(driver.recreateIndex).not.toHaveBeenCalled()
+    expect(keys(TENANT)).toEqual([
+      'test:customer:c-a-1',
+      'test:customer:c-b-1',
+      'test:product:p-a-stale',
+      'test:product:p-b-1',
+    ])
   })
 })
