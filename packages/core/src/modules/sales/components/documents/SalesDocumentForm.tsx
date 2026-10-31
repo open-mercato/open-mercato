@@ -27,6 +27,7 @@ import { createCrud } from '@open-mercato/ui/backend/utils/crud'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
+import { RecurrenceFields, createRecurrenceDraft, resolveRecurrenceDraft, type RecurrenceDraft } from './RecurrenceFields'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { E } from '#generated/entities.ids.generated'
@@ -114,6 +115,7 @@ export type SalesDocumentFormValues = {
   billingAddressDraft?: AddressDraft
   comments?: string | null
   lines?: SalesOrderLineDraft[]
+  recurrence?: RecurrenceDraft
 } & Record<string, unknown>
 
 type InboxPreFill = {
@@ -1347,6 +1349,23 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
     },
     { id: 'channels-comments', title: '', column: 1, fields: channelsEnabled ? ['channelId', 'comments'] : ['comments'] },
     { id: 'currency', title: '', column: 2, fields: ['currencyCode'] },
+    {
+      id: 'recurrence',
+      title: '',
+      column: 2,
+      fields: [],
+      component: ({ values, setValue, errors }) => {
+        const draft = (values.recurrence as RecurrenceDraft | undefined) ?? createRecurrenceDraft()
+        const resolved = errors?.recurrence ? resolveRecurrenceDraft(draft) : null
+        return (
+          <RecurrenceFields
+            value={draft}
+            onChange={(next) => setValue('recurrence', next)}
+            errors={resolved && !resolved.ok ? resolved.fieldErrors : undefined}
+          />
+        )
+      },
+    },
     { id: 'lines', title: '', column: 1, fields: ['lines'] },
     { id: 'shipping', title: '', column: 2, fields: ['shippingAddressSection'] },
     { id: 'billing', title: '', column: 2, fields: ['billingAddressSection'] },
@@ -1387,6 +1406,7 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
       useCustomShipping: false,
       useCustomBilling: false,
       sameAsShipping: true,
+      recurrence: createRecurrenceDraft(),
     }),
     [initialKind, inboxPreFill, defaultCurrency]
   )
@@ -1415,6 +1435,13 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
         metadata: base.customerEmail ? { customerEmail: base.customerEmail } : undefined,
       }
       payload.channelId = base.channelId || undefined
+      const recurrence = resolveRecurrenceDraft(base.recurrence)
+      if (!recurrence.ok) {
+        const firstError = Object.values(recurrence.fieldErrors)[0] ?? 'sales.recurring.errors.invalidStartsOn'
+        const message = t(firstError, t('sales.recurring.errors.invalid', 'Check the recurring schedule.'))
+        throw createCrudFormError(message, { recurrence: message })
+      }
+      if (recurrence.recurrence) payload.recurrence = recurrence.recurrence
       const documentNumber = typeof base.documentNumber === 'string' ? base.documentNumber.trim() : ''
       if (!documentNumber) {
         throw createCrudFormError(t('sales.documents.form.errors.numberRequired', 'Document number is required.'))

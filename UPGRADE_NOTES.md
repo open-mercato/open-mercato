@@ -24,6 +24,21 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.9.0 → 0.9.1 (unreleased)
 
+### Recurring sales orders: new guards on recurring orders (spec `2026-10-21-sales-recurring-orders`)
+
+Quotes and orders accept an optional `recurrence` (`{ frequency, startsOn, anchorDay?, periodCount? }`, `null` removes it). Documents without a recurrence behave exactly as before. A recurring document gets these new refusals, each with a machine-readable `code` in the error body:
+
+| Operation | Refused when | Response |
+|---|---|---|
+| `sales.quotes.convert_to_order` and public quote acceptance, `POST /api/sales/quotes/send` | The recurring quote's start date has passed | `422` `recurring_quote_started` |
+| The same operations | The recurring quote has no lines | `422` `recurring_quote_no_lines` |
+| Order line and order-level adjustment upsert/delete (including `sales.orders.lines.upsert_many`, `POST /api/sales/order-lines/batch`), `recurrence` changes, and changes to currency, channel, customer, shipping/payment method, `totalsMode` or externally supplied order totals | The recurring order has an issued period | `409` `recurring_order_locked` |
+| `sales.returns.create`, `sales.returns.delete`, and undo or redo of a return | The recurring order has an issued period | `409` `recurring_order_locked` |
+| Setting the order status to `canceled`/`cancelled`/`on_hold`, including through payment and shipment `documentStatusEntryId` | The recurrence is `scheduled`, `active` or `cancelling` | `409` `recurring_order_use_cancel` |
+| `sales.orders.delete` | The recurring order has an issued period | `409` `recurring_order_invoiced` |
+
+**What to change:** a module that sets order statuses, edits lines, records returns or deletes orders on behalf of users should handle these codes. In particular, automations that cancel orders by status must skip recurring orders, or (once Phase 3 ships) use *Cancel recurring order*. `QuoteGraphSnapshot` and `OrderGraphSnapshot` undo payloads gain an optional `recurrence` field; snapshots recorded before this change leave the recurrence untouched on undo.
+
 ### Encrypted custom fields in plaintext search fields (#7894)
 
 Application-managed `SearchIndexer` calls now exclude encrypted custom-field keys
