@@ -329,6 +329,8 @@
   "security.notifications.enforcementDeadline.bodyOverdue": "Tu plazo de inscripción en MFA venció el {deadline}. Configura MFA de inmediato para mantener el acceso a tu cuenta.",
   "security.notifications.enforcementDeadline.bodyWithDeadline": "Tu organización ahora requiere MFA. Configúralo dentro de {days} día(s) antes del {deadline} para mantener el acceso a tu cuenta.",
   "security.notifications.enforcementDeadline.title": "Se requiere inscripción en MFA",
+  "security.notifications.mfaEmergencyBypass.body": "Se detectó una omisión de emergencia de MFA en tu organización. La protección MFA puede estar desactivada. Pide al operador del sistema que desactive OM_SECURITY_MFA_EMERGENCY_BYPASS después de la emergencia.",
+  "security.notifications.mfaEmergencyBypass.title": "Se detectó una omisión de emergencia de MFA",
   "security.notifications.mfaEnrolled.body": "{method} fue habilitado para tu cuenta.",
   "security.notifications.mfaEnrolled.title": "Método MFA habilitado",
   "security.notifications.mfaReset.body": "Un administrador restableció tus métodos MFA. Motivo: {reason}",

@@ -10,6 +10,9 @@ let mockEditorProps: EditorProps
 const mockSetMarkdown = jest.fn()
 
 jest.mock('@mdxeditor/editor/style.css', () => ({}), { virtual: true })
+jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
+  useT: () => (_key: string, fallback: string) => fallback,
+}))
 jest.mock('../../../theme', () => ({
   useTheme: () => ({ resolvedTheme: 'light' }),
 }))
@@ -19,7 +22,7 @@ jest.mock('@mdxeditor/editor', () => {
   return {
     ...Object.fromEntries([
       'headingsPlugin', 'listsPlugin', 'quotePlugin', 'thematicBreakPlugin',
-      'linkPlugin', 'linkDialogPlugin', 'imagePlugin', 'tablePlugin',
+      'linkPlugin', 'linkDialogPlugin', 'imagePlugin', 'tablePlugin', 'codeBlockPlugin', 'codeMirrorPlugin',
       'markdownShortcutPlugin', 'diffSourcePlugin', 'toolbarPlugin',
       'UndoRedo', 'BoldItalicUnderlineToggles', 'CodeToggle',
       'StrikeThroughSupSubToggles', 'ListsToggle', 'BlockTypeSelect',
