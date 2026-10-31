@@ -3,6 +3,8 @@ import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { resolveUserDataSubject } from '@open-mercato/core/modules/auth/lib/userDataSubject'
 import { DashboardLayout } from '@open-mercato/core/modules/dashboards/data/entities'
 import { dashboardLayoutItemPatchSchema } from '@open-mercato/core/modules/dashboards/data/validators'
 import { normalizeLayoutState, serializeLayoutStateForStoredShape } from '@open-mercato/core/modules/dashboards/lib/layoutState'
@@ -51,14 +53,20 @@ export async function PATCH(req: Request, ctx: { params?: { itemId?: string } })
   const em = resolve('em') as EntityManager
   const rbac = resolve('rbacService') as RbacService
 
+  const userId = await resolveUserDataSubject(em, auth)
+  if (!userId) {
+    const { translate } = await resolveTranslations()
+    return NextResponse.json({ error: translate('api.errors.forbidden', 'Forbidden') }, { status: 403 })
+  }
+
   const scope = {
-    userId: String(auth.sub),
+    userId,
     tenantId: auth.tenantId ?? null,
     organizationId: auth.orgId ?? null,
   }
 
   const canConfigure = await rbac.userHasAllFeatures(
-    scope.userId,
+    auth.sub,
     ['dashboards.configure'],
     { tenantId: scope.tenantId, organizationId: scope.organizationId },
   )
@@ -69,7 +77,7 @@ export async function PATCH(req: Request, ctx: { params?: { itemId?: string } })
   const guardResult = await validateCrudMutationGuard(container, {
     tenantId: scope.tenantId ?? '',
     organizationId: scope.organizationId,
-    userId: scope.userId,
+    userId: auth.sub,
     resourceKind: RESOURCE_KIND,
     resourceId: layoutItemId,
     operation: 'update',
@@ -120,7 +128,7 @@ export async function PATCH(req: Request, ctx: { params?: { itemId?: string } })
     await runCrudMutationGuardAfterSuccess(container, {
       tenantId: scope.tenantId ?? '',
       organizationId: scope.organizationId,
-      userId: scope.userId,
+      userId: auth.sub,
       resourceKind: RESOURCE_KIND,
       resourceId: layoutItemId,
       operation: 'update',
