@@ -1,6 +1,6 @@
 # Lessons
 
-This catalog indexes 166 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
+This catalog indexes 167 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
 
 ## How to use this catalog
 
@@ -17,6 +17,8 @@ This catalog indexes 166 focused lessons. Route the task first, then read only r
 - Run `yarn lessons:check` before committing.
 
 ## Catalog
+
+- [Content Security Policy must cover srcDoc previews](lessons/content-security-policy-must-cover-srcdoc-previews.md) — area:backend-ui,testing,integration; module:ecommerce,ui,shared,documents; topic:content-security-policy,srcdoc,nonces,security-regression,configured-origins
 
 - [Verify integration fixture cleanup against the actual endpoint](lessons/verify-integration-fixture-cleanup-contracts.md) — area:testing,integration; module:resources,entities,customers,sales,warranty_claims,channel_discord; topic:testing,fixture-cleanup,fixture-setup,api-contracts,schema-validation,proposal-origin
 
