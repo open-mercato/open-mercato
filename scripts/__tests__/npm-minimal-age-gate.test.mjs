@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import path from 'node:path'
+import { satisfies } from 'semver'
 import test from 'node:test'
 import { parse } from 'yaml'
 
@@ -10,8 +11,10 @@ const retryScriptPath = path.resolve('scripts/ci/npm-retry-on-quarantine.sh')
 const dependabotConfigPath = path.resolve('.github/dependabot.yml')
 const rootPackagePath = path.resolve('package.json')
 const documentsPackagePath = path.resolve('packages/documents/package.json')
+const lockfilePath = path.resolve('yarn.lock')
 
 const AGREED_MINIMAL_AGE_GATE = '5d'
+const REVIEWED_HAPPY_DOM_VERSION = '20.8.9'
 const REVIEWED_TIPTAP_VERSION = '3.32.0'
 
 const DURATION_UNIT_IN_DAYS = { m: 1 / 1440, h: 1 / 24, d: 1, w: 7 }
@@ -44,6 +47,14 @@ function readDependabotEcosystem(ecosystem) {
   assert.ok(entry, `.github/dependabot.yml must keep an updates entry for the "${ecosystem}" ecosystem`)
 
   return entry
+}
+
+function findLockEntry(lockfile, descriptor) {
+  const match = Object.entries(lockfile).find(([key]) => key.split(', ').includes(descriptor))
+
+  assert.ok(match, `yarn.lock must contain an entry for ${descriptor}`)
+
+  return match[1]
 }
 
 test('the monorepo and scaffolded apps quarantine third-party releases for the agreed duration', () => {
@@ -113,9 +124,10 @@ test('scaffolded apps preapprove the first-party scope against yarn minimum rele
   )
 })
 
-test('the published Documents TipTap peer graph stays exact and reviewed before entering standalone resolution', () => {
+test('the published Documents TipTap graph stays exact and resolves compatible peers', () => {
   const rootPackage = JSON.parse(readText(rootPackagePath))
   const documentsPackage = JSON.parse(readText(documentsPackagePath))
+  const lockfile = parse(readText(lockfilePath))
   const tiptapDependencies = Object.entries(documentsPackage.dependencies).filter(([name]) => name.startsWith('@tiptap/'))
 
   assert.ok(tiptapDependencies.length > 0, 'the Documents package must declare its TipTap runtime dependencies')
@@ -132,9 +144,58 @@ test('the published Documents TipTap peer graph stays exact and reviewed before 
 
   assert.equal(
     rootPackage.resolutions?.['@tiptap/core'],
-    REVIEWED_TIPTAP_VERSION,
-    'the root TipTap resolution must match the exact Documents peer graph tested in the monorepo'
+    undefined,
+    'the root must not force one @tiptap/core version across unrelated dependency trees; an unscoped resolution corrupts Hocuspocus peer graphs that legitimately resolve another TipTap patch'
   )
+
+  assert.equal(
+    rootPackage.resolutions?.['@tiptap/starter-kit@npm:^3.19.0'],
+    REVIEWED_TIPTAP_VERSION,
+    'the Hocuspocus starter-kit range must use the reviewed TipTap patch while newer matching releases remain quarantined'
+  )
+
+  assert.equal(
+    documentsPackage.dependencies['happy-dom'],
+    REVIEWED_HAPPY_DOM_VERSION,
+    '@tiptap/html and happy-dom must be updated as one reviewed peer pair before standalone publication'
+  )
+
+  const documentsLockEntry = Object.values(lockfile).find(
+    (entry) => entry?.resolution === '@open-mercato/documents@workspace:packages/documents'
+  )
+
+  assert.ok(documentsLockEntry, 'yarn.lock must contain the Documents workspace entry')
+
+  const htmlLockEntry = findLockEntry(lockfile, `@tiptap/html@npm:${REVIEWED_TIPTAP_VERSION}`)
+  const happyDomDescriptor = documentsLockEntry.dependencies?.['happy-dom']
+
+  assert.ok(happyDomDescriptor, 'the resolved Documents workspace must provide happy-dom to @tiptap/html')
+
+  const happyDomLockEntry = findLockEntry(lockfile, `happy-dom@${happyDomDescriptor}`)
+
+  assert.ok(
+    satisfies(happyDomLockEntry.version, htmlLockEntry.peerDependencies?.['happy-dom'] ?? ''),
+    `resolved happy-dom ${happyDomLockEntry.version} must satisfy @tiptap/html ${htmlLockEntry.version}'s peer range ${htmlLockEntry.peerDependencies?.['happy-dom']}`
+  )
+
+  for (const entry of Object.values(lockfile)) {
+    if (!entry?.resolution?.startsWith('@tiptap/')) continue
+
+    for (const dependencyName of ['@tiptap/core', '@tiptap/pm']) {
+      const dependencyDescriptor = entry.dependencies?.[dependencyName]
+      const exactVersion = dependencyDescriptor?.match(/^npm:(\d+\.\d+\.\d+)$/)?.[1]
+
+      if (!exactVersion) continue
+
+      const dependencyLockEntry = findLockEntry(lockfile, `${dependencyName}@${dependencyDescriptor}`)
+
+      assert.equal(
+        dependencyLockEntry.version,
+        exactVersion,
+        `${entry.resolution} requires ${dependencyName}@${exactVersion}, but yarn.lock resolves ${dependencyLockEntry.version}; unscoped resolutions must not rewrite a coupled TipTap peer graph`
+      )
+    }
+  }
 })
 
 test('the quarantine retry helper fails fast on yarn minimum release age gates', () => {
