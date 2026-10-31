@@ -73,15 +73,13 @@ export function resolveQueryIndexSourceTableMetadata(
   const rawName = entityType.split(':').pop() ?? ''
   const className = rawName.split(/[_\s]+/).filter(Boolean)
     .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1)).join('')
-  const registry = em.getMetadata?.()
   const allMetadata = listEntityMetadata(em) as unknown as QueryIndexEntityMetadata[]
   let metadata: QueryIndexEntityMetadata | undefined
   for (const candidate of [className, `${className}Entity`]) {
     const matches = allMetadata.filter((entry) => entry.className === candidate || entry.name === candidate)
     if (matches.length > 1) throw new QueryIndexScopeError(`[internal] Ambiguous query-index entity metadata: ${entityType}`)
-    const found = registry?.find?.(candidate) as QueryIndexEntityMetadata | undefined
-    if (matches.length === 1 || found?.tableName) {
-      metadata = matches[0] ?? found
+    if (matches.length === 1) {
+      metadata = matches[0]
       break
     }
   }
