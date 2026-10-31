@@ -572,6 +572,7 @@ const rotateEncryptionKey: ModuleCli = {
       )
       return false
     })
+    const resolvedMaps = resolveMapsOrFail(maps, metaByEntityId)
     const customDocuments = await rotateCustomEntityDocuments(em, {
       encryptionService,
       oldKms,
@@ -586,8 +587,6 @@ const rotateEncryptionKey: ModuleCli = {
       if (!customDocuments) console.log('No encryption maps found for the selected scope.')
       return
     }
-    const resolvedMaps = resolveMapsOrFail(maps, metaByEntityId)
-
     const resolveScopes = async (tenantId: string, organizationId: string | null) => {
       if (organizationId) return [{ tenantId, organizationId }]
       const orgs = await em.find(Organization, { tenant: tenantId })

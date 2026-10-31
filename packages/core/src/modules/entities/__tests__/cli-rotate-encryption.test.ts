@@ -414,6 +414,19 @@ describe('entities rotate-encryption-key CLI', () => {
     expect(execute).not.toHaveBeenCalled()
   })
 
+  it('refuses invalid ORM maps before loading custom document definitions', async () => {
+    const rotate = cli.find((entry) => entry.command === 'rotate-encryption-key')!
+    singleMapFixture()
+    getAllMetadata.mockReturnValue(new Map())
+
+    await expect(
+      rotate.run(['--tenant', 'tenant-1', '--org', 'org-1', '--dry-run']),
+    ).rejects.toThrow('No rows were changed')
+
+    expect(find.mock.calls.map((call) => call[0])).not.toContain(CustomFieldDef)
+    expect(execute).not.toHaveBeenCalled()
+  })
+
   // A map with no mapped fields has nothing to rotate, so skipping it cannot silently leave a
   // field sealed under the old key — the failure mode the preflight exists to prevent.
   it('skips a map that declares no encrypted fields instead of failing the run', async () => {
