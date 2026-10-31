@@ -1,0 +1,49 @@
+{
+  "s5": {
+    "title": "Dodaj konto do planu kont",
+    "fields": [
+      { "id": "code", "label": "Numer konta", "type": "text", "value": "403-01" },
+      { "id": "name", "label": "Nazwa konta", "type": "text", "value": "Usługi obce" },
+      { "id": "kind", "label": "Rodzaj konta", "type": "select", "value": "Koszty", "options": ["Aktywa", "Pasywa", "Przychody", "Koszty"] }
+    ],
+    "row": ["$code", "$name", "$kind", "0,00 zł", { "text": "Aktywne", "tone": "info" }]
+  },
+  "s14": {
+    "title": "Zaplanuj przypomnienie",
+    "fields": [
+      { "id": "customer", "label": "Klient", "type": "text", "value": "Nord GmbH" },
+      { "id": "invoice", "label": "Numer faktury", "type": "text", "value": "FS/2026/087" },
+      { "id": "amount", "label": "Kwota pozostała (EUR)", "type": "number", "value": "1250" },
+      { "id": "next", "label": "Następny krok", "type": "select", "value": "Wyślij przypomnienie", "options": ["Wyślij przypomnienie", "Kontakt telefoniczny", "Przekaż opiekunowi"] }
+    ],
+    "row": ["$customer", "$invoice", "1 dzień", "$amount EUR", { "text": "Zaplanowano", "tone": "info" }]
+  },
+  "s20": {
+    "title": "Dodaj środek trwały",
+    "fields": [
+      { "id": "number", "label": "Numer środka", "type": "text", "value": "ST/2026/042" },
+      { "id": "name", "label": "Nazwa", "type": "text", "value": "Monitor biurowy" },
+      { "id": "category", "label": "Kategoria", "type": "select", "value": "IT", "options": ["IT", "Transport", "Wyposażenie"] },
+      { "id": "value", "label": "Wartość początkowa (PLN)", "type": "number", "value": "2400" }
+    ],
+    "row": ["$number", "$name", "$category", "$value zł", { "text": "Nowy", "tone": "neutral" }]
+  },
+  "s30": {
+    "title": "Dodaj centrum kosztów",
+    "fields": [
+      { "id": "code", "label": "Kod", "type": "text", "value": "CC-SUPPORT" },
+      { "id": "name", "label": "Nazwa", "type": "text", "value": "Wsparcie" },
+      { "id": "owner", "label": "Właściciel", "type": "text", "value": "Anna Nowak" }
+    ],
+    "row": ["$code", "$name", "$owner", "0,00 zł", { "text": "Aktywne", "tone": "info" }]
+  },
+  "s33": {
+    "title": "Dodaj transakcję między spółkami",
+    "fields": [
+      { "id": "company", "label": "Spółka", "type": "select", "value": "Mercato Polska", "options": ["Mercato Polska", "Mercato Czechy", "Mercato Niemcy"] },
+      { "id": "counterparty", "label": "Druga spółka", "type": "select", "value": "Mercato Czechy", "options": ["Mercato Polska", "Mercato Czechy", "Mercato Niemcy"] },
+      { "id": "amount", "label": "Kwota (PLN)", "type": "number", "value": "2400" }
+    ],
+    "row": ["$company", "1", "$amount zł", "$amount zł", { "text": "Do dopasowania", "tone": "warning" }]
+  }
+}

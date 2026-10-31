@@ -116,14 +116,24 @@ function collectSyntaxFacts(source) {
     candidates.push({ value: literalValue, offset: start + 1 })
     index += 1
   }
+  const semanticAlertNames = new Set()
+  for (const imported of source.matchAll(/import\s*\{([^}]+)\}\s*from\s*(['"])@open-mercato\/ui\/primitives\/alert\2/g)) {
+    for (const binding of imported[1].split(',')) {
+      const match = /^\s*Alert(?:\s+as\s+([A-Za-z_$][\w$]*))?\s*$/.exec(binding)
+      if (match) semanticAlertNames.add(match[1] ?? 'Alert')
+    }
+  }
   const syntax = syntaxMask.join('')
   for (const match of syntax.matchAll(/<[A-Za-z][^>]*>/g)) {
     const openingTag = match[0]
-    const tag = /^<([A-Za-z][\w.-]*)/.exec(openingTag)?.[1]?.toLowerCase()
+    const tagName = /^<([A-Za-z][\w.-]*)/.exec(openingTag)?.[1]
+    const tag = tagName?.toLowerCase()
     if (tag && ['table', 'thead', 'tbody', 'tfoot', 'tr', 'th', 'td'].includes(tag)) {
       rawTableTags.push({ tag, offset: match.index })
     }
     for (const styleMatch of openingTag.matchAll(/\bstyle\s*=/g)) {
+      const attribute = source.slice(match.index + styleMatch.index)
+      if (semanticAlertNames.has(tagName) && /^style\s*=\s*(['"])(?:light|lighter|filled|stroke)\1/.test(attribute)) continue
       inlineStyleOffsets.push(match.index + styleMatch.index)
     }
   }
