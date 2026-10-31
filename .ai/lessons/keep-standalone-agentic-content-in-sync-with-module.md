@@ -20,3 +20,5 @@ Measure instruction budgets after tool patches and the real enabled-module fact 
 **Applies to**: `packages/create-app/agentic/shared/`, `packages/create-app/agentic/claude-code/`, `packages/create-app/agentic/codex/`, `packages/create-app/agentic/cursor/`.
 
 Compatibility guidance is also retrieved by standalone harness cases. Adding to root `BACKWARD_COMPATIBILITY.md` increases their required context even when no create-app source changes. Keep compatibility summaries concise and link rollout detail in `UPGRADE_NOTES.md`; run `packages/create-app/src/lib/compatibility-context-budget.test.ts` after such additions. Preserve the existing context caps rather than increasing them to accommodate verbose notes.
+
+Measure concurrently prepared release entries in one materialized document, counting shared formatting savings once. Preserve initial budgets, read sets and containment. A deterministic pass does not establish packed-preset or certified release evidence.

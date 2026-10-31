@@ -89,6 +89,7 @@ function toValues(record: ProjectRecord): ProjectFormValues {
     budgetValue: readString(record, 'budgetValue', 'budget_value'),
     budgetWarnAtPercent:
       readString(record, 'budgetWarnAtPercent', 'budget_warn_at_percent') ?? String(DEFAULT_BUDGET_WARN_AT_PERCENT),
+    defaultAssigneeStaffMemberId: readString(record, 'defaultAssigneeStaffMemberId', 'default_assignee_staff_member_id') ?? null,
     projectType: readString(record, 'projectType', 'project_type'),
     color: readString(record, 'color'),
     startDate: readString(record, 'startDate', 'start_date'),
