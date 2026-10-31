@@ -1,3 +1,6 @@
+jest.mock('@open-mercato/shared/lib/db/advisoryLock', () => ({
+  withAdvisoryXactLock: jest.fn((em: unknown, _key: string, fn: (txEm: unknown) => Promise<unknown>) => fn(em)),
+}))
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findWithDecryption: jest.fn(),
   findOneWithDecryption: jest.fn(),

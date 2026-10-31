@@ -1,8 +1,12 @@
+jest.mock('@open-mercato/shared/lib/db/advisoryLock', () => ({
+  withAdvisoryXactLock: jest.fn((em: unknown, _key: string, fn: (txEm: unknown) => Promise<unknown>) => fn(em)),
+}))
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: jest.fn(),
   findWithDecryption: jest.fn(),
 }))
 
+import { withAdvisoryXactLock } from '@open-mercato/shared/lib/db/advisoryLock'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createConnectedChannelRow } from '../connect-channel'
 
@@ -66,12 +70,43 @@ describe('createConnectedChannelRow', () => {
     expect(em.flush).toHaveBeenCalled()
   })
 
-  it('re-selects + heals the winner on a concurrent-connect unique violation', async () => {
+  it('runs under the owner connection lock that delete undo takes', async () => {
+    ;(findOneWithDecryption as jest.Mock).mockResolvedValue(null)
+    const em: any = {
+      create: jest.fn((_entity: unknown, data: Record<string, unknown>) => ({ ...data })),
+      persist: jest.fn(),
+      flush: jest.fn(async () => undefined),
+    }
+    await createConnectedChannelRow({ em, ...BASE })
+    expect(withAdvisoryXactLock).toHaveBeenCalledTimes(1)
+    expect(withAdvisoryXactLock).toHaveBeenCalledWith(em, 'communication_channels:connection:t:user-1', expect.any(Function))
+  })
+
+  it('connects again and heals the row an unlocked writer inserted on a unique violation', async () => {
     const winner: any = { id: 'ch-win', status: 'requires_reauth', isActive: false }
     ;(findOneWithDecryption as jest.Mock)
-      .mockResolvedValueOnce(null) // existence check: none yet
-      .mockResolvedValueOnce(winner) // re-select after 23505
-    const reEm = { flush: jest.fn(async () => undefined) }
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(winner)
+    const uniqueErr = Object.assign(new Error('duplicate key value violates unique constraint'), {
+      code: '23505',
+    })
+    const em: any = {
+      create: jest.fn((_entity: unknown, data: Record<string, unknown>) => ({ ...data })),
+      persist: jest.fn(),
+      flush: jest
+        .fn(async () => undefined)
+        .mockImplementationOnce(async () => {
+          throw uniqueErr
+        }),
+    }
+    const channel = await createConnectedChannelRow({ em, ...BASE })
+    expect(channel).toBe(winner)
+    expect(winner.status).toBe('connected')
+    expect(em.create).toHaveBeenCalledTimes(1)
+    expect(withAdvisoryXactLock).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not retry a unique violation of an identifier-less insert', async () => {
     const uniqueErr = Object.assign(new Error('duplicate key value violates unique constraint'), {
       code: '23505',
     })
@@ -81,13 +116,55 @@ describe('createConnectedChannelRow', () => {
       flush: jest.fn(async () => {
         throw uniqueErr
       }),
-      fork: jest.fn(() => reEm),
     }
-    const channel = await createConnectedChannelRow({ em, ...BASE })
-    expect(channel).toBe(winner)
-    expect(winner.status).toBe('connected')
-    expect(em.fork).toHaveBeenCalledTimes(1)
-    expect(reEm.flush).toHaveBeenCalled()
+    await expect(createConnectedChannelRow({ em, ...BASE, externalIdentifier: null })).rejects.toBe(uniqueErr)
+    expect(withAdvisoryXactLock).toHaveBeenCalledTimes(1)
+  })
+
+  it('heals the live identifier-less row of the provider instead of inserting a second one', async () => {
+    const current: any = {
+      id: 'ch-1',
+      status: 'requires_reauth',
+      isActive: false,
+      lastError: 'credentials_persist_failed',
+      externalIdentifier: null,
+    }
+    ;(findWithDecryption as jest.Mock).mockResolvedValueOnce([current])
+    const em: any = {
+      create: jest.fn(),
+      persist: jest.fn(),
+      flush: jest.fn(async () => undefined),
+    }
+    const channel = await createConnectedChannelRow({ em, ...BASE, externalIdentifier: null })
+
+    expect(channel).toBe(current)
+    expect(em.create).not.toHaveBeenCalled()
+    expect(current).toMatchObject({ status: 'connected', isActive: true, lastError: null, credentialsRef: 'cred-1' })
+    expect(findOneWithDecryption).not.toHaveBeenCalled()
+    const [, , filter, options] = (findWithDecryption as jest.Mock).mock.calls[0]
+    expect(filter).toEqual({
+      tenantId: 't',
+      organizationId: 'o',
+      userId: 'user-1',
+      providerKey: 'imap',
+      externalIdentifier: null,
+      deletedAt: null,
+    })
+    expect(options).toEqual({ orderBy: { createdAt: 'desc' }, limit: 1 })
+  })
+
+  it('does not heal an identifier-less row for an identified connect without adoption', async () => {
+    ;(findOneWithDecryption as jest.Mock).mockResolvedValue(null)
+    const em: any = {
+      create: jest.fn((_entity: unknown, data: Record<string, unknown>) => ({ ...data })),
+      persist: jest.fn(),
+      flush: jest.fn(async () => undefined),
+    }
+    await createConnectedChannelRow({ em, ...BASE })
+
+    expect(em.create).toHaveBeenCalledTimes(1)
+    const filters = (findWithDecryption as jest.Mock).mock.calls.map(([, , filter]) => filter)
+    expect(filters.some((filter) => 'externalIdentifier' in filter)).toBe(false)
   })
 
   describe('adapter-reported identity (#4977)', () => {
@@ -309,6 +386,6 @@ describe('createConnectedChannelRow', () => {
       fork: jest.fn(),
     }
     await expect(createConnectedChannelRow({ em, ...BASE })).rejects.toThrow('connection terminated')
-    expect(em.fork).not.toHaveBeenCalled()
+    expect(withAdvisoryXactLock).toHaveBeenCalledTimes(1)
   })
 })
