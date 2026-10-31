@@ -5888,7 +5888,6 @@ const updateQuoteCommand: CommandHandler<
   },
   async execute(rawInput, ctx) {
     const parsed = documentUpdateSchema.parse(rawInput ?? {});
-    await assertAmountsModeUnsupportedOnQuote([parsed]);
     documentEditSchema.parse(rawInput ?? {});
     const em = (ctx.container.resolve("em") as EntityManager).fork();
     let quote!: SalesQuote;

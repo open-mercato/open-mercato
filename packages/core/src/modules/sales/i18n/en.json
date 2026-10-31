@@ -1083,6 +1083,7 @@
   "sales.documents.items.table.discountAmount": "−{{value}}",
   "sales.documents.items.table.discountPercent": "{{value}}%",
   "sales.documents.items.table.gross": "gross",
+  "sales.documents.items.table.markupAmount": "+{{value}}",
   "sales.documents.items.table.net": "net",
   "sales.documents.items.table.product": "Product",
   "sales.documents.items.table.quantity": "Qty",

@@ -3,7 +3,7 @@
  */
 
 import * as React from 'react'
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { createTranslator } from '@open-mercato/shared/lib/i18n/translate'
 import { SalesDocumentItemsSection } from '../ItemsSection'
 
@@ -49,6 +49,15 @@ jest.mock('@open-mercato/ui/backend/confirm-dialog', () => ({
 
 jest.mock('@open-mercato/ui/primitives/button', () => ({
   Button: ({ children, ...props }: { children?: React.ReactNode }) => <button {...props}>{children}</button>,
+}))
+
+jest.mock('@open-mercato/ui/primitives/tooltip', () => ({
+  SimpleTooltip: ({ content, children, open }: { content: React.ReactNode; children: React.ReactNode; open?: boolean }) => (
+    <span data-tooltip-content={String(content)}>
+      {children}
+      {open ? <span role="tooltip">{content}</span> : null}
+    </span>
+  ),
 }))
 
 jest.mock('@open-mercato/ui/backend/injection/useInjectionDataWidgets', () => ({
@@ -186,6 +195,48 @@ describe('SalesDocumentItemsSection discount column', () => {
     await screen.findByRole('columnheader', { name: 'Discount' })
     expect(screen.getByText('10%')).toBeTruthy()
     expect(screen.queryByText(/^−/)).toBeNull()
+  })
+
+  it('renders an externally supplied negative discount as a positive markup', async () => {
+    mockLines(lineFixture({ discount_amount: -5, total_net_amount: 35 }))
+    renderSection()
+
+    await screen.findByRole('columnheader', { name: 'Discount' })
+    expect(screen.getByText(`+${money(5)}`)).toBeTruthy()
+  })
+
+  it('exposes external-amount read-only reasons on focusable action wrappers', async () => {
+    mockLines(lineFixture({ amounts_mode: 'external' }))
+    render(
+      <SalesDocumentItemsSection
+        documentId="order-1"
+        kind="order"
+        currencyCode="USD"
+        organizationId="org-1"
+        tenantId="tenant-1"
+        amountsReadOnly
+      />,
+    )
+
+    await screen.findByText('Widget A')
+    const reason = 'Totals on this document come from an external system and are stored as supplied.'
+    const triggers = [
+      screen.getByLabelText(`Edit: ${reason}`),
+      screen.getByLabelText(`Delete: ${reason}`),
+    ]
+    for (const trigger of triggers) expect(trigger).toHaveAttribute('tabindex', '0')
+    for (const trigger of triggers) expect(trigger).toHaveClass('focus-visible:shadow-focus')
+    expect(screen.getByRole('button', { name: 'Edit' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Delete' })).toBeDisabled()
+
+    const touchPointerDown = new Event('pointerdown', { bubbles: true })
+    Object.defineProperty(touchPointerDown, 'pointerType', { value: 'touch' })
+    fireEvent(triggers[0], touchPointerDown)
+    expect(triggers[0]).toHaveFocus()
+    expect(screen.getByRole('tooltip')).toHaveTextContent(reason)
+
+    fireEvent.blur(triggers[0])
+    expect(screen.queryByRole('tooltip')).toBeNull()
   })
 
   it('leaves the cell empty on lines that carry no discount', async () => {
