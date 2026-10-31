@@ -15,10 +15,11 @@ const widget: DashboardWidgetModule<SalesByRegionSettings> = {
     category: 'analytics',
     icon: 'map-pin',
     supportsRefresh: true,
+    respectsDashboardDateRange: true,
   },
   Widget: SalesByRegionWidget,
   hydrateSettings,
-  dehydrateSettings: (s) => ({ dateRange: s.dateRange, limit: s.limit }),
+  dehydrateSettings: (s) => ({ dateRangeMode: s.dateRangeMode, dateRange: s.dateRange, limit: s.limit }),
 }
 
 export default widget

@@ -80,9 +80,21 @@ test.describe('TC-SEC-015: feature-gated injection widgets', () => {
         roles: [roleId],
       })
 
-      const browserAdminToken = await signIn(page, DEFAULT_CREDENTIALS.admin, scope)
-      await expectProductPermissions(page, browserAdminToken, true)
-      await openProduct(page, productId, title)
+      const restrictedPage = await restrictedContext.newPage()
+      const pageErrors: string[] = []
+      restrictedPage.on('pageerror', (error) => pageErrors.push(error.message))
+      const [browserAdminToken, restrictedToken] = await Promise.all([
+        signIn(page, DEFAULT_CREDENTIALS.admin, scope),
+        signIn(restrictedPage, credentials, scope),
+      ])
+      await Promise.all([
+        expectProductPermissions(page, browserAdminToken, true),
+        expectProductPermissions(restrictedPage, restrictedToken, false),
+      ])
+      await Promise.all([
+        openProduct(page, productId, title),
+        openProduct(restrictedPage, productId, title),
+      ])
       await expect(page.getByText('Product SEO Helper', { exact: true })).toBeVisible()
       await expect(page.getByText('SEO Optimization', { exact: true })).toBeVisible()
 
@@ -98,12 +110,6 @@ test.describe('TC-SEC-015: feature-gated injection widgets', () => {
       await expect(page.getByText(SEO_TITLE_ERROR, { exact: true })).toBeVisible()
       expect(adminWrites, 'The granted widget should block the invalid save before the API call').toEqual([])
 
-      const restrictedPage = await restrictedContext.newPage()
-      const pageErrors: string[] = []
-      restrictedPage.on('pageerror', (error) => pageErrors.push(error.message))
-      const restrictedToken = await signIn(restrictedPage, credentials, scope)
-      await expectProductPermissions(restrictedPage, restrictedToken, false)
-      await openProduct(restrictedPage, productId, title)
       await expect(restrictedPage.getByRole('button', { name: 'Save changes', exact: true }).first()).toBeVisible()
       await expect(restrictedPage.getByText('Product SEO Helper', { exact: true })).toHaveCount(0)
       await expect(restrictedPage.getByText('SEO Optimization', { exact: true })).toHaveCount(0)

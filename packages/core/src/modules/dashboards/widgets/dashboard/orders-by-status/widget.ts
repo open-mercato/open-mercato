@@ -15,10 +15,11 @@ const widget: DashboardWidgetModule<OrdersByStatusSettings> = {
     category: 'analytics',
     icon: 'pie-chart',
     supportsRefresh: true,
+    respectsDashboardDateRange: true,
   },
   Widget: OrdersByStatusWidget,
   hydrateSettings,
-  dehydrateSettings: (s) => ({ dateRange: s.dateRange, variant: s.variant }),
+  dehydrateSettings: (s) => ({ dateRangeMode: s.dateRangeMode, dateRange: s.dateRange, variant: s.variant }),
 }
 
 export default widget

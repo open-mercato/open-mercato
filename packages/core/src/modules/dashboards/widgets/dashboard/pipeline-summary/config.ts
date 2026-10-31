@@ -42,11 +42,13 @@ export const PIPELINE_STATUS_SCOPES = ['open', 'all'] as const
 export type PipelineStatusScope = typeof PIPELINE_STATUS_SCOPES[number]
 
 export type PipelineSummarySettings = {
+  dateRangeMode?: 'global' | 'custom'
   dateRange: DateRangePreset
   statusScope: PipelineStatusScope
 }
 
 export const DEFAULT_SETTINGS: PipelineSummarySettings = {
+  dateRangeMode: 'global',
   dateRange: 'this_month',
   statusScope: 'open',
 }
@@ -59,6 +61,7 @@ export function hydrateSettings(raw: unknown): PipelineSummarySettings {
   if (!raw || typeof raw !== 'object') return { ...DEFAULT_SETTINGS }
   const obj = raw as Record<string, unknown>
   return {
+    dateRangeMode: obj.dateRangeMode === 'custom' ? 'custom' : 'global',
     dateRange: isValidDateRangePreset(obj.dateRange) ? obj.dateRange : DEFAULT_SETTINGS.dateRange,
     statusScope: isValidStatusScope(obj.statusScope) ? obj.statusScope : DEFAULT_SETTINGS.statusScope,
   }
@@ -66,6 +69,7 @@ export function hydrateSettings(raw: unknown): PipelineSummarySettings {
 
 export function dehydrateSettings(settings: PipelineSummarySettings): Record<string, unknown> {
   return {
+    dateRangeMode: settings.dateRangeMode ?? DEFAULT_SETTINGS.dateRangeMode,
     dateRange: settings.dateRange,
     statusScope: settings.statusScope,
   }
