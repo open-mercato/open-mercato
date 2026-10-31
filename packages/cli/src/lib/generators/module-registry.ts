@@ -1722,6 +1722,20 @@ function resolveApiPathFromMetadata(metadata: unknown, fallbackPath: string): st
   return typeof candidate === 'string' && candidate.length > 0 ? candidate : fallbackPath
 }
 
+function resolveModuleRequiresFromMetadata(metadata: unknown): string[] | undefined {
+  if (!metadata || typeof metadata !== 'object') return undefined
+  const requires = (metadata as Record<string, unknown>).requires
+  if (!Array.isArray(requires)) return undefined
+  const resolved = requires.filter((value): value is string => typeof value === 'string')
+  return resolved.length > 0 ? resolved : undefined
+}
+
+async function resolveModuleRequiresFromIndexFile(indexFileAbsolutePath: string): Promise<string[] | undefined> {
+  const loadedModule = await loadModuleExportsFromSource<Record<string, unknown>>(indexFileAbsolutePath)
+  const metadata = loadedModule?.metadata ?? extractNamedObjectLiteralExport(indexFileAbsolutePath, 'metadata')
+  return resolveModuleRequiresFromMetadata(metadata)
+}
+
 function detectExportedHttpMethods(sourceFile: string): HttpMethod[] {
   let source = ''
   try {
@@ -3681,13 +3695,8 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
       const importPath = sanitizeGeneratedModuleSpecifier(indexResolved.importPath)
       imports.push(buildImportStatement(`* as ${infoImportName}`, importPath))
       runtimeImports.push(buildImportStatement(`* as ${infoImportName}`, importPath))
-      try {
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
-        const mod = require(indexResolved.absolutePath)
-        const reqs: string[] | undefined =
-          mod?.metadata && Array.isArray(mod.metadata.requires) ? mod.metadata.requires : undefined
-        if (reqs && reqs.length) requiresByModule.set(modId, reqs)
-      } catch {}
+      const reqs = await resolveModuleRequiresFromIndexFile(indexResolved.absolutePath)
+      if (reqs && reqs.length) requiresByModule.set(modId, reqs)
     }
 
     // 2. Pages: frontend
@@ -4404,13 +4413,8 @@ async function generateModuleRegistryAppFromDiscovery(options: ModuleRegistryRen
       const importPath = sanitizeGeneratedModuleSpecifier(indexResolved.importPath)
       imports.push(buildImportStatement(`* as ${infoImportName}`, importPath))
       bootstrapImports.push(buildImportStatement(`* as ${infoImportName}`, importPath))
-      try {
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
-        const mod = require(indexResolved.absolutePath)
-        const reqs: string[] | undefined =
-          mod?.metadata && Array.isArray(mod.metadata.requires) ? mod.metadata.requires : undefined
-        if (reqs && reqs.length) requiresByModule.set(modId, reqs)
-      } catch {}
+      const reqs = await resolveModuleRequiresFromIndexFile(indexResolved.absolutePath)
+      if (reqs && reqs.length) requiresByModule.set(modId, reqs)
     }
 
     {
@@ -4839,13 +4843,8 @@ async function generateModuleRegistryCliFromDiscovery(options: ModuleRegistryRen
       infoImportName = `I${importIdRef.value++}_${toVar(modId)}`
       const importPath = sanitizeGeneratedModuleSpecifier(indexResolved.importPath)
       imports.push(buildImportStatement(`* as ${infoImportName}`, importPath))
-      try {
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
-        const mod = require(indexResolved.absolutePath)
-        const reqs: string[] | undefined =
-          mod?.metadata && Array.isArray(mod.metadata.requires) ? mod.metadata.requires : undefined
-        if (reqs && reqs.length) requiresByModule.set(modId, reqs)
-      } catch {}
+      const reqs = await resolveModuleRequiresFromIndexFile(indexResolved.absolutePath)
+      if (reqs && reqs.length) requiresByModule.set(modId, reqs)
     }
 
     // Module setup configuration: setup.ts
