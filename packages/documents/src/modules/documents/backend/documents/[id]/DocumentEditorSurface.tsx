@@ -18,6 +18,7 @@ import { useDocumentEditor } from './useDocumentEditor'
 import { useFallbackContentPersistence } from './useFallbackContentPersistence'
 import { useDocumentTitle } from './useDocumentTitle'
 import { useEditorInsertions } from './useEditorInsertions'
+import { saveCollaborativeContent } from './saveCollaborativeContent'
 
 type Props = DocumentEditorIslandProps & {
   transport: 'collab' | 'fallback'
@@ -60,6 +61,21 @@ export function DocumentEditorSurface(input: Props) {
     readOnly: effectiveReadOnly,
     onTitleChange: input.onTitleChange,
   })
+  React.useEffect(() => {
+    const controller = new AbortController()
+    input.onSaveReady?.(async () => {
+      if (controller.signal.aborted || input.readOnly || !editorModel.editorRef.current) return false
+      return input.transport === 'fallback'
+        ? fallbackPersistence.saveNow()
+        : input.collabResources
+          ? saveCollaborativeContent(input.collabResources, controller.signal)
+          : false
+    })
+    return () => {
+      controller.abort()
+      input.onSaveReady?.(null)
+    }
+  }, [editorModel.editorRef, fallbackPersistence.saveNow, input.collabResources, input.onSaveReady, input.readOnly, input.transport])
   const insertions = useEditorInsertions({
     documentId: input.documentId,
     editorRef: editorModel.editorRef,
