@@ -6,7 +6,19 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { E } from '#generated/entities.ids.generated'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { SalesOrder, SalesQuote } from '../../data/entities'
-import { SalesChannel, SalesDocumentTagAssignment } from '../../data/entities'
+import {
+  SalesChannel,
+  SalesDocumentTagAssignment,
+  SalesOrderRecurrence,
+  SalesQuoteRecurrence,
+  SalesRecurringPeriod,
+} from '../../data/entities'
+import {
+  snapshotOrderRecurrence,
+  snapshotQuoteRecurrence,
+  toRecurrenceResponse,
+} from '../../lib/recurrenceStore'
+import { SALES_ORDER_RECURRENCE_STATUSES, SALES_RECURRENCE_FREQUENCIES } from '../../lib/recurrence'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import {
   ORDER_PAYMENT_LEDGER_FIELDS,
@@ -250,6 +262,13 @@ const mapUpdateResponse = (entity: any) => {
   }
 }
 
+function listOrganizationIds(ctx: Pick<CrudCtx, 'organizationIds' | 'selectedOrganizationId'> | null | undefined): string[] {
+  if (Array.isArray(ctx?.organizationIds) && ctx.organizationIds.length) {
+    return ctx.organizationIds.filter((value): value is string => !!value)
+  }
+  return ctx?.selectedOrganizationId ? [ctx.selectedOrganizationId] : []
+}
+
 const attachTags = async (payload: any, ctx: any) => {
   const items = Array.isArray(payload?.items) ? (payload.items as Array<Record<string, any>>) : []
   if (!items.length) return
@@ -264,12 +283,7 @@ const attachTags = async (payload: any, ctx: any) => {
     documentKind: ctx?.bindingKind ?? null,
   }
   if (ctx?.auth?.tenantId) where.tenantId = ctx.auth.tenantId
-  const orgIds =
-    Array.isArray(ctx?.organizationIds) && ctx.organizationIds.length
-      ? ctx.organizationIds.filter((val: string | null) => !!val)
-      : ctx?.selectedOrganizationId
-        ? [ctx.selectedOrganizationId]
-        : []
+  const orgIds = listOrganizationIds(ctx)
   if (orgIds.length) where.organizationId = { $in: orgIds }
   const assignments = await em.find(
     SalesDocumentTagAssignment,
@@ -298,6 +312,66 @@ const attachTags = async (payload: any, ctx: any) => {
   })
 }
 
+// Runs on the cache-hit path too (like `attachChannelNames`), so a schedule change or a newly
+// issued period is never served stale from the list cache.
+export const attachRecurrences = async (
+  payload: { items?: Array<Record<string, unknown>> },
+  ctx: CrudCtx,
+  kind: DocumentKind,
+) => {
+  const items = Array.isArray(payload?.items) ? payload.items : []
+  const ids = items
+    .map((item) => (item && typeof item.id === 'string' ? item.id : null))
+    .filter((id): id is string => !!id)
+  if (!ids.length) return
+  const em = ctx?.container?.resolve ? (ctx.container.resolve('em') as EntityManager) : null
+  if (!em) return
+  const tenantId = ctx?.auth?.tenantId ?? null
+  if (!tenantId) return
+  const scope = { tenantId, organizationId: ctx?.selectedOrganizationId ?? ctx?.auth?.orgId ?? null }
+  const orgIds = listOrganizationIds(ctx)
+  const scoped = orgIds.length ? { tenantId, organizationId: { $in: orgIds } } : { tenantId }
+  const byDocument = new Map<string, Record<string, unknown>>()
+  if (kind === 'order') {
+    const [recurrences, periods] = await Promise.all([
+      findWithDecryption(em, SalesOrderRecurrence, { order: { $in: ids }, ...scoped }, undefined, scope),
+      findWithDecryption(
+        em,
+        SalesRecurringPeriod,
+        { order: { $in: ids }, ...scoped },
+        { fields: ['id', 'order'] },
+        scope,
+      ),
+    ])
+    const invoiced = new Set(periods.map((period) => period.order.id))
+    recurrences.forEach((recurrence) => {
+      const orderId = recurrence.order.id
+      byDocument.set(orderId, {
+        ...toRecurrenceResponse(snapshotOrderRecurrence(recurrence)),
+        locked: invoiced.has(orderId),
+      })
+    })
+  } else {
+    const recurrences = await findWithDecryption(
+      em,
+      SalesQuoteRecurrence,
+      { quote: { $in: ids }, ...scoped },
+      undefined,
+      scope,
+    )
+    recurrences.forEach((recurrence) => {
+      byDocument.set(recurrence.quote.id, {
+        ...toRecurrenceResponse(snapshotQuoteRecurrence(recurrence)),
+        locked: false,
+      })
+    })
+  }
+  items.forEach((item) => {
+    if (!item || typeof item.id !== 'string') return
+    item.recurrence = byDocument.get(item.id) ?? null
+  })
+}
+
 // Liveness note: this hook runs BEFORE the CRUD list cache stores the payload, so `channelName`
 // and `channelCode` are embedded in the cached entry. What keeps them fresh is that the hook also
 // runs on the cache-HIT path (shared/lib/crud/factory.ts:1683) and reassigns both fields
@@ -323,12 +397,7 @@ export const attachChannelNames = async (
 
   const where: Record<string, unknown> = { id: { $in: channelIds } }
   if (ctx?.auth?.tenantId) where.tenantId = ctx.auth.tenantId
-  const orgIds =
-    Array.isArray(ctx?.organizationIds) && ctx.organizationIds.length
-      ? ctx.organizationIds.filter((val: string | null) => !!val)
-      : ctx?.selectedOrganizationId
-        ? [ctx.selectedOrganizationId]
-        : []
+  const orgIds = listOrganizationIds(ctx)
   if (orgIds.length) where.organizationId = { $in: orgIds }
 
   // Only `name` and `code` are read. Without this projection the query loads the whole channel row,
@@ -616,10 +685,23 @@ export function buildDocumentCrudOptions(binding: DocumentBinding) {
       afterList: async (payload: any, ctx: CrudCtx) => {
         await attachTags(payload, { ...ctx, bindingKind: binding.kind })
         await attachChannelNames(payload, ctx)
+        await attachRecurrences(payload, ctx, binding.kind)
       },
     },
   }
 }
+
+const recurrenceResponseSchema = z.object({
+  frequency: z.enum(SALES_RECURRENCE_FREQUENCIES),
+  startsOn: z.string(),
+  anchorDay: z.number().int().nullable(),
+  periodCount: z.number().int().nullable(),
+  endsOn: z.string().nullable(),
+  nextInvoiceOn: z.string().nullable(),
+  status: z.enum(SALES_ORDER_RECURRENCE_STATUSES).nullable(),
+  scheduleVersion: z.number().int().nullable(),
+  locked: z.boolean(),
+})
 
 export function buildDocumentOpenApi(binding: DocumentBinding) {
   const createSchema = binding.kind === 'order' ? orderCreateSchema : quoteCreateSchema
@@ -672,6 +754,7 @@ export function buildDocumentOpenApi(binding: DocumentBinding) {
     updatedAt: z.string(),
     customFields: z.record(z.string(), z.unknown()).optional(),
     customValues: z.record(z.string(), z.unknown()).optional(),
+    recurrence: recurrenceResponseSchema.nullable().optional(),
   })
 
   const listResponseSchema = createPagedListResponseSchema(itemSchema)

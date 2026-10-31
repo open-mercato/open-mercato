@@ -4,6 +4,13 @@ import {
   updateDictionaryEntrySchema,
 } from '@open-mercato/core/modules/dictionaries/data/validators'
 import { getPaymentProvider, getShippingProvider } from '../lib/providers'
+import { recurrenceInputSchema } from '../lib/recurrenceInput'
+
+export {
+  SALES_RECURRENCE_MAX_PERIOD_COUNT,
+  recurrenceInputSchema,
+  type RecurrenceInput,
+} from '../lib/recurrenceInput'
 import { REFERENCE_UNIT_CODES } from '@open-mercato/shared/lib/units/unitCodes'
 import { isValidPhoneNumber } from '@open-mercato/shared/lib/phone'
 
@@ -694,6 +701,7 @@ const quoteTotalsSchema = z.object({
 export const SALES_ORDER_LINES_REQUIRED_MESSAGE_KEY = 'sales.orders.linesRequired'
 
 export const orderCreateSchema = scoped.extend({
+  recurrence: recurrenceInputSchema.nullable().optional(),
   orderNumber: z.string().trim().min(1).max(191).optional(),
   externalReference: z.string().trim().max(191).optional(),
   customerReference: z.string().trim().max(191).optional(),
@@ -749,6 +757,7 @@ export const orderUpdateSchema = z
   .merge(orderCreateSchema.partial())
 
 export const quoteCreateSchema = scoped.extend({
+  recurrence: recurrenceInputSchema.nullable().optional(),
   quoteNumber: z.string().trim().min(1).max(191).optional(),
   statusEntryId: uuid().optional(),
   customerEntityId: uuid().optional(),

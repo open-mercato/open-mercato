@@ -20,7 +20,10 @@ import { withScopedPayload } from '../../utils'
 import { hashAuthToken } from '../../../../auth/lib/tokenHash'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { parseDecryptedFieldValue } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
-import { SalesQuote } from '../../../data/entities'
+import { SalesQuote, SalesQuoteLine } from '../../../data/entities'
+import { loadQuoteRecurrenceSnapshot } from '../../../lib/recurrenceStore'
+import { assertRecurringQuoteConvertible } from '../../../lib/recurringOrderGuard'
+import { formatRecurrenceSchedule } from '../../../lib/recurrenceLabel'
 import { quoteSendSchema } from '../../../data/validators'
 import { sendEmail } from '@open-mercato/shared/lib/email/send'
 import { resolveStatusEntryIdByValue } from '../../../lib/statusHelpers'
@@ -178,6 +181,12 @@ export async function POST(req: Request) {
       throw new CrudHttpError(400, { error: translate('sales.quotes.send.missingEmail', 'Customer email is required to send a quote.') })
     }
 
+    const recurrence = await loadQuoteRecurrenceSnapshot(em, quote)
+    if (recurrence) {
+      const lineCount = await em.count(SalesQuoteLine, { quote: quote.id })
+      await assertRecurringQuoteConvertible(recurrence, lineCount)
+    }
+
     const now = new Date()
     const validUntil = new Date(now)
     validUntil.setUTCDate(validUntil.getUTCDate() + input.validForDays)
@@ -219,6 +228,11 @@ export async function POST(req: Request) {
         currency: quote.currencyCode,
       }),
       validUntil: translate('sales.quotes.email.validUntil', 'Valid until: {date}', { date: validUntilFormatted }),
+      schedule: recurrence
+        ? translate('sales.quotes.email.schedule', 'Billing: {schedule}', {
+            schedule: formatRecurrenceSchedule(recurrence, translate, locale),
+          })
+        : null,
       cta: translate('sales.quotes.email.cta', 'View quote'),
       footer: translate('sales.quotes.email.footer', 'Open Mercato'),
     }

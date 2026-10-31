@@ -36,6 +36,7 @@ import {
 } from './shared'
 import { resolveDictionaryEntryValue } from '../lib/dictionaries'
 import { assertOrderCanBeCancelled, isCancelledOrderStatus } from '../lib/orderCancellationGuard'
+import { assertRecurringOrderStatusAllowed } from '../lib/recurringOrderGuard'
 import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
 import { invalidateCrudCache } from '@open-mercato/shared/lib/crud/cache'
 import { emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
@@ -488,6 +489,12 @@ const createPaymentCommand: CommandHandler<
       // Guard the parent order's aggregate version (Gap A): a payment mutation
       // recalculates the order totals, so a stale parent must 409 before we touch it.
       await enforceSalesDocumentOptimisticLock(ctx, order, SALES_RESOURCE_KIND_ORDER)
+      if (input.documentStatusEntryId) {
+        const requestedStatus = await resolveDictionaryEntryValue(tx, input.documentStatusEntryId, { tenantId: input.tenantId })
+        if (requestedStatus !== (order.status ?? null)) {
+          await assertRecurringOrderStatusAllowed(tx, order, requestedStatus)
+        }
+      }
       if (input.documentStatusEntryId && !isCancelledOrderStatus(order.status)) {
         const requestedOrderStatus = await resolveDictionaryEntryValue(tx, input.documentStatusEntryId, { tenantId: input.tenantId })
         if (isCancelledOrderStatus(requestedOrderStatus)) {
@@ -847,6 +854,9 @@ const updatePaymentCommand: CommandHandler<
           ? await findOneWithDecryption(em, SalesOrder, { id: input.orderId }, {}, { tenantId: resolvedTenantId, organizationId: resolvedOrganizationId })
           : previousOrder
       const requestedOrderStatus = await resolveDictionaryEntryValue(em, input.documentStatusEntryId, { tenantId: resolvedTenantId })
+      if (targetOrder && requestedOrderStatus !== (targetOrder.status ?? null)) {
+        await assertRecurringOrderStatusAllowed(em, targetOrder, requestedOrderStatus)
+      }
       if (targetOrder && !isCancelledOrderStatus(targetOrder.status) && isCancelledOrderStatus(requestedOrderStatus)) {
         await assertOrderCanBeCancelled(em, targetOrder, {
           payment: {

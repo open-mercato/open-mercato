@@ -2,7 +2,7 @@
 
 | Field | Value |
 |-------|-------|
-| **Status** | Draft — for review with the sales maintainers |
+| **Status** | In progress — Phase 1 implemented (recurrence on quotes and orders); Phases 2–3 pending |
 | **Created** | 2026-10-21 |
 | **Module** | `sales` (`packages/core/src/modules/sales`) — additive change |
 | **Touches** | `scheduler` (one module-registered system schedule, optional peer) |
@@ -89,7 +89,7 @@ cancel ──▶ sales.orders.recurrence.cancel ──▶ record effective date 
 
 ## 📝 Data Model
 
-All new tables carry `organization_id`, `tenant_id`, `created_at`, `updated_at`; existing tables gain only one additive `sales_settings` column.
+All new tables carry `organization_id`, `tenant_id`, `created_at`, `updated_at`; existing tables gain only one additive `sales_settings` column. The new tables have no `deleted_at`: recurrences are owned child rows deleted with (or kept by) their document, and the period ledger is append-only.
 
 ### SalesQuoteRecurrence (`sales_quote_recurrences`)
 `quote_id` (unique, `on delete cascade`), `frequency` (`weekly|monthly|quarterly|yearly`), `starts_on` (date), `anchor_day` (int 1–31, nullable = day of `starts_on`), `period_count` (int ≥ 1, null = open-ended). Removed inside `convert_to_order`'s transaction when the quote is deleted.
@@ -114,7 +114,7 @@ Order lines and order-level adjustments describe **one period's charge**; the or
 - The order recurrence is `scheduled` until its first invoice, then `active`.
 
 ### What is locked (R5, R10)
-Once a recurrence has an issued period, these are refused with `409 recurring_order_locked`: `sales.orders.update` changes to currency, channel, customer, tax info or methods; `sales.orders.lines.upsert/delete`; `sales.orders.adjustments.upsert/delete`; recurrence set/replace/remove. Setting the order's status to `canceled` or `on_hold` is refused with `409 recurring_order_use_cancel` while the recurrence is `scheduled`, `active` or `cancelling`. `sales.orders.delete` is refused with `409 recurring_order_invoiced` while any period exists — checked under the recurrence row lock; an order with an unbilled recurrence is deleted together with it.
+Once a recurrence has an issued period, these are refused with `409 recurring_order_locked`: `sales.orders.update` changes to currency, channel, customer, tax info or methods, a `totalsMode` change, and externally supplied header totals; `sales.orders.lines.upsert/delete`; `sales.orders.adjustments.upsert/delete`; `sales.returns.create` and `sales.returns.delete`, including undo and redo of a return, because a return adds or removes credit adjustments and recalculates the order total; recurrence set/replace/remove. Money goes back to the customer of an invoiced recurring order through a credit memo instead (the Phase 3 cancel settlement, or a manual credit memo). Setting the order's status to `canceled` or `on_hold` is refused with `409 recurring_order_use_cancel` while the recurrence is `scheduled`, `active` or `cancelling`. `sales.orders.delete` is refused with `409 recurring_order_invoiced` while any period exists — checked under the recurrence row lock; an order with an unbilled recurrence is deleted together with it.
 
 ### Invoicing (R2)
 The worker selects recurrences with `status in (scheduled, active, cancelling)` and `next_invoice_on ≤ today`, oldest first, across organizations. For each due period, **one transaction**:
@@ -246,3 +246,28 @@ Invoice numbers come from the existing number generator, whose Postgres sequence
 
 ### 2026-10-26
 - From the review of #7472: `effectiveOn` is defined as the first day no longer served (decision R4 and the overview reworded to match); the final period is the one containing it that starts before it, so a cancellation at a period start settles nothing and `keep` can never bill a cut-off period (boundary tests added); a cancellation with no final period becomes `cancelled` at the cutoff. "Today" is computed in Node and passed to SQL; deployments set `TZ` to the business timezone.
+- Phase 1 implemented (`feat/sales-recurring-orders-phase1`):
+  - The migration creates all three tables with their full columns now, so Phases 2 and 3 need no further schema change. Only test fixtures write ledger rows until the worker ships.
+  - `recurrence` is accepted on quote and order create and update (`null` removes it) and carried through `convert_to_order`. Undo snapshots, restores and staleness checks include it, and a restored `scheduleVersion` never moves backwards.
+  - Converting, publicly accepting or sending a recurring quote is refused once its start date has passed (`422 recurring_quote_started`) or when it has no lines (`422 recurring_quote_no_lines`).
+  - The locks (`recurring_order_locked`), status guard (`recurring_order_use_cancel`, including status changes made through payment and shipment commands) and delete guard (`recurring_order_invoiced`, under the recurrence row lock) are in place.
+  - List and detail responses carry `recurrence`, including a `locked` flag. The PUT response does not include it: the UI refetches the document instead.
+  - UI: the create form has a recurrence section with a live date preview; quote and order details have a *Recurring billing* section (spot `sales.document.detail.{kind}:details`) with an edit dialog until the first invoice; the public quote page and quote email show the schedule line.
+  - Proration uses exact integer day arithmetic, because the shared decimal toolkit (#7324) is not on `main` yet.
+  - Deferred to Phase 2: `GET /api/sales/orders/{id}/recurrence`, the orders-list *Recurring* column and filter, and the missing-scheduler banner.
+  - Until Phase 3, an unbilled recurring order cannot be set to canceled or on hold; the way out is removing its recurrence or deleting the order.
+  - Line references in this spec to `documents.ts` are approximate: `convert_to_order` handles `ctx.transactionalEm` at `const callerEm = ctx.transactionalEm` (~6814) and `return runConversion(callerEm)` (~7168) as of this phase.
+  - Integration coverage: TC-SALES-045 (create, update, convert and the start-date guards), TC-SALES-046 (locks and status guards), TC-SALES-047 (UI).
+
+### 2026-10-29
+- From the review of #8008:
+  - Returns are locked like line and adjustment edits: `sales.returns.create`, `sales.returns.delete`, and the undo and redo of a return are refused with `409 recurring_order_locked` once the order has an issued period. A return changes the order total through credit adjustments, which R5 forbids after billing starts. Header-only edits (`sales.returns.update`) are still allowed.
+  - The undo staleness check compares the recurrence without `scheduleVersion`. Each undo bumps the version on purpose, so comparing it made the next undo in a chain fail as stale. Schedule, status, next period and cancellation fields are still compared.
+  - The migration was checked by rolling it down and up on a migrated database: down drops the three tables and leaves existing sales data unchanged; up restores the same tables, unique constraints and foreign keys.
+  - Integration coverage: TC-SALES-046 adds a return on a locked order (create, delete and undo refused, order total unchanged) and two edits undone in sequence.
+- From the re-review of #8008:
+  - Every recurrence query filters by tenant and organization in its `where` clause, not only through the decryption scope: the quote and order recurrence lookups, the period check, the delete guard's locked lookup, and the list enrichment. The list enrichment filters by the organizations the list covers, using the same rule as the tag and channel enrichments.
+  - TC-SALES-048 runs the migration in a throwaway schema. That schema copies the structure of the four sales tables the migration references and holds a quote and an order created for the test. The test checks the three tables, both unique constraints on the recurrence tables, the period unique constraint and all five foreign keys. It checks that duplicate quote, order and period keys are rejected, along with a recurrence for an unknown order and deleting an order that has periods. It checks that down removes only the new tables and leaves the sales rows unchanged, and that up applies again after rollback.
+
+### 2026-10-30
+- Merged `main`, which moved order line and adjustment writes into `writeLockedOrderGraph` and made order updates and returns lock the order row. The recurrence lock now runs inside those locked transactions. Order updates also refuse a `totalsMode` change or externally supplied header totals on a locked order, because both change what is billed.
