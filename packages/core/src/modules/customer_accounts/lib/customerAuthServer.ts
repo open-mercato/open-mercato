@@ -93,12 +93,14 @@ export async function getCustomerAuthFromCookies(
       sub: userId,
       sid,
       type: 'customer',
-      tenantId,
-      orgId: organizationId,
+      // Authorization scope comes from userState (re-derived from the DB in validateUserState),
+      // not from the JWT's own tenantId/orgId/customerEntityId/personEntityId claims (#2244).
+      tenantId: userState.tenantId,
+      orgId: userState.organizationId,
       email: String(payload.email || ''),
       displayName: String(payload.displayName || ''),
-      customerEntityId: payload.customerEntityId ? String(payload.customerEntityId) : null,
-      personEntityId: payload.personEntityId ? String(payload.personEntityId) : null,
+      customerEntityId: userState.customerEntityId,
+      personEntityId: userState.personEntityId,
       resolvedFeatures: userState.resolvedFeatures,
       isPortalAdmin: userState.isPortalAdmin,
     }
