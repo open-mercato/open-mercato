@@ -187,6 +187,411 @@ describe('padByCodePointWidth', () => {
   })
 })
 
+<<<<<<< HEAD
+=======
+describe('module command argument logging', () => {
+  beforeEach(() => {
+    jest.restoreAllMocks()
+  })
+
+  it('redacts legacy encryption keys before logging module command arguments', async () => {
+    const rotateEncryptionKey = jest.fn().mockResolvedValue(undefined)
+    registerCliModules([
+      {
+        id: 'entities',
+        cli: [{ command: 'rotate-encryption-key', run: rotateEncryptionKey }],
+      } as Module,
+    ])
+    const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+
+    expect(await run([
+      'node',
+      'mercato',
+      'entities',
+      'rotate-encryption-key',
+      '--old-key',
+      'argument-secret',
+    ])).toBe(0)
+    expect(await run([
+      'node',
+      'mercato',
+      'entities',
+      'rotate-encryption-key',
+      '--oldKey=inline-secret',
+    ])).toBe(0)
+
+    const output = consoleLogSpy.mock.calls.flat().map(String).join('\n')
+    expect(output).not.toContain('argument-secret')
+    expect(output).not.toContain('inline-secret')
+    expect(output).toContain('--old-key ****')
+    expect(output).toContain('--oldKey=****')
+    expect(rotateEncryptionKey).toHaveBeenCalledTimes(2)
+    consoleLogSpy.mockRestore()
+  })
+
+  // The echoed command line lands in terminal scrollback and CI logs, so every option that
+  // carries a credential has to be covered — not just the one the encryption work introduced.
+  it('redacts passwords and API keys passed to any module command', async () => {
+    const setup = jest.fn().mockResolvedValue(undefined)
+    const chat = jest.fn().mockResolvedValue(undefined)
+    registerCliModules([
+      { id: 'auth', cli: [{ command: 'setup', run: setup }] } as Module,
+      { id: 'ai_assistant', cli: [{ command: 'chat', run: chat }] } as Module,
+    ])
+    const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+
+    expect(await run(['node', 'mercato', 'auth', 'setup', '--password', 'hunter2-secret'])).toBe(0)
+    expect(await run(['node', 'mercato', 'ai_assistant', 'chat', '--api-key', 'sk-live-secret'])).toBe(0)
+    expect(await run(['node', 'mercato', 'ai_assistant', 'chat', '--apiKey=sk-inline-secret'])).toBe(0)
+
+    const output = consoleLogSpy.mock.calls.flat().map(String).join('\n')
+    expect(output).not.toContain('hunter2-secret')
+    expect(output).not.toContain('sk-live-secret')
+    expect(output).not.toContain('sk-inline-secret')
+    expect(output).toContain('--password ****')
+    expect(output).toContain('--api-key ****')
+    expect(output).toContain('--apiKey=****')
+    consoleLogSpy.mockRestore()
+  })
+
+  // `--key` is key material in `seeds encrypt|decrypt|load` and a custom-field key in
+  // `entities add-field`, so the redaction has to be per-command rather than global.
+  it('redacts --key only for the commands where it carries key material', async () => {
+    const encrypt = jest.fn().mockResolvedValue(undefined)
+    const addField = jest.fn().mockResolvedValue(undefined)
+    registerCliModules([
+      { id: 'seeds', cli: [{ command: 'encrypt', run: encrypt }] } as Module,
+      { id: 'entities', cli: [{ command: 'add-field', run: addField }] } as Module,
+    ])
+    const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+
+    expect(await run(['node', 'mercato', 'seeds', 'encrypt', '--key', 'base64-seed-key'])).toBe(0)
+    expect(await run(['node', 'mercato', 'entities', 'add-field', '--key', 'priority_level'])).toBe(0)
+
+    const output = consoleLogSpy.mock.calls.flat().map(String).join('\n')
+    expect(output).not.toContain('base64-seed-key')
+    expect(output).toContain('--key ****')
+    expect(output).toContain('--key priority_level')
+    consoleLogSpy.mockRestore()
+  })
+})
+
+describe('--help never triggers side effects (issue #5581)', () => {
+  beforeEach(() => {
+    jest.restoreAllMocks()
+  })
+
+  describe('isHelpRequest', () => {
+    it('matches the long and short help flags in any position', () => {
+      expect(isHelpRequest(['db', 'generate', '--help'])).toBe(true)
+      expect(isHelpRequest(['-h'])).toBe(true)
+    })
+
+    it('does not match arguments that merely contain the flag text', () => {
+      expect(isHelpRequest(['db', 'generate'])).toBe(false)
+      expect(isHelpRequest(['--help-me'])).toBe(false)
+      expect(isHelpRequest(['--no-help'])).toBe(false)
+      expect(isHelpRequest([])).toBe(false)
+    })
+  })
+
+  describe('resolveEnvBootstrapOptions', () => {
+    it('refuses to create .env from .env.example for a help invocation', () => {
+      expect(resolveEnvBootstrapOptions(['db', 'generate', '--help'])).toEqual({
+        createIfMissing: false,
+        quiet: true,
+      })
+      expect(resolveEnvBootstrapOptions(['-h'])).toEqual({ createIfMissing: false, quiet: true })
+    })
+
+    it('still creates .env for a real command invocation', () => {
+      expect(resolveEnvBootstrapOptions(['db', 'generate'])).toEqual({
+        createIfMissing: true,
+        quiet: false,
+      })
+    })
+
+    it('keeps module search and module info read-only and quiet, so --json output parses', () => {
+      expect(resolveEnvBootstrapOptions(['module', 'search', 'ksef', '--json'])).toEqual({
+        createIfMissing: false,
+        quiet: true,
+      })
+      expect(resolveEnvBootstrapOptions(['module', 'search', 'ksef'])).toEqual({
+        createIfMissing: false,
+        quiet: true,
+      })
+      expect(resolveEnvBootstrapOptions(['module', 'info', '@open-mercato/webhooks'])).toEqual({
+        createIfMissing: false,
+        quiet: true,
+      })
+      // module add changes the app: it may still create .env, and prints as before
+      expect(resolveEnvBootstrapOptions(['module', 'add', '@open-mercato/webhooks'])).toEqual({
+        createIfMissing: true,
+        quiet: false,
+      })
+    })
+
+    it('silences the dotenv line for any --json invocation', () => {
+      expect(resolveEnvBootstrapOptions(['db', 'status', '--json'])).toEqual({
+        createIfMissing: true,
+        quiet: true,
+      })
+    })
+
+    it('keeps the pre-existing deploy and telemetry opt-outs', () => {
+      expect(resolveEnvBootstrapOptions(['deploy', 'railway'])).toEqual({
+        createIfMissing: false,
+        quiet: true,
+      })
+      expect(resolveEnvBootstrapOptions(['telemetry', 'init'])).toEqual({
+        createIfMissing: false,
+        quiet: true,
+      })
+    })
+  })
+
+  describe('dispatcher help branch', () => {
+    it('prints usage instead of running db:generate when --help is passed', async () => {
+      const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+      const dbGenerate = jest.fn()
+
+      registerCliModules([
+        {
+          id: 'db',
+          cli: [{ command: 'generate', help: 'Writes migrations. Applies nothing.', run: dbGenerate }],
+        } as any,
+      ])
+
+      const exitCode = await run(['node', 'mercato', 'db', 'generate', '--help'])
+
+      expect(exitCode).toBe(0)
+      expect(dbGenerate).not.toHaveBeenCalled()
+      const printed = consoleLogSpy.mock.calls.map((call) => String(call[0])).join('\n')
+      expect(printed).toContain('mercato db generate [args]')
+      expect(printed).toContain('Writes migrations. Applies nothing.')
+
+      consoleLogSpy.mockRestore()
+      consoleErrorSpy.mockRestore()
+    })
+
+    it('prints usage instead of running db:migrate when -h is passed', async () => {
+      const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+      const dbMigrate = jest.fn()
+
+      registerCliModules([
+        { id: 'db', cli: [{ command: 'migrate', run: dbMigrate }] } as any,
+      ])
+
+      const exitCode = await run(['node', 'mercato', 'db', 'migrate', '-h'])
+
+      expect(exitCode).toBe(0)
+      expect(dbMigrate).not.toHaveBeenCalled()
+
+      consoleLogSpy.mockRestore()
+      consoleErrorSpy.mockRestore()
+    })
+
+    it('prints usage instead of destroying data when greenfield --yes --help is passed', async () => {
+      const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+      const dbGreenfield = jest.fn()
+
+      registerCliModules([
+        {
+          id: 'db',
+          cli: [{
+            command: 'greenfield',
+            help: 'Destroys all data.',
+            run: dbGreenfield,
+          }],
+        } as any,
+      ])
+
+      // --yes is the flag that skips greenfield's confirmation prompt, so pairing it with
+      // --help is the scenario that must never reach `run`, regardless of flag order.
+      const exitCode = await run(['node', 'mercato', 'db', 'greenfield', '--yes', '--help'])
+
+      expect(exitCode).toBe(0)
+      expect(dbGreenfield).not.toHaveBeenCalled()
+
+      consoleLogSpy.mockRestore()
+      consoleErrorSpy.mockRestore()
+    })
+
+    it('forwards --help to commands that declare handlesHelp', async () => {
+      const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+      const deploy = jest.fn()
+
+      registerCliModules([
+        { id: 'deploy', cli: [{ command: 'railway', handlesHelp: true, run: deploy }] } as any,
+      ])
+
+      const exitCode = await run(['node', 'mercato', 'deploy', 'railway', '--help'])
+
+      expect(exitCode).toBe(0)
+      expect(deploy).toHaveBeenCalledWith(['--help'])
+
+      consoleLogSpy.mockRestore()
+      consoleErrorSpy.mockRestore()
+    })
+
+    it('lists module search and info in the module command help', async () => {
+      const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+
+      const exitCode = await run(['node', 'mercato', 'module', '--help'])
+
+      expect(exitCode).toBe(0)
+      const printed = consoleLogSpy.mock.calls.map((call) => String(call[0])).join('\n')
+      expect(printed).toContain('yarn mercato module search [<query>]')
+      expect(printed).toContain('yarn mercato module info <package-or-module-id> [--json]')
+
+      consoleLogSpy.mockRestore()
+    })
+
+    it('routes module search without a query to its usage, before any network call', async () => {
+      const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+
+      const searchExit = await run(['node', 'mercato', 'module', 'search'])
+      const infoExit = await run(['node', 'mercato', 'module', 'info'])
+
+      expect(searchExit).toBe(1)
+      expect(infoExit).toBe(1)
+      const printed = consoleErrorSpy.mock.calls.map((call) => String(call[0])).join('\n')
+      expect(printed).toContain('Usage: yarn mercato module search [<query>]')
+      expect(printed).toContain('Usage: yarn mercato module info <package-or-module-id> [--json]')
+
+      consoleLogSpy.mockRestore()
+      consoleErrorSpy.mockRestore()
+    })
+
+    it('lists the module commands when the help flag sits in the command slot', async () => {
+      const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+      const dbGenerate = jest.fn()
+
+      registerCliModules([
+        {
+          id: 'db',
+          cli: [
+            { command: 'generate', run: dbGenerate },
+            { command: 'migrate', run: jest.fn() },
+          ],
+        } as any,
+      ])
+
+      const exitCode = await run(['node', 'mercato', 'db', '--help'])
+
+      expect(exitCode).toBe(0)
+      expect(dbGenerate).not.toHaveBeenCalled()
+      expect(consoleErrorSpy).not.toHaveBeenCalled()
+      const printed = consoleLogSpy.mock.calls.map((call) => String(call[0])).join('\n')
+      expect(printed).toContain('Commands for "db": generate, migrate')
+
+      consoleLogSpy.mockRestore()
+      consoleErrorSpy.mockRestore()
+    })
+
+    it('lets a self-documenting command print its own subcommand help', async () => {
+      const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+      // Mirrors packages/core/src/modules/configs/cli.ts, whose `cache` command routes
+      // --help to its own printCacheHelp() rather than to the dispatcher's generic usage.
+      const cache = jest.fn((rest: string[]) => {
+        if (rest[0] === '--help') console.log('configs cache: stats | purge | structural')
+      })
+
+      registerCliModules([
+        { id: 'configs', cli: [{ command: 'cache', handlesHelp: true, run: cache }] } as any,
+      ])
+
+      const exitCode = await run(['node', 'mercato', 'configs', 'cache', '--help'])
+
+      expect(exitCode).toBe(0)
+      expect(cache).toHaveBeenCalledWith(['--help'])
+      const printed = consoleLogSpy.mock.calls.map((call) => String(call[0])).join('\n')
+      expect(printed).toContain('configs cache: stats | purge | structural')
+      expect(printed).not.toContain('Usage: ✨ mercato configs cache [args]')
+
+      consoleLogSpy.mockRestore()
+      consoleErrorSpy.mockRestore()
+    })
+
+    it('still runs the command when no help flag is present', async () => {
+      const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+      const dbGenerate = jest.fn()
+
+      registerCliModules([
+        { id: 'db', cli: [{ command: 'generate', run: dbGenerate }] } as any,
+      ])
+
+      const exitCode = await run(['node', 'mercato', 'db', 'generate'])
+
+      expect(exitCode).toBe(0)
+      expect(dbGenerate).toHaveBeenCalled()
+
+      consoleLogSpy.mockRestore()
+      consoleErrorSpy.mockRestore()
+    })
+  })
+
+  describe('top-level command help', () => {
+    it('prints usage instead of initializing the app when init --help is passed', async () => {
+      const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+
+      const exitCode = await run(['node', 'mercato', 'init', '--help'])
+
+      expect(exitCode).toBe(0)
+      const printed = consoleLogSpy.mock.calls.map((call) => String(call[0])).join('\n')
+      expect(printed).toContain('Usage: mercato init')
+
+      consoleLogSpy.mockRestore()
+      consoleErrorSpy.mockRestore()
+    })
+
+    it('prints usage instead of seeding when seed:defaults --help is passed', async () => {
+      const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+
+      const exitCode = await run(['node', 'mercato', 'seed:defaults', '--help'])
+
+      expect(exitCode).toBe(0)
+      const printed = consoleLogSpy.mock.calls.map((call) => String(call[0])).join('\n')
+      expect(printed).toContain('Usage: mercato seed:defaults')
+
+      consoleLogSpy.mockRestore()
+      consoleErrorSpy.mockRestore()
+    })
+
+    it.each(['constructor', 'toString', 'valueOf', 'hasOwnProperty', '__proto__'])(
+      'reports %s as an unknown module instead of matching an inherited prototype key',
+      async (inheritedKey) => {
+        const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+        const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+
+        registerCliModules([
+          { id: 'db', cli: [{ command: 'generate', run: jest.fn() }] } as any,
+        ])
+
+        const exitCode = await run(['node', 'mercato', inheritedKey, '--help'])
+
+        expect(exitCode).toBe(1)
+        const errors = consoleErrorSpy.mock.calls.map((call) => String(call[0])).join('\n')
+        expect(errors).toContain(`Module not found: "${inheritedKey}"`)
+
+        consoleLogSpy.mockRestore()
+        consoleErrorSpy.mockRestore()
+      },
+    )
+  })
+})
+
+>>>>>>> 9e83bd3a6 (security(encryption): harden key rotation operations (#6767))
 describe('db command failure output', () => {
   const originalDatabaseUrl = process.env.DATABASE_URL
 
