@@ -168,7 +168,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 200, description: 'The claimed item, or null when nothing was claimable', schema: workInboxClaimNextResponseSchema },
       ],
       errors: [
-        { status: 400, description: 'Missing tenant or organization context', schema: workflowErrorSchema },
+        { status: 400, description: 'Missing tenant or organization context, or requested offset exceeds the workflow list limit', schema: workflowErrorSchema },
         { status: 401, description: 'Unauthorized', schema: workflowErrorSchema },
         { status: 500, description: 'Internal server error', schema: workflowErrorSchema },
       ],

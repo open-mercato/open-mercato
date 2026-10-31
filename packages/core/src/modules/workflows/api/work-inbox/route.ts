@@ -148,7 +148,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 200, description: 'Merged work items with pagination', schema: workInboxListResponseSchema },
       ],
       errors: [
-        { status: 400, description: 'Missing tenant context', schema: workflowErrorSchema },
+        { status: 400, description: 'Missing tenant context or requested offset exceeds the workflow list limit', schema: workflowErrorSchema },
         { status: 401, description: 'Unauthorized', schema: workflowErrorSchema },
         { status: 500, description: 'Internal server error', schema: workflowErrorSchema },
       ],
