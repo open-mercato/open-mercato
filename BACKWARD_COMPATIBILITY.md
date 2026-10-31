@@ -460,6 +460,10 @@ Issue #3852 removed the non-cryptographic passkey verification shape from `Passk
 
 **Migration path.** Send `startAuthentication()` output as `payload.response`. The first-party `PasskeyChallengeVerify` component already does, so shipped UIs are unaffected. Credentials enrolled through the setup path's client-supplied `publicKey` shortcut are **not** reliably rendered unusable by this change — depending on what the client supplied, such a row holds either a key nobody can sign with or a keypair the enroller controls, and the second kind produces assertions this change accepts. That shortcut is a separate open surface (#5296); operator-facing remediation is in [`UPGRADE_NOTES.md`](UPGRADE_NOTES.md).
 
+## Query-index scope (2026-08-28)
+
+[Reindex/catalogue contracts and migration](UPGRADE_NOTES.md).
+
 ## Data Sync Start Control Applicability (2026-09-02)
 
 [`.ai/specs/2026-09-02-data-sync-adapter-start-controls.md`](.ai/specs/2026-09-02-data-sync-adapter-start-controls.md) lets a `DataSyncAdapter` declare, per entity type, which of the Data Sync dashboard's manual-start controls apply, so the dashboard stops offering controls that cannot mean anything for the selected entity type. **All changes are additive** and pass the contract-surface checks above:
@@ -624,3 +628,7 @@ STABLE HTTP/service BREAK (403/404/504), Documents only: org-wide files bypass s
 ## Public pay links (2026-10-27, #7823)
 
 STABLE API §7: `GET /api/checkout/pay/:slug` omits admin fields; retaining them preserves disclosure. Client/operator migration: [notes](UPGRADE_NOTES.md). @haxiorz [approved](https://github.com/open-mercato/open-mercato/pull/8087#issuecomment-6505348826) on 2026-10-29: steps 1–3 waived for all 18 admin fields; client/operator migration acknowledged.
+
+## #3805 2026-10-31
+
+STABLE tools/execute writes bypass approval; no bridge. [Migrate](UPGRADE_NOTES.md#issue-3805)
