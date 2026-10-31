@@ -223,6 +223,8 @@ const baseCtx = {
   isSuperAdmin: true,
 }
 
+const ownerCtx = { ...baseCtx, userId: '00000000-0000-4000-8000-000000000001' }
+
 describe('prepareMutation', () => {
   beforeEach(() => {
     idCounter = 0
@@ -247,6 +249,23 @@ describe('prepareMutation', () => {
     })
     expect(a).toBe(b)
     expect(a).toHaveLength(64)
+  })
+
+  it('computeMutationIdempotencyKey separates identical proposals made by different users', () => {
+    const shared = {
+      tenantId: 't-alpha',
+      organizationId: 'org-alpha',
+      agentId: 'catalog.merch',
+      conversationId: 'conv-shared',
+      toolName: 'catalog.products.update',
+      normalizedInput: { productId: 'p-1', patch: { name: 'new' } },
+    }
+    const legacy = computeMutationIdempotencyKey(shared)
+    const userOne = computeMutationIdempotencyKey({ ...shared, userId: 'u-1' })
+    const userTwo = computeMutationIdempotencyKey({ ...shared, userId: 'u-2' })
+    expect(userOne).not.toBe(userTwo)
+    expect(userOne).not.toBe(legacy)
+    expect(legacy).toBe('c73137f41fa5cebcde57f785ed225f1ee5410f51d169b825f509295eb41bd3af')
   })
 
   it('single-record happy path: emits mutation-preview-card with pendingActionId and a computed fieldDiff', async () => {
@@ -284,6 +303,26 @@ describe('prepareMutation', () => {
     expect(pendingAction.recordVersion).toBe('v-1')
     expect(pendingAction.tenantId).toBe('t-alpha')
     expect(pendingAction.organizationId).toBe('org-alpha')
+  })
+
+  it('mints a separate pending row per user for the same call in a shared conversation', async () => {
+    const em = mockEm()
+    const container = makeContainer(em)
+    const tool = makeTool({ name: 'catalog.products.update', isMutation: true })
+    const agent = makeAgent({ id: 'catalog.merch' })
+    const input = {
+      agent,
+      tool,
+      toolCallArgs: { productId: 'p-1', patch: { name: 'new' } },
+      conversationId: 'conv-shared',
+    }
+
+    const first = await prepareMutation(input, { ...baseCtx, container, userId: 'u-1' })
+    const second = await prepareMutation(input, { ...baseCtx, container, userId: 'u-2' })
+
+    expect(second.pendingAction.id).not.toBe(first.pendingAction.id)
+    expect(first.pendingAction.createdByUserId).toBe('u-1')
+    expect(second.pendingAction.createdByUserId).toBe('u-2')
   })
 
   it('fallback patch from flat args: untouched snapshot fields and envelope keys do not surface as cleared (regression #7349)', async () => {
@@ -677,14 +716,14 @@ describe('prepareMutation', () => {
       ? { records: [{ recordId: 'p-1', patch }] }
       : { productId: 'p-1', patch }
     const input = { agent, tool, toolCallArgs, conversationId: 'conv-1' }
-    const ctx = { ...baseCtx, container }
+    const ctx = { ...ownerCtx, container }
     const first = await prepareMutation(input, ctx)
     const repo = new AiPendingActionRepository(em)
-    await repo.setStatus(first.pendingAction.id, 'confirmed', baseCtx, {
+    await repo.setStatus(first.pendingAction.id, 'confirmed', ownerCtx, {
       executionResult: { recordId: 'p-1' },
     })
     if (status === 'executing') {
-      await repo.setStatus(first.pendingAction.id, 'executing', baseCtx)
+      await repo.setStatus(first.pendingAction.id, 'executing', ownerCtx)
     }
 
     recordVersion = 'v-2'
@@ -869,7 +908,7 @@ describe('resolveAiAgentTools mutation interception (Step 5.6)', () => {
 
     const resolved = await resolveAiAgentTools({
       agentId: 'catalog.merch',
-      authContext: baseCtx,
+      authContext: ownerCtx,
       container,
       conversationId: 'conv-1',
     })
@@ -883,7 +922,7 @@ describe('resolveAiAgentTools mutation interception (Step 5.6)', () => {
 
     const repo = new AiPendingActionRepository(em)
     const pendingActionId = em.__store[0].id
-    await repo.setStatus(pendingActionId, 'confirmed', baseCtx, { resolvedByUserId: 'u-1' })
+    await repo.setStatus(pendingActionId, 'confirmed', ownerCtx, { resolvedByUserId: ownerCtx.userId })
     em.__store[0].executionResult = { recordId: 'p-1' }
 
     const secondOutcome = await adapted.execute({ productId: 'p-1', patch: { name: 'new' } })
@@ -920,7 +959,7 @@ describe('resolveAiAgentTools mutation interception (Step 5.6)', () => {
 
     const resolved = await resolveAiAgentTools({
       agentId: 'catalog.merch',
-      authContext: baseCtx,
+      authContext: ownerCtx,
       container,
       conversationId: 'conv-1',
     })
@@ -931,8 +970,8 @@ describe('resolveAiAgentTools mutation interception (Step 5.6)', () => {
     await adapted.execute({ productId: 'p-1', patch: { name: 'new' } })
     const repo = new AiPendingActionRepository(em)
     const pendingActionId = em.__store[0].id
-    await repo.setStatus(pendingActionId, 'confirmed', baseCtx, { resolvedByUserId: 'u-1' })
-    await repo.setStatus(pendingActionId, 'executing', baseCtx)
+    await repo.setStatus(pendingActionId, 'confirmed', ownerCtx, { resolvedByUserId: ownerCtx.userId })
+    await repo.setStatus(pendingActionId, 'executing', ownerCtx)
 
     const secondOutcome = await adapted.execute({ productId: 'p-1', patch: { name: 'new' } })
     expect(em.__store).toHaveLength(1)
