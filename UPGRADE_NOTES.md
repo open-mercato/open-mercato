@@ -389,6 +389,14 @@ A regenerated MCP key becomes invalid if its owner's home organization changes,
 including a change from no home organization to a concrete one. Generate a new
 key and update the MCP client secret after such a change.
 
+### Customer interaction authors and owners must belong to the record's tenant (#7531)
+
+Canonical interaction writes and legacy activity adapters now reject foreign-tenant or missing author/owner IDs, and reject new assignments to deleted users with a generic `400` user-not-found response. Same-tenant users from another home organization remain valid references, including an implicit actor working in another organization. Author normalization, valid superadmin delegation, and existing record-level organization/privacy authorization are preserved.
+
+**Client action:** supply live same-tenant author/owner IDs for new assignments, or clear optional references with null on canonical updates. Omitted update fields keep their previous values. Unchanged references may be resent after the referenced user is offboarded; this does not permit assigning that user to another reference. Legacy promotion preserves the author stored on the same tenant/organization/parent activity, including offboarded authors. Routes and response fields remain available. Historical same-tenant profiles remain readable across organizations and after soft deletion; foreign-tenant or missing profiles return null names and emails.
+
+**Operator action:** audit foreign-tenant or missing author/owner references before replaying affected command history. Snapshot restoration permits a same-tenant author or owner who was soft-deleted after the original write; offboarding does not require rewriting historical attribution. Invalid snapshot restoration and legacy promotion fail rather than copying a foreign-tenant reference. No schema migration or automatic data rewrite is required. See [the interactions specification](.ai/specs/implemented/SPEC-046b-2026-02-27-customers-interactions-unification.md#migration--backward-compatibility--interaction-users-7531).
+
 ### SCIM deactivation blocks fresh SSO and password sign-in (#7824)
 
 With the enterprise SSO module enabled, an outstanding SCIM deactivation now denies fresh SSO sign-in for that identity's configuration and denies password verification for the linked account in its own tenant and organization. This includes configurations created without a tenant, after verifying organization and configuration ownership. Password changes and email relinking do not reactivate the identity. Final session issuance and all SCIM deactivation writers share a user lock, so a concurrent login cannot leave a usable session after deactivation commits; access in other scopes is preserved.
