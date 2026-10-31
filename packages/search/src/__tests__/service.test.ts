@@ -595,7 +595,7 @@ describe('SearchService', () => {
 
         expect(timings).toHaveLength(3)
         expect(latestStart).toBeLessThan(earliestEnd)
-        expect(elapsed).toBeLessThan(450)
+        expect(elapsed).toBeLessThan(120)
         expect(slowA.isAvailable).toHaveBeenCalledTimes(1)
         expect(slowB.isAvailable).toHaveBeenCalledTimes(1)
         expect(slowC.isAvailable).toHaveBeenCalledTimes(1)
