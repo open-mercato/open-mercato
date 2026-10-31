@@ -1,3 +1,4 @@
+import { CatalogPriceKind } from '../../data/entities'
 import {
   resolvePriceVariantId,
   resolvePriceOfferId,
@@ -58,10 +59,17 @@ describe('catalog pricing helpers', () => {
   })
 
   it('treats the validity window as half-open so a price stops matching at its endsAt instant', () => {
+    const promotionKind = Object.assign(new CatalogPriceKind(), {
+      id: 'pk-promo',
+      tenantId: 'tenant-1',
+      code: 'promo',
+      title: 'Promotion',
+      isPromotion: true,
+    })
     const promotion = baseRow({
       id: 'promotion',
       customerId: 'customer-1',
-      priceKind: { id: 'pk-promo', code: 'promo', isPromotion: true } as any,
+      priceKind: promotionKind,
       unitPriceNet: '5.00',
       unitPriceGross: '6.15',
       startsAt: new Date('2026-07-01T00:00:00Z'),
