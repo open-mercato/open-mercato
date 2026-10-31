@@ -1,3 +1,4 @@
+import { randomInt } from 'node:crypto'
 import type { APIRequestContext } from '@playwright/test'
 import { expect } from '@playwright/test'
 import { apiRequest } from '@open-mercato/core/helpers/integration/api'
@@ -33,7 +34,7 @@ export interface Ms365Sandbox {
 }
 
 export async function createMs365Sandbox(request: APIRequestContext, label: string): Promise<Ms365Sandbox> {
-  const stamp = `${Date.now()}-${Math.floor(Math.random() * 10_000)}`
+  const stamp = `${Date.now()}-${randomInt(10_000)}`
   const adminToken = await getAuthToken(request, 'admin')
   const { tenantId } = getTokenContext(adminToken)
 
