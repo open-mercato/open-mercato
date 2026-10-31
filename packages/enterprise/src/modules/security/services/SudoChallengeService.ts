@@ -24,7 +24,7 @@ import type { MfaService } from './MfaService'
 import type { MfaVerificationService } from './MfaVerificationService'
 import { sudoTargets as defaultSudoTargets } from '../security.sudo'
 import type { SecurityModuleConfig } from '../lib/security-config'
-import { emitMfaEmergencyBypassActiveWarning, readSecurityModuleConfig } from '../lib/security-config'
+import { emitMfaEmergencyBypassActiveWarning, readSecurityModuleConfig, requestMfaEmergencyBypassNotification } from '../lib/security-config'
 
 type SudoMethod = 'password' | 'mfa'
 
@@ -168,7 +168,10 @@ export class SudoChallengeService {
     }
 
     const userMethods = await this.mfaService.getUserMethods(userId)
-    const method = this.resolveChallengeMethod(protection.config.challengeMethod, userMethods.length, userId, targetIdentifier)
+    const method = await this.resolveChallengeMethod(protection.config.challengeMethod, userMethods.length, userId, targetIdentifier, {
+      tenantId: scopeTenantId,
+      organizationId: scopeOrganizationId,
+    })
 
     let sessionToken = randomBytes(16).toString('hex')
     let availableMfaMethods: SudoAvailableMethod[] | undefined
@@ -640,12 +643,13 @@ export class SudoChallengeService {
     }
   }
 
-  private resolveChallengeMethod(
+  private async resolveChallengeMethod(
     configuredMethod: ChallengeMethod,
     availableMfaMethodCount: number,
     userId?: string,
     targetIdentifier?: string,
-  ): SudoMethod {
+    scope?: { tenantId: string | null; organizationId: string | null },
+  ): Promise<SudoMethod> {
     if (this.securityConfig.mfa.emergencyBypass) {
       let wouldHaveBeenMfa = false
       try {
@@ -660,6 +664,7 @@ export class SudoChallengeService {
           userId,
           targetIdentifier,
         })
+        if (scope) await requestMfaEmergencyBypassNotification(scope)
       }
       return 'password'
     }

@@ -229,3 +229,24 @@ export function useStaffMemberDirectory(enabled: boolean) {
     },
   })
 }
+
+export function boardUnassignedCountQueryKey(scopeVersion: number, timeProjectId: string) {
+  return [...BOARD_QUERY_ROOT, 'unassigned-count', `scope:${scopeVersion}`, `project:${timeProjectId}`]
+}
+
+/** How many top-level tasks in the project have no assignee — the claimable work the chip counts. */
+export function useUnassignedTaskCount(timeProjectId: string | null | undefined) {
+  const scopeVersion = useOrganizationScopeVersion()
+  return useQuery<number>({
+    queryKey: boardUnassignedCountQueryKey(scopeVersion, timeProjectId ?? ''),
+    enabled: !!timeProjectId,
+    staleTime: 15_000,
+    queryFn: async () => {
+      const call = await apiCall<Record<string, unknown>>(
+        `/api/staff/timesheets/tasks?timeProjectId=${encodeURIComponent(timeProjectId ?? '')}&unassigned=true&topLevelOnly=true&page=1&pageSize=1`,
+      )
+      if (!call.ok) throw new Error('[internal] unassigned task count request failed')
+      return readTotal(call.result, 0)
+    },
+  })
+}
