@@ -61,9 +61,9 @@ PR: #8349
 - [x] 2.1 Pin the Documents TipTap runtime family and root resolution to the reviewed, peer-aligned `3.32.0` graph, then regenerate the lockfile. — 4a145663ae
 - [x] 2.2 Add a regression test that keeps the published TipTap family exact and internally aligned. — 6f8e279a12
 - [x] 2.3 Remove the unsafe unscoped core resolution, align the HTML DOM peer, and make the guard validate effective lockfile peers. — cb18363259
-- [x] 2.4 Replace the vulnerable HTML DOM peer with the audited patch and remove the unnecessary TipTap HTML wrapper whose aged peer range rejects it. — bdb3add629
+- [x] 2.4 Replace the vulnerable HTML DOM peer with the audited patch and remove the unnecessary TipTap HTML wrapper whose aged peer range rejects it. — bdb3add629, 4cafcb28dc
 
 ### Phase 3: Verify and review
 
-- [ ] 3.1 Run the configured validation gate and the relevant standalone/package checks, fixing any regressions.
+- [x] 3.1 Run the configured validation gate and the relevant standalone/package checks, fixing any regressions. — 4cafcb28dc
 - [ ] 3.2 Verify the PR's CI checks and obtain the required independent final-review verdict.
