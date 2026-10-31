@@ -23,7 +23,9 @@ import { useOrganizationScopeDetail } from '@open-mercato/shared/lib/frontend/us
 import { Button } from '@open-mercato/ui/primitives/button'
 import { AttachmentsSection, ErrorMessage, LoadingMessage, RecordNotFoundState, type SectionAction } from '@open-mercato/ui/backend/detail'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
-import { InjectionSpot, useInjectionWidgets } from '@open-mercato/ui/backend/injection/InjectionSpot'
+import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
+import { useCustomerInjectedTabs } from '../../../../components/detail/useCustomerInjectedTabs'
+import { CustomerDetailSidebar } from '../../../../components/detail/CustomerDetailSidebar'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { buildRecordInjectionContext, useSetCurrentRecordInjectionContext } from '@open-mercato/ui/backend/injection/recordContext'
 import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
@@ -39,7 +41,7 @@ import { ScheduleActivityDialog, type ScheduleActivityEditData } from '../../../
 import { resolveActivityStartOnDay } from '../../../../components/detail/schedule/useScheduleFormState'
 import { PersonDetailHeader } from '../../../../components/detail/PersonDetailHeader'
 import { ChangelogTab } from '../../../../components/detail/ChangelogTab'
-import { PersonDetailTabs, resolveLegacyTab, type PersonTabId } from '../../../../components/detail/PersonDetailTabs'
+import { PersonDetailTabs, PERSON_DETAIL_TAB_IDS, resolveLegacyTab, type PersonTabId } from '../../../../components/detail/PersonDetailTabs'
 import { AddressesSection } from '../../../../components/detail/AddressesSection'
 import { PersonCompaniesSection } from '../../../../components/detail/PersonCompaniesSection'
 import { MobilePersonDetail } from '../../../../components/detail/MobilePersonDetail'
@@ -208,9 +210,11 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
       resourceKind: 'customers.person',
       resourceId: currentPersonId ?? (id ?? undefined),
       data,
+      isDirty,
+      isSaving,
       retryLastMutation,
     }),
-    [currentPersonId, data, id, mutationContextId, retryLastMutation],
+    [currentPersonId, data, isDirty, isSaving, id, mutationContextId, retryLastMutation],
   )
   const runMutationWithContext = React.useCallback(
     async <T,>(operation: () => Promise<T>, mutationPayload?: Record<string, unknown>): Promise<T> => {
@@ -299,36 +303,13 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
     setScheduleDialogOpen(true)
   }, [])
 
-  // Injected tabs from UMES
-  const { widgets: injectedTabWidgets } = useInjectionWidgets('detail:customers.person:tabs', {
+  const { injectedTabs, injectedTabMap, loading: injectedTabsLoading } = useCustomerInjectedTabs({
+    spotId: extensionPoints.hosts.personTabs.spotId,
     context: injectionContext,
-    triggerOnLoad: true,
+    data,
+    onDataChange: setData,
+    nativeTabIds: PERSON_DETAIL_TAB_IDS,
   })
-
-  const injectedTabs = React.useMemo(
-    () =>
-      (injectedTabWidgets ?? [])
-        .filter((widget) => (widget.placement?.kind ?? 'tab') === 'tab')
-        .map((widget) => {
-          const tabId = widget.placement?.groupId ?? widget.widgetId
-          const label = widget.placement?.groupLabel
-            ? t(widget.placement.groupLabel, widget.placement.groupLabel)
-            : widget.module.metadata.title ?? tabId
-          const priority = typeof widget.placement?.priority === 'number' ? widget.placement.priority : 0
-          const render = () => (
-            <widget.module.Widget
-              context={injectionContext}
-              data={data}
-              onDataChange={(next: unknown) => setData(next as PersonOverview)}
-            />
-          )
-          return { id: tabId, label, priority, render }
-        })
-        .sort((a, b) => b.priority - a.priority),
-    [data, injectedTabWidgets, injectionContext, t],
-  )
-
-  const injectedTabMap = React.useMemo(() => new Map(injectedTabs.map((tab) => [tab.id, tab.render])), [injectedTabs])
 
   const injectedTabIds = React.useMemo(() => injectedTabs.map((tab) => tab.id), [injectedTabs])
   const initialTab = React.useMemo(
@@ -531,6 +512,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
 
           {/* Persistent person header */}
           <PersonDetailHeader
+            actions={<InjectionSpot spotId={extensionPoints.hosts.personHeaderActions.spotId} context={injectionContext} data={data} disabled={isSaving} />}
             data={data}
             onTagsChange={handleTagsChange}
             tagsSectionControllerRef={tagsSectionControllerRef}
@@ -555,6 +537,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
           />
 
           {/* Zone content shared between desktop (CollapsibleZoneLayout) and mobile (MobilePersonDetail). */}
+          <CustomerDetailSidebar spotId={extensionPoints.hosts.personSidebar.spotId} context={injectionContext} data={data} onDataChange={setData} disabled={isSaving}>
           {(() => {
             const zone1Content = (
               <div ref={formWrapperRef}>
@@ -562,6 +545,10 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
                   embedded
                   trackDirtyWhenEmbedded
                   injectionSpotId={extensionPoints.hosts.personForm.spotId}
+                  entityId="customers.person"
+                  resourceKind="customers.person"
+                  resourceId={personId}
+                  injectionGroupAliases={{ details: 'personalData' }}
                   entityIds={[E.customers.customer_entity, E.customers.customer_person_profile]}
                   schema={formSchema}
                   fields={fields}
@@ -581,7 +568,8 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
               <PersonDetailTabs
                 activeTab={activeTab}
                 onTabChange={handleTabChange}
-                injectedTabs={injectedTabs.map((tab) => ({ id: tab.id, label: tab.label }))}
+                isLoadingInjectedTabs={injectedTabsLoading}
+                injectedTabs={injectedTabs.map((tab) => ({ id: tab.id, label: tab.label, priority: tab.priority }))}
                 activitiesCount={interactionCount}
                 dealsCount={dealCount}
                 companiesCount={companyCount}
@@ -592,8 +580,6 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
                 <div className="min-w-0">
                 {(() => {
                   // Injected tab content
-                  const injected = injectedTabMap.get(activeTab)
-                  if (injected) return injected()
 
                   if (activeTab === 'activities') {
                     return (
@@ -720,6 +706,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
 
                   return null
                 })()}
+                {injectedTabMap.get(activeTab)?.()}
                 </div>
               </PersonDetailTabs>
             )
@@ -741,6 +728,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
               />
             )
           })()}
+          </CustomerDetailSidebar>
 
           {/* UMES footer injection */}
           <InjectionSpot spotId={extensionPoints.hosts.personFooter.spotId} context={injectionContext} data={data} />
