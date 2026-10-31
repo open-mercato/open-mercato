@@ -1,3 +1,4 @@
+import { getEnabledModuleIdentities } from '../module-identity'
 import fs from 'node:fs'
 import path from 'node:path'
 import { StructureKind, VariableDeclarationKind } from 'ts-morph'
@@ -54,6 +55,7 @@ export async function generateModuleEntities(options: ModuleEntitiesOptions): Pr
   const checksumFile = path.join(outputDir, 'entities.generated.checksum')
 
   const mods = resolver.loadEnabledModules()
+  getEnabledModuleIdentities(resolver, mods)
   const imports: Array<{ name: string; moduleSpecifier: string }> = []
   const entitySources: Array<{ importName: string; moduleId: string }> = []
   const classNameEntries: EntityClassNameEntry[] = []

@@ -9,7 +9,9 @@ import {
   listEjectableModules,
   ejectModule,
 } from '../eject'
-import type { PackageResolver } from '../resolver'
+import { readEnabledModulesFromConfig, type PackageResolver } from '../resolver'
+import { getModuleLocators } from '../module-identity'
+import { resolveModuleRequirement } from '@open-mercato/shared/modules/module-locators'
 
 describe('eject', () => {
   let tmpDir: string
@@ -292,6 +294,7 @@ describe('eject', () => {
       fs.mkdirSync(path.join(installedPackageRoot, 'src', 'modules', 'test_package'), { recursive: true })
       fs.mkdirSync(path.join(installedPackageRoot, 'dist', 'modules', 'test_package'), { recursive: true })
 
+      fs.writeFileSync(path.join(appDir, 'package.json'), JSON.stringify({ dependencies: { '@open-mercato/test-package': '^0.1.0' } }))
       fs.writeFileSync(
         path.join(appDir, 'src', 'modules.ts'),
         "export const enabledModules = [{ id: 'test_package', from: '@open-mercato/test-package' }]\n",
@@ -331,7 +334,7 @@ describe('eject', () => {
           appBase: path.join(appDir, 'src', 'modules', 'test_package'),
           pkgBase: path.join(baseDir, 'packages', 'test-package', 'src', 'modules', 'test_package'),
         }),
-        getPackageRoot: () => path.join(baseDir, 'packages', 'test-package'),
+        getPackageRoot: () => installedPackageRoot,
       } as unknown as PackageResolver
     }
 
@@ -348,6 +351,95 @@ describe('eject', () => {
       ])
     })
 
+    it('rejects duplicate module registrations before copying source', () => {
+      const resolver = createOfficialModuleResolver(tmpDir)
+      const duplicates = [
+        { id: 'test_package', from: '@open-mercato/test-package' },
+        { id: 'test_package', from: '@other/test-package' },
+      ]
+      fs.writeFileSync(resolver.getModulesConfigPath(), `export const enabledModules = ${JSON.stringify(duplicates)}`)
+      const sourceBefore = fs.readFileSync(resolver.getModulesConfigPath(), 'utf8')
+      expect(() => ejectModule({ ...resolver, loadEnabledModules: () => duplicates }, 'test_package')).toThrow("Duplicate enabled module ID 'test_package'")
+      expect(fs.existsSync(resolver.getModulePaths(duplicates[0]).appBase)).toBe(false)
+      expect(fs.readFileSync(resolver.getModulesConfigPath(), 'utf8')).toBe(sourceBefore)
+    })
+
+    it('rejects duplicate registrations elsewhere in the effective set before copying', () => {
+      const resolver = createOfficialModuleResolver(tmpDir)
+      const entries = [...resolver.loadEnabledModules(), { id: 'customers' }, { id: 'customers', from: '@other/customers' }]
+      const before = fs.readFileSync(resolver.getModulesConfigPath(), 'utf8')
+
+      expect(() => ejectModule({ ...resolver, loadEnabledModules: () => entries }, 'test_package')).toThrow("Duplicate enabled module ID 'customers'")
+      expect(fs.existsSync(resolver.getModulePaths(entries[0]).appBase)).toBe(false)
+      expect(fs.readFileSync(resolver.getModulesConfigPath(), 'utf8')).toBe(before)
+    })
+
+    it('checks the config mutation before copying when effective entries cannot be edited', () => {
+      const resolver = createOfficialModuleResolver(tmpDir)
+      const before = "const entries = [{ id: 'test_package', from: '@open-mercato/test-package' }]; export const enabledModules = entries;\n"
+      fs.writeFileSync(resolver.getModulesConfigPath(), before)
+
+      expect(() => ejectModule(resolver, 'test_package')).toThrow('Could not find enabledModules array')
+      expect(fs.existsSync(resolver.getModulePaths(resolver.loadEnabledModules()[0]).appBase)).toBe(false)
+      expect(fs.readFileSync(resolver.getModulesConfigPath(), 'utf8')).toBe(before)
+    })
+
+    it('rejects contradictory observed provenance before copying source', () => {
+      const resolver = createOfficialModuleResolver(tmpDir)
+      const entry = { id: 'test_package', from: '@open-mercato/test-package', locator: 'github:unexpected/provider' }
+      const before = "export const enabledModules = [{ id: 'test_package', from: '@open-mercato/test-package', locator: 'github:unexpected/provider' }]\n"
+      fs.writeFileSync(resolver.getModulesConfigPath(), before)
+
+      expect(() => ejectModule({ ...resolver, loadEnabledModules: () => [entry] }, 'test_package')).toThrow('disagrees with observed origin')
+      expect(fs.existsSync(resolver.getModulePaths(entry).appBase)).toBe(false)
+      expect(fs.readFileSync(resolver.getModulesConfigPath(), 'utf8')).toBe(before)
+    })
+
+    it('preserves an existing local overlay and gives a recovery without deleting source', () => {
+      const resolver = createOfficialModuleResolver(tmpDir)
+      const appBase = resolver.getModulePaths(resolver.loadEnabledModules()[0]).appBase
+      fs.mkdirSync(appBase, { recursive: true })
+      fs.writeFileSync(path.join(appBase, 'local.ts'), 'export const local = true\n')
+      const before = fs.readFileSync(resolver.getModulesConfigPath(), 'utf8')
+
+      expect(() => ejectModule(resolver, 'test_package')).toThrow('Keep the existing local source')
+      expect(fs.readFileSync(path.join(appBase, 'local.ts'), 'utf8')).toBe('export const local = true\n')
+      expect(fs.existsSync(path.join(appBase, 'index.ts'))).toBe(false)
+      expect(fs.readFileSync(resolver.getModulesConfigPath(), 'utf8')).toBe(before)
+    })
+
+    it('keeps canonical provenance and rewrites sibling imports using the installed alias', () => {
+      const resolver = createOfficialModuleResolver(tmpDir)
+      const packageRoot = resolver.getPackageRoot('@open-mercato/test-package')
+      const aliasRoot = path.join(resolver.getAppDir(), 'node_modules', 'candidate_consents')
+      fs.mkdirSync(path.dirname(aliasRoot), { recursive: true })
+      fs.symlinkSync(packageRoot, aliasRoot, 'dir')
+      fs.writeFileSync(path.join(resolver.getAppDir(), 'package.json'), JSON.stringify({ dependencies: { candidate_consents: 'npm:@open-mercato/test-package@1.0.0' } }))
+      const entry = { id: 'test_package', from: 'candidate_consents' }
+      fs.writeFileSync(resolver.getModulesConfigPath(), `export const enabledModules = [${JSON.stringify(entry)}]\n`)
+      fs.mkdirSync(path.join(packageRoot, 'src', 'modules', 'sibling'), { recursive: true })
+      fs.writeFileSync(path.join(packageRoot, 'src', 'modules', 'sibling', 'index.ts'), 'export const sibling = true\n')
+      fs.writeFileSync(path.join(packageRoot, 'src', 'modules', 'test_package', 'widget.ts'), "export { sibling } from '../sibling'\n")
+      const aliasResolver = { ...resolver, loadEnabledModules: () => [entry], getPackageRoot: () => aliasRoot }
+
+      ejectModule(aliasResolver, 'test_package')
+
+      expect(readEnabledModulesFromConfig(resolver.getModulesConfigPath())[0]).toEqual({ id: 'test_package', from: '@app', packageName: '@open-mercato/test-package', locator: 'npm:@open-mercato/test-package' })
+      const appBase = resolver.getModulePaths(entry).appBase
+      expect(fs.readFileSync(path.join(appBase, 'widget.ts'), 'utf8')).toContain("from 'candidate_consents/modules/sibling'")
+    })
+
+    it('preserves GitHub origin and canonical package attribution through legacy eject', () => {
+      const resolver = createOfficialModuleResolver(tmpDir)
+      fs.writeFileSync(path.join(resolver.getAppDir(), 'package.json'), JSON.stringify({ dependencies: { '@open-mercato/test-package': 'github:pkarw/test-package#main' } }))
+      ejectModule(resolver, 'test_package')
+      const entry = readEnabledModulesFromConfig(resolver.getModulesConfigPath())[0]
+      expect(entry).toEqual({ id: 'test_package', from: '@app', packageName: '@open-mercato/test-package', locator: 'github:pkarw/test-package' })
+      const identities = [{ id: entry.id, locators: getModuleLocators(entry, resolver) }]
+      expect(resolveModuleRequirement('npm:@open-mercato/test-package', identities)).toBeUndefined()
+      expect(resolveModuleRequirement('github:pkarw/test-package', identities)).toBe('test_package')
+    })
+
     it('ejects module packages using module index.ts ejectable flag', () => {
       const resolver = createOfficialModuleResolver(tmpDir)
       const appModuleDir = path.join(tmpDir, 'apps', 'mercato', 'src', 'modules', 'test_package')
@@ -358,7 +450,7 @@ describe('eject', () => {
       expect(fs.existsSync(path.join(appModuleDir, 'index.ts'))).toBe(true)
       expect(fs.existsSync(path.join(appModuleDir, 'widget.ts'))).toBe(true)
       expect(fs.readFileSync(modulesTsPath, 'utf8')).toContain(
-        "{ id: 'test_package', from: '@app' }",
+        "{ id: 'test_package', from: '@app', locator: 'npm:@open-mercato/test-package', packageName: '@open-mercato/test-package' }",
       )
     })
   })
@@ -381,6 +473,8 @@ describe('eject', () => {
         path.join(appDir, 'src', 'modules.ts'),
         "export const enabledModules = [{ id: 'customers', from: '@open-mercato/core' }]\n",
       )
+      fs.writeFileSync(path.join(packageRoot, 'package.json'), JSON.stringify({ name: '@open-mercato/core' }))
+      fs.writeFileSync(path.join(appDir, 'package.json'), JSON.stringify({ dependencies: { '@open-mercato/core': '^0.1.0' } }))
       fs.writeFileSync(
         path.join(distModuleDir, 'index.js'),
         'var metadata = { title: "Customers", description: "Compiled", ejectable: true };\nexport { metadata };\n',
@@ -431,7 +525,7 @@ describe('eject', () => {
       expect(fs.existsSync(path.join(appModuleDir, 'index.ts'))).toBe(true)
       expect(fs.existsSync(path.join(appModuleDir, 'acl.ts'))).toBe(true)
       expect(fs.existsSync(path.join(appModuleDir, 'index.js'))).toBe(false)
-      expect(fs.readFileSync(modulesTsPath, 'utf8')).toContain("{ id: 'customers', from: '@app' }")
+      expect(fs.readFileSync(modulesTsPath, 'utf8')).toContain("{ id: 'customers', from: '@app', locator: 'npm:@open-mercato/core', packageName: '@open-mercato/core' }")
     })
 
     it('falls back to compiled index.js metadata for dist-only packages', () => {
