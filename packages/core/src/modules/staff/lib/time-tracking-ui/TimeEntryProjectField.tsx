@@ -80,6 +80,8 @@ export function TimeEntryProjectField({
 }: TimeEntryProjectFieldProps): React.ReactElement {
   const t = useT()
   const queryClient = useQueryClient()
+  const inputId = React.useId()
+  const errorId = `${inputId}-error`
   const unavailableLabel = t('staff.time_tracking.entryDialog.projectUnavailable', 'Project not available')
 
   const loadSuggestions = React.useCallback(
@@ -135,17 +137,16 @@ export function TimeEntryProjectField({
 
   return (
     <div className="flex flex-col gap-1.5">
-      <Label>
+      <Label htmlFor={inputId}>
         {t('staff.time_tracking.entryDialog.project', 'Project')}
         <span aria-hidden="true"> *</span>
       </Label>
-      <div
-        data-testid="entry-dialog-project"
-        ref={triggerRef}
-        aria-invalid={error ? true : undefined}
-        aria-describedby={error ? 'entry-dialog-project-message' : undefined}
-      >
+      <div data-testid="entry-dialog-project" ref={triggerRef}>
         <ComboboxInput
+          id={inputId}
+          aria-required
+          aria-invalid={error ? true : undefined}
+          aria-describedby={error ? errorId : undefined}
           value={value ?? ''}
           onChange={onChange}
           placeholder={t('staff.time_tracking.entryDialog.projectPlaceholder', 'Search projects')}
@@ -159,7 +160,7 @@ export function TimeEntryProjectField({
       </div>
       {error ? (
         <p
-          id="entry-dialog-project-message"
+          id={errorId}
           className="text-xs text-status-error-text"
           role="alert"
           data-testid="entry-dialog-project-error"

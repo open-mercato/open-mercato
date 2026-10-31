@@ -21,6 +21,10 @@ jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
 
 type ComboboxProps = {
   value: string
+  id?: string
+  'aria-describedby'?: string
+  'aria-invalid'?: boolean
+  'aria-required'?: boolean
   onChange: (next: string) => void
   seedOptions?: Array<{ value: string; label: string; description?: string | null }>
   loadSuggestions?: (query?: string) => Promise<Array<{ value: string; label: string; description?: string | null }>>
@@ -43,7 +47,15 @@ jest.mock('@open-mercato/ui/backend/inputs/ComboboxInput', () => {
       void Promise.resolve(props.resolveLabel(props.value)).then(setLabel)
     }, [props.value, props.resolveLabel])
     return ReactModule.createElement('div', null, [
-      ReactModule.createElement('input', { key: 'input', 'data-testid': 'project-input', disabled: props.disabled }),
+      ReactModule.createElement('input', {
+        key: 'input',
+        'data-testid': 'project-input',
+        id: props.id,
+        'aria-describedby': props['aria-describedby'],
+        'aria-invalid': props['aria-invalid'],
+        'aria-required': props['aria-required'],
+        disabled: props.disabled,
+      }),
       ReactModule.createElement('span', { key: 'label', 'data-testid': 'project-label' }, label),
       ReactModule.createElement(
         'span',
@@ -162,7 +174,9 @@ describe('TimeEntryProjectField', () => {
     renderField({ error: 'Pick the project this time belongs to.', disabled: true })
 
     expect(screen.getByRole('alert').textContent).toBe('Pick the project this time belongs to.')
-    expect(screen.getByTestId('entry-dialog-project').getAttribute('aria-invalid')).toBe('true')
+    const input = screen.getByTestId('project-input')
+    expect(input.getAttribute('aria-invalid')).toBe('true')
+    expect(input.getAttribute('aria-describedby')).toBe(screen.getByRole('alert').id)
     expect((screen.getByTestId('project-input') as HTMLInputElement).disabled).toBe(true)
   })
 })
