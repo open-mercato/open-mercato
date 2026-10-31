@@ -100,4 +100,34 @@ describe('GET /api/auth/profile display name', () => {
     expect(response.status).toBe(401)
     expect(mockFindOneWithDecryption).not.toHaveBeenCalled()
   })
+
+  it('reads the bound user while returning only the API key roles', async () => {
+    mockGetAuthFromRequest.mockResolvedValue({
+      sub: 'api_key:123e4567-e89b-12d3-a456-426614174099', isApiKey: true,
+      userId: USER_ID, tenantId: TENANT_ID, orgId: ORG_ID, roles: ['restricted-key'],
+    })
+    mockFindOneWithDecryption.mockResolvedValue({ id: USER_ID, name: 'Ada', email: 'ada@example.com' })
+
+    const response = await GET(profileRequest())
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ name: 'Ada', email: 'ada@example.com', roles: ['restricted-key'] })
+    expect(mockFindOneWithDecryption).toHaveBeenLastCalledWith(mockEm, expect.anything(), {
+      id: USER_ID, deletedAt: null, tenantId: TENANT_ID, organizationId: ORG_ID,
+    }, undefined, { tenantId: TENANT_ID, organizationId: ORG_ID })
+  })
+
+  it.each([undefined, 'not-a-uuid'])('rejects a key with no usable user binding: %s', async (userId) => {
+    mockGetAuthFromRequest.mockResolvedValue({ sub: 'api_key:key', isApiKey: true, userId, tenantId: TENANT_ID, orgId: ORG_ID })
+    const response = await GET(profileRequest())
+    expect(response.status).toBe(403)
+    expect(mockFindOneWithDecryption).not.toHaveBeenCalled()
+  })
+
+  it('rejects a stale or out-of-scope user binding', async () => {
+    mockGetAuthFromRequest.mockResolvedValue({ sub: 'api_key:key', isApiKey: true, userId: USER_ID, tenantId: TENANT_ID, orgId: ORG_ID })
+    mockFindOneWithDecryption.mockResolvedValue(null)
+    expect((await GET(profileRequest())).status).toBe(403)
+    expect(mockFindOneWithDecryption).toHaveBeenCalledTimes(1)
+  })
 })

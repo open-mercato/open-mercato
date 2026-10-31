@@ -172,6 +172,12 @@ export async function POST(
           { status: 409 }
         )
       }
+      if ((error as { code?: unknown }).code === 'WORKFLOW_NOT_ACTIVE') {
+        return NextResponse.json(
+          { error: error.message, code: 'WORKFLOW_NOT_ACTIVE' },
+          { status: 409 }
+        )
+      }
       if (error.message.includes('not found')) {
         return NextResponse.json(
           { error: error.message },
@@ -224,7 +230,7 @@ export const openApi: OpenApiRouteDoc = {
         {
           status: 409,
           description:
-            'Task already completed, assigned to another user, or vetoed by a registered completion guard. A guard veto answers { error, code, guardId, messageKey } where code is the guard\'s own code.',
+            'Task already completed, assigned to another user, its workflow run is no longer active (`code: WORKFLOW_NOT_ACTIVE` — the run is completed, failed, cancelled, compensating or compensated), or vetoed by a registered completion guard. A guard veto answers { error, code, guardId, messageKey } where code is the guard\'s own code.',
           schema: workflowErrorSchema,
         },
         { status: 500, description: 'Internal server error', schema: workflowErrorSchema },
