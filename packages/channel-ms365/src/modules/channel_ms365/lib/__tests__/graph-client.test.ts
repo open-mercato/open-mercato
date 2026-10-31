@@ -1,6 +1,7 @@
 import {
   GRAPH_MESSAGE_SELECT,
   GRAPH_MESSAGE_TOO_LARGE_CODE,
+  GRAPH_NETWORK_ERROR_CODE,
   GraphApiError,
   escapeODataString,
   getGraphMailClient,
@@ -34,7 +35,9 @@ function fakeResponse(init: FakeResponseInit): Response {
   } as unknown as Response
 }
 
-function installFetch(responses: FakeResponseInit[]): RecordedRequest[] {
+type FakeRejection = { reject: unknown }
+
+function installFetch(responses: Array<FakeResponseInit | FakeRejection>): RecordedRequest[] {
   const recorded: RecordedRequest[] = []
   const queue = [...responses]
   globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
@@ -46,9 +49,15 @@ function installFetch(responses: FakeResponseInit[]): RecordedRequest[] {
     })
     const next = queue.shift()
     if (!next) throw new Error('no fake response queued')
+    if ('reject' in next) throw next.reject
     return fakeResponse(next)
   }) as typeof fetch
   return recorded
+}
+
+/** What undici rejects with when the socket drops or DNS fails: the real cause sits on `.cause`. */
+function nativeFetchFailure(code: string): TypeError {
+  return new TypeError('fetch failed', { cause: Object.assign(new Error(`connect ${code} graph.microsoft.com`), { code }) })
 }
 
 const originalFetch = globalThis.fetch
@@ -219,6 +228,47 @@ describe('FetchGraphMailClient', () => {
     const page = await getGraphMailClient().startInboxDelta(auth, {})
     expect(recorded).toHaveLength(2)
     expect(page.deltaLink).toContain('$deltatoken=1')
+  })
+
+  it('retries a GET after a native connection reset and then succeeds', async () => {
+    const recorded = installFetch([
+      { reject: nativeFetchFailure('ECONNRESET') },
+      { status: 200, body: JSON.stringify({ value: [], '@odata.deltaLink': 'https://graph.microsoft.com/v1.0/d?$deltatoken=2' }) },
+    ])
+    const page = await getGraphMailClient().startInboxDelta(auth, {})
+    expect(recorded).toHaveLength(2)
+    expect(page.deltaLink).toContain('$deltatoken=2')
+  })
+
+  it('maps a native transport failure on a POST to one transient GraphApiError, never retried', async () => {
+    const recorded = installFetch([
+      { reject: nativeFetchFailure('ENOTFOUND') },
+      { status: 201, body: JSON.stringify({ id: 'never-reached' }) },
+    ])
+    let caught: unknown
+    try {
+      await getGraphMailClient().createDraftFromMime(auth, Buffer.from('Subject: x\r\n\r\nbody'))
+    } catch (error) {
+      caught = error
+    }
+    expect(recorded).toHaveLength(1)
+    expect(caught).toBeInstanceOf(GraphApiError)
+    expect(caught).toMatchObject({ status: 599, transient: true, code: GRAPH_NETWORK_ERROR_CODE, detail: 'ENOTFOUND' })
+  })
+
+  it('classifies an undici "fetch failed" without a known cause code as transient', async () => {
+    installFetch([{ reject: new TypeError('fetch failed') }])
+    await expect(getGraphMailClient().createDraftFromMime(auth, Buffer.from('Subject: x\r\n\r\nbody'))).rejects.toMatchObject({
+      status: 599,
+      transient: true,
+      code: GRAPH_NETWORK_ERROR_CODE,
+    })
+  })
+
+  it('rethrows a programming TypeError unchanged', async () => {
+    const programmingError = new TypeError('Headers.append: "bad\nvalue" is an invalid header value.')
+    installFetch([{ reject: programmingError }])
+    await expect(getGraphMailClient().createDraftFromMime(auth, Buffer.from('Subject: x\r\n\r\nbody'))).rejects.toBe(programmingError)
   })
 
   it('maps 410 Gone to a resync-required error', async () => {

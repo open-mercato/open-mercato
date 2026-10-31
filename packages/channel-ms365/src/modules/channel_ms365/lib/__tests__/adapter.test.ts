@@ -1,4 +1,5 @@
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { classifyOutboundError, isReauthError } from '@open-mercato/core/modules/communication_channels/lib/error-classification'
 import { buildImportFilter, getMs365ChannelAdapter, parseFallbackGraphId } from '../adapter'
 import { ms365Capabilities } from '../capabilities'
 import {
@@ -679,6 +680,9 @@ describe('Ms365ChannelAdapter.importHistory', () => {
       "receivedDateTime ge 2026-08-01T00:00:00.000Z and (from/emailAddress/address eq 'bob@example.com' or from/emailAddress/address eq 'o''brien@example.com')",
     )
     expect(buildImportFilter(new Date('2026-08-01T00:00:00.000Z'), undefined)).toBe('receivedDateTime ge 2026-08-01T00:00:00.000Z')
+    expect(buildImportFilter(new Date('2026-08-01T00:00:00.000Z'), ['bob@example.com'], new Date('2026-09-01T00:00:00.000Z'))).toBe(
+      "receivedDateTime ge 2026-08-01T00:00:00.000Z and receivedDateTime le 2026-09-01T00:00:00.000Z and (from/emailAddress/address eq 'bob@example.com')",
+    )
   })
 
   it('pages through the inbox list via the next link cursor and reports the candidate count', async () => {
@@ -775,12 +779,110 @@ describe('Ms365ChannelAdapter.importHistory', () => {
     const first = await adapter.importHistory!({ credentials: userCredentials, scope, sinceDays: 7, maxMessages: 2 })
     expect(first.messages.map((m) => m.externalMessageId)).toEqual(['b@example.com'])
     expect(first.hasMore).toBe(true)
-    expect(decodeCursor(first.nextCursor)).toMatchObject({ fetched: 1, pageOffset: 2 })
+    expect(decodeCursor(first.nextCursor)).toMatchObject({ fetched: 1, pageDoneIds: ['a', 'b'] })
     const second = await adapter.importHistory!({ credentials: userCredentials, scope, sinceDays: 7, maxMessages: 2, cursor: first.nextCursor })
     // `b` is neither re-fetched nor counted a second time, so the cap of two still admits `c`.
     expect(second.messages.map((m) => m.externalMessageId)).toEqual(['c@example.com'])
     expect(second.hasMore).toBe(false)
     expect(fetchedIds).toEqual(['b', 'c'])
+  })
+
+  it('never replays or double-counts an imported message when the re-listed first page shifted', async () => {
+    let failOnce = true
+    let listing = [{ id: 'a' }, { id: 'b' }, { id: 'c' }]
+    const filters: string[] = []
+    const fetchedIds: string[] = []
+    setGraphMailClient({
+      ...emptyGraph(),
+      listInboxMessages: async (_auth, input) => {
+        filters.push(input.filter)
+        return { value: listing }
+      },
+      getMessageMime: async (_auth, id) => {
+        if (id === 'b' && failOnce) {
+          failOnce = false
+          throw new GraphApiError('boom', 503, 'unavailable')
+        }
+        fetchedIds.push(id)
+        return buildRawMime(`${id}@example.com`)
+      },
+    })
+    const adapter = getMs365ChannelAdapter()
+    const first = await adapter.importHistory!({ credentials: userCredentials, scope, sinceDays: 7, maxMessages: 3 })
+    expect(first.messages.map((m) => m.externalMessageId)).toEqual(['a@example.com'])
+    // Even if the listing shifts (here: a stub the stub client returns despite
+    // the pinned bound), the replay skips `a` by id instead of by position:
+    // three unique messages fill the cap of three, none imported twice.
+    listing = [{ id: 'x' }, { id: 'a' }, { id: 'b' }, { id: 'c' }]
+    const second = await adapter.importHistory!({ credentials: userCredentials, scope, sinceDays: 7, maxMessages: 3, cursor: first.nextCursor })
+    expect(second.messages.map((m) => m.externalMessageId)).toEqual(['x@example.com', 'b@example.com'])
+    expect(fetchedIds).toEqual(['a', 'x', 'b'])
+    expect(decodeCursor(first.nextCursor)).toMatchObject({ fetched: 1, pageDoneIds: ['a'] })
+
+    const until = (decodeCursor(first.nextCursor) as { until: string }).until
+    expect(filters[0]).toContain(`receivedDateTime le ${until}`)
+    expect(filters[1]).toContain(`receivedDateTime le ${until}`)
+  })
+
+  it('pins the import upper bound so a re-listed first page keeps its original contents', async () => {
+    let failOnce = true
+    const fetchedIds: string[] = []
+    const inbox = [
+      { id: 'x', receivedDateTime: '2099-01-01T00:00:00.000Z' },
+      { id: 'a', receivedDateTime: '2026-09-03T00:00:00.000Z' },
+      { id: 'b', receivedDateTime: '2026-09-02T00:00:00.000Z' },
+      { id: 'c', receivedDateTime: '2026-09-01T00:00:00.000Z' },
+    ]
+    let calls = 0
+    setGraphMailClient({
+      ...emptyGraph(),
+      listInboxMessages: async (_auth, input) => {
+        calls += 1
+        const until = new Date(input.filter.match(/receivedDateTime le (\S+)/)![1]).getTime()
+        const visible = inbox.filter((item) => new Date(item.receivedDateTime).getTime() <= until)
+        // `x` arrives only after the first listing.
+        return { value: calls === 1 ? visible.filter((item) => item.id !== 'x') : visible }
+      },
+      getMessageMime: async (_auth, id) => {
+        if (id === 'b' && failOnce) {
+          failOnce = false
+          throw new GraphApiError('boom', 503, 'unavailable')
+        }
+        fetchedIds.push(id)
+        return buildRawMime(`${id}@example.com`)
+      },
+    })
+    const adapter = getMs365ChannelAdapter()
+    const first = await adapter.importHistory!({ credentials: userCredentials, scope, sinceDays: 3650, maxMessages: 3 })
+    const second = await adapter.importHistory!({ credentials: userCredentials, scope, sinceDays: 3650, maxMessages: 3, cursor: first.nextCursor })
+    expect([...first.messages, ...second.messages].map((m) => m.externalMessageId)).toEqual([
+      'a@example.com',
+      'b@example.com',
+      'c@example.com',
+    ])
+    expect(fetchedIds).toEqual(['a', 'b', 'c'])
+    expect(second.hasMore).toBe(false)
+  })
+
+  it('does not skip the next message when an imported one vanished from the re-listed page', async () => {
+    let failOnce = true
+    let listing = [{ id: 'a' }, { id: 'b' }, { id: 'c' }]
+    setGraphMailClient({
+      ...emptyGraph(),
+      listInboxMessages: async () => ({ value: listing }),
+      getMessageMime: async (_auth, id) => {
+        if (id === 'b' && failOnce) {
+          failOnce = false
+          throw new GraphApiError('boom', 503, 'unavailable')
+        }
+        return buildRawMime(`${id}@example.com`)
+      },
+    })
+    const adapter = getMs365ChannelAdapter()
+    const first = await adapter.importHistory!({ credentials: userCredentials, scope, sinceDays: 7, maxMessages: 3 })
+    listing = [{ id: 'b' }, { id: 'c' }]
+    const second = await adapter.importHistory!({ credentials: userCredentials, scope, sinceDays: 7, maxMessages: 3, cursor: first.nextCursor })
+    expect(second.messages.map((m) => m.externalMessageId)).toEqual(['b@example.com', 'c@example.com'])
   })
 
   it('clamps the look-back to the hub-wide ceiling instead of a fixed 365 days', async () => {
@@ -839,6 +941,21 @@ describe('Ms365ChannelAdapter.sendMessage', () => {
     })
   }
 
+  // Mirrors the hub's `deliver-outbound-message` boundary: a `failed` result is
+  // rethrown as `new Error(result.error)`, every failure goes through the real
+  // `classifyOutboundError`, and the outbound worker re-enqueues only when
+  // `transient` is true.
+  async function deliverViaHub(overrides: Partial<GraphMailClient>) {
+    try {
+      const result = await send(overrides)
+      if (result.status === 'failed') throw new Error(result.error ?? 'send failure')
+      return { result, classification: null, requiresReauth: false }
+    } catch (error) {
+      const classification = classifyOutboundError(error)
+      return { result: null, classification, requiresReauth: isReauthError(classification) }
+    }
+  }
+
   it('creates a draft from MIME, sends it, and reports the authoritative internetMessageId', async () => {
     const drafts: Buffer[] = []
     const sent: string[] = []
@@ -863,9 +980,9 @@ describe('Ms365ChannelAdapter.sendMessage', () => {
     expect(result.metadata).toMatchObject({ graphMessageId: 'draft-9', graphConversationId: 'conv-9' })
   })
 
-  it('returns the requires_reauth sentinel on a 401 without deleting the draft', async () => {
+  it('surfaces the requires_reauth sentinel on a 401 without deleting the draft', async () => {
     const deleted: string[] = []
-    const result = await send({
+    const outcome = await deliverViaHub({
       sendDraft: async () => {
         throw new GraphApiError('unauthorized', 401, 'InvalidAuthenticationToken')
       },
@@ -873,8 +990,8 @@ describe('Ms365ChannelAdapter.sendMessage', () => {
         deleted.push(id)
       },
     })
-    expect(result.status).toBe('failed')
-    expect(result.error).toBe('requires_reauth')
+    expect(outcome.classification).toMatchObject({ transient: false, status: 401, message: 'requires_reauth' })
+    expect(outcome.requiresReauth).toBe(true)
     expect(deleted).toHaveLength(0)
   })
 
@@ -911,21 +1028,75 @@ describe('Ms365ChannelAdapter.sendMessage', () => {
     expect(deleted).toEqual(['draft-1'])
   })
 
-  it('reports failed (no retry) when the send outcome cannot be confirmed after a transient error', async () => {
-    const deleted: string[] = []
-    const result = await send({
+  it('lets the hub retry a native network failure during draft creation (real Graph client)', async () => {
+    setGraphMailClient(null)
+    const originalFetch = globalThis.fetch
+    const calls: string[] = []
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      calls.push(`${init?.method ?? 'GET'} ${new URL(String(input)).pathname}`)
+      throw new TypeError('fetch failed', { cause: Object.assign(new Error('read ECONNRESET'), { code: 'ECONNRESET' }) })
+    }) as typeof fetch
+    let classification
+    try {
+      await getMs365ChannelAdapter().sendMessage({
+        conversationId: 'thread-1',
+        content: { text: 'Hi' },
+        credentials: userCredentials,
+        scope,
+        metadata: { to: ['bob@example.com'], subject: 'Hello' },
+      })
+    } catch (error) {
+      classification = classifyOutboundError(error)
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+    expect(calls).toEqual(['POST /v1.0/me/messages'])
+    expect(classification).toMatchObject({ transient: true, status: 599 })
+  })
+
+  it('lets the hub retry a confirmed-unsent draft', async () => {
+    const outcome = await deliverViaHub({
       sendDraft: async () => {
-        throw new GraphApiError('timed out', 599, 'request timed out')
+        throw new GraphApiError('throttled', 429, 'TooManyRequests')
       },
-      getMessageState: async () => {
-        throw new GraphApiError('boom', 503, 'unavailable')
+      getMessageState: async (_auth, id) => ({ id, isDraft: true }),
+    })
+    expect(outcome.classification).toMatchObject({ transient: true, status: 429 })
+  })
+
+  it.each([
+    ['the state lookup fails', async () => {
+      throw new GraphApiError('boom', 503, 'unavailable')
+    }],
+    ['the draft is gone (404)', async () => null],
+  ])('fails without a hub retry when the send outcome cannot be confirmed because %s', async (_label, getMessageState) => {
+    const deleted: string[] = []
+    const outcome = await deliverViaHub({
+      sendDraft: async () => {
+        throw new GraphApiError('Microsoft Graph POST /me/messages/draft-1/send timed out', 599, 'request timed out')
       },
+      getMessageState,
       deleteMessage: async (_auth, id) => {
         deleted.push(id)
       },
     })
-    expect(result.status).toBe('failed')
+    expect(outcome.result).toBeNull()
+    expect(outcome.classification).toMatchObject({ transient: false })
+    expect(outcome.classification?.message).toMatch(/timed out/)
+    expect(outcome.requiresReauth).toBe(false)
     expect(deleted).toHaveLength(0)
+  })
+
+  it('fails without a hub retry when an ambiguous send was throttled', async () => {
+    const outcome = await deliverViaHub({
+      sendDraft: async () => {
+        throw new GraphApiError('Too Many Requests', 429, 'TooManyRequests', { code: 'TooManyRequests' })
+      },
+      getMessageState: async () => {
+        throw new GraphApiError('boom', 503, 'unavailable')
+      },
+    })
+    expect(outcome.classification).toMatchObject({ transient: false })
   })
 
   it('throws the transient error when draft creation fails temporarily', async () => {
@@ -938,19 +1109,19 @@ describe('Ms365ChannelAdapter.sendMessage', () => {
     ).rejects.toMatchObject({ status: 500, transient: true })
   })
 
-  it('reports a permanent draft-creation failure without retry', async () => {
-    const result = await send({
+  it('fails a permanent draft-creation error without a hub retry', async () => {
+    const outcome = await deliverViaHub({
       createDraftFromMime: async () => {
         throw new GraphApiError('too big', 413, 'ErrorMessageSizeExceeded', { code: 'ErrorMessageSizeExceeded' })
       },
     })
-    expect(result.status).toBe('failed')
-    expect(result.error).toContain('ErrorMessageSizeExceeded')
+    expect(outcome.classification).toMatchObject({ transient: false, status: 413 })
+    expect(outcome.classification?.message).toContain('ErrorMessageSizeExceeded')
   })
 
   it('cleans up the orphan draft after a permanent send failure', async () => {
     const deleted: string[] = []
-    const result = await send({
+    const outcome = await deliverViaHub({
       sendDraft: async () => {
         throw new GraphApiError('denied', 403, 'ErrorSendAsDenied', { code: 'ErrorSendAsDenied' })
       },
@@ -958,8 +1129,8 @@ describe('Ms365ChannelAdapter.sendMessage', () => {
         deleted.push(id)
       },
     })
-    expect(result.status).toBe('failed')
-    expect(result.error).toContain('ErrorSendAsDenied')
+    expect(outcome.classification).toMatchObject({ transient: false, status: 403 })
+    expect(outcome.classification?.message).toContain('ErrorSendAsDenied')
     expect(deleted).toEqual(['draft-1'])
   })
 

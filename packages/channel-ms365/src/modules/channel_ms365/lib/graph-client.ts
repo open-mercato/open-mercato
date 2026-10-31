@@ -122,8 +122,47 @@ const GRAPH_DEFAULT_PAGE_SIZE = 50
 const GRAPH_MAX_PAGE_SIZE = 200
 const IMMUTABLE_ID_PREFER = 'IdType="ImmutableId"'
 
+/** Error code carried by a transport-level failure (no HTTP response at all). */
+export const GRAPH_NETWORK_ERROR_CODE = 'om.networkError'
+
+/** Socket / DNS error codes Node and undici report for a request that never got a response. */
+const TRANSPORT_ERROR_CODES = new Set([
+  'ECONNRESET',
+  'ECONNREFUSED',
+  'ECONNABORTED',
+  'ENOTFOUND',
+  'EAI_AGAIN',
+  'ETIMEDOUT',
+  'EPIPE',
+  'ENETUNREACH',
+  'EHOSTUNREACH',
+  'UND_ERR_SOCKET',
+  'UND_ERR_CONNECT_TIMEOUT',
+  'UND_ERR_HEADERS_TIMEOUT',
+  'UND_ERR_BODY_TIMEOUT',
+  'UND_ERR_CLOSED',
+])
+
 /** Graph error codes that mean the delta token is dead and the folder must be re-synced. */
 const RESYNC_ERROR_CODES = new Set(['syncstatenotfound', 'resyncrequired', 'syncstateinvalid'])
+
+function readErrorCode(value: unknown): string | undefined {
+  const code = (value as { code?: unknown } | null)?.code
+  return typeof code === 'string' ? code : undefined
+}
+
+/**
+ * The socket/DNS code of a request that failed before any HTTP response:
+ * undici rejects with `TypeError('fetch failed')` and the real cause (e.g.
+ * `ECONNRESET`) on `.cause`. Any other `TypeError` (bad header, bad URL) is a
+ * programming error and stays unclassified.
+ */
+function transportFailureCode(err: unknown): string | undefined {
+  const code = readErrorCode(err) ?? readErrorCode((err as { cause?: unknown } | null)?.cause)
+  if (code && TRANSPORT_ERROR_CODES.has(code)) return code
+  if (err instanceof TypeError && err.message === 'fetch failed') return code ?? 'fetch failed'
+  return undefined
+}
 
 function resolveGraphRequestTimeoutMs(): number {
   const fromEnv = Number.parseInt(process.env.OM_CHANNEL_MS365_REQUEST_TIMEOUT_MS ?? '', 10)
@@ -364,14 +403,22 @@ class FetchGraphMailClient implements GraphMailClient {
       } catch (err) {
         const errName = (err as { name?: unknown } | null)?.name
         const aborted = err instanceof FetchTimeoutError || errName === 'TimeoutError' || errName === 'AbortError'
-        if (!aborted) throw err
-        const timeoutError = new GraphApiError(
-          `Microsoft Graph ${options.method} ${url.pathname} timed out`,
-          599,
-          'request timed out',
-        )
-        if (attempt === maxRetries) throw timeoutError
-        lastError = timeoutError
+        const transportCode = aborted ? undefined : transportFailureCode(err)
+        if (!aborted && !transportCode) throw err
+        // No HTTP response: a timeout or a dropped connection / DNS failure.
+        // Both are transient (status 599), so the hub retries instead of
+        // failing the delivery permanently; non-idempotent POSTs are still
+        // not retried here (`maxRetries` is 0 for them).
+        const transportError = aborted
+          ? new GraphApiError(`Microsoft Graph ${options.method} ${url.pathname} timed out`, 599, 'request timed out')
+          : new GraphApiError(
+              `Microsoft Graph ${options.method} ${url.pathname} network error`,
+              599,
+              transportCode ?? 'network error',
+              { code: GRAPH_NETWORK_ERROR_CODE },
+            )
+        if (attempt === maxRetries) throw transportError
+        lastError = transportError
         await sleep(computeBackoff(attempt))
         attempt += 1
         continue

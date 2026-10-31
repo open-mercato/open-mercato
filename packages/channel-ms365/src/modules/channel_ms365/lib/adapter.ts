@@ -102,8 +102,17 @@ type ImportCursor = {
   chunkIndex: number
   /** Unique messages imported so far (never counts a replayed message twice). */
   fetched: number
-  /** Non-draft candidates of the current page already imported (resume point). */
-  pageOffset: number
+  /**
+   * Upper `receivedDateTime` bound pinned on the first page, so mail arriving
+   * during the import cannot shift a re-listed first page.
+   */
+  until?: string
+  /**
+   * Graph ids of the current page's stubs already dealt with (imported or
+   * skipped). A replayed page resumes by identity, not by position, so it
+   * stays exact when the listing changed between attempts.
+   */
+  pageDoneIds: string[]
 }
 
 /** Stable diagnostic code logged when a channel has no mailbox identity. */
@@ -195,14 +204,14 @@ class Ms365ChannelAdapter implements ChannelAdapter {
       // thrown as the structured error so the hub's classifier retries the
       // delivery with backoff instead of failing it permanently.
       if (isTransientGraphError(error)) throw error
-      return failedSendResult(error, 'Microsoft 365 draft creation failed')
+      throw permanentSendError(error, 'Microsoft 365 draft creation failed')
     }
 
     try {
       await api.sendDraft(auth, draftId)
     } catch (error) {
       if (error instanceof GraphApiError && error.status === 401) {
-        return failedSendResult(error, 'Microsoft 365 send failed')
+        throw permanentSendError(error, 'Microsoft 365 send failed')
       }
       // `/send` is not retried (non-idempotent). The request may still have
       // gone through with its response lost (timeout, 5xx after commit), and
@@ -229,8 +238,10 @@ class Ms365ChannelAdapter implements ChannelAdapter {
           throw error
         }
         // Permanent failure, or ambiguous state (could not confirm whether the
-        // send went out): report failed without retry — a retry could duplicate.
-        return failedSendResult(error, 'Microsoft 365 send failed')
+        // send went out): fail without retry — a retry could duplicate. Thrown
+        // with an explicit `transient: false`, never returned as a `failed`
+        // result, whose error text the hub would classify by pattern.
+        throw permanentSendError(error, 'Microsoft 365 send failed')
       }
       logger.warn('Microsoft Graph send response was lost but the draft was sent; reporting success', {
         graphMessageId: draftId,
@@ -495,6 +506,7 @@ class Ms365ChannelAdapter implements ChannelAdapter {
 
     const sinceDays = clampImportSinceDays(input.sinceDays)
     const since = new Date(Date.now() - sinceDays * 24 * 60 * 60 * 1000)
+    const until = cursor.until ?? new Date().toISOString()
 
     let page
     try {
@@ -502,7 +514,7 @@ class Ms365ChannelAdapter implements ChannelAdapter {
         page = await api.continueList(auth, cursor.nextLink)
       } else {
         page = await api.listInboxMessages(auth, {
-          filter: buildImportFilter(since, senderChunks[cursor.chunkIndex]),
+          filter: buildImportFilter(since, senderChunks[cursor.chunkIndex], new Date(until)),
           top: pageSize,
           orderBy: 'receivedDateTime desc',
           includeCount: cursor.chunkIndex === 0 && senderChunks.length === 1,
@@ -513,27 +525,27 @@ class Ms365ChannelAdapter implements ChannelAdapter {
     }
 
     const remaining = maxMessages - cursor.fetched
-    // `pageOffset` resumes a page after a transient failure at the message
-    // that failed, so replayed messages are neither re-fetched nor counted
-    // against `maxMessages` a second time. The cap bounds *imported* messages,
-    // not candidates: a vanished (404) stub must not use up a slot.
-    const pageCandidates = page.value.filter((item) => !item.isDraft)
-    const candidates = pageCandidates.slice(cursor.pageOffset)
-    const { messages, hardFailed, consumed } = await this.fetchAndNormalize(api, auth, candidates, accountIdentifier, remaining)
+    // `pageDoneIds` resumes a page after a transient failure by identity, so
+    // replayed messages are neither re-fetched nor counted against
+    // `maxMessages` a second time, even if the re-listed page shifted. The cap
+    // bounds *imported* messages, not candidates: a vanished (404) stub must
+    // not use up a slot.
+    const doneIds = new Set(cursor.pageDoneIds)
+    const candidates = page.value.filter((item) => !item.isDraft && !doneIds.has(item.id))
+    const { messages, hardFailed, consumedIds } = await this.fetchAndNormalize(api, auth, candidates, accountIdentifier, remaining)
     const fetched = cursor.fetched + messages.length
 
     if (hardFailed) {
-      // Re-run the same page next time, resuming right after the consumed
-      // prefix. `consumed` counts skipped 404/410 stubs too, so a vanished
-      // message before the failure does not shift the resume point back onto
-      // an already-imported (and already-counted) message.
+      // Re-run the same page next time, skipping every stub already dealt
+      // with (skipped 404/410 stubs included).
       return {
         messages,
         nextCursor: encodeCursor({
           nextLink: cursor.nextLink,
           chunkIndex: cursor.chunkIndex,
           fetched,
-          pageOffset: cursor.pageOffset + consumed,
+          until,
+          pageDoneIds: [...cursor.pageDoneIds, ...consumedIds],
         } satisfies ImportCursor),
         hasMore: true,
         totalCandidates: page.count,
@@ -544,7 +556,7 @@ class Ms365ChannelAdapter implements ChannelAdapter {
     if (page.nextLink && !capped) {
       return {
         messages,
-        nextCursor: encodeCursor({ nextLink: page.nextLink, chunkIndex: cursor.chunkIndex, fetched, pageOffset: 0 } satisfies ImportCursor),
+        nextCursor: encodeCursor({ nextLink: page.nextLink, chunkIndex: cursor.chunkIndex, fetched, until, pageDoneIds: [] } satisfies ImportCursor),
         hasMore: true,
         totalCandidates: page.count,
       }
@@ -553,7 +565,7 @@ class Ms365ChannelAdapter implements ChannelAdapter {
     if (nextChunk < senderChunks.length && !capped) {
       return {
         messages,
-        nextCursor: encodeCursor({ chunkIndex: nextChunk, fetched, pageOffset: 0 } satisfies ImportCursor),
+        nextCursor: encodeCursor({ chunkIndex: nextChunk, fetched, until, pageDoneIds: [] } satisfies ImportCursor),
         hasMore: true,
         totalCandidates: page.count,
       }
@@ -683,8 +695,8 @@ class Ms365ChannelAdapter implements ChannelAdapter {
    * unprocessed messages (`hardFailed: true`); a 401 is re-thrown so the hub
    * flips the channel to `requires_reauth`.
    *
-   * `consumed` is how many stubs were dealt with (fetched or skipped) before
-   * the loop stopped — the resume offset for a replayed page.
+   * `consumedIds` are the stubs dealt with (fetched or skipped) before the
+   * loop stopped — what a replayed page skips.
    */
   private async fetchAndNormalize(
     api: GraphMailClient,
@@ -692,9 +704,9 @@ class Ms365ChannelAdapter implements ChannelAdapter {
     stubs: GraphMessageStub[],
     accountIdentifier: string,
     maxMessages: number = Number.POSITIVE_INFINITY,
-  ): Promise<{ messages: NormalizedInboundMessage[]; hardFailed: boolean; consumed: number }> {
+  ): Promise<{ messages: NormalizedInboundMessage[]; hardFailed: boolean; consumedIds: string[] }> {
     const out: NormalizedInboundMessage[] = []
-    let consumed = 0
+    const consumedIds: string[] = []
     for (const stub of stubs) {
       if (out.length >= maxMessages) break
       let rawMessage: Buffer
@@ -702,7 +714,7 @@ class Ms365ChannelAdapter implements ChannelAdapter {
         rawMessage = await api.getMessageMime(auth, stub.id)
       } catch (error) {
         if (error instanceof GraphApiError && (error.status === 404 || error.status === 410)) {
-          consumed += 1
+          consumedIds.push(stub.id)
           continue
         }
         if (error instanceof GraphApiError && error.code === GRAPH_MESSAGE_TOO_LARGE_CODE) {
@@ -710,7 +722,7 @@ class Ms365ChannelAdapter implements ChannelAdapter {
             graphMessageId: stub.id,
             detail: error.detail,
           })
-          consumed += 1
+          consumedIds.push(stub.id)
           continue
         }
         if (error instanceof GraphApiError && error.status === 401) throw toHubError(error)
@@ -725,7 +737,7 @@ class Ms365ChannelAdapter implements ChannelAdapter {
           graphMessageId: stub.id,
           err: error,
         })
-        return { messages: out, hardFailed: true, consumed }
+        return { messages: out, hardFailed: true, consumedIds }
       }
       const normalized = await normalizeInboundMs365Message({
         rawMessage,
@@ -736,9 +748,9 @@ class Ms365ChannelAdapter implements ChannelAdapter {
         fallbackDate: parseIsoDate(stub.receivedDateTime) ?? undefined,
       })
       out.push(normalized)
-      consumed += 1
+      consumedIds.push(stub.id)
     }
-    return { messages: out, hardFailed: false, consumed }
+    return { messages: out, hardFailed: false, consumedIds }
   }
 }
 
@@ -833,8 +845,9 @@ function chunkSenders(contactEmails: string[] | undefined): Array<string[] | und
  * `receivedDateTime` must appear first in `$filter` when the request also
  * `$orderby`s it (Graph requirement). Sender addresses are OR'd into one group.
  */
-export function buildImportFilter(since: Date, senders: string[] | undefined): string {
+export function buildImportFilter(since: Date, senders: string[] | undefined, until?: Date): string {
   const clauses = [`receivedDateTime ge ${since.toISOString()}`]
+  if (until) clauses.push(`receivedDateTime le ${until.toISOString()}`)
   if (senders && senders.length > 0) {
     const senderClause = senders
       .map((address) => `from/emailAddress/address eq '${escapeODataString(address)}'`)
@@ -846,7 +859,7 @@ export function buildImportFilter(since: Date, senders: string[] | undefined): s
 
 function decodeImportCursor(value: string | undefined): ImportCursor {
   const decoded = decodeCursor(value)
-  if (!decoded || typeof decoded !== 'object') return { chunkIndex: 0, fetched: 0, pageOffset: 0 }
+  if (!decoded || typeof decoded !== 'object') return { chunkIndex: 0, fetched: 0, pageDoneIds: [] }
   const record = decoded as Record<string, unknown>
   const nonNegativeInt = (raw: unknown): number =>
     typeof raw === 'number' && Number.isFinite(raw) && raw >= 0 ? Math.floor(raw) : 0
@@ -854,22 +867,43 @@ function decodeImportCursor(value: string | undefined): ImportCursor {
     nextLink: typeof record.nextLink === 'string' && record.nextLink.length > 0 ? record.nextLink : undefined,
     chunkIndex: nonNegativeInt(record.chunkIndex),
     fetched: nonNegativeInt(record.fetched),
-    pageOffset: nonNegativeInt(record.pageOffset),
+    until: typeof record.until === 'string' && parseIsoDate(record.until) ? record.until : undefined,
+    pageDoneIds: Array.isArray(record.pageDoneIds)
+      ? record.pageDoneIds.filter((id): id is string => typeof id === 'string' && id.length > 0)
+      : [],
   }
 }
 
-function failedSendResult(error: unknown, fallback: string): SendMessageResult {
+/**
+ * A send failure the hub must not retry: permanent, or a send whose outcome
+ * could not be confirmed (a retry could deliver the email twice). The explicit
+ * `transient: false` wins over the hub classifier's message heuristics, which
+ * would otherwise read "timed out" / "Too Many Requests" in a returned
+ * `{ status: 'failed', error }` text as retryable.
+ */
+class Ms365SendFailure extends Error {
+  readonly transient = false
+  readonly status: number | undefined
+
+  constructor(message: string, status: number | undefined) {
+    super(message)
+    this.name = 'Ms365SendFailure'
+    this.status = status
+  }
+}
+
+function permanentSendError(error: unknown, fallback: string): Ms365SendFailure {
   if (error instanceof GraphApiError && error.status === 401) {
-    return { externalMessageId: '', status: 'failed', error: REQUIRES_REAUTH }
+    return new Ms365SendFailure(REQUIRES_REAUTH, 401)
   }
   if (error instanceof GraphApiError) {
     // Keep the Graph error code visible to operators (e.g. ErrorSendAsDenied,
     // ErrorMessageSizeExceeded) — it is the actionable part of the failure.
     const withCode = error.code && !error.message.includes(error.code) ? `${error.message} [${error.code}]` : error.message
-    return { externalMessageId: '', status: 'failed', error: withCode }
+    return new Ms365SendFailure(withCode, error.status)
   }
   const message = error instanceof Error ? error.message : fallback
-  return { externalMessageId: '', status: 'failed', error: message }
+  return new Ms365SendFailure(message, undefined)
 }
 
 /**
