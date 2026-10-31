@@ -19,6 +19,7 @@ import { assertEntityAclForRequest } from '../lib/entityAcl'
 import { classifyRecordsEntity } from '../lib/entityClassification'
 import { loadCustomFieldKinds } from '../lib/scoped-field-defs'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 
 // Kept exported from this path: the classifier used to be private to this file
 // and the workflows task-visibility resolver reuses it, so both callers share
@@ -518,13 +519,25 @@ export async function PUT(req: Request) {
       throw lockError
     }
 
-    await de.updateCustomEntityRecord({
-      entityId,
-      recordId: rid,
-      organizationId: targetOrgId,
-      tenantId: auth.tenantId!,
-      values: norm,
-    })
+    try {
+      await de.updateCustomEntityRecord({
+        entityId,
+        recordId: rid,
+        organizationId: targetOrgId,
+        tenantId: auth.tenantId!,
+        values: norm,
+        requireActive: true,
+      })
+    } catch (updateError) {
+      if (isCrudHttpError(updateError) && updateError.status === 404) {
+        const { translate } = await resolveTranslations()
+        return NextResponse.json(
+          { error: translate('entities.userEntities.records.errors.notFound', 'Record not found') },
+          { status: 404 },
+        )
+      }
+      throw updateError
+    }
     return NextResponse.json({ ok: true, item: { entityId, recordId: rid } })
   } catch (e) {
     if (isCrudHttpError(e)) return NextResponse.json(e.body, { status: e.status })
@@ -676,7 +689,7 @@ export const openApi: OpenApiRouteDoc = {
     PUT: {
       summary: 'Update record',
       description:
-        'Updates an existing record. If the provided recordId is not a UUID the record will be created instead to support optimistic flows.',
+        'Updates an existing, non-deleted record. If the provided recordId is not a UUID the record will be created instead to support optimistic flows. A UUID that matches no active record returns 404.',
       requestBody: {
         contentType: 'application/json',
         schema: putBodySchema,
@@ -695,6 +708,11 @@ export const openApi: OpenApiRouteDoc = {
         {
           status: 401,
           description: 'Missing authentication',
+          schema: errorSchema,
+        },
+        {
+          status: 404,
+          description: 'Record not found or deleted',
           schema: errorSchema,
         },
         {

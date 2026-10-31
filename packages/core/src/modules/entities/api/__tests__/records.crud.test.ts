@@ -1,6 +1,7 @@
 /** @jest-environment node */
 import { GET, POST, PUT, DELETE } from '@open-mercato/core/modules/entities/api/records'
 import { UNKNOWN_CUSTOM_FIELD_ERROR } from '@open-mercato/shared/modules/entities/validation'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
 let mockRecordUpdatedAt: string | null = null
 
@@ -68,6 +69,14 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
 
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   getAuthFromRequest: () => ({ orgId: 'org', tenantId: 't1', roles: ['admin'] }),
+}))
+
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: async () => ({
+    locale: 'en',
+    translate: (key: string) => `translated:${key}`,
+    t: (key: string) => `translated:${key}`,
+  }),
 }))
 
 jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => ({
@@ -196,6 +205,40 @@ describe('Records API CRUD operations', () => {
           values: { title: 'Updated Title' },
         }),
       )
+    })
+
+    it('asks the data engine to update only an existing, non-deleted record', async () => {
+      mockCustomFieldDefsLookup(['title'])
+      const recordId = '123e4567-e89b-12d3-a456-426614174000'
+      const req = new Request('http://x/api/entities/records', {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ entityId: 'user:qa_entity', recordId, values: { title: 'Edited' } }),
+      })
+      const res = await PUT(req)
+      expect(res.status).toBe(200)
+      expect(mockDataEngine.updateCustomEntityRecord).toHaveBeenCalledWith(
+        expect.objectContaining({ recordId, requireActive: true }),
+      )
+    })
+
+    it('returns a translated 404 when the record is unknown or soft-deleted', async () => {
+      mockCustomFieldDefsLookup(['title'])
+      mockDataEngine.updateCustomEntityRecord.mockRejectedValueOnce(new CrudHttpError(404, { error: 'Not found' }))
+      const req = new Request('http://x/api/entities/records', {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          entityId: 'user:qa_entity',
+          recordId: '123e4567-e89b-12d3-a456-426614174999',
+          values: { title: 'Ghost' },
+        }),
+      })
+      const res = await PUT(req)
+      expect(res.status).toBe(404)
+      const json = await res.json()
+      expect(json.error).toBe('translated:entities.userEntities.records.errors.notFound')
+      expect(mockDataEngine.createCustomEntityRecord).not.toHaveBeenCalled()
     })
 
     it('falls back to create when recordId is sentinel value', async () => {
