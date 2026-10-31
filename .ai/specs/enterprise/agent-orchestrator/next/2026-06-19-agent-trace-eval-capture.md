@@ -372,12 +372,7 @@ default. A declared or actual streamed length above the cap returns
 values cannot bypass the streamed cap. Exactly-at-limit payloads remain eligible for
 normal HMAC verification and ingestion; signatures cover the same decoded body as before.
 
-Unbounded acceptance is itself the unauthenticated memory-exhaustion vulnerability.
-Keeping it as a compatibility bridge would leave the exploit reachable, so this narrow
-change uses the emergency security exception in `BACKWARD_COMPATIBILITY.md`. On
-2026-10-29, [@haxiorz approved the steps 1–3 waiver and acknowledged the client/operator migration](https://github.com/open-mercato/open-mercato/pull/8233#issuecomment-6506241518).
-Independent review and QA remain required. No unlimited mode,
-new signing scheme, command, schema, tenant-scope rule, or stored-state migration is added.
+No new signing scheme, command, schema, tenant-scope rule, or stored-state migration is added.
 
 Runtime adapters must reduce or split oversized traces into schema-valid requests,
 preserve ingestion idempotency semantics, and sign each resulting body. Retrying the
@@ -411,7 +406,7 @@ by the existing request-count limiter.
 
 ## Changelog
 
-- **2026-10-29:** Recorded @haxiorz’s explicit emergency-waiver and migration acknowledgment for #8233; review, CI, and QA gates remain.
-- **2026-10-29:** Bound signed trace-ingest bodies with the existing shared reader before HMAC/JSON/commands; document 413, route regression coverage, and client/operator migration under the security exception (#7241).
+- **2026-10-31:** Clarify signed request size limits, client/operator migration guidance, and route regression coverage.
+- **2026-10-29:** Bound signed trace-ingest bodies with the existing shared reader before HMAC/JSON/commands; document 413, route regression coverage, and client/operator migration (#7241).
 - **2026-06-20:** Added the `## Integration Coverage` section (per GAP-17): Playwright tests for HMAC-verified + idempotent `(runtime, externalRunId)` ingest (duplicate ingest is a no-op), ≤5s p95 run queryability with spans/tool-calls/context-routing/eval results, mandatory-reason `AgentCorrection` + auto-drafted `AgentEvalCase`, approved eval-case export, per-agent override-rate + eval-pass-rate over a window, append-only enforcement, RBAC/feature-gate on trace reads, and per-surface tenant-isolation, with a headline `ingest → query → correct → export` E2E; anchored fixtures/cleanup/placement to `.ai/qa/AGENTS.md` + `om-integration-tests`. Cross-referenced the consolidating eval-harness/metrics spec `2026-06-20-agent-eval-harness-and-metrics.md` for the eval-runtime/export detail.
 - **2026-06-19:** Rewrite to real OM conventions and verified architecture. Removed all `eval-runner`/Inspect AI/`x_om`/SWE-bench reuse claims (absent from codebase) and reframed the eval harness + eval-case export as net-new work owned by this module; removed `telemetry-and-otel` as a dependency (does not exist) and recast OTel GenAI as a naming target. Converted entity sketches to MikroORM v7 `/legacy` with dual `tenant_id`/`organization_id`, explicit `@Property`, optimistic-lock/append-only split. Renamed entities to `Agent*` with `agent_` table prefix, events to `agent_orchestrator.*` past tense, routes to `/api/agent_orchestrator/...`. Clarified deterministic-gate vs sampled `llm_judge`-warn tiers and the correction flywheel. Added scoping risk row for the net-new harness.
