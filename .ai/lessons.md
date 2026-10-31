@@ -109,7 +109,7 @@ This catalog indexes 166 focused lessons. Route the task first, then read only r
 ### umes
 
 - [Declared extension hosts need real mount tests](lessons/declared-extension-hosts-need-real-mount-tests.md) — area:umes,backend-ui,debugging; module:ui,core,catalog,customers; topic:component-overrides,api-interceptors,optional-modules,testing
-- [Client injection hooks must tolerate late registry registration](lessons/client-injection-hooks-must-tolerate-late-registry.md) — area:umes,architecture,integration; module:cli,cache,ui; topic:generated-files,database-migrations,provider-lifecycle
+- [Client injection hooks must tolerate late registry registration](lessons/client-injection-hooks-must-tolerate-late-registry.md) — area:umes,architecture,integration; module:cli,cache,ui; topic:generated-files,database-migrations,provider-lifecycle,data-scoping
 - [Custom-field detail UIs must accept canonical bare keys](lessons/custom-field-detail-uis-must-accept-canonical-bare-keys.md) — area:umes,backend-ui,debugging; module:entities,ui,customers; topic:custom-fields,generated-files,ui-components
 - [Prefer canonical route paths over alias lists for custom APIs](lessons/prefer-canonical-route-paths-over-alias-lists-for.md) — area:umes,architecture; module:cli,create_app; topic:generated-files,package-runtime,testing
 - [Sanitize generated component override entries before runtime use](lessons/sanitize-generated-component-override-entries-before.md) — area:umes,architecture; module:shared,cli; topic:component-overrides,generated-files,filters
