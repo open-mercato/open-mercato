@@ -93,6 +93,8 @@ describe('webhooks outbound dispatch subscriber', () => {
       },
       {
         eventName: 'catalog.product.deleted',
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
         resolve: <T,>(name: string): T => {
           if (name === 'em') return rootEm as T
           throw new Error(`Unexpected dependency: ${name}`)
@@ -129,6 +131,7 @@ describe('webhooks outbound dispatch subscriber', () => {
       },
       {
         eventName: 'catalog.product.deleted',
+        tenantId: 'tenant-1',
         resolve: <T,>(name: string): T => {
           if (name === 'em') return rootEm as T
           throw new Error(`Unexpected dependency: ${name}`)
@@ -187,6 +190,8 @@ describe('webhooks outbound dispatch subscriber', () => {
       },
       {
         eventName: 'catalog.product.deleted',
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
         resolve: <T,>(name: string): T => {
           if (name === 'em') return rootEm as T
           throw new Error(`Unexpected dependency: ${name}`)
@@ -234,6 +239,8 @@ describe('webhooks outbound dispatch subscriber', () => {
         { id: 'product-2', tenantId: 'tenant-1', organizationId: 'org-1' },
         {
           eventName: 'catalog.product.created',
+          tenantId: 'tenant-1',
+          organizationId: 'org-1',
           resolve: <T,>(name: string): T => {
             if (name === 'em') return rootEm as T
             throw new Error(`Unexpected dependency: ${name}`)
@@ -283,6 +290,8 @@ describe('webhooks outbound dispatch subscriber', () => {
       },
       {
         eventName: 'catalog.product.updated',
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
         resolve: <T,>(name: string): T => {
           if (name === 'em') return em as T
           throw new Error(`Unexpected dependency: ${name}`)
@@ -337,6 +346,72 @@ describe('webhooks outbound dispatch subscriber', () => {
     expect(findWithDecryption).not.toHaveBeenCalled()
   })
 
+  it('trusted scope (#2440): forwards ctx.tenantId/organizationId to the webhook lookup, not the payload copy', async () => {
+    const { rootEm } = createDispatchEntityManagers()
+    ;(findWithDecryption as jest.Mock).mockResolvedValue([])
+
+    await handler(
+      // Payload carries a different tenant than the trusted context — if the fix ever
+      // regressed to reading payload again, this would scope the lookup to tenant-forged.
+      { id: 'product-1', tenantId: 'tenant-forged', organizationId: 'org-forged' },
+      {
+        eventName: 'catalog.product.deleted',
+        tenantId: 'tenant-trusted',
+        organizationId: 'org-trusted',
+        resolve: <T,>(name: string): T => {
+          if (name === 'em') return rootEm as T
+          throw new Error(`Unexpected dependency: ${name}`)
+        },
+      },
+    )
+
+    expect(findWithDecryption).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ tenantId: 'tenant-trusted', organizationId: 'org-trusted' }),
+      expect.anything(),
+      { tenantId: 'tenant-trusted', organizationId: 'org-trusted' },
+    )
+  })
+
+  it('trusted scope (#2440): ignores payload-provided tenantId/organizationId when trusted scope is omitted', async () => {
+    dispatchLoggerError.mockClear()
+    const warn = (createLogger('webhooks').warn as jest.Mock)
+    warn.mockClear()
+
+    await handler(
+      { id: 'product-1', tenantId: 'tenant-1', organizationId: 'org-1' },
+      {
+        eventName: 'catalog.product.deleted',
+        // No tenantId/organizationId on ctx: the event bus did not supply trusted scope
+        // for this emission (e.g. an emitter that forgot to pass EmitOptions.tenantId).
+        resolve: <T,>(_name: string): T => { throw new Error('should not be called') },
+      },
+    )
+
+    expect(findWithDecryption).not.toHaveBeenCalled()
+    expect(warn).toHaveBeenCalledWith(
+      'Skipping outbound webhook dispatch: event carries a payload tenantId but no trusted scope',
+      expect.objectContaining({ eventId: 'catalog.product.deleted' }),
+    )
+  })
+
+  it('trusted scope (#2440): skips silently when neither trusted scope nor a payload tenantId is present', async () => {
+    const warn = (createLogger('webhooks').warn as jest.Mock)
+    warn.mockClear()
+
+    await handler(
+      { id: 'product-1' },
+      {
+        eventName: 'catalog.product.deleted',
+        resolve: <T,>(_name: string): T => { throw new Error('should not be called') },
+      },
+    )
+
+    expect(findWithDecryption).not.toHaveBeenCalled()
+    expect(warn).not.toHaveBeenCalled()
+  })
+
   it('skips processing for internal query_index events', async () => {
     ;(findWithDecryption as jest.Mock).mockResolvedValue([])
 
@@ -344,6 +419,8 @@ describe('webhooks outbound dispatch subscriber', () => {
       { id: 'record-1', tenantId: 'tenant-1', organizationId: 'org-1' },
       {
         eventName: 'query_index.coverage.refresh',
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
         resolve: <T,>(_name: string): T => { throw new Error('should not be called') },
       },
     )).resolves.toBeUndefined()

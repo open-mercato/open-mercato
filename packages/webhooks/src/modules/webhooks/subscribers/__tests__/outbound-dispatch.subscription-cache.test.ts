@@ -47,7 +47,13 @@ function createForkableEntityManager(): EntityManager {
   return em
 }
 
-function createContext(em: EntityManager, cache?: CacheStrategy | null, eventName = 'catalog.product.deleted') {
+function createContext(
+  em: EntityManager,
+  cache?: CacheStrategy | null,
+  eventName = 'catalog.product.deleted',
+  tenantId: string | null = 'tenant-1',
+  organizationId: string | null = 'org-1',
+) {
   const resolve = jest.fn(<T,>(name: string): T => {
     if (name === 'em') return em as T
     if (name === 'cache') {
@@ -56,7 +62,9 @@ function createContext(em: EntityManager, cache?: CacheStrategy | null, eventNam
     }
     throw new Error(`Unexpected dependency: ${name}`)
   })
-  return { eventName, resolve }
+  // Trusted scope (#2440): outbound-dispatch reads tenantId/organizationId from here, not
+  // from payload, so every context in this suite must carry it like the real event bus does.
+  return { eventName, resolve, tenantId, organizationId }
 }
 
 describe('webhooks outbound dispatch subscriber - subscription cache', () => {
@@ -215,7 +223,7 @@ describe('webhooks outbound dispatch subscriber - subscription cache', () => {
     )
     await handler(
       { id: 'p2', tenantId: 'tenant-2', organizationId: 'org-1' },
-      createContext(em, cache, 'catalog.product.deleted'),
+      createContext(em, cache, 'catalog.product.deleted', 'tenant-2', 'org-1'),
     )
 
     expect(findWithDecryption).toHaveBeenCalledTimes(2)
