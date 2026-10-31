@@ -5,6 +5,8 @@
   "communication_channels.channel.providers.whatsapp": "WhatsApp",
   "communication_channels.channelPayload.aria": "Channel payload",
   "communication_channels.channelPayload.email.aria": "Email payload",
+  "communication_channels.channelPayload.email.loadRemoteImages": "Load remote images",
+  "communication_channels.channelPayload.email.remoteImagesBlocked": "Remote images are blocked to protect your privacy. Loading them may let the sender know you opened this message.",
   "communication_channels.channelPayload.types.email/mime": "Email (MIME)",
   "communication_channels.columns.displayName": "Channel",
   "communication_channels.columns.identifier": "External ID",
