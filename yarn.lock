@@ -9476,7 +9476,7 @@ __metadata:
     language-subtag-registry: "npm:^0.3.20"
     pino: "npm:^10.3.1"
     rate-limiter-flexible: "npm:^11.2.0"
-    re2js: "npm:2.8.7"
+    re2js: "npm:2.9.1"
     reflect-metadata: "npm:^0.2.2"
     sanitize-html: "npm:2.17.5"
     testcontainers: "npm:^12.0.3"
@@ -32369,10 +32369,10 @@ __metadata:
   languageName: node
   linkType: hard
 
-"re2js@npm:2.8.7":
-  version: 2.8.7
-  resolution: "re2js@npm:2.8.7"
-  checksum: 10/57fc908b18ff5e217757bc934aaed01fc6b6c6464e436741a6593a904cade40ba6da45e66de1446ebb7da68e58d8df78dfc6b3b89b9155a2cd5a263d6c132392
+"re2js@npm:2.9.1":
+  version: 2.9.1
+  resolution: "re2js@npm:2.9.1"
+  checksum: 10/52ddfc92187544bf4e13899cca4704d7ebdcdf803a66b45cba93df0d02bd50e109a87fa3deb6f1e7d8fb30a8ac8b665f647eed7e7d4cd40b434c66ffc7ffb5a1
   languageName: node
   linkType: hard
 
