@@ -160,7 +160,7 @@ describeWithPostgres('cart promotion evaluation with no spare PostgreSQL connect
 
     if (outcome === 'rollback') await expect(mutation).rejects.toBe(failure)
     else await mutation
-    expect(TransactionContext.getEntityManager()).toBeUndefined()
+    expect(TransactionContext.getEntityManager('cart')).toBeUndefined()
     const reader = database().em.fork()
     const storedLine = await reader.findOneOrFail(cartEntities.CartLine, { id: line.id, ...scope })
     const applications = await reader.count(cartEntities.CartPromotionApplication, { cartId: cart.id, ...scope })
