@@ -1427,6 +1427,34 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
     }
   }, [claim, confirm, currentStatus, featureAccess.claimDelete, loadData, mutationContext, router, runMutation, t])
 
+  const deleteLine = React.useCallback(async (line: ClaimLine) => {
+    if (!claim || !linesInlineEditable) return
+    const confirmed = await confirm({
+      title: t('warranty_claims.form.lines.remove'),
+      variant: 'destructive',
+    })
+    if (!confirmed) return
+    const payload = { id: line.id, claimId: claim.id }
+    try {
+      await runMutation({
+        operation: () => withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(line.updatedAt),
+          () => deleteCrud('warranty_claims/lines', {
+            body: payload,
+            errorMessage: t('warranty_claims.detail.lines.error.delete'),
+          }),
+        ),
+        context: { ...mutationContext, resourceKind: 'warranty_claims.claim_line', resourceId: line.id },
+        mutationPayload: payload,
+      })
+      flash(t('warranty_claims.detail.lines.flash.deleted'), 'success')
+      await loadData()
+    } catch (err) {
+      if (surfaceRecordConflict(err, t, { onRefresh: loadData })) return
+      flash(translateErrorMessage(err, t, 'warranty_claims.detail.lines.error.delete'), 'error')
+    }
+  }, [claim, confirm, linesInlineEditable, loadData, mutationContext, runMutation, t])
+
   const headerMoreActions = React.useMemo(() => {
     if (!claim) return []
     const items = [
@@ -2090,6 +2118,12 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
                             label: t('warranty_claims.detail.lines.edit'),
                             onSelect: () => setLineDialog({ mode: 'edit', line }),
                           },
+                          {
+                            id: 'delete',
+                            label: t('warranty_claims.form.lines.remove'),
+                            destructive: true,
+                            onSelect: () => { void deleteLine(line) },
+                          },
                         ]}
                       />
                     ) : undefined}
@@ -2533,17 +2567,6 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
               setLineDialog(null)
               await loadData()
             }}
-            onDelete={lineDialog?.mode === 'edit'
-              ? async () => {
-                await deleteCrud('warranty_claims/lines', {
-                  body: { id: lineDialog.line.id, claimId: claim.id },
-                  errorMessage: t('warranty_claims.detail.lines.error.delete'),
-                })
-                flash(t('warranty_claims.detail.lines.flash.deleted'), 'success')
-                setLineDialog(null)
-                await loadData()
-              }
-              : undefined}
           />
         </DialogContent>
       </Dialog>
