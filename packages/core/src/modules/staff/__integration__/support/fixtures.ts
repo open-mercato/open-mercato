@@ -276,6 +276,22 @@ export async function ensureFallback(
   return { ruleId: body.ruleId, timeProjectId: body.timeProjectId, created: body.created === true }
 }
 
+export async function ensureSeededFallback(
+  request: APIRequestContext,
+  admin: string,
+): Promise<{ ruleId: string; timeProjectId: string; created: boolean }> {
+  const fallback = await ensureFallback(request, admin)
+  const projectName = 'Customer support'
+  const query = new URLSearchParams({ q: projectName, projectType: 'internal', pageSize: '100' })
+  const body = await okJson<{ items?: Array<{ id: string; name: string; project_type: string }> }>(
+    await apiRequest(request, 'GET', `/api/staff/timesheets/time-projects?${query}`, { token: admin }),
+    'find seeded support project',
+  )
+  const projects = (body.items ?? []).filter((project) => project.name === projectName && project.project_type === 'internal')
+  expect(projects, 'exactly one seeded internal support project should be listed').toHaveLength(1)
+  return { ...fallback, timeProjectId: projects[0].id }
+}
+
 /**
  * Points the organization fallback rule at `timeProjectId` for the duration of a spec
  * and registers a cleanup step that restores the previous target.
