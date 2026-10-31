@@ -9,7 +9,7 @@ The `yarn initialize` script wraps the Open Mercato CLI `mercato init` command a
 ## Usage
 
 ```bash
-yarn initialize [--org=<name>] [--email=<address>] [--password=<value>] [--roles=<csv>] [--skip-password-policy] [--no-examples] [--no-demo-users] [--stresstest] [--lite] [-n <count>] [--count=<count>] [--reinstall|-r]
+yarn initialize [--org=<name>] [--email=<address>] [--password=<value>] [--roles=<csv>] [--skip-password-policy] [--no-examples] [--no-demo-users] [--stresstest] [--lite] [-n <count>] [--count=<count>] [--reinstall|-r] [--skip-if-initialized]
 ```
 
 Ensure `DATABASE_URL` points to the Postgres instance you want to initialize before running the command.
@@ -29,6 +29,7 @@ Ensure `DATABASE_URL` points to the Postgres instance you want to initialize bef
 | `--lite` | When paired with `--stresstest`, skips deals, activities, notes, and custom fields for faster high-volume contact generation. | off |
 | `-n`, `--count`, `--stress-count`, `--stresstest-count` | Number of synthetic contacts to create when `--stresstest` is enabled. | `6000` |
 | `--reinstall`, `-r` | Drops every table in the target database before bootstrapping. Requires a valid `DATABASE_URL`. | off |
+| `--skip-if-initialized` | When the target database already has users, keep the data, print which database (`host:port/name`) was kept and exit successfully instead of aborting. A database without users is initialized as usual. `yarn setup` passes it on every run except `--reinstall`, so re-running setup never touches existing data. Ignored together with `--reinstall`. | off |
 
 ## Environment Defaults
 
@@ -66,6 +67,8 @@ When you omit CLI flags, the init flow will read environment defaults for the se
    - When `--stresstest` is present, seeds synthetic contacts, companies, deals, activities, and notes with custom fields (and a progress bar) via `customers seed-stresstest`. Add `--lite` to focus on raw contacts without the heavier extras.
    - Enables default dashboard widgets (`dashboards seed-defaults`).
    - Triggers vector search reindex and query index reindex.
+
+Without `--reinstall`, the command first checks the `users` table. When it already has rows, it aborts with a hint to run `yarn mercato init --reinstall`, unless `--skip-if-initialized` is passed: then it prints `Database already initialized (N user(s) in host:port/name)` and exits with code 0 without running any of the steps above. Check that name if you did not expect an initialized database: `DATABASE_URL` may point at another project's database.
 
 On success, the command prints a boxed summary with created accounts and their passwords.
 
