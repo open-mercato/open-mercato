@@ -82,6 +82,11 @@ export type CheckoutSessionSubmitCommandInput = {
   // Release 5, Step 5.1 (§8.4/D-R5-28): written to `SalesQuote.customer_reference` at
   // document creation when the resolved `requiresPoNumber` term demands one.
   poNumber?: string | null
+  // Release 5, Step 4.2-fix (§7.2 step 7). Forwarded verbatim to the gateway when a
+  // redirect-type payment session is created; the storefront owns these pages, not this
+  // package. `null`/omitted is valid for embedded/clientSecret-only presentations.
+  successUrl?: string | null
+  cancelUrl?: string | null
   request?: Request | null
 }
 
@@ -94,6 +99,16 @@ export type CheckoutSessionSubmitStageResult = {
   // Release 5, Step 5.1 (§8.6): `null` for the quote outcome — a `request_quote` submit
   // never converts to an order (C16/C17), so there is no order id to report.
   salesOrderId: string | null
+  // Release 5, Step 4.2-fix (§7.2 step 7, C1). Set only on the gateway branch's
+  // still-pending return (`awaiting_payment`) — the hand-off the buyer needs to actually
+  // pay: a redirect target, or a client secret/presentation for an embedded flow. `null`
+  // on every other outcome (on-account, quote, synchronous success/failure already
+  // resolved the session).
+  paymentHandoff?: {
+    redirectUrl: string | null
+    clientSecret: string | null
+    providerKey: string | null
+  } | null
 }
 
 type SubmitScope = { tenantId: string; organizationId: string }
@@ -791,6 +806,8 @@ const submitSessionCommand: CommandHandler<CheckoutSessionSubmitCommandInput, Ch
       creditReservationKey: isOnAccount ? creditReservationKey : null,
       quoteId,
       orderId,
+      successUrl: input.successUrl,
+      cancelUrl: input.cancelUrl,
       request: input.request,
     })
   },
@@ -849,6 +866,8 @@ export type ContinueOrderOutcomeInput = {
   creditReservationKey: string | null
   quoteId: string
   orderId: string
+  successUrl?: string | null
+  cancelUrl?: string | null
   request?: Request | null
 }
 
@@ -1363,6 +1382,8 @@ export async function continueOrderOutcome(
       orderId,
       amount: Number(transaction.amount),
       currencyCode: transaction.currencyCode,
+      successUrl: input.successUrl ?? undefined,
+      cancelUrl: input.cancelUrl ?? undefined,
       organizationId: scope.organizationId,
       tenantId: scope.tenantId,
     })
@@ -1421,7 +1442,10 @@ export async function continueOrderOutcome(
   // asynchronously (webhook or polling, Phase A's own pattern); this call ends at
   // `awaiting_payment`, matching §7.2 step 7's own two-part shape ("status =
   // awaiting_payment" is this synchronous call's own terminal state; "Payment result" is
-  // a SEPARATE, later event).
+  // a SEPARATE, later event). `paymentHandoff` carries what the buyer actually needs to
+  // pay — `sessionResult.session` already carries the gateway's own redirect/clientSecret
+  // response (the SAME shape `createGatewayTransaction` persists onto the `GatewayTransaction`
+  // row, read back here before any extra round-trip).
   return {
     session,
     attempt: input.attempt,
@@ -1429,6 +1453,13 @@ export async function continueOrderOutcome(
     creditReservationKey: input.creditReservationKey,
     salesQuoteId: quoteId,
     salesOrderId: orderId,
+    paymentHandoff: {
+      redirectUrl: sessionResult.session.redirectUrl
+        ?? (sessionResult.session.clientSession?.type === 'redirect' ? sessionResult.session.clientSession.redirectUrl : null)
+        ?? null,
+      clientSecret: sessionResult.session.clientSecret ?? null,
+      providerKey: input.paymentMethodCode,
+    },
   }
 }
 

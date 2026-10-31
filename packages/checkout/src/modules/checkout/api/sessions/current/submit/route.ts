@@ -103,6 +103,8 @@ export async function POST(req: Request) {
       idempotencyKey,
       paymentMethodCode: parsed.paymentMethodCode,
       poNumber: parsed.poNumber ?? null,
+      successUrl: parsed.successUrl ?? null,
+      cancelUrl: parsed.cancelUrl ?? null,
       request: req,
     }
     const { result } = await commandBus.execute<CheckoutSessionSubmitCommandInput, CheckoutSessionSubmitStageResult>(
@@ -114,6 +116,7 @@ export async function POST(req: Request) {
       session: serializeCheckoutSession(result.session, { includePii: true }),
       salesOrderId: result.salesOrderId,
       salesQuoteId: result.salesQuoteId,
+      paymentHandoff: result.paymentHandoff ?? null,
     })
   } catch (error) {
     return handleCheckoutRouteError(error)

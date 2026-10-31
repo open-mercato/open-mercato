@@ -800,6 +800,34 @@ describe('checkout.session.submit (B.4, steps 6-8 of §7.2/C19 — Step 4.2)', (
     expect(h.cartService.markConverted).not.toHaveBeenCalled()
     expect(result.salesOrderId).toBeTruthy()
   })
+
+  it('returns the gateway hand-off (redirectUrl/clientSecret) on a still-pending status — a buyer on a redirect gateway must receive something to pay with', async () => {
+    const h = buildHarness({
+      createPaymentSessionResult: {
+        transaction: { id: 'gw-1', unifiedStatus: 'pending', expiresAt: null },
+        session: { sessionId: 'gw-session-1', status: 'pending', redirectUrl: 'https://gateway.example.com/pay/abc', clientSecret: null },
+      },
+    })
+
+    const result = await getHandler().execute(BASE_INPUT, h.ctx)
+
+    expect(result.paymentHandoff).toMatchObject({
+      redirectUrl: 'https://gateway.example.com/pay/abc',
+      clientSecret: null,
+      providerKey: BASE_INPUT.paymentMethodCode,
+    })
+  })
+
+  it('forwards successUrl/cancelUrl from the submit input to createPaymentSession', async () => {
+    const h = buildHarness({ createPaymentSessionResult: { transaction: { id: 'gw-1', unifiedStatus: 'pending', expiresAt: null }, session: { sessionId: 'gw-session-1', status: 'pending' } } })
+    const paymentGatewayService = h.ctx.container.resolve('paymentGatewayService') as { createPaymentSession: jest.Mock }
+
+    await getHandler().execute({ ...BASE_INPUT, successUrl: 'https://shop.example.com/success', cancelUrl: 'https://shop.example.com/cancel' }, h.ctx)
+
+    expect(paymentGatewayService.createPaymentSession).toHaveBeenCalledWith(
+      expect.objectContaining({ successUrl: 'https://shop.example.com/success', cancelUrl: 'https://shop.example.com/cancel' }),
+    )
+  })
 })
 
 describe('checkout.session.submit (B.5, §8/C15-C17, D-R5-20/23/26/28 — Step 5.1)', () => {

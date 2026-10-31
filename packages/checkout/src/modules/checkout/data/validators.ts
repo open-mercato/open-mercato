@@ -349,6 +349,12 @@ export const checkoutSessionDeliverySelectSchema = z.object({
 export const checkoutSessionSubmitSchema = z.object({
   paymentMethodCode: requiredTrimmedString('checkout.validation.common.required'),
   poNumber: optionalTrimmedString,
+  // Release 5, Step 4.2-fix (§7.2 step 7). The storefront owns its own success/cancel
+  // pages — this package has none for a session-backed checkout (unlike the §9 pay-link
+  // surface) — so a redirect-type gateway is handed the caller's own URLs rather than one
+  // this package would have to invent.
+  successUrl: optionalUrlSchema,
+  cancelUrl: optionalUrlSchema,
 })
 
 export type CheckoutSessionCreateInput = z.infer<typeof checkoutSessionCreateSchema>
