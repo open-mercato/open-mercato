@@ -460,13 +460,9 @@ Issue #3852 removed the non-cryptographic passkey verification shape from `Passk
 
 **Migration path.** Send `startAuthentication()` output as `payload.response`. The first-party `PasskeyChallengeVerify` component already does, so shipped UIs are unaffected. Credentials enrolled through the setup path's client-supplied `publicKey` shortcut are **not** reliably rendered unusable by this change — depending on what the client supplied, such a row holds either a key nobody can sign with or a keypair the enroller controls, and the second kind produces assertions this change accepts. That shortcut is a separate open surface (#5296); operator-facing remediation is in [`UPGRADE_NOTES.md`](UPGRADE_NOTES.md).
 
-## Tenant-Scoped Reindex of Tenant-Less Tables (2026-08-28)
+## Query-index scope (2026-08-28)
 
-[Contract](.ai/specs/2026-08-28-tenant-scoped-reindex-of-tenant-less-tables.md): fail closed except declared catalogues; unscoped behavior stays.
-
-## Tenant-Global Entity Types in the Search Index (2026-08-28)
-
-[Contract](.ai/specs/2026-08-28-tenant-global-entity-types-in-the-search-index.md): canonical catalogue scope, caller-scoped vectors, unchanged ordinary isolation. [Reindex migration](UPGRADE_NOTES.md).
+[Reindex/catalogue contracts and migration](UPGRADE_NOTES.md).
 
 ## Data Sync Start Control Applicability (2026-09-02)
 

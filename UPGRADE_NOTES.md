@@ -702,6 +702,8 @@ DELETE FROM entity_index_coverage
 
 ### A tenant-scoped reindex of a table with no `tenant_id` column is refused
 
+Contracts: [scoped reindex](.ai/specs/2026-08-28-tenant-scoped-reindex-of-tenant-less-tables.md) and [global catalogues](.ai/specs/2026-08-28-tenant-global-entity-types-in-the-search-index.md).
+
 `reindexEntity()` applied its tenant predicate only when the source table had a
 `tenant_id` column, and silently dropped it otherwise — while still stamping every
 swept row with the caller's tenant. A tenant-scoped reindex of a tenant-less table
