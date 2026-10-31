@@ -1,5 +1,5 @@
 import { LockMode } from '@mikro-orm/core'
-import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
+import type { CommandHandler, CommandRuntimeContext, CommandUndoLogEntry } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { WarrantyClaim, WarrantyClaimEvent, WarrantyClaimLine } from '../data/entities'
@@ -17,8 +17,10 @@ const LINE_TWO_ID = '66666666-6666-4666-8666-666666666666'
 const USER_ID = '77777777-7777-4777-8777-777777777777'
 const PORTAL_USER_ID = '88888888-8888-4888-8888-888888888888'
 const ORDER_ID = '99999999-9999-4999-8999-999999999999'
+const OTHER_ORDER_ID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
 const ORDER_LINE_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 const SALES_RETURN_ID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+const PREVIOUS_CUSTOMER_ID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
 
 const defaultSettings: WarrantyClaimEffectiveSettings = {
   slaHours: 48,
@@ -41,7 +43,15 @@ const noRisk: ClaimRiskAssessment = { level: 'none', signals: [] }
 let mockClaims: WarrantyClaim[] = []
 let mockLines: WarrantyClaimLine[] = []
 let mockEvents: WarrantyClaimEvent[] = []
+let mockLookupCalls: Array<{
+  operation: 'one' | 'many'
+  entity: unknown
+  where: unknown
+  options?: unknown
+  scope?: unknown
+}> = []
 let mockFindOneCalls: Array<{ entity: string; where: Record<string, unknown>; options: Record<string, unknown> }> = []
+let mockBeforeClaimLock: (() => void) | null = null
 
 const enforceWithGuardsMock = jest.fn<Promise<void>, [unknown, Record<string, unknown>]>()
 const emitWarrantyClaimsEventMock = jest.fn<Promise<void>, [string, unknown, unknown?]>()
@@ -86,10 +96,14 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
 }))
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
-  findOneWithDecryption: async (_em: unknown, entity: unknown, where: unknown, options?: unknown, scope?: unknown) =>
-    mockFindOne(entity, where, scope, options),
-  findWithDecryption: async (_em: unknown, entity: unknown, where: unknown, _options?: unknown, scope?: unknown) =>
-    mockFindMany(entity, where, scope),
+  findOneWithDecryption: async (_em: unknown, entity: unknown, where: unknown, options?: unknown, scope?: unknown) => {
+    mockLookupCalls.push({ operation: 'one', entity, where, options, scope })
+    return mockFindOne(entity, where, scope, options)
+  },
+  findWithDecryption: async (_em: unknown, entity: unknown, where: unknown, options?: unknown, scope?: unknown) => {
+    mockLookupCalls.push({ operation: 'many', entity, where, options, scope })
+    return mockFindMany(entity, where, scope)
+  },
 }))
 
 import {
@@ -244,6 +258,11 @@ function mockFindMany(entity: unknown, where: unknown, scope: unknown): unknown[
 
 async function mockFindOne(entity: unknown, where: unknown, scope: unknown, options?: unknown): Promise<unknown> {
   mockFindOneCalls.push({ entity: entityName(entity), where: asRecord(where), options: asRecord(options) })
+  if (entityName(entity) === 'WarrantyClaim' && asRecord(options).lockMode === LockMode.PESSIMISTIC_WRITE) {
+    const beforeLock = mockBeforeClaimLock
+    mockBeforeClaimLock = null
+    beforeLock?.()
+  }
   return mockFindMany(entity, where, scope)[0] ?? null
 }
 
@@ -286,10 +305,15 @@ function makeUsersKysely() {
           return customerWhere && customerWhere[2] === CUSTOMER_ID ? [{ id: PORTAL_USER_ID }] : []
         }
         if (table === 'sales_orders') {
-          return idWhere && idWhere[2] === ORDER_ID ? [{ id: ORDER_ID, order_number: 'SO-1042' }] : []
+          return idWhere && (idWhere[2] === ORDER_ID || idWhere[2] === OTHER_ORDER_ID)
+            ? [{ id: idWhere[2], order_number: 'SO-1042', customer_entity_id: CUSTOMER_ID }]
+            : []
         }
         if (table === 'sales_order_lines') {
-          return idWhere && idWhere[2] === ORDER_LINE_ID ? [{ id: ORDER_LINE_ID, order_id: ORDER_ID }] : []
+          const requestedIds = idWhere?.[1] === 'in' ? idWhere[2] : [idWhere?.[2]]
+          return Array.isArray(requestedIds) && requestedIds.includes(ORDER_LINE_ID)
+            ? [{ id: ORDER_LINE_ID, order_id: ORDER_ID }]
+            : []
         }
         if (table === 'sales_returns') {
           return idWhere && idWhere[2] === SALES_RETURN_ID ? [{ id: SALES_RETURN_ID }] : []
@@ -303,6 +327,7 @@ function makeUsersKysely() {
           return builder
         },
         limit: () => builder,
+        forUpdate: () => builder,
         execute: async () => rowsFor(),
         executeTakeFirst: async () => rowsFor()[0],
       }
@@ -370,8 +395,8 @@ function makeContext(options: { entitlementResolver?: EntitlementResolverMock } 
 function makeClaim(status: WarrantyClaimStatus, fields: Partial<WarrantyClaim> = {}): WarrantyClaim {
   return {
     id: fields.id ?? CLAIM_ID,
-    organizationId: ORG_ID,
-    tenantId: TENANT_ID,
+    organizationId: fields.organizationId ?? ORG_ID,
+    tenantId: fields.tenantId ?? TENANT_ID,
     claimNumber: fields.claimNumber ?? 'WTY-000001',
     claimType: fields.claimType ?? 'warranty',
     status,
@@ -413,8 +438,8 @@ function makeLine(claim: WarrantyClaim, fields: Partial<WarrantyClaimLine> = {})
   return {
     id: fields.id ?? LINE_ID,
     claim,
-    organizationId: ORG_ID,
-    tenantId: TENANT_ID,
+    organizationId: fields.organizationId ?? ORG_ID,
+    tenantId: fields.tenantId ?? TENANT_ID,
     lineNo: fields.lineNo ?? 1,
     productId: fields.productId ?? null,
     variantId: fields.variantId ?? null,
@@ -451,12 +476,28 @@ function makeLine(claim: WarrantyClaim, fields: Partial<WarrantyClaimLine> = {})
   } as unknown as WarrantyClaimLine
 }
 
+async function executeAndCaptureUndo<Input, Result>(
+  command: CommandHandler<Input, Result>,
+  input: Input,
+  ctx: CommandRuntimeContext,
+): Promise<() => Promise<void>> {
+  const prepared = await command.prepare!(input, ctx)
+  const result = await command.execute(input, ctx)
+  const after = await command.captureAfter!(input, result, ctx)
+  const logEntry = await command.buildLog!({ input, result, ctx, snapshots: { before: prepared?.before, after } })
+  return async () => {
+    await command.undo!({ input, logEntry: logEntry as CommandUndoLogEntry, ctx })
+  }
+}
+
 beforeEach(() => {
     mockSalesTablesAbsent = false
   mockClaims = []
   mockLines = []
   mockEvents = []
+  mockLookupCalls = []
   mockFindOneCalls = []
+  mockBeforeClaimLock = null
   enforceWithGuardsMock.mockReset()
   enforceWithGuardsMock.mockResolvedValue(undefined)
   emitWarrantyClaimsEventMock.mockReset()
@@ -1175,6 +1216,331 @@ describe('warranty claim commands', () => {
     expect(created?.warrantyExpiresAt?.toISOString()).toBe('2024-02-29T00:00:00.000Z')
   })
 
+  test.each([
+    { label: 'explicit numbers', lines: [{ lineNo: 1 }, { lineNo: 1 }] },
+    { label: 'an explicit and a default number', lines: [{ lineNo: 2 }, {}] },
+  ])('claim create rejects duplicate $label before creating any records', async ({ lines }) => {
+    const { ctx, numberGenerator, dataEngine } = makeContext()
+
+    await expect(createClaimCommand.execute({ tenantId: TENANT_ID, organizationId: ORG_ID, claimType: 'warranty', lines }, ctx))
+      .rejects.toMatchObject({ status: 409, body: { code: 'warranty_claims.errors.duplicateLineNo' } })
+
+    expect(mockClaims).toHaveLength(0)
+    expect(mockLines).toHaveLength(0)
+    expect(mockEvents).toHaveLength(0)
+    expect(numberGenerator.generate).not.toHaveBeenCalled()
+    expect(dataEngine.markOrmEntityChange).not.toHaveBeenCalled()
+  })
+
+  test('line create rejects an explicit duplicate without changing the claim or lines', async () => {
+    const { ctx, dataEngine } = makeContext()
+    const claim = makeClaim('draft', { totalClaimedAmount: '10' })
+    const line = makeLine(claim, { creditAmount: '10' })
+    mockClaims.push(claim)
+    mockLines.push(line)
+    const claimBefore = { ...claim }
+
+    await expect(createClaimLineCommand.execute({ tenantId: TENANT_ID, organizationId: ORG_ID, claimId: CLAIM_ID, lineNo: 1, creditAmount: 20 }, ctx))
+      .rejects.toMatchObject({
+        status: 409,
+        body: {
+          code: 'warranty_claims.errors.duplicateLineNo',
+          error: expect.stringContaining('line number'),
+        },
+      })
+
+    expect(mockLines).toEqual([line])
+    expect(line.creditAmount).toBe('10')
+    expect(claim).toEqual(claimBefore)
+    expect(dataEngine.markOrmEntityChange).not.toHaveBeenCalled()
+  })
+
+  test('line update rejects a sibling number but accepts keeping its own number', async () => {
+    const { ctx, dataEngine } = makeContext()
+    const claim = makeClaim('draft', { totalClaimedAmount: '15' })
+    const first = makeLine(claim, { creditAmount: '10' })
+    const second = makeLine(claim, { id: LINE_TWO_ID, lineNo: 2, creditAmount: '5' })
+    mockClaims.push(claim)
+    mockLines.push(first, second)
+    const secondBefore = { ...second }
+    const claimBefore = { ...claim }
+
+    await expect(updateClaimLineCommand.execute({ id: LINE_TWO_ID, lineNo: 1, creditAmount: 20 }, ctx))
+      .rejects.toMatchObject({ status: 409, body: { code: 'warranty_claims.errors.duplicateLineNo' } })
+
+    expect(second).toEqual(secondBefore)
+    expect(claim).toEqual(claimBefore)
+    expect(dataEngine.markOrmEntityChange).not.toHaveBeenCalled()
+
+    await updateClaimLineCommand.execute({ id: LINE_TWO_ID, lineNo: 2, creditAmount: 20 }, ctx)
+
+    expect(second).toMatchObject({ lineNo: 2, creditAmount: '20' })
+    expect(first.lineNo).toBe(1)
+    expect(claim.totalClaimedAmount).toBe('30')
+  })
+
+  test.each([
+    { lineCount: 1, release: 'renumber' },
+    { lineCount: 2, release: 'renumber' },
+    { lineCount: 1, release: 'delete' },
+    { lineCount: 2, release: 'delete' },
+  ])('delete/add/undo with $lineCount starting lines retries after $release frees the number', async ({ lineCount, release }) => {
+    const { ctx, dataEngine } = makeContext()
+    const claim = makeClaim('draft', { claimType: 'return' })
+    const deletedLine = makeLine(claim, { lineNo: lineCount, creditAmount: '10' })
+    mockClaims.push(claim)
+    mockLines.push(deletedLine)
+    if (lineCount === 2) mockLines.push(makeLine(claim, { id: LINE_TWO_ID, lineNo: 1, creditAmount: '3' }))
+    const undo = await executeAndCaptureUndo(deleteClaimLineCommand, { id: LINE_ID, claimId: CLAIM_ID }, ctx)
+    const created = await createClaimLineCommand.execute({ tenantId: TENANT_ID, organizationId: ORG_ID, claimId: CLAIM_ID, creditAmount: 1 }, ctx)
+    const createdLine = mockLines.find((line) => line.id === created.lineId)
+    const deletedBeforeUndo = { ...deletedLine }
+    const claimBeforeUndo = { ...claim }
+    expect(createdLine?.lineNo).toBe(lineCount)
+    expect(claim.totalClaimedAmount).toBe(lineCount === 1 ? '1' : '4')
+    dataEngine.markOrmEntityChange.mockClear()
+
+    await expect(undo()).rejects.toMatchObject({ status: 409, body: { code: 'warranty_claims.errors.duplicateLineNo' } })
+
+    expect(deletedLine).toEqual(deletedBeforeUndo)
+    expect(deletedLine.deletedAt).toBeInstanceOf(Date)
+    expect(claim).toEqual(claimBeforeUndo)
+    expect(dataEngine.markOrmEntityChange).not.toHaveBeenCalled()
+
+    if (release === 'delete') await deleteClaimLineCommand.execute({ id: created.lineId }, ctx)
+    else await updateClaimLineCommand.execute({ id: created.lineId, lineNo: lineCount + 1 }, ctx)
+    await undo()
+
+    expect(deletedLine).toMatchObject({ lineNo: lineCount, deletedAt: null, creditAmount: '10' })
+    const liveNumbers = mockLines.filter((line) => !line.deletedAt).map((line) => line.lineNo)
+    expect(new Set(liveNumbers).size).toBe(release === 'delete' ? lineCount : lineCount + 1)
+    expect(claim.totalClaimedAmount).toBe(String((lineCount === 1 ? 10 : 13) + (release === 'delete' ? 0 : 1)))
+  })
+
+  test('delete undo restores a soft-deleted line when its number is available', async () => {
+    const { ctx } = makeContext()
+    const claim = makeClaim('draft')
+    const line = makeLine(claim, { creditAmount: '10' })
+    mockClaims.push(claim)
+    mockLines.push(line)
+    const undo = await executeAndCaptureUndo(deleteClaimLineCommand, { id: LINE_ID }, ctx)
+    await createClaimLineCommand.execute({ tenantId: TENANT_ID, organizationId: ORG_ID, claimId: CLAIM_ID, lineNo: 7, creditAmount: 1 }, ctx)
+
+    await undo()
+
+    expect(mockLines.find((candidate) => candidate.id === LINE_ID))
+      .toMatchObject({ lineNo: 1, deletedAt: null, creditAmount: '10' })
+    expect(mockLines.filter((candidate) => !candidate.deletedAt).map((candidate) => candidate.lineNo).sort((left, right) => left - right))
+      .toEqual([1, 7])
+    expect(claim.totalClaimedAmount).toBe('11')
+  })
+
+  test('delete undo refuses a missing row even when its number has been reused', async () => {
+    const { ctx, dataEngine } = makeContext()
+    const claim = makeClaim('draft')
+    const line = makeLine(claim, { creditAmount: '10' })
+    mockClaims.push(claim)
+    mockLines.push(line)
+    const undo = await executeAndCaptureUndo(deleteClaimLineCommand, { id: LINE_ID }, ctx)
+    mockLines = []
+    await createClaimLineCommand.execute({ tenantId: TENANT_ID, organizationId: ORG_ID, claimId: CLAIM_ID, creditAmount: 1 }, ctx)
+    dataEngine.markOrmEntityChange.mockClear()
+
+    await expect(undo()).rejects.toMatchObject({ status: 409, body: { code: 'warranty_claims.errors.conflict' } })
+
+    expect(mockLines).toHaveLength(1)
+    expect(mockLines.some((candidate) => candidate.id === LINE_ID)).toBe(false)
+    expect(claim.totalClaimedAmount).toBe('1')
+    expect(dataEngine.markOrmEntityChange).not.toHaveBeenCalled()
+  })
+
+  test.each(['update', 'receive', 'release_quarantine', 'set_assessment'] as const)('%s undo refuses a colliding snapshot or intervening renumbering', async (operation) => {
+    const { ctx, dataEngine } = makeContext()
+    const claim = makeClaim(operation === 'receive' || operation === 'release_quarantine' ? 'received' : 'draft')
+    const line = makeLine(claim, { creditAmount: '10', quarantineStatus: 'held' })
+    mockClaims.push(claim)
+    mockLines.push(line)
+    let undo: () => Promise<void>
+    if (operation === 'update') {
+      undo = await executeAndCaptureUndo(updateClaimLineCommand, { id: LINE_ID, lineNo: 2, creditAmount: 20 }, ctx)
+    } else if (operation === 'receive') {
+      undo = await executeAndCaptureUndo(receiveClaimLineCommand, { tenantId: TENANT_ID, organizationId: ORG_ID, id: LINE_ID, conditionGrade: 'B', inspectionNotes: 'received inspection' }, ctx)
+    } else if (operation === 'release_quarantine') {
+      undo = await executeAndCaptureUndo(releaseClaimLineQuarantineCommand, { tenantId: TENANT_ID, organizationId: ORG_ID, id: LINE_ID }, ctx)
+    } else {
+      undo = await executeAndCaptureUndo(setClaimLineAssessmentCommand, { id: LINE_ID, assessmentPayload: { diagnosis: 'recorded assessment' } }, ctx)
+    }
+    if (operation !== 'update') {
+      await updateClaimLineCommand.execute({ id: LINE_ID, lineNo: 2 }, ctx)
+      line.updatedAt = new Date(line.updatedAt.getTime() + 1000)
+    }
+    await createClaimLineCommand.execute({ tenantId: TENANT_ID, organizationId: ORG_ID, claimId: CLAIM_ID, lineNo: 1, creditAmount: 1 }, ctx)
+    const lineBeforeUndo = { ...line }
+    const claimBeforeUndo = { ...claim }
+    dataEngine.markOrmEntityChange.mockClear()
+
+    await expect(undo()).rejects.toMatchObject({
+      status: 409,
+      body: { code: operation === 'update' ? 'warranty_claims.errors.duplicateLineNo' : 'warranty_claims.errors.conflict' },
+    })
+
+    expect(line).toEqual(lineBeforeUndo)
+    expect(claim).toEqual(claimBeforeUndo)
+    expect(mockLines.filter((candidate) => !candidate.deletedAt).map((candidate) => candidate.lineNo).sort((left, right) => left - right))
+      .toEqual([1, 2])
+    expect(dataEngine.markOrmEntityChange).not.toHaveBeenCalled()
+  })
+
+  test.each(['create', 'update'] as const)('line %s permits a number used only outside the claim tenant and organization scope', async (operation) => {
+    const { ctx } = makeContext()
+    const claim = makeClaim('draft')
+    const otherClaim = makeClaim('draft', { id: USER_ID })
+    const target = makeLine(claim, { lineNo: 2 })
+    mockClaims.push(claim, otherClaim)
+    mockLines.push(
+      target,
+      makeLine(otherClaim, { id: LINE_TWO_ID, lineNo: 1 }),
+      makeLine(claim, { id: CUSTOMER_ID, tenantId: ORDER_ID, lineNo: 1 }),
+      makeLine(claim, { id: PORTAL_USER_ID, organizationId: ORDER_ID, lineNo: 1 }),
+    )
+
+    if (operation === 'create') {
+      const result = await createClaimLineCommand.execute({ tenantId: TENANT_ID, organizationId: ORG_ID, claimId: CLAIM_ID, lineNo: 1 }, ctx)
+      expect(mockLines.find((line) => line.id === result.lineId)?.lineNo).toBe(1)
+    } else {
+      await updateClaimLineCommand.execute({ id: LINE_ID, lineNo: 1 }, ctx)
+      expect(target.lineNo).toBe(1)
+    }
+
+    const numberReads = mockLookupCalls.filter((lookup) => lookup.operation === 'many'
+      && entityName(lookup.entity) === 'WarrantyClaimLine'
+      && asRecord(lookup.where).claim === CLAIM_ID)
+    expect(numberReads.length).toBeGreaterThan(0)
+    for (const lookup of numberReads) {
+      expect(lookup.where).toMatchObject({ claim: CLAIM_ID, tenantId: TENANT_ID, organizationId: ORG_ID, deletedAt: null })
+    }
+  })
+
+  test.each(['create', 'update', 'delete undo'] as const)('line %s locks the scoped parent before reading live sibling numbers', async (operation) => {
+    const { ctx } = makeContext()
+    const claim = makeClaim('draft')
+    const line = makeLine(claim)
+    mockClaims.push(claim)
+    mockLines.push(line)
+    if (operation === 'create') {
+      await createClaimLineCommand.execute({ tenantId: TENANT_ID, organizationId: ORG_ID, claimId: CLAIM_ID }, ctx)
+    } else if (operation === 'update') {
+      await updateClaimLineCommand.execute({ id: LINE_ID, lineNo: 2 }, ctx)
+    } else {
+      const undo = await executeAndCaptureUndo(deleteClaimLineCommand, { id: LINE_ID }, ctx)
+      mockLookupCalls = []
+      await undo()
+    }
+
+    const lockedParentIndex = mockLookupCalls.findIndex((lookup) => lookup.operation === 'one'
+      && entityName(lookup.entity) === 'WarrantyClaim'
+      && asRecord(lookup.options).lockMode === LockMode.PESSIMISTIC_WRITE)
+    const siblingReadIndex = mockLookupCalls.findIndex((lookup) => lookup.operation === 'many'
+      && entityName(lookup.entity) === 'WarrantyClaimLine'
+      && asRecord(lookup.where).claim === CLAIM_ID
+      && asRecord(lookup.where).deletedAt === null)
+    expect(lockedParentIndex).toBeGreaterThanOrEqual(0)
+    expect(siblingReadIndex).toBeGreaterThan(lockedParentIndex)
+    expect(mockLookupCalls[lockedParentIndex].where)
+      .toMatchObject({ id: CLAIM_ID, tenantId: TENANT_ID, organizationId: ORG_ID })
+  })
+
+  test('whole-claim delete undo refuses restoring duplicate live numbers from a legacy snapshot', async () => {
+    const { ctx, dataEngine } = makeContext()
+    const claim = makeClaim('draft')
+    const first = makeLine(claim, { creditAmount: '10' })
+    const second = makeLine(claim, { id: LINE_TWO_ID, lineNo: 1, creditAmount: '5' })
+    mockClaims.push(claim)
+    mockLines.push(first, second)
+    const undo = await executeAndCaptureUndo(deleteClaimCommand, { id: CLAIM_ID }, ctx)
+    const claimBeforeUndo = { ...claim }
+    dataEngine.markOrmEntityChange.mockClear()
+
+    await expect(undo()).rejects.toMatchObject({ status: 409, body: { code: 'warranty_claims.errors.duplicateLineNo' } })
+
+    expect(claim).toEqual(claimBeforeUndo)
+    expect(first.deletedAt).toBeInstanceOf(Date)
+    expect(second.deletedAt).toBeInstanceOf(Date)
+    expect(dataEngine.markOrmEntityChange).not.toHaveBeenCalled()
+  })
+
+  test('claim undo refuses a missing before-line snapshot without restoring the header or line', async () => {
+    const { ctx, dataEngine } = makeContext()
+    const claim = makeClaim('draft', { notes: 'before', totalClaimedAmount: '10' })
+    const line = makeLine(claim, { creditAmount: '10' })
+    mockClaims.push(claim)
+    mockLines.push(line)
+    const input = { id: CLAIM_ID, notes: 'after' }
+    const prepared = await updateClaimCommand.prepare!(input, ctx)
+    const result = await updateClaimCommand.execute(input, ctx)
+    const after = await updateClaimCommand.captureAfter!(input, result, ctx)
+    const logEntry = await updateClaimCommand.buildLog!({
+      input,
+      result,
+      ctx,
+      snapshots: { before: { ...asRecord(prepared?.before), lines: [] }, after },
+    })
+    const claimBeforeUndo = { ...claim }
+    const lineBeforeUndo = { ...line }
+    dataEngine.markOrmEntityChange.mockClear()
+
+    await expect(updateClaimCommand.undo!({ input, logEntry: logEntry as CommandUndoLogEntry, ctx }))
+      .rejects.toMatchObject({ status: 409, body: { code: 'warranty_claims.errors.conflict' } })
+
+    expect(claim).toEqual(claimBeforeUndo)
+    expect(line).toEqual(lineBeforeUndo)
+    expect(dataEngine.markOrmEntityChange).not.toHaveBeenCalled()
+  })
+
+  test('claim notes undo remains available on a legacy claim with unchanged duplicate live numbers', async () => {
+    const { ctx } = makeContext()
+    const claim = makeClaim('draft', { notes: 'before', totalClaimedAmount: '15' })
+    const first = makeLine(claim, { creditAmount: '10' })
+    const second = makeLine(claim, { id: LINE_TWO_ID, lineNo: 1, creditAmount: '5' })
+    mockClaims.push(claim)
+    mockLines.push(first, second)
+    const firstBefore = { ...first }
+    const secondBefore = { ...second }
+    const undo = await executeAndCaptureUndo(updateClaimCommand, { id: CLAIM_ID, notes: 'after' }, ctx)
+
+    await undo()
+
+    expect(claim.notes).toBe('before')
+    expect(claim.totalClaimedAmount).toBe('15')
+    expect(first).toEqual(firstBefore)
+    expect(second).toEqual(secondBefore)
+  })
+
+  test.each(['notes', 'assessment'] as const)('line %s undo remains available when legacy duplicate live numbers are unchanged', async (operation) => {
+    const { ctx } = makeContext()
+    const claim = makeClaim('draft')
+    const first = makeLine(claim, { inspectionNotes: 'before', assessmentPayload: { diagnosis: 'before' } })
+    const second = makeLine(claim, { id: LINE_TWO_ID, lineNo: 1 })
+    mockClaims.push(claim)
+    mockLines.push(first, second)
+    let undo: () => Promise<void>
+    if (operation === 'notes') {
+      undo = await executeAndCaptureUndo(updateClaimLineCommand, { id: LINE_ID, inspectionNotes: 'after' }, ctx)
+    } else {
+      undo = await executeAndCaptureUndo(setClaimLineAssessmentCommand, { id: LINE_ID, assessmentPayload: { diagnosis: 'after' } }, ctx)
+    }
+
+    await undo()
+
+    expect(first).toMatchObject({
+      lineNo: 1,
+      deletedAt: null,
+      inspectionNotes: 'before',
+      assessmentPayload: { diagnosis: 'before' },
+    })
+    expect(second).toMatchObject({ lineNo: 1, deletedAt: null })
+  })
+
   test('delete is allowed only for draft or cancelled claims', async () => {
     const { ctx } = makeContext()
     const claim = makeClaim('submitted')
@@ -1289,6 +1655,296 @@ describe('warranty claim commands', () => {
     expect(claim.orderNumber).toBeNull()
   })
 
+  test('update refreshes the customer name snapshot when only the customer id changes', async () => {
+    const { ctx } = makeContext()
+    const claim = makeClaim('draft', { customerId: PREVIOUS_CUSTOMER_ID, customerName: 'Previous Customer Ltd' })
+    mockClaims.push(claim)
+
+    await updateClaimCommand.execute({
+      id: CLAIM_ID,
+      tenantId: TENANT_ID,
+      organizationId: ORG_ID,
+      customerId: CUSTOMER_ID,
+    } as ClaimUpdateInput, ctx)
+    expect(claim.customerId).toBe(CUSTOMER_ID)
+    expect(claim.customerName).toBe('Acme Distribution')
+  })
+
+  test('update refreshes a stale customer name snapshot when the customer id is unchanged', async () => {
+    const { ctx } = makeContext()
+    const claim = makeClaim('draft', { customerName: 'Stale Name' })
+    mockClaims.push(claim)
+
+    await updateClaimCommand.execute({
+      id: CLAIM_ID,
+      tenantId: TENANT_ID,
+      organizationId: ORG_ID,
+      customerId: CUSTOMER_ID,
+    } as ClaimUpdateInput, ctx)
+    expect(claim.customerId).toBe(CUSTOMER_ID)
+    expect(claim.customerName).toBe('Acme Distribution')
+  })
+
+  test('update keeps the linked customer name on a name-only edit and stores a typed name for an unlinked claim', async () => {
+    const { ctx } = makeContext()
+    const claim = makeClaim('draft', { customerName: 'Stale Name' })
+    mockClaims.push(claim)
+
+    await updateClaimCommand.execute({
+      id: CLAIM_ID,
+      tenantId: TENANT_ID,
+      organizationId: ORG_ID,
+      customerName: 'Typed Name',
+    } as ClaimUpdateInput, ctx)
+    expect(claim.customerId).toBe(CUSTOMER_ID)
+    expect(claim.customerName).toBe('Acme Distribution')
+
+    claim.customerId = null
+    await updateClaimCommand.execute({
+      id: CLAIM_ID,
+      tenantId: TENANT_ID,
+      organizationId: ORG_ID,
+      customerName: 'Walk-in Buyer',
+    } as ClaimUpdateInput, ctx)
+    expect(claim.customerId).toBeNull()
+    expect(claim.customerName).toBe('Walk-in Buyer')
+  })
+
+  test('update clears the customer name snapshot when the customer link is cleared', async () => {
+    const { ctx } = makeContext()
+    const claim = makeClaim('draft')
+    mockClaims.push(claim)
+
+    await updateClaimCommand.execute({
+      id: CLAIM_ID,
+      tenantId: TENANT_ID,
+      organizationId: ORG_ID,
+      customerId: null,
+    } as ClaimUpdateInput, ctx)
+    expect(claim.customerId).toBeNull()
+    expect(claim.customerName).toBeNull()
+  })
+
+  test('update stores the typed customer name when the customer link is cleared', async () => {
+    const { ctx } = makeContext()
+    const claim = makeClaim('draft')
+    mockClaims.push(claim)
+
+    await updateClaimCommand.execute({
+      id: CLAIM_ID,
+      tenantId: TENANT_ID,
+      organizationId: ORG_ID,
+      customerId: null,
+      customerName: 'Walk-in Buyer',
+    } as ClaimUpdateInput, ctx)
+    expect(claim.customerId).toBeNull()
+    expect(claim.customerName).toBe('Walk-in Buyer')
+  })
+
+  test('update clears the customer link even when the previous customer no longer exists', async () => {
+    const { ctx } = makeContext()
+    const claim = makeClaim('draft', { customerId: PREVIOUS_CUSTOMER_ID, customerName: 'Previous Customer Ltd' })
+    mockClaims.push(claim)
+
+    await updateClaimCommand.execute({
+      id: CLAIM_ID,
+      tenantId: TENANT_ID,
+      organizationId: ORG_ID,
+      customerId: null,
+    } as ClaimUpdateInput, ctx)
+    expect(claim.customerId).toBeNull()
+    expect(claim.customerName).toBeNull()
+  })
+
+  test.each([OTHER_ORDER_ID, null])('rejects changing order to %s while retaining a linked line without partial writes', async (orderId) => {
+    const { ctx, dataEngine } = makeContext()
+    const claim = makeClaim('draft', { orderId: ORDER_ID, orderNumber: 'SO-original', notes: 'Original notes' })
+    const line = makeLine(claim, { orderLineId: ORDER_LINE_ID })
+    mockClaims.push(claim)
+    mockLines.push(line)
+    const beforeClaim = { ...claim }
+    const beforeLine = { ...line }
+
+    await expect(updateClaimCommand.execute({ id: CLAIM_ID, orderId, notes: 'Must not persist' }, ctx))
+      .rejects.toMatchObject({ status: 400, body: { error: 'warranty_claims.errors.invalidReference' } })
+
+    expect(claim).toEqual(beforeClaim)
+    expect(line).toEqual(beforeLine)
+    expect(mockEvents).toHaveLength(0)
+    expect(dataEngine.markOrmEntityChange).not.toHaveBeenCalled()
+    expect(emitWarrantyClaimsEventMock).not.toHaveBeenCalled()
+  })
+
+  test.each([ORDER_ID, OTHER_ORDER_ID])('validates retained lines when linking an unlinked header to %s', async (orderId) => {
+    const { ctx } = makeContext()
+    const claim = makeClaim('draft')
+    mockClaims.push(claim)
+    mockLines.push(makeLine(claim, { orderLineId: ORDER_LINE_ID }))
+
+    const update = updateClaimCommand.execute({ id: CLAIM_ID, orderId }, ctx)
+    if (orderId === ORDER_ID) {
+      await expect(update).resolves.toEqual({ claimId: CLAIM_ID })
+      expect(claim.orderId).toBe(ORDER_ID)
+    } else {
+      await expect(update).rejects.toMatchObject({ status: 400 })
+      expect(claim.orderId).toBeNull()
+    }
+  })
+
+  test('checks every retained line, including a reference after an unlinked line', async () => {
+    const { ctx } = makeContext()
+    const claim = makeClaim('draft', { orderId: ORDER_ID })
+    mockClaims.push(claim)
+    mockLines.push(makeLine(claim), makeLine(claim, { id: LINE_TWO_ID, orderLineId: ORDER_LINE_ID }))
+
+    await expect(updateClaimCommand.execute({ id: CLAIM_ID, orderId: OTHER_ORDER_ID }, ctx))
+      .rejects.toMatchObject({ status: 400 })
+    expect(claim.orderId).toBe(ORDER_ID)
+  })
+
+  test('ignores deleted, other-claim, and other-scope lines when changing an order', async () => {
+    const { ctx } = makeContext()
+    const claim = makeClaim('draft', { orderId: ORDER_ID })
+    const otherClaim = makeClaim('draft', { id: LINE_TWO_ID, orderId: ORDER_ID })
+    mockClaims.push(claim, otherClaim)
+    mockLines.push(
+      makeLine(claim, { orderLineId: ORDER_LINE_ID, deletedAt: new Date() }),
+      makeLine(otherClaim, { id: LINE_TWO_ID, orderLineId: ORDER_LINE_ID }),
+      { ...makeLine(claim, { orderLineId: ORDER_LINE_ID }), tenantId: LINE_TWO_ID },
+      { ...makeLine(claim, { orderLineId: ORDER_LINE_ID }), organizationId: LINE_TWO_ID },
+      makeLine(claim),
+    )
+
+    await expect(updateClaimCommand.execute({ id: CLAIM_ID, orderId: OTHER_ORDER_ID }, ctx))
+      .resolves.toEqual({ claimId: CLAIM_ID })
+    await expect(updateClaimCommand.execute({ id: CLAIM_ID, orderId: null }, ctx))
+      .resolves.toEqual({ claimId: CLAIM_ID })
+    expect(claim.orderId).toBeNull()
+  })
+
+  test('preserves ordinary header edits with historical missing references', async () => {
+    const { ctx } = makeContext()
+    const claim = makeClaim('draft', { orderId: ORDER_ID })
+    mockClaims.push(claim)
+    mockLines.push(makeLine(claim, { orderLineId: LINE_TWO_ID }))
+
+    await expect(updateClaimCommand.execute({ id: CLAIM_ID, orderId: ORDER_ID, notes: 'Updated notes' }, ctx))
+      .resolves.toEqual({ claimId: CLAIM_ID })
+    expect(claim.notes).toBe('Updated notes')
+  })
+
+  test.each([undefined, ORDER_LINE_ID])('rejects a retained mismatched reference on a line save with orderLineId %s', async (orderLineId) => {
+    const { ctx, dataEngine } = makeContext()
+    const claim = makeClaim('draft', { orderId: OTHER_ORDER_ID })
+    const line = makeLine(claim, { orderLineId: ORDER_LINE_ID })
+    mockClaims.push(claim)
+    mockLines.push(line)
+    const beforeClaim = { ...claim }
+    const beforeLine = { ...line }
+
+    await expect(updateClaimLineCommand.execute({ id: LINE_ID, ...(orderLineId ? { orderLineId } : {}), faultDescription: 'Must not persist' }, ctx))
+      .rejects.toMatchObject({ status: 400, body: { error: 'warranty_claims.errors.invalidReference' } })
+    expect(claim).toEqual(beforeClaim)
+    expect(line).toEqual(beforeLine)
+    expect(mockEvents).toHaveLength(0)
+    expect(dataEngine.markOrmEntityChange).not.toHaveBeenCalled()
+  })
+
+  test('allows line saves with matching references and explicit detachment of a mismatched line', async () => {
+    const { ctx } = makeContext()
+    const claim = makeClaim('draft', { orderId: ORDER_ID })
+    const line = makeLine(claim, { orderLineId: ORDER_LINE_ID })
+    mockClaims.push(claim)
+    mockLines.push(line)
+
+    await expect(updateClaimLineCommand.execute({ id: LINE_ID, faultDescription: 'Updated fault' }, ctx))
+      .resolves.toEqual({ claimId: CLAIM_ID, lineId: LINE_ID })
+    claim.orderId = OTHER_ORDER_ID
+    await expect(updateClaimLineCommand.execute({ id: LINE_ID, orderLineId: null }, ctx))
+      .resolves.toEqual({ claimId: CLAIM_ID, lineId: LINE_ID })
+    expect(line.orderLineId).toBeNull()
+  })
+
+  test('preserves line edits with an unchanged historical missing reference', async () => {
+    const { ctx } = makeContext()
+    const claim = makeClaim('draft', { orderId: ORDER_ID })
+    const line = makeLine(claim, { orderLineId: LINE_TWO_ID })
+    mockClaims.push(claim)
+    mockLines.push(line)
+
+    await expect(updateClaimLineCommand.execute({ id: LINE_ID, faultDescription: 'Updated fault' }, ctx))
+      .resolves.toEqual({ claimId: CLAIM_ID, lineId: LINE_ID })
+    expect(line.orderLineId).toBe(LINE_TWO_ID)
+    expect(line.faultDescription).toBe('Updated fault')
+    await expect(updateClaimLineCommand.execute({ id: LINE_ID, orderLineId: SALES_RETURN_ID }, ctx))
+      .rejects.toMatchObject({ status: 400 })
+  })
+
+  test('validates retained lines after acquiring the header lock', async () => {
+    const { ctx } = makeContext()
+    const claim = makeClaim('draft', { orderId: ORDER_ID })
+    mockClaims.push(claim)
+    mockBeforeClaimLock = () => mockLines.push(makeLine(claim, { orderLineId: ORDER_LINE_ID }))
+
+    await expect(updateClaimCommand.execute({ id: CLAIM_ID, orderId: OTHER_ORDER_ID }, ctx))
+      .rejects.toMatchObject({ status: 400 })
+    expect(claim.orderId).toBe(ORDER_ID)
+    expect(mockFindOneCalls).toContainEqual(expect.objectContaining({
+      entity: 'WarrantyClaim',
+      options: { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
+    }))
+  })
+
+  test('renumbering an unlinked line checks siblings after acquiring the refreshed parent lock', async () => {
+    const { ctx, dataEngine } = makeContext()
+    const claim = makeClaim('draft')
+    const line = makeLine(claim)
+    mockClaims.push(claim)
+    mockLines.push(line)
+    mockBeforeClaimLock = () => mockLines.push(makeLine(claim, { id: LINE_TWO_ID, lineNo: 2 }))
+
+    await expect(updateClaimLineCommand.execute({ id: LINE_ID, lineNo: 2 }, ctx))
+      .rejects.toMatchObject({ status: 409, body: { code: 'warranty_claims.errors.duplicateLineNo' } })
+    expect(line.lineNo).toBe(1)
+    expect(dataEngine.markOrmEntityChange).not.toHaveBeenCalled()
+    expect(mockFindOneCalls).toContainEqual(expect.objectContaining({
+      entity: 'WarrantyClaim',
+      options: { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
+    }))
+  })
+
+  test('renumbering an unlinked line refuses a parent that became locked before lock acquisition', async () => {
+    const { ctx, dataEngine } = makeContext()
+    const claim = makeClaim('draft')
+    const line = makeLine(claim)
+    mockClaims.push(claim)
+    mockLines.push(line)
+    mockBeforeClaimLock = () => { claim.status = 'closed' }
+
+    await expect(updateClaimLineCommand.execute({ id: LINE_ID, lineNo: 2 }, ctx))
+      .rejects.toMatchObject({ status: 400 })
+    expect(line.lineNo).toBe(1)
+    expect(dataEngine.markOrmEntityChange).not.toHaveBeenCalled()
+  })
+
+  test.each(['create', 'update'])('validates the refreshed parent order under the lock on line %s', async (operation) => {
+    const { ctx, dataEngine } = makeContext()
+    const claim = makeClaim('draft', { orderId: ORDER_ID })
+    const line = makeLine(claim, { orderLineId: ORDER_LINE_ID })
+    mockClaims.push(claim)
+    if (operation === 'update') mockLines.push(line)
+    mockBeforeClaimLock = () => { claim.orderId = OTHER_ORDER_ID }
+
+    const result = operation === 'create'
+      ? createClaimLineCommand.execute({ claimId: CLAIM_ID, orderLineId: ORDER_LINE_ID, qtyClaimed: 1 }, ctx)
+      : updateClaimLineCommand.execute({ id: LINE_ID, faultDescription: 'Must not persist' }, ctx)
+
+    await expect(result).rejects.toMatchObject({ status: 400 })
+    expect(mockLines).toHaveLength(operation === 'create' ? 0 : 1)
+    expect(line.faultDescription).toBeNull()
+    expect(dataEngine.markOrmEntityChange).not.toHaveBeenCalled()
+  })
+
   test('customer replies raise the awaiting-staff-reply flag and staff actions clear it', async () => {
     const { ctx } = makeContext()
     const claim = makeClaim('in_review')
@@ -1333,6 +1989,138 @@ describe('warranty claim commands', () => {
 
     await expect(updateClaimCommand.execute({ id: CLAIM_ID, notes: 'new' }, ctx)).rejects.toMatchObject({ status: 409 })
     expect(claim.notes).toBeNull()
+  })
+})
+
+function lineReplayScenario<TInput extends { id: string; updatedAt?: string | Date | null }>(
+  command: CommandHandler<TInput, { lineId: string; claimId: string }>,
+  input: TInput,
+  expectedFields: Partial<WarrantyClaimLine>,
+) {
+  return {
+    name: command.id,
+    expectedFields,
+    execute: (ctx: CommandRuntimeContext) => command.execute(input, ctx),
+    prepare: (ctx: CommandRuntimeContext) => command.prepare!(input, ctx),
+    captureAfter: (ctx: CommandRuntimeContext, result: { lineId: string; claimId: string }) => command.captureAfter!(input, result, ctx),
+    undo: (ctx: CommandRuntimeContext, logEntry: CommandUndoLogEntry) => command.undo!({ input, ctx, logEntry }),
+    redo: (ctx: CommandRuntimeContext, logEntry: CommandUndoLogEntry = {}) => command.redo!({ input, ctx, logEntry }),
+  }
+}
+
+const replayInput = {
+  id: LINE_ID,
+  tenantId: TENANT_ID,
+  organizationId: ORG_ID,
+  updatedAt: '2026-07-01T00:00:00.000Z',
+}
+
+const lineReplayScenarios = [
+  lineReplayScenario(receiveClaimLineCommand, {
+    ...replayInput,
+    conditionGrade: 'B',
+    inspectionNotes: 'Receiving inspection',
+  }, { conditionGrade: 'B', inspectionNotes: 'Receiving inspection' }),
+  lineReplayScenario(releaseClaimLineQuarantineCommand, replayInput, { quarantineStatus: 'released' }),
+  lineReplayScenario(setClaimLineAssessmentCommand, {
+    ...replayInput,
+    assessmentPayload: { recommendation: 'repair', confidence: 0.9 },
+  }, { assessmentPayload: { recommendation: 'repair', confidence: 0.9 } }),
+]
+
+describe.each(lineReplayScenarios)('$name redo version handling', (scenario) => {
+  beforeEach(() => {
+    const actual = jest.requireActual<typeof import('@open-mercato/shared/lib/crud/optimistic-lock-command')>(
+      '@open-mercato/shared/lib/crud/optimistic-lock-command',
+    )
+    enforceWithGuardsMock.mockImplementation(async (_container, input) => {
+      actual.enforceCommandOptimisticLock({
+        ...input,
+        envValue: 'all',
+      } as Parameters<typeof actual.enforceCommandOptimisticLock>[0])
+    })
+  })
+
+  test('reapplies legacy input after undo without replaying its expired body version', async () => {
+    const { ctx } = makeContext()
+    const claim = makeClaim('received')
+    const line = makeLine(claim, { quarantineStatus: 'held', creditAmount: '9' })
+    mockClaims.push(claim)
+    mockLines.push(line)
+    const prepared = await scenario.prepare(ctx)
+    const result = await scenario.execute(ctx)
+    expect(line).toMatchObject(scenario.expectedFields)
+    const logEntry = { snapshotBefore: prepared?.before, snapshotAfter: await scenario.captureAfter(ctx, result) }
+
+    await scenario.undo(ctx, logEntry)
+    expect(line.updatedAt?.toISOString()).not.toBe(replayInput.updatedAt)
+    await expect(scenario.execute(ctx)).rejects.toMatchObject({ status: 409, body: { code: 'optimistic_lock_conflict' } })
+
+    await scenario.redo(ctx, logEntry)
+    expect(line).toMatchObject(scenario.expectedFields)
+    expect(line.creditAmount).toBe('9')
+    expect(line.tenantId).toBe(TENANT_ID)
+    expect(line.organizationId).toBe(ORG_ID)
+    expect(mockEvents).toHaveLength(2)
+  })
+
+  test('accepts a current version supplied on the redo request', async () => {
+    const { ctx } = makeContext()
+    const claim = makeClaim('received')
+    const line = makeLine(claim, { updatedAt: new Date('2026-10-13T10:00:00.000Z') })
+    mockClaims.push(claim)
+    mockLines.push(line)
+    ctx.request = new Request('http://localhost/api/audit_logs/audit-logs/actions/redo', {
+      method: 'POST',
+      headers: { 'x-om-ext-optimistic-lock-expected-updated-at': line.updatedAt!.toISOString() },
+    })
+
+    await scenario.redo(ctx)
+    expect(line).toMatchObject(scenario.expectedFields)
+  })
+
+  test('rejects a stale redo request header before writing', async () => {
+    const { ctx } = makeContext()
+    const claim = makeClaim('received')
+    const line = makeLine(claim, { updatedAt: new Date('2026-10-13T10:00:00.000Z') })
+    mockClaims.push(claim)
+    mockLines.push(line)
+    ctx.request = new Request('http://localhost/api/audit_logs/audit-logs/actions/redo', {
+      method: 'POST',
+      headers: { 'x-om-ext-optimistic-lock-expected-updated-at': replayInput.updatedAt },
+    })
+    const before = { ...line }
+
+    await expect(scenario.redo(ctx)).rejects.toMatchObject({ status: 409, body: { code: 'optimistic_lock_conflict' } })
+    expect(line).toEqual(before)
+    expect(mockEvents).toHaveLength(0)
+  })
+
+  test('still rejects a locked parent claim on redo', async () => {
+    const { ctx } = makeContext()
+    const claim = makeClaim('closed')
+    const line = makeLine(claim)
+    mockClaims.push(claim)
+    mockLines.push(line)
+    const before = { ...line }
+
+    await expect(scenario.redo(ctx)).rejects.toMatchObject({ status: 400 })
+    expect(line).toEqual(before)
+    expect(mockEvents).toHaveLength(0)
+  })
+
+  test('does not replay a line outside the caller organization', async () => {
+    const { ctx } = makeContext()
+    const claim = makeClaim('received')
+    const line = makeLine(claim)
+    line.organizationId = '99999999-9999-4999-8999-999999999999'
+    mockClaims.push(claim)
+    mockLines.push(line)
+    const before = { ...line }
+
+    await expect(scenario.redo(ctx)).rejects.toMatchObject({ status: 404 })
+    expect(line).toEqual(before)
+    expect(mockEvents).toHaveLength(0)
   })
 })
 
