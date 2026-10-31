@@ -2,6 +2,7 @@ import type { AttachmentService } from '@open-mercato/core/modules/attachments'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { ChannelCapabilities } from '../adapter'
 import { baseEmailCapabilities } from '../email-capabilities'
+import { classifyOutboundError } from '../error-classification'
 import {
   OUTBOUND_ATTACHMENTS_MAX_COUNT,
   OUTBOUND_ATTACHMENTS_METADATA_KEY,
@@ -180,6 +181,18 @@ describe('validateOutboundAttachments', () => {
     await expect(
       validateOutboundAttachments({ container, scope, refs: [ref(uuid(1))], capabilities: fileSharingCapabilities }),
     ).rejects.toMatchObject({ code: '40001' })
+  })
+
+  it('reports an owner access policy denial as not found and lets a policy timeout through', async () => {
+    const { container, describeScoped } = createContainer({ [uuid(1)]: { fileName: 'a.pdf', mimeType: 'application/pdf', fileSize: 10 } })
+    describeScoped.mockRejectedValueOnce(new CrudHttpError(403, { error: 'Forbidden' }))
+    await expect(
+      validateOutboundAttachments({ container, scope, refs: [ref(uuid(1))], capabilities: fileSharingCapabilities }),
+    ).resolves.toMatchObject({ ok: false, code: 'attachment_not_found' })
+    describeScoped.mockRejectedValueOnce(new CrudHttpError(504, { error: 'Timeout' }))
+    await expect(
+      validateOutboundAttachments({ container, scope, refs: [ref(uuid(1))], capabilities: fileSharingCapabilities }),
+    ).rejects.toMatchObject({ status: 504 })
   })
 
   it('falls back to readScoped when the service does not describe files', async () => {
@@ -401,6 +414,27 @@ describe('loadOutboundAttachments', () => {
     await expect(
       loadOutboundAttachments({ container, scope, stored: [{ attachmentId: uuid(1), owner }], capabilities: fileSharingCapabilities }),
     ).rejects.toMatchObject({ code: '40P01' })
+  })
+
+  it('fails permanently on an owner access policy denial and retries a policy timeout', async () => {
+    const { container, readScoped, describeScoped } = createContainer({
+      [uuid(1)]: { fileName: 'order.pdf', mimeType: 'application/pdf', fileSize: 10 },
+    })
+    readScoped.mockRejectedValueOnce(new CrudHttpError(403, { error: 'Forbidden' }))
+    describeScoped.mockRejectedValueOnce(new CrudHttpError(403, { error: 'Forbidden' }))
+    await expect(
+      loadOutboundAttachments({ container, scope, stored: [{ attachmentId: uuid(1), owner }], capabilities: fileSharingCapabilities }),
+    ).rejects.toMatchObject({ code: 'attachment_unavailable', transient: false })
+
+    readScoped.mockRejectedValueOnce(new CrudHttpError(504, { error: 'Timeout' }))
+    const timeout = await loadOutboundAttachments({
+      container,
+      scope,
+      stored: [{ attachmentId: uuid(1), owner }],
+      capabilities: fileSharingCapabilities,
+    }).catch((error: unknown) => error)
+    expect(timeout).toMatchObject({ status: 504 })
+    expect(classifyOutboundError(timeout)).toMatchObject({ transient: true })
   })
 })
 
