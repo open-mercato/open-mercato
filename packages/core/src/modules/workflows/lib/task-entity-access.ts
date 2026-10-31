@@ -47,6 +47,7 @@ import {
   normalizeTaskEntityTypeSpelling,
   normalizeTaskEntityTypeToEntityId,
 } from './task-entity-types'
+import { resolveRegisteredTaskEntityViewFeatures } from './task-entity-registry'
 import type { TaskEntityAccessDecision, TaskEntityAccessMap } from './task-visibility'
 
 export type TaskEntityAccessScope = { tenantId: string | null; organizationId: string | null }
@@ -144,10 +145,16 @@ async function decideEntityType(
 
   if (classification.kind === 'system') {
     const requirement = resolveEntityAclRequirement(entityId)
-    // No entry, or a platform-only entity: `entityAcl.ts` answers 403 for both,
-    // and so does this.
-    if (!requirement || requirement.platformOnly) return { kind: 'unavailable' }
-    return { kind: 'requires', features: requirement.view }
+    if (requirement) {
+      // A platform-only entity: `entityAcl.ts` answers 403, and so does this.
+      if (requirement.platformOnly) return { kind: 'unavailable' }
+      return { kind: 'requires', features: requirement.view }
+    }
+    // No core entry: only the owning module's registration can make it
+    // visible; without one it stays unavailable, as `entityAcl.ts` answers.
+    const registered = resolveRegisteredTaskEntityViewFeatures(entityId)
+    if (!registered) return { kind: 'unavailable' }
+    return { kind: 'requires', features: registered }
   }
 
   return { kind: 'unavailable' }
