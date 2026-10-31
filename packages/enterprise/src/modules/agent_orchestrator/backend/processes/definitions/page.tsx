@@ -9,7 +9,6 @@ import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { StatusBadge, type StatusMap } from '@open-mercato/ui/primitives/status-badge'
-import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import {
   CrudForm,
   type CrudField,
@@ -31,7 +30,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import { formatRelativeAge } from '../../../components/types'
-import { useCoalescedReload } from '../../../components/useCoalescedReload'
+import { useProcessDefinitionsLiveUpdates } from '../../../components/useProcessDefinitionsLiveUpdates'
 import { PROCESS_STATUS_LABEL_KEY, type ProcessInstanceStatus } from '../../../components/processTypes'
 import {
   processMilestonesSchema,
@@ -396,15 +395,9 @@ export default function ProcessDefinitionsPage() {
     void load()
   }, [load])
 
-  // Live refresh: task runs starting/finishing update the Last-run column
-  // without a manual reload (silent — no loading flash), coalesced so an
-  // event burst triggers at most one refetch per interval.
-  const coalescedReload = useCoalescedReload(
+  useProcessDefinitionsLiveUpdates(
     React.useCallback(() => { void load({ silent: true }) }, [load]),
   )
-  useAppEvent('agent_orchestrator.process.execution.*', () => {
-    coalescedReload()
-  })
 
   React.useEffect(() => {
     let cancelled = false
