@@ -1,6 +1,6 @@
 # Lessons
 
-This catalog indexes 168 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
+This catalog indexes 169 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
 
 ## How to use this catalog
 
@@ -47,6 +47,7 @@ This catalog indexes 168 focused lessons. Route the task first, then read only r
 - [Module-registered schedules can only target workers owned by the same module](lessons/module-schedules-can-only-target-workers-owned-by-the-same-module.md) — area:architecture,integration; module:scheduler,queue,payment_gateways; topic:workers,module-boundaries,provider-lifecycle
 - [Never guard sensitive routes with `requireRoles` on mutable role names](lessons/never-guard-sensitive-routes-with-requireroles-on.md) — area:architecture; module:auth; topic:access-control,data-scoping
 - [Package build scripts must rewrite side-effect ESM imports and declared watch entrypoints must exist](lessons/package-build-scripts-must-rewrite-side-effect-esm.md) — area:architecture,integration; module:checkout; topic:build-output,module-boundaries,package-runtime
+- [Pin coupled dependency trains below the release-age gate before publishing](lessons/pin-coupled-dependency-trains-below-the-release-age-gate.md) — area:architecture,integration,testing; module:documents,create_app; topic:package-runtime,dependency-security,testing
 - [Prefer relative intra-package imports inside package CLI/runtime entrypoints](lessons/prefer-relative-intra-package-imports-inside-package.md) — area:architecture; module:cli; topic:package-runtime,runtime-startup,testing
 - [Standalone module discovery must treat published `src/modules` as canonical over `dist/modules`](lessons/standalone-module-discovery-must-treat-published-src.md) — area:architecture,framework-context,umes; module:create_app,events,cli; topic:build-output,events,generated-files
 - [Standalone scaffolding and generators must not assume monorepo-only paths](lessons/standalone-scaffolding-and-generators-must-not-assume.md) — area:architecture; module:cli,create_app; topic:generated-files,package-runtime,testing
