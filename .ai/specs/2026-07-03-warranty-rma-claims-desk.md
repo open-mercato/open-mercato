@@ -366,8 +366,8 @@ Playwright API-first specs in `packages/core/src/modules/warranty_claims/__integ
 | TC-WC-031 | Over-claim guards: sold-quantity hard gate on every write path; lines without an order-line reference unaffected; cross-claim cumulative over-claiming surfaced as an advisory signal |
 | TC-WC-032 | Return window: setting round-trips; out-of-window returns flagged without blocking |
 | TC-WC-033 | Replacement-order bridge: unauthenticated rejected; zero-priced replacement order created from `replace`-disposition lines, duplicates blocked; ineligible statuses and no-`replace`-line claims rejected |
-| TC-WC-040 | Replacement-order undo after stock approval initialization, redo with the original body version, and translated refusal after a user edits the order |
 | TC-WC-034 | Credit-memo bridge: unauthenticated rejected; receipt-capped, discount-aware memo at a 23% tax rate, duplicates blocked; restocking fees deducted, receipt evidence and status gates enforced, manual links validated |
+| TC-WC-040 | Replacement-order undo after stock approval initialization, redo with the original body version, and translated refusal after a user edits the order |
 
 Unit coverage (`__tests__/`) pins the transition matrix, line rollups, number generation, command undo snapshots, `status`/`claimType` immutability, type-config resolution, grade→disposition gating, entitlement precedence, vendor-policy matching and auto-recovery idempotency, adjudication fallback, business-hours math and pause preservation, return-label `notConfigured`, enricher batch shape, decision-tree traversal, quantity gates, return-window math, the tracking subscriber (multi-match skip, absent table, infrastructure rethrow), and all three bridges (guards, header scrubbing, lost-race compensation, double-failure orphan precedence, the four undo branches, and the full credit amount contract).
 
