@@ -1,4 +1,5 @@
 import { expect, test, type APIRequestContext } from '@playwright/test';
+import { readJsonSafe as parseJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe';
 import {
   createPipelineFixture,
   createPipelineStageFixture,
@@ -94,12 +95,22 @@ test.describe('TC-CRM-092: Deals list duplicate row action', () => {
     test.slow();
 
     await login(page, 'admin');
-    await page.goto('/backend/customers/deals', { waitUntil: 'domcontentloaded' });
+    const filteredResponsePromise = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return response.request().method() === 'GET'
+        && url.pathname === '/api/customers/deals'
+        && url.searchParams.get('search') === dealTitle;
+    });
+    await page.goto(`/backend/customers/deals?search=${encodeURIComponent(dealTitle)}`, { waitUntil: 'domcontentloaded' });
+    const filteredResponse = await filteredResponsePromise;
+    expect(filteredResponse.ok(), 'the fixture-filtered deals request should succeed').toBe(true);
+    const filteredPayload = await parseJsonSafe<{ items?: DealListItem[] }>(await filteredResponse.text());
+    expect((filteredPayload?.items ?? []).map((item) => item.id), 'the filtered response contains only the source deal').toEqual([dealId]);
 
     const searchBox = page.getByPlaceholder(/Search by title/i);
     await expect(searchBox).toBeVisible({ timeout: 30_000 });
-    await searchBox.fill(dealTitle);
-
+    await expect(searchBox).toHaveValue(dealTitle);
+    await expect(page.locator('tbody').getByRole('row'), 'the fixture-filtered list has settled').toHaveCount(1);
     const dealRow = page.locator('tr').filter({ hasText: dealTitle }).first();
     await expect(dealRow, 'seeded deal row should appear after searching by title').toBeVisible({ timeout: 30_000 });
 

@@ -1,0 +1,123 @@
+---
+title: mercato module search
+sidebar_label: module search and info
+description: Searches the Open Mercato Modules catalog from the terminal and shows one module's card, before you build or install anything.
+---
+
+`yarn mercato module search` asks the [Open Mercato Modules](https://modules.openmercato.com) catalog whether a module for your need already exists. Modules built into Open Mercato core come first, then official, community and third-party packages that the catalog has verified on your app's Open Mercato version. `yarn mercato module info` shows one module: its levels per release line, the agent policy, what it adds to your app and the install line to copy.
+
+Both commands only read. They never install, enable or change anything; use [`module enable`](./module-enable) or [`module add`](./module-add) with the printed command when you decide to install.
+
+## Usage
+
+```bash
+yarn mercato module search [<query>] [--category <id>] [--kind <kind>] [--all-lines] [--limit <n>] [--json]
+yarn mercato module info <package-or-module-id> [--json]
+```
+
+Examples:
+
+```bash
+yarn mercato module search "exchange rates"
+yarn mercato module search ksef --json
+yarn mercato module search --category payments-finance
+yarn mercato module info @fastwhitecat/integration-ksef-direct
+yarn mercato module info currencies
+```
+
+## Options
+
+### `module search`
+
+| Option | Description | Default |
+| --- | --- | --- |
+| `<query>` | What you need, in plain words (`send invoices to KSeF`, `exchange rates`) or a name (`stripe`, `data_sync`). Several words are joined into one query. Maximum 200 characters. Filler words such as `when`, `use` or `for` are ignored. Leave it out to list what `--category` or `--kind` picks. | required without a filter |
+| `--category <id>` | Only modules in one catalog category, for example `payments-finance` or `integrations-sync`. | all |
+| `--kind <kind>` | Only these kinds, comma-separated: `module`, `provider`, `library`, `tool`, `built-in`. | all |
+| `--all-lines` | Also show modules that the catalog has not verified on your app's Open Mercato line. | `false` |
+| `--limit <n>` | How many catalog modules to show, 1 to 20. Built-in matches are shown in addition (at most 5). | `10` |
+| `--json` | Print machine-readable JSON (see below) instead of text. | `false` |
+
+### `module info`
+
+| Option | Description |
+| --- | --- |
+| `<package-or-module-id>` | An npm name (`@open-mercato/gateway-stripe`, a version suffix is ignored), a catalog locator (`npm:@scope/name`, `github:owner/repo`) or a module ID (`currencies`, `integration_ksef_direct`). A module ID that is built into core resolves to the core module. |
+| `--json` | Print machine-readable JSON instead of text. |
+
+## Output
+
+```text
+Already in Open Mercato core:
+  currencies  Currencies   yarn mercato module enable @open-mercato/core --module currencies
+
+@fastwhitecat/integration-ksef-direct 0.1.8   VERIFIED · 0.9   community · MIT
+  Sends and receives Polish structured e-invoices through the KSeF API v2.
+  matched: provider KSeF · agent policy: ask (third-party)
+  install: yarn mercato module add @fastwhitecat/integration-ksef-direct@0.1.8 --allow-third-party && yarn db:migrate
+  more: https://modules.openmercato.com/m/@fastwhitecat/integration-ksef-direct
+```
+
+`yarn mercato module search "web research"` on a 0.9 app lists a provider the catalog has not run on 0.9, with the library it needs in the same `yarn add`:
+
+```text
+@open-mercato/web-research-model 0.9.0   LISTED · untested on 0.9   official · MIT
+  Web search through the native search tool of the agent LLM on Anthropic, OpenAI or Azure OpenAI. On by default.
+  matched: name, summary, tag web-search · agent policy: ask (not-verified)
+  install: yarn add @open-mercato/web-research@0.9.0 @open-mercato/web-research-model@0.9.0 && yarn generate
+  more: https://modules.openmercato.com/m/@open-mercato/web-research-model
+```
+
+- **Built-in first.** When a core module matches, enable it instead of installing a package. If `src/modules.ts` already enables it, the line says `Already enabled.`
+- **Your line only.** The command reads the Open Mercato version from `node_modules/@open-mercato/core/package.json` (or the `@open-mercato/core` range in `package.json`) and shows only modules with a verified install on that line, with the version the catalog verified there. A closing line such as `2 more modules are listed but not verified on 0.9. Use --all-lines.` tells you what was left out. The filter applies to modules only: providers, libraries and tools are not installed by the catalog's nightly run, so they are always listed, with their status on the line (for example `untested on 0.9`). When your version is not a line the catalog tests, every line is shown with a note.
+- **Install line.** The printed line includes the steps that follow the install: `yarn generate` after `yarn add` of a library or a provider and after `npx create-mercato-module install` (`yarn mercato module add` runs it itself), and `yarn db:migrate` after a module install that adds database tables or migrations or whose anatomy is not published (the enterprise step too). A provider without a module of its own (an adapter) is added together with the catalog library it needs.
+- **Ranking.** Every word must match first. When nothing does, modules that match some of the words follow, without loose fuzzy matches. When still nothing matches, one swap of two letters is undone (`stirpe` finds Stripe) and the first line says `Nothing matched "stirpe". Showing results for "stripe".`
+- **New apps.** When a new app on your line already registers a package or has a core module on, the line says so (`Nothing to install: a new app already registers ...`), followed by the command for an app from the empty preset.
+- **Agent policy.** `allow`, `ask` or `refuse`, with the reasons, for your line. Coding agents use it to decide whether they may install a module after you agree.
+
+## JSON output
+
+`--json` prints the same cards as the catalog's `search_modules` and `get_module` tools (contract `tools@1`), so agents get the same answer from the CLI and the website, and from the catalog's MCP server once it is live. The ranking is the catalog's own.
+
+`module search --json`:
+
+| Field | Description |
+| --- | --- |
+| `schemaVersion` | Always `1`. New fields are only added, never renamed or removed. |
+| `query` | The query as searched. |
+| `line` | Catalog line of the app (`0.9`, `next`), or `null` when the app's version is not tested. |
+| `omVersion` | The Open Mercato version read from the app, or `null`. |
+| `builtIn` | Matching core modules: `id`, `title`, `description`, `category`, `enabled` (`true`/`false` from `src/modules.ts`, `null` when unknown), `install`, `page`, `matchedOn`, `presetNote` (what a new app on `line` has, or `null` when a new app has it off). |
+| `results` | Module cards: `locator`, `path`, `title`, `summary`, `whenToUse`, `type`, `kind`, `category`, `license`, `tier`, `omQuality`, `verifiedOn`, `line`, `status`, `agentPolicy`, `installableFrom`, `install`, `matchedOn`, `card`. `install` is the bare command of `tools@1`, without the `yarn generate` and `yarn db:migrate` steps of the text output. On a line whose new app already registers the package, `install` is that sentence, and `presetNote` and `installEmptyPreset` (the command for an app from the empty preset, or `null`) are set. |
+| `total` | All catalog modules that matched, on any line. |
+| `hidden` | How many modules (kind `module`) were left out because they are not verified on `line` (always `0` with `--all-lines`). |
+| `dataVersion`, `generatedAt` | Version and time of the catalog data. |
+| `receiptSource` | Where the install receipts come from: `ci`, `preview` (a preview run, not CI) or `null`. |
+| `didYouMean` | Present when nothing matched the query and the results are for this spelling of it. |
+
+`module info --json` returns `schemaVersion`, `line`, `entry` (the catalog entry as published in `modules.json`, or `null` for a core module), `candidates`, `warnings` and `card` (the Markdown card with the install plan). `anatomy` and `untrusted` stay `null` in the CLI; read the card for the full plan. An unknown module prints `{ "schemaVersion": 1, "error": "...", "candidates": [...] }` and exits with code 1.
+
+## Network, cache and offline use
+
+The commands download `https://modules.openmercato.com/modules.json` and `built-in.json` (timeout 4 seconds, one retry) and keep a copy in `.mercato/cache/modules-index.json`. For 10 minutes the copy is used as it is, without a request and without a message. After that the copy is revalidated with its ETag; when that fails (no connection, an error from the server), the older copy is used and the command prints `Using cached module index from <date>.` on stderr. Without a copy it prints `Module index unavailable. Check your connection or set OM_MODULES_INDEX_URL.` and, on a second line, the reason (for example `Reason: https://mirror.example.com/nope.json answered 404`), and exits with code 2.
+
+| Environment variable | Description |
+| --- | --- |
+| `OM_MODULES_INDEX_URL` | Another `modules.json`, for example a mirror inside your network. `built-in.json` is read from the same folder. |
+| `OM_MODULES_BUILTIN_URL` | Another `built-in.json`, when it is not next to `modules.json`. |
+
+The commands send no telemetry; the only requests are the two downloads above.
+
+## Exit codes
+
+| Code | Meaning |
+| --- | --- |
+| `0` | Success, also when nothing matched. |
+| `1` | Wrong usage, or `module info` found no such module. |
+| `2` | The module index is unavailable and there is no cached copy. |
+
+## See also
+
+- [Open Mercato Modules](https://modules.openmercato.com): the catalog website, with the same search.
+- [`mercato module enable`](./module-enable): enable a core module or an installed package.
+- [`mercato module add`](./module-add): install a module package.
