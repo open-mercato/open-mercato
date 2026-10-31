@@ -180,14 +180,14 @@ GET  /api/communication_channels/oauth/ms365/callback   → adapter.exchangeOAut
 
 | Step | Detail |
 |---|---|
-| Authority | `https://login.microsoftonline.com/{tenantId}/oauth2/v2.0` where `tenantId` comes from the tenant client config (default `common`). |
+| Authority | `https://login.microsoftonline.com/{tenantId}/oauth2/v2.0` where `tenantId` comes from the tenant client config (default `organizations`; see D8). |
 | Authorize URL | `/authorize?client_id&redirect_uri&response_type=code&response_mode=query&scope&state&code_challenge&code_challenge_method=S256&prompt=select_account[&login_hint]`. `state` is the hub-minted value verbatim. |
 | PKCE | Adapter generates a 43–128 char verifier, returns `{ extra: { codeVerifier, scopes } }`; the hub encrypts it into the state cookie and hands it back as `stateExtra` on the callback. |
 | Scopes (default) | `offline_access openid profile email https://graph.microsoft.com/User.Read https://graph.microsoft.com/Mail.ReadWrite https://graph.microsoft.com/Mail.Send`. Admin may override via the optional `scopes` field; `offline_access` is always re-added (no refresh token without it). |
 | Code exchange | `POST /token` form: `grant_type=authorization_code, code, redirect_uri, client_id, client_secret, code_verifier, scope`. Uses shared `requestOAuthToken` (timeout, error mapping). |
 | Identity | `GET https://graph.microsoft.com/v1.0/me?$select=mail,userPrincipalName,displayName`. `externalIdentifier = (mail ?? userPrincipalName).toLowerCase()`. Fallback when `/me` fails: `preferred_username` from the `id_token` payload (decoded, not verified — it only seeds a display value; the hub already binds the session). |
 | Refresh | `POST /token` form: `grant_type=refresh_token, refresh_token, client_id, client_secret, scope`. Microsoft returns a **new** `refresh_token` on every call; the adapter persists it (fallback to the previous one only if absent). `expiresAt` computed via shared `tokenResponseToExpiresAt`. Missing refresh token or `invalid_grant` ⇒ throw `requires_reauth`. |
-| Client config resolution | Tenant row `integration_credentials(integration_id='channel_ms365', user_id=NULL)` resolved by the hub (`resolveOAuthClientCredentials`) for initiate, callback, and `RefreshCredentialsInput.oauthClient`. The adapter reads `oauthClient` first and falls back to the deprecated `credentials._client` shape only for parity with Gmail fixtures. |
+| Client config resolution | Tenant row `integration_credentials(integration_id='channel_ms365', user_id=NULL)` resolved by the hub (`resolveOAuthClientCredentials`) for initiate, callback, and `RefreshCredentialsInput.oauthClient`. The adapter reads only the trusted `oauthClient` slot; a missing or invalid `oauthClient` fails the refresh (no per-user `credentials._client` fallback, so a user-scoped row can never supply its own client secret). |
 
 ### Inbound sync model (delta polling)
 
@@ -226,7 +226,11 @@ BOOTSTRAP
 INCREMENTAL / CONTINUE
   GET {deltaLink | nextLink}
   for each item:
-     skip if "@removed" | isDraft | receivedDateTime < receivedWatermark
+     skip if "@removed" | isDraft
+     (only the first BOOTSTRAP / re-sync page also skips receivedDateTime < floor;
+      incremental pages get no client-side cutoff — Graph already applies the
+      baseline's `receivedDateTime ge` filter, and a cutoff would drop mail moved
+      into the Inbox later with its original timestamp)
      GET /me/messages/{id}/$value  → raw MIME
      normalize → NormalizedInboundMessage (channelMetadata: graphMessageId, conversationId)
   on page success:
@@ -271,15 +275,22 @@ Operator-triggered via the existing `/import-history` endpoint and `channel-impo
 ```
 GET /me/mailFolders/inbox/messages
     ?$select=id,internetMessageId,receivedDateTime,isDraft
-    &$filter=receivedDateTime ge {now - sinceDays}[ and (from/emailAddress/address eq 'a' or ...)]
+    &$filter=receivedDateTime ge {now - sinceDays} and receivedDateTime le {until}[ and (from/emailAddress/address eq 'a' or ...)]
     &$orderby=receivedDateTime desc&$top={pageSize}&$count=true
     ConsistencyLevel: eventual
 ```
 
 - `contactEmails` chunked into OR groups of at most 15 addresses per request (Graph filter length
   limits); pages are merged and capped by `maxMessages`.
-- `cursor` = base64 JSON `{ nextLink, chunkIndex, fetched }`; `totalCandidates` from `@odata.count`
-  on the first page when available.
+- `sinceDays` is clamped to the hub-wide ceiling `OM_IMPORT_HISTORY_MAX_SINCE_DAYS`
+  (`getImportHistoryMaxSinceDays()`, default 3650 days), not a fixed year.
+- `until` is pinned to the time of the first page and kept in the cursor, so mail arriving while
+  an import runs never shifts a re-listed page (incremental polling covers it).
+- `cursor` = base64 JSON `{ nextLink, chunkIndex, fetched, until, pageDoneIds }`; `totalCandidates`
+  from `@odata.count` on the first page when available.
+- A transient `$value` failure re-runs the same page; `pageDoneIds` (Graph immutable ids already
+  imported or skipped on that page) resume it by identity, not by position, so a replay never
+  re-fetches or double-counts a message even if the listing changed between attempts.
 - Each candidate is fetched as MIME and normalized exactly like polling.
 
 ### Outbound (`sendMessage`)
@@ -297,13 +308,20 @@ result: { externalMessageId: internetMessageId, conversationId, status: 'sent',
   a permanent `ErrorSendAsDenied` message.
 - Reply threading: `In-Reply-To` / `References` from `channelMetadata` are written into the MIME as
   today for Gmail; Exchange also threads on them and assigns the `conversationId`.
-- `401` ⇒ `{ status: 'failed', error: 'requires_reauth' }` (sentinel, same as Gmail).
+- `401` ⇒ throws the `requires_reauth` sentinel (`transient: false`, `status: 401`), same
+  hub outcome as Gmail.
 - When `/send` throws for any other reason, the adapter first reads the draft's state
   (`GET /me/messages/{id}?$select=isDraft,sentDateTime`; immutable ids keep the id across the
   send). `isDraft: false` means the send went through and the response was lost ⇒ report `sent`
   (no duplicate from the hub's retry). Otherwise: a permanent failure deletes the still-existing
-  draft (best-effort, no orphans in Drafts) and both permanent and transient failures are
-  reported as `failed` with the Graph error code.
+  draft (best-effort, no orphans in Drafts). A transient failure on a draft confirmed unsent is
+  rethrown so the hub retries. Every other outcome — permanent, or a send that could not be
+  verified — is **thrown** with an explicit `transient: false` and the Graph error code. It is never
+  returned as `{ status: 'failed', error }`: the hub classifies such text by pattern, and a
+  "timed out" or "Too Many Requests" message would be re-enqueued and could send the email twice.
+- A native transport failure (`TypeError('fetch failed')` with `ECONNRESET` / DNS / socket codes)
+  is normalized to a transient `GraphApiError` (status `599`, code `om.networkError`), like a
+  timeout: GETs retry, POSTs do not, and the `/send` outcome check still applies.
 - Attachments: `fileSharing: false` in phase 1 (same as Gmail/IMAP — the shared converter does not
   stitch attachment bytes yet). Re-enable together with the other providers.
 
@@ -466,11 +484,11 @@ stay uniform.
 | Graph / OAuth condition | Adapter behaviour | Hub outcome |
 |---|---|---|
 | `401` on any call, `invalid_grant` on refresh, missing refresh token | throw / return `requires_reauth` sentinel | channel `requires_reauth`, event emitted |
-| `429`, `5xx`, network timeout | throw `GraphApiError { transient: true, status }` | retry with backoff, cursor pinned |
+| `429`, `5xx`, network timeout, dropped connection / DNS failure | throw `GraphApiError { transient: true, status }` (`599` when no HTTP response) | retry with backoff, cursor pinned |
 | `403 ErrorAccessDenied` / `MailboxNotEnabledForRESTAPI` / `ErrorInvalidUser` | throw `{ transient: false, status: 403 }` with actionable message | permanent failure, operator-visible |
 | `410 syncStateNotFound` / `resyncRequired` | internal re-bootstrap from watermark | none (self-healing) |
 | `404` on `$value` | skip item | none |
-| Send `ErrorSendAsDenied` / `ErrorMessageSizeExceeded` | `{ status: 'failed', error }` | outbound failed, no retry |
+| Send `ErrorSendAsDenied` / `ErrorMessageSizeExceeded`, or a send whose outcome cannot be verified | throw `{ transient: false, status }` with the Graph code | outbound failed, no retry |
 
 ---
 
@@ -544,8 +562,8 @@ flow cannot run in CI).
 |---|---|
 | `credentials.test.ts` | schemas, `tenantId` default + charset guard, scope parsing always re-adds `offline_access`, channel-state passthrough |
 | `oauth.test.ts` | authority/base-URL resolution (sovereign-cloud overrides, https only), PKCE pair + RFC 7636 vector, authorize URL shape (PKCE, `select_account`, `login_hint`), exchange with `code_verifier`, refresh at the home tenant, `/me` profile, `id_token` claim decoding |
-| `graph-client.test.ts` | headers (`ImmutableId`, page size), `$select`/`$filter`, same-origin link guard, `$value` bytes, draft-from-MIME + send, lookup escaping, move/delete, permanent vs transient classification, `429` retry with `Retry-After`, `410` resync mapping, list with `$count` |
-| `adapter.test.ts` | wiring (providerKey, capabilities, exported/omitted methods); OAuth flow (extra carries verifier/scopes/tenant, exchange resolves mailbox + home tenant, claim fallback, missing verifier rejected); refresh (rotated token persisted, missing/revoked ⇒ `requires_reauth`, secret required); `fetchHistory` (bootstrap overlap ingests its first page, incremental pages ingest every non-removed non-draft item the delta reports (no client-side `receivedDateTime` cutoff), mid-drain `nextLink` + `pendingWatermark`, `410` re-sync ingests from watermark, `404` skip + transient pin, `401` sentinel, permanent `403` message); `importHistory` (filter shape, `nextLink` paging + count, sender chunking, `maxMessages`); `sendMessage` (MIME headers, authoritative `internetMessageId`, `401` sentinel, orphan-draft cleanup, missing mailbox); `deleteMessage`; `resolveContact`; `normalizeInbound` |
+| `graph-client.test.ts` | headers (`ImmutableId`, page size), `$select`/`$filter`, same-origin link guard, `$value` bytes, draft-from-MIME + send, lookup escaping, move/delete, permanent vs transient classification, native transport failures (`fetch failed` + socket/DNS cause) mapped to a transient `599` (GET retried, POST not), programming `TypeError`s rethrown, `429` retry with `Retry-After`, `410` resync mapping, list with `$count` |
+| `adapter.test.ts` | wiring (providerKey, capabilities, exported/omitted methods); OAuth flow (extra carries verifier/scopes/tenant, exchange resolves mailbox + home tenant, claim fallback, missing verifier rejected); refresh (rotated token persisted, missing/revoked ⇒ `requires_reauth`, secret required); `fetchHistory` (bootstrap overlap ingests its first page, incremental pages ingest every non-removed non-draft item the delta reports (no client-side `receivedDateTime` cutoff), mid-drain `nextLink` + `pendingWatermark`, `410` re-sync ingests from watermark, `404` skip + transient pin, `401` sentinel, permanent `403` message); `importHistory` (filter shape incl. the pinned `until` bound, `nextLink` paging + count, sender chunking, `maxMessages`, identity-based resume when the re-listed page gained or lost messages); `sendMessage` (MIME headers, authoritative `internetMessageId`, `401` sentinel, orphan-draft cleanup, missing mailbox; every failure path asserted through the hub's real `classifyOutboundError` / `isReauthError` — unverifiable sends never retried, confirmed-unsent transient ones retried, a native network failure through the real Graph client retried); `deleteMessage`; `resolveContact`; `normalizeInbound` |
 | `normalize-inbound.test.ts` / `convert-outbound.test.ts` | MIME ↔ hub mapping parity with the Gmail/IMAP providers |
 | `health.test.ts` | healthy (tenant echoed, blank tenant defaults) / unhealthy |
 
@@ -713,6 +731,24 @@ None block implementation; defaults apply unless the maintainer objects in revie
   CRM starter preset is now 25 modules (`main` added `api_keys` to the empty preset).
 - `TC-CHANNEL-MS365-004` asserts `oauth=error`: the hub's OAuth callback reports its result in
   `?oauth=` instead of `?flash=` since #6521.
+
+### 2026-10-31 — Fresh re-review fixes (PR #5898)
+
+- Outbound: every non-retryable send failure (permanent, or a `/send` whose outcome could not be
+  verified) is thrown with an explicit `transient: false` instead of being returned as
+  `{ status: 'failed', error }`. The hub classifies returned error text by pattern, so an
+  unverifiable "timed out" send was re-enqueued and could deliver the email twice. Tests now run
+  every failure path through the hub's real classifier.
+- Graph client: native transport failures (`TypeError('fetch failed')` with `ECONNRESET`, DNS or
+  socket causes) become a transient `GraphApiError` (`599`, `om.networkError`) instead of an
+  unclassified error the hub treated as permanent. POSTs are still never retried.
+- `importHistory`: the first page is pinned with a `receivedDateTime le {until}` bound, and a
+  replayed page resumes by Graph id (`pageDoneIds`) instead of a numeric `pageOffset`, so mail
+  arriving or disappearing between attempts can no longer replay or skip a message.
+- Spec and user guide brought in line with the implemented behaviour: `organizations` default
+  authority, trusted `oauthClient` slot only, no incremental watermark cutoff, the
+  `OM_IMPORT_HISTORY_MAX_SINCE_DAYS` import ceiling. Integration fixture uses `node:crypto`.
+- `module-facts.bc-guard` caps re-measured on the merged tree for the additive module.
 
 ### 2026-10-06 — Second CI run: profile "Connect channel" menu (PR #5898)
 
