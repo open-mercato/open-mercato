@@ -71,5 +71,5 @@ PR: #8310
 
 ### Phase 3: Validate and publish
 
-- [ ] 3.1 Run the complete configured validation gate and verify the latest actionable CI state
-- [ ] 3.2 Complete the authoritative PR review and final independent Cezar review, address actionable findings, finalize the PR, and apply `automerge`
+- [x] 3.1 Run the complete configured validation gate and verify the latest actionable CI state — 8d5dd38d30bf
+- [x] 3.2 Complete the authoritative PR review and final independent Cezar review, address actionable findings, finalize the PR, and apply `automerge` — 8d5dd38d30bf
