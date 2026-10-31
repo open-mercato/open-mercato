@@ -73,6 +73,10 @@
       "types": "./src/lib/data/consistency.ts",
       "default": "./dist/lib/data/consistency.js"
     },
+    "./lib/host-pinning": {
+      "types": "./src/lib/host-pinning.ts",
+      "default": "./dist/lib/host-pinning.js"
+    },
     "./lib/logger": {
       "types": "./src/lib/logger/index.ts",
       "default": "./dist/lib/logger/index.js"

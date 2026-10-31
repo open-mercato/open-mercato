@@ -43,6 +43,24 @@ export const TASK_QUICK_ACTION_VIEW_ID = 'view'
 
 export const TASK_DEEP_LINK_HREF = '/backend/tasks/{sourceEntityId}'
 
+/** Feature the clicking user must hold to complete a task from its notification. */
+export const TASK_COMPLETE_REQUIRED_FEATURE = 'workflows.tasks.complete'
+
+/**
+ * The one-click completion button. Shared by {@link buildTaskQuickActions} and the
+ * `workflows.task.assigned` type declaration, so the stored action id and command id always
+ * match what the notifications module allows to dispatch.
+ */
+export function buildTaskQuickCompleteAction(): NotificationTypeAction {
+  return {
+    id: TASK_QUICK_ACTION_COMPLETE_ID,
+    labelKey: 'workflows.notifications.task.actions.complete',
+    variant: 'default',
+    icon: 'check',
+    commandId: TASK_COMPLETE_COMMAND_ID,
+  }
+}
+
 export interface TaskQuickActionInput {
   /** Decision buttons resolved for this task. */
   decisions?: { id: string }[] | null
@@ -90,16 +108,7 @@ export function buildTaskQuickActions(input: TaskQuickActionInput): Notification
 
   if (!isOneClickTask(input)) return [viewAction]
 
-  return [
-    viewAction,
-    {
-      id: TASK_QUICK_ACTION_COMPLETE_ID,
-      labelKey: 'workflows.notifications.task.actions.complete',
-      variant: 'default',
-      icon: 'check',
-      commandId: TASK_COMPLETE_COMMAND_ID,
-    },
-  ]
+  return [viewAction, buildTaskQuickCompleteAction()]
 }
 
 /**
