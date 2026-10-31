@@ -323,10 +323,10 @@ export async function runCatalogStep(options: CatalogStepOptions): Promise<Catal
   const selectionFile = writeSelectionFile(options.targetDir, buildSelectionFile(url, fetched.index, line, selection))
   options.log(`  Saved to ${CATALOG_SELECTION_FILE}. Nothing is installed until you run the commands below.`)
   options.log('')
-  const commandWarnings: Record<string, string> = {}
+  const commandWarnings = new Map<string, string>()
   for (const { entry } of selection.selected) {
     const warning = warningFor(entry)
-    if (warning && !(entry.install in commandWarnings)) commandWarnings[entry.install] = warning
+    if (warning && !commandWarnings.has(entry.install)) commandWarnings.set(entry.install, warning)
   }
-  return { commands: installCommands(selection), selectionFile, commandWarnings }
+  return { commands: installCommands(selection), selectionFile, commandWarnings: Object.fromEntries(commandWarnings) }
 }
