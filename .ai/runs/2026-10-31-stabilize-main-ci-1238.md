@@ -64,7 +64,7 @@ These causes are deliberately handled as separate corrections in one stabilizati
 
 ### Phase 2: Implement and test the root-cause fix
 
-- [x] 2.1 Apply the minimal fix and add focused regression coverage for the changed behavior — fe470b712267; 84c90df33153; d3d5101bcf9e
+- [x] 2.1 Apply the minimal fix and add focused regression coverage for the changed behavior — fe470b712267; 84c90df33153; d3d5101bcf9e; e4e0a3c778
 - [x] 2.2 Run the smallest relevant validation commands and remove any unrelated diff — d3d5101bcf9e
 
 ### Phase 3: Validate and publish
