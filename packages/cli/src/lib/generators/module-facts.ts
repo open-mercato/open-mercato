@@ -2775,7 +2775,7 @@ function renderActivationBindingsSection(
     const phases = activation.phases && activation.phases.length > 0 ? activation.phases.join(', ') : '—'
     const source = activation.source ? renderSourceRefLink(activation.source, context) : '—'
     const bridge = activation.bridge ? `${activation.bridge.factSection}:${activation.bridge.factKey}` : '—'
-    return `| ${activation.id} |${activation.kind}|${renderExtensionTargetRef(activation.host)}|${activation.contributionKinds.join(', ') || '—'}|${phases}|${bridge}|${source}|`
+    return `| ${activation.id} | ${activation.kind} | ${renderExtensionTargetRef(activation.host)} | ${activation.contributionKinds.join(', ') || '—'} | ${phases} | ${bridge} | ${source} |`
   })
   return [
     '## Active extension bindings',
@@ -2816,7 +2816,7 @@ function renderContributionResolutionsSection(
   const rows = resolutions.map((resolution) => {
     const activations = resolution.activationIds.length > 0 ? resolution.activationIds.join(', ') : '—'
     const source = renderLookedUpSource(lookup, 'extension-contribution', resolution.contributionId, context)
-    return `| ${resolution.contributionId} |${renderExtensionTargetRef(resolution.target)}|${resolution.resolution}|${activations}|${source}|`
+    return `| ${resolution.contributionId} | ${renderExtensionTargetRef(resolution.target)} | ${resolution.resolution} | ${activations} | ${source} |`
   })
   return [
     '## Contribution resolutions',

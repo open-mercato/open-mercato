@@ -223,4 +223,4 @@ This catalog indexes 169 focused lessons. Route the task first, then read only r
 - [Write Open Mercato specifications in English](lessons/write-open-mercato-specifications-in-english.md) — area:spec-pr,ai-workflow; module:platform; topic:specifications,documentation-language
 
 - [Check existing test identities before adding coverage](lessons/check-existing-test-identities-before-adding-coverage.md) — area:testing,spec-pr; module:cli; topic:testing,code-review
-- [Preserve generated fact row selectors when compacting](lessons/preserve-generated-fact-row-selectors-when-compacting.md) — area:testing,debugging; module:cli,create_app; topic:generated-files,context-budgets,backward-compatibility,markdown
+- [Preserve generated fact row selectors when compacting](lessons/preserve-generated-fact-row-selectors-when-compacting.md) — area:testing,debugging; module:cli,create_app; topic:generated-files,context-budgets,backward-compatibility,markdown,code-review
