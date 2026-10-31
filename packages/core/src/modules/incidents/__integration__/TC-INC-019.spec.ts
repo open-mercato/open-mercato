@@ -286,6 +286,7 @@ test.describe('TC-INC-019: Incident detail tabs and inline edits', () => {
       })
       await expect(detailField(page, 'Priority'), 'second consecutive inline edit without a reload should persist (client refreshes updatedAt between saves)').toContainText('High')
 
+      await page.route('**/api/events/stream**', (route) => route.abort())
       await page.reload({ waitUntil: 'domcontentloaded' })
       await expect(detailField(page, 'Severity'), 'severity edit should persist after reload').toContainText(secondSeverity.label)
       await expect(detailField(page, 'Priority'), 'priority edit should persist after reload').toContainText('High')
@@ -294,8 +295,6 @@ test.describe('TC-INC-019: Incident detail tabs and inline edits', () => {
       expect(detail.severity_id, 'severity_id should persist after inline edit').toBe(secondSeverity.id)
       expect(detail.priority, 'priority should persist after the second inline edit without a false 409').toBe('high')
 
-      await page.route('**/api/events/stream**', (route) => route.abort())
-      await page.reload({ waitUntil: 'domcontentloaded' })
       await expect(detailField(page, 'Priority'), 'priority field should render before the stale-edit attempt').toBeVisible()
       await apiFetch(request, 'POST', `${INCIDENTS_API}/${incidentId}/severity`, token, { severityId: firstSeverity.id })
       const staleField = detailField(page, 'Priority')
