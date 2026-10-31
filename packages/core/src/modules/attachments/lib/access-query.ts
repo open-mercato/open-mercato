@@ -33,7 +33,7 @@ export async function assertAttachmentOwnerAccess(input: {
     tenantId: input.attachment.tenantId, organizationId: input.attachment.organizationId,
   })
   if (!partition) {
-    assertAttachmentStoragePartitionExists(false)
+    if (input.action === 'delete') assertAttachmentStoragePartitionExists(false)
     await throwAttachmentAccessError(404)
   }
   if (input.persistProtection) await ensureAttachmentPartitionProtection(input.em, partition!)
