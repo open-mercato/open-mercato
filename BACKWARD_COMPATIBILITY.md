@@ -625,8 +625,10 @@ STABLE HTTP/service BREAK (403/404/504), Documents only: org-wide files bypass s
 
 STABLE API §7: `GET /api/checkout/pay/:slug` omits admin fields; retaining them preserves disclosure. Client/operator migration: [notes](UPGRADE_NOTES.md). @haxiorz [approved](https://github.com/open-mercato/open-mercato/pull/8087#issuecomment-6505348826) on 2026-10-29: steps 1–3 waived for all 18 admin fields; client/operator migration acknowledged.
 
-## Unique Bootstrap Superadmin Password (2026-10-29)
+## Unique Bootstrap Superadmin Password (2026-10-29, #7809)
 
-| Surface | Classification and migration |
-|---|---|
-| Init defaults/bypass and Compose/starter credentials | Security narrowing; a bridge preserves vulnerable provisioning. Waiver: [@haxiorz](https://github.com/open-mercato/open-mercato/pull/8175#issuecomment-6505346223). Supply unique policy-valid credentials; rotate suspect passwords. [Spec](.ai/specs/2026-10-29-unique-bootstrap-superadmin-password.md), [migration](UPGRADE_NOTES.md#initialization-requires-a-unique-superadmin-password-7809). |
+Init defaults/bypass and Compose/starter credentials: Security narrowing; a bridge preserves vulnerable provisioning. Waiver: [@haxiorz](https://github.com/open-mercato/open-mercato/pull/8175#issuecomment-6505346223). Supply unique policy-valid credentials; rotate suspect passwords. [Spec](.ai/specs/2026-10-29-unique-bootstrap-superadmin-password.md), [migration](UPGRADE_NOTES.md#initialization-requires-a-unique-superadmin-password-7809).
+
+## #3805 2026-10-31
+
+STABLE tools/execute writes bypass approval; no bridge. [Migrate](UPGRADE_NOTES.md#issue-3805)
