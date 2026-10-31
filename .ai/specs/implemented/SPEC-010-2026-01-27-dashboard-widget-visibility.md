@@ -196,7 +196,7 @@ A user's widget override (`DashboardUserWidgets`) is keyed by `(userId, target.t
 
 The organization check matches `assertActorCanAccessUserTarget` in the auth module, which answers `403` for the same users on the user ACL routes. After the target is resolved, the feature is checked again with `rbacService.userHasAllFeatures` in the target's tenant and organization, so a grant limited to one organization does not extend to users of other visible organizations.
 
-PUT runs the mutation guards through `runRouteMutationGuards` (registry guards plus the legacy guard service), with the target's tenant and organization and the caller's user id. Their after-success callbacks run after the write is flushed.
+PUT runs the mutation guards through `runRouteMutationGuards` (registry guards plus the legacy guard service), with the target's tenant and organization and the caller's user id. A payload transformed by a guard is validated again and its `mode` and `widgetIds` are used for the write and the response (unknown widget ids are dropped, an invalid transformation answers `400`); the target user and scope stay the ones already authorized. The guards' after-success callbacks run after the write is flushed.
 
 #### Migration & Backward Compatibility
 

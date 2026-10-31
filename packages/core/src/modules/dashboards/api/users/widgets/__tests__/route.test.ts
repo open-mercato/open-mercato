@@ -31,7 +31,7 @@ const container = {
   }),
 }
 
-const guardValidateMock = jest.fn<Promise<{ ok: boolean; status?: number; body?: Record<string, unknown>; shouldRunAfterSuccess?: boolean; metadata?: Record<string, unknown> }>, [MutationGuardInput]>()
+const guardValidateMock = jest.fn<Promise<{ ok: boolean; status?: number; body?: Record<string, unknown>; shouldRunAfterSuccess?: boolean; metadata?: Record<string, unknown>; modifiedPayload?: Record<string, unknown> }>, [MutationGuardInput]>()
 const guardAfterSuccessMock = jest.fn<Promise<void>, [MutationGuardAfterInput]>()
 
 const testGuard: MutationGuard = {
@@ -164,6 +164,85 @@ describe('dashboards user widgets route mutation guard', () => {
     expect(response.status).toBe(200)
     expect(guardAfterSuccessMock).toHaveBeenCalledWith(expect.objectContaining({ tenantId, organizationId: targetOrgId }))
     expect(removeFlush.mock.invocationCallOrder[0]).toBeLessThan(guardAfterSuccessMock.mock.invocationCallOrder[0])
+  })
+
+  it('persists and returns the widget ids transformed by a guard', async () => {
+    em.findOne.mockResolvedValueOnce({ id: targetUserId, tenantId, organizationId: targetOrgId })
+    em.findOne.mockResolvedValueOnce(null)
+    guardValidateMock.mockResolvedValue({ ok: true, modifiedPayload: { widgetIds: [] } })
+
+    const response = await PUT(buildRequest({ userId: targetUserId, mode: 'override', widgetIds: ['sales-summary'] }))
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ ok: true, mode: 'override', widgetIds: [] })
+    expect(em.create).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ mode: 'override', widgetIdsJson: [] }),
+    )
+  })
+
+  it('drops unknown widget ids introduced by a guard transformation', async () => {
+    em.findOne.mockResolvedValueOnce({ id: targetUserId, tenantId, organizationId: targetOrgId })
+    em.findOne.mockResolvedValueOnce(null)
+    guardValidateMock.mockResolvedValue({ ok: true, modifiedPayload: { widgetIds: ['sales-summary', 'unknown-widget'] } })
+
+    const response = await PUT(buildRequest({ userId: targetUserId, mode: 'override', widgetIds: [] }))
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ ok: true, mode: 'override', widgetIds: ['sales-summary'] })
+    expect(em.create).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ widgetIdsJson: ['sales-summary'] }),
+    )
+  })
+
+  it('applies a guard transformation of the mode to inherit', async () => {
+    const existing = { id: 'rec', userId: targetUserId, tenantId, organizationId: targetOrgId, mode: 'override' }
+    const removeFlush = jest.fn().mockResolvedValue(undefined)
+    em.remove.mockReturnValue({ flush: removeFlush })
+    em.findOne.mockResolvedValueOnce({ id: targetUserId, tenantId, organizationId: targetOrgId })
+    em.findOne.mockResolvedValueOnce(existing)
+    guardValidateMock.mockResolvedValue({ ok: true, modifiedPayload: { mode: 'inherit' } })
+
+    const response = await PUT(buildRequest({ userId: targetUserId, mode: 'override', widgetIds: ['sales-summary'] }))
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ ok: true, mode: 'inherit', widgetIds: [] })
+    expect(em.remove).toHaveBeenCalledWith(existing)
+    expect(em.create).not.toHaveBeenCalled()
+  })
+
+  it('keeps the authorized target user when a guard transforms the user id', async () => {
+    const otherUserId = '44444444-4444-4444-8444-444444444444'
+    em.findOne.mockResolvedValueOnce({ id: targetUserId, tenantId, organizationId: targetOrgId })
+    em.findOne.mockResolvedValueOnce(null)
+    guardValidateMock.mockResolvedValue({ ok: true, modifiedPayload: { userId: otherUserId } })
+
+    const response = await PUT(buildRequest({ userId: targetUserId, mode: 'override', widgetIds: ['sales-summary'] }))
+
+    expect(response.status).toBe(200)
+    expect(em.findOne).toHaveBeenNthCalledWith(
+      2,
+      expect.anything(),
+      expect.objectContaining({ userId: targetUserId, tenantId, organizationId: targetOrgId }),
+    )
+    expect(em.create).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ userId: targetUserId, tenantId, organizationId: targetOrgId }),
+    )
+  })
+
+  it('rejects an invalid guard transformation without writing', async () => {
+    em.findOne.mockResolvedValueOnce({ id: targetUserId, tenantId, organizationId: targetOrgId })
+    guardValidateMock.mockResolvedValue({ ok: true, shouldRunAfterSuccess: true, modifiedPayload: { mode: 'replace' } })
+
+    const response = await PUT(buildRequest({ userId: targetUserId, mode: 'override', widgetIds: ['sales-summary'] }))
+
+    expect(response.status).toBe(400)
+    expect(em.findOne).toHaveBeenCalledTimes(1)
+    expect(em.create).not.toHaveBeenCalled()
+    expect(em.flush).not.toHaveBeenCalled()
+    expect(guardAfterSuccessMock).not.toHaveBeenCalled()
   })
 
   it('evaluates the guards in the target tenant for a tenant-less superadmin', async () => {
@@ -441,6 +520,7 @@ describe('dashboards user widgets route target-organization feature grant', () =
     const response = await GET(buildGetRequest())
 
     expect(response.status).toBe(403)
+    expect(await response.json()).toEqual({ error: 'Forbidden' })
     expect(rbac.userHasAllFeatures).toHaveBeenCalledWith(adminUserId, [assignFeature], { tenantId, organizationId: targetOrgId })
     expect(em.findOne).toHaveBeenCalledTimes(1)
   })
@@ -451,6 +531,7 @@ describe('dashboards user widgets route target-organization feature grant', () =
     const response = await PUT(buildRequest({ userId: targetUserId, mode: 'override', widgetIds: ['sales-summary'] }))
 
     expect(response.status).toBe(403)
+    expect(await response.json()).toEqual({ error: 'Forbidden' })
     expect(rbac.userHasAllFeatures).toHaveBeenCalledWith(adminUserId, [assignFeature], { tenantId, organizationId: targetOrgId })
     expect(guardValidateMock).not.toHaveBeenCalled()
     expect(em.persist).not.toHaveBeenCalled()

@@ -15,6 +15,7 @@ import {
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
 import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import {
   dashboardsTag,
@@ -89,7 +90,8 @@ export async function GET(req: Request) {
 
   const { tenantId, organizationId } = resolveWidgetAssignmentRecordScope(targetUserForRead)
   if (!(await rbac.userHasAllFeatures(String(auth.sub), [FEATURE], { tenantId, organizationId }))) {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    const { translate } = await resolveTranslations()
+    return NextResponse.json({ error: translate('dashboards.errors.forbidden', 'Forbidden') }, { status: 403 })
   }
 
   const widgets = await loadAllWidgets()
@@ -153,7 +155,7 @@ export async function PUT(req: Request) {
 
   const widgets = await loadAllWidgets()
   const validWidgetIds = new Set(widgets.map((w) => w.metadata.id))
-  const widgetIds = parsed.data.widgetIds.filter((id) => validWidgetIds.has(id))
+  const submittedWidgetIds = parsed.data.widgetIds.filter((id) => validWidgetIds.has(id))
 
   const tenantId = auth.tenantId ?? null
 
@@ -172,7 +174,8 @@ export async function PUT(req: Request) {
   }
   const recordScope = resolveWidgetAssignmentRecordScope(targetUser)
   if (!(await rbac.userHasAllFeatures(String(auth.sub), [FEATURE], recordScope))) {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    const { translate } = await resolveTranslations()
+    return NextResponse.json({ error: translate('dashboards.errors.forbidden', 'Forbidden') }, { status: 403 })
   }
 
   const guardResult = await runRouteMutationGuards({
@@ -187,12 +190,23 @@ export async function PUT(req: Request) {
       resourceKind: RESOURCE_KIND,
       resourceId: parsed.data.userId,
       operation: 'update',
-      mutationPayload: { userId: parsed.data.userId, mode: parsed.data.mode, widgetIds },
+      mutationPayload: { userId: parsed.data.userId, mode: parsed.data.mode, widgetIds: submittedWidgetIds },
     },
   })
   if (!guardResult.ok) {
     return NextResponse.json(guardResult.errorBody, { status: guardResult.errorStatus })
   }
+
+  const effective = userWidgetSettingsSchema.safeParse({
+    mode: parsed.data.mode,
+    widgetIds: submittedWidgetIds,
+    ...guardResult.modifiedPayload,
+    userId: parsed.data.userId,
+  })
+  if (!effective.success) {
+    return NextResponse.json({ error: 'Invalid payload', issues: effective.error.issues }, { status: 400 })
+  }
+  const widgetIds = effective.data.widgetIds.filter((id) => validWidgetIds.has(id))
 
   let record = await em.findOne(DashboardUserWidgets, {
     userId: parsed.data.userId,
@@ -201,7 +215,7 @@ export async function PUT(req: Request) {
     deletedAt: null,
   })
 
-  if (parsed.data.mode === 'inherit') {
+  if (effective.data.mode === 'inherit') {
     if (record) {
       await em.remove(record).flush()
     }
