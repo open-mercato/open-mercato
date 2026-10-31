@@ -31,7 +31,7 @@ describe('module-facts owned contracts + provenance (Spec 1)', () => {
     writeFixture(
       moduleRoot,
       'index.ts',
-      "export const metadata = { name: 'facts', title: 'Facts', version: '1.2.3', requires: ['auth', 'catalog'], ejectable: true }\n",
+      "export const metadata = { name: 'facts', title: 'Facts', version: '1.2.3', requires: ['auth', 'catalog'], optionalRequires: ['analytics'], ejectable: true }\n",
     )
     writeFixture(
       moduleRoot,
@@ -212,7 +212,13 @@ describe('module-facts owned contracts + provenance (Spec 1)', () => {
   it('extracts module-metadata owned contract with only safe scalar fields', () => {
     const fact = ownedById(facts, 'module-metadata', 'facts')
     expect(fact).toBeDefined()
-    expect(fact?.metadata).toEqual({ name: 'facts', version: '1.2.3', requires: ['auth', 'catalog'], ejectable: true })
+    expect(fact?.metadata).toEqual({
+      name: 'facts',
+      version: '1.2.3',
+      requires: ['auth', 'catalog'],
+      optionalRequires: ['analytics'],
+      ejectable: true,
+    })
     expect(fact?.source.sourcePath).toBe('node_modules/@open-mercato/example/src/modules/facts/index.ts')
   })
 
