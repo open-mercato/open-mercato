@@ -17,7 +17,8 @@ import type { PageMetadata } from '@open-mercato/shared/modules/registry'
  *
  * Neither half exists yet. `apps/mercato/next.config.ts` applies
  * `frame-ancestors 'self'` plus `X-Frame-Options: SAMEORIGIN` to `/:path*` with
- * no `/embed/` carve-out, and `apps/mercato/src/proxy.ts` never calls the
+ * no `/embed/` carve-out (`next dev` additionally admits loopback origins so
+ * local tools can preview the app), and `apps/mercato/src/proxy.ts` never calls the
  * embed-policy endpoint. It was absent from the module's original repository
  * too — that sandbox app declared no `headers()` at all, so `/embed/:slug` was
  * framable there by default rather than by policy.

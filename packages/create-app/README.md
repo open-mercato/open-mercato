@@ -251,8 +251,8 @@ The standalone dev splash also exposes a GitHub publishing panel after `yarn dev
    ```bash
    yarn dev
    ```
-   On native local runs, `yarn dev` opens the standalone splash screen on `http://localhost:4000` by default, shows live startup progress, and keeps routine logs folded. Once the app is ready, the splash can also:
-   - launch supported coding tools from the `Start coding with AI` menu
+   On native local runs, `yarn dev` opens the standalone splash screen on `http://localhost:4000` by default, shows live startup progress, and keeps routine logs folded. While the app is still starting, the `Start building with Cezar` button opens [Cezar](https://github.com/open-mercato/cezar) for the project by running `npx cezar-run` in a new terminal. Once the app is ready, the splash can also:
+   - launch supported coding tools by hovering `Start building with Cezar` or using its dropdown toggle
    - create or publish a GitHub repository through `gh` when `OM_DEV_CREATE_GIT_REPO_FLOW` is enabled and GitHub CLI is installed
 
 9. Docker alternatives:
@@ -319,7 +319,7 @@ gh auth login
 
 ### Recommended AI coding tools
 
-- Codex CLI is the recommended OpenAI terminal workflow for the splash `Start coding with AI` menu.
+- Codex CLI is the recommended OpenAI terminal workflow for the splash agent dropdown.
   - Install guide: <https://developers.openai.com/codex/cli>
   - Install command:
 
@@ -327,7 +327,7 @@ gh auth login
 npm i -g @openai/codex
 ```
 
-- Claude Code is the recommended Anthropic terminal workflow for the splash `Start coding with AI` menu.
+- Claude Code is the recommended Anthropic terminal workflow for the splash agent dropdown.
   - Install guide: <https://code.claude.com/docs/en/setup>
   - Native installer:
 
@@ -350,7 +350,7 @@ The standalone compact dev runtime supports these splash-related environment var
 | `OM_DEV_SPLASH_PORT` | `4000` | Port used by the splash page. Use `random` or `0` for an ephemeral free port. |
 | `OM_DEV_AUTO_OPEN` | `1` | Set to `0` to keep the splash from opening automatically in a browser. |
 | `OM_DEV_CREATE_GIT_REPO_FLOW` | `true` | Enables the standalone splash GitHub publish panel. Set to `false` to hide it. |
-| `OM_ENABLE_CODING_FLOW_FROM_SPLASH` | `true` | Enables the `Start coding with AI` splash menu. Set to `false` to hide it. |
+| `OM_ENABLE_CODING_FLOW_FROM_SPLASH` | `true` | Enables the `Start coding with AI` splash menu and the `Start building` (Cezar) button. Set to `false` to hide both. |
 | `OM_DEV_SPLASH_VSCODE_PATH` | auto-detect | Optional path override for the VS Code CLI used by the splash coding menu. |
 | `OM_DEV_SPLASH_CURSOR_PATH` | auto-detect | Optional path override for the Cursor CLI used by the splash coding menu. |
 | `OM_DEV_SPLASH_CLAUDE_CODE_PATH` | auto-detect | Optional path override for the Claude Code CLI used by the splash coding menu. |

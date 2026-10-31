@@ -2,6 +2,7 @@ import { createServer } from 'node:http'
 import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { parseEnv } from 'node:util'
 import spawn from 'cross-spawn'
 import {
@@ -25,6 +26,7 @@ import {
   stripAnsi,
 } from './dev-splash-helpers.mjs'
 import { purgeAppBuildCaches } from './dev-cache-purge.mjs'
+import { readAppEnvFileValues, resolveAppPortPreflight } from './dev-port-preflight.mjs'
 import {
   ensureDevInotifyLimits,
   resolveDevBundlerDecision,
@@ -63,7 +65,7 @@ import { createDevSplashCodingFlow } from './dev-splash-coding-flow.mjs'
 import { createDevSplashGitRepoFlow } from './dev-splash-git-repo-flow.mjs'
 import { assertLocalSplashRequest, resolveSplashBindHost } from './dev-splash-shared.mjs'
 import { normalizeSplashDisplayState } from './dev-splash-state.mjs'
-import { DevRuntimeConfigError, resolveDevRuntimeConfig } from './dev-runtime-config.mjs'
+import { DevRuntimeConfigError, resolveDevRuntimeConfig, resolveDevRuntimeMode } from './dev-runtime-config.mjs'
 import { createDevRuntimeSupervisor } from './dev-runtime-supervisor.mjs'
 import { selectRuntimeProbeBaseUrl } from './dev-runtime-probe.mjs'
 import { createDevRuntimeGateway } from './dev-runtime-gateway.mjs'
@@ -254,6 +256,7 @@ const standaloneStageTotal = setupMode ? 5 : 4
 const splashEnabled = !classic && !appOnly && splashPortConfig.enabled
 const autoOpenSplash = splashEnabled && process.stdout.isTTY && process.env.CI !== 'true' && process.env.OM_DEV_AUTO_OPEN !== '0'
 const splashBindHost = resolveSplashBindHost(process.env)
+await settleAppPort()
 const publicAppPort = resolveDevBaseUrl(process.env).port ?? 3000
 const devRuntimeConfig = (() => {
   try {
@@ -424,6 +427,7 @@ const codingFlow = createDevSplashCodingFlow({
   env: process.env,
   platform: process.platform,
   launchDir: process.cwd(),
+  projectDir: path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'),
   agenticSetupDir: !isMonorepo && fs.existsSync(path.join(process.cwd(), 'src', 'modules.ts')) ? process.cwd() : null,
 })
 const gitRepoFlow = createDevSplashGitRepoFlow({
@@ -1534,6 +1538,37 @@ function relaunchManagedRuntime(reason) {
 // Picks an ephemeral loopback port for the managed runtime by letting the OS
 // assign one and releasing it immediately. The window between release and the
 // child's bind is small and local; a collision surfaces as a clear child error.
+// The gateway checks the public port itself; in direct mode `next dev` binds it
+// and would silently fall back to the next port while the splash, the readiness
+// probe and APP_URL keep pointing at whatever already answers on the old one.
+async function settleAppPort() {
+  if (isGatewayModeRequested()) return
+  const configuredPort = resolveDevBaseUrl(process.env).port ?? 3000
+  const appDir = isMonorepo ? path.join(process.cwd(), 'apps', 'mercato') : process.cwd()
+  const preflight = await resolveAppPortPreflight({
+    port: configuredPort,
+    env: process.env,
+    appEnvFileValues: readAppEnvFileValues(appDir, ['APP_URL', 'NEXT_PUBLIC_APP_URL']),
+  })
+  if (preflight.status === 'busy') {
+    console.error(`❌ Port ${configuredPort} is already in use by another process.`)
+    console.error('   Stop that process, or set PORT and APP_URL to a free port.')
+    process.exit(1)
+  }
+  if (preflight.status === 'moved') {
+    Object.assign(process.env, preflight.envOverrides)
+    console.log(`⚠️ Port ${configuredPort} is already in use; this run serves the app on ${preflight.envOverrides.APP_URL}`)
+  }
+}
+
+function isGatewayModeRequested() {
+  try {
+    return resolveDevRuntimeMode(process.env) === 'proxy'
+  } catch {
+    return false
+  }
+}
+
 function reserveLoopbackPort() {
   return new Promise((resolve, reject) => {
     const probe = createServer()
@@ -2703,8 +2738,17 @@ async function runClassicStandardDev() {
   launchMonorepoAppDev()
 }
 
+function purgeGreenfieldCaches() {
+  const { activeServer } = purgeAppBuildCaches()
+  if (!activeServer) return true
+  console.error(`❌ Another next dev server is already running for this app (pid ${activeServer.pid}${activeServer.appUrl ? `, ${activeServer.appUrl}` : ''}).`)
+  console.error(`   Stop it first (for example: kill ${activeServer.pid}); a greenfield run would delete the build manifests it is serving.`)
+  shutdown(1)
+  return false
+}
+
 async function runGreenfieldDev() {
-  purgeAppBuildCaches()
+  if (!purgeGreenfieldCaches()) return
   await runStage('🧱 Greenfield build packages', ['build:packages'], { stageCurrent: 1, stageTotal: 5 })
   await runStage('🧬 Greenfield generate artifacts', ['generate'], { stageCurrent: 2, stageTotal: 5 })
   await runStage('🧱 Greenfield rebuild packages', ['build:packages'], { stageCurrent: 3, stageTotal: 5 })
@@ -2715,7 +2759,7 @@ async function runGreenfieldDev() {
 }
 
 async function runClassicGreenfieldDev() {
-  purgeAppBuildCaches()
+  if (!purgeGreenfieldCaches()) return
   await runRawYarnCommand(['build:packages'])
   await runRawYarnCommand(['generate'])
   await runRawYarnCommand(['build:packages'])
