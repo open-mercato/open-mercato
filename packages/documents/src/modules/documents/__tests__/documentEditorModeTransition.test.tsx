@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { Editor } from '@tiptap/core'
+import { DOCUMENTS_REALTIME_SETUP_GUIDE_URL } from '../lib/constants'
 
 const apiCallMock = jest.fn()
 const flashMock = jest.fn()
@@ -84,6 +85,19 @@ describe('fallback editor mode transition', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     surfaceRecordConflictMock.mockReturnValue(false)
+  })
+
+  it('explains how to enable realtime without replacing the editable fallback', async () => {
+    let editor: Editor | null = null
+    render(<EditorHarness onEditorReady={(next) => { if (next) editor = next }} />)
+
+    await waitFor(() => expect(editor).not.toBeNull())
+    expect(screen.getByText('documents.editor.realtime.singleUserFallback')).toBeTruthy()
+    expect(screen.getByText('documents.editor.realtime.setupHint')).toBeTruthy()
+    expect(screen.getByRole('link', { name: 'documents.editor.realtime.setupGuide' }).getAttribute('href')).toBe(
+      DOCUMENTS_REALTIME_SETUP_GUIDE_URL,
+    )
+    expect(editor!.isEditable).toBe(true)
   })
 
   it('waits for persistence, keeps the editor instance, and saves the latest body after returning to edit', async () => {

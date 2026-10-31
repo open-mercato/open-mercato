@@ -37,3 +37,5 @@ export const DOCUMENTS_MAX_LISTED_FOLDERS = 5_000
  * principal-label fan-out) bounded the way the comment and version lists are.
  */
 export const DOCUMENTS_MAX_LISTED_SHARES = 500
+
+export const DOCUMENTS_REALTIME_SETUP_GUIDE_URL = 'https://github.com/open-mercato/open-mercato/blob/main/packages/documents/README.md#realtime-collaboration-sidecar-m2'
