@@ -58,6 +58,7 @@ jest.mock('@open-mercato/ui/backend/detail', () => ({
   RecordNotFoundState: ({ label }: { label: string }) => <div data-testid="record-not-found">{label}</div>,
   ErrorMessage: ({ label }: { label: string }) => <div data-testid="error-message">{label}</div>,
   DetailFieldsSection: () => null,
+  DetailTabsLayout: () => null,
 }))
 
 jest.mock('@open-mercato/ui/backend/injection/InjectionSpot', () => ({
@@ -83,7 +84,7 @@ jest.mock('../../../../../components/detail/AddressesSection', () => ({ Addresse
 jest.mock('../../../../../components/detail/TasksSection', () => ({ TasksSection: () => null }))
 jest.mock('../../../../../components/detail/PersonHighlights', () => ({ PersonHighlights: () => null }))
 jest.mock('../../../../../components/detail/CustomDataSection', () => ({ CustomDataSection: () => null }))
-jest.mock('../../../../../components/detail/DetailTabsLayout', () => ({ DetailTabsLayout: () => null }))
+
 jest.mock('../../../../../components/detail/InlineEditors', () => ({
   renderLinkedInDisplay: () => null,
   renderTwitterDisplay: () => null,

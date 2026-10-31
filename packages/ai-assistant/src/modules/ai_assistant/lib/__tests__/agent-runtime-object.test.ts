@@ -117,6 +117,29 @@ describe('runAiAgentObject — generate mode', () => {
     expect(callArg.model.id).toBe('provider-default-model')
   })
 
+  it('appends a runtime output-language prompt for structured output string fields', async () => {
+    const schema = z.object({ summary: z.string() })
+    seedAgentRegistryForTests([
+      makeAgent({
+        id: 'incidents.summarizer',
+        moduleId: 'incidents',
+        executionMode: 'object',
+        output: { schemaName: 'IncidentSummary', schema },
+      }),
+    ])
+
+    await runAiAgentObject({
+      agentId: 'incidents.summarizer',
+      input: 'Summarize the incident.',
+      authContext: { ...baseAuth, locale: 'pl-PL' },
+    })
+
+    const callArg = generateObjectMock.mock.calls[0][0] as { system: string }
+    expect(callArg.system).toContain('RUNTIME OUTPUT LANGUAGE')
+    expect(callArg.system).toContain('The operator is using the Polish locale (pl).')
+    expect(callArg.system).toContain('structured-output string fields')
+  })
+
   it('runtime output override wins over agent-level output', async () => {
     const agentSchema = z.object({ a: z.string() })
     const overrideSchema = z.object({ b: z.number() })

@@ -13,7 +13,10 @@ jest.mock('@open-mercato/shared/lib/auth/server', () => ({
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: async () => ({
+    locale: 'en',
+    dict: {},
     t: (key: string, fallback?: string) => translateMock(key, fallback),
+    translate: (key: string, fallback?: string) => fallback ?? key,
   }),
 }))
 

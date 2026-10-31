@@ -1,10 +1,15 @@
-import { asValue } from 'awilix'
+import type { EntityManager } from '@mikro-orm/postgresql'
+import { asFunction, asValue } from 'awilix'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import {
   resolveAvailabilityWriteAccess,
   type AvailabilityAccessContext,
   type AvailabilityWriteAccess,
 } from './lib/availabilityAccess'
+import {
+  createStaffTeamMemberResolver,
+  type StaffTeamMemberResolver,
+} from './lib/teamMemberResolver'
 import {
   resolveProjectAccess,
   type ProjectAccess,
@@ -48,6 +53,7 @@ export type AvailabilityAccessResolver = {
   ): Promise<AvailabilityWriteAccess>
 }
 
+export type { StaffTeamMemberResolver }
 export type TimeTrackingAccessResolver = {
   resolveProjectAccess(ctx: ProjectAccessContext): Promise<ProjectAccess>
 }
@@ -105,6 +111,9 @@ export function register(container: AppContainer) {
   }
   container.register({
     availabilityAccessResolver: asValue(resolver),
+    staffTeamMemberResolver: asFunction(({ em }: { em: EntityManager }) =>
+      createStaffTeamMemberResolver(em),
+    ).scoped().proxy(),
     timeTrackingAccessResolver: asValue(timeTrackingResolver),
     timeRoundingResolver: asValue(timeRoundingResolver),
     timeRateResolver: asValue(timeRateResolver),

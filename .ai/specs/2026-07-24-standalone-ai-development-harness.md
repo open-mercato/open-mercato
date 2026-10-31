@@ -30,7 +30,7 @@ Build a four-layer harness:
 1. A boundary-first root `AGENTS.md` that only routes tasks and carries universal safety rules.
 2. Focused guides and thin standalone skills loaded only for the selected task.
 3. Generated module facts plus an exact installed-source/original-AGENTS escape hatch.
-4. A versioned 240-case catalog with deterministic checks, live Codex/Claude routing evaluation, and a skill for adding future cases without bloating the root prompt.
+4. A versioned 242-case catalog with deterministic checks, live Codex/Claude routing evaluation, and a skill for adding future cases without bloating the root prompt.
 
 ## 📝 Architecture
 
@@ -558,10 +558,12 @@ Every case is evaluated against a fresh standalone scaffold. Cases 57–70 are m
 238. Add and modify Customers calendar event types while preserving every built-in type.
 239. Create or publish one custom module and continue development in the same standalone app.
 240. Prepare a standalone app for production without exposing secrets or claiming a live deployment.
+241. Track service outages with acknowledgement, escalation, and customer updates without a new module.
+242. Answer which design-system primitives exist and how to browse them without building a new gallery.
 
 ### Evaluation levels and release matrix
 
-All 240 cases have a deterministic catalog/owner/reference/budget check and a read-only routing assertion. That proves the correct context was selected; it does not claim that model-authored code works. The writable release target is 49 representative cases (20.4% of the catalog). A case counts toward that target only after its release-matrix entry, disposable fixture, controller-owned oracle, and narrow write allowlist land together; catalog classification alone does not make a case executable.
+All 242 cases have a deterministic catalog/owner/reference/budget check and a read-only routing assertion. That proves the correct context was selected; it does not claim that model-authored code works. The writable release target is 49 representative cases (20.2% of the catalog). A case counts toward that target only after its release-matrix entry, disposable fixture, controller-owned oracle, and narrow write allowlist land together; catalog classification alone does not make a case executable.
 
 Executable coverage is distributed across these slices; the release matrix and trusted oracles must remain aligned for all 49 cases:
 
@@ -597,8 +599,8 @@ Cases 163, 164, 165, and 192 are executable test-authoring evaluations. They pro
 
 The checked-in `releaseMatrix` pins supported runner model selectors plus required and portability case IDs. The release invocation pins one primary runner for the whole suite; per-case fallback or mixed writable ownership is forbidden. Acceptance for this PR is:
 
-1. deterministic validation: 240/240 pass, including 100% forbidden/safety assertions;
-2. selected primary-runner routing: 240/240 pass with one fresh-process correction allowed only for correctable read-only routing assertions, in addition to the bounded invalid-output/transient retry;
+1. deterministic validation: 242/242 pass, including 100% forbidden/safety assertions;
+2. selected primary-runner routing: 242/242 pass with one fresh-process correction allowed only for correctable read-only routing assertions, in addition to the bounded invalid-output/transient retry;
 3. optional portability routing: when a different `--portability-runner` is explicitly requested, the exact 49-case representative target passes with the same retry rule; when omitted, the release report records `portabilityRunner: null` and does not claim cross-model evidence;
 4. writable implementation/regression: the selected primary runner owns all 49 cases, and every target oracle, fixed target command, declared generated test, duplicate normalized API/backend/frontend route guard, and mandatory generative judge passes;
 5. results are produced from the final commit, record CLI/model versions and prompt hashes, and are summarized without committing raw private transcripts.
@@ -644,7 +646,7 @@ The case assertions cover every frozen/stable surface even though the harness do
 
 | Risk | Severity | Mitigation | Residual risk |
 |---|---|---|---|
-| Rewriting generated guidance changes agent behavior broadly. | High | 240 semantic cases, mandatory safety subset, complete selected-runner release evidence, optional explicit cross-model portability evidence, draft PR, and review gate. | Model behavior remains probabilistic and secondary-runner evidence depends on optional provider access. |
+| Rewriting generated guidance changes agent behavior broadly. | High | 242 semantic cases, mandatory safety subset, complete selected-runner release evidence, optional explicit cross-model portability evidence, draft PR, and review gate. | Model behavior remains probabilistic and secondary-runner evidence depends on optional provider access. |
 | Root instructions are silently truncated by a default agent budget. | High | 12 KiB byte cap on both root sources plus representative generated initial-chain checks against 32,768 bytes (issue #4484). | Other tools may impose smaller undocumented budgets. |
 | Context files still drift from framework contracts. | High | Generated facts, installed source/AGENTS escape hatch, semantic contradiction scan, release version stamps. | Hand-written conceptual guides still require maintenance. |
 | Installer removes user content or breaks Windows. | High | Node path-safe implementation, ownership checks, junction tests, preserve stable flags/wrapper, generated-app tests. | Windows junction semantics vary by corporate policy. |
@@ -674,9 +676,9 @@ No application HTTP endpoint or customer UI is changed. Integration coverage tar
 | `yarn framework:context --module customers` | Installed core version, root/package/module AGENTS chain, `src/modules/customers`, bounded no-ignore search. |
 | Generated module facts | Source-linked API routes, backend pages, frontend pages, CLI commands, AI tools/MCP capabilities, AI agents, and correlated UMES hosts/contributions resolve exact targets and specialist routes without enabling broad dependency discovery; framework-owned hosts remain in the sibling framework extension catalog. |
 | Missing source/duplicate module/version skew fixtures | Explicit degraded/ambiguous/skew output; no guessed edit path. |
-| Deterministic harness validation | 240 schema-valid cases, existing references, no contradictory stale patterns, complete emitted module-fact coverage, context budgets, dependency closure. |
+| Deterministic harness validation | 242 schema-valid cases, existing references, no contradictory stale patterns, complete emitted module-fact coverage, context budgets, dependency closure. |
 | Instruction-budget regression | Both root sources ≤12 KiB; named representative generated initial chains ≤32,768 bytes, measured as bytes. |
-| Selected primary live runner | Codex or Claude read-only structured routing/decision result for all 240 cases, one fresh session per case. |
+| Selected primary live runner | Codex or Claude read-only structured routing/decision result for all 242 cases, one fresh session per case. |
 | Optional portability live runner | A different explicitly requested runner executes the exact 49-case representative read-only target; omission is recorded without blocking release. |
 | Writable live runner | The selected primary runner owns disposable scaffolds and executable oracles for all 49 implementation/regression cases, with bounded controller-materialized installed-package context when declared by the case. |
 | Writable route uniqueness | Every generated API, backend page, and frontend page route is normalized (including dynamic-segment names), compared with app-owned peers and the installed-route baseline in module facts, and duplicate URLs fail before semantic judging. Page metadata cannot override the filesystem-derived route used by the generator. |
@@ -735,7 +737,7 @@ Add all case records, deterministic/live runner, focused/generated-app/Verdaccio
 
 1. Finalize this spec from current scaffold/package/PR evidence and run the 13-surface compatibility audit.
 2. Add case/result schemas, validator registry, release matrix, and tests that fail on missing paths/owners/rule IDs, duplicate IDs, dangling relations, excessive byte/token budgets, stale route/entity/signature patterns, unsafe commands, and unresolved references.
-3. Add baseline cases for all 240 tasks and mark cases 57–70 mandatory.
+3. Add baseline cases for all 242 tasks and mark cases 57–70 mandatory.
 
 ### Phase 2: Root context and local skills
 
@@ -755,7 +757,7 @@ Add all case records, deterministic/live runner, focused/generated-app/Verdaccio
 
 1. Implement deterministic, read-only Codex/Claude routing, and writable disposable-scaffold evaluation modes plus sanitized result artifacts.
 2. Generate a fresh standalone app, install local/external skills, resolve upstream context, and run deterministic validation.
-3. Select Codex or Claude once for the release; run all 240 primary routing cases and all 49 primary-owned writable implementation/regression target oracles, generated tests, target commands, duplicate-route guards, and generative judges. Optionally request the other runner for the exact 49-case read-only portability target. Fix the smallest knowledge owner for each failure and rerun affected + mandatory cases.
+3. Select Codex or Claude once for the release; run all 242 primary routing cases and all 49 primary-owned writable implementation/regression target oracles, generated tests, target commands, duplicate-route guards, and generative judges. Optionally request the other runner for the exact 49-case read-only portability target. Fix the smallest knowledge owner for each failure and rerun affected + mandatory cases.
 4. Run create-app targeted tests, Verdaccio standalone parity where package boundaries changed, and the configured full repository gate.
 5. Complete automated code review/autofix, final compliance report, PR evidence, and rollback notes.
 
@@ -776,6 +778,8 @@ Add all case records, deterministic/live runner, focused/generated-app/Verdaccio
 
 ## Changelog
 
+
+- **2026-10-27** — Reconciled the incidents draft with the current catalog: retained all 240 canonical cases and moved its two colliding additions to OMH-241/242; synchronized the 242-case count without changing the 49 writable cases or historical evidence.
 - **2026-10-21** — Reconciled production-readiness coverage as OMH-240 with the existing Customers calendar (OMH-238) and module-tool (OMH-239) cases; synchronized the 240-case/49-writable contract and preserved the production guide and measured pinned-skill context budgets.
 - **2026-10-09** — Added the TLS-first, provider-neutral production-readiness review, emitted deployment guide, secret-safe routing, and measured pinned-skill context budgets.
 

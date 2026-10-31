@@ -1,4 +1,5 @@
 export * from './InlineEditors'
+export * from './DetailTabsLayout'
 export * from './DetailFieldsSection'
 export * from './LoadingMessage'
 export * from './ErrorMessage'

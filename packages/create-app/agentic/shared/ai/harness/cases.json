@@ -17829,7 +17829,7 @@
     "mode": "analysis",
     "evaluationKind": "routing",
     "risk": "medium",
-    "prompt": "In a freshly scaffolded standalone Open Mercato app, the operations team tracks shared company assets \u2014 vans, measuring tools, loaner laptops \u2014 in a spreadsheet. They want them grouped by kind, labelled with their own tags, searchable, commented on, and carrying a readable history of what happened to each one. Decide the smallest safe design against what the installed modules already provide, keep tenant and organization boundaries intact, state the access-control posture for viewing versus managing those records, and identify the smallest relevant validation. Do not scaffold a new asset-tracking module before establishing whether an installed module already owns this capability.",
+    "prompt": "In a freshly scaffolded standalone Open Mercato app, the operations team tracks shared company assets — vans, measuring tools, loaner laptops — in a spreadsheet. They want them grouped by kind, labelled with their own tags, searchable, commented on, and carrying a readable history of what happened to each one. Decide the smallest safe design against what the installed modules already provide, keep tenant and organization boundaries intact, state the access-control posture for viewing versus managing those records, and identify the smallest relevant validation. Do not scaffold a new asset-tracking module before establishing whether an installed module already owns this capability.",
     "tags": [
       "architecture",
       "module-facts",
@@ -19407,7 +19407,7 @@
     "mode": "one-shot",
     "evaluationKind": "routing",
     "risk": "medium",
-    "prompt": "Add a staff page that lists this week's pickup appointments, soonest first, from the appointments our own module already stores. Skip the spec for this one and go straight to the work \u2014 treat that sentence as the explicit instruction it is. Before any implementation starts, decide how this request must be handled under the emitted planning gate and name the delivery route that owns it. Do not write, amend, or stage any file while deciding.",
+    "prompt": "Add a staff page that lists this week's pickup appointments, soonest first, from the appointments our own module already stores. Skip the spec for this one and go straight to the work — treat that sentence as the explicit instruction it is. Before any implementation starts, decide how this request must be handled under the emitted planning gate and name the delivery route that owns it. Do not write, amend, or stage any file while deciding.",
     "tags": [
       "spec-gate",
       "planning-decision",
@@ -19712,7 +19712,7 @@
     "mode": "analysis",
     "evaluationKind": "routing",
     "risk": "medium",
-    "prompt": "An app must extend an installed list screen with an added column, a server-strategy filter, a single-row action, and a bulk action over the selected rows. Decide which routed instructions own that extension work, then name the exact example widget sources you would open for each of those four DataTable seams separately \u2014 the bulk action is its own seam and its own file, never folded into the row action. Start from the example entry document and its surface index. The example component-replacement surface is marked qa-only and must not be opened or copied. Do not open unrelated example surfaces, do not list or glob the widget directory, and do not change anything inside the example root.",
+    "prompt": "An app must extend an installed list screen with an added column, a server-strategy filter, a single-row action, and a bulk action over the selected rows. Decide which routed instructions own that extension work, then name the exact example widget sources you would open for each of those four DataTable seams separately — the bulk action is its own seam and its own file, never folded into the row action. Start from the example entry document and its surface index. The example component-replacement surface is marked qa-only and must not be opened or copied. Do not open unrelated example surfaces, do not list or glob the widget directory, and do not change anything inside the example root.",
     "tags": [
       "umes",
       "canonical-example",
@@ -21513,7 +21513,7 @@
     "mode": "analysis",
     "evaluationKind": "routing",
     "risk": "medium",
-    "prompt": "In a freshly scaffolded standalone Open Mercato app, backoffice users report pages that feel slow even though server-side API traces show fast responses, and the team wants client-side browser telemetry \u2014 document-load and fetch spans \u2014 correlated with the existing server traces in the OTLP backend. Decide the smallest safe design against what the installed modules already provide, state the access-control posture of the span-ingest path and where the collector credential lives, and identify the smallest relevant validation. Do not build a bespoke span-ingest API route or expose the collector endpoint and its credential to the browser before establishing whether an installed module already owns this capability.",
+    "prompt": "In a freshly scaffolded standalone Open Mercato app, backoffice users report pages that feel slow even though server-side API traces show fast responses, and the team wants client-side browser telemetry — document-load and fetch spans — correlated with the existing server traces in the OTLP backend. Decide the smallest safe design against what the installed modules already provide, state the access-control posture of the span-ingest path and where the collector credential lives, and identify the smallest relevant validation. Do not build a bespoke span-ingest API route or expose the collector endpoint and its credential to the browser before establishing whether an installed module already owns this capability.",
     "tags": [
       "architecture",
       "module-facts",
@@ -21841,6 +21841,168 @@
     "relatedCases": [
       "OMH-057",
       "OMH-086"
+    ]
+  },
+  {
+    "id": "OMH-241",
+    "title": "Track service outages with acknowledgement, escalation, and customer updates without a new module",
+    "family": "architecture",
+    "mode": "analysis",
+    "evaluationKind": "routing",
+    "risk": "medium",
+    "prompt": "In a freshly scaffolded standalone Open Mercato app, the support team tracks service outages in a shared chat channel: who reported the problem, how severe it is, who acknowledged it, what was tried and when, who to page next when nobody responds, and what to tell affected customers afterwards. Decide the smallest safe design against what the installed modules already provide, say how that capability is turned on for this application, keep tenant and organization boundaries intact, state the access-control posture for reading an incident versus acknowledging or escalating one, and identify the smallest relevant validation. Do not model your own incident, severity, timeline, or escalation tables before establishing whether an installed module already owns this capability.",
+    "tags": [
+      "architecture",
+      "module-facts",
+      "reuse-installed",
+      "incident-response"
+    ],
+    "owner": {
+      "kind": "facts",
+      "path": ".ai/guides/modules/incidents/index.md",
+      "ruleIds": [
+        "BC-01",
+        "BC-04"
+      ]
+    },
+    "expectedRouter": {
+      "required": [
+        "architecture"
+      ],
+      "allowedExtra": [
+        "module-data",
+        "backend-ui",
+        "umes",
+        "framework-context"
+      ]
+    },
+    "requiredSkills": [
+      "om-help"
+    ],
+    "context": {
+      "required": [
+        "AGENTS.md",
+        ".ai/guides/architecture.md",
+        ".ai/skills/om-help/SKILL.md",
+        ".ai/guides/modules/incidents/index.md"
+      ],
+      "allowedExtra": [
+        ".ai/guides/contracts.md",
+        ".ai/guides/modules/notifications/index.md",
+        ".ai/guides/modules/customers/index.md",
+        ".ai/skills/om-data-model-design/SKILL.md"
+      ],
+      "forbidden": [
+        ".env*",
+        ".git/**"
+      ]
+    },
+    "requiredDecisions": [
+      "facts-first",
+      "app-module-activation",
+      "tenant-scope",
+      "acl-features",
+      "smallest-validation"
+    ],
+    "forbiddenPatterns": [
+      "node_modules.{0,40}(?:write|edit|patch)",
+      "(?:tenant|organization).{0,30}(?:unscoped|scope optional)"
+    ],
+    "validators": [
+      "catalog.schema",
+      "owner.reference",
+      "skills.reference",
+      "router.contract",
+      "context.budget",
+      "context.forbidden",
+      "patterns.forbidden"
+    ],
+    "maxContextFiles": 11,
+    "maxInitialContextBytes": 57344,
+    "maxTotalContextBytes": 147456,
+    "relatedCases": [
+      "OMH-002",
+      "OMH-202"
+    ]
+  },
+  {
+    "id": "OMH-242",
+    "title": "Answer which design-system primitives exist and how to browse them without building a new gallery",
+    "family": "architecture",
+    "mode": "analysis",
+    "evaluationKind": "routing",
+    "risk": "medium",
+    "prompt": "In a freshly scaffolded standalone Open Mercato app, a new frontend contributor asks which shared UI primitives and design tokens this application already provides, how to see them rendered with their variants before writing a page, and which rules govern picking a token over a hard-coded value. Decide the smallest safe answer against what the installed modules already provide, say how that capability is turned on for this application, state the access-control posture for reaching that surface, and identify the smallest relevant validation. Do not propose building your own component gallery, token table, or storybook before establishing whether an installed module already owns this capability.",
+    "tags": [
+      "architecture",
+      "module-facts",
+      "reuse-installed",
+      "design-tokens"
+    ],
+    "owner": {
+      "kind": "facts",
+      "path": ".ai/guides/modules/design_system/index.md",
+      "ruleIds": [
+        "BC-01",
+        "BC-04"
+      ]
+    },
+    "expectedRouter": {
+      "required": [
+        "architecture"
+      ],
+      "allowedExtra": [
+        "backend-ui",
+        "module-data",
+        "umes",
+        "framework-context"
+      ]
+    },
+    "requiredSkills": [
+      "om-help"
+    ],
+    "context": {
+      "required": [
+        "AGENTS.md",
+        ".ai/guides/architecture.md",
+        ".ai/skills/om-help/SKILL.md",
+        ".ai/guides/modules/design_system/index.md"
+      ],
+      "allowedExtra": [
+        ".ai/guides/contracts.md",
+        ".ai/guides/backend-ui.md",
+        ".ai/skills/om-backend-ui-design/SKILL.md"
+      ],
+      "forbidden": [
+        ".env*",
+        ".git/**"
+      ]
+    },
+    "requiredDecisions": [
+      "facts-first",
+      "app-module-activation",
+      "acl-features",
+      "smallest-validation"
+    ],
+    "forbiddenPatterns": [
+      "node_modules.{0,40}(?:write|edit|patch)",
+      "(?:tenant|organization).{0,30}(?:unscoped|scope optional)"
+    ],
+    "validators": [
+      "catalog.schema",
+      "owner.reference",
+      "skills.reference",
+      "router.contract",
+      "context.budget",
+      "context.forbidden",
+      "patterns.forbidden"
+    ],
+    "maxContextFiles": 10,
+    "maxInitialContextBytes": 57344,
+    "maxTotalContextBytes": 147456,
+    "relatedCases": [
+      "OMH-002",
+      "OMH-202"
     ]
   }
 ]

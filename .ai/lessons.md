@@ -1,6 +1,6 @@
 # Lessons
 
-This catalog indexes 166 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
+This catalog indexes 171 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
 
 ## How to use this catalog
 
@@ -37,7 +37,7 @@ This catalog indexes 166 focused lessons. Route the task first, then read only r
 - [Fresh standalone Yarn scaffolds must ship a runnable root workspace lockfile entry](lessons/fresh-standalone-yarn-scaffolds-must-ship-a-runnable.md) — area:architecture,testing,module-data; module:create_app; topic:command-pattern,package-runtime,template-sync
 - [Generated standalone app installs in CI must opt out of immutable lockfiles](lessons/generated-standalone-app-installs-in-ci-must-opt-out-of.md) — area:architecture,integration,testing; module:create_app; topic:generated-files,database-migrations,package-runtime
 - [Generator manifests must fall back to source parsing when runtime-importing TS modules is fragile](lessons/generator-manifests-must-fall-back-to-source-parsing.md) — area:architecture,integration,module-data; module:cli,query_index,queue; topic:events,generated-files,query-index
-- [Global registries in publishable packages must use `globalThis`, not module-local state](lessons/global-registries-in-publishable-packages-must-use.md) — area:architecture,module-data; module:shared,create_app; topic:events,module-boundaries,package-runtime
+- [Global registries in publishable packages must use `globalThis`, not module-local state](lessons/global-registries-in-publishable-packages-must-use.md) — area:architecture,module-data; module:shared,create_app,query_index; topic:events,module-boundaries,package-runtime
 - [Keep create-app template files in lockstep with app shell/layout changes](lessons/keep-create-app-template-files-in-lockstep-with-app.md) — area:architecture,backend-ui,testing; module:create_app,ui,example; topic:template-sync,ui-components,testing
 - [Keep mirrored dev runtimes aligned with their process registry type](lessons/keep-mirrored-dev-runtimes-aligned-with-their-process.md) — area:architecture,debugging; module:events,create_app; topic:events,dev-runtime,filters
 - [Keep standalone agentic content in sync with module conventions](lessons/keep-standalone-agentic-content-in-sync-with-module.md) — area:architecture,framework-context; module:create_app,documents,events,cli; topic:auto-discovery,generated-files,package-runtime,session-export,testing,context-budget
@@ -55,6 +55,8 @@ This catalog indexes 166 focused lessons. Route the task first, then read only r
 - [Use `safeExtend()` when composing refined Zod object schemas](lessons/use-safeextend-when-composing-refined-zod-object-schemas.md) — area:architecture; module:shared,checkout; topic:generated-files,schema-composition
 
 ### module-data
+
+- [Cart contention retries must release connections](lessons/cart-contention-retries-must-release-connections.md) — area:module-data,integration,testing; module:cart,sales,shared; topic:transactions,database-pool,workers,testing
 
 - [Personal API-key data must fail closed when policy is unavailable](lessons/personal-data-api-keys-must-fail-closed-on-missing-policy.md) — area:module-data,debugging; module:auth,dashboards; topic:access-control,api-keys,failure-states
 - [Materialize locking prune batches before deleting](lessons/materialize-locking-prune-batches.md) — area:module-data,debugging,testing; module:payment_gateways; topic:concurrency,postgresql,retention,data-integrity
@@ -76,6 +78,7 @@ This catalog indexes 166 focused lessons. Route the task first, then read only r
 - [Data-sync run detail should subscribe to its progress job, not just poll it](lessons/data-sync-run-detail-should-subscribe-to-its-progress.md) — area:module-data,integration,debugging; module:data_sync,progress,events; topic:events,realtime,testing
 - [Deterministic module schedule ids must be valid for scheduler validators](lessons/deterministic-schedule-ids-must-pass-scheduler-validators.md) — area:module-data,architecture; module:scheduler; topic:validation-errors,data-integrity
 - [Destination auth requires expanded scopes and atomic reconciliation](lessons/destination-authorization-must-use-expanded-scopes-and-atomic-reconciliation.md) — area:module-data,testing; module:auth,directory; topic:access-control,command-pattern,data-integrity,data-scoping
+- [Destructure scope fields explicitly at ORM where-clause boundaries](lessons/destructure-scope-fields-explicitly-at-orm-where-clause.md) — area:module-data; module:incidents; topic:command-pattern,data-scoping,type-normalization
 - [Do not diagnose unknown-total progress as broken SSE](lessons/do-not-diagnose-unknown-total-progress-as-broken-sse.md) — area:module-data,integration,backend-ui; module:events,progress,catalog; topic:data-import,events,provider-lifecycle
 - [Docker initialization should treat the existing-users CLI abort as already initialized](lessons/docker-initialization-should-treat-the-existing-users.md) — area:module-data,architecture,debugging; module:cli,create_app; topic:package-runtime,runtime-startup,template-sync
 - [Duplicate migration creation causes initialize failures in fresh databases](lessons/duplicate-migration-creation-causes-initialize-failures.md) — area:module-data,testing,architecture; module:customers; topic:database-migrations,runtime-startup,testing
@@ -160,8 +163,8 @@ This catalog indexes 166 focused lessons. Route the task first, then read only r
 - [Provider credentials must never control authenticated cross-origin requests](lessons/provider-credentials-must-never-control-authenticated.md) — area:integration; module:auth,integrations,data_sync; topic:data-import,data-scoping,media
 - [Provider sandboxes may sign notifications with a separate CA](lessons/provider-sandboxes-may-sign-with-a-separate-ca.md) — area:integration; module:payment_gateways,gateway_tpay; topic:network-security,webhooks
 - [Security caches must outlive request-scoped providers and cover reserved IPv6 space](lessons/security-caches-must-outlive-request-scoped-providers.md) — area:integration,umes; module:cache,auth,cli; topic:data-scoping,network-security,provider-lifecycle
-- [Shared security-default changes require a complete consumer audit](lessons/shared-security-default-changes-require-a-complete.md) — area:integration,testing,module-data; module:shared,auth,cache,events,example,create_app; topic:access-control,data-scoping,events
-- [Stabilize flaky integration tests by finding the hang, not by raising the timeout](lessons/stabilize-flaky-integration-tests-by-finding-the-hang.md) — area:integration,testing,backend-ui,debugging; module:events,queue,ui,auth,example,record_locks,warranty_claims,customers,phone_calls,search,cache,query_index,sales,sync_excel,workflows,data_sync,communication_channels,forms,security; topic:events,testing,workers,hydration,component-overrides,timers
+- [Shared security-default changes require a complete consumer audit](lessons/shared-security-default-changes-require-a-complete.md) — area:integration,testing,module-data; module:shared,auth,cache,events,example,create_app,incidents; topic:access-control,data-scoping,events
+- [Stabilize flaky integration tests by finding the hang, not by raising the timeout](lessons/stabilize-flaky-integration-tests-by-finding-the-hang.md) — area:integration,testing,backend-ui,module-data,debugging; module:events,queue,ui,auth,example,record_locks,warranty_claims,customers,cart,phone_calls,search,cache,query_index,sales,workflows,sync_excel,data_sync,communication_channels,forms,security,incidents; topic:events,testing,workers,hydration,component-overrides,timers
 - [Standalone integration activation must match the asserted runtime surface](lessons/standalone-integration-activation-must-match-the-asserted.md) — area:integration,architecture,testing; module:create_app,example,design_system,auth; topic:access-control,component-overrides,generated-files,testing
 - [Standalone CI runners must mirror webhook-security env from parity scripts](lessons/standalone-ci-runners-must-mirror-webhook-security-env.md) — area:integration,architecture,testing; module:webhooks,create_app,checkout; topic:events,generated-files,database-migrations
 - [Store integration registry state in `globalThis` for standalone workers](lessons/store-integration-registry-state-in-globalthis-for.md) — area:integration,architecture,testing; module:integrations,shared,create_app; topic:generated-files,module-boundaries,database-migrations
@@ -185,6 +188,7 @@ This catalog indexes 166 focused lessons. Route the task first, then read only r
 - [Package builds that publish `dist/` must clear stale artifacts first](lessons/package-builds-that-publish-dist-must-clear-stale.md) — area:debugging,module-data,architecture; module:create_app; topic:build-output,generated-files,database-migrations,concurrency
 - [Stale package dist and cached RBAC make a correct fix look broken in dev](lessons/stale-dist-and-cached-rbac-hide-code-changes-in-dev.md) — area:debugging,ai-workflow; module:eudr,auth; topic:build-output,access-control,spec-pr
 - [`/_global-error` prerender failures are Next version issues, not app code](lessons/global-error-prerender-failures-are-next-version-issues.md) — area:debugging,testing,architecture; module:create_app,ui; topic:package-runtime,generated-files,template-sync
+- [Verify UI flows against a production build when dev-mode pages never hydrate](lessons/verify-ui-flows-against-a-production-build-when-dev.md) — area:debugging,testing; module:platform; topic:dev-runtime,node-runtime,runtime-startup
 
 ### testing
 
@@ -199,11 +203,13 @@ This catalog indexes 166 focused lessons. Route the task first, then read only r
 - [Permission-sensitive exports need live API coverage](lessons/permission-sensitive-exports-need-live-api-coverage.md) — area:testing,integration; module:staff,auth; topic:access-control,testing,route-coverage
 - [Keep executable integration tests module-local](lessons/keep-executable-integration-tests-module-local.md) — area:testing,module-data; module:platform; topic:module-boundaries,package-runtime,testing
 - [Meilisearch container healthchecks must probe IPv4 explicitly](lessons/meilisearch-container-healthchecks-must-probe-ipv4.md) — area:testing,architecture; module:search,create_app; topic:network-security,package-runtime,runtime-startup
+- [Raise the Node heap for app-wide typechecks](lessons/raise-the-node-heap-for-app-wide-typechecks.md) — area:testing,debugging; module:platform; topic:node-runtime,build-output,testing
 - [Restart stale UI previews after package edits](lessons/restart-stale-ui-previews-after-package-edits.md) — area:testing,debugging; module:create_app,ui; topic:package-runtime,testing
 - [Root-level tsx workflow entrypoints must avoid top-level await](lessons/root-level-tsx-workflow-entrypoints-must-avoid-top-level-await.md) — area:testing; module:create_app; topic:package-runtime,testing
 - [Scope Playwright `testIgnore` entries to project root absolute paths](lessons/scope-playwright-testignore-entries-to-project-root.md) — area:testing,integration; module:platform; topic:data-scoping,testing,type-normalization
 - [Tests asserting `Intl` output must pin the locale and the calendar date](lessons/tests-asserting-intl-output-must-pin-locale-and-date.md) — area:testing,debugging,backend-ui; module:platform; topic:testing,i18n,ui-components
 - [Toggling Playwright request interception strands in-flight requests](lessons/toggling-playwright-request-interception-strands-in.md) — area:testing,debugging,integration; module:platform,example,create_app; topic:testing,template-sync,dev-runtime
+- [Translation keys passed as arguments escape the locale-coverage guard](lessons/translation-keys-passed-as-arguments-escape-the-locale.md) — area:testing,backend-ui; module:incidents; topic:i18n,locale-coverage,testing
 - [Use cryptographic randomness in auth-adjacent test helpers](lessons/use-cryptographic-randomness-in-auth-adjacent-test.md) — area:testing,integration,module-data; module:auth,cache,communication_channels; topic:data-scoping,generated-files,filters
 - [Use the bundled Node runtime for sandboxed macOS verification](lessons/use-the-bundled-node-runtime-for-sandboxed-macos.md) — area:testing,debugging; module:platform,create_app; topic:testing,node-runtime
 - [When a task brief requires Playwright coverage, unit tests are not a substitute](lessons/when-a-task-brief-requires-playwright-coverage-unit.md) — area:testing; module:events,search; topic:events,module-boundaries,testing

@@ -170,6 +170,26 @@ describe('runAiAgentText', () => {
     expect(convertToModelMessagesMock).toHaveBeenCalledWith(baseMessages)
   })
 
+  it('appends a runtime output-language prompt for non-English locales', async () => {
+    seedAgentRegistryForTests([
+      makeAgent({
+        id: 'customers.assistant',
+        moduleId: 'customers',
+      }),
+    ])
+
+    await runAiAgentText({
+      agentId: 'customers.assistant',
+      messages: baseMessages as never,
+      authContext: { ...baseAuth, locale: 'pl' },
+    })
+
+    const callArg = streamTextMock.mock.calls[0][0] as { system: string }
+    expect(callArg.system).toContain('RUNTIME OUTPUT LANGUAGE')
+    expect(callArg.system).toContain('The operator is using the Polish locale (pl).')
+    expect(callArg.system).toContain('Write all user-visible prose in Polish')
+  })
+
   it('propagates maxSteps as stopWhen: stepCountIs(n)', async () => {
     seedAgentRegistryForTests([
       makeAgent({

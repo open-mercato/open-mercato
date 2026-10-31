@@ -73,6 +73,7 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'auth', from: '@open-mercato/core' },
   { id: 'directory', from: '@open-mercato/core' },
   { id: 'customers', from: '@open-mercato/core' },
+  { id: 'incidents', from: '@open-mercato/core' },
   // customer_groups (Release 2 part 1 — .ai/specs/2026-08-14-customer-groups-and-b2b-terms.md
   // §14 Phase 1-2). The package ships with the scaffold but stays disabled by default:
   // enabling it here makes the scaffold ship the module's fact-sheet, which the
