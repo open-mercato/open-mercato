@@ -48,6 +48,7 @@ import { buildAttachmentImageUrl, slugifyAttachmentFileName } from '@open-mercat
 import { fetchOptionSchemaTemplate } from '../../../optionSchemaClient'
 import CreateVariantPage from '../create/page'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 
 const logger = createLogger('catalog')
 
@@ -109,6 +110,7 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
   const variantId = params?.variantId ? String(params.variantId) : null
   const isCreateSentinel = variantId === 'create'
   const [priceKinds, setPriceKinds] = React.useState<PriceKindSummary[]>([])
+  const [priceKindsLoaded, setPriceKindsLoaded] = React.useState(false)
   const [taxRates, setTaxRates] = React.useState<TaxRateSummary[]>([])
   const [optionDefinitions, setOptionDefinitions] = React.useState<OptionDefinition[]>([])
   const [initialValues, setInitialValues] = React.useState<VariantFormValues | null>(null)
@@ -152,6 +154,8 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
   )
 
   React.useEffect(() => {
+    let cancelled = false
+    setPriceKindsLoaded(false)
     const loadPriceKinds = async () => {
       try {
         const payload = await readApiResultOrThrow<{ items?: PriceKindApiPayload[] }>(
@@ -160,13 +164,19 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
           { errorMessage: t('catalog.priceKinds.errors.load', 'Failed to load price kinds.') },
         )
         const items = Array.isArray(payload.items) ? payload.items : []
-        setPriceKinds(items.map((item) => normalizePriceKindSummary(item)).filter((item): item is PriceKindSummary => !!item))
+        if (!cancelled) {
+          setPriceKinds(items.map((item) => normalizePriceKindSummary(item)).filter((item): item is PriceKindSummary => !!item))
+        }
       } catch (err) {
         logger.error('catalog.price-kinds.fetch failed', { err })
-        setPriceKinds([])
+        getTelemetryRuntime()?.reportError(err, { module: 'catalog', code: 'catalog.price_kinds_fetch_failed' })
+        if (!cancelled) setPriceKinds([])
+      } finally {
+        if (!cancelled) setPriceKindsLoaded(true)
       }
     }
     loadPriceKinds().catch(() => {})
+    return () => { cancelled = true }
   }, [t])
 
   React.useEffect(() => {
@@ -210,7 +220,7 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
   }, [fetchTaxRateById, initialValues?.taxRateId, productTaxRateId, taxRates])
 
   React.useEffect(() => {
-    if (!variantId || isCreateSentinel || priceKinds.length === 0) return
+    if (!variantId || isCreateSentinel || !priceKindsLoaded) return
     let cancelled = false
     async function load() {
       setLoading(true)
@@ -400,7 +410,7 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
     }
     load()
     return () => { cancelled = true }
-  }, [variantId, t, currentProductId, priceKinds])
+  }, [variantId, t, currentProductId, priceKinds, priceKindsLoaded])
 
   const groups = React.useMemo<CrudFormGroup[]>(() => {
     const list: CrudFormGroup[] = [

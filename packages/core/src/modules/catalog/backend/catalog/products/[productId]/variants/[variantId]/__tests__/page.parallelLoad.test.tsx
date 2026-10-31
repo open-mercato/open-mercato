@@ -113,4 +113,32 @@ describe('EditVariantPage — parallel form loaders (#3180)', () => {
     expect(callsTo('/api/catalog/prices?variantId=')).toBe(1)
     expect(callsTo('/api/catalog/products?id=')).toBe(1)
   })
+
+  it.each(['empty', 'rejected'])('hydrates the variant form when price kinds are %s (#4908)', async (result) => {
+    readApiResultOrThrowMock.mockImplementation((url: string) => {
+      if (url.includes('/api/catalog/price-kinds') && result === 'rejected') {
+        return Promise.reject(new Error('Price kinds unavailable'))
+      }
+      return Promise.resolve({ items: [] })
+    })
+    attachments.resolve({ ok: true, result: { items: [] } })
+    prices.resolve({ ok: true, result: { items: [] } })
+    product.resolve({ ok: true, result: { items: [{ id: 'prod-1', title: 'Product 1' }] } })
+
+    render(<EditVariantPage params={{ productId: 'prod-1', variantId: 'v-1' }} />)
+
+    await waitFor(() => expect(callsTo('/api/catalog/variants?id=')).toBe(1))
+    await waitFor(() => expect(latestCrudFormProps).toEqual(expect.objectContaining({
+      isLoading: false,
+      initialValues: expect.objectContaining({
+        id: 'v-1',
+        name: 'Variant 1',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+        prices: {},
+      }),
+    })))
+    expect(callsTo('/api/attachments')).toBe(1)
+    expect(callsTo('/api/catalog/prices?variantId=')).toBe(1)
+    expect(callsTo('/api/catalog/products?id=')).toBe(1)
+  })
 })
