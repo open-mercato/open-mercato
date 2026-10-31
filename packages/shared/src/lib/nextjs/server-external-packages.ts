@@ -1,0 +1,66 @@
+/**
+ * Node-only third-party dependencies of Open Mercato modules that the Next.js server
+ * should `require` from `node_modules` instead of bundling.
+ *
+ * Turbopack compiles every bundled server dependency once per server layer (route
+ * handlers, React Server Components, SSR), so these packages otherwise dominate the
+ * dev server's module graph and memory. Only list packages that never touch React
+ * and do not need bundler transforms; this config-only entrypoint has no runtime
+ * imports and is safe to evaluate from `next.config.ts`.
+ */
+export const openMercatoServerExternalPackages = [
+  '@ai-sdk/amazon-bedrock',
+  '@ai-sdk/anthropic',
+  '@ai-sdk/azure',
+  '@ai-sdk/cohere',
+  '@ai-sdk/gateway',
+  '@ai-sdk/google',
+  '@ai-sdk/mistral',
+  '@ai-sdk/openai',
+  '@ai-sdk/provider-utils',
+  '@aws-sdk/client-s3',
+  '@aws-sdk/client-sesv2',
+  '@grpc/grpc-js',
+  '@mikro-orm/migrations',
+  '@mikro-orm/postgresql',
+  '@mikro-orm/sql',
+  '@modelcontextprotocol/sdk',
+  '@parse/node-apn',
+  '@xmldom/xmldom',
+  'ai',
+  'ai-sdk-ollama',
+  'bcryptjs',
+  'bullmq',
+  'cron-parser',
+  'encoding-japanese',
+  'firebase-admin',
+  'gpt-tokenizer',
+  'happy-dom',
+  'html-to-text',
+  'iconv-lite',
+  'imapflow',
+  'ioredis',
+  'js-yaml',
+  'kysely',
+  'libmime',
+  'luxon',
+  'mailparser',
+  'mammoth',
+  'node-forge',
+  'node-html-markdown',
+  'node-html-parser',
+  'nodemailer',
+  'pg',
+  'postal-mime',
+  'protobufjs',
+  'rate-limiter-flexible',
+  're2js',
+  'resend',
+  'semver',
+  'sharp',
+  'stripe',
+  'svix',
+  'undici',
+  'xmlbuilder',
+  'yaml',
+] as const
