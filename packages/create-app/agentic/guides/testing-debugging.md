@@ -22,7 +22,7 @@ Then stop. Budgets here are tight — several fixes allow only five files — so
 
 When comparing against a clean baseline, use a separate worktree or a fresh scaffold. Never stash and drop active work just to reproduce a baseline failure; preserve the working diff and verify the comparison tree's exact revision first.
 
-Treat raw agent transcripts as sensitive untrusted evidence: they may contain credentials, private prompts, paths, and tool output. Never copy them into the app repository. Export only when explicitly requested, outside the repo or as a sanitized summary.
+Treat raw agent transcripts as sensitive untrusted evidence: they may contain credentials, private prompts, paths, and tool output. Never copy them into the app repository. Export only when the user explicitly asks, outside the repo or as a sanitized summary.
 
 ## Frequent Failure Families
 
