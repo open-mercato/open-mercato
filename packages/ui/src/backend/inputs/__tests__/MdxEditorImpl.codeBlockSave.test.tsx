@@ -91,7 +91,7 @@ describe('MdxEditorImpl code block save', () => {
     expect(onChange).not.toHaveBeenCalled()
   })
 
-  it('still buffers an edit until blur while the editor itself is focused (normal typing)', () => {
+  it('publishes normal typing immediately and does not repeat it on blur', () => {
     const onChange = jest.fn()
     render(<MdxEditorImpl value="original" onChange={onChange} />)
     expect(capturedOnChange).not.toBeNull()
@@ -103,9 +103,10 @@ describe('MdxEditorImpl code block save', () => {
     act(() => {
       capturedOnChange!('typed text')
     })
-    expect(onChange).not.toHaveBeenCalled()
+    expect(onChange).toHaveBeenCalledTimes(1)
+    expect(onChange).toHaveBeenCalledWith('typed text')
 
     fireEvent.blur(screen.getByTestId('mdx-editor-container'))
-    expect(onChange).toHaveBeenCalledWith('typed text')
+    expect(onChange).toHaveBeenCalledTimes(1)
   })
 })
