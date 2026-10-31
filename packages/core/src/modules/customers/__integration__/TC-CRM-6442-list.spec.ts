@@ -1,4 +1,3 @@
-import path from 'node:path';
 import { expect, test } from '@playwright/test';
 import {
   createDealFixture,
@@ -18,16 +17,6 @@ import { drainIntegrationQueue } from '@open-mercato/core/helpers/integration/qu
 const POLL_INTERVAL_MS = 200;
 const POLL_TIMEOUT_MS = 30_000;
 const BULK_OWNER_QUEUE = 'customers-deals-bulk-update-owner';
-
-const TEST_APP_ROOT = process.env.OM_TEST_APP_ROOT?.trim();
-const APP_ROOT = TEST_APP_ROOT
-  ? path.resolve(TEST_APP_ROOT)
-  : path.resolve(process.cwd(), 'apps/mercato');
-const APP_QUEUE_BASE_DIR = path.resolve(APP_ROOT, '.mercato/queue');
-
-if (!TEST_APP_ROOT) {
-  process.env.QUEUE_BASE_DIR = APP_QUEUE_BASE_DIR;
-}
 
 async function ownerOf(request: Parameters<typeof apiRequest>[0], token: string, dealId: string): Promise<string | null> {
   const payload = await readJsonSafe(await apiRequest(request, 'GET', `/api/customers/deals/${dealId}`, { token }));
@@ -118,7 +107,7 @@ test.describe('CRM deal owner — deals list bulk reassignment', () => {
     // The list relies on this id to track the job in the top bar.
     expect((body as { progressJobId?: string | null })?.progressJobId).toBeTruthy();
 
-    await drainIntegrationQueue(BULK_OWNER_QUEUE, { appRoot: APP_ROOT });
+    await drainIntegrationQueue(BULK_OWNER_QUEUE);
 
     const deadline = Date.now() + POLL_TIMEOUT_MS;
     let owners: Array<string | null> = [];

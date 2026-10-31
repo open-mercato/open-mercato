@@ -30,6 +30,7 @@ import { resolveCustomersRequestContext } from '../../lib/interactionRequestCont
 import { hydrateCanonicalInteractions } from '../../lib/interactionReadModel'
 import { resolveCanonicalActivityTargetId } from '../../lib/legacyActivityBridge'
 import { buildEmailVisibilityMikroFilter } from '../../lib/visibilityFilter'
+import { buildInteractionOccurredAtOrderBy } from '../../lib/interactionOrderBy'
 import { listGrantsForViewer, listSharedChannelIds } from '../../lib/conversationShares'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
@@ -148,25 +149,25 @@ async function legacyAdaptersDisabledResponse(): Promise<Response> {
 
 function buildLegacyOrderBy(sortField: string | undefined, sortDir: 'asc' | 'desc') {
   if (sortField === 'createdAt') {
-    return { createdAt: sortDir }
+    return { createdAt: sortDir, id: sortDir }
   }
-  return { occurredAt: sortDir, createdAt: sortDir } as const
+  return buildInteractionOccurredAtOrderBy(sortDir)
 }
 
 function buildCanonicalOrderBy(sortField: string | undefined, sortDir: 'asc' | 'desc') {
   if (sortField === 'createdAt') {
-    return { createdAt: sortDir }
+    return { createdAt: sortDir, id: sortDir }
   }
-  return { occurredAt: sortDir, createdAt: sortDir } as const
+  return buildInteractionOccurredAtOrderBy(sortDir)
 }
 
-function resolveActivitySortValue(item: ActivityItem, sortField: string | undefined): number {
+function resolveActivitySortValue(item: ActivityItem, sortField: string | undefined): number | null {
   const raw =
     sortField === 'createdAt'
       ? item.createdAt
-      : item.occurredAt ?? item.createdAt
+      : item.occurredAt
   const timestamp = raw ? new Date(raw).getTime() : Number.NaN
-  return Number.isNaN(timestamp) ? 0 : timestamp
+  return Number.isNaN(timestamp) ? null : timestamp
 }
 
 function sortActivityItems(
@@ -178,10 +179,19 @@ function sortActivityItems(
     const leftValue = resolveActivitySortValue(left, sortField)
     const rightValue = resolveActivitySortValue(right, sortField)
     if (leftValue === rightValue) {
+      const leftCreatedAt = resolveActivitySortValue(left, 'createdAt')
+      const rightCreatedAt = resolveActivitySortValue(right, 'createdAt')
+      if (leftCreatedAt !== rightCreatedAt) {
+        if (leftCreatedAt === null) return 1
+        if (rightCreatedAt === null) return -1
+        return sortDir === 'asc' ? leftCreatedAt - rightCreatedAt : rightCreatedAt - leftCreatedAt
+      }
       return sortDir === 'asc'
         ? left.id.localeCompare(right.id)
         : right.id.localeCompare(left.id)
     }
+    if (leftValue === null) return 1
+    if (rightValue === null) return -1
     return sortDir === 'asc' ? leftValue - rightValue : rightValue - leftValue
   })
 }
