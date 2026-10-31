@@ -2,6 +2,8 @@
 
 import * as React from 'react'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { setInjectionRegistryError } from '@open-mercato/shared/modules/widgets/injection-loader'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import type { ModuleOverrideDomain } from '@open-mercato/shared/modules/overrides'
 
 const logger = createLogger('app').child({ component: 'ClientBootstrap' })
@@ -201,6 +203,7 @@ async function loadRegistryGroup(group: ClientRegistryGroup): Promise<void> {
         coreRegistry.registerCoreInjectionWidgets(widgets.injectionWidgetEntries)
         coreRegistry.registerCoreInjectionTables(tables.injectionTables, widgets.injectionWidgetEntries)
         coreRegistry.registerEnabledModuleIds(enabledModules.enabledModuleIds)
+        setInjectionRegistryError(null)
         break
       }
       case 'dashboard': {
@@ -229,6 +232,10 @@ async function loadRegistryGroup(group: ClientRegistryGroup): Promise<void> {
     loadedGroups.add(group)
   })().catch((err) => {
     groupPromises.delete(group)
+    if (group === 'injection' || (group === 'translations' && !loadedGroups.has('injection'))) {
+      setInjectionRegistryError(err instanceof Error ? err.message : String(err))
+    }
+    getTelemetryRuntime()?.reportError(err, { module: 'client_bootstrap', code: 'client_bootstrap.registry_failed', attributes: { group } })
     logger.error('Failed to register client registry group; next render will retry', { group, err })
     throw err
   })
