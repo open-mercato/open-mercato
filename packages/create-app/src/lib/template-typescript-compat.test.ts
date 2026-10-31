@@ -1,5 +1,11 @@
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { execFileSync } from 'node:child_process'
+import { createRequire } from 'node:module'
+import ts from 'typescript-standalone'
+import { ensureModuleRegistration } from '@open-mercato/cli/lib/modules-config'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 
@@ -52,4 +58,48 @@ test('standalone home page does not import an autologin subpath ahead of its dep
   assert.match(source, /!auth && isAutoLoginEnabled\(\)/)
   assert.match(source, /process\.env\.OM_AUTOLOGIN_EMAIL\?\.trim\(\)/)
   assert.match(source, /process\.env\.OM_AUTOLOGIN_PASSWORD/)
+})
+
+
+test('app and scaffold ModuleEntry types accept emitted module origin registration', () => {
+  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'mercato-module-entry-types-'))
+  const moduleSources = [
+    new URL('../../../../apps/mercato/src/modules.ts', import.meta.url),
+    new URL('../../template/src/modules.ts', import.meta.url),
+    new URL('./templates/modules-ts.template', import.meta.url),
+  ]
+  try {
+    for (const [sourceIndex, sourceUrl] of moduleSources.entries()) {
+      const source = fs.readFileSync(sourceUrl, 'utf8')
+      const parsed = ts.createSourceFile('modules.ts', source, ts.ScriptTarget.Latest, true)
+      const entryType = parsed.statements.find((statement): statement is ts.TypeAliasDeclaration =>
+        ts.isTypeAliasDeclaration(statement) && statement.name.text === 'ModuleEntry',
+      )
+      assert.ok(entryType, `ModuleEntry missing in ${fileURLToPath(sourceUrl)}`)
+      const fixturePath = path.join(fixtureRoot, `modules-${sourceIndex}.ts`)
+      fs.writeFileSync(fixturePath, [
+        'type ModuleOverrides = Record<string, unknown>',
+        entryType.getText(parsed),
+        "export const enabledModules: ModuleEntry[] = [{ id: 'customers', from: '@open-mercato/core' }]",
+        '',
+      ].join('\n'))
+      ensureModuleRegistration(fixturePath, {
+        id: 'marketing_consents',
+        from: '@app',
+        locator: 'github:pkarw/marketing-consents',
+        packageName: '@pkarw/marketing_consents',
+      })
+    }
+    fs.writeFileSync(path.join(fixtureRoot, 'tsconfig.json'), JSON.stringify({
+      compilerOptions: { strict: true, noEmit: true, types: [], target: 'ES2022', skipLibCheck: true },
+      include: ['*.ts'],
+    }))
+    const require = createRequire(import.meta.url)
+    execFileSync(process.execPath, [require.resolve('typescript-standalone/bin/tsc'), '--project', fixtureRoot], {
+      encoding: 'utf8',
+      stdio: 'pipe',
+    })
+  } finally {
+    fs.rmSync(fixtureRoot, { recursive: true, force: true })
+  }
 })
