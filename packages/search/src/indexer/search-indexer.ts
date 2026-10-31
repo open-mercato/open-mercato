@@ -191,9 +191,16 @@ export class SearchIndexer {
    * Index a record in the search service.
    */
   async indexRecord(params: IndexRecordParams): Promise<void> {
+    const indexableRecord = await this.buildIndexableRecord(params)
+    if (indexableRecord) {
+      await this.searchService.index(indexableRecord)
+    }
+  }
+
+  private async buildIndexableRecord(params: IndexRecordParams): Promise<IndexableRecord | null> {
     const config = this.entityConfigMap.get(params.entityId)
     if (!config || config.enabled === false) {
-      return // Entity not configured for search
+      return null
     }
 
     const buildContext: SearchBuildContext = {
@@ -205,7 +212,7 @@ export class SearchIndexer {
     }
 
     // Try buildSource first (provides text, presenter, links, checksumSource)
-    let text: string | string[] | undefined
+    let text: string | string[] | undefined = config.buildSource ? [] : undefined
     let presenter: SearchResultPresenter | undefined
     let url: string | undefined
     let links: SearchResultLink[] | undefined
@@ -215,7 +222,7 @@ export class SearchIndexer {
       try {
         const source = await config.buildSource(buildContext)
         if (source) {
-          text = source.text
+          text = source.text ?? []
           if (source.presenter) presenter = source.presenter
           if (source.links) links = source.links
           if (source.checksumSource !== undefined) checksumSource = source.checksumSource
@@ -271,8 +278,7 @@ export class SearchIndexer {
       }
     }
 
-    // Build IndexableRecord
-    const indexableRecord: IndexableRecord = {
+    return {
       entityId: params.entityId,
       recordId: params.recordId,
       tenantId: params.tenantId,
@@ -284,8 +290,6 @@ export class SearchIndexer {
       text,
       checksumSource,
     }
-
-    await this.searchService.index(indexableRecord)
   }
 
   /**
@@ -591,58 +595,10 @@ export class SearchIndexer {
     const indexableRecords: IndexableRecord[] = []
 
     for (const param of params) {
-      const config = this.entityConfigMap.get(param.entityId)
-      if (!config || config.enabled === false) {
-        continue
+      const indexableRecord = await this.buildIndexableRecord(param)
+      if (indexableRecord) {
+        indexableRecords.push(indexableRecord)
       }
-
-      const buildContext: SearchBuildContext = {
-        record: param.record,
-        customFields: param.customFields ?? {},
-        organizationId: param.organizationId,
-        tenantId: param.tenantId,
-      }
-
-      let presenter: SearchResultPresenter | undefined
-      if (config.formatResult) {
-        try {
-          const result = await config.formatResult(buildContext)
-          if (result) presenter = result
-        } catch {
-          // Skip presenter on error
-        }
-      }
-
-      let url: string | undefined
-      if (config.resolveUrl) {
-        try {
-          const result = await config.resolveUrl(buildContext)
-          if (result) url = result
-        } catch {
-          // Skip URL on error
-        }
-      }
-
-      let links: SearchResultLink[] | undefined
-      if (config.resolveLinks) {
-        try {
-          const result = await config.resolveLinks(buildContext)
-          if (result) links = result
-        } catch {
-          // Skip links on error
-        }
-      }
-
-      indexableRecords.push({
-        entityId: param.entityId,
-        recordId: param.recordId,
-        tenantId: param.tenantId,
-        organizationId: param.organizationId,
-        fields: param.record,
-        presenter,
-        url,
-        links,
-      })
     }
 
     if (indexableRecords.length > 0) {
@@ -1171,7 +1127,7 @@ export class SearchIndexer {
       }
 
       // Try buildSource first (provides text, presenter, links, checksumSource)
-      let text: string | string[] | undefined
+      let text: string | string[] | undefined = config.buildSource ? [] : undefined
       let presenter: SearchResultPresenter | undefined
       let url: string | undefined
       let links: SearchResultLink[] | undefined
@@ -1181,7 +1137,7 @@ export class SearchIndexer {
         try {
           const source = await config.buildSource(buildContext)
           if (source) {
-            text = source.text
+            text = source.text ?? []
             if (source.presenter) presenter = source.presenter
             if (source.links) links = source.links
             if (source.checksumSource !== undefined) checksumSource = source.checksumSource

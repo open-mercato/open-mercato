@@ -145,12 +145,14 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'checkout', from: '@open-mercato/checkout' },
   { id: 'documents', from: '@open-mercato/documents' },
   { id: 'gateway_stripe', from: '@open-mercato/gateway-stripe' },
+  { id: 'gateway_autopay', from: '@open-mercato/gateway-autopay' },
   { id: 'gateway_tpay', from: '@open-mercato/gateway-tpay' },
   // Per-user email channels for the Communications Hub (SPEC-045d / email
   // integration spec). Each provider package registers its `ChannelAdapter`
   // at import time via `setup.ts`; the hub picks them up by `providerKey`.
   { id: 'channel_resend', from: '@open-mercato/channel-resend' },
   { id: 'channel_ses', from: '@open-mercato/channel-ses' },
+  { id: 'channel_smtp', from: '@open-mercato/channel-smtp' },
   { id: 'channel_imap', from: '@open-mercato/channel-imap' },
   { id: 'channel_gmail', from: '@open-mercato/channel-gmail' },
   // Mobile push providers for the push_notifications channel. Each registers a
