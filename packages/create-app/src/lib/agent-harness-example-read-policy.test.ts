@@ -1069,7 +1069,7 @@ test('path normalization accepts Windows-style separators and rejects every esca
 // declaring case must be a deliberate edit here, not a silent catalog drift.
 // ---------------------------------------------------------------------------------------------
 
-const DECLARING_CASE_IDS = ['OMH-181', 'OMH-203', 'OMH-219', 'OMH-220', 'OMH-221', 'OMH-222', 'OMH-223', 'OMH-225', 'OMH-226', 'OMH-238']
+const DECLARING_CASE_IDS = ['OMH-009', 'OMH-011', 'OMH-012', 'OMH-014', 'OMH-026', 'OMH-027', 'OMH-031', 'OMH-042', 'OMH-049', 'OMH-181', 'OMH-203', 'OMH-219', 'OMH-220', 'OMH-221', 'OMH-222', 'OMH-223', 'OMH-225', 'OMH-226', 'OMH-238']
 
 /**
  * The exact capability set each declaring case may read.
@@ -1082,6 +1082,15 @@ const DECLARING_CASE_IDS = ['OMH-181', 'OMH-203', 'OMH-219', 'OMH-220', 'OMH-221
  * explicit, reviewable edit rather than a silent one.
  */
 const DECLARED_CAPABILITY_IDS: Record<string, string[]> = {
+  'OMH-009': ['data.entities', 'data.migrations', 'data.validators'],
+  'OMH-011': ['api.crud-query-engine-custom-fields', 'api.openapi'],
+  'OMH-012': ['commands.write'],
+  'OMH-014': ['ui.datatable', 'ui.form-create', 'ui.form-edit', 'ui.page-shell'],
+  'OMH-026': ['umes.injection-table', 'umes.injection.crud-form-field', 'umes.mutation-guard', 'umes.response-enricher'],
+  'OMH-027': ['umes.injection-table', 'umes.injection.datatable-bulk-action', 'umes.injection.datatable-column', 'umes.injection.datatable-filter', 'umes.injection.datatable-row-action'],
+  'OMH-031': ['api.interceptors'],
+  'OMH-042': ['module.acl-features', 'module.di-registration', 'module.setup-role-features'],
+  'OMH-049': ['ai.agent', 'ai.tool-pack', 'module.acl-features'],
   'OMH-181': ['runtime.bulk-operation-progress', 'umes.injection.datatable-bulk-action'],
   'OMH-203': ['umes.injection-table'],
   'OMH-219': ['api.crud-factory', 'data.custom-fields', 'data.entities', 'data.validators'],
@@ -1093,7 +1102,7 @@ const DECLARED_CAPABILITY_IDS: Record<string, string[]> = {
   ],
   'OMH-221': ['ui.datatable', 'ui.form-create', 'ui.form-edit'],
   'OMH-222': ['commands.undo-redo', 'commands.write', 'events.crud-indexer-bridge', 'events.typed-definitions'],
-  // The one writable declaring case reads only the core data/command sources it adapts directly;
+  // This specification case reads only the core data/command sources it adapts directly;
   // generated reference facts and declared source links carry its specialist, progress, and design
   // identities without widening the example root. Root immutability still rejects every write here.
   'OMH-223': [
@@ -1108,6 +1117,7 @@ const REFERENCE_SHEET = '.ai/guides/reference-modules/example/index.md'
 
 type HarnessBudgets = {
   id: string
+  evaluationKind: string
   maxContextFiles: number
   maxInitialContextBytes: number
   maxTotalContextBytes: number
@@ -1216,18 +1226,21 @@ test('reachability: the specialist routing case can use the documented reason-ga
   }
 })
 
-test('reachability: AGENT-HARNESS.md names exactly the declaring case set, which no count guard covers', () => {
-  const doc = fs.readFileSync(fileURLToPath(new URL('../../AGENT-HARNESS.md', import.meta.url)), 'utf8')
-  const stated = /(\w+) cases,\s+`(OMH-\d{3})`, `(OMH-\d{3})`…`(OMH-\d{3})` and `(OMH-\d{3})`, declare it today/.exec(doc)
-  assert.ok(stated, 'AGENT-HARNESS.md must state the example-root declaring set')
-  assert.equal(stated[1], 'Ten')
-  assert.equal(DECLARING_CASE_IDS.length, 10)
-  assert.deepEqual([stated[2], stated[3], stated[4], stated[5]], ['OMH-181', 'OMH-203', 'OMH-226', 'OMH-238'])
-  // The read-only/writable split is the reviewable half of that sentence: a writable declarer is
-  // exactly what immutability precedence has to defend against, so the doc names it by ID.
-  const writable = declaringShippedCases().filter((entry) => ['implementation', 'regression'].includes(entry.evaluationKind))
-  assert.deepEqual(writable.map((entry) => entry.id), ['OMH-181', 'OMH-223'])
-  assert.match(doc, /`OMH-181` and `OMH-223` are the two writable declarers/)
+test('reachability: harness documentation names exactly the declaring and writable case sets', () => {
+  const writable = declaringShippedCases().filter((entry) => ['implementation', 'regression'].includes(entry.evaluationKind)).map((entry) => entry.id)
+  const expectedWritable = ['OMH-009', 'OMH-011', 'OMH-012', 'OMH-014', 'OMH-026', 'OMH-027', 'OMH-031', 'OMH-042', 'OMH-049', 'OMH-181', 'OMH-223']
+  assert.deepEqual(writable, expectedWritable)
+  for (const relative of ['../../AGENT-HARNESS.md', '../../agentic/shared/ai/harness/README.md', '../../agentic/shared/ai/harness/RELEASE.md']) {
+    const doc = fs.readFileSync(fileURLToPath(new URL(relative, import.meta.url)), 'utf8')
+    const declaringLine = /Example-root declaring cases \((\d+)\):([^\n]+)\./.exec(doc)
+    const writableLine = /Writable example-root declarers \((\d+)\):([^\n]+)\./.exec(doc)
+    assert.ok(declaringLine, `${relative} must state the example-root declaring set`)
+    assert.ok(writableLine, `${relative} must state the writable declaring set`)
+    assert.equal(Number(declaringLine[1]), DECLARING_CASE_IDS.length)
+    assert.equal(Number(writableLine[1]), expectedWritable.length)
+    assert.deepEqual([...declaringLine[2].matchAll(/`(OMH-\d{3})`/g)].map((match) => match[1]), DECLARING_CASE_IDS)
+    assert.deepEqual([...writableLine[2].matchAll(/`(OMH-\d{3})`/g)].map((match) => match[1]), expectedWritable)
+  }
 })
 
 /**
@@ -1297,10 +1310,9 @@ test('reachability: every shipped declaring case reads its own capability set en
 })
 
 /**
- * A declaring case is only passable if its own ceilings clear the surface it declares: the
- * entrypoints, the inventory, and every mapped capability source, charged against the root budgets
- * AND against the routing budgets that the same reads feed. Example sources carry no `/references/`
- * segment, so they count as INITIAL context — a growing example silently squeezes them otherwise.
+ * Full declared example reads have their own root ceilings. Ordinary instruction accounting comes
+ * from the evaluator trace: writable examples are implementation inputs; read-only examples remain
+ * routing context. Mandatory real instruction and source closure bytes are tested separately.
  */
 test('reachability: every shipped declaring case can afford the entire surface it declares', async () => {
   const evaluator = await loadEvaluator()
@@ -1308,24 +1320,37 @@ test('reachability: every shipped declaring case can afford the entire surface i
   try {
     for (const entry of declaringShippedCases() as unknown as HarnessBudgets[]) {
       const declaration = entry.context.exampleRoots[0]
-      const files = evaluator.exampleReadAllowlist(entry, root)
-      const bytes = files.reduce((total, relative) => total + fs.statSync(path.join(root, relative)).size, 0)
-      assert.ok(files.length <= declaration.maxFiles, `${entry.id} declares ${files.length} files against maxFiles ${declaration.maxFiles}`)
-      assert.ok(bytes <= declaration.maxBytes, `${entry.id} declares ${bytes} bytes against maxBytes ${declaration.maxBytes}`)
-
-      const initial = files.filter((relative) => !relative.includes('/references/'))
-      const instruction = [...entry.context.required, ...(entry.context.allowedExtra ?? [])]
-      const initialFiles = initial.length + instruction.filter((relative) => !relative.includes('/references/')).length
-      assert.ok(
-        initialFiles <= entry.maxContextFiles,
-        `${entry.id} needs ${initialFiles} initial context files against maxContextFiles ${entry.maxContextFiles}`,
-      )
+      const inRoot = [...new Set([`${EXAMPLE_ROOT}/references/surface-inventory.json`,
+        ...entrypointReads().map((read) => read.path),
+        ...declaredCapabilityIds(entry).flatMap((id) => capability(id).sourcePaths),
+      ])].filter((relative) => relative.startsWith(`${EXAMPLE_ROOT}/`))
+      const bytes = inRoot.reduce((total, relative) => total + fs.statSync(path.join(root, relative)).size, 0)
+      assert.ok(inRoot.length <= declaration.maxFiles, `${entry.id} declares ${inRoot.length} root files against maxFiles ${declaration.maxFiles}`)
+      assert.ok(bytes <= declaration.maxBytes, `${entry.id} declares ${bytes} root bytes against maxBytes ${declaration.maxBytes}`)
+      const writable = ['implementation', 'regression'].includes(entry.evaluationKind)
+      const instruction = [...new Set(['AGENTS.md', ...entry.context.required, ...declaredReferenceOwners(entry)])].filter((relative) => !/[?*]/.test(relative))
+      for (const relative of instruction) {
+        const target = path.join(root, relative)
+        if (!fs.existsSync(target)) {
+          fs.mkdirSync(path.dirname(target), { recursive: true })
+          fs.writeFileSync(target, `# staged required context ${relative}\n`)
+        }
+      }
+      const readOrder = [...new Set([...instruction, ...entrypointReads().map((read) => read.path), ...inRoot])]
+      const observed = evaluator.observedContext(readOrder.map((relative) => readEvent(relative)).join('\n'), root, entry, writable)
+      assert.deepEqual(observed.violations, [], `${entry.id} declared read sequence must be accepted`)
+      for (const relative of inRoot) {
+        assert.equal(observed.paths.includes(relative), !writable, `${entry.id}: example routing accounting must match the case mode`)
+      }
+      const initial = observed.paths.filter((relative) => !relative.includes('/references/')
+        && !relative.startsWith('.ai/framework-context/') && !relative.startsWith('.ai/guides/modules/')
+        && !relative.startsWith('.ai/guides/reference-modules/') && !relative.startsWith('.ai/guides/upstream/')
+        && !relative.startsWith('.agents/skills/'))
       const initialBytes = initial.reduce((total, relative) => total + fs.statSync(path.join(root, relative)).size, 0)
-      assert.ok(
-        initialBytes < entry.maxInitialContextBytes,
-        `${entry.id} spends ${initialBytes} example bytes of its ${entry.maxInitialContextBytes} initial budget before any instruction`,
-      )
-      assert.ok(bytes < entry.maxTotalContextBytes, `${entry.id} spends ${bytes} example bytes of its ${entry.maxTotalContextBytes} total budget`)
+      const totalBytes = observed.paths.reduce((total, relative) => total + fs.statSync(path.join(root, relative)).size, 0)
+      assert.ok(initial.length <= entry.maxContextFiles, `${entry.id} observes ${initial.length} initial files against maxContextFiles ${entry.maxContextFiles}`)
+      assert.ok(initialBytes <= entry.maxInitialContextBytes, `${entry.id} observes ${initialBytes} initial bytes against maxInitialContextBytes ${entry.maxInitialContextBytes}`)
+      assert.ok(totalBytes <= entry.maxTotalContextBytes, `${entry.id} observes ${totalBytes} instruction bytes against maxTotalContextBytes ${entry.maxTotalContextBytes}`)
     }
   } finally {
     fs.rmSync(root, { recursive: true, force: true })

@@ -1556,16 +1556,24 @@
     {
       "capabilityId": "api.custom-route",
       "title": "Hand-written (non-CRUD) API route",
-      "description": "Custom `GET` handler that builds its own request container, reads auth from cookies, and queries the directory module through the Query Engine.",
+      "description": "Custom GET and POST handlers with request DI and trusted authentication: a directory Query Engine read, and a registry-guarded bulk action that revalidates modified payloads before scoped durable claims and post-commit callbacks.",
       "coverageKind": "example",
       "referenceStatus": "canonical",
       "readStatus": "readable",
       "sourcePaths": [
-        "src/modules/example/api/organizations/route.ts"
+        "src/modules/example/api/organizations/route.ts",
+        "src/modules/example/api/todos/bulk-complete/route.ts"
       ],
-      "integrationTestPaths": [],
+      "integrationTestPaths": [
+        "src/modules/example/api/__tests__/todos.bulk-complete.test.ts",
+        "src/modules/example/__integration__/TC-EXAMPLE-003-todo-bulk-progress.spec.ts"
+      ],
       "dependencyModules": [
-        "directory"
+        "directory",
+        "progress",
+        "queue",
+        "scheduler",
+        "events"
       ],
       "ruleOwner": "om-module-scaffold"
     },

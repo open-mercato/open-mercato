@@ -86,6 +86,34 @@ const root = fs.realpathSync(rootArg)
 const readMatchers = allowedReads.map(globToRegExp)
 const writeMatchers = allowedWrites.map(globToRegExp)
 const immutablePrefixes = immutableRoots.map((entry) => entry.replaceAll('\\', '/'))
+const rawReadPrerequisites = process.env.OM_HARNESS_READ_PREREQUISITES ?? '[]'
+if (Buffer.byteLength(rawReadPrerequisites) > 16_384) fail('read prerequisites exceed the bounded policy size')
+let readPrerequisites
+try { readPrerequisites = JSON.parse(rawReadPrerequisites) } catch { fail('read prerequisites are invalid JSON') }
+if (!Array.isArray(readPrerequisites) || readPrerequisites.length > 128) fail('read prerequisites must be a bounded array')
+const prerequisitesByPath = new Map()
+const successfulReads = new Set()
+for (const prerequisite of readPrerequisites) {
+  if (!prerequisite || typeof prerequisite !== 'object' || Array.isArray(prerequisite)
+    || Object.keys(prerequisite).some((key) => !['path', 'owner', 'entrypoints'].includes(key))
+    || !Array.isArray(prerequisite.entrypoints) || !prerequisite.entrypoints.length || prerequisite.entrypoints.length > 8
+    || typeof prerequisite.path !== 'string' || !prerequisite.path.startsWith('src/modules/example/')
+    || typeof prerequisite.owner !== 'string' || !prerequisite.owner.startsWith('.ai/')
+    || prerequisitesByPath.has(prerequisite.path)) fail('read prerequisite declaration is invalid')
+  const paths = [prerequisite.path, prerequisite.owner, ...prerequisite.entrypoints]
+  if (paths.some((relative) => !safeRelative(relative) || /[*?]/.test(relative)
+    || relative !== relative.replaceAll('\\', '/') || relative !== path.posix.normalize(relative))
+    || prerequisite.entrypoints.some((relative) => !relative.startsWith('src/modules/example/') || relative === prerequisite.path)) fail('read prerequisite path is invalid')
+  try {
+    for (const relative of paths) {
+      resolveRead(relative)
+      for (let cursor = path.resolve(root, relative); cursor !== root; cursor = path.dirname(cursor)) {
+        if (fs.lstatSync(cursor).isSymbolicLink()) throw new Error('prerequisite cannot resolve through a symbolic link')
+      }
+    }
+  } catch { fail('read prerequisite must resolve to an allowed bounded file') }
+  prerequisitesByPath.set(prerequisite.path, prerequisite)
+}
 
 // Root immutability precedence: declared read-only roots are resolved BEFORE the write
 // allowlist, so a broader writable grant such as `src/modules/**` can never reach inside one.
@@ -189,7 +217,16 @@ function handle(message) {
         throw new Error('read capabilityId must be a bounded surface-inventory capability id')
       }
       const { real } = resolveRead(input.path)
+      const normalized = input.path.replaceAll('\\', '/')
+      const prerequisite = prerequisitesByPath.get(normalized)
+      if (prerequisite && !successfulReads.has(prerequisite.owner)) {
+        throw new Error(`read prerequisite not satisfied: first read ${prerequisite.owner}`)
+      }
+      if (prerequisite && !prerequisite.entrypoints.some((entrypoint) => successfulReads.has(entrypoint))) {
+        throw new Error(`read prerequisite not satisfied: first read a declared example entrypoint: ${prerequisite.entrypoints.join(', ')}`)
+      }
       toolResult(message.id, fs.readFileSync(real, 'utf8'))
+      successfulReads.add(normalized)
       return
     }
     if (name === 'write') {

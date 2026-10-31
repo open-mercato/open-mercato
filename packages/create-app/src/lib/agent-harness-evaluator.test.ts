@@ -162,10 +162,39 @@ function stageApp(): string {
   return root
 }
 
+function requiredRoutingContext(root: string, caseId: string): string[] {
+  const cases = JSON.parse(fs.readFileSync(path.join(root, '.ai/harness/cases.json'), 'utf8')) as HarnessCase[]
+  const record = cases.find(entry => entry.id === caseId)
+  assert.ok(record)
+  assert.ok(record.context.required.every(relative => !/[*?]/.test(relative)))
+  return [...new Set(['AGENTS.md', ...record.context.required])]
+}
+
+function successfulHarnessReadScript(paths: string[], runner: 'claude' | 'codex'): string {
+  return `
+const observedReadContext = ${JSON.stringify(paths)}
+const harnessReadConfig = ${runner === 'claude'
+    ? "JSON.parse(args[args.indexOf('--mcp-config') + 1]).mcpServers.harness"
+    : "Object.fromEntries(['command', 'args'].map(key => { const prefix = 'mcp_servers.harness.' + key + '='; return [key, JSON.parse(args.find(argument => argument.startsWith(prefix)).slice(prefix.length))] }))"}
+const harnessReadRequests = observedReadContext.map((relative, index) => ({ jsonrpc: '2.0', id: index + 1, method: 'tools/call', params: { name: 'read', arguments: { path: relative } } }))
+const harnessReadExecution = require('node:child_process').spawnSync(harnessReadConfig.command, harnessReadConfig.args, { cwd: process.cwd(), encoding: 'utf8', input: harnessReadRequests.map(request => JSON.stringify(request)).join('\\n') + '\\n' })
+if (harnessReadExecution.status !== 0) process.exit(12)
+const harnessReadReplies = harnessReadExecution.stdout.trim().split('\\n').filter(Boolean).map(line => JSON.parse(line))
+for (const request of harnessReadRequests) {
+  const reply = harnessReadReplies.find(candidate => candidate.id === request.id)
+  if (!reply?.result || reply.result.isError || reply.error) process.exit(13)
+}
+`
+}
+
 function stageWritableTarget(controller: string): string {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-harness-writable-')))
   fs.mkdirSync(path.join(root, 'src'), { recursive: true })
   fs.cpSync(sourceHarness, path.join(root, '.ai', 'harness'), { recursive: true })
+  fs.copyFileSync(path.join(controller, 'AGENTS.md'), path.join(root, 'AGENTS.md'))
+  fs.cpSync(path.join(controller, '.ai', 'guides'), path.join(root, '.ai', 'guides'), { recursive: true })
+  fs.cpSync(path.join(controller, '.ai', 'skills'), path.join(root, '.ai', 'skills'), { recursive: true })
+  fs.cpSync(path.join(controller, 'src', 'modules', 'example'), path.join(root, 'src', 'modules', 'example'), { recursive: true })
   fs.writeFileSync(path.join(root, 'package.json'), '{"name":"harness-fixture"}\n')
   fs.writeFileSync(path.join(root, 'src', 'modules.ts'), 'export default []\n')
   fs.symlinkSync(path.join(controller, 'node_modules'), path.join(root, 'node_modules'), process.platform === 'win32' ? 'junction' : 'dir')
@@ -184,6 +213,7 @@ function runEvaluator(root: string, args: string[] = [], env: NodeJS.ProcessEnv 
 function installFakeRunner(root: string, name: 'codex' | 'claude', source: string): string {
   const bin = path.join(root, 'fake-bin')
   fs.mkdirSync(bin, { recursive: true })
+  fs.writeFileSync(path.join(bin, 'package.json'), JSON.stringify({ private: true, type: 'commonjs' }))
   const fake = path.join(bin, name)
   fs.writeFileSync(fake, `#!/usr/bin/env node\n${source}`)
   fs.chmodSync(fake, 0o755)
@@ -256,6 +286,7 @@ function preparePassingWritableCrudResult(
     '--case', 'OMH-011', '--target', target, '--acknowledge-writes',
   ], { cwd: controller, encoding: 'utf8' })
   assert.equal(prepared.status, 0, `${prepared.stdout}\n${prepared.stderr}`)
+  const routingContext = requiredRoutingContext(controller, 'OMH-011')
   const bin = installFakeRunner(controller, 'codex', `
 const fs = require('node:fs')
 const path = require('node:path')
@@ -271,15 +302,16 @@ ${sandboxProbe ? `
 try { fs.readFileSync(${JSON.stringify(sandboxProbe.readPath)}, 'utf8'); process.exit(31) } catch (error) { if (!['EPERM', 'EACCES', 'ENOENT'].includes(error.code)) throw error }
 try { fs.writeFileSync(${JSON.stringify(sandboxProbe.writePath)}, 'escaped'); process.exit(32) } catch (error) { if (!['EPERM', 'EACCES', 'ENOENT', 'EROFS'].includes(error.code)) throw error }
 ` : ''}
+${successfulHarnessReadScript(routingContext, 'codex')}
 const route = path.join(process.cwd(), 'src/modules/library/api/books/route.ts')
 fs.mkdirSync(path.dirname(route), { recursive: true })
 fs.writeFileSync(route, "import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'\\nexport const GET = makeCrudRoute({ metadata: {}, orm: {}, list: {}, actions: {}, indexer: {} })\\nexport const openApi = { methods: {} }\\n")
 fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({
   selectedRouter: ['module-data'], selectedSkills: ['om-module-scaffold'],
-  selectedContext: ['AGENTS.md', '.ai/guides/contracts.md', '.ai/skills/om-module-scaffold/SKILL.md'],
+  selectedContext: observedReadContext,
   decisions: ['crud-factory', 'scoped-response', 'openapi-indexer'], violations: []
 }))
-console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_execution', command: 'cat AGENTS.md .ai/guides/contracts.md .ai/skills/om-module-scaffold/SKILL.md' } }))
+for (const relative of observedReadContext) console.log(JSON.stringify({ type: 'item.completed', item: { type: 'mcp_tool_call', server: 'harness', tool: 'read', arguments: { path: relative }, status: 'completed' } }))
 console.log(JSON.stringify({ type: 'item.completed', item: { type: 'mcp_tool_call', server: 'harness', tool: 'read', arguments: { path: 'src/modules/library/api/books/route.ts' }, status: 'completed' } }))
 `)
   const fakeYarn = path.join(bin, 'yarn')
@@ -393,12 +425,12 @@ test('the catalog count and release coverage are derived from the validator regi
     validators.catalog.mandatoryCaseIds,
   )
   assert.deepEqual(validators.catalog.compatibilityRequiredCaseIds, [
-    'OMH-007', 'OMH-022', 'OMH-030', 'OMH-048', 'OMH-057', 'OMH-064', 'OMH-072', 'OMH-074',
+    'OMH-007', 'OMH-011', 'OMH-012', 'OMH-018', 'OMH-022', 'OMH-030', 'OMH-048', 'OMH-057', 'OMH-064', 'OMH-072', 'OMH-074',
     'OMH-082', 'OMH-087', 'OMH-088', 'OMH-089', 'OMH-105', 'OMH-108', 'OMH-118', 'OMH-130', 'OMH-131', 'OMH-147', 'OMH-150',
     'OMH-182',
   ])
   assert.deepEqual(validators.catalog.compatibilityExcludedCaseIds, [
-    'OMH-006', 'OMH-011', 'OMH-012', 'OMH-014', 'OMH-018', 'OMH-026',
+    'OMH-006', 'OMH-014', 'OMH-026',
     'OMH-081', 'OMH-091', 'OMH-093', 'OMH-172', 'OMH-177', 'OMH-181',
   ])
   const compatibilityPath = '.ai/guides/upstream/BACKWARD_COMPATIBILITY.md'
@@ -861,7 +893,7 @@ test('writable evaluation materializes and admits bounded installed framework co
     fs.writeFileSync(path.join(corePackageRoot, 'AGENTS.md'), '# Core package\nKeep installed contracts read-only.\n')
     fs.writeFileSync(
       path.join(corePackageRoot, 'src', 'modules', 'workflows', 'contracts.ts'),
-      "import type { CodeWorkflowDefinition } from '@open-mercato/shared/modules/workflows'\n",
+      "export function registerCodeWorkflows() {}\n",
     )
     fs.mkdirSync(path.join(sharedPackageRoot, 'src', 'modules', 'workflows'), { recursive: true })
     fs.writeFileSync(path.join(sharedPackageRoot, 'package.json'), JSON.stringify({
@@ -903,14 +935,15 @@ const promptEvidence = ${JSON.stringify([
   sharedSearch,
   `${sharedMaterializedRoot}/source/package`,
 ])}
-if (!prompt.includes('controller has already materialized bounded read-only installed-package evidence')
+if (!prompt.includes('Prepared installed-package evidence')
   || !promptEvidence.every((entry) => prompt.includes(entry))
-  || !args.some((entry) => entry.includes(${JSON.stringify(`${coreMaterializedRoot}/**`)}))
-  || !args.some((entry) => entry.includes(${JSON.stringify(`${sharedMaterializedRoot}/**`)}))) process.exit(10)
+  || !requiredContext.every((relative) => args.some((entry) => entry.includes(relative)))
+  || args.some((entry) => entry.includes(${JSON.stringify(`${coreMaterializedRoot}/**`)}))) process.exit(10)
 for (const entry of requiredContext) {
   const content = fs.readFileSync(path.join(process.cwd(), entry), 'utf8')
   if (content.includes('node_modules') || content.includes(${JSON.stringify(controller)})) process.exit(11)
 }
+${successfulHarnessReadScript(['AGENTS.md', '.ai/guides/ai-workflows.md', '.ai/skills/om-build-workflow/SKILL.md', '.ai/guides/modules/workflows/index.md', coreManifest, coreSearch, coreUsage, sharedManifest, sharedSearch, installedContract], 'codex')}
 const route = path.join(process.cwd(), 'src/modules/automation/workflows/call-api.ts')
 fs.writeFileSync(route, \`
 export type CallApiInput = { url: string; idempotencyKey: string }
@@ -936,7 +969,7 @@ fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({
   selectedRouter: ['ai-workflow'], selectedSkills: ['om-build-workflow'],
   selectedContext, decisions: ['idempotency-outside-rollback', 'call-api'], violations: []
 }))
-console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_execution', command: 'cat ' + selectedContext.join(' ') } }))
+for (const relative of observedReadContext) console.log(JSON.stringify({ type: 'item.completed', item: { type: 'mcp_tool_call', server: 'harness', tool: 'read', arguments: { path: relative }, status: 'completed' } }))
 `)
     fs.writeFileSync(path.join(bin, 'yarn'), '#!/usr/bin/env node\nprocess.exit(process.argv[2] === "typecheck" ? 0 : 9)\n')
     fs.chmodSync(path.join(bin, 'yarn'), 0o755)
@@ -1187,6 +1220,7 @@ for (const file of ['AGENTS.md', '.ai/guides/architecture.md', '.ai/guides/testi
 
 test('live Claude adapter exposes only the discovery tool, allowlists the harness tools, and keeps structured output without persistence', { skip: !targetSandboxAvailable }, () => {
   const root = stageApp()
+  const routingContext = requiredRoutingContext(root, 'OMH-009')
   const bin = path.join(root, 'fake-bin')
   fs.mkdirSync(bin)
   const fake = path.join(bin, 'claude')
@@ -1198,14 +1232,11 @@ if (args.includes('--safe-mode') || !args.includes('--disable-slash-commands') |
 const allowedReads = JSON.parse(mcp.args.at(-2))
 for (const required of ['AGENTS.md', '.ai/guides/contracts.md', '.ai/skills/om-data-model-design/SKILL.md', '.ai/skills/om-data-model-design/references/**', '.ai/skills/om-framework-context/references/**']) if (!allowedReads.includes(required)) process.exit(9)
 if (JSON.parse(mcp.args.at(-1)).length !== 0) process.exit(9)
-console.log(JSON.stringify({ type: 'assistant', message: { content: [
-  { type: 'tool_use', name: 'mcp__harness__read', input: { path: 'AGENTS.md' } },
-  { type: 'tool_use', name: 'mcp__harness__read', input: { path: '.ai/guides/contracts.md' } },
-  { type: 'tool_use', name: 'mcp__harness__read', input: { path: '.ai/skills/om-data-model-design/SKILL.md' } }
-] } }))
+${successfulHarnessReadScript(routingContext, 'claude')}
+console.log(JSON.stringify({ type: 'assistant', message: { content: observedReadContext.map(relative => ({ type: 'tool_use', name: 'mcp__harness__read', input: { path: relative } })) } }))
 console.log(JSON.stringify({ type: 'result', structured_output: {
   selectedRouter: ['module-data'], selectedSkills: ['om-data-model-design'],
-  selectedContext: ['AGENTS.md', '.ai/guides/contracts.md', '.ai/skills/om-data-model-design/SKILL.md'],
+  selectedContext: observedReadContext,
   decisions: ['tenant-scope', 'optimistic-lock', 'migration-snapshot'], violations: []
 }}))
 `)
@@ -1229,6 +1260,7 @@ console.log(JSON.stringify({ type: 'result', structured_output: {
 // specific properties the real CLI contract depends on.
 test('live Claude adapter keeps the harness MCP tools reachable through built-in deferred discovery', { skip: !targetSandboxAvailable }, () => {
   const root = stageApp()
+  const routingContext = requiredRoutingContext(root, 'OMH-009')
   const bin = installFakeRunner(root, 'claude', `
 const args = process.argv.slice(2)
 if (args[0] === '--version') { console.log('claude-fake 1.0'); process.exit(0) }
@@ -1251,14 +1283,11 @@ console.log(JSON.stringify({ type: 'system', subtype: 'init', tools: builtinTool
 console.log(JSON.stringify({ type: 'assistant', message: { content: [
   { type: 'tool_use', name: builtinTools[0], input: { query: 'harness read file' } }
 ] } }))
-console.log(JSON.stringify({ type: 'assistant', message: { content: [
-  { type: 'tool_use', name: 'mcp__harness__read', input: { path: 'AGENTS.md' } },
-  { type: 'tool_use', name: 'mcp__harness__read', input: { path: '.ai/guides/contracts.md' } },
-  { type: 'tool_use', name: 'mcp__harness__read', input: { path: '.ai/skills/om-data-model-design/SKILL.md' } }
-] } }))
+${successfulHarnessReadScript(routingContext, 'claude')}
+console.log(JSON.stringify({ type: 'assistant', message: { content: observedReadContext.map(relative => ({ type: 'tool_use', name: 'mcp__harness__read', input: { path: relative } })) } }))
 console.log(JSON.stringify({ type: 'result', structured_output: {
   selectedRouter: ['module-data'], selectedSkills: ['om-data-model-design'],
-  selectedContext: ['AGENTS.md', '.ai/guides/contracts.md', '.ai/skills/om-data-model-design/SKILL.md'],
+  selectedContext: observedReadContext,
   decisions: ['tenant-scope', 'optimistic-lock', 'migration-snapshot'], violations: []
 }}))
 `)
@@ -1273,11 +1302,7 @@ console.log(JSON.stringify({ type: 'result', structured_output: {
     // must not register as observed context or as a discovery violation.
     const [stored] = storedResults(root)
     assert.deepEqual(stored.violations, [])
-    assert.deepEqual(stored.actualContext.paths, [
-      '.ai/guides/contracts.md',
-      '.ai/skills/om-data-model-design/SKILL.md',
-      'AGENTS.md',
-    ])
+    assert.deepEqual(stored.actualContext.paths, routingContext.slice().sort())
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
   }
@@ -1540,6 +1565,7 @@ console.log(JSON.stringify({ type: 'result', structured_output: {
 
 test('live Claude retries one recognized transient process failure and then succeeds', { skip: !targetSandboxAvailable }, () => {
   const root = stageApp()
+  const routingContext = requiredRoutingContext(root, 'OMH-009')
   const bin = installFakeRunner(root, 'claude', `
 const fs = require('node:fs')
 const path = require('node:path')
@@ -1552,14 +1578,11 @@ if (!prompt.includes('retry attempt 2 after a transient provider failure')) {
   console.log(JSON.stringify({ type: 'result', subtype: 'error_during_execution', is_error: true, result: 'API Error 529: overloaded_error' }))
   process.exit(1)
 }
-console.log(JSON.stringify({ type: 'assistant', message: { content: [
-  { type: 'tool_use', name: 'Read', input: { file_path: path.join(process.cwd(), 'AGENTS.md') } },
-  { type: 'tool_use', name: 'Read', input: { file_path: path.join(process.cwd(), '.ai/guides/contracts.md') } },
-  { type: 'tool_use', name: 'Read', input: { file_path: path.join(process.cwd(), '.ai/skills/om-data-model-design/SKILL.md') } }
-] } }))
+${successfulHarnessReadScript(routingContext, 'claude')}
+console.log(JSON.stringify({ type: 'assistant', message: { content: observedReadContext.map(relative => ({ type: 'tool_use', name: 'mcp__harness__read', input: { path: relative } })) } }))
 console.log(JSON.stringify({ type: 'result', structured_output: {
   selectedRouter: ['module-data'], selectedSkills: ['om-data-model-design'],
-  selectedContext: ['AGENTS.md', '.ai/guides/contracts.md', '.ai/skills/om-data-model-design/SKILL.md'],
+  selectedContext: observedReadContext,
   decisions: ['tenant-scope', 'optimistic-lock', 'migration-snapshot'], violations: []
 } }))
 `)
@@ -1751,6 +1774,7 @@ if (!semanticCorrection || traceCorrection) {
 
 test('live Claude retries one correctable read-only routing assertion and then succeeds', { skip: !targetSandboxAvailable }, () => {
   const root = stageApp()
+  const routingContext = requiredRoutingContext(root, 'OMH-009')
   const bin = installFakeRunner(root, 'claude', `
 const fs = require('node:fs')
 const path = require('node:path')
@@ -1758,15 +1782,12 @@ const args = process.argv.slice(2)
 if (args[0] === '--version') { console.log('claude-fake 1.0'); process.exit(0) }
 const prompt = fs.readFileSync(0, 'utf8')
 const correction = prompt.includes('Correction kind: semantic-routing')
-console.log(JSON.stringify({ type: 'assistant', message: { content: [
-  { type: 'tool_use', name: 'Read', input: { file_path: path.join(process.cwd(), 'AGENTS.md') } },
-  { type: 'tool_use', name: 'Read', input: { file_path: path.join(process.cwd(), '.ai/guides/contracts.md') } },
-  { type: 'tool_use', name: 'Read', input: { file_path: path.join(process.cwd(), '.ai/skills/om-data-model-design/SKILL.md') } }
-] } }))
+${successfulHarnessReadScript(routingContext, 'claude')}
+console.log(JSON.stringify({ type: 'assistant', message: { content: observedReadContext.map(relative => ({ type: 'tool_use', name: 'mcp__harness__read', input: { path: relative } })) } }))
 console.log(JSON.stringify({ type: 'result', structured_output: {
   selectedRouter: correction ? ['module-data'] : ['testing'],
   selectedSkills: ['om-data-model-design'],
-  selectedContext: ['AGENTS.md', '.ai/guides/contracts.md', '.ai/skills/om-data-model-design/SKILL.md'],
+  selectedContext: observedReadContext,
   decisions: ['tenant-scope', 'optimistic-lock', 'migration-snapshot'], violations: []
 } }))
 `)
@@ -2234,18 +2255,18 @@ console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_exec
 
 test('a case may declare a bounded optional skill for an allowed extra route', { skip: !targetSandboxAvailable }, () => {
   const root = stageApp()
+  const routingContext = requiredRoutingContext(root, 'OMH-009').concat('.ai/skills/om-framework-context/SKILL.md')
   const bin = installFakeRunner(root, 'codex', `
 const fs = require('node:fs')
 const args = process.argv.slice(2)
 if (args[0] === '--version') { console.log('codex-fake 1.0'); process.exit(0) }
+${successfulHarnessReadScript(routingContext, 'codex')}
 fs.writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({
   selectedRouter: ['module-data', 'framework-context'], selectedSkills: ['om-data-model-design', 'om-framework-context'],
-  selectedContext: ['AGENTS.md', '.ai/guides/contracts.md', '.ai/skills/om-data-model-design/SKILL.md', '.ai/skills/om-framework-context/SKILL.md'],
+  selectedContext: observedReadContext,
   decisions: ['tenant-scope', 'optimistic-lock', 'migration-snapshot'], violations: []
 }))
-console.log(JSON.stringify({ type: 'item.completed', item: { type: 'command_execution',
-  command: 'cat AGENTS.md .ai/guides/contracts.md .ai/skills/om-data-model-design/SKILL.md .ai/skills/om-framework-context/SKILL.md'
-} }))
+for (const relative of observedReadContext) console.log(JSON.stringify({ type: 'item.completed', item: { type: 'mcp_tool_call', server: 'harness', tool: 'read', arguments: { path: relative }, status: 'completed' } }))
 `)
   try {
     const run = runEvaluator(root, ['--runner', 'codex', '--case', 'OMH-009'], {

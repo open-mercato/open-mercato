@@ -1,0 +1,397 @@
+{
+  "artifactType": "sanitized-true-base-focused-semantic-diagnostic",
+  "baseSha": "fd7c06569bd5fa282716b28e1375d2ddb2cc1eea",
+  "finalTestSourceSha": "f9cf5a17240e50cdaa06f86a679831faa281d5e4",
+  "nodeVersion": "v26.12.1",
+  "scope": "Additional requested two-file base diagnostic; exact final test bytes only, actual evaluator/tool server plus trusted dependency resolution, no production overlays or answer changes.",
+  "executionPolicy": {
+    "files": [
+      "coding-context-delivery.test.ts",
+      "bc-contract-delivery.test.ts"
+    ],
+    "canonicalV7ResultUnchanged": true,
+    "presentationRerun": "Node26 default reporter is spec; retained that first output, then repeated only these two baseline files with explicit TAP reporter. No behavioral test flags changed.",
+    "noModelsInvoked": true
+  },
+  "executions": [
+    {
+      "testFile": "packages/create-app/src/lib/coding-context-delivery.test.ts",
+      "testSha256": "00c986723060e0fede2f49e296044547493b5ee4b22e4af3d4f22327eea3b5f6",
+      "argv": [
+        "node",
+        "--import",
+        "tsx",
+        "--test-reporter=tap",
+        "--test",
+        "packages/create-app/src/lib/coding-context-delivery.test.ts"
+      ],
+      "exitCode": 1,
+      "signal": null,
+      "spawnError": null,
+      "stdout": {
+        "path": ".ai/reports/qwen-harness-recovery/knowledge-change.v7.base.coding-context-delivery.tap.log",
+        "sha256": "ac69ee477a485cd57571a925c851cac683c9cd74b43e59b58af2694fda110fd6"
+      },
+      "stderr": {
+        "path": ".ai/reports/qwen-harness-recovery/knowledge-change.v7.base.coding-context-delivery.stderr.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "reporter": "tap",
+      "testCount": 36,
+      "passed": 5,
+      "failed": 31,
+      "cancelled": 0,
+      "skipped": 0,
+      "topLevelImportFailure": false,
+      "requestedSemanticAssertions": [
+        {
+          "name": "writable canonical permissions match the actual complete grant closure (OMH-009)",
+          "errorClass": "AssertionError",
+          "code": "ERR_ASSERTION",
+          "operator": "==",
+          "classification": "semantic assertion failure"
+        },
+        {
+          "name": "writable canonical permissions match the actual complete grant closure (OMH-011)",
+          "errorClass": "AssertionError",
+          "code": "ERR_ASSERTION",
+          "operator": "==",
+          "classification": "semantic assertion failure"
+        },
+        {
+          "name": "writable canonical permissions match the actual complete grant closure (OMH-012)",
+          "errorClass": "AssertionError",
+          "code": "ERR_ASSERTION",
+          "operator": "==",
+          "classification": "semantic assertion failure"
+        },
+        {
+          "name": "projected canonical permissions agree with the real tool server without widening reads or immutable writes",
+          "errorClass": "AssertionError",
+          "code": "ERR_ASSERTION",
+          "operator": "strictEqual",
+          "classification": "semantic assertion failure"
+        },
+        {
+          "name": "canonical permission projection rejects unsafe inventory paths before exposing metadata",
+          "errorClass": "AssertionError",
+          "code": "ERR_ASSERTION",
+          "operator": "throws",
+          "classification": "semantic assertion failure"
+        },
+        {
+          "name": "canonical permission projection excludes noncanonical targets and QA-only capabilities",
+          "errorClass": "AssertionError",
+          "code": "ERR_ASSERTION",
+          "operator": "==",
+          "classification": "semantic assertion failure"
+        }
+      ],
+      "additionalSemanticFailures": [
+        {
+          "name": "writable prompt discloses exact trusted seeds and requires preserving the existing ABI",
+          "errorClass": "AssertionError",
+          "code": "ERR_ASSERTION",
+          "operator": "match",
+          "classification": "semantic assertion failure"
+        },
+        {
+          "name": "writable prompt discloses declared example entrypoints after routed owners and before canonical source links",
+          "errorClass": "AssertionError",
+          "code": "ERR_ASSERTION",
+          "operator": "match",
+          "classification": "semantic assertion failure"
+        },
+        {
+          "name": "writable grounding names only declared owner-to-source links while preserving grants and source contents",
+          "errorClass": "AssertionError",
+          "code": "ERR_ASSERTION",
+          "operator": "match",
+          "classification": "semantic assertion failure"
+        },
+        {
+          "name": "writable toolchain grounding quotes only actual baseline test script, provenance and an already allowed verification link",
+          "errorClass": "AssertionError",
+          "code": "ERR_ASSERTION",
+          "operator": "==",
+          "classification": "semantic assertion failure"
+        },
+        {
+          "name": "writable grounding keeps an editable source seam distinct from immutable canonical references",
+          "errorClass": "AssertionError",
+          "code": "ERR_ASSERTION",
+          "operator": "match",
+          "classification": "semantic assertion failure"
+        },
+        {
+          "name": "writable toolchain grounding rejects symlink package provenance",
+          "errorClass": "AssertionError",
+          "code": "ERR_ASSERTION",
+          "operator": "throws",
+          "classification": "semantic assertion failure"
+        },
+        {
+          "name": "writable toolchain grounding rejects malformed package provenance",
+          "errorClass": "AssertionError",
+          "code": "ERR_ASSERTION",
+          "operator": "throws",
+          "classification": "semantic assertion failure"
+        },
+        {
+          "name": "writable toolchain grounding rejects oversized package provenance",
+          "errorClass": "AssertionError",
+          "code": "ERR_ASSERTION",
+          "operator": "throws",
+          "classification": "semantic assertion failure"
+        },
+        {
+          "name": "writable final audit points back to the original AGENTS testing predicate without giving case routing answers",
+          "errorClass": "AssertionError",
+          "code": "ERR_ASSERTION",
+          "operator": "match",
+          "classification": "semantic assertion failure"
+        },
+        {
+          "name": "seed hints cannot disclose paths outside allowed app source, secrets, symlinks or oracle internals",
+          "errorClass": "AssertionError",
+          "code": "ERR_ASSERTION",
+          "operator": "throws",
+          "classification": "semantic assertion failure"
+        },
+        {
+          "name": "prepared coding context grants exact production matches rather than QA, unrelated or optional oversized files",
+          "errorClass": "AssertionError",
+          "code": "ERR_ASSERTION",
+          "operator": "deepStrictEqual",
+          "classification": "semantic assertion failure"
+        },
+        {
+          "name": "QA-only prepared searches fail before an inference process can start",
+          "errorClass": "AssertionError",
+          "code": "ERR_ASSERTION",
+          "operator": "throws",
+          "classification": "semantic assertion failure"
+        },
+        {
+          "name": "mandatory prepared production source must fit the total context budget before inference",
+          "errorClass": "AssertionError",
+          "code": "ERR_ASSERTION",
+          "operator": "throws",
+          "classification": "semantic assertion failure"
+        },
+        {
+          "name": "mandatory initial instructions are checked together with prepared evidence",
+          "errorClass": "AssertionError",
+          "code": "ERR_ASSERTION",
+          "operator": "throws",
+          "classification": "semantic assertion failure"
+        },
+        {
+          "name": "oversized optional package instructions are omitted without making required production evidence infeasible",
+          "errorClass": "AssertionError",
+          "code": "ERR_ASSERTION",
+          "operator": "deepStrictEqual",
+          "classification": "semantic assertion failure"
+        },
+        {
+          "name": "prepared evidence budgets are cumulative across multiple installed queries",
+          "errorClass": "AssertionError",
+          "code": "ERR_ASSERTION",
+          "operator": "throws",
+          "classification": "semantic assertion failure"
+        },
+        {
+          "name": "OMH-230 protected fixture seed does not become a writable prompt target or permission",
+          "errorClass": "AssertionError",
+          "code": "ERR_ASSERTION",
+          "operator": "match",
+          "classification": "semantic assertion failure"
+        },
+        {
+          "name": "every declared writable case can render its safe seeded prompt without widening its write contract",
+          "errorClass": "AssertionError",
+          "code": "ERR_ASSERTION",
+          "operator": "==",
+          "classification": "semantic assertion failure"
+        }
+      ],
+      "fixtureDependentFailures": [
+        {
+          "name": "writable grounding rejects a declared QA-only reference before exposing it",
+          "errorClass": "TypeError",
+          "code": "ERR_TEST_FAILURE",
+          "operator": null,
+          "classification": "fixture-dependent negative control lacks metadata in old catalog; not semantic proof"
+        },
+        {
+          "name": "writable grounding rejects a declared unrouted owner reference before exposing it",
+          "errorClass": "TypeError",
+          "code": "ERR_TEST_FAILURE",
+          "operator": null,
+          "classification": "fixture-dependent negative control lacks metadata in old catalog; not semantic proof"
+        },
+        {
+          "name": "writable grounding rejects a declared wrong preset reference before exposing it",
+          "errorClass": "TypeError",
+          "code": "ERR_TEST_FAILURE",
+          "operator": null,
+          "classification": "fixture-dependent negative control lacks metadata in old catalog; not semantic proof"
+        },
+        {
+          "name": "writable grounding rejects a declared unsafe path reference before exposing it",
+          "errorClass": "TypeError",
+          "code": "ERR_TEST_FAILURE",
+          "operator": null,
+          "classification": "fixture-dependent negative control lacks metadata in old catalog; not semantic proof"
+        },
+        {
+          "name": "rendered grounding does not count as an owner read or bypass canonical source order",
+          "errorClass": "TypeError",
+          "code": "ERR_TEST_FAILURE",
+          "operator": null,
+          "classification": "fixture-dependent negative control lacks metadata in old catalog; not semantic proof"
+        },
+        {
+          "name": "canonical example access stays immutable even beneath a broad writable pattern",
+          "errorClass": "TypeError",
+          "code": "ERR_TEST_FAILURE",
+          "operator": null,
+          "classification": "fixture-dependent negative control lacks metadata in old catalog; not semantic proof"
+        },
+        {
+          "name": "read-only prompt ignores writable source metadata and package toolchain facts byte for byte",
+          "errorClass": "TypeError",
+          "code": "ERR_TEST_FAILURE",
+          "operator": null,
+          "classification": "fixture-dependent negative control lacks metadata in old catalog; not semantic proof"
+        }
+      ]
+    },
+    {
+      "testFile": "packages/create-app/src/lib/bc-contract-delivery.test.ts",
+      "testSha256": "70e4b8508038d0f24a26fd598b5c20b1d93a0b73e77b61ce7de49d44a1e201bd",
+      "argv": [
+        "node",
+        "--import",
+        "tsx",
+        "--test-reporter=tap",
+        "--test",
+        "packages/create-app/src/lib/bc-contract-delivery.test.ts"
+      ],
+      "exitCode": 1,
+      "signal": null,
+      "spawnError": null,
+      "stdout": {
+        "path": ".ai/reports/qwen-harness-recovery/knowledge-change.v7.base.bc-contract-delivery.tap.log",
+        "sha256": "e9ac65d284cdd13c6d9051ec0b3ec4f7fd8b978d02d480e4c2c79328a027f839"
+      },
+      "stderr": {
+        "path": ".ai/reports/qwen-harness-recovery/knowledge-change.v7.base.bc-contract-delivery.stderr.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "reporter": "tap",
+      "testCount": 7,
+      "passed": 1,
+      "failed": 6,
+      "cancelled": 0,
+      "skipped": 0,
+      "topLevelImportFailure": false,
+      "requestedSemanticAssertions": [
+        {
+          "name": "OMH-011 delivers the exact required public-contract policy without opening unrelated context",
+          "errorClass": "AssertionError",
+          "code": "ERR_ASSERTION",
+          "operator": "strictEqual",
+          "classification": "semantic assertion failure"
+        },
+        {
+          "name": "OMH-012 delivers the exact required public-contract policy without opening unrelated context",
+          "errorClass": "AssertionError",
+          "code": "ERR_ASSERTION",
+          "operator": "strictEqual",
+          "classification": "semantic assertion failure"
+        },
+        {
+          "name": "OMH-018 delivers the exact required public-contract policy without opening unrelated context",
+          "errorClass": "AssertionError",
+          "code": "ERR_ASSERTION",
+          "operator": "strictEqual",
+          "classification": "semantic assertion failure"
+        },
+        {
+          "name": "OMH-011 fits mandatory compatibility and legitimate verification within total context, preserving initial bounds",
+          "errorClass": "AssertionError",
+          "code": "ERR_ASSERTION",
+          "operator": "==",
+          "classification": "semantic assertion failure"
+        },
+        {
+          "name": "OMH-012 fits mandatory compatibility and legitimate verification within total context, preserving initial bounds",
+          "errorClass": "AssertionError",
+          "code": "ERR_ASSERTION",
+          "operator": "==",
+          "classification": "semantic assertion failure"
+        },
+        {
+          "name": "OMH-018 fits mandatory compatibility and legitimate verification within total context, preserving initial bounds",
+          "errorClass": "AssertionError",
+          "code": "ERR_ASSERTION",
+          "operator": "==",
+          "classification": "semantic assertion failure"
+        }
+      ],
+      "additionalSemanticFailures": [],
+      "fixtureDependentFailures": []
+    }
+  ],
+  "findings": {
+    "requestedCanonicalPermissionAssertions": "True-fd7 writable prompt lacks bounded canonical-path metadata. The three009/011/012 complete grant-closure assertions fail ERR_ASSERTION; related real-tool/projection controls also fail actual assertions.",
+    "requestedBCReadAssertions": "All three011/012/018 exact BC reads are refused by the actual baseline tool policy, failing readable-pointer assertions.",
+    "requestedBCBudgetAssertions": [
+      {
+        "caseId": "OMH-011",
+        "ordinaryBytes": 117135,
+        "baseTotalCap": 98304
+      },
+      {
+        "caseId": "OMH-012",
+        "ordinaryBytes": 112138,
+        "baseTotalCap": 98304
+      },
+      {
+        "caseId": "OMH-018",
+        "ordinaryBytes": 127461,
+        "baseTotalCap": 98304
+      }
+    ],
+    "setupDistinction": "Both files execute all named tests, controls pass, no top-level/import/spawn failure; requested assertions are semantic. Seven additional context negative controls fail TypeError because true-base catalog lacks the reference metadata they mutate/use. These are separately listed and do not establish semantic protection for those controls.",
+    "noRegrade": "This is test evidence only; no model result or old experiment status changed."
+  },
+  "cleanup": {
+    "tapWorktreeRemoved": true,
+    "defaultReporterWorktreeRemoved": true,
+    "errors": []
+  },
+  "canonicalV7": {
+    "resultPath": ".ai/reports/qwen-harness-recovery/knowledge-change.result.v7.json",
+    "resultSha256": "9a2bb945545dfe42791579a03151ae2704da85ed0ea7889aff80f69752ce590f",
+    "inputPath": ".ai/analysis/2026-10-30-qwen-harness-knowledge-change-v7.json",
+    "inputSha256": "fbec456c3eeaa008f962427689503e986ffdd2dbd0978d3ce45a2cc0776f95d6"
+  },
+  "additionalDefaultReporterEvidence": [
+    {
+      "testFile": "packages/create-app/src/lib/coding-context-delivery.test.ts",
+      "exitCode": 1,
+      "stdoutSha256": "2f4ac5f2f978821f0e64bc008002359256a4abc4faa83f87206c9f14a8f08270",
+      "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "reporter": "Node26 default spec"
+    },
+    {
+      "testFile": "packages/create-app/src/lib/bc-contract-delivery.test.ts",
+      "exitCode": 1,
+      "stdoutSha256": "df60c07b2fd9defc17972323ab9e817193c449180a846598ae571ebb389cd721",
+      "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "reporter": "Node26 default spec"
+    }
+  ]
+}

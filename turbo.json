@@ -12,7 +12,15 @@
     "@open-mercato/cli#build": {
       "dependsOn": ["^build"],
       "cache": true,
-      "inputs": ["$TURBO_DEFAULT$", "generated/**"],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "generated/**",
+        "$TURBO_ROOT$/packages/create-app/agentic/**",
+        "$TURBO_ROOT$/packages/create-app/template/src/modules/example/**",
+        "$TURBO_ROOT$/AGENTS.md",
+        "$TURBO_ROOT$/BACKWARD_COMPATIBILITY.md",
+        "$TURBO_ROOT$/packages/*/src/modules/*/agentic/standalone-guide.md"
+      ],
       "outputs": ["dist/**"]
     },
     "create-mercato-app#build": {

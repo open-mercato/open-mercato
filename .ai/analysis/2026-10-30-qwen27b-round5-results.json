@@ -1,0 +1,400 @@
+{
+  "schemaVersion": 1,
+  "sourceRevision": "0395f6246d13fac742fdd72df59aa22f3d8bdd49",
+  "runId": "ac37befc-5efe-486e-a2f3-c37d437d446e",
+  "startedAt": "2026-10-30T19:17:57.739Z",
+  "updatedAt": "2026-10-30T20:20:24.568Z",
+  "status": "running",
+  "cases": [
+    {
+      "caseId": "OMH-009",
+      "status": "pass",
+      "implementationOracle": "pass",
+      "attempts": 1,
+      "corrections": 0,
+      "durationMs": 257720,
+      "finishedAt": "2026-10-30T19:23:45.660Z",
+      "evaluatorSha256": "ce798864af29bddcbc7bc7789ffd4154615e31cdf207a1590fdea529d6d26276",
+      "generatedSha256": "2350a45992786fc6f95da8242ee653719008d0b2b6bc20575e4390b6ae8ce20d",
+      "captureSha256": [
+        "1197e713d4c67f1864367ac45bd7ae5548d2be69bd64084c9d87a111f2dd558c"
+      ],
+      "shortCause": "Canonical and implementation pass; broader generated-artifact validation is pending.",
+      "localeReadCounts": {
+        "globalApp": {
+          "events": 0,
+          "deliveredBytes": 0,
+          "missingMetadata": 0
+        },
+        "newModule": {
+          "events": 0,
+          "deliveredBytes": 0,
+          "missingMetadata": 0
+        },
+        "canonicalExample": {
+          "events": 0,
+          "deliveredBytes": 0,
+          "missingMetadata": 0
+        },
+        "otherModule": {
+          "events": 0,
+          "deliveredBytes": 0,
+          "missingMetadata": 0
+        }
+      },
+      "deliveryCounts": {
+        "successfulReads": 21,
+        "attestedReads": 21,
+        "missingMetadata": 0,
+        "immutableCompared": 13,
+        "immutableMatches": 13,
+        "immutableMismatches": 0
+      }
+    },
+    {
+      "caseId": "OMH-011",
+      "status": "fail",
+      "implementationOracle": "pass",
+      "attempts": 1,
+      "corrections": 0,
+      "durationMs": 413443,
+      "finishedAt": "2026-10-30T19:31:45.548Z",
+      "evaluatorSha256": "214880f07cfcebecdafa82c61c719e6615874fc96b2c78513a75ee9f2226ccb2",
+      "generatedSha256": "f6b57be433db51b662ab39ae2a26b262d4f37f36e716e9d67c22c3e0fb67636b",
+      "captureSha256": [
+        "9cf7c50139f3efdd276cda9a0cf4a09af3f05cb0370812e044065c00235a654a"
+      ],
+      "shortCause": "Implementation passes; fullcase fails owner-before-source ordering and a missed required BC read.",
+      "localeReadCounts": {
+        "globalApp": {
+          "events": 0,
+          "deliveredBytes": 0,
+          "missingMetadata": 0
+        },
+        "newModule": {
+          "events": 0,
+          "deliveredBytes": 0,
+          "missingMetadata": 0
+        },
+        "canonicalExample": {
+          "events": 0,
+          "deliveredBytes": 0,
+          "missingMetadata": 0
+        },
+        "otherModule": {
+          "events": 0,
+          "deliveredBytes": 0,
+          "missingMetadata": 0
+        }
+      },
+      "deliveryCounts": {
+        "successfulReads": 12,
+        "attestedReads": 12,
+        "missingMetadata": 0,
+        "immutableCompared": 9,
+        "immutableMatches": 9,
+        "immutableMismatches": 0
+      }
+    },
+    {
+      "caseId": "OMH-012",
+      "status": "fail",
+      "implementationOracle": "fail",
+      "attempts": 1,
+      "corrections": 0,
+      "durationMs": 1200026,
+      "finishedAt": "2026-10-30T19:52:56.365Z",
+      "evaluatorSha256": "4cd1e1fc9d6b12dd4b3a13e2e63b61fee9a4350106ff92d7d6600e615f11e17c",
+      "generatedSha256": "1212b6afff8ab1d56302dca8827c80aae8af35af562920f134a3aab6543720d5",
+      "captureSha256": [
+        "2be66cdffa552558c0c1190596eafdefde88b64b014954cf928e33d67c0a3ef7"
+      ],
+      "shortCause": "Timed out; required mutation/atomic helpers absent and generated checkout route imports nonexistent commandBus.",
+      "localeReadCounts": {
+        "globalApp": {
+          "events": 0,
+          "deliveredBytes": 0,
+          "missingMetadata": 0
+        },
+        "newModule": {
+          "events": 0,
+          "deliveredBytes": 0,
+          "missingMetadata": 0
+        },
+        "canonicalExample": {
+          "events": 0,
+          "deliveredBytes": 0,
+          "missingMetadata": 0
+        },
+        "otherModule": {
+          "events": 0,
+          "deliveredBytes": 0,
+          "missingMetadata": 0
+        }
+      },
+      "deliveryCounts": {
+        "successfulReads": 17,
+        "attestedReads": 17,
+        "missingMetadata": 0,
+        "immutableCompared": 10,
+        "immutableMatches": 10,
+        "immutableMismatches": 0
+      }
+    },
+    {
+      "caseId": "OMH-014",
+      "status": "fail",
+      "implementationOracle": "fail",
+      "attempts": 1,
+      "corrections": 0,
+      "durationMs": 906781,
+      "finishedAt": "2026-10-30T20:09:09.886Z",
+      "evaluatorSha256": "f7d260a7cc108fdc390ed5251007c42c05a8d1de0bc52e08e0ca8645c6066876",
+      "generatedSha256": "215224a75ca488f38a801860597ccd170e326ebeb19e6a65880a872716ac0d62",
+      "captureSha256": [
+        "c927b7f5c7f4728be2c57c3ccc8026c99ddeae6f62d2dbae87481e66ba5656f0"
+      ],
+      "shortCause": "API import-depth/type errors and source-before-owner violation; table-binding complaint is an oracle false negative.",
+      "localeReadCounts": {
+        "globalApp": {
+          "events": 0,
+          "deliveredBytes": 0,
+          "missingMetadata": 0
+        },
+        "newModule": {
+          "events": 1,
+          "deliveredBytes": 2304,
+          "missingMetadata": 0
+        },
+        "canonicalExample": {
+          "events": 0,
+          "deliveredBytes": 0,
+          "missingMetadata": 0
+        },
+        "otherModule": {
+          "events": 0,
+          "deliveredBytes": 0,
+          "missingMetadata": 0
+        }
+      },
+      "deliveryCounts": {
+        "successfulReads": 32,
+        "attestedReads": 32,
+        "missingMetadata": 0,
+        "immutableCompared": 21,
+        "immutableMatches": 21,
+        "immutableMismatches": 0
+      }
+    },
+    {
+      "caseId": "OMH-026",
+      "status": "fail",
+      "implementationOracle": "fail",
+      "attempts": 1,
+      "corrections": 0,
+      "durationMs": 483357,
+      "finishedAt": "2026-10-30T20:18:03.462Z",
+      "evaluatorSha256": "a3ce08ed051db52b3151a1342d2f102e40cd485506d26e062c38b1f140735094",
+      "generatedSha256": "1bbb923d06c1a28378362820540d31fa41c9f128f6354214c0add7499c3d9b35",
+      "captureSha256": [
+        "81d5168f2146a997b779d9375c48698299991c4946fef70c77faad6e8fcc5a98"
+      ],
+      "shortCause": "Invalid shared/db API import, absent declared interceptor artifact and missed required owner/facts/skill protocol.",
+      "localeReadCounts": {
+        "globalApp": {
+          "events": 0,
+          "deliveredBytes": 0,
+          "missingMetadata": 0
+        },
+        "newModule": {
+          "events": 0,
+          "deliveredBytes": 0,
+          "missingMetadata": 0
+        },
+        "canonicalExample": {
+          "events": 0,
+          "deliveredBytes": 0,
+          "missingMetadata": 0
+        },
+        "otherModule": {
+          "events": 0,
+          "deliveredBytes": 0,
+          "missingMetadata": 0
+        }
+      },
+      "deliveryCounts": {
+        "successfulReads": 18,
+        "attestedReads": 18,
+        "missingMetadata": 0,
+        "immutableCompared": 12,
+        "immutableMatches": 12,
+        "immutableMismatches": 0
+      }
+    },
+    {
+      "caseId": "OMH-027",
+      "status": "running",
+      "implementationOracle": "pending",
+      "attempts": null,
+      "corrections": null,
+      "durationMs": null,
+      "finishedAt": null,
+      "evaluatorSha256": null,
+      "generatedSha256": null,
+      "captureSha256": [],
+      "shortCause": null,
+      "localeReadCounts": null,
+      "deliveryCounts": null
+    },
+    {
+      "caseId": "OMH-029",
+      "status": "pending",
+      "implementationOracle": "pending",
+      "attempts": null,
+      "corrections": null,
+      "durationMs": null,
+      "finishedAt": null,
+      "evaluatorSha256": null,
+      "generatedSha256": null,
+      "captureSha256": [],
+      "shortCause": null,
+      "localeReadCounts": null,
+      "deliveryCounts": null
+    },
+    {
+      "caseId": "OMH-031",
+      "status": "pending",
+      "implementationOracle": "pending",
+      "attempts": null,
+      "corrections": null,
+      "durationMs": null,
+      "finishedAt": null,
+      "evaluatorSha256": null,
+      "generatedSha256": null,
+      "captureSha256": [],
+      "shortCause": null,
+      "localeReadCounts": null,
+      "deliveryCounts": null
+    },
+    {
+      "caseId": "OMH-042",
+      "status": "pending",
+      "implementationOracle": "pending",
+      "attempts": null,
+      "corrections": null,
+      "durationMs": null,
+      "finishedAt": null,
+      "evaluatorSha256": null,
+      "generatedSha256": null,
+      "captureSha256": [],
+      "shortCause": null,
+      "localeReadCounts": null,
+      "deliveryCounts": null
+    },
+    {
+      "caseId": "OMH-045",
+      "status": "pending",
+      "implementationOracle": "pending",
+      "attempts": null,
+      "corrections": null,
+      "durationMs": null,
+      "finishedAt": null,
+      "evaluatorSha256": null,
+      "generatedSha256": null,
+      "captureSha256": [],
+      "shortCause": null,
+      "localeReadCounts": null,
+      "deliveryCounts": null
+    },
+    {
+      "caseId": "OMH-049",
+      "status": "pending",
+      "implementationOracle": "pending",
+      "attempts": null,
+      "corrections": null,
+      "durationMs": null,
+      "finishedAt": null,
+      "evaluatorSha256": null,
+      "generatedSha256": null,
+      "captureSha256": [],
+      "shortCause": null,
+      "localeReadCounts": null,
+      "deliveryCounts": null
+    },
+    {
+      "caseId": "OMH-054",
+      "status": "pending",
+      "implementationOracle": "pending",
+      "attempts": null,
+      "corrections": null,
+      "durationMs": null,
+      "finishedAt": null,
+      "evaluatorSha256": null,
+      "generatedSha256": null,
+      "captureSha256": [],
+      "shortCause": null,
+      "localeReadCounts": null,
+      "deliveryCounts": null
+    },
+    {
+      "caseId": "OMH-057",
+      "status": "pending",
+      "implementationOracle": "pending",
+      "attempts": null,
+      "corrections": null,
+      "durationMs": null,
+      "finishedAt": null,
+      "evaluatorSha256": null,
+      "generatedSha256": null,
+      "captureSha256": [],
+      "shortCause": null,
+      "localeReadCounts": null,
+      "deliveryCounts": null
+    },
+    {
+      "caseId": "OMH-060",
+      "status": "pending",
+      "implementationOracle": "pending",
+      "attempts": null,
+      "corrections": null,
+      "durationMs": null,
+      "finishedAt": null,
+      "evaluatorSha256": null,
+      "generatedSha256": null,
+      "captureSha256": [],
+      "shortCause": null,
+      "localeReadCounts": null,
+      "deliveryCounts": null
+    }
+  ],
+  "deliveryTotals": {
+    "successfulReads": 100,
+    "attestedReads": 100,
+    "missingMetadata": 0,
+    "immutableCompared": 65,
+    "immutableMatches": 65,
+    "immutableMismatches": 0
+  },
+  "localeReadTotals": {
+    "globalApp": {
+      "events": 0,
+      "deliveredBytes": 0,
+      "missingMetadata": 0
+    },
+    "newModule": {
+      "events": 1,
+      "deliveredBytes": 2304,
+      "missingMetadata": 0
+    },
+    "canonicalExample": {
+      "events": 0,
+      "deliveredBytes": 0,
+      "missingMetadata": 0
+    },
+    "otherModule": {
+      "events": 0,
+      "deliveredBytes": 0,
+      "missingMetadata": 0
+    }
+  }
+}

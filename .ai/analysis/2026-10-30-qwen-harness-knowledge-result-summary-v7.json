@@ -1,0 +1,318 @@
+{
+  "artifactType": "sanitized-controller-result-summary",
+  "version": 7,
+  "note": "Actual fresh controller invocation; raw completed manifest with local command paths remains ignored. No prior execution records were substituted.",
+  "status": "pass",
+  "controllerExitCode": 0,
+  "baseSha": "fd7c06569bd5fa282716b28e1375d2ddb2cc1eea",
+  "headSha": "9af38b20402d5d4956e62a5ce4a8e0b9ccc52b04",
+  "invocation": [
+    "yarn",
+    "workspace",
+    "create-mercato-app",
+    "harness:validate-knowledge-change",
+    "--root",
+    "../..",
+    "--manifest",
+    ".ai/analysis/2026-10-30-qwen-harness-knowledge-change-v7.json",
+    "--base",
+    "fd7c06569bd5fa282716b28e1375d2ddb2cc1eea",
+    "--out",
+    ".ai/reports/qwen-harness-recovery/knowledge-change.result.v7.json"
+  ],
+  "runner": {
+    "mode": "local",
+    "nodeVersion": "v26.12.1",
+    "yarnPath": "Explicit mise Yarn latest bin after pinned Node26 bin",
+    "focusedCommandSource": "Controller-derived process.execPath --import tsx --test; authored commands not accepted",
+    "controllerOwnsWorktrees": true,
+    "pairsPerTest": 1,
+    "authorCodeChanges": false
+  },
+  "input": {
+    "path": ".ai/analysis/2026-10-30-qwen-harness-knowledge-change-v7.json",
+    "sha256": "fbec456c3eeaa008f962427689503e986ffdd2dbd0978d3ce45a2cc0776f95d6",
+    "authoredMatchesCompletedManifest": true
+  },
+  "changeClass": "knowledge-contract",
+  "changedContracts": [
+    "routing",
+    "source-link",
+    "context-read",
+    "evaluator",
+    "oracle"
+  ],
+  "affectedCaseCount": 240,
+  "catalogCount": 240,
+  "requiredReleaseLanes": [
+    "deterministic",
+    "routing",
+    "writable",
+    "generatedCodeReview",
+    "generativeJudge",
+    "generatedTests"
+  ],
+  "authoritativeFiles": [
+    {
+      "path": "packages/create-app/agentic/shared/scripts/evaluate-agent-harness.mjs",
+      "sha256": "bf7c49e16ac0ccd25445eb5ac74bca90effe935b1b7602c124d72fc239a7593b"
+    },
+    {
+      "path": "packages/create-app/agentic/shared/ai/harness/cases.json",
+      "sha256": "61d656acf44207ccc3c9dc88847a7aee35954dc29bd382185a00b1ce69e609bf"
+    },
+    {
+      "path": "packages/create-app/agentic/shared/ai/harness/writable-ast-oracles.mjs",
+      "sha256": "969f9ad5bd46c3647fbdb5e1fd27da3af1cc1a45e2b81456feb48cf2557664b6"
+    },
+    {
+      "path": "packages/create-app/agentic/shared/ai/harness/fixtures/seeds.json",
+      "sha256": "da2499b5f21230f5c72c3479fe4b60cfcb4fcbbfe5c30cb835e6756d4cad5528"
+    },
+    {
+      "path": "turbo.json",
+      "sha256": "391f6413b060f761bfc18ab55382c2d24ac016fd033869778513be5f13117e25"
+    },
+    {
+      "path": "packages/create-app/agentic/shared/scripts/pi-harness-extension.mjs",
+      "sha256": "a606dd1d305261ff3ab66831b89107e9767f4f36bb07b94deadb38b6084fbe44"
+    },
+    {
+      "path": "packages/create-app/agentic/shared/scripts/run-agent-harness-release.mjs",
+      "sha256": "dac833402fe5f32db60a21f8941ae8b943095695dbde55984256bf73ced123d0"
+    },
+    {
+      "path": "packages/create-app/agentic/shared/ai/harness/validators.json",
+      "sha256": "869ef1268b6c60acbf37c2b533f378e223b749018305d12361fd2a1bceb9b8e8"
+    },
+    {
+      "path": "packages/create-app/agentic/shared/AGENTS.md.template",
+      "sha256": "ab33244f7e37c6807156dbca6b5d76c11a6127fcf8dd5e7ad2207853b0baf45c"
+    },
+    {
+      "path": "packages/create-app/template/AGENTS.md",
+      "sha256": "5dcaa97dfa6287c39dbfe3dbd49ab7b08fa6eed4c81bd6ec546ccc6225faefac"
+    }
+  ],
+  "generatedFiles": [
+    {
+      "path": "packages/create-app/scripts/source-links/source-link-inventory.json",
+      "sourcePath": "packages/create-app/scripts/generate-source-link-inventory.mjs",
+      "sha256": "3a4ab51b798c0d269736f8e5cd66dfe31247beb07a5c5f33d25582b05366b030"
+    },
+    {
+      "path": "packages/create-app/agentic/shared/ai/harness/source-link-inventory.json",
+      "sourcePath": "packages/create-app/scripts/generate-source-link-inventory.mjs",
+      "sha256": "71cda57463563a4808bf42353425db38f6e7386b0f0c06a0549dd300801c77a9"
+    }
+  ],
+  "focusedExecutions": [
+    {
+      "testFile": "packages/create-app/src/lib/coding-case-source-policy.test.ts",
+      "testSha256": "6972e69dccf335b8108ba788ca6aa8db27cbd2ecd4ef935d442a35e0b90d5e69",
+      "command": [
+        "node",
+        "--import",
+        "tsx",
+        "--test",
+        "packages/create-app/src/lib/coding-case-source-policy.test.ts"
+      ],
+      "baseWithTestOnly": {
+        "exitCode": 1,
+        "stdoutSha256": "6898381176a49a3b2add9f98ae4feee6d6f910bcd5120f9aa1be390de0af5034",
+        "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "head": {
+        "exitCode": 0,
+        "stdoutSha256": "14e06333c19d33cf4ec95128befa207ca29b05a9b0bbb93a54978e0b3c38f804",
+        "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    },
+    {
+      "testFile": "packages/create-app/src/lib/coding-context-delivery.test.ts",
+      "testSha256": "00c986723060e0fede2f49e296044547493b5ee4b22e4af3d4f22327eea3b5f6",
+      "command": [
+        "node",
+        "--import",
+        "tsx",
+        "--test",
+        "packages/create-app/src/lib/coding-context-delivery.test.ts"
+      ],
+      "baseWithTestOnly": {
+        "exitCode": 1,
+        "stdoutSha256": "f92a0432e23973ee1d8a6c8b6b2e9b1617bbc40fce692e4d27619ff61ed9f56c",
+        "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "head": {
+        "exitCode": 0,
+        "stdoutSha256": "44f386e87cc532e9b71947f67a3436303846f7dbac75d1a27d50a0998aaae9fc",
+        "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    },
+    {
+      "testFile": "packages/create-app/src/lib/coding-fixture-contracts.test.ts",
+      "testSha256": "d12bcf1f0b4dcc9ef2358ca4ead4b8f11e95ba7c4aaef62a0525dfc244cba859",
+      "command": [
+        "node",
+        "--import",
+        "tsx",
+        "--test",
+        "packages/create-app/src/lib/coding-fixture-contracts.test.ts"
+      ],
+      "baseWithTestOnly": {
+        "exitCode": 1,
+        "stdoutSha256": "6247bd2d91894b250f8331ce3d5abaccc90301ec5f3539321c9d619d11c2c85c",
+        "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "head": {
+        "exitCode": 0,
+        "stdoutSha256": "6dfb999cf49cc4c7a93f92eb5f5f975499c20483406aad5ac5ee9d5b6279f919",
+        "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    },
+    {
+      "testFile": "packages/create-app/src/lib/writable-ast-oracles.test.ts",
+      "testSha256": "34d1fa3c141dc879f846069c31e5f6193d8966e5e3bfaa3798f133e5550d1673",
+      "command": [
+        "node",
+        "--import",
+        "tsx",
+        "--test",
+        "packages/create-app/src/lib/writable-ast-oracles.test.ts"
+      ],
+      "baseWithTestOnly": {
+        "exitCode": 1,
+        "stdoutSha256": "d8852f40c97771e5dcac0c925d3b8b760d885b4665d67fbe37e78bffa6519772",
+        "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "head": {
+        "exitCode": 0,
+        "stdoutSha256": "73fcec58546c814103024cfe5cafc33c2d3f247a3fc2054abba952fed636c7cf",
+        "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    },
+    {
+      "testFile": "packages/create-app/src/lib/harness-build-cache.test.ts",
+      "testSha256": "f326a774aa3bd35debd3985a89a834e3cbbd9460b073282302d0de4232e6ff56",
+      "command": [
+        "node",
+        "--import",
+        "tsx",
+        "--test",
+        "packages/create-app/src/lib/harness-build-cache.test.ts"
+      ],
+      "baseWithTestOnly": {
+        "exitCode": 1,
+        "stdoutSha256": "9fffa602391a4b823e49af6caff51bfccf893ff6aef0b9767ac7345f26e07cec",
+        "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "head": {
+        "exitCode": 0,
+        "stdoutSha256": "8e685f293fed9cd59aa6ade4db5789495946a8cde80ce27c5adad491d7ae89fb",
+        "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    },
+    {
+      "testFile": "packages/create-app/src/lib/pi-harness-extension.test.ts",
+      "testSha256": "07f99396edb2b45ca2c2a9abd8aaaa49e671e883a0a45e657018e5e180c543a7",
+      "command": [
+        "node",
+        "--import",
+        "tsx",
+        "--test",
+        "packages/create-app/src/lib/pi-harness-extension.test.ts"
+      ],
+      "baseWithTestOnly": {
+        "exitCode": 1,
+        "stdoutSha256": "2b8ee91e149dff4bfc54d155e01efd11598da7be983a90c3499ecbff72c4c157",
+        "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "head": {
+        "exitCode": 0,
+        "stdoutSha256": "035da2cdf71ed3d53a0b910e156b267e49605754f5010f22a8b867f4dd9fb717",
+        "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    },
+    {
+      "testFile": "packages/create-app/src/lib/generated-yarn-config-preparation.test.ts",
+      "testSha256": "3a20f097d22ca5196230b067723c20cae9d8ff86fcab33245cfaa3658f55dbf6",
+      "command": [
+        "node",
+        "--import",
+        "tsx",
+        "--test",
+        "packages/create-app/src/lib/generated-yarn-config-preparation.test.ts"
+      ],
+      "baseWithTestOnly": {
+        "exitCode": 1,
+        "stdoutSha256": "4756008de9689ff771709e5fa0722ed6c360af11b7b3652b65ec1f1228435f9b",
+        "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "head": {
+        "exitCode": 0,
+        "stdoutSha256": "a2e99c3e5b05c5457d05cd59a0c9aee5b7b4b347ef20606dac47ed56a2caa413",
+        "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    },
+    {
+      "testFile": "packages/create-app/src/lib/bc-contract-delivery.test.ts",
+      "testSha256": "70e4b8508038d0f24a26fd598b5c20b1d93a0b73e77b61ce7de49d44a1e201bd",
+      "command": [
+        "node",
+        "--import",
+        "tsx",
+        "--test",
+        "packages/create-app/src/lib/bc-contract-delivery.test.ts"
+      ],
+      "baseWithTestOnly": {
+        "exitCode": 1,
+        "stdoutSha256": "b9d966f7cb41fe147373e760969f920cbd5b90d685dfc7240912f9a9cce598c9",
+        "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "head": {
+        "exitCode": 0,
+        "stdoutSha256": "0435b4867b9c55d14c25ce9ee069980acf32ee9d62effe7e2d3a40d0f4bf2c5c",
+        "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    }
+  ],
+  "executionInterpretation": {
+    "testFiles": 8,
+    "actualIsolatedInvocations": 16,
+    "baseNonzero": 8,
+    "headZero": 8,
+    "controllerSetupErrors": [],
+    "allStderrEmpty": true,
+    "canonicalTapBodies": "Not retained by canonical helper; controller records output SHA-256 values only. Usable nonzero exits are distinct from controller setup failures; individual TAP failure diagnostics are not claimed from hashes.",
+    "baseExportAudit": "git show true fd7 exports caseReadAllowlist at evaluator line2312. Existing inline test-only loaders expose only anchored declarations for other historically private helpers; no production behavior substitution.",
+    "supplementalSemanticEvidence": {
+      "path": ".ai/reports/qwen-harness-recovery/bc-contract-delivery-regression.json",
+      "sha256": "b9452bcef0234b60348de6a3aa83efa7c769193be2fd33bf5f6d53837f565c66",
+      "scope": "BC test-only31fa phase:7tests1controlpass6semanticfail; separate from canonical true-fd7 pair. Do not relabel as true-base TAP."
+    }
+  },
+  "rootLineage": {
+    "sourceOwner": "packages/create-app/agentic/shared/AGENTS.md.template",
+    "fallbackMirror": "packages/create-app/template/AGENTS.md",
+    "authoritativeHashesValidated": true,
+    "efficacy": "This controller validates root lineage/hash/manifest classification, not behavioral efficacy of UMES/Jest/locale wording."
+  },
+  "scopeLimits": [
+    "Runtime/delivery/case/oracle focused before-after pairs only.",
+    "No fresh Qwen coding, app-runtime, generated-code-review, generated-tests or certified generative-judge outcome is established by this gate.",
+    "Fresh candidate full14 inference and eligible controlled validation remain pending.",
+    "Scored R4 remains pinned to b478 and is not regraded."
+  ],
+  "evidence": [
+    {
+      "path": ".ai/reports/qwen-harness-recovery/knowledge-change.result.v7.json",
+      "sha256": "9a2bb945545dfe42791579a03151ae2704da85ed0ea7889aff80f69752ce590f"
+    },
+    {
+      "path": ".ai/reports/qwen-harness-recovery/knowledge-change.controller.v7.log",
+      "sha256": "6533e69d00d9a8bebc4283f70c8e51b5c2e55770fc086808b7e4d11d403074d2"
+    }
+  ],
+  "noModelsInvoked": true,
+  "errors": []
+}
