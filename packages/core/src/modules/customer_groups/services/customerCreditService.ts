@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto'
 import { LockMode } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
@@ -574,6 +575,7 @@ export class DefaultCustomerCreditService implements CustomerCreditService {
 
             // Step 5: append the entry with `balance_after` computed under the lock.
             const entry = this.em.create(CustomerCreditLedgerEntry, {
+              id: randomUUID(),
               organizationId: scope.organizationId,
               tenantId: scope.tenantId,
               creditAccountId: account.id,
@@ -698,6 +700,7 @@ export class DefaultCustomerCreditService implements CustomerCreditService {
           const exposure = await this.sumExposure(account.id, scope)
           const balanceAfter = addDecimalStrings(exposure, releaseAmount)
           const entry = this.em.create(CustomerCreditLedgerEntry, {
+            id: randomUUID(),
             organizationId: scope.organizationId,
             tenantId: scope.tenantId,
             creditAccountId: account.id,
@@ -776,6 +779,7 @@ export class DefaultCustomerCreditService implements CustomerCreditService {
           const exposure = await this.sumExposure(account.id, scope)
           const balanceAfter = addDecimalStrings(exposure, signedAmount)
           const entry = this.em.create(CustomerCreditLedgerEntry, {
+            id: randomUUID(),
             organizationId: scope.organizationId,
             tenantId: scope.tenantId,
             creditAccountId: account.id,
@@ -836,6 +840,7 @@ export class DefaultCustomerCreditService implements CustomerCreditService {
           const exposure = await this.sumExposure(account.id, scope)
           const balanceAfter = addDecimalStrings(exposure, amount)
           const entry = this.em.create(CustomerCreditLedgerEntry, {
+            id: randomUUID(),
             organizationId: scope.organizationId,
             tenantId: scope.tenantId,
             creditAccountId: account.id,
