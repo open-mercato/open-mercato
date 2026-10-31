@@ -3,8 +3,8 @@ import { SalesQuote } from '../../data/entities'
 import { E } from '#generated/entities.ids.generated'
 import { buildDocumentCrudOptions, buildDocumentOpenApi } from '../documents/factory'
 
-const crud = makeCrudRoute(
-  buildDocumentCrudOptions({
+const crud = makeCrudRoute({
+  ...buildDocumentCrudOptions({
     kind: 'quote',
     entity: SalesQuote,
     entityId: E.sales.sales_quote,
@@ -15,7 +15,8 @@ const crud = makeCrudRoute(
     manageFeature: 'sales.quotes.manage',
     viewFeature: 'sales.quotes.view',
   }),
-)
+  enrichers: { entityId: E.sales.sales_quote },
+})
 
 export const metadata = crud.metadata
 export const GET = crud.GET

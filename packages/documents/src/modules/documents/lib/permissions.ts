@@ -2,13 +2,16 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { FilterQuery } from '@mikro-orm/core'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { hasAllFeatures } from '@open-mercato/shared/lib/auth/featureMatch'
+import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
 import { forbidden } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { Document, DocumentShare } from '../data/entities'
+import { hasResolvedDocumentsOrganizationAccess } from './organizationAccess'
 import {
   resolveApiKeyPrincipalService,
   resolveAuthPrincipalService,
   resolveDocumentsRbacService,
+  resolveOrganizationScopeService,
   type DocumentsServiceContainer,
 } from './platformServices'
 
@@ -189,6 +192,34 @@ export async function resolveLoadedDocumentUserAccess(
   userId: string,
   container?: DocumentsServiceContainer | null,
 ): Promise<DocumentTier | null> {
+  const rbacService = resolveDocumentsRbacService(container)
+  if (!rbacService) return null
+  if (!await rbacService.userHasAllFeatures(userId, ['documents.view'], scope)) {
+    const organizationScopeService = resolveOrganizationScopeService(container)
+    if (!organizationScopeService) return null
+    const authorization = await organizationScopeService.resolveFresh({
+      auth: { sub: userId, userId, tenantId: scope.tenantId, orgId: scope.organizationId, isSuperAdmin: false },
+      selectedId: scope.organizationId,
+      tenantId: scope.tenantId,
+    })
+    if (!authorizeFeatures(['documents.view'], {
+      grantedFeatures: authorization.acl.features,
+      unrestricted: authorization.acl.isSuperAdmin,
+      scopeAllowed: authorization.scope.tenantId === scope.tenantId
+        && !authorization.scope.selectionRejected
+        && hasResolvedDocumentsOrganizationAccess(authorization.acl, scope.organizationId, authorization.scope),
+    })) return null
+  }
+  return resolveLoadedDocumentUserTier(em, document, scope, userId, container)
+}
+
+async function resolveLoadedDocumentUserTier(
+  em: EntityManager,
+  document: Document,
+  scope: { tenantId: string; organizationId: string },
+  userId: string,
+  container?: DocumentsServiceContainer | null,
+): Promise<DocumentTier | null> {
   if (document.ownerUserId === userId) return 'owner'
   if (await resolveDocumentsRbacService(container)?.userHasAllFeatures(
     userId,
@@ -220,6 +251,18 @@ export async function resolveLoadedDocumentUserAccess(
   )
 
   return maxShareTier(shares)
+}
+
+export async function resolveUserDocumentTier(
+  em: EntityManager,
+  documentId: string,
+  scope: { tenantId: string; organizationId: string },
+  userId: string,
+  container?: DocumentsServiceContainer | null,
+): Promise<DocumentTier | null> {
+  const document = await loadScopedDocument(em, documentId, scope)
+  if (!document) return null
+  return resolveLoadedDocumentUserTier(em, document, scope, userId, container)
 }
 
 export async function resolveUserAccess(
