@@ -440,8 +440,9 @@ does not satisfy it falls back to the original component. Catalogued in
 [`widgets/components.ts`](./widgets/components.ts). The time entry dialog's schema is a
 named export (STABLE contract, additive-only): a replacement imports it,
 `import { timeEntryDialogPropsSchema } from '@open-mercato/core/modules/staff/lib/time-tracking-ui/TimeEntryDialog'`,
-and passes it as its own `metadata.propsSchema` instead of copying it. The export is
-typed `z.ZodType<TimeEntryDialogProps>`; wrap with `z.intersection` to add fields.
+and passes it as the top-level `propsSchema` of its `ComponentOverride` (next to
+`replacement`, not inside `metadata`) instead of copying it. The export is typed
+`z.ZodType<TimeEntryDialogProps>`; wrap with `z.intersection` to add fields.
 
 | Handle | Component |
 |---|---|
