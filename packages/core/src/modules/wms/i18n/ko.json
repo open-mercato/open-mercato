@@ -771,6 +771,7 @@
   "wms.backend.inventory.reserve.submitting": "예약 중…",
   "wms.backend.inventory.reserve.success": "예약이 성공적으로 생성되었습니다.",
   "wms.backend.inventory.reserve.title": "재고 예약",
+  "wms.backend.inventory.sourceTypes.checkout": "체크아웃",
   "wms.backend.inventory.sourceTypes.manual": "수동",
   "wms.backend.inventory.sourceTypes.order": "판매 주문",
   "wms.backend.inventory.sourceTypes.transfer": "옮기다",

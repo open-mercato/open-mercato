@@ -241,6 +241,64 @@ describe('PUT /api/customer-groups/[id]/terms', () => {
     )
   })
 
+  // Release 5 (D-R5-1/D-R5-4/D-R5-20/D-R5-28): `approvalPolicy`/`termsCurrencyCode`/
+  // `allowQuoteRequests`/`requiresPoNumber` are accepted by the zod schema
+  // (`customerGroupTermsBaseShape`) and persisted on `CustomerGroupTerms`, but the
+  // route's own `toEntityData`/`applyTermsUpdate`/`serializeTerms` never read or wrote
+  // them — a PUT accepted the four fields (the body schema is `.passthrough()`) and
+  // returned 200, but silently discarded them, and a follow-up GET always answered
+  // null regardless of what was sent.
+  it('persists and round-trips the four Release 5 terms fields on create and update', async () => {
+    const em = createFakeEm({ group: existingGroup, terms: null })
+    setupContainer(em)
+
+    const createRes = await PUT(
+      jsonRequest({
+        approvalPolicy: 'both',
+        termsCurrencyCode: 'PLN',
+        allowQuoteRequests: false,
+        requiresPoNumber: true,
+      }),
+      routeCtx(),
+    )
+
+    expect(createRes.status).toBe(200)
+    expect(em.create).toHaveBeenCalledWith(
+      CustomerGroupTerms,
+      expect.objectContaining({
+        approvalPolicy: 'both',
+        termsCurrencyCode: 'PLN',
+        allowQuoteRequests: false,
+        requiresPoNumber: true,
+      }),
+    )
+    const createBody = await createRes.json()
+    expect(createBody.terms.approvalPolicy).toBe('both')
+    expect(createBody.terms.termsCurrencyCode).toBe('PLN')
+    expect(createBody.terms.allowQuoteRequests).toBe(false)
+    expect(createBody.terms.requiresPoNumber).toBe(true)
+
+    const em2 = createFakeEm({
+      group: existingGroup,
+      terms: { ...existingTerms, approvalPolicy: 'both', termsCurrencyCode: 'PLN', allowQuoteRequests: false, requiresPoNumber: true },
+    })
+    setupContainer(em2)
+    const updateRes = await PUT(
+      jsonRequest(
+        { approvalPolicy: 'merchant', allowQuoteRequests: true },
+        { [OPTIMISTIC_LOCK_HEADER_NAME]: existingTerms.updatedAt!.toISOString() },
+      ),
+      routeCtx(),
+    )
+    expect(updateRes.status).toBe(200)
+    const updateBody = await updateRes.json()
+    expect(updateBody.terms.approvalPolicy).toBe('merchant')
+    expect(updateBody.terms.allowQuoteRequests).toBe(true)
+    // Untouched fields survive the partial update.
+    expect(updateBody.terms.termsCurrencyCode).toBe('PLN')
+    expect(updateBody.terms.requiresPoNumber).toBe(true)
+  })
+
   it('clears allowPurchaseOnAccount back to inheriting when the update sends null', async () => {
     const em = createFakeEm({ group: existingGroup, terms: { ...existingTerms } })
     setupContainer(em)

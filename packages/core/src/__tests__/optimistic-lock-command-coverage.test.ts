@@ -65,6 +65,14 @@ const COMMAND_GUARD_ALLOWLIST: Record<string, string> = {
     'OSS-only — task reassignment is an administrative one-shot move of ownership (workflows.user_task), gated on `workflows.tasks.reassign` and already refused for a terminal task; `UserTask` is not in the curated editable-entity list and the coverage guard only matches PUT/PATCH/DELETE, so the synchronous OSS floor is what makes the stale-modal race a structured 409 at all. Enterprise record_locks migration deferred.',
   'packages/core/src/modules/messages/commands/actions.ts':
     'OSS-only — message action execute (messages.message) enforces the synchronous OSS updated_at floor before the terminal-action claim; the action also has its own actionTaken idempotency guard. Enterprise record_locks migration deferred.',
+  'packages/core/src/modules/cart/api/carts/[id]/reprice/route.ts':
+    'OSS-only — admin cart re-price (cart.cart) is a single-admin maintenance action behind the admin cart detail screen, not a collaborative merge-dialog edit; the synchronous OSS updated_at floor guards the stale-tab race. Enterprise record_locks migration deferred.',
+  'packages/core/src/modules/cart/api/current/request-approval/route.ts':
+    'OSS-only — a buyer requesting approval on their own identified cart (cart.cart) is a one-shot state transition, not a collaborative edit; the synchronous OSS updated_at floor guards the stale-tab race. Enterprise record_locks migration deferred.',
+  'packages/core/src/modules/customer_groups/api/customer-groups/approvals/[id]/decide/route.ts':
+    'OSS-only — a staff approve/reject decision on a purchase-approval request (customer_groups.purchase_approval) is a terminal one-shot transition guarded by its own CAS status check; the synchronous OSS updated_at floor additionally guards the stale-modal race. Enterprise record_locks migration deferred.',
+  'packages/core/src/modules/customer_groups/api/portal/approvals/[id]/decide/route.ts':
+    'OSS-only — the buyer-portal counterpart of the staff decide route above, same terminal one-shot CAS transition on customer_groups.purchase_approval; the synchronous OSS updated_at floor guards the stale-modal race. Enterprise record_locks migration deferred.',
   // agent_orchestrator (enterprise) — terminal one-shot state transitions, not
   // collaborative merge-dialog edit surfaces; the synchronous updated_at floor
   // guards the stale-modal race on each. Promoting them to the

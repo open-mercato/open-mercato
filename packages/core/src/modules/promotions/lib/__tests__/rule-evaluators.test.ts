@@ -338,6 +338,29 @@ describe('code rule', () => {
   })
 })
 
+describe('delivery_method rule (D-R5-17, amends D-R4-14)', () => {
+  it('passes when context.deliveryMethodCode matches the configured code', () => {
+    const g = group({ rules: [rule('delivery_method', { deliveryMethodCode: 'standard' })] })
+    const ctx = context({ deliveryMethodCode: 'standard' })
+    expect(evaluateGroup(g, ctx)).toBe(true)
+  })
+
+  it('fails when context.deliveryMethodCode names a different method', () => {
+    const g = group({ rules: [rule('delivery_method', { deliveryMethodCode: 'standard' })] })
+    const ctx = context({ deliveryMethodCode: 'express' })
+    expect(evaluateGroup(g, ctx)).toBe(false)
+  })
+
+  // Regression guard: every existing cart-stage caller of `promotionsService.evaluate`
+  // omits delivery context entirely (D-R4-14's cart-stage exclusion, unchanged by
+  // D-R5-17) — this must fail closed, not throw or vacuously pass.
+  it('fails when context carries no delivery method at all', () => {
+    const g = group({ rules: [rule('delivery_method', { deliveryMethodCode: 'standard' })] })
+    const ctx = context({ deliveryMethodCode: null })
+    expect(evaluateGroup(g, ctx)).toBe(false)
+  })
+})
+
 describe('exclude_promotional_prices filter (D-R4-16)', () => {
   it('changes the order_value outcome depending on the flag', () => {
     const g = group({

@@ -389,6 +389,43 @@ describe('updateTransactionStatusCommand — state-machine guard', () => {
   })
 })
 
+describe('updateTransactionStatusCommand — session-backed transactions (no linkId)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+  })
+
+  function makeSessionTransaction(status: CheckoutTransaction['status']) {
+    return { ...makeTransaction(status), linkId: null, sessionId: 'session-1' }
+  }
+
+  it('processing → completed: succeeds without 404ing on a non-resolvable link', async () => {
+    const em = makeMockEm(makeSessionTransaction('processing'), 1)
+
+    await expect(runUpdateStatus(em, 'completed')).resolves.toEqual({ ok: true })
+    expect(em.nativeUpdate).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ id: TX_ID, status: 'processing' }),
+      expect.objectContaining({ status: 'completed' }),
+    )
+  })
+
+  it('processing → completed: does not touch checkout_links or emit the link-scoped terminal event', async () => {
+    const em = makeMockEm(makeSessionTransaction('processing'), 1)
+
+    await runUpdateStatus(em, 'completed')
+
+    expect(linkCounterUpdateCalls(em)).toHaveLength(0)
+    expect(emitCheckoutEvent).not.toHaveBeenCalledWith('checkout.transaction.completed', expect.any(Object))
+  })
+
+  it('processing → failed: succeeds with no link-scoped side effects', async () => {
+    const em = makeMockEm(makeSessionTransaction('processing'), 1)
+
+    await expect(runUpdateStatus(em, 'failed')).resolves.toEqual({ ok: true })
+    expect(linkCounterUpdateCalls(em)).toHaveLength(0)
+  })
+})
+
 describe('updateTransactionStatusCommand — pay-link usage counters', () => {
   beforeEach(() => {
     jest.clearAllMocks()

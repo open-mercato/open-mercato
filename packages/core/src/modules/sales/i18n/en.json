@@ -1342,6 +1342,7 @@
   "sales.quotes.accept.forbidden": "Cross-site quote acceptance is not allowed.",
   "sales.quotes.accept.invalidStatus": "This quote cannot be accepted in its current status.",
   "sales.quotes.accept.notFound": "Quote not found.",
+  "sales.quotes.accept.requiresApproval": "This quote requires approval before it can be accepted.",
   "sales.quotes.adjustments.delete": "Delete quote adjustment",
   "sales.quotes.adjustments.upsert": "Update quote adjustment",
   "sales.quotes.create": "Create sales quote",

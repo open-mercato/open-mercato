@@ -771,6 +771,7 @@
   "wms.backend.inventory.reserve.submitting": "Reservieren…",
   "wms.backend.inventory.reserve.success": "Reservierung erfolgreich erstellt.",
   "wms.backend.inventory.reserve.title": "Bestand reservieren",
+  "wms.backend.inventory.sourceTypes.checkout": "Kasse",
   "wms.backend.inventory.sourceTypes.manual": "Handbuch",
   "wms.backend.inventory.sourceTypes.order": "Kundenauftrag",
   "wms.backend.inventory.sourceTypes.transfer": "Überweisen",

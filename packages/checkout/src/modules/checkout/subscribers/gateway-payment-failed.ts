@@ -1,11 +1,14 @@
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { CommandBus } from '@open-mercato/shared/lib/commands/command-bus'
+import { createGatewayPaymentSessionResumeHandler } from '../lib/gatewayPaymentSessionResume'
 
 export const metadata = {
   event: 'payment_gateways.payment.failed',
   persistent: true,
   id: 'checkout-gateway-payment-failed',
 }
+
+const resumeSession = createGatewayPaymentSessionResumeHandler('failed')
 
 export default async function handle(payload: { paymentId?: string; organizationId?: string; tenantId?: string; transactionId?: string }) {
   if (!payload.paymentId || !payload.organizationId || !payload.tenantId) return
@@ -28,4 +31,7 @@ export default async function handle(payload: { paymentId?: string; organization
       organizationIds: [payload.organizationId],
     },
   }).catch(() => null)
+  // A session-backed transaction has no owner past the status update above — compensate
+  // (cancel the order, release stock/credit, unlock the cart) the `CheckoutSession` itself.
+  await resumeSession(payload)
 }

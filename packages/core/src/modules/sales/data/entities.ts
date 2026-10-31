@@ -844,6 +844,10 @@ export class SalesDocumentSequence {
 @Entity({ tableName: 'sales_quotes' })
 @Index({ name: 'sales_quotes_scope_idx', properties: ['organizationId', 'tenantId'] })
 @Index({ name: 'sales_quotes_status_idx', properties: ['organizationId', 'tenantId', 'status'] })
+// Release 5 Phase 4 (checkout C3/C19, D-R5-30, Ask First already approved): checkout's
+// idempotent document creation looks up a quote by (tenant_id, external_reference) before
+// ever calling sales.quotes.create — additive, non-unique (most quotes never set this).
+@Index({ name: 'sales_quotes_tenant_external_reference_idx', properties: ['tenantId', 'externalReference'] })
 @Unique({ name: 'sales_quotes_number_unique', properties: ['organizationId', 'tenantId', 'quoteNumber'] })
 @Unique({ name: 'sales_quotes_acceptance_token_unique', properties: ['acceptanceToken'] })
 export class SalesQuote {
