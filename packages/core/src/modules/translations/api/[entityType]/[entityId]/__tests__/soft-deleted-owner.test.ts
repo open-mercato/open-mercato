@@ -35,6 +35,12 @@ jest.mock('@open-mercato/core/modules/translations/lib/soft-deleted-owner', () =
   isTranslatedRecordSoftDeleted: (...args: unknown[]) => isTranslatedRecordSoftDeletedMock(...args),
 }))
 
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: jest.fn(async () => ({
+    translate: (key: string) => `translated:${key}`,
+  })),
+}))
+
 import { GET } from '../route'
 
 const makeGetRequest = () => new Request(`http://localhost/api/translations/${entityType}/${entityId}`)
@@ -62,7 +68,7 @@ describe('translations entity read route for soft-deleted records', () => {
     const response = await GET(makeGetRequest(), routeParams)
 
     expect(response.status).toBe(404)
-    await expect(response.json()).resolves.toEqual({ error: 'Not found' })
+    await expect(response.json()).resolves.toEqual({ error: 'translated:translations.errors.notFound' })
     expect(isTranslatedRecordSoftDeletedMock).toHaveBeenCalledWith(em, entityType, entityId, { tenantId })
   })
 
@@ -91,6 +97,7 @@ describe('translations entity read route for soft-deleted records', () => {
     const response = await GET(makeGetRequest(), routeParams)
 
     expect(response.status).toBe(404)
+    await expect(response.json()).resolves.toEqual({ error: 'translated:translations.errors.notFound' })
     expect(isTranslatedRecordSoftDeletedMock).not.toHaveBeenCalled()
   })
 })

@@ -14,6 +14,7 @@ import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/op
 import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 
 const logger = createLogger('translations').child({ component: 'entity-translations' })
@@ -82,12 +83,9 @@ export async function GET(req: Request, ctx: { params?: { entityType?: string; e
       .where(sql<boolean>`organization_id is not distinct from ${context.organizationId}`)
       .executeTakeFirst() as Record<string, any> | undefined
 
-    if (!row) {
-      return NextResponse.json({ error: 'Not found' }, { status: 404 })
-    }
-
-    if (await isTranslatedRecordSoftDeleted(context.em, entityType, entityId, { tenantId: context.tenantId })) {
-      return NextResponse.json({ error: 'Not found' }, { status: 404 })
+    if (!row || await isTranslatedRecordSoftDeleted(context.em, entityType, entityId, { tenantId: context.tenantId })) {
+      const { translate } = await resolveTranslations()
+      return NextResponse.json({ error: translate('translations.errors.notFound', 'Not found') }, { status: 404 })
     }
 
     return NextResponse.json({
