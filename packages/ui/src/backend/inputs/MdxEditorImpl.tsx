@@ -102,7 +102,10 @@ export default function MdxEditorImpl({ value = '', onChange }: MdxEditorImplPro
             commit()
           }
         }}
-        className={cn('om-mdx-editor', resolvedTheme === 'dark' && 'dark-theme')}
+        className={cn(
+          'om-mdx-editor [&_[class*=codeMirrorToolbar]]:static! [&_[class*=codeMirrorToolbar]]:flex-wrap [&_[class*=codeMirrorToolbar]]:justify-end',
+          resolvedTheme === 'dark' && 'dark-theme',
+        )}
         contentEditableClassName="om-mdx-prose"
         plugins={[
           headingsPlugin(),
