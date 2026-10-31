@@ -52,6 +52,13 @@ export function DealDetailsFields({
   ownerInitialOption,
   tr,
 }: DealDetailsFieldsProps) {
+  const resolveStageProbabilityPatch = (stageId: string): Partial<BaseValues> => {
+    const pipeline = pipelines.find((option) => option.id === values.pipelineId)
+    const stage = stages.find((option) => option.id === stageId)
+    if (!pipeline?.stageProbabilitiesEnabled || typeof stage?.defaultProbability !== 'number') return {}
+    return { probability: String(stage.defaultProbability) }
+  }
+
   return (
     <>
       <DealFormField
@@ -99,7 +106,7 @@ export function DealDetailsFields({
         <PipelineStageSelect
           stages={stages}
           value={values.pipelineStageId}
-          onChange={(id) => patch({ pipelineStageId: id })}
+          onChange={(id) => patch({ pipelineStageId: id, ...resolveStageProbabilityPatch(id) })}
           disabled={isSubmitting || !values.pipelineId}
           placeholder={tr('customers.deals.form.pipelineStage.placeholder', 'Select stage…')}
           formatCount={(position, total) =>
