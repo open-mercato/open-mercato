@@ -5,6 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import test, { after } from 'node:test'
 import { fileURLToPath } from 'node:url'
+import { buildSync } from 'esbuild'
 import {
   DESIGN_SYSTEM_ACTIVATION_ENTRY,
   EXAMPLE_ACTIVATION_ENTRY,
@@ -64,6 +65,8 @@ function stageInstalledPackages(appDir: string): void {
       name?: string
       version?: string
       main?: string
+      type?: string
+      exports?: unknown
     }
     if (!manifest.name?.startsWith('@open-mercato/')) continue
 
@@ -71,7 +74,13 @@ function stageInstalledPackages(appDir: string): void {
     fs.mkdirSync(installedDir, { recursive: true })
     fs.writeFileSync(
       path.join(installedDir, 'package.json'),
-      `${JSON.stringify({ name: manifest.name, version: manifest.version, main: manifest.main }, null, 2)}\n`,
+      `${JSON.stringify({
+        name: manifest.name,
+        version: manifest.version,
+        main: manifest.main,
+        type: manifest.type,
+        exports: manifest.exports,
+      }, null, 2)}\n`,
     )
     fs.symlinkSync(distDir, path.join(installedDir, 'dist'), 'dir')
     staged += 1
@@ -128,6 +137,34 @@ async function createGenerator(appDir: string): Promise<() => Promise<void>> {
   }
 }
 
+function assertAppModulesEvaluate(appDir: string): void {
+  const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'activation-modules-evaluation-'))
+  const outputPath = path.join(outputDir, 'modules.mjs')
+  try {
+    buildSync({
+      entryPoints: [path.join(appDir, 'src', 'modules.ts')],
+      bundle: true,
+      platform: 'node',
+      format: 'esm',
+      outfile: outputPath,
+      logLevel: 'silent',
+    })
+    const result = spawnSync(process.execPath, [outputPath], {
+      cwd: appDir,
+      encoding: 'utf8',
+      env: process.env,
+      timeout: CLI_SCAFFOLD_TIMEOUT_MS,
+    })
+    assert.equal(
+      result.status,
+      0,
+      `expected activated src/modules.ts to evaluate\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`,
+    )
+  } finally {
+    fs.rmSync(outputDir, { recursive: true, force: true })
+  }
+}
+
 async function prepareFixtureApp(): Promise<ActivationFixtureApp> {
   if (fixtureApp) return fixtureApp
 
@@ -145,7 +182,15 @@ async function runFixture(
   assertActivation: (appDir: string) => Promise<void>,
 ): Promise<void> {
   const { appDir, generate } = await prepareFixtureApp()
-  await runActivationFixture({ appDir, entry, generate, assertActivation })
+  await runActivationFixture({
+    appDir,
+    entry,
+    generate,
+    assertActivation: async (activatedAppDir) => {
+      assertAppModulesEvaluate(activatedAppDir)
+      await assertActivation(activatedAppDir)
+    },
+  })
   await assertModulesUnregistered(appDir, DISABLED_BY_DEFAULT_MODULE_IDS)
 }
 
@@ -172,7 +217,7 @@ test('standalone integration activation preserves the app-level example override
     enableModuleEntry(modulesPath, EXAMPLE_INTEGRATION_ACTIVATION_ENTRY)
     const source = fs.readFileSync(modulesPath, 'utf8')
     assert.match(source, /features: \{ 'example\.manage': null \}/)
-    assert.match(source, /calendar: exampleCalendarOverrides/)
+    assert.doesNotMatch(source, /exampleCalendarOverrides/)
     assert.match(source, /groupOrder: \['example\.nav\.group'\]/)
     // The injection override is what TC-UMES-023 asserts in a scaffolded app; without
     // it that spec would report a client-dispatch regression that is really a missing
