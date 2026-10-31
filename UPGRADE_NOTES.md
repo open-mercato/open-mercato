@@ -45,6 +45,17 @@ keys, or `'all'` when definitions cannot be resolved. Both `cf:` and sanitized
 `cf_` aliases are excluded. Omission preserves existing behavior, and `fields`
 continues to reach the hashed-token strategy unchanged. Public routes, required
 parameters, strategy IDs and queue payloads are unchanged.
+
+<a id="issue-3805"></a>
+
+### Direct AI tool mutations require agent policy (#3805)
+
+`POST /api/ai_assistant/tools/execute` now returns HTTP 403 for tools declared `isMutation: true`, before invoking their handler, including for superadmins. Previously this endpoint allowed callers with the tool's write features to bypass the agent mutation policy, preview, and confirmation control plane. Read tools retain their existing behavior and response shape. The Emergency Security Exception is requested because keeping direct mutations working during a bridge release would preserve the bypass; named human maintainer sign-off is required before merge.
+
+**Action for clients:** replace direct mutation requests with a registered agent's chat or run-object request (`/api/ai_assistant/ai/chat` or `/api/ai_assistant/ai/run-object`). Allowlist the tool on that agent and follow its effective tenant mutation policy, confirming pending actions when required. Client-supplied `approved`, agent policy, or pending-action fields do not authorize direct execution. Existing approved action confirmation and policy-permitted agent execution continue working.
+
+**Action for operators:** deploy the fix, identify integrations using the direct endpoint for writes, and migrate them before relying on those writes. Review earlier direct mutation requests and affected records for changes without the expected approvals; the fix does not undo or retrospectively approve those writes. No stored credentials, pending actions, or data become unusable. See the [spec](.ai/specs/2026-10-31-issue-3805-direct-tool-mutation-approval.md) and [compatibility exception record](BACKWARD_COMPATIBILITY.md#3805-2026-10-31).
+
 ### Nested ACL wildcards now grant their matching enabled-module features (#5523)
 
 Nested role and user ACL grants such as `sales.order.*`, `catalog.product.*`,

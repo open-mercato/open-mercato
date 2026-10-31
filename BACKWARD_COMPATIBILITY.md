@@ -624,3 +624,7 @@ STABLE HTTP/service BREAK (403/404/504), Documents only: org-wide files bypass s
 ## Public pay links (2026-10-27, #7823)
 
 STABLE API §7: `GET /api/checkout/pay/:slug` omits admin fields; retaining them preserves disclosure. Client/operator migration: [notes](UPGRADE_NOTES.md). @haxiorz [approved](https://github.com/open-mercato/open-mercato/pull/8087#issuecomment-6505348826) on 2026-10-29: steps 1–3 waived for all 18 admin fields; client/operator migration acknowledged.
+
+## #3805 2026-10-31
+
+STABLE tools/execute writes bypass approval; no bridge. [Migrate](UPGRADE_NOTES.md#issue-3805)
