@@ -557,7 +557,7 @@ test.describe('TC-EXAMPLE-017: the module\'s bound DataTable and CrudForm hosts,
       // bulk action resolved through that chain, so its presence is the binding assertion.
       await expect(page.locator('thead').getByRole('checkbox')).toBeVisible()
       await page.locator('tbody tr').first().getByRole('checkbox').check()
-      await expect(page.getByRole('button', { name: /Mark selected todos done/i })).toBeVisible()
+      await expect(page.getByRole('button', { name: /Mark selected todos done/i }).first()).toBeVisible()
     } finally {
       await deleteEntityIfExists(request, token, TODOS_API, todoId)
     }

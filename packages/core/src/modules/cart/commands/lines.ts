@@ -57,6 +57,7 @@ import {
 } from '../lib/visibility'
 import type { CartVisibilityLineRef, ResolvedAssortmentScope } from '../lib/visibility'
 import { shouldEnforceAssortmentScope } from '../lib/routeContext'
+import { withCartLineMutationLock } from '../lib/lineMutationLock'
 import type { ResolvedCartRouteContext } from '../lib/routeContext'
 import { buildRecomputeCartTotalsPhase } from '../lib/reprice'
 import type { CartPriceChange } from '../lib/reprice'
@@ -938,10 +939,7 @@ const addLineCommand: CommandHandler<CartLinesAddInput, CartLinesAddOutcome> = {
     // `cart.lines.add`/`.bulkAdd` call against this cart instead, closing the race
     // `TC-CART-CONC-05` reproduced (a silently lost update, and a raw 500 off
     // `cart_lines_unique_line_key`).
-    await withAtomicFlush(em, [
-      async () => {
-        await em.execute('select pg_advisory_xact_lock(hashtextextended(?::text, 0))', [`cart:lines:${cart.id}`])
-      },
+    await withCartLineMutationLock(em, cart.id, [
       async () => {
         const existing = await findExistingCustomerLine(em, scope, cart.id, input.productId, variantId, input.configuration ?? null)
         const pricingContext = buildCartPricingRowFilterContext(cart)
@@ -1049,7 +1047,7 @@ const addLineCommand: CommandHandler<CartLinesAddInput, CartLinesAddOutcome> = {
         if (!shouldRecompute()) return
         await phase()
       }),
-    ], { transaction: true, label: 'cart.lines.add' })
+    ], 'cart.lines.add')
 
     if (!outcome) throw new Error('[internal] cart.lines.add produced no outcome')
     // Captured into plain `const`s (never reassigned themselves) rather than read directly
@@ -1456,17 +1454,7 @@ const bulkAddLinesCommand: CommandHandler<CartLinesBulkAddInput, CartLinesBulkAd
       : []
     const variantsById = new Map((variants as CatalogProductVariant[]).map((variant) => [variant.id, variant]))
 
-    const existingLines = await findWithDecryption(
-      em,
-      CartLine,
-      { cartId: cart.id, productId: { $in: productIds }, promotionId: null, deletedAt: null, tenantId, organizationId },
-      {},
-      scope,
-    )
     const lineByKey = new Map<string, CartLine>()
-    for (const existingLine of existingLines as CartLine[]) {
-      lineByKey.set(buildMergeKey(existingLine.productId, existingLine.variantId ?? null, existingLine.configuration ?? null), existingLine)
-    }
 
     const pricingContext = buildCartPricingRowFilterContext(cart)
     const priceRows = await fetchPriceRowsBatch(em, scope, pricingContext, productIds, variantIds)
@@ -1487,7 +1475,7 @@ const bulkAddLinesCommand: CommandHandler<CartLinesBulkAddInput, CartLinesBulkAd
         )
       : input.lines.map(() => null)
 
-    let nextLineNumber = await computeStartingLineNumber(em, scope, cart.id)
+    let nextLineNumber = 1
 
     const outcomes: CartLinesBulkAddEntryOutcome[] = new Array(input.lines.length)
     const changedLines: CartLine[] = []
@@ -1641,9 +1629,19 @@ const bulkAddLinesCommand: CommandHandler<CartLinesBulkAddInput, CartLinesBulkAd
     // decision is read-decide-write against rows that may not exist yet, so two concurrent
     // `bulkAdd`/`add` calls on this cart must serialize, not just this call's own entries
     // against each other.
-    await withAtomicFlush(em, [
+    await withCartLineMutationLock(em, cart.id, [
       async () => {
-        await em.execute('select pg_advisory_xact_lock(hashtextextended(?::text, 0))', [`cart:lines:${cart.id}`])
+        const existingLines = await findWithDecryption(
+          em,
+          CartLine,
+          { cartId: cart.id, productId: { $in: productIds }, promotionId: null, deletedAt: null, tenantId, organizationId },
+          {},
+          scope,
+        )
+        for (const existingLine of existingLines as CartLine[]) {
+          lineByKey.set(buildMergeKey(existingLine.productId, existingLine.variantId ?? null, existingLine.configuration ?? null), existingLine)
+        }
+        nextLineNumber = await computeStartingLineNumber(em, scope, cart.id)
       },
       ...phases,
       ...buildCartPromotionsAndTotalsPhases({
@@ -1657,7 +1655,7 @@ const bulkAddLinesCommand: CommandHandler<CartLinesBulkAddInput, CartLinesBulkAd
         removedGiftLines,
         promotionWarnings,
       }),
-    ], { transaction: true, label: 'cart.lines.bulkAdd' })
+    ], 'cart.lines.bulkAdd')
     await emitVisibilityRejectedEvent(cart, visibilityRejectedCount, 'lines.bulkAdd')
 
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
