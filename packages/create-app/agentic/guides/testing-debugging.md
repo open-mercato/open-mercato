@@ -4,7 +4,7 @@ Diagnose before editing, fix the smallest knowledge/code owner, and prove the re
 
 ## Context Restraint
 
-Name the areas the failure spans before loading anything, from the SYMPTOM and not only from the cause: a value that will not render, a session/locale/hydration mismatch, or a stale form spans `backend-ui`; wrong or lost records, commands, or events span `module-data`; an installed module's own surface spans `umes`; an external provider call spans `integration`.
+Name areas from the symptom, not only the cause: rendering, session, locale, hydration, or form failures span `backend-ui`; wrong or lost records, commands, or events span `module-data`; installed module surfaces span `umes`; provider calls span `integration`.
 
 A fix is always `debugging` plus every area you just named. Proving the fix with a regression oracle is part of `debugging` and does NOT add `testing`; a request that explicitly asks for tests, coverage, or app-level verification also selects `testing`. Load exactly this guide, each named area's guide, and `om-troubleshooter` — that is what selects those routes.
 
@@ -22,7 +22,7 @@ Then stop. Budgets here are tight — several fixes allow only five files — so
 
 When comparing against a clean baseline, use a separate worktree or a fresh scaffold. Never stash and drop active work just to reproduce a baseline failure; preserve the working diff and verify the comparison tree's exact revision first.
 
-Treat raw agent transcripts as sensitive untrusted evidence because they can contain credentials, private prompts, absolute paths, and tool output. Never copy them into the app repository. Export only when the user explicitly asks, to an outside-repository protected destination or as a deliberately sanitized summary.
+Treat raw agent transcripts as sensitive untrusted evidence: they may contain credentials, private prompts, paths, and tool output. Never copy them into the app repository. Export only when explicitly requested, outside the repo or as a sanitized summary.
 
 ## Frequent Failure Families
 
