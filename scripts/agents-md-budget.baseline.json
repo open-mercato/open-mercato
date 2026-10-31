@@ -1,7 +1,22 @@
 {
-  "$comment": "Agent instruction budget. budgetBytes = Codex's default project_doc_max_bytes; rootMaxBytes reserves 1.5 KiB of it for nested AGENTS.md files. chains = recorded byte size of the NESTED (non-root) AGENTS.md files in each representative root-to-module chain, used as a ratchet: while a chain exceeds the budget its nested part may shrink, never grow. See .ai/docs/agent-instructions.md",
+  "$comment": "Agent instruction budget. budgetBytes = Codex's default project_doc_max_bytes; rootMaxBytes reserves 1.5 KiB of it for nested AGENTS.md files. chains = recorded byte size of the NESTED (non-root) AGENTS.md files in each representative root-to-module chain, used as a ratchet: while a chain exceeds the budget its nested part may shrink, never grow. warnAtPercent + tools drive ADVISORY warnings only (exit code unchanged unless --strict): a subject is flagged once it reaches that percentage of a tool's limit. A tool entry with enforced=true has a limit the tool actually truncates at; enforced=false marks a project policy budget we chose ourselves, which is the case for claude-code because it publishes no hard cap. Token limits are compared against a bytes/4 ESTIMATE and can never produce a blocking failure. See .ai/docs/agent-instructions.md",
   "budgetBytes": 32768,
   "rootMaxBytes": 31232,
+  "warnAtPercent": 90,
+  "tools": {
+    "codex": {
+      "unit": "bytes",
+      "limit": 32768,
+      "enforced": true,
+      "source": "project_doc_max_bytes default; silently truncates past this offset — https://github.com/openai/codex/issues/13386"
+    },
+    "claude-code": {
+      "unit": "tokens",
+      "limit": 12000,
+      "enforced": false,
+      "source": "No documented hard cap: Claude Code loads CLAUDE.md/AGENTS.md into the context window rather than truncating at a byte offset. 12k estimated tokens (~48 KiB) is a PROJECT POLICY budget chosen here, not a vendor limit — raise or lower it deliberately."
+    }
+  },
   "chains": {
     "packages/ai-assistant": 103618,
     "packages/core": 41559,
