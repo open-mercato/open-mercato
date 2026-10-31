@@ -33,3 +33,7 @@ Automate this verified flow with fixture creation and finally cleanup: anonymous
 ### Screenshots
 
 Public, challenge, verified password, draft preview and all three admin email tabs are attached by the native tracker evidence operation. Screenshot bytes were inspected locally; all data is disposable QA content.
+
+### Remaining QA gate
+
+Human QA reviewer required: shared STABLE API removal is inferred risk-high under om-auto-qa-pr even with current risk-medium label; automatic self-signoff is prohibited. No QA approval labels granted; parent owns risk normalization.
