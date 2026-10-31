@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 import {
@@ -170,8 +173,8 @@ test('"nothing was covered" is scored exactly like "no mutants were generated"',
   assert.equal(nothingCovered.shouldFail, nothingGenerated.shouldFail)
 })
 
-function runEnforceCli({ args = [], env = {} } = {}) {
-  return spawnSync(process.execPath, [ENFORCE_SCRIPT, ...args], {
+function runEnforceCli({ script = ENFORCE_SCRIPT, args = [], env = {} } = {}) {
+  return spawnSync(process.execPath, [script, ...args], {
     encoding: 'utf8',
     env: { ...process.env, MUTATION_ENFORCE: '', ...env },
   })
@@ -212,4 +215,23 @@ test('an absent report is missing evidence, not a pass — the two modes differ'
   })
 
   assert.notEqual(advisory.status, enforced.status)
+})
+
+test('runs main() when the script path contains a space', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'stryker cli '))
+  try {
+    for (const file of ['enforce.mjs', 'report.mjs']) {
+      fs.copyFileSync(fileURLToPath(new URL(`../stryker/${file}`, import.meta.url)), path.join(directory, file))
+    }
+    const result = runEnforceCli({
+      script: path.join(directory, 'enforce.mjs'),
+      args: ['/nonexistent/mutation.json'],
+      env: { MUTATION_ENFORCE: 'true' },
+    })
+
+    assert.equal(result.status, 1)
+    assert.match(result.stdout, /No mutation report found and enforcement is enabled/)
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true })
+  }
 })

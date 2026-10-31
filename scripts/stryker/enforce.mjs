@@ -31,6 +31,8 @@
  */
 
 import fs from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { collectSurvivors } from './report.mjs'
 
 export const DEFAULT_BREAK_THRESHOLD = 70
@@ -213,6 +215,6 @@ function main() {
   if (outcome.shouldFail) process.exit(1)
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   main()
 }
