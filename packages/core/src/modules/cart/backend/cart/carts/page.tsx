@@ -59,6 +59,7 @@ type CartAdminListResponse = {
   items?: Array<Record<string, unknown>>
   total?: number
   totalPages?: number
+  totalIsCapped?: boolean
 }
 
 function readString(item: Record<string, unknown>, camel: string, snake: string): string | null {
@@ -108,6 +109,7 @@ export default function CartAdminListPage() {
   const [page, setPage] = React.useState(1)
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const [sorting, setSorting] = React.useState<SortingState>([{ id: 'lastActivityAt', desc: true }])
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
   const [isLoading, setIsLoading] = React.useState(true)
@@ -196,6 +198,7 @@ export default function CartAdminListPage() {
       setTotalPages(
         typeof payload.totalPages === 'number' ? payload.totalPages : Math.max(1, Math.ceil(items.length / PAGE_SIZE)),
       )
+      setTotalIsCapped(payload.totalIsCapped === true)
     } catch (error) {
       logger.error('cart.admin.list.load', { err: error })
       flash(labels.errors.load, 'error')
@@ -371,7 +374,7 @@ export default function CartAdminListPage() {
           sortable
           sorting={sorting}
           onSortingChange={setSorting}
-          pagination={{ page, pageSize: PAGE_SIZE, total, totalPages, onPageChange: setPage }}
+          pagination={{ page, pageSize: PAGE_SIZE, total, totalPages, totalIsCapped, onPageChange: setPage }}
           stickyActionsColumn
           rowActions={(row) => (
             <RowActions
