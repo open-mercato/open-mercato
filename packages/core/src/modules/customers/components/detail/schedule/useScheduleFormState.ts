@@ -119,6 +119,18 @@ export function resolveDefaultActivityStart(type: ActivityType, now: Date): Date
   return nextSlotAfter(now)
 }
 
+export function resolveActivityStartOnDay(type: ActivityType, selectedDate: Date, now: Date = new Date()): Date {
+  if (isSameLocalDay(selectedDate, now)) return resolveDefaultActivityStart(type, now)
+  if (selectedDate.getTime() > now.getTime()) {
+    const start = new Date(selectedDate)
+    start.setHours(type === 'task' ? TASK_DEFAULT_HOUR : NEXT_DAY_START_HOUR, 0, 0, 0)
+    return start
+  }
+  const start = resolveDefaultActivityStart(type, now)
+  start.setFullYear(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate())
+  return start
+}
+
 function formatLocalDateInput(date: Date): string {
   return `${date.getFullYear()}-${padDatePart(date.getMonth() + 1)}-${padDatePart(date.getDate())}`
 }

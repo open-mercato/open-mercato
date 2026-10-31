@@ -1,6 +1,6 @@
 # Lessons
 
-This catalog indexes 166 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
+This catalog indexes 167 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
 
 ## How to use this catalog
 
@@ -37,7 +37,7 @@ This catalog indexes 166 focused lessons. Route the task first, then read only r
 - [Fresh standalone Yarn scaffolds must ship a runnable root workspace lockfile entry](lessons/fresh-standalone-yarn-scaffolds-must-ship-a-runnable.md) — area:architecture,testing,module-data; module:create_app; topic:command-pattern,package-runtime,template-sync
 - [Generated standalone app installs in CI must opt out of immutable lockfiles](lessons/generated-standalone-app-installs-in-ci-must-opt-out-of.md) — area:architecture,integration,testing; module:create_app; topic:generated-files,database-migrations,package-runtime
 - [Generator manifests must fall back to source parsing when runtime-importing TS modules is fragile](lessons/generator-manifests-must-fall-back-to-source-parsing.md) — area:architecture,integration,module-data; module:cli,query_index,queue; topic:events,generated-files,query-index
-- [Global registries in publishable packages must use `globalThis`, not module-local state](lessons/global-registries-in-publishable-packages-must-use.md) — area:architecture,module-data; module:shared,create_app; topic:events,module-boundaries,package-runtime
+- [Global registries in publishable packages must use `globalThis`, not module-local state](lessons/global-registries-in-publishable-packages-must-use.md) — area:architecture,module-data; module:shared,create_app,query_index; topic:events,module-boundaries,package-runtime
 - [Keep create-app template files in lockstep with app shell/layout changes](lessons/keep-create-app-template-files-in-lockstep-with-app.md) — area:architecture,backend-ui,testing; module:create_app,ui,example; topic:template-sync,ui-components,testing
 - [Keep mirrored dev runtimes aligned with their process registry type](lessons/keep-mirrored-dev-runtimes-aligned-with-their-process.md) — area:architecture,debugging; module:events,create_app; topic:events,dev-runtime,filters
 - [Keep standalone agentic content in sync with module conventions](lessons/keep-standalone-agentic-content-in-sync-with-module.md) — area:architecture,framework-context; module:create_app,documents,events,cli; topic:auto-discovery,generated-files,package-runtime,session-export,testing,context-budget
@@ -117,6 +117,7 @@ This catalog indexes 166 focused lessons. Route the task first, then read only r
 ### backend-ui
 
 - [Design-system coverage needs a source inventory and visual checks](lessons/design-system-coverage-needs-a-source-inventory.md) — area:backend-ui,testing; module:ui,design_system,security; topic:design-system,ui-components,visual-testing,native-navigation,realtime,dev-runtime
+- [Selected calendar days need day-aware time defaults](lessons/selected-calendar-days-use-day-aware-time-defaults.md) — area:backend-ui,testing; module:customers; topic:calendar,date-time,testing
 - [Write-only secret editors need explicit unchanged intent and separate form state](lessons/write-only-secret-editors-need-explicit-unchanged-intent.md) — area:backend-ui,integration,testing; module:integrations,ui; topic:data-integrity,ui-components,testing
 - [Always propagate structured conflict payload from `onBeforeSave` blockers](lessons/always-propagate-structured-conflict-payload-from.md) — area:backend-ui,umes,debugging; module:ui; topic:concurrency,optimistic-locking,ui-components
 - [Async edit selects must be hydrated as value-plus-options](lessons/async-edit-selects-must-be-hydrated-as-value-plus.md) — area:backend-ui,integration,testing; module:checkout,entities,ui; topic:custom-fields,filters,testing
