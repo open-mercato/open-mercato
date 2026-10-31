@@ -66,8 +66,8 @@ PR: #8310
 
 ### Phase 2: Implement and test the root-cause fix
 
-- [x] 2.1 Apply the minimal fix and add focused regression coverage for the changed behavior — fe470b712267; 84c90df33153; d3d5101bcf9e; e4e0a3c778; eea60cbfff; 4a1d25c19a; 0a3da83450
-- [x] 2.2 Run the smallest relevant validation commands and remove any unrelated diff — d3d5101bcf9e; 4a1d25c19a; 0a3da83450
+- [x] 2.1 Apply the minimal fix and add focused regression coverage for the changed behavior — fe470b712267; 84c90df33153; d3d5101bcf9e; e4e0a3c778; eea60cbfff; 4a1d25c19a; 0a3da83450; 829d98d7befd
+- [x] 2.2 Run the smallest relevant validation commands and remove any unrelated diff — d3d5101bcf9e; 4a1d25c19a; 0a3da83450; 829d98d7befd
 
 ### Phase 3: Validate and publish
 
