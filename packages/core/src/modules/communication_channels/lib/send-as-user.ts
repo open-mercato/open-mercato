@@ -12,6 +12,7 @@ import { ChannelMutationBlockedError, guardOutboundCreate } from './mutation-gua
 import { COMMUNICATION_CHANNELS_QUEUES, getCommunicationChannelsQueue } from './queue'
 import type { OutboundDeliveryPayload } from '../workers/outbound-delivery'
 import { htmlToText } from './email-mime'
+import { buildOutboundConversationRef } from './outbound-conversation-ref'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('communication_channels')
@@ -171,7 +172,7 @@ export async function sendAsUser(
 
   const messageId = result.result.id
   const messageThreadId = result.result.threadId ?? messageId
-  const externalThreadRef = `outbound:${messageThreadId}`
+  const externalThreadRef = buildOutboundConversationRef(messageThreadId)
 
   // Persist the conversation, thread mapping, and channel link as one unit. The
   // conversation's id is DB-generated (`gen_random_uuid()`), so it must be
@@ -192,6 +193,38 @@ export async function sendAsUser(
       undefined,
       dscope,
     )
+    if (!conversation) {
+      // The thread may already be mapped on this channel under the provider's own
+      // conversation id: an inbound thread, or an earlier send whose `outbound:`
+      // placeholder was re-keyed by the delivery command. Reuse that conversation
+      // so a follow-up send stays in it instead of opening a parallel one.
+      const threadMapping = await findOneWithDecryption(
+        em,
+        ChannelThreadMapping,
+        {
+          messageThreadId,
+          channelId: channel.id,
+          tenantId,
+          organizationId,
+        },
+        undefined,
+        dscope,
+      )
+      if (threadMapping) {
+        conversation = await findOneWithDecryption(
+          em,
+          ExternalConversation,
+          {
+            id: threadMapping.externalConversationId,
+            channelId: channel.id,
+            tenantId,
+            organizationId,
+          },
+          undefined,
+          dscope,
+        )
+      }
+    }
     if (!conversation) {
       conversation = em.create(ExternalConversation, {
         channelId: channel.id,
