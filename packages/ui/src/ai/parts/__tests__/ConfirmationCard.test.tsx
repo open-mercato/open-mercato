@@ -159,6 +159,68 @@ describe('ConfirmationCard', () => {
     expect(screen.getByText('Schema changed')).toBeInTheDocument()
   })
 
+  it.each([
+    ['tool_features_denied', 403, 'Permission required'],
+  ])('renders a translated alert for %s instead of the raw server message', (code, status, title) => {
+    installPollingMock(baseAction({ status: 'pending' }))
+    renderWithProviders(
+      <ConfirmationCard
+        componentId="confirmation-card"
+        pendingActionId="pa-1"
+        payload={{
+          confirmError: {
+            status,
+            code,
+            message: 'raw server diagnostic',
+          },
+        }}
+      />,
+      { dict },
+    )
+    expect(document.querySelector(`[data-ai-confirmation-error="${code}"]`)).not.toBeNull()
+    expect(screen.getByText(title)).toBeInTheDocument()
+    expect(screen.queryByText('raw server diagnostic')).toBeNull()
+  })
+
+  it('drops the spinner and Cancel once the action is unavailable to the viewer', () => {
+    ;(useAiPendingActionPolling as jest.Mock).mockReturnValue({
+      action: null,
+      status: null,
+      isPolling: false,
+      error: null,
+      unavailable: true,
+      refresh: jest.fn().mockResolvedValue(null),
+    })
+    renderWithProviders(
+      <ConfirmationCard componentId="confirmation-card" pendingActionId="pa-foreign" />,
+      { dict },
+    )
+    const card = document.querySelector('[data-ai-confirmation-card]')
+    expect(card?.getAttribute('aria-busy')).toBe('false')
+    expect(card?.getAttribute('data-ai-confirmation-status')).toBe('unavailable')
+    expect(document.querySelector('[data-ai-confirmation-cancel]')).toBeNull()
+  })
+
+  it('treats a pending_action_not_found confirm error as unavailable', () => {
+    installPollingMock(baseAction({ status: 'pending' }))
+    renderWithProviders(
+      <ConfirmationCard
+        componentId="confirmation-card"
+        pendingActionId="pa-foreign"
+        payload={{
+          confirmError: { status: 404, code: 'pending_action_not_found', message: 'raw server diagnostic' },
+        }}
+      />,
+      { dict },
+    )
+    const card = document.querySelector('[data-ai-confirmation-card]')
+    expect(card?.getAttribute('data-ai-confirmation-status')).toBe('unavailable')
+    expect(screen.getByText('Proposal not available')).toBeInTheDocument()
+    expect(screen.queryByText('Applying action...')).toBeNull()
+    expect(screen.queryByText('raw server diagnostic')).toBeNull()
+    expect(document.querySelector('[data-ai-confirmation-cancel]')).toBeNull()
+  })
+
   it('dispatches cancelPendingAction on Cancel click', async () => {
     installPollingMock(baseAction({ status: 'pending' }))
     renderWithProviders(
