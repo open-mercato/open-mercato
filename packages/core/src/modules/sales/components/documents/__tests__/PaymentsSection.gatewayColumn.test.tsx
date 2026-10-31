@@ -2,7 +2,7 @@
  * @jest-environment jsdom
  */
 import * as React from 'react'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { I18nProvider } from '@open-mercato/shared/lib/i18n/context'
 import type { LoadedInjectionDataWidget } from '@open-mercato/shared/modules/widgets/injection'
@@ -77,11 +77,11 @@ function readFirstRowTexts(): string[] {
   return Array.from(firstRow?.querySelectorAll('td') ?? []).map((cell) => cell.textContent?.trim() ?? '')
 }
 
-function renderSection() {
+function renderSection(locale = 'en', dictionary: Record<string, string> = {}) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { gcTime: 0, retry: false } } })
   const view = render(
     <QueryClientProvider client={queryClient}>
-      <I18nProvider locale="en" dict={englishDictionary as Record<string, string>}>
+      <I18nProvider locale={locale} dict={{ ...englishDictionary, ...dictionary }}>
         <SalesDocumentPaymentsSection orderId="order-1" currencyCode="EUR" />
       </I18nProvider>
     </QueryClientProvider>,
@@ -89,7 +89,7 @@ function renderSection() {
   return { ...view, cleanupQueryClient: () => queryClient.clear() }
 }
 
-describe('sales payments table gateway status column (issue #5142)', () => {
+describe('sales payments table columns', () => {
   beforeEach(() => {
     ;(globalThis as typeof globalThis & { ResizeObserver?: typeof ResizeObserverMock }).ResizeObserver =
       ResizeObserverMock
@@ -120,6 +120,24 @@ describe('sales payments table gateway status column (issue #5142)', () => {
       }
       return { widgets: [], isLoading: false, error: null }
     })
+  })
+
+  it.each([
+    ['en', 'Actions'],
+    ['pl', 'Akcje'],
+  ])('labels the row-actions column in %s', async (locale, actionsLabel) => {
+    const { cleanupQueryClient } = renderSection(locale, {
+      'ui.dataTable.actionsColumn': actionsLabel,
+    })
+
+    const header = await screen.findByRole('columnheader', { name: actionsLabel })
+    expect(header).toBeVisible()
+
+    const columnIndex = screen.getAllByRole('columnheader').indexOf(header)
+    const actionsCell = screen.getAllByRole('cell')[columnIndex]
+    expect(within(actionsCell).getByRole('button', { name: 'Open actions' })).toBeVisible()
+
+    cleanupQueryClient()
   })
 
   it('renders the injected gateway status column in the payments table', async () => {
