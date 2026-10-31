@@ -718,6 +718,32 @@ and 007's guard cases need no fixture and run unconditionally.
 
 ## Backward compatibility
 
+### Migration & Backward Compatibility — bounded interactions (#7241)
+
+`POST /api/channel_discord/interactions` screens missing, malformed, and stale signature
+headers before consuming the body. Otherwise it uses the existing shared bounded reader:
+the default is 1,048,576 bytes (1 MiB), overridden by a positive safe-integer
+`OM_WEBHOOK_MAX_BODY_BYTES`. Invalid values retain the default. A declared length above
+the limit or actual streamed bytes above it returns `413 { error: 'payload_too_large' }`
+before translations, JSON parsing, candidate lookup, signature verification, or dispatch.
+An absent, malformed, or understated Content-Length cannot bypass actual byte counting;
+an exact-limit body continues through the existing signature and interaction path.
+
+Route URLs, signature format,
+tenant resolution, and accepted-payload responses remain unchanged. No schema migration,
+credential rotation, or stored-data remediation is needed.
+
+Clients must keep encoded interaction bodies within the configured limit; retrying an
+oversized body unchanged will still fail. Operators must align ingress limits with the
+application cap and account for this shared setting's effect on other bounded webhook
+readers before increasing it. No unlimited mode is introduced. `UPGRADE_NOTES.md` carries
+the client/operator guidance. Residual risk: concurrent requests within the cap still
+consume resources, so existing request-count limits remain in effect.
+
+Route regression coverage uses real Ed25519 signatures and streamed fixtures for header
+screening, declared overflow, absent/malformed/false lengths, chunked cancellation,
+multibyte exact-boundary success, configured limits, and no downstream work on overflow.
+
 ### Migration & Backward Compatibility — proposal approval refusals (#7310)
 
 Approval of a proposal whose source message is unavailable returns a localized 404; an operator who cannot read the source receives a localized 403. Both use the existing `{ error: string }` response shape. The action wrapper preserves these typed refusals after releasing its terminal claim, so dismissal or a later retry remains available. Unexpected errors retain the generic 500 response. Routes, command IDs, database schema, permission rules, and successful approval behavior are unchanged; no migration is required. English and Polish command tests cover both refusals, and all five shipped locales include the messages.
@@ -1168,6 +1194,15 @@ rule 3), and no variant should be considered done without it.
 ---
 
 ## Changelog
+
+### 2026-10-31 — Clarify signed-body migration guidance (#7241)
+
+- Clarify signed request size limits, client/operator migration guidance, and route regression coverage.
+
+### 2026-10-29 — Bound public signed interaction bodies (#7241)
+
+- Reuse the shared streamed byte cap after header screening and before candidate lookup;
+  document 413, boundary coverage, and client/operator migration.
 
 ### 2026-10-25 — Integrate approval refusals with authenticated proposals (#7356)
 

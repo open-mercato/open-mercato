@@ -361,6 +361,34 @@ on `trace/ingest`, every `GET` read, `corrections`, `eval-cases/:id/approve`, an
 
 ## Migration & Backward Compatibility
 
+### Bounded trace ingestion (#7241, 2026-10-29)
+
+`POST /api/agent_orchestrator/trace/ingest` keeps its existing per-IP rate limit first,
+then uses the shared bounded request reader before HMAC verification, JSON parsing,
+schema validation, or command execution. The default cap is 1,048,576 bytes (1 MiB).
+`OM_WEBHOOK_MAX_BODY_BYTES` accepts a positive safe integer; invalid values use the
+default. A declared or actual streamed length above the cap returns
+`413 { error: 'payload_too_large' }`. Missing, malformed, and understated Content-Length
+values cannot bypass the streamed cap. Exactly-at-limit payloads remain eligible for
+normal HMAC verification and ingestion; signatures cover the same decoded body as before.
+
+No new signing scheme, command, schema, tenant-scope rule, or stored-state migration is added.
+
+Runtime adapters must reduce or split oversized traces into schema-valid requests,
+preserve ingestion idempotency semantics, and sign each resulting body. Retrying the
+same oversized body will fail again. Operators must choose a finite cap appropriate
+to their adapters, align ingress limits, and consider the setting's effect on other
+bounded webhook readers. No secret rotation or data backfill is required.
+
+Route regression tests use real HMAC signatures, exact-boundary multibyte bodies,
+streamed overflow with cancellation, absent/malformed/false lengths, declared overflow
+before reads, configured limits, and assertions that verification/parsing/commands do
+not run after overflow. Existing public-endpoint rate-limit tests preserve 429/503
+precedence. Concurrent requests within the cap remain a residual resource risk bounded
+by the existing request-count limiter.
+
+### Original additive rollout
+
 - All entities are **net-new** (`agent_*` tables) — additive, no changes to existing module schemas.
 - The agent_orchestrator eval-case export is a **new contract surface** owned by this module; once published it follows `BACKWARD_COMPATIBILITY.md` (STABLE/ADDITIVE-ONLY). Version the export envelope from day one.
 - New events, ACL features, and API routes are additive. Migrations ship with `.snapshot-open-mercato.json`.
@@ -378,5 +406,7 @@ on `trace/ingest`, every `GET` read, `corrections`, `eval-cases/:id/approve`, an
 
 ## Changelog
 
+- **2026-10-31:** Clarify signed request size limits, client/operator migration guidance, and route regression coverage.
+- **2026-10-29:** Bound signed trace-ingest bodies with the existing shared reader before HMAC/JSON/commands; document 413, route regression coverage, and client/operator migration (#7241).
 - **2026-06-20:** Added the `## Integration Coverage` section (per GAP-17): Playwright tests for HMAC-verified + idempotent `(runtime, externalRunId)` ingest (duplicate ingest is a no-op), ≤5s p95 run queryability with spans/tool-calls/context-routing/eval results, mandatory-reason `AgentCorrection` + auto-drafted `AgentEvalCase`, approved eval-case export, per-agent override-rate + eval-pass-rate over a window, append-only enforcement, RBAC/feature-gate on trace reads, and per-surface tenant-isolation, with a headline `ingest → query → correct → export` E2E; anchored fixtures/cleanup/placement to `.ai/qa/AGENTS.md` + `om-integration-tests`. Cross-referenced the consolidating eval-harness/metrics spec `2026-06-20-agent-eval-harness-and-metrics.md` for the eval-runtime/export detail.
 - **2026-06-19:** Rewrite to real OM conventions and verified architecture. Removed all `eval-runner`/Inspect AI/`x_om`/SWE-bench reuse claims (absent from codebase) and reframed the eval harness + eval-case export as net-new work owned by this module; removed `telemetry-and-otel` as a dependency (does not exist) and recast OTel GenAI as a naming target. Converted entity sketches to MikroORM v7 `/legacy` with dual `tenant_id`/`organization_id`, explicit `@Property`, optimistic-lock/append-only split. Renamed entities to `Agent*` with `agent_` table prefix, events to `agent_orchestrator.*` past tense, routes to `/api/agent_orchestrator/...`. Clarified deterministic-gate vs sampled `llm_judge`-warn tiers and the correction flywheel. Added scoping risk row for the net-new harness.
