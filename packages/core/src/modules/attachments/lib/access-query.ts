@@ -9,6 +9,7 @@ import { evaluateAttachmentAccess, type AttachmentAccessContext } from './access
 import type { AttachmentAccessAction, AttachmentAccessRecord } from './access-types'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { attachmentAccessErrorBody, throwAttachmentAccessError } from './access-errors'
+import { assertAttachmentStoragePartitionExists } from './drivers/storageValidation'
 import { readAttachmentMetadata } from './metadata'
 
 export function requiresAttachmentAccessScan(partitions: readonly AttachmentPartition[]): boolean {
@@ -31,7 +32,10 @@ export async function assertAttachmentOwnerAccess(input: {
   const partition = await findOneWithDecryption(input.em, AttachmentPartition, { code: input.attachment.partitionCode }, undefined, {
     tenantId: input.attachment.tenantId, organizationId: input.attachment.organizationId,
   })
-  if (!partition) await throwAttachmentAccessError(404)
+  if (!partition) {
+    if (input.action === 'delete') assertAttachmentStoragePartitionExists(false)
+    await throwAttachmentAccessError(404)
+  }
   if (input.persistProtection) await ensureAttachmentPartitionProtection(input.em, partition!)
   const result = await evaluateAttachmentAccess({ ...input, partition: partition!, requireAuthForPublic: true })
   if (!result.ok) await throwAttachmentAccessError(result.status)

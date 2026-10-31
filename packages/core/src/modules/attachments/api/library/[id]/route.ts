@@ -1,3 +1,5 @@
+import { withAttachmentStorageErrors } from '@open-mercato/core/modules/attachments/lib/storageErrors'
+import { getAttachmentStoragePolicy } from '../../../lib/drivers/storageValidation'
 import { LockMode } from '@mikro-orm/core'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
@@ -256,6 +258,16 @@ async function deleteAttachment(req: NextRequest, ctx: RouteContext) {
     tenantId: auth.tenantId,
     organizationId: auth.orgId,
   }
+  if (getAttachmentStoragePolicy() === 'strict') {
+    const preflightRecord = await findOneWithDecryption(em, Attachment, deleteFilter, undefined, {
+      tenantId: auth.tenantId, organizationId: auth.orgId,
+    })
+    if (!preflightRecord) return throwAttachmentAccessError(404)
+    await assertAttachmentOwnerAccess({ em, context: createAttachmentAccessContext(container), auth, attachment: preflightRecord, action: 'delete' })
+    await storageDriverFactory.resolveForPartition(preflightRecord.partitionCode, {
+      tenantId: preflightRecord.tenantId ?? auth.tenantId, organizationId: preflightRecord.organizationId ?? auth.orgId,
+    })
+  }
   const outcome = await em.transactional(async (tx) => {
     const candidate = await findOneWithDecryption(tx, Attachment, deleteFilter, undefined, {
       tenantId: auth.tenantId, organizationId: auth.orgId,
@@ -301,7 +313,7 @@ async function deleteAttachment(req: NextRequest, ctx: RouteContext) {
 }
 
 export const PATCH = withAttachmentAccessErrors(updateAttachment)
-export const DELETE = withAttachmentAccessErrors(deleteAttachment)
+export const DELETE = withAttachmentAccessErrors(withAttachmentStorageErrors(deleteAttachment))
 
 export const openApi: OpenApiRouteDoc = {
   tag: attachmentsTag,
@@ -347,6 +359,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 200, description: 'Attachment deleted successfully', schema: z.object({ ok: z.literal(true) }) },
       ],
       errors: [
+        { status: 503, description: 'Attachment storage configuration rejected by policy', schema: attachmentErrorSchema },
         { status: 400, description: 'Invalid attachment ID', schema: attachmentErrorSchema },
         { status: 401, description: 'Unauthorized', schema: attachmentErrorSchema },
         { status: 404, description: 'Attachment not found', schema: attachmentErrorSchema },

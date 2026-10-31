@@ -8,7 +8,7 @@ const ATTACHMENT_ID = '123e4567-e89b-42d3-a456-426614174002'
 const mockLoadPortalOwnedClaim = jest.fn()
 const mockUpload = jest.fn()
 const mockRemoveAttachmentRecord = jest.fn()
-const mockEm = {}
+const mockEm = { findOne: jest.fn(async () => ({ storageDriver: 'local', configJson: null })) }
 
 jest.mock('../lib/portalAuthGuard', () => ({
   resolveLinkedCustomerAuth: jest.fn(async () => ({
