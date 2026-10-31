@@ -2,7 +2,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { resolveQueryIndexSearchScope } from '../search-scope'
 import { registerTenantGlobalEntityTypes, resetTenantGlobalEntityTypes } from '../tenant-global'
 
-const mockSources: Record<string, { table: string; tenantColumn: string | null; organizationColumn: string | null } | undefined> = {
+const mockSources: Record<string, { table: string; schema?: string; tableName?: string; tenantColumn: string | null; organizationColumn: string | null } | undefined> = {
   'feature_toggles:feature_toggle': { table: 'feature_toggles', tenantColumn: null, organizationColumn: null },
   'private:record': { table: 'private_records', tenantColumn: null, organizationColumn: null },
   'scoped:record': { table: 'scoped_records', tenantColumn: 'tenant_id', organizationColumn: 'organization_id' },
@@ -68,12 +68,18 @@ describe('verified query-index search scope', () => {
 
   it('does not mix a named ORM schema with a same-name table in the current schema', async () => {
     const { manager, execute } = createManager([{ className: 'FeatureToggle', tableName: 'feature_toggles', schema: 'catalogues', properties: {} }])
+    const original = mockSources['feature_toggles:feature_toggle']
+    mockSources['feature_toggles:feature_toggle'] = { table: 'catalogues.feature_toggles', tableName: 'feature_toggles', schema: 'catalogues', tenantColumn: null, organizationColumn: null }
     execute.mockResolvedValueOnce([
       { table_schema: 'public', table_name: 'feature_toggles', column_name: 'id', is_current_schema: true },
       { table_schema: 'catalogues', table_name: 'feature_toggles', column_name: 'id', is_current_schema: false },
       { table_schema: 'catalogues', table_name: 'feature_toggles', column_name: 'tenant_id', is_current_schema: false },
     ])
-    expect((await resolveQueryIndexSearchScope(manager)).tenantGlobalEntityTypes).toEqual([])
+    try {
+      expect((await resolveQueryIndexSearchScope(manager)).tenantGlobalEntityTypes).toEqual([])
+    } finally {
+      mockSources['feature_toggles:feature_toggle'] = original
+    }
   })
 
   it('keeps unregistered provider sources scoped while refusing global activation without ORM proof', async () => {

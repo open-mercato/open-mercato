@@ -161,7 +161,7 @@ async function fetchDocsBatch(
     let query = db
       .selectFrom('entity_indexes' as any)
       .select(['entity_type' as any, 'entity_id' as any, 'doc' as any])
-      .where(buildQueryIndexSearchScopePredicate(scope, { entityTypeRef: 'entity_indexes.entity_type', recordIdRef: 'entity_indexes.entity_id' }, tenantId))
+      .where(buildQueryIndexSearchScopePredicate(scope, { entityTypeRef: 'entity_indexes.entity_type', recordIdRef: 'entity_indexes.entity_id', organizationIdRef: 'entity_indexes.organization_id' }, tenantId))
       .where((eb) => (globalEntityTypes.length === 0
         ? eb('tenant_id' as any, '=', tenantId)
         : eb.or([
@@ -392,7 +392,7 @@ export function createPresenterEnricher(
     const scope = await resolveQueryIndexSearchScope()
     const persistedSources = new Set(['tokens', 'vector', 'fulltext'])
     const candidates = results.filter((result) => persistedSources.has(result.source))
-      .map((result) => ({ entityId: result.entityId, recordId: result.recordId, tenantId, result }))
+      .map((result) => ({ entityId: result.entityId, recordId: result.recordId, tenantId, organizationId: result.organizationId ?? null, result }))
     const allowed = await filterQueryIndexSearchRecords(db, scope, candidates)
     const allowedResults = new Set(allowed.map((candidate) => candidate.result))
     results = results.filter((result) => !scope.blockedEntityTypes.includes(result.entityId) && (!persistedSources.has(result.source) || allowedResults.has(result)))

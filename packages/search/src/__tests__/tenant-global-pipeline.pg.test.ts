@@ -44,7 +44,7 @@ type PipelineDatabase = {
   entity_indexes: Scope & { doc: Record<string, unknown>; deleted_at: Date | null }
   search_tokens: Scope & { field: string; token_hash: string; token: string | null }
   entity_index_coverage: { entity_type: string; tenant_id: string | null; organization_id: string | null }
-  custom_entities_storage: { entity_type: string; entity_id: string; tenant_id: string | null }
+  custom_entities_storage: { entity_type: string; entity_id: string; tenant_id: string | null; organization_id: string | null }
 }
 
 const describePostgres = PG_URL ? describe : describe.skip
@@ -74,7 +74,7 @@ describePostgres('catalogue worker and hybrid search against PostgreSQL', () => 
     await sql`create table private_source (id uuid, secret text)`.execute(db)
     await sql`create table scoped_source (id uuid, tenant_id uuid, organization_id uuid)`.execute(db)
     await sql`create table organization_source (id uuid, organization_id uuid)`.execute(db)
-    await sql`create table custom_entities_storage (entity_type text, entity_id text, tenant_id uuid)`.execute(db)
+    await sql`create table custom_entities_storage (entity_type text, entity_id text, tenant_id uuid, organization_id uuid)`.execute(db)
     registerEntityIds(fixtureEntityIds)
     const metadata = [
       { className: 'CustomEntityStorage', tableName: 'custom_entities_storage', properties: { tenantId: { fieldNames: ['tenant_id'] } } },
@@ -252,7 +252,7 @@ describePostgres('catalogue worker and hybrid search against PostgreSQL', () => 
   })
 
   it('requires exact tenant/type/record custom-storage proof before local token ranking', async () => {
-    await db.insertInto('custom_entities_storage').values({ entity_type: CUSTOM, entity_id: RECORD, tenant_id: TENANT }).execute()
+    await db.insertInto('custom_entities_storage').values({ entity_type: CUSTOM, entity_id: RECORD, tenant_id: TENANT, organization_id: ORG }).execute()
     await projection(CUSTOM, TENANT, ORG)
     const strategy = new TokenSearchStrategy(db)
     await strategy.index({ entityId: CUSTOM, recordId: RECORD, tenantId: TENANT, organizationId: ORG, fields: doc })
@@ -298,5 +298,39 @@ describePostgres('catalogue worker and hybrid search against PostgreSQL', () => 
       expect(await search(strategies, undefined, { tenantId: OTHER_TENANT })).toEqual([])
       expect(await search(strategies, undefined, { organizationId: OTHER_ORG })).toEqual([])
     }
+  })
+  it('cannot activate a scoped named-schema source using another schema table metadata', async () => {
+    const original = await getOrm()
+    await sql`create schema review_scoped`.execute(db)
+    await sql`create table review_scoped.catalogue_source (id uuid, tenant_id uuid, organization_id uuid)`.execute(db)
+    const metadata = [...original.em.getMetadata().getAll().values()].filter((entry) => entry.className !== 'FeatureToggle')
+    metadata.unshift(
+      {className: 'Decoy', tableName: 'catalogue_source', schema: 'public', properties: {}},
+      {className: 'FeatureToggle', tableName: 'catalogue_source', schema: 'review_scoped', properties: {tenantId: {fieldNames: ['tenant_id']}, organizationId: {fieldNames: ['organization_id']}}},
+    )
+    const identity = {}
+    const manager = {getDriver: () => identity, getKysely: () => db, getMetadata: () => ({getAll: () => new Map(metadata.map((entry) => [entry.className, entry])), find: (name: string) => metadata.find((entry) => entry.className === name)})} as unknown as EntityManager
+    jest.mocked(getOrm).mockResolvedValue({em: manager} as unknown as Awaited<ReturnType<typeof getOrm>>)
+    try {
+      const { resolveQueryIndexSearchScope } = await import('@open-mercato/core/modules/query_index/lib/search-scope')
+      const policy = await resolveQueryIndexSearchScope(manager)
+      await replaceSearchTokensForRecord(db, {entityType: CATALOGUE, recordId: RECORD, tenantId: null, organizationId: null, doc})
+      const hits = await new TokenSearchStrategy(db).search(TERM, {tenantId: OTHER_TENANT, organizationId: OTHER_ORG, entityTypes: [CATALOGUE]})
+      expect(policy.tenantGlobalEntityTypes).not.toContain(CATALOGUE)
+      expect(hits).toEqual([])
+    } finally {
+      jest.mocked(getOrm).mockResolvedValue(original)
+      await sql`drop schema review_scoped cascade`.execute(db)
+    }
+  })
+
+
+  it('custom-storage proof must reject another organization legacy artifact', async () => {
+    await sql`alter table custom_entities_storage add column if not exists organization_id uuid`.execute(db)
+    await sql`insert into custom_entities_storage (entity_type, entity_id, tenant_id, organization_id) values (${CUSTOM}, ${RECORD}, ${TENANT}::uuid, ${OTHER_ORG}::uuid)`.execute(db)
+    await projection(CUSTOM, TENANT, ORG)
+    await replaceSearchTokensForRecord(db, {entityType: CUSTOM, recordId: RECORD, tenantId: TENANT, organizationId: ORG, doc})
+    const hits = await search(['tokens'], undefined, {entityTypes: [CUSTOM], limit: 1})
+    expect(hits).toEqual([])
   })
 })

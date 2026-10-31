@@ -62,13 +62,13 @@ async function verifySearchScope(
   const sources = entityTypes.flatMap((entityType) => {
     try {
       const source = resolveQueryIndexSourceMetadata(em, entityType)
-      const schema = metadata.find((entry) => entry.tableName === source.table)?.schema
-      return [{ entityType, ...source, schema: schema && schema !== '*' ? schema : null }]
+      return [{ entityType, ...source, table: source.tableName ?? source.table, schema: source.schema ?? null }]
     } catch {
       return []
     }
   })
-  const customStorageMetadata = metadata.find((entry) => entry.tableName === 'custom_entities_storage')
+  const customStorageMatches = metadata.filter((entry) => entry.className === 'CustomEntityStorage' || entry.name === 'CustomEntityStorage')
+  const customStorageMetadata = customStorageMatches.length === 1 ? customStorageMatches[0] : undefined
   const customStorageRegistered = Boolean(customStorageMetadata)
   const customEntityStorageSchema = customStorageMetadata?.schema && customStorageMetadata.schema !== '*' ? customStorageMetadata.schema : null
   const physicalSchemas = [...new Set([...sources.flatMap((source) => source.schema ? [source.schema] : []), ...(customEntityStorageSchema ? [customEntityStorageSchema] : [])])]
@@ -99,17 +99,17 @@ async function verifySearchScope(
     if (global) tenantGlobalEntityTypes.push(source.entityType)
     if (hasTenant || global) searchableEntityTypes.push(source.entityType)
   }
-  return { searchableEntityTypes, tenantGlobalEntityTypes, blockedEntityTypes: sources.map((source) => source.entityType).filter((entityType) => !searchableEntityTypes.includes(entityType)), registeredSourceTypes: sources.map((source) => source.entityType), customEntityStorageSchema, customEntityStorage: customStorageRegistered && columnsByTable.get(customEntityStorageSchema ? `${customEntityStorageSchema}.custom_entities_storage` : 'custom_entities_storage')?.has('tenant_id') === true }
+  return { searchableEntityTypes, tenantGlobalEntityTypes, blockedEntityTypes: sources.map((source) => source.entityType).filter((entityType) => !searchableEntityTypes.includes(entityType)), registeredSourceTypes: sources.map((source) => source.entityType), customEntityStorageSchema, customEntityStorage: customStorageRegistered && ['tenant_id', 'organization_id', 'entity_type', 'entity_id'].every((column) => columnsByTable.get(customEntityStorageSchema ? `${customEntityStorageSchema}.custom_entities_storage` : 'custom_entities_storage')?.has(column)) }
 }
 
-type SearchRecordIdentity = { entityId: string; recordId: string; tenantId: string }
+type SearchRecordIdentity = { entityId: string; recordId: string; tenantId: string; organizationId?: string | null }
 type CustomStorageDatabase = {
-  custom_entities_storage: { entity_type: string; entity_id: string; tenant_id: string | null }
+  custom_entities_storage: { entity_type: string; entity_id: string; tenant_id: string | null; organization_id: string | null }
 }
 
 export function buildQueryIndexSearchScopePredicate(
   scope: QueryIndexSearchScope,
-  target: { entityTypeRef: string; recordIdRef: string },
+  target: { entityTypeRef: string; recordIdRef: string; organizationIdRef: string },
   tenantId: string,
 ): RawBuilder<boolean> {
   const entityType = sql.ref(target.entityTypeRef)
@@ -121,7 +121,7 @@ export function buildQueryIndexSearchScopePredicate(
   const unknown = scope.registeredSourceTypes?.length
     ? sql<boolean>`${entityType} not in (${sql.join(scope.registeredSourceTypes)})`
     : sql<boolean>`true`
-  return sql<boolean>`(${known} or (${unknown} and exists (select 1 from ${table} as om_search_source where om_search_source.entity_type = ${entityType} and om_search_source.entity_id = (${sql.ref(target.recordIdRef)})::text and om_search_source.tenant_id = ${tenantId})))`
+  return sql<boolean>`(${known} or (${unknown} and exists (select 1 from ${table} as om_search_source where om_search_source.entity_type = ${entityType} and om_search_source.entity_id = (${sql.ref(target.recordIdRef)})::text and om_search_source.tenant_id = ${tenantId} and om_search_source.organization_id is not distinct from ${sql.ref(target.organizationIdRef)})))`
 }
 
 export async function filterQueryIndexSearchRecords<RecordType extends SearchRecordIdentity>(
@@ -134,11 +134,11 @@ export async function filterQueryIndexSearchRecords<RecordType extends SearchRec
   if (!scope.customEntityStorage || !unknown.length) return records.filter((record) => known.has(record.entityId))
   const source = db ?? (await (await import('@open-mercato/shared/lib/db/mikro')).getOrm()).em.getKysely<CustomStorageDatabase>()
   const sourceDb = scope.customEntityStorageSchema ? source.withSchema(scope.customEntityStorageSchema) : source
-  const rows = await sourceDb.selectFrom('custom_entities_storage').select(['entity_type', 'entity_id', 'tenant_id'])
+  const rows = await sourceDb.selectFrom('custom_entities_storage').select(['entity_type', 'entity_id', 'tenant_id', 'organization_id'])
     .where('entity_type', 'in', [...new Set(unknown.map((record) => record.entityId))])
     .where('entity_id', 'in', [...new Set(unknown.map((record) => record.recordId))])
     .where('tenant_id', 'in', [...new Set(unknown.map((record) => record.tenantId))])
     .execute()
-  const identities = new Set(rows.map((row) => JSON.stringify([row.entity_type, row.entity_id, row.tenant_id])))
-  return records.filter((record) => known.has(record.entityId) || identities.has(JSON.stringify([record.entityId, record.recordId, record.tenantId])))
+  const identities = new Set(rows.map((row) => JSON.stringify([row.entity_type, row.entity_id, row.tenant_id, row.organization_id])))
+  return records.filter((record) => known.has(record.entityId) || identities.has(JSON.stringify([record.entityId, record.recordId, record.tenantId, record.organizationId ?? null])))
 }

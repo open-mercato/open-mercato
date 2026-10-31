@@ -423,7 +423,7 @@ export function createPgVectorDriver(opts: PgVectorDriverOptions = {}): VectorDr
       Array.isArray(filter.entityIds) && filter.entityIds.length ? filter.entityIds : null,
       input.limit ?? 20,
     ]
-    const sourceScopeClause = compileSearchScopePredicate(buildQueryIndexSearchScopePredicate(scope, { entityTypeRef: `${tableName}.entity_id`, recordIdRef: `${tableName}.record_id` }, filter.tenantId), params.length + 1)
+    const sourceScopeClause = compileSearchScopePredicate(buildQueryIndexSearchScopePredicate(scope, { entityTypeRef: `${tableName}.entity_id`, recordIdRef: `${tableName}.record_id`, organizationIdRef: `${tableName}.organization_id` }, filter.tenantId), params.length + 1)
     params.push(...sourceScopeClause.parameters)
     const indexDocClause = filter.indexDocFilter
       ? compileIndexDocFilterExists(

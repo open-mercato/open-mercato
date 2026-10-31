@@ -163,7 +163,7 @@ export class TokenSearchStrategy implements SearchStrategy {
         sql<string>`count(*)`.as('match_count'),
       ])
       .where('token_hash' as any, 'in', hashes)
-      .where(buildQueryIndexSearchScopePredicate(scope, { entityTypeRef: 'search_tokens.entity_type', recordIdRef: 'search_tokens.entity_id' }, options.tenantId))
+      .where(buildQueryIndexSearchScopePredicate(scope, { entityTypeRef: 'search_tokens.entity_type', recordIdRef: 'search_tokens.entity_id', organizationIdRef: 'search_tokens.organization_id' }, options.tenantId))
       .where((eb) => (globalEntityTypes.length === 0
         ? eb('tenant_id' as any, '=', options.tenantId)
         : eb.or([

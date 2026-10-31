@@ -1,8 +1,9 @@
+import { resolveQueryIndexSourceTableMetadata } from './subscriber-scope'
 import type { QueryEngine, QueryOptions, QueryResult, QueryResultMeta, EncryptedSortRowCapWarning, ListCountCapWarning, FilterOp, Filter, QueryCustomFieldSource, PartialIndexWarning, QueryExtensionsConfig, Sort } from '@open-mercato/shared/lib/query/types'
 import { SortDir } from '@open-mercato/shared/lib/query/types'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { BasicQueryEngine, resolveEntityTableName, resolveRegisteredEntityTableName } from '@open-mercato/shared/lib/query/engine'
+import { BasicQueryEngine, resolveEntityTableName as resolveFallbackEntityTableName, resolveRegisteredEntityTableName } from '@open-mercato/shared/lib/query/engine'
 import { isOrmBackedSystemEntityId } from '@open-mercato/shared/lib/data/engine'
 import {
   buildArrayColumnNoOverlapPredicate,
@@ -71,6 +72,10 @@ import { mapWithConcurrency } from '@open-mercato/shared/lib/query/bounded-decry
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { parseNumberWithDefault } from '@open-mercato/shared/lib/number'
 import { createBoundedTtlMemo } from '@open-mercato/shared/lib/query/bounded-ttl-memo'
+
+function resolveEntityTableName(em: EntityManager, entity: string): string {
+  return resolveQueryIndexSourceTableMetadata(em, entity)?.table ?? resolveFallbackEntityTableName(em, entity)
+}
 
 const logger = createLogger('query_index').child({ component: 'engine' })
 
@@ -2587,7 +2592,8 @@ export class HybridQueryEngine implements QueryEngine {
     const exists = await db
       .selectFrom('information_schema.tables')
       .select(sql<number>`1`.as('one'))
-      .where('table_name', '=', table)
+      .where(table.includes('.') ? sql<boolean>`table_schema = ${table.split('.')[0]}` : sql<boolean>`table_schema = current_schema()`)
+      .where('table_name', '=', table.split('.').pop())
       .executeTakeFirst()
     const present = !!exists
     if (present) baseTableExistsCache.set(table, true)
@@ -2958,7 +2964,8 @@ export class HybridQueryEngine implements QueryEngine {
     const exists = await db
       .selectFrom('information_schema.columns')
       .select(sql<number>`1`.as('one'))
-      .where('table_name', '=', table)
+      .where(table.includes('.') ? sql<boolean>`table_schema = ${table.split('.')[0]}` : sql<boolean>`table_schema = current_schema()`)
+      .where('table_name', '=', table.split('.').pop())
       .where('column_name', '=', column)
       .executeTakeFirst()
     const present = !!exists
@@ -2973,7 +2980,8 @@ export class HybridQueryEngine implements QueryEngine {
     const rows = await db
       .selectFrom('information_schema.columns')
       .select(['column_name', 'data_type'])
-      .where('table_name', '=', table)
+      .where(table.includes('.') ? sql<boolean>`table_schema = ${table.split('.')[0]}` : sql<boolean>`table_schema = current_schema()`)
+      .where('table_name', '=', table.split('.').pop())
       .execute() as Array<{ column_name: string; data_type: string }>
     const map = new Map<string, string>()
     for (const r of rows) map.set(r.column_name, r.data_type)

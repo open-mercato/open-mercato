@@ -211,7 +211,7 @@ export class SearchService {
     const isTenantGlobalEntityType = (entityType: string) => globalTypes.has(entityType)
     const persistedSources = new Set(['tokens', 'vector', 'fulltext'])
     const candidates = allResults.filter((result) => persistedSources.has(result.source))
-      .map((result) => ({ entityId: result.entityId, recordId: result.recordId, tenantId: options.tenantId, result }))
+      .map((result) => ({ entityId: result.entityId, recordId: result.recordId, tenantId: options.tenantId, organizationId: result.organizationId ?? null, result }))
     const allowed = await filterQueryIndexSearchRecords(undefined, scope, candidates)
     const allowedResults = new Set(allowed.map((candidate) => candidate.result))
     const safeResults = allResults.filter((result) => !scope.blockedEntityTypes.includes(result.entityId) && (!persistedSources.has(result.source) || allowedResults.has(result)))

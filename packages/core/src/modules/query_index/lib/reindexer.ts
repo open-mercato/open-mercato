@@ -1,6 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { type Kysely, sql } from 'kysely'
-import { resolveRegisteredEntityTableName } from '@open-mercato/shared/lib/query/engine'
+import { resolveQueryIndexSourceTableMetadata } from './subscriber-scope'
 import { resolveTenantEncryptionService } from '@open-mercato/shared/lib/encryption/customFieldValues'
 import { decryptIndexDocForSearch, encryptIndexDocForStorage } from '@open-mercato/shared/lib/encryption/indexDoc'
 import {
@@ -149,12 +149,12 @@ function toNumber(value: unknown): number {
  * refuse every tenant-scoped reindex, reported as a successful zero-row run. Failing closed
  * is right; failing closed silently and globally is the hardest state to diagnose.
  */
-async function getColumnSet(db: Kysely<any>, tableName: string): Promise<Set<string> | null> {
+async function getColumnSet(db: Kysely<any>, tableName: string, schema?: string): Promise<Set<string> | null> {
   try {
     const rows = await db
       .selectFrom('information_schema.columns' as any)
       .select(['column_name' as any])
-      .where(sql<boolean>`table_schema = current_schema()`)
+      .where(schema ? sql<boolean>`table_schema = ${schema}` : sql<boolean>`table_schema = current_schema()`)
       .where('table_name' as any, '=', tableName)
       .execute() as Array<{ column_name: string }>
     return new Set(rows.map((row) => String(row.column_name).toLowerCase()))
@@ -229,7 +229,8 @@ export async function reindexEntity(
   // here: doing so would let a principal with `query_index.reindex` point the
   // reindexer at arbitrary tables (e.g. `auth_users`, `users`) and read their
   // rows into the index, bypassing tenant scoping and entity-level encryption.
-  const table = resolveRegisteredEntityTableName(em, entityType)
+  const source = resolveQueryIndexSourceTableMetadata(em, entityType)
+  const table = source?.table
   if (!table || entityType === 'query_index:search_token' || table === 'search_tokens') {
     if (!table) {
       logger.warn('Refusing to reindex unregistered entity type', {
@@ -243,7 +244,7 @@ export async function reindexEntity(
       scopes: [],
     }
   }
-  const columns = await getColumnSet(db, table)
+  const columns = await getColumnSet(db, source?.tableName ?? table, source?.schema)
   // A probe failure proves nothing about the table, so it cannot be read as "no tenant
   // column". Refuse with its own reason rather than letting a database blip masquerade as
   // a permanent classification - and refuse rather than proceed, because proceeding would
@@ -306,7 +307,7 @@ export async function reindexEntity(
   // it records who ran the sweep, so two tenants reindexing the catalogue remain two jobs
   // rather than one that blocks the other behind the active-job guard.
   const writesGlobalProjection =
-    !hasTenantCol && !hasOrgCol && isTenantGlobalEntityType(entityType)
+    columns.has('id') && !hasTenantCol && !hasOrgCol && !source?.tenantColumn && !source?.organizationColumn && isTenantGlobalEntityType(entityType)
   const projectionTenantId = writesGlobalProjection ? null : tenantId
   const projectionOrganizationId = writesGlobalProjection ? null : organizationId
   // Vector work keeps the caller's scope even where the projection moves. Its consumers -
