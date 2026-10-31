@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { ArrowLeft, Check, CircleAlert, Info, Paperclip, RefreshCw, ShieldCheck, Trash2, TriangleAlert } from 'lucide-react'
 import { replaceWithPageReload } from '@open-mercato/core/modules/portal/lib/navigation'
 import { useLocale, useT, type TranslateFn } from '@open-mercato/shared/lib/i18n/context'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { localizeDictionaryLabel } from '@open-mercato/core/modules/warranty_claims/lib/dictionaryLabels'
 import { formatQuantity } from '@open-mercato/core/modules/warranty_claims/lib/quantity'
 import {
@@ -30,6 +31,7 @@ import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/u
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { usePortalContext } from '@open-mercato/ui/portal/PortalContext'
 import { PortalEmptyState } from '@open-mercato/ui/portal/components/PortalEmptyState'
+import { usePortalAppEvent } from '@open-mercato/ui/portal/hooks/usePortalAppEvent'
 
 type Props = { params: { orgSlug: string; id: string } }
 
@@ -352,6 +354,8 @@ export default function WarrantyClaimPortalDetailPage({ params }: Props) {
   const [actionSubmitting, setActionSubmitting] = React.useState(false)
   const replacementInputRef = React.useRef<HTMLInputElement | null>(null)
   const replacementTargetRef = React.useRef<PortalAttachment | null>(null)
+  const claimRequestSequenceRef = React.useRef(0)
+  const eventsRequestSequenceRef = React.useRef(0)
 
   // Leaving an authenticated page for the login page crosses the public/authenticated
   // boundary, so it must be a full page load — see `replaceWithPageReload`.
@@ -362,8 +366,11 @@ export default function WarrantyClaimPortalDetailPage({ params }: Props) {
   }, [loading, user, params.orgSlug])
 
   const refreshEvents = React.useCallback(async (claimId: string) => {
+    const requestSequence = ++eventsRequestSequenceRef.current
     const result = await apiCall<EventResponse>(`/api/warranty_claims/portal/events?claimId=${encodeURIComponent(claimId)}`)
-    if (result.ok && result.result) setEvents(result.result.items)
+    if (requestSequence === eventsRequestSequenceRef.current && result.ok && result.result) {
+      setEvents(result.result.items)
+    }
   }, [])
 
   const refreshAttachments = React.useCallback(async (claimId: string) => {
@@ -371,12 +378,14 @@ export default function WarrantyClaimPortalDetailPage({ params }: Props) {
     if (result.ok && result.result) setAttachments(result.result.items)
   }, [])
 
-  const loadClaim = React.useCallback(async () => {
-    setIsLoading(true)
+  const loadClaim = React.useCallback(async (showLoading = true) => {
+    const requestSequence = ++claimRequestSequenceRef.current
+    if (showLoading) setIsLoading(true)
     setError(null)
     setNotFound(false)
     try {
       const detail = await apiCall<ClaimResponse>(`/api/warranty_claims/portal/claims/${encodeURIComponent(params.id)}`)
+      if (requestSequence !== claimRequestSequenceRef.current) return
       if (detail.status === 404) {
         setClaim(null)
         setNotFound(true)
@@ -392,15 +401,34 @@ export default function WarrantyClaimPortalDetailPage({ params }: Props) {
         refreshAttachments(detail.result.item.id),
       ])
     } catch {
-      setError(t('warranty_claims.portal.detail.loadError'))
+      if (requestSequence === claimRequestSequenceRef.current) {
+        setError(t('warranty_claims.portal.detail.loadError'))
+      }
     } finally {
-      setIsLoading(false)
+      if (requestSequence === claimRequestSequenceRef.current) setIsLoading(false)
     }
   }, [params.id, refreshAttachments, refreshEvents, t])
 
   React.useEffect(() => {
     if (user) void loadClaim()
   }, [loadClaim, user])
+
+  usePortalAppEvent('warranty_claims.claim.portal_status_changed', (event) => {
+    if (!user || event.payload.claimId !== params.id) return
+    void loadClaim(false)
+  })
+
+  usePortalAppEvent('warranty_claims.claim.comment_added', (event) => {
+    if (!user || event.payload.claimId !== params.id) return
+    void refreshEvents(params.id).catch((error) => {
+      getTelemetryRuntime()?.reportError(error, {
+        module: 'warranty_claims',
+        code: 'warranty_claims.portal_timeline_refresh_failed',
+        attributes: { claimId: params.id },
+      })
+      setError(t('warranty_claims.portal.detail.loadError'))
+    })
+  })
 
   const submitComment = React.useCallback(async () => {
     if (!claim || commentSubmitting) return
