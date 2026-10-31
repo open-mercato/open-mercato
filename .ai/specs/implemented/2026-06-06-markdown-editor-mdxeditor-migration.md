@@ -60,7 +60,7 @@ needed.
 
 **New (`@open-mercato/ui`):**
 - `src/backend/inputs/MarkdownField.tsx` — canonical Markdown editor: `dynamic(() => MdxEditorImpl, { ssr:false })` with a jsdom test stub (textarea) so unit tests do not load MDXEditor's ESM/CSS.
-- `src/backend/inputs/MdxEditorImpl.tsx` — MDXEditor wrapper: controlled `value`/`onChange` (buffered, commit on blur), DS-styled toolbar (`UndoRedo`, BIU, code, strike/sub/sup, lists, block-type, link, image, table, thematic break, `DiffSourceToggleWrapper`), dark via `dark-theme` class. Side-effect-imports `@mdxeditor/editor/style.css` (the package only exports its CSS under the JS import condition, not the CSS `style` condition, so a `globals.css` `@import` cannot resolve it).
+- `src/backend/inputs/MdxEditorImpl.tsx` — MDXEditor wrapper: controlled `value`/`onChange` (edits forwarded immediately, initialization normalization and unchanged values ignored), DS-styled toolbar (`UndoRedo`, BIU, code, strike/sub/sup, lists, block-type, link, image, table, thematic break, `DiffSourceToggleWrapper`), dark via `dark-theme` class. Side-effect-imports `@mdxeditor/editor/style.css` (the package only exports its CSS under the JS import condition, not the CSS `style` condition, so a `globals.css` `@import` cannot resolve it).
 - `src/types/css.d.ts` — ambient `declare module '*.css'` for that stylesheet import. A `/// <reference>` to it from `MdxEditorImpl.tsx` makes the ambient travel into every package that type-checks `@open-mercato/ui` source (scheduler, webhooks, checkout, ai-assistant, …), so the cross-package typecheck resolves the import (otherwise TS2882).
 
 **Editor swap:**
@@ -116,6 +116,9 @@ read-only `MarkdownPreview` renderer, which is unrelated to the editor.
 
 ## Changelog
 
+- 2026-10-15: Fixed [#7469](https://github.com/open-mercato/open-mercato/issues/7469).
+  Forward editor changes immediately so code-block controls do not depend on a later blur
+  or keystroke to update the saved form value. Controlled value echoes avoid editor reimports.
 - 2026-06-06: Implemented. Reverted 7 DS-v3 HTML fields to Markdown; replaced UIW with MDXEditor
   behind `MarkdownField`; DS-themed MDXEditor (light/dark, source view, contrast); list previews
   via `markdownToPlainText` (no data migration); removed `@uiw/react-md-editor`.

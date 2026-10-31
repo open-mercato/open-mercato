@@ -100,7 +100,7 @@ Definition → startWorkflow() → Instance → executeWorkflow() loop
 | `UPDATE_ENTITY` | Mutate an entity via the command bus. `CommandBus.execute` does not declare a signal; a write that has already begun cannot be cancelled on timeout. |
 | `EMIT_EVENT` | Emit a domain event to the event bus. `eventBus.emitEvent` does not declare a signal; an emit that has already begun cannot be cancelled on timeout. |
 | `EXECUTE_FUNCTION` | Run a registered custom function. Functions receive `(args, context, signal?: AbortSignal)` — the third arg is additive; existing two-arg functions are unaffected. |
-| `WAIT` | Delay execution for a configured duration |
+| `WAIT` | Delay execution for a configured duration. A sync WAIT over `MAX_INLINE_WAIT_MS` (60 s) that ENDS its transition is queued like an async one (`executeActivities` `queueLongInlineWaits`, opted into by the transition handler only — the AUTOMATED-step caller does not park on a queued result). An in-process WAIT never hands `setTimeout` more than `MAX_TIMER_DELAY_MS` (2^31−1 ms): Node would fire it after 1 ms. |
 | `SET_VARIABLE` | Write values into workflow context at dot paths (assignments land at top-level context, not namespaced under the activity) |
 
 ## Context Backbone (contextSchema · ledger · picker · samples · test step)
@@ -934,7 +934,7 @@ Treat a regression here as a broken feature, not a nit.
 | Variable | Effect | Default |
 |----------|--------|---------|
 | `OM_WORKFLOWS_ALLOW_PRIVATE_URLS` | When `1`/`true`/`yes`, bypasses the SSRF guard in `CALL_WEBHOOK` so workflow authors can hit `localhost`, RFC1918, and `.internal` targets. For dev only — MUST remain unset in production. | unset (guard enforced) |
-| `OM_WORKFLOWS_MAX_CONDITION_ATTEMPTS` | Hard cap on WAIT_FOR_CONDITION poll re-enqueues; reaching it forces `CONDITION_TIMED_OUT` so a never-satisfiable predicate cannot saturate the queue. | `1000` |
+| `OM_WORKFLOWS_MAX_CONDITION_ATTEMPTS` | Floor of the cap on WAIT_FOR_CONDITION poll re-enqueues; reaching the cap forces `CONDITION_TIMED_OUT` so a never-satisfiable predicate cannot saturate the queue. Each waiter's cap is raised to the polls its own timeout needs (`resolveConditionAttemptCap`: `timeoutMs / pollIntervalMs + 1`), so a long timeout is never cut short by the floor. | `1000` |
 | `OM_WORKFLOWS_ENV_INTERPOLATION_ALLOWLIST` | Comma-separated non-secret process env keys allowed for `{{env.*}}` interpolation in workflow activity config. `APP_URL` is always allowed. Never include secrets. | unset (`APP_URL` only) |
 
 ## DI Services

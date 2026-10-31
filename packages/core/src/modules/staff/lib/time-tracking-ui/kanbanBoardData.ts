@@ -16,6 +16,7 @@ import { formatDuration } from '../time-tracking/duration'
 import { sumTaskLoggedMinutes } from '../timesheets-tasks/taskHoursTotals'
 import { STATUS_POSITION_GAP } from '../timesheets-tasks/statusPositions'
 import { resolveProjectColorHex } from '../timesheets-ui/colors'
+import { readSupportTicket } from './supportTicketData'
 
 export type BoardApiRow = Record<string, unknown>
 
@@ -44,6 +45,8 @@ export type BoardTask = {
   closedAt: string | null
   updatedAt: string | null
   tagIds: string[]
+  /** Set when the task is a customer portal support ticket. */
+  supportReference?: string | null
 }
 
 export type SubtaskProgress = {
@@ -123,6 +126,7 @@ export function toBoardTask(row: BoardApiRow): BoardTask | null {
     closedAt: readString(row, 'closed_at', 'closedAt'),
     updatedAt: readString(row, 'updated_at', 'updatedAt'),
     tagIds: readStringArray(row, 'tagIds', 'tag_ids'),
+    supportReference: readSupportTicket(row)?.supportReference ?? null,
   }
 }
 
