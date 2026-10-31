@@ -341,4 +341,35 @@ describePostgres('catalogue worker and hybrid search against PostgreSQL', () => 
     await strategy.bulkIndex([record])
     expect(await db.selectFrom('search_tokens').selectAll().where('entity_type', '=', CUSTOM).execute()).toEqual([])
   })
+  it('refuses fallback that would discard the verified named-schema source identity', async () => {
+    const original = await getOrm()
+    await sql`create schema review_fallback`.execute(db)
+    await sql`alter table entity_index_coverage add column indexed_count int`.execute(db)
+    await sql`create table review_fallback.catalogue_source (id uuid, name text)`.execute(db)
+    await sql`insert into review_fallback.catalogue_source values (${RECORD}::uuid, 'legitimate-catalogue')`.execute(db)
+    await sql`insert into public.catalogue_source values (${RECORD}::uuid, 'private-decoy-secret')`.execute(db)
+    await sql`create table custom_field_defs (entity_id text, tenant_id uuid, organization_id uuid, deleted_at timestamptz, is_active boolean, key text, kind text, config_json jsonb, updated_at timestamptz)`.execute(db)
+    const metadata = [...original.em.getMetadata().getAll().values()].filter((entry) => entry.className !== 'FeatureToggle')
+    metadata.unshift({className: 'FeatureToggle', tableName: 'catalogue_source', schema: 'review_fallback', properties: {}})
+    const identity = {}
+    const manager = {getDriver: () => identity, getKysely: () => db, getMetadata: () => ({getAll: () => new Map(metadata.map((entry) => [entry.className, entry])), find: (name: string) => metadata.find((entry) => entry.className === name)})} as unknown as EntityManager
+    jest.mocked(getOrm).mockResolvedValue({em: manager} as unknown as Awaited<ReturnType<typeof getOrm>>)
+    try {
+      const {HybridQueryEngine} = await import('@open-mercato/core/modules/query_index/lib/engine')
+      const {BasicQueryEngine} = await import('@open-mercato/shared/lib/query/engine')
+      const engine = new HybridQueryEngine(manager, new BasicQueryEngine(manager))
+      await expect(engine.query(CATALOGUE, {tenantId: TENANT, fields: ['name', 'cf:missing'], filters: {id: RECORD}, page: {page: 1, pageSize: 1}})).rejects.toThrow('schema-qualified source identity')
+      const named = await engine.query(CATALOGUE, {tenantId: TENANT, fields: ['name'], filters: {id: RECORD}, page: {page: 1, pageSize: 1}})
+      expect(named.items[0]).toMatchObject({name: 'legitimate-catalogue'})
+      await sql`update public.catalogue_source set name = 'ordinary-unqualified' where id = ${RECORD}::uuid`.execute(db)
+      const ordinary = new HybridQueryEngine(original.em, new BasicQueryEngine(original.em))
+      const fallback = await ordinary.query(CATALOGUE, {tenantId: TENANT, fields: ['name', 'cf:missing'], filters: {id: RECORD}, page: {page: 1, pageSize: 1}})
+      expect(fallback.items[0]).toMatchObject({name: 'ordinary-unqualified'})
+    } finally {
+      jest.mocked(getOrm).mockResolvedValue(original)
+      await sql`drop schema review_fallback cascade`.execute(db)
+      await sql`drop table custom_field_defs`.execute(db)
+      await sql`truncate catalogue_source`.execute(db)
+    }
+  })
 })

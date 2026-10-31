@@ -757,6 +757,12 @@ entity storage remains supported. No schema migration or destructive cleanup is 
 schema and mapped scope columns; duplicate/ambiguous metadata fails closed. Sweeps,
 subscriber source rows, index documents, query-engine and coverage probes use that same
 qualified source. Same-name tables in another schema cannot supply catalogue proof.
+A schema-qualified query that requires the basic fallback (missing base table, explicit
+automatic-scope bypass, missing index or partial coverage) is refused because that engine
+cannot preserve the source identity. Reindexing can avoid missing/partial-index fallback
+when usable projections exist; empty sources and other fallback-dependent cases remain
+unsupported. Named queries that stay in the hybrid path work normally. Unqualified
+sources retain their existing fallback behavior.
 Custom-storage proof also binds organization in SQL and batched writes/results; stale
 artifacts from another organization cannot authorize a record. Reviewer-supplied schema
 collision and organization regressions ship with the repair.

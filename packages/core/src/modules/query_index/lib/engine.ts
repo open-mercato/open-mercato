@@ -493,14 +493,14 @@ export class HybridQueryEngine implements QueryEngine {
       const baseExists = await profiler.measure('base_table_exists', () => this.tableExists(baseTable))
       if (!baseExists) {
         if (debugEnabled) this.debug('query:fallback:missing-base', { entity, baseTable })
-        const fallbackResult = await this.fallback.query(entity, opts)
+        const fallbackResult = await this.queryFallback(entity, opts)
         finishProfile({ result: 'fallback', reason: 'missing_base' })
         return await applyAfterExtensions(fallbackResult)
       }
 
       if (opts.omitAutomaticTenantOrgScope === true) {
         if (debugEnabled) this.debug('query:fallback:omit-automatic-scope', { entity })
-        const fallbackResult = await this.fallback.query(entity, opts)
+        const fallbackResult = await this.queryFallback(entity, opts)
         finishProfile({ result: 'fallback', reason: 'omit_automatic_tenant_org_scope' })
         return await applyAfterExtensions(fallbackResult)
       }
@@ -544,7 +544,7 @@ export class HybridQueryEngine implements QueryEngine {
         )
         if (!hasIndexRows) {
           if (debugEnabled) this.debug('query:fallback:no-index', { entity })
-          const fallbackResult = await this.fallback.query(entity, opts)
+          const fallbackResult = await this.queryFallback(entity, opts)
           finishProfile({ result: 'fallback', reason: 'no_index_rows' })
           return await applyAfterExtensions(fallbackResult)
         }
@@ -573,7 +573,7 @@ export class HybridQueryEngine implements QueryEngine {
                 logger.warn('Partial index coverage detected; falling back to basic engine', { entity })
                 if (debugEnabled) this.debug('query:fallback:partial-coverage', { entity })
               }
-              const fallbackResult = await this.fallback.query(entity, opts)
+              const fallbackResult = await this.queryFallback(entity, opts)
               const resultWithWarning: QueryResult<T> = {
                 ...fallbackResult,
                 meta: {
@@ -2584,6 +2584,14 @@ export class HybridQueryEngine implements QueryEngine {
     const result: QueryResult<T> = { items: items as T[], page, pageSize, total }
     if (listCountCapWarning) result.meta = { listCountCapWarning }
     return result
+  }
+
+  private async queryFallback<T = unknown>(entity: EntityId, opts: QueryOptions): Promise<QueryResult<T>> {
+    const source = resolveQueryIndexSourceTableMetadata(this.em, entity)
+    if (source?.schema || source?.table.includes('.')) {
+      throw new Error('[internal] Query fallback cannot preserve a schema-qualified source identity')
+    }
+    return this.fallback.query<T>(entity, opts)
   }
 
   private async tableExists(table: string): Promise<boolean> {
