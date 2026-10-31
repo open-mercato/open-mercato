@@ -125,9 +125,20 @@ test.describe('TC-CHANNEL-API-009: reaction routes mask other users\' personal m
 
       await login(page, 'admin')
       await page.context().addCookies([{ name: 'locale', value: 'pl', url: baseURL ?? 'http://localhost:3000' }])
-      // The scenario is a stale reaction bar: keep live events from refreshing the
-      // page before the click, so the refusal path is exercised deterministically.
-      await page.route('**/api/events/stream**', (route) => route.abort())
+      const messageDetailPath = `/api/messages/${seeded.messageId}`
+      let staleDetailSnapshot: Promise<{ status: number; body: string }> | undefined
+      await page.route((url) => url.pathname === messageDetailPath, async (route) => {
+        if (route.request().method() !== 'GET') {
+          await route.continue()
+          return
+        }
+        staleDetailSnapshot ??= (async () => {
+          const response = await route.fetch()
+          expect(response.status()).toBe(200)
+          return { status: response.status(), body: await response.text() }
+        })()
+        await route.fulfill({ ...(await staleDetailSnapshot), contentType: 'application/json' })
+      })
       await page.goto(`/backend/messages/${seeded.messageId}`)
       const reactionButton = page.getByRole('button', { name: /👍/ })
       await expect(reactionButton).toBeVisible()
@@ -140,7 +151,14 @@ test.describe('TC-CHANNEL-API-009: reaction routes mask other users\' personal m
       )
       expect(removed.status()).toBe(204)
 
-      await reactionButton.click()
+      const reactionPath = `/api/communication_channels/messages/${seeded.messageId}/reactions/${reactionId}`
+      const [refused] = await Promise.all([
+        page.waitForResponse((response) =>
+          response.request().method() === 'DELETE' && new URL(response.url()).pathname === reactionPath,
+        ),
+        reactionButton.click(),
+      ])
+      expect(refused.status()).toBe(404)
       await expect(page.getByText('Nie znaleziono reakcji')).toBeVisible()
     } finally {
       await deleteChannelIfExists(request, ownerToken, channelId)
