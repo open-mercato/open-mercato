@@ -8,9 +8,11 @@
  *   pre-migration row → up (column NOT NULL DEFAULT 0, row reads 0) → down
  *   (column gone, row intact) → up again → signal claims the row exactly once.
  *
- * Gated on OM_WORKFLOWS_PG_URL — a throwaway server. The suite creates and drops
- * its own scratch database next to the one in the URL, so it never touches the
- * tables of the URL's database. Run it with, for example:
+ * Runs in the CI real-Postgres lane (`yarn workspace @open-mercato/core
+ * test:pg-integration`, OM_PG_INTEGRATION=1), which starts a disposable
+ * container, or against a throwaway server named by OM_WORKFLOWS_PG_URL. The
+ * suite creates and drops its own scratch database next to the one in the URL,
+ * so it never touches the tables of the URL's database. Run it with, for example:
  *
  *   docker run -d --rm --name om-wf-pg -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=om \
  *     -p 54391:5432 postgres:17-alpine
@@ -33,17 +35,17 @@ import { Migration20261029090000_workflows } from '../../migrations/Migration202
 import * as eventLogger from '../event-logger'
 import * as stepHandler from '../step-handler'
 import { sendSignal } from '../signal-handler'
+import { acquireWorkflowsPgDatabase, runsAgainstPostgres, type WorkflowsPgDatabase } from './workflowsPgDatabase'
 
-const PG_URL = process.env.OM_WORKFLOWS_PG_URL ?? ''
-const maybe = PG_URL ? describe : describe.skip
+const maybe = runsAgainstPostgres ? describe : describe.skip
 
 const TENANT_ID = '11111111-1111-4111-8111-111111111111'
 const ORG_ID = '22222222-2222-4222-8222-222222222222'
 const WAIT_STEP = 'wait_approval'
 const SIGNAL = 'approved'
 
-function scratchUrl(databaseName: string): string {
-  const url = new URL(PG_URL)
+function scratchUrl(serverUrl: string, databaseName: string): string {
+  const url = new URL(serverUrl)
   url.pathname = `/${databaseName}`
   return url.toString()
 }
@@ -53,6 +55,7 @@ maybe('wait_version migration up/down against PostgreSQL (#7185)', () => {
   const scratchDatabase = `om_wf_wait_version_${randomUUID().replace(/-/g, '').slice(0, 12)}`
   let admin: MikroORM
   let orm: MikroORM
+  let database: WorkflowsPgDatabase | undefined
   const container = {
     resolve: (name: string) => {
       if (name === 'eventLogger') return eventLogger
@@ -64,8 +67,9 @@ maybe('wait_version migration up/down against PostgreSQL (#7185)', () => {
   }
 
   beforeAll(async () => {
+    database = await acquireWorkflowsPgDatabase()
     admin = await MikroORM.init({
-      clientUrl: PG_URL,
+      clientUrl: database.url,
       entities: [WorkflowInstance],
       metadataProvider: ReflectMetadataProvider,
       allowGlobalContext: true,
@@ -73,19 +77,20 @@ maybe('wait_version migration up/down against PostgreSQL (#7185)', () => {
     })
     await admin.em.getConnection().execute(`create database "${scratchDatabase}"`)
     orm = await MikroORM.init({
-      clientUrl: scratchUrl(scratchDatabase),
+      clientUrl: scratchUrl(database.url, scratchDatabase),
       entities: [WorkflowDefinition, WorkflowInstance, WorkflowBranchInstance, StepInstance, UserTask, WorkflowEvent],
       metadataProvider: ReflectMetadataProvider,
       allowGlobalContext: true,
       debug: false,
     })
     await orm.schema.create()
-  }, 60_000)
+  }, 120_000)
 
   afterAll(async () => {
     await orm?.close(true)
     await admin?.em.getConnection().execute(`drop database if exists "${scratchDatabase}"`)
     await admin?.close(true)
+    await database?.release()
   })
 
   async function runMigration(direction: 'up' | 'down'): Promise<void> {

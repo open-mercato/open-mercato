@@ -13,9 +13,15 @@
  *
  * B must be refused with WORKFLOW_NOT_PAUSED and occurrence 2 must stay parked.
  *
- * Gated on OM_WORKFLOWS_PG_URL — a throwaway database, since the suite drops and
- * recreates the workflow tables. Never point it at a development or shared
- * database. Run it with, for example:
+ * It also holds context/metadata writers whose managed entity was loaded BEFORE
+ * the park (or on an earlier step) across the park, and asserts their flush
+ * leaves the open wait's occurrence untouched.
+ *
+ * Runs in the CI real-Postgres lane (`yarn workspace @open-mercato/core
+ * test:pg-integration`, OM_PG_INTEGRATION=1), which starts a disposable
+ * container. Alternatively point OM_WORKFLOWS_PG_URL at a throwaway database —
+ * the suite drops and recreates the workflow tables, so never a development or
+ * shared one:
  *
  *   docker run -d --rm --name om-wf-pg -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=om \
  *     -p 54391:5432 postgres:17-alpine
@@ -37,14 +43,15 @@ import {
 import * as eventLogger from '../event-logger'
 import * as stepHandler from '../step-handler'
 import { sendSignal, SignalError } from '../signal-handler'
+import { acquireWorkflowsPgDatabase, runsAgainstPostgres, type WorkflowsPgDatabase } from './workflowsPgDatabase'
 
-const PG_URL = process.env.OM_WORKFLOWS_PG_URL ?? ''
-const maybe = PG_URL ? describe : describe.skip
+const maybe = runsAgainstPostgres ? describe : describe.skip
 
 const TENANT_ID = '11111111-1111-4111-8111-111111111111'
 const ORG_ID = '22222222-2222-4222-8222-222222222222'
 const FROZEN_AT = new Date('2026-10-29T09:00:00.000Z')
 const WAIT_STEP = 'wait_approval'
+const NEXT_WAIT_STEP = 'wait_countersign'
 const SIGNAL = 'approved'
 
 type Deferred = { promise: Promise<void>; resolve: () => void }
@@ -75,6 +82,7 @@ function withGatedClaim(em: EntityManager, beforeClaim: () => Promise<void>): En
 maybe('WAIT_FOR_SIGNAL occurrence identity against PostgreSQL (#7185)', () => {
   jest.setTimeout(120_000)
   let orm: MikroORM
+  let database: WorkflowsPgDatabase | undefined
   const executeWorkflow = jest.fn(async () => undefined)
   const container = {
     resolve: (name: string) => {
@@ -87,18 +95,20 @@ maybe('WAIT_FOR_SIGNAL occurrence identity against PostgreSQL (#7185)', () => {
   }
 
   beforeAll(async () => {
+    database = await acquireWorkflowsPgDatabase()
     orm = await MikroORM.init({
-      clientUrl: PG_URL,
+      clientUrl: database.url,
       entities: [WorkflowDefinition, WorkflowInstance, WorkflowBranchInstance, StepInstance, UserTask, WorkflowEvent],
       metadataProvider: ReflectMetadataProvider,
       allowGlobalContext: true,
       debug: false,
     })
     await orm.schema.refresh()
-  }, 60_000)
+  }, 120_000)
 
   afterAll(async () => {
     await orm?.close(true)
+    await database?.release()
   })
 
   beforeEach(() => {
@@ -117,6 +127,12 @@ maybe('WAIT_FOR_SIGNAL occurrence identity against PostgreSQL (#7185)', () => {
   })
 
   async function seedParkedInstance(): Promise<string> {
+    const instanceId = await seedRunningInstance()
+    await park(instanceId)
+    return instanceId
+  }
+
+  async function seedRunningInstance(): Promise<string> {
     const em = orm.em.fork()
     const definition = em.create(WorkflowDefinition, {
       workflowId: `wf_occurrence_${randomUUID().slice(0, 8)}`,
@@ -126,6 +142,7 @@ maybe('WAIT_FOR_SIGNAL occurrence identity against PostgreSQL (#7185)', () => {
         steps: [
           { stepId: 'start', stepName: 'Start', stepType: 'START' },
           { stepId: WAIT_STEP, stepName: 'Wait for approval', stepType: 'WAIT_FOR_SIGNAL', signalConfig: { signalName: SIGNAL } },
+          { stepId: NEXT_WAIT_STEP, stepName: 'Wait for countersign', stepType: 'WAIT_FOR_SIGNAL', signalConfig: { signalName: SIGNAL } },
           { stepId: 'end', stepName: 'End', stepType: 'END' },
         ],
         transitions: [],
@@ -146,15 +163,14 @@ maybe('WAIT_FOR_SIGNAL occurrence identity against PostgreSQL (#7185)', () => {
       organizationId: ORG_ID,
     } as never)
     await em.persist(instance).flush()
-    await park(instance.id)
     return instance.id
   }
 
-  async function park(instanceId: string): Promise<void> {
+  async function park(instanceId: string, stepId: string = WAIT_STEP): Promise<void> {
     const em = orm.em.fork()
     const instance = await em.findOneOrFail(WorkflowInstance, { id: instanceId })
-    instance.currentStepId = WAIT_STEP
-    const result = await stepHandler.executeStep(em, instance, WAIT_STEP, { workflowContext: instance.context })
+    instance.currentStepId = stepId
+    const result = await stepHandler.executeStep(em, instance, stepId, { workflowContext: instance.context })
     expect(result.status).toBe('WAITING')
   }
 
@@ -172,6 +188,42 @@ maybe('WAIT_FOR_SIGNAL occurrence identity against PostgreSQL (#7185)', () => {
       tenantId: TENANT_ID,
       organizationId: ORG_ID,
     })
+  }
+
+  async function readWaitVersion(instanceId: string): Promise<number> {
+    return (await orm.em.fork().findOneOrFail(WorkflowInstance, { id: instanceId })).waitVersion
+  }
+
+  async function expectStaleWriterKeepsOccurrence(
+    instanceId: string,
+    staleWriter: { em: EntityManager; instance: WorkflowInstance },
+    parkedStepId: string,
+  ): Promise<void> {
+    const parked = await readWaitVersion(instanceId)
+
+    const deliveryReachedClaim = deferred()
+    const releaseDelivery = deferred()
+    const deliveryEm = withGatedClaim(await preloadedEm(instanceId), async () => {
+      deliveryReachedClaim.resolve()
+      await releaseDelivery.promise
+    })
+    const delivery = deliver(deliveryEm, instanceId).then(
+      () => null,
+      (error: unknown) => error,
+    )
+    await deliveryReachedClaim.promise
+
+    staleWriter.instance.context = { ...(staleWriter.instance.context ?? {}), note: 'written by a stale writer' }
+    staleWriter.instance.updatedAt = new Date()
+    await staleWriter.em.flush()
+    const afterStaleWrite = await orm.em.fork().findOneOrFail(WorkflowInstance, { id: instanceId })
+    expect(afterStaleWrite.status).toBe('PAUSED')
+    expect(afterStaleWrite.currentStepId).toBe(parkedStepId)
+    expect((afterStaleWrite.context as Record<string, unknown>).note).toBe('written by a stale writer')
+    expect(afterStaleWrite.waitVersion).toBe(parked)
+
+    releaseDelivery.resolve()
+    expect(await delivery).toBeNull()
   }
 
   async function countSignalReceived(instanceId: string): Promise<number> {
@@ -269,5 +321,50 @@ maybe('WAIT_FOR_SIGNAL occurrence identity against PostgreSQL (#7185)', () => {
     expect(await countSignalReceived(instanceId)).toBe(2)
     const final = await orm.em.fork().findOneOrFail(WorkflowInstance, { id: instanceId })
     expect(final.status).toBe('RUNNING')
+  })
+
+  it('keeps the open wait when a context writer loaded the instance before it parked', async () => {
+    const instanceId = await seedRunningInstance()
+    const writerEm = orm.em.fork()
+    const writerInstance = await writerEm.findOneOrFail(WorkflowInstance, { id: instanceId })
+    expect(writerInstance.status).toBe('RUNNING')
+    await park(instanceId)
+
+    await expectStaleWriterKeepsOccurrence(instanceId, { em: writerEm, instance: writerInstance }, WAIT_STEP)
+
+    expect(await countSignalReceived(instanceId)).toBe(1)
+    const final = await orm.em.fork().findOneOrFail(WorkflowInstance, { id: instanceId })
+    expect(final.status).toBe('RUNNING')
+  })
+
+  it('keeps the open wait when a context writer loaded an earlier step that has since moved on', async () => {
+    const instanceId = await seedParkedInstance()
+    const writerEm = orm.em.fork()
+    const writerInstance = await writerEm.findOneOrFail(WorkflowInstance, { id: instanceId })
+    expect(writerInstance.currentStepId).toBe(WAIT_STEP)
+    await deliver(orm.em.fork(), instanceId)
+    await park(instanceId, NEXT_WAIT_STEP)
+
+    await expectStaleWriterKeepsOccurrence(instanceId, { em: writerEm, instance: writerInstance }, NEXT_WAIT_STEP)
+
+    expect(await countSignalReceived(instanceId)).toBe(2)
+    const final = await orm.em.fork().findOneOrFail(WorkflowInstance, { id: instanceId })
+    expect(final.status).toBe('RUNNING')
+  })
+
+  it('still invalidates the wait when a stale writer moves the instance off it', async () => {
+    const instanceId = await seedRunningInstance()
+    const writerEm = orm.em.fork()
+    const writerInstance = await writerEm.findOneOrFail(WorkflowInstance, { id: instanceId })
+    await park(instanceId)
+    const parked = await readWaitVersion(instanceId)
+
+    writerInstance.status = 'CANCELLED'
+    await writerEm.flush()
+
+    expect(await readWaitVersion(instanceId)).toBeGreaterThan(parked)
+    const refused = await deliver(orm.em.fork(), instanceId).then(() => null, (error: unknown) => error)
+    expect(refused).toBeInstanceOf(SignalError)
+    expect(await countSignalReceived(instanceId)).toBe(0)
   })
 })

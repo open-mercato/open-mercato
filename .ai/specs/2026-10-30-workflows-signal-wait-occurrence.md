@@ -40,6 +40,12 @@ in-memory copy:
    timestamp edit (for example the disposition-SLA `metadata.attention` marker in `lib/task-sla.ts`)
    is therefore not a new occurrence and does not invalidate a delivery addressed to the open wait.
    A park from any non-PAUSED state, a resume, and a move to another step all increment.
+   "What the write leaves behind" is decided from the fields the UPDATE actually sends: the unit of
+   work emits only properties that differ from the snapshot it loaded, so the hook compares the
+   entity with that snapshot (`em.getUnitOfWork().getOriginalEntityData`). A status or step the write
+   does not send keeps the row's current column value in the comparison, and a write that sends
+   neither keeps `wait_version` unchanged — even when the writer's managed entity is stale, for
+   example loaded while the run was still `RUNNING`, or on an earlier step it has since left.
 2. **Signal claim** (`lib/signal-handler.ts`, `nativeUpdate`): compare-and-set on the observed value,
    then `wait_version + 1`.
 3. **Claim release** (same file): when a claimed delivery fails before anything of it committed, the
@@ -84,10 +90,19 @@ not reported.
   references `wait_version` in every instance update and in the claim predicate, so it requires the
   column. The old application version keeps working against the migrated schema: it never reads the
   column, and the default satisfies `NOT NULL` on insert.
-- **Rolling deploys:** while old and new workers run side by side, old-code writes do not increment
-  `wait_version`. The new claim still pins status and step, so the old exact-once guarantee for
-  concurrent deliveries holds; only the same-step-loop distinction is weaker until every worker runs
-  the new version.
+- **Rolling deploys — the guarantee needs every signal worker on the new code.** Schema
+  compatibility is not a concurrency guarantee. The pre-change `sendSignal` has no atomic claim at
+  all: two deliveries handled by old workers can both pass its `PAUSED` snapshot check and both
+  advance the run, whatever the new workers' compare-and-set does, and an old worker racing a new
+  one is unprotected on the old side too. Old-code writes also never increment `wait_version`, so a
+  park, resume or re-park performed by an old worker is invisible to a new worker's claim. The
+  exactly-once delivery guarantee — for concurrent deliveries and for same-step loops alike — holds
+  only once **every** process that handles signals (API instances serving
+  `POST /api/workflows/instances/{id}/signal` and `POST /api/workflows/signals`, and every queue
+  worker that resumes parked runs: activity, sub-workflow and agent-disposition resumes) runs the new
+  version. During cutover, either drain the old processes before routing signal traffic to the new
+  ones (stop old queue workers first, then shift API traffic), or accept the pre-change at-least-once
+  behaviour for the length of the overlap.
 - **Rollback:** `down()` drops the column. Roll the application back first, then the migration; the
   rows and every other column survive (covered by the migration test below).
 - **Public TypeScript API:** only additive — new optional options, new exports, an optional response
@@ -99,6 +114,8 @@ not reported.
 |----------|----------|------------|---------------|
 | App started before the migration ran | High | Deployment order above; the migration is a single `ADD COLUMN` | Instance writes fail until migrated |
 | Metadata-only write of a parked run invalidates an in-flight delivery (signal lost) | High | `onUpdate` keeps the version for PAUSED → PAUSED writes on the same step; PostgreSQL regression | None known |
+| A context/metadata writer whose managed entity is stale (loaded before the park, or on an earlier step) invalidates the open wait | High | `onUpdate` reads the unit-of-work snapshot and treats a status/step the write does not send as the row's CURRENT value, so a write that sends neither keeps the version; PostgreSQL regression holds both writers across the park | None known |
+| Old and new workers handle signals side by side during a rolling deploy | High | Drain/route away from old signal-handling processes during cutover (see above) | Duplicate delivery possible for as long as old workers handle signals |
 | A run leaves a wait and re-parks on the same step inside ONE flush (row never observed non-PAUSED) | Low | A signal wait is normally left through the claim, which increments in SQL; other exits (timeout, cancel, step-through) change status or step before a re-park | A stale delivery addressed to the earlier occurrence could claim the later one on such a path |
 | Telemetry runtime throws while reporting | Medium | Guarded reporter, unit-tested | None |
 
@@ -106,9 +123,13 @@ not reported.
 
 - Unit: `lib/__tests__/signals.test.ts` (claim, release, fan-out failures, telemetry isolation),
   `api/__tests__/signals.route*.test.ts`.
-- Real PostgreSQL (gated on `OM_WORKFLOWS_PG_URL`, throwaway server only):
+- Real PostgreSQL — runs in CI's real-Postgres lane (`yarn workspace @open-mercato/core
+  test:pg-integration`, `OM_PG_INTEGRATION=1`, a disposable container per suite), or locally against
+  a throwaway server named by `OM_WORKFLOWS_PG_URL`:
   `lib/__tests__/signal-wait-occurrence.pg.test.ts` (frozen-clock same-step loop, clock rollback,
-  metadata-only write between read and claim) and `lib/__tests__/wait-version-migration.pg.test.ts`
+  metadata-only write between read and claim, a context writer loaded before the park, a context
+  writer loaded on an earlier step across a move to the next wait, a stale writer that does change
+  status) and `lib/__tests__/wait-version-migration.pg.test.ts`
   (pre-existing row → up → down → up → signal delivered once).
 - Integration: `__integration__/TC-WF-066.spec.ts` (concurrent deliveries through both API paths).
 
@@ -116,3 +137,6 @@ not reported.
 
 - 2026-10-30 — Spec written for review 5708461639; `onUpdate` no longer increments for writes that
   keep a parked row parked on the same step; telemetry reporting isolated.
+- 2026-10-31 — Review 5721475061: `onUpdate` decides from the fields the write sends, not from a
+  possibly stale managed entity; the rolling-deploy guarantee is corrected to require every
+  signal-handling process on the new code; the PostgreSQL suites run in CI's real-Postgres lane.
