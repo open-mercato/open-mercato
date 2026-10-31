@@ -1,6 +1,8 @@
 "use client"
 
 import * as React from 'react'
+import { useDealStatusVocabulary } from '../../../../components/hooks/useDealStatusVocabulary'
+import { canonicalDealStatus } from '../../../../lib/dealStatus'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -429,6 +431,7 @@ export default function DealsKanbanPage(): React.ReactElement {
   )
   const router = useRouter()
   const scopeVersion = useOrganizationScopeVersion()
+  const { vocabulary } = useDealStatusVocabulary()
   const activeOrgId = useCurrentOrganization()?.id ?? null
   const queryClient = useQueryClient()
 
@@ -624,7 +627,7 @@ export default function DealsKanbanPage(): React.ReactElement {
     () => ({
       pipelineId: selectedPipelineId,
       search: search.trim(),
-      status: statusFilters.slice().sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)).join(','),
+      status: JSON.stringify(statusFilters.slice().sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))),
       owners: ownerFilters.slice().sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)).join(','),
       people: peopleFilters.slice().sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)).join(','),
       companies: companyFilters.slice().sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)).join(','),
@@ -1788,7 +1791,7 @@ export default function DealsKanbanPage(): React.ReactElement {
                 {
                   method: 'PUT',
                   headers: { 'content-type': 'application/json' },
-                  body: JSON.stringify({ id: dealId, status }),
+                  body: JSON.stringify({ id: dealId, status: canonicalDealStatus(status, vocabulary) }),
                 },
                 {
                   errorMessage: translateWithFallback(
@@ -1837,7 +1840,7 @@ export default function DealsKanbanPage(): React.ReactElement {
         setPendingDealId(null)
       }
     },
-    [deals, invalidateKanbanData, retryDealMutation, runDealMutation, t],
+    [deals, invalidateKanbanData, retryDealMutation, runDealMutation, t, vocabulary],
   )
 
   const deleteDeal = React.useCallback(
@@ -2968,6 +2971,7 @@ export default function DealsKanbanPage(): React.ReactElement {
       </PageBody>
 
       <QuickDealDialog
+        vocabulary={vocabulary}
         open={!!quickDealContext}
         context={quickDealContext}
         onClose={() => setQuickDealContext(null)}

@@ -1,6 +1,7 @@
 'use client'
 
 import * as React from 'react'
+import type { DealStatusVocabulary } from '../../../lib/dealStatus'
 import { AlertTriangle, Briefcase, CalendarDays, Link2 } from 'lucide-react'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { Avatar } from '@open-mercato/ui/primitives/avatar'
@@ -27,6 +28,7 @@ type DealDetails = {
 }
 
 type DealAdapterOptions = {
+  vocabulary?: DealStatusVocabulary
   dialogTitle: string
   dialogSubtitle?: string
   sectionLabel?: string

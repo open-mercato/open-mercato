@@ -1,4 +1,6 @@
 import {
+  DEFAULT_DEAL_STATUS_VOCABULARY,
+  getDealStatusAliases,
   CLOSED_DEAL_STATUS_LIST,
   DEAL_STATUS_CLOSED,
   DEAL_STATUS_LOSE,
@@ -152,4 +154,31 @@ describe('deal status semantics', () => {
       expect(expandDealStatusAliases(['win', 'WON', 'win']).sort()).toEqual(['WON', 'win', 'won'])
     })
   })
+})
+
+
+it('preserves array callback use for all exported status helpers', () => {
+  const values = ['won', 'loose', 'closed', 'negotiations']
+  expect(values.map(canonicalDealStatus)).toEqual(['win', 'lost', 'closed', 'negotiations'])
+  expect(values.filter(isWonDealStatus)).toEqual(['won'])
+  expect(values.filter(isLostDealStatus)).toEqual(['loose'])
+  expect(values.filter(isClosedDealStatus)).toEqual(['won', 'loose', 'closed'])
+  expect(values.filter(isOpenDealStatus)).toEqual(['negotiations'])
+})
+
+it('classifies configured aliases consistently across case and whitespace', () => {
+  const vocabulary = { won: ['Signed'], lost: ['Declined'], closed: ['Archived'] }
+  expect(isWonDealStatus(' signed ', vocabulary)).toBe(true)
+  expect(isLostDealStatus('DECLINED', vocabulary)).toBe(true)
+  expect(isClosedDealStatus(' archived ', vocabulary)).toBe(true)
+  expect(isOpenDealStatus('signed', vocabulary)).toBe(false)
+  expect(canonicalDealStatus('signed', vocabulary)).toBe('Signed')
+})
+
+it('freezes defaults and reuses the aliases for each vocabulary object', () => {
+  expect(Object.isFrozen(DEFAULT_DEAL_STATUS_VOCABULARY)).toBe(true)
+  expect(Object.isFrozen(DEFAULT_DEAL_STATUS_VOCABULARY.won)).toBe(true)
+  expect(Object.isFrozen(DEFAULT_DEAL_STATUS_VOCABULARY.lost)).toBe(true)
+  const vocabulary = { won: ['signed'], lost: ['declined'], closed: ['archived'] }
+  expect(getDealStatusAliases(vocabulary)).toBe(getDealStatusAliases(vocabulary))
 })

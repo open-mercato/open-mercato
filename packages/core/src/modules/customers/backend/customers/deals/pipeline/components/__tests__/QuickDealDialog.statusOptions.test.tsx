@@ -93,3 +93,17 @@ describe('QuickDealDialog status options (0.7.1 lost/loose rename)', () => {
     expect(lost?.label).toBe('translated:customers.deals.kanban.quickDeal.status.lost')
   })
 })
+
+
+it('uses preferred tenant values with the stable translated outcome labels', () => {
+  render(<QuickDealDialog
+    open context={context} onClose={jest.fn()} onCreated={jest.fn()}
+    vocabulary={{ won: ['signed'], lost: ['declined'], closed: ['archived'] }}
+  />)
+  expect(statusOptions()).toEqual([
+    { value: 'open', label: 'translated:customers.deals.kanban.quickDeal.status.open' },
+    { value: 'in_progress', label: 'translated:customers.deals.kanban.quickDeal.status.in_progress' },
+    { value: 'signed', label: 'translated:customers.deals.kanban.quickDeal.status.win' },
+    { value: 'declined', label: 'translated:customers.deals.kanban.quickDeal.status.lost' },
+  ])
+})

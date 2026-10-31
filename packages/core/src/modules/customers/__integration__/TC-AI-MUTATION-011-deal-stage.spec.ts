@@ -157,7 +157,14 @@ test.describe('TC-AI-MUTATION-011: customers.update_deal_stage pending-action co
       const afterBody = (await readJsonSafe(after)) as { items?: Array<{ id: string; status?: string }> };
       const afterRow = afterBody.items?.find((entry) => entry.id === dealId);
       expect(afterRow).toBeTruthy();
-      expect(afterRow?.status).toBe('won');
+      expect(afterRow?.status).toBe('win');
+
+      const detail = await apiRequest(request, 'GET', `/api/customers/deals/${encodeURIComponent(dealId)}`, {
+        token,
+      });
+      expect(detail.status()).toBe(200);
+      const detailBody = await readJsonSafe<{ deal: { status: string; closureOutcome: string | null } }>(detail);
+      expect(detailBody?.deal).toMatchObject({ status: 'win', closureOutcome: 'won' });
     } finally {
       await deleteEntityByBody(request, token, '/api/customers/deals', dealId);
       await deleteEntityByBody(request, token, '/api/customers/companies', companyId);

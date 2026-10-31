@@ -9,6 +9,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { createCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { LinkEntityDialog } from '../linking/LinkEntityDialog'
+import { useDealStatusVocabulary } from '../hooks/useDealStatusVocabulary'
 import { createDealLinkAdapter } from '../linking/adapters/dealAdapter'
 import { LoadingMessage, TabEmptyState } from '@open-mercato/ui/backend/detail'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
@@ -322,6 +323,7 @@ export function DealsSection({
   runGuardedMutation,
 }: DealsSectionProps) {
   const tHook = useT()
+  const { vocabulary } = useDealStatusVocabulary()
   const locale = useLocale()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const fallbackTranslator = React.useMemo<Translator>(() => createTranslatorWithFallback(tHook), [tHook])
@@ -600,6 +602,7 @@ export function DealsSection({
   const dealLinkAdapter = React.useMemo(
     () =>
       createDealLinkAdapter({
+        vocabulary,
         dialogTitle: t('customers.linking.deal.dialogTitle', 'Link deal'),
         dialogSubtitle: t(
           'customers.linking.deal.dialogSubtitle',
@@ -617,7 +620,7 @@ export function DealsSection({
         ),
         contextEntityId: scope?.entityId,
       }),
-    [scope?.entityId, t],
+    [scope?.entityId, t, vocabulary],
   )
 
   const handleLinkConfirm = React.useCallback(
