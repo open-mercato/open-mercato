@@ -12,7 +12,7 @@ Restore every currently failing actionable CI workflow on `main` to green by ide
 - Run the configured validation gate, the authoritative PR review workflow, and a final independent Cezar review before finalizing the PR.
 - Add the repository's `automerge` flag only after the PR is finalized and all required evidence is green.
 
-The completed remote branch `fix/stabilize-main-ci` belongs to the earlier merged PR #8294 and is already an ancestor of `main`. This scheduled follow-up therefore uses the time-scoped `fix/stabilize-main-ci-1238` slot instead of overwriting that completed run.
+The overlapping branch `fix/stabilize-main-ci` belongs to the still-open PR #8294 and is not an ancestor of `main`. This scheduled follow-up therefore uses the time-scoped `fix/stabilize-main-ci-1238` slot instead of overwriting that active run.
 
 ## Non-goals
 
