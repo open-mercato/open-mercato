@@ -39,6 +39,8 @@ For a new environment, the starter generates a unique superadmin password in the
 
 The generated password is 68 characters long. If your `OM_PASSWORD_MIN_LENGTH` policy requires more, supply a unique compliant `OM_INIT_SUPERADMIN_PASSWORD` in `.env` or your company defaults before initialization. The CLI still validates every configured password: existing placeholder or weak values are preserved by the starter and rejected during initialization. Updating `.env` does not rotate passwords already stored in the database; use existing account-management or password-reset flows for that.
 
+If the database volume survives a deleted `.env`, regenerating that file creates a new bootstrap value without changing the stored account password. Use the password from the earlier `.env`, reset the account password, or reset the disposable database volume.
+
 ## Design rules
 
 - **Node stdlib only, no build step.** The CLI must run from a fresh clone before any `yarn install` — that is what makes it usable behind broken proxies.

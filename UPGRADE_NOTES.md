@@ -351,6 +351,7 @@ Include both `/api/attachments/file/*` (including download query variants) and
 Changing origin headers cannot invalidate copies already stored with the old
 public TTL. Check cache rules honor origin `private` and do not force-cache these
 routes. No database or module-code migration is required.
+
 ### Initialization requires a unique superadmin password (#7809)
 
 `mercato init` / `yarn initialize` no longer fall back to `secret`, and the starter and generated-app full-app Compose files no longer supply `password`. This applies to production and development variants, including the legacy root Compose duplicates. Initialization rejects missing, empty, known-placeholder, or policy-invalid superadmin passwords before dependency installation, generation, migrations, or destructive reinstall work. The init flags `--skip-password-policy` and `--allow-weak-password` cannot relax this requirement; the separate `mercato auth setup` command retains its existing behavior.
@@ -365,7 +366,7 @@ Railway deploys generate a unique bootstrap password when neither the selected e
 
 **Existing credentials require review:** this change does not rotate stored passwords. Review superadmin and other privileged accounts created by earlier initialization flows, rotate any predictable or reused credentials through existing account-management or password-reset flows, and follow your normal response process if exposure is suspected. Changing the bootstrap environment variable does not update an existing account; do not reinstall a deployment to rotate credentials.
 
-**Security compatibility exception:** retaining the old predictable-default or bypass branch would preserve the reported provisioning vulnerability throughout a bridge release. This narrow removal follows the emergency security exception in [`BACKWARD_COMPATIBILITY.md`](BACKWARD_COMPATIBILITY.md#emergency-security-exception). A named human maintainer must acknowledge that waiver before merge; automated review does not provide that approval. See the [specification](.ai/specs/2026-10-29-unique-bootstrap-superadmin-password.md#migration--backward-compatibility).
+**Security compatibility exception:** retaining the old predictable-default or bypass branch would preserve the reported provisioning vulnerability throughout a bridge release. This narrow removal follows the emergency security exception in [`BACKWARD_COMPATIBILITY.md`](BACKWARD_COMPATIBILITY.md#emergency-security-exception). See the [specification](.ai/specs/2026-10-29-unique-bootstrap-superadmin-password.md#migration--backward-compatibility).
 
 ### Dev launchers reject shared-workspace sessions and recover occupied MCP ports (#8044, #8046)
 
