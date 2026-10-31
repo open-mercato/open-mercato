@@ -10,6 +10,7 @@ import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { getSslConfig } from '@open-mercato/shared/lib/db/ssl'
 import { getRedisUrl, getRedisUrlOrThrow, parseRedisUrl } from '@open-mercato/shared/lib/redis/connection'
 import { resolveInitDerivedSecrets } from './lib/init-secrets'
+import { redactCliArgs, redactCliText } from './lib/cli-output'
 import {
   resolveAutoSpawnWorkersMode,
   resolveLazySpawnMode,
@@ -1404,20 +1405,16 @@ export async function run(argv = process.argv) {
         console.log('')
       }
 
-      const adminPasswordOverride = derivedSecrets.adminPassword
-      const employeePasswordOverride = derivedSecrets.employeePassword
       const createdUsers: Array<{ label: string; icon: string; email: string }> = []
-      const createdPasswords = new Map<string, string>()
-      const pushUser = (label: string, icon: string, value: string | null, passwordValue: string) => {
+      const pushUser = (label: string, icon: string, value: string | null) => {
         if (!value) return
         if (createdUsers.some((entry) => entry.email.toLowerCase() === value.toLowerCase())) return
         createdUsers.push({ label, icon, email: value })
-        createdPasswords.set(value.toLowerCase(), passwordValue)
       }
-      pushUser('Superadmin', '👑', email, password)
+      pushUser('Superadmin', '👑', email)
       if (!skipDemoUsers) {
-        pushUser('Admin', '🧰', adminEmailDerived, adminPasswordOverride ?? password)
-        pushUser('Employee', '👷', employeeEmailDerived, employeePasswordOverride ?? password)
+        pushUser('Admin', '🧰', adminEmailDerived)
+        pushUser('Employee', '👷', employeeEmailDerived)
       }
       // Simplified success message: we know which users were created
       console.log('🎉 App initialization complete!\n')
@@ -1431,9 +1428,7 @@ export async function run(argv = process.argv) {
       for (const entry of createdUsers) {
         const label = `${entry.icon} ${entry.label}:`
         const labelPad = padByCodePointWidth(label, 13)
-        const entryPassword = createdPasswords.get(entry.email.toLowerCase()) ?? password
         console.log(`║    ${labelPad}${entry.email.padEnd(42)} ║`)
-        console.log(`║       Password: ${entryPassword.padEnd(44)} ║`)
       }
       console.log('║                                                              ║')
       console.log('║  Happy coding!                                               ║')
@@ -1441,7 +1436,7 @@ export async function run(argv = process.argv) {
 
       return 0
     } catch (error: unknown) {
-      console.error('❌ Initialization failed:', formatInitFailureMessage(error))
+      console.error('❌ Initialization failed:', redactCliText(formatInitFailureMessage(error), parts))
       return 1
     }
   }
@@ -2810,10 +2805,8 @@ export async function run(argv = process.argv) {
 
   console.log('')
   const started = Date.now()
-  const loggedArgs = modName === 'deploy' && cmdName === 'railway'
-    ? (await import('./lib/deploy/railway/options')).redactRailwayCliArgs(rest)
-    : rest
-  console.log(`🚀 Running ${modName}:${cmdName} ${loggedArgs.join(' ')}`)
+  const loggedArgs = redactCliArgs(rest)
+  console.log(`🚀 Running ${modName}:${cmdName} ${redactCliText(loggedArgs.join(' '), [], {})}`)
   try {
     const commandExitCode = await runWithCapturedExitCode(async () => {
       await cmd.run(rest)
@@ -2823,8 +2816,8 @@ export async function run(argv = process.argv) {
       console.log(`⏱️ Done in ${ms}ms`)
     }
     return commandExitCode
-  } catch (e: any) {
-    console.error(`💥 Failed: ${formatCliFailureMessage(modName, cmdName, e)}`)
+  } catch (error: unknown) {
+    console.error(`💥 Failed: ${redactCliText(formatCliFailureMessage(modName, cmdName, error), rest)}`)
     return 1
   }
 }

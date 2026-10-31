@@ -189,7 +189,7 @@ This catalog indexes 166 focused lessons. Route the task first, then read only r
 ### testing
 
 - [Verify persisted state with fresh CRUD reads](lessons/verify-persisted-state-with-fresh-crud-reads.md) — area:testing,integration,module-data; module:customers,shared; topic:cache,data-integrity,testing
-- [Repository-source tests must register as cross-package guards](lessons/repository-source-tests-must-register-as-cross-package-guards.md) — area:testing; module:cli,catalog; topic:testing,module-boundaries,generated-files
+- [Repository-source tests must register as cross-package guards](lessons/repository-source-tests-must-register-as-cross-package-guards.md) — area:testing; module:cli,catalog,create_app; topic:testing,module-boundaries,generated-files,cross-package-tests
 
 - [Validate downloaded design assets before integration](lessons/validate-downloaded-design-assets-before-integration.md) — area:testing,backend-ui; module:design_system; topic:figma,asset-integrity,downloads
 
