@@ -1,9 +1,9 @@
 # Queue Status Dashboard — Queue Health, Failed-Job Visibility & Privileged Job Inspection
 
-- **Status:** Draft (deferred — not yet implemented)
+- **Status:** Implemented
 - **Scope:** OSS
 - **Owner module:** `configs` (admin surface) + `@open-mercato/queue` (introspection contract)
-- **Tracking issue:** _filled in after issue creation_
+- **Tracking issue:** [#3105](https://github.com/open-mercato/open-mercato/issues/3105)
 
 ## TLDR
 
@@ -177,7 +177,7 @@ supply `delayed`, it is omitted and the UI hides that column for that queue.
 A new **optional** method on the `Queue` contract:
 
 ```ts
-getFailedJobsSummary?(limit: number, offset?: number): Promise<FailedJobSummary[]>
+getFailedJobsSummary?(limit: number, offset?: number, opts?: { type?: string }): Promise<FailedJobSummary[]>
 ```
 
 ```ts
@@ -185,17 +185,19 @@ getFailedJobsSummary?(limit: number, offset?: number): Promise<FailedJobSummary[
 type FailedJobSummary = {
   id: string
   queue: string
+  type?: string            // payload-free job type (metadata.jobType / payload.jobType)
   workerId?: string        // best-effort, when derivable
-  failedReason?: string    // strategy-provided reason, truncated server-side
+  errorCode?: string       // stable safe code (queue.handler_error, queue.job_stalled, ...) — NEVER raw text
   attemptsMade?: number
   failedAt?: number        // epoch ms
 }
 ```
 
 - **async (BullMQ):** `queue.getJobs(['failed'], 0, limit - 1)` then map **only** the
-  allow-listed fields above. `job.data` is never read into the response. `failedReason` is
-  truncated to a fixed max length (e.g. 500 chars) server-side to avoid leaking large
-  stack/context blobs. BullMQ's `removeOnFail: 1000` makes this an inspection window for the
+  allow-listed fields above. `job.data` is never read into the response. The raw
+  `failedReason` is NOT part of this Tier 1 contract at all (a handler exception can echo tenant
+  data or credentials): it is classified into a stable `errorCode` and the raw text is only
+  readable through `getRecentJobs` (Tier 2: tenant-filtered, redacted, audited). BullMQ's `removeOnFail: 1000` makes this an inspection window for the
   most recent failures, not durable no-loss storage; older failures are removed as new ones
   arrive. A workflow that must never lose a failed payload still writes its own durable record
   before enqueueing.
@@ -267,7 +269,7 @@ getInFlightJobsSummary?(opts: {
 type InFlightJobSummary = {
   id: string
   queue: string
-  type?: string         // BullMQ job name, when present
+  type?: string         // payload-free job type (metadata.jobType / payload.jobType) — not the BullMQ job name (a UUID)
   workerId?: string     // best-effort, when derivable
   state: 'active' | 'waiting' | 'delayed'
   enqueuedAt?: number   // epoch ms (job.timestamp)
@@ -729,28 +731,33 @@ yarn i18n:check-hardcoded
 
 ## Final Compliance Report
 
-This spec is **Draft (deferred — not yet implemented)**. The compliance gate below is the
-checklist the implementing PR(s) must satisfy before this spec moves to
-`.ai/specs/implemented/`; it is recorded now so the implementer inherits the bar rather than
-re-deriving it.
-
 | Gate | Status | Notes |
 |------|--------|-------|
-| Architecture: admin surface in `configs`, contract in `@open-mercato/queue`; no direct ORM cross-module relationship | ☐ deferred | Verified at design time against the existing `system-status` pattern and the worker registry export. |
-| Tenant isolation: non-superadmin never sees another tenant's jobs/payloads (server-side, fail-closed) | ☐ deferred | Hard invariant; gated by the critical integration test (tenant-A → zero tenant-B rows). |
-| Backward compatibility: all `@open-mercato/queue` changes additive-only | ☐ deferred | `delayed?`, `getFailedJobsSummary?`, `getProcessingStats?`, `getInFlightJobsSummary?`, `getRecentJobs?` optional; `?queue=`/`?type=`/`?id=` query params additive; no removed/renamed export, no event-id change. |
-| Tier 1 stays payload-free incl. metrics + in-flight + filters | ☐ deferred | Processing stats expose durations only; in-flight summary omits `data`; `?type=` filters on `job.name`, never payload contents. Snapshot sanitization test asserts no `data` anywhere. |
-| ACL: `.view` broad, `.inspect_payloads` superadmin/platform-operator only, not bundled | ☐ deferred | Immutable feature ids in `configs/acl.ts`; synced via `setup.ts`. |
-| UI: DS status tokens, `apiCall`, `LoadingMessage`/`ErrorMessage`, i18n via `useT()`/`resolveTranslations()` | ☐ deferred | No hardcoded status colors or user-facing strings. |
-| Integration coverage: both API paths + key UI paths + both `local`/`async` strategies | ☐ deferred | Enumerated in the Integration Coverage section. |
-| `yarn generate` / `typecheck` / `lint` / `i18n:check-hardcoded` green | ☐ deferred | See Validation Commands. |
-
-No code lands in this PR, so there is nothing to compliance-gate at merge beyond the spec
-content checklist (TLDR, Problem Statement, Proposed Solution, Architecture, Data Models /
-contracts, Risks & Impact Review, this report, Changelog), which this revision now satisfies.
+| Architecture: admin surface in `configs`, contract in `@open-mercato/queue`; no direct ORM cross-module relationship | ✅ | `configs/lib/queue-status-registry.ts` enumerates via `getModules()` (mirrors `scheduler/lib/safeQueueTargets.ts`); `configs` depends on `@open-mercato/queue`'s public `Queue` contract only. |
+| Tenant isolation: non-superadmin never sees another tenant's jobs/payloads (server-side, fail-closed) | ✅ | `configs/lib/queue-job-inspector.ts`; the critical case (tenant-A sees zero tenant-B rows even when tenant-B is newest, and a foreign-tenant job id resolves to nothing) is covered in `configs/__tests__/queue-job-inspector.test.ts`. |
+| Backward compatibility: all `@open-mercato/queue` changes additive-only | ✅ | `delayed?`, `getFailedJobsSummary?`, `getProcessingStats?`, `getInFlightJobsSummary?`, `getRecentJobs?` all optional; `?queue=`/`?type=`/`?id=` query params additive; no removed/renamed export, no event-id change. |
+| Tier 1 stays payload-free incl. metrics + in-flight + filters | ✅ | `configs/lib/queue-status.ts`'s DTOs carry no `data` field; `configs/__tests__/queue-status.test.ts` asserts no `data`/`payload` substring anywhere in a built snapshot. |
+| ACL: `.view` broad, `.inspect_payloads` superadmin/platform-operator only, not bundled | ✅ | `configs/acl.ts` declares both as distinct ids; `configs/setup.ts` syncs `.inspect_payloads` to `superadmin` only, `.view` to both `superadmin` and `admin`. |
+| UI: DS status tokens, `apiCall`, `LoadingMessage`/`ErrorMessage`, i18n via `useT()`/`resolveTranslations()` | ✅ | `QueueStatusPanel.tsx` / `QueueJobInspector.tsx`; `yarn i18n:check-hardcoded` found zero new hardcoded strings. |
+| Integration coverage: both API paths + key UI paths + both `local`/`async` strategies | ✅ | Module-local Playwright specs `configs/__integration__/TC-CONF-007.spec.ts` (Tier 1: feature gate, payload-freeness, job-type filter, validation) and `TC-CONF-008.spec.ts` (Tier 2: feature gate, own/foreign tenant list + direct-id reads incl. the nested `scope` envelope, superadmin cross-tenant view, redaction, access-log row under a selected organization). Jobs are enqueued through the real strategy under test (`createModuleQueue`). Unit coverage: `packages/queue/src/__tests__/{async.introspection,async.strategy,local.strategy,introspection}.test.ts`, `configs/__tests__/*` (incl. `QueueStatusPanel.test.tsx` for Enter/Space/Escape and focus return). |
+| `yarn generate` / `typecheck` / `lint` / `i18n:check-hardcoded` green | ✅ | All green; see the implementing PR's validation section. |
 
 ## Changelog
 
+- **2026-10-26** — Review/QA fixes ([#7545](https://github.com/open-mercato/open-mercato/pull/7545)):
+  Tier 1 exposes a stable `errorCode` instead of raw failure text and per-queue errors are stable
+  codes; async completed jobs are retained (bounded, `COMPLETED_RETENTION_COUNT`) with their payload
+  reduced to ownership + type so processing-time metrics have a sample; waiting/delayed/active
+  summaries request the oldest window (`asc`); zero/negative windows return empty before BullMQ and
+  offsets are bounded; job type is the payload-free `metadata.jobType`/`payload.jobType` (the BullMQ
+  job name is a UUID); the inspector merges per-state reads by recency and reports the real state;
+  the local strategy reads without the worker lock, partitions waiting/delayed, returns nothing for
+  unretained states and refuses to scan a backlog above 8 MiB (`QueueIntrospectionUnavailableError`);
+  nested `scope.tenantId` envelopes are normalized (conflicts fail closed); every queue read is
+  time-bounded (Redis down no longer hangs the dashboard); API catch paths report with stable
+  `configs.queues_status.*` codes; the audit row carries the selected organization.
+- **2026-10-16** — Implemented (Phases 1-4). Phase 5 (mutating actions) remains the
+  documented non-goal/follow-up. See the linked PR for the full file list and test suite.
 - **2026-08-03** — Corrected failed-job retention assumptions: local queues retain only
   `failedCount` and therefore use the counts-only details-unavailable fallback; async queues
   expose a bounded recent-failure inspection window under `removeOnFail: 1000`, not durable
