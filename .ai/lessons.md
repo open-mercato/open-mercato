@@ -59,7 +59,7 @@ This catalog indexes 166 focused lessons. Route the task first, then read only r
 - [Personal API-key data must fail closed when policy is unavailable](lessons/personal-data-api-keys-must-fail-closed-on-missing-policy.md) — area:module-data,debugging; module:auth,dashboards; topic:access-control,api-keys,failure-states
 - [Materialize locking prune batches before deleting](lessons/materialize-locking-prune-batches.md) — area:module-data,debugging,testing; module:payment_gateways; topic:concurrency,postgresql,retention,data-integrity
 
-- [Authoritative command guards must validate final interceptor input](lessons/authoritative-command-guards-must-validate-final-interceptor-input.md) — area:module-data,architecture,testing; module:example,customers,shared; topic:command-pattern,data-integrity,concurrency,api-interceptors,testing
+- [Authoritative command guards must validate final interceptor input](lessons/authoritative-command-guards-must-validate-final-interceptor-input.md) — area:module-data,architecture,testing; module:example,customers,shared,sales,warranty_claims; topic:command-pattern,data-integrity,concurrency,api-interceptors,testing
 - [Auto-discovery routing surprises only a running app catches](lessons/api-route-files-must-sit-directly-under-the-resource.md) — area:module-data,backend-ui,testing; module:documents,cli,ui; topic:auto-discovery,generated-files,error-states
 - [Local tooling gotchas: stale snapshots and ephemeral restarts](lessons/db-generate-re-emits-an-unrelated-stale-snapshot.md) — area:module-data,testing,debugging; module:cli,ai_assistant; topic:database-migrations,dev-runtime,regeneration
 - [`dbMigrate` must not write migration snapshots during initialize flows](lessons/dbmigrate-must-not-write-migration-snapshots-during.md) — area:module-data,architecture; module:cli,create_app; topic:generated-files,database-migrations,runtime-startup
@@ -140,7 +140,7 @@ This catalog indexes 166 focused lessons. Route the task first, then read only r
 - [Route-aware backend chrome should use route manifests, not the full module registry](lessons/route-aware-backend-chrome-should-use-route-manifests.md) — area:backend-ui,architecture; module:ui,events; topic:events,generated-files,regeneration
 - [Shared candidate sets must stay identical across display and validation consumers](lessons/shared-candidate-sets-must-stay-identical-across-display.md) — area:backend-ui,testing; module:customers; topic:filters,testing,ui-components
 - [Sidebar hydration must preserve the exact RBAC inclusion semantics of the server layout](lessons/sidebar-hydration-must-preserve-the-exact-rbac.md) — area:backend-ui,debugging; module:ui; topic:access-control,data-scoping,generated-files
-- [Standardize record-not-found as a dedicated page state in backend UI](lessons/standardize-record-not-found-as-a-dedicated-page-state.md) — area:backend-ui,debugging; module:ui,auth,customers; topic:error-states,ui-components
+- [Standardize record-not-found as a dedicated page state in backend UI](lessons/standardize-record-not-found-as-a-dedicated-page-state.md) — area:backend-ui,debugging,module-data,testing; module:ui,auth,customers,sales,audit_logs,shared; topic:error-states,ui-components,i18n,command-pattern
 
 ### integration
 
