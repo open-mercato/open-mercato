@@ -59,7 +59,7 @@ describe('HybridQueryEngine overlap', () => {
         engine.buildColumnFilterExpression(eb, 'b.sku', 'eq', 'SKU-1'),
       ]))
       .compile()
-    expect(compiled.sql).toContain(`("ei"."doc" -> 'scope_keys') ?| $1::text[] or "b"."sku" = $2`)
+    expect(compiled.sql).toContain(`(jsonb_typeof(("ei"."doc" -> 'scope_keys')) = 'array' and ("ei"."doc" -> 'scope_keys') ?| $1::text[]) or "b"."sku" = $2`)
     expect(compiled.parameters).toEqual([['cat:1'], 'SKU-1'])
   })
 

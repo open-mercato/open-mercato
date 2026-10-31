@@ -2040,3 +2040,64 @@ describe('BasicQueryEngine decrypt tenant binding (#5430)', () => {
     expect(byId.get('3')).toBe('cipher-3')
   })
 })
+
+describe('BasicQueryEngine all-of caller compatibility (#7996)', () => {
+  test('the real query path dispatches JSONB role overlap and reuses its column metadata', async () => {
+    const fakeDb = createFakeKysely({
+      staff_team_members: [],
+      custom_field_defs: [],
+      'information_schema.columns': [
+        { table_name: 'staff_team_members', column_name: 'id', data_type: 'uuid' },
+        { table_name: 'staff_team_members', column_name: 'tenant_id', data_type: 'uuid' },
+        { table_name: 'staff_team_members', column_name: 'role_ids', data_type: 'jsonb' },
+      ],
+    })
+    const engine = new BasicQueryEngine(
+      {} as ConstructorParameters<typeof BasicQueryEngine>[0],
+      (() => fakeDb) as unknown as NonNullable<ConstructorParameters<typeof BasicQueryEngine>[1]>,
+    )
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      await engine.query('staff:staff_team_member', {
+        tenantId: 'tenant-1', fields: ['id'], filters: { role_ids: { $overlap: ['role-1'] } },
+      })
+    }
+    const calls = fakeDb._calls as Array<{ _ops: { table: string; selects: unknown[]; wheres: unknown[][] } }>
+    const metadataCalls = calls.filter((call) => call._ops.table === 'information_schema.columns' && call._ops.selects.includes('data_type'))
+    expect(metadataCalls).toHaveLength(1)
+    const sqlNodes = calls.filter((call) => call._ops.table === 'staff_team_members')
+      .flatMap((call) => call._ops.wheres.flat())
+      .filter((value): value is { toOperationNode: () => unknown } => !!value && typeof value === 'object' && 'toOperationNode' in value)
+      .map((value) => JSON.stringify(value.toOperationNode())).join('\n')
+    expect(sqlNodes).toContain('?|')
+    expect(sqlNodes).not.toContain(' && ')
+    const metadataScope = metadataCalls[0]._ops.wheres.flat()
+      .filter((value): value is { toOperationNode: () => unknown } => !!value && typeof value === 'object' && 'toOperationNode' in value)
+      .map((value) => JSON.stringify(value.toOperationNode())).join('\n')
+    expect(metadataScope).toContain('to_regclass')
+  })
+
+  test('the real custom-field query path uses separate value-row EXISTS for each all-of member', async () => {
+    const fakeDb = createFakeKysely({
+      users: [],
+      custom_field_defs: [{ key: 'labels', entity_id: 'auth:user', is_active: true, config_json: '{}', kind: 'select' }],
+      'information_schema.columns': [{ table_name: 'users', column_name: 'id' }],
+    })
+    const engine = new BasicQueryEngine(
+      {} as ConstructorParameters<typeof BasicQueryEngine>[0],
+      (() => fakeDb) as unknown as NonNullable<ConstructorParameters<typeof BasicQueryEngine>[1]>,
+    )
+    const tracked = engine as unknown as {
+      applyCfValueExistsFilter: (builder: unknown, options: { key: string; op: string; value: unknown }) => unknown
+    }
+    const applyExists = jest.spyOn(tracked, 'applyCfValueExistsFilter')
+    await engine.query('auth:user', {
+      tenantId: 'tenant-1', fields: ['id'],
+      filters: { $and: [{ 'cf:labels': { $overlap: ['alpha'] } }, { 'cf:labels': { $overlap: ['beta'] } }] },
+    })
+    const values = applyExists.mock.calls.map((call) => call[1])
+    expect(values).toEqual(expect.arrayContaining([
+      expect.objectContaining({ key: 'labels', op: 'overlap', value: ['alpha'] }),
+      expect.objectContaining({ key: 'labels', op: 'overlap', value: ['beta'] }),
+    ]))
+  })
+})

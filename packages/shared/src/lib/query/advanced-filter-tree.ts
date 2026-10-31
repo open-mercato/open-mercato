@@ -155,7 +155,7 @@ function compileRule(rule: FilterRule): Record<string, unknown> | null {
     case 'has_all_of': {
       const list = normalizeListValue(rule.value)
       if (list.length === 0) return null
-      filter[rule.field] = { $contains: list }; break
+      filter.$and = list.map((value) => ({ [rule.field]: { $overlap: [value] } })); break
     }
     case 'is_true': filter[rule.field] = { $eq: true }; break
     case 'is_false': filter[rule.field] = { $eq: false }; break

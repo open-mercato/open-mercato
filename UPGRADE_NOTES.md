@@ -180,6 +180,39 @@ Creating or renumbering a line with a number already used by another live line n
 
 An undo that would restore an occupied line number is refused before changing the line or totals. Remove the occupying line or move it to a free number through the API, then retry the same undo. Existing duplicates are not automatically renumbered. No database migration is required.
 
+### QueryEngine rejects empty OR and unsupported filter operators (#7831)
+
+`BasicQueryEngine` and `HybridQueryEngine` now throw `TypeError` for `{ $or: [] }`
+(including nested occurrences) and unsupported field operators in object or array
+filters. These predicates previously could be discarded, returning every otherwise
+visible row. Objects mixing supported and unsupported operators are rejected too.
+
+Module authors: omit an optional OR condition when no restriction is intended;
+use `{ id: { $in: [] } }` to match nothing. Replace unsupported operators with
+supported `FilterOp` values. Absent filters, `{}`, `[]`, and `{ $and: [] }` retain
+their existing unconstrained meaning. Operators: audit custom modules and saved
+filter presets before upgrading. No database migration or configuration change
+is required. See the [filter specification](.ai/specs/implemented/2026-04-03-advanced-datatable-ux.md#migration--backward-compatibility).
+
+### Advanced-filter all-of and staff role filters (PR #7996)
+
+The built-in advanced-filter compilers now emit supported `$overlap` predicates
+for `has_all_of`. Staff role filtering uses the same operator. Native SQL arrays,
+JSONB string arrays, and custom-field value rows preserve their storage-specific
+membership semantics. No schema migration or configuration change is required.
+
+The approved additive `FilterOp` member `not_ilike` also accepts the existing
+field-level `{ $not: { $ilike: pattern } }` compiler output. Plaintext patterns
+retain PostgreSQL ILIKE wildcard/escaping semantics. Encrypted fields use scoped
+hashed-token exclusion, including the tokenizer's minimum-length/prefix behavior
+and order-independent multiword matching; arbitrary encrypted substring matching
+is not promised. Known encrypted base fields reject unindexable terms or disabled
+search. Custom-field/document plaintext remains literal, while encrypted values
+without usable scoped evidence are excluded. Missing values and empty arrays do
+not satisfy negation. Other negative forms remain unsupported and throw TypeError.
+Downstream exhaustive switches over `FilterOp` must account for `not_ilike`; no
+existing union member or signature is removed. There is no new HTTP 400 mapping.
+
 ### Workflow webhook responses have resource limits (#7814)
 
 Each `CALL_WEBHOOK` attempt now defaults to a 30-second deadline covering the

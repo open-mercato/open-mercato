@@ -53,50 +53,119 @@ async function deleteTemplate(request: APIRequestContext, token: string | null, 
   }).catch(() => undefined)
 }
 
-test.describe('TC-DOCUMENTS-014: UMES related documents across host records', () => {
-  test('renders current and legacy hosts, links by title, and creates from hydrated context', async ({ page, request }) => {
-    test.slow()
-    const stamp = Date.now()
-    const linkedTitle = `TC-DOCUMENTS-014 linked ${stamp}`
-    const searchableTitle = `TC-DOCUMENTS-014 searchable ${stamp}`
-    const personLabel = `Related Person ${stamp}`
-    let token: string | null = null
-    let linkedDocument: Created | null = null
-    let searchableDocument: Created | null = null
-    let instantiatedDocumentId: string | null = null
-    let template: Created | null = null
-    let personId: string | null = null
-    let companyId: string | null = null
-    let dealId: string | null = null
-    let productId: string | null = null
-    let quoteId: string | null = null
-    let orderId: string | null = null
+type HostKind = 'person' | 'company' | 'deal' | 'product' | 'quote' | 'order'
 
+const hosts: Array<{ kind: HostKind; entityType: string; path: string }> = [
+  { kind: 'person', entityType: 'customer-person', path: '/backend/customers/people-v2' },
+  { kind: 'person', entityType: 'customer-person', path: '/backend/customers/people' },
+  { kind: 'company', entityType: 'customer-company', path: '/backend/customers/companies-v2' },
+  { kind: 'company', entityType: 'customer-company', path: '/backend/customers/companies' },
+  { kind: 'deal', entityType: 'deal', path: '/backend/customers/deals' },
+  { kind: 'product', entityType: 'product', path: '/backend/catalog/products' },
+  { kind: 'quote', entityType: 'quote', path: '/backend/sales/quotes' },
+  { kind: 'order', entityType: 'sales-order', path: '/backend/sales/orders' },
+]
+
+async function createHost(request: APIRequestContext, token: string, kind: HostKind, stamp: number): Promise<string> {
+  switch (kind) {
+    case 'person': return createPersonFixture(request, token, { firstName: 'Related', lastName: `Person ${stamp}`, displayName: `Related Person ${stamp}` })
+    case 'company': return createCompanyFixture(request, token, `Related Company ${stamp}`)
+    case 'deal': return createDealFixture(request, token, { title: `Related Deal ${stamp}` })
+    case 'product': return createProductFixture(request, token, { title: `Related Product ${stamp}`, sku: `DOC14-${stamp}` })
+    case 'quote': return createSalesQuoteFixture(request, token)
+    case 'order': return createSalesOrderFixture(request, token)
+  }
+}
+
+async function deleteHost(request: APIRequestContext, token: string | null, kind: HostKind, id: string | null): Promise<void> {
+  switch (kind) {
+    case 'person': return deleteEntityIfExists(request, token, '/api/customers/people', id)
+    case 'company': return deleteEntityIfExists(request, token, '/api/customers/companies', id)
+    case 'deal': return deleteEntityIfExists(request, token, '/api/customers/deals', id)
+    case 'product': return deleteCatalogProductIfExists(request, token, id)
+    case 'quote': return deleteSalesEntityIfExists(request, token, '/api/sales/quotes', id)
+    case 'order': return deleteSalesEntityIfExists(request, token, '/api/sales/orders', id)
+  }
+}
+
+test.describe('TC-DOCUMENTS-014: UMES related documents across host records', () => {
+  for (const host of hosts) {
+    test(`renders the related document on ${host.path}`, async ({ page, request }) => {
+      const stamp = Date.now()
+      const title = `TC-DOCUMENTS-014 linked ${stamp}`
+      let token: string | null = null
+      let document: Created | null = null
+      let hostId: string | null = null
+      try {
+        token = await getAuthToken(request, 'admin')
+        document = await createDocument(request, token, title)
+        hostId = await createHost(request, token, host.kind, stamp)
+        const href = `${host.path}/${hostId}`
+        await createLink(request, token, document.id, { entityType: host.entityType, entityId: hostId, label: `Related ${host.kind} ${stamp}`, href: `${host.path.replace(/-v2$/, '')}/${hostId}` })
+        await login(page, 'admin')
+        await page.goto(href, { waitUntil: 'domcontentloaded' })
+        await expect(page.getByRole('heading', { name: 'Related documents' }).first(), `widget on ${href}`).toBeVisible()
+        const titleLink = page.getByRole('link', { name: title }).first()
+        await expect(titleLink).toBeVisible()
+        await expect(titleLink).toHaveAttribute('href', `/backend/documents/${document.id}`)
+        await expect(page).toHaveURL(new RegExp(`${href.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`))
+      } finally {
+        await deleteDocument(request, token, document?.id ?? null)
+        await deleteHost(request, token, host.kind, hostId)
+      }
+    })
+  }
+
+  test('links an existing document by title and displays its owner', async ({ page, request }) => {
+    const stamp = Date.now()
+    const title = `TC-DOCUMENTS-014 searchable ${stamp}`
+    let token: string | null = null
+    let document: Created | null = null
+    let personId: string | null = null
     try {
       token = await getAuthToken(request, 'admin')
-      linkedDocument = await createDocument(request, token, linkedTitle)
-      searchableDocument = await createDocument(request, token, searchableTitle)
-      companyId = await createCompanyFixture(request, token, `Related Company ${stamp}`)
-      personId = await createPersonFixture(request, token, { firstName: 'Related', lastName: `Person ${stamp}`, displayName: personLabel, companyEntityId: companyId })
-      dealId = await createDealFixture(request, token, { title: `Related Deal ${stamp}`, companyIds: [companyId], personIds: [personId] })
-      productId = await createProductFixture(request, token, { title: `Related Product ${stamp}`, sku: `DOC14-${stamp}` })
-      quoteId = await createSalesQuoteFixture(request, token)
-      orderId = await createSalesOrderFixture(request, token)
+      document = await createDocument(request, token, title)
+      personId = await createHost(request, token, 'person', stamp)
+      await login(page, 'admin')
+      await page.goto(`/backend/customers/people-v2/${personId}`, { waitUntil: 'domcontentloaded' })
+      await expect(page.getByRole('heading', { name: 'Related documents' })).toBeVisible()
+      await page.getByRole('button', { name: 'Link existing' }).click()
+      await expect(page.getByRole('link', { name: title })).toHaveCount(0)
+      const linkDialog = page.getByRole('dialog', { name: 'Link existing document' })
+      await linkDialog.getByLabel('Document title').fill(title)
+      const result = linkDialog.getByRole('button').filter({ hasText: title }).first()
+      await expect(result).toBeVisible()
+      const listResponse = await apiRequest(request, 'GET', `/api/documents?search=${encodeURIComponent(title)}&page=1&pageSize=20`, { token })
+      expect(listResponse.status()).toBe(200)
+      const listBody = await readJsonSafe<{ items?: Array<{ id?: string; ownerLabel?: string }> }>(listResponse)
+      const item = listBody?.items?.find((entry) => entry.id === document?.id)
+      expect(item).toBeDefined()
+      const ownerLabel = item?.ownerLabel
+      expect(ownerLabel && !/[0-9a-f]{8}-[0-9a-f]{4}/i.test(ownerLabel)).toBeTruthy()
+      await expect(result).toContainText(ownerLabel!)
+      await result.click()
+      await expect(page.getByRole('link', { name: title })).toBeVisible()
+    } finally {
+      await deleteDocument(request, token, document?.id ?? null)
+      await deleteHost(request, token, 'person', personId)
+    }
+  })
 
-      const targets: Target[] = [
-        { entityType: 'customer-person', entityId: personId, label: personLabel, href: `/backend/customers/people/${personId}` },
-        { entityType: 'customer-company', entityId: companyId, label: `Related Company ${stamp}`, href: `/backend/customers/companies/${companyId}` },
-        { entityType: 'deal', entityId: dealId, label: `Related Deal ${stamp}`, href: `/backend/customers/deals/${dealId}` },
-        { entityType: 'product', entityId: productId, label: `Related Product ${stamp}`, href: `/backend/catalog/products/${productId}` },
-        { entityType: 'quote', entityId: quoteId, label: `Quote ${stamp}`, href: `/backend/sales/quotes/${quoteId}` },
-        { entityType: 'sales-order', entityId: orderId, label: `Order ${stamp}`, href: `/backend/sales/orders/${orderId}` },
-      ]
-      for (const target of targets) await createLink(request, token, linkedDocument.id, target)
-
+  test('creates a document from a template with hydrated person context', async ({ page, request }) => {
+    const stamp = Date.now()
+    const personLabel = `Related Person ${stamp}`
+    const templateName = `TC-DOCUMENTS-014 Person brief ${stamp}`
+    let token: string | null = null
+    let personId: string | null = null
+    let documentId: string | null = null
+    let template: Created | null = null
+    try {
+      token = await getAuthToken(request, 'admin')
+      personId = await createHost(request, token, 'person', stamp)
       const templateResponse = await apiRequest(request, 'POST', '/api/documents/templates', {
         token,
         data: {
-          name: `TC-DOCUMENTS-014 Person brief ${stamp}`,
+          name: templateName,
           description: 'Contextual person template',
           bodyHtml: '<h1>{{customer.name}}</h1><p>Context-ready brief</p>',
           contextSlots: [{ slot: 'customer', entityType: 'customer-person', required: true }],
@@ -106,73 +175,56 @@ test.describe('TC-DOCUMENTS-014: UMES related documents across host records', ()
       const templateBody = await readJsonSafe<{ id?: string; updatedAt?: string }>(templateResponse)
       expect(templateResponse.status()).toBe(201)
       template = { id: expectId(templateBody?.id, 'template id'), updatedAt: expectId(templateBody?.updatedAt, 'template updatedAt') }
-
       await login(page, 'admin')
-      const routes = [
-        `/backend/customers/people-v2/${personId}`,
-        `/backend/customers/people/${personId}`,
-        `/backend/customers/companies-v2/${companyId}`,
-        `/backend/customers/companies/${companyId}`,
-        `/backend/customers/deals/${dealId}`,
-        `/backend/catalog/products/${productId}`,
-        `/backend/sales/quotes/${quoteId}`,
-        `/backend/sales/orders/${orderId}`,
-      ]
-      for (const route of routes) {
-        await page.goto(route, { waitUntil: 'domcontentloaded' })
-        await expect(page.getByRole('heading', { name: 'Related documents' }).first(), `widget on ${route}`).toBeVisible({ timeout: 30_000 })
-        const titleLink = page.getByRole('link', { name: linkedTitle }).first()
-        await expect(titleLink).toBeVisible()
-        await expect(titleLink).toHaveAttribute('href', `/backend/documents/${linkedDocument.id}`)
-        await expect(page).toHaveURL(new RegExp(`${route.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`))
-      }
-
       await page.goto(`/backend/customers/people-v2/${personId}`, { waitUntil: 'domcontentloaded' })
-      await page.getByRole('button', { name: 'Link existing' }).click()
-      const linkDialog = page.getByRole('dialog', { name: 'Link existing document' })
-      await linkDialog.getByLabel('Document title').fill(searchableTitle)
-      const result = linkDialog.getByRole('button').filter({ hasText: searchableTitle }).first()
-      await expect(result).toBeVisible({ timeout: 20_000 })
-      const listResponse = await apiRequest(request, 'GET', `/api/documents?search=${encodeURIComponent(searchableTitle)}&page=1&pageSize=20`, { token })
-      const listBody = await readJsonSafe<{ items?: Array<{ ownerLabel?: string }> }>(listResponse)
-      const ownerLabel = listBody?.items?.[0]?.ownerLabel
-      expect(ownerLabel && !/[0-9a-f]{8}-[0-9a-f]{4}/i.test(ownerLabel)).toBeTruthy()
-      await expect(result).toContainText(ownerLabel!)
-      await result.click()
-      await expect(page.getByRole('link', { name: searchableTitle })).toBeVisible({ timeout: 20_000 })
-
       await page.getByRole('button', { name: 'New from template' }).click()
       const templateDialog = page.getByRole('dialog', { name: 'New from template' })
-      await templateDialog.getByLabel('Search templates').fill(`TC-DOCUMENTS-014 Person brief ${stamp}`)
-      // The template picker is a RadioGroup, so each entry exposes role="radio" — not
-      // role="option", which only exists inside a listbox.
-      await templateDialog.getByRole('radio', { name: new RegExp(`TC-DOCUMENTS-014 Person brief ${stamp}`) }).click()
-      await expect(templateDialog.getByText(personLabel)).toBeVisible({ timeout: 20_000 })
-      await expect(templateDialog.getByText('Context-ready brief')).toBeVisible({ timeout: 20_000 })
+      await templateDialog.getByLabel('Search templates').fill(templateName)
+      await templateDialog.getByRole('radio', { name: new RegExp(templateName) }).click()
+      await expect(templateDialog.getByText(personLabel)).toBeVisible()
+      await expect(templateDialog.getByText('Context-ready brief')).toBeVisible()
       await templateDialog.getByLabel('Document title').fill(`TC-DOCUMENTS-014 instantiated ${stamp}`)
       await templateDialog.getByRole('button', { name: 'Create document' }).click()
-      await page.waitForURL(/\/backend\/documents\/[0-9a-f-]{36}$/i, { timeout: 30_000 })
-      instantiatedDocumentId = page.url().match(/\/backend\/documents\/([0-9a-f-]{36})$/i)?.[1] ?? null
-      expect(instantiatedDocumentId).toBeTruthy()
+      await page.waitForURL(/\/backend\/documents\/[0-9a-f-]{36}$/i)
+      documentId = page.url().match(/\/backend\/documents\/([0-9a-f-]{36})$/i)?.[1] ?? null
+      expect(documentId).toBeTruthy()
+    } finally {
+      await deleteDocument(request, token, documentId)
+      await deleteTemplate(request, token, template)
+      await deleteHost(request, token, 'person', personId)
+    }
+  })
 
-      await page.route('**/api/documents?entityType=*', async (route) => {
+  test('hides the card after a forbidden related-documents response on a loaded host', async ({ page, request }) => {
+    const stamp = Date.now()
+    let token: string | null = null
+    let personId: string | null = null
+    try {
+      token = await getAuthToken(request, 'admin')
+      personId = await createHost(request, token, 'person', stamp)
+      await login(page, 'admin')
+      const href = `/backend/customers/people-v2/${personId}`
+      await page.goto(href, { waitUntil: 'domcontentloaded' })
+      await expect(page.getByRole('button', { name: 'Link existing' })).toBeVisible()
+      const relatedUrl = `**/api/documents?entityType=customer-person&entityId=${personId}&*`
+      await page.route(relatedUrl, async (route) => {
         await route.fulfill({ status: 403, contentType: 'application/json', body: JSON.stringify({ error: 'Forbidden' }) })
       })
-      await page.goto(`/backend/customers/people-v2/${personId}`, { waitUntil: 'domcontentloaded' })
-      await expect(page).toHaveURL(new RegExp(`/backend/customers/people-v2/${personId}$`))
-      await expect(page.getByRole('heading', { name: 'Related documents' })).toHaveCount(0)
-      await page.unroute('**/api/documents?entityType=*')
+      try {
+        const deniedResponse = page.waitForResponse((response) => {
+          const url = new URL(response.url())
+          return url.pathname === '/api/documents' && url.searchParams.get('entityId') === personId && response.status() === 403
+        })
+        await page.reload({ waitUntil: 'domcontentloaded' })
+        await deniedResponse
+        await expect(page.getByRole('heading', { name: `Related Person ${stamp}`, exact: true })).toBeVisible()
+        await expect(page).toHaveURL(new RegExp(`${href}$`))
+        await expect(page.getByRole('heading', { name: 'Related documents' })).toHaveCount(0)
+      } finally {
+        await page.unroute(relatedUrl)
+      }
     } finally {
-      await deleteDocument(request, token, instantiatedDocumentId)
-      await deleteDocument(request, token, searchableDocument?.id ?? null)
-      await deleteDocument(request, token, linkedDocument?.id ?? null)
-      await deleteTemplate(request, token, template)
-      await deleteSalesEntityIfExists(request, token, '/api/sales/orders', orderId)
-      await deleteSalesEntityIfExists(request, token, '/api/sales/quotes', quoteId)
-      await deleteCatalogProductIfExists(request, token, productId)
-      await deleteEntityIfExists(request, token, '/api/customers/deals', dealId)
-      await deleteEntityIfExists(request, token, '/api/customers/people', personId)
-      await deleteEntityIfExists(request, token, '/api/customers/companies', companyId)
+      await deleteHost(request, token, 'person', personId)
     }
   })
 })
