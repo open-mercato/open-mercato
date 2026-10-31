@@ -541,6 +541,7 @@
   "example.widgets.todo.state.allCaughtUp": "Wszystko załatwione!",
   "example.widgets.todo.state.empty": "Nie znaleziono zadań.",
   "example.workPlan.nav.group": "Plan pracy",
+  "example.workflows.completionGuard.vetoed": "Przykładowy warunek wstępny nie jest spełniony",
   "integrations.marketplace.filters.category": "Category",
   "notifications.categories.demo": "Demo",
   "notifications.categories.example": "Przykłady"

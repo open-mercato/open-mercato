@@ -7,12 +7,16 @@
  * another tenant's task ids one uuid at a time.
  */
 
-import { describe, test, expect, jest, beforeEach } from '@jest/globals'
+import { describe, test, expect, jest, beforeEach, afterAll } from '@jest/globals'
 import { NextRequest } from 'next/server'
 import { GET as getTask } from '../tasks/[id]/route'
 import { UserTask } from '../../data/entities'
 import { makeTaskVisibilityRouteStubs, type TaskVisibilityRouteStubs } from './helpers/taskVisibilityRoute'
 import { userTaskDetailResponseSchema } from '../openapi'
+import {
+  clearTaskCompletionGuards,
+  registerTaskCompletionGuards,
+} from '../../lib/task-completion-guards'
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn(),
@@ -448,5 +452,78 @@ describe('GET /api/workflows/tasks/[id] — act surfaces', () => {
       expect(data).toHaveProperty(key)
     }
     expect(userTaskDetailResponseSchema.safeParse({ data }).success).toBe(true)
+  })
+})
+
+/**
+ * Host completion guards (issue #7178) close `canComplete` on the read side
+ * with the guard's own code, evaluated in preview mode — reading the page must
+ * never change the task.
+ */
+describe('GET /api/workflows/tasks/[id] — completion guards', () => {
+  const forkFlush = jest.fn(async () => undefined)
+
+  beforeEach(() => {
+    clearTaskCompletionGuards()
+    ;(mockEm as unknown as { fork: () => unknown }).fork = () => ({
+      findOne: mockEm.findOne,
+      flush: forkFlush,
+    })
+  })
+
+  afterAll(() => clearTaskCompletionGuards())
+
+  test('a vetoing guard turns canComplete off and names itself, without mutating the task', async () => {
+    const evaluate = jest.fn(async () => ({
+      ok: false as const,
+      code: 'CONTRACT_NOT_SIGNED',
+      messageKey: 'host.tasks.contractNotSigned',
+      message: 'internal detail',
+    }))
+    registerTaskCompletionGuards([{ moduleId: 'host', guards: [{ id: 'host.signed-contract', evaluate }] }])
+    const task = makeTask()
+    setTask(task)
+
+    const response = await runDetail()
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(body.data).toMatchObject({
+      canComplete: false,
+      actBlockedReason: 'completion-guard',
+      completionGuard: {
+        guardId: 'host.signed-contract',
+        code: 'CONTRACT_NOT_SIGNED',
+        messageKey: 'host.tasks.contractNotSigned',
+      },
+    })
+    expect(JSON.stringify(body)).not.toContain('internal detail')
+    expect(evaluate).toHaveBeenCalledWith(expect.objectContaining({ mode: 'preview', userId: USER_ID }))
+    expect(userTaskDetailResponseSchema.safeParse(body).success).toBe(true)
+    expect(task.status).toBe('PENDING')
+    expect(forkFlush).not.toHaveBeenCalled()
+  })
+
+  test('a passing guard leaves the owner able to complete', async () => {
+    registerTaskCompletionGuards([
+      { moduleId: 'host', guards: [{ id: 'host.ok', evaluate: async () => ({ ok: true as const }) }] },
+    ])
+    setTask(makeTask())
+
+    const body = await (await runDetail()).json()
+
+    expect(body.data).toMatchObject({ canComplete: true, actBlockedReason: null, completionGuard: null })
+  })
+
+  test('is not consulted when visibility already refuses — the earlier reason wins', async () => {
+    const evaluate = jest.fn(async () => ({ ok: false as const, code: 'NOPE' }))
+    registerTaskCompletionGuards([{ moduleId: 'host', guards: [{ id: 'host.nope', evaluate }] }])
+    withVisibility({ acl: { features: ['workflows.tasks.view', 'workflows.tasks.view_all'] } })
+    setTask(makeTask({ assignedTo: 'somebody-else' }))
+
+    const body = await (await runDetail()).json()
+
+    expect(body.data).toMatchObject({ canComplete: false, actBlockedReason: 'owned-by-another', completionGuard: null })
+    expect(evaluate).not.toHaveBeenCalled()
   })
 })

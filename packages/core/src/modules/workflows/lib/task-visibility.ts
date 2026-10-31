@@ -462,6 +462,23 @@ export type TaskActionBlockReason =
    * uninformative — it says the action is unavailable and stops there.
    */
   | 'unavailable'
+  /**
+   * A host module's completion guard (`lib/task-completion-guards.ts`) vetoes
+   * completion. The guard's own code and message key travel alongside in
+   * `completionGuard`; reached only when the row is otherwise the caller's to
+   * complete, so every reason above keeps its precedence.
+   */
+  | 'completion-guard'
+
+/**
+ * The guard veto as the read surfaces carry it. `message` stays server-side:
+ * a UI renders `messageKey`, an API caller gets the 409 body on the act route.
+ */
+export type TaskCompletionGuardSummary = {
+  guardId: string
+  code: string
+  messageKey: string | null
+}
 
 /**
  * What the page may OFFER, decided here so no client re-derives §6.4.
@@ -480,6 +497,12 @@ export type TaskAffordances = {
   canReassign: boolean
   /** Why `canComplete` is false, for a caller who can read the row. */
   actBlockedReason: TaskActionBlockReason | null
+  /**
+   * The guard veto behind `actBlockedReason: 'completion-guard'`, else null.
+   * Optional so code building a `TaskAffordances` itself keeps compiling;
+   * `resolveTaskAffordances` always sets it.
+   */
+  completionGuard?: TaskCompletionGuardSummary | null
 }
 
 /**
@@ -489,18 +512,26 @@ export type TaskAffordances = {
  * rather than a second evaluation of the rule: `canComplete` IS `actable` and
  * `canClaim` IS `claimable`. Only `canRelease` and `canReassign` add anything,
  * and each adds exactly the one condition its endpoint checks beyond visibility.
+ *
+ * `completionBlock` is a completion-guard veto the caller evaluated beforehand
+ * (non-mutating, `evaluateTaskCompletionGuards` in `preview` mode). It can only
+ * CLOSE `canComplete`, never open it, and is ignored when visibility already
+ * refuses — so the stated reason stays the one a click would produce first.
  */
 export function resolveTaskAffordances(
   principal: BackofficeTaskPrincipal,
   task: TaskFacts,
   decision: TaskVisibilityDecision,
+  completionBlock: TaskCompletionGuardSummary | null = null,
 ): TaskAffordances {
   // Set on the `legacy-read-filter` ADMIT: the opt-out restored the read and the
   // entity gate is still shut underneath, so every act route answers 404.
   const entityGateClosed = decision.blockedEntityType !== undefined
   const actSurfaceOpen = decision.visible && !entityGateClosed
 
-  const canComplete = decision.visible && decision.actable
+  const visibilityAllowsCompletion = decision.visible && decision.actable
+  const guardBlocks = visibilityAllowsCompletion && completionBlock !== null
+  const canComplete = visibilityAllowsCompletion && !guardBlocks
   const canClaim = decision.visible && decision.claimable
   const canRelease =
     actSurfaceOpen && task.status === TASK_RELEASABLE_STATUS && task.claimedBy === principal.userId
@@ -515,10 +546,19 @@ export function resolveTaskAffordances(
     canClaim,
     canRelease,
     canReassign,
-    actBlockedReason: resolveActBlockReason(principal, task, decision, {
-      canComplete,
-      entityGateClosed,
-    }),
+    actBlockedReason: guardBlocks
+      ? 'completion-guard'
+      : resolveActBlockReason(principal, task, decision, {
+          canComplete,
+          entityGateClosed,
+        }),
+    completionGuard: guardBlocks && completionBlock
+      ? {
+          guardId: completionBlock.guardId,
+          code: completionBlock.code,
+          messageKey: completionBlock.messageKey,
+        }
+      : null,
   }
 }
 

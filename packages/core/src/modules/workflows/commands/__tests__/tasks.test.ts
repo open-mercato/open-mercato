@@ -14,10 +14,23 @@ jest.mock('../../lib/task-decision-context', () => ({
 
 jest.mock('../../data/entities', () => ({ UserTask: class UserTask {} }))
 
+const mockTranslations: Record<string, string> = {}
+
+jest.mock('@open-mercato/shared/lib/i18n/server', () => {
+  const { createFallbackTranslator } = jest.requireActual<typeof import('@open-mercato/shared/lib/i18n/translate')>(
+    '@open-mercato/shared/lib/i18n/translate',
+  )
+  return {
+    resolveTranslations: async () => ({ locale: 'pl', translate: createFallbackTranslator(mockTranslations) }),
+  }
+})
+
 import { describe, test, expect, jest, beforeEach } from '@jest/globals'
 import completeUserTaskCommand, {
   WORKFLOWS_TASK_COMPLETE_COMMAND_ID,
 } from '../tasks'
+import { TaskCompletionBlockedError } from '../../lib/task-handler'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
 const tenantId = '00000000-0000-4000-8000-000000000001'
 const organizationId = '00000000-0000-4000-8000-000000000002'
@@ -148,6 +161,70 @@ describe('workflows.tasks.complete', () => {
       /already completed/
     )
     expect(mockCompleteUserTask).not.toHaveBeenCalled()
+  })
+
+  test('a completion-guard veto surfaces as the same 409 body the HTTP route answers', async () => {
+    mockCompleteUserTask.mockRejectedValue(
+      new TaskCompletionBlockedError({
+        guardId: 'host.signed-contract',
+        code: 'CONTRACT_NOT_SIGNED',
+        messageKey: 'host.tasks.contractNotSigned',
+        message: null,
+      }) as never
+    )
+
+    const failure = await completeUserTaskCommand
+      .execute({ id: taskId }, ctx as never)
+      .catch((error: unknown) => error)
+
+    expect(isCrudHttpError(failure)).toBe(true)
+    expect(failure).toMatchObject({
+      status: 409,
+      body: {
+        code: 'CONTRACT_NOT_SIGNED',
+        guardId: 'host.signed-contract',
+        messageKey: 'host.tasks.contractNotSigned',
+      },
+    })
+  })
+
+  test('a message-less veto reaches the notification action in the caller locale', async () => {
+    Object.assign(mockTranslations, {
+      'workflows.tasks.errors.completionBlocked': 'Nie można ukończyć zadania, ponieważ warunek wstępny nie jest spełniony.',
+    })
+    mockCompleteUserTask.mockRejectedValue(
+      new TaskCompletionBlockedError({
+        guardId: 'host.signed-contract',
+        code: 'CONTRACT_NOT_SIGNED',
+        messageKey: null,
+        message: null,
+      }) as never
+    )
+
+    try {
+      const failure = await completeUserTaskCommand
+        .execute({ id: taskId }, ctx as never)
+        .catch((error: unknown) => error)
+
+      expect(failure).toMatchObject({
+        status: 409,
+        body: {
+          error: 'Nie można ukończyć zadania, ponieważ warunek wstępny nie jest spełniony.',
+          code: 'CONTRACT_NOT_SIGNED',
+          guardId: 'host.signed-contract',
+          messageKey: null,
+        },
+      })
+    } finally {
+      for (const key of Object.keys(mockTranslations)) delete mockTranslations[key]
+    }
+  })
+
+  test('other handler failures propagate unchanged', async () => {
+    const boom = new Error('boom')
+    mockCompleteUserTask.mockRejectedValue(boom as never)
+
+    await expect(completeUserTaskCommand.execute({ id: taskId }, ctx as never)).rejects.toBe(boom)
   })
 
   test('ignores unrelated keys the notification service spreads into the input', async () => {

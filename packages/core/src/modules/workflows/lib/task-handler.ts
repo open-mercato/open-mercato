@@ -27,6 +27,13 @@ import {
 } from './task-decisions'
 import { loadTaskDecisionContext } from './task-decision-context'
 import { readRequiredFormFields } from './task-form-schema'
+import {
+  buildTaskCompletionBlockedBody,
+  evaluateTaskCompletionGuards,
+  isTaskCompletionBlockedError,
+  TASK_COMPLETION_BLOCKED_ERROR_NAME,
+} from './task-completion-guards'
+import type { TaskCompletionBlock } from './task-completion-guards'
 import { isRunClosedToUserTasks } from './instance-status'
 import * as stepHandler from './step-handler'
 import * as transitionHandler from './transition-handler'
@@ -89,6 +96,34 @@ export class UserTaskError extends Error {
     this.name = 'UserTaskError'
   }
 }
+
+/**
+ * A registered completion guard vetoed the completion
+ * (`lib/task-completion-guards.ts`). `code` is the GUARD's code, so the route,
+ * the command and a direct caller all see the same one.
+ */
+export class TaskCompletionBlockedError extends UserTaskError {
+  readonly status = 409
+  readonly guardId: string
+  readonly messageKey: string | null
+
+  constructor(public readonly block: TaskCompletionBlock) {
+    super(
+      block.message ?? 'Task completion is blocked by a precondition',
+      block.code,
+      { guardId: block.guardId, messageKey: block.messageKey }
+    )
+    this.name = TASK_COMPLETION_BLOCKED_ERROR_NAME
+    this.guardId = block.guardId
+    this.messageKey = block.messageKey
+  }
+
+  get body(): Record<string, unknown> {
+    return buildTaskCompletionBlockedBody(this.block)
+  }
+}
+
+export { isTaskCompletionBlockedError }
 
 // ============================================================================
 // User Task Completion
@@ -164,7 +199,7 @@ export async function completeUserTask(
   // default route. The list is re-resolved from the instance's pinned
   // definition, so it is exactly the list the assignee was shown.
   const chosenDecision = decisionId
-    ? findTaskDecision((await loadTaskDecisionContext(em, task)).decisions, decisionId)
+    ? findTaskDecision((await loadTaskDecisionContext(em, task, { tenantId: task.tenantId, organizationId: task.organizationId })).decisions, decisionId)
     : null
 
   if (decisionId && !chosenDecision) {
@@ -190,6 +225,19 @@ export async function completeUserTask(
       'WORKFLOW_NOT_ACTIVE',
       { taskId, workflowInstanceId: instance.id, status: instance.status }
     )
+  }
+
+  // A host-owned precondition (`lib/task-completion-guards.ts`) gets the last
+  // word, still before anything is mutated: every completion path reaches this
+  // function, so this one check covers the route, the command and direct callers.
+  const completionBlock = await evaluateTaskCompletionGuards(em, container, task, {
+    mode: 'complete',
+    userId,
+    formData,
+    decisionId: chosenDecision?.id ?? null,
+  })
+  if (completionBlock) {
+    throw new TaskCompletionBlockedError(completionBlock)
   }
 
   // The chosen decision rides along inside the completion payload the task

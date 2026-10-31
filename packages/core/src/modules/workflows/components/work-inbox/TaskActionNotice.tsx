@@ -47,7 +47,9 @@ export function TaskActionNotice({
       <p className={`flex items-start gap-2 text-sm ${descriptor.text}`}>
         <Icon className={`mt-0.5 h-4 w-4 shrink-0 ${descriptor.icon}`} aria-hidden="true" />
         <span>
-          {t(descriptor.messageKey)}
+          {descriptor.fallbackMessageKey
+            ? t(descriptor.messageKey, t(descriptor.fallbackMessageKey))
+            : t(descriptor.messageKey)}
           {showRemedy ? (
             <>
               {' '}
