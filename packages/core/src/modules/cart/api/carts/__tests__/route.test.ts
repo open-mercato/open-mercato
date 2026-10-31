@@ -1,5 +1,5 @@
 jest.mock('@open-mercato/shared/lib/crud/factory', () => ({
-  makeCrudRoute: jest.fn((opts: unknown) => ({ opts, GET: jest.fn() })),
+  makeCrudRoute: jest.fn((opts: { metadata?: unknown }) => ({ opts, metadata: opts.metadata, GET: jest.fn() })),
 }))
 
 const mockFindWithDecryption = jest.fn()
@@ -8,7 +8,7 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
 }))
 
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { cartAdminListCrud, cartAdminListQuerySchema } from '../route'
+import { cartAdminListCrud, cartAdminListQuerySchema, metadata } from '../route'
 import { CartLine } from '../../../data/entities'
 import { CustomerEntity } from '@open-mercato/core/modules/customers/data/entities'
 
@@ -28,6 +28,16 @@ type CartAdminListOpts = {
 }
 
 const opts = (cartAdminListCrud as unknown as { opts: CartAdminListOpts }).opts
+
+describe('cart admin list — ACL guard', () => {
+  it('exports `metadata` (what the API dispatcher reads) with GET gated on cart.carts.view', () => {
+    // The dispatcher (`apps/mercato/src/app/api/[...slug]/route.ts`) reads only `mod.metadata`.
+    // A route that only exports `cartAdminListRouteMetadata` without re-exporting `metadata`
+    // falls back to `requireAuth` only, letting any signed-in user list every basket.
+    expect(metadata).toBeDefined()
+    expect((metadata as { GET: { requireFeatures: string[] } }).GET.requireFeatures).toContain('cart.carts.view')
+  })
+})
 
 describe('cart admin list — kind filter (K6/§10.2, pinning the proposal seam)', () => {
   it('defaults kind to basket', () => {

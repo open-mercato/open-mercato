@@ -153,6 +153,7 @@ export const cartAdminListCrud = makeCrudRoute<never, never, CartAdminListQuery>
   },
 })
 
+export const metadata = cartAdminListCrud.metadata
 export const GET = cartAdminListCrud.GET
 
 const cartAdminListRowSchema = z.object({
