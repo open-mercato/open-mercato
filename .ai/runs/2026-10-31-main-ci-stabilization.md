@@ -9,7 +9,7 @@ Restore the main branch's snapshot-release health by ensuring standalone consume
 ## Scope
 
 - Diagnose the failing main-branch workflows and record the causal dependency path.
-- Pin the Documents package's tightly coupled TipTap runtime family to one aged, tested patch version and align the root resolution and lockfile.
+- Pin the Documents package's tightly coupled TipTap runtime family to one aged, peer-aligned patch version and align the root resolution and lockfile.
 - Add regression coverage that rejects ranged or mixed TipTap runtime versions in the published package manifest.
 - Run the configured validation gate, verify PR checks, and obtain an independent final review.
 
@@ -28,7 +28,7 @@ Restore the main branch's snapshot-release health by ensuring standalone consume
 
 ### Phase 2: Stabilize the published dependency graph
 
-1. Pin the Documents TipTap runtime family and root resolution to the tested `3.30.6` peer graph, then regenerate the lockfile.
+1. Pin the Documents TipTap runtime family and root resolution to the reviewed, peer-aligned `3.32.0` graph, then regenerate the lockfile.
 2. Add a regression test that keeps the published TipTap family exact and internally aligned.
 
 ### Phase 3: Verify and review
@@ -48,12 +48,12 @@ Restore the main branch's snapshot-release health by ensuring standalone consume
 
 ### Phase 1: Diagnose the failing release path
 
-- [ ] 1.1 Confirm the failing main workflows, isolate the standalone dependency-resolution failure, and select the smallest security-preserving fix.
+- [x] 1.1 Confirm the failing main workflows, isolate the standalone dependency-resolution failure, and select the smallest security-preserving fix. — 4a145663ae
 
 ### Phase 2: Stabilize the published dependency graph
 
-- [ ] 2.1 Pin the Documents TipTap runtime family and root resolution to the tested `3.30.6` peer graph, then regenerate the lockfile.
-- [ ] 2.2 Add a regression test that keeps the published TipTap family exact and internally aligned.
+- [x] 2.1 Pin the Documents TipTap runtime family and root resolution to the reviewed, peer-aligned `3.32.0` graph, then regenerate the lockfile. — 4a145663ae
+- [x] 2.2 Add a regression test that keeps the published TipTap family exact and internally aligned. — 6f8e279a12
 
 ### Phase 3: Verify and review
 
