@@ -53,6 +53,14 @@ const PAYMENT_SESSION_CLAIM_STALE_MS = 30_000
 const PAYMENT_SESSION_WAIT_INTERVAL_MS = 25
 const logger = createLogger('payment_gateways').child({ component: 'gateway-service' })
 
+function reportErrorSafely(error: unknown, code: string): void {
+  try {
+    getTelemetryRuntime()?.reportError(error, { module: 'payment_gateways', code })
+  } catch (reportFailure) {
+    logger.warn('Failed to report a payment gateway error', { code, err: reportFailure })
+  }
+}
+
 function assertManualActionAllowed(action: ManualGatewayAction, transaction: GatewayTransaction): void {
   const current = transaction.unifiedStatus as UnifiedPaymentStatus
   if (!canApplyManualAction(action, current)) {
@@ -255,7 +263,8 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
       },
     })
     if (prepared.kind === 'completed') {
-      if (prepared.result.status !== transaction.unifiedStatus) {
+      const settledStatus = prepared.settledStatus ?? prepared.result.status
+      if (settledStatus !== transaction.unifiedStatus) {
         throw conflict(
           `Cannot replay ${input.action} because the payment status has changed since the operation completed`,
         )
@@ -273,6 +282,7 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
     // cases need opposite rollback decisions.
     let providerInvoked = false
     const startedFrom = transaction.unifiedStatus as UnifiedPaymentStatus
+    const resumesEarlierAttempt = operation.attemptCount > 1
     let incompatibleConcurrentStatus: UnifiedPaymentStatus | null = null
     try {
       await input.beforeInvoke?.({ transaction, operation })
@@ -297,28 +307,36 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
             refresh: true,
           })
           const outcome = applyAdapterResultStatus(input.action, current, result.status, {
-            tolerateIncompatible: current.unifiedStatus !== startedFrom,
+            tolerateIncompatible: current.unifiedStatus !== startedFrom || resumesEarlierAttempt,
           })
           incompatibleConcurrentStatus = outcome === 'incompatible'
             ? current.unifiedStatus as UnifiedPaymentStatus
             : null
           input.applyResult(current, result)
-          return outcome === 'applied'
+          return { statusChanged: outcome === 'applied', settledStatus: current.unifiedStatus }
         },
       )
       settled = true
       if (incompatibleConcurrentStatus) {
-        await writeTransactionLog(
-          transaction.providerKey,
-          { organizationId: transaction.organizationId, tenantId: transaction.tenantId },
-          transaction.id,
-          'warn',
-          'Payment status changed concurrently; provider result not applied',
-          { action: input.action, currentStatus: incompatibleConcurrentStatus, resultStatus: result.status },
-        )
-        getTelemetryRuntime()?.reportError(
+        try {
+          await writeTransactionLog(
+            transaction.providerKey,
+            { organizationId: transaction.organizationId, tenantId: transaction.tenantId },
+            transaction.id,
+            'warn',
+            'Payment status changed concurrently; provider result not applied',
+            { action: input.action, currentStatus: incompatibleConcurrentStatus, resultStatus: result.status },
+          )
+        } catch (logError) {
+          logger.warn('Failed to log a provider result left unapplied', {
+            transactionId: transaction.id,
+            providerKey: transaction.providerKey,
+            err: logError,
+          })
+        }
+        reportErrorSafely(
           new Error('[internal] Provider result not applied after a concurrent payment status change'),
-          { module: 'payment_gateways', code: 'payment_gateways.manual_result_not_applied' },
+          'payment_gateways.manual_result_not_applied',
         )
       }
       if (statusChanged) {
@@ -781,10 +799,7 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
           providerKey: transaction.providerKey,
           err: refreshError,
         })
-        getTelemetryRuntime()?.reportError(refreshError, {
-          module: 'payment_gateways',
-          code: 'payment_gateways.poll_status_reread_failed',
-        })
+        reportErrorSafely(refreshError, 'payment_gateways.poll_status_reread_failed')
       }
       await emitStatusEvent(status.status, {
         transactionId: transaction.id,

@@ -269,6 +269,33 @@ describe('payment gateway service — status writers evaluate the locked committ
         { module: 'payment_gateways', code: 'payment_gateways.poll_status_reread_failed' },
       )
     })
+
+    it('still announces a committed transition when the error reporter itself throws', async () => {
+      const committed = makeRow('authorized')
+      const harness = buildHarness({ committed, callerCopy: makeRow('authorized') })
+      harness.adapter.getStatus.mockResolvedValue({ status: 'captured' })
+      const harnessFind = findOneMock.getMockImplementation()
+      findOneMock.mockImplementation(async (targetEm, entity, where, options) => {
+        if ((options as FindOptions)?.refresh && targetEm === harness.callerEm) {
+          throw new Error('[internal] re-read failed')
+        }
+        return harnessFind!(targetEm, entity, where, options)
+      })
+      mockReportError.mockImplementationOnce(() => {
+        throw new Error('[internal] telemetry unavailable')
+      })
+
+      await expect(harness.service.getPaymentStatus('txn_1', scope)).resolves.toEqual({ status: 'captured' })
+
+      expect(mockReportError).toHaveBeenCalledTimes(1)
+      expect(committed.unifiedStatus).toBe('captured')
+      expect(emit).toHaveBeenCalledTimes(1)
+      expect(emit.mock.calls[0][0]).toBe('payment_gateways.payment.captured')
+      expect(harness.integrationLogService.write).toHaveBeenCalledWith(
+        expect.objectContaining({ message: 'Payment status updated by poller' }),
+        scope,
+      )
+    })
   })
 
   describe('webhook sync', () => {
@@ -352,6 +379,65 @@ describe('payment gateway service — status writers evaluate the locked committ
       expect(mockReportError).toHaveBeenCalledWith(
         expect.any(Error),
         { module: 'payment_gateways', code: 'payment_gateways.manual_result_not_applied' },
+      )
+    })
+
+    it('replays a capture completed across a concurrent cancellation without calling the provider again', async () => {
+      const committed = makeRow('authorized')
+      const harness = buildHarness({ committed, callerCopy: makeRow('authorized') })
+      harness.adapter.capture.mockImplementation(async () => {
+        committed.unifiedStatus = 'cancelled'
+        return { status: 'captured', capturedAmount: 100, providerData: { captureMarker: true } }
+      })
+
+      const first = await harness.service.capturePayment('txn_1', undefined, scope, 'capture-replay-after-cancel')
+      const replay = await harness.service.capturePayment('txn_1', undefined, scope, 'capture-replay-after-cancel')
+
+      expect(replay).toEqual(first)
+      expect(harness.adapter.capture).toHaveBeenCalledTimes(1)
+      expect(committed.unifiedStatus).toBe('cancelled')
+      expect(emit).not.toHaveBeenCalled()
+    })
+
+    it('still refuses to replay a capture once the payment moved on after it completed', async () => {
+      const committed = makeRow('authorized')
+      const callerCopy = makeRow('authorized')
+      const harness = buildHarness({ committed, callerCopy })
+      harness.adapter.capture.mockResolvedValue({ status: 'captured', capturedAmount: 100 })
+
+      await harness.service.capturePayment('txn_1', undefined, scope, 'capture-replay-moved-on')
+      expect(committed.unifiedStatus).toBe('captured')
+      committed.unifiedStatus = 'refunded'
+      callerCopy.unifiedStatus = 'refunded'
+
+      await expect(harness.service.capturePayment('txn_1', undefined, scope, 'capture-replay-moved-on'))
+        .rejects.toMatchObject({ status: 409 })
+      expect(harness.adapter.capture).toHaveBeenCalledTimes(1)
+    })
+
+    it('completes a capture across a concurrent cancellation when logging and error reporting both throw', async () => {
+      const committed = makeRow('authorized')
+      const harness = buildHarness({ committed, callerCopy: makeRow('authorized') })
+      harness.adapter.capture.mockImplementation(async () => {
+        committed.unifiedStatus = 'cancelled'
+        return { status: 'captured', capturedAmount: 100 }
+      })
+      harness.integrationLogService.write.mockRejectedValueOnce(new Error('[internal] log store unavailable'))
+      mockReportError.mockImplementationOnce(() => {
+        throw new Error('[internal] telemetry unavailable')
+      })
+
+      await expect(harness.service.capturePayment('txn_1', undefined, scope, 'capture-telemetry-down'))
+        .resolves.toMatchObject({ status: 'captured' })
+
+      expect(mockReportError).toHaveBeenCalledTimes(1)
+      expect(committed.unifiedStatus).toBe('cancelled')
+      expect(Array.from(harness.operations.values())).toEqual([
+        expect.objectContaining({ operationId: 'capture-telemetry-down', status: 'succeeded' }),
+      ])
+      expect(harness.integrationLogService.write).toHaveBeenLastCalledWith(
+        expect.objectContaining({ message: 'Payment captured' }),
+        scope,
       )
     })
 

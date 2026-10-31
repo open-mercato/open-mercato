@@ -52,6 +52,8 @@ type ProviderSession = {
   captureAmount: number | null
   captureGate: Promise<void> | null
   onCaptureStarted: (() => void) | null
+  onCaptureReturned: (() => void) | null
+  captureKeys: string[]
 }
 
 type EmittedEvent = { id: string; transactionId: string }
@@ -77,9 +79,11 @@ const raceAdapter: GatewayAdapter = {
   },
   async capture(input) {
     const session = readSession(input.sessionId)
+    session.captureKeys.push(input.idempotencyKey ?? '')
     session.onCaptureStarted?.()
     if (session.captureGate) await session.captureGate
     await delay(session.maxDelayMs)
+    session.onCaptureReturned?.()
     return {
       status: 'captured',
       capturedAmount: session.captureAmount ?? input.amount,
@@ -175,6 +179,33 @@ async function manualCapture(transaction: { id: string; organizationId: string }
   await service.capturePayment(transaction.id, undefined, { organizationId: transaction.organizationId, tenantId: TENANT_ID })
 }
 
+async function captureWithOperation(
+  transaction: { id: string; organizationId: string },
+  operationId: string,
+  em: EntityManager = orm.em.fork() as unknown as EntityManager,
+) {
+  const service = buildService(em)
+  return service.capturePayment(transaction.id, undefined, { organizationId: transaction.organizationId, tenantId: TENANT_ID }, operationId)
+}
+
+function failNextCompletion(em: EntityManager, session: ProviderSession): void {
+  const original = em.transactional.bind(em)
+  let providerReturned = false
+  let failed = false
+  session.onCaptureReturned = () => { providerReturned = true }
+  em.transactional = (async (...args: Parameters<EntityManager['transactional']>) => {
+    if (providerReturned && !failed) {
+      failed = true
+      throw new Error('[internal] simulated completion outage')
+    }
+    return original(...args)
+  }) as EntityManager['transactional']
+}
+
+async function readOperations(transactionId: string): Promise<GatewayPaymentOperation[]> {
+  return orm.em.fork().find(GatewayPaymentOperation, { transactionId })
+}
+
 async function manualCancel(transaction: { id: string; organizationId: string }): Promise<void> {
   const service = buildService(orm.em.fork() as unknown as EntityManager)
   await service.cancelPayment(transaction.id, undefined, { organizationId: transaction.organizationId, tenantId: TENANT_ID })
@@ -192,6 +223,8 @@ async function seedTransaction(status: UnifiedPaymentStatus, session: Partial<Pr
     captureAmount: null,
     captureGate: null,
     onCaptureStarted: null,
+    onCaptureReturned: null,
+    captureKeys: [],
     ...session,
   })
   const transaction = em.create(GatewayTransaction, {
@@ -358,6 +391,82 @@ describeWithDatabase('payment gateway status poll vs concurrent writers (real Po
       expect(eventsFor(txn.id)).toEqual(['cancelled'])
       const operations = await orm.em.fork().find(GatewayPaymentOperation, { transactionId: txn.id })
       expect(operations.map((operation) => operation.status)).toEqual(['succeeded'])
+    })
+
+    it('replays a capture completed across a concurrent cancellation from a fresh entity manager', async () => {
+      const gate = deferred()
+      const started = deferred()
+      const txn = await seedTransaction('authorized', {
+        captureAmount: 100,
+        captureGate: gate.promise,
+        onCaptureStarted: started.resolve,
+      })
+      const capture = captureWithOperation(txn, 'capture-across-cancel')
+      await started.promise
+      await deliverWebhook(txn, 'cancelled', 'cancelWebhookMarker')
+      gate.resolve()
+      const first = await capture
+      const replay = await captureWithOperation(txn, 'capture-across-cancel')
+      expect(first).toMatchObject({ status: 'captured', capturedAmount: 100 })
+      expect(replay).toEqual(first)
+      expect(readSession(txn.providerSessionId).captureKeys).toHaveLength(1)
+      const row = await readTransaction(txn.id)
+      expect(row.unifiedStatus).toBe('cancelled')
+      expect(row.capturedAmount).toBe('100.0000')
+      expect(eventsFor(txn.id)).toEqual(['cancelled'])
+      const operations = await readOperations(txn.id)
+      expect(operations.map((operation) => [operation.operationId, operation.status, operation.attemptCount]))
+        .toEqual([['capture-across-cancel', 'succeeded', 1]])
+    })
+
+    it('retries a capture whose completion failed with one provider effect and a consistent ledger', async () => {
+      const txn = await seedTransaction('authorized', {})
+      const session = readSession(txn.providerSessionId)
+      const failingEm = orm.em.fork() as unknown as EntityManager
+      failNextCompletion(failingEm, session)
+      await expect(captureWithOperation(txn, 'capture-completion-retry', failingEm))
+        .rejects.toThrow('simulated completion outage')
+      const afterFailure = await readTransaction(txn.id)
+      expect(afterFailure.unifiedStatus).toBe('authorized')
+      expect(afterFailure.capturedAmount).toBe('100.0000')
+      expect((await readOperations(txn.id)).map((operation) => [operation.status, operation.reservedAmount]))
+        .toEqual([['failed', '100.0000']])
+
+      const retried = await captureWithOperation(txn, 'capture-completion-retry')
+      const replay = await captureWithOperation(txn, 'capture-completion-retry')
+      expect(retried).toMatchObject({ status: 'captured', capturedAmount: 100 })
+      expect(replay).toEqual(retried)
+      expect(session.captureKeys).toHaveLength(2)
+      expect(new Set(session.captureKeys).size).toBe(1)
+      const row = await readTransaction(txn.id)
+      expect(row.unifiedStatus).toBe('captured')
+      expect(row.capturedAmount).toBe('100.0000')
+      expect(eventsFor(txn.id)).toEqual(['captured'])
+      expect((await readOperations(txn.id)).map((operation) => [operation.status, operation.attemptCount]))
+        .toEqual([['succeeded', 2]])
+    })
+
+    it('settles a retried capture after a cancellation committed between the failed completion and the retry', async () => {
+      const txn = await seedTransaction('authorized', {})
+      const session = readSession(txn.providerSessionId)
+      const failingEm = orm.em.fork() as unknown as EntityManager
+      failNextCompletion(failingEm, session)
+      await expect(captureWithOperation(txn, 'capture-retry-after-cancel', failingEm))
+        .rejects.toThrow('simulated completion outage')
+      await deliverWebhook(txn, 'cancelled', 'cancelWebhookMarker')
+
+      const retried = await captureWithOperation(txn, 'capture-retry-after-cancel')
+      const replay = await captureWithOperation(txn, 'capture-retry-after-cancel')
+      expect(retried).toMatchObject({ status: 'captured', capturedAmount: 100 })
+      expect(replay).toEqual(retried)
+      expect(new Set(session.captureKeys).size).toBe(1)
+      const row = await readTransaction(txn.id)
+      expect(row.unifiedStatus).toBe('cancelled')
+      expect(row.capturedAmount).toBe('100.0000')
+      expect(row.gatewayMetadata).toEqual(expect.objectContaining({ cancelWebhookMarker: true }))
+      expect(eventsFor(txn.id)).toEqual(['cancelled'])
+      expect((await readOperations(txn.id)).map((operation) => [operation.status, operation.attemptCount]))
+        .toEqual([['succeeded', 2]])
     })
   })
 
