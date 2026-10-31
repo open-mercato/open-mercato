@@ -128,6 +128,14 @@ test.describe('TC-SALES-046 recurring order locks and status guards', () => {
           data: { id: lineId, orderId, quantity: 2, currencyCode: 'USD' },
         })],
         ['delete line', () => apiRequest(request, 'DELETE', '/api/sales/order-lines', { token, data: { id: lineId, orderId } })],
+        ['batch edit lines', () => apiRequest(request, 'POST', '/api/sales/order-lines/batch', {
+          token,
+          data: { orderId, lines: [{ id: lineId, currencyCode: 'USD', quantity: 2 }] },
+        })],
+        ['batch delete lines', () => apiRequest(request, 'POST', '/api/sales/order-lines/batch', {
+          token,
+          data: { orderId, deleteIds: [lineId] },
+        })],
         ['add adjustment', () => apiRequest(request, 'POST', '/api/sales/order-adjustments', {
           token,
           data: { orderId, scope: 'order', kind: 'surcharge', amountNet: 1, amountGross: 1, currencyCode: 'USD' },
