@@ -325,9 +325,17 @@ describe('promotions.code.update command', () => {
     expect(code.name).toBe('Original')
   })
 
-  async function runLoggedUpdate(em: FakeEm, code: Row, input: Row) {
+  type UpdateInput = Parameters<typeof updateCodeCommand.execute>[0]
+  type UpdateUndoArgs = Parameters<NonNullable<typeof updateCodeCommand.undo>>[0]
+
+  function undoUpdate(payload: unknown, ctx: CommandRuntimeContext) {
+    const logEntry = { commandPayload: payload } as unknown as UpdateUndoArgs['logEntry']
+    return updateCodeCommand.undo!({ logEntry, ctx, input: {} as UpdateUndoArgs['input'] })
+  }
+
+  async function runLoggedUpdate(em: FakeEm, code: Row, input: Omit<UpdateInput, 'id'>) {
     const ctx = fakeCtx(em, { dataEngine: fakeDataEngine() })
-    const updateInput = { id: code.id, ...input } as any
+    const updateInput: UpdateInput = { id: code.id as string, ...input }
     const prepared = await updateCodeCommand.prepare!(updateInput, ctx)
     await updateCodeCommand.execute(updateInput, ctx)
     const after = await updateCodeCommand.captureAfter!(updateInput, { codeId: code.id as string }, ctx)
@@ -337,7 +345,7 @@ describe('promotions.code.update command', () => {
       ctx,
       snapshots: { before: prepared && 'before' in prepared ? prepared.before : undefined, after },
     })
-    return () => updateCodeCommand.undo!({ logEntry: { commandPayload: logEntry!.payload } as any, ctx, input: {} as any })
+    return () => undoUpdate(logEntry!.payload, ctx)
   }
 
   it('undo does not reactivate a code that was used up after the update it reverts', async () => {
@@ -375,8 +383,20 @@ describe('promotions.code.update command', () => {
     code.used = 1
     code.active = false
 
-    await updateCodeCommand.undo!({ logEntry: { commandPayload: { undo: { before } } } as any, ctx, input: {} as any })
+    await undoUpdate({ undo: { before } }, ctx)
     expect(code.name).toBe('Original')
+    expect(code.active).toBe(false)
+  })
+
+  it('undo deactivates a code redeemed after the update when the restored usage limit leaves no uses', async () => {
+    const { em, tables } = createFakeEm()
+    const code = seedCode(tables, { usage: 'single', used: 0, active: true })
+    const undo = await runLoggedUpdate(em, code, { usage: 'unlimited' })
+
+    code.used = 1
+
+    await undo()
+    expect(code.usage).toBe('single')
     expect(code.active).toBe(false)
   })
 

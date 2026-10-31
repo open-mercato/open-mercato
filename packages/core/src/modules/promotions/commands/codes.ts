@@ -204,8 +204,9 @@ async function loadCode(em: EntityManager, id: string): Promise<Code | null> {
 }
 
 function resolveUndoActiveFlag(code: Code, before: CodeSnapshot, after: CodeSnapshot | null | undefined): boolean {
-  if (!before.active || code.active || after?.active === false) return before.active
-  return code.type !== 'static' || hasRemainingGlobalUses(code)
+  if (!before.active || after?.active === false || code.type !== 'static') return before.active
+  const redeemedSinceUpdate = code.used > (after?.used ?? before.used)
+  return !redeemedSinceUpdate || hasRemainingGlobalUses(code)
 }
 
 // Mirrors `commands/promotions.ts`'s `resolveActorScope` — a new code's scope is always
