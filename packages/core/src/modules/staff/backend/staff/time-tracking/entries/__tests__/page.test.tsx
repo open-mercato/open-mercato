@@ -128,6 +128,8 @@ jest.mock('@open-mercato/ui/backend/DataTable', () => ({
     actions,
     filters = [],
     activeFilterChips,
+    showActiveFilterChips,
+    injectionContext,
   }: {
     data?: Array<Record<string, unknown>>
     columns?: Array<Record<string, unknown>>
@@ -135,7 +137,10 @@ jest.mock('@open-mercato/ui/backend/DataTable', () => ({
     actions?: React.ReactNode
     filters?: Array<Record<string, unknown>>
     activeFilterChips?: React.ReactNode
+    showActiveFilterChips?: boolean
+    injectionContext?: Record<string, unknown>
   }) => {
+    const FooterWidget = jest.requireActual('../../../../../widgets/injection/time-entries-summary-footer/widget').default.Widget
     const columnKey = (column: Record<string, unknown>) => String(column.id ?? column.accessorKey ?? 'column')
     return (
       <div data-testid="data-table">
@@ -147,7 +152,9 @@ jest.mock('@open-mercato/ui/backend/DataTable', () => ({
             </span>
           ))}
         </div>
-        <div data-testid="table-filter-chips">{activeFilterChips}</div>
+        <div data-testid="table-filter-chips" data-built-in-chips={showActiveFilterChips === false ? 'off' : 'on'}>
+          {activeFilterChips}
+        </div>
         <table>
           <thead>
             <tr>
@@ -177,6 +184,9 @@ jest.mock('@open-mercato/ui/backend/DataTable', () => ({
             ))}
           </tbody>
         </table>
+        <div data-testid="table-footer">
+          <FooterWidget context={injectionContext ?? {}} />
+        </div>
       </div>
     )
   },
@@ -225,6 +235,7 @@ function entryRow(overrides: ApiRow = {}): ApiRow {
 }
 
 let entryRows: ApiRow[] = []
+let entryTotals: Record<string, unknown> | undefined
 let entryListUrls: string[] = []
 
 function installListRouter() {
@@ -237,7 +248,7 @@ function installListRouter() {
       return { items: [{ id: PROJECT_ID, name: 'migracja B2B', customer_snapshot: { name: 'Nordvik' } }] }
     }
     entryListUrls.push(url)
-    return { items: entryRows, total: entryRows.length, totalPages: 1 }
+    return { items: entryRows, total: entryRows.length, totalPages: 1, ...(entryTotals ? { totals: entryTotals } : {}) }
   }) as never)
 }
 
@@ -288,6 +299,7 @@ beforeEach(() => {
   clearAllOperations()
   mockSearch = ''
   entryRows = [entryRow()]
+  entryTotals = undefined
   entryListUrls = []
   installListRouter()
   grantedFeatures(['staff.timesheets.view', 'staff.timesheets.manage_own', 'staff.timesheets.rates.view'])
@@ -452,6 +464,23 @@ describe('time entries list — footer totals', () => {
     expect(within(footer).getAllByTestId('entries-summary-money')).toHaveLength(2)
     expect(footer.textContent).not.toContain('1000')
     expect(footer.textContent).not.toContain('1,000')
+  })
+
+  it('asks for whole-set totals and renders them inside the table footer instead of the page sums', async () => {
+    entryRows = [entryRow({ id: OPEN_ID, cost: 800, currencyCode: 'PLN', duration_minutes: 150 })]
+    entryTotals = { entryCount: 120, durationMinutes: 7200, roundedMinutes: 7230, money: [{ currencyCode: 'PLN', amount: 96000 }] }
+    await renderPage()
+
+    expect(lastEntryListQuery().get('includeTotals')).toBe('true')
+    const footer = await within(screen.getByTestId('table-footer')).findByTestId('entries-summary-footer')
+    expect(footer.getAttribute('data-summary-scope')).toBe('filtered')
+    expect(within(footer).getByTestId('entries-summary-duration').textContent).toBe('120:00')
+    expect(within(footer).getAllByTestId('entries-summary-money')).toHaveLength(1)
+  })
+
+  it('turns off the filter bar chip row so the presets and entry chips are the only chip layer', async () => {
+    await renderPage()
+    expect(screen.getByTestId('table-filter-chips').getAttribute('data-built-in-chips')).toBe('off')
   })
 })
 

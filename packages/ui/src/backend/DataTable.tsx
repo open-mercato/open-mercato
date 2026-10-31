@@ -499,6 +499,12 @@ export type DataTableProps<T extends RowData> = {
    */
   activeFilterChips?: React.ReactNode
   /**
+   * Renders the filter bar's built-in row of removable chips for the active
+   * `filters`. Defaults to `true`. Set it to `false` when `activeFilterChips`
+   * already shows the applied filters, so each filter appears once.
+   */
+  showActiveFilterChips?: boolean
+  /**
    * When provided AND .active is true, replaces the generic empty state with the
    * filter-aware FilteredEmptyResults. Pages set this when their filter tree has
    * rules and the table body is empty.
@@ -1360,6 +1366,7 @@ function DataTableImpl<T extends RowData>({
   advancedFilter: advancedFilterInput,
   columnChooser,
   activeFilterChips,
+  showActiveFilterChips = true,
   filterAwareEmptyState,
   getSubRows,
   expandable,
@@ -3557,6 +3564,7 @@ function DataTableImpl<T extends RowData>({
         trailingItems={trailingItems}
         searchTrailing={searchTrailingNode}
         filtersExtraContent={fieldsetSelector}
+        showActiveFilterChips={showActiveFilterChips}
         layout={embedded ? 'inline' : 'stacked'}
         className={embedded ? 'min-h-[2.25rem]' : undefined}
       />
@@ -3573,6 +3581,7 @@ function DataTableImpl<T extends RowData>({
     filterValues,
     onFiltersApply,
     onFiltersClear,
+    showActiveFilterChips,
     canUsePerspectives,
     perspectiveAlign,
     embedded,
@@ -3776,7 +3785,9 @@ function DataTableImpl<T extends RowData>({
           </Button>
         </div>
       ) : null}
-      {activeFilterChips}
+      {activeFilterChips != null && activeFilterChips !== false ? (
+        <div data-table-active-filter-chips="">{activeFilterChips}</div>
+      ) : null}
       {injectedColumnsError ? (
         <ErrorMessage label={t('ui.dataTable.extensions.error', 'Some table extensions could not load. Reload the page to retry.')} />
       ) : null}
@@ -4114,7 +4125,7 @@ function DataTableImpl<T extends RowData>({
       </div>
       </HeaderDndWrapper>
       {footerInjectionSpotId ? (
-        <div className={embedded ? 'mt-3' : 'px-4 py-3 border-t'}>
+        <div className={embedded ? 'mt-3 empty:hidden' : 'px-4 py-3 border-t empty:hidden'} data-table-footer="">
           <InjectionSpot spotId={footerInjectionSpotId} context={resolvedInjectionContext} />
         </div>
       ) : null}
