@@ -148,6 +148,10 @@ export const REPO_WIDE_GUARDS = [
         scans: 'live packages/core/src/modules sources — generated custom-field declarations (#4534)',
       },
       {
+        path: 'src/lib/generators/__tests__/module-extension-activations.test.ts',
+        scans: 'live packages/core/src/modules/sales sources — shipped extension activation extraction and response-enricher host bindings (#7784)',
+      },
+      {
         path: 'src/lib/generators/__tests__/module-facts.local-reference.test.ts',
         scans: 'live packages/core/src/modules sources — module-facts local-reference resolution',
       },
@@ -304,6 +308,10 @@ export const REPO_WIDE_GUARDS = [
  * Each entry needs a reason, so the next person can tell "already covered" from "forgotten".
  */
 export const CROSS_PACKAGE_EXCEPTIONS = [
+  {
+    path: 'packages/cli/src/lib/__tests__/module-search.test.ts',
+    reason: 'Reads only package-local catalog fixtures and per-test mkdtemp app roots; packages/core and apps/mercato literals construct temporary resolver layouts, never audit repository sources.',
+  },
   {
     path: 'packages/cli/src/lib/generators/__tests__/agent-files-extension.test.ts',
     reason: 'Reads nothing outside packages/cli — every `packages/...` literal is joined against a per-test mkdtemp fixture root, never the repo.',
