@@ -2,6 +2,7 @@
 import { randomUUID } from 'crypto'
 import { GET } from '@open-mercato/core/modules/auth/api/autologin'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { AuthSessionRejectedError } from '@open-mercato/core/modules/auth/lib/sessionEligibility'
 
 const tenantId = randomUUID()
 const orgId = randomUUID()
@@ -65,6 +66,30 @@ describe('GET /api/auth/autologin', () => {
     process.env = { ...ORIGINAL_ENV }
   })
 
+<<<<<<< HEAD
+=======
+  test('falls back to login without credentials when session eligibility is revoked after verification', async () => {
+    setAutoLoginEnv({ OM_AUTOLOGIN_EMAIL: 'superadmin@acme.com', OM_AUTOLOGIN_PASSWORD: 'secret' })
+    authServiceMock.createSession.mockRejectedValueOnce(new AuthSessionRejectedError())
+
+    const response = await GET(autologinRequest())
+
+    expect(response.status).toBe(307)
+    expect(response.headers.get('location')).toContain('/login')
+    expect(response.headers.get('set-cookie')).toBeNull()
+  })
+
+  test('falls back to manual login when the tenant is unavailable', async () => {
+    setAutoLoginEnv({ OM_AUTOLOGIN_EMAIL: 'superadmin@acme.com', OM_AUTOLOGIN_PASSWORD: 'secret' })
+    mockTenantLookup.mockResolvedValueOnce(null as never)
+    const response = await GET(autologinRequest())
+    expect(response.headers.get('location')).toContain('/login')
+    expect(response.headers.get('set-cookie')).toBeNull()
+    expect(authServiceMock.updateLastLoginAt).not.toHaveBeenCalled()
+    expect(authServiceMock.createSession).not.toHaveBeenCalled()
+  })
+
+>>>>>>> f0365b403 (fix(sso): block fresh sign-in after SCIM deactivation (#8088))
   test('is a no-op that redirects to /login when the env credentials are unset', async () => {
     const res = await GET(autologinRequest())
     expect(res.status).toBe(307)
