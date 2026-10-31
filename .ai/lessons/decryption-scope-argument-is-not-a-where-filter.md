@@ -1,6 +1,6 @@
 ---
 title: "The decryption `scope` argument is not a WHERE filter"
-modules: ["warranty_claims","shared","customers"]
+modules: ["warranty_claims","shared","customers","resources"]
 areas: ["module-data","architecture","testing"]
 topics: ["data-scoping","access-control","command-pattern","row-locking","reference-integrity"]
 ---
@@ -16,5 +16,9 @@ topics: ["data-scoping","access-control","command-pattern","row-locking","refere
 **Locking reads**: Apply the authorized scope predicates before a pessimistic lock is acquired. A scope check after `findOneWithDecryption(..., { id }, { lockMode })` can prevent mutation while still selecting and locking a foreign record. Test the execute path's query predicates as well as rejection, and carry the same authorized scope into transaction-bound undo snapshot loaders.
 
 **Applies to**: Command handlers, action endpoints, subscribers, enrichers, and any loader that reads an entity by id or FK outside a `makeCrudRoute` factory.
+
+**Replay lookup correction (#7667)**: Create undo/redo intentionally needs retained rows, so its lookup must include soft-deleted records and validate their tenant/organization before mutation. When the existing scope policy permits All organizations or a tenant-less system context, omit the absent query key with a conditional property spread: MikroORM treats an explicitly present `undefined` predicate as SQL `IS NULL`, which silently misses non-nullable scoped records. Retain the scope guards and test the actual query shape; a mock that ignores query predicates hides this failure.
+
+**Ordinary mutation correction (#7714)**: Keep `deletedAt: null` on ordinary update/delete execute lookups even when their snapshot or replay helpers intentionally include retained rows. A hidden child must return 404 without mutation, removal, flush, or side effects; after redo it can be edited or deleted normally. Exercise both stages with a mock that applies the deletion predicate so broadening replay visibility cannot silently broaden ordinary mutation visibility.
 
 **Evidence (issue #7851)**: The customers deal-stage loader accepted a foreign stage UUID and inferred its pipeline while copying the stage label into caller-owned deals, dictionaries, and history. Explicit stage predicates plus parent-pipeline validation reject those references before mutation. The correction ships 32 command regressions and `TC-CRM-7851-pipeline-reference-scope.spec.ts`; the saved HTTP regression passed locally and in CI, including stage-only inference for valid references.
