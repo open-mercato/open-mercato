@@ -44,6 +44,8 @@ Restore the main branch's snapshot-release health by ensuring standalone consume
 
 ## Progress
 
+PR: #8349
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Diagnose the failing release path
@@ -57,5 +59,5 @@ Restore the main branch's snapshot-release health by ensuring standalone consume
 
 ### Phase 3: Verify and review
 
-- [ ] 3.1 Run the configured validation gate and the relevant standalone/package checks, fixing any regressions.
+- [x] 3.1 Run the configured validation gate and the relevant standalone/package checks, fixing any regressions. — 32094c3e94
 - [ ] 3.2 Verify the PR's CI checks and obtain the required independent final-review verdict.
