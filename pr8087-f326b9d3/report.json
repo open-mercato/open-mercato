@@ -1,0 +1,111 @@
+{
+  "runId": "f326b9d3",
+  "mode": "pr",
+  "target": {
+    "prNumber": 8087,
+    "title": "Public pay-link privacy",
+    "branch": "cez/8649747f",
+    "headSha": "8896a13d1e1cc2055839aab8db1beb5750a32c40"
+  },
+  "verdict": "PASS",
+  "environment": {
+    "baseUrl": "http://127.0.0.1:53328",
+    "role": "anonymous payer / disposable seeded admin and superadmin",
+    "startedByThisRepo": true,
+    "browserProvider": "playwright",
+    "nodeVersion": "24.22.2",
+    "playwrightVersion": "1.61.1"
+  },
+  "scenario": [
+    {
+      "step": 1,
+      "priority": "P0",
+      "action": "Native TC-CHKT-045 through repository CLI",
+      "expected": "Both unprotected and password-protected API cases pass; real signed cookie; public/preview omissions and admin preservation",
+      "observed": "2 passed, 0 skipped/unexpected/flaky; 94.56s Playwright duration",
+      "result": "PASS",
+      "artifact": "tc045-results.json"
+    },
+    {
+      "step": 2,
+      "priority": "P0",
+      "action": "Anonymous public /pay/:slug and GET /api/checkout/pay/:slug",
+      "expected": "Payer title, pricing and inputs render; administrative members absent",
+      "observed": "All 18 removed members plus gatewaySettings/passwordHash/scope identifiers absent; remainingUses=10; $49.99 page and Pay now render",
+      "result": "PASS",
+      "screenshot": "step-public.png"
+    },
+    {
+      "step": 3,
+      "priority": "P0",
+      "action": "Password-protected pay page before verification",
+      "expected": "Minimal challenge only, no administrative data",
+      "observed": "API equals {requiresPassword:true,title}; browser password gate renders",
+      "result": "PASS",
+      "screenshot": "step-password.png"
+    },
+    {
+      "step": 4,
+      "priority": "P0",
+      "action": "Wrong then correct password through real UI",
+      "expected": "Wrong password rejected; signed HttpOnly cookie unlocks public DTO",
+      "observed": "Wrong password HTTP401; correct verification HTTP200; om_checkout_access HttpOnly cookie observed; browser-loaded payload forbidden fields absent",
+      "result": "PASS",
+      "screenshot": "step-password-verified.png"
+    },
+    {
+      "step": 5,
+      "priority": "P0",
+      "action": "Unauthenticated preview for public/password/draft fixtures",
+      "expected": "Preview requires admin authorization",
+      "observed": "All three unauthenticated preview requests return HTTP401",
+      "result": "PASS",
+      "artifact": "cleanup.json"
+    },
+    {
+      "step": 6,
+      "priority": "P1",
+      "action": "Authenticated draft /pay/:slug?preview=true",
+      "expected": "Public DTO only, preview=true, available=false; payments disabled",
+      "observed": "Forbidden fields absent; preview banner rendered and Preview only button asserted disabled; ordinary draft GET404",
+      "result": "PASS",
+      "screenshot": "step-preview.png"
+    },
+    {
+      "step": 7,
+      "priority": "P0",
+      "action": "Admin GET /api/checkout/links/:id for all three fixtures",
+      "expected": "Full administrative configuration retained",
+      "observed": "All 18 keys present; all nine email values/flags exact; maxCompletions=10, counters=0, isLocked=false; timestamps present",
+      "result": "PASS",
+      "artifact": "qa-api-explore.json"
+    },
+    {
+      "step": 8,
+      "priority": "P1",
+      "action": "Authenticated admin editor email tabs",
+      "expected": "Configured email subjects/bodies/send settings remain readable",
+      "observed": "Started subject value, all three body values and checked send flags asserted; screenshots show all three configured subjects and bodies",
+      "result": "PASS",
+      "screenshot": "step-admin-started.png"
+    },
+    {
+      "step": 9,
+      "priority": "P1",
+      "action": "Own fixture cleanup",
+      "expected": "Only disposable fixture records removed",
+      "observed": "Three deletes HTTP200 with their own updatedAt headers; every subsequent admin GET404; native tests also clean up in finally",
+      "result": "PASS",
+      "artifact": "cleanup.json"
+    }
+  ],
+  "hasUiTest": false,
+  "notes": [
+    "Evidence only: no qa-approved/qa-self-verified labels or human waiver granted.",
+    "Fresh native ephemeral database/app on published head. Cold boot and warm reuse verified; own fixture deletion verified.",
+    "No real payment submission, external gateway, email delivery, mobile layout or stored production data exercised.",
+    "Initial environment launcher selected Node26 through mise Yarn shim; torn down before QA, corrected local launcher to actual Node24/Yarn binaries and prepared fresh environment.",
+    "First admin navigation waited for networkidle and timed out on the backend event-streaming page; replaced the harness wait with DOM-content-loaded plus actual detail-response and field assertions, without increasing any timeout or altering source/test assertions.",
+    "API TC-CHKT-045 is committed; browser privacy regression flow was exploratory and has no dedicated committed UI test."
+  ]
+}
