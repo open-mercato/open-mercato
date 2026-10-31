@@ -390,7 +390,7 @@ const updateRoleAclCommand = createAclUpdateCommand<RoleAclUpdateInput>({
     await lockRoleWriterAuthorizationState(em, [input.roleId])
   },
   loadAcl: (em, input) =>
-    em.findOne(RoleAcl, { role: input.roleId as unknown as Role, tenantId: input.tenantId }),
+    em.findOne(RoleAcl, { role: input.roleId as unknown as Role, tenantId: input.tenantId, deletedAt: null }),
   persist: async ({ em, input, existing }) => {
     const acl =
       (existing as RoleAcl | null) ??
@@ -434,7 +434,7 @@ const updateUserAclCommand = createAclUpdateCommand<UserAclUpdateInput>({
     await lockUserAclWriterAuthorizationState(em, [input.userId])
   },
   loadAcl: (em, input) =>
-    em.findOne(UserAcl, { user: input.userId as unknown as User, tenantId: input.tenantId }),
+    em.findOne(UserAcl, { user: input.userId as unknown as User, tenantId: input.tenantId, deletedAt: null }),
   persist: async ({ em, input, existing }) => {
     if (input.clear) {
       if (!existing) return
