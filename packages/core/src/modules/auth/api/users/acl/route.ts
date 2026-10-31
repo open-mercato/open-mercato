@@ -39,7 +39,10 @@ const putSchema = z.object({
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['auth.acl.manage'] },
-  PUT: { requireAuth: true, requireFeatures: ['auth.acl.manage'] },
+  // `honorsBodyTenantId`: the body's `tenantId` can target a tenant other than the actor's own
+  // (superadmin-gated below) — the dispatcher's tenant-selection gate must fail closed on this
+  // route when it cannot peek the body (issue #7877).
+  PUT: { requireAuth: true, requireFeatures: ['auth.acl.manage'], honorsBodyTenantId: true },
 }
 
 const userAclResponseSchema = z.object({
