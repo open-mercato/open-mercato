@@ -1,7 +1,8 @@
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { login } from '@open-mercato/core/helpers/integration/auth'
-import { expectId, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
+import { expectId, getTokenScope, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { deleteSalesEntityIfExists } from '@open-mercato/core/helpers/integration/salesFixtures'
 import { getRecordLockSettings, saveRecordLockSettings, type RecordLockSettings } from './helpers/recordLocks'
 
@@ -21,6 +22,11 @@ function quoteInput() {
 }
 
 async function openQuote(page: Page, quoteId: string) {
+  const loaded = page.waitForResponse((response) => {
+    const url = new URL(response.url())
+    return url.pathname === '/api/sales/quotes' && url.searchParams.get('id') === quoteId
+      && response.request().method() === 'GET'
+  })
   const acquired = page.waitForResponse((response) =>
     new URL(response.url()).pathname === '/api/record_locks/acquire'
     && response.request().method() === 'POST'
@@ -28,7 +34,19 @@ async function openQuote(page: Page, quoteId: string) {
   )
   await page.goto(`/backend/sales/quotes/${quoteId}`)
   await expect(page.getByRole('main').getByRole('button', { name: 'Add item', exact: true }).first()).toBeVisible()
-  expect((await acquired).status(), 'Enterprise presence must run on the quote').toBe(200)
+  const presenceResponse = await acquired
+  expect(presenceResponse.status(), 'Enterprise presence must run on the quote').toBe(200)
+  const presence = await presenceResponse.json() as {
+    currentUserId?: string
+    latestActionLogId?: string
+    lock?: { token?: string; resourceKind?: string; resourceId?: string }
+  }
+  const documentResponse = await loaded
+  expect(documentResponse.status(), 'Each tab must load the quote before the concurrent edit').toBe(200)
+  const payload = await documentResponse.json() as { items?: Array<Record<string, unknown>> }
+  const record = payload.items?.find((item) => item.id === quoteId)
+  expect(record, 'Each tab must read the original quote').toBeTruthy()
+  return { presence, record: record ?? {} }
 }
 
 async function addLine(page: Page, taxRateName: string, name: string) {
@@ -78,6 +96,20 @@ async function readDocument(request: APIRequestContext, token: string, resource:
   const record = body?.items?.find((item) => item.id === id)
   expect(record, 'The document must remain readable').toBeTruthy()
   return record ?? {}
+}
+
+export function expectConcurrentSurcharge(
+  originalQuote: Record<string, unknown>,
+  changedQuote: Record<string, unknown>,
+  adjustment: Record<string, unknown>,
+) {
+  expect(adjustment.kind, 'The concurrent adjustment must be a surcharge').toBe('surcharge')
+  expect(Number(adjustment.amountNet ?? adjustment.amount_net), 'The saved surcharge net amount must be five').toBe(5)
+  expect(Number(adjustment.amountGross ?? adjustment.amount_gross), 'The saved surcharge gross amount must be five').toBe(5)
+  expect(Number(changedQuote.grandTotalNetAmount) - Number(originalQuote.grandTotalNetAmount),
+    'The adjustment command must recalculate parent net totals').toBe(5)
+  expect(Number(changedQuote.grandTotalGrossAmount) - Number(originalQuote.grandTotalGrossAmount),
+    'The adjustment command must recalculate parent gross totals').toBe(5)
 }
 
 test.describe('TC-LOCK-SALES-quote-session: local mutations and stale sessions', () => {
@@ -171,11 +203,52 @@ test.describe('TC-LOCK-SALES-quote-session: local mutations and stale sessions',
       })
       await login(page, 'admin')
       stalePage = await page.context().newPage()
-      await Promise.all([openQuote(page, quoteId), openQuote(stalePage, quoteId)])
+      const [editingSession, staleSession] = await Promise.all([openQuote(page, quoteId), openQuote(stalePage, quoteId)])
+      const scope = getTokenScope(token)
+      expect(editingSession.presence.currentUserId).toBe(scope.userId)
+      expect(staleSession.presence.currentUserId).toBe(scope.userId)
+      expect(editingSession.record.tenantId).toBe(scope.tenantId)
+      expect(staleSession.record.tenantId).toBe(scope.tenantId)
+      expect(editingSession.record.organizationId).toBe(scope.organizationId)
+      expect(staleSession.record.organizationId).toBe(scope.organizationId)
+      const originalVersion = expectId(editingSession.record.updatedAt, 'The editing tab must have a quote version')
+      expect(staleSession.record.updatedAt, 'Both tabs must start from the same version').toBe(originalVersion)
+      expect(editingSession.presence.lock?.resourceKind).toBe('sales.quote')
+      expect(editingSession.presence.lock?.resourceId).toBe(quoteId)
+      const lockToken = expectId(editingSession.presence.lock?.token, 'The editing tab must hold a lock token')
+      const baseLogId = expectId(editingSession.presence.latestActionLogId, 'The editing tab must have an action-log baseline')
+      expect(staleSession.presence.latestActionLogId, 'Both sessions must start before the concurrent edit').toBe(baseLogId)
       stalePage.on('response', (response) => {
         if (new URL(response.url()).pathname === '/api/sales/quotes/send') sendStatuses.push(response.status())
       })
-      await addAdjustment(page, { kind: 'Surcharge', label: `QA concurrent edit ${suffix}`, taxRateName, net: 5, gross: 5 })
+      const adjustmentResponse = await apiRequest(page.request, 'POST', '/api/sales/quote-adjustments', {
+        token,
+        retryTransport: false,
+        headers: {
+          ...buildOptimisticLockHeader(originalVersion),
+          'x-om-record-lock-kind': 'sales.quote',
+          'x-om-record-lock-resource-id': quoteId,
+          'x-om-record-lock-token': lockToken,
+          'x-om-record-lock-base-log-id': baseLogId,
+        },
+        data: {
+          quoteId, organizationId: scope.organizationId, tenantId: scope.tenantId, scope: 'order',
+          kind: 'surcharge', label: `QA concurrent edit ${suffix}`, currencyCode: 'USD',
+          amountNet: 5, amountGross: 5, metadata: { taxRateId, taxRate: 0 },
+        },
+      })
+      expect(adjustmentResponse.status(), 'The concurrent adjustment must succeed on the original session').toBe(201)
+      const changedQuote = await readDocument(page.request, token, 'quotes', quoteId)
+      const changedVersion = expectId(changedQuote.updatedAt, 'The concurrent edit must return a quote version')
+      expect(Date.parse(changedVersion), 'The real adjustment command must advance the parent quote version')
+        .toBeGreaterThan(Date.parse(originalVersion))
+      const adjustmentId = expectId((await readJsonSafe<{ id?: string }>(adjustmentResponse))?.id, 'The concurrent adjustment must return its ID')
+      const adjustmentsResponse = await apiRequest(page.request, 'GET', `/api/sales/quote-adjustments?quoteId=${encodeURIComponent(quoteId)}`, { token, retryTransport: false })
+      expect(adjustmentsResponse.status(), 'The concurrent surcharge must be readable').toBe(200)
+      const adjustments = await readJsonSafe<{ items?: Array<Record<string, unknown>> }>(adjustmentsResponse)
+      const savedAdjustment = adjustments?.items?.find((adjustment) => adjustment.id === adjustmentId)
+      expect(savedAdjustment, 'The concurrent surcharge must be persisted').toBeTruthy()
+      expectConcurrentSurcharge(editingSession.record, changedQuote, savedAdjustment ?? {})
       const refreshed = stalePage.waitForResponse((response) => new URL(response.url()).pathname === '/api/record_locks/acquire')
       await stalePage.evaluate(() => window.dispatchEvent(new Event('focus')))
       expect((await refreshed).status(), 'Passive enterprise presence must refresh').toBe(200)
