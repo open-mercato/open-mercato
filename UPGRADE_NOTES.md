@@ -367,6 +367,29 @@ A regenerated MCP key becomes invalid if its owner's home organization changes,
 including a change from no home organization to a concrete one. Generate a new
 key and update the MCP client secret after such a change.
 
+### Inbound webhook retries resume unfinished receipt stages (#7601)
+
+New inbound receipts track dispatch and received-event publication independently. A provider retry resumes an unfinished stage instead of treating receipt existence alone as completed delivery. Completed stages are preserved; delivery remains at least once, so handlers and persistent subscribers must stay idempotent.
+
+**Operator action:** apply `Migration20261018124142_webhooks` and `Migration20261028234000_webhooks` before deploying this application change. Its additive columns preserve existing receipts as completed and do not recover dispatch failures that happened before the upgrade. No migration is applied automatically by this PR. Older application code resumes its original receipt-existence deduplication behavior on rollback.
+
+Receipt publication now commits a scoped 30-second fenced claim, releases its database
+connection, then enqueues dispatch or publishes the received event with stable job IDs.
+Unfinished concurrent attempts wait outside transactions within a 5-second publication
+budget; a timeout means the outcome is uncertain and the provider must retry. A late
+backend write is not cancelled. Queue IDs deduplicate pending/active work, while handler
+and subscriber idempotency remains required after completion or checkpoint failure.
+The three nullable claim columns require no historical backfill.
+
+Queue callers may opt into `enqueue(data, { jobId, timeoutMs })`; module/event emitters
+may use `{ persistent: true, enqueue: { jobId, timeoutMs } }`. Omitted fields preserve
+existing random identities and publication waiting. IDs accept letters, digits, underscores
+and hyphens and cannot be empty or integer-only; deadlines are positive integer
+milliseconds up to 2^31−1. These options preserve event IDs, trusted scope and inline
+subscriber delivery defaults. A timeout never guarantees cancellation; retries should reuse
+the identity and workers must remain idempotent. Inline callbacks may repeat after an
+uncertain timeout; stable queue IDs do not deduplicate inline callback execution.
+
 ### Scoped attachment bytes no longer advertise shared caching (#7220)
 
 The attachment file and image byte routes now return `Cache-Control: private,

@@ -176,6 +176,24 @@ export class WebhookInboundReceiptEntity {
   @Property({ name: 'event_type', type: 'text', nullable: true })
   eventType?: string | null
 
+  @Property({ name: 'ingestion_id', type: 'uuid', nullable: true })
+  ingestionId?: string | null
+
+  @Property({ name: 'dispatch_queued', type: 'boolean', default: true })
+  dispatchQueued: boolean = true
+
+  @Property({ name: 'received_event_published', type: 'boolean', default: true })
+  receivedEventPublished: boolean = true
+
+  @Property({ name: 'delivery_claim_token', type: 'uuid', nullable: true })
+  deliveryClaimToken?: string | null
+
+  @Property({ name: 'delivery_claim_stage', type: 'text', nullable: true })
+  deliveryClaimStage?: 'dispatch' | 'received_event' | null
+
+  @Property({ name: 'delivery_claim_expires_at', type: Date, nullable: true })
+  deliveryClaimExpiresAt?: Date | null
+
   @Property({ name: 'organization_id', type: 'uuid', nullable: true })
   organizationId?: string | null
 

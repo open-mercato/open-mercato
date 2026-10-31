@@ -3,6 +3,7 @@ import { getRedisUrlOrThrow, parseRedisUrl, REDIS_WIRE_PROTOCOL } from '@open-me
 import type { RedisProtocolVersion } from '@open-mercato/shared/lib/redis/connection'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { attachTraceMetadata, runJobInTrace } from '../tracing'
+import { publishWithTimeout, validateEnqueueOptions } from '../publication'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const packageLogger = createLogger('queue')
@@ -25,6 +26,7 @@ interface BullQueueInterface<T> {
     name: string,
     data: T,
     opts?: {
+      jobId?: string
       removeOnComplete?: boolean
       removeOnFail?: number
       delay?: number
@@ -219,6 +221,7 @@ export function createAsyncQueue<T = unknown>(
   }
 
   let bullQueue: BullQueueInterface<QueuedJob<T>> | null = null
+  let bullQueuePromise: Promise<BullQueueInterface<QueuedJob<T>>> | null = null
   let bullWorker: BullWorkerInterface | null = null
   let bullmqModule: BullMQModule | null = null
   let abandonedSweepTimer: ReturnType<typeof setInterval> | null = null
@@ -370,12 +373,19 @@ export function createAsyncQueue<T = unknown>(
   }
 
   async function getQueue(): Promise<BullQueueInterface<QueuedJob<T>>> {
-    if (!bullQueue) {
-      const { Queue: BullQueueClass } = await getBullMQ()
-      const telemetry = await getQueueTelemetry()
-      bullQueue = new BullQueueClass<QueuedJob<T>>(name, { connection, ...(telemetry ? { telemetry } : {}) })
+    if (bullQueue) return bullQueue
+    if (!bullQueuePromise) {
+      bullQueuePromise = (async () => {
+        const { Queue: BullQueueClass } = await getBullMQ()
+        const telemetry = await getQueueTelemetry()
+        bullQueue = new BullQueueClass<QueuedJob<T>>(name, { connection, ...(telemetry ? { telemetry } : {}) })
+        return bullQueue
+      })().catch((error: unknown) => {
+        bullQueuePromise = null
+        throw error
+      })
     }
-    return bullQueue
+    return bullQueuePromise
   }
 
   // -------------------------------------------------------------------------
@@ -383,18 +393,24 @@ export function createAsyncQueue<T = unknown>(
   // -------------------------------------------------------------------------
 
   async function enqueue(data: T, options?: EnqueueOptions): Promise<string> {
+    validateEnqueueOptions(options)
+    return publishWithTimeout(() => publish(data, options), options?.timeoutMs)
+  }
+
+  async function publish(data: T, options?: EnqueueOptions): Promise<string> {
     const queue = await getQueue()
     // When bullmq-otel handles propagation, don't also attach our carrier.
     const telemetry = await getQueueTelemetry()
     const metadata = telemetry ? undefined : attachTraceMetadata(undefined)
     const jobData: QueuedJob<T> = {
-      id: crypto.randomUUID(),
+      id: options?.jobId ?? crypto.randomUUID(),
       payload: data,
       createdAt: new Date().toISOString(),
       ...(metadata ? { metadata } : {}),
     }
 
     const job = await queue.add(jobData.id, jobData, {
+      ...(options?.jobId ? { jobId: options.jobId } : {}),
       delay: options?.delayMs && options.delayMs > 0 ? options.delayMs : undefined,
       removeOnComplete: true,
       removeOnFail: 1000,
@@ -576,6 +592,7 @@ export function createAsyncQueue<T = unknown>(
     if (bullQueue) {
       await bullQueue.close()
       bullQueue = null
+      bullQueuePromise = null
     }
   }
 

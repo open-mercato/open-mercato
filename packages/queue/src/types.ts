@@ -154,6 +154,10 @@ export type EnqueueOptions = {
    * Delay job execution by this many milliseconds.
    */
   delayMs?: number
+  /** Deduplicates while this ID remains queued, active, or retained by the strategy. Reuse after an uncertain outcome. */
+  jobId?: string
+  /** Positive publication deadline in milliseconds. Expiry does not cancel a late backend write. */
+  timeoutMs?: number
 }
 
 // ============================================================================

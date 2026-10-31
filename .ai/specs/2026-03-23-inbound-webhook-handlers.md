@@ -435,23 +435,24 @@ export interface InboundWebhookRequest {
 
 | Status | Body | When |
 |--------|------|------|
-| 200 | `{ "received": true }` | Webhook accepted (processing async) |
-| 400 | `{ "error": "Unknown source" }` | `sourceKey` not registered |
-| 401 | `{ "error": "Signature verification failed" }` | Verifier returned false |
-| 409 | `{ "received": true, "duplicate": true }` | Duplicate message ID (idempotent) |
+| 200 | `{ "ok": true }` | Required intake dispatch stages are durable |
+| 200 | `{ "ok": true, "duplicate": true }` | The receipt's required stages are already complete |
+| 400 | `{ "error": "Verification failed" }` | Legacy verification failed; stale timestamps are also rejected with 400 |
+| 401 | `{ "error": "Signature verification failed" }` | Source verifier returned false |
+| 404 | `{ "error": "Webhook endpoint not found" }` | Neither source nor legacy adapter is registered |
+| 413 | `{ "error": "Webhook payload too large" }` | Payload exceeds the shared body limit |
 | 429 | `{ "error": "Rate limit exceeded" }` | Too many requests from source |
-| 500 | `{ "error": "Internal error" }` | Unexpected failure |
+| 503 | `{ "error": "Custom Webhooks integration is disabled" }` | Legacy integration or scope is unavailable |
+| 500 | `{ "error": "Internal error" }` | Unexpected failure; unfinished dispatch stages remain retryable |
 
 **Behavior**:
-1. Resolve `WebhookSourceConfig` by `sourceKey`
-2. Read raw body for signature verification
-3. Call `verifier(request, credentials)` — reject if false
-4. Call `eventTypeExtractor(body, headers)` — extract event type
-5. Call `messageIdExtractor(body, headers)` — check deduplication cache
-6. Resolve tenant scope (from config, payload, or header)
-7. Create `WebhookIngestion` record with status `received`
-8. Enqueue dispatch job to `webhook-inbound-dispatch` queue
-9. Return 200 immediately (async processing)
+1. Resolve the endpoint to a registered source, falling back to a legacy adapter.
+2. Read the bounded raw body and reject stale Standard Webhooks/Svix timestamps.
+3. Verify the source against credentials for a candidate configured scope, or verify through the legacy adapter and check integration availability.
+4. Extract the event type/message ID and use the verified tenant/organization scope.
+5. Atomically create the receipt and, for a source, its ingestion record; commit before external dispatch.
+6. Resume unfinished queue and persistent received-event stages under independent receipt row locks, checkpointing each durable success. Start local dispatch workers after releasing the queue-stage transaction.
+7. Return 200 accepted, or the established 200 duplicate response for completed intake. Propagate internal failures so provider retries can resume unfinished stages.
 
 ### 5.2 Ingestion Log API
 
@@ -705,22 +706,41 @@ const rateResult = await rateLimiter.consume(rateKey, {
 
 ### 10.3 Deduplication
 
-Cache-backed deduplication using `externalMessageId`:
+The durable deduplication key remains the `webhook_inbound_receipts` unique constraint
+on `(endpointId, messageId)`. Receipt existence alone does not prove successful intake.
+New receipts track `dispatchQueued` and `receivedEventPublished`; a source receipt also
+stores its scalar `ingestionId`. Both receipt and source ingestion are created atomically,
+and that transaction commits before enqueueing so independently running workers can read
+the ingestion.
 
-```typescript
-const dedupeKey = `webhook:dedup:${sourceKey}:${externalMessageId}`
-const isDuplicate = await cache.get(dedupeKey)
-if (isDuplicate) {
-  return NextResponse.json({ received: true, duplicate: true }, { status: 409 })
-}
-await cache.set(dedupeKey, '1', { ttl: 86_400_000 }) // 24h TTL — cache TTL is in milliseconds
-```
+Each unfinished destination first acquires a fenced claim in a short transaction holding
+only the tenant/organization-scoped receipt row lock. The nullable claim token, stage
+(`dispatch` or `received_event`) and expiry are committed before external publication.
+No enqueue, event emission or worker startup runs inside a receipt transaction. The
+claim lease lasts 30 seconds; an owner that exits becomes retryable after expiry.
+Concurrent signed retries wait outside a transaction for at most the remaining 5-second
+publication budget, then return a retryable error rather than acknowledging unfinished work.
 
-**Durable source of truth.** The cache check above is a fast-path only. The authoritative
-deduplication remains the existing `webhook_inbound_receipts` unique constraint on
-`(endpointId, messageId)` — a duplicate that survives cache eviction is still caught at insert
-time (Postgres `23505`) and returns the idempotent duplicate response. Phase 1 reuses that
-constraint; the cache fast-path is optional and additive.
+Dispatch uses `webhook-receipt-<receipt UUID>-dispatch`; persistent event publication uses
+`webhook-receipt-<receipt UUID>-received_event`. Both queue strategies deduplicate a stable
+ID while the job is queued/active (or retained by the backend). A second short transaction
+sets the checkpoint and clears the claim only when the token/stage still match and its
+lease has not expired. A stale owner cannot complete or clear a successor's claim.
+Publication failure clears only the owner's live claim; deadline expiry reports an
+uncertain publication outcome and does not cancel a late backend write. Retries reuse
+the same job ID. Local worker startup follows the committed dispatch checkpoint.
+
+A retry after queue success and event publication failure publishes only the event.
+A pending source receipt retried through a legacy adapter remains retryable until its
+source dispatch can resume. Existing completed receipts return HTTP 200
+`{ ok: true, duplicate: true }`; a request that completes an unfinished stage returns
+`{ ok: true }`. The overall delivery contract remains at least once: process exit or
+checkpoint failure can repeat inline/event effects, and a late transport write after job
+removal can create a later job. The inbound worker skips a processed ingestion and
+previously successful handlers; handlers and subscribers must remain idempotent. This
+change does not promise global exactly-once delivery or change inline subscriber defaults.
+An uncertain timeout can repeat inline callbacks on retry; stable queue IDs deduplicate
+persistent queue work and do not deduplicate those inline callbacks.
 
 ### 10.4 Replay Protection
 
@@ -797,8 +817,8 @@ Form for configuring encrypted credentials for a webhook source:
 |-----------|------|-------------|
 | TC-WH-IN-001 | `__integration__/TC-WH-IN-001.spec.ts` | Inbound webhook: valid signature accepted, handler executed, domain event emitted |
 | TC-WH-IN-002 | `__integration__/TC-WH-IN-002.spec.ts` | Inbound webhook: invalid signature → 401 |
-| TC-WH-IN-003 | `__integration__/TC-WH-IN-003.spec.ts` | Inbound webhook: unknown source → 400 |
-| TC-WH-IN-004 | `__integration__/TC-WH-IN-004.spec.ts` | Inbound webhook: duplicate message ID → 409 (idempotent) |
+| TC-WH-IN-003 | `__integration__/TC-WH-IN-003.spec.ts` | Inbound webhook: unknown endpoint → 404 |
+| TC-WH-IN-004 | `__integration__/TC-WH-IN-004.spec.ts` | Inbound webhook: completed duplicate message ID → 200 (idempotent) |
 | TC-WH-IN-005 | `__integration__/TC-WH-IN-005.spec.ts` | Inbound webhook: rate limiting → 429 |
 | TC-WH-IN-006 | `__integration__/TC-WH-IN-006.spec.ts` | Inbound webhook: multiple handlers for same event all execute |
 | TC-WH-IN-007 | `__integration__/TC-WH-IN-007.spec.ts` | Inbound webhook: wildcard handler matches |
@@ -807,6 +827,32 @@ Form for configuring encrypted credentials for a webhook source:
 | TC-WH-IN-010 | `__integration__/TC-WH-IN-010.spec.ts` | Ingestion log API: list, filter, detail |
 | TC-WH-IN-011 | `__integration__/TC-WH-IN-011.spec.ts` | Credential encryption: secrets stored encrypted, decrypted for verification |
 | TC-WH-IN-012 | `__integration__/TC-WH-IN-012.spec.ts` | Ingestion detail page: payload, headers, handler results visible |
+
+Receipt recovery regressions additionally cover both source and legacy adapter POST paths
+in `api/inbound/[endpointId]/__tests__/route*.test.ts`: enqueue failure, persistent-event
+failure, same signed message retry, partial success, and completed duplicates. The
+`lib/__tests__/inbound-receipt.postgres.test.ts` suite exercises actual transaction rollback,
+committed ingestion visibility, concurrent source/legacy retries, historical receipts,
+cross-tenant receipt collisions, pool-size-1 availability during blocked destinations,
+deadline/late completion and expired-owner fencing against an isolated PostgreSQL schema. Set
+`OM_WEBHOOKS_TEST_DATABASE_URL` to a disposable PostgreSQL database to run that suite;
+ordinary unit runs skip it when no database is configured. With `OM_QUEUE_TEST_REDIS_URL`
+also set, the suite pauses writes on that disposable Redis instance, sends twenty deliveries,
+reconnects/retries and asserts one active production handler and no handler rerun after
+completion. The queue `publication.test.ts` runs local identity/late-write cases by default
+and the same cases against Redis when that variable is set. The committed CI durability
+job supplies both variables using disposable PostgreSQL 16 and Redis 7 services, and
+installs `redis-cli` on the runner. It runs every receipt case with pools 1 and 8,
+including Redis recovery at both pool sizes, and both local/async publication strategies.
+`scripts/ci/check-webhook-durability-results.mjs` rejects skipped/failed/empty reports or
+missing pool/strategy/recovery coverage, prints executed counts in the job summary, and
+CI uploads the raw Jest reports as `webhook-durability-results`. This extends the existing
+`documents-multi-instance` job, which the final coverage gate already depends on; no
+required job, branch trigger, QA gate or runtime contract changes. The tests require
+isolated test services, never a developer or production database. Schemas and queues are
+cleaned by their tests, and CI tears down both service containers when the job finishes.
+Manual async outage QA rows 7–8 from PR #7609's prior NO-GO still require reviewer sign-off;
+automated recovery tests do not grant QA approval.
 
 ### Phase 4 Tests (Inbox Ops Refactoring)
 
@@ -969,7 +1015,32 @@ So Phase 4 is **"env fallback → encrypted credentials store"**, NOT "global �
 
 ---
 
-## 14. Backward Compatibility
+## 14. Migration & Backward Compatibility
+
+### Retryable receipt checkpoints (#7601)
+
+The additive receipt migration adds nullable `ingestion_id` and two boolean checkpoints
+with `true` defaults. Existing receipts retain their completed-duplicate behavior; new
+intake explicitly initializes its required stages as unfinished. Existing route URLs,
+signature formats, event IDs/payloads, and successful response shapes are unchanged.
+No migration is applied to a developer database as part of implementation. Deploy the
+migration before the new application code. `Migration20261028234000_webhooks` separately
+adds nullable `delivery_claim_token` (UUID), `delivery_claim_stage` (text), and
+`delivery_claim_expires_at` (timestamp) without rewriting historical receipts. Both
+migrations must precede this application version. Existing queue calls keep random IDs
+and unbounded producer waiting unless the caller opts into the new options.
+
+The approved additive queue surface is `EnqueueOptions.jobId?: string` and
+`timeoutMs?: number`; optional `EmitOptions.enqueue` carries the same two fields in
+shared module emitters and the events bus. Job IDs allow letters/digits/underscores/hyphens,
+excluding empty or integer-only IDs, consistently across both strategies. Timeouts are
+positive integer timer durations up to 2^31−1 milliseconds. Their expiry never means the
+backend write was cancelled. No event ID, trusted scope, payload or inline delivery
+default changes. Historical receipts do not distinguish
+success from earlier lost dispatches, so this migration cannot infer or automatically
+recover those pre-existing failures. Reverting to older code restores the original
+receipt-existence deduplication behavior, including suppression of pending retries.
+
 
 ### New Contract Surfaces
 
@@ -1059,6 +1130,9 @@ by `WebhookSourceConfig` + the handler convention. They MUST follow the deprecat
 | 2026-03-23 | Initial draft |
 | 2026-06-17 | Applied pre-implement analysis remediation: unify inbound on the existing `[endpointId]` route (resolves BC#1 route collision); add a concrete `WebhookEndpointAdapter` deprecation-bridge subsection (§14); correct the Phase 4 `inbox_ops` baseline (encrypted per-tenant secret + Svix already exist); fix dedup cache TTL to milliseconds and clarify the receipt-table durable dedup source of truth (§10.3); add optional `credentialFields` to `WebhookSourceConfig` for the admin UI; clarify credential encryption reuses the integrations map and `WebhookIngestion.payload`/`headers` are encrypted via the webhooks map (§10.1). Phase 1 implementation started. |
 | 2026-06-17 | Phase 1 progress: shared inbound types; `WebhookIngestion`/`InboundEndpointConfig` entities + migration + encryption map; `inbound.processed`/`handler_failed` events; globalThis-backed source/handler registries + wildcard resolution; queue-backed `webhook-inbound-dispatch` worker. **Auto-discovery convention chosen:** implemented via the sanctioned `generators.ts` plugin mechanism (`webhooks/generators.ts`: `webhooks.sources` + `webhooks.handlers` plugins with `bootstrapRegistration`) rather than forking the two core generators. Consequently handlers are declared in a module-root **`webhook-handlers.ts`** barrel (impl files under `webhook-handlers/`) instead of a pure `webhook-handlers/*.ts` folder scan — lower blast-radius, zero `bootstrap.ts`/template edits (§3.2, §6). |
+| 2026-10-18 | Fixed #7601: atomic receipt/ingestion intake, independent row-locked dispatch/publication checkpoints, retry recovery without repeating completed stages, additive migration preserving historical receipts, and route plus PostgreSQL concurrency regressions. |
+| 2026-10-28 | Removed unrelated carried changes; implemented the user-approved #7979 durability design: committed scoped fenced claims, external publication outside transactions, stable queue IDs and bounded publication deadlines, nullable claim migration, real PostgreSQL pool/fencing and Redis outage/reconnect regressions. Delivery remains at least once; manual async QA and fresh review remain gates. |
+| 2026-10-29 | Added a committed real-service CI gate for both receipt pool sizes and queue strategies, fail-closed executed-count verification, and JSON artifacts; Redis recovery now runs at both pool sizes when enabled. |
 
 ---
 

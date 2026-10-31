@@ -15,13 +15,12 @@ import {
   WebhookBodyTooLargeError,
   type InboundWebhookRequest,
 } from '@open-mercato/shared/lib/webhooks'
-import { emitWebhooksEvent } from '../../../events'
 import { getWebhookEndpointAdapter } from '../../../lib/adapter-registry'
 import { getWebhookSource } from '../../../lib/inbound-registry'
-import { enqueueInboundDispatch } from '../../../lib/queue'
+import { receiveInboundWebhook } from '../../../lib/inbound-receipt'
 import { isWebhookIntegrationEnabled, WEBHOOK_INTEGRATION_DISABLED_MESSAGE } from '../../../lib/integration-state'
 import { json } from '../../helpers'
-import { InboundEndpointConfigEntity, WebhookIngestionEntity, WebhookInboundReceiptEntity } from '../../../data/entities'
+import { InboundEndpointConfigEntity } from '../../../data/entities'
 
 type IntegrationCredentialsService = {
   resolve: (
@@ -144,59 +143,19 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
         body,
       })
 
-    try {
-      em.persist(em.create(WebhookInboundReceiptEntity, {
-        endpointId: params.endpointId,
-        messageId,
-        providerKey: params.endpointId,
-        eventType,
-        tenantId: verifiedScope.tenantId,
-        organizationId: verifiedScope.organizationId,
-        createdAt: new Date(),
-      }))
-      await em.flush()
-    } catch (error) {
-      if (isUniqueViolation(error)) {
-        return json({ ok: true, duplicate: true })
-      }
-      throw error
-    }
-
-    const ingestion = em.create(WebhookIngestionEntity, {
-      sourceKey: params.endpointId,
-      eventType,
-      externalMessageId: messageId,
-      payload: parsedBody,
-      headers,
-      status: 'received',
-      handlerCount: 0,
-      organizationId: verifiedScope.organizationId,
-      tenantId: verifiedScope.tenantId,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    })
-    em.persist(ingestion)
-    await em.flush()
-
-    await enqueueInboundDispatch({
-      ingestionId: ingestion.id,
-      sourceKey: params.endpointId,
-      eventType,
-      tenantId: verifiedScope.tenantId,
-      organizationId: verifiedScope.organizationId,
-    })
-
-    await emitWebhooksEvent('webhooks.inbound.received', {
-      providerKey: params.endpointId,
+    const duplicate = await receiveInboundWebhook(em, {
       endpointId: params.endpointId,
       messageId,
+      providerKey: params.endpointId,
       eventType,
       payload: parsedBody,
+      headers,
+      sourceKey: params.endpointId,
       tenantId: verifiedScope.tenantId,
       organizationId: verifiedScope.organizationId,
-    }, { persistent: true })
+    })
 
-    return json({ ok: true })
+    return json(duplicate ? { ok: true, duplicate: true } : { ok: true })
   }
 
   if (!adapter) {
@@ -238,35 +197,18 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
     headers,
     body,
   })
-  try {
-    em.persist(em.create(WebhookInboundReceiptEntity, {
-      endpointId: params.endpointId,
-      messageId,
-      providerKey: adapter.providerKey,
-      eventType: verified.eventType,
-      tenantId: verified.tenantId ?? null,
-      organizationId: verified.organizationId ?? null,
-      createdAt: new Date(),
-    }))
-    await em.flush()
-  } catch (error) {
-    if (isUniqueViolation(error)) {
-      return json({ ok: true, duplicate: true })
-    }
-    throw error
-  }
-
-  await emitWebhooksEvent('webhooks.inbound.received', {
-    providerKey: adapter.providerKey,
+  const duplicate = await receiveInboundWebhook(em, {
     endpointId: params.endpointId,
     messageId,
+    providerKey: adapter.providerKey,
     eventType: verified.eventType,
     payload: verified.payload,
+    headers,
     tenantId: verified.tenantId ?? null,
     organizationId: verified.organizationId ?? null,
-  }, { persistent: true })
+  })
 
-  return json({ ok: true })
+  return json(duplicate ? { ok: true, duplicate: true } : { ok: true })
 }
 
 export const openApi: OpenApiRouteDoc = {
@@ -298,14 +240,6 @@ function tryResolve<T>(container: { resolve: (name: string) => unknown }, name: 
   } catch {
     return null
   }
-}
-
-function isUniqueViolation(error: unknown): boolean {
-  if (!error || typeof error !== 'object') return false
-  const maybeError = error as { code?: string; cause?: unknown }
-  if (maybeError.code === '23505') return true
-  if (!maybeError.cause || typeof maybeError.cause !== 'object') return false
-  return (maybeError.cause as { code?: string }).code === '23505'
 }
 
 function isInboundWebhookTimestampFresh(headers: Record<string, string>): boolean {
