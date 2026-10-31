@@ -6,10 +6,9 @@ import {
   type AiUiPartProps,
 } from '../ui-part-registry'
 import { ActivityCard } from './ActivityCard'
-import { CompanyCard } from './CompanyCard'
 import { DealCard } from './DealCard'
-import { PersonCard } from './PersonCard'
-import { ProductCard } from './ProductCard'
+import { RecordCard } from './RecordCard'
+import { withoutAiRecordImages } from '../imagePolicy'
 import type {
   ActivityRecordPayload,
   CompanyRecordPayload,
@@ -39,15 +38,15 @@ function DealCardPart({ payload }: AiUiPartProps) {
 }
 
 function PersonCardPart({ payload }: AiUiPartProps) {
-  return <PersonCard {...((payload ?? {}) as PersonRecordPayload)} />
+  return <RecordCard data={withoutAiRecordImages({ ...((payload ?? {}) as PersonRecordPayload), kind: 'person' })} />
 }
 
 function CompanyCardPart({ payload }: AiUiPartProps) {
-  return <CompanyCard {...((payload ?? {}) as CompanyRecordPayload)} />
+  return <RecordCard data={withoutAiRecordImages({ ...((payload ?? {}) as CompanyRecordPayload), kind: 'company' })} />
 }
 
 function ProductCardPart({ payload }: AiUiPartProps) {
-  return <ProductCard {...((payload ?? {}) as ProductRecordPayload)} />
+  return <RecordCard data={withoutAiRecordImages({ ...((payload ?? {}) as ProductRecordPayload), kind: 'product' })} />
 }
 
 function ActivityCardPart({ payload }: AiUiPartProps) {
