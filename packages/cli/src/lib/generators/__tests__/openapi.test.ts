@@ -2,7 +2,8 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import type { ModuleEntry, PackageResolver } from '../../resolver'
-import { generateOpenApi } from '../openapi'
+import { runGenerateWatchSuite } from '../../generate-watch-runner'
+import { generateOpenApi, getOpenApiGeneratorDependencies, getOpenApiWatchInputs } from '../openapi'
 
 describe('resolveOpenApiGeneratorProjectRoot', () => {
   it('resolves the monorepo root from a POSIX module URL', async () => {
@@ -114,6 +115,50 @@ export function buildOpenApiDocument(modules: any[], options: any) {
     fs.rmSync(tmpDir, { recursive: true, force: true })
   })
 
+  it('watches transitive sources, including deleted inputs, without watching generated outputs', () => {
+    const delegate = createMockResolver([{ id: 'demo', from: '@open-mercato/core' }])
+    const packageGeneratedRoot = path.join(tmpDir, 'packages', 'core', 'generated')
+    const resolver: PackageResolver = {
+      ...delegate,
+      getPackageOutputDir: () => packageGeneratedRoot,
+    }
+    const deletedSource = path.join(tmpDir, 'packages', 'shared', 'src', 'deleted-schema.ts')
+    const source = path.join(tmpDir, 'packages', 'shared', 'src', 'schema.ts')
+    const similarlyNamedSource = path.join(tmpDir, 'packages', 'core', 'generated-sources', 'schema.ts')
+    touchFile(source, 'export const schema = {}')
+    touchFile(path.join(resolver.getOutputDir(), 'openapi.generated.inputs.json'), JSON.stringify({
+      version: 1,
+      inputPaths: [
+        source,
+        path.join(resolver.getOutputDir(), 'entities.generated.ts'),
+        path.join(packageGeneratedRoot, 'entities', 'demo', 'index.ts'),
+        deletedSource,
+        source,
+        similarlyNamedSource,
+      ],
+    }))
+
+    expect(getOpenApiWatchInputs(resolver)).toEqual(
+      [deletedSource, source, similarlyNamedSource].sort((left, right) => left.localeCompare(right)),
+    )
+  })
+
+  it('does not expose stale inputs from missing or invalid dependency manifests', () => {
+    const resolver = createMockResolver([])
+    const manifestPath = path.join(resolver.getOutputDir(), 'openapi.generated.inputs.json')
+    expect(getOpenApiWatchInputs(resolver)).toEqual([])
+    expect(getOpenApiGeneratorDependencies(resolver)).toBeNull()
+    touchFile(manifestPath, '{')
+    expect(getOpenApiWatchInputs(resolver)).toEqual([])
+    touchFile(manifestPath, JSON.stringify({ version: 2, inputPaths: ['/stale.ts'] }))
+    expect(getOpenApiWatchInputs(resolver)).toEqual([])
+    touchFile(manifestPath, JSON.stringify({ version: 1, inputPaths: [123] }))
+    expect(getOpenApiWatchInputs(resolver)).toEqual([])
+    expect(getOpenApiGeneratorDependencies(resolver)).toBeNull()
+    touchFile(manifestPath, JSON.stringify({ version: 1, inputPaths: [] }))
+    expect(getOpenApiGeneratorDependencies(resolver)).toEqual([])
+  })
+
   it('lets app route files override package route files while preserving package-only routes', async () => {
     touchFile(
       path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'demo', 'api', 'health', 'route.ts'),
@@ -198,6 +243,7 @@ export function buildOpenApiDocument(modules: any[], options: any) {
     )
     const resolver = createMockResolver([{ id: 'demo', from: '@open-mercato/core' }])
     await generateOpenApi({ resolver, quiet: true })
+    expect(getOpenApiWatchInputs(resolver)).toEqual(expect.arrayContaining([schemaPath]))
 
     touchFile(schemaPath, "export const summary = 'second schema'\n")
     const result = await generateOpenApi({ resolver, quiet: true })
@@ -208,6 +254,49 @@ export function buildOpenApiDocument(modules: any[], options: any) {
 
     expect(result.filesWritten).toEqual([generatedPath])
     expect(openApiDoc.paths['/api/demo/health']?.get?.summary).toBe('second schema')
+  })
+
+  it('cascades a selected entity producer into OpenAPI when its generated dependency changes', async () => {
+    const resolver = createMockResolver([{ id: 'demo', from: '@app' }])
+    const moduleRoot = path.join(resolver.getAppDir(), 'src', 'modules', 'demo')
+    const entitiesFile = path.join(moduleRoot, 'data', 'entities.ts')
+    const generatedInput = path.join(resolver.getOutputDir(), 'entities.ids.generated.ts')
+    const generatedPath = path.join(resolver.getOutputDir(), 'openapi.generated.json')
+    touchFile(entitiesFile, 'export class SalesOrder { id!: string }\n')
+    touchFile(
+      path.join(moduleRoot, 'api', 'route.ts'),
+      [
+        `import { E } from ${JSON.stringify(generatedInput)}`,
+        'export async function GET() { return new Response("ok") }',
+        "export const openApi = { GET: { summary: Object.keys(E.demo).sort().join(', ') } }",
+      ].join('\n'),
+    )
+    await runGenerateWatchSuite(true, {
+      mode: 'incremental',
+      groups: ['entity-ids', 'openapi'],
+      registryOutputs: [],
+      changes: [],
+      reasons: [],
+    }, resolver)
+    const initialDocument = JSON.parse(fs.readFileSync(generatedPath, 'utf8')) as {
+      paths: Record<string, { get?: { summary?: string } }>
+    }
+    expect(initialDocument.paths['/api/demo']?.get?.summary).toBe('sales_order')
+    expect(getOpenApiWatchInputs(resolver)).not.toContain(generatedInput)
+    expect(getOpenApiGeneratorDependencies(resolver)).toContain(generatedInput)
+
+    touchFile(entitiesFile, 'export class SalesOrder { id!: string }\nexport class SalesLine { id!: string }\n')
+    await runGenerateWatchSuite(true, {
+      mode: 'incremental',
+      groups: ['entity-ids'],
+      registryOutputs: [],
+      changes: [],
+      reasons: [],
+    }, resolver)
+    const updatedDocument = JSON.parse(fs.readFileSync(generatedPath, 'utf8')) as {
+      paths: Record<string, { get?: { summary?: string } }>
+    }
+    expect(updatedDocument.paths['/api/demo']?.get?.summary).toBe('sales_line, sales_order')
   })
 
   it('invalidates the early cache when enabled modules change', async () => {
@@ -302,6 +391,7 @@ export function buildOpenApiDocument(modules: any[], options: any) {
       typeof message === 'string' && message.startsWith('[OpenAPI] Found'),
     )).toHaveLength(2)
     expect(fs.existsSync(manifestPath)).toBe(false)
+    expect(getOpenApiWatchInputs(resolver)).toEqual([])
     consoleSpy.mockRestore()
   })
 })

@@ -32,6 +32,8 @@ export interface ModuleScanContext {
 export interface GeneratorExtension {
   id: string
   outputFiles: string[]
+  /** Defaults to true; false allows discovery to be skipped when this output is unselected. */
+  usesSharedImportIds?: boolean
   scanModule(ctx: ModuleScanContext): void
   generateOutput(): Map<string, string>
   getModuleDeclContribution?(moduleId: string): string | null
