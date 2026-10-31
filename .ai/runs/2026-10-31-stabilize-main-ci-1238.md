@@ -59,8 +59,8 @@ These causes are deliberately handled as separate corrections in one stabilizati
 
 ### Phase 1: Diagnose current main failures
 
-- [ ] 1.1 Inspect the latest failing `main` workflow logs and reproduce the failure against the current checkout
-- [ ] 1.2 Reduce the evidence to one root cause and identify the smallest repository-controlled change surface
+- [x] 1.1 Inspect the latest failing `main` workflow logs and reproduce the failure against the current checkout — 319d7dc199cc
+- [x] 1.2 Reduce the evidence to one root cause and identify the smallest repository-controlled change surface — 319d7dc199cc
 
 ### Phase 2: Implement and test the root-cause fix
 
