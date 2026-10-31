@@ -43,7 +43,8 @@ async function isResourceListed(request: APIRequestContext, token: string, resou
 /**
  * TC-TRANS-019: Entity translations survive a soft delete so undo restores them
  * Covers DELETE /api/resources/resources (soft delete) + POST /api/audit_logs/audit-logs/actions/undo,
- * and DELETE /api/catalog/products (hard delete) against GET /api/translations/:entityType/:entityId.
+ * and DELETE /api/catalog/products (hard delete) against GET /api/translations/:entityType/:entityId,
+ * which hides the kept translations while the owning record is soft-deleted.
  */
 test.describe('TC-TRANS-019: Entity translations survive a soft delete so undo restores them', () => {
   test('undoing a resource delete restores the resource together with its translations', async ({ request }) => {
@@ -72,9 +73,11 @@ test.describe('TC-TRANS-019: Entity translations survive a soft delete so undo r
       const undoToken = readUndoToken(deleteResponse)
       expect(await isResourceListed(request, token, resourceId), 'resource hidden after delete').toBe(false)
 
+      const employeeToken = await getAuthToken(request, 'employee')
       const afterDelete = await readTranslations(request, token, RESOURCE_ENTITY_TYPE, resourceId)
-      expect(afterDelete.status, 'translations kept while the resource is only soft-deleted').toBe(200)
-      expect(afterDelete.body.translations?.de?.name).toBe(`Ressource ${stamp}`)
+      expect(afterDelete.status, 'translations of a soft-deleted resource are not readable').toBe(404)
+      const employeeAfterDelete = await readTranslations(request, employeeToken, RESOURCE_ENTITY_TYPE, resourceId)
+      expect(employeeAfterDelete.status, 'employee cannot read translations of a soft-deleted resource').toBe(404)
 
       const undoResponse = await apiRequest(request, 'POST', '/api/audit_logs/audit-logs/actions/undo', {
         token,
@@ -87,6 +90,9 @@ test.describe('TC-TRANS-019: Entity translations survive a soft delete so undo r
       expect(afterUndo.status, 'translations readable after undo').toBe(200)
       expect(afterUndo.body.translations?.de?.name).toBe(`Ressource ${stamp}`)
       expect(afterUndo.body.translations?.de?.description).toBe('Beschreibung')
+      const employeeAfterUndo = await readTranslations(request, employeeToken, RESOURCE_ENTITY_TYPE, resourceId)
+      expect(employeeAfterUndo.status, 'employee reads translations again after undo').toBe(200)
+      expect(employeeAfterUndo.body.translations?.de?.name).toBe(`Ressource ${stamp}`)
     } finally {
       await deleteTranslationIfExists(request, token, RESOURCE_ENTITY_TYPE, resourceId)
       if (token && resourceId) {

@@ -9,6 +9,8 @@ import {
   type QueryResult,
 } from 'kysely'
 import { registerEntityIds } from '@open-mercato/shared/lib/encryption/entityIds'
+import type { EntityManager } from '@mikro-orm/postgresql'
+import { isTranslatedRecordSoftDeleted } from '@open-mercato/core/modules/translations/lib/soft-deleted-owner'
 import handle from '../cleanup'
 
 const reportError = jest.fn()
@@ -235,5 +237,18 @@ describe('translations cleanup subscriber', () => {
 
     expect(harness.selects()).toHaveLength(0)
     expect(harness.deletes()).toHaveLength(1)
+  })
+
+  it('matches the owning record by id and tenant only when no organization is given', async () => {
+    const harness = createHarness([{ deleted_at: new Date() }])
+    const em = harness.ctx.resolve<EntityManager>()
+
+    await expect(
+      isTranslatedRecordSoftDeleted(em, RESOURCE_ENTITY_TYPE, 'res-5', { tenantId: 'tenant-1' }),
+    ).resolves.toBe(true)
+
+    expect(harness.selects()[0].sql).toContain('"tenant_id" is not distinct from')
+    expect(harness.selects()[0].sql).not.toContain('"organization_id"')
+    expect(harness.selects()[0].parameters).toEqual(['res-5', 'tenant-1'])
   })
 })

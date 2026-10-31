@@ -1,81 +1,14 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { sql } from 'kysely'
 import { createLogger } from '@open-mercato/shared/lib/logger'
-import { listEntityMetadata } from '@open-mercato/shared/lib/db/entityMetadata'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
-import {
-  QueryIndexScopeError,
-  resolveQueryIndexSourceMetadata,
-  type QueryIndexSourceMetadata,
-} from '@open-mercato/core/modules/query_index/lib/subscriber-scope'
+import { isTranslatedRecordSoftDeleted } from '@open-mercato/core/modules/translations/lib/soft-deleted-owner'
 
 const logger = createLogger('translations').child({ component: 'cleanup' })
 
 export const metadata = { event: 'query_index.delete_one', persistent: false }
 
 type TranslationsCleanupDatabase = Record<string, Record<string, unknown>>
-
-type SoftDeleteSource = QueryIndexSourceMetadata & {
-  idColumn: string
-  deletedAtColumn: string
-}
-
-type EntityPropertyMetadata = { fieldNames?: unknown }
-
-function resolveSingleColumn(property: EntityPropertyMetadata | undefined): string | null {
-  const fieldNames = property?.fieldNames
-  if (!Array.isArray(fieldNames) || fieldNames.length !== 1) return null
-  const column = fieldNames[0]
-  return typeof column === 'string' && column ? column : null
-}
-
-function resolveSourceMetadata(em: EntityManager, entityType: string): QueryIndexSourceMetadata | null {
-  try {
-    return resolveQueryIndexSourceMetadata(em, entityType)
-  } catch (err) {
-    if (err instanceof QueryIndexScopeError) return null
-    throw err
-  }
-}
-
-function resolveSoftDeleteSource(em: EntityManager, entityType: string): SoftDeleteSource | null {
-  const source = resolveSourceMetadata(em, entityType)
-  if (!source) return null
-  const entityMetadata = listEntityMetadata(em).find((candidate) => String(candidate.tableName ?? '') === source.table)
-  if (!entityMetadata) return null
-  const properties = entityMetadata.properties as unknown as Record<string, EntityPropertyMetadata | undefined>
-  const deletedAtColumn = resolveSingleColumn(properties.deletedAt)
-  if (!deletedAtColumn) return null
-  const primaryKeys = entityMetadata.primaryKeys ?? []
-  if (primaryKeys.length !== 1) return null
-  const idColumn = resolveSingleColumn(properties[String(primaryKeys[0])])
-  if (!idColumn) return null
-  return { ...source, idColumn, deletedAtColumn }
-}
-
-async function isOwningRecordSoftDeleted(
-  em: EntityManager,
-  entityType: string,
-  recordId: string,
-  tenantId: string | null,
-  organizationId: string | null,
-): Promise<boolean> {
-  const source = resolveSoftDeleteSource(em, entityType)
-  if (!source) return false
-  let query = em
-    .getKysely<TranslationsCleanupDatabase>()
-    .selectFrom(source.table)
-    .select(source.deletedAtColumn)
-    .where(source.idColumn, '=', recordId)
-  if (source.tenantColumn) {
-    query = query.where(sql<boolean>`${sql.ref(source.tenantColumn)} is not distinct from ${tenantId}`)
-  }
-  if (source.organizationColumn) {
-    query = query.where(sql<boolean>`${sql.ref(source.organizationColumn)} is not distinct from ${organizationId}`)
-  }
-  const row = await query.executeTakeFirst()
-  return row !== undefined && row[source.deletedAtColumn] !== null && row[source.deletedAtColumn] !== undefined
-}
 
 export default async function handle(
   payload: { entityType?: string; recordId?: string; organizationId?: string | null; tenantId?: string | null },
@@ -91,7 +24,7 @@ export default async function handle(
   let em: EntityManager
   try {
     em = ctx.resolve<EntityManager>('em')
-    if (await isOwningRecordSoftDeleted(em, entityType, recordId, tenantId, organizationId)) {
+    if (await isTranslatedRecordSoftDeleted(em, entityType, recordId, { tenantId, organizationId })) {
       logger.debug('Keeping translations of a soft-deleted record', { entityType, recordId })
       return
     }

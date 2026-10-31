@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { sql } from 'kysely'
 import { resolveTranslationsRouteContext, requireTranslationFeatures, resolveTranslationsActorId } from '@open-mercato/core/modules/translations/api/context'
 import { translationBodySchema, entityTypeParamSchema, entityIdParamSchema } from '@open-mercato/core/modules/translations/data/validators'
+import { isTranslatedRecordSoftDeleted } from '@open-mercato/core/modules/translations/lib/soft-deleted-owner'
 import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import {
   runCrudMutationGuardAfterSuccess,
@@ -82,6 +83,10 @@ export async function GET(req: Request, ctx: { params?: { entityType?: string; e
       .executeTakeFirst() as Record<string, any> | undefined
 
     if (!row) {
+      return NextResponse.json({ error: 'Not found' }, { status: 404 })
+    }
+
+    if (await isTranslatedRecordSoftDeleted(context.em, entityType, entityId, { tenantId: context.tenantId })) {
       return NextResponse.json({ error: 'Not found' }, { status: 404 })
     }
 
@@ -359,7 +364,7 @@ const getDoc: OpenApiMethodDoc = {
   ],
   errors: [
     { status: 401, description: 'Authentication required' },
-    { status: 404, description: 'No translations found for this entity' },
+    { status: 404, description: 'No translations found for this entity, or the entity is soft-deleted' },
   ],
 }
 
