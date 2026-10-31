@@ -278,10 +278,13 @@ describe('project team draft lifecycle', () => {
     const view = render(<TimesheetProjectDetailPage params={{ id: PROJECT_ID }} />)
     fireEvent.change(await screen.findByRole('textbox', { name: 'Team draft' }), { target: { value: 'pending member' } })
 
+    const employeeRequestsBefore = readApiResultOrThrowMock.mock.calls.length
+
     mockTranslator = (...args: Parameters<typeof mockTranslate>) => mockTranslate(...args)
     await act(async () => { view.rerender(<TimesheetProjectDetailPage params={{ id: PROJECT_ID }} />) })
 
     expect(screen.getByRole('textbox', { name: 'Team draft' })).toHaveValue('pending member')
+    expect(readApiResultOrThrowMock.mock.calls).toHaveLength(employeeRequestsBefore)
   })
 
   it.each(['project', 'scope'])('reloads the team draft after a real %s change', async (change) => {
