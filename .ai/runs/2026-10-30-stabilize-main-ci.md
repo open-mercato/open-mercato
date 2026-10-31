@@ -46,9 +46,13 @@ Restore the current `main` branch workflows to green by identifying each failing
 - This is the Sigstore retry-after-success defect fixed upstream in [sigstore-js#1709](https://github.com/sigstore/sigstore-js/pull/1709): the transparency entry is committed, a retry receives the valid duplicate, and the current client treats that duplicate as fatal. The fix merged on 2026-10-27 but is not present in the published Sigstore version used by npm in the workflow.
 - The smallest repository safeguard is a bounded wrapper that retries only this exact two-part error signature, preserves `--provenance`, and fails immediately for all other npm errors. Exhausted retries remain fatal; registry presence alone is never accepted after a failed provenance client, preserving the supply-chain boundary identified by the PR security scan.
 - The snapshot's standalone-app follow-up also exposed a deterministic activation defect: `scripts/lib/module-activation-fixtures.ts` still injected the removed `exampleCalendarOverrides` symbol, so evaluating the generated `src/modules.ts` failed with `ReferenceError`. The fixture now relies on the example module's own calendar registration and its test bundles and evaluates every activated module configuration instead of checking generated structure alone.
-- Snapshot attempt 2 proved npm can accept a large package while keeping its metadata unavailable long after the workflow's five-minute ceiling: `@open-mercato/core` published successfully at 22:17:28Z, but remained `E404` through at least 22:52:04Z. Both snapshot workflows now share a bounded forty-five-minute metadata wait and retain a hard failure when npm never exposes the version.
+- Snapshot attempt 2 proved npm can accept a large package while keeping its metadata unavailable long after the workflow's five-minute ceiling: registry timestamps place `@open-mercato/core` visibility 20 minutes 24 seconds after successful publish acceptance. Both snapshot workflows now share one global, wall-clock-bounded forty-five-minute metadata deadline and retain a hard failure when npm never exposes the version.
+- Main CI shard 5 exposed a test race in `TC-CHANNEL-API-009`: login opened the DOM-event SSE connection before the test installed its abort route, so the direct API deletion refreshed the reaction bar and removed the intended stale click target. Installing the route before login makes the localized-refusal scenario deterministic.
+- Main CI shard 14 exposed an undersized default timeout in the API-heavy `TC-DOCUMENTS-010` flow. Both attempts exhausted the 20-second test budget while making normal successful fixture calls; the same scenario completed in 5.6 seconds on the prior green run and 5.7 seconds locally. Marking this established multi-module flow slow gives it the same CI-load budget used by comparable documents scenarios without weakening any assertion.
 
 ## Progress
+
+PR: #8294
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
@@ -59,10 +63,10 @@ Restore the current `main` branch workflows to green by identifying each failing
 
 ### Phase 2: Correct root causes
 
-- [x] 2.1 Implement minimal fixes with regression coverage for every actionable failure. — 4c20fce5cc, 343ebfffcd, d4f8e125c2, e03e45454f, 7759f12594
-- [x] 2.2 Run targeted validation and confirm the original failure signatures are resolved. — 4c20fce5cc, 343ebfffcd, d4f8e125c2, e03e45454f, 7759f12594
+- [x] 2.1 Implement minimal fixes with regression coverage for every actionable failure. — 4c20fce5cc, 343ebfffcd, d4f8e125c2, e03e45454f, 7759f12594, 5fc3d149a3, 605f7abb9b
+- [x] 2.2 Run targeted validation and confirm the original failure signatures are resolved. — 4c20fce5cc, 343ebfffcd, d4f8e125c2, e03e45454f, 7759f12594, 5fc3d149a3, 605f7abb9b
 
 ### Phase 3: Verify and hand off
 
-- [x] 3.1 Run the repository's full configured validation gate and push the completed fix set. — 523653d278
-- [ ] 3.2 Confirm pull-request CI reaches green and obtain an independent final review verdict.
+- [x] 3.1 Run the repository's full configured validation gate and push the completed fix set. — 523653d278, 5fc3d149a3, 605f7abb9b
+- [x] 3.2 Confirm pull-request CI reaches green and obtain an independent final review verdict. — 605f7abb9b
