@@ -1,0 +1,29 @@
+{
+  "headSha": "8896a13d1e1cc2055839aab8db1beb5750a32c40",
+  "steps": [
+    {
+      "action": "Admin detail retains all 18 removed public members: public",
+      "result": "PASS"
+    },
+    {
+      "action": "Public/challenge/draft and denied/authorized preview API: public",
+      "result": "PASS"
+    },
+    {
+      "action": "Admin detail retains all 18 removed public members: password",
+      "result": "PASS"
+    },
+    {
+      "action": "Public/challenge/draft and denied/authorized preview API: password",
+      "result": "PASS"
+    },
+    {
+      "action": "Admin detail retains all 18 removed public members: draft",
+      "result": "PASS"
+    },
+    {
+      "action": "Public/challenge/draft and denied/authorized preview API: draft",
+      "result": "PASS"
+    }
+  ]
+}
