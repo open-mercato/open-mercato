@@ -76,7 +76,6 @@ test.describe('TC-FORMS-UI-002: create a form through the UI', () => {
       // Overwrite the prefilled 'en' so the comma-splitting transform is exercised.
       await fillControlledInput(localesInput, 'en, pl')
       await fillControlledInput(keyInput, key)
-      await nameInput.pressSequentially(name)
 
       await expect(keyInput, 'the key survived hydration').toHaveValue(key)
       await expect(nameInput, 'the name survived hydration').toHaveValue(name)

@@ -1,11 +1,13 @@
 ---
 title: "Stabilize flaky integration tests by finding the hang, not by raising the timeout"
 modules: ["events","queue","ui","auth","example","record_locks","warranty_claims","customers","phone_calls","search","cache","query_index","sales","sync_excel","workflows","data_sync","communication_channels","forms","security"]
-areas: ["integration","testing","backend-ui"]
+areas: ["integration","testing","backend-ui","debugging"]
 topics: ["events","testing","workers","hydration","component-overrides","timers"]
 ---
 
 # Stabilize flaky integration tests by finding the hang, not by raising the timeout
+
+`TC-FORMS-UI-002` deterministically doubled its name after a merge retained both `fillControlledInput(nameInput, name)` and `nameInput.pressSequentially(name)`. Reconcile the complete interaction sequence when merging test setup: keep one authoritative value entry and retain every hydration, payload and persistence assertion.
 
 **Queue observations**: Before recording a no-write baseline for a denied action, wait for the exact preceding authorized message to finish its asynchronous interaction projection; retain the full equality check after denial so legitimate earlier work cannot be mistaken for a forbidden write. The channel-reply trace also spent 31 seconds bootstrapping a redundant drain before a required 30-second negative observation in a 60-second test; reusing the configured workers preserves that entire observation window.
 
