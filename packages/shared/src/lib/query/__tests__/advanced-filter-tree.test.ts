@@ -227,9 +227,9 @@ describe('compileTreeToWhere — every operator', () => {
     ['is_none_of',        ['a'],      { f: { $nin: ['a'] } }],
     ['is_true',           '',         { f: { $eq: true } }],
     ['is_false',          '',         { f: { $eq: false } }],
-    ['has_any_of',        ['t1'],     { f: { $in: ['t1'] } }],
-    ['has_all_of',        ['t1', 't2'], { f: { $contains: ['t1', 't2'] } }],
-    ['has_none_of',       ['t1'],     { f: { $nin: ['t1'] } }],
+    ['has_any_of',        ['t1'],     { f: { $overlap: ['t1'] } }],
+    ['has_all_of',        ['t1', 't2'], { $and: [{ f: { $overlap: ['t1'] } }, { f: { $overlap: ['t2'] } }] }],
+    ['has_none_of',       ['t1'],     { f: { $noverlap: ['t1'] } }],
   ]
 
   it.each(cases)('compiles %s to expected output', (operator, value, expected) => {

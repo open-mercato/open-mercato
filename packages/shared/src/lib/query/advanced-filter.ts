@@ -175,6 +175,35 @@ export function deserializeAdvancedFilter(query: Record<string, unknown>): Advan
   return normalizeAdvancedFilterState({ logic, conditions })
 }
 
+export type TagsFilterOperator = 'has_any_of' | 'has_all_of' | 'has_none_of'
+
+/**
+ * `tags` operators compile to the array-overlap operators every query engine supports on array
+ * columns, index-document arrays and custom-field value rows. The engines have no "contains all"
+ * operator and drop any operator they do not know, so `has_all_of` is one single-value overlap
+ * per tag, ANDed. It used to compile to `$contains`, which was dropped and widened the filter to
+ * every row.
+ */
+export function buildTagsOperatorFilter(
+  field: string,
+  operator: TagsFilterOperator,
+  tags: unknown[],
+): Record<string, unknown> {
+  if (operator === 'has_any_of') return { [field]: { $overlap: tags } }
+  if (operator === 'has_none_of') return { [field]: { $noverlap: tags } }
+  return { $and: tags.map((tag) => ({ [field]: { $overlap: [tag] } })) }
+}
+
+/** AND-merges two where objects, keeping both sides' `$and` lists instead of letting one replace the other. */
+export function mergeWhereWithAnd(
+  left: Record<string, unknown>,
+  right: Record<string, unknown>,
+): Record<string, unknown> {
+  const merged = { ...left, ...right }
+  if (Array.isArray(left.$and) && Array.isArray(right.$and)) merged.$and = [...left.$and, ...right.$and]
+  return merged
+}
+
 function buildConditionFilter(condition: FilterCondition): Record<string, unknown> | null {
   if (!condition.field || !condition.operator) return null
   const normalizeSingleValue = (value: unknown): unknown => {
@@ -261,20 +290,19 @@ function buildConditionFilter(condition: FilterCondition): Record<string, unknow
       filter[condition.field] = { $gt: normalizeSingleValue(condition.value) }
       break
     case 'is_any_of':
-    case 'has_any_of':
       if (normalizeListValue(condition.value).length === 0) return null
       filter[condition.field] = { $in: normalizeListValue(condition.value) }
       break
     case 'is_none_of':
-    case 'has_none_of':
       if (normalizeListValue(condition.value).length === 0) return null
       filter[condition.field] = { $nin: normalizeListValue(condition.value) }
       break
-    case 'has_all_of': {
-      const allOfValues = normalizeListValue(condition.value)
-      if (allOfValues.length === 0) return null
-      filter[condition.field] = { $contains: allOfValues }
-      break
+    case 'has_any_of':
+    case 'has_all_of':
+    case 'has_none_of': {
+      const tags = normalizeListValue(condition.value)
+      if (tags.length === 0) return null
+      return buildTagsOperatorFilter(condition.field, condition.operator, tags)
     }
     case 'is_true':
       filter[condition.field] = { $eq: true }
@@ -310,10 +338,7 @@ export function convertAdvancedFilterToWhere(state: AdvancedFilterState): Record
       clauses = [...clauses, entry.filter]
       continue
     }
-    clauses = clauses.map((clause) => ({
-      ...clause,
-      ...entry.filter,
-    }))
+    clauses = clauses.map((clause) => mergeWhereWithAnd(clause, entry.filter))
   }
 
   return clauses.length > 1 ? { $or: clauses } : clauses[0]

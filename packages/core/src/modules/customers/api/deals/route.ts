@@ -277,6 +277,9 @@ export async function buildDealListFilters(query: DealListQuery, ctx?: import('@
         const expanded = expandDealStatusAliases(rawValues)
         if (listOperators.has(node.operator)) {
           node.value = expanded
+          // `status` is a scalar column; the `has_*` operators compile to array overlap.
+          if (node.operator === 'has_any_of') node.operator = 'is_any_of'
+          else if (node.operator === 'has_none_of') node.operator = 'is_none_of'
         } else if (expanded.length === 1) {
           node.value = expanded[0]
         } else {

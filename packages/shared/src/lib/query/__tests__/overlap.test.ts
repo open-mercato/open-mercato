@@ -6,10 +6,15 @@ import {
   PostgresIntrospector,
   PostgresQueryCompiler,
   sql,
+  type CompiledQuery,
+  type DatabaseConnection,
+  type QueryResult,
   type RawBuilder,
 } from 'kysely'
-import { BasicQueryEngine } from '../engine'
+import { BasicQueryEngine, clearColumnExistsCache } from '../engine'
 import { normalizeFilters } from '../join-utils'
+import { makeMultiRuleTree } from '../advanced-filter-tree'
+import { mergeAdvancedFilterTree } from '../../crud/advanced-filter-integration'
 import {
   buildArrayColumnNoOverlapPredicate,
   buildArrayColumnOverlapPredicate,
@@ -215,5 +220,72 @@ describe('BasicQueryEngine noverlap', () => {
       .where((eb) => engine.buildColumnOpExpression(eb, 'b.tags', 'noverlap', ['x']))
       .compile()
     expect(expression.sql).toContain('not ("b"."tags" && $1)')
+  })
+})
+
+function makeRecordingDb(columns: string[]): { db: Kysely<any>; queries: CompiledQuery[] } {
+  const queries: CompiledQuery[] = []
+  const connection: DatabaseConnection = {
+    async executeQuery<R>(compiled: CompiledQuery): Promise<QueryResult<R>> {
+      queries.push(compiled)
+      const isKnownColumn = compiled.sql.includes('"information_schema"."columns"') && columns.includes(String(compiled.parameters[1]))
+      return { rows: (isKnownColumn ? [{ one: 1 }] : []) as R[] }
+    },
+    async *streamQuery() {},
+  }
+  const recordingDb = new Kysely<any>({
+    dialect: {
+      createAdapter: () => new PostgresAdapter(),
+      createDriver: () => ({
+        init: async () => {},
+        acquireConnection: async () => connection,
+        beginTransaction: async () => {},
+        commitTransaction: async () => {},
+        rollbackTransaction: async () => {},
+        releaseConnection: async () => {},
+        destroy: async () => {},
+      }),
+      createIntrospector: (kysely) => new PostgresIntrospector(kysely),
+      createQueryCompiler: () => new PostgresQueryCompiler(),
+    },
+  })
+  return { db: recordingDb, queries }
+}
+
+describe('BasicQueryEngine tags OR filter', () => {
+  beforeEach(() => {
+    clearColumnExistsCache()
+  })
+
+  const storages = [
+    ['an array column', ['id', 'tenant_id', 'deleted_at', 'tags'], /"catalog_products"\."tags" && \$\d+/g],
+    ['an index document', ['id', 'tenant_id', 'deleted_at'], /\("ei_\d+"\."doc" -> 'tags'\) \?\| \$\d+::text\[\]/g],
+  ] as const
+  const orders = [
+    ['has all of first', ['has_all_of', 'has_any_of']],
+    ['has any of first', ['has_any_of', 'has_all_of']],
+  ] as const
+
+  describe.each(storages)('stored in %s', (_storage, columns, tagPredicate) => {
+    it.each(orders)('does not make the extra has all of tag mandatory when ORed with a has any of it implies (%s)', async (_order, operators) => {
+      const values = { has_all_of: ['vip', 'eu'], has_any_of: ['vip'] }
+      const tree = makeMultiRuleTree(
+        operators.map((operator) => ({ field: 'tags', operator, value: values[operator] })),
+        'or',
+      )
+      const { db: recordingDb, queries } = makeRecordingDb([...columns])
+      const recordingEngine = new BasicQueryEngine({} as EntityManager, () => recordingDb)
+      await recordingEngine.query('catalog:catalog_product', {
+        tenantId: 'tenant-1',
+        fields: ['id'],
+        filters: mergeAdvancedFilterTree({}, tree),
+      })
+      const listQuery = queries.find((query) => query.sql.startsWith('select "catalog_products"."id"'))
+      expect(listQuery).toBeDefined()
+      expect(listQuery!.sql.match(tagPredicate)).toHaveLength(1)
+      expect(listQuery!.sql).not.toContain(' or ')
+      expect(listQuery!.parameters).toContainEqual(['vip'])
+      expect(listQuery!.parameters).not.toContainEqual(['eu'])
+    })
   })
 })
