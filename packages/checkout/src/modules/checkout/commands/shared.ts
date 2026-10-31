@@ -4,6 +4,7 @@ import { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { CustomFieldSnapshot } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import { CheckoutLink, CheckoutLinkTemplate } from '../data/entities'
+import { findUncollectedPayerFields, resolveRequiredPayerFields } from '../lib/payerFieldRequirements'
 import { requireCheckoutScope, type CheckoutScope } from '../lib/utils'
 import { serializeTemplateOrLink, toMoneyString } from '../lib/utils'
 
@@ -165,17 +166,29 @@ export function buildSelectiveLinkedLinkSnapshot(
   previousTemplate: CheckoutTemplateSnapshot,
   nextTemplate: CheckoutTemplateSnapshot,
 ): { changed: boolean; snapshot: CheckoutLinkSnapshot } {
-  let changed = false
   const snapshot = cloneJson(current)
 
   for (const key of PROPAGATED_TEMPLATE_FIELD_KEYS) {
     if (!valuesEqual(current[key], previousTemplate[key])) continue
     if (valuesEqual(current[key], nextTemplate[key])) continue
     copyPropagatedTemplateField(snapshot, nextTemplate, key)
-    changed = true
   }
 
-  return { changed, snapshot }
+  const missingPayerFields = findUncollectedPayerFields({
+    requiredPayerFields: resolveRequiredPayerFields(snapshot.gatewayProviderKey),
+    collectCustomerDetails: snapshot.collectCustomerDetails,
+    customerFieldsSchema: snapshot.customerFieldsSchema,
+  })
+  if (missingPayerFields.length > 0) {
+    for (const key of ['gatewayProviderKey', 'gatewaySettings', 'collectCustomerDetails', 'customerFieldsSchema'] as const) {
+      copyPropagatedTemplateField(snapshot, current, key)
+    }
+  }
+
+  return {
+    changed: PROPAGATED_TEMPLATE_FIELD_KEYS.some((key) => !valuesEqual(current[key], snapshot[key])),
+    snapshot,
+  }
 }
 
 export function buildSelectiveLinkedCustomFieldUpdates(
