@@ -246,6 +246,27 @@ describe('time-projects list route project access scoping', () => {
     })
   })
 
+  describe('mine=1 narrowing', () => {
+    it('narrows to the projects the caller is assigned to', async () => {
+      const filters = await buildFilters({ mine: '1' }, listRequest({ mine: '1' }))
+
+      expect(filters.id).toEqual({ $in: [memberProjectId] })
+    })
+
+    it('returns no rows without querying an empty organization id under "All organizations" (#7465)', async () => {
+      const filters = await buildFilters({ mine: '1' }, listRequest({ mine: '1' }), {
+        auth: { sub: userId, tenantId: tenantA, orgId: null },
+        selectedOrganizationId: null,
+      })
+
+      expect(filters.id).toEqual({ $in: [IMPOSSIBLE_PROJECT_ID] })
+      const queriedOrganizationIds = findOneWithDecryption.mock.calls.map(
+        (call) => (call[2] as Record<string, unknown>).organizationId,
+      )
+      expect(queriedOrganizationIds).not.toContain('')
+    })
+  })
+
   describe('detail fetch', () => {
     it('answers 404 with only the membership discriminator for a foreign id', async () => {
       const response = await GET(listRequest({ ids: foreignProjectId, pageSize: '1' }))

@@ -389,7 +389,7 @@ The actual pay link with a unique public URL slug. Shares all template columns p
 | `slug` | varchar(255) | NOT NULL | URL-friendly, unique per tenant |
 | `completion_count` | integer | DEFAULT `0` | Successful completed uses only |
 | `active_reservation_count` | integer | DEFAULT `0` | In-flight payment attempts currently occupying a usage slot |
-| `is_locked` | boolean | DEFAULT `false` | Set `true` after first transaction |
+| `is_locked` | boolean | DEFAULT `false` | `true` while the link has in-flight reservations (`active_reservation_count > 0`) |
 
 **Indexes:**
 - Partial unique index: `UNIQUE (organization_id, tenant_id, slug) WHERE deleted_at IS NULL`
@@ -512,7 +512,7 @@ Undoability boundary:
 | Command | Undo | Notes |
 |---------|------|-------|
 | `checkout.link.create` | Soft-delete the created link | If `templateId` provided: copy all template fields + custom field values |
-| `checkout.link.update` | Restore `before` snapshot | **Fails with 422** if `is_locked = true` (link has transactions) |
+| `checkout.link.update` | Restore `before` configuration; usage counters and `is_locked` keep their live values | **Fails with 422** if `is_locked = true` (payments in flight); undo fails the same way |
 | `checkout.link.delete` | Restore `deleted_at = null` | Soft delete. Fails if link has active (`pending`/`processing`) transactions |
 
 ### Transaction Commands
@@ -522,12 +522,14 @@ Undoability boundary:
 | `checkout.transaction.create` | N/A (not undoable — financial record) | Internal only. Called from public submit endpoint. Atomically reserves one usage slot by incrementing `active_reservation_count` |
 | `checkout.transaction.updateStatus` | N/A (not undoable) | Internal only. Called from gateway event subscriber and status polling. Releases reservations on terminal states and increments `completion_count` only on successful completion |
 
-**Link locking on first transaction:** When the first `CheckoutTransaction` is created for a link, set `link.is_locked = true` within the same `withAtomicFlush` block. This prevents further edits to the link configuration.
+**Link locking while payments are in flight:** The reservation sets `link.is_locked = true` in the same database transaction that inserts the `CheckoutTransaction`. Terminal transitions clear it once `active_reservation_count` drops to 0. This blocks edits (and undo of edits) to the link configuration while a payment is in flight.
 
 **Atomic usage enforcement:** The `checkout.transaction.create` command uses a single atomic SQL operation:
 ```sql
 UPDATE checkout_links
-SET active_reservation_count = active_reservation_count + 1
+SET active_reservation_count = active_reservation_count + 1,
+    is_locked = true,
+    updated_at = clock_timestamp()
 WHERE id = $1
   AND organization_id = $2
   AND tenant_id = $3
@@ -537,14 +539,17 @@ WHERE id = $1
     max_completions IS NULL
     OR completion_count + active_reservation_count < max_completions
   )
-RETURNING *
+RETURNING active_reservation_count
 ```
-If zero rows returned → link has reached its limit or is inactive. Return `422` with user-friendly error.
+The statement runs through the transaction-bound executor after the `CheckoutTransaction` INSERT, so the slot commits or rolls back with the row (a duplicate `Idempotency-Key` or any insert failure releases it). If zero rows returned → link has reached its limit or is inactive. Return `422` with user-friendly error. `checkout.link.locked` is emitted after commit when the returned `active_reservation_count` is `1`.
 
 **Terminal state reconciliation:**
 - `completed`: decrement `active_reservation_count`, increment `completion_count`
 - `failed` / `cancelled` / `expired`: decrement `active_reservation_count` only
+- applied as one relative `UPDATE checkout_links … RETURNING completion_count, max_completions` (scoped by id, organization, tenant, `deleted_at IS NULL`) in the same transaction as the transaction-status compare-and-swap, so concurrent completions, reservations, cancellations and expiries never overwrite each other
+- `checkout.link.usageLimitReached` is emitted after commit by the completion whose returned `completion_count` equals `max_completions`
 - transitions are idempotent; repeated terminal updates do not mutate counters twice
+- link undo/redo restores configuration only; `completion_count`, `active_reservation_count` and `is_locked` are never rewound from a snapshot onto an existing row
 
 ---
 
@@ -653,7 +658,7 @@ const events = [
 
 `GET /api/checkout/pay/:slug` — Get public link data
 
-- Query param: `?preview=true` — requires valid admin session with `checkout.view` feature; returns full link data with `"preview": true` flag regardless of link status
+- Query param: `?preview=true` — requires valid admin session with `checkout.view` feature; returns the same public DTO with `"preview": true` and `"available": false` regardless of link status
 - Response (no password / password verified):
   ```json
   {
@@ -680,7 +685,7 @@ const events = [
       "privacyPolicy": { "title": "Privacy Policy", "markdown": "...", "required": true }
     },
     "displayCustomFieldsOnPage": false,
-    "customFields": {},
+    "publicCustomFields": [],
     "gatewayProviderKey": "stripe",
     "available": true,
     "remainingUses": null
@@ -690,6 +695,20 @@ const events = [
 - If limit reached: `{ available: false, message: "..." }`
 - If `draft`, `inactive`, or deleted (without `preview=true`): `404`
 - **MUST NOT** expose: `passwordHash`, `gatewaySettings`, admin-only fields, PII from other transactions
+
+The response uses the explicit `serializePublicPayLink` allowlist, independently of administrative serialization. The permitted fields are:
+
+| Purpose | Fields |
+|---------|--------|
+| Identity and public presentation | `id`, `slug`, `name` (title fallback), `title`, `subtitle`, `description`, `logoUrl`, `logoPreviewUrl`, `primaryColor`, `secondaryColor`, `backgroundColor`, `themeMode`, `status`, `checkoutType` |
+| Pricing | `pricingMode`, `fixedPriceAmount`, `fixedPriceCurrencyCode`, `fixedPriceIncludesTax`, `fixedPriceOriginalAmount`, `customAmountMin`, `customAmountMax`, `customAmountCurrencyCode`, `priceListItems` |
+| Customer inputs and public custom fields | `collectCustomerDetails`, `customerFieldsSchema`, `legalDocuments`, `displayCustomFieldsOnPage`, `publicCustomFields` (resolved through existing public fieldset filtering) |
+| Payer-facing result copy | `successTitle`, `successMessage`, `cancelTitle`, `cancelMessage`, `errorTitle`, `errorMessage` |
+| Derived access and availability | `available`, `remainingUses`, `requiresPassword`, `preview` |
+
+Email subjects/bodies and send flags, `logoAttachmentId`, `customFieldsetCode`, `templateId`, `maxCompletions`, `completionCount`, `activeReservationCount`, `isLocked`, `createdAt`, and `updatedAt` are administrative fields and are absent even after password verification or in authenticated link preview. Public logo URLs and derived `remainingUses` remain available. Authenticated administrative link/template routes keep their full serializer. The password challenge remains exactly `{ requiresPassword: true, title }`.
+
+Regression coverage: `api/pay/[slug]/__tests__/route.test.ts` asserts exact response shapes for anonymous payers, verified password sessions, minimal challenges, unlimited usage and authorized draft preview, and confirms administrative serialization retains its fields. Self-contained API tests in `__integration__/TC-CHKT-045-public-payload.spec.ts` create links with all email settings, exercise the real verification cookie, compare the public/preview responses, and verify the authenticated admin detail response still includes its configuration.
 
 `POST /api/checkout/pay/:slug/verify-password` — Verify password
 - Body: `{ password: string }`
@@ -1954,6 +1973,16 @@ Phase A keeps core changes minimal, but it does introduce one **additive** contr
 
 Optional future enhancements to generic payment-source correlation in `payment_gateways` must be specified separately and follow the full deprecation / BC process if they alter existing contracts.
 
+### Public pay-link disclosure fix (#7823, 2026-10-27)
+
+Removing the administrative fields from `GET /api/checkout/pay/:slug` narrows a **STABLE API response**. This uses the Emergency Security Exception in `BACKWARD_COMPATIBILITY.md`: returning the administrative configuration on the public route is the disclosure itself, so a legacy response, opt-in flag, or bridge release would leave the flaw reachable. Removal is limited to administrative members; payer-facing values, password verification, status gating, public custom-field filtering, and derived availability retain their existing behavior.
+
+**Client migration:** extensions reading email configuration or management metadata from the public response must fetch it only in an authenticated administration flow through `GET /api/checkout/links/:id` with `checkout.view`; never forward that response to a pay page. Use `logoPreviewUrl`/`logoUrl` and `remainingUses` for payer-facing branding and availability.
+
+**Operator migration:** deploy the patched checkout package/app and purge any cached public pay-link responses. Review configured email templates for confidential content and assess any prior public exposure; previously returned copies cannot be recalled. No database migration, password-session invalidation, credential rotation, or stored-data rewrite is required by this change itself.
+
+Human maintainer @haxiorz [approved the waiver](https://github.com/open-mercato/open-mercato/pull/8087#issuecomment-6505348826) on 2026-10-29 for deprecation steps 1–3 covering all 18 removed administrative fields, including management metadata, and acknowledged the client/operator migration. The PR carries `security`; independent review and QA approval remain required. See the dated compatibility entry and `UPGRADE_NOTES.md` for migration disclosure.
+
 ---
 
 ## Final Compliance Report — 2026-03-19
@@ -2055,8 +2084,20 @@ None identified.
 ### 2026-08-02
 - Defined the 24-hour payment-session replay window and added tenant-scoped cleanup for expired completed initialization claims (#4861)
 
+### 2026-10-10
+- Made pay-link usage counters concurrency-safe: terminal transitions release reservations with an atomic relative update, the reservation runs inside the transaction-insert transaction, and `usageLimitReached`/`locked` fire once per crossing
+- Link undo/redo no longer rewinds usage counters; undoing a link edit is refused while payments are in flight
+- Documented `is_locked` as "has in-flight reservations", matching the implemented behaviour
+
 ### 2026-10-18
 - Extended bounded session-claim retention to released and safely abandoned claims after 24 hours, protecting fresh leases and concurrent renewals with row locks; added a concurrent retention index and PostgreSQL state/race coverage (#4888).
 
 ### 2026-10-25
 - Scoped service-package custom-field localization to an explicit checkout form resolver with namespaced keys, seeded-default matching, locale-change coverage and collision/fallback regressions (#7754).
+
+### 2026-10-27
+- Replaced the public pay-link route's administrative response spread with an explicit payer-facing allowlist, including verified-password and preview responses; documented the security exception and client/operator migration for #7823.
+- Added exact-shape route regressions and self-contained API integration coverage for public omission and retained administrative configuration.
+
+### 2026-10-29
+- Recorded @haxiorz’s human approval of the security exception for all 18 administrative fields and acknowledgment of the client/operator migration; independent review and QA remain required.
