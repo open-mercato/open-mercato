@@ -16,6 +16,7 @@ jest.mock('../../db/advisoryLock', () => ({
 }))
 
 jest.mock('@open-mercato/core/modules/entities/lib/helpers', () => ({
+  ...jest.requireActual('@open-mercato/core/modules/entities/lib/helpers'),
   setRecordCustomFields: jest.fn(async () => undefined),
 }))
 

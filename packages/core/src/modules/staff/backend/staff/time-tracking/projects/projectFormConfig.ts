@@ -15,6 +15,7 @@ import {
   ProjectBudgetSection,
   ProjectRoundingNotice,
   ProjectTeamSection,
+  ProjectDefaultAssigneeField,
   type ProjectBudgetKind,
 } from '../../../../lib/time-tracking-ui/ProjectFormSections'
 
@@ -43,6 +44,7 @@ export type ProjectFormValues = {
   startDate?: string | null
   costCenter?: string | null
   status?: string
+  defaultAssigneeStaffMemberId?: string | null
   /**
    * Custom-field values rendered by `CrudForm` from `entityIds`. They are keyed
    * `cf_<key>` / `cf:<key>` and are opaque here: this form neither declares nor
@@ -112,6 +114,7 @@ export function createProjectFormSchema() {
     startDate: z.string().optional().nullable(),
     costCenter: z.string().max(100).optional().nullable(),
     status: z.enum(['active', 'on_hold', 'completed']).optional(),
+    defaultAssigneeStaffMemberId: z.string().optional().nullable(),
   })
 }
 
@@ -381,9 +384,22 @@ export function createProjectFormGroups(
       id: 'team',
       column: 2,
       title: t('staff.time_tracking.projects.form.groupTeam', 'Team'),
-      component: (ctx) => React.createElement(ProjectTeamSection, {
-        projectId: typeof ctx.values.id === 'string' ? ctx.values.id : null,
-      }),
+      component: (ctx) => {
+        const projectId = typeof ctx.values.id === 'string' ? ctx.values.id : null
+        const defaultAssignee = ctx.values.defaultAssigneeStaffMemberId
+        return React.createElement(
+          React.Fragment,
+          null,
+          React.createElement(ProjectTeamSection, { projectId }),
+          projectId
+            ? React.createElement(ProjectDefaultAssigneeField, {
+                projectId,
+                value: typeof defaultAssignee === 'string' && defaultAssignee.length > 0 ? defaultAssignee : null,
+                onChange: (next: string | null) => ctx.setValue('defaultAssigneeStaffMemberId', next),
+              })
+            : null,
+        )
+      },
     },
     {
       id: 'rounding',
@@ -456,6 +472,9 @@ export function buildProjectPayload(values: ProjectFormValues): Record<string, u
     payload.currencyCode = trimmedOrNull(values.currencyCode)
   } else {
     payload.id = values.id
+    if (values.defaultAssigneeStaffMemberId !== undefined) {
+      payload.defaultAssigneeStaffMemberId = values.defaultAssigneeStaffMemberId || null
+    }
   }
   if (values.status) payload.status = values.status
   // The form renders custom-field inputs whenever `entityIds` is passed, but this
