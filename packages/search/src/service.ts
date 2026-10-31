@@ -178,6 +178,14 @@ export class SearchService {
       return []
     }
 
+    const { resolveQueryIndexSearchScope, filterQueryIndexSearchRecords } = await import('@open-mercato/core/modules/query_index/lib/search-scope')
+    const scope = await resolveQueryIndexSearchScope()
+    if (options.entityTypes?.length) {
+      const entityTypes = options.entityTypes.filter((entityType) => !scope.blockedEntityTypes.includes(entityType))
+      if (!entityTypes.length) return []
+      options = { ...options, entityTypes }
+    }
+
     // Execute searches in parallel with graceful degradation
     const results = await Promise.allSettled(
       activeStrategies.map((strategy) => this.executeStrategySearch(strategy, query, options)),
@@ -199,11 +207,16 @@ export class SearchService {
     }
 
     // Merge and rank results
-    const { isTenantGlobalEntityType } = await import(
-      '@open-mercato/core/modules/query_index/lib/tenant-global'
-    )
+    const globalTypes = new Set(scope.tenantGlobalEntityTypes)
+    const isTenantGlobalEntityType = (entityType: string) => globalTypes.has(entityType)
+    const persistedSources = new Set(['tokens', 'vector', 'fulltext'])
+    const candidates = allResults.filter((result) => persistedSources.has(result.source))
+      .map((result) => ({ entityId: result.entityId, recordId: result.recordId, tenantId: options.tenantId, result }))
+    const allowed = await filterQueryIndexSearchRecords(undefined, scope, candidates)
+    const allowedResults = new Set(allowed.map((candidate) => candidate.result))
+    const safeResults = allResults.filter((result) => !scope.blockedEntityTypes.includes(result.entityId) && (!persistedSources.has(result.source) || allowedResults.has(result)))
     const seenCatalogueHits = new Set<string>()
-    const scoped = filterResultsByOrganizationScope(allResults, options, isTenantGlobalEntityType)
+    const scoped = filterResultsByOrganizationScope(safeResults, options, isTenantGlobalEntityType)
       .flatMap((result) => {
         if (!isTenantGlobalEntityType(result.entityId)) return [result]
         const key = JSON.stringify([result.source, result.entityId, result.recordId])

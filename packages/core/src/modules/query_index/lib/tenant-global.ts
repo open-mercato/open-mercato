@@ -6,7 +6,7 @@
  * A declared type whose table has neither scope column is swept whole and its
  * projection is written once, under `tenant_id = NULL, organization_id = NULL` -
  * where the event path files it too - and every reader widens for exactly this
- * set: `TokenSearchStrategy.search()` on both the tenant and the organization
+ * physically verified set (see `search-scope`): `TokenSearchStrategy.search()` on both the tenant and the organization
  * axis, `createPresenterEnricher()`'s `fetchDocsBatch()` on the tenant axis, and
  * `SearchService`'s organization filter. A sweep also retires the rows earlier
  * sweeps stamped with a caller's tenant and organization. Vector work is the one
@@ -75,7 +75,7 @@ export function registerTenantGlobalEntityTypes(...entityTypes: string[]): void 
   }
 }
 
-/** True when a table with no `tenant_id` column may be swept by a tenant-scoped reindex. */
+/** Declaration intent only; runtime widening also requires physical verification in search-scope. */
 export function isTenantGlobalEntityType(entityType: string): boolean {
   return getTenantGlobalEntityTypes().has(normalize(entityType))
 }

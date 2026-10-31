@@ -289,3 +289,25 @@ search. §4 adds it.
 ### 2026-08-28
 
 - Initial version.
+
+## Migration & Backward Compatibility
+
+The declaration registry exports and existing search/indexing signatures remain compatible.
+Declarations describe intent; only registered source metadata plus physical absence of both
+scope columns can activate global scope. The shared verified policy is cached per ORM driver,
+entity/declaration/metadata signature, with failure eviction. Registered tenant-less private
+projections/tokens are logically quarantined before reads/ranking, including historical victim
+stamps; no operator cleanup or data migration is needed for security. Source records are never
+deleted. Ordinary tenant-scoped and dynamic custom-storage inputs retain their scope. Provider/synthetic strategy results retain caller scope and supplied presenters. Persisted local
+artifacts and writes require verified ORM scope or exact tenant/type/record proof in custom
+storage. Unregistered/disabled-module residue is quarantined before ranking; unverified local
+writes are declined. A virtual source may keep its provider strategy. Catalogue widening always
+requires physical proof. Nondefault metadata schemas are probed explicitly, separate from current_schema.
+Restart processes after schema migrations. See UPGRADE_NOTES security/operator disclosure.
+
+### 2026-10-31 security remediation
+
+- Addressed inherited High H1/H2 from PR8287 comment6532749321 with logical quarantine and
+  verified global activation across token, presenter, hybrid and pgvector paths.
+- Added physical-scope/cache/retry regressions and actual PostgreSQL legacy-contamination and
+  invalid tenant/organization declaration worker tests. Fresh independent review is required.

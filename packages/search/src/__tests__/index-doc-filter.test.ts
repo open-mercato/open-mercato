@@ -257,3 +257,12 @@ describe('fail-closed strategies', () => {
     ])
   })
 })
+
+jest.mock('@open-mercato/core/modules/query_index/lib/search-scope', () => ({
+  buildQueryIndexSearchScopePredicate: () => jest.requireActual('kysely').sql`true`,
+  filterQueryIndexSearchRecords: async (_database: unknown, _scope: unknown, records: unknown[]) => records,
+  resolveQueryIndexSearchScope: async () => ({
+    blockedEntityTypes: [],
+    tenantGlobalEntityTypes: jest.requireActual('@open-mercato/core/modules/query_index/lib/tenant-global').listTenantGlobalEntityTypes(),
+  }),
+}))

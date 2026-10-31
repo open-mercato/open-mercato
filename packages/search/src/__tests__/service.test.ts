@@ -298,6 +298,28 @@ describe('SearchService', () => {
       expect(results.map((result) => result.organizationId).sort()).toEqual(['org-456', 'org-789'])
     })
 
+    it('quarantines private artifacts before provider ranking and enrichment while keeping scoped synthetic inputs', async () => {
+      const scopeModule = await import('@open-mercato/core/modules/query_index/lib/search-scope')
+      const resolveScope = jest.mocked(scopeModule.resolveQueryIndexSearchScope).mockResolvedValueOnce({
+        searchableEntityTypes: ['feature_toggles:feature_toggle'],
+        blockedEntityTypes: ['directory:tenant'], tenantGlobalEntityTypes: ['feature_toggles:feature_toggle'],
+      })
+      try {
+        const strategy = createMockStrategy({ id: 'test', search: jest.fn().mockResolvedValue([
+          createMockResult({ entityId: 'directory:tenant', recordId: 'private', organizationId: 'org-A' }),
+          createMockResult({ entityId: 'provider:remote_record', recordId: 'remote', organizationId: 'org-A' }),
+        ]) })
+        const presenterEnricher = jest.fn(async (results: SearchResult[]) => results)
+        const service = new SearchService({ strategies: [strategy], defaultStrategies: ['test'], presenterEnricher })
+        const results = await service.search('secret', { tenantId: 'victim-tenant', organizationId: 'org-A', entityTypes: ['directory:tenant', 'provider:remote_record'], limit: 1 })
+        expect(strategy.search).toHaveBeenCalledWith('secret', expect.objectContaining({ entityTypes: ['provider:remote_record'], limit: 1 }))
+        expect(results.map((result) => result.recordId)).toEqual(['remote'])
+        expect(presenterEnricher).toHaveBeenCalledWith([expect.objectContaining({ recordId: 'remote' })], 'victim-tenant', 'org-A')
+      } finally {
+        resolveScope.mockClear()
+      }
+    })
+
     it('keeps an organization-less hit only for a declared platform-wide catalogue', async () => {
       const strategy = createMockStrategy({
         id: 'test',
@@ -798,3 +820,12 @@ describe('SearchService', () => {
     })
   })
 })
+
+jest.mock('@open-mercato/core/modules/query_index/lib/search-scope', () => ({
+  buildQueryIndexSearchScopePredicate: () => jest.requireActual('kysely').sql`true`,
+  filterQueryIndexSearchRecords: async (_database: unknown, _scope: unknown, records: unknown[]) => records,
+  resolveQueryIndexSearchScope: jest.fn(async () => ({
+    blockedEntityTypes: [],
+    tenantGlobalEntityTypes: jest.requireActual('@open-mercato/core/modules/query_index/lib/tenant-global').listTenantGlobalEntityTypes(),
+  })),
+}))

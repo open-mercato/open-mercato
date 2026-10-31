@@ -180,9 +180,12 @@ tenant_id column"*, exactly one of two things is true:
    registration (a module's `di.ts` is the usual place), before any reindex job
    runs.
 
-**Existing index rows are not touched.** Rows written by an earlier reindex keep
-their wrong tenant stamp until something rewrites or deletes them; this change
-only stops new ones being created. An operator upgrading a deployment that has
+**Legacy artifacts are automatically quarantined.** Registered ORM metadata and physical
+columns identify tenant-less private types. Token queries exclude them before ranking,
+SearchService rejects them before fusion/enrichment, presenters reject them before document
+lookup, and pgvector rejects them before ranking. Query-index document joins for tenant-less
+sources require a null tenant, so an old caller-stamped projection cannot be joined. Records
+remain stored; optional cleanup reclaims derived storage and is not a security prerequisite. An operator upgrading a deployment that has
 run a tenant-scoped reindex of a tenant-less entity type should delete the
 `entity_indexes` and `search_tokens` rows for those entity types, and let the
 event path refile the ones that still matter.
@@ -248,3 +251,22 @@ One pre-existing suite needed a stub correction rather than a behaviour change:
 `reindexer-partial-write.test.ts` reindexes `example:todo` with a tenant while its
 fake `information_schema.columns` returns no rows at all. `todos` does carry
 `tenant_id` and `organization_id`, so the probe now answers with the real shape.
+
+## Security remediation — 2026-10-31
+
+Inherited High H1 (PR8287 comment6532749321) is addressed by automatic logical quarantine of
+legacy private artifacts. No source records or index rows are deleted. H2 is addressed by
+physical verification of catalogue declarations before token writes, global reads, hybrid
+fusion or document-filter widening. Registered source metadata and scope-column probing are
+shared across worker/request consumers. Invalid tenant-scoped declarations keep ordinary scope;
+organization-only private types are blocked. Provider/synthetic strategy results retain caller scope and supplied presenters. Persisted local
+artifacts and writes require verified ORM scope or exact tenant/type/record proof in custom
+storage, including after module/metadata removal. Unverified local writes are declined; virtual
+sources may use their provider strategy. No unverified source gains catalogue scope. Failed probes are not cached; driver/entity/metadata/declaration
+changes separate or invalidate cached verification. Schema changes require process restart.
+
+Regression coverage: search-scope unit cases for private/scoped/catalogue/physical drift, missing
+sources, concurrent verification, reset, driver isolation and retry; PostgreSQL pipeline cases
+start from victim-stamped private projections/tokens and exercise actual worker, single/bulk
+indexing and search with invalid tenant/organization declarations. Existing catalogue and
+ordinary cross-tenant/organization controls remain. New scope logic requires independent review.

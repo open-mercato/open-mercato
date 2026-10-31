@@ -654,6 +654,11 @@ export class HybridQueryEngine implements QueryEngine {
         }
       }
 
+      const tenantlessIndexSources = new Set<string>()
+      for (const source of preparedCfSources) {
+        if (!source.tenantField && !(await this.columnExists(source.table, 'tenant_id'))) tenantlessIndexSources.add(source.indexAlias)
+      }
+
       const searchSources: SearchTokenSource[] = indexSources
         .map((src) => ({ entity: String(src.entityId), recordIdColumn: src.recordIdColumn }))
         .filter((src) => src.recordIdColumn && src.entity)
@@ -963,6 +968,8 @@ export class HybridQueryEngine implements QueryEngine {
             jc = jc
               .onRef('ei.tenant_id', '=', qualify('tenant_id'))
               .on('ei.tenant_id', 'is not', null)
+          } else {
+            jc = jc.on('ei.tenant_id', 'is', null)
           }
           if (!opts.withDeleted) {
             jc = jc.on('ei.deleted_at', 'is', null)
@@ -995,7 +1002,9 @@ export class HybridQueryEngine implements QueryEngine {
             const tenantRef = source.tenantField
               ? `${source.alias}.${source.tenantField}`
               : (columns.has('tenant_id') ? qualify('tenant_id') : null)
-            if (tenantRef) {
+            if (tenantlessIndexSources.has(source.indexAlias)) {
+              jc = jc.on(`${source.indexAlias}.tenant_id`, 'is', null)
+            } else if (tenantRef) {
               jc = jc
                 .onRef(`${source.indexAlias}.tenant_id`, '=', tenantRef)
                 .on(`${source.indexAlias}.tenant_id`, 'is not', null)

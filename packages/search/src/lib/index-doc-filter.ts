@@ -106,7 +106,11 @@ export function compileIndexDocFilterExists(
   target: IndexDocFilterTarget,
   firstParameterIndex: number,
 ): { sql: string; parameters: unknown[] } {
-  const compiled = buildIndexDocFilterExists(filter, target).compile(compiler())
+  return compileSearchScopePredicate(buildIndexDocFilterExists(filter, target), firstParameterIndex)
+}
+
+export function compileSearchScopePredicate(predicate: RawBuilder<boolean>, firstParameterIndex: number): { sql: string; parameters: unknown[] } {
+  const compiled = predicate.compile(compiler())
   const offset = firstParameterIndex - 1
   return {
     sql: compiled.sql.replace(/\$(\d+)/g, (_match, index: string) => `$${Number(index) + offset}`),

@@ -644,7 +644,8 @@ vector/fulltext storage retains caller scope. Document filters resolve the live 
 projection for declared types; ordinary types keep their tenant correlation.
 
 **Action for module authors.** None beyond the declaration the previous note describes.
-An entity type that is not declared is unaffected in every reader and writer.
+Ordinary tenant-scoped entity types retain their tenant/organization scope. Tenant-less
+private types are quarantined automatically as described in the security upgrade note below.
 
 **Action for operators.** Reindex each declared catalogue once after upgrading
 (`feature_toggles:feature_toggle`, plus any type your modules declare). The sweep writes
@@ -702,9 +703,29 @@ returning 0 with that warning, exactly one of two things is true:
    warning names it. `feature_toggles:feature_toggle` is registered by the platform
    and needs no action.
 
-**Action for operators.** Existing index rows are not touched — this stops new
-cross-tenant rows being written, it does not clean up old ones. A deployment that has
-run a tenant-scoped reindex of a tenant-less entity type should delete the
+**Security upgrade.** Existing private projections and tokens are automatically quarantined
+by physical source-scope verification on the read path, including rows stamped with a victim
+tenant by an older sweep. Quarantine requires no operator cleanup and does not delete source
+or index records. Token reads exclude unsafe types before ranking; hybrid search and presenter
+enrichment enforce the same policy, and query-index document joins for tenant-less sources
+require a null tenant. Provider/synthetic strategy results retain their caller scope and supplied presenters.
+Persisted local tokens, projections and pgvector results require verified ORM scope or exact
+tenant/type/record proof in custom-entity storage; unregistered or disabled-module residue is
+quarantined too. Unverified synthetic local writes are declined, and cannot borrow historical
+projections. Register the source ORM entity, use tenant-scoped custom storage, or keep a
+provider-backed strategy for a virtual source. No unverified source can activate global scope.
+
+Catalogue declarations remain API-compatible but no longer authorize global scope by themselves.
+Registered ORM metadata and physical columns must prove that both scope columns are absent.
+Incorrect tenant-scoped declarations retain ordinary tenant/organization isolation; private
+organization-only types remain quarantined. Verification errors fail closed and are retryable;
+cached verification is isolated by ORM driver and invalidated by entity, metadata or declaration
+changes. Restart application and worker processes after schema migrations. Tenant-scoped custom
+entity storage remains supported. No schema migration or destructive cleanup is introduced.
+
+**Optional operator cleanup.** A deployment that has run an old tenant-scoped reindex
+of a tenant-less private entity type may remove quarantined derived artifacts to reclaim storage.
+Delete only the
 `entity_indexes` and `search_tokens` rows for those entity types and let the event
 path refile the ones that still matter. Entity types whose table has no `tenant_id`
 column, and which are not catalogues, are the ones to check first. Delete the matching
