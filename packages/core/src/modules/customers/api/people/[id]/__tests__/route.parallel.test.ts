@@ -1,5 +1,16 @@
 /** @jest-environment node */
 
+import { registerResponseEnrichers } from '@open-mercato/shared/lib/crud/enricher-registry'
+
+let mockCacheEnabled = false
+const mockCache = { get: jest.fn(), set: jest.fn() }
+jest.mock('@open-mercato/shared/lib/crud/cache', () => ({
+  ...jest.requireActual('@open-mercato/shared/lib/crud/cache'),
+  isCrudCacheEnabled: () => mockCacheEnabled,
+  resolveCrudCache: () => mockCacheEnabled ? mockCache : null,
+}))
+
+
 // Regression coverage for issue #3203: the people detail route must dispatch its
 // independent enrichment reads in parallel instead of awaiting them one after
 // another. The test makes findWithDecryption hang until all expected calls are
@@ -113,7 +124,11 @@ function buildPerson() {
 }
 
 describe('GET /api/customers/people/[id] — parallel enrichment (issue #3203)', () => {
+  afterEach(() => registerResponseEnrichers([]))
   beforeEach(() => {
+    mockCacheEnabled = false
+    mockCache.get.mockReset()
+    mockCache.set.mockReset()
     jest.resetModules()
     mockGetAuthFromRequest.mockReset()
     mockResolveOrganizationScopeForRequest.mockReset()
@@ -176,4 +191,27 @@ describe('GET /api/customers/people/[id] — parallel enrichment (issue #3203)',
     expect(body.person.id).toBe(PERSON_ID)
     expect(maxInFlight).toBeGreaterThanOrEqual(2)
   })
+
+  it('enriches person cold/cache-hit reads and preserves cached native data', async () => {
+    mockCacheEnabled = true
+    mockCache.get.mockResolvedValue(null)
+    let priority = 'high'
+    const enrichOne = jest.fn(async (record: Record<string, unknown>) => ({ ...record, _example: { priority } }))
+    registerResponseEnrichers([{ moduleId: 'example', enrichers: [{ id: 'example.priority', targetEntity: 'customers.person', timeout: 10, enrichOne }] }])
+    const { GET } = await import('../route')
+    const request = new Request(`http://localhost/api/customers/people/${PERSON_ID}`)
+    const cold = await GET(request, { params: { id: PERSON_ID } })
+    expect(await cold.json()).toMatchObject({ _example: { priority: 'high' }, person: { _example: { priority: 'high' } } })
+    const base = mockCache.set.mock.calls[0][1] as Record<string, unknown>
+    expect(base).not.toHaveProperty('_example')
+    priority = 'critical'
+    mockCache.get.mockResolvedValue(base)
+    mockFindOneWithDecryption.mockResolvedValueOnce(buildPerson())
+    const hit = await GET(request, { params: { id: PERSON_ID } })
+    expect(await hit.json()).toMatchObject({ _example: { priority: 'critical' } })
+    expect(base).not.toHaveProperty('_example')
+    expect(base.person).not.toHaveProperty('_example')
+    expect(enrichOne).toHaveBeenCalledTimes(2)
+  })
+
 })
