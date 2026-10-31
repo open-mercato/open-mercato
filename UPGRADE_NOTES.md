@@ -929,6 +929,16 @@ the same check, for at most three hops. Any other redirect fails with
 different scheme (for example `http://` while `APP_URL` is `https://`) or a non-`/api/` path. Use a
 relative `/api/...` path or `{{env.APP_URL}}/api/...` instead.
 
+### Sales quote enrichment and document injection hosts (#7782, #7783)
+
+Sales quote header reads now run registered response enrichers for `sales:sales_quote`, including the list endpoint and its `?id=` detail read path. Order-only enrichers remain targeted to `sales:sales_order`; URLs, native response fields, and document calculations are unchanged.
+
+**Action for extension authors:** review existing quote-targeted and wildcard enrichers that may previously have been dormant. They must add namespaced, scoped data, enforce their declared feature gates, and retain safe timeout/fallback and cache behavior. No database migration is needed.
+
+The four advertised `detail:sales.{order|quote}:{stage-bar|closure}` IDs now mount real render-widget hosts on the Sales document page. Existing registrations for these IDs may begin rendering after upgrade. Their context follows the document detail host (`kind`, `record`, `formId`, `resourceKind`, `resourceId`, `retryLastMutation`) plus `documentId`, `organizationId`, and `tenantId` from the scoped record, with current document data and the standard local data-change callback. Contributors persist their own data through authorized, guarded APIs; the hosts do not introduce native status/closure mutations or automatically save contributed fields. Empty hosts show no placeholder UI.
+
+**Action for widget authors:** check feature gates and order/quote assumptions before enabling previously dormant widgets. Existing tabs/details/shipping IDs and native document behavior remain available.
+
 ## 0.8.0 → 0.9.0 (2026-10-09)
 
 ### `POST /api/auth/logout` no longer requires a valid access token (#7225)
