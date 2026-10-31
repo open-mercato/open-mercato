@@ -305,6 +305,10 @@ export const REPO_WIDE_GUARDS = [
  */
 export const CROSS_PACKAGE_EXCEPTIONS = [
   {
+    path: 'packages/cli/src/lib/__tests__/module-search.test.ts',
+    reason: 'Reads only package-local catalog fixtures and per-test mkdtemp app roots; packages/core and apps/mercato literals construct temporary resolver layouts, never audit repository sources.',
+  },
+  {
     path: 'packages/cli/src/lib/generators/__tests__/agent-files-extension.test.ts',
     reason: 'Reads nothing outside packages/cli — every `packages/...` literal is joined against a per-test mkdtemp fixture root, never the repo.',
   },
