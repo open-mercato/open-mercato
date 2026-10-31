@@ -9193,7 +9193,6 @@ __metadata:
     "@tiptap/extension-text-align": "npm:3.32.0"
     "@tiptap/extension-text-style": "npm:3.32.0"
     "@tiptap/extensions": "npm:3.32.0"
-    "@tiptap/html": "npm:3.32.0"
     "@tiptap/pm": "npm:3.32.0"
     "@tiptap/react": "npm:3.32.0"
     "@tiptap/starter-kit": "npm:3.32.0"
@@ -9206,7 +9205,7 @@ __metadata:
     cross-env: "npm:^10.1.0"
     esbuild: "npm:^0.28.2"
     glob: "npm:^13.0.6"
-    happy-dom: "npm:20.8.9"
+    happy-dom: "npm:21.0.4"
     jest: "npm:^30.4.2"
     jszip: "npm:^3.10.1"
     pdfjs-dist: "npm:^6.0.227"
@@ -14999,17 +14998,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@tiptap/html@npm:3.32.0":
-  version: 3.32.0
-  resolution: "@tiptap/html@npm:3.32.0"
-  peerDependencies:
-    "@tiptap/core": 3.32.0
-    "@tiptap/pm": 3.32.0
-    happy-dom: ^20.8.9
-  checksum: 10/f3b951cad63ec15c047191a2e60a16f17ccbea5b30cc24e0899935aeb11b45bb4c49f8eca0fd41619a79433d38bddfc9954721324a401e3ebfeb7ecbbb73d195
-  languageName: node
-  linkType: hard
-
 "@tiptap/pm@npm:3.32.0":
   version: 3.32.0
   resolution: "@tiptap/pm@npm:3.32.0"
@@ -18562,6 +18550,15 @@ __metadata:
   version: 1.1.2
   resolution: "buffer-from@npm:1.1.2"
   checksum: 10/0448524a562b37d4d7ed9efd91685a5b77a50672c556ea254ac9a6d30e3403a517d8981f10e565db24e8339413b43c97ca2951f10e399c6125a0d8911f5679bb
+  languageName: node
+  linkType: hard
+
+"buffer-image-size@npm:^0.6.4":
+  version: 0.6.4
+  resolution: "buffer-image-size@npm:0.6.4"
+  dependencies:
+    "@types/node": "npm:*"
+  checksum: 10/82d4ca9bc8e71c9c0cbc74191d3613100d0a20dd21da018c6f373d7dc88ec4a9225eebe06c44a982de074f695402e81ab8a8daa40afce36b915042fa9fb32c52
   languageName: node
   linkType: hard
 
@@ -23908,17 +23905,18 @@ __metadata:
   languageName: node
   linkType: hard
 
-"happy-dom@npm:20.8.9":
-  version: 20.8.9
-  resolution: "happy-dom@npm:20.8.9"
+"happy-dom@npm:21.0.4":
+  version: 21.0.4
+  resolution: "happy-dom@npm:21.0.4"
   dependencies:
     "@types/node": "npm:>=20.0.0"
     "@types/whatwg-mimetype": "npm:^3.0.2"
     "@types/ws": "npm:^8.18.1"
+    buffer-image-size: "npm:^0.6.4"
     entities: "npm:^7.0.1"
     whatwg-mimetype: "npm:^3.0.0"
-    ws: "npm:^8.18.3"
-  checksum: 10/81fabd8c630c2165eedd57b72f38b58e8891ff2ff543302c5bdf88860fc3b45b16decd27dabfc72739af6a927d711b04008c61b7e8090893da1fe5feba2dc80e
+    ws: "npm:^8.21.0"
+  checksum: 10/708a07432283cab0a29a10571b06cf27c0e30a933bf5f7fe948e18f78ce3875127b09fbed9aa7c6c5d23b06f4dad824eb73bc7a0cbe356febf5f66efb36aabce
   languageName: node
   linkType: hard
 
@@ -37831,7 +37829,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"ws@npm:^8.18.3":
+"ws@npm:^8.21.0":
   version: 8.22.0
   resolution: "ws@npm:8.22.0"
   peerDependencies:

@@ -11,10 +11,12 @@ const retryScriptPath = path.resolve('scripts/ci/npm-retry-on-quarantine.sh')
 const dependabotConfigPath = path.resolve('.github/dependabot.yml')
 const rootPackagePath = path.resolve('package.json')
 const documentsPackagePath = path.resolve('packages/documents/package.json')
+const templatePackagePath = path.resolve('packages/create-app/template/package.json.template')
+const collabMaterializerPath = path.resolve('packages/documents/src/modules/documents/lib/collabMaterializer.ts')
 const lockfilePath = path.resolve('yarn.lock')
 
 const AGREED_MINIMAL_AGE_GATE = '5d'
-const REVIEWED_HAPPY_DOM_VERSION = '20.8.9'
+const REVIEWED_HAPPY_DOM_VERSION = '21.0.4'
 const REVIEWED_TIPTAP_VERSION = '3.32.0'
 
 const DURATION_UNIT_IN_DAYS = { m: 1 / 1440, h: 1 / 24, d: 1, w: 7 }
@@ -127,6 +129,7 @@ test('scaffolded apps preapprove the first-party scope against yarn minimum rele
 test('the published Documents TipTap graph stays exact and resolves compatible peers', () => {
   const rootPackage = JSON.parse(readText(rootPackagePath))
   const documentsPackage = JSON.parse(readText(documentsPackagePath))
+  const templatePackage = JSON.parse(readText(templatePackagePath))
   const lockfile = parse(readText(lockfilePath))
   const tiptapDependencies = Object.entries(documentsPackage.dependencies).filter(([name]) => name.startsWith('@tiptap/'))
 
@@ -157,7 +160,23 @@ test('the published Documents TipTap graph stays exact and resolves compatible p
   assert.equal(
     documentsPackage.dependencies['happy-dom'],
     REVIEWED_HAPPY_DOM_VERSION,
-    '@tiptap/html and happy-dom must be updated as one reviewed peer pair before standalone publication'
+    'Documents must use the audited Happy DOM patch for server-side HTML conversion'
+  )
+
+  assert.equal(
+    documentsPackage.dependencies['@tiptap/html'],
+    undefined,
+    'Documents must not reintroduce the TipTap HTML wrapper whose aged release rejects the audited Happy DOM patch'
+  )
+  assert.equal(
+    rootPackage.resolutions?.[`@tiptap/html@npm:${REVIEWED_TIPTAP_VERSION}`],
+    undefined,
+    'the root must not patch third-party package metadata to hide an incompatible published peer graph'
+  )
+  assert.equal(
+    templatePackage.resolutions?.[`@tiptap/html@npm:${REVIEWED_TIPTAP_VERSION}`],
+    undefined,
+    'scaffolded apps must not need a package-manager patch to install Documents'
   )
 
   const documentsLockEntry = Object.values(lockfile).find(
@@ -166,17 +185,14 @@ test('the published Documents TipTap graph stays exact and resolves compatible p
 
   assert.ok(documentsLockEntry, 'yarn.lock must contain the Documents workspace entry')
 
-  const htmlLockEntry = findLockEntry(lockfile, `@tiptap/html@npm:${REVIEWED_TIPTAP_VERSION}`)
   const happyDomDescriptor = documentsLockEntry.dependencies?.['happy-dom']
 
-  assert.ok(happyDomDescriptor, 'the resolved Documents workspace must provide happy-dom to @tiptap/html')
+  assert.ok(happyDomDescriptor, 'the resolved Documents workspace must provide happy-dom for server-side HTML conversion')
 
   const happyDomLockEntry = findLockEntry(lockfile, `happy-dom@${happyDomDescriptor}`)
 
-  assert.ok(
-    satisfies(happyDomLockEntry.version, htmlLockEntry.peerDependencies?.['happy-dom'] ?? ''),
-    `resolved happy-dom ${happyDomLockEntry.version} must satisfy @tiptap/html ${htmlLockEntry.version}'s peer range ${htmlLockEntry.peerDependencies?.['happy-dom']}`
-  )
+  assert.equal(happyDomLockEntry.version, REVIEWED_HAPPY_DOM_VERSION)
+  assert.doesNotMatch(readText(collabMaterializerPath), /@tiptap\/html/)
 
   for (const entry of Object.values(lockfile)) {
     if (!entry?.resolution?.startsWith('@tiptap/')) continue
@@ -193,6 +209,16 @@ test('the published Documents TipTap graph stays exact and resolves compatible p
         dependencyLockEntry.version,
         exactVersion,
         `${entry.resolution} requires ${dependencyName}@${exactVersion}, but yarn.lock resolves ${dependencyLockEntry.version}; unscoped resolutions must not rewrite a coupled TipTap peer graph`
+      )
+    }
+
+    for (const peerName of ['@tiptap/core', '@tiptap/pm']) {
+      const peerRange = entry.peerDependencies?.[peerName]
+      if (!peerRange || entry.version !== REVIEWED_TIPTAP_VERSION) continue
+
+      assert.ok(
+        satisfies(REVIEWED_TIPTAP_VERSION, peerRange),
+        `${entry.resolution} requires ${peerName}@${peerRange}, which must accept the reviewed ${REVIEWED_TIPTAP_VERSION} graph`
       )
     }
   }
