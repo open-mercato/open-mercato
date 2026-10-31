@@ -171,7 +171,11 @@ export async function GET(req: Request) {
     }
   }
   const acl = tenantId
-    ? await em.findOne(UserAcl, { user: parsed.data.userId as any, tenantId })
+    ? await em.findOne(UserAcl, {
+        user: parsed.data.userId as unknown as User,
+        tenantId,
+        deletedAt: null,
+      } as FilterQuery<UserAcl>)
     : null
   const response = acl
     ? {
@@ -268,7 +272,11 @@ export async function PUT(req: Request) {
     }
   }
 
-  const acl = await em.findOne(UserAcl, { user: parsed.data.userId as any, tenantId })
+  const acl = await em.findOne(UserAcl, {
+    user: parsed.data.userId as unknown as User,
+    tenantId,
+    deletedAt: null,
+  } as FilterQuery<UserAcl>)
   // Optimistic lock: refuse a stale per-user ACL overwrite so concurrent edits
   // cannot silently clobber each other (#2055). Strictly additive — a no-op when
   // the client sends no expected-version header; skipped when no ACL row exists.

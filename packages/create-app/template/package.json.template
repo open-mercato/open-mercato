@@ -62,6 +62,7 @@
     "@open-mercato/channel-fcm": "{{PACKAGE_VERSION}}",
     "@open-mercato/channel-resend": "{{PACKAGE_VERSION}}",
     "@open-mercato/channel-ses": "{{PACKAGE_VERSION}}",
+    "@open-mercato/channel-smtp": "{{PACKAGE_VERSION}}",
     "@open-mercato/checkout": "{{PACKAGE_VERSION}}",
     "@open-mercato/cli": "{{PACKAGE_VERSION}}",
     "@open-mercato/content": "{{PACKAGE_VERSION}}",
@@ -132,6 +133,7 @@
     "@stripe/react-stripe-js": "^6.8.2",
     "@stripe/stripe-js": "^9.14.0",
     "@open-mercato/gateway-stripe": "{{PACKAGE_VERSION}}",
+    "@open-mercato/gateway-autopay": "{{PACKAGE_VERSION}}",
     "@open-mercato/gateway-tpay": "{{PACKAGE_VERSION}}",
     "@open-mercato/sync-akeneo": "{{PACKAGE_VERSION}}"
   },

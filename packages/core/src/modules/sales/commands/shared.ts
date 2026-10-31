@@ -49,6 +49,46 @@ export async function enforceSalesDocumentOptimisticLock(
   })
 }
 
+type SalesDocumentLockTable = 'sales_orders' | 'sales_quotes'
+type SalesDocumentLockRow = {
+  id: string
+  tenant_id: string
+  organization_id: string
+  deleted_at: Date | null
+}
+type SalesDocumentLockDatabase = Record<SalesDocumentLockTable, SalesDocumentLockRow>
+
+/**
+ * Take the parent-document row lock that serializes every write deriving the
+ * order/quote header (totals, line count, paid amounts) or the document's child
+ * rows (lines, adjustments, returned/fulfilled quantities) inside the caller's
+ * transaction. Acquire it BEFORE reading the child rows the header is
+ * recalculated from, and before locking those child rows, so all writers use the
+ * same parent-then-children lock order (#6463).
+ *
+ * `FOR NO KEY UPDATE` conflicts with other writers of the same document, including
+ * the `FOR UPDATE` locks taken by payments and undo, while still allowing the
+ * `KEY SHARE` locks that foreign-key inserts (for example shipments) take on the
+ * parent row. Returns false when no live row matches the scoped id.
+ */
+export async function lockSalesDocumentRow(
+  em: EntityManager,
+  table: SalesDocumentLockTable,
+  id: string,
+  scope: { tenantId: string; organizationId: string },
+): Promise<boolean> {
+  const locked = await em.getKysely<SalesDocumentLockDatabase>()
+    .selectFrom(table)
+    .select('id')
+    .where('id', '=', id)
+    .where('tenant_id', '=', scope.tenantId)
+    .where('organization_id', '=', scope.organizationId)
+    .where('deleted_at', 'is', null)
+    .forNoKeyUpdate()
+    .executeTakeFirst()
+  return Boolean(locked)
+}
+
 export { cloneJson } from '../lib/json'
 
 export function toNumericString(value: number | null | undefined): string | null {

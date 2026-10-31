@@ -58,6 +58,7 @@ import type { FilterOptionTone } from '@open-mercato/shared/lib/query/advanced-f
 import { ViewTabsRow, VIEW_TABS_ROW_COMPONENT_ID, type ViewTabsRowProps } from './components/ViewTabsRow'
 import { LANE_WIDTH_CLASS } from './components/constants'
 import { useCurrencyDictionary } from '../../../../components/detail/hooks/useCurrencyDictionary'
+import { buildDealDuplicatePayload } from '../../../../lib/duplicateDeal'
 import { FilterBarRow, type KanbanFilterChip } from './components/FilterBarRow'
 import { Lane, type LaneStage } from './components/Lane'
 import { LaneCurrencyBreakdown } from './components/LaneCurrencyBreakdown'
@@ -2247,22 +2248,23 @@ export default function DealsKanbanPage(): React.ReactElement {
       setPendingDealId(deal.id)
       try {
         const stageId = stageIdByDealId.get(deal.id) ?? null
-        const payload: Record<string, unknown> = {
-          title: translateWithFallback(
+        const payload = buildDealDuplicatePayload(
+          {
+            pipelineId: selectedPipelineId,
+            pipelineStageId: stageId,
+            valueAmount: deal.valueAmount,
+            valueCurrency: deal.valueCurrency,
+            probability: deal.probability,
+            expectedCloseAt: deal.expectedCloseAt,
+            ownerUserId: deal.owner?.userId,
+          },
+          translateWithFallback(
             t,
             'customers.deals.kanban.menu.duplicate.titleSuffix',
             '{title} (copy)',
             { title: deal.title },
           ),
-          status: 'open',
-        }
-        if (selectedPipelineId) payload.pipelineId = selectedPipelineId
-        if (stageId && stageId !== '__unassigned') payload.pipelineStageId = stageId
-        if (typeof deal.valueAmount === 'number') payload.valueAmount = deal.valueAmount
-        if (deal.valueCurrency) payload.valueCurrency = deal.valueCurrency
-        if (typeof deal.probability === 'number') payload.probability = deal.probability
-        if (deal.expectedCloseAt) payload.expectedCloseAt = deal.expectedCloseAt
-        if (deal.owner?.userId) payload.ownerUserId = deal.owner.userId
+        )
 
         await runDealMutation({
           operation: async () => {

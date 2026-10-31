@@ -415,7 +415,7 @@ export async function GET(req: Request) {
         { user: { $in: userIds as any }, deletedAt: null } as any,
         { populate: ['role'] },
         {
-          tenantId: effectiveTenantId ?? auth.tenantId ?? null,
+          tenantId: effectiveTenantId,
           organizationId: scopeOrganizationId,
         },
       )
@@ -726,7 +726,7 @@ export const openApi: OpenApiRouteDoc = {
     GET: {
       summary: 'List users',
       description:
-        'Returns users for the effective selected tenant and organization scope. Search matches email, organization name, and role name. Super administrators may scope the response via the topbar context, organization filters, or role filters. Pass scopeToActiveOrganization=1 to restrict results to the caller\'s active organization (used by recipient/assignee pickers so suggestions stay within the org that owns the resulting record). Pass ids=<uuid>,<uuid> (max 100) to resolve a known set of users in one request, for example to label a list of foreign keys; it intersects with id and roleId, and a supplied ids value that contains no valid identifier matches nothing.',
+        'Non-superadmins with auth.users.list receive a tenant-wide staff directory by default, excluding superadmin accounts. Neither the active organization nor the caller\'s organization visibility list narrows this default. Directory visibility does not grant access to organization-owned records. Super administrators may scope the response via the topbar tenant and organization selection; without a selected tenant, their list can span tenants. Search matches email, organization name, and role name. Pass organizationId for an exact organization filter, or scopeToActiveOrganization=1 to restrict results to the caller\'s exact active organization (used by recipient/assignee pickers); when the caller has no active organization, this selects only users with no organization. Both filters apply when supplied together. These are optional list filters, not authorization boundaries. Pass ids=<uuid>,<uuid> (max 100) to resolve a known set of users in one request, for example to label a list of foreign keys; it intersects with id and roleId, and a supplied ids value that contains no valid identifier matches nothing.',
       query: querySchema,
       responses: [
         { status: 200, description: 'User collection', schema: userListResponseSchema },
