@@ -139,7 +139,7 @@ Ships in the next release after #7728. No feature flag, no environment variable 
 | 1. Qualifying condition argued | The surface removed is acceptance of an unbounded `attachmentIds` array. Accepting it *is* the resource-exhaustion vector: the cost of one request is proportional to the array length. A bridge release that keeps accepting long arrays, even with a warning, keeps the vector reachable for the whole deprecation window |
 | 2. Narrowest removal, no retained branch | Only `.max(100)` on one field in the route schema and its OpenAPI twin. No other field is tightened. No flag, environment variable or opt-in keeps long arrays accepted |
 | 3. Steps 4 and 5 | `UPGRADE_NOTES.md` `0.9.0 → 0.9.1` entry with client and operator actions; this section |
-| 4. Dated entry | `BACKWARD_COMPATIBILITY.md` § Attachment Transfer Id Limit (2026-10-21) |
+| 4. Dated entry | `BACKWARD_COMPATIBILITY.md` § #7672 (short form, details in `UPGRADE_NOTES.md`) |
 | 5. Maintainer sign-off | PR #7692 carries the `security` label and a named human maintainer approval acknowledging the waiver |
 
 **What stops working, for whom.** Any client of `POST /api/attachments/transfer` that sends more than 100 ids in one request. First-party UIs are unaffected after #7728. No stored data becomes unusable or suspect: rejected requests change nothing, and earlier successful transfers are untouched.
@@ -190,6 +190,10 @@ Used only if the maintainer declines the waiver. The primary path's rows 1, 2, 4
 Ready to implement once #7728 is merged and the maintainer confirms the compatibility path.
 
 ## Changelog
+
+### 2026-10-31
+
+- Shortened the `BACKWARD_COMPATIBILITY.md` entry to the `## #<issue>` + link form used on `main`, because new entries left OMH-057 short of headroom again. The exception details stay in this spec and in `UPGRADE_NOTES.md`, which now links here.
 
 ### 2026-10-21
 

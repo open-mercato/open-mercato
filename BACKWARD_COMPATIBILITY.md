@@ -621,6 +621,12 @@ STABLE HTTP/service BREAK (403/404/504), Documents only: org-wide files bypass s
 
 ---
 
-## Attachment Transfer Id Limit (2026-10-21)
+## Public pay links (2026-10-27, #7823)
 
-✗ BREAKING request shape under the [exception](.ai/specs/2026-10-21-attachments-transfer-max-ids.md#migration--backward-compatibility): `POST /api/attachments/transfer` answers `400` for more than 100 `attachmentIds` (#7672).
+STABLE API §7: `GET /api/checkout/pay/:slug` omits admin fields; retaining them preserves disclosure. Client/operator migration: [notes](UPGRADE_NOTES.md). @haxiorz [approved](https://github.com/open-mercato/open-mercato/pull/8087#issuecomment-6505348826) on 2026-10-29: steps 1–3 waived for all 18 admin fields; client/operator migration acknowledged.
+
+---
+
+## #7672
+
+[Transfer id limit](UPGRADE_NOTES.md)
