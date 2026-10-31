@@ -28,7 +28,9 @@ const UPLOAD_IDLE_TIMEOUT_MS = 10_000
 // read. Sending exactly one byte past the limit and then waiting leaves nothing
 // unread on the server, so the 413 always arrives and is the evidence of the
 // size check. The full-stream case is covered separately and never counts a
-// reset as that evidence.
+// reset as that evidence. Every upload uses its own connection and stops writing
+// once a response arrives, and it settles only after that connection is closed,
+// so an unread body never keeps streaming beside the next upload.
 type UploadResult =
   | { kind: 'response'; status: number; body: string }
   | { kind: 'closed'; bytesSent: number }
@@ -62,11 +64,12 @@ function sendChunkedUpload(
   const send = url.protocol === 'https:' ? httpsRequest : httpRequest
   const prefix = buildMultipartPrefix(method, claimId)
   return new Promise((resolve, reject) => {
-    let settled = false
     let responded = false
+    let response: { status: number; body: string } | null = null
     let sent = prefix.length
     const req = send(url, {
       method,
+      agent: false,
       headers: {
         cookie: cookieHeader,
         'content-type': `multipart/form-data; boundary=${BOUNDARY}`,
@@ -79,26 +82,27 @@ function sendChunkedUpload(
       res.on('error', (error) => reject(error))
       res.on('aborted', () => reject(new Error('[internal] response aborted before it completed')))
       res.on('end', () => {
-        settled = true
-        resolve({ kind: 'response', status: res.statusCode ?? 0, body: Buffer.concat(chunks).toString('utf8') })
-        if (!finish) req.destroy()
+        response = { status: res.statusCode ?? 0, body: Buffer.concat(chunks).toString('utf8') }
+        req.destroy()
       })
     })
     req.setTimeout(UPLOAD_IDLE_TIMEOUT_MS, () => {
       req.destroy(new Error(`[internal] no response within ${UPLOAD_IDLE_TIMEOUT_MS} ms after ${sent} body bytes`))
     })
     req.on('error', (error: NodeJS.ErrnoException) => {
-      if (settled || error.code === 'EPIPE' || error.code === 'ECONNRESET') return
+      if (error.code === 'EPIPE' || error.code === 'ECONNRESET') return
       reject(error)
     })
     req.on('close', () => {
-      if (!responded) resolve({ kind: 'closed', bytesSent: sent })
+      if (response) resolve({ kind: 'response', ...response })
+      else if (responded) reject(new Error('[internal] connection closed before the response completed'))
+      else resolve({ kind: 'closed', bytesSent: sent })
     })
     req.write(prefix)
     const chunkBytes = 256 * 1024
     const writeMore = () => {
       while (sent < bodyBytes) {
-        if (req.destroyed) return
+        if (req.destroyed || responded) return
         const chunk = Buffer.alloc(Math.min(chunkBytes, bodyBytes - sent), 0x41)
         sent += chunk.length
         if (!req.write(chunk)) {
@@ -106,7 +110,7 @@ function sendChunkedUpload(
           return
         }
       }
-      if (finish) req.end(`\r\n--${BOUNDARY}--\r\n`)
+      if (finish && !responded) req.end(`\r\n--${BOUNDARY}--\r\n`)
     }
     writeMore()
   })
