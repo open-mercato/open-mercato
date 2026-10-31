@@ -753,6 +753,14 @@ cached verification is isolated by ORM driver and invalidated by entity, metadat
 changes. Restart application and worker processes after schema migrations. Tenant-scoped custom
 entity storage remains supported. No schema migration or destructive cleanup is introduced.
 
+2026-10-31 follow-up: source identity is the exact registered entity metadata, including
+schema and mapped scope columns; duplicate/ambiguous metadata fails closed. Sweeps,
+subscriber source rows, index documents, query-engine and coverage probes use that same
+qualified source. Same-name tables in another schema cannot supply catalogue proof.
+Custom-storage proof also binds organization in SQL and batched writes/results; stale
+artifacts from another organization cannot authorize a record. Reviewer-supplied schema
+collision and organization regressions ship with the repair.
+
 **Optional operator cleanup.** A deployment that has run an old tenant-scoped reindex
 of a tenant-less private entity type may remove quarantined derived artifacts to reclaim storage.
 Delete only the
@@ -4743,11 +4751,3 @@ When opening a PR that bumps a dependency across a major boundary, add an entry 
 the same PR. The `auto-upgrade-...` skill for the window picks up entries from this file;
 keep the headings stable (exactly `#### \`<package>\` \`^<from>\` → \`^<to>\``) so the
 skill can parse them.
-
-2026-10-31 follow-up: source identity is the exact registered entity metadata, including
-schema and mapped scope columns; duplicate/ambiguous metadata fails closed. Sweeps,
-subscriber source rows, index documents, query-engine and coverage probes use that same
-qualified source. Same-name tables in another schema cannot supply catalogue proof.
-Custom-storage proof also binds organization in SQL and batched writes/results; stale
-artifacts from another organization cannot authorize a record. Reviewer-supplied schema
-collision and organization regressions ship with the repair.
