@@ -111,7 +111,6 @@ test.describe('TC-WF-006: Create and delete workflow definition via UI', () => {
       await expect(row).toBeVisible({ timeout: 10_000 })
 
       // Delete via row action menu → confirm dialog.
-      //
       // Scroll the trigger near the bottom of the viewport BEFORE opening the
       // menu. The demo feedback FAB lives at fixed bottom-6 right-6 and the
       // menu opens downward by default — if the trigger is mid-viewport the
