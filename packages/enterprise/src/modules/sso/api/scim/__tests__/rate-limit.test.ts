@@ -400,6 +400,27 @@ describe('SCIM pre-verification rate limit', () => {
     expect(createRequestContainer).not.toHaveBeenCalled()
   })
 
+  it.each(operations.filter((operation) => operation.name !== 'capabilities'))('returns a redacted SCIM 503 for $name when legacy enrollment fails', async ({ method, path, run }) => {
+    find.mockResolvedValue([{ id: 'token-1', tokenHash: 'stored-hash', ssoConfigId: 'config-1', organizationId: 'org-1', tenantId: 'tenant-1' }])
+    mockCompare.mockResolvedValue(true)
+    const container = await createRequestContainer()
+    const em = container.resolve<EntityManager>('em')
+    jest.mocked(em.nativeUpdate).mockRejectedValue(new Error('[internal] query contains private fingerprint and verifier'))
+
+    const response = await run(request(method, path))
+
+    expect(response.status).toBe(503)
+    expect(response.headers.get('content-type')).toBe('application/scim+json')
+    expect(await response.json()).toEqual({
+      schemas: ['urn:ietf:params:scim:api:messages:2.0:Error'],
+      status: '503',
+      detail: 'Service temporarily unavailable. Please try again later.',
+    })
+    expect(mockCompare).toHaveBeenCalledWith('random-invalid-token', 'stored-hash')
+    for (const operation of Object.values(provisioningService)) expect(operation).not.toHaveBeenCalled()
+    expect(mockReportError).toHaveBeenCalledWith(expect.objectContaining({ message: '[internal] SCIM token enrollment unavailable' }), expect.objectContaining({ code: 'sso.scim_enrollment_unavailable' }))
+  })
+
   it('fails closed before bcrypt when the backing limiter cannot produce a decision', async () => {
     jest.spyOn(limiter, 'consume').mockResolvedValue({
       allowed: true, remainingPoints: 10, msBeforeNext: 0, consumedPoints: 0, degraded: true,

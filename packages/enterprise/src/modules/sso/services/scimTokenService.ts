@@ -108,7 +108,7 @@ export class ScimTokenService {
             isActive: true,
             $or: [{ tokenLookupHash: null }, { tokenLookupHash }],
           }, { tokenLookupHash }).catch(() => {
-            const error = new Error('[internal] SCIM token enrollment unavailable')
+            const error = new ScimTokenError('[internal] SCIM token enrollment unavailable', 503)
             try {
               getTelemetryRuntime()?.reportError(error, { module: 'sso', code: 'sso.scim_enrollment_unavailable' })
             } catch {}
