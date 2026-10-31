@@ -2496,7 +2496,7 @@ function renderEntitiesSection(
   const divider = '|---|---|---|---|---|---|'
   const rows = entities.map(
     (entity) =>
-      `| ${entity.id} | ${entity.class} | ${entity.table} | ${entity.editable ? 'yes' : 'no'} | ${entity.customFields ? 'yes' : 'no'} | ${renderLookedUpSource(lookup, 'entity', entity.id, context)} |`,
+      `| ${entity.id} |${entity.class}|${entity.table}|${entity.editable ? 'yes' : 'no'}|${entity.customFields ? 'yes' : 'no'}|${renderLookedUpSource(lookup, 'entity', entity.id, context)}|`,
   )
   return ['## Entities', '', header, divider, ...rows].join('\n')
 }
@@ -2532,7 +2532,7 @@ function renderSourceLinkedListSection(
   context: ModuleFactsRenderContext,
 ): string {
   if (values.length === 0) return `${heading}\n\n${EMPTY_SECTION_MARKER}`
-  const rows = values.map((value) => `| ${value} | ${renderLookedUpSource(lookup, kind, value, context)} |`)
+  const rows = values.map((value) => `| ${value} |${renderLookedUpSource(lookup, kind, value, context)}|`)
   return [heading, '', `| ${idColumnLabel} | Source |`, '|---|---|', ...rows].join('\n')
 }
 
@@ -2601,7 +2601,7 @@ function renderOwnedContractSection(
 ): string {
   if (!facts || facts.length === 0) return ''
   const rows = facts.map(
-    (fact) => `| ${fact.id} | ${renderOwnedContractMetadata(fact.metadata)} | ${renderSourceRefLink(fact.source, context)} |`,
+    (fact) => `| ${fact.id} |${renderOwnedContractMetadata(fact.metadata)}|${renderSourceRefLink(fact.source, context)}|`,
   )
   return [heading, '', '| ID | Metadata | Source |', '|---|---|---|', ...rows].join('\n')
 }
@@ -2613,7 +2613,7 @@ function renderDiRegistrationsSection(
   if (!facts || facts.length === 0) return ''
   const rows = facts.map((fact) => {
     const metadata = fact.metadata ?? {}
-    return `| ${fact.id} | ${renderSafeScalar(metadata.registrationKind)} | ${renderSafeScalar(metadata.lifetime)} | ${renderSafeScalar(metadata.injectionMode)} | ${renderSafeScalar(metadata.providerSymbol)} | ${renderSourceRefLink(fact.source, context)} |`
+    return `| ${fact.id} |${renderSafeScalar(metadata.registrationKind)}|${renderSafeScalar(metadata.lifetime)}|${renderSafeScalar(metadata.injectionMode)}|${renderSafeScalar(metadata.providerSymbol)}|${renderSourceRefLink(fact.source, context)}|`
   })
   return [
     '## DI registrations (rich)',
@@ -2649,7 +2649,7 @@ function renderApiRoutesSection(routes: ModuleApiRouteFact[], context: ModuleFac
   const header = '| Path | Methods | Auth (per-method requireFeatures) | Source |'
   const divider = '|---|---|---|---|'
   const rows = routes.map(
-    (route) => `| ${route.path} | ${route.methods.join(' ')} | ${renderApiRouteAuthCell(route)} | ${route.sourcePath ? renderSourceLink(route.sourcePath, context) : '—'} |`,
+    (route) => `| ${route.path} |${route.methods.join(' ')}|${renderApiRouteAuthCell(route)}|${route.sourcePath ? renderSourceLink(route.sourcePath, context) : '—'}|`,
   )
   return ['## API routes', '', header, divider, ...rows].join('\n')
 }
@@ -2660,7 +2660,7 @@ function renderLinkedFactsSection(
   context: ModuleFactsRenderContext,
 ): string {
   if (facts.length === 0) return `${heading}\n\n${EMPTY_SECTION_MARKER}`
-  const rows = facts.map((fact) => `| ${fact.label} | ${renderSourceLink(fact.sourcePath, context)} |`)
+  const rows = facts.map((fact) => `| ${fact.label} |${renderSourceLink(fact.sourcePath, context)}|`)
   return [heading, '', '| ID / path | Source |', '|---|---|', ...rows].join('\n')
 }
 
@@ -2695,7 +2695,7 @@ function renderExtensionHostsSection(
     '|---|---|---|---|---|---|',
   ]
   const renderRows = (hosts: readonly ModuleExtensionHostFact[]) => hosts.map((host) =>
-    `| ${host.id} | ${host.family} | ${host.capabilities.join(', ') || '—'} | ${renderExtensionHostContext(host)} | ${host.stability.toUpperCase()} | ${renderExtensionHostSource(host, context)} |`,
+    `| ${host.id} |${host.family}|${host.capabilities.join(', ') || '—'}|${renderExtensionHostContext(host)}|${host.stability.toUpperCase()}|${renderExtensionHostSource(host, context)}|`,
   )
   const compact = [...header, ...renderRows(boundHosts)].join('\n')
   if (Buffer.byteLength(compact) <= MAX_ANCHORED_SECTION_BYTES) return compact
@@ -2738,7 +2738,7 @@ function renderExtensionContributionsSection(
     const resolution = contribution.targets.map((entry) => entry.resolution).join(', ')
     const phases = [...(contribution.phases ?? []), ...(contribution.operations ?? [])].join(', ') || '—'
     const source = renderSourceRefLink({ sourcePath: contribution.source.path }, context)
-    return `| ${contribution.id} | ${contribution.kind} | ${targets || '—'} | ${phases} | ${compactContributionDetails(contribution)} | ${resolution || '—'} | ${source} |`
+    return `| ${contribution.id} |${contribution.kind}|${targets || '—'}|${phases}|${compactContributionDetails(contribution)}|${resolution || '—'}|${source}|`
   })
   return [
     '## UMES contributions',
@@ -2775,7 +2775,7 @@ function renderActivationBindingsSection(
     const phases = activation.phases && activation.phases.length > 0 ? activation.phases.join(', ') : '—'
     const source = activation.source ? renderSourceRefLink(activation.source, context) : '—'
     const bridge = activation.bridge ? `${activation.bridge.factSection}:${activation.bridge.factKey}` : '—'
-    return `| ${activation.id} | ${activation.kind} | ${renderExtensionTargetRef(activation.host)} | ${activation.contributionKinds.join(', ') || '—'} | ${phases} | ${bridge} | ${source} |`
+    return `| ${activation.id} |${activation.kind}|${renderExtensionTargetRef(activation.host)}|${activation.contributionKinds.join(', ') || '—'}|${phases}|${bridge}|${source}|`
   })
   return [
     '## Active extension bindings',
@@ -2795,7 +2795,7 @@ function renderIncomingContributionsSection(
   const rows = incoming.map((entry) => {
     const activation = entry.activationId ?? '—'
     const source = entry.source ? renderSourceRefLink(entry.source, context) : '—'
-    return `| ${entry.contributorModuleId} | ${entry.contributionKind} | ${renderExtensionTargetRef(entry.target)} | ${entry.resolution} | ${activation} | ${entry.contributionId} · ${source} |`
+    return `| ${entry.contributorModuleId} |${entry.contributionKind}|${renderExtensionTargetRef(entry.target)}|${entry.resolution}|${activation}|${entry.contributionId} · ${source}|`
   })
   return [
     '## Incoming installed contributions',
@@ -2816,7 +2816,7 @@ function renderContributionResolutionsSection(
   const rows = resolutions.map((resolution) => {
     const activations = resolution.activationIds.length > 0 ? resolution.activationIds.join(', ') : '—'
     const source = renderLookedUpSource(lookup, 'extension-contribution', resolution.contributionId, context)
-    return `| ${resolution.contributionId} | ${renderExtensionTargetRef(resolution.target)} | ${resolution.resolution} | ${activations} | ${source} |`
+    return `| ${resolution.contributionId} |${renderExtensionTargetRef(resolution.target)}|${resolution.resolution}|${activations}|${source}|`
   })
   return [
     '## Contribution resolutions',
@@ -2848,7 +2848,7 @@ function renderOverrideTargetsSection(
     const path = `\`${renderOverrideTargetPath(target)}\``
     const modes = target.modes.join(', ') || '—'
     const fact = `${target.factRef.factSection}:${target.factRef.factKey}`
-    return `| \`${target.id}\` | ${target.domain} | ${path} | ${modes} | ${fact} | ${renderSourceRefLink(target.source, context)} |`
+    return `| \`${target.id}\` |${target.domain}|${path}|${modes}|${fact}|${renderSourceRefLink(target.source, context)}|`
   })
   const compact = ['## Exact override targets', '', header, divider, ...renderRows(targets)].join('\n')
   if (Buffer.byteLength(compact) <= MAX_ANCHORED_SECTION_BYTES) return compact
