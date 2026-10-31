@@ -1,3 +1,4 @@
+import { TransactionContext } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { runWithCacheTenant, type CacheStrategy } from '@open-mercato/cache'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -292,9 +293,8 @@ function resolvePromotionCacheStrategy(container: PromotionCacheContainer): Cach
 }
 
 function resolvePromotionEm(container: PromotionCacheContainer): EntityManager {
-  // Exact precedent: `commands/promotions.ts` resolves/forks the same way —
-  // `(ctx.container.resolve('em') as EntityManager).fork()` — before any read/write.
-  return (container.resolve<EntityManager>('em')).fork()
+  const em = (TransactionContext.getEntityManager() as EntityManager | undefined) ?? container.resolve<EntityManager>('em')
+  return em.fork({ keepTransactionContext: true })
 }
 
 export class PromotionCacheService {
@@ -369,7 +369,7 @@ export class PromotionCacheService {
   ): Promise<string> {
     if (!budgetCurrency) return '0'
     const em = resolvePromotionEm(this.container)
-    const rows = (await em.getConnection().execute(
+    const rows = (await em.execute(
       `SELECT COALESCE(SUM(total_discount_amount), 0)::text AS total
        FROM promotion_usages
        WHERE promotion_id = ? AND organization_id = ? AND tenant_id = ? AND currency = ? AND reverted_at IS NULL`,
