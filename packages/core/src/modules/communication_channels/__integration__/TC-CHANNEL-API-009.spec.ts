@@ -125,6 +125,20 @@ test.describe('TC-CHANNEL-API-009: reaction routes mask other users\' personal m
 
       await login(page, 'admin')
       await page.context().addCookies([{ name: 'locale', value: 'pl', url: baseURL ?? 'http://localhost:3000' }])
+      const messageDetailPath = `/api/messages/${seeded.messageId}`
+      let staleDetailSnapshot: Promise<{ status: number; body: string }> | undefined
+      await page.route((url) => url.pathname === messageDetailPath, async (route) => {
+        if (route.request().method() !== 'GET') {
+          await route.continue()
+          return
+        }
+        staleDetailSnapshot ??= (async () => {
+          const response = await route.fetch()
+          expect(response.status()).toBe(200)
+          return { status: response.status(), body: await response.text() }
+        })()
+        await route.fulfill({ ...(await staleDetailSnapshot), contentType: 'application/json' })
+      })
       await page.goto(`/backend/messages/${seeded.messageId}`)
       const reactionButton = page.getByRole('button', { name: /👍/ })
       await expect(reactionButton).toBeVisible()

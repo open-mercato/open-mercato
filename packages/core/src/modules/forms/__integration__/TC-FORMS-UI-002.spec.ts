@@ -28,7 +28,7 @@ import {
  * through `data-crud-field-id`, which `CrudForm` emits on every field wrapper
  * specifically as a stable hook, rather than through incidental class names.
  *
- * Every field goes through `fillControlledInput`, not a bare `fill`. These are
+ * The key and locale fields use `fillControlledInput`. These are
  * React-controlled inputs: a fill that lands before hydration writes the DOM and
  * the hydration render then restores the initial state, so the field empties
  * again a few dozen milliseconds later. A plain `fill` plus an immediate
@@ -53,6 +53,7 @@ test.describe('TC-FORMS-UI-002: create a form through the UI', () => {
 
       await login(page, 'admin')
       await page.goto('/backend/forms/create', { waitUntil: 'domcontentloaded' })
+      await expect(page.getByTestId('backend-chrome-ready')).toHaveAttribute('data-ready', 'true')
 
       const keyInput = page.getByPlaceholder('patient-intake')
       await expect(keyInput, 'the create form renders the key field').toBeVisible({ timeout: 30_000 })
@@ -60,17 +61,11 @@ test.describe('TC-FORMS-UI-002: create a form through the UI', () => {
       const nameInput = page.locator('[data-crud-field-id="name"] input')
       const localesInput = page.locator('[data-crud-field-id="supportedLocales"] input')
 
-      // Fill the autofocus target last. The CI trace showed the mount-time
-      // autofocus/hydration pass resetting only that first field; filling the
-      // two ordinary controlled fields first guarantees that pass has settled.
-      await fillControlledInput(nameInput, name)
       // Overwrite the prefilled 'en' so the comma-splitting transform is exercised.
       await fillControlledInput(localesInput, 'en, pl')
       await fillControlledInput(keyInput, key)
+      await nameInput.pressSequentially(name)
 
-      // Re-read every field after the last fill: the settle window inside
-      // `fillControlledInput` guards each field individually, but a late
-      // hydration pass could still have reset an earlier one.
       await expect(keyInput, 'the key survived hydration').toHaveValue(key)
       await expect(nameInput, 'the name survived hydration').toHaveValue(name)
       await expect(localesInput, 'the locale list survived hydration').toHaveValue('en, pl')
