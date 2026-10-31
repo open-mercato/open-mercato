@@ -152,6 +152,8 @@
   "checkout.defaultCustomerFields.lastName.placeholder": "Doe",
   "checkout.defaultCustomerFields.phone.label": "Phone",
   "checkout.defaultCustomerFields.phone.placeholder": "+1 555 123 4567",
+  "checkout.errors.links.lockedEdit": "Este enlace de pago tiene transacciones activas y no se puede editar",
+  "checkout.errors.links.notFound": "No se encontro el enlace de pago",
   "checkout.gatewaySettings.notices.chooseProvider": "Choose a gateway provider to configure checkout session settings.",
   "checkout.gatewaySettings.notices.noSettings": "This provider does not expose additional session settings.",
   "checkout.gatewaySettings.selectPlaceholder": "Select…",

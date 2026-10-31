@@ -13,6 +13,7 @@ import {
   ChannelThreadMapping,
   CommunicationChannel,
   ExternalConversation,
+  ExternalMessage,
   MessageChannelLink,
   SystemEmailDelivery,
 } from '../../../data/entities'
@@ -68,8 +69,8 @@ import {
  *     the inbound auto-link tests (TC-CRM-EMAIL-002..005). NOTE: this action
  *     deliberately bypasses `messages.messages.compose` — it can never prove that
  *     the hub accepts a message, only that downstream subscribers fire.
- *   - `purge-inbound`: hard-delete the rows one `emit-inbound` call seeded, for
- *     integration teardown.
+ *   - `purge-inbound`: hard-delete the rows one test-seeded or test-ingested
+ *     inbound message created, for integration teardown.
  */
 type RbacServiceLike = {
   loadAcl: (
@@ -141,9 +142,15 @@ const connectChannelSchema = z.object({
 const ingestInboundSchema = z.object({
   action: z.literal('ingest-inbound'),
   channelId: z.string().uuid(),
-  /** Opaque sender handle — a Discord snowflake, a Slack member id, etc. */
+  /**
+   * Opaque sender handle — a Discord snowflake, a Slack member id, etc. For a
+   * channel connected with the default `email` flavor this is the sender's
+   * address, and the email stub normalizes it into an email-shaped frame.
+   */
   senderIdentifier: z.string().min(1).max(255),
   senderDisplayName: z.string().max(255).optional(),
+  /** Honored by the email stub only; chat frames carry no subject. */
+  subject: z.string().max(500).optional(),
   body: z.string().max(50_000).optional(),
   externalMessageId: z.string().min(1).max(255),
   externalConversationId: z.string().min(1).max(255),
@@ -201,11 +208,11 @@ const emitInboundSchema = z.object({
 })
 
 /**
- * Teardown for `emit-inbound`: hard-delete the rows one seed created (thread
- * mapping, channel link, synthetic conversation and the `messages` row), scoped
- * to the caller's channel. Disconnecting a channel deliberately retains its
- * conversations and messages, so without this every seed leaks into the shared
- * integration database.
+ * Teardown for test-seeded or test-ingested inbound records: hard-delete the
+ * thread mapping, channel link, external message, synthetic conversation and
+ * platform message, scoped to the caller's channel. Disconnecting a channel
+ * deliberately retains these records, so without this every test leaks into the
+ * shared integration database.
  */
 const purgeInboundSchema = z.object({
   action: z.literal('purge-inbound'),
@@ -596,8 +603,8 @@ export async function POST(req: Request): Promise<Response> {
 
   if (body.action === 'purge-inbound') {
     const rowScope = { tenantId, organizationId }
-    // Only rows hanging off a conversation `emit-inbound` minted are purgeable,
-    // so a caller cannot use this action to hard-delete real channel traffic.
+    // Only rows hanging off a test-prefixed conversation are purgeable, so a
+    // caller cannot use this action to hard-delete real channel traffic.
     const seededConversation = await findOneWithDecryption(
       em,
       ExternalConversation,
@@ -623,6 +630,11 @@ export async function POST(req: Request): Promise<Response> {
       externalConversationId: body.conversationId,
       ...rowScope,
     })
+    await em.nativeDelete(ExternalMessage, {
+      conversationId: body.conversationId,
+      channelId: body.channelId,
+      ...rowScope,
+    })
     await em.nativeDelete(ExternalConversation, {
       id: body.conversationId,
       channelId: body.channelId,
@@ -631,6 +643,7 @@ export async function POST(req: Request): Promise<Response> {
     await deleteTestSeedPlatformMessage(em, {
       messageId: body.messageId,
       channelId: body.channelId,
+      conversationId: body.conversationId,
       ...rowScope,
     })
     return NextResponse.json({ ok: true })
@@ -646,11 +659,14 @@ export async function POST(req: Request): Promise<Response> {
     // check that `providerKey` matches the channel it names, so passing a
     // different one would silently stamp the wrong provider onto the link.
     const channelProviderKey = ownedChannel.providerKey
-    if (channelProviderKey !== TEST_SEED_CHAT_PROVIDER_KEY) {
+    if (
+      channelProviderKey !== TEST_SEED_CHAT_PROVIDER_KEY
+      && channelProviderKey !== TEST_SEED_PROVIDER_KEY
+    ) {
       return NextResponse.json(
         {
           error:
-            'ingest-inbound requires a channel connected with providerFlavor: "chat"; ' +
+            'ingest-inbound requires a channel connected through the test-seed stub; ' +
             `channel ${body.channelId} is '${channelProviderKey}'`,
         },
         { status: 422 },
@@ -677,6 +693,7 @@ export async function POST(req: Request): Promise<Response> {
           externalConversationId: body.externalConversationId,
           senderIdentifier: body.senderIdentifier,
           senderDisplayName: body.senderDisplayName,
+          ...(body.subject !== undefined ? { subject: body.subject } : {}),
           body: body.body ?? '',
         },
         eventType: 'message',

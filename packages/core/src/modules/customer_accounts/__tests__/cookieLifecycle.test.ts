@@ -15,6 +15,10 @@
 
 import { randomUUID } from 'crypto'
 
+jest.mock('@open-mercato/core/modules/customer_accounts/lib/tenantEligibility', () => ({
+  isCustomerTenantActive: jest.fn(async () => true),
+}))
+
 const tenantId = randomUUID()
 const orgId = randomUUID()
 

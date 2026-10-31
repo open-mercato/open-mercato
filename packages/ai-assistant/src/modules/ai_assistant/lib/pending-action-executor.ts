@@ -25,6 +25,8 @@ import { emitAiAssistantEvent } from '../events'
 import type { AiActionConfirmedPayload } from '../events'
 import type { AiAgentDefinition } from './ai-agent-definition'
 import type { AiToolDefinition, McpToolContext } from './types'
+import { hasRequiredFeatures } from './auth'
+import { resolveToolFeaturesDeniedMessage } from './pending-action-messages'
 import type {
   AiPendingActionExecutionResult,
   AiPendingActionFailedRecord,
@@ -324,6 +326,8 @@ function toToolHandlerContext(
  * - If the action is still `pending`, runs the transitions and the handler.
  * - Any other status is rejected at the re-check layer before this helper
  *   is ever called; this helper treats them as invariant violations.
+ * - A caller without the tool's `requiredFeatures` is refused before any
+ *   state transition, so the row stays `pending` (mirrors the re-check).
  */
 export async function executePendingActionConfirm(
   input: PendingActionExecuteInput,
@@ -356,6 +360,21 @@ export async function executePendingActionConfirm(
         error: { code: 'invalid_status', message: `Action is in status "${action.status}".` },
       },
       cause: new Error(`Action is in status "${action.status}"`),
+    }
+  }
+
+  const toolFeatures = tool.requiredFeatures ?? []
+  if (!hasRequiredFeatures(toolFeatures, ctx.userFeatures, ctx.isSuperAdmin)) {
+    return {
+      ok: false,
+      action,
+      executionResult: {
+        error: {
+          code: 'tool_features_denied',
+          message: await resolveToolFeaturesDeniedMessage(toolFeatures),
+        },
+      },
+      cause: new Error(`Caller lacks one of the tool's required features for "${tool.name}"`),
     }
   }
 
