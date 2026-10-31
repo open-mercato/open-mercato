@@ -71,6 +71,7 @@ import {
   type BoardApiRow,
   type BoardTask,
 } from './kanbanBoardData'
+import { SUPPORT_ACTIVITY_EVENT } from './supportTicketData'
 
 const logger = createLogger('staff').child({ component: 'KanbanBoard' })
 
@@ -81,6 +82,7 @@ export const CREATE_MUTATION_CONTEXT_ID = 'staff.time_tracking.board.create'
 export const MANAGE_COLUMNS_FEATURE = 'staff.timesheets.projects.manage'
 export const MANAGE_TASKS_FEATURE = 'staff.timesheets.tasks.manage'
 export const TASK_STATUS_CHANGED_EVENT = 'staff.timesheets.time_task.status_changed'
+export const TASK_ASSIGNEE_CHANGED_EVENT = 'staff.timesheets.time_task.assignee_changed'
 
 /** Window a locally-originated move stays "mine" for, so a lost SSE cannot wedge the filter. */
 const OWN_MOVE_ECHO_TTL_MS = 15_000
@@ -364,6 +366,10 @@ export function KanbanBoard({
     queryClient.invalidateQueries({ queryKey: [...BOARD_QUERY_ROOT, 'children'] }).catch(() => {})
   }, [queryClient])
 
+  const invalidateUnassignedCount = React.useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: [...BOARD_QUERY_ROOT, 'unassigned-count'] }).catch(() => {})
+  }, [queryClient])
+
   const invalidateStatuses = React.useCallback(() => {
     queryClient.invalidateQueries({ queryKey: [...BOARD_QUERY_ROOT, 'statuses'] }).catch(() => {})
   }, [queryClient])
@@ -404,6 +410,30 @@ export function KanbanBoard({
       invalidateBoard()
     },
     [consumeOwnMove, invalidateBoard, timeProjectId],
+  )
+
+  useAppEvent(
+    TASK_ASSIGNEE_CHANGED_EVENT,
+    (event) => {
+      const eventPayload = event.payload as Record<string, unknown> | null | undefined
+      const projectId = typeof eventPayload?.timeProjectId === 'string' ? eventPayload.timeProjectId : null
+      if (projectId && projectId !== timeProjectId) return
+      invalidateBoard()
+      invalidateUnassignedCount()
+    },
+    [invalidateBoard, invalidateUnassignedCount, timeProjectId],
+  )
+
+  useAppEvent(
+    SUPPORT_ACTIVITY_EVENT,
+    (event) => {
+      const eventPayload = event.payload as Record<string, unknown> | null | undefined
+      const projectId = typeof eventPayload?.projectId === 'string' ? eventPayload.projectId : null
+      if (projectId && projectId !== timeProjectId) return
+      invalidateBoard()
+      invalidateUnassignedCount()
+    },
+    [invalidateBoard, invalidateUnassignedCount, timeProjectId],
   )
 
   const setTaskPending = React.useCallback((taskId: string, pending: boolean) => {
