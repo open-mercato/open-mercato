@@ -2,6 +2,7 @@ import { expect, test, type APIRequestContext, type APIResponse } from '@playwri
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import {
   createCompanyFixture,
+  createPersonFixture,
   deleteEntityIfExists,
   readJsonSafe,
 } from '@open-mercato/core/helpers/integration/crmFixtures'
@@ -23,13 +24,18 @@ async function readJson<T>(response: APIResponse): Promise<T> {
   return ((await readJsonSafe<T>(response)) ?? {}) as T
 }
 
-async function countFulltextCompanyHits(request: APIRequestContext, token: string, name: string): Promise<number> {
-  const params = new URLSearchParams({ q: name, limit: '10', strategies: 'fulltext', entityTypes: COMPANY_ENTITY })
+async function countFulltextHits(
+  request: APIRequestContext,
+  token: string,
+  entityId: string,
+  name: string,
+): Promise<number> {
+  const params = new URLSearchParams({ q: name, limit: '10', strategies: 'fulltext', entityTypes: entityId })
   const response = await apiRequest(request, 'GET', `/api/search/search?${params.toString()}`, { token })
   if (!response.ok()) return -1
   const body = await readJson<SearchResponse>(response)
   const results = Array.isArray(body.results) ? body.results : []
-  return results.filter((result) => result.entityId === COMPANY_ENTITY && result.presenter?.title === name).length
+  return results.filter((result) => result.entityId === entityId && result.presenter?.title === name).length
 }
 
 /**
@@ -38,8 +44,8 @@ async function countFulltextCompanyHits(request: APIRequestContext, token: strin
  * Meilisearch keeps one index per tenant shared by every entity type and organization.
  * POST /api/search/reindex with an `entityId` must clear and rebuild only that entity's
  * documents; it must not drop the tenant index and leave other entity types unsearchable.
- * Meilisearch applies writes asynchronously and the API exposes no task status, so the
- * company is re-checked over a short window after the people reindex instead of once.
+ * Meilisearch applies an index's writes in order, so once the person rebuilt by the people
+ * reindex is searchable, any deletion that reindex issued has been applied as well.
  * Skips when the environment has no fulltext (Meilisearch) backend.
  */
 test.describe('TC-SEARCH-015: entity-scoped fulltext reindex keeps other entity types searchable', () => {
@@ -47,7 +53,10 @@ test.describe('TC-SEARCH-015: entity-scoped fulltext reindex keeps other entity 
     test.slow()
     let token: string | null = null
     let companyId: string | null = null
-    const companyName = `QATCSEARCH015${Date.now()}`
+    let personId: string | null = null
+    const stamp = Date.now()
+    const companyName = `QATCSEARCH015${stamp}`
+    const personName = `QATCSEARCH015P${stamp}`
 
     try {
       token = await getAuthToken(request, 'admin')
@@ -65,6 +74,11 @@ test.describe('TC-SEARCH-015: entity-scoped fulltext reindex keeps other entity 
       await apiRequest(request, 'POST', '/api/search/reindex/cancel', { token: authToken }).catch(() => undefined)
 
       companyId = await createCompanyFixture(request, authToken, companyName)
+      personId = await createPersonFixture(request, authToken, {
+        firstName: 'QA',
+        lastName: personName,
+        displayName: personName,
+      })
 
       const companyReindex = await apiRequest(request, 'POST', '/api/search/reindex', {
         token: authToken,
@@ -73,7 +87,7 @@ test.describe('TC-SEARCH-015: entity-scoped fulltext reindex keeps other entity 
       expect(companyReindex.status(), 'company reindex must succeed').toBe(200)
 
       await expect
-        .poll(() => countFulltextCompanyHits(request, authToken, companyName), { timeout: 30_000 })
+        .poll(() => countFulltextHits(request, authToken, COMPANY_ENTITY, companyName), { timeout: 30_000 })
         .toBe(1)
 
       const personReindex = await apiRequest(request, 'POST', '/api/search/reindex', {
@@ -82,17 +96,18 @@ test.describe('TC-SEARCH-015: entity-scoped fulltext reindex keeps other entity 
       })
       expect(personReindex.status(), 'entity-scoped reindex must succeed').toBe(200)
 
-      for (let check = 0; check < 5; check += 1) {
-        await new Promise((resolve) => setTimeout(resolve, 1_000))
-        expect(
-          await countFulltextCompanyHits(request, authToken, companyName),
-          `company must stay searchable after reindexing ${PERSON_ENTITY} (check ${check + 1})`,
-        ).toBe(1)
-      }
+      await expect
+        .poll(() => countFulltextHits(request, authToken, PERSON_ENTITY, personName), { timeout: 30_000 })
+        .toBe(1)
+      expect(
+        await countFulltextHits(request, authToken, COMPANY_ENTITY, companyName),
+        `company must stay searchable after reindexing ${PERSON_ENTITY}`,
+      ).toBe(1)
     } finally {
       if (token) {
         await apiRequest(request, 'POST', '/api/search/reindex/cancel', { token }).catch(() => undefined)
       }
+      await deleteEntityIfExists(request, token, '/api/customers/people', personId)
       await deleteEntityIfExists(request, token, '/api/customers/companies', companyId)
     }
   })
