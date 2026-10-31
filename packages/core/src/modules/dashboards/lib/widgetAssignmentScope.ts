@@ -10,6 +10,7 @@ export type ResolvedAssignmentScope = {
 
 export type WidgetAssignmentTarget = {
   tenantId?: string | null
+  organizationId?: string | null
 }
 
 export type WidgetAssignmentTargetAccess = 'allowed' | 'forbidden' | 'not-found'
@@ -18,12 +19,24 @@ export function resolveWidgetAssignmentTargetAccess(params: {
   isSuperAdmin: boolean
   scopeTenantId: string | null
   target: WidgetAssignmentTarget | null | undefined
+  allowedOrganizationIds?: string[] | null
 }): WidgetAssignmentTargetAccess {
-  const { isSuperAdmin, scopeTenantId, target } = params
+  const { isSuperAdmin, scopeTenantId, target, allowedOrganizationIds } = params
   if (!isSuperAdmin && !scopeTenantId) return 'forbidden'
   if (!target) return 'not-found'
   if (scopeTenantId && (target.tenantId ?? null) !== scopeTenantId) return 'not-found'
+  if (!isSuperAdmin && allowedOrganizationIds) {
+    const targetOrganizationId = target.organizationId ?? null
+    if (!targetOrganizationId || !allowedOrganizationIds.includes(targetOrganizationId)) return 'forbidden'
+  }
   return 'allowed'
+}
+
+export function resolveWidgetAssignmentRecordScope(target: WidgetAssignmentTarget): ResolvedAssignmentScope {
+  return {
+    tenantId: target.tenantId ?? null,
+    organizationId: target.organizationId ?? null,
+  }
 }
 
 export function resolveWidgetAssignmentReadScope(params: {

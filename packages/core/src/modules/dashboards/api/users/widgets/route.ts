@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
-import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
-import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { getAuthFromRequest, type AuthContext } from '@open-mercato/shared/lib/auth/server'
+import { createRequestContainer, type AppContainer } from '@open-mercato/shared/lib/di/container'
 import { DashboardUserWidgets } from '@open-mercato/core/modules/dashboards/data/entities'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
 import { userWidgetSettingsSchema } from '@open-mercato/core/modules/dashboards/data/validators'
@@ -9,13 +9,13 @@ import { loadAllWidgets } from '@open-mercato/core/modules/dashboards/lib/widget
 import { resolveAllowedWidgetIds } from '@open-mercato/core/modules/dashboards/lib/access'
 import {
   resolveWidgetAssignmentReadScope,
+  resolveWidgetAssignmentRecordScope,
   resolveWidgetAssignmentTargetAccess,
 } from '@open-mercato/core/modules/dashboards/lib/widgetAssignmentScope'
+import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
-import {
-  runCrudMutationGuardAfterSuccess,
-  validateCrudMutationGuard,
-} from '@open-mercato/shared/lib/crud/mutation-guard'
+import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import {
   dashboardsTag,
@@ -26,6 +26,22 @@ import {
 
 const FEATURE = 'dashboards.admin.assign-widgets'
 const RESOURCE_KIND = 'dashboards.userWidgets'
+
+async function resolveAllowedOrganizationIds(
+  container: AppContainer,
+  auth: NonNullable<AuthContext>,
+  req: Request,
+  isSuperAdmin: boolean,
+): Promise<string[] | null> {
+  if (isSuperAdmin) return null
+  const organizationScope = await resolveOrganizationScopeForRequest({
+    container,
+    auth,
+    request: req,
+    tenantId: auth.tenantId ?? null,
+  })
+  return organizationScope.allowedIds
+}
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: [FEATURE] },
@@ -51,7 +67,7 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  const { tenantId, organizationId } = resolveWidgetAssignmentReadScope({
+  const readScope = resolveWidgetAssignmentReadScope({
     auth: { tenantId: auth.tenantId ?? null, orgId: auth.orgId ?? null },
     isSuperAdmin: !!acl.isSuperAdmin,
     queryTenantId: url.searchParams.get('tenantId'),
@@ -61,14 +77,21 @@ export async function GET(req: Request) {
   const targetUserForRead = await em.findOne(User, { id: userId, deletedAt: null })
   const readAccess = resolveWidgetAssignmentTargetAccess({
     isSuperAdmin: !!acl.isSuperAdmin,
-    scopeTenantId: tenantId,
+    scopeTenantId: readScope.tenantId,
     target: targetUserForRead,
+    allowedOrganizationIds: await resolveAllowedOrganizationIds(container, auth, req, !!acl.isSuperAdmin),
   })
   if (readAccess === 'forbidden') {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
   if (readAccess === 'not-found') {
     return NextResponse.json({ error: 'User not found' }, { status: 404 })
+  }
+
+  const { tenantId, organizationId } = resolveWidgetAssignmentRecordScope(targetUserForRead)
+  if (!(await rbac.userHasAllFeatures(String(auth.sub), [FEATURE], { tenantId, organizationId }))) {
+    const { translate } = await resolveTranslations()
+    return NextResponse.json({ error: translate('dashboards.errors.forbidden', 'Forbidden') }, { status: 403 })
   }
 
   const widgets = await loadAllWidgets()
@@ -132,16 +155,16 @@ export async function PUT(req: Request) {
 
   const widgets = await loadAllWidgets()
   const validWidgetIds = new Set(widgets.map((w) => w.metadata.id))
-  const widgetIds = parsed.data.widgetIds.filter((id) => validWidgetIds.has(id))
+  const submittedWidgetIds = parsed.data.widgetIds.filter((id) => validWidgetIds.has(id))
 
   const tenantId = auth.tenantId ?? null
-  const organizationId = auth.orgId ?? null
 
   const targetUser = await em.findOne(User, { id: parsed.data.userId, deletedAt: null })
   const writeAccess = resolveWidgetAssignmentTargetAccess({
     isSuperAdmin: !!acl.isSuperAdmin,
     scopeTenantId: tenantId,
     target: targetUser,
+    allowedOrganizationIds: await resolveAllowedOrganizationIds(container, auth, req, !!acl.isSuperAdmin),
   })
   if (writeAccess === 'forbidden') {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
@@ -149,54 +172,62 @@ export async function PUT(req: Request) {
   if (writeAccess === 'not-found') {
     return NextResponse.json({ error: 'User not found' }, { status: 404 })
   }
-
-  const guardResult = await validateCrudMutationGuard(container, {
-    tenantId: tenantId ?? '',
-    organizationId,
-    userId: String(auth.sub),
-    resourceKind: RESOURCE_KIND,
-    resourceId: parsed.data.userId,
-    operation: 'update',
-    requestMethod: req.method,
-    requestHeaders: req.headers,
-    mutationPayload: { userId: parsed.data.userId, mode: parsed.data.mode, widgetIds },
-  })
-  if (guardResult && !guardResult.ok) {
-    return NextResponse.json(guardResult.body, { status: guardResult.status })
+  const recordScope = resolveWidgetAssignmentRecordScope(targetUser)
+  if (!(await rbac.userHasAllFeatures(String(auth.sub), [FEATURE], recordScope))) {
+    const { translate } = await resolveTranslations()
+    return NextResponse.json({ error: translate('dashboards.errors.forbidden', 'Forbidden') }, { status: 403 })
   }
+
+  const guardResult = await runRouteMutationGuards({
+    container,
+    req,
+    auth: {
+      userId: String(auth.sub),
+      tenantId: recordScope.tenantId ?? '',
+      organizationId: recordScope.organizationId,
+    },
+    input: {
+      resourceKind: RESOURCE_KIND,
+      resourceId: parsed.data.userId,
+      operation: 'update',
+      mutationPayload: { userId: parsed.data.userId, mode: parsed.data.mode, widgetIds: submittedWidgetIds },
+    },
+  })
+  if (!guardResult.ok) {
+    return NextResponse.json(guardResult.errorBody, { status: guardResult.errorStatus })
+  }
+
+  const effective = userWidgetSettingsSchema.safeParse({
+    mode: parsed.data.mode,
+    widgetIds: submittedWidgetIds,
+    ...guardResult.modifiedPayload,
+    userId: parsed.data.userId,
+  })
+  if (!effective.success) {
+    return NextResponse.json({ error: 'Invalid payload', issues: effective.error.issues }, { status: 400 })
+  }
+  const widgetIds = effective.data.widgetIds.filter((id) => validWidgetIds.has(id))
 
   let record = await em.findOne(DashboardUserWidgets, {
     userId: parsed.data.userId,
-    tenantId,
-    organizationId,
+    tenantId: recordScope.tenantId,
+    organizationId: recordScope.organizationId,
     deletedAt: null,
   })
 
-  if (parsed.data.mode === 'inherit') {
+  if (effective.data.mode === 'inherit') {
     if (record) {
       await em.remove(record).flush()
     }
-    if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
-      await runCrudMutationGuardAfterSuccess(container, {
-        tenantId: tenantId ?? '',
-        organizationId,
-        userId: String(auth.sub),
-        resourceKind: RESOURCE_KIND,
-        resourceId: parsed.data.userId,
-        operation: 'update',
-        requestMethod: req.method,
-        requestHeaders: req.headers,
-        metadata: guardResult.metadata ?? null,
-      })
-    }
+    await guardResult.runAfterSuccess()
     return NextResponse.json({ ok: true, mode: 'inherit', widgetIds: [] })
   }
 
   if (!record) {
     record = em.create(DashboardUserWidgets, {
       userId: parsed.data.userId,
-      tenantId,
-      organizationId,
+      tenantId: recordScope.tenantId,
+      organizationId: recordScope.organizationId,
       mode: 'override',
       widgetIdsJson: widgetIds,
     })
@@ -207,32 +238,20 @@ export async function PUT(req: Request) {
   }
   await em.flush()
 
-  if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
-    await runCrudMutationGuardAfterSuccess(container, {
-      tenantId: tenantId ?? '',
-      organizationId,
-      userId: String(auth.sub),
-      resourceKind: RESOURCE_KIND,
-      resourceId: parsed.data.userId,
-      operation: 'update',
-      requestMethod: req.method,
-      requestHeaders: req.headers,
-      metadata: guardResult.metadata ?? null,
-    })
-  }
+  await guardResult.runAfterSuccess()
 
   return NextResponse.json({ ok: true, mode: 'override', widgetIds })
 }
 
 const userWidgetsQuerySchema = z.object({
   userId: z.string().uuid(),
-  tenantId: z.string().uuid().optional(),
-  organizationId: z.string().uuid().optional(),
+  tenantId: z.string().uuid().optional().describe('Superadmin only: tenant to look the user up in. Defaults to the caller\'s session tenant.'),
+  organizationId: z.string().uuid().optional().describe('Deprecated and ignored: overrides are read from the target user\'s own organization.'),
 })
 
 const userWidgetsGetDoc: OpenApiMethodDoc = {
   summary: 'Read widget overrides for a user',
-  description: 'Returns the widgets inherited and explicitly configured for the requested user within the current scope.',
+  description: 'Returns the widgets inherited and explicitly configured for the requested user within that user\'s own tenant and organization.',
   tags: [dashboardsTag],
   query: userWidgetsQuerySchema,
   responses: [
@@ -241,7 +260,8 @@ const userWidgetsGetDoc: OpenApiMethodDoc = {
   errors: [
     { status: 400, description: 'Missing user identifier', schema: dashboardsErrorSchema },
     { status: 401, description: 'Authentication required', schema: dashboardsErrorSchema },
-    { status: 403, description: 'Insufficient permissions to manage user widgets', schema: dashboardsErrorSchema },
+    { status: 403, description: 'Insufficient permissions to manage user widgets, the target user\'s organization is outside your organization visibility, or you lack the widget-assignment feature in that organization', schema: dashboardsErrorSchema },
+    { status: 404, description: 'User not found', schema: dashboardsErrorSchema },
   ],
 }
 
@@ -252,7 +272,7 @@ const userWidgetsPutDoc: OpenApiMethodDoc = {
   requestBody: {
     contentType: 'application/json',
     schema: userWidgetSettingsSchema,
-    description: 'User identifier, override mode, and widget ids. Scope is derived from the authenticated session.',
+    description: 'User identifier, override mode, and widget ids. The override is stored under the target user\'s own tenant and organization.',
   },
   responses: [
     { status: 200, description: 'Overrides saved.', schema: dashboardUserWidgetsUpdateResponseSchema },
@@ -260,7 +280,8 @@ const userWidgetsPutDoc: OpenApiMethodDoc = {
   errors: [
     { status: 400, description: 'Invalid payload or unknown widgets', schema: dashboardsErrorSchema },
     { status: 401, description: 'Authentication required', schema: dashboardsErrorSchema },
-    { status: 403, description: 'Insufficient permissions to manage user widgets', schema: dashboardsErrorSchema },
+    { status: 403, description: 'Insufficient permissions to manage user widgets, the target user\'s organization is outside your organization visibility, or you lack the widget-assignment feature in that organization', schema: dashboardsErrorSchema },
+    { status: 404, description: 'User not found', schema: dashboardsErrorSchema },
   ],
 }
 
