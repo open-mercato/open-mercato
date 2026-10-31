@@ -24,6 +24,26 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.9.0 → 0.9.1 (unreleased)
 
+### Nested ACL wildcards now grant their matching enabled-module features (#5523)
+
+Nested role and user ACL grants such as `sales.order.*`, `catalog.product.*`,
+`auth.users.*`, and `security.mfa.*` were incorrectly discarded by the enabled-module
+filter after the module registry initialized. They now resolve to their owning module
+and participate in canonical authorization. This affects all enabled modules, not only
+MFA notification recipients: existing stored nested wildcards can grant access that was
+previously denied. Exact grants, module-level wildcards such as `security.*`, and global
+`*` grants keep their existing semantics. Disabled modules, removed features, and tenant
+or organization scope restrictions still take precedence.
+
+**Action for operators before upgrading:** audit both role ACLs and per-user ACLs for
+nested wildcard grants. Check the matching features in each enabled module and the users
+who inherit those grants. If that access is not intended, remove the wildcard or replace
+it with the explicitly approved feature IDs before upgrading; verify representative users
+in their tenant and organization scopes after upgrading. No database migration or API
+payload change is required. Module authors should use canonical scoped authorization and
+must not rely on nested wildcards being filtered out. The notification design is tracked
+in [PR #7618](https://github.com/open-mercato/open-mercato/pull/7618).
+
 ### Workflow steps may last longer than ~24.8 days; `StepInstance.executionTimeMs` is deprecated
 
 A workflow step that lasted 2^31 ms (~24.86 days) or longer could not complete: `step_instances.execution_time_ms`
@@ -165,6 +185,59 @@ the byte limit to return a small acknowledgement promptly. Configure an explicit
 activity timeout for a slower endpoint, and move large results behind a separate
 retrieval or asynchronous workflow.
 Existing request configuration and successful response envelopes are unchanged.
+
+### Rebuild customer search vectors after the privacy fix (#7826)
+
+The person, company, and customer-account vector builders now use explicit safe
+fields. Contact email/phone, `hashOnly` and `excluded` custom fields, unapproved
+custom fields, and fields declared encrypted are omitted from embedding text.
+Contact details are also omitted from result presenters. Names remain available
+for result display; semantic matching no longer uses encrypted name/contact
+fields. Customer-account email remains available through hashed search.
+
+Single, by-ID, queued-batch, and bulk indexing now honor the configured safe
+source. Failed, null, or empty sources skip vector writes instead of embedding
+raw fields; independent fulltext/token indexing continues. Customer sources also
+exclude live tenant/organization encryption declarations. Search DI supplies the
+existing source-context `container`; integrations invoking customer builders
+directly must provide it with `tenantEncryptionService`. Missing dependencies or
+failed policy lookup skip the vector write. Restore policy access and reindex any
+records skipped during an outage.
+
+When `TENANT_DATA_ENCRYPTION=false`, the policy service cannot read live
+declarations. Person/company vector writes are therefore skipped entirely;
+fulltext/token indexing continues. Turning encryption off does not authorize
+exporting fields classified by retained encryption maps. Re-enable policy access
+and reindex to restore these vectors. Encryption-at-rest toggle behavior is unchanged.
+
+Deploy the fix to every app and indexing worker before rebuilding. Existing
+embeddings and stored presenters are **not automatically removed** by this code
+change. For every affected tenant and organization scope:
+
+1. Pause indexing producers/workers, drain or discard outstanding vector jobs
+   using the deployment's queue tooling, and prevent old workers from restarting.
+2. Purge the affected vector entries through the configured driver's
+   `purge(entityId, tenantId, organizationId)` operation, or the corresponding
+   `searchIndexer.purgeEntity({ entityId, tenantId, organizationId })` DI operation.
+   The latter purges all configured strategies for that entity. Use the published
+   IDs `customers:customer_person_profile`, `customers:customer_company_profile`,
+   and `customer_accounts:customer_user`; include soft-deleted records in the purge.
+   Verify the affected entries are absent before restarting indexing; the reindex
+   API can continue after a failed purge, so `purgeFirst` alone is not proof of deletion.
+3. Re-enable only upgraded workers. As an administrator with
+   `search.embeddings.manage`, call `POST /api/search/embeddings/reindex` with
+   `{ "entityId": "<affected-entity-id>", "purgeFirst": true }` for each ID and scope.
+   Run the `vector-indexing` worker and verify completion and sample results.
+   The vector reindex endpoint also rebuilds fulltext data when that strategy is
+   configured, replacing old presenter metadata; confirm its jobs have drained.
+
+If you use the broader `purgeEntity` operation, rebuild fulltext explicitly with
+`POST /api/search/reindex` as well. `yarn mercato search reindex` alone does not
+rebuild every search store. Rebuild after purging even when a record has not
+changed; otherwise an old checksum can leave stale sensitive metadata behind.
+Review backups, replicas, external vector stores, and embedding-provider retention
+under your deployment's deletion procedures. Local reindexing cannot retract data
+already retained by an external provider. No data purge is run by the upgrade.
 
 ### Documents attachments enforce owner permissions at host URLs (#6726)
 
