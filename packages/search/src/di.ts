@@ -26,8 +26,14 @@ import type { EncryptionMapEntry } from './lib/field-policy'
 import type { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { createPresenterEnricher } from './lib/presenter-enricher'
 import { createEncryptionMapResolver } from './lib/encryption-map-resolver'
+import { createEncryptedCustomFieldKeysResolver, type CustomFieldDefinitionsDatabase, type EncryptedCustomFieldKeysResolver } from './lib/encrypted-custom-field-resolver'
+import { reportSearchError } from './lib/debug'
 
 export { createEncryptionMapResolver } from './lib/encryption-map-resolver'
+
+type KyselyEntityManager = {
+  getKysely<Database>(): Kysely<Database>
+}
 
 const FULLTEXT_DRIVER_KEY = '__omSearchFulltextDriver__'
 
@@ -245,10 +251,22 @@ export function registerSearchModule(
     // Queue not available, queue-based vector reindex will be disabled
   }
 
+  let encryptedCustomFieldKeysResolver: EncryptedCustomFieldKeysResolver
+  try {
+    const em = container.resolve<KyselyEntityManager>('em')
+    encryptedCustomFieldKeysResolver = createEncryptedCustomFieldKeysResolver(em.getKysely<CustomFieldDefinitionsDatabase>())
+  } catch (error) {
+    reportSearchError('SearchModule', error, 'search.custom_field_definitions_unavailable')
+    encryptedCustomFieldKeysResolver = async () => {
+      throw new Error('[internal] Custom-field definitions are unavailable')
+    }
+  }
+
   const searchIndexer = new SearchIndexer(searchService, moduleConfigs, {
     queryEngine,
     fulltextQueue,
     vectorQueue,
+    encryptedCustomFieldKeysResolver,
   })
 
   // Register in container
