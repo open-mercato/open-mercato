@@ -32,6 +32,7 @@ import {
 } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { resolveEntityIdFromMetadata } from '@open-mercato/shared/lib/encryption/entityIds'
 import { listEntityMetadata } from '@open-mercato/shared/lib/db/entityMetadata'
+import { rotateCustomEntityDocuments } from './lib/rotate-custom-entity-documents'
 import { Organization } from '../directory/data/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import crypto from 'node:crypto'
@@ -571,8 +572,18 @@ const rotateEncryptionKey: ModuleCli = {
       )
       return false
     })
+    const customDocuments = await rotateCustomEntityDocuments(em, {
+      encryptionService,
+      oldKms,
+      tenantId: tenantIdArg,
+      organizationId: organizationIdArg,
+      dryRun,
+    })
+    if (customDocuments > 0) {
+      console.log(`${dryRun ? '[dry-run] ' : ''}Encrypted ${customDocuments} custom entity document(s).`)
+    }
     if (!maps.length) {
-      console.log('No encryption maps found for the selected scope.')
+      if (!customDocuments) console.log('No encryption maps found for the selected scope.')
       return
     }
     const resolvedMaps = resolveMapsOrFail(maps, metaByEntityId)

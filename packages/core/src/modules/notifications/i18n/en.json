@@ -14,6 +14,8 @@
   "notifications.delivery.settings.invalid": "Invalid delivery settings",
   "notifications.empty": "No notifications",
   "notifications.error.action": "Failed to execute action",
+  "notifications.error.actionCommandNotAllowed": "Notification actions created through the API cannot run commands",
+  "notifications.error.actionForbidden": "You are not allowed to run this notification action",
   "notifications.error.load": "Failed to load notifications",
   "notifications.filters.actionRequired": "Action Required",
   "notifications.filters.all": "All",
