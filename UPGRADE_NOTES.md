@@ -740,7 +740,7 @@ or index records. Token reads exclude unsafe types before ranking; hybrid search
 enrichment enforce the same policy, and query-index document joins for tenant-less sources
 require a null tenant. Provider/synthetic strategy results retain their caller scope and supplied presenters.
 Persisted local tokens, projections and pgvector results require verified ORM scope or exact
-tenant/type/record proof in custom-entity storage; unregistered or disabled-module residue is
+tenant/organization/type/record proof in custom-entity storage; unregistered or disabled-module residue is
 quarantined too. Unverified synthetic local writes are declined, and cannot borrow historical
 projections. Register the source ORM entity, use tenant-scoped custom storage, or keep a
 provider-backed strategy for a virtual source. No unverified source can activate global scope.
@@ -4743,3 +4743,11 @@ When opening a PR that bumps a dependency across a major boundary, add an entry 
 the same PR. The `auto-upgrade-...` skill for the window picks up entries from this file;
 keep the headings stable (exactly `#### \`<package>\` \`^<from>\` → \`^<to>\``) so the
 skill can parse them.
+
+2026-10-31 follow-up: source identity is the exact registered entity metadata, including
+schema and mapped scope columns; duplicate/ambiguous metadata fails closed. Sweeps,
+subscriber source rows, index documents, query-engine and coverage probes use that same
+qualified source. Same-name tables in another schema cannot supply catalogue proof.
+Custom-storage proof also binds organization in SQL and batched writes/results; stale
+artifacts from another organization cannot authorize a record. Reviewer-supplied schema
+collision and organization regressions ship with the repair.

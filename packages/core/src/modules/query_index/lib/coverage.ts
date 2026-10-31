@@ -517,8 +517,8 @@ export type ColumnCheck = { table: string; column: string }
 // subscribers hit an already-primed (or in-flight) cache instead of each doing their own
 // per-table introspection round trip.
 export async function primeColumnCache(db: Kysely<any>, checks: ColumnCheck[]): Promise<void> {
-  for (const check of checks.filter((entry) => entry.table.includes('.'))) await tableHasColumn(db, check.table, check.column)
-  checks = checks.filter((entry) => !entry.table.includes('.'))
+  for (const check of checks.filter((entry) => typeof entry?.table === 'string' && entry.table.includes('.'))) await tableHasColumn(db, check.table, check.column)
+  checks = checks.filter((entry) => !(typeof entry?.table === 'string' && entry.table.includes('.')))
   const missing: Array<{ table: string; column: string; key: string }> = []
   const seen = new Set<string>()
   for (const check of checks) {

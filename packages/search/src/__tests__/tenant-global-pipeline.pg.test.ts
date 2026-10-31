@@ -332,5 +332,13 @@ describePostgres('catalogue worker and hybrid search against PostgreSQL', () => 
     await replaceSearchTokensForRecord(db, {entityType: CUSTOM, recordId: RECORD, tenantId: TENANT, organizationId: ORG, doc})
     const hits = await search(['tokens'], undefined, {entityTypes: [CUSTOM], limit: 1})
     expect(hits).toEqual([])
+    const enrich = createPresenterEnricher(db, new Map())
+    expect(await enrich([{ entityId: CUSTOM, recordId: RECORD, source: 'tokens', score: 1, organizationId: ORG }], TENANT, ORG)).toEqual([])
+    await db.deleteFrom('search_tokens').where('entity_type', '=', CUSTOM).execute()
+    const strategy = new TokenSearchStrategy(db)
+    const record = { entityId: CUSTOM, recordId: RECORD, tenantId: TENANT, organizationId: ORG, fields: doc }
+    await strategy.index(record)
+    await strategy.bulkIndex([record])
+    expect(await db.selectFrom('search_tokens').selectAll().where('entity_type', '=', CUSTOM).execute()).toEqual([])
   })
 })

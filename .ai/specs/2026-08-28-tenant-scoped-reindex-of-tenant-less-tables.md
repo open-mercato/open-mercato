@@ -260,7 +260,7 @@ physical verification of catalogue declarations before token writes, global read
 fusion or document-filter widening. Registered source metadata and scope-column probing are
 shared across worker/request consumers. Invalid tenant-scoped declarations keep ordinary scope;
 organization-only private types are blocked. Provider/synthetic strategy results retain caller scope and supplied presenters. Persisted local
-artifacts and writes require verified ORM scope or exact tenant/type/record proof in custom
+artifacts and writes require verified ORM scope or exact tenant/organization/type/record proof in custom
 storage, including after module/metadata removal. Unverified local writes are declined; virtual
 sources may use their provider strategy. No unverified source gains catalogue scope. Failed probes are not cached; driver/entity/metadata/declaration
 changes separate or invalidate cached verification. Schema changes require process restart.
@@ -270,3 +270,11 @@ sources, concurrent verification, reset, driver isolation and retry; PostgreSQL 
 start from victim-stamped private projections/tokens and exercise actual worker, single/bulk
 indexing and search with invalid tenant/organization declarations. Existing catalogue and
 ordinary cross-tenant/organization controls remain. New scope logic requires independent review.
+
+2026-10-31 follow-up: source identity is the exact registered entity metadata, including
+schema and mapped scope columns; duplicate/ambiguous metadata fails closed. Sweeps,
+subscriber source rows, index documents, query-engine and coverage probes use that same
+qualified source. Same-name tables in another schema cannot supply catalogue proof.
+Custom-storage proof also binds organization in SQL and batched writes/results; stale
+artifacts from another organization cannot authorize a record. Reviewer-supplied schema
+collision and organization regressions ship with the repair.
