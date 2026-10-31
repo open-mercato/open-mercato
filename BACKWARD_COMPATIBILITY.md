@@ -632,3 +632,7 @@ STABLE API §7: `GET /api/checkout/pay/:slug` omits admin fields; retaining them
 ## #3805 2026-10-31
 
 STABLE tools/execute writes bypass approval; no bridge. [Migrate](UPGRADE_NOTES.md#issue-3805)
+
+## #8328 2026-11-01
+
+STABLE translations GET 404s soft-deleted owners; no bridge. [Migrate](https://github.com/open-mercato/open-mercato/pull/8329)
