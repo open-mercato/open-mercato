@@ -55,6 +55,7 @@ test.describe('TC-FORMS-UI-002: create a form through the UI', () => {
 
       await login(page, 'admin')
       await page.goto('/backend/forms/create', { waitUntil: 'domcontentloaded' })
+      await expect(page.getByTestId('backend-chrome-ready')).toHaveAttribute('data-ready', 'true')
 
       const keyInput = page.getByPlaceholder('patient-intake')
       await expect(keyInput, 'the create form renders the key field').toBeVisible({ timeout: 30_000 })
@@ -75,10 +76,8 @@ test.describe('TC-FORMS-UI-002: create a form through the UI', () => {
       // Overwrite the prefilled 'en' so the comma-splitting transform is exercised.
       await fillControlledInput(localesInput, 'en, pl')
       await fillControlledInput(keyInput, key)
+      await nameInput.pressSequentially(name)
 
-      // Re-read every field after the last fill: the settle window inside
-      // `fillControlledInput` guards each field individually, but a late
-      // hydration pass could still have reset an earlier one.
       await expect(keyInput, 'the key survived hydration').toHaveValue(key)
       await expect(nameInput, 'the name survived hydration').toHaveValue(name)
       await expect(localesInput, 'the locale list survived hydration').toHaveValue('en, pl')

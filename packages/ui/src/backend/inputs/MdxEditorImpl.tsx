@@ -13,6 +13,8 @@ import {
   linkDialogPlugin,
   imagePlugin,
   tablePlugin,
+  codeBlockPlugin,
+  codeMirrorPlugin,
   markdownShortcutPlugin,
   diffSourcePlugin,
   toolbarPlugin,
@@ -31,7 +33,24 @@ import {
 } from '@mdxeditor/editor'
 import '@mdxeditor/editor/style.css'
 import { cn } from '@open-mercato/shared/lib/utils'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useTheme } from '../../theme'
+
+const CODE_BLOCK_LANGUAGES: Record<string, string> = {
+  js: 'JavaScript',
+  jsx: 'JavaScript (React)',
+  ts: 'TypeScript',
+  tsx: 'TypeScript (React)',
+  json: 'JSON',
+  html: 'HTML',
+  css: 'CSS',
+  sql: 'SQL',
+  python: 'Python',
+  bash: 'Bash',
+  sh: 'Shell',
+  yaml: 'YAML',
+  markdown: 'Markdown',
+}
 
 type MdxEditorImplProps = {
   value?: string
@@ -40,8 +59,10 @@ type MdxEditorImplProps = {
 
 export default function MdxEditorImpl({ value = '', onChange }: MdxEditorImplProps) {
   const editorRef = React.useRef<MDXEditorMethods>(null)
+  const containerRef = React.useRef<HTMLDivElement>(null)
   const latestRef = React.useRef<string>(value)
   const { resolvedTheme } = useTheme()
+  const t = useT()
 
   React.useEffect(() => {
     if (value !== latestRef.current) {
@@ -51,7 +72,11 @@ export default function MdxEditorImpl({ value = '', onChange }: MdxEditorImplPro
   }, [value])
 
   return (
-    <div className="w-full overflow-hidden rounded-md border border-input bg-background">
+    <div
+      ref={containerRef}
+      data-testid="mdx-editor-container"
+      className="w-full overflow-hidden rounded-md border border-input bg-background"
+    >
       <MDXEditor
         ref={editorRef}
         markdown={value ?? ''}
@@ -71,6 +96,13 @@ export default function MdxEditorImpl({ value = '', onChange }: MdxEditorImplPro
           linkDialogPlugin(),
           imagePlugin(),
           tablePlugin(),
+          codeBlockPlugin({ defaultCodeBlockLanguage: '' }),
+          codeMirrorPlugin({
+            codeBlockLanguages: {
+              '': t('ui.forms.richtext.plainText', 'Plain text'),
+              ...CODE_BLOCK_LANGUAGES,
+            },
+          }),
           markdownShortcutPlugin(),
           diffSourcePlugin({ viewMode: 'rich-text' }),
           toolbarPlugin({
