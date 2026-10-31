@@ -30,6 +30,7 @@ type ExchangeRateRow = {
   date: string
   source: string | null
   type: string | null
+  externalReference: string | null
   isActive: boolean
   organizationId: string
   tenantId: string
@@ -201,16 +202,20 @@ export default function ExchangeRatesPage() {
         cell: ({ row }) => row.original.source || '—',
       },
       {
+        accessorKey: 'externalReference',
+        header: t('exchangeRates.list.columns.externalReference'),
+        cell: ({ row }) => row.original.externalReference || '—',
+      },
+      {
         accessorKey: 'type',
         header: t('exchangeRates.list.columns.type'),
         cell: ({ row }) => {
           const type = row.original.type
           if (!type) return '—'
-          return (
-            <Badge variant={type === 'buy' ? 'success' : 'info'}>
-              {type === 'buy' ? t('exchangeRates.list.type.buy') : t('exchangeRates.list.type.sell')}
-            </Badge>
-          )
+          if (type === 'buy') return <Badge variant="success">{t('exchangeRates.list.type.buy')}</Badge>
+          if (type === 'sell') return <Badge variant="info">{t('exchangeRates.list.type.sell')}</Badge>
+          if (type === 'average') return <Badge variant="info">{t('exchangeRates.list.type.average')}</Badge>
+          return type
         },
       },
       {
@@ -264,6 +269,7 @@ export default function ExchangeRatesPage() {
           { label: t('exchangeRates.list.filters.all'), value: '' },
           { label: t('exchangeRates.list.type.buy'), value: 'buy' },
           { label: t('exchangeRates.list.type.sell'), value: 'sell' },
+          { label: t('exchangeRates.list.type.average'), value: 'average' },
         ],
       },
       {
