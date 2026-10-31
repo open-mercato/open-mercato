@@ -657,6 +657,27 @@ mechanism, gated at version `0.9.1` — the version this release ships as. An ex
 these as pending upgrade actions (`configs.manage`, the same admin banner every other upgrade
 action uses) once the app reports `0.9.1`; no migration or CLI command runs them automatically.
 
+### `POST /api/attachments/transfer` accepts at most 100 `attachmentIds` (#7672)
+
+`POST /api/attachments/transfer` used to accept an `attachmentIds` array of any length and load and
+update every listed attachment in one request. The array is now limited to `100` ids, the same
+ceiling as the attachment list `pageSize`. A request with more ids answers
+`400 { error: "Invalid payload" }` and transfers nothing. The URL and the response shapes are
+unchanged. This change ships under the Emergency Security Exception (see
+[the spec](.ai/specs/2026-10-21-attachments-transfer-max-ids.md#migration--backward-compatibility)),
+so there is no release in which longer arrays keep working.
+
+**Action for module authors and API clients:** a caller that moves more than 100 attachments at once
+must split the ids into chunks of at most `100` and send one request per chunk. Backend pages can
+call `transferAttachmentsInChunks` from `@open-mercato/core/modules/attachments/lib/transferClient`,
+which chunks by the same limit and returns the ids of any chunk that failed. The built-in callers
+already comply: product and variant create transfer draft media in chunks and warn the user when
+some media stay on the draft (#7728), and the checkout link template sends a single logo id.
+
+**Action for operators:** no data migration is needed and earlier transfers are untouched. After
+upgrading, look for `400` responses on `POST /api/attachments/transfer` in access logs to find
+integrations that still send more than 100 ids.
+
 ### Login and portal session routes reject cross-site browser requests with `403` (#7239)
 
 `POST /api/auth/login`, `POST /api/auth/session/refresh`, `POST /api/customer_accounts/login`,

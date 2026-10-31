@@ -175,7 +175,7 @@ Removes the attachment and its stored file.
 **Endpoint:** `POST /attachments/transfer`  
 **Feature:** `attachments.manage`
 
-Move multiple attachments within the same entity to a new record id.
+Move multiple attachments within the same entity to a new record id. `attachmentIds` accepts 1 to 100 ids; a longer list returns `400`.
 
 ```bash
 curl -X POST "$BASE_URL/attachments/transfer" \
