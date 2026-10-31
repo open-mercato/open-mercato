@@ -16,6 +16,11 @@ import { runCustomRouteAfterInterceptors } from '@open-mercato/shared/lib/crud/c
 import { sanitizeRedirectPath } from '@open-mercato/core/modules/auth/lib/safeRedirect'
 import { getAppBaseUrl } from '@open-mercato/shared/lib/url'
 import { handleAuthRouteError } from '@open-mercato/core/modules/auth/api/routeError'
+<<<<<<< HEAD
+=======
+import { isAuthSessionRejectedError } from '@open-mercato/core/modules/auth/lib/sessionEligibility'
+import { isStaffTenantActive } from '@open-mercato/core/modules/auth/lib/tenantEligibility'
+>>>>>>> f0365b403 (fix(sso): block fresh sign-in after SCIM deactivation (#8088))
 
 const loginRateLimitConfig = readEndpointRateLimitConfig('LOGIN', {
   points: 5, duration: 60, blockDuration: 60, keyPrefix: 'login',
@@ -183,7 +188,15 @@ async function handleLoginRequest(req: Request) {
   const sessionExpiresAt = remember
     ? new Date(Date.now() + rememberMeDays * 24 * 60 * 60 * 1000)
     : new Date(Date.now() + accessTokenMaxAgeSeconds * 1000)
-  const { session: loginSession, token: sessionRefreshToken } = await auth.createSession(user, sessionExpiresAt)
+  let createdSession: Awaited<ReturnType<AuthService['createSession']>>
+  try {
+    createdSession = await auth.createSession(user, sessionExpiresAt)
+  } catch (error) {
+    if (!isAuthSessionRejectedError(error)) throw error
+    void emitAuthEvent('auth.login.failed', { email: parsed.data.email, reason: 'account_deactivated' }).catch(() => undefined)
+    return NextResponse.json({ ok: false, error: translate('auth.login.errors.invalidCredentials', 'Invalid email or password') }, { status: 401 })
+  }
+  const { session: loginSession, token: sessionRefreshToken } = createdSession
   const token = signJwt({
     sub: String(user.id),
     sid: String(loginSession.id),

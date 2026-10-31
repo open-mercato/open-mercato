@@ -22,6 +22,1147 @@ most of the patterns listed below in a user's codebase.
 
 ---
 
+<<<<<<< HEAD
+=======
+## 0.9.0 → 0.9.1 (unreleased)
+
+### Encrypted custom fields in plaintext search fields (#7894)
+
+Application-managed `SearchIndexer` calls now exclude encrypted custom-field keys
+from fulltext document fields and vector fallback text, while preserving values
+for hashed-token search. A failed definition lookup excludes every custom field
+from those plaintext paths. Explicit source text and callback-generated metadata
+are a separate protection tracked in #7874.
+
+**Operator action:** reindex affected fulltext and vector data after upgrading;
+previously indexed plaintext is not removed until records are rewritten. Review
+any retention/export copies held by external search or embedding providers.
+
+**Module author action:** application DI wires the resolver automatically. Code
+constructing `SearchIndexer` manually must pass `encryptedCustomFieldKeysResolver`
+to enable definition-based exclusions; omission preserves its legacy behavior.
+Direct `SearchService.index`/`bulkIndex` clients can pass
+`IndexableRecord.plaintextExcludedCustomFields` as an array of encrypted definition
+keys, or `'all'` when definitions cannot be resolved. Both `cf:` and sanitized
+`cf_` aliases are excluded. Omission preserves existing behavior, and `fields`
+continues to reach the hashed-token strategy unchanged. Public routes, required
+parameters, strategy IDs and queue payloads are unchanged.
+
+<a id="issue-3805"></a>
+
+### Direct AI tool mutations require agent policy (#3805)
+
+`POST /api/ai_assistant/tools/execute` now returns HTTP 403 for tools declared `isMutation: true`, before invoking their handler, including for superadmins. Previously this endpoint allowed callers with the tool's write features to bypass the agent mutation policy, preview, and confirmation control plane. Read tools retain their existing behavior and response shape. The Emergency Security Exception is requested because keeping direct mutations working during a bridge release would preserve the bypass; named human maintainer sign-off is required before merge.
+
+**Action for clients:** replace direct mutation requests with a registered agent's chat or run-object request (`/api/ai_assistant/ai/chat` or `/api/ai_assistant/ai/run-object`). Allowlist the tool on that agent and follow its effective tenant mutation policy, confirming pending actions when required. Client-supplied `approved`, agent policy, or pending-action fields do not authorize direct execution. Existing approved action confirmation and policy-permitted agent execution continue working.
+
+**Action for operators:** deploy the fix, identify integrations using the direct endpoint for writes, and migrate them before relying on those writes. Review earlier direct mutation requests and affected records for changes without the expected approvals; the fix does not undo or retrospectively approve those writes. No stored credentials, pending actions, or data become unusable. See the [spec](.ai/specs/2026-10-31-issue-3805-direct-tool-mutation-approval.md) and [compatibility exception record](BACKWARD_COMPATIBILITY.md#3805-2026-10-31).
+
+### Nested ACL wildcards now grant their matching enabled-module features (#5523)
+
+Nested role and user ACL grants such as `sales.order.*`, `catalog.product.*`,
+`auth.users.*`, and `security.mfa.*` were incorrectly discarded by the enabled-module
+filter after the module registry initialized. They now resolve to their owning module
+and participate in canonical authorization. This affects all enabled modules, not only
+MFA notification recipients: existing stored nested wildcards can grant access that was
+previously denied. Exact grants, module-level wildcards such as `security.*`, and global
+`*` grants keep their existing semantics. Disabled modules, removed features, and tenant
+or organization scope restrictions still take precedence.
+
+**Action for operators before upgrading:** audit both role ACLs and per-user ACLs for
+nested wildcard grants. Check the matching features in each enabled module and the users
+who inherit those grants. If that access is not intended, remove the wildcard or replace
+it with the explicitly approved feature IDs before upgrading; verify representative users
+in their tenant and organization scopes after upgrading. No database migration or API
+payload change is required. Module authors should use canonical scoped authorization and
+must not rely on nested wildcards being filtered out. The notification design is tracked
+in [PR #7618](https://github.com/open-mercato/open-mercato/pull/7618).
+
+### Workflow steps may last longer than ~24.8 days; `StepInstance.executionTimeMs` is deprecated
+
+A workflow step that lasted 2^31 ms (~24.86 days) or longer could not complete: `step_instances.execution_time_ms`
+is a Postgres `integer`, so the flush that closed the step threw after the step's task had already committed. A
+synchronous `WAIT` activity of that length resolved after 1 ms instead (Node's `setTimeout` ceiling), and a
+`WAIT_FOR_CONDITION` step was forced to time out after 1000 polls whatever its own timeout said.
+
+- `StepInstance.executionTimeMs` (`step_instances.execution_time_ms`) is now `@deprecated` and is written as `null`
+  for a step longer than 2^31 − 1 ms. It was already `null` on every FAILED path. Derive a step's duration from
+  `exitedAt - enteredAt`; the exact value still travels on the `STEP_EXITED` event (`eventData.executionTimeMs`).
+  The column is scheduled for removal no earlier than 0.11.0; no migration ships now.
+- A synchronous `WAIT` longer than one minute that is the last activity of its transition is now queued like an
+  `async: true` WAIT, so the run parks in `WAITING_FOR_ACTIVITIES` instead of holding the request open. A synchronous
+  WAIT longer than ~24.8 days anywhere else now fails with an explicit error instead of resolving early.
+- `OM_WORKFLOWS_MAX_CONDITION_ATTEMPTS` is now the floor of the poll cap: each `WAIT_FOR_CONDITION` waiter may poll
+  as many times as its own `timeout / pollIntervalMs` requires.
+
+### MCP HTTP servers now bind to loopback by default (#2659, #2670)
+
+`runMcpHttpServer` (`mcp:serve-http` / `yarn mcp:serve`, production) and `runMcpDevServer`
+(`mcp:dev` / `yarn mcp:dev`, Claude Code / local testing) used to call `httpServer.listen(port,
+...)` with no host, which binds every network interface (`0.0.0.0`/`::`) rather than loopback.
+Neither server's intended client needs non-loopback reachability, so this widened the API-key
+attack surface to anything with network reach to the host — worse for the dev server, which
+authenticates a single API key once at startup and reuses that same superadmin-equivalent
+context for every request afterward, with no per-request ACL re-check.
+
+**Both servers now default to `127.0.0.1`.** Override with `--host` / `MCP_HTTP_HOST` for the
+production server, `MCP_DEV_HOST` for the dev server.
+
+**Action for operators who reach either MCP server over a non-loopback address** — a reverse
+proxy, sidecar, container, or any other process connecting from outside the host's own loopback
+interface: set the corresponding host override so the server keeps listening where that caller
+expects it. Two shipped topologies already needed this and have been updated as part of this
+change, as a reference for anything else you run:
+
+- The `mcp` service in `docker-compose.fullapp.yml` / `docker-compose.fullapp.dev.yml` (and the
+  `starters/docker/compose.fullapp*.yml` canonicals, and the `create-app` template) is reached
+  by the `app` and `opencode` services over the internal compose network (`mcp:3001`), which is
+  not loopback from the `mcp` container's own point of view. Both now set `MCP_HTTP_HOST:
+  "0.0.0.0"` on that service — the network is internal and the port is not published, so this is
+  not a new exposure, just an explicit opt-in matching the new default-loopback contract.
+- `yarn dev`'s full-stack flow (`scripts/dev.mjs`) spawns this server on the **host** so the
+  Dockerized OpenCode sidecar can reach it via `host.docker.internal`. On Docker Desktop that hop
+  resolves to host loopback, so `yarn dev` keeps the loopback default there. On **native Linux**
+  `host-gateway` is the bridge IP (e.g. `172.17.0.1`), which a loopback-only bind refuses, so
+  `yarn dev` binds `0.0.0.0` on Linux only. Set `MCP_HTTP_HOST` to override either way — for
+  example `MCP_HTTP_HOST=127.0.0.1 yarn dev` restores loopback on Linux. Standalone apps get
+  the same behavior from the `create-app` template's `scripts/dev.mjs` / `scripts/dev-mcp.mjs`;
+  an app scaffolded before this release must copy `resolveDevMcpHost` into its own copies.
+
+No database schema, event id, or CLI command signature changes — only the new options
+(`--host` / `MCP_HTTP_HOST` for `mcp:serve-http`, `MCP_DEV_HOST` for `mcp:dev`) and the changed
+default.
+
+
+### Passkey enrollment requires a WebAuthn registration response (#6800)
+
+Enterprise Security no longer accepts the passkey confirmation shortcut
+`{ credentialId, publicKey, challenge }`. The server previously stored that supplied public
+key without verifying a WebAuthn registration ceremony. The legacy shape now returns
+HTTP 400 without activating the pending method. The shipped browser UI already uses the
+supported path.
+
+**Client action:** call `POST /api/security/mfa/provider/passkey`, use its `clientData` options
+with `navigator.credentials.create` or the SimpleWebAuthn browser registration helper, and
+send the serialized credential to `PUT /api/security/mfa/provider/passkey` as
+`{ setupId, payload: { response, label? } }`. Update fixtures that invented public keys to
+use an actual or virtual authenticator. A disclosed challenge alone is insufficient.
+
+**Operator action:** this upgrade does not delete or invalidate existing passkeys. Their
+stored metadata cannot establish whether enrollment used the shortcut; a key with uncertain
+provenance may still be suspect even though login requires a valid signed assertion. Audit
+enrollment history and exposure, and arrange reset and re-enrollment through a trusted
+ceremony where provenance is uncertain. Preserve alternate MFA/recovery access before a
+reset to avoid locking users out. No database migration is needed.
+
+This is the narrow Emergency Security Exception described in
+[the enrollment specification](.ai/specs/enterprise/2026-10-01-passkey-enrollment-require-webauthn-attestation.md).
+There is no compatibility flag because retaining the shortcut retains the flaw. Credit to @Sawarz for the
+original report and proof of concept (#5296, #6710).
+
+### Organization create undo retains a tombstone (#7663)
+
+Undoing organization creation now sets `deleted_at`, deactivates the row and
+detaches its parent instead of physically removing it. Redo restores the same
+organization and preserves its original creation time. The tombstone reserves
+its slug under the existing tenant-wide unique constraint; creating another
+organization with that name uses the usual numeric slug suffix.
+
+Consumers that inspect raw organization rows must exclude soft-deleted records
+when listing active organizations. Supported list APIs already do so. No schema
+migration is required. Existing replay logs remain readable; recreation restores
+creation time from the stored after-snapshot when available. A historical log
+that lacks that timestamp cannot recover the original time. Rolling back the
+code does not remove tombstones or release their slugs.
+
+### Agent page reads enforce domain rules before redirected egress (#7548)
+
+`web_search` inline content and `web_fetch` now check agent domain rules before
+each HTTP request, including redirects. Permitted inline content uses the final
+page URL. Internal adapter services remain reachable under the operator's
+separate `OM_WEB_SEARCH_ALLOW_PRIVATE_HOSTS` setting.
+
+**Operator action:** with a nonempty domain allowlist or denylist, content reads
+stay on guarded HTTP: automatic browser rendering is skipped and explicit
+`render: 'always'` returns a blocked outcome. Keep domain restrictions configured;
+rendered page reads require future browser redirect-policy enforcement. Restricted
+searches bypass result caches automatically, including previously enriched entries.
+No cache purge or database migration is needed.
+
+**Adapter author action:** existing contract version 1 adapters remain supported
+by the version 2 loader and shared contract-test kit. Adapters rebuilt against
+the current `CONTRACT_VERSION` advertise version 2 and require a host supporting
+version 2; upgrade the host before deploying those rebuilt descriptors.
+Custom HTTP clients must honor the new optional
+`HttpRequestInit.assertUrlAllowed(url)` callback, awaiting synchronous or async
+assertions before DNS and transmission for initial requests and every redirect.
+No tool input or result-field migration is required.
+
+### Warranty claim line numbers must be unique within each live claim (#7306)
+
+Creating or renumbering a line with a number already used by another live line now returns `409`, with a localized `error` and `code: warranty_claims.errors.duplicateLineNo`. Initial claim batches also reject duplicate resolved numbers, including collisions between explicit and default numbers. Valid inputs and automatic numbering remain unchanged.
+
+An undo that would restore an occupied line number is refused before changing the line or totals. Remove the occupying line or move it to a free number through the API, then retry the same undo. Existing duplicates are not automatically renumbered. No database migration is required.
+
+### Workflow webhook responses have resource limits (#7814)
+
+Each `CALL_WEBHOOK` attempt now defaults to a 30-second deadline covering the
+outbound request and response-body consumption. Explicit activity timeouts
+(`timeoutMs` or the legacy `timeout` duration) remain authoritative, including
+values longer than 30 seconds, in both synchronous and queued execution. Every
+attempt accepts at most 1 MiB of response bytes before UTF-8 decoding and JSON
+parsing. Oversized or stalled responses fail the activity and cancel its body;
+the existing retry policy still applies.
+
+**Workflow author and operator action:** update webhook endpoints that exceed
+the byte limit to return a small acknowledgement promptly. Configure an explicit
+activity timeout for a slower endpoint, and move large results behind a separate
+retrieval or asynchronous workflow.
+Existing request configuration and successful response envelopes are unchanged.
+
+### Extension-enabled table tests wait for registry registration (#7484)
+
+Standalone-app tests or isolated hosts that render a `DataTable` with `perspective`
+or `extensionTableId`, or call `useInjectionDataWidgets`, must register both injection
+registries before expecting rows. Application bootstrap already registers them. Tests
+without extensions can use empty registries in setup:
+
+```ts
+import {
+  registerCoreInjectionWidgets,
+  registerCoreInjectionTables,
+} from '@open-mercato/shared/modules/widgets/injection-loader'
+
+registerCoreInjectionWidgets([])
+registerCoreInjectionTables([])
+```
+
+The hook keeps its existing result shape. Pending registration holds the first table
+header until columns are known; rejected client registration releases the base table
+with an extension-load error. Reloading the page retries bootstrap. No API or database
+migration is required.
+
+### Rebuild customer search vectors after the privacy fix (#7826)
+
+The person, company, and customer-account vector builders now use explicit safe
+fields. Contact email/phone, `hashOnly` and `excluded` custom fields, unapproved
+custom fields, and fields declared encrypted are omitted from embedding text.
+Contact details are also omitted from result presenters. Names remain available
+for result display; semantic matching no longer uses encrypted name/contact
+fields. Customer-account email remains available through hashed search.
+
+Single, by-ID, queued-batch, and bulk indexing now honor the configured safe
+source. Failed, null, or empty sources skip vector writes instead of embedding
+raw fields; independent fulltext/token indexing continues. Customer sources also
+exclude live tenant/organization encryption declarations. Search DI supplies the
+existing source-context `container`; integrations invoking customer builders
+directly must provide it with `tenantEncryptionService`. Missing dependencies or
+failed policy lookup skip the vector write. Restore policy access and reindex any
+records skipped during an outage.
+
+When `TENANT_DATA_ENCRYPTION=false`, the policy service cannot read live
+declarations. Person/company vector writes are therefore skipped entirely;
+fulltext/token indexing continues. Turning encryption off does not authorize
+exporting fields classified by retained encryption maps. Re-enable policy access
+and reindex to restore these vectors. Encryption-at-rest toggle behavior is unchanged.
+
+Deploy the fix to every app and indexing worker before rebuilding. Existing
+embeddings and stored presenters are **not automatically removed** by this code
+change. For every affected tenant and organization scope:
+
+1. Pause indexing producers/workers, drain or discard outstanding vector jobs
+   using the deployment's queue tooling, and prevent old workers from restarting.
+2. Purge the affected vector entries through the configured driver's
+   `purge(entityId, tenantId, organizationId)` operation, or the corresponding
+   `searchIndexer.purgeEntity({ entityId, tenantId, organizationId })` DI operation.
+   The latter purges all configured strategies for that entity. Use the published
+   IDs `customers:customer_person_profile`, `customers:customer_company_profile`,
+   and `customer_accounts:customer_user`; include soft-deleted records in the purge.
+   Verify the affected entries are absent before restarting indexing; the reindex
+   API can continue after a failed purge, so `purgeFirst` alone is not proof of deletion.
+3. Re-enable only upgraded workers. As an administrator with
+   `search.embeddings.manage`, call `POST /api/search/embeddings/reindex` with
+   `{ "entityId": "<affected-entity-id>", "purgeFirst": true }` for each ID and scope.
+   Run the `vector-indexing` worker and verify completion and sample results.
+   The vector reindex endpoint also rebuilds fulltext data when that strategy is
+   configured, replacing old presenter metadata; confirm its jobs have drained.
+
+If you use the broader `purgeEntity` operation, rebuild fulltext explicitly with
+`POST /api/search/reindex` as well. `yarn mercato search reindex` alone does not
+rebuild every search store. Rebuild after purging even when a record has not
+changed; otherwise an old checksum can leave stale sensitive metadata behind.
+Review backups, replicas, external vector stores, and embedding-provider retention
+under your deployment's deletion procedures. Local reindexing cannot retract data
+already retained by an external provider. No data purge is run by the upgrade.
+
+### Documents attachments enforce owner permissions at host URLs (#6726)
+
+Host attachment file/image routes, library metadata and attachment mutations now apply
+Documents' existing sharing and feature checks. Organization membership or `attachments.manage`
+alone no longer grants access to an unshared document's files. Authorized owners, shared
+recipients and Documents managers keep their existing capabilities; editing/deleting attachments
+still requires document editing permission and a non-archived owner.
+
+**Operator action:** run the additive attachments migration before serving the new binaries,
+then regenerate and build modules. It adds `attachment_partitions.access_resolver_requirements`
+and backfills the required `documents.document-attachments` provider for existing primary or
+assignment references to the historical `documents:document` identifier. This backfill needs
+no enabled Documents module or Documents table. It preserves unrelated owners in shared
+partitions such as `privateAttachments`, other requirements and malformed policy data (which
+fails closed). Disabling or removing the required provider denies those protected owners;
+restore the provider/registration to restore access. There is no manager API to erase protection.
+
+Protected responses use `Cache-Control: private, no-store`. Purge any affected CDN/reverse-proxy
+copies cached before deployment; the new headers cannot recall cached or downloaded copies.
+A policy timeout returns HTTP 504 without bytes or partial list counts. List authorization has
+a 15-second total budget and a default 1.5-second per-provider budget.
+
+**Module author action:** modules can export `attachmentAccessResolvers` and
+`protectedAttachmentTargets` from `data/attachment-access.ts`, using types exported by
+`@open-mercato/core/modules/attachments`. Regenerate registrations after changing declarations.
+For a new adopter with existing partitions, invoke the trusted
+`syncAttachmentAccessProtection(em)` export during its upgrade/setup while its declarations
+are registered, before disabling that provider. Synchronization unions requirements and never
+removes them. New partition creation and protected uploads synchronize the active declarations.
+Custom code constructing attachment read/link services without DI must provide their optional
+lazy policy context when owner policies apply; missing context denies protected reads.
+The existing synchronous `checkAttachmentAccess` signature and all service method inputs remain
+unchanged. Resolver allows cannot override the baseline; feature checks belong inside the
+callback, and a named required provider cannot be replaced by an unrelated wildcard callback.
+
+**Rollback:** keep the additive schema and roll forward. Older binaries ignore these policies;
+block affected host endpoints at the deployment boundary before any emergency binary rollback.
+Dropping policy data is not a supported security rollback.
+
+This intentional tightening uses the Emergency Security Exception described in
+`BACKWARD_COMPATIBILITY.md` and [design PR #6828](https://github.com/open-mercato/open-mercato/pull/6828).
+Human maintainer @haxiorz [approved the steps 1–3 waiver and acknowledged the client/operator migration](https://github.com/open-mercato/open-mercato/pull/6829#issuecomment-6505350022)
+on 2026-10-29. Independent review, QA and CI remain separate merge gates.
+
+### Public pay-link responses exclude administrative configuration (#7823)
+
+`GET /api/checkout/pay/:slug` now returns an explicit public allowlist, including
+after password verification and in authenticated link preview. It no longer
+returns the start/success/error email subjects, bodies or send flags, nor
+`logoAttachmentId`, `customFieldsetCode`, `templateId`, `maxCompletions`,
+`completionCount`, `activeReservationCount`, `isLocked`, `createdAt` or `updatedAt`.
+Payer-facing prices, branding, legal text, customer-field definitions, result
+messages, public custom fields, and derived availability remain available.
+
+**Client action:** pay-page extensions reading the removed fields must stop doing
+so. Read management configuration only in authenticated administration flows via
+`GET /api/checkout/links/:id` (`checkout.view`), whose response is unchanged. Use
+`logoPreviewUrl`/`logoUrl` and `remainingUses` on public pages. Do not proxy the
+administrative response to unauthenticated clients.
+
+**Operator action:** deploy the patched checkout package and app, invalidate cached
+public pay-link responses, and review email templates for confidential content
+that may already have been publicly exposed. Previously downloaded responses
+cannot be recalled. No database migration or stored-data conversion is needed;
+existing links, templates, credentials and password sessions remain usable.
+
+This response removal follows the Emergency Security Exception in
+[`BACKWARD_COMPATIBILITY.md`](BACKWARD_COMPATIBILITY.md): retaining the old shape
+would preserve the disclosure. Human maintainer @haxiorz [approved the waiver](https://github.com/open-mercato/open-mercato/pull/8087#issuecomment-6505348826)
+on 2026-10-29 for all 18 removed administrative fields and acknowledged the
+client/operator migration. Independent review and QA approval remain required.
+The [pay-links spec](.ai/specs/implemented/2026-03-19-checkout-pay-links.md)
+records the complete allowlist and regression coverage.
+
+### AI-generated keys respect per-user ACL restrictions (#7825)
+
+Persistent MCP keys generated after this upgrade carry the same user binding as
+AI session keys. Their effective feature and organization grants cannot exceed
+the owner's ACL, including after an ACL update while caches are warm. Unbound
+machine keys retain independent role grants. User-bound keys no longer expose a
+raw global super-admin scope-override flag.
+
+Operators must revoke and regenerate existing persistent MCP keys through AI
+Assistant settings: legacy keys did not store a reliable user-binding marker and
+cannot be distinguished safely from independent machine keys. Existing session
+keys already carry the binding and receive the ceiling automatically. Clients
+keep the same endpoint payloads and token formats; update MCP client secrets after
+regeneration. Custom delegated-key issuers should supply `sessionUserId` to
+`createApiKey`; leave it unset only for independently administered machine keys.
+
+Regenerated MCP keys are not available as Business Rules "call Open Mercato"
+API-key profiles; use independently administered machine keys for those actions.
+A regenerated MCP key becomes invalid if its owner's home organization changes,
+including a change from no home organization to a concrete one. Generate a new
+key and update the MCP client secret after such a change.
+
+### SCIM deactivation blocks fresh SSO and password sign-in (#7824)
+
+With the enterprise SSO module enabled, an outstanding SCIM deactivation now denies fresh SSO sign-in for that identity's configuration and denies password verification for the linked account in its own tenant and organization. This includes configurations created without a tenant, after verifying organization and configuration ownership. Password changes and email relinking do not reactivate the identity. Final session issuance and all SCIM deactivation writers share a user lock, so a concurrent login cannot leave a usable session after deactivation commits; access in other scopes is preserved.
+
+**Operator action:** restore intentionally deactivated access through SCIM `active:true`. Clients continue handling the existing invalid-credentials response or `sso_failed` callback redirect. No endpoint, token, or database migration is required. Applications replacing the `authService` DI registration must preserve the SSO module's scoped deactivation check in password verification and atomic final session issuance.
+
+### Scoped attachment bytes no longer advertise shared caching (#7220)
+
+The attachment file and image byte routes now return `Cache-Control: private,
+max-age=60` for tenant- or organization-scoped records, including records in a
+public partition and reads by superadmins. Only records that the existing origin
+access policy permits anonymously retain public caching (global public files:
+86400 seconds; global public images: 3600 seconds). Private partitions keep their
+existing private cache policy. URLs, byte formats, and authorization are unchanged.
+
+**Operator action:** purge previously cached scoped attachment responses from
+CDNs, reverse proxies, and other shared HTTP caches when deploying this fix.
+Include both `/api/attachments/file/*` (including download query variants) and
+`/api/attachments/image/*` (all slugs, sizes, crop options, and query variants).
+Changing origin headers cannot invalidate copies already stored with the old
+public TTL. Check cache rules honor origin `private` and do not force-cache these
+routes. No database or module-code migration is required.
+
+### Dev launchers reject shared-workspace sessions and recover occupied MCP ports (#8044, #8046)
+
+The root and standalone `yarn dev` launchers now claim their canonical workspace before changing
+build caches, generated files, configuration, migrations, or development data. A second mutable
+dev launch in the same checkout exits non-zero and identifies the owning PID, mode, and URL when
+available. This prevents `yarn dev:greenfield` and similar commands from deleting manifests or
+resetting data underneath an active session. Managed parent/child processes share one claim, and
+stale claims are recovered after their processes exit.
+
+**Operator action:** stop the existing session before starting another in the same checkout. To
+run two sessions, use separate checkouts and databases; changing only the HTTP or MCP port does not
+isolate Next output, generated files, package artifacts, workers, or destructive database actions.
+
+`MCP_PORT` is now the managed server's preferred port. When it is occupied, the launcher selects a
+free port and propagates the resulting endpoint to the app and a running OpenCode compose service.
+Explicit external `MCP_URL` and `OPENCODE_MCP_URL` values remain authoritative. No command, flag,
+or environment-variable name changed. See
+`.ai/specs/2026-07-17-hybrid-dev-runtime-and-starters.md` for the lifecycle details.
+
+### Auth ACL live-row canonicalization
+
+Only live ACL rows and live role memberships now grant authorization. A super-admin grant must belong to the user's own tenant. Users whose `users.tenant_id` is NULL no longer obtain global super-admin access from legacy ACL rows; assign an owning tenant and a valid live grant before deploying, especially if that user is your only platform administrator. Foreign-tenant super-admin rows no longer confer super-admin access.
+
+The migration keeps the most recently changed live ACL row per user/tenant or role/tenant (then creation time and id as tie-breakers) and soft-deletes duplicates. Features present only in a superseded role ACL stop being unioned; user ACL resolution may select a different row than the previously unordered read. Review and reconcile intended grants before upgrading. Historical rows remain available for audit; rolling back the indexes does not reactivate them.
+
+Operators should run these read-only audits before deployment:
+
+```sql
+select id from users where tenant_id is null and deleted_at is null;
+
+select 'user' as principal_kind, acl.id, acl.user_id as principal_id,
+       acl.tenant_id as grant_tenant_id, principal.tenant_id as owner_tenant_id
+from user_acls acl join users principal on principal.id = acl.user_id
+where acl.deleted_at is null and acl.is_super_admin = true
+  and acl.tenant_id is distinct from principal.tenant_id
+union all
+select 'role', acl.id, acl.role_id, acl.tenant_id, principal.tenant_id
+from role_acls acl join roles principal on principal.id = acl.role_id
+where acl.deleted_at is null and acl.is_super_admin = true
+  and acl.tenant_id is distinct from principal.tenant_id;
+
+select 'user' as principal_kind, user_id as principal_id, tenant_id, count(*)
+from user_acls where deleted_at is null
+group by user_id, tenant_id having count(*) > 1
+union all
+select 'role', role_id, tenant_id, count(*)
+from role_acls where deleted_at is null
+group by role_id, tenant_id having count(*) > 1;
+```
+
+Drain old application instances when deploying the migration and reader changes together. Restarting clears process-local ACL caches, but a shared cache can retain old grants for up to the configured RBAC TTL (five minutes by default); invalidate shared RBAC cache entries or wait out that TTL before treating revocations as effective. Module authors must filter current ACL and membership reads by `deletedAt: null`, keep parent authorization-state locks around writes, and preserve historical rows for audit.
+
+### Bundled Traefik keeps app and collaboration ports private (#7833)
+
+The optional `starters/docker/compose.fullapp.traefik.yml` overlay (and its
+legacy root duplicate) now removes inherited `app` and `documents-collab`
+host-port publications. Previously the public app port could bypass Traefik's
+TLS and custom-domain ForwardAuth controls. This applies to production and dev
+stacks, including the dev splash port. `APP_PORT` no longer exposes the app
+when the overlay is used. The optional collaboration profile still requires
+explicit enablement and no longer exposes port 4101 with bundled Traefik.
+
+**Operator action:** use Docker Compose **2.24.4+**, inspect the merged config
+including local overlays, and run `up -d` with the deployment's full file/profile
+chain to recreate affected containers. Move direct app-port health probes to
+the public HTTPS hostname. For Documents collaboration, configure a TLS
+WebSocket proxy and set `NEXT_PUBLIC_DOCUMENTS_COLLAB_URL` to its public `wss://`
+URL before rebuilding the app; retain the sidecar's token and Origin checks.
+Verify the recreated containers no longer publish these ports.
+
+Deployments that deliberately use an external proxy or direct access can
+continue to omit the bundled Traefik overlay; their base-file port mappings
+are unchanged. Host-local proxies and diagnostics can use a final loopback-only
+override. See [migration, override examples, WSS routing, and deployment checks](docker/traefik/README.md#private-application-ports-and-migration).
+No application API, database, or module-code migration is required.
+
+### AI session keys revalidate staff roles on every request (#7599)
+
+Removing a staff role now removes that role's privileges from already-issued AI session keys on
+the next request, including cached ACLs, organization visibility, and the raw superadmin flag.
+Role-based resource shares and temporary keys minted by business-rule calls also use current
+session-role membership. A key keeps only roles that were present at issuance and are still held by its owner. Independent
+API keys retain their existing role policy. Endpoints, token/response formats, and schema are unchanged.
+
+**Action for module authors:** do not rely on a session key retaining removed staff privileges.
+After granting a new role, issue a fresh session key to use it. No stored keys need rewriting.
+
+**Action for operators:** deploy and restart every application/worker process that authenticates
+or authorizes API keys. Session authorization now reads live memberships instead of reusing
+cross-request grants, which adds database work for session requests. Verified session-secret
+identities keep the existing bounded authentication cache; live roles and authorization are never
+served from it. Ordinary keys retain cached authentication and authorization results, but ACL,
+feature-organization and enabled organization-scope lookups now read the API-key row before using
+those caches to distinguish session credentials. Last-used write debouncing remains enabled. No
+migration is required.
+
+### `yarn mercato <module> <command>` exits with the code the command signalled (#5936)
+
+The CLI's module-command dispatcher discarded the executed command's exit signal: unless the command *threw*, the process exited `0`. A command that detected a failure and signalled it the idiomatic Node way — assigning `process.exitCode` without throwing — reported success to the shell, so `$?` lied to every script, CI step and `&&` chain built around the CLI. The dispatcher now wraps the command in the CLI's existing `runWithCapturedExitCode` helper and returns the captured code, which is what the built-in `umes inspect` and `umes check` commands already did.
+
+No command, flag, or output line changes — the `🚀 Running …`, `⏱️ Done in …ms` and `💥 Failed: …` lines are byte-identical, so anything parsing CLI output is unaffected, and `BACKWARD_COMPATIBILITY.md` §13 (CLI Commands) is not touched. What changes is the process **exit status** on paths that were previously reported as success.
+
+**The first-party commands whose observable exit status changes** are the ones that already set `process.exitCode` on their failure paths, each of which writes an error to stderr immediately before doing so:
+
+| command family | now exits non-zero when |
+|---|---|
+| `mercato auth setup` | `2` for an invalid `--orgSlug`, missing required arguments, a rejected password policy, or a required derived-user password; `1` for an existing org slug or an existing user |
+| `mercato gateway_stripe …` | `1` for a missing Stripe env preset, or any error while applying it |
+| `mercato sync_akeneo …` | `1` for a missing Akeneo env preset, or any error while applying it |
+| `mercato ai_assistant mcp:ensure-api-key` | `1` when required arguments are missing |
+| `mercato ai_assistant test-tools` | `1` when the tool test report contains at least one failure |
+| `mercato tillio configure-from-env` | `1` for missing `--tenantId`/`--organizationId`, a blocked provisioning result, or any error while applying the env preset |
+| `mercato seeds encrypt` / `decrypt` / `load` | `1` for missing `--in`/`--out`, or a scope that cannot be resolved for `load` |
+| `mercato agent_orchestrator eval` | `2` for missing required arguments or an invalid `--repeat`; `1` or `2` when `--gate` is set and the gate cannot run or fails |
+| `mercato agent_orchestrator token-usage` | `2` for missing `--dir`/`--agent`, an unknown agent id, a directory with no `AGENT.md`, or a manifest with no baked token usage |
+| `mercato scheduler run` | `1` when the schedule id is missing or no schedule with that id exists |
+| `mercato catalog omnibus:backfill` | `2` when the command options fail validation |
+| `mercato gateway_tpay configure-from-env` | `1` for a missing Tpay env preset, or any error while applying it |
+
+Concretely: `mercato auth setup --orgSlug 'Bad Slug!'` printed a validation error and exited `0` before; it now exits `2`.
+
+**Action for operators:** audit any bootstrap, deployment or CI script that chains CLI invocations with `&&`, checks `$?`, or uses `set -e`. A script of the shape `yarn mercato auth setup … && yarn mercato entities install …` that has been silently tolerating a swallowed failure will now stop at the first step. That is the intended behaviour — the failure was always real — but the stop is new, so plan for it rather than discovering it during an upgrade. Custom module commands are affected the same way: one that assigns `process.exitCode` without throwing now propagates it, and one that signals failure by throwing keeps working exactly as before.
+### `customers`, `portal`, and `workflows` now declare their full runtime module dependencies (#7587)
+
+`customers`'s `setup.ts` imports `FeatureToggle` from `feature_toggles` and `./cli` seeds customer
+and currency dictionaries via `Dictionary`/`DictionaryEntry` from `dictionaries`; `portal`'s
+`setup.ts` imports `FeatureToggle` from `feature_toggles`; `workflows`'s `setup.ts` resolves the
+business-rule discovery cache and `lib/seeds.ts` imports `BusinessRule`, both from
+`business_rules`. None of these modules declared the dependency in `requires`, so an app enabling
+one of them without its undeclared dependencies previously passed `yarn generate` and the
+migrations cleanly and only failed during tenant setup (`mercato init` / `yarn reinstall`) with an
+opaque MikroORM error such as `Metadata for entity Dictionary not found` — the same silent-failure
+class as `catalog` (#6517) and `auth` → `api_keys` (#7444).
+
+`customers` now declares `requires: ['progress', 'dictionaries', 'feature_toggles']`, `portal` now
+declares `requires: ['customer_accounts', 'feature_toggles']`, and `workflows` now declares
+`requires: ['business_rules']`. The existing generator-enforced dependency check now covers all
+three. If your `src/modules.ts` enables one of them without its new dependencies, `yarn generate`
+now fails fast instead of shipping the silent setup failure:
+
+```
+Module dependency check failed:
+- Module "customers" requires: dictionaries, feature_toggles
+```
+
+**Action for module authors:** add the missing module ids to `src/modules.ts` (e.g.
+`{ id: 'dictionaries', from: '@open-mercato/core' }`, `{ id: 'feature_toggles', from:
+'@open-mercato/core' }`, `{ id: 'business_rules', from: '@open-mercato/core' }` as applicable),
+then re-run `yarn generate`. `apps/mercato/src/modules.ts` and the `create-app` template already
+enable the full default module set, so this repo's own apps and freshly scaffolded apps are
+unaffected.
+
+### Portal form submissions are limited to the caller's own `customer` subject (#7224)
+
+`POST /api/forms/form-submissions` now answers `403 { error: "SUBJECT_FORBIDDEN" }` unless
+`subject_type` is `customer` and `subject_id` is the signed-in portal customer's own id. Nothing is
+persisted on a refusal. Both submit routes (`POST /api/forms/form-submissions/:id/submit` and the
+customer-session branch of `POST /api/forms/public/submissions/:id/submit`) apply the same rule to a
+submission the caller started themselves, so a draft started for another subject before this
+release can no longer be submitted. A portal customer that staff assigned as an actor through
+`POST /api/forms/submissions/:id/actors` can still submit on that submission's subject, and invitation
+(token) submissions are unchanged. The URL, request and response shapes are unchanged.
+
+**Action for module authors:** portal pages that pass any other `subjectType` (for example `patient`)
+to `EmbeddedForm` / `FormRunner`, or through the `subjectType` query parameter of the portal
+continue page, now get 403 when a submission starts. Start on the caller's own `customer` subject,
+or have staff create the actor assignment for other subjects.
+
+**Operator check:** submissions that a portal customer started before the upgrade on a subject that
+was not their own, together with any consent records projected from them, can be listed with:
+
+```sql
+select s.id as submission_id, s.subject_type, s.subject_id, s.started_by, s.status,
+       c.id as consent_record_id, c.status as consent_status
+from forms_form_submission s
+left join forms_consent_record c on c.submission_id = s.id
+where s.started_by in (select id from customer_users)
+  and (
+    (s.subject_type = 'customer' and s.subject_id <> s.started_by)
+    or s.subject_type <> 'customer'
+  );
+```
+
+Nothing is rewritten automatically. Portal pages that legitimately started submissions on another
+subject type (for example `patient`) also match, so review the rows before revoking anything.
+
+<a id="staff-user-create-org-scope"></a>
+
+### Staff user create enforces the caller's organization scope (#7238)
+
+`POST /api/auth/users`, through the `auth.users.create` command, now applies the same destination
+check that `PUT /api/auth/users` already applied to an organization change. The organization must
+be within the caller's descendant-expanded organization scope, and any roles must belong to its
+tenant and be grantable by the caller. This holds whether or not the request sends `roles`. A caller
+restricted to some organizations who names another organization of the same tenant now gets `403`
+(`Cannot assign user to a destination organization outside actor scope.`) and no user is written.
+Before this release the user was created with `201`.
+
+An organization of another tenant still answers `404 Organization not found`, as before.
+Superadmins, system actors and callers without an organization restriction are unaffected.
+
+**Action for integrators:** a script or API key that creates staff users with an
+organization-restricted principal must either be granted the target organizations or use an
+unrestricted principal.
+
+**Backward compatibility** (recorded here because `BACKWARD_COMPATIBILITY.md` is at its agent-context
+byte budget): intentional security narrowing of the `auth.users.create` command and
+`POST /api/auth/users`, regression-tested in `users.create-destination-scope.test.ts` and
+`TC-AUTH-068`. One additive signature change: `targetUserId` of `resolveUserDestinationRoles`
+(`@open-mercato/core/modules/auth/lib/grantChecks`) becomes optional; without role tokens and without
+a target user it returns `[]`, and every existing call compiles and behaves the same. The route URL,
+request and response schemas, event IDs, ACL features, DI names and database schema are unchanged.
+
+### `AI_RUNTIME_BASEURL_ALLOWLIST` matches scheme and port, and saved base URLs are re-checked (#7228)
+
+An allowlist entry used to match only the hostname, so `api.openai.com` also admitted
+`http://api.openai.com` and any port. A base URL must now match an entry's scheme, hostname and
+effective port. This applies to the chat `?baseUrl=` parameter and to `PUT /api/ai_assistant/settings`;
+both keep answering `400 { code: "baseurl_not_allowlisted" }`. Saved tenant and per-agent base URLs
+are re-checked on every agent turn: a saved value that the current allowlist does not permit,
+including every saved value once the allowlist is empty, is ignored, and the turn uses the provider's
+default endpoint. Each ignored turn logs the warning
+`Stored AI runtime baseURL is not allowed by AI_RUNTIME_BASEURL_ALLOWLIST; ignoring it` until the
+override is re-saved or cleared. Routes, request and response shapes are unchanged.
+
+**Action for operators:** a bare host entry now means HTTPS on port 443. List any other origin
+explicitly as `scheme://host[:port]`:
+
+```env
+# before: admitted https and http on any port
+AI_RUNTIME_BASEURL_ALLOWLIST=openrouter.ai,localhost
+# after: https://openrouter.ai plus a local Ollama server over plain HTTP
+AI_RUNTIME_BASEURL_ALLOWLIST=openrouter.ai,http://localhost:11434
+```
+
+Update the allowlist before upgrading when tenants saved a local or self-hosted base URL: once that
+saved value is ignored, prompts go to the provider's default endpoint instead.
+
+### Staff: customer support tickets (helpdesk) need a per-organization seed and a portal ACL sync
+
+New tenants get everything from `setup.ts`. **Existing** tenants must run, once per organization:
+
+```bash
+yarn mercato staff seed-support-defaults --tenant <tenantId> --org <organizationId>
+yarn mercato customer_accounts sync-customer-role-acls
+```
+
+- `seed-support-defaults` is safe to re-run. It creates the "Customer support" fallback project and the fallback routing rule when they are missing. It seeds the default support ticket categories only in the run that creates the organization's support-category dictionary; once that dictionary exists, a re-run never re-adds a category an admin deleted. Without the fallback project and rule, a portal customer cannot file a ticket because there is no project to route it to.
+- `sync-customer-role-acls` grants the new portal features to the default customer roles: `portal.support_tickets.view` (buyer, viewer) and `portal.support_tickets.manage` (buyer). It is additive and never creates roles. Add `--tenant <tenantId>` to limit it to one tenant.
+- No staff (`acl.ts`) features were added, so `yarn mercato auth sync-role-acls` is not required for this change.
+
+Additive surfaces that third-party code can use. Existing code needs no changes:
+
+- New injection spot `staff.time_tracking.settings:tabs` on the Time Tracking Settings page, with `placement: { kind: 'tab' }` and context `{ moduleId, canManage, settings, onSettingsSaved }`. A tab saves its own changes. It builds each write from `context.settings` and reports the stored result through `onSettingsSaved`.
+- Task comments have an optional `visibility` field (`'internal' | 'customer'`, default `'internal'`). It was added to `staffTimeTaskCommentCreateSchema` and `staffTimeTaskCommentUpdateSchema` as an optional field. `staffTimeTaskCommentUpdateSchema` still requires `body`. The task comment `PUT` route validates against the new `staffTimeTaskCommentUpdateRequestSchema`, which also accepts a visibility-only change.
+- `TimeTrackingBuiltInSettings` has an optional `support: { referencePrefix }` group, stored as the `support.referencePrefix` setting key (default `SUP`). If a settings `PUT` omits it, the stored prefix is kept.
+
+### `GET /api/attachments` without paging returns at most the newest 100 attachments (#3816)
+
+`GET /api/attachments?entityId=…&recordId=…` used to load, decrypt and return every attachment of the
+record when `page` or `pageSize` was omitted. That unpaginated form now returns only the newest `100`
+attachments (ordered by `createdAt` descending), the same ceiling as `pageSize`. The response shape is
+unchanged: the unpaginated form still returns only `items`, and passing both `page` and `pageSize`
+pages as before. Both forms now break `createdAt` ties by `id` descending, so page boundaries are
+stable.
+
+**Action for module authors:** a caller that needs every attachment of a record with more than 100
+attachments must pass `page` and `pageSize` (at most `100`) and request pages until `totalPages` is
+reached. This matters most for code that sends the loaded ids back to a save that removes the
+attachments missing from the list: page through the whole list first, as the message composer now
+does for draft attachments. Built-in display-only lists (the attachment form field, product and
+variant media, sales channel offer media, the warranty claim attachments tab and the warranty claim
+line picker for AI assessment) still use the unpaginated form, so they show at most the newest 100
+attachments of a record and any count derived from them stops at 100.
+
+### Platform-wide catalogues are indexed once, under the null tenant
+
+An entity type declared through `registerTenantGlobalEntityTypes()` is a catalogue every
+tenant reads, and its source table has neither a `tenant_id` nor an `organization_id`
+column to scope it by. A tenant-scoped reindex used to stamp such rows with the caller's
+tenant, and with the caller's organization when it had one. `entity_indexes` is unique on
+`(entity_type, entity_id, organization_id_coalesced)`, so what that did depended on the
+path. A reindex without an organization (the CLI) wrote the same key as the event path's
+null-scope row and moved that one row into its own tenant: the last tenant to reindex took
+the catalogue from every other, whose leftover tokens then produced hits with no presenter,
+title or URL. A reindex with one (`/api/query_index/reindex` always supplies it) wrote a
+separate copy keyed by that organization, readable there and nowhere else, which only that
+organization's next reindex refreshed - the event path writes the null-scope row.
+
+`reindexEntity()` now writes the projection of a declared catalogue under
+`tenant_id = NULL, organization_id = NULL`, which is already where the event path files it
+(`resolveQueryIndexRecordScope()` resolves a table with neither scope column to a null
+scope and requires the payload to say so). The readers in `@open-mercato/search` gained the
+matching declaration-gated branch on both axes:
+
+- tenant, in `TokenSearchStrategy` and the presenter enricher: `tenant_id = <tenant> OR
+  (tenant_id IS NULL AND entity_type IN <declared catalogues>)`;
+- organization, in `TokenSearchStrategy`: `organization_id IN <selected> OR
+  (organization_id IS NULL AND tenant_id IS NULL AND entity_type IN <declared catalogues>)`,
+  and `SearchService` keeps an organization-less result only for a declared type.
+  `SearchService` passes the selected organization even for a superadmin, so without this
+  a selected-organization search dropped every catalogue hit.
+
+The entity-type conjunct is load-bearing: a table with neither scope column is stored under
+the null scope whether it is a catalogue or private data, so an unqualified NULL branch would
+publish `directory:tenant`, `auth:user_role` and their kind to every tenant. A declared type
+whose table carries `organization_id` but no `tenant_id` is refused with
+`declared-global-but-org-scoped`, so `writesGlobalProjection` and
+`loadQueryIndexRowScope()`'s `kind: 'global'` mean the same thing.
+
+Only the projection moves. Vector work for a declared catalogue keeps the caller's scope -
+`query_index.vectorize_one`, the force reindex's `query_index.vectorize_purge` and
+`removeOrphans` - because the vector consumers need a real tenant and nothing defines a
+shared vector; its vectors stay filed per tenant, as before.
+
+The search strategy's single and batch token writes also use the canonical null/null
+scope, including writes from the real vector worker. Search results for declared catalogues
+are fused across token, vector and fulltext strategies after organization filtering, while
+vector/fulltext storage retains caller scope. Document filters resolve the live canonical
+projection for declared types; ordinary types keep their tenant correlation.
+
+**Action for module authors.** None beyond the declaration the previous note describes.
+Ordinary tenant-scoped entity types retain their tenant/organization scope. Tenant-less
+private types are quarantined automatically as described in the security upgrade note below.
+
+**Action for operators.** Reindex each declared catalogue once after upgrading
+(`feature_toggles:feature_toggle`, plus any type your modules declare). The sweep writes
+the canonical rows, then retires every row an earlier sweep stamped with a caller scope,
+whichever tenant stamped it: the projections, their `search_tokens` and their
+`entity_index_coverage` rows. Until then an organization that reindexed before the upgrade
+can be served its old copy alongside the canonical one, with duplicate token contributions
+inflating its search rank. The equivalent manual cleanup,
+safe to run once the canonical rows exist, per declared entity type:
+
+```sql
+DELETE FROM entity_indexes
+ WHERE entity_type = 'feature_toggles:feature_toggle'
+   AND (tenant_id IS NOT NULL OR organization_id IS NOT NULL);
+DELETE FROM search_tokens
+ WHERE entity_type = 'feature_toggles:feature_toggle'
+   AND (tenant_id IS NOT NULL OR organization_id IS NOT NULL);
+DELETE FROM entity_index_coverage
+ WHERE entity_type = 'feature_toggles:feature_toggle'
+   AND (tenant_id IS NOT NULL
+        OR (organization_id IS NOT NULL
+            AND organization_id <> '00000000-0000-0000-0000-000000000000'));
+```
+
+### A tenant-scoped reindex of a table with no `tenant_id` column is refused
+
+Contracts: [scoped reindex](.ai/specs/2026-08-28-tenant-scoped-reindex-of-tenant-less-tables.md) and [global catalogues](.ai/specs/2026-08-28-tenant-global-entity-types-in-the-search-index.md).
+
+`reindexEntity()` applied its tenant predicate only when the source table had a
+`tenant_id` column, and silently dropped it otherwise — while still stamping every
+swept row with the caller's tenant. A tenant-scoped reindex of a tenant-less table
+therefore read every tenant's rows and filed them under whichever tenant ran it, and
+both index readers (`TokenSearchStrategy.search()`, the presenter enricher) match
+`tenant_id` exactly with no NULL branch, so those rows were served as that tenant's
+own. That combination is now refused: `reindexEntity()` returns an empty result and
+logs *"Refusing tenant-scoped reindex of a table with no tenant_id column"*. A
+`tenantId` of `null` or `undefined` is unaffected — it stamps no tenant, so it never
+crossed a boundary.
+
+**Action for module authors.** If a reindex of one of your entity types starts
+returning 0 with that warning, exactly one of two things is true:
+
+1. The table holds per-tenant rows and is missing its `tenant_id` column. Its index
+   was cross-tenant before this release. Add the column, or index the entity through
+   the event path only.
+2. The table is a platform-wide catalogue every tenant is meant to read. Declare it
+   during module registration (a module's `di.ts` is the usual place), before any
+   reindex job runs:
+
+   ```ts
+   import { registerTenantGlobalEntityTypes } from '@open-mercato/core/modules/query_index/lib/tenant-global'
+
+   registerTenantGlobalEntityTypes('billing:plan')
+   ```
+
+   Forgetting the call fails closed: the entity type keeps being refused, and the
+   warning names it. `feature_toggles:feature_toggle` is registered by the platform
+   and needs no action.
+
+**Security upgrade.** Existing private projections and tokens are automatically quarantined
+by physical source-scope verification on the read path, including rows stamped with a victim
+tenant by an older sweep. Quarantine requires no operator cleanup and does not delete source
+or index records. Token reads exclude unsafe types before ranking; hybrid search and presenter
+enrichment enforce the same policy, and query-index document joins for tenant-less sources
+require a null tenant. Provider/synthetic strategy results retain their caller scope and supplied presenters.
+Persisted local tokens, projections and pgvector results require verified ORM scope or exact
+tenant/organization/type/record proof in custom-entity storage; unregistered or disabled-module residue is
+quarantined too. Unverified synthetic local writes are declined, and cannot borrow historical
+projections. Register the source ORM entity, use tenant-scoped custom storage, or keep a
+provider-backed strategy for a virtual source. No unverified source can activate global scope.
+
+Catalogue declarations remain API-compatible but no longer authorize global scope by themselves.
+Registered ORM metadata and physical columns must prove that both scope columns are absent.
+Incorrect tenant-scoped declarations retain ordinary tenant/organization isolation; private
+organization-only types remain quarantined. Verification errors fail closed and are retryable;
+cached verification is isolated by ORM driver and invalidated by entity, metadata or declaration
+changes. Restart application and worker processes after schema migrations. Tenant-scoped custom
+entity storage remains supported. No schema migration or destructive cleanup is introduced.
+
+2026-10-31 follow-up: source identity is the exact registered entity metadata, including
+schema and mapped scope columns; duplicate/ambiguous metadata fails closed. Sweeps,
+subscriber source rows, index documents, query-engine and coverage probes use that same
+qualified source. Same-name tables in another schema cannot supply catalogue proof.
+A schema-qualified query that requires the basic fallback (missing base table, explicit
+automatic-scope bypass, missing index or partial coverage) is refused because that engine
+cannot preserve the source identity. Reindexing can avoid missing/partial-index fallback
+when usable projections exist; empty sources and other fallback-dependent cases remain
+unsupported. Named queries that stay in the hybrid path work normally. Unqualified
+sources retain their existing fallback behavior.
+Custom-storage proof also binds organization in SQL and batched writes/results; stale
+artifacts from another organization cannot authorize a record. Reviewer-supplied schema
+collision and organization regressions ship with the repair.
+
+**Optional operator cleanup.** A deployment that has run an old tenant-scoped reindex
+of a tenant-less private entity type may remove quarantined derived artifacts to reclaim storage.
+Delete only the
+`entity_indexes` and `search_tokens` rows for those entity types and let the event
+path refile the ones that still matter. Entity types whose table has no `tenant_id`
+column, and which are not catalogues, are the ones to check first. Delete the matching
+`entity_index_coverage` rows in the same pass: the guard returns before
+`refreshCoverageSnapshot()`, so a coverage row written by an earlier tenant-scoped run
+is never refreshed again and the indexer status page keeps reporting a stale
+base/indexed pair for that entity type.
+
+A refused sweep is now reported as one. `reindexEntity()` returns
+`refused: 'no-tenant-column' | 'column-probe-failed'`, the reindex subscriber writes it
+into `indexer_status_logs` at `level: 'warn'` with the reason, and the CLI prints
+`reindex REFUSED, nothing was indexed`. Previously a refusal was byte-identical to a
+successful zero-row sweep on all three surfaces, so a module author who forgot the
+`registerTenantGlobalEntityTypes()` call saw a green completion on the one screen built
+to answer "why is this entity type not indexed".
+
+### New `cart` and `promotions` modules, and buyer-scoped catalog visibility in the cart (#7592)
+
+This release adds the `cart` module (guest/customer cart lifecycle, line pricing, merge/undo,
+promotion application) and the `promotions` module (rule-tree evaluation, benefits, discount
+codes), plus enforces buyer-scoped catalog visibility inside the cart write path so a product
+hidden from browsing cannot be bought through the cart API either.
+
+**Action for operators — existing tenants need two commands.** `setup.ts` `defaultRoleFeatures`
+for both modules (`cart.carts.view`/`.manage`/`.settings.manage`/`.proposals.*`/`.channel.*` and
+`promotions.view`/`.create`/`.update`/`.delete`/`.codes.manage`/`.evaluate`/`.codes.redeem`/
+`.usage.manage`) is merged into seeded staff roles during *tenant setup* only — new tenants get
+the grants automatically, **existing tenants receive nothing until you run:**
+
+```bash
+yarn mercato auth sync-role-acls
+```
+
+It is idempotent, additive (never revokes a hand-added feature) and wildcard-aware (a role
+holding `cart.*`/`promotions.*` gains nothing redundant). Until this runs, staff on existing
+tenants see the new cart/promotions admin UI but every call answers `403`. On a running
+instance the new grants take effect once the permission cache expires (`CACHE_TTL`, about 5
+minutes by default), and the "Promotions" menu group appears after
+`yarn mercato configs cache structural --all-tenants`.
+
+Both modules also register queue-backed sweeper schedules (cart lock/reservation cleanup,
+dynamic-code generation, promotion code-reservation expiry) through the `configs` upgrade-action
+mechanism, gated at version `0.9.1` — the version this release ships as. An existing tenant sees
+these as pending upgrade actions (`configs.manage`, the same admin banner every other upgrade
+action uses) once the app reports `0.9.1`; no migration or CLI command runs them automatically.
+
+### Login and portal session routes reject cross-site browser requests with `403` (#7239)
+
+`POST /api/auth/login`, `POST /api/auth/session/refresh`, `POST /api/customer_accounts/login`,
+`POST /api/customer_accounts/magic-link/verify` and `POST /api/customer_accounts/invitations/accept`
+used to issue session cookies to any request, so a form on another site could sign a visitor's
+browser into the attacker's account. They now answer `403 { ok: false, error }` before reading the
+body when the browser marks the request as cross-site:
+
+- `Sec-Fetch-Site: cross-site` is always rejected. `same-origin` and `none` are accepted.
+- Otherwise the `Origin` header decides. A request without `Origin` and without `Sec-Fetch-Site`
+  (CLI, scripts, server-to-server and mobile clients) is accepted unchanged. `Origin: null` and an
+  unparsable `Origin` are rejected. Any other `Origin` must equal `APP_URL`,
+  `NEXT_PUBLIC_APP_URL`, an entry of `APP_ALLOWED_ORIGINS`, or the request's own
+  `X-Forwarded-Host` / `Host` (scheme from `X-Forwarded-Proto` when present). Outside production a
+  loopback `Origin` is accepted when a configured origin is loopback too.
+
+URLs, request bodies and success responses are unchanged. The policy is described in
+[`apps/docs/docs/framework/security/cross-site-login.mdx`](apps/docs/docs/framework/security/cross-site-login.mdx).
+
+**Action for operators:** only browsers that send no Fetch Metadata, and requests from a sibling
+subdomain (`Sec-Fetch-Site: same-site`), reach the `Origin` check. If they report a `403` on
+sign-in, set `APP_URL` to the public origin, list the extra origin in `APP_ALLOWED_ORIGINS`, or make
+the reverse proxy forward `X-Forwarded-Host`. An `Origin` that matches none of these is logged as a
+`Cross-site request rejected` warning with the `origin`, `host` and `forwardedHost` values.
+
+**Action for integrators:** an HTML form or browser app on a different site can no longer sign in
+through these routes, and `APP_ALLOWED_ORIGINS` does not re-enable it. A browser marks such a
+request `Sec-Fetch-Site: cross-site`, and that is always rejected. Sign in on the application's own
+origin, or call the API from a server. A sign-in form on a sibling subdomain of the same site keeps
+working once its origin is listed in `APP_ALLOWED_ORIGINS`.
+### Browser web research: all egress is now restricted to public addresses (#7218)
+
+The `@open-mercato/web-research-browser` sidecar used to vet only the top-level navigation. A
+rendered page's images, scripts, fetches, WebSockets, redirect hops and WebRTC traffic could still
+reach loopback, private-network and cloud-metadata addresses. Some of those responses were returned
+to the model. Chromium now sends every connection through a loopback egress proxy that vets each
+connection and pins it to the vetted public address. Subresources are always filtered, service
+workers are blocked, and non-proxied WebRTC UDP and QUIC are disabled. A render that ends on a non-public URL
+now returns a `navigation` error instead of the page.
+
+`OM_WEB_RESEARCH_BROWSER_FILTER_SUBRESOURCES` is ignored; when it is set, the sidecar logs a
+warning each time it launches Chromium. `LAUNCH_ARGS` now also carries the WebRTC proxy-only policy
+and `--disable-quic`. The `filterSubresources` field of `SidecarState` and option of
+`installNavigationGuard` are `@deprecated` and have no effect. `installNavigationGuard` now throws a
+`SidecarError` of kind `init` instead of warning when `context.route()` is unavailable.
+
+**Action for operators:** nothing to configure. Remove `OM_WEB_RESEARCH_BROWSER_FILTER_SUBRESOURCES`
+from your environment. Intranet assets referenced by rendered pages (images, scripts, APIs on
+private addresses) no longer load; public pages render as before.
+
+### Cross-process event listeners receive portal-only and truncated envelopes (#2973)
+
+`registerCrossProcessEventListener` (`@open-mercato/events/bus`) now also receives events declared only with `portalBroadcast: true`, so a portal event emitted in the queue worker reaches the web process that serves the customer portal stream. An oversize browser-facing envelope (`clientBroadcast` or `portalBroadcast`) is no longer dropped by the Postgres bridge: its payload arrives as `{ truncated: true, id, entityId, entityType }` plus the audience fields, and clients are expected to re-fetch. Private `crossProcessBroadcast` envelopes are unchanged.
+
+*Action for downstream:* a custom listener that handles every envelope should filter by the event flag it serves (`isBroadcastEvent`, `isPortalBroadcastEvent`, ...) and tolerate `payload.truncated === true`. Detect your own echo with `envelope.originInstanceId === CROSS_PROCESS_EVENT_INSTANCE_ID` rather than `originPid`: containers commonly all run as pid 1, so a pid check silently drops envelopes from a worker container.
+
+The portal stream also now treats trusted emit scope as authoritative, as the backoffice stream does: a portal event whose payload names a tenant, or an organization, outside the trusted emit options is not delivered, and one without payload organizations reaches only the trusted organizations.
+
+### Catalog write commands treat records outside the caller's scope as not found (#3825)
+
+`catalog.products.update|delete`, `catalog.variants.update|delete`, `catalog.prices.update|delete`
+and `catalog.offers.update|delete` now load their target only inside the caller's tenant and allowed
+organizations. `PUT` / `DELETE` on `/api/catalog/products`, `/api/catalog/variants`,
+`/api/catalog/prices` and `/api/catalog/offers` with the id of another tenant's or another
+organization's record now answer `404` instead of `403`, exactly like an unknown id. The same
+applies to `POST /api/catalog/variants` with another tenant's `productId`. Commands run
+with `auth: null` and an `organizationScope` (the Akeneo importer, for example) now also match the
+record against `organizationScope.tenantId`. Catalog product bulk-delete jobs (#3826, 0.9.0) now
+report a product from another tenant or organization as not found (`404`) instead of `403`. Request and response shapes
+are unchanged.
+
+**Action for module authors:** none, unless you branch on `403` for these routes or commands; treat
+`404` as the answer for records the caller cannot reach.
+### Catalog price kind PUTs keep `displayMode` when it is omitted (#7555)
+
+`PUT /api/catalog/price-kinds` (the `catalog.priceKinds.update` command) used to reset an omitted
+`displayMode` to `excluding-tax`. The update schema (`priceKindUpdateSchema`) inherited the
+create-time default, so renaming an `including-tax` price kind or toggling its `isActive` switched it
+back to `excluding-tax`. An omitted `displayMode` is now left untouched, and the generated OpenAPI document no
+longer shows a default for it on the PUT body. `priceKindCreateSchema` keeps its `excluding-tax`
+default.
+
+- A caller that relied on omission to reset the display mode must send `displayMode: 'excluding-tax'`
+  explicitly.
+- Price kinds already changed by a partial update are not repaired. Check the display mode in the
+  catalog price kind settings and set it again where needed.
+### Reaction routes answer 404 for messages outside your personal mailbox (#3833)
+
+`POST /api/communication_channels/messages/:messageId/reactions` now answers
+`404 { error: "Message not found" }` (localized) both for a message linked to another user's
+personal mailbox (was `403`) and for a message that does not exist in the caller's scope (was
+`409`). `DELETE /api/communication_channels/messages/:messageId/reactions/:reactionId` answers
+`404 { error: "Reaction not found" }` (now localized) for a reaction on another user's personal
+mailbox (was `403`) and for a message removed while the request runs (was `409`); its other 404
+refusals now carry the same fixed text instead of the command's reason. A message linked to another
+user's deleted personal mailbox (was `409`) is refused the same way on both routes. `409` stays for
+an existing message in the caller's organization that is not channel-linked (or whose channel cannot
+be resolved), and for a duplicate reaction. URLs and success responses are unchanged.
+
+**Action for module authors:** the exported `ToggleOutboundReactionResult` of the
+`communication_channels.reaction.toggle_outbound` command gains a `not_found` member, returned when
+the message does not resolve in scope (previously `no_channel_link` with reason
+`message not found`). Code that switches exhaustively over the result, or treated
+`no_channel_link` as "message missing", should handle `not_found` alongside it.
+
+### Forms: the participant PDF holds only the answers the participant's role can read (#7229)
+
+`GET /api/forms/public/submissions/:id/pdf` (access token or portal session) now applies the same
+role slice as the JSON read of the submission, and every response carries
+`cache-control: private, no-store`. A participant whose role can read every field still gets the
+canonical stored snapshot; any other participant gets an uncached, role-filtered copy
+(`submission-<id>-v<n>-participant.pdf`) that is never stored or linked. The staff route
+`GET /api/forms/submissions/:id/pdf` is unchanged.
+
+**Action for module authors:** code that serves `PdfSnapshotService.ensureSnapshot(...)` to a request
+principal should call `readSnapshotForViewer({ organizationId, tenantId, submissionId, viewerRole })`
+instead. `ensureSnapshot` / `readSnapshot` still return the full canonical snapshot.
+### Notification hrefs must resolve to the application origin (#7240)
+
+Notification `linkHref` and action `href` values were checked only for a leading `/`, so values such as `/\evil.example` or `/<TAB>/evil.example` passed and browsers resolved them to another host. They are now parsed as URLs and must stay on the application origin.
+
+- The create APIs (`POST /api/notifications`, `/api/notifications/batch`, `/api/notifications/role`, `/api/notifications/feature`) answer `400`, and `notificationService.create*` throws, for an href that contains a backslash or a control character, resolves to another origin, or has a path starting with `//`.
+- Notifications stored before the upgrade with such hrefs are served with `linkHref: null` and the action `href` omitted: in the list, the portal list, live events, the action endpoint and push data. Email action links fall back to the panel link.
+- A stored delivery-config `panelPath` with such characters is ignored and the default panel path is used; the rest of the stored delivery config is kept. Saving the settings with such a `panelPath` answers `400`.
+- `NotificationHandlerContext.navigate(href)` in client notification handlers ignores hrefs that do not pass the same check.
+- The predicate is available to other packages as `isSafeNotificationHref` from `@open-mercato/shared/modules/notifications/safeHref` (still re-exported from the notifications module's `lib/safeHref`). Custom delivery strategies receive the stored notification entity; pass `linkHref` and action hrefs through `toSafeNotificationHref` from `@open-mercato/core/modules/notifications/lib/safeHref` before sending them out.
+- Valid `/backend/...` paths need no action.
+### EUDR statement undos refuse to remove or reopen read-only statements (#7506)
+
+Undoing an `eudr.statements.create` through `POST /api/audit_logs/audit-logs/actions/undo` used to
+soft-delete the statement whatever had happened to it since. It now refuses in the same cases
+`eudr.statements.delete` refuses, answering `409 { "error": "<localized message>", "code": "<key>" }`
+and changing nothing:
+
+- the statement is archived (`code: "eudr.errors.archivedReadOnly"`);
+- the statement is available and its amendment window has elapsed (`code: "eudr.errors.amendWindowElapsed"`);
+- the statement is available and another statement references it (`code: "eudr.errors.referencedDownstream"`).
+
+Undoing an `eudr.statements.update` that would change the statement's status refuses the same way
+when the statement is currently in one of those states, so an undo can no longer move an archived
+or protected available statement back to an earlier status (and then make it removable). This
+includes undoing the update that archived the statement; archived statements stay read-only.
+Undos that leave the status unchanged, or start from a deletable state, behave as before.
+
+This is a bug fix that narrows undo behaviour. There is no schema or API-shape change, and explicit
+`eudr.statements.delete` responses are unchanged.
+
+**Action for API clients:** match undo refusals on `code`, not on `error`.
+### Akeneo imports bound media and response sizes and store media through the attachment upload path
+
+The Akeneo client used to read every response body in full with no deadline once headers arrived.
+The importer then wrote media straight to disk, outside the attachment size limit and the tenant
+quota. Now:
+
+- Media go through the shared attachment upload path. A file above `OM_ATTACHMENT_MAX_UPLOAD_MB`
+  (default 25 MB) stops downloading at the limit. SVG/HTML/XML (active content) and executables are
+  rejected. All three are skipped: the product imports without the file and a `warn` integration log
+  entry with code `sync_akeneo.media_rejected` is written (linked to the product, not to a sync run).
+- Imported media reserve and count against `OM_ATTACHMENT_TENANT_QUOTA_MB` (default 512 MB). When
+  the quota is full, the product's import fails and is listed in the sync run.
+- Media are stored with the partition's configured storage driver (no longer always `local`), with a
+  sanitized file name, a sniffed MIME type and the byte size actually received. Downloads of one
+  product's media run one at a time.
+- `OM_INTEGRATION_AKENEO_REQUEST_TIMEOUT_MS` (default 30 000 ms) now covers the whole response,
+  including reading the body. That includes media downloads.
+- JSON and OAuth token responses above the new `OM_INTEGRATION_AKENEO_MAX_RESPONSE_BYTES` (default
+  32 MiB) fail the request with `AkeneoResponseTooLargeError`. Error bodies quoted in thrown
+  messages are truncated to 64 KiB.
+- Removing media that Akeneo no longer lists now goes through `attachmentService.releaseScoped()`: the
+  row is deleted before the stored bytes, and media another record still uses are kept.
+- `downloadMediaFile()` returns `contentLength` as the number of bytes received, not the remote
+  `Content-Length` header.
+
+**Action for operators:** large catalogs may hit the tenant quota on import, so raise
+`OM_ATTACHMENT_TENANT_QUOTA_MB` if needed. Raise `OM_INTEGRATION_AKENEO_REQUEST_TIMEOUT_MS` if large
+media time out on slow links. Check the integration log for `sync_akeneo.media_rejected` warnings
+after the first sync.
+
+### Integration and bundle ids must not end in `__oauth_grant`
+
+The new OAuth2 grant core in `integrations` stores each tenant-level grant as an
+`integration_credentials` row with the id `<integrationId>__oauth_grant`, and reserves that suffix
+so grant secrets never leave the grant service:
+
+- `GET` and `PUT /api/integrations/:id/credentials` answer `404` for any id ending in
+  `__oauth_grant`, even when an integration with that id is registered.
+- `integrationCredentialsService.resolve()` and `resolveUpdatedAt()` no longer fall through to a
+  `bundleId` ending in `__oauth_grant`; they return the child's own credentials or `null`.
+
+No first-party integration or bundle id ends in the suffix, and every other id behaves as before.
+
+**Action for module authors:** rename any integration or bundle id your module registers that ends
+in `__oauth_grant`. To build a provider on OAuth2 grants, see the
+[OAuth2 grants guide](apps/docs/docs/framework/modules/integrations-oauth-grants.mdx).
+
+### Deleting an attachment keeps a stored file that other attachment rows still reference
+
+Catalog copies variant media onto the product, and forwarding a message copies the source message's
+attachments, by creating new `attachments` rows that reuse the source row's stored file
+(`partition_code` + `storage_path`). Every path that deletes an attachment together with its stored
+file used to remove that file with the row it was deleting, which broke all the other rows. Deleting a
+row now removes the stored file only when no other row references it: `DELETE /api/attachments`,
+`DELETE /api/attachments/library/:id`, `attachmentService.releaseScoped()`, `mercato attachments
+delete` and the warranty-claims portal delete go through `removeAttachmentRecord`
+(`@open-mercato/core/modules/attachments/lib/storageReferences`), and Akeneo media reconciliation
+releases through `releaseScoped()`; the deferred `releaseScoped(…, { flush: false })` takes the same
+storage-reference lock inside the caller's transaction. When two requests delete the same row at the
+same time, `DELETE /api/attachments` and `DELETE /api/attachments/library/:id` now answer `404` to
+the one that loses instead of a second `200`, `attachmentService.releaseScoped()` throws a `404`
+`CrudHttpError` (not guaranteed in the deprecated mode below), and Akeneo media reconciliation skips
+the row instead of failing the product.
+
+Calling `attachmentService.releaseScoped(input, { flush: false })` when the entity manager is not
+inside a transaction is deprecated. It still works for at least one minor release, but logs a
+`[deprecated]` warning and decides at call time, without the lock: two such releases racing for rows
+that share a stored file can leave the file orphaned (a storage leak) instead of deleting it, and a
+copy created before the caller flushes is not seen. The lock only protects the decision while the
+caller's transaction is open.
+
+**Action for module authors:** if you call `releaseScoped` with `{ flush: false }`, call it inside
+your own transaction (for example `withAtomicFlush(em, [...], { transaction: true })`) and run the
+returned cleanup after commit — the documented contract. Expect the cleanup to be `undefined` when
+the stored file is still referenced by another row. If you delete `Attachment` rows and their stored
+files yourself, use `removeAttachmentRecord(em, attachment)` outside a transaction and delete the
+file only when it reports `releaseStorage: true`.
+
+The migration adds the index `attachments_storage_reference_idx` on
+`attachments (partition_code, storage_path)`, built `CONCURRENTLY` outside a transaction.
+
+### Webhook credential header values are hidden without `webhooks.secrets` (#7237)
+
+`GET /api/webhooks/:id` and the `PUT /api/webhooks/:id` response (and their `/api/webhooks/webhooks/:id`
+alias) now return `••••••••` as the value of credential-like custom headers unless the caller has
+`webhooks.secrets`. A header counts as credential-like when its name contains (as a substring) `auth`,
+`token`, `secret`, `key`, `pass`, `pwd`, `sig`, `hmac`, `session`, `cookie`, `jwt`, `bearer`,
+`credential` or `private`, or when its value starts with an auth scheme (`Bearer `, `Basic `) or a
+common token prefix. Header names, other values and the response shape are unchanged. The default
+`employee` role (`webhooks.view` only) is affected; `admin` and `superadmin` (`webhooks.*`) still see
+the stored values.
+
+On `PUT /api/webhooks/:id`, a header whose value is exactly `••••••••` keeps its stored value, so a
+client can send back what it read. The route answers `400 { error }` and writes nothing when:
+
+- `••••••••` is sent for a header that has no stored value, or
+- a caller without `webhooks.secrets` changes the webhook URL while keeping a stored credential header
+  (by sending `••••••••` or by omitting `customHeaders`). Re-enter or remove those headers in the same
+  request.
+
+The `makeCrudRoute` update handler behind `PUT /api/webhooks/webhooks` applies the same rules; that route
+currently answers `400 { error: "Invalid id" }` to every request for an unrelated reason.
+
+**Action for API clients:** to change a hidden header, send a new value. To keep it, send
+`••••••••` back unchanged. To delete it, omit the key (`customHeaders` is still a full replacement).
+Grant `webhooks.secrets` to roles that must read the stored values. Code that deep-imports the
+module helper `serializeWebhookDetail()` (`webhooks/api/helpers`) now gets redacted values unless it
+passes `{ revealCredentialHeaders: true }`.
+### Workflow `CALL_API` endpoints must match `APP_URL`'s origin and `/api/` path
+
+A `CALL_API` activity used to accept an absolute endpoint whose host matched `APP_URL`, whatever its
+scheme or path. Now the endpoint must have `APP_URL`'s exact origin (scheme, host and port), and its
+path must be under `/api/` (under `<base path>/api/` when `APP_URL` has one, such as
+`https://shop.example.com/store`). This applies to relative and absolute endpoints, and to every
+redirect hop. A non-matching endpoint, an endpoint with embedded credentials, and an `APP_URL`
+without an `http(s)` scheme fail the activity before the one-time API key is created.
+`fetch` no longer follows redirects on its own: a redirect is followed only when its target passes
+the same check, for at most three hops. Any other redirect fails with
+`CALL_API refused to follow redirect …`.
+
+**Action for operators:** fix any workflow definition whose `CALL_API` endpoint hard-codes a
+different scheme (for example `http://` while `APP_URL` is `https://`) or a non-`/api/` path. Use a
+relative `/api/...` path or `{{env.APP_URL}}/api/...` instead.
+
+### Sales quote enrichment and document injection hosts (#7782, #7783)
+
+Sales quote header reads now run registered response enrichers for `sales:sales_quote`, including the list endpoint and its `?id=` detail read path. Order-only enrichers remain targeted to `sales:sales_order`; URLs, native response fields, and document calculations are unchanged.
+
+**Action for extension authors:** review existing quote-targeted and wildcard enrichers that may previously have been dormant. They must add namespaced, scoped data, enforce their declared feature gates, and retain safe timeout/fallback and cache behavior. No database migration is needed.
+
+The four advertised `detail:sales.{order|quote}:{stage-bar|closure}` IDs now mount real render-widget hosts on the Sales document page. Existing registrations for these IDs may begin rendering after upgrade. Their context follows the document detail host (`kind`, `record`, `formId`, `resourceKind`, `resourceId`, `retryLastMutation`) plus `documentId`, `organizationId`, and `tenantId` from the scoped record, with current document data and the standard local data-change callback. Contributors persist their own data through authorized, guarded APIs; the hosts do not introduce native status/closure mutations or automatically save contributed fields. Empty hosts show no placeholder UI.
+
+**Action for widget authors:** check feature gates and order/quote assumptions before enabling previously dormant widgets. Existing tabs/details/shipping IDs and native document behavior remain available.
+
+>>>>>>> f0365b403 (fix(sso): block fresh sign-in after SCIM deactivation (#8088))
 ## 0.8.0 → 0.9.0 (2026-10-09)
 
 ### Catalog product bulk-delete jobs require tenant, organization and user scope (#3826)
