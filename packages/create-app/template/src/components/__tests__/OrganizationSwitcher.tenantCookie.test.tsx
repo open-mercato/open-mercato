@@ -11,7 +11,7 @@
  * in the first place, so neither side depends on the other for the fix to hold.
  */
 import '@testing-library/jest-dom'
-import { act, render, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 
 const apiCallMock = jest.fn()
 
@@ -159,5 +159,24 @@ describe('OrganizationSwitcher tenant cookie', () => {
     render(<OrganizationSwitcher />)
 
     await waitFor(() => expect(readTenantCookie()).toBe(tenantId))
+  })
+
+  it('keeps the top-bar switcher expandable when the selected tenant has no organizations', async () => {
+    mockSwitcherPayload({
+      items: [],
+      selectedId: null,
+      canManage: false,
+      canViewAllOrganizations: true,
+      tenantId,
+      tenants: [{ id: tenantId, name: 'Tenant', isActive: true }],
+      isSuperAdmin: true,
+    })
+
+    render(<OrganizationSwitcher />)
+
+    const switcher = await screen.findByRole('button', { name: /All organizations/ })
+    fireEvent.click(switcher)
+
+    expect(screen.getByText('No organizations')).toBeInTheDocument()
   })
 })
