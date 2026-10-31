@@ -23,27 +23,55 @@ import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
 import { useRegisteredComponent } from '@open-mercato/ui/backend/injection/useRegisteredComponent'
 import type { AuthOverride, LoginFormWidgetContext } from './login-injection'
 
-const loginTenantKey = 'om_login_tenant'
-const loginTenantCookieMaxAge = 60 * 60 * 24 * 14
+/**
+ * The tenant hint that survives an in-app bounce back to a bare `/login`.
+ *
+ * Per TAB (sessionStorage), not per browser: the value it replaces lived in localStorage
+ * and a 14-day cookie and was replayed on every later visit. And per ADDRESS: the hint is
+ * only meaningful for the person it was issued to, so a second user signing in on the same
+ * tab is not silently narrowed to somebody else's tenant and handed the uniform 401.
+ */
+type TenantHint = { email: string; tenantId: string }
 
-function readTenantCookie() {
-  if (typeof document === 'undefined') return null
-  const entries = document.cookie.split(';')
-  for (const entry of entries) {
-    const [name, ...rest] = entry.trim().split('=')
-    if (name === loginTenantKey) return decodeURIComponent(rest.join('='))
+const TENANT_HINT_STORAGE_KEY = 'om_login_tenant_hint'
+/** Set server-side by @open-mercato/onboarding, `path=/`, 14 days, not httpOnly. */
+const ONBOARDING_TENANT_COOKIE = 'om_login_tenant'
+
+function readTenantHint(): TenantHint | null {
+  if (typeof window === 'undefined') return null
+  try {
+    const raw = window.sessionStorage.getItem(TENANT_HINT_STORAGE_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as Partial<TenantHint> | null
+    if (!parsed || typeof parsed.email !== 'string' || typeof parsed.tenantId !== 'string') return null
+    if (!parsed.email || !parsed.tenantId) return null
+    return { email: parsed.email, tenantId: parsed.tenantId }
+  } catch {
+    return null
   }
-  return null
 }
 
-function setTenantCookie(value: string) {
-  if (typeof document === 'undefined') return
-  document.cookie = `${loginTenantKey}=${encodeURIComponent(value)}; path=/; max-age=${loginTenantCookieMaxAge}; samesite=lax`
+function writeTenantHint(hint: TenantHint): void {
+  if (typeof window === 'undefined') return
+  try {
+    window.sessionStorage.setItem(TENANT_HINT_STORAGE_KEY, JSON.stringify(hint))
+  } catch {
+    /* private mode, or storage disabled - the hint is an optimisation, not a requirement */
+  }
 }
 
-function clearTenantCookie() {
+function clearTenantHint(): void {
+  if (typeof window === 'undefined') return
+  try {
+    window.sessionStorage.removeItem(TENANT_HINT_STORAGE_KEY)
+  } catch {
+    /* nothing to do */
+  }
+}
+
+function clearOnboardingTenantCookie(): void {
   if (typeof document === 'undefined') return
-  document.cookie = `${loginTenantKey}=; path=/; max-age=0; samesite=lax`
+  document.cookie = `${ONBOARDING_TENANT_COOKIE}=; Path=/; Max-Age=0; SameSite=Lax`
 }
 
 function extractErrorMessage(payload: unknown): string | null {
@@ -117,6 +145,7 @@ export default function LoginPage() {
   const [activeAuthenticatedUser, setActiveAuthenticatedUser] = useState(false)
   const [email, setEmail] = useState('')
   const [tenantId, setTenantId] = useState<string | null>(null)
+  const [tenantHint, setTenantHint] = useState<TenantHint | null>(null)
   const [tenantName, setTenantName] = useState<string | null>(null)
   const [tenantLoading, setTenantLoading] = useState(false)
   const [tenantInvalid, setTenantInvalid] = useState<string | null>(null)
@@ -181,19 +210,39 @@ export default function LoginPage() {
     return () => { cancelled = true }
   }, [router, redirectParam, requiredFeatures.length, requiredRoles.length])
 
+  // The `tenant` query parameter is a hint scoped to the CURRENT visit: it is the URL,
+  // and nothing else, that decides whether the tenant BANNER shows. It used to be
+  // mirrored into localStorage['om_login_tenant'] and a 14-day cookie of the same name
+  // and replayed on every later visit, which welded the banner to /login for anyone who
+  // had ever followed a link carrying it — with no TTL of its own and no clear after a
+  // successful sign-in. @open-mercato/onboarding puts the parameter on the login link in
+  // the workspace-ready e-mail, in the post-verification redirect and in the onboarding
+  // status endpoint, so every self-serve signup passed through it exactly once and then
+  // carried the banner permanently.
   useEffect(() => {
     const tenantParam = (searchParams.get('tenant') || '').trim()
-    if (tenantParam) {
-      setTenantId(tenantParam)
-      window.localStorage.setItem(loginTenantKey, tenantParam)
-      setTenantCookie(tenantParam)
-      return
-    }
-    const storedTenant = window.localStorage.getItem(loginTenantKey) || readTenantCookie()
-    if (storedTenant) {
-      setTenantId(storedTenant)
-    }
+    setTenantId(tenantParam || null)
   }, [searchParams])
+
+  // The SUBMITTED value is a separate question from the banner, and the two were
+  // conflated. `POST /api/auth/login` cannot disambiguate an address that exists in more
+  // than one tenant without it — `findUsersByEmail` deliberately treats an ambiguous
+  // match as no user and falls through to the uniform 401 (issue #2242) — and the app
+  // routinely lands such a user on a BARE /login: session refresh, logout, and the 401
+  // handler in @open-mercato/ui all redirect there with no parameter. With no fallback
+  // at all, the form has no tenant selector either, so there is no in-app way back in.
+  //
+  // So the hint survives, but only for this tab and only for the address it was issued
+  // to. sessionStorage dies with the tab, which removes the 14-day weld and the
+  // cross-session surprise; keying it to the e-mail removes the other half of the old
+  // behaviour's cost — a stale hint narrowing the lookup for a DIFFERENT person signing
+  // in on the same tab, who would get a 401 with nothing on screen to explain it.
+  useEffect(() => {
+    setTenantHint(readTenantHint())
+  }, [])
+
+  const submittedTenantId = tenantId
+    ?? (tenantHint && tenantHint.email === email.trim().toLowerCase() ? tenantHint.tenantId : null)
 
   useEffect(() => {
     if (!tenantId) {
@@ -237,11 +286,17 @@ export default function LoginPage() {
   }, [tenantId, translate])
 
   function handleClearTenant() {
-    window.localStorage.removeItem(loginTenantKey)
-    clearTenantCookie()
+    // "Clear" means every tenant hint this browser holds, not just the banner: the URL
+    // parameter, the state mirroring it, the per-tab hint, and the `om_login_tenant`
+    // cookie @open-mercato/onboarding sets server-side. That cookie is read back as the
+    // sole authorization input to the onboarding status endpoint and lives 14 days; this
+    // button was the only in-app way to drop it, so it keeps dropping it.
     setTenantId(null)
     setTenantName(null)
     setTenantInvalid(null)
+    clearTenantHint()
+    setTenantHint(null)
+    clearOnboardingTenantCookie()
     const params = new URLSearchParams(searchParams)
     params.delete('tenant')
     setError(null)
@@ -262,6 +317,10 @@ export default function LoginPage() {
     setSubmitting(true)
     try {
       const form = new FormData(e.currentTarget)
+      // Written here rather than when the parameter arrives: this is the first moment
+      // both halves are known, since /login takes no `email` parameter. Written before
+      // the request, so a mistyped password does not cost the hint.
+      if (tenantId) writeTenantHint({ email: email.trim().toLowerCase(), tenantId })
       if (requiredRoles.length) form.set('requireRole', requiredRoles.join(','))
       const redirectParam = searchParams.get('redirect')
       if (redirectParam) form.set('redirect', redirectParam)
@@ -359,8 +418,8 @@ export default function LoginPage() {
         <CardContent>
           <LoginFormSection>
             <form className="grid gap-3" onSubmit={onSubmit} noValidate data-auth-ready={formReady ? '1' : '0'}>
-              {tenantId ? (
-                <input type="hidden" name="tenantId" value={tenantId} />
+              {submittedTenantId ? (
+                <input type="hidden" name="tenantId" value={submittedTenantId} />
               ) : null}
               {!!translatedRoles.length && (
                 <Alert status="information" className="text-center">
