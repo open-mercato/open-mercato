@@ -1268,6 +1268,29 @@ export async function run(argv = process.argv) {
       if (!skipDemoUsers && employeeEmailDerived && derivedSecrets.employeePassword) {
         process.env.OM_INIT_EMPLOYEE_PASSWORD = derivedSecrets.employeePassword
       }
+      // Symmetrical with the passwords above: setupInitialTenant derives admin/employee
+      // emails from a hardcoded DEFAULT_DERIVED_EMAIL_DOMAIN ('acme.com') when these are
+      // unset, so without this the summary banner (which reads adminEmailDerived/
+      // employeeEmailDerived directly) and the actually-seeded accounts silently disagree
+      // for any --email domain other than acme.com (#5806). Skip when --no-demo-users
+      // (no accounts are created) or when the derived address equals the superadmin's
+      // own email — otherwise deactivateDemoUsersIfSelfOnboardingEnabled would treat
+      // the superadmin as a demo account and lock them out.
+      const primaryEmailLower = email.trim().toLowerCase()
+      if (
+        !skipDemoUsers &&
+        adminEmailDerived &&
+        adminEmailDerived.trim().toLowerCase() !== primaryEmailLower
+      ) {
+        process.env.OM_INIT_ADMIN_EMAIL = adminEmailDerived
+      }
+      if (
+        !skipDemoUsers &&
+        employeeEmailDerived &&
+        employeeEmailDerived.trim().toLowerCase() !== primaryEmailLower
+      ) {
+        process.env.OM_INIT_EMPLOYEE_EMAIL = employeeEmailDerived
+      }
       const roles = findArgValue(['--roles='], 'superadmin,admin,employee')
       const skipPasswordPolicyRaw = initArgs.find((arg) =>
         arg === '--skip-password-policy' ||

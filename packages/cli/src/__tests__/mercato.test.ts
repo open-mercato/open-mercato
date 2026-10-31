@@ -1153,6 +1153,118 @@ describe('init command failure output', () => {
     consoleErrorSpy.mockRestore()
     consoleLogSpy.mockRestore()
   })
+
+  it('derives admin/employee emails from the --email domain, not the acme.com default (#5806)', async () => {
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+    const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+
+    delete process.env.OM_INIT_ADMIN_EMAIL
+    delete process.env.OM_INIT_EMPLOYEE_EMAIL
+
+    let adminEmailAtSetupTime: string | undefined
+    let employeeEmailAtSetupTime: string | undefined
+    // Reads OM_INIT_ADMIN_EMAIL/OM_INIT_EMPLOYEE_EMAIL at call time, mirroring what the
+    // real `auth setup` -> setupInitialTenant reads. `runModuleCommand` invokes this
+    // in-process (not spawned), so the env vars `mercato init` sets right before this
+    // call are visible here exactly as they would be for the real command.
+    const authSetup = jest.fn().mockImplementation(async () => {
+      adminEmailAtSetupTime = process.env.OM_INIT_ADMIN_EMAIL
+      employeeEmailAtSetupTime = process.env.OM_INIT_EMPLOYEE_EMAIL
+    })
+    mockInitDependencies({ authSetup })
+
+    const mercato = await import('../mercato')
+    const exitCode = await mercato.run([
+      'node',
+      'mercato',
+      'init',
+      '--email=superadmin@example.org',
+      '--password=Strong-Pa55!!',
+    ])
+
+    expect(exitCode).toBe(0)
+    expect(authSetup).toHaveBeenCalled()
+    expect(adminEmailAtSetupTime).toBe('admin@example.org')
+    expect(employeeEmailAtSetupTime).toBe('employee@example.org')
+
+    delete process.env.OM_INIT_ADMIN_EMAIL
+    delete process.env.OM_INIT_EMPLOYEE_EMAIL
+    consoleErrorSpy.mockRestore()
+    consoleLogSpy.mockRestore()
+  })
+
+  it('does not set OM_INIT_ADMIN_EMAIL when it would equal the superadmin email (#5806)', async () => {
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+    const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+
+    delete process.env.OM_INIT_ADMIN_EMAIL
+    delete process.env.OM_INIT_EMPLOYEE_EMAIL
+
+    let adminEmailAtSetupTime: string | undefined
+    let employeeEmailAtSetupTime: string | undefined
+    const authSetup = jest.fn().mockImplementation(async () => {
+      adminEmailAtSetupTime = process.env.OM_INIT_ADMIN_EMAIL
+      employeeEmailAtSetupTime = process.env.OM_INIT_EMPLOYEE_EMAIL
+    })
+    mockInitDependencies({ authSetup })
+
+    const mercato = await import('../mercato')
+    const exitCode = await mercato.run([
+      'node',
+      'mercato',
+      'init',
+      '--email=admin@example.org',
+      '--password=Strong-Pa55!!',
+    ])
+
+    expect(exitCode).toBe(0)
+    expect(authSetup).toHaveBeenCalled()
+    // Derived admin@example.org would collide with the superadmin — leave unset so
+    // deactivateDemoUsersIfSelfOnboardingEnabled cannot lock the primary account out.
+    expect(adminEmailAtSetupTime).toBeUndefined()
+    expect(employeeEmailAtSetupTime).toBe('employee@example.org')
+
+    delete process.env.OM_INIT_ADMIN_EMAIL
+    delete process.env.OM_INIT_EMPLOYEE_EMAIL
+    consoleErrorSpy.mockRestore()
+    consoleLogSpy.mockRestore()
+  })
+
+  it('does not set OM_INIT_*_EMAIL when --no-demo-users is passed (#5806)', async () => {
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+    const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+
+    delete process.env.OM_INIT_ADMIN_EMAIL
+    delete process.env.OM_INIT_EMPLOYEE_EMAIL
+
+    let adminEmailAtSetupTime: string | undefined
+    let employeeEmailAtSetupTime: string | undefined
+    const authSetup = jest.fn().mockImplementation(async () => {
+      adminEmailAtSetupTime = process.env.OM_INIT_ADMIN_EMAIL
+      employeeEmailAtSetupTime = process.env.OM_INIT_EMPLOYEE_EMAIL
+    })
+    mockInitDependencies({ authSetup })
+
+    const mercato = await import('../mercato')
+    const exitCode = await mercato.run([
+      'node',
+      'mercato',
+      'init',
+      '--email=superadmin@example.org',
+      '--password=Strong-Pa55!!',
+      '--no-demo-users',
+    ])
+
+    expect(exitCode).toBe(0)
+    expect(authSetup).toHaveBeenCalled()
+    expect(adminEmailAtSetupTime).toBeUndefined()
+    expect(employeeEmailAtSetupTime).toBeUndefined()
+
+    delete process.env.OM_INIT_ADMIN_EMAIL
+    delete process.env.OM_INIT_EMPLOYEE_EMAIL
+    consoleErrorSpy.mockRestore()
+    consoleLogSpy.mockRestore()
+  })
 })
 
 describe('seed:defaults command', () => {
