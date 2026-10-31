@@ -7,7 +7,7 @@ Restore every currently failing actionable CI workflow on `main` to green by ide
 ## Scope
 
 - Inspect the latest completed `main` runs and their failed job logs, including the repeatedly failing Scheduled Dependency Audit.
-- Fix only the repository-controlled root cause that is still reproducible from the current `main` dependency graph or workflow configuration.
+- Fix only the repository-controlled root causes that are still reproducible from the current `main` dependency graph, tests, or release harness.
 - Add or update automated coverage for every behavior changed by the fix.
 - Run the configured validation gate, the authoritative PR review workflow, and a final independent Cezar review before finalizing the PR.
 - Add the repository's `automerge` flag only after the PR is finalized and all required evidence is green.
@@ -42,6 +42,16 @@ The completed remote branch `fix/stabilize-main-ci` belongs to the earlier merge
 - Dependency-audit output can change as registry advisories are updated. The diagnosis will record the run and advisory identifiers, and the fix will target the current lockfile rather than a transient log string.
 - A dependency remediation can alter transitive versions broadly. The diff and regression tests will be reviewed for unrelated lockfile churn before commit.
 - GitHub checks may remain pending after local completion. Pending checks will stay visible and will not be described as green or given the `automerge` flag until they pass.
+
+## Diagnosis
+
+The current `main` revision (`91d78919ba`) has three independent actionable failures:
+
+- Scheduled Dependency Audit run `41202430510` intentionally failed after finding 40 high/critical advisories across 18 resolved packages. The local live audit reproduced the result; its 17 focused tests passed, proving the gate itself is healthy and the vulnerable lockfile is the cause.
+- CI run `41193884719` failed the OMH-057 compatibility-context budget at 114,787 required bytes versus a 114,688-byte cap. The cap remains unchanged; redundant wording in a required guide is the minimal owned surface.
+- Develop Snapshot Release run `41193884668` generated and migrated the standalone app, then failed when dynamic bootstrap could not import its present `src/modules.ts`. The generic wrapper hid the import cause, so the standalone publish/scaffold path must be reproduced and fixed without weakening its fail-closed override behavior.
+
+These causes are deliberately handled as separate corrections in one stabilization run because all three are current red `main` signals and none is explained by the others.
 
 ## Progress
 
