@@ -39,6 +39,7 @@ import {
   type GenerateWatcherMode,
 } from './lib/in-process-generate-watcher-mode'
 import { parseModuleInstallArgs } from './lib/module-install-args'
+import type { ModuleCommandResult } from './lib/module-install'
 import { resolveNextBuildIdCandidate } from './lib/next-build-id'
 import { acquireServerStartLock } from './lib/server-start-lock'
 import { assertSingleInstanceStrategies } from './lib/single-instance-strategy-guard'
@@ -229,6 +230,39 @@ function formatCliFailureMessage(modName: string, cmdName: string, error: unknow
   }
 
   return fallbackMessage
+}
+
+// Options that carry key material or credentials in every command that accepts them, so the
+// echoed command line must never reproduce their values: argv is world-readable through
+// `ps`/`/proc`, and this line additionally lands in terminal scrollback and CI logs.
+const SENSITIVE_MODULE_CLI_OPTIONS = new Set([
+  '--old-key',
+  '--oldKey',
+  '--password',
+  '--api-key',
+  '--apiKey',
+])
+
+// `--key` is ambiguous: it is a base64 encryption key in `seeds encrypt|decrypt|load` but a
+// custom-field key in `entities add-field`, so it is redacted only where it means a secret.
+const SENSITIVE_MODULE_CLI_OPTIONS_BY_COMMAND = new Map<string, string[]>([
+  ['seeds:encrypt', ['--key']],
+  ['seeds:decrypt', ['--key']],
+  ['seeds:load', ['--key']],
+])
+
+function redactSensitiveModuleCliArgs(args: string[], commandKey: string): string[] {
+  const sensitive = new Set(SENSITIVE_MODULE_CLI_OPTIONS)
+  for (const option of SENSITIVE_MODULE_CLI_OPTIONS_BY_COMMAND.get(commandKey) ?? []) sensitive.add(option)
+  return args.map((argument, index) => {
+    const separatorIndex = argument.indexOf('=')
+    if (separatorIndex > 0) {
+      const option = argument.slice(0, separatorIndex)
+      if (sensitive.has(option)) return `${option}=****`
+    }
+    if (index > 0 && sensitive.has(args[index - 1]!)) return '****'
+    return argument
+  })
 }
 
 function formatInitFailureMessage(error: unknown): string {
@@ -678,6 +712,22 @@ function ensureNextBuildIdInConfiguredDistDir(appDir: string): void {
   )
 }
 
+function printModuleCommandResult(result: ModuleCommandResult, alreadyEnabledNote?: string): void {
+  if (!result.registrationChanged) {
+    console.log(`\nℹ️  Module "${result.moduleId}" from "${result.from}" is already enabled in modules.ts. Nothing to change.`)
+    if (alreadyEnabledNote) {
+      console.log(alreadyEnabledNote)
+    }
+    console.log('')
+    return
+  }
+
+  console.log(`\n✅ Module "${result.moduleId}" enabled from ${result.from}.\n`)
+  console.log('Next steps:')
+  console.log('  1. Review generated files if needed: .mercato/generated/')
+  console.log('  2. Start dev:                         yarn dev')
+}
+
 async function handleDirectEjectCommand(args: string[]): Promise<number> {
   const { createResolver } = await import('./lib/resolver')
   const { listEjectableModules, ejectModule } = await import('./lib/eject')
@@ -933,13 +983,18 @@ const TOP_LEVEL_COMMAND_HELP: Record<string, string[]> = {
 
 // A help invocation must never materialize .env from .env.example — asking what the flags are
 // should not mutate the working tree, least of all with the example's placeholder DATABASE_URL.
+// `module search` and `module info` only read the catalog, so they never create .env either, and
+// their output stays clean: dotenv prints its `injected env` line on stdout, which breaks
+// `--json | jq` and agents that parse the tools@1 contract. Any `--json` run stays quiet.
 export function resolveEnvBootstrapOptions(parts: string[]): { createIfMissing: boolean; quiet: boolean } {
   const first = parts[0]
   const opaqueEnvCommand = first === 'deploy' || first === 'telemetry'
+  const readOnlyModuleCommand = first === 'module' && (parts[1] === 'search' || parts[1] === 'info')
+  const jsonOutput = parts.includes('--json')
   const helpRequested = isHelpRequest(parts)
   return {
-    createIfMissing: !helpRequested && !opaqueEnvCommand,
-    quiet: helpRequested || opaqueEnvCommand,
+    createIfMissing: !helpRequested && !opaqueEnvCommand && !readOnlyModuleCommand,
+    quiet: helpRequested || opaqueEnvCommand || readOnlyModuleCommand || jsonOutput,
   }
 }
 
@@ -1451,11 +1506,20 @@ export async function run(argv = process.argv) {
       const commandArgs = remaining.filter(Boolean)
 
       if (!subcommand || subcommand === 'help' || subcommand === '--help' || subcommand === '-h') {
-        console.log('Usage: yarn mercato module <add|enable|eject> ...')
+        console.log('Usage: yarn mercato module <add|enable|eject|search|info> ...')
         console.log('  yarn mercato module add <packageSpec> [--module <moduleId>] [--eject] [--allow-third-party]')
         console.log('  yarn mercato module enable <packageName> [--module <moduleId>] [--eject] [--allow-third-party]')
         console.log('  yarn mercato module eject <moduleId>')
+        console.log('  yarn mercato module search [<query>] [--category <id>] [--kind <kind>] [--all-lines] [--limit <n>] [--json]')
+        console.log('  yarn mercato module info <package-or-module-id> [--json]')
         return 0
+      }
+
+      if (subcommand === 'search' || subcommand === 'info') {
+        const { runModuleSearch, runModuleInfo } = await import('./lib/module-search')
+        const { readEnabledModules } = await import('./lib/modules-config')
+        const deps = { readEnabledModules }
+        return subcommand === 'search' ? await runModuleSearch(commandArgs, deps) : await runModuleInfo(commandArgs, deps)
       }
 
       if (subcommand === 'add') {
@@ -1469,10 +1533,7 @@ export async function run(argv = process.argv) {
         }
 
         const result = await addOfficialModule(createResolver(), packageSpec, eject, moduleId ?? undefined, allowThirdParty)
-        console.log(`\n✅ Module "${result.moduleId}" enabled from ${result.from}.\n`)
-        console.log('Next steps:')
-        console.log('  1. Review generated files if needed: .mercato/generated/')
-        console.log('  2. Start dev:                         yarn dev')
+        printModuleCommandResult(result, 'If yarn add changed the package version, run "yarn mercato generate" to refresh generated files.')
         return 0
       }
 
@@ -1487,10 +1548,7 @@ export async function run(argv = process.argv) {
         const { enableOfficialModule } = await import('./lib/module-install')
         const { moduleId, eject, allowThirdParty } = parseModuleInstallArgs(commandArgs)
         const result = await enableOfficialModule(createResolver(), packageName, moduleId ?? undefined, eject, allowThirdParty)
-        console.log(`\n✅ Module "${result.moduleId}" enabled from ${result.from}.\n`)
-        console.log('Next steps:')
-        console.log('  1. Review generated files if needed: .mercato/generated/')
-        console.log('  2. Start dev:                         yarn dev')
+        printModuleCommandResult(result)
         return 0
       }
 
@@ -2785,9 +2843,10 @@ export async function run(argv = process.argv) {
 
   console.log('')
   const started = Date.now()
-  const loggedArgs = modName === 'deploy' && cmdName === 'railway'
+  const commandArgs = modName === 'deploy' && cmdName === 'railway'
     ? (await import('./lib/deploy/railway/options')).redactRailwayCliArgs(rest)
     : rest
+  const loggedArgs = redactSensitiveModuleCliArgs(commandArgs, `${modName}:${cmdName}`)
   console.log(`🚀 Running ${modName}:${cmdName} ${loggedArgs.join(' ')}`)
   try {
     const commandExitCode = await runWithCapturedExitCode(async () => {

@@ -196,6 +196,31 @@ export function parseAbsoluteDeadline(value: unknown): Date | null {
   return Number.isNaN(instant.getTime()) ? null : instant
 }
 
+/**
+ * Largest delay Node's `setTimeout` honours (a signed 32-bit millisecond count,
+ * ~24.86 days). A longer delay is not rejected — it fires after 1 ms with only a
+ * `TimeoutOverflowWarning` — so an in-process wait must refuse it explicitly.
+ */
+export const MAX_TIMER_DELAY_MS = 2_147_483_647
+
+/**
+ * A WAIT longer than this is not slept inside the executing request: when it is
+ * the last activity of its transition it is handed to the activity queue (the
+ * path an `async: true` WAIT already takes). One minute keeps the short pauses
+ * people use for pacing inline while anything that would hold a request or a
+ * worker slot open for minutes becomes durable.
+ */
+export const MAX_INLINE_WAIT_MS = 60_000
+
+export function assertInProcessWaitDelay(delayMs: number): number {
+  if (delayMs > MAX_TIMER_DELAY_MS) {
+    throw new Error(
+      `WAIT activity: a ${delayMs}ms delay cannot be slept in-process (limit ${MAX_TIMER_DELAY_MS}ms); make it the last activity of its transition, mark it async, or use a WAIT_FOR_TIMER step`
+    )
+  }
+  return delayMs
+}
+
 export function calculateWaitDelayMs(config: { duration?: string; until?: string }): number {
   if (config.until) {
     const targetDate = new Date(config.until)
