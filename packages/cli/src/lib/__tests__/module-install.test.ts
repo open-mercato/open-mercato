@@ -50,6 +50,18 @@ function buildPackageFixture(
     const targetPath = path.join(packageRoot, 'src', 'modules', moduleId, file.relativePath)
     fs.mkdirSync(path.dirname(targetPath), { recursive: true })
     fs.writeFileSync(targetPath, file.content)
+
+    if (/\.[jt]sx?$/.test(file.relativePath)) {
+      const runtimePath = path.join(
+        packageRoot,
+        'dist',
+        'modules',
+        moduleId,
+        file.relativePath.replace(/\.[jt]sx?$/, '.js'),
+      )
+      fs.mkdirSync(path.dirname(runtimePath), { recursive: true })
+      fs.writeFileSync(runtimePath, 'module.exports = {}\n')
+    }
   }
 }
 
@@ -518,8 +530,8 @@ describe('canonical module preflight', () => {
   })
 
   it('revalidates implicit core binding consumers after package installation before any registration or eject copy', async () => {
-    const packageRoot = path.join(root, 'package')
     const appDir = path.join(root, 'app')
+    const packageRoot = path.join(appDir, 'node_modules', '@open-mercato', 'core')
     const packageName = '@open-mercato/core'
     buildPackageFixture(packageRoot, 'active', { packageName })
     buildPackageFixture(packageRoot, 'candidate', { packageName, ejectable: true })
