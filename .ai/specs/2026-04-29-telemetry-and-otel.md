@@ -360,7 +360,6 @@ Built-in metrics — prefer **OpenTelemetry semantic-convention** instruments wh
 | `om.queue.depth` | gauge | queue | needs a core queue hook |
 | `om.event.subscribers.duration` | histogram | event_id | |
 | `om.enricher.duration` | histogram (`s`) | `enricher.id` | response-enricher execution time, list and detail paths |
-| `om.db.pool.in_use` / `om.db.pool.idle` | gauge | — | needs a core ORM hook |
 | `om.cache.hits` / `om.cache.misses` | counter | layer, namespace | needs a core cache hook |
 
 All metric labels are **low-cardinality only**. Tenant/organization/user IDs are emitted as **span attributes**, never as metric labels (metric explosion + cost).
@@ -649,6 +648,8 @@ Touched areas (cross-package wiring, for reviewer awareness):
 ---
 
 ## Changelog
+
+- **2026-10-31 (review follow-up: pool metric catalog)** — Removed the obsolete planned `om.db.pool.in_use` / `om.db.pool.idle` row; the implemented ORM hook reports both states through `om.db.pool.connections`.
 
 - **2026-10-08 (runtime saturation metrics, review follow-up)** — Renamed the
   sampled primary-pool metrics from `db.client.connection.*` to
