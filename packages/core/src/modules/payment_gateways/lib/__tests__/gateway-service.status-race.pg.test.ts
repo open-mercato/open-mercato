@@ -86,7 +86,7 @@ const raceAdapter: GatewayAdapter = {
     session.onCaptureReturned?.()
     return {
       status: 'captured',
-      capturedAmount: session.captureAmount ?? input.amount,
+      capturedAmount: session.captureAmount ?? input.amount ?? 100,
       providerData: { captureMarker: input.sessionId },
     }
   },

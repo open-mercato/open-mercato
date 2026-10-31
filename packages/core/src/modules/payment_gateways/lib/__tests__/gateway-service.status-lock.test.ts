@@ -111,8 +111,8 @@ function buildHarness(input: { committed: TransactionRow; callerCopy: Transactio
   const operations = new Map<string, OperationRecord>()
   let operationSequence = 0
   const txFlush = jest.fn(async () => {})
-  const forkTransactional = jest.fn(async (callback: (tx: unknown) => Promise<unknown>) => callback(forkEm))
-  const forkEm = { flush: txFlush, transactional: forkTransactional }
+  const forkEm: Record<string, unknown> = { flush: txFlush }
+  forkEm.transactional = jest.fn(async (callback: (tx: unknown) => Promise<unknown>) => callback(forkEm))
   const callerFlush = jest.fn(async () => {
     for (const key of Object.keys(callerCopy)) {
       if (callerCopy[key] !== loadedSnapshot[key]) committed[key] = callerCopy[key]
@@ -242,7 +242,7 @@ describe('payment gateway service — status writers evaluate the locked committ
       expect(committed.gatewayMetadata).toEqual({ statusResult: { pollMarker: true } })
       expect(harness.txFlush).toHaveBeenCalledTimes(1)
       expect(harness.callerEm.nativeUpdate).not.toHaveBeenCalled()
-      expect(findCallsWith((options, targetEm) => options?.refresh === true && targetEm === harness.callerEm)).toHaveLength(1)
+      expect(findCallsWith((options, targetEm) => options?.refresh === true && targetEm === (harness.callerEm as unknown))).toHaveLength(1)
       expect(callerCopy.unifiedStatus).toBe('captured')
     })
 
@@ -252,7 +252,7 @@ describe('payment gateway service — status writers evaluate the locked committ
       harness.adapter.getStatus.mockResolvedValue({ status: 'captured' })
       const harnessFind = findOneMock.getMockImplementation()
       findOneMock.mockImplementation(async (targetEm, entity, where, options) => {
-        if ((options as FindOptions)?.refresh && targetEm === harness.callerEm) {
+        if ((options as FindOptions)?.refresh && targetEm === (harness.callerEm as unknown)) {
           throw new Error('[internal] re-read failed')
         }
         return harnessFind!(targetEm, entity, where, options)
@@ -276,7 +276,7 @@ describe('payment gateway service — status writers evaluate the locked committ
       harness.adapter.getStatus.mockResolvedValue({ status: 'captured' })
       const harnessFind = findOneMock.getMockImplementation()
       findOneMock.mockImplementation(async (targetEm, entity, where, options) => {
-        if ((options as FindOptions)?.refresh && targetEm === harness.callerEm) {
+        if ((options as FindOptions)?.refresh && targetEm === (harness.callerEm as unknown)) {
           throw new Error('[internal] re-read failed')
         }
         return harnessFind!(targetEm, entity, where, options)
