@@ -20,6 +20,7 @@ import { computeChecksum } from './checksum'
 import { EmbeddingService } from './embedding'
 import { logVectorOperation } from '../lib/vector-logs'
 import { searchDebug, searchDebugWarn } from '../../lib/debug'
+import { extractSearchableFields } from '../../lib/field-policy'
 
 type ContainerResolver = () => unknown
 const VECTOR_ENTRY_ENCRYPTION_ENTITY_ID = 'vector:vector_search'
@@ -476,10 +477,12 @@ export class VectorIndexService {
       organizationId: resolvedOrgId,
     })
 
-    const normalizedPresenter = this.ensurePresenter(presenter, record, customFields, args.recordId, args.entityId)
+    const metadataRecord = extractSearchableFields(record, { fieldPolicy: entry.config.fieldPolicy })
+    const metadataCustomFields = extractSearchableFields(customFields, { fieldPolicy: entry.config.fieldPolicy })
+    const normalizedPresenter = this.ensurePresenter(presenter, metadataRecord, metadataCustomFields, args.recordId, args.entityId)
     const normalizedLinks = Array.isArray(links) && links.length ? links : null
-    const snapshot = this.deriveSnapshot(record, customFields)
-    const rawResultTitle = this.resolveResultTitle(normalizedPresenter, record, customFields, args.recordId)
+    const snapshot = this.deriveSnapshot(metadataRecord, metadataCustomFields)
+    const rawResultTitle = this.resolveResultTitle(normalizedPresenter, metadataRecord, metadataCustomFields, args.recordId)
     const rawResultSubtitle = normalizedPresenter.subtitle ?? snapshot ?? null
     const rawResultIcon = normalizedPresenter.icon ?? this.mapDefaultIcon(args.entityId)
     const resultBadge = normalizedPresenter.badge ?? null
@@ -761,9 +764,10 @@ export class VectorIndexService {
       if (formatted) return formatted
     }
     if (fallback) return fallback
-    const nameLike = ctx.record.displayName || ctx.record.title || ctx.record.name
+    const fields = extractSearchableFields(ctx.record, { fieldPolicy: config.fieldPolicy })
+    const nameLike = fields.displayName || fields.title || fields.name
     if (typeof nameLike === 'string' && nameLike.trim().length > 0) {
-      const subtitle = ctx.record.description || ctx.record.summary
+      const subtitle = fields.description || fields.summary
       return {
         title: nameLike,
         subtitle: typeof subtitle === 'string' ? subtitle : undefined,
