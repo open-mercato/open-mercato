@@ -6,7 +6,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { CustomerInvitationService } from '@open-mercato/core/modules/customer_accounts/services/customerInvitationService'
 import { emitCustomerAccountsEvent } from '@open-mercato/core/modules/customer_accounts/events'
-import { inviteUserSchema } from '@open-mercato/core/modules/customer_accounts/data/validators'
+import { inviteUserSchema, cancelInvitationSchema, type CancelInvitationInput } from '@open-mercato/core/modules/customer_accounts/data/validators'
 import { isOwnedCompanyEntity, isOwnedPersonEntity, resolveOwnedCompanyForPerson } from '@open-mercato/core/modules/customer_accounts/lib/customerEntityOwnership'
 import { rateLimitErrorSchema } from '@open-mercato/shared/lib/ratelimit/helpers'
 import {
@@ -20,12 +20,18 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import { CustomerUserInvitation } from '@open-mercato/core/modules/customer_accounts/data/entities'
 import { findAndCountWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { lookupHashCandidates } from '@open-mercato/shared/lib/encryption/aes'
+import type { CommandBus } from '@open-mercato/shared/lib/commands'
+import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import type { CancelInvitationResult } from '../../commands/invitations'
 
 const logger = createLogger('customer_accounts').child({ component: 'admin-users-invite' })
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
-export const metadata = {}
+export const metadata = {
+  DELETE: { requireAuth: true, requireFeatures: ['customer_accounts.invite'] },
+}
 
 function resolveInvitedByUserId(auth: NonNullable<Awaited<ReturnType<typeof getAuthFromRequest>>>): string | null {
   if (auth.isApiKey) return auth.userId ?? null
@@ -248,6 +254,63 @@ export async function POST(req: Request) {
   }, { status: 201 })
 }
 
+export async function DELETE(req: Request) {
+  const { translate } = await resolveTranslations()
+  const auth = await getAuthFromRequest(req)
+  if (!auth) {
+    return NextResponse.json({ ok: false, error: translate('customer_accounts.errors.cancelInvitationAuth') }, { status: 401 })
+  }
+
+  if (!auth.tenantId || !auth.orgId) {
+    return NextResponse.json({ ok: false, error: translate('customer_accounts.errors.cancelInvitationPermission') }, { status: 403 })
+  }
+  const container = await createRequestContainer()
+  const rbacService = container.resolve('rbacService') as RbacService
+  const scope = { tenantId: auth.tenantId, organizationId: auth.orgId }
+  if (!await rbacService.userHasAllFeatures(auth.sub, ['customer_accounts.invite'], scope)) {
+    return NextResponse.json({ ok: false, error: translate('customer_accounts.errors.cancelInvitationPermission') }, { status: 403 })
+  }
+
+  const parsed = cancelInvitationSchema.safeParse({ id: new URL(req.url).searchParams.get('id') })
+  if (!parsed.success) {
+    return NextResponse.json({ ok: false, error: translate('customer_accounts.errors.cancelInvitationIdentifier') }, { status: 400 })
+  }
+
+  const userFeatures = await rbacService.getGrantedFeatures(auth.sub, scope)
+  const guarded = await runRouteMutationGuards({
+    container,
+    req,
+    auth: { userId: auth.sub, ...scope, userFeatures },
+    input: {
+      resourceKind: 'customer_accounts:customer_user_invitation',
+      resourceId: parsed.data.id,
+      operation: 'update',
+      mutationPayload: parsed.data,
+    },
+  })
+  if (!guarded.ok) return guarded.response
+
+  const finalInput = cancelInvitationSchema.safeParse({ ...parsed.data, ...guarded.modifiedPayload })
+  if (!finalInput.success || finalInput.data.id !== parsed.data.id) {
+    return NextResponse.json({ ok: false, error: translate('customer_accounts.errors.cancelInvitationIdentifier') }, { status: 400 })
+  }
+
+  const commandBus = container.resolve('commandBus') as CommandBus
+  await commandBus.execute<CancelInvitationInput, CancelInvitationResult>('customer_accounts.invitation.cancel', {
+    input: finalInput.data,
+    ctx: {
+      container,
+      auth,
+      organizationScope: { tenantId: scope.tenantId, selectedId: scope.organizationId, filterIds: [scope.organizationId], allowedIds: [scope.organizationId] },
+      selectedOrganizationId: scope.organizationId,
+      organizationIds: [scope.organizationId],
+      request: req,
+    },
+  })
+  await guarded.runAfterSuccess()
+  return NextResponse.json({ ok: true })
+}
+
 const successSchema = z.object({
   ok: z.literal(true),
   invitation: z.object({
@@ -314,7 +377,22 @@ const listMethodDoc: OpenApiMethodDoc = {
   ],
 }
 
+const cancelMethodDoc: OpenApiMethodDoc = {
+  summary: 'Cancel a pending customer invitation (admin)',
+  description: 'Withdraws a pending invitation within the caller tenant and organization. Missing, out-of-scope, accepted, expired, and already cancelled invitations receive the same neutral success response. Invitation tokens and recipient data are never returned.',
+  tags: ['Customer Accounts Admin'],
+  query: cancelInvitationSchema,
+  responses: [{ status: 200, description: 'Cancellation processed', schema: z.object({ ok: z.literal(true) }) }],
+  errors: [
+    { status: 400, description: 'Invalid invitation identifier', schema: errorSchema },
+    { status: 401, description: 'Not authenticated', schema: errorSchema },
+    { status: 403, description: 'Insufficient permissions or organization selection rejected', schema: errorSchema },
+    { status: 409, description: 'Mutation blocked by a registered guard', schema: errorSchema },
+    { status: 422, description: 'Mutation rejected by a registered guard', schema: errorSchema },
+  ],
+}
+
 export const openApi: OpenApiRouteDoc = {
   summary: 'Invite customer user (admin)',
-  methods: { GET: listMethodDoc, POST: methodDoc },
+  methods: { GET: listMethodDoc, POST: methodDoc, DELETE: cancelMethodDoc },
 }
