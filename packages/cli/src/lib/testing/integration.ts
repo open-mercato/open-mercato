@@ -2178,8 +2178,10 @@ function buildReusableEnvironment(
 ): NodeJS.ProcessEnv {
   const enterpriseModulesFlag = process.env.OM_ENABLE_ENTERPRISE_MODULES ?? 'false'
   const privateAttachmentsRoot = resolvePrivateAttachmentsRootForQueueBaseDir(queueBaseDir)
-  const superadminPassword = process.env.OM_INIT_SUPERADMIN_PASSWORD
-    ?? (existsSync(EPHEMERAL_SUPERADMIN_PASSWORD_PATH)
+  const explicitSuperadminPassword = process.env.OM_INIT_SUPERADMIN_PASSWORD
+  const superadminPassword = explicitSuperadminPassword?.trim()
+    ? explicitSuperadminPassword
+    : (existsSync(EPHEMERAL_SUPERADMIN_PASSWORD_PATH)
       ? readFileSync(EPHEMERAL_SUPERADMIN_PASSWORD_PATH, 'utf8')
       : undefined)
   return buildEnvironment({

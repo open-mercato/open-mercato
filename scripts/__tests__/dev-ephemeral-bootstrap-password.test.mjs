@@ -27,6 +27,7 @@ for (const scenario of [
   test(`ephemeral dev forwards the same ${scenario.name} to initialization and runtime warmup`, async () => {
     let initializePassword
     let runtimePassword
+    let runtimeSession
     let exitCode
     const sandbox = {
       process: { env: scenario.environment, cwd: () => '/tmp/test-app' },
@@ -39,6 +40,7 @@ for (const scenario of [
       startSplashServer: async () => {},
       assertNode24Runtime: () => {},
       shutdownController: { installSignalHandlers() {}, setActiveContainerId() {}, setActiveChild() {} },
+      devSession: { childEnv: { OM_DEV_SESSION_ID: 'test-session' }, registerChild() {} },
       runCompactStage: async (_label, _command, args, options) => {
         if (args[0] === 'initialize') initializePassword = options.env.OM_INIT_SUPERADMIN_PASSWORD
         return 0
@@ -57,6 +59,7 @@ for (const scenario of [
       verbose: false,
       spawn: (_command, _args, options) => {
         runtimePassword = options.env.OM_INIT_SUPERADMIN_PASSWORD
+        runtimeSession = options.env.OM_DEV_SESSION_ID
         const child = new EventEmitter()
         child.pid = 1234
         setImmediate(() => child.emit('exit', 0))
@@ -79,6 +82,7 @@ for (const scenario of [
     assert.equal(typeof initializePassword, 'string')
     assert.ok(initializePassword.length > 0)
     assert.equal(runtimePassword, initializePassword)
+    assert.equal(runtimeSession, 'test-session')
     const expectedPassword = scenario.environment.OM_INIT_SUPERADMIN_PASSWORD ?? parseEnv(scenario.envFile).OM_INIT_SUPERADMIN_PASSWORD
     if (expectedPassword) assert.equal(initializePassword, expectedPassword)
   })

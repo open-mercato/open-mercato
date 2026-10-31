@@ -161,8 +161,9 @@ describe('integration cache and options', () => {
     await restoreEphemeralStateFiles(originalEphemeralEnvState, originalEphemeralLegacyEnvState)
   })
 
-  it('privately retains a fresh superadmin credential for reused environments and removes it with state', async () => {
-    delete process.env.OM_INIT_SUPERADMIN_PASSWORD
+  it.each([undefined, '', '   '])('privately retains a fresh superadmin credential for reused environments with an unset or blank override (%p) and removes it with state', async (override) => {
+    if (override === undefined) delete process.env.OM_INIT_SUPERADMIN_PASSWORD
+    else process.env.OM_INIT_SUPERADMIN_PASSWORD = override
     const password = 'Ephemeral-9xQ!w2rT'
     const fetchSpy = mockHealthyReadinessFetch()
     try {
