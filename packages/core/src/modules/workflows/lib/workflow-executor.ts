@@ -10,7 +10,7 @@
  * Functional API (no classes) following Open Mercato conventions.
  */
 
-import { EntityManager, LockMode } from '@mikro-orm/core'
+import { EntityManager, LockMode, UniqueConstraintViolationException } from '@mikro-orm/core'
 import type { EntityManager as PostgreSqlEntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -50,6 +50,13 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import { emitWorkflowsEvent } from '../events'
 import { DRY_RUN_EVENT_TYPES } from './dry-run'
 import {
+  DEFAULT_WORKFLOW_BUSINESS_KEY_REUSE_POLICY,
+  WORKFLOW_TERMINAL_INSTANCE_STATUSES,
+  canStartNewInstanceForBusinessKey,
+  normalizeBusinessKey,
+  type WorkflowBusinessKeyReusePolicy,
+} from './business-key'
+import {
   STEP_THROUGH_EVENT_TYPE,
   consumeStepThroughRelease,
   isStepThroughArmed,
@@ -61,6 +68,8 @@ import type {
 } from './activity-queue-types'
 
 const logger = createLogger('workflows')
+
+export type { WorkflowBusinessKeyReusePolicy }
 
 // ============================================================================
 // Types and Interfaces
@@ -89,8 +98,29 @@ export interface StartWorkflowOptions {
    * options object would stop protecting the run the moment it suspended.
    */
   isDryRun?: boolean
+  /**
+   * Idempotency key: starts carrying the same key for the same `workflowId`
+   * in one tenant/organization converge on one instance (#7182). Trimmed,
+   * 1..255 characters, stored in plaintext — never put personal data in it.
+   * Not allowed together with `isDryRun`. Absent means today's behaviour.
+   */
+  businessKey?: string | null
+  /**
+   * Whether a key may start a NEW instance after its previous run ended.
+   * Defaults to `reject_duplicate`. Ignored without `businessKey`.
+   */
+  reusePolicy?: WorkflowBusinessKeyReusePolicy
   tenantId: string
   organizationId: string
+}
+
+export interface StartWorkflowResult {
+  instance: WorkflowInstance
+  /**
+   * `false` when an existing instance was returned for the business key. The
+   * caller MUST NOT execute it again — it is already advancing, parked or done.
+   */
+  created: boolean
 }
 
 export interface ExecutionContext {
@@ -182,15 +212,82 @@ export class WorkflowExecutionError extends Error {
 /**
  * Start a new workflow instance from a definition
  *
+ * With a `businessKey` this may return an EXISTING instance; callers that need
+ * to know (to avoid executing it twice) use {@link startOrReuseWorkflow}.
+ *
  * @param em - Entity manager for database operations
  * @param options - Workflow start options
- * @returns Created workflow instance
+ * @returns Created (or, for a business key, existing) workflow instance
  * @throws WorkflowExecutionError if definition not found or validation fails
  */
 export async function startWorkflow(
   em: EntityManager,
   options: StartWorkflowOptions
 ): Promise<WorkflowInstance> {
+  const { instance } = await startOrReuseWorkflow(em, options)
+  return instance
+}
+
+/**
+ * The instance that owns `businessKey` in its scope.
+ *
+ * An OPEN holder always wins, whatever its age: a failed run that is retried
+ * after a newer run reused its key and completed is the key's live owner, and
+ * a creation-order lookup would hand back the finished newer run instead. Only
+ * when nothing holds the key open does the latest ended run decide the reuse
+ * policy.
+ */
+async function findBusinessKeyHolder(
+  em: EntityManager,
+  scope: { tenantId: string; organizationId: string; workflowId: string; businessKey: string },
+  excludeInstanceId?: string,
+): Promise<WorkflowInstance | null> {
+  const where = {
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+    workflowId: scope.workflowId,
+    businessKey: scope.businessKey,
+    deletedAt: null,
+    ...(excludeInstanceId ? { id: { $ne: excludeInstanceId } } : {}),
+  }
+  const decryptionScope = { tenantId: scope.tenantId, organizationId: scope.organizationId }
+  const openHolder = await findOneWithDecryption(
+    em as PostgreSqlEntityManager,
+    WorkflowInstance,
+    { ...where, status: { $nin: [...WORKFLOW_TERMINAL_INSTANCE_STATUSES] } },
+    { orderBy: { createdAt: 'DESC' } },
+    decryptionScope,
+  )
+  if (openHolder) return openHolder
+  return findOneWithDecryption(
+    em as PostgreSqlEntityManager,
+    WorkflowInstance,
+    where,
+    { orderBy: { createdAt: 'DESC' } },
+    decryptionScope,
+  )
+}
+
+class BusinessKeyHeldByEndedInstance extends Error {
+  constructor(readonly holder: WorkflowInstance) {
+    super('[internal] business key held by an ended instance')
+  }
+}
+
+/**
+ * Start a workflow instance, or return the one that already owns `businessKey`.
+ *
+ * Without a key this is exactly the historic `startWorkflow`. With one, the
+ * open instance holding the key is always returned; with none open, the latest
+ * ended one is returned unless `reusePolicy` allows a new run after it ended.
+ * Concurrent starts are arbitrated by the
+ * `workflow_instances_business_key_open_uq` partial unique index, and the
+ * losing start returns the winner with `created: false`.
+ */
+export async function startOrReuseWorkflow(
+  em: EntityManager,
+  options: StartWorkflowOptions
+): Promise<StartWorkflowResult> {
   const {
     workflowId,
     version,
@@ -198,9 +295,42 @@ export async function startWorkflow(
     correlationKey,
     metadata,
     isDryRun = false,
+    reusePolicy = DEFAULT_WORKFLOW_BUSINESS_KEY_REUSE_POLICY,
     tenantId,
     organizationId,
   } = options
+
+  const normalizedKey = normalizeBusinessKey(options.businessKey)
+  if (!normalizedKey.ok) {
+    throw new WorkflowExecutionError(
+      normalizedKey.reason === 'empty'
+        ? 'Business key must not be empty'
+        : 'Business key must be at most 255 characters',
+      'INVALID_BUSINESS_KEY',
+      { workflowId, reason: normalizedKey.reason }
+    )
+  }
+  const businessKey = normalizedKey.businessKey
+  if (businessKey && isDryRun) {
+    throw new WorkflowExecutionError(
+      'A dry run cannot carry a business key',
+      'INVALID_BUSINESS_KEY',
+      { workflowId, reason: 'dryRun' }
+    )
+  }
+
+  const businessKeyScope = businessKey
+    ? { tenantId, organizationId, workflowId, businessKey }
+    : null
+
+  // Idempotency comes before definition validation: a redelivered start must
+  // get its instance back even if the definition was disabled since.
+  if (businessKeyScope) {
+    const existing = await findBusinessKeyHolder(em, businessKeyScope)
+    if (existing && !canStartNewInstanceForBusinessKey(reusePolicy, existing.status)) {
+      return { instance: existing, created: false }
+    }
+  }
 
   // Find workflow definition
   const definition = await findWorkflowDefinition(em, {
@@ -293,14 +423,15 @@ export async function startWorkflow(
 
   // Create workflow instance
   const now = new Date()
-  const instance = em.create(WorkflowInstance, {
+  const instanceData = {
     definitionId: definition.id,
     workflowId: definition.workflowId,
     version: definition.version,
-    status: 'RUNNING',
+    status: 'RUNNING' as const,
     currentStepId: startStep.stepId,
     context: initialContext,
     correlationKey,
+    ...(businessKey ? { businessKey } : {}),
     metadata,
     startedAt: now,
     retryCount: 0,
@@ -309,9 +440,42 @@ export async function startWorkflow(
     organizationId,
     createdAt: now,
     updatedAt: now,
-  })
+  }
 
-  await em.persist(instance).flush()
+  let instance: WorkflowInstance
+  if (!businessKeyScope) {
+    instance = em.create(WorkflowInstance, instanceData)
+    await em.persist(instance).flush()
+  } else {
+    // A nested transaction is a SAVEPOINT when the caller already holds one,
+    // so the unique violation a concurrent winner causes rolls back only this
+    // insert and never poisons the caller's transaction.
+    //
+    // The partial unique index only arbitrates OPEN holders. A concurrent start
+    // that inserted and already ended between our pre-check and our insert is
+    // caught by re-reading the key after the insert: under READ COMMITTED that
+    // read sees every holder committed before our insert, so a holder the
+    // policy refuses to start past rolls our row back and is returned instead.
+    try {
+      instance = await em.transactional(async (trx) => {
+        const created = trx.create(WorkflowInstance, instanceData)
+        await trx.persist(created).flush()
+        const holder = await findBusinessKeyHolder(trx, businessKeyScope, created.id)
+        if (holder && !canStartNewInstanceForBusinessKey(reusePolicy, holder.status)) {
+          throw new BusinessKeyHeldByEndedInstance(holder)
+        }
+        return created
+      })
+    } catch (error) {
+      if (error instanceof BusinessKeyHeldByEndedInstance) {
+        return { instance: error.holder, created: false }
+      }
+      if (!(error instanceof UniqueConstraintViolationException)) throw error
+      const winner = await findBusinessKeyHolder(em, businessKeyScope)
+      if (!winner) throw error
+      return { instance: winner, created: false }
+    }
+  }
 
   // Log WORKFLOW_STARTED event
   await logWorkflowEvent(em, {
@@ -343,7 +507,7 @@ export async function startWorkflow(
   await emitInstanceLifecycleEvent(instance, 'workflows.instance.created')
   await emitInstanceLifecycleEvent(instance, 'workflows.instance.started')
 
-  return instance
+  return { instance, created: true }
 }
 
 /**
