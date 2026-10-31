@@ -65,6 +65,38 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.9.0 → 0.9.1 (unreleased)
 
+### Encrypted custom fields in plaintext search fields (#7894)
+
+Application-managed `SearchIndexer` calls now exclude encrypted custom-field keys
+from fulltext document fields and vector fallback text, while preserving values
+for hashed-token search. A failed definition lookup excludes every custom field
+from those plaintext paths. Explicit source text and callback-generated metadata
+are a separate protection tracked in #7874.
+
+**Operator action:** reindex affected fulltext and vector data after upgrading;
+previously indexed plaintext is not removed until records are rewritten. Review
+any retention/export copies held by external search or embedding providers.
+
+**Module author action:** application DI wires the resolver automatically. Code
+constructing `SearchIndexer` manually must pass `encryptedCustomFieldKeysResolver`
+to enable definition-based exclusions; omission preserves its legacy behavior.
+Direct `SearchService.index`/`bulkIndex` clients can pass
+`IndexableRecord.plaintextExcludedCustomFields` as an array of encrypted definition
+keys, or `'all'` when definitions cannot be resolved. Both `cf:` and sanitized
+`cf_` aliases are excluded. Omission preserves existing behavior, and `fields`
+continues to reach the hashed-token strategy unchanged. Public routes, required
+parameters, strategy IDs and queue payloads are unchanged.
+
+<a id="issue-3805"></a>
+
+### Direct AI tool mutations require agent policy (#3805)
+
+`POST /api/ai_assistant/tools/execute` now returns HTTP 403 for tools declared `isMutation: true`, before invoking their handler, including for superadmins. Previously this endpoint allowed callers with the tool's write features to bypass the agent mutation policy, preview, and confirmation control plane. Read tools retain their existing behavior and response shape. The Emergency Security Exception is requested because keeping direct mutations working during a bridge release would preserve the bypass; named human maintainer sign-off is required before merge.
+
+**Action for clients:** replace direct mutation requests with a registered agent's chat or run-object request (`/api/ai_assistant/ai/chat` or `/api/ai_assistant/ai/run-object`). Allowlist the tool on that agent and follow its effective tenant mutation policy, confirming pending actions when required. Client-supplied `approved`, agent policy, or pending-action fields do not authorize direct execution. Existing approved action confirmation and policy-permitted agent execution continue working.
+
+**Action for operators:** deploy the fix, identify integrations using the direct endpoint for writes, and migrate them before relying on those writes. Review earlier direct mutation requests and affected records for changes without the expected approvals; the fix does not undo or retrospectively approve those writes. No stored credentials, pending actions, or data become unusable. See the [spec](.ai/specs/2026-10-31-issue-3805-direct-tool-mutation-approval.md) and [compatibility exception record](BACKWARD_COMPATIBILITY.md#3805-2026-10-31).
+
 ### Nested ACL wildcards now grant their matching enabled-module features (#5523)
 
 Nested role and user ACL grants such as `sales.order.*`, `catalog.product.*`,
@@ -227,6 +259,28 @@ activity timeout for a slower endpoint, and move large results behind a separate
 retrieval or asynchronous workflow.
 Existing request configuration and successful response envelopes are unchanged.
 
+### Extension-enabled table tests wait for registry registration (#7484)
+
+Standalone-app tests or isolated hosts that render a `DataTable` with `perspective`
+or `extensionTableId`, or call `useInjectionDataWidgets`, must register both injection
+registries before expecting rows. Application bootstrap already registers them. Tests
+without extensions can use empty registries in setup:
+
+```ts
+import {
+  registerCoreInjectionWidgets,
+  registerCoreInjectionTables,
+} from '@open-mercato/shared/modules/widgets/injection-loader'
+
+registerCoreInjectionWidgets([])
+registerCoreInjectionTables([])
+```
+
+The hook keeps its existing result shape. Pending registration holds the first table
+header until columns are known; rejected client registration releases the base table
+with an extension-load error. Reloading the page retries bootstrap. No API or database
+migration is required.
+
 ### Rebuild customer search vectors after the privacy fix (#7826)
 
 The person, company, and customer-account vector builders now use explicit safe
@@ -375,6 +429,12 @@ API-key profiles; use independently administered machine keys for those actions.
 A regenerated MCP key becomes invalid if its owner's home organization changes,
 including a change from no home organization to a concrete one. Generate a new
 key and update the MCP client secret after such a change.
+
+### SCIM deactivation blocks fresh SSO and password sign-in (#7824)
+
+With the enterprise SSO module enabled, an outstanding SCIM deactivation now denies fresh SSO sign-in for that identity's configuration and denies password verification for the linked account in its own tenant and organization. This includes configurations created without a tenant, after verifying organization and configuration ownership. Password changes and email relinking do not reactivate the identity. Final session issuance and all SCIM deactivation writers share a user lock, so a concurrent login cannot leave a usable session after deactivation commits; access in other scopes is preserved.
+
+**Operator action:** restore intentionally deactivated access through SCIM `active:true`. Clients continue handling the existing invalid-credentials response or `sso_failed` callback redirect. No endpoint, token, or database migration is required. Applications replacing the `authService` DI registration must preserve the SSO module's scoped deactivation check in password verification and atomic final session issuance.
 
 ### Scoped attachment bytes no longer advertise shared caching (#7220)
 
@@ -667,6 +727,167 @@ does for draft attachments. Built-in display-only lists (the attachment form fie
 variant media, sales channel offer media, the warranty claim attachments tab and the warranty claim
 line picker for AI assessment) still use the unpaginated form, so they show at most the newest 100
 attachments of a record and any count derived from them stops at 100.
+
+### Platform-wide catalogues are indexed once, under the null tenant
+
+An entity type declared through `registerTenantGlobalEntityTypes()` is a catalogue every
+tenant reads, and its source table has neither a `tenant_id` nor an `organization_id`
+column to scope it by. A tenant-scoped reindex used to stamp such rows with the caller's
+tenant, and with the caller's organization when it had one. `entity_indexes` is unique on
+`(entity_type, entity_id, organization_id_coalesced)`, so what that did depended on the
+path. A reindex without an organization (the CLI) wrote the same key as the event path's
+null-scope row and moved that one row into its own tenant: the last tenant to reindex took
+the catalogue from every other, whose leftover tokens then produced hits with no presenter,
+title or URL. A reindex with one (`/api/query_index/reindex` always supplies it) wrote a
+separate copy keyed by that organization, readable there and nowhere else, which only that
+organization's next reindex refreshed - the event path writes the null-scope row.
+
+`reindexEntity()` now writes the projection of a declared catalogue under
+`tenant_id = NULL, organization_id = NULL`, which is already where the event path files it
+(`resolveQueryIndexRecordScope()` resolves a table with neither scope column to a null
+scope and requires the payload to say so). The readers in `@open-mercato/search` gained the
+matching declaration-gated branch on both axes:
+
+- tenant, in `TokenSearchStrategy` and the presenter enricher: `tenant_id = <tenant> OR
+  (tenant_id IS NULL AND entity_type IN <declared catalogues>)`;
+- organization, in `TokenSearchStrategy`: `organization_id IN <selected> OR
+  (organization_id IS NULL AND tenant_id IS NULL AND entity_type IN <declared catalogues>)`,
+  and `SearchService` keeps an organization-less result only for a declared type.
+  `SearchService` passes the selected organization even for a superadmin, so without this
+  a selected-organization search dropped every catalogue hit.
+
+The entity-type conjunct is load-bearing: a table with neither scope column is stored under
+the null scope whether it is a catalogue or private data, so an unqualified NULL branch would
+publish `directory:tenant`, `auth:user_role` and their kind to every tenant. A declared type
+whose table carries `organization_id` but no `tenant_id` is refused with
+`declared-global-but-org-scoped`, so `writesGlobalProjection` and
+`loadQueryIndexRowScope()`'s `kind: 'global'` mean the same thing.
+
+Only the projection moves. Vector work for a declared catalogue keeps the caller's scope -
+`query_index.vectorize_one`, the force reindex's `query_index.vectorize_purge` and
+`removeOrphans` - because the vector consumers need a real tenant and nothing defines a
+shared vector; its vectors stay filed per tenant, as before.
+
+The search strategy's single and batch token writes also use the canonical null/null
+scope, including writes from the real vector worker. Search results for declared catalogues
+are fused across token, vector and fulltext strategies after organization filtering, while
+vector/fulltext storage retains caller scope. Document filters resolve the live canonical
+projection for declared types; ordinary types keep their tenant correlation.
+
+**Action for module authors.** None beyond the declaration the previous note describes.
+Ordinary tenant-scoped entity types retain their tenant/organization scope. Tenant-less
+private types are quarantined automatically as described in the security upgrade note below.
+
+**Action for operators.** Reindex each declared catalogue once after upgrading
+(`feature_toggles:feature_toggle`, plus any type your modules declare). The sweep writes
+the canonical rows, then retires every row an earlier sweep stamped with a caller scope,
+whichever tenant stamped it: the projections, their `search_tokens` and their
+`entity_index_coverage` rows. Until then an organization that reindexed before the upgrade
+can be served its old copy alongside the canonical one, with duplicate token contributions
+inflating its search rank. The equivalent manual cleanup,
+safe to run once the canonical rows exist, per declared entity type:
+
+```sql
+DELETE FROM entity_indexes
+ WHERE entity_type = 'feature_toggles:feature_toggle'
+   AND (tenant_id IS NOT NULL OR organization_id IS NOT NULL);
+DELETE FROM search_tokens
+ WHERE entity_type = 'feature_toggles:feature_toggle'
+   AND (tenant_id IS NOT NULL OR organization_id IS NOT NULL);
+DELETE FROM entity_index_coverage
+ WHERE entity_type = 'feature_toggles:feature_toggle'
+   AND (tenant_id IS NOT NULL
+        OR (organization_id IS NOT NULL
+            AND organization_id <> '00000000-0000-0000-0000-000000000000'));
+```
+
+### A tenant-scoped reindex of a table with no `tenant_id` column is refused
+
+Contracts: [scoped reindex](.ai/specs/2026-08-28-tenant-scoped-reindex-of-tenant-less-tables.md) and [global catalogues](.ai/specs/2026-08-28-tenant-global-entity-types-in-the-search-index.md).
+
+`reindexEntity()` applied its tenant predicate only when the source table had a
+`tenant_id` column, and silently dropped it otherwise — while still stamping every
+swept row with the caller's tenant. A tenant-scoped reindex of a tenant-less table
+therefore read every tenant's rows and filed them under whichever tenant ran it, and
+both index readers (`TokenSearchStrategy.search()`, the presenter enricher) match
+`tenant_id` exactly with no NULL branch, so those rows were served as that tenant's
+own. That combination is now refused: `reindexEntity()` returns an empty result and
+logs *"Refusing tenant-scoped reindex of a table with no tenant_id column"*. A
+`tenantId` of `null` or `undefined` is unaffected — it stamps no tenant, so it never
+crossed a boundary.
+
+**Action for module authors.** If a reindex of one of your entity types starts
+returning 0 with that warning, exactly one of two things is true:
+
+1. The table holds per-tenant rows and is missing its `tenant_id` column. Its index
+   was cross-tenant before this release. Add the column, or index the entity through
+   the event path only.
+2. The table is a platform-wide catalogue every tenant is meant to read. Declare it
+   during module registration (a module's `di.ts` is the usual place), before any
+   reindex job runs:
+
+   ```ts
+   import { registerTenantGlobalEntityTypes } from '@open-mercato/core/modules/query_index/lib/tenant-global'
+
+   registerTenantGlobalEntityTypes('billing:plan')
+   ```
+
+   Forgetting the call fails closed: the entity type keeps being refused, and the
+   warning names it. `feature_toggles:feature_toggle` is registered by the platform
+   and needs no action.
+
+**Security upgrade.** Existing private projections and tokens are automatically quarantined
+by physical source-scope verification on the read path, including rows stamped with a victim
+tenant by an older sweep. Quarantine requires no operator cleanup and does not delete source
+or index records. Token reads exclude unsafe types before ranking; hybrid search and presenter
+enrichment enforce the same policy, and query-index document joins for tenant-less sources
+require a null tenant. Provider/synthetic strategy results retain their caller scope and supplied presenters.
+Persisted local tokens, projections and pgvector results require verified ORM scope or exact
+tenant/organization/type/record proof in custom-entity storage; unregistered or disabled-module residue is
+quarantined too. Unverified synthetic local writes are declined, and cannot borrow historical
+projections. Register the source ORM entity, use tenant-scoped custom storage, or keep a
+provider-backed strategy for a virtual source. No unverified source can activate global scope.
+
+Catalogue declarations remain API-compatible but no longer authorize global scope by themselves.
+Registered ORM metadata and physical columns must prove that both scope columns are absent.
+Incorrect tenant-scoped declarations retain ordinary tenant/organization isolation; private
+organization-only types remain quarantined. Verification errors fail closed and are retryable;
+cached verification is isolated by ORM driver and invalidated by entity, metadata or declaration
+changes. Restart application and worker processes after schema migrations. Tenant-scoped custom
+entity storage remains supported. No schema migration or destructive cleanup is introduced.
+
+2026-10-31 follow-up: source identity is the exact registered entity metadata, including
+schema and mapped scope columns; duplicate/ambiguous metadata fails closed. Sweeps,
+subscriber source rows, index documents, query-engine and coverage probes use that same
+qualified source. Same-name tables in another schema cannot supply catalogue proof.
+A schema-qualified query that requires the basic fallback (missing base table, explicit
+automatic-scope bypass, missing index or partial coverage) is refused because that engine
+cannot preserve the source identity. Reindexing can avoid missing/partial-index fallback
+when usable projections exist; empty sources and other fallback-dependent cases remain
+unsupported. Named queries that stay in the hybrid path work normally. Unqualified
+sources retain their existing fallback behavior.
+Custom-storage proof also binds organization in SQL and batched writes/results; stale
+artifacts from another organization cannot authorize a record. Reviewer-supplied schema
+collision and organization regressions ship with the repair.
+
+**Optional operator cleanup.** A deployment that has run an old tenant-scoped reindex
+of a tenant-less private entity type may remove quarantined derived artifacts to reclaim storage.
+Delete only the
+`entity_indexes` and `search_tokens` rows for those entity types and let the event
+path refile the ones that still matter. Entity types whose table has no `tenant_id`
+column, and which are not catalogues, are the ones to check first. Delete the matching
+`entity_index_coverage` rows in the same pass: the guard returns before
+`refreshCoverageSnapshot()`, so a coverage row written by an earlier tenant-scoped run
+is never refreshed again and the indexer status page keeps reporting a stale
+base/indexed pair for that entity type.
+
+A refused sweep is now reported as one. `reindexEntity()` returns
+`refused: 'no-tenant-column' | 'column-probe-failed'`, the reindex subscriber writes it
+into `indexer_status_logs` at `level: 'warn'` with the reason, and the CLI prints
+`reindex REFUSED, nothing was indexed`. Previously a refusal was byte-identical to a
+successful zero-row sweep on all three surfaces, so a module author who forgot the
+`registerTenantGlobalEntityTypes()` call saw a green completion on the one screen built
+to answer "why is this entity type not indexed".
 
 ### New `cart` and `promotions` modules, and buyer-scoped catalog visibility in the cart (#7592)
 
@@ -1214,6 +1435,30 @@ fails, is logged and reported (`customer_accounts.password_reset_email_failed` /
 **Action for module authors:** none, unless your app wraps these two routes (an API interceptor or a
 proxy endpoint) to mint and deliver its own link alongside the call — remove that delivery, or
 customers will receive two emails per request.
+
+### Standalone apps must keep `pdfjs-dist` out of the server bundle (#6398)
+
+Production builds bundled `pdfjs-dist` into a Next server chunk, so pdfjs looked for its
+`pdf.worker.mjs` in the chunks folder, where the build never emits it. PDF text extraction and PDF
+OCR then returned nothing: uploaded PDFs kept `attachments.content = NULL`, and the OCR path logged
+`Setting up fake worker failed: Cannot find module '…/chunks/pdf.worker.mjs'`. Development
+(`yarn dev`) was not affected.
+
+The monorepo app and the `create-mercato-app` template now list `'pdfjs-dist'` in
+`serverExternalPackages`, so newly scaffolded apps are fixed.
+
+**Action for standalone app authors:** apps scaffolded before this release keep their own
+`next.config.ts`. Add the package to the existing list:
+
+```ts
+serverExternalPackages: [
+  // ...existing entries
+  'pdfjs-dist',
+],
+```
+
+Rebuild with `yarn build`, then restart the server. pdfjs caches a failed worker setup for the
+lifetime of the process.
 
 ### Redoing an `auth.users.create` no longer restores the account's password
 
