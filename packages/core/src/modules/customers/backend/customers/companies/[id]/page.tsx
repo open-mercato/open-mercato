@@ -285,46 +285,61 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
     [injectedTabs, t],
   )
 
-  React.useEffect(() => {
+  // Bumped per request and on effect cleanup so only the latest response lands.
+  const loadRequestRef = React.useRef(0)
+  // The company whose overview is on screen; null while an error or not-found state replaces it.
+  const loadedCompanyIdRef = React.useRef<string | null>(null)
+  const loadData = React.useCallback(async () => {
     if (!id) {
       setIsNotFound(true)
       setIsLoading(false)
       return
     }
     const companyId = id
-    let cancelled = false
-    async function load() {
+    const requestId = ++loadRequestRef.current
+    // A refresh of the company already on screen keeps the page (and any
+    // unsaved inline drafts) mounted instead of flipping back to the spinner.
+    const isInitialLoad = loadedCompanyIdRef.current !== companyId
+    if (isInitialLoad) {
       setIsLoading(true)
       setError(null)
-      try {
-        const search = new URLSearchParams()
-        search.append('include', 'todos')
-        search.append('include', 'people')
-        const payload = await readApiResultOrThrow<CompanyOverview>(
-          `/api/customers/companies/${encodeURIComponent(companyId)}?${search.toString()}`,
-          undefined,
-          { errorMessage: t('customers.companies.detail.error.load', 'Failed to load company.') },
-        )
-        if (cancelled) return
-        setData(payload as CompanyOverview)
-      } catch (err) {
-        if (cancelled) return
-        if (isDetailNotFoundStatus((err as { status?: number }).status)) {
-          setIsNotFound(true)
-        } else {
-          const message = err instanceof Error ? err.message : t('customers.companies.detail.error.load', 'Failed to load company.')
-          setError(message)
-        }
-        setData(null)
-      } finally {
-        if (!cancelled) setIsLoading(false)
-      }
+      setIsNotFound(false)
     }
-    load().catch(() => {})
-    return () => {
-      cancelled = true
+    try {
+      const search = new URLSearchParams()
+      search.append('include', 'todos')
+      search.append('include', 'people')
+      const payload = await readApiResultOrThrow<CompanyOverview>(
+        `/api/customers/companies/${encodeURIComponent(companyId)}?${search.toString()}`,
+        undefined,
+        { errorMessage: t('customers.companies.detail.error.load', 'Failed to load company.') },
+      )
+      if (requestId !== loadRequestRef.current) return
+      loadedCompanyIdRef.current = companyId
+      setData(payload as CompanyOverview)
+    } catch (err) {
+      if (requestId !== loadRequestRef.current) return
+      if (isDetailNotFoundStatus((err as { status?: number }).status)) {
+        loadedCompanyIdRef.current = null
+        setIsNotFound(true)
+        setData(null)
+      } else if (isInitialLoad) {
+        const message = err instanceof Error ? err.message : t('customers.companies.detail.error.load', 'Failed to load company.')
+        loadedCompanyIdRef.current = null
+        setError(message)
+        setData(null)
+      }
+    } finally {
+      if (requestId === loadRequestRef.current) setIsLoading(false)
     }
   }, [id, t])
+
+  React.useEffect(() => {
+    loadData().catch(() => {})
+    return () => {
+      loadRequestRef.current += 1
+    }
+  }, [loadData])
 
   const saveCompany = React.useCallback(
     async (patch: Record<string, unknown>, apply: (prev: CompanyOverview) => CompanyOverview) => {
@@ -884,6 +899,7 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
                     }}
                     onActionChange={handleSectionActionChange}
                     onLoadingChange={handleActivitiesLoadingChange}
+                    onDataRefresh={loadData}
                   />
                 )
               }
