@@ -158,6 +158,16 @@ function matchesCustomDocumentFilter(row: Record<string, unknown>, filter: Filte
     case 'like': case 'ilike': {
       return values.some((value) => value != null && matchesCustomDocumentPattern(String(value), String(expected ?? ''), filter.op === 'ilike'))
     }
+    case 'not_ilike': {
+      if (expected === null || typeof expected !== 'object' || !('pattern' in expected) || typeof expected.pattern !== 'string') {
+        throw new TypeError('[internal] QueryEngine: text negation requires a prepared pattern')
+      }
+      const pattern = expected.pattern
+      const candidates: unknown[] = Array.isArray(actual) ? actual : [actual]
+      const isTextValue = (value: unknown) => ['string', 'number', 'boolean'].includes(typeof value)
+      return candidates.some(isTextValue) && candidates.every((value) => value == null
+        || (isTextValue(value) && !matchesCustomDocumentPattern(String(value), pattern, true)))
+    }
     default: throw new Error('[internal] Unsupported custom entity filter operator')
   }
 }

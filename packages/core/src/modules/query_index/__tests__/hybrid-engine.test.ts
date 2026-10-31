@@ -2798,6 +2798,80 @@ describe('HybridQueryEngine custom-document encryption (#7810)', () => {
     expect(candidate?.wheres.flat()).not.toContain('private match')
   })
 
+  test.each([
+    ['nonmatching', 'private value', true],
+    ['matching case-insensitively', 'Private FOO value', false],
+    ['empty string', '', true],
+    ['null', null, false],
+    ['missing', undefined, false],
+    ['empty array', [], false],
+    ['null-only array', [null], false],
+    ['nonmatching array', ['private', 'other'], true],
+    ['matching array', ['private', 'FOO'], false],
+    ['nonmatching array with null', ['private', null], true],
+  ] as const)('negated encrypted text handles %s values before pagination', async (_label, value, matches) => {
+    const rows: Array<Record<string, unknown>> = []
+    const { engine, seal } = fixture(rows)
+    const encrypted = Array.isArray(value)
+      ? await Promise.all(value.map((entry) => entry == null ? entry : seal(entry)))
+      : value == null ? value : await seal(value)
+    rows.push(row('candidate', value === undefined ? {} : { cf_code: encrypted }))
+    const result = await engine.query(entity, {
+      fields: ['id', 'cf:code'], tenantId: tenant, forceCustomEntityStorage: true,
+      filters: { 'cf:code': { $not: { $ilike: '%foo%' } } }, page: { page: 1, pageSize: 1 },
+    })
+    expect(result.items).toEqual(matches ? [{ id: 'candidate', cf_code: value }] : [])
+    expect(result.total).toBe(matches ? 1 : 0)
+  })
+
+  test('negates the prepared pattern on bare encrypted document fields', async () => {
+    const rows: Array<Record<string, unknown>> = []
+    const { engine, seal } = fixture(rows)
+    rows.push(row('match', { code: await seal('other') }), row('excluded', { code: await seal('FOO') }))
+    const result = await engine.query(entity, {
+      fields: ['id'], tenantId: tenant, forceCustomEntityStorage: true,
+      filters: { code: { $not: { $ilike: '%foo%' } } },
+    })
+    expect(result.items).toEqual([{ id: 'match' }])
+    expect(result.total).toBe(1)
+  })
+
+  test('preserves negated plaintext leaves in OR groups deferred by an encrypted field', async () => {
+    const rows: Array<Record<string, unknown>> = []
+    const { engine, seal, db } = fixture(rows)
+    rows.push(
+      row('encrypted-match', { code: await seal('private'), status: 'open' }),
+      row('public-match', { code: await seal('other'), status: 'closed' }),
+      row('excluded', { code: await seal('other'), status: 'OPEN' }),
+      row('null', { code: await seal('other'), status: null }),
+      row('missing', { code: await seal('other') }),
+    )
+    const result = await engine.query(entity, {
+      fields: ['id'], tenantId: tenant, forceCustomEntityStorage: true,
+      filters: { $or: [{ code: 'private' }, { status: { $not: { $ilike: '%open%' } } }] },
+    })
+    expect(result.items).toEqual([{ id: 'encrypted-match' }, { id: 'public-match' }])
+    expect(result.total).toBe(2)
+    const candidate = (db._chains as ChainLog[]).find((chain) => chain.table === 'custom_entities_storage' && chain.selects.some((selection: unknown) => selection === 'ce.entity_id as id'))
+    expect(candidate?.wheres.flat().filter((predicate) => typeof predicate === 'function')).toHaveLength(0)
+  })
+
+  test('preserves negated encrypted leaves in mixed OR groups', async () => {
+    const rows: Array<Record<string, unknown>> = []
+    const { engine, seal } = fixture(rows)
+    rows.push(
+      row('encrypted-match', { code: await seal('other'), status: 'closed' }),
+      row('public-match', { code: await seal('private'), status: 'open' }),
+      row('excluded', { code: await seal('private'), status: 'closed' }),
+    )
+    const result = await engine.query(entity, {
+      fields: ['id'], tenantId: tenant, forceCustomEntityStorage: true,
+      filters: { $or: [{ code: { $not: { $ilike: '%private%' } } }, { status: 'open' }] },
+    })
+    expect(result.items).toEqual([{ id: 'encrypted-match' }, { id: 'public-match' }])
+    expect(result.total).toBe(2)
+  })
+
   test('preserves OR groups mixing encrypted and public fields while removing hidden comparison projections', async () => {
     const rows: Array<Record<string, unknown>> = []
     const { engine, seal, db } = fixture(rows)
