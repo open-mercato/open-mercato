@@ -285,6 +285,7 @@ export type PromotionCacheContainer = {
 }
 
 function resolvePromotionCacheStrategy(container: PromotionCacheContainer): CacheStrategy | null {
+  if (resolvePromotionEm(container).isInTransaction()) return null
   try {
     return container.resolve<CacheStrategy>('cache') ?? null
   } catch {
@@ -293,8 +294,10 @@ function resolvePromotionCacheStrategy(container: PromotionCacheContainer): Cach
 }
 
 function resolvePromotionEm(container: PromotionCacheContainer): EntityManager {
-  const em = (TransactionContext.getEntityManager() as EntityManager | undefined) ?? container.resolve<EntityManager>('em')
-  return em.fork({ keepTransactionContext: true })
+  const registeredEm = container.resolve<EntityManager>('em')
+  const contextualEm = TransactionContext.getEntityManager(registeredEm.name) as EntityManager | undefined
+  const em = contextualEm && contextualEm.getDriver() === registeredEm.getDriver() ? contextualEm : registeredEm
+  return em.fork({ keepTransactionContext: true, disableContextResolution: Boolean(contextualEm && contextualEm !== em) })
 }
 
 export class PromotionCacheService {
