@@ -154,12 +154,28 @@ describe('plaintext custom-field boundaries (#7894)', () => {
     expectPlaintextSafe(harness)
   })
 
-  it('filters fallback fields when buildSource throws', async () => {
+  it.each(['by-id', 'bulk', 'reindex'] as const)('keeps fulltext exclusions and skips vector fallback when buildSource throws through %s', async (entryPoint) => {
     const harness = createHarness({ buildSource: async () => { throw new Error('[internal] Source unavailable') } })
 
-    await harness.indexer.indexRecordById({ entityId, recordId: 'record-1', tenantId: 'tenant-1' })
+    if (entryPoint === 'by-id') {
+      await harness.indexer.indexRecordById({ entityId, recordId: 'record-1', tenantId: 'tenant-1' })
+    } else if (entryPoint === 'bulk') {
+      await harness.indexer.bulkIndexRecords([{ entityId, recordId: 'record-1', tenantId: 'tenant-1', record: makeFields() }])
+    } else {
+      const result = await harness.indexer.reindexEntity({ entityId, tenantId: 'tenant-1' })
+      expect(result.success).toBe(true)
+    }
 
-    expectPlaintextSafe(harness)
+    expect(harness.documents).toHaveLength(1)
+    expect(harness.documents[0].fields).toEqual({ id: 'record-1', title: 'Public title', cf_note: 'Visible custom note' })
+    expect(JSON.stringify(harness.documents[0])).not.toContain('PRIVATE-')
+    expect(harness.embeddings).toEqual([])
+    const tokenDocuments = [
+      ...jest.mocked(replaceSearchTokensForRecord).mock.calls.map((call) => call[1].doc),
+      ...jest.mocked(replaceSearchTokensForBatch).mock.calls.flatMap((call) => call[1].map((record) => record.doc)),
+    ]
+    expect(tokenDocuments).toHaveLength(1)
+    expect(tokenDocuments[0]).toEqual(expect.objectContaining({ 'cf:secret': 'PRIVATE-CANONICAL', 'cf:note': 'Visible custom note' }))
   })
 
   it.each(['async', 'sync'] as const)('fails closed for all custom fields on a %s resolver error while token inputs remain unchanged', async (kind) => {

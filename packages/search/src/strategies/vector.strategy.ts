@@ -139,10 +139,10 @@ export class VectorSearchStrategy implements SearchStrategy {
   async index(record: IndexableRecord): Promise<void> {
     await this.ensureReady()
     // Use text from buildSource if available, otherwise fall back to generic extraction
-    const textContent = record.text
+    const textContent = record.text !== undefined
       ? (Array.isArray(record.text) ? record.text.join('\n') : record.text)
       : this.buildTextContent(record)
-    if (!textContent) return
+    if (!textContent.trim()) return
 
     const embedding = await this.embeddingService.createEmbedding(textContent)
 

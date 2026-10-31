@@ -58,6 +58,18 @@ jest.mock('../../../../../../lib/tool-loader', () => ({
   loadAllModuleTools: (...args: unknown[]) => loadAllModuleToolsMock(...args),
 }))
 
+const requestHeaders = { acceptLanguage: '' }
+
+jest.mock('next/headers', () => ({
+  cookies: async () => ({ get: () => undefined }),
+  headers: async () => ({
+    get: (name: string) => (name.toLowerCase() === 'accept-language' ? requestHeaders.acceptLanguage : null),
+  }),
+}))
+
+import { registerModules } from '@open-mercato/shared/lib/modules/registry'
+import enTranslations from '../../../../../../i18n/en.json'
+import plTranslations from '../../../../../../i18n/pl.json'
 import { POST } from '../route'
 
 const PENDING_ACTION_ID = '3b7e1f2a-6c4d-4a9e-8f1b-2c3d4e5f6a7b'
@@ -141,8 +153,15 @@ function makeTool(overrides: Record<string, unknown> = {}) {
 describe('POST /api/ai/actions/:id/confirm route (Step 5.8)', () => {
   let consoleErrorSpy: jest.SpyInstance
 
+  beforeAll(() => {
+    registerModules([
+      { id: 'ai_assistant', translations: { en: enTranslations, pl: plTranslations } },
+    ] as unknown as Parameters<typeof registerModules>[0])
+  })
+
   beforeEach(() => {
     jest.clearAllMocks()
+    requestHeaders.acceptLanguage = ''
     consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
 
     authMock.mockResolvedValue({
@@ -268,6 +287,28 @@ describe('POST /api/ai/actions/:id/confirm route (Step 5.8)', () => {
     expect(response.status).toBe(403)
     const body = await response.json()
     expect(body.code).toBe('agent_features_denied')
+  })
+
+  it('403 tool_features_denied when the caller lost a tool feature, in the request locale', async () => {
+    getToolMock.mockReturnValue(makeTool({ requiredFeatures: ['catalog.products.manage'] }))
+
+    repoGetByIdMock.mockResolvedValueOnce(makeRow())
+    const english = await POST(buildRequest() as any, buildContext(PENDING_ACTION_ID))
+    expect(english.status).toBe(403)
+    expect(await english.json()).toMatchObject({
+      code: 'tool_features_denied',
+      error: "Caller lacks one of the tool's required features: catalog.products.manage",
+    })
+
+    requestHeaders.acceptLanguage = 'pl'
+    repoGetByIdMock.mockResolvedValueOnce(makeRow())
+    const polish = await POST(buildRequest() as any, buildContext(PENDING_ACTION_ID))
+    expect(polish.status).toBe(403)
+    expect(await polish.json()).toMatchObject({
+      code: 'tool_features_denied',
+      error: 'Brakuje Ci jednego z uprawnień wymaganych przez narzędzie: catalog.products.manage',
+    })
+    expect(repoSetStatusMock).not.toHaveBeenCalled()
   })
 
   it('403 attachment_cross_tenant when an attachment belongs to a different tenant', async () => {

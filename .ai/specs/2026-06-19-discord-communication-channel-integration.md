@@ -657,13 +657,15 @@ up in teardown, no reliance on seeded/demo data). Discord REST + Gateway are stu
 | TC-CHANNEL-DISCORD-010 | AI peer absent | With `ai_assistant` disabled, the subscriber no-ops and inbound still ingests (module-decoupling). |
 | TC-CHANNEL-DISCORD-011 | AI auto-reply panel listing | A per-user Discord channel appears in `GET /api/channel_discord/ai-auto-reply/channels` for its owner and for nobody else. |
 | TC-CHANNEL-DISCORD-012 | AI reply send path | An approved reply on a channel whose sender has no address completes through `messages.messages.compose`. |
+| TC-CHANNEL-DISCORD-013 | Forged AI reply proposals | Client-filed cards remain generic 500 refusals; authenticated proposals with a source outside the organization return 404 without sending. |
+| TC-CHANNEL-DISCORD-014 | Localized approval refusals | Admin-created system-marked proposals preserve English/Polish 403/404 errors, release claims for repeated refusals and dismissal, and never insert replies. |
 
 Unit tests (provider package, jest): `convertOutbound`/`normalizeInbound` mapping, Ed25519 verify,
 gateway identify/resume/backoff state machine, bot-self-message filter.
 
 ### What ships in the implementation PR, and where the ceiling is
 
-TC-CHANNEL-DISCORD-001..008, 011 and 012 ship as executable Playwright specs in
+TC-CHANNEL-DISCORD-001..008 and 011..014 ship as executable Playwright specs in
 `packages/channel-discord/src/modules/channel_discord/__integration__/`.
 
 TC-009 and TC-010 assert AI auto-reply behaviour. The behaviour now exists (#4778), and the halves
@@ -715,6 +717,10 @@ and 007's guard cases need no fixture and run unconditionally.
 ---
 
 ## Backward compatibility
+
+### Migration & Backward Compatibility — proposal approval refusals (#7310)
+
+Approval of a proposal whose source message is unavailable returns a localized 404; an operator who cannot read the source receives a localized 403. Both use the existing `{ error: string }` response shape. The action wrapper preserves these typed refusals after releasing its terminal claim, so dismissal or a later retry remains available. Unexpected errors retain the generic 500 response. Routes, command IDs, database schema, permission rules, and successful approval behavior are unchanged; no migration is required. English and Polish command tests cover both refusals, and all five shipped locales include the messages.
 
 ### Migration & Backward Compatibility — proposal origin (2026-10-13)
 
@@ -1162,6 +1168,14 @@ rule 3), and no variant should be considered done without it.
 ---
 
 ## Changelog
+
+### 2026-10-25 — Integrate approval refusals with authenticated proposals (#7356)
+
+- Preserved current proposal-origin and organization guards while applying localized source refusals. Kept forged-card TC-CHANNEL-DISCORD-013, moved refusal coverage to unused TC-CHANNEL-DISCORD-014, and authenticated its admin-created fixtures with `stampSystemProposalFixture`.
+
+### 2026-10-13 — Proposal approval refusals (#7310)
+
+- Localized Discord proposal approval refusals use typed 403/404 errors preserved by the message action wrapper, on top of the source-read authorization introduced in #7151. TC-CHANNEL-DISCORD-014 exercises both locales over HTTP, repeated refusals, dismissal, and the absence of replies.
 
 ### 2026-10-13 — Authenticate system-filed AI reply proposals (issue #7312)
 
