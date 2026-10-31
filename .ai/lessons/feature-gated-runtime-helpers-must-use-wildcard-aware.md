@@ -1,6 +1,6 @@
 ---
 title: "Feature-gated runtime helpers must use wildcard-aware permission matching"
-modules: ["customer_accounts","customers","events"]
+modules: ["customer_accounts","customers","events","shared","auth"]
 areas: ["architecture","backend-ui","module-data"]
 topics: ["access-control","command-pattern","events"]
 ---
@@ -16,3 +16,5 @@ topics: ["access-control","command-pattern","events"]
 **Additional rule**: Do not assume every `granted` feature array is normalized to exact requested ids. Some flows return exact feature-check responses, while others pass through stored wildcard ACLs or resolved feature snapshots. Runtime helpers must treat all granted-feature arrays as wildcard-capable input.
 
 **Applies to**: Navigation builders, injected menu filtering, notification dispatchers, mutation guards, command interceptors, and similar client/server ACL-driven registries.
+
+**Upgrade review**: When correcting wildcard grant filtering, compare effective permissions with the module registry initialized. A fix to intended matcher semantics can activate stored role or per-user grants that were previously discarded; document the operator ACL audit in upgrade notes and verify disabled-module, removed-feature, and tenant/organization denials still win.
