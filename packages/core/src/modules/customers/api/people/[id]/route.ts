@@ -1,3 +1,4 @@
+import { enrichCustomerDetailResponse } from '../../../lib/detailResponseEnrichment'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
@@ -579,7 +580,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
         statusCode = 200
         profileMeta = { cacheHit: true, include: Array.from(includeTokens), interactionMode }
         profiler.mark('cache_hit')
-        return NextResponse.json(cached)
+        return NextResponse.json(await enrichCustomerDetailResponse(cached as Record<string, unknown>, 'person', { auth, container, em, tenantId: personDetailTenantId, organizationId: personDetailOrganizationId }))
       }
     }
 
@@ -1134,7 +1135,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
       } catch {}
     }
 
-    const response = NextResponse.json(payload)
+    const response = NextResponse.json(await enrichCustomerDetailResponse(payload, 'person', { auth, container, em, tenantId: personDetailTenantId, organizationId: personDetailOrganizationId }))
     statusCode = 200
     profileMeta = {
       include: Array.from(includeTokens),
