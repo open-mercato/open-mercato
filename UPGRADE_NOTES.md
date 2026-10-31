@@ -367,6 +367,20 @@ A regenerated MCP key becomes invalid if its owner's home organization changes,
 including a change from no home organization to a concrete one. Generate a new
 key and update the MCP client secret after such a change.
 
+### Custom-record POST rejects existing UUIDs (#7815)
+
+`POST /api/entities/records` now returns HTTP 409 (`custom_entity_record_exists`)
+when the supplied UUID already exists in the current tenant, organization and
+entity, including a soft-deleted record. It preserves the existing document and
+version. Clients that previously used POST as an upsert must read the current
+record and use PUT with its `x-om-ext-optimistic-lock-expected-updated-at` header.
+Creating new records, including server-generated IDs, is unchanged.
+
+Internal `DataEngine.createCustomEntityRecord` callers retain upserts by default;
+the new optional `createOnly` flag selects conflict-on-existing creation. No
+operator configuration or database migration is needed. See the
+[locking coverage spec](.ai/specs/2026-05-28-optimistic-locking-coverage-completion.md#custom-record-creation--7815).
+
 ### Scoped attachment bytes no longer advertise shared caching (#7220)
 
 The attachment file and image byte routes now return `Cache-Control: private,
