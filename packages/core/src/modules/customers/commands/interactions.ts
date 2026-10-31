@@ -12,7 +12,8 @@ import {
 import { DefaultDataEngine, type DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
-import { CustomerInteraction, CustomerEntity } from '../data/entities'
+import { CustomerActivity, CustomerInteraction, CustomerEntity } from '../data/entities'
+import { User } from '@open-mercato/core/modules/auth/data/entities'
 import {
   interactionCreateSchema,
   interactionUpdateSchema,
@@ -38,7 +39,7 @@ import {
   loadCustomFieldSnapshot,
   buildCustomFieldResetMap,
 } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
-import { CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
+import { badRequest, CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
 import { enforceRecordGoneIsConflict, enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { CrudIndexerConfig, CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
@@ -50,6 +51,17 @@ import {
 } from '../lib/interactionStatus'
 import { canChangeEmailVisibility } from '../lib/visibilityFilter'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+<<<<<<< HEAD
+=======
+import { loadCustomFieldDefinitionIndex } from '@open-mercato/shared/lib/crud/custom-fields'
+import type { OrganizationHierarchyService } from '@open-mercato/shared/lib/auth/principal-service'
+import { resolveCatalogEventType, resolveScopedCalendarEventTypes } from '../lib/calendar/eventTypeResolver'
+import { clearInapplicableCoreFields, findInapplicableCoreFields, omitHiddenCoreClears, preserveHiddenCoreValuesOnSameTypeEdit } from '../lib/calendar/interactionApplicability'
+import { calendarEventTypes, type CalendarEventTypeBehavior } from '../calendar-event-types'
+import { canonicalCalendarTimezone } from '../lib/calendar/timezone'
+import { findInteractionUserInScope, requireInteractionUsersInScope } from '../lib/interactionUsers'
+import { CUSTOMER_INTERACTION_ACTIVITY_ADAPTER_SOURCE } from '../lib/interactionCompatibility'
+>>>>>>> 52db3dc0d (fix(customers): scope interaction author and owner references (#8358))
 
 const logger = createLogger('customers')
 
@@ -132,7 +144,88 @@ const INTERACTION_UNDO_DATE_OPTIONS = {
   datePaths: ['before.interaction.scheduledAt', 'before.interaction.occurredAt', 'before.interaction.recurrenceEnd'],
 }
 
+<<<<<<< HEAD
 async function loadInteractionSnapshot(em: EntityManager, id: string): Promise<InteractionSnapshot | null> {
+=======
+async function ensureInteractionMutationAccess(
+  ctx: CommandRuntimeContext,
+  em: EntityManager,
+  interaction: CustomerInteraction | (InteractionSnapshot['interaction'] & { channelId?: string | null }),
+): Promise<void> {
+  ensureTenantScope(ctx, interaction.tenantId)
+  ensureOrganizationScope(ctx, interaction.organizationId)
+  const currentUserId = ctx.auth?.isApiKey ? null : ctx.auth?.sub ?? null
+  const personEntityId = 'entityId' in interaction
+    ? interaction.entityId
+    : typeof interaction.entity === 'string' ? interaction.entity : interaction.entity.id
+  const visibility = {
+    interactionType: interaction.interactionType,
+    visibility: interaction.visibility,
+    authorUserId: interaction.authorUserId,
+    currentUserId,
+    personEntityId,
+    channelId: interaction.channelId,
+  }
+  if (!isEmailHiddenFrom(visibility)) return
+  const scope = { tenantId: interaction.tenantId, organizationId: interaction.organizationId }
+  const sharedConversations = await listGrantsForViewerOnPerson(em, scope, currentUserId, personEntityId)
+  const sharedChannelIds = await listSharedChannelIds(em, scope, currentUserId)
+  if (isEmailHiddenFrom({ ...visibility, sharedConversations, sharedChannelIds })) {
+    const { translate } = await resolveTranslations()
+    throw notFound(translate('customers.errors.entity_not_found', 'Entity not found'))
+  }
+}
+
+async function ensureInteractionPrivacyChangeAccess(
+  ctx: CommandRuntimeContext,
+  interaction: CustomerInteraction,
+  next: { interactionType?: string; authorUserId?: string | null; visibility?: string | null },
+): Promise<void> {
+  if (interaction.interactionType !== 'email') return
+  const actorUserId = ctx.auth?.isApiKey ? null : ctx.auth?.sub ?? null
+  const changesOwnership = next.authorUserId !== undefined && (next.authorUserId ?? null) !== (interaction.authorUserId ?? null)
+  const changesType = next.interactionType !== undefined && next.interactionType !== interaction.interactionType
+  if (
+    ((changesOwnership || changesType) && (!actorUserId || actorUserId !== interaction.authorUserId)) ||
+    (next.visibility !== undefined && !canChangeEmailVisibility({
+      interactionType: interaction.interactionType,
+      currentVisibility: interaction.visibility,
+      nextVisibility: next.visibility,
+      authorUserId: interaction.authorUserId,
+      actorUserId,
+      userFeatures: undefined,
+    }))
+  ) {
+    const { translate } = await resolveTranslations()
+    throw notFound(translate('customers.errors.entity_not_found', 'Entity not found'))
+  }
+}
+
+async function ensureInteractionRestoreAccess(
+  ctx: CommandRuntimeContext,
+  em: EntityManager,
+  current: CustomerInteraction | null,
+  restored: InteractionSnapshot['interaction'],
+): Promise<void> {
+  if (current) {
+    await ensureInteractionMutationAccess(ctx, em, current)
+    await ensureInteractionPrivacyChangeAccess(ctx, current, { ...restored, visibility: restored.visibility ?? null })
+  }
+  await ensureInteractionMutationAccess(ctx, em, { ...restored, channelId: current?.channelId })
+  const userIds = new Set([restored.authorUserId, restored.ownerUserId].filter((value): value is string => !!value))
+  for (const userId of userIds) {
+    const user = await findOneWithDecryption(em, User, {
+      id: userId,
+      tenantId: restored.tenantId,
+    }, undefined, { tenantId: restored.tenantId, organizationId: restored.organizationId })
+    if (user) continue
+    const { translate } = await resolveTranslations()
+    throw badRequest(translate('auth.users.form.errors.notFound', 'User not found'))
+  }
+}
+
+async function loadInteractionSnapshot(em: EntityManager, id: string, ctx?: CommandRuntimeContext): Promise<InteractionSnapshot | null> {
+>>>>>>> 52db3dc0d (fix(customers): scope interaction author and owner references (#8358))
   const interaction = await findOneWithDecryption(em, CustomerInteraction, { id }, { populate: ['entity'] })
   if (!interaction) return null
   const custom = await loadCustomFieldSnapshot(em, {
@@ -383,12 +476,33 @@ const createInteractionCommand: CommandHandler<InteractionCreateInput, { interac
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(interactionCreateSchema, rawInput)
 
+<<<<<<< HEAD
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const normalizedAuthor = normalizeAuthorUserId(parsed.authorUserId ?? null, ctx.auth)
+=======
+    const em = ctx.transactionalEm ?? (ctx.container.resolve('em') as EntityManager).fork()
+    const defaultAuthor = normalizeAuthorUserId(parsed.authorUserId ?? null, ctx.auth)
+>>>>>>> 52db3dc0d (fix(customers): scope interaction author and owner references (#8358))
     const { interaction, entityId, nextInteractionId } = await runInTransaction(em, async (trx) => {
       const entity = await requireTimelineParentEntity(trx, parsed.entityId, { tenantId: parsed.tenantId, organizationId: parsed.organizationId })
       ensureTenantScope(ctx, entity.tenantId)
       ensureOrganizationScope(ctx, entity.organizationId)
+
+      const legacyActivity = parsed.id && parsed.source === CUSTOMER_INTERACTION_ACTIVITY_ADAPTER_SOURCE
+        ? await findOneWithDecryption(trx, CustomerActivity, {
+          id: parsed.id,
+          entity: entity.id,
+          tenantId: entity.tenantId,
+          organizationId: entity.organizationId,
+        }, undefined, entity)
+        : null
+      const preservesHistoricalAuthor = !!legacyActivity && parsed.authorUserId === legacyActivity.authorUserId
+      await requireInteractionUsersInScope(trx, entity, parsed, legacyActivity ?? {})
+      const normalizedAuthor = preservesHistoricalAuthor
+        ? legacyActivity.authorUserId ?? null
+        : defaultAuthor && await findInteractionUserInScope(trx, defaultAuthor, entity)
+          ? defaultAuthor
+          : null
 
       if (parsed.dealId) {
         await requireDealInScope(trx, parsed.dealId, entity.tenantId, entity.organizationId)
@@ -663,6 +777,7 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
         request: ctx.request ?? null,
       })
 
+<<<<<<< HEAD
       // Email visibility is an access-controlled field: only the interaction's
       // author may change a
       // private email's visibility (mirrors the dedicated PATCH .../visibility
@@ -690,6 +805,27 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
         ) {
           throw notFound('Email not found')
         }
+=======
+      await ensureInteractionPrivacyChangeAccess(ctx, interaction, parsed)
+      await requireInteractionUsersInScope(trx, interaction, parsed, interaction)
+
+      const nextType = parsed.interactionType ?? interaction.interactionType
+      const changingType = nextType !== interaction.interactionType
+      const enforceSelectableType = requestsSelectableTypeEnforcement(rawInput)
+      const { behavior, organizationIds } = await resolveInteractionTypeBehavior(
+        ctx, trx, interaction.tenantId, interaction.organizationId, nextType, !changingType, enforceSelectableType,
+      )
+      const currentCoreValues = {
+        durationMinutes: interaction.durationMinutes,
+        timezone: interaction.timezone ?? null,
+        allDay: interaction.allDay,
+        recurrenceRule: interaction.recurrenceRule,
+        recurrenceEnd: interaction.recurrenceEnd,
+        location: interaction.location,
+        participants: interaction.participants,
+        priority: interaction.priority,
+        linkedEntities: interaction.linkedEntities,
+>>>>>>> 52db3dc0d (fix(customers): scope interaction author and owner references (#8358))
       }
 
       // Re-link to a different person/company (#5938). Resolved before any scalar
