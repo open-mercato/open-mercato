@@ -65,6 +65,27 @@ describe('effective module ID preflight', () => {
     expect(fs.existsSync(resolver.getOutputDir())).toBe(false)
   })
 
+  it.each(generators)('rejects duplicate source registrations after runtime resolver deduplication in %p', async (generate) => {
+    fs.mkdirSync(path.join(root, 'src'), { recursive: true })
+    fs.writeFileSync(path.join(root, 'package.json'), '{"name":"module-fixture"}')
+    fs.writeFileSync(path.join(root, 'src', 'modules.ts'), "export const enabledModules = [{ id: 'consents', from: '@app' }, { id: 'consents', from: '@app' }]\n")
+    const warning = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const resolver = createResolver(root)
+      expect(resolver.loadEnabledModules()).toHaveLength(1)
+      fs.mkdirSync(resolver.getOutputDir(), { recursive: true })
+      const sentinel = path.join(resolver.getOutputDir(), 'existing.generated.ts')
+      fs.writeFileSync(sentinel, 'existing output\n')
+      const timestamp = fs.statSync(sentinel).mtimeMs
+      await expect(generate({ resolver, quiet: true })).rejects.toThrow(/Duplicate enabled module ID 'consents'/)
+      expect(fs.readdirSync(resolver.getOutputDir())).toEqual(['existing.generated.ts'])
+      expect(fs.readFileSync(sentinel, 'utf8')).toBe('existing output\n')
+      expect(fs.statSync(sentinel).mtimeMs).toBe(timestamp)
+    } finally {
+      warning.mockRestore()
+    }
+  })
+
   it.each(generators)('rejects contradictory retained origin before any output write in %p', async (generate) => {
     const resolver = resolverFor([{ id: 'consents', from: '@publisher/consents', locator: 'github:publisher/consents' }])
     fs.mkdirSync(resolver.getPackageRoot('@publisher/consents'), { recursive: true })

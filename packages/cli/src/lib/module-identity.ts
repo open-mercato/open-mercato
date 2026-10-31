@@ -3,6 +3,7 @@ import path from 'node:path'
 import ts from 'typescript-js'
 import { normalizeModuleLocator, type ModuleIdentity } from '@open-mercato/shared/modules/module-locators'
 import type { ModuleEntry, PackageResolver } from './resolver'
+import { readEnabledModules } from './modules-config'
 
 function readJson(filePath: string): Record<string, unknown> {
   try {
@@ -133,6 +134,10 @@ export function assertUniqueEnabledModuleIds(enabledModules: readonly ModuleEntr
 }
 
 export function getEnabledModuleIdentities(resolver: PackageResolver, enabledModules: readonly ModuleEntry[] = resolver.loadEnabledModules()): ModuleIdentity[] {
+  const modulesPath = typeof resolver.getModulesConfigPath === 'function'
+    ? resolver.getModulesConfigPath()
+    : path.join(resolver.getAppDir(), 'src', 'modules.ts')
+  if (fs.existsSync(modulesPath)) assertUniqueEnabledModuleIds(readEnabledModules(modulesPath), resolver)
   assertUniqueEnabledModuleIds(enabledModules, resolver)
   const appManifest = readJson(path.join(resolver.getAppDir(), 'package.json'))
   const packageManifests = new Map<string, Record<string, unknown>>()

@@ -8,7 +8,7 @@ import {
   validateEjectBoundaries,
   type ValidatedOfficialModulePackage,
 } from './module-package'
-import { prepareModuleRegistration, prepareModuleRegistrationSource } from './modules-config'
+import { assertModuleNotGatedOff, prepareModuleRegistration, prepareModuleRegistrationSource } from './modules-config'
 import type { PackageResolver } from './resolver'
 import { resolveSpawnCommand } from './spawn'
 import { parseModuleLocator, resolveModuleRequirement } from '@open-mercato/shared/modules/module-locators'
@@ -16,7 +16,7 @@ import { getEnabledModuleIdentities, getModuleLocators } from './module-identity
 import { resolveGithubModuleTarget } from './module-github'
 import { inspectNpmModuleTarget, type InspectedModuleTarget } from './module-inspection'
 
-type ModuleCommandResult = {
+export type ModuleCommandResult = {
   moduleId: string
   packageName: string
   from: string
@@ -89,6 +89,42 @@ function runCommand(
       reject(new Error(`Command failed: ${command} ${args.join(' ')} (exit ${code ?? 'unknown'}).`))
     })
   })
+}
+
+function readFileIfExists(filePath: string): string | null {
+  return fs.existsSync(filePath) ? fs.readFileSync(filePath, 'utf8') : null
+}
+
+function isDeclaredAppDependency(appDir: string, packageName: string): boolean {
+  const packageJsonContent = readFileIfExists(path.join(appDir, 'package.json'))
+  if (!packageJsonContent) {
+    return false
+  }
+
+  let packageJson: Record<string, unknown>
+  try {
+    packageJson = JSON.parse(packageJsonContent) as Record<string, unknown>
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    throw new Error(`App package.json at ${path.join(appDir, 'package.json')} is not valid JSON. ${message}`)
+  }
+
+  return ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies'].some((field) => {
+    const dependencies = packageJson[field]
+    return typeof dependencies === 'object' && dependencies !== null && packageName in dependencies
+  })
+}
+
+function isGatedOffError(error: unknown): boolean {
+  return error instanceof Error && (error as { code?: unknown }).code === 'MODULE_GATED_OFF'
+}
+
+function withLeftoverPackageHint(error: unknown, resolver: PackageResolver, packageName: string): Error {
+  const message = error instanceof Error ? error.message : String(error)
+  const removeArgs = [...resolveInstallTarget(resolver).args.slice(0, -1), 'remove', packageName]
+  return new Error(
+    `${message} The package "${packageName}" stayed in package.json. To remove it, run: yarn ${removeArgs.join(' ')}`,
+  )
 }
 
 async function installPackageSpec(
@@ -284,8 +320,8 @@ async function registerResolvedOfficialModule(
   packageName: string,
   eject: boolean,
   requestedLocator?: string,
-  allowAlreadyEnabled = false,
 ): Promise<ModuleCommandResult> {
+  assertModuleNotGatedOff(resolver.getModulesConfigPath(), modulePackage.metadata.moduleId)
   const locators = getModuleLocators({ id: modulePackage.metadata.moduleId, from: packageName }, resolver)
   if (requestedLocator && locators.length > 0 && !locators.includes(requestedLocator)) {
     throw new Error(`Installed package "${packageName}" disagrees with inspected origin "${requestedLocator}". It is installed but not enabled. Restore the binding and lockfile through your package manager before retrying.`)
@@ -294,9 +330,6 @@ async function registerResolvedOfficialModule(
   assertNoModuleCollision(resolver, modulePackage.metadata.moduleId, packageName, locator)
   assertRequiredModulesEnabled(modulePackage, resolver)
   const existing = resolver.loadEnabledModules().find((entry) => entry.id === modulePackage.metadata.moduleId)
-  if (existing && !eject && !allowAlreadyEnabled) {
-    throw new Error(`Module "${modulePackage.metadata.moduleId}" from "${packageName}" is already enabled in modules.ts.`)
-  }
   const from = eject ? '@app' : packageName
   const provenance = {
     ...(locator ? { locator } : {}),
@@ -315,16 +348,11 @@ async function registerResolvedOfficialModule(
     },
   )
 
-  if (!registration.changed && !allowAlreadyEnabled) {
-    throw new Error(
-      `Module "${modulePackage.metadata.moduleId}" from "${from}" is already enabled in modules.ts.`,
-    )
-  }
-
   prepareRegistrationSource(modulePackage, resolver, packageName, eject)
-  if (registration.changed) fs.writeFileSync(modulesPath, registration.source)
-
-  await runGeneratorsWithRegistrationNotice(resolver, modulePackage.metadata.moduleId)
+  if (registration.changed) {
+    fs.writeFileSync(modulesPath, registration.source)
+    await runGeneratorsWithRegistrationNotice(resolver, modulePackage.metadata.moduleId)
+  }
 
   return {
     moduleId: modulePackage.metadata.moduleId,
@@ -386,6 +414,9 @@ export async function addOfficialModule(
     throw new Error(`Destination directory already exists for "${selectedModuleId}". Preserve local source and resolve the conflict manually. No package was installed.`)
   }
   safePackageSpec = target.packageSpec
+  assertModuleNotGatedOff(resolver.getModulesConfigPath(), selectedModuleId)
+  const wasDeclaredBefore = isDeclaredAppDependency(resolver.getAppDir(), packageName)
+  const modulesConfigBefore = readFileIfExists(resolver.getModulesConfigPath())
   await installPackageSpec(resolver, safePackageSpec)
 
   try {
@@ -397,10 +428,16 @@ export async function addOfficialModule(
     for (const entry of resolver.loadEnabledModules().filter((entry) => (entry.from ?? '@open-mercato/core') === packageName)) {
       resolveInstalledOfficialModulePackage(resolver, packageName, entry.id)
     }
-    return await registerResolvedOfficialModule(resolver, modulePackage, packageName, eject, target.locator, true)
+    return await registerResolvedOfficialModule(resolver, modulePackage, packageName, eject, target.locator)
   } catch (error) {
+    const moduleWasRegistered = readFileIfExists(resolver.getModulesConfigPath()) !== modulesConfigBefore
+    if (wasDeclaredBefore || moduleWasRegistered || isGatedOffError(error)) throw error
     const message = error instanceof Error ? error.message : String(error)
-    throw new Error(`Package "${packageName}" is installed; enablement did not complete. Review src/modules.ts and restore the package binding/lockfile through the package manager if needed. ${message}`)
+    throw withLeftoverPackageHint(
+      new Error(`Package "${packageName}" is installed; enablement did not complete. Review src/modules.ts and restore the package binding/lockfile through the package manager if needed. ${message}`),
+      resolver,
+      packageName,
+    )
   }
 }
 

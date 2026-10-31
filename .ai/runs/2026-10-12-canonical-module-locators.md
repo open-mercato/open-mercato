@@ -124,3 +124,12 @@ Planning-navigation source checkpoint: `58f238a50eb15499f91826fdbe28ea696f879a1a
 ### e1cde5 actual machine gate remains failed
 
 Exact e1 fresh packages/four-preset proofs and classic 240 pass, but actual 30 machine proof has 30 base failures and 29 head passes: production-deployment-guidance expects three obsolete root phrases. RawSHA `80226448f1ef1b53462ce127749dab7a6a801dea61f17d2b44d34962a17425a3`; sanitizedfailureSHA `0a0226557a0672bc202e4dbe47920a95787af40319a12bf663dc3eb3b41d451c`. The test-only lexical repair reproduces 1/2 FAIL then 2/2 PASS and preserves the exact operational/security semantics. No routing/native/full model run launched at e1. Fresh clean-source proof and qualified payload remain required; phase 4.3 is open. CLI renderer end/report path remain 58f238a50eb1 because production payload is unchanged by this assertion repair.
+
+
+### 2026-10-31 target-integration continuation
+
+Normal latest-main integration composes the module-install recovery/idempotency changes, environment-gated registrations and comment-preserving registration writes with canonical artifact/origin preflight. Duplicate IDs are checked against active source registrations before the runtime resolver's intentional first-registration deduplication. All nine generator entrypoints reject duplicates without replacing an existing output sentinel; reverting this check fails all nine regressions. Repeated same-provider enable remains a no-op success, and a disabled conditional registration never causes a second registration or an eject copy.
+
+Local fallback for the unpublished merge: 12 focused CLI suites/252 tests pass without skips. A narrow CLI source typecheck passes with the new shared locator source mapped explicitly because the borrowed dependency tree has no compiled locator declaration; this is not a coherent package-build qualification. Lesson catalog and diff checks pass. Hosted validation of the published merge remains required.
+
+Phase4.3 stays open. Historical failed routing/native-writable attempts and incomplete unchanged240-routing/49-writable/49-review release remain failed/incomplete. The complete certified release requires Linux/Bubblewrap and its nonce-bound namespace/loopback/capability probe; this native macOS host cannot supply that boundary. No containment, case, cap, oracle, required lane or signature policy is weakened. Fresh packed-source machine/preset/live qualification and final independent review remain outstanding; no merge-ready claim or formal author self-approval.
