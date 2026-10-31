@@ -8,6 +8,7 @@ type ProposalOrigin = Pick<
 >
 
 const ORIGIN_PREFIX = 'channel_discord:ai_reply_proposal:v1:'
+export const DISCORD_PROPOSAL_ORIGIN_KEY_LIKE = `${ORIGIN_PREFIX.replace(/[\\%_]/g, '\\$&')}%`
 const ORIGIN_PATTERN = /^channel_discord:ai_reply_proposal:v1:([0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}):[0-9a-f]{64}$/
 
 function buildOriginKey(proposal: ProposalOrigin, nonce: string): string {
