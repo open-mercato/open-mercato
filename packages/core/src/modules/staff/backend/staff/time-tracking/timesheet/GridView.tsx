@@ -88,6 +88,7 @@ import { DurationInput, formatTrimmedDecimalDuration } from '../../../../lib/tim
 import {
   readErrorCode,
   readErrorMessage,
+  readErrorStatus,
   readRejectedRowIndexes,
   isEntryLockedError,
 } from '../../../../lib/time-tracking-ui/timeEntryListData'
@@ -579,10 +580,12 @@ function DefaultGridView({
       await onSaved()
     } catch (error) {
       const rejectedKeys = bulkCommitted
-        ? taskChanges
-            .map(({ row, cell }) => cellKey(row.key, cell.date))
-            .filter((key) => !savedKeys.has(key))
-            .slice(0, 1)
+        ? readErrorStatus(error) === 403
+          ? taskChanges
+              .map(({ row, cell }) => cellKey(row.key, cell.date))
+              .filter((key) => !savedKeys.has(key))
+              .slice(0, 1)
+          : []
         : readRejectedRowIndexes(error)
             .map((index) => bulkKeys[index])
             .filter((key): key is string => typeof key === 'string')
