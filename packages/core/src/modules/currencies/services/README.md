@@ -190,6 +190,32 @@ If a rate is not found for the requested date, the service will:
 
 This ensures you get the most recent available rate even if data for specific dates is missing.
 
+### Requiring a Specific Source
+
+By default a stored row of *any* source for a day counts as "found", and the providers are only
+asked when the day has no row at all. That is wrong when the caller needs one particular source
+(for example the NBP Table A average rate for bookkeeping) and another source (NBP Table C) has
+already stored a row for the same day: the wanted source would never be fetched.
+
+Pass `source` to require it. Only rows of that source count, a missing row triggers a fetch limited
+to that one provider (`fetchRatesForDate(date, scope, { providers: [source] })`), and the lookup
+steps back a day only when that provider has nothing for the day.
+
+```typescript
+const result = await exchangeRateService.getRate({
+  fromCurrencyCode: 'EUR',
+  toCurrencyCode: 'PLN',
+  date: new Date('2026-10-22'),
+  scope: { tenantId, organizationId },
+  source: 'NBP_A',
+})
+// result.actualDate is the last day for which NBP_A has a rate
+```
+
+`source` is optional and additive: omitting it keeps the behaviour described above. `getRates()`
+accepts the same option and applies it to every pair. An unregistered source cannot be fetched, so
+the call falls through the `maxDaysBack` days and returns an empty `rates` array.
+
 ### Example: Converting Currency Amounts
 
 ```typescript
