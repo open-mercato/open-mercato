@@ -27,19 +27,26 @@ Do not weaken checks, remove coverage, bypass the third-party dependency cooldow
 ## Risks
 Snapshot publish/deploy jobs cannot safely be exercised by publishing a production release; validate equivalent paths with isolated local infrastructure or existing nonpublishing workflow support. CI may reveal failures not yet observable in currently running main jobs. Dependency resolution is time-sensitive; retain exact evidence and do not globally disable its age gate.
 
+## Diagnosis
+Snapshot Tiptap 3.32.2 is required for the peer-compatible patched Happy DOM 21.0.4 graph. Older HTML peers require vulnerable Happy DOM 20; do not downgrade. The scaffold lock currently seeds no third-party records, losing the reviewed monorepo resolution. Investigate seeding those exact records without weakening the five-day policy.
+
+Coverage merge was skipped despite all direct dependencies passing: its condition does not override skipped audit ancestors. Restore aggregation with always() plus explicit successful direct-dependency guards.
+
 ## Initial evidence
 Main run 41270947993 passed 23 executable jobs including all 15 integration shards; audit and merge-coverage were conditionally skipped. Snapshot run 41270948034 failed standalone dependency installation with Yarn YN0016: `@tiptap/core@npm:^3.32.2` has no eligible version under the release-age gate. Latest main `ea24461ae` adds application CSP changes and run 41274156075 is still active.
 
-Runner: local (Docker availability to be probed before the gate).
+Runner: local; no configured app container is running. Use mise exec node@24 (24.22.2) and pinned Yarn 4.17.1.
 Engine: om-auto-create-pr (steps: 7, --loop: no)
 
 ## Progress
 
+PR: #8373
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Diagnose
-- [ ] 1.1 Inventory every latest main check and inspect failing logs/artifacts against recent commits
-- [ ] 1.2 Reproduce repository-controlled causes and identify minimal independent fixes
+- [x] 1.1 Inventory every latest main check and inspect failing logs/artifacts against recent commits
+- [x] 1.2 Reproduce repository-controlled causes and identify minimal independent fixes
 
 ### Phase 2: Correct
 - [ ] 2.1 Correct snapshot dependency resolution with regression coverage while retaining supply-chain safeguards
