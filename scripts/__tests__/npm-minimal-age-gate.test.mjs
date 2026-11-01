@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict'
+import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { satisfies } from 'semver'
 import test from 'node:test'
@@ -221,6 +223,103 @@ test('the published Documents TipTap graph stays exact and resolves compatible p
         `${entry.resolution} requires ${peerName}@${peerRange}, which must accept the reviewed ${REVIEWED_TIPTAP_VERSION} graph`
       )
     }
+  }
+})
+
+test('a fresh age-gated Documents consumer resolves a compatible TipTap peer graph', { timeout: 180_000 }, () => {
+  const rootPackage = JSON.parse(readText(rootPackagePath))
+  const documentsPackage = JSON.parse(readText(documentsPackagePath))
+  const fixtureDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'documents-age-gate-consumer-'))
+  const fixtureDependencies = Object.fromEntries(
+    Object.entries(documentsPackage.dependencies).filter(([name]) => !name.startsWith('@open-mercato/')),
+  )
+  fixtureDependencies.react = rootPackage.dependencies.react
+  fixtureDependencies['react-dom'] = rootPackage.dependencies['react-dom']
+  fixtureDependencies['@types/react'] = documentsPackage.devDependencies['@types/react']
+  fixtureDependencies['@types/react-dom'] = documentsPackage.devDependencies['@types/react-dom']
+
+  try {
+    fs.writeFileSync(path.join(fixtureDirectory, 'package.json'), `${JSON.stringify({
+      name: 'documents-age-gate-consumer',
+      private: true,
+      packageManager: rootPackage.packageManager,
+      dependencies: fixtureDependencies,
+    }, null, 2)}\n`)
+    fs.writeFileSync(path.join(fixtureDirectory, '.yarnrc.yml'), [
+      'enableTelemetry: false',
+      'nodeLinker: node-modules',
+      `npmMinimalAgeGate: ${AGREED_MINIMAL_AGE_GATE}`,
+      '',
+    ].join('\n'))
+
+    const install = spawnSync('yarn', ['install', '--mode=skip-build'], {
+      cwd: fixtureDirectory,
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        CI: '1',
+        FORCE_COLOR: '0',
+        YARN_ENABLE_COLORS: '0',
+        YARN_ENABLE_IMMUTABLE_INSTALLS: 'false',
+        YARN_ENABLE_PROGRESS_BARS: '0',
+      },
+      timeout: 150_000,
+    })
+
+    assert.equal(
+      install.status,
+      0,
+      `fresh Documents consumer install must pass the real ${AGREED_MINIMAL_AGE_GATE} Yarn resolver without preapproving third-party packages\n${install.stdout}\n${install.stderr}`,
+    )
+
+    const lockfile = parse(readText(path.join(fixtureDirectory, 'yarn.lock')))
+    const fixtureLockEntry = Object.values(lockfile).find(
+      (entry) => entry?.resolution === 'documents-age-gate-consumer@workspace:.',
+    )
+
+    assert.ok(fixtureLockEntry, 'the fresh consumer lockfile must contain its workspace entry')
+
+    for (const [name, expectedVersion] of Object.entries(fixtureDependencies)) {
+      if (!name.startsWith('@tiptap/')) continue
+
+      const descriptor = fixtureLockEntry.dependencies?.[name]
+      const lockEntry = findLockEntry(lockfile, `${name}@${descriptor}`)
+
+      assert.equal(
+        lockEntry.version,
+        expectedVersion,
+        `the fresh consumer must resolve direct ${name} at its reviewed exact version`,
+      )
+    }
+
+    const peerExplanation = spawnSync('yarn', ['explain', 'peer-requirements'], {
+      cwd: fixtureDirectory,
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        FORCE_COLOR: '0',
+        YARN_ENABLE_COLORS: '0',
+      },
+      timeout: 30_000,
+    })
+
+    assert.equal(
+      peerExplanation.status,
+      0,
+      `Yarn must be able to explain the fresh consumer peer graph\n${peerExplanation.stdout}\n${peerExplanation.stderr}`,
+    )
+
+    const coupledPeerFailures = peerExplanation.stdout
+      .split('\n')
+      .filter((line) => line.includes('✘') && /(?:doesn't provide|provides) @tiptap\/(?:core|pm)\b/.test(line))
+
+    assert.deepEqual(
+      coupledPeerFailures,
+      [],
+      `the real fresh-consumer resolution must satisfy the coupled TipTap core and ProseMirror peers:\n${coupledPeerFailures.join('\n')}`,
+    )
+  } finally {
+    fs.rmSync(fixtureDirectory, { recursive: true, force: true })
   }
 })
 
