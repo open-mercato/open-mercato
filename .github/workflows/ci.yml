@@ -145,7 +145,7 @@ jobs:
           # `packages/cli/src/lib/testing/` is the ephemeral harness that boots, drives and tears
           # down this very suite. A change there matches no `src/modules/` path, so without this
           # entry the job that would exercise it is the one job it can never trigger.
-          FULL_SUITE_PATTERN='^packages/shared/|^packages/ui/|^packages/events/|^packages/queue/|^packages/cache/|^packages/search/|^packages/onboarding/|^packages/webhooks/|^packages/core/src/lib/|^packages/enterprise/src/lib/|^packages/cli/src/lib/testing/|^apps/mercato/src/(app|lib|components|layout\.|page\.)'
+          FULL_SUITE_PATTERN='^\.github/workflows/ci\.yml$|^packages/shared/|^packages/ui/|^packages/events/|^packages/queue/|^packages/cache/|^packages/search/|^packages/onboarding/|^packages/webhooks/|^packages/core/src/lib/|^packages/enterprise/src/lib/|^packages/cli/src/lib/testing/|^apps/mercato/src/(app|lib|components|layout\.|page\.)'
           if echo "$CHANGED" | grep -qE "$FULL_SUITE_PATTERN"; then
             echo "skip=false" >> "$GITHUB_OUTPUT"
             echo "modules=" >> "$GITHUB_OUTPUT"
