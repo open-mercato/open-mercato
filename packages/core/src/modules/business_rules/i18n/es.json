@@ -37,7 +37,7 @@
   "business_rules.components.actionRow.config.endpoint.placeholder": "Seleccione endpoint",
   "business_rules.components.actionRow.config.field.placeholder": "Ingrese {{field}}",
   "business_rules.components.actionRow.config.level": "nivel",
-  "business_rules.components.actionRow.config.level.debug": "Debug",
+  "business_rules.components.actionRow.config.level.debug": "Depuración",
   "business_rules.components.actionRow.config.level.error": "Error",
   "business_rules.components.actionRow.config.level.info": "Info",
   "business_rules.components.actionRow.config.level.warn": "Advertencia",
