@@ -72,6 +72,24 @@ function makeFakeEm(seed: { threads?: Row[]; proposals?: Row[]; users?: Row[] } 
       const key = classKeyFor(Cls)
       return stores[key].find((row) => matches(row, where)) ?? null
     }),
+    // `applyLiveProposalCountDelta` (`lib/liveProposalCount.ts`) — the only raw SQL this
+    // module's commands issue. Mirrors the real `GREATEST(live_proposal_count + delta, 0)`
+    // update against the seeded thread row by id.
+    execute: jest.fn(async (_sql: string, params: unknown[] = []) => {
+      const [delta, threadId] = params as [number, string]
+      const thread = stores.threads.find((row) => row.id === threadId)
+      if (thread) thread.liveProposalCount = Math.max(0, (thread.liveProposalCount ?? 0) + delta)
+      return []
+    }),
+    // The reauthor command's conditional supersede update (`em.nativeUpdate`) — applies
+    // `data` to every row matching `where` using the same `matches()` helper `findOne` uses,
+    // and returns the affected row count so the CAS-loss branch is exercisable.
+    nativeUpdate: jest.fn(async (Cls: unknown, where: Row, data: Row) => {
+      const key = classKeyFor(Cls)
+      const matching = stores[key].filter((row) => matches(row, where))
+      for (const row of matching) Object.assign(row, data)
+      return matching.length
+    }),
     // `withAtomicFlush({ transaction: true })` (`commands/proposals.ts`) drives these directly.
     begin: jest.fn(async () => undefined),
     commit: jest.fn(async () => undefined),

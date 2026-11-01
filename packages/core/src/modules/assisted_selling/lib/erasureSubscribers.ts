@@ -1,5 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { AssistedSellingThread } from '../data/entities'
 import { anonymizeAssistedSellingRepParticipants, eraseAssistedSellingThread } from './retention'
 
@@ -61,6 +62,12 @@ export async function handleCartPurgedErasure(payload: unknown, ctx: AssistedSel
       cartId,
       error: err instanceof Error ? err.message : err,
     })
+    getTelemetryRuntime()?.reportError(err, { module: 'assisted_selling', code: 'assisted_selling.cart_purged_erasure_failed' })
+    // Review finding: this GDPR erasure is `persistent: true` precisely so a transient
+    // failure retries instead of silently skipping a deletion the caller believes already
+    // happened. Always re-throw — there is no insert here to collide on, so no "proven
+    // idempotent duplicate" case to swallow.
+    throw err
   }
 }
 
@@ -99,6 +106,8 @@ export async function handleCustomerAccountsUserDeletedErasure(
       customerUserId,
       error: err instanceof Error ? err.message : err,
     })
+    getTelemetryRuntime()?.reportError(err, { module: 'assisted_selling', code: 'assisted_selling.customer_user_deleted_erasure_failed' })
+    throw err
   }
 }
 
@@ -129,5 +138,7 @@ export async function handleAuthUserDeletedErasure(payload: unknown, ctx: Assist
       userId,
       error: err instanceof Error ? err.message : err,
     })
+    getTelemetryRuntime()?.reportError(err, { module: 'assisted_selling', code: 'assisted_selling.auth_user_deleted_erasure_failed' })
+    throw err
   }
 }

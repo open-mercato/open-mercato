@@ -14,7 +14,13 @@ import { resolveEffectiveAssistedSellingSettings } from '../lib/settings'
 import { resolveCartService } from '../lib/cartAccess'
 import { resolveOrBuildRepParticipant } from '../lib/participants'
 import { emitAssistedSellingEvent } from '../events'
-import { enforceAssistedSellingOptimisticLock, requireAssistedSellingFeatures, ASSISTED_SELLING_THREAD_RESOURCE_KIND } from './shared'
+import {
+  enforceAssistedSellingOptimisticLock,
+  requireAssistedSellingFeatures,
+  requireAssistedSellingStaffAssignee,
+  ASSISTED_SELLING_THREAD_RESOURCE_KIND,
+} from './shared'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 
 // Step 4.4 (§6.1, §6.3 step 0, §5.1, S9). `POST /threads`: "Staff opens a conversation about a
 // basket, by cart id ... The cart is read through cart's organization-scoped admin detail read
@@ -418,6 +424,15 @@ const assignThreadCommand: CommandHandler<AssistedSellingThreadAssignInput, Assi
     await enforceAssistedSellingOptimisticLock(ctx, thread, ASSISTED_SELLING_THREAD_RESOURCE_KIND, input.updatedAt ?? null)
 
     const assignedActorId = input.actorId ?? callerId
+    // §6.1 defense-in-depth (review finding): `actorId` is caller-supplied and otherwise
+    // accepted as any uuid — an unvalidated value both silently assigns the thread to nobody
+    // who can act on it and, combined with the list route's own name resolution, turns
+    // `assigned_actor_id` into a cross-tenant user-id oracle. Assigning to self (the
+    // `actorId` omitted case) needs no re-check: the caller already passed the feature guard
+    // above for their own tenant.
+    if (input.actorId && input.actorId !== callerId) {
+      await requireAssistedSellingStaffAssignee(ctx, input.tenantId, input.actorId)
+    }
     const now = new Date()
     thread.assignedActorId = assignedActorId
     thread.updatedAt = now
@@ -433,6 +448,15 @@ const assignThreadCommand: CommandHandler<AssistedSellingThreadAssignInput, Assi
     )
 
     return { threadId: thread.id, assignedActorId, updatedAt: now.toISOString() }
+  },
+  buildLog: async ({ result }) => {
+    const { translate } = await resolveTranslations()
+    return {
+      actionLabel: translate('assisted_selling.audit.thread.assign', 'Assign conversation'),
+      resourceKind: ASSISTED_SELLING_THREAD_RESOURCE_KIND,
+      resourceId: result.threadId,
+      changes: { assignedActorId: result.assignedActorId },
+    }
   },
 }
 

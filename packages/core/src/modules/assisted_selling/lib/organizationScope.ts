@@ -1,4 +1,7 @@
+import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import type { OrganizationScope } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 
 // Step 4.4 (S9). `POST /threads` and `GET /threads` need the SAME `organizationIds` list
 // derivation `makeCrudRoute` already applies internally for a multi-org caller — this module
@@ -27,4 +30,32 @@ export function organizationIdsFromAssistedSellingScope(
     return [fallbackOrganizationId]
   }
   return []
+}
+
+type ResolveScopeParams = Parameters<typeof resolveOrganizationScopeForRequest>[0]
+
+/**
+ * Every staff route in this module resolves `organizationIds` the same way: call
+ * `resolveOrganizationScopeForRequest`, then narrow it with
+ * `organizationIdsFromAssistedSellingScope`. A scope-resolution failure MUST fail CLOSED —
+ * every call site used to swallow it into a `null` scope (`.catch(() => null)`), which falls
+ * through to this module's own "no real scope" fallback: the caller's raw `auth.orgId` (or,
+ * for a superadmin with none selected, fully unrestricted). That silently turns a transient
+ * resolution failure (a DB hiccup, a cache miss that throws) into whatever access the
+ * fallback happens to grant — potentially WIDER than the caller's real, unresolved scope
+ * would have allowed — instead of refusing the request the way an invalid scope normally
+ * does (root AGENTS.md § Access Control: "invalid scope ... deny before ... wildcard grants").
+ */
+export async function resolveAssistedSellingOrganizationIds(params: ResolveScopeParams): Promise<string[] | null> {
+  let scope: OrganizationScope
+  try {
+    scope = await resolveOrganizationScopeForRequest(params)
+  } catch (err) {
+    getTelemetryRuntime()?.reportError(err, { module: 'assisted_selling', code: 'assisted_selling.scope_resolution_failed' })
+    throw new CrudHttpError(503, {
+      error: '[internal] organization scope could not be resolved',
+      code: 'organization_scope_unavailable',
+    })
+  }
+  return organizationIdsFromAssistedSellingScope(scope, scope?.selectedId ?? params.auth?.orgId ?? null)
 }

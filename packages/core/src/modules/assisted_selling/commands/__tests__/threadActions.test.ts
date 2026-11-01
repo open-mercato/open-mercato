@@ -308,4 +308,39 @@ describe('assisted_selling.thread.assign', () => {
       assignThreadCommand.execute({ tenantId: TENANT_ID, organizationIds: [OTHER_ORG_ID], threadId: THREAD_ID }, ctx),
     ).rejects.toMatchObject({ status: 404 })
   })
+
+  // Review finding: `actorId` used to be accepted as any uuid with no check that it names a
+  // staff member of the thread's own tenant — a cross-tenant id both silently "succeeded" and,
+  // combined with the list route's own name resolution, acted as a user-id oracle.
+  test('refuses an actorId that is not staff of this tenant with 400 invalid_assignee', async () => {
+    const { em } = makeFakeEm({ threads: [makeThreadRow()] })
+    const STRANGER_ID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
+    const rbac = {
+      userHasAllFeatures: jest.fn(async (userId: string, required: string[]) => {
+        if (userId === STRANGER_ID) return false
+        return required.every((feature) => feature === 'assisted_selling.threads.participate')
+      }),
+    }
+    const ctx = makeCtx({ em, rbac, organizationIds: [ORG_ID] })
+
+    const err = await assignThreadCommand
+      .execute({ tenantId: TENANT_ID, organizationIds: [ORG_ID], threadId: THREAD_ID, actorId: STRANGER_ID }, ctx)
+      .catch((e) => e)
+    expect(isCrudHttpError(err)).toBe(true)
+    expect(err.status).toBe(400)
+    expect(err.body.code).toBe('invalid_assignee')
+  })
+
+  test('does not re-check staff membership when assigning to self (actorId omitted)', async () => {
+    const { em } = makeFakeEm({ threads: [makeThreadRow()] })
+    const rbac = makeRbac(['assisted_selling.threads.participate'])
+    const ctx = makeCtx({ em, rbac, organizationIds: [ORG_ID] })
+
+    const result = await assignThreadCommand.execute({ tenantId: TENANT_ID, organizationIds: [ORG_ID], threadId: THREAD_ID }, ctx)
+
+    expect(result.assignedActorId).toBe(REP_USER_ID)
+    // Only the caller's own feature-guard check — no second `userHasAllFeatures` call for
+    // the assignee, since assigning to self needs no re-validation.
+    expect(rbac.userHasAllFeatures).toHaveBeenCalledTimes(1)
+  })
 })

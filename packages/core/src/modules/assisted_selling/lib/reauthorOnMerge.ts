@@ -1,5 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { buildTrustedCommandContext } from '@open-mercato/shared/lib/commands/trusted-context'
 import { AssistedSellingProposal, AssistedSellingThread } from '../data/entities'
@@ -308,5 +309,13 @@ export async function handleCartMergedForAssistedSellingReauthor(
       targetCartId,
       error: err instanceof Error ? err.message : err,
     })
+    getTelemetryRuntime()?.reportError(err, { module: 'assisted_selling', code: 'assisted_selling.reauthor_on_merge_failed' })
+    // Review finding: this outer catch wraps the candidate-lookup query and the per-proposal
+    // loop — a transient failure here (lock timeout, dropped connection) must retry via this
+    // `persistent: true` subscriber's redelivery, not silently leave a live proposal pointed
+    // at a merged-away basket forever. The INNER try/catch in
+    // `retargetOrSupersedeOneProposal` is a deliberate, documented fallback (reauthor failed
+    // -> supersede instead) and is unrelated to this one.
+    throw err
   }
 }

@@ -3,6 +3,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { registerCommand, type CommandHandler } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { buildOptimisticLockConflictBody } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { AssistedSellingStoreSettings } from '../data/entities'
 import {
   assistedSellingStoreSettingsSaveSchema,
@@ -144,6 +145,14 @@ const saveAssistedSellingStoreSettingsCommand: CommandHandler<
     }
 
     return buildResult(settings)
+  },
+  buildLog: async ({ result }) => {
+    const { translate } = await resolveTranslations()
+    return {
+      actionLabel: translate('assisted_selling.audit.settings.save', 'Save assisted-selling settings'),
+      resourceKind: ASSISTED_SELLING_STORE_SETTINGS_RESOURCE_KIND,
+      resourceId: result.settingsId,
+    }
   },
 }
 

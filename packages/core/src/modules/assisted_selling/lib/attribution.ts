@@ -1,5 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
+import { isUniqueViolation } from '@open-mercato/shared/lib/crud/errors'
 import { AssistedSellingAttribution, AssistedSellingProposal } from '../data/entities'
 import type { AssistedSellingAttributionActorType } from '../data/entities'
 import { emitAssistedSellingEvent } from '../events'
@@ -69,13 +71,39 @@ function resolveLineMap(
   return byCartLineId
 }
 
-function toAmountNumber(value: string): number {
-  const n = Number(value)
-  return Number.isFinite(n) ? n : 0
+// Money-split math (review finding): plain `Number` arithmetic accumulates IEEE-754 rounding
+// error across the proportional splits below — a float that LOOKS like `33.33` can carry a
+// few units of error at the 15th-16th significant digit, which `formatAmount`'s old
+// `Math.round(... * 10000) / 10000` could round the wrong way at the boundary. Scaled `BigInt`
+// arithmetic (fixed-point at `DECIMAL_SCALE` digits) keeps every multiply/divide exact until
+// the one deliberate rounding step at the very end, when the result is formatted back to the
+// 4-decimal strings this table stores.
+const DECIMAL_SCALE_DIGITS = 8
+const DECIMAL_SCALE = 10n ** BigInt(DECIMAL_SCALE_DIGITS)
+const OUTPUT_SCALE_DIGITS = 4
+const OUTPUT_SCALE = 10n ** BigInt(OUTPUT_SCALE_DIGITS)
+const SCALE_DOWN_TO_OUTPUT = DECIMAL_SCALE / OUTPUT_SCALE
+
+function toScaledAmount(value: string | null | undefined): bigint {
+  const trimmed = (value ?? '').trim()
+  const match = /^(-?)(\d+)(?:\.(\d+))?$/.exec(trimmed)
+  if (!match) return 0n
+  const [, sign, whole, fraction = ''] = match
+  const paddedFraction = fraction.slice(0, DECIMAL_SCALE_DIGITS).padEnd(DECIMAL_SCALE_DIGITS, '0')
+  const magnitude = BigInt(whole) * DECIMAL_SCALE + BigInt(paddedFraction || '0')
+  return sign === '-' ? -magnitude : magnitude
 }
 
-function formatAmount(value: number): string {
-  return (Math.round((value + Number.EPSILON) * 10000) / 10000).toFixed(4)
+/** Rounds a `DECIMAL_SCALE`-scaled amount to `OUTPUT_SCALE_DIGITS` decimals, half away from
+ * zero, and formats it as the fixed-point string this table's columns store. */
+function formatScaledAmount(scaled: bigint): string {
+  const negative = scaled < 0n
+  const magnitude = negative ? -scaled : scaled
+  const halfUp = (magnitude + SCALE_DOWN_TO_OUTPUT / 2n) / SCALE_DOWN_TO_OUTPUT
+  const wholePart = halfUp / OUTPUT_SCALE
+  const fractionPart = (halfUp % OUTPUT_SCALE).toString().padStart(OUTPUT_SCALE_DIGITS, '0')
+  const sign = negative && halfUp !== 0n ? '-' : ''
+  return `${sign}${wholePart.toString()}.${fractionPart}`
 }
 
 type AttributionShare = {
@@ -92,7 +120,16 @@ type AttributionShare = {
  * line of its own (`cart_lines_unique_line_key`), so the line's single `added_by` actor is
  * the buyer and the rep's units would be credited to nobody. Splits such a mixed line by
  * quantity into the buyer's remainder plus one share per accepted proposal, attributed to
- * the proposal's author. A line fully sourced from proposals, or with none, is not split.
+ * the proposal's author.
+ *
+ * Review finding: when the proposals' own quantities fully (or, after rounding, slightly
+ * over-) cover the line — e.g. two accepted proposals summing to exactly the line's quantity,
+ * with no buyer-added remainder — this used to return `null` and fall back to crediting the
+ * WHOLE line to `line.addedByActorId`, which in that shape is just whichever proposal's
+ * acceptance happened to write the merged line last. That silently gave 100% of the
+ * commission to one rep for units several reps actually contributed. Every contributing
+ * proposal now gets its proportional share regardless of whether a buyer remainder exists;
+ * the remainder row is only added when one actually does.
  */
 function splitLineByProposalContribution(
   line: AssistedSellingAttributionLine,
@@ -100,33 +137,36 @@ function splitLineByProposalContribution(
 ): AttributionShare[] | null {
   const contributions = (line.proposalContributions ?? []).flatMap((contribution) => {
     const proposal = proposalByCartId.get(contribution.proposalCartId)
-    const quantity = toAmountNumber(contribution.quantity)
-    return proposal && quantity > 0 ? [{ proposal, quantity }] : []
+    const quantity = toScaledAmount(contribution.quantity)
+    return proposal && quantity > 0n ? [{ proposal, quantity }] : []
   })
-  const lineQuantity = toAmountNumber(line.quantity ?? '0')
-  const contributedQuantity = contributions.reduce((sum, contribution) => sum + contribution.quantity, 0)
-  if (contributions.length === 0 || lineQuantity <= 0 || contributedQuantity >= lineQuantity) return null
+  const lineQuantity = toScaledAmount(line.quantity ?? '0')
+  if (contributions.length === 0 || lineQuantity <= 0n) return null
+  const contributedQuantity = contributions.reduce((sum, contribution) => sum + contribution.quantity, 0n)
 
-  const totalNet = toAmountNumber(line.netAmount)
-  const totalGross = toAmountNumber(line.grossAmount)
+  const totalNet = toScaledAmount(line.netAmount)
+  const totalGross = toScaledAmount(line.grossAmount)
   const shares: AttributionShare[] = contributions.map(({ proposal, quantity }) => ({
     actorType: proposal.authoredByActorType as AssistedSellingAttributionActorType,
     actorId: proposal.authoredByActorId,
     threadId: proposal.threadId,
     proposalId: proposal.id,
-    net: formatAmount((totalNet * quantity) / lineQuantity),
-    gross: formatAmount((totalGross * quantity) / lineQuantity),
+    net: formatScaledAmount((totalNet * quantity) / lineQuantity),
+    gross: formatScaledAmount((totalGross * quantity) / lineQuantity),
   }))
-  const allocatedNet = shares.reduce((sum, share) => sum + toAmountNumber(share.net), 0)
-  const allocatedGross = shares.reduce((sum, share) => sum + toAmountNumber(share.gross), 0)
+  const remainderQuantity = lineQuantity - contributedQuantity
+  if (remainderQuantity <= 0n) return shares
+
+  const allocatedNet = shares.reduce((sum, share) => sum + toScaledAmount(share.net), 0n)
+  const allocatedGross = shares.reduce((sum, share) => sum + toScaledAmount(share.gross), 0n)
   return [
     {
       actorType: line.addedByActorType as AssistedSellingAttributionActorType,
       actorId: line.addedByActorId,
       threadId: null,
       proposalId: null,
-      net: formatAmount(totalNet - allocatedNet),
-      gross: formatAmount(totalGross - allocatedGross),
+      net: formatScaledAmount(totalNet - allocatedNet),
+      gross: formatScaledAmount(totalGross - allocatedGross),
     },
     ...shares,
   ]
@@ -174,8 +214,19 @@ export async function handleCartConvertedForAttribution(
     const detail = await cartService.getAttributionLines({ tenantId, organizationId, cartId })
     if (!detail || detail.lines.length === 0) return
 
+    // Review finding: `line.proposalCartId` is only the LAST contributing proposal
+    // (`cartService.getAttributionLines`'s own `entries[entries.length - 1].proposalCartId`)
+    // — a mixed/merged line's `proposalContributions` can name EARLIER proposals too.
+    // Collecting only `line.proposalCartId` here left those earlier proposals unresolved in
+    // `proposalByCartId` below, silently dropping their contribution out of the split instead
+    // of crediting them.
     const proposalCartIds = Array.from(
-      new Set(detail.lines.map((line) => line.proposalCartId).filter((id): id is string => Boolean(id))),
+      new Set(
+        detail.lines.flatMap((line) => [
+          line.proposalCartId,
+          ...(line.proposalContributions ?? []).map((contribution) => contribution.proposalCartId),
+        ]).filter((id): id is string => Boolean(id)),
+      ),
     )
     const proposals = proposalCartIds.length
       ? await em.find(AssistedSellingProposal, {
@@ -243,12 +294,12 @@ export async function handleCartConvertedForAttribution(
       // §6.7's safety net: "the subscriber degrades to document-level attribution — the
       // line id NULL, amounts summed per actor." Grouped by (actor_type, actor_id) so a
       // commission report still gets a usable, if coarser, split.
-      const groups = new Map<string, { actorType: string; actorId: string | null; net: number; gross: number }>()
+      const groups = new Map<string, { actorType: string; actorId: string | null; net: bigint; gross: bigint }>()
       for (const line of detail.lines) {
         const key = `${line.addedByActorType}:${line.addedByActorId ?? ''}`
-        const group = groups.get(key) ?? { actorType: line.addedByActorType, actorId: line.addedByActorId, net: 0, gross: 0 }
-        group.net += toAmountNumber(line.netAmount)
-        group.gross += toAmountNumber(line.grossAmount)
+        const group = groups.get(key) ?? { actorType: line.addedByActorType, actorId: line.addedByActorId, net: 0n, gross: 0n }
+        group.net += toScaledAmount(line.netAmount)
+        group.gross += toScaledAmount(line.grossAmount)
         groups.set(key, group)
       }
       for (const group of groups.values()) {
@@ -265,8 +316,8 @@ export async function handleCartConvertedForAttribution(
           actorId: group.actorId,
           threadId: null,
           proposalId: null,
-          lineNetAmount: formatAmount(group.net),
-          lineGrossAmount: formatAmount(group.gross),
+          lineNetAmount: formatScaledAmount(group.net),
+          lineGrossAmount: formatScaledAmount(group.gross),
           currencyCode: detail.currencyCode,
           convertedAt: now,
         })
@@ -292,5 +343,15 @@ export async function handleCartConvertedForAttribution(
       organizationId,
       error: err instanceof Error ? err.message : err,
     })
+    getTelemetryRuntime()?.reportError(err, { module: 'assisted_selling', code: 'assisted_selling.attribution_failed' })
+    // Review finding: this subscriber is `persistent: true` (retried on failure) precisely
+    // so a transient error (a DB hiccup, a lock timeout) doesn't permanently lose a cart's
+    // commission rows — swallowing every error here defeated that. The ONE case that is
+    // actually safe to swallow is a proven idempotent duplicate: the partial unique indexes
+    // on `(tenant_id, sales_*_line_id, proposal_id)` reject a second redelivery that raced
+    // past the `existing > 0` guard above, and that redelivery's rows already exist from the
+    // winner — re-throwing it would only churn retries forever on an outcome that already
+    // succeeded.
+    if (!isUniqueViolation(err)) throw err
   }
 }

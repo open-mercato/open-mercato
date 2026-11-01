@@ -4,16 +4,16 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
-import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError, isCrudHttpError, translateCrudErrorBody } from '@open-mercato/shared/lib/crud/errors'
 import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { AssistedSellingThread } from '../../data/entities'
 import { assistedSellingThreadOpenRequestSchema } from '../../data/validators'
-import { organizationIdsFromAssistedSellingScope } from '../../lib/organizationScope'
+import { resolveAssistedSellingOrganizationIds } from '../../lib/organizationScope'
 import { openThreadCommand, type AssistedSellingThreadOpenInput, type AssistedSellingThreadOpenResult } from '../../commands/threads'
 import { CustomerEntity } from '@open-mercato/core/modules/customers/data/entities'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
@@ -43,7 +43,9 @@ const listQuerySchema = z.object({
   storeId: z.string().uuid().optional(),
   status: z.enum(['open', 'closed']).optional(),
   assignedActorId: assignedActorIdSchema.optional(),
-  hasLiveProposals: z.coerce.boolean().optional(),
+  // `z.coerce.boolean()` turns the string `"false"` into `true` (any non-empty string
+  // coerces truthy) — `parseBooleanToken` below reads the literal token instead.
+  hasLiveProposals: z.string().optional(),
 })
 
 async function resolveCallerContext(req: Request) {
@@ -53,8 +55,7 @@ async function resolveCallerContext(req: Request) {
   if (!auth || !auth.tenantId) {
     throw new CrudHttpError(401, { error: translate('assisted_selling.errors.unauthorized', 'Unauthorized') })
   }
-  const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req }).catch(() => null)
-  const organizationIds = organizationIdsFromAssistedSellingScope(scope, scope?.selectedId ?? auth.orgId ?? null)
+  const organizationIds = await resolveAssistedSellingOrganizationIds({ container, auth, request: req })
   return { container, auth, tenantId: auth.tenantId, organizationIds, translate }
 }
 
@@ -78,7 +79,7 @@ export async function GET(req: Request) {
     if (query.assignedActorId === 'unassigned') where.assignedActorId = null
     else if (query.assignedActorId === 'me') where.assignedActorId = auth.sub ?? null
     else if (query.assignedActorId) where.assignedActorId = query.assignedActorId
-    if (query.hasLiveProposals) where.liveProposalCount = { $gt: 0 }
+    if (parseBooleanToken(query.hasLiveProposals) === true) where.liveProposalCount = { $gt: 0 }
 
     const [rows, total] = await em.findAndCount(AssistedSellingThread, where, {
       orderBy: { lastActivityAt: 'DESC' },
@@ -108,7 +109,11 @@ export async function GET(req: Request) {
         ? findWithDecryption(
             em,
             User,
-            { id: { $in: assignedActorIds } },
+            // A missing `tenantId` filter here would resolve ANY tenant's user by id — not
+            // just leaking another tenant's staff name/email into this response, but
+            // (combined with an unvalidated `assign` actorId) turning this lookup into a
+            // cross-tenant user-id oracle.
+            { id: { $in: assignedActorIds }, tenantId },
             { fields: ['id', 'name', 'email', 'organizationId'] as const },
             { tenantId, organizationId: decryptionFallbackOrgId },
           )

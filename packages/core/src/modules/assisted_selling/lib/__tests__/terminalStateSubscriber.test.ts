@@ -55,6 +55,21 @@ function makeFakeEm(seed: { proposals?: Row[]; threads?: Row[] } = {}) {
     }),
     persist: jest.fn(),
     flush: jest.fn(async () => undefined),
+    // `applyLiveProposalCountDelta` (`lib/liveProposalCount.ts`) — the only raw SQL this
+    // handler issues. Mirrors the real `GREATEST(live_proposal_count + delta, 0)` update
+    // against the seeded thread row by id.
+    execute: jest.fn(async (_sql: string, params: unknown[] = []) => {
+      const [delta, threadId] = params as [number, string]
+      const thread = threads.find((row) => row.id === threadId)
+      if (thread) thread.liveProposalCount = Math.max(0, (thread.liveProposalCount ?? 0) + delta)
+      return []
+    }),
+    // `withAtomicFlush({ transaction: true })` (`lib/terminalStateSubscriber.ts`) drives
+    // these directly.
+    begin: jest.fn(async () => undefined),
+    commit: jest.fn(async () => undefined),
+    rollback: jest.fn(async () => undefined),
+    isInTransaction: jest.fn(() => false),
   }
   em.fork = jest.fn(() => em)
   return { em, proposals, threads }
