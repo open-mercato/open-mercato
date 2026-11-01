@@ -11,7 +11,7 @@
 import { resolveRequestContext } from '@open-mercato/shared/lib/api/context'
 import type { OrganizationScopeService } from '@open-mercato/shared/lib/auth/principal-service'
 import { createLogger } from '@open-mercato/shared/lib/logger'
-import { parseNumberWithDefault } from '@open-mercato/shared/lib/number'
+import { resolveSseConnectionBounds } from '@open-mercato/shared/lib/sse/connectionBounds'
 import { isBroadcastEvent } from '@open-mercato/shared/modules/events'
 import {
   CROSS_PROCESS_EVENT_INSTANCE_ID,
@@ -25,12 +25,6 @@ export const metadata = {
 }
 
 const HEARTBEAT_INTERVAL_MS = 30_000
-const DEFAULT_AUTH_REVALIDATION_INTERVAL_MS = 30_000
-const DEFAULT_CONNECTION_MAX_AGE_MS = 5 * 60_000
-const MIN_AUTH_REVALIDATION_INTERVAL_MS = 1_000
-const MIN_CONNECTION_MAX_AGE_MS = 1_000
-const CONNECTION_MAX_AGE_JITTER_RATIO = 0.15
-const MAX_TIMER_DELAY_MS = 2_147_483_647
 const MAX_PAYLOAD_BYTES = 4096
 
 const logger = createLogger('events').child({ component: 'stream' })
@@ -46,35 +40,6 @@ type SseConnection = {
   identity: SseConnectionIdentity
   send: (data: string) => void
   close: () => void
-}
-
-function resolveTimingConfig(): {
-  authRevalidationIntervalMs: number
-  connectionMaxAgeMs: number
-} {
-  return {
-    authRevalidationIntervalMs: Math.min(
-      parseNumberWithDefault(
-        process.env.OM_EVENTS_SSE_AUTH_REVALIDATION_INTERVAL_MS,
-        DEFAULT_AUTH_REVALIDATION_INTERVAL_MS,
-        { integer: true, min: MIN_AUTH_REVALIDATION_INTERVAL_MS },
-      ),
-      MAX_TIMER_DELAY_MS,
-    ),
-    connectionMaxAgeMs: applyConnectionMaxAgeJitter(
-      parseNumberWithDefault(
-        process.env.OM_EVENTS_SSE_CONNECTION_MAX_AGE_MS,
-        DEFAULT_CONNECTION_MAX_AGE_MS,
-        { integer: true, min: MIN_CONNECTION_MAX_AGE_MS },
-      ),
-    ),
-  }
-}
-
-function applyConnectionMaxAgeJitter(configuredMs: number): number {
-  const jitterFactor = 1 + (Math.random() * 2 - 1) * CONNECTION_MAX_AGE_JITTER_RATIO
-  const jitteredMs = Math.round(configuredMs * jitterFactor)
-  return Math.min(Math.max(jitteredMs, MIN_CONNECTION_MAX_AGE_MS), MAX_TIMER_DELAY_MS)
 }
 
 function normalizeRoleIds(input: unknown): string[] {
@@ -354,7 +319,7 @@ export async function GET(req: Request): Promise<Response> {
     return new Response('Unauthorized', { status: 401 })
   }
   const authorizedIdentity = initialIdentity
-  const { authRevalidationIntervalMs, connectionMaxAgeMs } = resolveTimingConfig()
+  const { authRevalidationIntervalMs, connectionMaxAgeMs } = resolveSseConnectionBounds()
 
   ensureGlobalTapSubscription()
 

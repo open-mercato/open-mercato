@@ -95,8 +95,8 @@ missing for 45 seconds.
 
 | Environment variable | Default | Constraint | Purpose |
 | --- | ---: | ---: | --- |
-| `OM_EVENTS_SSE_AUTH_REVALIDATION_INTERVAL_MS` | `30000` | `1000`–`2147483647` | How often an open stream re-resolves canonical identity and roles. |
-| `OM_EVENTS_SSE_CONNECTION_MAX_AGE_MS` | `300000` | `1000`–`2147483647` | Base maximum age of one server stream before a forced reconnect; each connection applies ±15% jitter within the same bounds. |
+| `OM_EVENTS_SSE_AUTH_REVALIDATION_INTERVAL_MS` | `30000` | `1000`–`2147483647` | How often an open stream re-checks its credentials: the DOM Event Bridge re-resolves canonical identity, organization scope and roles; the Portal Event Bridge re-checks the customer session. |
+| `OM_EVENTS_SSE_CONNECTION_MAX_AGE_MS` | `300000` | `1000`–`2147483647` | Base maximum age of one DOM or Portal Event Bridge stream before a forced reconnect; each connection applies ±15% jitter within the same bounds. |
 
 Invalid values and values below the minimum use the default. Larger finite values are capped at
 Node's maximum safe timer delay (`2^31-1` milliseconds), preventing timer overflow from turning a
