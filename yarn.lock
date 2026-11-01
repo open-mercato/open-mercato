@@ -8613,7 +8613,7 @@ __metadata:
     react-json-view-lite: "npm:^2.5.0"
     react-markdown: "npm:^10.1.0"
     tsx: "npm:^4.23.12"
-    zod: "npm:^4.4.3"
+    zod: "npm:^4.6.6"
     zod-to-json-schema: "npm:^3.25.2"
   peerDependencies:
     "@open-mercato/shared": "workspace:*"
@@ -8716,7 +8716,7 @@ __metadata:
     tw-animate-css: "npm:^1.4.0"
     typescript: "npm:^6.0.3"
     typescript-native: "npm:typescript@7.0.2"
-    zod: "npm:^4.4.3"
+    zod: "npm:^4.6.6"
   dependenciesMeta:
     better-sqlite3:
       optional: true
@@ -9151,7 +9151,7 @@ __metadata:
     ts-jest: "npm:^29.4.12"
     ts-pattern: "npm:^5.0.0"
     typescript: "npm:7.0.2"
-    zod: "npm:^4.4.3"
+    zod: "npm:^4.6.6"
   peerDependencies:
     "@open-mercato/ai-assistant": "workspace:*"
     "@open-mercato/shared": "workspace:*"
@@ -9361,7 +9361,7 @@ __metadata:
     jest: "npm:^30.4.2"
     ts-jest: "npm:^29.4.12"
     typescript: "npm:7.0.2"
-    zod: "npm:^4.4.3"
+    zod: "npm:^4.6.6"
   peerDependencies:
     "@mikro-orm/postgresql": ^7.0.14
     "@open-mercato/shared": "workspace:*"
@@ -9448,7 +9448,7 @@ __metadata:
     pg: "npm:8.23.0"
     ts-jest: "npm:^29.4.12"
     typescript: "npm:7.0.2"
-    zod: "npm:^4.4.3"
+    zod: "npm:^4.6.6"
   peerDependencies:
     "@open-mercato/core": "workspace:*"
     "@open-mercato/queue": "workspace:*"
@@ -9716,7 +9716,7 @@ __metadata:
     playwright: "npm:^1.40.0"
     ts-jest: "npm:^29.4.11"
     typescript: "npm:^6.0.3"
-    zod: "npm:^4.4.3"
+    zod: "npm:^4.6.6"
   peerDependencies:
     "@open-mercato/web-research": ^0.6.0
   bin:
@@ -9736,7 +9736,7 @@ __metadata:
     jest: "npm:^30.4.2"
     ts-jest: "npm:^29.4.11"
     typescript: "npm:^6.0.3"
-    zod: "npm:^4.4.3"
+    zod: "npm:^4.6.6"
   peerDependencies:
     "@open-mercato/web-research": ^0.6.0
   languageName: unknown
@@ -9754,7 +9754,7 @@ __metadata:
     jest: "npm:^30.4.2"
     ts-jest: "npm:^29.4.11"
     typescript: "npm:^6.0.3"
-    zod: "npm:^4.4.3"
+    zod: "npm:^4.6.6"
   peerDependencies:
     "@open-mercato/web-research": ^0.6.0
   languageName: unknown
@@ -9776,7 +9776,7 @@ __metadata:
     jest: "npm:^30.4.2"
     ts-jest: "npm:^29.4.11"
     typescript: "npm:^6.0.3"
-    zod: "npm:^4.4.3"
+    zod: "npm:^4.6.6"
   peerDependencies:
     "@ai-sdk/anthropic": ^4.0.1
     "@ai-sdk/azure": ^4.0.0
@@ -9805,7 +9805,7 @@ __metadata:
     jest: "npm:^30.4.2"
     ts-jest: "npm:^29.4.11"
     typescript: "npm:^6.0.3"
-    zod: "npm:^4.4.3"
+    zod: "npm:^4.6.6"
   peerDependencies:
     "@open-mercato/web-research": ^0.6.0
   languageName: unknown
@@ -9823,7 +9823,7 @@ __metadata:
     jest: "npm:^30.4.2"
     ts-jest: "npm:^29.4.11"
     typescript: "npm:^6.0.3"
-    zod: "npm:^4.4.3"
+    zod: "npm:^4.6.6"
   peerDependencies:
     "@open-mercato/web-research": ^0.6.0
   languageName: unknown
@@ -9841,7 +9841,7 @@ __metadata:
     jest: "npm:^30.4.2"
     ts-jest: "npm:^29.4.11"
     typescript: "npm:^6.0.3"
-    zod: "npm:^4.4.3"
+    zod: "npm:^4.6.6"
   peerDependencies:
     "@open-mercato/web-research": ^0.6.0
   languageName: unknown
@@ -9858,7 +9858,7 @@ __metadata:
     jest: "npm:^30.4.2"
     ts-jest: "npm:^29.4.11"
     typescript: "npm:^6.0.3"
-    zod: "npm:^4.4.3"
+    zod: "npm:^4.6.6"
   languageName: unknown
   linkType: soft
 
@@ -29798,7 +29798,7 @@ __metadata:
     typescript-js: "npm:typescript@6.0.3"
     vite: "npm:8.2.4"
     yaml: "npm:2.9.0"
-    zod: "npm:^4.4.3"
+    zod: "npm:^4.6.6"
   dependenciesMeta:
     "@datadog/pprof":
       built: true

@@ -35,7 +35,7 @@
     "@open-mercato/web-research": "^0.6.0"
   },
   "dependencies": {
-    "zod": "^4.4.3"
+    "zod": "^4.6.6"
   },
   "devDependencies": {
     "@open-mercato/web-research": "workspace:*",
