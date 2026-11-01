@@ -96,6 +96,19 @@ describe('PersonDetailTabs', () => {
     },
   )
 
+  it('renders the icon declared on an injected tab placement', () => {
+    render(
+      <PersonDetailTabs
+        activeTab="activities"
+        onTabChange={() => {}}
+        injectedTabs={[{ id: 'pending-work', label: 'Pending work', icon: 'list-checks', priority: 10 }]}
+      >
+        <div>content</div>
+      </PersonDetailTabs>,
+    )
+    expect(screen.getByRole('tab', { name: 'Pending work' }).querySelector('svg.lucide-list-checks')).not.toBeNull()
+  })
+
   it('hides built-in and injected tabs listed in hiddenTabIds (#4379)', () => {
     render(
       <PersonDetailTabs

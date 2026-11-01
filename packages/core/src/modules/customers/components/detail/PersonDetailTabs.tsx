@@ -20,6 +20,7 @@ import { Popover, PopoverClose, PopoverContent, PopoverTrigger } from '@open-mer
 import type { SectionAction } from '@open-mercato/ui/backend/detail'
 import { registerComponent } from '@open-mercato/shared/modules/widgets/component-registry'
 import { useRegisteredComponent } from '@open-mercato/ui/backend/injection/useRegisteredComponent'
+import { resolveInjectedIcon } from '@open-mercato/ui/backend/injection/resolveInjectedIcon'
 
 export const PERSON_DETAIL_TAB_IDS = ['activities', 'emails', 'deals', 'companies', 'addresses', 'tasks', 'changelog', 'files'] as const
 
@@ -47,7 +48,7 @@ export const PERSON_DETAIL_TABS_COMPONENT_ID = 'section:customers.people.detailT
 export type PersonDetailTabsProps = {
   activeTab: PersonTabId
   onTabChange: (tab: PersonTabId) => void
-  injectedTabs?: Array<{ id: string; label: string; priority?: number }>
+  injectedTabs?: Array<{ id: string; label: string; icon?: string; priority?: number }>
   isLoadingInjectedTabs?: boolean
   hiddenTabIds?: string[]
   activitiesCount?: number
@@ -158,6 +159,7 @@ function DefaultPersonDetailTabs({
       ...injectedTabs.filter((tab, index) => !builtInTabs.some((native) => native.id === tab.id) && injectedTabs.findIndex((candidate) => candidate.id === tab.id) === index).map((tab) => ({
         id: tab.id as PersonTabId,
         label: tab.label,
+        icon: resolveInjectedIcon(tab.icon),
         priority: tab.priority,
       })),
     ]

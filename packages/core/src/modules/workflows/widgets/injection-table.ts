@@ -37,7 +37,9 @@ const crmPendingWorkTab = {
   kind: 'tab',
   groupId: 'pending-work',
   groupLabel: 'workflows.pendingWork.title',
-  priority: 30,
+  icon: 'list-checks',
+  // Negative: after the host's built-in tabs (#8020 ordering contract).
+  priority: -10,
 } as const
 
 export const injectionTable: ModuleInjectionTable = {

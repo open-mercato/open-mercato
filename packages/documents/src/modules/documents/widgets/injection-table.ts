@@ -15,7 +15,9 @@ const relatedDocumentsTab = {
   kind: 'tab' as const,
   groupId: 'related-documents',
   groupLabel: 'documents.relatedDocuments.title',
-  priority: 20,
+  icon: 'file-text',
+  // Negative: after the host's built-in tabs (#8020 ordering contract).
+  priority: -20,
 }
 
 export const injectionTable: ModuleInjectionTable = {

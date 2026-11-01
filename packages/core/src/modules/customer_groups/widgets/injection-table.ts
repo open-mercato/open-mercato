@@ -19,7 +19,8 @@ export const injectionTable: ModuleInjectionTable = {
       widgetId: 'customer_groups.injection.person-groups-tab',
       kind: 'tab',
       groupLabel: 'customer_groups.groups.personTab.title',
-      priority: 45,
+      icon: 'users',
+      priority: -30,
     },
   ],
   'detail:customers.company:tabs': [
@@ -27,7 +28,8 @@ export const injectionTable: ModuleInjectionTable = {
       widgetId: 'customer_groups.injection.person-groups-tab',
       kind: 'tab',
       groupLabel: 'customer_groups.groups.personTab.title',
-      priority: 45,
+      icon: 'users',
+      priority: -30,
     },
   ],
 }

@@ -28,7 +28,7 @@ async function openWorkspaceTab(page: Page, label: RegExp): Promise<void> {
     await tab.click()
     return
   }
-  const more = page.getByRole('button', { name: /^More/ })
+  const more = page.getByTestId('detail-tabs-more')
   await expect(more, 'the tab is reachable inline or through More').toBeVisible({ timeout: 30_000 })
   await more.click()
   await page.getByRole('menuitem', { name: label }).click()
