@@ -624,6 +624,7 @@ jobs:
     needs: [prepare, audit-scope, audit, lint]
     if: |
       always() &&
+      !cancelled() &&
       needs.prepare.result == 'success' &&
       needs.audit-scope.result == 'success' &&
       (needs.audit.result == 'success' || needs.audit.result == 'skipped') &&
@@ -825,6 +826,7 @@ jobs:
     needs: [prepare, audit-scope, audit, lint]
     if: |
       always() &&
+      !cancelled() &&
       needs.prepare.result == 'success' &&
       needs.audit-scope.result == 'success' &&
       (needs.audit.result == 'success' || needs.audit.result == 'skipped') &&
@@ -881,6 +883,7 @@ jobs:
     needs: [prepare, audit-scope, audit, lint]
     if: |
       always() &&
+      !cancelled() &&
       needs.prepare.result == 'success' &&
       needs.audit-scope.result == 'success' &&
       (needs.audit.result == 'success' || needs.audit.result == 'skipped') &&
@@ -954,6 +957,7 @@ jobs:
     needs: [prepare, audit-scope, audit, lint]
     if: |
       always() &&
+      !cancelled() &&
       needs.prepare.result == 'success' &&
       needs.audit-scope.result == 'success' &&
       (needs.audit.result == 'success' || needs.audit.result == 'skipped') &&
@@ -1183,6 +1187,7 @@ jobs:
     needs: [prepare, test, documents-multi-instance, ephemeral-integration]
     if: |
       always() &&
+      !cancelled() &&
       needs.prepare.result == 'success' &&
       needs.test.result == 'success' &&
       needs.documents-multi-instance.result == 'success' &&
