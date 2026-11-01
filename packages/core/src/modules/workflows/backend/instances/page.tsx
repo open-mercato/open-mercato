@@ -204,7 +204,7 @@ export default function WorkflowInstancesListPage() {
 
   const handleCancel = async (id: string, workflowId: string) => {
     const confirmed = await confirmDialog({
-      title: t('workflows.instances.confirm.cancel', { id: workflowId }),
+      title: t('workflows.instances.confirm.cancel', { workflowId }),
       variant: 'destructive',
     })
     if (!confirmed) {
@@ -225,7 +225,7 @@ export default function WorkflowInstancesListPage() {
 
   const handleRetry = async (id: string, workflowId: string) => {
     const ok = await confirmDialog({
-      title: t('workflows.instances.confirm.retry', { id: workflowId }),
+      title: t('workflows.instances.confirm.retry', { workflowId }),
       variant: 'default',
     })
     if (!ok) {
