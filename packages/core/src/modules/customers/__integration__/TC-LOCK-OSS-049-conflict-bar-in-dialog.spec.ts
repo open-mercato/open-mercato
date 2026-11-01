@@ -95,7 +95,8 @@ test.describe('TC-LOCK-OSS-049: conflict bar is reachable while a dialog is open
       await expect(page.getByTestId(CONFLICT_BANNER_TESTID)).toHaveCount(0, { timeout: 15_000 })
     } finally {
       if (entryId) {
-        await apiRequest(request, 'DELETE', `${DICTIONARY_PATH}/${entryId}`, { token }).catch(() => {})
+        const deleted = await apiRequest(request, 'DELETE', `${DICTIONARY_PATH}/${entryId}`, { token })
+        expect(deleted.status(), await deleted.text()).toBe(200)
       }
     }
   })
