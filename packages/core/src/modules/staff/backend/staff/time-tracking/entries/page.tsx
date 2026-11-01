@@ -681,13 +681,14 @@ export default function TimeTrackingEntriesPage() {
           }),
           'success',
         )
+        handleRefresh()
       } catch (error) {
         setRows(previousRows)
         setTotal((current) => current + 1)
         reportFailure(error, labels.errors.delete, 'staff.time_tracking.entries delete failed')
       }
     },
-    [labels.errors.delete, labels.noTask, mutationContext, reportFailure, rows, runMutation, t],
+    [handleRefresh, labels.errors.delete, labels.noTask, mutationContext, reportFailure, rows, runMutation, t],
   )
 
   const handleDuplicate = React.useCallback(

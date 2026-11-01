@@ -349,8 +349,17 @@ describe('time entries list — inline duration edit (screen 10 note 1)', () => 
 })
 
 describe('time entries list — optimistic delete with undo (screen 10 note 2)', () => {
-  it('drops the row immediately and brings it back when the operation is undone', async () => {
+  it('refreshes whole-set totals after deletion and brings the row back when the operation is undone', async () => {
     const undoToken = 'undo-token-1'
+    const deletedRow = entryRow()
+    const originalTotals = {
+      entryCount: 1,
+      durationMinutes: 150,
+      roundedMinutes: 150,
+      money: [{ currencyCode: 'PLN', amount: 800 }],
+    }
+    entryRows = [deletedRow]
+    entryTotals = originalTotals
     const operationHeader = serializeOperationMetadata({
       id: 'log-1',
       undoToken,
@@ -360,13 +369,17 @@ describe('time entries list — optimistic delete with undo (screen 10 note 2)',
       resourceId: OPEN_ID,
       executedAt: new Date().toISOString(),
     })
-    mockDeleteCrud.mockResolvedValue({
-      ok: true,
-      status: 200,
-      result: { ok: true },
-      response: responseWithOperationHeader(operationHeader),
-      cacheStatus: null,
-    } as never)
+    mockDeleteCrud.mockImplementation(async () => {
+      entryRows = []
+      entryTotals = { entryCount: 0, durationMinutes: 0, roundedMinutes: 0, money: [] }
+      return {
+        ok: true,
+        status: 200,
+        result: { ok: true },
+        response: responseWithOperationHeader(operationHeader),
+        cacheStatus: null,
+      } as never
+    })
 
     await renderPage()
     expect(screen.getByTestId(`row-${OPEN_ID}`)).toBeTruthy()
@@ -381,6 +394,12 @@ describe('time entries list — optimistic delete with undo (screen 10 note 2)',
       OPEN_ID,
       expect.objectContaining({ errorMessage: expect.any(String) }),
     )
+    await waitFor(() => expect(screen.getByTestId('entries-summary-footer').textContent).toContain('0 matching entries'))
+    expect(screen.getByTestId('entries-summary-duration').textContent).toBe('0:00')
+    expect(screen.queryByTestId('entries-summary-money')).toBeNull()
+
+    entryRows = [deletedRow]
+    entryTotals = originalTotals
 
     await act(async () => {
       pushOperation({
