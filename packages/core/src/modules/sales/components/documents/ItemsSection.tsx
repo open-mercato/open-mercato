@@ -6,7 +6,7 @@ import { apiCall, withScopedApiRequestHeaders } from "@open-mercato/ui/backend/u
 import { buildOptimisticLockHeader } from "@open-mercato/ui/backend/utils/optimisticLock";
 import { deleteCrud } from "@open-mercato/ui/backend/utils/crud";
 import { normalizeCrudServerError } from "@open-mercato/ui/backend/utils/serverErrors";
-import { LoadingMessage, TabEmptyState } from "@open-mercato/ui/backend/detail";
+import { ErrorMessage, LoadingMessage, TabEmptyState } from "@open-mercato/ui/backend/detail";
 import { IconButton } from "@open-mercato/ui/primitives/icon-button";
 import { SimpleTooltip } from "@open-mercato/ui/primitives/tooltip";
 import { flash } from "@open-mercato/ui/backend/FlashMessages";
@@ -239,7 +239,7 @@ export function SalesDocumentItemsSection({
     kind !== "order",
   );
 
-  const { widgets: allColumnWidgets } = useInjectionDataWidgets(
+  const { widgets: allColumnWidgets, isLoading: injectedColumnsLoading, error: injectedColumnsError } = useInjectionDataWidgets(
     extensionPoints.hosts.orderItemColumns.spotId,
   );
   const columnWidgets = kind === "order" ? allColumnWidgets : [];
@@ -766,7 +766,10 @@ export function SalesDocumentItemsSection({
   return (
     <OrderItemsInjectionContext.Provider value={{ documentId, kind }}>
     <div className="space-y-4">
-      {loading ? (
+      {kind === "order" && injectedColumnsError ? (
+        <ErrorMessage label={t('ui.dataTable.extensions.error', 'Some table extensions could not load. Reload the page to retry.')} />
+      ) : null}
+      {loading || (kind === "order" && injectedColumnsLoading) ? (
         <LoadingMessage
           label={t("sales.documents.items.loading", "Loading items…")}
           className="border-0 bg-transparent p-0 py-8 justify-center"
