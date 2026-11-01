@@ -32,6 +32,9 @@ Restore the main branch's snapshot-release health by ensuring standalone consume
 2. Add a regression test that keeps the published TipTap family exact and internally aligned.
 3. Remove the unsafe unscoped core resolution, align the HTML DOM peer, and make the guard validate effective lockfile peers.
 4. Replace the vulnerable HTML DOM peer with the audited patch and remove the unnecessary TipTap HTML wrapper whose aged peer range rejects it.
+5. Preserve the real age-gated fresh-consumer resolution as a regression test.
+6. Exercise the built materializer against unmocked Happy DOM, including lazy loading and window cleanup.
+7. Update the Documents dependency specification to match the shipped server conversion stack.
 
 ### Phase 3: Verify and review
 
@@ -62,6 +65,9 @@ PR: #8349
 - [x] 2.2 Add a regression test that keeps the published TipTap family exact and internally aligned. — 6f8e279a12
 - [x] 2.3 Remove the unsafe unscoped core resolution, align the HTML DOM peer, and make the guard validate effective lockfile peers. — cb18363259
 - [x] 2.4 Replace the vulnerable HTML DOM peer with the audited patch and remove the unnecessary TipTap HTML wrapper whose aged peer range rejects it. — bdb3add629, 4cafcb28dc
+- [x] 2.5 Preserve the real age-gated fresh-consumer resolution as a regression test. — 31c6a0bef6
+- [x] 2.6 Exercise the built materializer against unmocked Happy DOM, including lazy loading and window cleanup. — 31c6a0bef6
+- [x] 2.7 Update the Documents dependency specification to match the shipped server conversion stack. — 31c6a0bef6
 
 ### Phase 3: Verify and review
 
