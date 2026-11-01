@@ -30,8 +30,7 @@ import { useCurrentOrganization } from '@open-mercato/ui/backend/BackendChromePr
 import {
   DictionaryValue,
   createEmptyCustomerDictionaryMaps,
-  renderDictionaryColor,
-  renderDictionaryIcon,
+  dictionaryValueAppearance,
   type CustomerDictionaryKind,
   type CustomerDictionaryMap,
 } from '../../../lib/dictionaries'
@@ -593,10 +592,7 @@ export default function CustomersPeoplePage() {
         value={rawValue}
         map={dictionaryMaps[kind]}
         fallback={rawValue ? <span>{rawValue}</span> : noValue}
-        className="text-sm"
-        iconWrapperClassName="inline-flex h-6 w-6 items-center justify-center rounded border border-border bg-card"
-        iconClassName="h-4 w-4"
-        colorClassName="h-3 w-3 rounded-full"
+        appearance={dictionaryValueAppearance(kind)}
       />
     )
 
@@ -699,22 +695,12 @@ export default function CustomersPeoplePage() {
           row.original.nextInteractionAt
             ? (
               <div className="flex items-start gap-2 text-sm">
-                {row.original.nextInteractionIcon ? (
-                  <span className="mt-0.5 inline-flex h-6 w-6 items-center justify-center rounded border border-border bg-card">
-                    {renderDictionaryIcon(row.original.nextInteractionIcon, 'h-4 w-4')}
-                  </span>
-                ) : null}
                 <div className="flex flex-col">
                   <span>{formatDate(row.original.nextInteractionAt, t('customers.people.list.noValue'))}</span>
                   {row.original.nextInteractionName ? (
                     <span className="text-xs text-muted-foreground">{row.original.nextInteractionName}</span>
                   ) : null}
                 </div>
-                {row.original.nextInteractionColor ? (
-                  <span className="mt-1">
-                    {renderDictionaryColor(row.original.nextInteractionColor, 'h-3 w-3 rounded-full border border-border')}
-                  </span>
-                ) : null}
               </div>
             )
             : <span className="text-muted-foreground text-sm">{t('customers.people.list.noValue')}</span>,
