@@ -28,6 +28,7 @@ interface SalesLineRouteConfig {
   parentFkColumn: string
   parentFkParam: string
   createSchema: z.ZodObject<z.ZodRawShape>
+  updateSchema: z.ZodObject<z.ZodRawShape>
   /** Extra fields accepted by the write payloads on top of `createSchema`. */
   writeExtensionShape?: z.ZodRawShape
   features: { view: string; manage: string }
@@ -112,6 +113,7 @@ export function makeSalesLineRoute(config: SalesLineRouteConfig) {
     parentFkColumn,
     parentFkParam,
     createSchema,
+    updateSchema,
     writeExtensionShape,
     features,
     commandPrefix,
@@ -132,6 +134,14 @@ export function makeSalesLineRoute(config: SalesLineRouteConfig) {
     id: z.string().uuid().optional(),
     ...(writeExtensionShape ?? {}),
   })
+
+  const partialUpdateSchema = updateSchema.extend({
+    [parentFkParam]: z.string().uuid(),
+    ...(writeExtensionShape ?? {}),
+  })
+
+  const parseUpdateBody = (body: Record<string, unknown>) =>
+    body.id === undefined ? upsertSchema.parse(body) : partialUpdateSchema.parse(body)
 
   const deleteSchema = z.object({
     id: z.string().uuid(),
@@ -263,7 +273,7 @@ export function makeSalesLineRoute(config: SalesLineRouteConfig) {
         schema: rawBodySchema,
         mapInput: async ({ raw, ctx }: { raw: unknown; ctx: CrudCtx }) => {
           const { translate } = await resolveTranslations()
-          const payload = upsertSchema.parse(
+          const payload = parseUpdateBody(
             withScopedPayload(resolveRawBody(raw) ?? {}, ctx, translate),
           )
           return { body: payload }
@@ -348,7 +358,7 @@ export function makeSalesLineRoute(config: SalesLineRouteConfig) {
       description: `Creates ${config.openApi.description}.`,
     },
     update: {
-      schema: upsertSchema,
+      schema: partialUpdateSchema,
       responseSchema: upsertResponseSchema,
       description: `Updates ${config.openApi.description}.`,
     },
