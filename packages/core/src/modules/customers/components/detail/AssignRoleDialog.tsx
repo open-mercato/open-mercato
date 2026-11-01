@@ -326,15 +326,15 @@ export function AssignRoleDialog({
               {selectedUser.teamName ? <span>{selectedUser.teamName}</span> : null}
             </div>
             {selectedUserConflict?.length ? (
-              <div className="mt-2 flex flex-wrap items-center gap-2">
-                <Badge
-                  variant="outline"
-                  className="rounded-full border-status-error-border bg-status-error-bg px-2 py-0.5 text-xs font-semibold text-status-error-text"
-                >
-                  {t('customers.roles.dialog.conflict', 'Conflict: {{roles}}', {
+              <div className="mt-2 space-y-1.5">
+                <Badge variant="info">
+                  {t('customers.roles.dialog.alreadyAssigned', 'Already assigned: {{roles}}', {
                     roles: selectedUserConflict.join(', '),
                   })}
                 </Badge>
+                <p className="text-xs text-muted-foreground">
+                  {t('customers.roles.dialog.multipleRolesHint', 'One person can hold several roles on this record.')}
+                </p>
               </div>
             ) : null}
           </div>
@@ -581,11 +581,8 @@ export function AssignRoleDialog({
                                 </Badge>
                               ) : null}
                               {userConflicts.length ? (
-                                <Badge
-                                  variant="outline"
-                                  className="rounded-full border-status-error-border bg-status-error-bg px-2 py-0.5 text-xs font-semibold text-status-error-text"
-                                >
-                                  {t('customers.roles.dialog.conflict', 'Conflict: {{roles}}', {
+                                <Badge variant="info">
+                                  {t('customers.roles.dialog.alreadyAssigned', 'Already assigned: {{roles}}', {
                                     roles: userConflicts.join(', '),
                                   })}
                                 </Badge>

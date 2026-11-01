@@ -41,12 +41,13 @@ describe('AssignRoleDialog', () => {
     })
   })
 
-  it('shows conflict badges for already-assigned users when a role is preselected', async () => {
+  it('marks users who already hold another role as advisory, not as a conflict, and still assigns them (#7491)', async () => {
+    const onAssign = jest.fn(async () => undefined)
     renderWithProviders(
       <AssignRoleDialog
         open
         onClose={jest.fn()}
-        onAssign={jest.fn(async () => undefined)}
+        onAssign={onAssign}
         roleTypes={[
           { id: 'rt-1', value: 'account_manager', label: 'Account manager' },
           { id: 'rt-2', value: 'service_owner', label: 'Service owner' },
@@ -73,13 +74,22 @@ describe('AssignRoleDialog', () => {
 
     expect(screen.getByText('Service owner')).toBeInTheDocument()
     await waitFor(() => {
-      expect(screen.getByText('Conflict: Account manager')).toBeInTheDocument()
+      expect(screen.getByText('Already assigned: Account manager')).toBeInTheDocument()
     })
+    expect(screen.queryByText(/Conflict/)).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: /Ada Lovelace/i }))
 
     await waitFor(() => {
-      expect(screen.getAllByText('Conflict: Account manager').length).toBeGreaterThan(1)
+      expect(screen.getAllByText('Already assigned: Account manager').length).toBeGreaterThan(1)
+    })
+    expect(screen.getByText('One person can hold several roles on this record.')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Assign role' }))
+
+    await waitFor(() => {
+      expect(onAssign).toHaveBeenCalledWith('service_owner', 'user-1')
     })
   })
 
