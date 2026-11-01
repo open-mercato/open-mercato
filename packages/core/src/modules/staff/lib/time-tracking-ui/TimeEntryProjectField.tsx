@@ -66,6 +66,8 @@ export type TimeEntryProjectFieldProps = {
  * over active projects, with a by-id lookup for a selected project that is not on
  * the dialog's first directory page. A project the caller cannot see (the lookup
  * answers 404) shows a fallback label instead of an error.
+ * When no active project is reachable (none accessible, or the list is refused)
+ * and nothing is selected, it says so under the field instead of staying blank.
  */
 export function TimeEntryProjectField({
   value,
@@ -82,6 +84,7 @@ export function TimeEntryProjectField({
   const queryClient = useQueryClient()
   const inputId = React.useId()
   const errorId = `${inputId}-error`
+  const emptyId = `${inputId}-empty`
   const unavailableLabel = t('staff.time_tracking.entryDialog.projectUnavailable', 'Project not available')
 
   const loadSuggestions = React.useCallback(
@@ -125,6 +128,20 @@ export function TimeEntryProjectField({
     queryFn: () => loadPinnedProject(unresolvedId as string),
   })
 
+  const activeProjectsQuery = useQuery<ProjectOption[]>({
+    queryKey: [...queryKeyPrefix, 'active-directory'],
+    enabled: !value,
+    staleTime: 60_000,
+    queryFn: async () => {
+      const found = await fetchProjectOptions('')
+      onProjectsResolved(found)
+      return found
+    },
+  })
+
+  const noAccessibleProjects = !value && activeProjectsQuery.isSuccess && activeProjectsQuery.data.length === 0
+  const describedBy = [noAccessibleProjects ? emptyId : null, error ? errorId : null].filter(Boolean).join(' ') || undefined
+
   const seedOptions = React.useMemo<ComboboxOption[]>(() => {
     if (!value) return []
     const known = knownProjects.get(value)
@@ -146,7 +163,7 @@ export function TimeEntryProjectField({
           id={inputId}
           aria-required
           aria-invalid={error ? true : undefined}
-          aria-describedby={error ? errorId : undefined}
+          aria-describedby={describedBy}
           value={value ?? ''}
           onChange={onChange}
           placeholder={t('staff.time_tracking.entryDialog.projectPlaceholder', 'Search projects')}
@@ -158,6 +175,11 @@ export function TimeEntryProjectField({
           disabled={disabled}
         />
       </div>
+      {noAccessibleProjects ? (
+        <p id={emptyId} className="text-xs text-muted-foreground" data-testid="entry-dialog-project-empty">
+          {t('staff.time_tracking.entryDialog.projectEmpty', 'No projects you can log time to.')}
+        </p>
+      ) : null}
       {error ? (
         <p
           id={errorId}

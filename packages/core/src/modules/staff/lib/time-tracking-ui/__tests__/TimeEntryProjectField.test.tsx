@@ -121,7 +121,7 @@ describe('TimeEntryProjectField', () => {
 
     const options = await lastComboboxProps!.loadSuggestions!('  Wdro  ')
 
-    const url = String(mockApiCall.mock.calls[0][0])
+    const url = mockApiCall.mock.calls.map(([input]) => String(input)).find((candidate) => candidate.includes('q=')) ?? ''
     expect(url).toContain('/api/staff/timesheets/time-projects?')
     expect(url).toContain('status=active')
     expect(url).toContain('q=Wdro')
@@ -178,5 +178,33 @@ describe('TimeEntryProjectField', () => {
     expect(input.getAttribute('aria-invalid')).toBe('true')
     expect(input.getAttribute('aria-describedby')).toBe(screen.getByRole('alert').id)
     expect((screen.getByTestId('project-input') as HTMLInputElement).disabled).toBe(true)
+  })
+
+  it('says there is no project to log to when the active directory is empty', async () => {
+    mockApiCall.mockResolvedValue(ok({ items: [], total: 0 }) as never)
+    renderField()
+
+    const empty = await screen.findByTestId('entry-dialog-project-empty')
+    expect(empty.textContent).toBe('No projects you can log time to.')
+    expect(screen.getByTestId('project-input').getAttribute('aria-describedby')).toBe(empty.id)
+    const url = String(mockApiCall.mock.calls[0][0])
+    expect(url).toContain('status=active')
+    expect(url).not.toContain('q=')
+  })
+
+  it('says there is no project to log to when the project list is refused', async () => {
+    mockApiCall.mockResolvedValue({ ok: false, status: 403, result: { error: 'Forbidden' }, response: {} as Response, cacheStatus: null } as never)
+    renderField()
+
+    expect((await screen.findByTestId('entry-dialog-project-empty')).textContent).toBe('No projects you can log time to.')
+  })
+
+  it('shows no empty state when an active project is reachable', async () => {
+    mockApiCall.mockResolvedValue(ok({ items: [projectRow], total: 1 }) as never)
+    const { onProjectsResolved } = renderField()
+
+    await waitFor(() => expect(onProjectsResolved).toHaveBeenCalledWith([expect.objectContaining({ id: PROJECT_ID })]))
+    expect(screen.queryByTestId('entry-dialog-project-empty')).toBeNull()
+    expect(screen.getByTestId('project-input').getAttribute('aria-describedby')).toBeNull()
   })
 })

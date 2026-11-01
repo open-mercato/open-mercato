@@ -1458,6 +1458,7 @@
   "staff.time_tracking.entryDialog.overlap.snap": "시작을 {time}(으)로 맞추기",
   "staff.time_tracking.entryDialog.overlap.title": "이 시간이 다른 기록과 겹칩니다",
   "staff.time_tracking.entryDialog.project": "프로젝트",
+  "staff.time_tracking.entryDialog.projectEmpty": "시간을 기록할 수 있는 프로젝트가 없습니다.",
   "staff.time_tracking.entryDialog.projectPlaceholder": "프로젝트 검색",
   "staff.time_tracking.entryDialog.projectUnavailable": "사용할 수 없는 프로젝트",
   "staff.time_tracking.entryDialog.rate": "단가",
