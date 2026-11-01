@@ -1,5 +1,46 @@
 # Upgrade Notes
 
+## Production Content Security Policy (#7264)
+
+The main app and create-app template now use request nonces for scripts and style
+elements. Production no longer allows inline scripts, eval, or connections to every
+HTTPS/websocket origin. This is defense-in-depth hardening, not a confirmed XSS fix.
+
+**App operators:** adopt the matching `next.config.ts`, `src/proxy.ts`, root layout,
+and `AppProviders` changes together. Configure additional browser destinations at
+both build and runtime with space-separated `OM_CSP_CONNECT_ORIGINS`,
+`OM_CSP_SCRIPT_ORIGINS`, `OM_CSP_STYLE_ORIGINS`, and `OM_CSP_FRAME_ORIGINS`.
+Only explicit HTTPS origins are accepted; connections also accept WSS origins.
+For example, set `OM_CSP_CONNECT_ORIGINS="wss://custom.example.com https://telemetry.example.com"`
+for a custom module's WebSocket and browser telemetry collector. The documents
+package automatically supplies the origin of its validated
+`NEXT_PUBLIC_DOCUMENTS_COLLAB_URL`, preserving its existing production loopback
+gate (`OM_DOCUMENTS_COLLAB_INTEGRATION=1` only for integration environments).
+Development additionally accepts explicit HTTP/WS origins and keeps its tooling
+exceptions. Stripe.js and Link requirements come from the Stripe package; other
+provider SDKs require their documented origins in the matching variable. Server
+integration requests are unaffected by the browser policy.
+
+**Module authors:** server components can read the generated `x-nonce` using
+`headers()`; pass it to inline `<script>`/`<style>` elements and `next/script`.
+Client components use `useContentSecurityPolicyNonce` from
+`@open-mercato/ui/theme/ContentSecurityPolicyProvider` for trusted style elements.
+The provider preserves the original document nonce during client navigation and
+seeds webpack's nonce for Radix scroll-lock styles. Sandboxed `srcDoc` previews
+inherit the parent's CSP too: pass the nonce to their trusted style elements and
+any additional iframe meta policy, as the storefront branding preview does.
+The webpack nonce does not configure every CSS-in-JS runtime. Use ordinary
+nonced style elements or configure the styling library's own nonce integration.
+Do not copy a nonce from user
+input or persist it between document requests. Nonce-dependent pages render
+dynamically; do not cache their HTML separately from its CSP response header.
+
+Inline style **attributes** remain enabled through `style-src-attr` for React,
+Radix positioning and charts. Inline style **elements** require a nonce. Image
+and font permissions, route/DB contracts and the attachment sandbox are unchanged.
+
+[Implementation specification](.ai/specs/2026-10-29-production-content-security-policy.md).
+
 Open Mercato `0.5.0` is our biggest release so far. It bundles more than 250 fixes and
 improvements that landed after the Hackathon in Sopot, alongside several important
 dependency and tooling upgrades. That combination is exactly why this document now exists:
@@ -23,6 +64,79 @@ most of the patterns listed below in a user's codebase.
 ---
 
 ## 0.9.0 → 0.9.1 (unreleased)
+
+### SCIM token fingerprint rollout
+
+SCIM rate-limit admission now uses an indexed SHA-256 fingerprint of the full bearer in `scim_tokens.token_lookup_hash`, alongside the existing bcrypt verifier. The new nullable column and index are additive; token format, management payloads, bcrypt verification, and organization scope stay compatible. Fingerprints and raw secrets must never be copied into tickets, logs, shell history, or token-management payloads. Newly issued tokens persist their fingerprint before the one-time token response is returned.
+
+Operators must apply the included SSO migration through their normal approved deployment process **before** deploying the new application code. This change does not apply a migration or rotate credentials automatically. Deploy every app/worker instance before completing the cutover; old instances can still issue unenrolled tokens during a rolling deployment. Use the same authoritative database across replicas. The short-lived admission cache is an optimization; an enrolled token has an independent quota even when its cache entry expires or the cache restarts.
+
+Existing tokens remain valid with a null fingerprint. An admitted successful bcrypt verification enrolls the original token using a tenant/organization/configuration-scoped compare-and-set guarded by active state and the exact bcrypt hash compared. Concurrent revocation or credential changes cannot enroll that stale credential. Existing token values cannot be reconstructed from bcrypt, so SQL alone cannot backfill them. Until enrollment, an old token remains vulnerable to shared unverified-budget exhaustion after cache loss. Do not declare the cold-token availability guarantee complete until the active unenrolled count is zero.
+
+Use this **read-only, non-secret inventory** against the authoritative database, with appropriate operator access:
+
+```sql
+select tenant_id, organization_id, count(*) as active_unenrolled
+from scim_tokens
+where is_active = true and token_lookup_hash is null
+group by tenant_id, organization_id;
+```
+
+A completed cutover returns no rows. The query exposes only tenant/organization identifiers and counts; do not select `token_hash` or `token_lookup_hash`. For each nonzero scope, identify its configurations and tokens through the existing admin UI or `GET /api/sso/scim/tokens?ssoConfigId=<config-id>` under that scope. That API continues to expose only safe token metadata.
+
+1. **Enroll a retained credential:** trigger a normal sync through its existing IdP, or perform an existing `GET /api/sso/scim/v2/Users?count=1` using the credential from its secure store. A successful admitted request enrolls it without changing the secret. Follow normal secret-handling controls; do not paste the bearer into logs or shell history. If an ongoing flood prevents admission, use the rotation route below rather than raising quotas.
+2. **Rotate an unavailable or blocked legacy credential:** as the scoped administrator, call existing `POST /api/sso/scim/tokens` with `ssoConfigId` and `name`, deliver the one-time new secret through the normal secure IdP configuration flow, verify provisioning succeeds, then revoke the replaced token with existing `DELETE /api/sso/scim/tokens/<id>`. The replacement is enrolled at creation and needs no warmup. Do not revoke a working credential before its replacement is confirmed.
+3. Repeat the inventory after all instances have the new code and all affected IdPs have synced or rotated. Investigate every remaining active null row, including forgotten credentials; revoke unused tokens through the existing management API. Zero rows is the cutover acceptance condition. Test a newly issued token after cache clear while anonymous traffic exhausts the unverified bucket, and confirm a wrong-suffix token remains rate-limited.
+
+No new enrollment API or CLI is required. Real credential rotation and migration application remain operator actions. Existing legacy authentication is retained during this bridge; the migration does not silently reject old tokens or mark their fingerprints populated. Manual QA and human security review are still required.
+
+For rollback, revert application instances to code that does not read the new column before an operator runs the migration's `down`. The rollback removes only the new index/nullable column and preserves all token rows, bcrypt hashes, prefixes, and active/revoked state; it also removes the new persistent admission protection. No token secret changes as part of rollback.
+
+<a id="signed-body-limits"></a>
+
+### Signed Discord interactions and agent traces have finite body limits (#7241)
+
+`POST /api/channel_discord/interactions` and `POST /api/agent_orchestrator/trace/ingest`
+now accept at most 1,048,576 bytes (1 MiB) by default, using the existing shared
+`OM_WEBHOOK_MAX_BODY_BYTES` positive safe-integer override. Invalid values use the
+default. Declared or streamed overflow returns `413 { error: 'payload_too_large' }`
+before signature verification, parsing, candidate lookup, or command execution.
+Discord requests with invalid signature headers are rejected before body consumption.
+Bodies exactly at the cap retain their existing verification and success behavior.
+
+**Action for clients:** keep encoded bodies within the deployed cap. Runtime adapters
+must reduce or split oversized traces into valid payloads, preserve ingestion
+idempotency semantics, and sign each resulting body. Retrying unchanged oversized
+payloads will continue to fail.
+
+**Action for operators:** align ingress limits with the application cap. If legitimate
+payloads exceed 1 MiB, set an appropriate finite `OM_WEBHOOK_MAX_BODY_BYTES` after
+considering memory/concurrency and its effect on other shared bounded webhook readers.
+No database migration, credential rotation, or stored-data repair is required.
+See the [Discord migration section](.ai/specs/2026-06-19-discord-communication-channel-integration.md)
+and [trace migration section](.ai/specs/enterprise/agent-orchestrator/next/2026-06-19-agent-trace-eval-capture.md).
+
+### Encrypted custom fields in plaintext search fields (#7894)
+
+Application-managed `SearchIndexer` calls now exclude encrypted custom-field keys
+from fulltext document fields and vector fallback text, while preserving values
+for hashed-token search. A failed definition lookup excludes every custom field
+from those plaintext paths. Explicit source text and callback-generated metadata
+are a separate protection tracked in #7874.
+
+**Operator action:** reindex affected fulltext and vector data after upgrading;
+previously indexed plaintext is not removed until records are rewritten. Review
+any retention/export copies held by external search or embedding providers.
+
+**Module author action:** application DI wires the resolver automatically. Code
+constructing `SearchIndexer` manually must pass `encryptedCustomFieldKeysResolver`
+to enable definition-based exclusions; omission preserves its legacy behavior.
+Direct `SearchService.index`/`bulkIndex` clients can pass
+`IndexableRecord.plaintextExcludedCustomFields` as an array of encrypted definition
+keys, or `'all'` when definitions cannot be resolved. Both `cf:` and sanitized
+`cf_` aliases are excluded. Omission preserves existing behavior, and `fields`
+continues to reach the hashed-token strategy unchanged. Public routes, required
+parameters, strategy IDs and queue payloads are unchanged.
 
 <a id="issue-3805"></a>
 
@@ -366,6 +480,40 @@ API-key profiles; use independently administered machine keys for those actions.
 A regenerated MCP key becomes invalid if its owner's home organization changes,
 including a change from no home organization to a concrete one. Generate a new
 key and update the MCP client secret after such a change.
+
+### Inbound webhook receipt deduplication includes verified scope (#7830)
+
+Inbound receipts now identify duplicates by endpoint, message ID, tenant, and organization.
+The same message ID delivered to different verified scopes is ingested independently; repeated
+delivery within one scope still returns `200 { ok: true, duplicate: true }`. Explicitly unscoped
+legacy adapters retain a separate null/null namespace with the same replay protection.
+
+**Operator action:** apply `Migration20261027193000_receipt_scope` before resuming inbound
+traffic, on PostgreSQL 15+. Schedule for the table lock needed to rebuild the receipt uniqueness
+constraint. The migration preserves its existing name and every receipt/message ID; data valid
+under the previous global uniqueness rule requires no cleanup. Existing receiver code already
+writes the scope fields, so mixed-version receivers can use the migrated schema.
+
+**Module author action:** include verified tenant/organization scope in any independent receipt
+lookup or deduplication cache key. The source/adapter interfaces, events, and HTTP response
+contracts are unchanged, and the named constraint remains available to `ON CONFLICT` consumers.
+After cross-scope collisions have been stored, restoring the former global constraint may fail;
+there is no automatic rollback that deletes receipts. Inspect those collisions and plan recovery
+before reverting the schema. See the [inbound spec](.ai/specs/2026-03-23-inbound-webhook-handlers.md#receipt-scope-migration--backward-compatibility-7830).
+
+### Customer interaction authors and owners must belong to the record's tenant (#7531)
+
+Canonical interaction writes and legacy activity adapters now reject foreign-tenant or missing author/owner IDs, and reject new assignments to deleted users with a generic `400` user-not-found response. Same-tenant users from another home organization remain valid references, including an implicit actor working in another organization. Author normalization, valid superadmin delegation, and existing record-level organization/privacy authorization are preserved.
+
+**Client action:** supply live same-tenant author/owner IDs for new assignments, or clear optional references with null on canonical updates. Omitted update fields keep their previous values. Unchanged references may be resent after the referenced user is offboarded; this does not permit assigning that user to another reference. Legacy promotion preserves the author stored on the same tenant/organization/parent activity, including offboarded authors. Routes and response fields remain available. Historical same-tenant profiles remain readable across organizations and after soft deletion; foreign-tenant or missing profiles return null names and emails.
+
+**Operator action:** audit foreign-tenant or missing author/owner references before replaying affected command history. Snapshot restoration permits a same-tenant author or owner who was soft-deleted after the original write; offboarding does not require rewriting historical attribution. Invalid snapshot restoration and legacy promotion fail rather than copying a foreign-tenant reference. No schema migration or automatic data rewrite is required. See [the interactions specification](.ai/specs/implemented/SPEC-046b-2026-02-27-customers-interactions-unification.md#migration--backward-compatibility--interaction-users-7531).
+
+### SCIM deactivation blocks fresh SSO and password sign-in (#7824)
+
+With the enterprise SSO module enabled, an outstanding SCIM deactivation now denies fresh SSO sign-in for that identity's configuration and denies password verification for the linked account in its own tenant and organization. This includes configurations created without a tenant, after verifying organization and configuration ownership. Password changes and email relinking do not reactivate the identity. Final session issuance and all SCIM deactivation writers share a user lock, so a concurrent login cannot leave a usable session after deactivation commits; access in other scopes is preserved.
+
+**Operator action:** restore intentionally deactivated access through SCIM `active:true`. Clients continue handling the existing invalid-credentials response or `sso_failed` callback redirect. No endpoint, token, or database migration is required. Applications replacing the `authService` DI registration must preserve the SSO module's scoped deactivation check in password verification and atomic final session issuance.
 
 ### Scoped attachment bytes no longer advertise shared caching (#7220)
 
@@ -1372,6 +1520,30 @@ fails, is logged and reported (`customer_accounts.password_reset_email_failed` /
 **Action for module authors:** none, unless your app wraps these two routes (an API interceptor or a
 proxy endpoint) to mint and deliver its own link alongside the call — remove that delivery, or
 customers will receive two emails per request.
+
+### Standalone apps must keep `pdfjs-dist` out of the server bundle (#6398)
+
+Production builds bundled `pdfjs-dist` into a Next server chunk, so pdfjs looked for its
+`pdf.worker.mjs` in the chunks folder, where the build never emits it. PDF text extraction and PDF
+OCR then returned nothing: uploaded PDFs kept `attachments.content = NULL`, and the OCR path logged
+`Setting up fake worker failed: Cannot find module '…/chunks/pdf.worker.mjs'`. Development
+(`yarn dev`) was not affected.
+
+The monorepo app and the `create-mercato-app` template now list `'pdfjs-dist'` in
+`serverExternalPackages`, so newly scaffolded apps are fixed.
+
+**Action for standalone app authors:** apps scaffolded before this release keep their own
+`next.config.ts`. Add the package to the existing list:
+
+```ts
+serverExternalPackages: [
+  // ...existing entries
+  'pdfjs-dist',
+],
+```
+
+Rebuild with `yarn build`, then restart the server. pdfjs caches a failed worker setup for the
+lifetime of the process.
 
 ### Redoing an `auth.users.create` no longer restores the account's password
 

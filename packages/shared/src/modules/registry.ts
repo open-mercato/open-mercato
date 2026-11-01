@@ -87,6 +87,11 @@ export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
 
 export type ApiHandler = (req: Request, ctx?: any) => Promise<Response> | Response
 
+export type ApiRouteBeforeAuth = (
+  req: Request,
+  context: { method: HttpMethod; params: Record<string, string | string[]> },
+) => Promise<Response | null> | Response | null
+
 export type ModuleSubscriberHandler = (
   payload: any,
   ctx: any

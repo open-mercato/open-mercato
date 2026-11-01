@@ -261,18 +261,16 @@ function writePerEntityFieldFiles(
     const entDir = path.join(outRoot, entity)
     fs.mkdirSync(entDir, { recursive: true })
     const sourceFile = createGeneratedSourceFile(`${entity}/index.ts`)
-    for (const field of fields) {
-      sourceFile.addVariableStatement({
-        declarationKind: VariableDeclarationKind.Const,
-        isExported: true,
-        declarations: [
-          {
-            name: toVar(field),
-            initializer: JSON.stringify(field),
-          },
-        ],
-      })
-    }
+    sourceFile.addVariableStatements(fields.map((field) => ({
+      declarationKind: VariableDeclarationKind.Const,
+      isExported: true,
+      declarations: [
+        {
+          name: toVar(field),
+          initializer: JSON.stringify(field),
+        },
+      ],
+    })))
     writeTrackedFile(path.join(entDir, 'index.ts'), getSourceText(sourceFile), result)
   }
 
