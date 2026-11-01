@@ -77,7 +77,7 @@ jest.mock('@open-mercato/core/modules/sales/lib/frontend/documentTotalsEvents', 
 }))
 
 jest.mock('../LineItemDialog', () => ({
-  LineItemDialog: () => null,
+  LineItemDialog: ({ open }: { open?: boolean }) => open ? <div data-testid="line-item-dialog" /> : null,
 }))
 
 jest.mock('../optimisticLock', () => ({
@@ -244,6 +244,17 @@ describe('SalesDocumentItemsSection discount column', () => {
 
     fireEvent.blur(triggers[0])
     expect(screen.queryByRole('tooltip')).toBeNull()
+  })
+
+  it('keeps the line editor closed when the disabled delete hint is activated', async () => {
+    mockLines(lineFixture())
+    renderSection()
+
+    await screen.findByText('Widget A')
+    const reason = 'An order must contain at least one line item.'
+    fireEvent.click(screen.getByLabelText(`Delete: ${reason}`))
+
+    expect(screen.queryByTestId('line-item-dialog')).toBeNull()
   })
 
   it('leaves the cell empty on lines that carry no discount', async () => {

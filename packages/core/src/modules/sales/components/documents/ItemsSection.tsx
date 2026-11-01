@@ -66,6 +66,7 @@ function DisabledActionHint({
         className="inline-flex rounded-md focus-visible:outline-none focus-visible:shadow-focus"
         tabIndex={0}
         aria-label={`${label}: ${reason}`}
+        onClick={(event) => event.stopPropagation()}
         onPointerDown={(event) => {
           if (event.pointerType !== 'touch') return
           touchOpenRef.current = true
