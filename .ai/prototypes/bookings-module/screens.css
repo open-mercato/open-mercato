@@ -370,6 +370,8 @@
   background: var(--background); border: 1px solid var(--border); border-radius: var(--radius-lg);
   box-shadow: var(--shadow-2xl); display: flex; flex-direction: column; max-height: calc(100% - 6rem);
 }
+.modal-wide { width: 52rem; }
+.modal-wide .table td { white-space: nowrap; }
 .modal-head { padding: 1.5rem 1.5rem 0; }
 .modal-body { padding: 1.5rem; overflow-y: auto; display: flex; flex-direction: column; gap: 1rem; }
 .modal-foot {
@@ -509,7 +511,7 @@
 .tl-bar svg { width: 0.875rem; height: 0.875rem; vertical-align: -0.125rem; margin-right: 0.25rem; }
 .tl-bar.lane-top { align-self: start; }
 .tl-bar.lane-bottom { align-self: end; }
-.tl-bar.conflict { outline: 2px solid var(--status-error-border); outline-offset: 1px; }
+.tl-bar.conflict { border-color: var(--status-error-border); border-left-color: var(--status-error-icon); }
 .tl-bar.conflict svg { color: var(--status-error-icon); }
 .tl-bar.done { opacity: 0.5; }
 .tl-bar.draft { outline: 2px dashed var(--accent-indigo); outline-offset: 1px; }
@@ -556,3 +558,41 @@
 .slot[disabled] { opacity: 0.4; text-decoration: line-through; cursor: not-allowed; }
 .choice { border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 0.75rem 1rem; display: flex; align-items: center; justify-content: space-between; gap: 1rem; font-size: 0.875rem; }
 .choice[aria-checked="true"] { border-color: var(--foreground); box-shadow: inset 0 0 0 1px var(--foreground); }
+
+/* ── Presentation keeps the screen title and its state switch ───── */
+body.proto-focus .screen.is-current .screen-meta { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
+body.proto-focus .screen.is-current .screen-meta h2 { margin: 0; font-size: 1rem; }
+body.proto-focus .screen.is-current .screen-meta > p,
+body.proto-focus .screen.is-current .screen-meta .screen-refs { display: none; }
+body.proto-focus .screen.is-current .screen-meta .states { margin: 0; }
+
+/* ── Layout helpers ─────────────────────────────────────────────── */
+.form-narrow { max-width: 48rem; }
+.split-card { display: grid; gap: 1rem; grid-template-columns: minmax(0, 1fr) 24rem; align-items: start; }
+.anchor { position: relative; }
+.layer-pop { position: absolute; z-index: var(--z-index-modal); width: 20rem; }
+.layer-pop.right { right: 0; }
+.layer-pop.wide { width: 26rem; }
+.place-btn { align-self: flex-start; }
+.side-card { border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--card); box-shadow: var(--shadow-md); display: flex; flex-direction: column; }
+
+/* ── Edit handles ───────────────────────────────────────────────── */
+.tl-row.editing .tl-bar { position: relative; padding-left: 0.75rem; padding-right: 0.75rem; }
+.tl-row.editing .tl-bar::before, .tl-row.editing .tl-bar::after { content: ""; position: absolute; top: 0.25rem; bottom: 0.25rem; width: 0.1875rem; border-radius: var(--radius-sm); background: color-mix(in oklab, var(--c) 70%, var(--background)); cursor: ew-resize; }
+.tl-row.editing .tl-bar::before { left: 0.25rem; }
+.tl-row.editing .tl-bar::after { right: 0.25rem; }
+
+/* ── Loading, error and empty states (LoadingMessage, ErrorMessage, DataTable) ── */
+.spin { width: 1rem; height: 1rem; flex: none; border-radius: 9999px; border: 2px solid var(--border); border-top-color: var(--muted-foreground); animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.load-msg { display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem 0.75rem; border: 1px solid var(--border); border-radius: var(--radius-sm); background: color-mix(in oklab, var(--muted) 30%, transparent); font-size: 0.875rem; color: var(--muted-foreground); }
+.err-msg { display: flex; align-items: flex-start; gap: 0.75rem; padding: 0.5rem 0.75rem; border: 1px solid color-mix(in oklab, var(--destructive) 50%, transparent); border-radius: var(--radius-sm); background: color-mix(in oklab, var(--destructive) 5%, transparent); font-size: 0.875rem; color: var(--destructive); }
+.err-msg > svg { width: 1rem; height: 1rem; flex: none; margin-top: 0.125rem; }
+.err-msg > div { display: flex; flex-direction: column; gap: 0.25rem; align-items: flex-start; }
+.dt-state td { height: 6rem; text-align: center; color: var(--muted-foreground); }
+.dt-state.error td { color: var(--destructive); }
+.dt-state td > div { display: inline-flex; align-items: center; gap: 0.5rem; }
+.dt-state td > .dt-empty { display: flex; flex-direction: column; align-items: center; gap: 0.5rem; padding: 2rem 1rem; }
+.dt-empty p { margin: 0; max-width: 40ch; }
+
+.is-later { display: none !important; }

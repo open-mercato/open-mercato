@@ -4561,6 +4561,15 @@ against its code.
 
 ## Changelog
 
+### 2026-11-01
+- Update the prototype after the first design review: grouped menu, single-column settings, one
+  conflict signal, the card as a side panel, a Place dialog for unplaced reservations, filters and
+  row menus on the lists, the New category and New page forms, and Calendar as a view of the
+  timeline page in place of the hourly scale (screen 19 removed; §11 still lists both, to be
+  confirmed). After the specification review of #8250: the phase filter hides later-phase controls,
+  the viewer gets a permission-aware shell, and the timeline and lists show loading, empty and
+  failed-read states. The specification itself is unchanged.
+
 ### 2026-10-30
 - Add the interactive prototype `.ai/prototypes/bookings-module/`: 25 screens covering the user
   stories of phases 1–4, each tagged with its phase, with the states the stories require. It is
