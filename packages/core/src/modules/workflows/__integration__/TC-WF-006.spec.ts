@@ -6,6 +6,7 @@ import {
   openWorkflowDetailsDrawer,
   workflowStepNodes,
 } from '@open-mercato/core/helpers/integration/workflowsUi'
+import { buildVisualEditorHref } from '@open-mercato/core/modules/workflows/lib/visual-editor-navigation'
 
 async function fillText(page: Page, locator: ReturnType<Page['locator']>, value: string): Promise<void> {
   await locator.fill('')
@@ -81,6 +82,7 @@ test.describe('TC-WF-006: Create and delete workflow definition via UI', () => {
       // the drawer footer Save share an accessible name.
       await drawer.getByRole('button', { name: /^save$/i }).click()
       await expect(page).toHaveURL(/\/backend\/definitions\/visual-editor\?id=[0-9a-f-]{36}/i, { timeout: 15_000 })
+      const definitionId = new URL(page.url()).searchParams.get('id') ?? ''
 
       // Back to the list — the entry should be visible
       await page.goto('/backend/definitions')
@@ -88,9 +90,16 @@ test.describe('TC-WF-006: Create and delete workflow definition via UI', () => {
 
       const searchBox = page.getByPlaceholder(/search/i).first()
       if (await searchBox.isVisible().catch(() => false)) {
+        // Wait for the filtered list, so its rows do not re-render and shift
+        // under the pointer once the row menu below is open.
+        const filteredList = page.waitForResponse((response) => {
+          const url = new URL(response.url())
+          return url.pathname === '/api/workflows/definitions' && url.searchParams.get('search') === workflowId
+        })
         await fillText(page, searchBox, workflowId)
         // Filter bar submits on Enter or via Apply button; both work in this repo
         await searchBox.press('Enter').catch(() => undefined)
+        await filteredList
       }
 
       // Match on the NAME, not the id: the list dropped its "Workflow ID"
@@ -111,7 +120,13 @@ test.describe('TC-WF-006: Create and delete workflow definition via UI', () => {
       const triggerBtn = row.getByRole('button', { name: /open actions/i })
       await triggerBtn.evaluate((el) => el.scrollIntoView({ block: 'end' }))
       await triggerBtn.click()
-      await page.getByRole('menuitem', { name: /^delete$/i }).click()
+      // Every row's menu is portaled to <body> and also opens on hover, so a
+      // menu the pointer passed over can still be open next to ours. Resolve
+      // Delete inside the menu that holds this row's Edit link.
+      const rowMenu = page.getByRole('menu').filter({
+        has: page.locator(`a[role="menuitem"][href="${buildVisualEditorHref(definitionId)}"]`),
+      })
+      await rowMenu.getByRole('menuitem', { name: /^delete$/i }).click()
 
       // The definition list no longer hand-rolls its delete confirmation as a
       // Radix `Dialog`: it goes through the shared `ConfirmDialog`, which is a
