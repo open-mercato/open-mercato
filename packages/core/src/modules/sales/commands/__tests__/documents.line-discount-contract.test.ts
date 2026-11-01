@@ -21,7 +21,12 @@
 import { createContainer, asValue, InjectionMode } from 'awilix'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import { DefaultSalesCalculationService } from '../../services/salesCalculationService'
+<<<<<<< HEAD
 import { SalesOrder, SalesShipment, SalesShipmentItem } from '../../data/entities'
+=======
+import { SalesOrder, SalesQuote, SalesShipment, SalesShipmentItem } from '../../data/entities'
+import { createSalesDocumentLockKyselyFixture } from './salesDocumentLockFixture'
+>>>>>>> 66360a567 (fix(sales): store the unit net before discounts for gross-only lines (#8267))
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: async () => ({
@@ -34,10 +39,15 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
 
 jest.mock('@open-mercato/shared/lib/crud/cache', () => ({
   invalidateCrudCache: jest.fn(),
+  deriveResourceFromCommandId: jest.fn(() => null),
 }))
 
 jest.mock('@open-mercato/shared/lib/commands/helpers', () => ({
   emitCrudSideEffects: jest.fn().mockResolvedValue(undefined),
+}))
+
+jest.mock('@open-mercato/core/modules/notifications/lib/notificationService', () => ({
+  resolveNotificationService: () => ({ createForFeature: jest.fn(async () => undefined) }),
 }))
 
 const ORG_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
@@ -111,13 +121,13 @@ function setWorld(lines: Array<PersistedLine & Record<string, unknown>>) {
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: jest.fn(async (_em: unknown, entityClass: unknown) => {
     const world = (globalThis as any).__discountWorld
-    if (entityClass === SalesOrder) return world.order
+    if (entityClass === SalesOrder || entityClass === SalesQuote) return world.order
     return null
   }),
   findWithDecryption: jest.fn(async (_em: unknown, entityClass: unknown) => {
     const world = (globalThis as any).__discountWorld
     const entityName = (entityClass as { name?: string })?.name ?? ''
-    if (entityName === 'SalesOrderLine') return [...world.lines]
+    if (entityName === 'SalesOrderLine' || entityName === 'SalesQuoteLine') return [...world.lines]
     if (entityClass === SalesShipment) return []
     if (entityClass === SalesShipmentItem) return []
     return []
@@ -133,13 +143,14 @@ function makeEm() {
     transactional: async (cb: (tx: unknown) => Promise<unknown>) => cb(em),
     find: jest.fn(async (entityClass: unknown) => {
       const entityName = (entityClass as { name?: string })?.name ?? ''
-      if (entityName === 'SalesOrderLine') return [...world().lines]
+      if (entityName === 'SalesOrderLine' || entityName === 'SalesQuoteLine') return [...world().lines]
       return []
     }),
     findOne: jest.fn(async () => null),
     count: jest.fn(async () => 0),
     create: jest.fn((_entity: unknown, data: unknown) => data),
     persist: jest.fn(),
+    nativeDelete: jest.fn(async () => 0),
     remove: jest.fn(),
     flush: jest.fn(async () => {}),
     // `withAtomicFlush({ transaction: true })` drives the EM transaction API
@@ -165,6 +176,7 @@ function makeCtx(em: unknown) {
     em: asValue(em),
     dataEngine: asValue({ markOrmEntityChange: jest.fn() }),
     salesCalculationService: asValue(new DefaultSalesCalculationService(null)),
+    salesDocumentNumberGenerator: asValue({ generate: async () => ({ number: 'SO-1' }) }),
   })
   return {
     container,
@@ -181,8 +193,8 @@ function makeCtx(em: unknown) {
  * mutates the same line objects the world holds, so reading them afterwards is
  * reading the persisted state.
  */
-async function runUpsert(body: Record<string, unknown>) {
-  const handler = commandRegistry.get('sales.orders.lines.upsert')!
+async function runUpsert(body: Record<string, unknown>, commandId = 'sales.orders.lines.upsert') {
+  const handler = commandRegistry.get(commandId)!
   const em = makeEm()
   await handler.execute({ body } as never, makeCtx(em) as never)
   const world = (globalThis as any).__discountWorld
@@ -208,6 +220,26 @@ async function runLineDelete(lineId: string) {
   const byId = new Map<string, PersistedLine>()
   for (const line of world.lines) byId.set(line.id, line)
   return byId
+}
+
+/**
+ * Run a real document create and return the line rows it persisted, so a later
+ * recalculation starts from exactly what the create wrote.
+ */
+async function runDocumentCreate(
+  commandId: string,
+  lines: Array<Record<string, unknown>>,
+): Promise<Array<PersistedLine & Record<string, unknown>>> {
+  setWorld([])
+  const handler = commandRegistry.get(commandId)!
+  const em = makeEm()
+  await handler.execute(
+    { organizationId: ORG_ID, tenantId: TENANT_ID, currencyCode: 'USD', lines } as never,
+    makeCtx(em) as never,
+  )
+  return (em.persist.mock.calls as Array<[PersistedLine & Record<string, unknown>]>)
+    .map(([entity]) => entity)
+    .filter((entity) => 'unitPriceNet' in entity)
 }
 
 function num(value: unknown): number {
@@ -475,5 +507,97 @@ describe('sales.orders.lines.upsert — line discount contract (#3757)', () => {
     const survivor = lines.get(UNTOUCHED_LINE_ID)!
     expect(num(survivor.discountAmount)).toBeCloseTo(10, 4)
     expect(num(survivor.totalNetAmount)).toBeCloseTo(90, 4)
+  })
+})
+
+describe.each([
+  { createCommandId: 'sales.orders.create', upsertCommandId: 'sales.orders.lines.upsert', documentIdField: 'orderId' },
+  { createCommandId: 'sales.quotes.create', upsertCommandId: 'sales.quotes.lines.upsert', documentIdField: 'quoteId' },
+])('$upsertCommandId — a line created with a unit gross only (#8232)', ({ createCommandId, upsertCommandId, documentIdField }) => {
+  beforeAll(async () => {
+    await import('../documents')
+  })
+
+  afterEach(() => {
+    delete (globalThis as any).__discountWorld
+  })
+
+  it.each([
+    {
+      label: 'a percentage discount',
+      line: { quantity: 1, unitPriceGross: 123, taxRate: 23, discountPercent: 10 },
+      unitPriceNet: 100,
+    },
+    {
+      label: 'a line-basis amount discount',
+      line: { quantity: 1, unitPriceGross: 123, taxRate: 23, discountAmount: 10, discountAmountBasis: 'line' },
+      unitPriceNet: 100,
+    },
+    {
+      label: 'a percentage discount on two units',
+      line: { quantity: 2, unitPriceGross: 61.5, taxRate: 23, discountPercent: 10 },
+      unitPriceNet: 50,
+    },
+    {
+      label: 'a per-unit amount discount on two units',
+      line: { quantity: 2, unitPriceGross: 61.5, taxRate: 23, discountAmount: 5 },
+      unitPriceNet: 50,
+    },
+    {
+      label: 'a percentage discount on half a unit',
+      line: { quantity: 0.5, unitPriceGross: 246, taxRate: 23, discountPercent: 10 },
+      unitPriceNet: 200,
+    },
+    {
+      label: 'both unit prices (control)',
+      line: { quantity: 1, unitPriceNet: 100, unitPriceGross: 123, taxRate: 23, discountPercent: 10 },
+      unitPriceNet: 100,
+    },
+  ])('keeps the totals of a line with $label when another line is upserted', async ({ line, unitPriceNet }) => {
+    const [createdLine, createdOtherLine] = await runDocumentCreate(createCommandId, [
+      { kind: 'product', lineNumber: 1, name: 'Discounted item', currencyCode: 'USD', ...line },
+      {
+        kind: 'product',
+        lineNumber: 2,
+        name: 'Other item',
+        currencyCode: 'USD',
+        quantity: 1,
+        unitPriceNet: 10,
+        unitPriceGross: 10,
+        taxRate: 0,
+      },
+    ])
+
+    setWorld([
+      { ...createdLine, id: UNTOUCHED_LINE_ID, updatedAt: new Date() },
+      { ...createdOtherLine, id: EDITED_LINE_ID, updatedAt: new Date() },
+    ])
+
+    const lines = await runUpsert(
+      {
+        id: EDITED_LINE_ID,
+        [documentIdField]: ORDER_ID,
+        organizationId: ORG_ID,
+        tenantId: TENANT_ID,
+        currencyCode: 'USD',
+        kind: 'product',
+        quantity: 1,
+        unitPriceNet: 10,
+        unitPriceGross: 10,
+        taxRate: 0,
+      },
+      upsertCommandId,
+    )
+
+    const untouched = lines.get(UNTOUCHED_LINE_ID)! as PersistedLine & Record<string, unknown>
+    expect(num(untouched.totalNetAmount)).toBeCloseTo(90, 4)
+    expect(num(untouched.taxAmount)).toBeCloseTo(20.7, 4)
+    expect(num(untouched.totalGrossAmount)).toBeCloseTo(110.7, 4)
+    expect(num(untouched.unitPriceNet)).toBeCloseTo(unitPriceNet, 4)
+
+    const document = (globalThis as any).__discountWorld.order
+    expect(num(document.grandTotalNetAmount)).toBeCloseTo(100, 4)
+    expect(num(document.taxTotalAmount)).toBeCloseTo(20.7, 4)
+    expect(num(document.grandTotalGrossAmount)).toBeCloseTo(120.7, 4)
   })
 })
