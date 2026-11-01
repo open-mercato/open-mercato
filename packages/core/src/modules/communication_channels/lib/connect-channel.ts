@@ -1,8 +1,10 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
+import { withAdvisoryXactLock } from '@open-mercato/shared/lib/db/advisoryLock'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CommunicationChannel } from '../data/entities'
 import type { ChannelAdapter } from './adapter'
+import { channelConnectionLockKey } from './channel-restore'
 import { isUniqueViolation } from './pg-errors'
 
 /**
@@ -65,10 +67,30 @@ export interface CreateConnectedChannelRowArgs {
  * When credentials could not be persisted (`credentialsRefId === null`) the row
  * is created in `requires_reauth` + `isActive=false` so workers don't poll a
  * credential-less channel; the user reconnects to recover.
+ *
+ * The reads and writes run in one transaction under the owner's connection lock
+ * (`channelConnectionLockKey`), which delete undo takes as well, so connects of
+ * one owner run one at a time and never interleave with a restore. The returned
+ * row belongs to that committed transaction's EntityManager, not to `args.em`.
  */
 export async function createConnectedChannelRow(
   args: CreateConnectedChannelRowArgs,
 ): Promise<CommunicationChannel> {
+  const lockKey = channelConnectionLockKey(args.scope.tenantId, args.userId)
+  const connect = () => withAdvisoryXactLock(args.em, lockKey, (txEm) => connectChannelRow({ ...args, em: txEm }))
+  try {
+    return await connect()
+  } catch (err) {
+    // A writer outside the lock (seeding) took the heal key first and the
+    // partial unique index rejected our insert, rolling the transaction back.
+    // Run the connect again: the heal lookup now finds that row and updates it.
+    const hasHealKey = (args.adapter.channelType === 'push' && args.userId === null) || Boolean(args.externalIdentifier)
+    if (!isUniqueViolation(err) || !hasHealKey) throw err
+    return connect()
+  }
+}
+
+async function connectChannelRow(args: CreateConnectedChannelRowArgs): Promise<CommunicationChannel> {
   const { em, adapter, providerKey, displayName, externalIdentifier, credentialsRefId, userId, scope } = args
   const credentialsAvailable = credentialsRefId !== null
 
@@ -124,7 +146,8 @@ export async function createConnectedChannelRow(
   //    keyed on (tenant, provider, channel_type='push', user_id NULL). Without this
   //    every admin reconnect would insert a duplicate (fan-out takes the oldest per
   //    provider, so duplicates are silent noise + a concurrent-connect race).
-  // `null` ⇒ no dedup key (identifier-less non-push channel): always insert.
+  // `null` ⇒ no dedup key (identifier-less non-push channel): healed below by
+  // (owner, provider, organization) instead.
   const dedupeFilter = isTenantWidePush
     ? {
         tenantId: scope.tenantId,
@@ -212,6 +235,33 @@ export async function createConnectedChannelRow(
     }
   }
 
+  // Identifier-less reconnect: credentials are stored once per (provider, owner,
+  // organization), so a live identifier-less row of this provider in this
+  // organization already holds this connection. Heal the newest one instead of
+  // inserting a second live row next to it — this is also what makes a reconnect
+  // that waited behind a delete undo heal the restored row.
+  if (!effectiveExternalIdentifier && !isTenantWidePush) {
+    const [current] = (await findWithDecryption(
+      em,
+      CommunicationChannel,
+      {
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId ?? null,
+        userId,
+        providerKey,
+        externalIdentifier: null,
+        deletedAt: null,
+      },
+      { orderBy: { createdAt: 'desc' }, limit: 1 },
+      dscope,
+    )) as CommunicationChannel[]
+    if (current) {
+      applyConnectionState(current)
+      await em.flush()
+      return current
+    }
+  }
+
   const channel = em.create(CommunicationChannel, {
     providerKey,
     channelType: adapter.channelType,
@@ -229,19 +279,6 @@ export async function createConnectedChannelRow(
     organizationId: scope.organizationId ?? null,
   })
   em.persist(channel)
-  try {
-    await em.flush()
-    return channel
-  } catch (err) {
-    // Concurrent connect for the same mailbox won the race (partial unique index
-    // rejected ours). Re-select the winner on a clean fork and heal it so the
-    // caller still gets a single, connected channel.
-    if (!isUniqueViolation(err) || !dedupeFilter) throw err
-    const reEm = em.fork()
-    const winner = await findOneWithDecryption(reEm, CommunicationChannel, dedupeFilter, undefined, dscope)
-    if (!winner) throw err
-    applyConnectionState(winner)
-    await reEm.flush()
-    return winner
-  }
+  await em.flush()
+  return channel
 }
