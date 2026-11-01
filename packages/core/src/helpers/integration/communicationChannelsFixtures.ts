@@ -16,6 +16,19 @@ export type SeedAddressField =
   | { address: string; name?: string }
   | Array<string | { address: string; name?: string }>;
 
+/**
+ * Version 1 of the attachment digest the test-seed adapter records for every
+ * attachment whose bytes it holds (read by the hub, or a `data:` URL). A later
+ * shape gets a new `version`.
+ */
+export type CapturedTestSeedAttachmentDigest = {
+  version: 1;
+  fileName: string;
+  mimeType: string;
+  fileSize: number;
+  sha256: string;
+};
+
 export type CapturedTestSeedEmail = {
   capturedAt: string;
   externalMessageId: string;
@@ -24,7 +37,9 @@ export type CapturedTestSeedEmail = {
     text?: string;
     html?: string;
     bodyFormat?: 'text' | 'markdown' | 'html';
+    /** The attachments handed to the adapter, recorded as before. Files the hub read from the attachments module carry bytes and no URL, so they appear only in `attachmentDigests`. */
     attachments?: Array<{ url: string; mimeType: string; fileName: string; fileSize?: number; inline?: boolean }>;
+    attachmentDigests?: CapturedTestSeedAttachmentDigest[];
     raw?: Record<string, unknown>;
   };
   credentials: Record<string, unknown>;

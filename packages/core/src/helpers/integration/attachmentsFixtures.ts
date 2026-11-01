@@ -37,6 +37,7 @@ export async function uploadAttachmentFixture(
     partitionCode?: string;
     tags?: string[];
     assignments?: AttachmentAssignment[];
+    selectedOrgId?: string;
   },
 ): Promise<{
   id: string;
@@ -62,6 +63,7 @@ export async function uploadAttachmentFixture(
     method: 'POST',
     headers: {
       Authorization: `Bearer ${token}`,
+      ...(input.selectedOrgId ? { Cookie: `om_selected_org=${input.selectedOrgId}` } : {}),
     },
     multipart,
   });
