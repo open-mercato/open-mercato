@@ -155,7 +155,21 @@ function splitLineByProposalContribution(
     gross: formatScaledAmount((totalGross * quantity) / lineQuantity),
   }))
   const remainderQuantity = lineQuantity - contributedQuantity
-  if (remainderQuantity <= 0n) return shares
+  if (remainderQuantity <= 0n) {
+    // Review finding: each share is floored (`(totalNet * quantity) / lineQuantity`), so the
+    // floors' sum can fall short of `totalNet`/`totalGross` by up to `contributions.length - 1`
+    // units once every unit is already proposal-covered — there is no buyer remainder to
+    // absorb it into here. Credit the shortfall to the LAST contributor's share instead,
+    // mirroring the buyer-remainder correction below.
+    const lastShare = shares[shares.length - 1]
+    if (lastShare) {
+      const allocatedNet = shares.reduce((sum, share) => sum + toScaledAmount(share.net), 0n)
+      const allocatedGross = shares.reduce((sum, share) => sum + toScaledAmount(share.gross), 0n)
+      lastShare.net = formatScaledAmount(toScaledAmount(lastShare.net) + (totalNet - allocatedNet))
+      lastShare.gross = formatScaledAmount(toScaledAmount(lastShare.gross) + (totalGross - allocatedGross))
+    }
+    return shares
+  }
 
   const allocatedNet = shares.reduce((sum, share) => sum + toScaledAmount(share.net), 0n)
   const allocatedGross = shares.reduce((sum, share) => sum + toScaledAmount(share.gross), 0n)
