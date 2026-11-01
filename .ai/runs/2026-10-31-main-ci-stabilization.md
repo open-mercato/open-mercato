@@ -73,4 +73,4 @@ PR: #8349
 ### Phase 3: Verify and review
 
 - [x] 3.1 Run the configured validation gate and the relevant standalone/package checks, fixing any regressions. — 4cafcb28dc, 31c6a0bef6
-- [ ] 3.2 Verify the PR's CI checks and obtain the required independent final-review verdict.
+- [x] 3.2 Verify the PR's CI checks and obtain the required independent final-review verdict. — 31c6a0bef6, 9d63739524
