@@ -85,8 +85,8 @@ async function seedPendingApproval(input: SeedApprovalInput): Promise<string> {
       `insert into customer_purchase_approvals
         (organization_id, tenant_id, customer_id, requested_by_actor_type, requested_by_actor_id,
          subject_type, subject_id, amount_gross, currency_code, approval_policy, status,
-         buyer_decision, merchant_decision, expires_at)
-       values ($1, $2, $3, $4, $5, 'cart', $6, $7, $8, $9, 'pending', $10, $11, now() + interval '14 days')
+         buyer_decision, merchant_decision, expires_at, created_at, updated_at)
+       values ($1, $2, $3, $4, $5, 'cart', $6, $7, $8, $9, 'pending', $10, $11, now() + interval '14 days', now(), now())
        returning id`,
       [
         input.organizationId,
