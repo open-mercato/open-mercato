@@ -239,8 +239,12 @@ describe('Customer vector privacy at provider and storage boundaries (issue #782
     const indexer = createCustomerIndexer({ driver, embeddingService: createEmbeddingService(captured), queryEngine, encryptionService: { getEncryptedFieldNames } })
     await indexer.indexRecordById({ entityId: 'customers:customer_company_profile', recordId: record.id, tenantId: 'tenant-privacy', organizationId })
     expect(driver.upsertCalls).toHaveLength(1)
-    if (scope !== 'other-scope') expect(JSON.stringify(captured.value)).not.toContain('private-')
-    else expect(JSON.stringify(captured.value)).toContain('private-custom-size')
+    if (scope === 'other-scope') {
+      expect(JSON.stringify(captured.value)).toContain('private-size')
+      expect(JSON.stringify(captured.value)).not.toContain('private-custom-size')
+    } else {
+      expect(JSON.stringify(captured.value)).not.toContain('private-')
+    }
     for (const entityId of ['customers:customer_company_profile', 'customers:customer_entity']) {
       expect(getEncryptedFieldNames).toHaveBeenCalledWith(entityId, 'tenant-privacy', organizationId, { ignoreRuntimeHealth: true })
     }

@@ -61,6 +61,11 @@ export function searchError(prefix: string, message: string, data?: Record<strin
   componentLogger(prefix).error(message, data)
 }
 
+/**
+ * Report a caught failure to the active telemetry backend under a stable
+ * `search.<reason>` code. A telemetry fault degrades to a warning, so reporting
+ * never changes what the caller does next.
+ */
 export function reportSearchError(
   prefix: string,
   error: unknown,
@@ -69,7 +74,10 @@ export function reportSearchError(
 ): void {
   try {
     getTelemetryRuntime()?.reportError(error, { module: 'search', code, attributes })
-  } catch {
-    searchWarn(prefix, 'Telemetry error report failed', { code })
+  } catch (telemetryError) {
+    componentLogger(prefix).warn('Telemetry error report failed', {
+      code,
+      error: telemetryError instanceof Error ? telemetryError.message : telemetryError,
+    })
   }
 }

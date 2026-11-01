@@ -242,13 +242,13 @@ describe('plaintext custom-field boundaries (#7894)', () => {
     expect(resolver).toHaveBeenCalledTimes(2)
   })
 
-  it('preserves explicit source text and legacy direct clients without metadata', async () => {
+  it('preserves explicit source text while a resolver-less indexer excludes custom fields', async () => {
     const harness = createHarness({ resolver: null, buildSource: async () => ({ text: 'Explicit source text' }) })
 
     await harness.indexer.indexRecord({ entityId, recordId: 'record-1', tenantId: 'tenant-1', record: makeFields() })
 
     expect(harness.embeddings).toEqual(['Explicit source text'])
-    expect(harness.documents[0].fields.cf_secret).toBe('PRIVATE-ALIAS')
+    expect(harness.documents[0].fields.cf_secret).toBeUndefined()
   })
 
   it('keeps exclusion metadata effective after JSON serialization for custom direct clients', async () => {
