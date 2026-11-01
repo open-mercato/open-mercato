@@ -32,6 +32,10 @@ export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['example.todos.manage'] },
 }
 
+function invalidPayloadResponse() {
+  return Response.json({ ok: false, progressJobId: null, message: 'Invalid payload' }, { status: 400 })
+}
+
 /**
  * Starts the durable Todo bulk-complete operation.
  *
@@ -54,11 +58,11 @@ export async function POST(req: Request) {
 
   const parsed = bulkCompleteRequestSchema.safeParse(await readJsonSafe(req))
   if (!parsed.success) {
-    return Response.json({ ok: false, progressJobId: null, message: 'Invalid payload' }, { status: 400 })
+    return invalidPayloadResponse()
   }
 
   const scope = { tenantId: auth.tenantId, organizationId: auth.orgId, userId: String(auth.sub) }
-  const ids = Array.from(new Set(parsed.data.ids))
+  const requestedIds = Array.from(new Set(parsed.data.ids))
   const container = await createRequestContainer()
 
   const guardResult = await runRouteMutationGuards({
@@ -68,10 +72,16 @@ export async function POST(req: Request) {
     input: {
       resourceKind: 'example:todo',
       operation: 'update',
-      mutationPayload: { ids, idempotencyKey: parsed.data.idempotencyKey },
+      mutationPayload: { ids: requestedIds, idempotencyKey: parsed.data.idempotencyKey },
     },
   })
   if (!guardResult.ok) return guardResult.response
+
+  const guarded = bulkCompleteRequestSchema.safeParse({ ...parsed.data, ...guardResult.modifiedPayload })
+  if (!guarded.success) {
+    return invalidPayloadResponse()
+  }
+  const ids = Array.from(new Set(guarded.data.ids))
 
   const em = container.resolve('em') as EntityManager
   // Every selected id is verified inside the caller's own scope BEFORE anything
@@ -95,7 +105,7 @@ export async function POST(req: Request) {
     em,
     progress,
     scope,
-    idempotencyKey: parsed.data.idempotencyKey,
+    idempotencyKey: guarded.data.idempotencyKey,
     todoIds: ids,
   })
 

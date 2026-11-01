@@ -3,9 +3,9 @@
   "generatedNote": "Derived asset — the app-facing projection of the repository source-link inventory, regenerated with `yarn workspace create-mercato-app harness:generate-source-link-inventory`. Never hand-edit. Harness cases resolve `context.sourceReferenceIds` against `referenceId` here; a record with `readStatus: \"qa-only\"` is validation evidence only and is refused as a case reference.",
   "derived": {
     "ownerCount": 32,
-    "recordCount": 150,
-    "sourceRequiredCount": 125,
-    "readableCount": 150,
+    "recordCount": 151,
+    "sourceRequiredCount": 126,
+    "readableCount": 151,
     "baselineSha": "f7c941570003f3abe920b1765995cbef98dcad0b"
   },
   "notCovered": [
@@ -2494,6 +2494,30 @@
       "moduleId": "example",
       "capabilityIds": [
         "api.option-source-routes"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-module-scaffold/api-and-domain:api/todos/bulk-complete/route.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-module-scaffold/references/api-and-domain.md",
+      "heading": "Canonical example source",
+      "href": "../../../../src/modules/example/api/todos/bulk-complete/route.ts",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/api/todos/bulk-complete/route.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "api.custom-route",
+        "runtime.bulk-operation-progress"
       ],
       "presets": [
         "classic",

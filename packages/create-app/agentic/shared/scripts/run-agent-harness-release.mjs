@@ -200,8 +200,8 @@ function parseGeneratedQuotedValue(line, prefix) {
 }
 
 function validGeneratedYarnConfig(contents) {
-  if (Buffer.byteLength(contents, 'utf8') > GENERATED_YARN_CONFIG_LIMIT || contents.includes('\0')) return false
-  const lines = contents.replaceAll('\r\n', '\n').split('\n').filter((line) => line !== '')
+  if (Buffer.byteLength(contents, 'utf8') > GENERATED_YARN_CONFIG_LIMIT || contents.includes('\0') || /\r(?!\n)/.test(contents)) return false
+  const lines = contents.replaceAll('\r\n', '\n').split('\n').filter((line) => line !== '' && !line.startsWith('#'))
   const migrated = lines[0] === 'approvedGitRepositories:'
   if (migrated) {
     if (
@@ -212,6 +212,11 @@ function validGeneratedYarnConfig(contents) {
   }
   if (lines.shift() !== 'nodeLinker: node-modules') return false
   if (migrated && lines.shift() !== 'npmMinimalAgeGate: 0') return false
+  if (!migrated && lines[0] === 'npmMinimalAgeGate: 5d') {
+    if (lines.shift() !== 'npmMinimalAgeGate: 5d'
+      || lines.shift() !== 'npmPreapprovedPackages:'
+      || lines.shift() !== '  - "@open-mercato/*"') return false
+  }
   if (!lines.length) return true
 
   const unsafeHttpHosts = []
@@ -230,7 +235,7 @@ function validGeneratedYarnConfig(contents) {
   if (lines.shift() !== 'npmScopes:' || lines.shift() !== '  open-mercato:') return false
   if (migrated && lines.shift() !== '    npmMinimalAgeGate: 0') return false
   const registryUrl = parseGeneratedQuotedValue(lines.shift() ?? '', '    npmRegistryServer: ')
-  if (!registryUrl || (!migrated && lines.shift() !== '    npmMinimalAgeGate: 0')) return false
+  if (!registryUrl || registryUrl.includes('${') || (!migrated && lines.shift() !== '    npmMinimalAgeGate: 0')) return false
   if (migrated && !readUnsafeHttpHosts()) return false
   if (lines.length) return false
 
