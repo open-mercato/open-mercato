@@ -151,6 +151,8 @@
   "documents.editor.realtime.presenceLabel": "Editando ahora",
   "documents.editor.realtime.readOnlyFallback": "El tiempo real no está disponible — se muestra la última versión guardada (solo lectura).",
   "documents.editor.realtime.reconnecting": "Reconectando…",
+  "documents.editor.realtime.setupGuide": "Guía de configuración de la colaboración en tiempo real",
+  "documents.editor.realtime.setupHint": "La colaboración en tiempo real necesita un servicio de colaboración en ejecución y una conexión que funcione. Pide a tu administrador que revise la configuración.",
   "documents.editor.realtime.singleUserFallback": "El tiempo real no está disponible — los cambios se guardan en modo de un solo usuario.",
   "documents.editor.status.error": "Error al guardar",
   "documents.editor.status.saved": "Guardado",

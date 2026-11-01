@@ -6,8 +6,10 @@ import { Link2, Unlink } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
+import { LinkButton } from '@open-mercato/ui/primitives/link-button'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { cn } from '@open-mercato/shared/lib/utils'
+import { DOCUMENTS_REALTIME_SETUP_GUIDE_URL } from '@open-mercato/documents/modules/documents/lib/constants'
 import { EntityPicker } from '../components/EntityPicker'
 import { DocumentCanvas } from './DocumentCanvas'
 import { EditorStatusPresence } from './EditorStatusPresence'
@@ -81,6 +83,19 @@ export function DocumentEditorSurface(input: Props) {
       : input.mode === 'preview'
         ? t('documents.editor.mode.previewNotice')
         : null
+  const availabilityNotice = status === 'offline' ? (
+    <>
+      <p>{notice ?? t('documents.editor.realtime.offline')}</p>
+      <p className="mt-2">
+        {t('documents.editor.realtime.setupHint')}{' '}
+        <LinkButton asChild underline="always">
+          <a href={DOCUMENTS_REALTIME_SETUP_GUIDE_URL} target="_blank" rel="noopener noreferrer">
+            {t('documents.editor.realtime.setupGuide')}
+          </a>
+        </LinkButton>
+      </p>
+    </>
+  ) : notice
   const selectionCommentHandler = canCreateSelectionComment({
     permissionReadOnly: input.readOnly,
     mode: input.mode,
@@ -148,7 +163,7 @@ export function DocumentEditorSurface(input: Props) {
             </div>
           ) : null}
         </div>
-        <DocumentCanvas editor={editorModel.editor} title={title} readOnly={effectiveReadOnly} outlineOpen={outlineOpen} notice={notice} onOpenLink={insertions.openLink} onComment={selectionCommentHandler} />
+        <DocumentCanvas editor={editorModel.editor} title={title} readOnly={effectiveReadOnly} outlineOpen={outlineOpen} notice={availabilityNotice} onOpenLink={insertions.openLink} onComment={selectionCommentHandler} />
       </div>
       <EntityPicker open={insertions.entityPickerOpen} onOpenChange={insertions.setPickerOpen} onPick={(pick) => { void insertions.handleEntityPick(pick) }} />
       <RecordFieldsDialog
