@@ -7,7 +7,7 @@ import {
   resolveRunId,
   resolveSpentAdapterBudgets,
 } from './guardrails'
-import { hostnameOf, isHostAllowed, resolveWebSearchSettings } from './policy'
+import { applyAnswerDomainPolicy, hostnameOf, isHostAllowed, resolveWebSearchSettings } from './policy'
 import { buildWebSearchEngine } from './registry'
 import { createStepEmitter } from './steps'
 
@@ -168,12 +168,14 @@ export const webSearchTool: AiToolDefinition = {
         const host = hostnameOf(hit.url)
         return host ? isHostAllowed(host, settings.guardrails) : false
       })
+      const { answer, ...answerDiagnostics } = applyAnswerDomainPolicy(result.answer, settings.guardrails)
 
       return {
         ok: true as const,
         results: allowed,
-        answer: result.answer,
+        answer,
         diagnostics: {
+          ...answerDiagnostics,
           adapters: result.diagnostics.adapters,
           degraded: result.diagnostics.degraded || allowed.length !== result.results.length,
           cached: result.diagnostics.cached,
