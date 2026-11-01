@@ -122,6 +122,17 @@ export class OnboardingService {
     return true
   }
 
+  async renewProcessing(request: OnboardingRequest, renewedAt: Date): Promise<boolean> {
+    const renewedRows = await this.em.nativeUpdate(
+      OnboardingRequest,
+      { id: request.id, status: 'processing' },
+      { processingStartedAt: renewedAt, updatedAt: new Date() },
+    )
+    if (renewedRows === 0) return false
+    request.processingStartedAt = renewedAt
+    return true
+  }
+
   async resetProcessing(request: OnboardingRequest): Promise<boolean> {
     const revertedRows = await this.em.nativeUpdate(
       OnboardingRequest,
@@ -138,6 +149,7 @@ export class OnboardingService {
     request.tenantId = data.tenantId
     request.organizationId = data.organizationId
     request.userId = data.userId
+    request.processingStartedAt = new Date()
     await this.em.flush()
   }
 

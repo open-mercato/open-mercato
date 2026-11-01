@@ -196,6 +196,53 @@ describe('OnboardingService', () => {
     })
   })
 
+  describe('renewProcessing (provisioning lease)', () => {
+    it('renews the lease of a request that is still processing', async () => {
+      const claimedAt = new Date(Date.now() - 30_000)
+      const renewedAt = new Date()
+      const dbRow: DbRow = { id: 'req-1', status: 'processing', processingStartedAt: claimedAt }
+      const request = makeRequest({ id: 'req-1', status: 'processing', processingStartedAt: claimedAt })
+      const service = new OnboardingService(createRowBackedEm(dbRow, request))
+
+      const renewed = await service.renewProcessing(request, renewedAt)
+
+      expect(renewed).toBe(true)
+      expect(dbRow.status).toBe('processing')
+      expect(dbRow.processingStartedAt).toBe(renewedAt)
+      expect(request.processingStartedAt).toBe(renewedAt)
+    })
+
+    it('does not touch a request a concurrent worker already completed', async () => {
+      const dbRow: DbRow = { id: 'req-1', status: 'completed', processingStartedAt: null }
+      const staleRequest = makeRequest({ id: 'req-1', status: 'processing', processingStartedAt: new Date(0) })
+      const service = new OnboardingService(createRowBackedEm(dbRow, staleRequest))
+
+      const renewed = await service.renewProcessing(staleRequest, new Date())
+
+      expect(renewed).toBe(false)
+      expect(dbRow.status).toBe('completed')
+      expect(dbRow.processingStartedAt).toBeNull()
+      expect(staleRequest.processingStartedAt).toEqual(new Date(0))
+    })
+  })
+
+  describe('updateProvisioningIds', () => {
+    it('refreshes the provisioning lease in the same flush that persists the ids', async () => {
+      const claimedAt = new Date(Date.now() - 10 * 60 * 1000)
+      const dbRow: DbRow = { id: 'req-1', status: 'processing', processingStartedAt: claimedAt }
+      const request = makeRequest({ id: 'req-1', status: 'processing', processingStartedAt: claimedAt })
+      const em = createRowBackedEm(dbRow, request)
+      const service = new OnboardingService(em)
+      const before = Date.now()
+
+      await service.updateProvisioningIds(request, { tenantId: 't-1', organizationId: 'o-1', userId: 'u-1' })
+
+      expect(em.flush).toHaveBeenCalledTimes(1)
+      expect(request.tenantId).toBe('t-1')
+      expect(dbRow.processingStartedAt?.getTime()).toBeGreaterThanOrEqual(before)
+    })
+  })
+
   describe('resetProcessing (conditional revert, #2742)', () => {
     it('does not revert a request a concurrent worker already completed', async () => {
       // A sibling worker already advanced the persisted row to 'completed'.

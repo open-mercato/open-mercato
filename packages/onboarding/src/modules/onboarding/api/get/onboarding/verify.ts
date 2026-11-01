@@ -22,6 +22,10 @@ import { UserConsent } from '@open-mercato/core/modules/auth/data/entities'
 import { computeConsentIntegrityHash } from '@open-mercato/core/modules/auth/lib/consentIntegrity'
 import { resolveConsentClientIp } from '@open-mercato/onboarding/modules/onboarding/lib/consentClientIp'
 import { runBestEffortProvisioningStep } from '@open-mercato/onboarding/modules/onboarding/lib/provisioning'
+import {
+  isProvisioningLeaseActive,
+  startProvisioningLeaseHeartbeat,
+} from '@open-mercato/onboarding/modules/onboarding/lib/provisioning-lease'
 import { getModules } from '@open-mercato/shared/lib/modules/registry'
 import { isUniqueViolation } from '@open-mercato/shared/lib/crud/errors'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
@@ -95,7 +99,7 @@ async function completeProvisionedRequest(args: {
   request: OnboardingRequest
 }) {
   const ids = resolveProvisioningIds(args.request)
-  if (!ids) return null
+  if (!ids || isProvisioningLeaseActive(args.request.processingStartedAt)) return null
   await args.service.markCompleted(args.request, ids)
   after(async () => {
     await runDeferredProvisioning({
@@ -204,6 +208,7 @@ export async function GET(req: Request) {
   let tenantId: string | null = null
   let organizationId: string | null = null
   let userId: string | null = null
+  let stopLeaseHeartbeat: () => void = () => {}
 
   try {
     const setupResult = await setupInitialTenant(em, {
@@ -238,6 +243,7 @@ export async function GET(req: Request) {
       organizationId: resolvedOrganizationId,
       userId: resolvedUserId,
     })
+    stopLeaseHeartbeat = startProvisioningLeaseHeartbeat(new OnboardingService(em.fork()), request)
 
     if (request.marketingConsent) {
       const now = new Date()
@@ -300,6 +306,7 @@ export async function GET(req: Request) {
         }),
       )
     }
+    stopLeaseHeartbeat()
     await service.markCompleted(request, {
       tenantId: resolvedTenantId,
       organizationId: resolvedOrganizationId,
@@ -316,6 +323,7 @@ export async function GET(req: Request) {
     })
     return redirectToPreparing(baseUrl, resolvedTenantId)
   } catch (error) {
+    stopLeaseHeartbeat()
     if (error instanceof Error && error.message === 'USER_EXISTS') {
       await service.resetProcessing(request)
       return redirectWithStatus(baseUrl, 'already_exists')
