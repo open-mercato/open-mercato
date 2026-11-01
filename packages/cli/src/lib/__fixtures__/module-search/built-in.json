@@ -1,0 +1,235 @@
+{
+  "schemaVersion": 1,
+  "coreVersion": "0.9.0",
+  "generatedAt": "2026-10-23T03:05:00Z",
+  "modules": [
+    {
+      "id": "currencies",
+      "title": "Currencies",
+      "description": "Currencies and Exchange rate management",
+      "category": "payments-finance",
+      "wedge": "money",
+      "requires": [],
+      "inPresets": [],
+      "anatomy": {
+        "version": "0.9.0",
+        "coverage": "partial",
+        "counts": {
+          "entities": 3,
+          "tables": 3,
+          "migrations": 0,
+          "routes": null,
+          "publicRoutes": null,
+          "aclFeatures": 6,
+          "eventsEmitted": 6,
+          "eventsConsumed": 0,
+          "backendPages": 7,
+          "frontendPages": 0,
+          "widgets": 0,
+          "workers": 0,
+          "cli": 3,
+          "aiTools": 0,
+          "aiAgents": 0,
+          "extends": 0
+        },
+        "lists": {
+          "aclFeatures": [
+            "currencies.view",
+            "currencies.manage",
+            "currencies.rates.view",
+            "currencies.rates.manage",
+            "currencies.fetch.view",
+            "currencies.fetch.manage"
+          ],
+          "eventsEmitted": [
+            "currencies.currency.created",
+            "currencies.currency.updated",
+            "currencies.currency.deleted",
+            "currencies.exchange_rate.created",
+            "currencies.exchange_rate.updated",
+            "currencies.exchange_rate.deleted"
+          ],
+          "eventsConsumed": [],
+          "env": [],
+          "hosts": [],
+          "tables": [
+            "currencies",
+            "exchange_rates",
+            "currency_fetch_configs"
+          ],
+          "publicRoutes": [],
+          "credentials": []
+        },
+        "callout": "ADDS 3 TABLES · 6 PERMISSIONS · EMITS 6 EVENTS",
+        "diff": null
+      },
+      "install": "yarn mercato module enable @open-mercato/core --module currencies",
+      "page": "/built-in/currencies"
+    },
+    {
+      "id": "data_sync",
+      "title": "Data Sync",
+      "description": "Streaming data sync hub for import/export integrations.",
+      "category": "integrations-sync",
+      "wedge": "connect",
+      "requires": [],
+      "inPresets": [],
+      "anatomy": {
+        "version": "0.9.0",
+        "coverage": "partial",
+        "counts": {
+          "entities": 4,
+          "tables": 4,
+          "migrations": 0,
+          "routes": null,
+          "publicRoutes": null,
+          "aclFeatures": 3,
+          "eventsEmitted": 4,
+          "eventsConsumed": 0,
+          "backendPages": 2,
+          "frontendPages": 0,
+          "widgets": 0,
+          "workers": 0,
+          "cli": 0,
+          "aiTools": 0,
+          "aiAgents": 0,
+          "extends": 0
+        },
+        "lists": {
+          "aclFeatures": [
+            "data_sync.view",
+            "data_sync.run",
+            "data_sync.configure"
+          ],
+          "eventsEmitted": [
+            "data_sync.run.started",
+            "data_sync.run.completed",
+            "data_sync.run.failed",
+            "data_sync.run.cancelled"
+          ],
+          "eventsConsumed": [],
+          "env": [],
+          "hosts": [],
+          "tables": [
+            "sync_runs",
+            "sync_cursors",
+            "sync_mappings",
+            "sync_schedules"
+          ],
+          "publicRoutes": [],
+          "credentials": []
+        },
+        "callout": "ADDS 4 TABLES · 3 PERMISSIONS · EMITS 4 EVENTS",
+        "diff": null
+      },
+      "install": "yarn mercato module enable @open-mercato/core --module data_sync",
+      "page": "/built-in/data_sync"
+    },
+    {
+      "id": "wms",
+      "title": "Warehouse Management System",
+      "description": "Warehouse topology, inventory balances, reservations, and movement ledger.",
+      "category": "warehouse-shipping",
+      "wedge": "operate",
+      "requires": [
+        "catalog",
+        "sales",
+        "feature_toggles"
+      ],
+      "inPresets": [],
+      "anatomy": {
+        "version": "0.9.0",
+        "coverage": "partial",
+        "counts": {
+          "entities": 9,
+          "tables": 9,
+          "migrations": 0,
+          "routes": null,
+          "publicRoutes": null,
+          "aclFeatures": 10,
+          "eventsEmitted": 27,
+          "eventsConsumed": 14,
+          "backendPages": 12,
+          "frontendPages": 0,
+          "widgets": 0,
+          "workers": 0,
+          "cli": 1,
+          "aiTools": 0,
+          "aiAgents": 0,
+          "extends": 15
+        },
+        "lists": {
+          "aclFeatures": [
+            "wms.view",
+            "wms.manage_warehouses",
+            "wms.manage_zones",
+            "wms.manage_locations",
+            "wms.manage_inventory",
+            "wms.manage_reservations",
+            "wms.adjust_inventory",
+            "wms.receive_inventory",
+            "wms.cycle_count",
+            "wms.import"
+          ],
+          "eventsEmitted": [
+            "wms.warehouse.created",
+            "wms.warehouse.updated",
+            "wms.zone.created",
+            "wms.zone.updated",
+            "wms.location.created",
+            "wms.location.updated",
+            "wms.inventory_profile.created",
+            "wms.inventory_profile.updated",
+            "wms.inventory_balance.created",
+            "wms.inventory_balance.updated",
+            "wms.inventory_balance.deleted",
+            "wms.inventory_reservation.created",
+            "wms.inventory_reservation.updated",
+            "wms.inventory_reservation.deleted",
+            "wms.inventory_movement.created",
+            "wms.inventory_movement.updated",
+            "wms.inventory_movement.deleted",
+            "wms.inventory.received",
+            "wms.inventory.adjusted",
+            "wms.inventory.reserved"
+          ],
+          "eventsConsumed": [
+            "wms.inventory_balance.*",
+            "availability.policy.*",
+            "wms.inventory_profile.*",
+            "wms.inventory.*",
+            "wms.inventory_movement.*",
+            "wms.inventory_reservation.*",
+            "sales.line.*",
+            "sales.order.*",
+            "catalog.variant.*",
+            "wms.warehouse.*",
+            "wms.inventory.low_stock",
+            "wms.inventory.reservation_shortfall",
+            "sales.order.cancelled",
+            "sales.order.confirmed"
+          ],
+          "env": [],
+          "hosts": [],
+          "tables": [
+            "wms_warehouses",
+            "wms_warehouse_zones",
+            "wms_warehouse_locations",
+            "wms_product_inventory_profiles",
+            "wms_inventory_lots",
+            "wms_inventory_balances",
+            "wms_inventory_reservations",
+            "wms_sales_order_warehouse_assignments",
+            "wms_inventory_movements"
+          ],
+          "publicRoutes": [],
+          "credentials": []
+        },
+        "callout": "ADDS 9 TABLES · 10 PERMISSIONS · EMITS 27 EVENTS",
+        "diff": null
+      },
+      "install": "yarn mercato module enable @open-mercato/core --module wms",
+      "page": "/built-in/wms"
+    }
+  ]
+}

@@ -124,7 +124,7 @@ jobs:
         # Determines which integration tests to run and whether to shard them.
         # Full-suite runs (push OR PR touching shared packages) use 15 shards.
         # Affected-only runs (PR touching specific modules) use a single runner.
-        # CI/docs/scripts-only PRs skip integration entirely.
+        # This workflow runs the full suite; other CI/docs/scripts-only PRs skip integration.
         # Runs in prepare so shards can start the moment the build is ready,
         # without waiting for typecheck or unit tests to complete.
         id: integration-scope
@@ -145,7 +145,7 @@ jobs:
           # `packages/cli/src/lib/testing/` is the ephemeral harness that boots, drives and tears
           # down this very suite. A change there matches no `src/modules/` path, so without this
           # entry the job that would exercise it is the one job it can never trigger.
-          FULL_SUITE_PATTERN='^packages/shared/|^packages/ui/|^packages/events/|^packages/queue/|^packages/cache/|^packages/search/|^packages/onboarding/|^packages/webhooks/|^packages/core/src/lib/|^packages/enterprise/src/lib/|^packages/cli/src/lib/testing/|^apps/mercato/src/(app|lib|components|layout\.|page\.)'
+          FULL_SUITE_PATTERN='^\.github/workflows/ci\.yml$|^packages/shared/|^packages/ui/|^packages/events/|^packages/queue/|^packages/cache/|^packages/search/|^packages/onboarding/|^packages/webhooks/|^packages/core/src/lib/|^packages/enterprise/src/lib/|^packages/cli/src/lib/testing/|^apps/mercato/src/(app|lib|components|layout\.|page\.)'
           if echo "$CHANGED" | grep -qE "$FULL_SUITE_PATTERN"; then
             echo "skip=false" >> "$GITHUB_OUTPUT"
             echo "modules=" >> "$GITHUB_OUTPUT"
@@ -624,6 +624,7 @@ jobs:
     needs: [prepare, audit-scope, audit, lint]
     if: |
       always() &&
+      !cancelled() &&
       needs.prepare.result == 'success' &&
       needs.audit-scope.result == 'success' &&
       (needs.audit.result == 'success' || needs.audit.result == 'skipped') &&
@@ -758,25 +759,25 @@ jobs:
         run: yarn agents:check-budget
 
       - name: Checking types
-        # On PRs: scope to packages/app that changed since the base branch.
-        # On pushes to protected branches: full typecheck, no filter.
+        # Workflow edits and protected branch pushes run the full gate.
+        # Other PRs scope to packages/app that changed since the base branch.
         run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            yarn turbo run typecheck --filter=[origin/${{ github.base_ref }}]...
-          else
+          if [ "${{ github.event_name }}" != "pull_request" ] || ! git diff --quiet HEAD^1 HEAD -- .github/workflows/ci.yml; then
             yarn typecheck
+          else
+            yarn turbo run typecheck --filter=[origin/${{ github.base_ref }}]...
           fi
         env:
           TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
           TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
 
       - name: Test
-        # Same scoping as typecheck — affected packages only on PRs.
+        # Same scoping as typecheck, including full gates for workflow edits.
         run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            yarn turbo run test --filter=[origin/${{ github.base_ref }}]...
-          else
+          if [ "${{ github.event_name }}" != "pull_request" ] || ! git diff --quiet HEAD^1 HEAD -- .github/workflows/ci.yml; then
             yarn test
+          else
+            yarn turbo run test --filter=[origin/${{ github.base_ref }}]...
           fi
 
       - name: Test scripts
@@ -834,6 +835,66 @@ jobs:
         # scans — the whole set is ~10 s, so it stays on the common PR path.
         run: yarn test:repo-wide-guards
 
+  # ── Core suite under a non-UTC timezone ────────────────────────────────────
+  # Runners default to UTC, where wall-clock/timezone defects are invisible: the
+  # planner DTSTART bug (#5862) was built from the host clock, yet every suite
+  # passed at TZ=UTC with it fully present, because the fixtures only ever used
+  # `...Z` values. This job re-runs @open-mercato/core under a positive-offset
+  # zone whose local date differs from UTC for part of the day, so host-clock
+  # leakage fails the build instead of shipping. Kept as its own job rather than
+  # a step in `test`, which is sharded and would repeat the run per shard.
+  core-timezone:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: [prepare, audit-scope, audit, lint]
+    if: |
+      always() &&
+      !cancelled() &&
+      needs.prepare.result == 'success' &&
+      needs.audit-scope.result == 'success' &&
+      (needs.audit.result == 'success' || needs.audit.result == 'skipped') &&
+      needs.lint.result == 'success'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24.19.0
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Cache Yarn packages
+        uses: actions/cache@v6
+        with:
+          path: .yarn/cache
+          key: yarn-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
+          restore-keys: yarn-${{ runner.os }}-
+
+      - name: Cache node_modules
+        id: nm-cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            node_modules
+            packages/*/node_modules
+            apps/*/node_modules
+          key: node-modules-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
+
+      - name: Install dependencies
+        if: steps.nm-cache.outputs.cache-hit != 'true'
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/yarn-retry-on-install-crash.sh" yarn install --immutable
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v8
+        with:
+          name: build-artifacts
+
+      - name: Run core suite at TZ=Pacific/Auckland
+        run: yarn workspace @open-mercato/core test:tz
+
   # ── Documents multi-instance durability ────────────────────────────────────
   # The standard Documents Jest suite intentionally skips this infrastructure
   # regression. Run it as a dedicated required job on GitHub's Docker-capable
@@ -845,6 +906,7 @@ jobs:
     needs: [prepare, audit-scope, audit, lint]
     if: |
       always() &&
+      !cancelled() &&
       needs.prepare.result == 'success' &&
       needs.audit-scope.result == 'success' &&
       (needs.audit.result == 'success' || needs.audit.result == 'skipped') &&
@@ -918,6 +980,7 @@ jobs:
     needs: [prepare, audit-scope, audit, lint]
     if: |
       always() &&
+      !cancelled() &&
       needs.prepare.result == 'success' &&
       needs.audit-scope.result == 'success' &&
       (needs.audit.result == 'success' || needs.audit.result == 'skipped') &&
@@ -1145,7 +1208,14 @@ jobs:
   merge-coverage:
     runs-on: blacksmith-4vcpu-ubuntu-2404
     needs: [prepare, test, documents-multi-instance, ephemeral-integration]
-    if: needs.prepare.outputs.shard_matrix != '["none"]'
+    if: |
+      always() &&
+      !cancelled() &&
+      needs.prepare.result == 'success' &&
+      needs.test.result == 'success' &&
+      needs.documents-multi-instance.result == 'success' &&
+      needs.ephemeral-integration.result == 'success' &&
+      needs.prepare.outputs.shard_matrix != '["none"]'
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7

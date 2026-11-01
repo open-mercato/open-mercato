@@ -1,7 +1,12 @@
+import { resolveQueryIndexSourceTableMetadata } from './subscriber-scope'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { type Kysely, type Transaction, sql } from 'kysely'
-import { resolveEntityTableName } from '@open-mercato/shared/lib/query/engine'
+import { resolveEntityTableName as resolveFallbackEntityTableName } from '@open-mercato/shared/lib/query/engine'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+
+function resolveEntityTableName(em: EntityManager, entity: string): string {
+  return resolveQueryIndexSourceTableMetadata(em, entity)?.table ?? resolveFallbackEntityTableName(em, entity)
+}
 
 const logger = createLogger('query_index').child({ component: 'coverage' })
 
@@ -446,6 +451,25 @@ export async function deleteCoverageForEntity(db: Kysely<any>, entityType: strin
     .execute()
 }
 
+type CatalogueCoverageDatabase = {
+  entity_index_coverage: { entity_type: string; tenant_id: string | null; organization_id: string | null }
+}
+
+/**
+ * Drop every coverage row of `entityType` outside the global scope (no tenant, and the
+ * organization placeholder or no organization). A declared platform-wide catalogue keeps its
+ * coverage there only; rows an earlier sweep wrote under the caller's scope are never
+ * refreshed again and would keep reporting stale counts.
+ */
+export async function deleteScopedCoverageForEntity(db: Kysely<CatalogueCoverageDatabase>, entityType: string): Promise<void> {
+  if (!entityType) return
+  await db
+    .deleteFrom('entity_index_coverage')
+    .where('entity_type', '=', entityType)
+    .where(sql<boolean>`(tenant_id is not null or (organization_id is not null and organization_id <> ${GLOBAL_ORGANIZATION_PLACEHOLDER}))`)
+    .execute()
+}
+
 async function deleteCoverageScope(db: Kysely<any>, scope: CoverageScope): Promise<void> {
   const { entityType, tenantId, organizationId, withDeleted } = scope
   if (!entityType) return
@@ -468,8 +492,8 @@ async function tableHasColumn(db: Kysely<any>, table: string, column: string): P
     const exists = await db
       .selectFrom('information_schema.columns' as any)
       .select(sql<number>`1`.as('present'))
-      .where(sql<boolean>`table_schema = current_schema()`)
-      .where('table_name' as any, '=', table)
+      .where(table.includes('.') ? sql<boolean>`table_schema = ${table.split('.')[0]}` : sql<boolean>`table_schema = current_schema()`)
+      .where('table_name' as any, '=', table.split('.').pop())
       .where('column_name' as any, '=', column)
       .executeTakeFirst()
     const present = !!exists
@@ -493,6 +517,8 @@ export type ColumnCheck = { table: string; column: string }
 // subscribers hit an already-primed (or in-flight) cache instead of each doing their own
 // per-table introspection round trip.
 export async function primeColumnCache(db: Kysely<any>, checks: ColumnCheck[]): Promise<void> {
+  for (const check of checks.filter((entry) => typeof entry?.table === 'string' && entry.table.includes('.'))) await tableHasColumn(db, check.table, check.column)
+  checks = checks.filter((entry) => !(typeof entry?.table === 'string' && entry.table.includes('.')))
   const missing: Array<{ table: string; column: string; key: string }> = []
   const seen = new Set<string>()
   for (const check of checks) {
