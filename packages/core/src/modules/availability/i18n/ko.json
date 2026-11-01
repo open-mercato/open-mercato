@@ -27,6 +27,8 @@
   "availability.errors.unauthorized": "권한이 없습니다",
   "availability.errors.variantNotFound": "해당 옵션이 없습니다",
   "availability.nav.group": "가용성",
+  "availability.notifications.stockLostAfterPayment.body": "주문 {orderId}이 결제 후 재고를 확보하지 못했습니다: {sellableCount}개 라인을 더 이상 사용할 수 없습니다.",
+  "availability.notifications.stockLostAfterPayment.title": "결제 후 재고 손실",
   "availability.policies.create.title": "가용성 정책 생성",
   "availability.policies.edit.notFound": "가용성 정책을 찾을 수 없습니다",
   "availability.policies.edit.readOnly": "이 정책은 보기 전용입니다. 변경할 권한이 없습니다.",
@@ -89,5 +91,6 @@
   "availability.states.low_stock": "재고 부족",
   "availability.states.not_tracked": "추적 안 함",
   "availability.states.out_of_stock": "품절",
-  "availability.states.preorder": "예약 주문"
+  "availability.states.preorder": "예약 주문",
+  "notifications.categories.availability": "재고 가용성"
 }

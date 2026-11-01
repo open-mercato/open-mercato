@@ -9,6 +9,7 @@ import {
   ecommercePriceSortFallbackSchema,
   ecommerceStoreSettingsSchema,
   ecommerceStoreStatusSchema,
+  type EcommercePriceDisplayMode,
   type EcommercePriceSortFallback,
   type EcommerceStoreSettings,
   type EcommerceStoreStatus,
@@ -52,6 +53,9 @@ export type StorefrontResolutionErrorCode =
   | 'store_misconfigured'
   | 'portal_session_scope_mismatch'
   | 'portal_session_invalid'
+  // Added 2026-10-26 (Release 5, D-R5-22): `resolveForBuyer`'s own refusal codes (§6.3).
+  | 'store_out_of_scope'
+  | 'buyer_out_of_scope'
 
 export type StorefrontResolutionStatus = 400 | 401 | 403 | 404 | 410 | 503
 
@@ -666,4 +670,83 @@ export async function resolveStoreFromRequest(
     },
     localeCandidates,
   )
+}
+
+/**
+ * Trusted buyer-store lookup (SPEC-029 §6.3, D-R5-22): a store row scoped by id, tenant AND
+ * organization in one query — no row means "not in scope" (missing or belonging to a different
+ * tenant/organization), which `resolveForBuyer` turns into `store_out_of_scope`. Unlike
+ * `resolveStoreFromRequest`/`resolveStoreBySlug` this never caches (always fresh) and never checks
+ * `status` (D-R5-22: "serving gates stay at the storefront edge").
+ */
+export type StoreChannelForBuyer = {
+  currencyCode: string
+  priceDisplayModeDefault: EcommercePriceDisplayMode
+  channel: {
+    priceKindId: string | null
+    assortmentScope: AssortmentScope | null
+    requireAuthentication: boolean
+  } | null
+}
+
+type StoreBuyerLookupDatabase = {
+  ecommerce_stores: {
+    id: string
+    tenant_id: string
+    organization_id: string
+    default_currency_code: string
+    settings: unknown
+    deleted_at: Date | null
+  }
+  ecommerce_store_channel_bindings: {
+    store_id: string
+    price_kind_id: string | null
+    assortment_scope: unknown
+    require_authentication: boolean
+    is_default: boolean
+    deleted_at: Date | null
+  }
+}
+
+export async function loadStoreChannelForBuyer(
+  container: StoreContextContainer,
+  input: { storeId: string; tenantId: string; organizationId: string },
+): Promise<StoreChannelForBuyer | null> {
+  const em = resolveEntityManager(container)
+  const row = await em
+    .getKysely<StoreBuyerLookupDatabase>()
+    .selectFrom('ecommerce_stores as s')
+    .leftJoin('ecommerce_store_channel_bindings as c', (join) =>
+      join
+        .onRef('c.store_id', '=', 's.id')
+        .on('c.is_default', '=', true)
+        .on('c.deleted_at', 'is', null),
+    )
+    .select([
+      's.default_currency_code as store_default_currency_code',
+      's.settings as store_settings',
+      'c.store_id as channel_store_id',
+      'c.price_kind_id as channel_price_kind_id',
+      'c.assortment_scope as channel_assortment_scope',
+      'c.require_authentication as channel_require_authentication',
+    ])
+    .where('s.id', '=', input.storeId)
+    .where('s.tenant_id', '=', input.tenantId)
+    .where('s.organization_id', '=', input.organizationId)
+    .where('s.deleted_at', 'is', null)
+    .executeTakeFirst()
+  if (!row) return null
+  const settings = parseSettings(row.store_settings, input.storeId)
+  const channel = row.channel_store_id
+    ? {
+        priceKindId: row.channel_price_kind_id ?? null,
+        assortmentScope: parseAssortmentScope(row.channel_assortment_scope),
+        requireAuthentication: row.channel_require_authentication === true,
+      }
+    : null
+  return {
+    currencyCode: row.store_default_currency_code,
+    priceDisplayModeDefault: settings.display.priceDisplayModeDefault,
+    channel,
+  }
 }
