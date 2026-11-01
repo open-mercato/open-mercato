@@ -638,6 +638,12 @@ export async function reauthorProposalForMergeRetarget(params: {
 }): Promise<AssistedSellingProposalAuthorResponse> {
   const { ctx, oldProposal, thread, lines, targetCartId, targetCustomerId, targetCustomerUserId, idempotencyKey } = params
 
+  // Review finding: captured BEFORE `performAuthorProposal` runs, same as `.reauthor`'s own
+  // HTTP command does — the CAS below keys off this snapshot, not whatever the row happens to
+  // read as after the new proposal's own (possibly slow) authoring sequence completes.
+  const wasLive = oldProposal.status === 'published'
+  const originalOldStatus = oldProposal.status
+
   const result = await performAuthorProposal({
     ctx,
     thread,
@@ -651,29 +657,52 @@ export async function reauthorProposalForMergeRetarget(params: {
   })
 
   if (!result.replayed) {
-    // §6.4/§8.1: the old row's own supersede bookkeeping — the SAME transition
-    // `.reauthor`'s own HTTP command applies above for the staff-initiated path, shared
-    // here instead of duplicated: `superseded_by_proposal_id`, `superseded` (only when
-    // still `published` — a STALE, redelivered merge event finding the old proposal already
-    // `rejected`/`expired`/etc. by the time it is reprocessed must not re-supersede it), the
-    // thread's own synchronous `live_proposal_count` decrement (never left to the async
-    // terminal-state subscriber — `lib/terminalStateSubscriber.ts`'s own header comment),
-    // and the `cart.proposal.reject` dispatch with `rejectedBy: 'author'` + the
-    // `.superseded` event.
-    const wasLive = oldProposal.status === 'published'
-    oldProposal.supersededByProposalId = result.proposalId
-    if (wasLive) {
-      oldProposal.status = 'superseded'
-      oldProposal.resolvedAt = new Date()
-    }
+    const now = new Date()
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    em.persist(oldProposal)
-    await em.flush()
+    // §6.4/§8.1's own supersede bookkeeping — the SAME conditional `nativeUpdate` CAS
+    // `.reauthor`'s own HTTP command applies, shared here instead of duplicated (review
+    // finding): only link the successor and transition status when the old row is STILL
+    // exactly where this call read it. Without this, a blind `oldProposal.supersededByProposalId
+    // = result.proposalId` + flush would stomp a concurrent staff reauthor's (or a second
+    // merge-retarget's) own successor link back to THIS call's successor — reproducing the
+    // double-live-successor bug via this other writer.
+    const affected = await em.nativeUpdate(
+      AssistedSellingProposal,
+      { id: oldProposal.id, tenantId: oldProposal.tenantId, status: originalOldStatus, supersededByProposalId: null },
+      {
+        supersededByProposalId: result.proposalId,
+        updatedAt: now,
+        ...(wasLive ? { status: 'superseded' as const, resolvedAt: now } : {}),
+      },
+    )
+    if (affected === 0) {
+      // Lost the race: a concurrent writer (a staff reauthor, or another merge-retarget
+      // delivery) already linked its own successor onto this old proposal. Our own
+      // just-authored proposal would otherwise sit live and orphaned — reject its cart and
+      // undo the count bump, same as the staff-path CAS does on a lost race. Deliberately
+      // does NOT re-supersede `oldProposal` or throw: the winner already owns that
+      // transition and already applied its own count decrement, so redoing either here
+      // would double-count or overwrite the winner's successor link.
+      const commandBus = ctx.container.resolve('commandBus') as CommandBus
+      await commandBus.execute<CartProposalRejectCommandInput, CartProposalRejectCommandResult>(
+        CART_PROPOSAL_REJECT_COMMAND_ID,
+        {
+          input: {
+            proposalCartId: result.proposalCartId,
+            tenantId: oldProposal.tenantId,
+            organizationId: oldProposal.organizationId,
+            rejectedBy: 'author',
+          },
+          ctx,
+        },
+      )
+      await applyLiveProposalCountDelta(em, thread, -1)
+      return result
+    }
     // Atomic SQL update (review finding) instead of the in-memory `thread.liveProposalCount
     // -= 1` read-modify-write every other author/withdraw/accept/reauthor path used to do.
-    if (wasLive) await applyLiveProposalCountDelta(em, thread, -1)
-
     if (wasLive) {
+      await applyLiveProposalCountDelta(em, thread, -1)
       const commandBus = ctx.container.resolve('commandBus') as CommandBus
       await commandBus.execute<CartProposalRejectCommandInput, CartProposalRejectCommandResult>(
         CART_PROPOSAL_REJECT_COMMAND_ID,

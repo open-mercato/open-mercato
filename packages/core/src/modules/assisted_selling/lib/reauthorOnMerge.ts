@@ -6,6 +6,7 @@ import { buildTrustedCommandContext } from '@open-mercato/shared/lib/commands/tr
 import { AssistedSellingProposal, AssistedSellingThread } from '../data/entities'
 import { emitAssistedSellingEvent } from '../events'
 import { resolveCartService } from './cartAccess'
+import { applyLiveProposalCountDelta } from './liveProposalCount'
 import {
   CART_PROPOSAL_REJECT_COMMAND_ID,
   type CartProposalRejectCommandInput,
@@ -75,11 +76,15 @@ async function supersedeOldProposal(params: {
   proposal.status = 'superseded'
   proposal.resolvedAt = new Date()
   em.persist(proposal)
-  if (thread) {
-    thread.liveProposalCount = Math.max(0, thread.liveProposalCount - 1)
-    em.persist(thread)
-  }
   await em.flush()
+  // Atomic SQL update (review finding) instead of the in-memory `thread.liveProposalCount -=
+  // 1` read-modify-write every other author/withdraw/reauthor path already migrated off of —
+  // this fallback path (taken when the author is ineligible, has no lines, the thread is
+  // missing, or `reauthorProposalForMergeRetarget` itself failed) had kept the lost-update
+  // race under concurrent terminal transitions.
+  if (thread) {
+    await applyLiveProposalCountDelta(em, thread, -1)
+  }
 
   const { ctx: systemCtx } = buildTrustedCommandContext({
     tenantId: scope.tenantId,
