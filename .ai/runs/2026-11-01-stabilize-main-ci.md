@@ -36,6 +36,14 @@ Restore every failing required CI check on `main` by identifying the current roo
 - Environment or infrastructure failures will be distinguished from repository defects before code is changed.
 - The final GitHub checks can outlast local validation; the run remains in progress until required checks finish green or a concrete external blocker is recorded.
 
+## Diagnosis
+
+- Latest affected `main` commit: `a3763359b83d5d2d38a5baf1424b2c91fc68c4b1`.
+- Failing checks: `ds-lint`, `lint`, `prepare`, the default-branch `audit`, and snapshot publishing all stop during `yarn install --immutable`; downstream skips are consequences of that blocker.
+- Root cause: the nodemailer workspace metadata for `@open-mercato/channel-ses` and `@open-mercato/channel-smtp` was crossed in `yarn.lock`. Their manifests declare `^10.1.4` and `^10.0.10` respectively, while the lockfile records the inverse.
+- Classification: deterministic repository defect. The same `YN0028` failure reproduced locally; this is not a flake or runner outage.
+- Minimal correction: regenerate `yarn.lock` from the unchanged workspace manifests and prove the generated result with `yarn install --immutable` before the full gate.
+
 ## Progress
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
