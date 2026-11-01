@@ -14,6 +14,7 @@ const widget: InjectionWidgetModule<LoginFormWidgetContext> = {
     title: 'Login Provider Probe',
     description: 'Claims the login flow for the @login-probe.example domain; inert for every other email.',
     features: [],
+    requiredModules: ['auth'],
     priority: 50,
     enabled: true,
   },
