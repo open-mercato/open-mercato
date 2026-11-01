@@ -468,9 +468,14 @@ recorded in the hub inbox and answered in Discord — see § Interactions dispat
 
 ### 4. Connect the channel in Open Mercato
 
-In `/backend/integrations`, find **Discord**, and connect a channel with the credential fields
-(`botToken`, `applicationId`, `publicKey`, `guildId`, `defaultChannelId`). `validateCredentials`
-calls `GET /users/@me` to confirm the token before persisting.
+In **Profile → My communication channels → Connect channel → Connect Discord**, connect a channel
+with the credential fields (`botToken`, `applicationId`, `publicKey`, `guildId`, `defaultChannelId`).
+The dialog is an embedded `CrudForm` that shows the same per-field hints as the integration
+credentials form and validates required fields and the public-key format client-side.
+`validateCredentials` calls `GET /users/@me` to confirm the token before persisting. The
+**Integrations → Discord** credentials form stores a separate, organization-wide credential that
+creates no channel; it backs the health probe, `register-slash-commands`, and any channel without
+its own credential (user guide § Integrations → Discord vs. Connect Discord).
 
 Optional env preconfiguration (provider-owned, applied from `setup.ts`, rerunnable via a provider
 CLI command — same pattern as other providers):
@@ -659,6 +664,7 @@ up in teardown, no reliance on seeded/demo data). Discord REST + Gateway are stu
 | TC-CHANNEL-DISCORD-012 | AI reply send path | An approved reply on a channel whose sender has no address completes through `messages.messages.compose`. |
 | TC-CHANNEL-DISCORD-013 | Forged AI reply proposals | Client-filed cards remain generic 500 refusals; authenticated proposals with a source outside the organization return 404 without sending. |
 | TC-CHANNEL-DISCORD-014 | Localized approval refusals | Admin-created system-marked proposals preserve English/Polish 403/404 errors, release claims for repeated refusals and dismissal, and never insert replies. |
+| TC-CHANNEL-DISCORD-015 | Connect Discord dialog | The profile-page Connect Discord dialog validates required fields and the public-key format inline before any request, shows each field's help text, and lands server field errors on their fields. |
 
 Unit tests (provider package, jest): `convertOutbound`/`normalizeInbound` mapping, Ed25519 verify,
 gateway identify/resume/backoff state machine, bot-self-message filter.
@@ -1202,6 +1208,16 @@ rule 3), and no variant should be considered done without it.
 ### 2026-10-25 — Integrate approval refusals with authenticated proposals (#7356)
 
 - Preserved current proposal-origin and organization guards while applying localized source refusals. Kept forged-card TC-CHANNEL-DISCORD-013, moved refusal coverage to unused TC-CHANNEL-DISCORD-014, and authenticated its admin-created fixtures with `stampSystemProposalFixture`.
+
+### 2026-10-23 — Connect Discord dialog on CrudForm with field hints (issue #5592)
+
+- Rebuilt the profile-page Connect Discord dialog on an embedded `CrudForm` with a client-side
+  schema (`lib/connect-form.ts`), mirroring the IMAP dialog: required fields and the 64-hex public
+  key are checked inline before any request, server field errors land on their fields.
+- Each field shows the same help text as the `integration.ts` credential fields; a unit test keeps
+  the two in sync. TC-CHANNEL-DISCORD-015 covers the dialog in the browser.
+- Corrected § 4 above and documented in the user guide how the Integrations → Discord credential
+  differs from a connected channel. No API, schema or credential-shape change.
 
 ### 2026-10-13 — Proposal approval refusals (#7310)
 
