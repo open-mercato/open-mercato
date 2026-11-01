@@ -916,7 +916,7 @@
   "sales.documents.form.customer.selected": "Cliente seleccionado: {{id}}",
   "sales.documents.form.details": "Detalles del documento",
   "sales.documents.form.email": "Correo del cliente",
-  "sales.documents.form.email.alreadySelected": "Cliente seleccionado",
+  "sales.documents.form.email.label": "Enviar a",
   "sales.documents.form.email.placeholder": "Correo usado para el documento",
   "sales.documents.form.email.selectCustomer": "Seleccionar cliente",
   "sales.documents.form.errors.customers": "No se pudieron cargar los clientes.",

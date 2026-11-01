@@ -5,6 +5,7 @@ import { CrudForm, type CrudCustomFieldRenderProps, type CrudField, type CrudFor
 import { LookupSelect, type LookupSelectItem } from '@open-mercato/ui/backend/inputs'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { EmailInput } from '@open-mercato/ui/primitives/email-input'
+import { Label } from '@open-mercato/ui/primitives/label'
 import { Button } from '@open-mercato/ui/primitives/button'
 import {
   Select,
@@ -341,7 +342,6 @@ function CustomerQuickCreate({ t, onCreated }: CustomerQuickCreateProps) {
     <div className="relative" ref={menuRef}>
       <Button
         type="button"
-        size="sm"
         variant="outline"
         className="gap-2"
         onClick={() => setMenuOpen((open) => !open)}
@@ -666,6 +666,7 @@ function BillingAddressSectionField({ values, setFormValue, t, addressesLoading,
 
 function CustomerGroupComponent({ values, setValue, t, customers, setCustomers, customerQuerySetter, loadAddresses, loadCustomers, fetchCustomerEmail, resetAddressFormState }: CustomerGroupComponentProps) {
   const emailValue = typeof values.customerEmail === 'string' ? values.customerEmail : ''
+  const emailFieldId = React.useId()
   const { duplicate, checking } = useEmailDuplicateCheck(emailValue, {
     disabled: false,
     debounceMs: 400,
@@ -760,13 +761,15 @@ function CustomerGroupComponent({ values, setValue, t, customers, setCustomers, 
         />
       </div>
       <div className="space-y-2">
+        <Label htmlFor={emailFieldId}>{t('sales.documents.form.email.label', 'Send to')}</Label>
         <EmailInput
+          id={emailFieldId}
           value={emailValue}
           onChange={(event) => setValue('customerEmail', event.target.value)}
           placeholder={t('sales.documents.form.email.placeholder', 'Email used for the document')}
           spellCheck={false}
         />
-        {duplicate ? (
+        {duplicate && duplicate.id !== values.customerEntityId ? (
           <div className="flex items-center justify-between rounded border bg-muted px-3 py-2 text-xs text-muted-foreground">
             <span>
               {t('customers.people.form.emailDuplicateNotice', undefined, { name: duplicate.displayName })}
@@ -776,17 +779,13 @@ function CustomerGroupComponent({ values, setValue, t, customers, setCustomers, 
               variant="secondary"
               className="px-4"
               type="button"
-              disabled={values.customerEntityId === duplicate.id}
-              aria-disabled={values.customerEntityId === duplicate.id}
               onClick={() => {
                 setValue('customerEntityId', duplicate.id)
                 resetAddressFormState(setValue)
                 loadAddresses(duplicate.id)
               }}
             >
-              {values.customerEntityId === duplicate.id
-                ? t('sales.documents.form.email.alreadySelected', 'Selected customer')
-                : t('sales.documents.form.email.selectCustomer', 'Select customer')}
+              {t('sales.documents.form.email.selectCustomer', 'Select customer')}
             </Button>
           </div>
         ) : null}

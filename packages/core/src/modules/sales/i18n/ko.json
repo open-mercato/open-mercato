@@ -916,7 +916,7 @@
   "sales.documents.form.customer.selected": "선택된 고객: {{id}}",
   "sales.documents.form.details": "문서 상세 정보",
   "sales.documents.form.email": "고객 이메일",
-  "sales.documents.form.email.alreadySelected": "선택된 고객",
+  "sales.documents.form.email.label": "받는 사람",
   "sales.documents.form.email.placeholder": "문서에 사용할 이메일",
   "sales.documents.form.email.selectCustomer": "고객 선택",
   "sales.documents.form.errors.customers": "고객 목록을 불러오지 못했습니다.",
