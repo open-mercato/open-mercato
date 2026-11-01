@@ -3,16 +3,15 @@ import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
-import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { CrudHttpError, isCrudHttpError, translateCrudErrorBody } from '@open-mercato/shared/lib/crud/errors'
+import { isCrudHttpError, translateCrudErrorBody } from '@open-mercato/shared/lib/crud/errors'
 import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { readOptimisticLockExpected } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { assistedSellingThreadAssignRequestSchema } from '../../../../data/validators'
-import { organizationIdsFromAssistedSellingScope } from '../../../../lib/organizationScope'
+import { resolveAssistedSellingOrganizationIds } from '../../../../lib/organizationScope'
 import { assignThreadCommand, type AssistedSellingThreadAssignInput, type AssistedSellingThreadAssignResult } from '../../../../commands/threads'
 
 const logger = createLogger('assisted_selling').child({ component: 'api' })
@@ -43,8 +42,7 @@ export async function POST(req: Request, routeCtx: RouteParams) {
     if (!auth || !auth.tenantId) {
       return NextResponse.json({ error: translate('assisted_selling.errors.unauthorized', 'Unauthorized') }, { status: 401 })
     }
-    const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req }).catch(() => null)
-    const organizationIds = organizationIdsFromAssistedSellingScope(scope, scope?.selectedId ?? auth.orgId ?? null)
+    const organizationIds = await resolveAssistedSellingOrganizationIds({ container, auth, request: req })
 
     const rawBody = await readJsonSafe<Record<string, unknown>>(req, {})
     const body = assistedSellingThreadAssignRequestSchema.parse(rawBody)

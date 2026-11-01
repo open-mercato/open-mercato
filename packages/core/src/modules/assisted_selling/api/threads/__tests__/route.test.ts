@@ -74,6 +74,9 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
 import { GET } from '../route'
 import { CustomerEntity as CustomerEntityRef } from '@open-mercato/core/modules/customers/data/entities'
 import { User as UserRef } from '@open-mercato/core/modules/auth/data/entities'
+import { resolveOrganizationScopeForRequest as mockedResolveScope } from '@open-mercato/core/modules/directory/utils/organizationScope'
+
+const resolveScopeMock = mockedResolveScope as jest.MockedFunction<typeof mockedResolveScope>
 
 // Regression (bug 16, round-4 QA): the buyer/assignee name enrichment used a plain
 // `em.find` against `CustomerEntity.displayName`/`User.name`, both encrypted columns, so
@@ -114,5 +117,69 @@ describe('assisted_selling threads list — buyer/assignee name enrichment (decr
     const body = await response.json()
     expect(body.items[0].customerName).toBeNull()
     expect(body.items[0].assignedActorName).toBeNull()
+  })
+
+  // Review finding: the assignee name lookup had no `tenantId` filter — any tenant's user
+  // matching the id resolved, leaking another tenant's name/email and, combined with an
+  // unvalidated `assign` actorId, acting as a cross-tenant user-id oracle.
+  it('scopes the assignee User lookup by tenantId, not just by id', async () => {
+    seededThreads = [makeThreadRow({ assignedActorId: 'rep-1' })]
+    seededUsers = [{ id: 'rep-1', name: 'Rep One', email: 'rep1@example.com' }]
+
+    await callGet()
+
+    const userLookupCall = mockFindWithDecryption.mock.calls.find((call) => call[1] === UserRef)
+    expect(userLookupCall?.[2]).toMatchObject({ tenantId: TENANT_ID })
+  })
+})
+
+describe('assisted_selling threads list — scope resolution and query parsing (review findings)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    seededThreads = []
+    seededCustomers = []
+    seededUsers = []
+    mockAuth = { sub: 'staff-1', tenantId: TENANT_ID, orgId: ORG_ID }
+    resolveScopeMock.mockReset()
+    resolveScopeMock.mockResolvedValue({ selectedId: ORG_ID, filterIds: [ORG_ID], allowedIds: [ORG_ID] } as never)
+  })
+
+  function callGet(query = '') {
+    return GET(new Request(`http://localhost/api/assisted_selling/threads${query}`))
+  }
+
+  // A scope-resolution failure used to be swallowed into a `null` scope, which fell through
+  // to this module's own unrestricted/raw-org fallback — silently widening a transient
+  // failure into access the caller's real, unresolved scope might have denied.
+  it('fails closed (503) when organization-scope resolution throws, rather than falling open', async () => {
+    resolveScopeMock.mockRejectedValueOnce(new Error('scope service unavailable'))
+    seededThreads = [makeThreadRow()]
+
+    const response = await callGet()
+
+    expect(response.status).toBe(503)
+    expect((fakeEm.findAndCount as jest.Mock)).not.toHaveBeenCalled()
+  })
+
+  // `z.coerce.boolean()` turned the literal string `"false"` into `true` — any non-empty
+  // query value coerces truthy.
+  it('treats hasLiveProposals=false as "no filter", never coercing it truthy', async () => {
+    seededThreads = [makeThreadRow()]
+
+    const response = await callGet('?hasLiveProposals=false')
+
+    expect(response.status).toBe(200)
+    const [, where] = (fakeEm.findAndCount as jest.Mock).mock.calls[0]
+    expect(where.liveProposalCount).toBeUndefined()
+  })
+
+  it('applies the liveProposalCount filter when hasLiveProposals=true', async () => {
+    seededThreads = [makeThreadRow()]
+
+    const response = await callGet('?hasLiveProposals=true')
+
+    expect(response.status).toBe(200)
+    const [, where] = (fakeEm.findAndCount as jest.Mock).mock.calls[0]
+    expect(where.liveProposalCount).toEqual({ $gt: 0 })
   })
 })

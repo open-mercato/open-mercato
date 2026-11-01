@@ -9,12 +9,20 @@ import { AssistedSellingParticipant } from '../data/entities'
 // gets exactly ONE `AssistedSellingParticipant` row per thread (`@Unique(['threadId',
 // 'actorType', 'actorId'])`) regardless of which route first creates it.
 
-export function resolveDisplayName(user: User | null, fallbackActorId: string): string {
+/**
+ * Review finding: this snapshot is shown to the OTHER party — including a token-only,
+ * unauthenticated buyer (`api/storefront/thread/route.ts`'s own `participants.map(...
+ * displayName: p.displayName)`) — and, per this file's own header comment, is written ONCE
+ * and never re-derived. A fallback to the staff user's email therefore permanently leaked
+ * their email to that audience whenever their `name` was blank. Falls back to a role label
+ * instead — never an email, for either audience.
+ */
+export function resolveDisplayName(user: User | null): string {
   const name = user?.name?.trim()
   if (name) return name
-  const email = user?.email?.trim()
-  if (email) return email
-  return `[internal] staff user ${fallbackActorId}`
+  // `[internal]`-free by design, same precedent `buildAssistedSellingBuyerDisplayName` below
+  // sets: a stored data snapshot shown to the other party, not a thrown error or a toast.
+  return 'Rep'
 }
 
 /**
@@ -40,7 +48,7 @@ export async function resolveOrBuildRepParticipant(
   // `AssistedSellingParticipant.displayName` (itself encrypted) and never re-derived, so a
   // plain `em.findOne` here would permanently bake the ciphertext in as the "name".
   const user = await findOneWithDecryption(em, User, { id: actorId }, {}, { tenantId: scope.tenantId, organizationId: scope.organizationId })
-  const displayName = resolveDisplayName(user, actorId)
+  const displayName = resolveDisplayName(user)
   const now = new Date()
   const participant = em.create(AssistedSellingParticipant, {
     id: randomUUID(),

@@ -1,9 +1,10 @@
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
-import { forbidden } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, forbidden } from '@open-mercato/shared/lib/crud/errors'
 import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 
 export { ensureOrganizationScope, ensureSameScope, ensureTenantScope } from '@open-mercato/shared/lib/commands/scope'
+export { applyLiveProposalCountDelta } from '../lib/liveProposalCount'
 
 export const ASSISTED_SELLING_STORE_SETTINGS_RESOURCE_KIND = 'assisted_selling.store_settings'
 export const ASSISTED_SELLING_PROPOSAL_RESOURCE_KIND = 'assisted_selling.proposal'
@@ -33,6 +34,31 @@ export async function requireAssistedSellingFeatures(
     !!rbac && (await rbac.userHasAllFeatures(auth.sub, features, { tenantId: auth.tenantId, organizationId: null }))
   if (!granted) {
     throw forbidden(`[internal] Missing required feature(s) "${features.join('", "')}"`)
+  }
+}
+
+/**
+ * Validates that `assigneeActorId` is actually staff of `tenantId` — holding the same
+ * `assisted_selling.threads.participate` feature every other thread action already
+ * requires — before `assignThreadCommand` writes it onto `assigned_actor_id`. Without this,
+ * any uuid is accepted: a cross-tenant id both silently "succeeds" (the thread end up
+ * pointed at nobody who can act on it) and, combined with the list route's own name
+ * resolution, turns `assigned_actor_id` into a user-id oracle for other tenants' staff.
+ */
+export async function requireAssistedSellingStaffAssignee(
+  ctx: CommandRuntimeContext,
+  tenantId: string,
+  assigneeActorId: string,
+): Promise<void> {
+  const rbac = ctx.container.resolve('rbacService') as RbacService | null
+  const granted =
+    !!rbac &&
+    (await rbac.userHasAllFeatures(assigneeActorId, ['assisted_selling.threads.participate'], {
+      tenantId,
+      organizationId: null,
+    }))
+  if (!granted) {
+    throw new CrudHttpError(400, { error: '[internal] actorId is not a staff member of this tenant', code: 'invalid_assignee' })
   }
 }
 

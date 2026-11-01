@@ -361,7 +361,11 @@ describe('handleCartConvertedForAttribution — a proposal summed into a line th
     expect(grossSum).toBeCloseTo(123, 4)
   })
 
-  test('does not split a line the proposal fully sourced', async () => {
+  // Review finding: a line a single proposal fully sourced used to skip splitting entirely
+  // and credit the WHOLE line to `line.addedByActorType`/`addedByActorId` — here `'merge'`/
+  // `null`, never a real rep — instead of the proposal's own author. Now it always splits by
+  // contribution, so even full coverage lands on the right actor.
+  test('a line a single proposal fully sourced credits that proposal\'s author, never the merge/last-writer placeholder', async () => {
     const persisted = await convert({
       id: 'line-1',
       addedByActorType: 'merge',
@@ -374,6 +378,85 @@ describe('handleCartConvertedForAttribution — a proposal summed into a line th
     })
 
     expect(persisted).toHaveLength(1)
-    expect(persisted[0]).toMatchObject({ actorType: 'merge', proposalId: 'proposal-1', lineGrossAmount: '180.0000' })
+    expect(persisted[0]).toMatchObject({
+      actorType: 'rep',
+      actorId: 'rep-1',
+      threadId: 'thread-1',
+      proposalId: 'proposal-1',
+      lineNetAmount: '150.0000',
+      lineGrossAmount: '180.0000',
+    })
+  })
+
+  // Review finding (the core bug): when MULTIPLE proposals together fully make up a line's
+  // quantity, the split used to bail out (`contributedQuantity >= lineQuantity`) and credit
+  // the entire line to `line.addedByActorId` — whichever proposal's acceptance happened to
+  // write the merged line last — giving one rep 100% of a commission two reps actually
+  // earned. Each contributing proposal must now get its own proportional share.
+  test('splits a line TWO proposals together fully sourced proportionally between both authors', async () => {
+    const secondProposal = {
+      id: 'proposal-2',
+      tenantId: TENANT_ID,
+      organizationId: ORG_ID,
+      proposalCartId: 'proposal-cart-2',
+      threadId: 'thread-2',
+      authoredByActorType: 'rep',
+      authoredByActorId: 'rep-2',
+      deletedAt: null,
+    }
+    const { em, persisted } = makeFakeEm({ proposals: [proposal, secondProposal] })
+    const cartService = makeCartService({
+      currencyCode: 'PLN',
+      lines: [
+        {
+          id: 'line-1',
+          // The last writer when two proposals' quantities are merged into one buyer-held
+          // line — exactly the value the old fallback wrongly credited 100% to.
+          addedByActorType: 'merge',
+          addedByActorId: null,
+          netAmount: '150.0000',
+          grossAmount: '180.0000',
+          quantity: '3',
+          proposalCartId: 'proposal-cart-2',
+          proposalContributions: [
+            { proposalCartId: 'proposal-cart-1', quantity: '1' },
+            { proposalCartId: 'proposal-cart-2', quantity: '2' },
+          ],
+        },
+      ],
+    })
+
+    await handleCartConvertedForAttribution(
+      {
+        cartId: CART_ID,
+        tenantId: TENANT_ID,
+        organizationId: ORG_ID,
+        salesOrderId: 'order-1',
+        lineMap: [{ cartLineId: 'line-1', salesOrderLineId: 'order-line-1' }],
+      },
+      { resolve: makeContainer(em, cartService).resolve, container: makeContainer(em, cartService) },
+    )
+
+    expect(persisted).toHaveLength(2)
+    // 1/3 of the line went through proposal-1 (rep-1), 2/3 through proposal-2 (rep-2) — no
+    // buyer-remainder row, since the proposals' quantities fully cover the line.
+    expect(persisted.find((row) => row.actorId === 'rep-1')).toMatchObject({
+      actorType: 'rep',
+      threadId: 'thread-1',
+      proposalId: 'proposal-1',
+      lineNetAmount: '50.0000',
+      lineGrossAmount: '60.0000',
+    })
+    expect(persisted.find((row) => row.actorId === 'rep-2')).toMatchObject({
+      actorType: 'rep',
+      threadId: 'thread-2',
+      proposalId: 'proposal-2',
+      lineNetAmount: '100.0000',
+      lineGrossAmount: '120.0000',
+    })
+    const netSum = persisted.reduce((sum, row) => sum + Number(row.lineNetAmount), 0)
+    const grossSum = persisted.reduce((sum, row) => sum + Number(row.lineGrossAmount), 0)
+    expect(netSum).toBeCloseTo(150, 4)
+    expect(grossSum).toBeCloseTo(180, 4)
   })
 })

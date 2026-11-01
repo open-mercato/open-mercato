@@ -3,7 +3,6 @@ import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
-import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { SalesOrder, SalesOrderLine, SalesQuote, SalesQuoteLine } from '@open-mercato/core/modules/sales/data/entities'
@@ -13,7 +12,7 @@ import { CrudHttpError, isCrudHttpError, translateCrudErrorBody } from '@open-me
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { AssistedSellingAttribution } from '../../data/entities'
-import { organizationIdsFromAssistedSellingScope } from '../../lib/organizationScope'
+import { resolveAssistedSellingOrganizationIds } from '../../lib/organizationScope'
 
 const logger = createLogger('assisted_selling').child({ component: 'api' })
 
@@ -45,8 +44,7 @@ async function resolveCallerContext(req: Request) {
   if (!auth || !auth.tenantId) {
     throw new CrudHttpError(401, { error: translate('assisted_selling.errors.unauthorized', 'Unauthorized') })
   }
-  const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req }).catch(() => null)
-  const organizationIds = organizationIdsFromAssistedSellingScope(scope, scope?.selectedId ?? auth.orgId ?? null)
+  const organizationIds = await resolveAssistedSellingOrganizationIds({ container, auth, request: req })
   return { container, tenantId: auth.tenantId, organizationIds, translate }
 }
 
@@ -103,8 +101,10 @@ export async function GET(req: Request) {
       lookup(SalesQuote, quoteIds, ['id', 'quoteNumber']),
       lookup(SalesOrderLine, orderLineIds, ['id', 'name']),
       lookup(SalesQuoteLine, quoteLineIds, ['id', 'name']),
+      // Every other lookup in this function filters by `tenantId` — this one must too, or
+      // it resolves ANY tenant's user by id, leaking another tenant's name/email.
       repIds.length
-        ? findWithDecryption(em, User, { id: { $in: repIds } }, { fields: ['id', 'name', 'email'] as never }, scope)
+        ? findWithDecryption(em, User, { id: { $in: repIds }, tenantId } as never, { fields: ['id', 'name', 'email'] as never }, scope)
         : Promise.resolve([] as User[]),
       buyerIds.length
         ? findWithDecryption(em, CustomerUser, { id: { $in: buyerIds }, tenantId } as never, { fields: ['id', 'displayName'] as never }, scope)

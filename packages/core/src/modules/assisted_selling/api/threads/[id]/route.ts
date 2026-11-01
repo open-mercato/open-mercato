@@ -3,14 +3,13 @@ import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
-import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError, isCrudHttpError, translateCrudErrorBody } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { AssistedSellingMessage, AssistedSellingParticipant, AssistedSellingProposal, AssistedSellingThread } from '../../../data/entities'
-import { organizationIdsFromAssistedSellingScope } from '../../../lib/organizationScope'
+import { resolveAssistedSellingOrganizationIds } from '../../../lib/organizationScope'
 import { resolveCartService } from '../../../lib/cartAccess'
 
 const logger = createLogger('assisted_selling').child({ component: 'api' })
@@ -46,8 +45,7 @@ export async function GET(req: Request, routeCtx: RouteParams) {
     if (!auth || !auth.tenantId) {
       return NextResponse.json({ error: translate('assisted_selling.errors.unauthorized', 'Unauthorized') }, { status: 401 })
     }
-    const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req }).catch(() => null)
-    const organizationIds = organizationIdsFromAssistedSellingScope(scope, scope?.selectedId ?? auth.orgId ?? null)
+    const organizationIds = await resolveAssistedSellingOrganizationIds({ container, auth, request: req })
     if (Array.isArray(organizationIds) && organizationIds.length === 0) throw threadNotFound()
 
     const em = (container.resolve('em') as EntityManager).fork()

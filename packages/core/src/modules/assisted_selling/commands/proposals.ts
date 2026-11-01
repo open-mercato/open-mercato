@@ -23,7 +23,13 @@ import {
   type CartProposalRejectCommandResult,
 } from '../lib/cartProposalCommands'
 import { emitAssistedSellingEvent } from '../events'
-import { enforceAssistedSellingOptimisticLock, requireAssistedSellingFeatures, ASSISTED_SELLING_PROPOSAL_RESOURCE_KIND } from './shared'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { applyLiveProposalCountDelta } from '../lib/liveProposalCount'
+import {
+  enforceAssistedSellingOptimisticLock,
+  requireAssistedSellingFeatures,
+  ASSISTED_SELLING_PROPOSAL_RESOURCE_KIND,
+} from './shared'
 
 // Step 4.4 (§6.3, §6.4, S19, S22, S23). Wraps `cart.proposal.create`/`.reject` (Step 3.3) by
 // command id, never a static cross-module import (`lib/cartProposalCommands.ts`'s own header
@@ -262,7 +268,6 @@ async function performAuthorProposal(params: {
     createdAt: now,
     updatedAt: now,
   })
-  thread.liveProposalCount += 1
   thread.lastActivityAt = now
 
   try {
@@ -274,6 +279,13 @@ async function performAuthorProposal(params: {
           em.persist(proposal)
           em.persist(message)
           em.persist(thread)
+        },
+        // §6.1's own in-memory `thread.liveProposalCount += 1` races every other
+        // author/withdraw/accept/reauthor path doing the same read-modify-write — an
+        // atomic SQL update instead, inside the SAME transaction so a later phase's
+        // failure (e.g. the idempotency-key unique violation below) rolls this back too.
+        async () => {
+          await applyLiveProposalCountDelta(em, thread, 1)
         },
       ],
       { transaction: true, label: 'assisted_selling.proposal.author' },
@@ -417,18 +429,20 @@ const withdrawProposalCommand: CommandHandler<AssistedSellingProposalWithdrawInp
     // subscriber on `cart.proposal.rejected` (`lib/terminalStateSubscriber.ts`), which skips
     // every `rejectedBy: 'author'` payload for exactly this reason (see that file's own
     // header comment for why relying on event-delivery ordering between two commands is not
-    // safe here).
-    const thread = await em.findOne(AssistedSellingThread, {
-      id: proposal.threadId,
-      tenantId: proposal.tenantId,
-      organizationId: proposal.organizationId,
-      deletedAt: null,
-    })
-    if (thread) {
-      thread.liveProposalCount = Math.max(0, thread.liveProposalCount - 1)
-      em.persist(thread)
-    }
-    await em.flush()
+    // safe here). The decrement is an atomic SQL update (review finding), not an in-memory
+    // read-modify-write — it only needs the thread's id, so this never has to load the row.
+    await withAtomicFlush(
+      em,
+      [
+        async () => {
+          em.persist(proposal)
+        },
+        async () => {
+          await applyLiveProposalCountDelta(em, { id: proposal.threadId }, -1)
+        },
+      ],
+      { transaction: true, label: 'assisted_selling.proposal.withdraw' },
+    )
 
     await emitAssistedSellingEvent('assisted_selling.proposal.withdrawn', {
       threadId: proposal.threadId,
@@ -438,6 +452,14 @@ const withdrawProposalCommand: CommandHandler<AssistedSellingProposalWithdrawInp
     })
 
     return { proposalId: proposal.id, status: proposal.status }
+  },
+  buildLog: async ({ result }) => {
+    const { translate } = await resolveTranslations()
+    return {
+      actionLabel: translate('assisted_selling.audit.proposal.withdraw', 'Withdraw proposal'),
+      resourceKind: ASSISTED_SELLING_PROPOSAL_RESOURCE_KIND,
+      resourceId: result.proposalId,
+    }
   },
 }
 
@@ -470,6 +492,15 @@ const reauthorProposalCommand: CommandHandler<AssistedSellingProposalReauthorInp
     if (oldProposal.status === 'accepted') {
       throw new CrudHttpError(409, { error: '[internal] proposal_already_accepted', code: 'proposal_already_accepted' })
     }
+    // Review finding: the console offers "repropose" on an already-superseded proposal
+    // too (`backend/.../threads/[id]/page.tsx`'s own `['expired','rejected','withdrawn',
+    // 'superseded'].includes(...)` check) — but re-authoring one that ALREADY has a
+    // successor would mint a second live proposal descending from the same original,
+    // double-counting `live_proposal_count` and overwriting the first successor's link.
+    // Refuse outright; the console should let the user repropose the EXISTING successor.
+    if (oldProposal.supersededByProposalId) {
+      throw new CrudHttpError(409, { error: '[internal] proposal_already_superseded', code: 'proposal_already_superseded' })
+    }
 
     // The thread may legitimately be `closed` by the time a stale proposal is re-authored
     // (§8.1's own "the proposal was superseded with no successor" fallback can run long
@@ -496,6 +527,29 @@ const reauthorProposalCommand: CommandHandler<AssistedSellingProposalReauthorInp
       configuration: line.configuration,
     }))
 
+    const commandBus = ctx.container.resolve('commandBus') as CommandBus
+    const wasLive = oldProposal.status === 'published'
+    const originalOldStatus = oldProposal.status
+
+    // §6.4/review finding: reject the OLD proposal's cart FIRST — the same order
+    // `withdrawProposalCommand` uses — so a concurrent buyer accept (which resolves that
+    // cart out from under this call) is caught here, before any new proposal is authored
+    // over it. `cart.proposal.reject` is itself idempotent: `alreadyResolved: true` means
+    // something else (an accept, or a racing withdraw/reauthor) already resolved it.
+    if (wasLive) {
+      const { result: rejectResult } = await commandBus.execute<CartProposalRejectCommandInput, CartProposalRejectCommandResult>(
+        CART_PROPOSAL_REJECT_COMMAND_ID,
+        { input: { proposalCartId: oldProposal.proposalCartId, tenantId: oldProposal.tenantId, organizationId: oldProposal.organizationId, rejectedBy: 'author' }, ctx },
+      )
+      if (rejectResult.alreadyResolved) {
+        throw new CrudHttpError(409, {
+          error: '[internal] proposal_already_resolved',
+          code: 'proposal_already_resolved',
+          status: rejectResult.status,
+        })
+      }
+    }
+
     const result = await performAuthorProposal({
       ctx,
       thread,
@@ -507,26 +561,33 @@ const reauthorProposalCommand: CommandHandler<AssistedSellingProposalReauthorInp
     })
 
     if (!result.replayed) {
-      const wasLive = oldProposal.status === 'published'
-      oldProposal.supersededByProposalId = result.proposalId
-      if (wasLive) {
-        oldProposal.status = 'superseded'
-        oldProposal.resolvedAt = new Date()
-        // Step 4.4-fix (§6.4/§6.6): same synchronous, author-owned decrement
-        // `withdrawProposalCommand` applies above — see its own comment.
-        thread.liveProposalCount = Math.max(0, thread.liveProposalCount - 1)
-        em.persist(thread)
-      }
-      await em.flush()
-
-      if (wasLive) {
-        // §6.4: "when the old proposal is not already terminal — rejects its cart by the
-        // same rule" (`cart.proposal.reject`).
-        const commandBus = ctx.container.resolve('commandBus') as CommandBus
+      const now = new Date()
+      // Conditional update (review finding): only link the successor and transition status
+      // when the old row is STILL exactly where this call read it — closes the race against
+      // a second concurrent reauthor (or a merge-retarget supersede) landing on the SAME
+      // stale proposal between our read above and this write.
+      const affected = await em.nativeUpdate(
+        AssistedSellingProposal,
+        { id: oldProposal.id, tenantId: oldProposal.tenantId, status: originalOldStatus, supersededByProposalId: null },
+        {
+          supersededByProposalId: result.proposalId,
+          updatedAt: now,
+          ...(wasLive ? { status: 'superseded' as const, resolvedAt: now } : {}),
+        },
+      )
+      if (affected === 0) {
+        // Lost the race: something else already linked a successor onto this old proposal.
+        // Our own just-authored proposal would otherwise sit live and orphaned (no backlink,
+        // but still counted) — reject its cart and undo the count bump before refusing.
         await commandBus.execute<CartProposalRejectCommandInput, CartProposalRejectCommandResult>(
           CART_PROPOSAL_REJECT_COMMAND_ID,
-          { input: { proposalCartId: oldProposal.proposalCartId, tenantId: oldProposal.tenantId, organizationId: oldProposal.organizationId, rejectedBy: 'author' }, ctx },
+          { input: { proposalCartId: result.proposalCartId, tenantId: oldProposal.tenantId, organizationId: oldProposal.organizationId, rejectedBy: 'author' }, ctx },
         )
+        await applyLiveProposalCountDelta(em, thread, -1)
+        throw new CrudHttpError(409, { error: '[internal] proposal_already_superseded', code: 'proposal_already_superseded' })
+      }
+      if (wasLive) {
+        await applyLiveProposalCountDelta(em, thread, -1)
         await emitAssistedSellingEvent('assisted_selling.proposal.superseded', {
           threadId: oldProposal.threadId,
           proposalId: oldProposal.id,
@@ -537,6 +598,15 @@ const reauthorProposalCommand: CommandHandler<AssistedSellingProposalReauthorInp
     }
 
     return result
+  },
+  buildLog: async ({ input, result }) => {
+    const { translate } = await resolveTranslations()
+    return {
+      actionLabel: translate('assisted_selling.audit.proposal.reauthor', 'Re-author proposal'),
+      resourceKind: ASSISTED_SELLING_PROPOSAL_RESOURCE_KIND,
+      resourceId: input.proposalId,
+      changes: { newProposalId: result.proposalId },
+    }
   },
 }
 
@@ -595,12 +665,13 @@ export async function reauthorProposalForMergeRetarget(params: {
     if (wasLive) {
       oldProposal.status = 'superseded'
       oldProposal.resolvedAt = new Date()
-      thread.liveProposalCount = Math.max(0, thread.liveProposalCount - 1)
     }
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     em.persist(oldProposal)
-    em.persist(thread)
     await em.flush()
+    // Atomic SQL update (review finding) instead of the in-memory `thread.liveProposalCount
+    // -= 1` read-modify-write every other author/withdraw/accept/reauthor path used to do.
+    if (wasLive) await applyLiveProposalCountDelta(em, thread, -1)
 
     if (wasLive) {
       const commandBus = ctx.container.resolve('commandBus') as CommandBus

@@ -1,9 +1,12 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createLogger } from '@open-mercato/shared/lib/logger'
-import { AssistedSellingProposal, AssistedSellingThread } from '../data/entities'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
+import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
+import { AssistedSellingProposal } from '../data/entities'
 import type { AssistedSellingProposalStatus } from '../data/entities'
 import { emitAssistedSellingEvent } from '../events'
 import type { AssistedSellingEventId } from '../events'
+import { applyLiveProposalCountDelta } from './liveProposalCount'
 
 const logger = createLogger('assisted_selling')
 
@@ -94,26 +97,31 @@ export function createCartProposalTerminalHandler(options: TerminalStateHandlerO
       if (proposal.status !== 'published') return
 
       const now = new Date()
-      proposal.status = targetStatus
-      proposal.resolvedAt = now
-      if (targetStatus === 'accepted') {
-        const mergeLogId = readString(record, 'mergeLogId')
-        if (mergeLogId) proposal.mergeLogId = mergeLogId
-      }
-      em.persist(proposal)
-
-      const thread = await em.findOne(AssistedSellingThread, {
-        id: proposal.threadId,
-        tenantId: proposal.tenantId,
-        organizationId: proposal.organizationId,
-        deletedAt: null,
-      })
-      if (thread) {
-        thread.liveProposalCount = Math.max(0, thread.liveProposalCount - 1)
-        em.persist(thread)
-      }
-
-      await em.flush()
+      // Review finding: `live_proposal_count` is decremented via an atomic SQL update (only
+      // needs the thread's id) rather than the former in-memory `thread.liveProposalCount -
+      // 1` read-modify-write, which raced every other author/withdraw/accept/reauthor path
+      // doing the same thing. Both writes share one transaction so a redelivered event that
+      // fails after the proposal's own flush but before the decrement rolls back entirely —
+      // the idempotency guard above (`status !== 'published'`) would otherwise skip the
+      // decrement on retry once the proposal is already terminal.
+      await withAtomicFlush(
+        em,
+        [
+          async () => {
+            proposal.status = targetStatus
+            proposal.resolvedAt = now
+            if (targetStatus === 'accepted') {
+              const mergeLogId = readString(record, 'mergeLogId')
+              if (mergeLogId) proposal.mergeLogId = mergeLogId
+            }
+            em.persist(proposal)
+          },
+          async () => {
+            await applyLiveProposalCountDelta(em, { id: proposal.threadId }, -1)
+          },
+        ],
+        { transaction: true, label: `assisted_selling.proposal.${targetStatus}` },
+      )
 
       await emitAssistedSellingEvent(emitEventId, {
         threadId: proposal.threadId,
@@ -127,6 +135,13 @@ export function createCartProposalTerminalHandler(options: TerminalStateHandlerO
         targetStatus,
         error: err instanceof Error ? err.message : err,
       })
+      getTelemetryRuntime()?.reportError(err, { module: 'assisted_selling', code: `assisted_selling.${subscriberId}_failed` })
+      // Review finding: this is a `persistent: true` subscriber precisely so a transient
+      // failure can retry instead of permanently losing the status transition and the
+      // `live_proposal_count` decrement — swallowing every error defeated that. Nothing in
+      // this handler can hit a unique-constraint race (pure updates, no inserts), so there is
+      // no "proven idempotent duplicate" case to swallow here; always re-throw.
+      throw err
     }
   }
 }
