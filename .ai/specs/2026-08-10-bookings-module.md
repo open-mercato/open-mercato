@@ -4,7 +4,7 @@
 |-------|-------|
 | **Status** | Proposed |
 | **Created** | 2026-08-10 (version 1), 2026-10-07 (version 4), 2026-10-27 (version 4.3) |
-| **Related** | `packages/core/src/modules/planner`, `resources`, `staff`, `customers`, `catalog`, `checkout`; `.ai/specs/2026-07-15-staff-member-directory.md`; `.ai/specs/implemented/2026-05-08-staff-decouple-from-core.md` |
+| **Related** | `packages/core/src/modules/planner`, `resources`, `staff`, `customers`, `catalog`, `checkout`; `.ai/specs/2026-07-15-staff-member-directory.md`; `.ai/specs/implemented/2026-05-08-staff-decouple-from-core.md`; `.ai/prototypes/bookings-module/` (interactive prototype of every screen of phases 1–4, for design review) |
 
 Where the required spec sections are: Overview and Problem Statement — sections 1–3; User Stories —
 section 4; Proposed Solution and Architecture — sections 5, 6, 8–11, 15–20; Data Models — section 7;
@@ -4560,6 +4560,21 @@ Ready for review as a design of phase 1 and a plan of phases 2–4. Each phase r
 against its code.
 
 ## Changelog
+
+### 2026-11-01
+- Update the prototype after the first design review: grouped menu, single-column settings, one
+  conflict signal, the card as a side panel, a Place dialog for unplaced reservations, filters and
+  row menus on the lists, the New category and New page forms, and Calendar as a view of the
+  timeline page in place of the hourly scale (screen 19 removed; §11 still lists both, to be
+  confirmed). After the specification review of #8250: the phase filter hides later-phase controls,
+  the viewer gets a permission-aware shell, and the timeline and lists show loading, empty and
+  failed-read states. The specification itself is unchanged.
+
+### 2026-10-30
+- Add the interactive prototype `.ai/prototypes/bookings-module/`: 25 screens covering the user
+  stories of phases 1–4, each tagged with its phase, with the states the stories require. It is
+  the mockup set section 21 asks design to accept before implementation; the specification itself
+  is unchanged.
 
 ### 2026-10-27
 - Version 4.3: carry forward against `main` with the original proposal's authorship preserved.

@@ -1,0 +1,1317 @@
+<!doctype html>
+<html lang="en" data-prototype-id="bookings-module">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Bookings — interactive backend prototype</title>
+<link rel="stylesheet" href="tokens.css" />
+<link rel="stylesheet" href="components.css" />
+<link rel="stylesheet" href="screens.css" />
+<link rel="stylesheet" href="prototype.css" />
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+<symbol id="ic-home" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 22V12h6v10"/></symbol>
+<symbol id="ic-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol>
+<symbol id="ic-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></symbol>
+<symbol id="ic-chevron-right" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></symbol>
+<symbol id="ic-chevron-left" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></symbol>
+<symbol id="ic-chevron-down" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></symbol>
+<symbol id="ic-bell" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></symbol>
+<symbol id="ic-more" viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="5" cy="12" r="1.75"/><circle cx="12" cy="12" r="1.75"/><circle cx="19" cy="12" r="1.75"/></symbol>
+<symbol id="ic-refresh" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/><path d="M3 21v-5h5"/></symbol>
+<symbol id="ic-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></symbol>
+<symbol id="ic-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
+<symbol id="ic-pencil" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/></symbol>
+<symbol id="ic-trash" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></symbol>
+<symbol id="ic-save" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M17 21v-7H7v7"/><path d="M7 3v5h8"/></symbol>
+<symbol id="ic-filter" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></symbol>
+<symbol id="ic-info" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></symbol>
+<symbol id="ic-warn" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></symbol>
+<symbol id="ic-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></symbol>
+<symbol id="ic-calendar" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4"/><path d="M8 2v4"/><path d="M3 10h18"/></symbol>
+<symbol id="ic-timeline" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h10"/><path d="M8 12h13"/><path d="M5 18h9"/></symbol>
+<symbol id="ic-list" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/></symbol>
+<symbol id="ic-truck" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"/><path d="M15 18H9"/><path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.62L18.3 9.38a1 1 0 0 0-.78-.38H14"/><circle cx="17" cy="18" r="2"/><circle cx="7" cy="18" r="2"/></symbol>
+<symbol id="ic-user" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></symbol>
+<symbol id="ic-users" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></symbol>
+<symbol id="ic-pin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></symbol>
+<symbol id="ic-tag" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"/><circle cx="7.5" cy="7.5" r=".5"/></symbol>
+<symbol id="ic-link" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></symbol>
+<symbol id="ic-settings" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 7h-9"/><path d="M14 17H5"/><circle cx="17" cy="17" r="3"/><circle cx="7" cy="7" r="3"/></symbol>
+<symbol id="ic-clock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></symbol>
+<symbol id="ic-undo" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></symbol>
+<symbol id="ic-wrench" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></symbol>
+<symbol id="ic-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.06 12.35a1 1 0 0 1 0-.7 10.75 10.75 0 0 1 19.88 0 1 1 0 0 1 0 .7 10.75 10.75 0 0 1-19.88 0"/><circle cx="12" cy="12" r="3"/></symbol>
+<symbol id="ic-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></symbol>
+<symbol id="ic-mail" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></symbol>
+<symbol id="ic-phone" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z"/></symbol>
+<symbol id="ic-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="8" width="14" height="14" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></symbol>
+<symbol id="ic-external" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></symbol>
+<symbol id="ic-grip" viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/></symbol>
+</defs></svg>
+
+<div class="doc-toolbar">
+  <strong style="font-size:0.875rem">Bookings — prototype</strong>
+  <div class="phase-filter" id="phase-filter">
+    <span>Phase</span>
+    <div class="segmented" role="tablist" aria-label="Phase filter">
+      <button type="button" data-phase-filter="all" aria-selected="true">All</button>
+      <button type="button" data-phase-filter="1" aria-selected="false">1</button>
+      <button type="button" data-phase-filter="2" aria-selected="false">2</button>
+      <button type="button" data-phase-filter="3" aria-selected="false">3</button>
+      <button type="button" data-phase-filter="4" aria-selected="false">4</button>
+    </div>
+  </div>
+  <nav class="screen-nav" aria-label="Screens">
+    <a href="#s1">1 Settings</a>
+    <a href="#s2">2 Timeline</a>
+    <a href="#s3">3 Edit mode</a>
+    <a href="#s4">4 New reservation</a>
+    <a href="#s5">5 Card</a>
+    <a href="#s6">6 Unplaced</a>
+    <a href="#s7">7 Unavailability</a>
+    <a href="#s8">8 All bookings</a>
+    <a href="#s9">9 Subjects</a>
+    <a href="#s10">10 Add new</a>
+    <a href="#s11">11 Add existing</a>
+    <a href="#s12">12 Categories</a>
+    <a href="#s13">13 Targets</a>
+    <a href="#s14">14 Notifications</a>
+    <a href="#s15">15 Viewer</a>
+    <a href="#s16">16 Minutes</a>
+    <a href="#s17">17 Confirm warnings</a>
+    <a href="#s18">18 Calendar</a>
+    <a href="#s20">20 Product</a>
+    <a href="#s21">21 Services</a>
+    <a href="#s22">22 Free dates</a>
+    <a href="#s23">23 Pages</a>
+    <a href="#s24">24 Public page</a>
+    <a href="#s25">25 Request</a>
+  </nav>
+  <button class="btn btn-outline btn-sm" id="theme-toggle" type="button">
+    <svg><use href="#ic-sun"/></svg> Theme
+  </button>
+</div>
+
+<div class="doc">
+
+<header class="doc-head">
+  <h1>Bookings — screen inventory</h1>
+  <p class="muted" style="max-width:65ch;margin:0">
+    Interactive backend screens derived from <code class="t-mono">.ai/specs/2026-08-10-bookings-module.md</code> (version 4.3).
+    All four phases are shown, each screen tagged with its phase; the phase filter above narrows the set.
+    Phase 1 is the first delivery; phases 2–4 are the roadmap the specification describes.
+    The shell, page scaffolding, DataTable chrome, and CrudForm layout mirror
+    <code class="t-mono">packages/ui/src/backend/</code>; colors and spacing come from
+    <code class="t-mono">globals.css</code>. Sample data is fictional.
+  </p>
+</header>
+
+<!-- ═══════════════════════════ PHASE 1 ═══════════════════════════ -->
+
+<section class="screen" id="s1" data-phase="1">
+  <div class="screen-meta">
+    <h2>1. Bookings settings</h2>
+    <p>The administrator sets the time zone first, then the working calendar, the coverage threshold and the conflict policy. Each section saves on its own.</p>
+    <div class="screen-refs"><span class="ref">§4 Phase 1</span><span class="ref">§7.5</span><span class="ref">§8</span><span class="ref">US-A1</span><span class="ref">US-A2</span><span class="ref">US-A3</span></div>
+    <div class="states" data-states="first:First run|invalid:Invalid zone|saved:Saved"></div>
+  </div>
+  <div class="frame" data-shell="app" data-url="/backend/config/bookings" data-nav="s1" data-crumbs="Settings|Bookings">
+    <div class="page-head">
+      <div><h1 class="t-page-title">Bookings settings</h1><p>Time zone, working calendar, coverage warning and conflict policy for this organization.</p></div>
+    </div>
+    <div class="alert alert-info form-narrow" data-when="first"><svg><use href="#ic-info"/></svg><div><div class="alert-title">Choose the time zone first</div>Nothing is saved yet; the values below are the defaults. The other sections unlock once the zone is saved.</div></div>
+    <div class="form-col form-narrow">
+      <div class="form-group">
+        <div class="title">1. Time zone</div>
+        <div class="desc">Every new target and subject copies this zone. Changing it later changes only the default for new ones; existing targets and subjects keep their own zones.</div>
+        <div class="field">
+          <label>Organization time zone <span class="req">*</span></label>
+          <select class="select" data-when="first saved"><option>Europe/Warsaw</option><option>Europe/London</option><option>America/New_York</option></select>
+          <input class="input input-invalid" value="GMT+2" data-when="invalid" />
+          <div class="field-error" data-when="invalid">Choose a zone from the list. A bare offset such as GMT+2 does not follow clock changes.</div>
+        </div>
+        <div class="row"><button class="btn btn-primary btn-sm"><svg><use href="#ic-save"/></svg> Save time zone</button></div>
+      </div>
+      <div class="form-group">
+        <div class="row between"><div class="title">2. Working calendar</div><span class="badge badge-neutral" data-when="first invalid"><svg><use href="#ic-lock"/></svg> Locked until the zone is saved</span></div>
+        <div class="desc">Durations count working days. Work on a free day is allowed; the arithmetic only reflects it.</div>
+        <div class="field"><label>Free weekdays</label>
+          <div class="row wrap">
+            <span class="chip">Mon</span><span class="chip">Tue</span><span class="chip">Wed</span><span class="chip">Thu</span><span class="chip">Fri</span><span class="chip chip-active">Sat</span><span class="chip chip-active">Sun</span>
+          </div>
+          <div class="t-hint">At least one weekday stays a working day.</div>
+        </div>
+        <table class="table">
+          <thead><tr><th>Holiday</th><th>Date</th><th class="right"></th></tr></thead>
+          <tbody>
+            <tr><td>All Saints' Day</td><td class="num">1 Nov 2026</td><td class="right"><button class="btn btn-ghost btn-icon btn-sm" aria-label="Remove"><svg><use href="#ic-trash"/></svg></button></td></tr>
+            <tr><td>Independence Day</td><td class="num">11 Nov 2026</td><td class="right"><button class="btn btn-ghost btn-icon btn-sm" aria-label="Remove"><svg><use href="#ic-trash"/></svg></button></td></tr>
+            <tr><td>Christmas Day</td><td class="num">25 Dec 2026</td><td class="right"><button class="btn btn-ghost btn-icon btn-sm" aria-label="Remove"><svg><use href="#ic-trash"/></svg></button></td></tr>
+          </tbody>
+        </table>
+        <div class="row"><button class="btn btn-outline btn-sm"><svg><use href="#ic-plus"/></svg> Add holiday</button><button class="btn btn-ghost btn-sm">Import a year</button><span class="grow"></span><button class="btn btn-primary btn-sm" data-when="saved">Save calendar</button><button class="btn btn-primary btn-sm is-disabled" disabled data-when="first invalid">Save calendar</button></div>
+      </div>
+      <div class="form-group">
+        <div class="row between"><div class="title">3. Coverage warning</div><span class="badge badge-neutral" data-when="first invalid"><svg><use href="#ic-lock"/></svg> Locked</span></div>
+        <div class="desc">When an unplaced reservation gets close to its expected start, dispatchers get a notification.</div>
+        <div class="field"><label>Warn this many working days before the expected start</label><input class="input" value="5" style="max-width:8rem" /><div class="t-hint">0 to 250. 0 warns only on the expected start day. Applies from the next scan.</div></div>
+        <div class="row"><span class="grow"></span><button class="btn btn-primary btn-sm" data-when="saved">Save threshold</button></div>
+      </div>
+      <div class="form-group">
+        <div class="row between"><div class="title">4. Conflict policy</div><span class="badge badge-neutral" data-when="first invalid"><svg><use href="#ic-lock"/></svg> Locked</span></div>
+        <div class="desc">What happens when a write double-books a subject. A reservation with subjects of several categories follows the strictest mode.</div>
+        <div class="field"><label>Default mode</label>
+          <div class="segmented"><button type="button" aria-selected="true">Warn</button><button type="button" aria-selected="false">Block</button><button type="button" aria-selected="false" disabled>Confirm warnings · Phase 2</button></div>
+        </div>
+        <table class="table">
+          <thead><tr><th>Category exception</th><th>Mode</th><th class="right"></th></tr></thead>
+          <tbody><tr><td><span class="swatch c-emerald"></span>Operators</td><td><span class="badge badge-error">Block</span></td><td class="right"><button class="btn btn-ghost btn-icon btn-sm" aria-label="Remove"><svg><use href="#ic-trash"/></svg></button></td></tr></tbody>
+        </table>
+        <table class="table">
+          <thead><tr><th>Product occupancy source</th><th>Severity</th></tr></thead>
+          <tbody><tr><td>Fleet maintenance plan <span class="t-hint">· fleet_ops</span></td><td><select class="select"><option>Warning (default)</option><option>Blocking</option></select></td></tr></tbody>
+        </table>
+        <div class="row"><button class="btn btn-outline btn-sm"><svg><use href="#ic-plus"/></svg> Add exception</button><span class="grow"></span><button class="btn btn-primary btn-sm" data-when="saved">Save policy</button></div>
+      </div>
+    </div>
+    <div class="toast" data-when="saved"><svg><use href="#ic-check"/></svg> Time zone saved. Other sections are unlocked.</div>
+  </div>
+  <div class="notes">
+    <div class="note"><b>1</b><span>Until the first save no settings row exists; reads return defaults from memory and every write that needs a zone answers 409 <code>settings_required</code> (§7.5).</span></div>
+    <div class="note"><b>2</b><span>Sections save separately and are guarded by the settings row's <code>updated_at</code>; a concurrent edit shows the platform conflict bar.</span></div>
+    <div class="note"><b>3</b><span>One column, sections numbered in the order they unlock.</span></div>
+  </div>
+</section>
+
+<section class="screen" id="s2" data-phase="1">
+  <div class="screen-meta">
+    <h2>2. Timeline</h2>
+    <p>One row per subject, reservations as bars, free days and unavailability in the background. The dispatcher sees the whole week at once.</p>
+    <div class="screen-refs"><span class="ref">§11</span><span class="ref">§12 timeline read</span><span class="ref">US-D1</span><span class="ref">US-D2</span></div>
+    <div class="states" data-states="default:Default|conflicts:Only conflicts|empty:No subjects|nosettings:No settings|loading:Loading|error:Failed to load"></div>
+  </div>
+  <div class="frame" data-shell="app" data-url="/backend/bookings" data-nav="s2" data-crumbs="Bookings|Timeline">
+    <div class="page-head">
+      <div><h1 class="t-page-title">Timeline</h1><p>Wed 28 Oct – Tue 3 Nov 2026 · Europe/Warsaw</p></div>
+      <div class="page-actions">
+        <button class="btn btn-outline" data-goto="s7"><svg><use href="#ic-wrench"/></svg> Unavailability</button>
+        <button class="btn btn-outline" data-goto="s3"><svg><use href="#ic-pencil"/></svg> Edit</button>
+        <button class="btn btn-primary" data-goto="s4"><svg><use href="#ic-plus"/></svg> New reservation</button>
+      </div>
+    </div>
+    <div class="alert alert-warning" data-when="nosettings"><svg><use href="#ic-warn"/></svg><div><div class="alert-title">Bookings needs its settings first</div>The timeline cannot draw a day without the organization's time zone. <a href="#s1" data-goto="s1">Open settings</a></div></div>
+    <div class="empty" data-when="empty"><div class="empty-icon"><svg><use href="#ic-truck"/></svg></div><div class="t-card-title">No subjects yet</div><p class="muted" style="margin:0">Add equipment or people that can be reserved — new ones, or ones that already exist in Staff and Resources.</p><div class="row"><button class="btn btn-primary" data-goto="s10"><svg><use href="#ic-plus"/></svg> Add new</button><button class="btn btn-outline" data-goto="s11">Add existing</button></div></div>
+    <div class="load-msg" data-when="loading"><span class="spin"></span>Loading the timeline…</div>
+    <div class="err-msg" data-when="error"><svg><use href="#ic-warn"/></svg><div class="stack-2"><span>Could not load the timeline.</span><span class="muted">Your connection or the server did not answer. Nothing was changed.</span><div><button class="btn btn-outline btn-sm">Try again</button></div></div></div>
+    <div class="split split-side" data-when="default conflicts">
+      <div class="tl">
+        <div class="tl-toolbar">
+          <div class="row"><button class="btn btn-outline btn-icon btn-sm" aria-label="Previous"><svg><use href="#ic-chevron-left"/></svg></button><button class="btn btn-outline btn-sm">Today</button><button class="btn btn-outline btn-icon btn-sm" aria-label="Next"><svg><use href="#ic-chevron-right"/></svg></button></div>
+          <button class="btn btn-outline btn-sm"><svg><use href="#ic-calendar"/></svg> 28 Oct – 3 Nov</button>
+          <select class="select" style="width:auto"><option>All categories</option><option>Excavators</option><option>Cranes</option><option>Operators</option></select>
+          <span class="chip" data-when="default">Only conflicts</span><span class="chip chip-active" data-when="conflicts"><svg><use href="#ic-check"/></svg> Only conflicts</span>
+          <span class="chip">Hide unavailable</span>
+          <span class="grow"></span>
+          <div class="segmented" data-phase="2"><button type="button" aria-selected="true">Timeline</button><button type="button" aria-selected="false" data-goto="s18">Calendar · P2</button></div>
+        </div>
+        <div class="tl-grid">
+          <div class="tl-row tl-head"><div class="tl-label">Subject</div><div class="tl-day" style="grid-column:2"><b>Wed 28</b></div><div class="tl-day" style="grid-column:3"><b>Thu 29</b></div><div class="tl-day today" style="grid-column:4"><b>Fri 30</b>today</div><div class="tl-day off" style="grid-column:5"><b>Sat 31</b>free</div><div class="tl-day off" style="grid-column:6"><b>Sun 1</b>holiday</div><div class="tl-day" style="grid-column:7"><b>Mon 2</b></div><div class="tl-day" style="grid-column:8"><b>Tue 3</b></div></div>
+          <div class="tl-group" data-when="default"><span class="swatch c-blue"></span>Excavators</div>
+          <div class="tl-row" data-when="default"><div class="tl-label">CAT 320 · EX-02<small>Thing · Resources</small></div><div class="tl-day" style="grid-column:2"></div><div class="tl-day" style="grid-column:3"></div><div class="tl-day today" style="grid-column:4"></div><div class="tl-day off" style="grid-column:5"></div><div class="tl-day off" style="grid-column:6"></div><div class="tl-day" style="grid-column:7"></div><div class="tl-day" style="grid-column:8"></div>
+            <a class="tl-bar c-blue" style="grid-column:2/5" href="#s5" data-goto="s5">BK-1031 · Riverside Offices</a>
+            <a class="tl-bar c-blue" style="grid-column:7/9" href="#s5" data-goto="s5">BK-1044 · Northgate Warehouse</a>
+          </div>
+          <div class="tl-row" style="min-height:4.5rem"><div class="tl-label">Kubota KX080 · EX-05<small>Thing · Resources</small></div><div class="tl-day" style="grid-column:2"></div><div class="tl-day" style="grid-column:3"></div><div class="tl-day today" style="grid-column:4"></div><div class="tl-day off" style="grid-column:5"></div><div class="tl-day off" style="grid-column:6"></div><div class="tl-day" style="grid-column:7"></div><div class="tl-day" style="grid-column:8"></div>
+            <a class="tl-bar c-blue conflict lane-top" style="grid-column:3/5" href="#s5" data-goto="s5"><svg><use href="#ic-warn"/></svg>BK-1038 · Harbour Bridge</a>
+            <a class="tl-bar c-blue conflict lane-bottom" style="grid-column:4/5" href="#s5" data-goto="s5"><svg><use href="#ic-warn"/></svg>BK-1051</a>
+          </div>
+          <div class="tl-group" data-when="default"><span class="swatch c-amber"></span>Cranes</div>
+          <div class="tl-row"><div class="tl-label">Liebherr LTM 1050 · CR-01<small>Thing · Resources</small></div><div class="tl-day" style="grid-column:2"></div><div class="tl-day" style="grid-column:3"></div><div class="tl-day today" style="grid-column:4"></div><div class="tl-day off" style="grid-column:5"></div><div class="tl-day off" style="grid-column:6"></div><div class="tl-day" style="grid-column:7"></div><div class="tl-day" style="grid-column:8"></div>
+            <div class="tl-unavail" style="grid-column:7/8">Inspection</div>
+            <a class="tl-bar c-amber conflict" style="grid-column:7/9" href="#s5" data-goto="s5"><svg><use href="#ic-warn"/></svg>BK-1047 · Northgate</a>
+          </div>
+          <div class="tl-group" data-when="default"><span class="swatch c-emerald"></span>Operators</div>
+          <div class="tl-row" data-when="default"><div class="tl-label">Marek Wiśniewski<small>Person · Staff</small></div><div class="tl-day" style="grid-column:2"></div><div class="tl-day" style="grid-column:3"></div><div class="tl-day today" style="grid-column:4"></div><div class="tl-day off" style="grid-column:5"></div><div class="tl-day off" style="grid-column:6"></div><div class="tl-day" style="grid-column:7"></div><div class="tl-day" style="grid-column:8"></div>
+            <a class="tl-bar c-emerald done" style="grid-column:2/3" href="#s5" data-goto="s5"><svg><use href="#ic-check"/></svg>BK-1029 · done</a>
+            <a class="tl-bar c-emerald" style="grid-column:3/5" href="#s5" data-goto="s5">BK-1033 · Riverside Offices</a>
+          </div>
+          <div class="tl-row" data-when="default"><div class="tl-label">Ola Zielińska<small>Person · Staff</small></div><div class="tl-day" style="grid-column:2"></div><div class="tl-day" style="grid-column:3"></div><div class="tl-day today" style="grid-column:4"></div><div class="tl-day off" style="grid-column:5"></div><div class="tl-day off" style="grid-column:6"></div><div class="tl-day" style="grid-column:7"></div><div class="tl-day" style="grid-column:8"></div>
+            <a class="tl-bar c-emerald" style="grid-column:7/9" href="#s5" data-goto="s5">BK-1045 · Northgate Warehouse</a>
+          </div>
+          <div class="tl-row" data-when="default"><div class="tl-label">Crew North<small>Crew · Staff</small></div><div class="tl-day" style="grid-column:2"></div><div class="tl-day" style="grid-column:3"></div><div class="tl-day today" style="grid-column:4"></div><div class="tl-day off" style="grid-column:5"></div><div class="tl-day off" style="grid-column:6"></div><div class="tl-day" style="grid-column:7"></div><div class="tl-day" style="grid-column:8"></div></div>
+        </div>
+        <div class="tl-legend"><span><svg width="12" height="12" style="color:var(--status-error-icon)"><use href="#ic-warn"/></svg> Conflict</span><span><span class="swatch" style="background:var(--status-warning-bg);border:1px dashed var(--status-warning-border)"></span>Unavailable</span><span><span class="swatch" style="background:var(--muted)"></span>Free day</span><span>Greyed bar = completed or no-show</span><span class="grow"></span><span>Rows 1–6 of 6</span></div>
+      </div>
+      <div class="unplaced">
+        <div class="unplaced-head"><span class="t-card-title">Unplaced</span><span class="badge badge-neutral">3</span></div>
+        <div class="unplaced-item"><span class="row between"><b>Harbour Bridge</b><span class="badge badge-error">overdue</span></span><span class="t-hint">Crane · 1 day · expected 29 Oct</span><button class="btn btn-outline btn-xs place-btn" data-goto="s6">Place…</button></div>
+        <div class="unplaced-item"><span class="row between"><b>Northgate Warehouse</b><span class="badge badge-warning">in 3 days</span></span><span class="t-hint">Excavator · 2 days · expected 4 Nov</span><button class="btn btn-outline btn-xs place-btn" data-goto="s6">Place…</button></div>
+        <div class="unplaced-item"><span class="row between"><b>Riverside Offices</b><span class="badge badge-neutral">in 12 days</span></span><span class="t-hint">Operator · 0.5 day · expected 17 Nov</span><button class="btn btn-outline btn-xs place-btn" data-goto="s6">Place…</button></div>
+        <div class="unplaced-head" style="border-top:1px solid var(--border);border-bottom:0"><span class="t-hint">Drag an item onto a row, or use Place…</span></div>
+      </div>
+    </div>
+  </div>
+  <div class="notes">
+    <div class="note"><b>1</b><span>Opens on two days back and a week in total; the range picker allows up to 366 days and a reset. Rows are paged and sorted by category, then name.</span></div>
+    <div class="note"><b>2</b><span>The category filter shows every subject of the category, with and without bars, so a free one is visible — this is the phase-1 "view of free subjects".</span></div>
+    <div class="note"><b>3</b><span>A conflict is marked once: the warning icon and a red edge.</span></div>
+    <div class="note"><b>4</b><span>Calendar is a second view of the same page (phase 2) and replaces the hourly scale of the timeline. Specification §11 has both; this is an open question for the maintainers.</span></div>
+  </div>
+</section>
+
+<section class="screen" id="s3" data-phase="1">
+  <div class="screen-meta">
+    <h2>3. Timeline — edit mode</h2>
+    <p>The dispatcher rearranges several bars as a private draft, sees conflicts while dragging, then saves all changes as one command.</p>
+    <div class="screen-refs"><span class="ref">§11 What we build</span><span class="ref">apply_changes</span><span class="ref">US-C2</span></div>
+    <div class="states" data-states="dragging:Dragging|refused:Saved, one refused"></div>
+  </div>
+  <div class="frame" data-shell="app" data-url="/backend/bookings?mode=edit" data-nav="s2" data-crumbs="Bookings|Timeline">
+    <div class="page-head">
+      <div><h1 class="t-page-title">Timeline <span class="badge badge-info">Editing · 3 changes</span></h1><p>Changes stay in this browser until you save. Others do not see them.</p></div>
+      <div class="page-actions">
+        <button class="btn btn-outline" data-goto="s2">Discard</button>
+        <button class="btn btn-primary" data-goto="s2"><svg><use href="#ic-save"/></svg> Save changes</button>
+      </div>
+    </div>
+    <div class="alert alert-info" data-when="dragging"><svg><use href="#ic-info"/></svg><div><div class="alert-title">How to edit</div>Drag the middle of a bar to move it to another day or row. Drag its left or right edge to make it shorter or longer, in half-day steps. Changed bars get a dashed outline; nothing is saved until you click Save changes.</div></div>
+    <div class="alert alert-error" data-when="refused"><svg><use href="#ic-warn"/></svg><div><div class="alert-title">2 of 3 changes saved</div>BK-1047 was refused: Liebherr LTM 1050 · CR-01 is blocked by Inspection on Mon 2 Nov (mode Block). It stays marked in the draft — move it or drop it.</div></div>
+    <div class="tl">
+      <div class="tl-grid">
+        <div class="tl-row tl-head"><div class="tl-label">Subject</div><div class="tl-day" style="grid-column:2"><b>Wed 28</b></div><div class="tl-day" style="grid-column:3"><b>Thu 29</b></div><div class="tl-day today" style="grid-column:4"><b>Fri 30</b>today</div><div class="tl-day off" style="grid-column:5"><b>Sat 31</b></div><div class="tl-day off" style="grid-column:6"><b>Sun 1</b></div><div class="tl-day" style="grid-column:7"><b>Mon 2</b></div><div class="tl-day" style="grid-column:8"><b>Tue 3</b></div></div>
+        <div class="tl-row editing"><div class="tl-label">CAT 320 · EX-02<small>Thing</small></div><div class="tl-day" style="grid-column:2"></div><div class="tl-day" style="grid-column:3"></div><div class="tl-day today" style="grid-column:4"></div><div class="tl-day off" style="grid-column:5"></div><div class="tl-day off" style="grid-column:6"></div><div class="tl-day" style="grid-column:7"></div><div class="tl-day" style="grid-column:8"></div>
+          <span class="tl-bar c-blue" style="grid-column:2/5"><svg><use href="#ic-grip"/></svg>BK-1031 · Riverside Offices</span>
+          <span class="tl-bar c-blue draft" style="grid-column:7/8"><svg><use href="#ic-grip"/></svg>BK-1044 · 1 day</span>
+        </div>
+        <div class="tl-row editing" style="min-height:4.5rem"><div class="tl-label">Kubota KX080 · EX-05<small>Thing</small></div><div class="tl-day" style="grid-column:2"></div><div class="tl-day" style="grid-column:3"></div><div class="tl-day today" style="grid-column:4"></div><div class="tl-day off" style="grid-column:5"></div><div class="tl-day off" style="grid-column:6"></div><div class="tl-day" style="grid-column:7"></div><div class="tl-day" style="grid-column:8"></div>
+          <span class="tl-bar c-blue draft lane-top" style="grid-column:2/4"><svg><use href="#ic-grip"/></svg>BK-1038 · moved 1 day back</span>
+          <span class="tl-bar c-blue lane-bottom" style="grid-column:4/5"><svg><use href="#ic-grip"/></svg>BK-1051</span>
+        </div>
+        <div class="tl-row editing drop-hint" style="min-height:4rem"><div class="tl-label">Liebherr LTM 1050 · CR-01<small>Thing</small></div><div class="tl-day" style="grid-column:2"></div><div class="tl-day" style="grid-column:3"></div><div class="tl-day today" style="grid-column:4"></div><div class="tl-day off" style="grid-column:5"></div><div class="tl-day off" style="grid-column:6"></div><div class="tl-day drop" style="grid-column:7"></div><div class="tl-day drop" style="grid-column:8"></div>
+          <div class="tl-unavail" style="grid-column:7/8">Inspection</div>
+          <span class="tl-bar c-amber draft conflict" style="grid-column:7/9;cursor:grabbing" data-when="dragging" title="BK-1047 · Northgate · conflict: Inspection"><svg><use href="#ic-warn"/></svg>Mon 2 – Tue 3 · 2 days</span>
+          <span class="tl-bar c-amber refused" style="grid-column:7/9" data-when="refused"><svg><use href="#ic-x"/></svg>BK-1047 · refused</span>
+        </div>
+      </div>
+      <div class="tl-legend"><span><span class="swatch" style="outline:2px dashed var(--accent-indigo)"></span>Changed in draft</span><span><svg width="12" height="12"><use href="#ic-grip"/></svg> Drag to move</span><span>▏ ▕ Drag an edge to resize</span></div>
+    </div>
+    <div class="toast" data-when="refused"><svg><use href="#ic-check"/></svg> 2 changes saved <button class="btn btn-ghost btn-xs"><svg><use href="#ic-undo"/></svg> Undo</button></div>
+  </div>
+  <div class="notes">
+    <div class="note"><b>1</b><span>While dragging, the bar itself shows the new dates and duration instead of its name, and a red edge marks a conflict at the drop place; nothing floats over the rows above. Both are computed in the browser by the same pure engine the server uses.</span></div>
+    <div class="note"><b>2</b><span>Save sends one <code>bookings.bookings.apply_changes</code> command; accepted changes are one undo entry and one event. Refused ones stay in the draft with their reason.</span></div>
+    <div class="note"><b>3</b><span>Leaving the page with unsaved changes asks first. A viewer has no Edit button (screen 15).</span></div>
+  </div>
+</section>
+
+<section class="screen" id="s4" data-phase="1">
+  <div class="screen-meta">
+    <h2>4. New reservation</h2>
+    <p>The dispatcher records a commitment with its duration and expected start, and either places it on the timeline or saves it for later.</p>
+    <div class="screen-refs"><span class="ref">§7.1</span><span class="ref">§9</span><span class="ref">idempotency key</span><span class="ref">US-C1</span></div>
+    <div class="states" data-states="place:Place|warn:Conflict (warn)|block:Conflict (block)|later:Save for later"></div>
+  </div>
+  <div class="frame" data-shell="app" data-url="/backend/bookings" data-nav="s2" data-crumbs="Bookings|Timeline">
+    <div class="page-head"><div><h1 class="t-page-title">Timeline</h1><p>Wed 28 Oct – Tue 3 Nov 2026</p></div></div>
+    <div class="empty" style="min-height:24rem"></div>
+    <div class="modal" data-layer="modal" role="dialog" aria-label="New reservation">
+      <div class="modal-head"><div class="t-section">New reservation</div></div>
+      <div class="modal-body stack-4">
+        <div class="segmented"><button type="button" aria-selected="true" data-when="place warn block">Place on timeline</button><button type="button" aria-selected="false" data-when="place warn block">Save for later</button><button type="button" aria-selected="false" data-when="later">Place on timeline</button><button type="button" aria-selected="true" data-when="later">Save for later</button></div>
+        <div class="form-grid form-grid-2">
+          <div class="field"><label>Target <span class="req">*</span></label><div class="input-group"><span class="addon"><svg><use href="#ic-search"/></svg></span><input class="input" value="Riverside Offices" /></div><div class="t-hint">Pick from the list — targets are not typed in here.</div></div>
+          <div class="field" data-when="place warn block"><label>Subject <span class="req">*</span></label><select class="select"><option>Kubota KX080 · EX-05</option></select></div>
+          <div class="field"><label>Duration <span class="req">*</span></label><div class="row"><input class="input" value="2.5" /><select class="select"><option>working days</option></select></div></div>
+          <div class="field" data-when="place warn block"><label>Start</label><input class="input" value="Thu 29 Oct 2026" /><div class="t-hint">Ends Mon 2 Nov — 2.5 days take three working days; Sat and the holiday are skipped.</div></div>
+          <div class="field"><label>Expected start <span class="req">*</span></label><input class="input" value="Thu 29 Oct 2026" /><div class="t-hint">Coverage warnings count from this date while unplaced.</div></div>
+          <div class="field"><label>Note</label><input class="input" value="Foundation trench, north side" /></div>
+        </div>
+        <div class="alert alert-warning" data-when="warn"><svg><use href="#ic-warn"/></svg><div><div class="alert-title">1 conflict — saving is allowed</div>Kubota KX080 · EX-05 is already booked by <a href="#s5" data-goto="s5">BK-1038 · Harbour Bridge</a>, Thu 29 – Fri 30 Oct.</div></div>
+        <div class="alert alert-error" data-when="block"><svg><use href="#ic-x"/></svg><div><div class="alert-title">Not saved — this subject is blocked</div>Operators use the mode Block. Ola Zielińska is booked by BK-1045 · Northgate Warehouse, Mon 2 – Tue 3 Nov. Nothing was written.</div></div>
+        <div class="alert alert-info" data-when="later"><svg><use href="#ic-info"/></svg><div>The reservation goes to the Unplaced list and counts toward the coverage warning until it is placed.</div></div>
+      </div>
+      <div class="modal-foot"><span class="t-hint"><span class="kbd">⌘</span> <span class="kbd">Enter</span> to save · <span class="kbd">Esc</span> to close</span><span class="grow"></span><button class="btn btn-outline" data-goto="s2">Cancel</button><button class="btn btn-primary" data-goto="s2">Save</button></div>
+    </div>
+  </div>
+  <div class="notes">
+    <div class="note"><b>1</b><span>Conflicts are shown before saving and returned after saving. Under Block a double booking is refused with the other reservation named.</span></div>
+    <div class="note"><b>2</b><span>The form sends an idempotency key: submitting twice gives one reservation (§4 Phase 1).</span></div>
+    <div class="note"><b>3</b><span>Phase 1 writes one participant; the model already holds several (§7.2). The second participant arrives on screen in phase 2 (screen 16).</span></div>
+  </div>
+</section>
+
+<section class="screen" id="s5" data-phase="1">
+  <div class="screen-meta">
+    <h2>5. Reservation card</h2>
+    <p>The whole reservation in a side panel next to the timeline — target, subject, dates, status, note and each conflict with its other side — with only the actions the state and the user's features allow.</p>
+    <div class="screen-refs"><span class="ref">§7.1 statuses</span><span class="ref">§12 Undo</span><span class="ref">US-C6</span><span class="ref">US-C5</span><span class="ref">US-C3</span></div>
+    <div class="states" data-states="conflict:With conflict|completed:Completed|cancelled:Cancelled"></div>
+  </div>
+  <div class="frame" data-shell="app" data-url="/backend/bookings?reservation=BK-1038" data-nav="s2" data-crumbs="Bookings|Timeline">
+    <div class="page-head"><div><h1 class="t-page-title">Timeline</h1><p>Wed 28 Oct – Tue 3 Nov 2026</p></div></div>
+    <div class="split-card">
+      <div class="tl">
+        <div class="tl-grid">
+          <div class="tl-row tl-head"><div class="tl-label">Subject</div><div class="tl-day" style="grid-column:2"><b>Wed 28</b></div><div class="tl-day" style="grid-column:3"><b>Thu 29</b></div><div class="tl-day today" style="grid-column:4"><b>Fri 30</b></div><div class="tl-day off" style="grid-column:5"><b>Sat</b></div><div class="tl-day off" style="grid-column:6"><b>Sun</b></div><div class="tl-day" style="grid-column:7"><b>Mon 2</b></div><div class="tl-day" style="grid-column:8"><b>Tue 3</b></div></div>
+          <div class="tl-row"><div class="tl-label">CAT 320 · EX-02<small>Thing</small></div><div class="tl-day" style="grid-column:2"></div><div class="tl-day" style="grid-column:3"></div><div class="tl-day today" style="grid-column:4"></div><div class="tl-day off" style="grid-column:5"></div><div class="tl-day off" style="grid-column:6"></div><div class="tl-day" style="grid-column:7"></div><div class="tl-day" style="grid-column:8"></div>
+            <span class="tl-bar c-blue" style="grid-column:2/5">BK-1031</span><span class="tl-bar c-blue" style="grid-column:7/9">BK-1044</span></div>
+          <div class="tl-row" style="min-height:4.5rem"><div class="tl-label">Kubota KX080 · EX-05<small>Thing</small></div><div class="tl-day" style="grid-column:2"></div><div class="tl-day" style="grid-column:3"></div><div class="tl-day today" style="grid-column:4"></div><div class="tl-day off" style="grid-column:5"></div><div class="tl-day off" style="grid-column:6"></div><div class="tl-day" style="grid-column:7"></div><div class="tl-day" style="grid-column:8"></div>
+            <span class="tl-bar c-blue conflict lane-top" style="grid-column:3/5;box-shadow:0 0 0 2px var(--foreground)"><svg><use href="#ic-warn"/></svg>BK-1038</span><span class="tl-bar c-blue conflict lane-bottom" style="grid-column:4/5"><svg><use href="#ic-warn"/></svg>BK-1051</span></div>
+          <div class="tl-row"><div class="tl-label">Liebherr LTM 1050 · CR-01<small>Thing</small></div><div class="tl-day" style="grid-column:2"></div><div class="tl-day" style="grid-column:3"></div><div class="tl-day today" style="grid-column:4"></div><div class="tl-day off" style="grid-column:5"></div><div class="tl-day off" style="grid-column:6"></div><div class="tl-day" style="grid-column:7"></div><div class="tl-day" style="grid-column:8"></div>
+            <div class="tl-unavail" style="grid-column:7/8">Inspection</div><span class="tl-bar c-amber conflict" style="grid-column:7/9"><svg><use href="#ic-warn"/></svg>BK-1047</span></div>
+        </div>
+      </div>
+      <aside class="side-card" aria-label="Reservation BK-1038">
+        <div class="drawer-head"><div class="grow"><div class="t-overline">BK-1038</div><div class="t-section">Harbour Bridge</div></div>
+          <span class="badge badge-info" data-when="conflict">Planned</span><span class="badge badge-success" data-when="completed">Completed</span><span class="badge badge-neutral" data-when="cancelled">Cancelled</span>
+          <button class="btn btn-ghost btn-icon btn-sm" aria-label="Close" data-goto="s2"><svg><use href="#ic-x"/></svg></button></div>
+        <div class="drawer-body stack-4">
+          <div class="alert alert-error" data-when="conflict"><svg><use href="#ic-warn"/></svg><div><div class="alert-title">Double booking</div>Kubota KX080 · EX-05 is also booked by <b>BK-1051 · Riverside Offices</b>, Fri 30 Oct.</div></div>
+          <table class="table"><tbody>
+            <tr><td class="muted">Target</td><td>Harbour Bridge repair</td></tr>
+            <tr><td class="muted">Subject</td><td>Kubota KX080 · EX-05</td></tr>
+            <tr><td class="muted">Window</td><td class="num">Thu 29 – Fri 30 Oct</td></tr>
+            <tr><td class="muted">Duration</td><td>2 working days</td></tr>
+            <tr><td class="muted">Expected</td><td class="num">29 Oct 2026</td></tr>
+            <tr><td class="muted">Note</td><td>Bring the long reach arm.</td></tr>
+          </tbody></table>
+          <div class="alert alert-info" data-when="cancelled"><svg><use href="#ic-info"/></svg><div>Cancelled is final. A restart is a new reservation. The user who cancelled can still undo it from the confirmation message or the audit log.</div></div>
+        </div>
+        <div class="drawer-foot row wrap">
+          <span data-when="conflict" class="row"><button class="btn btn-outline btn-sm" data-goto="s4"><svg><use href="#ic-pencil"/></svg> Edit</button><button class="btn btn-outline btn-sm">Unplace</button><button class="btn btn-destructive-outline btn-sm">Cancel</button></span>
+          <span data-when="completed" class="row"><button class="btn btn-outline btn-sm"><svg><use href="#ic-undo"/></svg> Reopen</button></span>
+          <span data-when="conflict" class="row"><button class="btn btn-outline btn-sm">No-show</button><button class="btn btn-primary btn-sm">Complete</button></span>
+        </div>
+      </aside>
+    </div>
+  </div>
+  <div class="notes">
+    <div class="note"><b>1</b><span>The card is a side panel; the timeline stays visible and the selected bar is outlined.</span></div>
+    <div class="note"><b>2</b><span>The card opens from a bar, the Unplaced list and a notification. A bar with a conflict gets Edit and Cancel, not inline changes, so the conflict is decided where its other side is shown.</span></div>
+    <div class="note"><b>3</b><span>Reopening a completed or no-show reservation is checked like a new placement and can be refused under Block. Unplace clears the dates and frees the slot at once (US-C3).</span></div>
+  </div>
+</section>
+
+<section class="screen" id="s6" data-phase="1">
+  <div class="screen-meta">
+    <h2>6. Place an unplaced reservation</h2>
+    <p>Two ways to give an unplaced reservation its dates: drag it onto a subject's row and day, or click Place… and choose in a dialog.</p>
+    <div class="screen-refs"><span class="ref">§12 unplaced list</span><span class="ref">§9 coverage gap</span><span class="ref">US-D3</span><span class="ref">US-C4</span></div>
+    <div class="states" data-states="drag:Drag onto the timeline|dialog:Place with a dialog"></div>
+  </div>
+  <div class="frame" data-shell="app" data-url="/backend/bookings" data-nav="s2" data-crumbs="Bookings|Timeline">
+    <div class="page-head"><div><h1 class="t-page-title">Timeline</h1><p>Wed 28 Oct – Tue 3 Nov 2026</p></div></div>
+    <div class="split split-side">
+      <div class="tl">
+        <div class="tl-grid">
+          <div class="tl-row tl-head"><div class="tl-label">Subject</div><div class="tl-day" style="grid-column:2"><b>Wed 28</b></div><div class="tl-day" style="grid-column:3"><b>Thu 29</b></div><div class="tl-day today" style="grid-column:4"><b>Fri 30</b></div><div class="tl-day off" style="grid-column:5"><b>Sat 31</b></div><div class="tl-day off" style="grid-column:6"><b>Sun 1</b></div><div class="tl-day" style="grid-column:7"><b>Mon 2</b></div><div class="tl-day" style="grid-column:8"><b>Tue 3</b></div></div>
+          <div class="tl-row drop-hint"><div class="tl-label">Liebherr LTM 1050 · CR-01<small>Thing</small></div><div class="tl-day" style="grid-column:2"></div><div class="tl-day" style="grid-column:3"></div><div class="tl-day today" style="grid-column:4"></div><div class="tl-day off" style="grid-column:5"></div><div class="tl-day off" style="grid-column:6"></div><div class="tl-day" style="grid-column:7"></div><div class="tl-day drop" style="grid-column:8"></div>
+            <div class="tl-unavail" style="grid-column:7/8">Inspection</div>
+            <span class="tl-bar c-amber ghost" style="grid-column:8/9" data-when="drag">Harbour Bridge · drop here</span>
+          </div>
+          <div class="tl-row"><div class="tl-label">Mobile crane · CR-02<small>Thing</small></div><div class="tl-day" style="grid-column:2"></div><div class="tl-day" style="grid-column:3"></div><div class="tl-day today" style="grid-column:4"></div><div class="tl-day off" style="grid-column:5"></div><div class="tl-day off" style="grid-column:6"></div><div class="tl-day" style="grid-column:7"></div><div class="tl-day" style="grid-column:8"></div></div>
+        </div>
+      </div>
+      <div class="unplaced">
+        <div class="unplaced-head"><span class="t-card-title">Unplaced</span><span class="badge badge-neutral">3</span></div>
+        <div class="unplaced-item dragging"><span class="row between"><b>Harbour Bridge</b><span class="badge badge-error">overdue</span></span><span class="t-hint">Crane · 1 day · expected 29 Oct</span><button class="btn btn-outline btn-xs place-btn">Place…</button></div>
+        <div class="unplaced-item"><span class="row between"><b>Northgate Warehouse</b><span class="badge badge-warning">in 3 days</span></span><span class="t-hint">Excavator · 2 days · expected 4 Nov</span><button class="btn btn-outline btn-xs place-btn">Place…</button></div>
+        <div class="unplaced-item"><span class="row between"><b>Riverside Offices</b><span class="badge badge-neutral">in 12 days</span></span><span class="t-hint">Operator · 0.5 day · expected 17 Nov</span><button class="btn btn-outline btn-xs place-btn">Place…</button></div>
+        <div class="unplaced-head" style="border-top:1px solid var(--border);border-bottom:0"><span class="t-hint">1–3 of 3 · sorted by days left</span></div>
+      </div>
+    </div>
+    <div class="modal" data-layer="modal" data-when="dialog" role="dialog" aria-label="Place reservation">
+      <div class="modal-head"><div class="t-section">Place Harbour Bridge · 1 day</div><p class="muted" style="margin:0.25rem 0 0">Expected start 29 Oct · overdue</p></div>
+      <div class="modal-body stack-4">
+        <div class="form-grid form-grid-2">
+          <div class="field"><label>Subject <span class="req">*</span></label><select class="select"><option>Mobile crane · CR-02 — free</option><option>Liebherr LTM 1050 · CR-01 — inspection Mon 2</option></select><div class="t-hint">Subjects of the category Cranes; free ones first.</div></div>
+          <div class="field"><label>Start <span class="req">*</span></label><input class="input" value="Mon 2 Nov 2026" /><div class="t-hint">Ends Mon 2 Nov — 1 working day.</div></div>
+        </div>
+        <div class="alert alert-success"><svg><use href="#ic-check"/></svg><div>No conflicts. Placing clears the coverage warning for Harbour Bridge.</div></div>
+      </div>
+      <div class="modal-foot"><span class="grow"></span><button class="btn btn-outline">Cancel</button><button class="btn btn-primary" data-goto="s2">Place</button></div>
+    </div>
+  </div>
+  <div class="notes">
+    <div class="note"><b>1</b><span>Both ways place the same way — drag for speed, Place… when the right row is not on screen.</span></div>
+    <div class="note"><b>2</b><span>"In N days" and "overdue" are counted in working days from today in the target's zone, and change without a reload.</span></div>
+    <div class="note"><b>3</b><span>Placing clears the coverage warning; the notification disappears once the target has no other unplaced reservation inside the threshold.</span></div>
+  </div>
+</section>
+
+<section class="screen" id="s7" data-phase="1">
+  <div class="screen-meta">
+    <h2>7. Inspection or breakdown</h2>
+    <p>The dispatcher blocks a machine without leaving the timeline. The window is written to the availability schedules of <code>planner</code>.</p>
+    <div class="screen-refs"><span class="ref">§10 Unavailability</span><span class="ref">§12 conflict read</span><span class="ref">US-C7</span></div>
+    <div class="states" data-states="form:Form|saved:Saved with conflicts"></div>
+  </div>
+  <div class="frame" data-shell="app" data-url="/backend/bookings" data-nav="s2" data-crumbs="Bookings|Timeline">
+    <div class="page-head"><div><h1 class="t-page-title">Timeline</h1><p>Wed 28 Oct – Tue 3 Nov 2026</p></div></div>
+    <div class="empty" style="min-height:24rem"></div>
+    <div class="modal" data-layer="modal" role="dialog" aria-label="Unavailability">
+      <div class="modal-head"><div class="t-section">Unavailability</div><p class="muted" style="margin:0.25rem 0 0">Saved in Planner availability for this subject.</p></div>
+      <div class="modal-body stack-4">
+        <div class="form-grid form-grid-2">
+          <div class="field"><label>Subject <span class="req">*</span></label><select class="select"><option>Liebherr LTM 1050 · CR-01</option></select></div>
+          <div class="field"><label>Kind <span class="req">*</span></label><select class="select"><option>Inspection</option><option>Breakdown</option><option>Maintenance</option></select></div>
+          <div class="field"><label>From</label><input class="input" value="Mon 2 Nov 2026" /></div>
+          <div class="field"><label>To</label><input class="input" value="Mon 2 Nov 2026" /></div>
+        </div>
+        <div class="field"><label>Note</label><input class="input" value="Annual UDT inspection" /></div>
+        <div class="alert alert-warning" data-when="saved"><svg><use href="#ic-warn"/></svg><div><div class="alert-title">Saved. This window creates 1 conflict</div><a href="#s5" data-goto="s5">BK-1047 · Northgate Warehouse</a>, Mon 2 – Tue 3 Nov.</div></div>
+      </div>
+      <div class="modal-foot"><span class="grow"></span><button class="btn btn-outline" data-goto="s2">Cancel</button><button class="btn btn-primary">Save</button></div>
+    </div>
+  </div>
+  <div class="notes">
+    <div class="note"><b>1</b><span>Without <code>planner</code>'s right to manage availability the Unavailability button is not shown.</span></div>
+    <div class="note"><b>2</b><span>The module has no write endpoint of its own for windows; after the save it calls the conflict read and shows the result at once.</span></div>
+  </div>
+</section>
+
+<section class="screen" id="s8" data-phase="1">
+  <div class="screen-meta">
+    <h2>8. All bookings</h2>
+    <p>All reservations as a table — for search, filters and bulk work that the timeline is not made for.</p>
+    <div class="screen-refs"><span class="ref">§12</span><span class="ref">§20 Screens · tables</span></div>
+    <div class="states" data-states="list:List|filters:Filters open|actions:Row menu open|loading:Loading|empty:Empty|error:Failed to load"></div>
+  </div>
+  <div class="frame" data-shell="app" data-url="/backend/bookings/all" data-nav="s8" data-crumbs="Bookings|All bookings">
+    <div class="dt">
+      <div class="dt-head">
+        <div class="dt-head-row"><div class="row between"><h2 class="t-table-title" style="margin:0">All bookings</h2><div class="dt-head-actions row"><button class="btn btn-primary" data-goto="s4"><svg><use href="#ic-plus"/></svg> New reservation</button></div></div></div>
+        <div class="dt-toolbar"><div class="dt-toolbar-row"><div class="input-group dt-search"><span class="addon"><svg><use href="#ic-search"/></svg></span><input class="input" placeholder="Search by ID, target, subject or note" /></div>
+          <div class="anchor"><button class="btn btn-outline btn-sm"><svg><use href="#ic-filter"/></svg> Filters <span class="filter-count">2</span></button>
+            <div class="popover layer-pop wide" data-when="filters" style="top:2.5rem">
+              <div class="stack-3" style="padding:0.75rem">
+                <div class="field"><label>Status</label><div class="row wrap"><span class="chip chip-active"><svg><use href="#ic-check"/></svg> Planned</span><span class="chip chip-active"><svg><use href="#ic-check"/></svg> Active</span><span class="chip">Completed</span><span class="chip">Cancelled</span><span class="chip">No-show</span></div></div>
+                <div class="field"><label>Placement</label><div class="segmented"><button type="button" aria-selected="true">All</button><button type="button" aria-selected="false">Placed</button><button type="button" aria-selected="false">Unplaced</button></div></div>
+                <div class="form-grid form-grid-2">
+                  <div class="field"><label>Target</label><select class="select"><option>Any target</option></select></div>
+                  <div class="field"><label>Subject</label><select class="select"><option>Any subject</option></select></div>
+                  <div class="field"><label>Category</label><select class="select"><option>Any category</option></select></div>
+                  <div class="field"><label>Window</label><input class="input" value="28 Oct – 30 Nov" /></div>
+                </div>
+                <div class="row between"><span>Only with a conflict</span><span class="switch" role="switch" aria-checked="false"></span></div>
+                <div class="row"><button class="btn btn-ghost btn-sm">Clear all</button><span class="grow"></span><button class="btn btn-primary btn-sm">Apply</button></div>
+              </div>
+            </div>
+          </div>
+          <span class="chip chip-active">Status: planned, active <svg><use href="#ic-x"/></svg></span><span class="chip chip-active">Window: 28 Oct – 30 Nov <svg><use href="#ic-x"/></svg></span></div></div>
+      </div>
+      <table class="table">
+        <thead><tr><th>ID</th><th>Target</th><th>Subject</th><th>Window</th><th>Duration</th><th>Status</th><th>Expected start</th><th class="right"></th></tr></thead>
+        <tbody data-when="loading"><tr class="dt-state"><td colspan="8"><div><span class="spin"></span>Loading data…</div></td></tr></tbody>
+        <tbody data-when="error"><tr class="dt-state error"><td colspan="8"><div>Could not load bookings. <button class="btn btn-outline btn-sm">Try again</button></div></td></tr></tbody>
+        <tbody data-when="empty"><tr class="dt-state"><td colspan="8"><div class="dt-empty"><div class="empty-icon"><svg><use href="#ic-list"/></svg></div><div class="t-card-title">No bookings yet</div><p class="muted">Bookings appear here once you create a reservation on the timeline.</p><button class="btn btn-primary btn-sm" data-goto="s4"><svg><use href="#ic-plus"/></svg> New reservation</button></div></td></tr></tbody>
+        <tbody data-when="list filters actions">
+          <tr class="clickable"><td class="t-mono">BK-1038</td><td>Harbour Bridge repair</td><td>Kubota KX080 · EX-05</td><td class="num">29–30 Oct</td><td>2 d</td><td><span class="badge badge-error"><span class="dot"></span>Conflict</span></td><td class="num">29 Oct</td>
+            <td class="right"><div class="anchor" style="display:inline-block"><button class="btn btn-ghost btn-icon btn-sm" aria-label="Actions"><svg><use href="#ic-more"/></svg></button>
+              <div class="popover layer-pop right" data-when="actions" style="top:2.25rem;width:13rem;text-align:left">
+                <a class="menu-item" href="#s5" data-goto="s5"><svg><use href="#ic-eye"/></svg> Open card</a>
+                <a class="menu-item" href="#s4" data-goto="s4"><svg><use href="#ic-pencil"/></svg> Edit</a>
+                <a class="menu-item" href="#s2" data-goto="s2"><svg><use href="#ic-timeline"/></svg> Show on timeline</a>
+                <span class="menu-item">Unplace</span>
+                <span class="menu-item"><svg><use href="#ic-check"/></svg> Complete</span>
+                <span class="menu-item">Mark no-show</span>
+                <span class="menu-item"><svg><use href="#ic-copy"/></svg> Copy ID</span>
+                <span class="menu-item danger"><svg><use href="#ic-x"/></svg> Cancel</span>
+              </div></div></td></tr>
+          <tr class="clickable" data-goto="s5"><td class="t-mono">BK-1031</td><td>Riverside Offices</td><td>CAT 320 · EX-02</td><td class="num">28–30 Oct</td><td>3 d</td><td><span class="badge badge-info">Active</span></td><td class="num">28 Oct</td><td class="right"><button class="btn btn-ghost btn-icon btn-sm" aria-label="Actions"><svg><use href="#ic-more"/></svg></button></td></tr>
+          <tr class="clickable" data-goto="s5"><td class="t-mono">BK-1044</td><td>Northgate Warehouse</td><td>CAT 320 · EX-02</td><td class="num">2–3 Nov</td><td>2 d</td><td><span class="badge badge-neutral">Planned</span></td><td class="num">2 Nov</td><td class="right"><button class="btn btn-ghost btn-icon btn-sm" aria-label="Actions"><svg><use href="#ic-more"/></svg></button></td></tr>
+          <tr class="clickable" data-goto="s6"><td class="t-mono">BK-1052</td><td>Harbour Bridge repair</td><td class="muted">—</td><td class="muted">Unplaced</td><td>1 d</td><td><span class="badge badge-warning">Overdue</span></td><td class="num">29 Oct</td><td class="right"><button class="btn btn-ghost btn-icon btn-sm" aria-label="Actions"><svg><use href="#ic-more"/></svg></button></td></tr>
+          <tr class="clickable" data-goto="s5"><td class="t-mono">BK-1047</td><td>Northgate Warehouse</td><td>Liebherr LTM 1050 · CR-01</td><td class="num">2–3 Nov</td><td>2 d</td><td><span class="badge badge-error"><span class="dot"></span>Conflict</span></td><td class="num">2 Nov</td><td class="right"><button class="btn btn-ghost btn-icon btn-sm" aria-label="Actions"><svg><use href="#ic-more"/></svg></button></td></tr>
+        </tbody>
+      </table>
+      <div class="dt-foot" data-when="list filters actions"><span class="t-hint num">Showing 1 to 5 of 5 results</span></div>
+    </div>
+  </div>
+  <div class="notes">
+    <div class="note"><b>1</b><span>Named "All bookings" to match the module. The record itself is still called a reservation in forms and the card; whether the whole UI says "booking" is an open question.</span></div>
+    <div class="note"><b>2</b><span>Filters: status, placed or unplaced, target, subject, category, window and "only with a conflict". Active filters show as chips that remove themselves on ×.</span></div>
+    <div class="note"><b>3</b><span>The row menu offers only the actions the state and the user's features allow, as on the card. Declared as a table extension host: other modules add columns, row actions, bulk actions and filters (§20).</span></div>
+  </div>
+</section>
+
+<section class="screen" id="s9" data-phase="1">
+  <div class="screen-meta">
+    <h2>9. Subjects</h2>
+    <p>One list of everything that can be reserved — excavators, operators and crews side by side, with a column saying what each one is and which registry holds it.</p>
+    <div class="screen-refs"><span class="ref">§6</span><span class="ref">§7.3</span><span class="ref">US-B5</span><span class="ref">US-B3</span></div>
+    <div class="states" data-states="list:List|filters:Filters open|loading:Loading|empty:Empty|error:Failed to load"></div>
+  </div>
+  <div class="frame" data-shell="app" data-url="/backend/bookings/subjects" data-nav="s9" data-crumbs="Bookings|Subjects">
+    <div class="dt">
+      <div class="dt-head">
+        <div class="dt-head-row"><div class="row between"><h2 class="t-table-title" style="margin:0">Subjects</h2><div class="row"><button class="btn btn-outline" data-goto="s11">Add existing</button><button class="btn btn-primary" data-goto="s10"><svg><use href="#ic-plus"/></svg> Add new</button></div></div></div>
+        <div class="dt-toolbar"><div class="dt-toolbar-row"><div class="input-group dt-search"><span class="addon"><svg><use href="#ic-search"/></svg></span><input class="input" placeholder="Search subjects" /></div>
+          <div class="anchor"><button class="btn btn-outline btn-sm"><svg><use href="#ic-filter"/></svg> Filters</button>
+            <div class="popover layer-pop" data-when="filters" style="top:2.5rem">
+              <div class="stack-3" style="padding:0.75rem">
+                <div class="field"><label>Kind</label><div class="row wrap"><span class="chip chip-active"><svg><use href="#ic-check"/></svg> Thing</span><span class="chip">Person</span><span class="chip">Crew</span></div></div>
+                <div class="field"><label>Category</label><select class="select"><option>Any category</option><option>Excavators</option></select></div>
+                <div class="field"><label>Registry</label><select class="select"><option>Any registry</option><option>Resources</option><option>Staff</option></select></div>
+                <div class="field"><label>State</label><div class="segmented"><button type="button" aria-selected="true">In use</button><button type="button" aria-selected="false">Not in use</button><button type="button" aria-selected="false">All</button></div></div>
+                <div class="row"><button class="btn btn-ghost btn-sm">Clear all</button><span class="grow"></span><button class="btn btn-primary btn-sm">Apply</button></div>
+              </div>
+            </div>
+          </div></div></div>
+      </div>
+      <table class="table">
+        <thead><tr><th>Name</th><th>Kind</th><th>Category</th><th>Registry</th><th>Zone</th><th>State</th><th class="right"></th></tr></thead>
+        <tbody data-when="loading"><tr class="dt-state"><td colspan="7"><div><span class="spin"></span>Loading data…</div></td></tr></tbody>
+        <tbody data-when="error"><tr class="dt-state error"><td colspan="7"><div>Could not load subjects. <button class="btn btn-outline btn-sm">Try again</button></div></td></tr></tbody>
+        <tbody data-when="empty"><tr class="dt-state"><td colspan="7"><div class="dt-empty"><div class="empty-icon"><svg><use href="#ic-truck"/></svg></div><div class="t-card-title">No subjects yet</div><p class="muted">Add equipment or people that can be reserved: new ones, or ones that already exist in Resources and Staff.</p><div class="row"><button class="btn btn-outline btn-sm" data-goto="s11">Add existing</button><button class="btn btn-primary btn-sm" data-goto="s10"><svg><use href="#ic-plus"/></svg> Add new</button></div></div></td></tr></tbody>
+        <tbody data-when="list filters">
+          <tr><td>CAT 320 · EX-02</td><td>Thing</td><td><span class="swatch c-blue"></span>Excavators</td><td><a href="#s9">Resources</a></td><td>Europe/Warsaw</td><td><span class="badge badge-success">In use</span></td><td class="right"><button class="btn btn-ghost btn-icon btn-sm" aria-label="Actions"><svg><use href="#ic-more"/></svg></button></td></tr>
+          <tr><td>Kubota KX080 · EX-05</td><td>Thing</td><td><span class="swatch c-blue"></span>Excavators</td><td><a href="#s9">Resources</a></td><td>Europe/Warsaw</td><td><span class="badge badge-success">In use</span></td><td class="right"><button class="btn btn-ghost btn-icon btn-sm" aria-label="Actions"><svg><use href="#ic-more"/></svg></button></td></tr>
+          <tr><td>Marek Wiśniewski</td><td>Person</td><td><span class="swatch c-emerald"></span>Operators</td><td><a href="#s9">Staff</a></td><td>Europe/Warsaw</td><td><span class="badge badge-success">In use</span></td><td class="right"><button class="btn btn-ghost btn-icon btn-sm" aria-label="Actions"><svg><use href="#ic-more"/></svg></button></td></tr>
+          <tr><td>Crew North</td><td>Crew</td><td><span class="swatch c-violet"></span>Crews</td><td><a href="#s9">Staff</a></td><td>Europe/Warsaw</td><td><span class="badge badge-success">In use</span> <span class="badge badge-neutral">Unavailability unknown</span></td><td class="right"><button class="btn btn-ghost btn-icon btn-sm" aria-label="Actions"><svg><use href="#ic-more"/></svg></button></td></tr>
+          <tr><td class="muted">Volvo EC140 · EX-01</td><td>Thing</td><td><span class="swatch c-blue"></span>Excavators</td><td><a href="#s9">Resources</a></td><td>Europe/Warsaw</td><td><span class="badge badge-neutral">Not in use</span></td><td class="right"><button class="btn btn-ghost btn-icon btn-sm" aria-label="Actions"><svg><use href="#ic-more"/></svg></button></td></tr>
+          <tr><td class="muted">Mobile crane · CR-03</td><td>Thing</td><td><span class="swatch c-amber"></span>Cranes</td><td class="muted">Fleet registry · disabled</td><td>Europe/Warsaw</td><td><span class="badge badge-warning">Read-only</span> <span class="badge badge-neutral">Unavailability unknown</span></td><td class="right"></td></tr>
+        </tbody>
+      </table>
+      <div class="dt-foot" data-when="list filters"><span class="t-hint num">Showing 1 to 6 of 6 results</span></div>
+    </div>
+  </div>
+  <div class="notes">
+    <div class="note"><b>1</b><span>A subject is never deleted, only taken out of use. Any new write that lists it is refused with <code>subject_inactive</code>; its open bars stay until moved.</span></div>
+    <div class="note"><b>2</b><span>A subject whose provider module is disabled stays visible, read-only, marked "unavailability unknown" (§6). A crew has no availability of its own in planner today (§21).</span></div>
+    <div class="note"><b>3</b><span>Filters: kind, category, registry and state.</span></div>
+  </div>
+</section>
+
+<section class="screen" id="s10" data-phase="1">
+  <div class="screen-meta">
+    <h2>10. Add a new subject</h2>
+    <p>One choice of kind decides the registry: a person and a crew go to Staff, a thing to Resources. The form changes with the kind.</p>
+    <div class="screen-refs"><span class="ref">§6 How it looks</span><span class="ref">§6 Writes to foreign registries</span><span class="ref">US-B1</span></div>
+    <div class="states" data-states="thing:Thing|person:Person|crew:Crew|partial:Registry saved, our row failed"></div>
+  </div>
+  <div class="frame" data-shell="app" data-url="/backend/bookings/subjects" data-nav="s9" data-crumbs="Bookings|Subjects">
+    <div class="empty" style="min-height:30rem"></div>
+    <div class="modal" data-layer="modal" role="dialog" aria-label="Add a new subject">
+      <div class="modal-head"><div class="t-section">Add a new subject</div></div>
+      <div class="modal-body stack-4">
+        <div class="field"><label>Kind <span class="req">*</span></label>
+          <div class="segmented">
+            <button type="button" data-set-state="person"><svg width="14" height="14"><use href="#ic-user"/></svg> Person</button>
+            <button type="button" data-set-state="crew"><svg width="14" height="14"><use href="#ic-users"/></svg> Crew</button>
+            <button type="button" data-set-state="thing"><svg width="14" height="14"><use href="#ic-truck"/></svg> Thing</button>
+          </div>
+        </div>
+        <div class="alert alert-info"><svg><use href="#ic-info"/></svg><div>
+          <span data-when="thing partial">Creates a new resource in <b>Resources</b> and makes it bookable.</span>
+          <span data-when="person">Creates a new team member in <b>Staff</b> and makes them bookable.</span>
+          <span data-when="crew">Creates a new team in <b>Staff</b> and makes it bookable as one subject.</span>
+          Everything else is edited in that module.</div></div>
+        <div class="form-grid form-grid-2">
+          <div class="field" data-when="thing partial"><label>Name <span class="req">*</span></label><input class="input" value="Volvo EC220 · EX-07" /></div>
+          <div class="field" data-when="thing partial"><label>Resource type <span class="req">*</span></label><select class="select"><option>Excavator</option></select><div class="t-hint">From Resources.</div></div>
+          <div class="field" data-when="person"><label>First name <span class="req">*</span></label><input class="input" value="Piotr" /></div>
+          <div class="field" data-when="person"><label>Last name <span class="req">*</span></label><input class="input" value="Lis" /></div>
+          <div class="field" data-when="crew"><label>Team name <span class="req">*</span></label><input class="input" value="Crew South" /></div>
+          <div class="field" data-when="crew"><label>Members</label><input class="input" value="Marek Wiśniewski, Ola Zielińska" /><div class="t-hint">Optional; existing team members from Staff.</div></div>
+          <div class="field"><label>Category</label><select class="select" data-when="thing partial"><option>Excavators</option></select><select class="select" data-when="person"><option>Operators</option></select><select class="select" data-when="crew"><option>Crews</option></select></div>
+          <div class="field"><label>Time zone</label><select class="select"><option>Europe/Warsaw (organization)</option></select></div>
+        </div>
+        <div class="alert alert-error" data-when="partial"><svg><use href="#ic-warn"/></svg><div><div class="alert-title">Created in Resources, not added to bookings</div>"Volvo EC220 · EX-07" now exists in Resources. Add it from there — saving again will not create a second record. <button class="btn btn-outline btn-xs" data-goto="s11">Add existing</button></div></div>
+      </div>
+      <div class="modal-foot"><span class="grow"></span><button class="btn btn-outline" data-goto="s9">Cancel</button><button class="btn btn-primary">Add subject</button></div>
+    </div>
+  </div>
+  <div class="notes">
+    <div class="note"><b>1</b><span>The fields follow the kind. The specification asks only name, category and zone; the resource type, first and last name and the members of a crew are what Staff and Resources need to create their record — to be confirmed against those modules.</span></div>
+    <div class="note"><b>2</b><span>A kind is offered only when the user has the registry's own create permission. The registry record is created first, then our row.</span></div>
+  </div>
+</section>
+
+<section class="screen" id="s11" data-phase="1">
+  <div class="screen-meta">
+    <h2>11. Add existing subjects</h2>
+    <p>A company that kept equipment and people before enabling bookings picks them from the registries and fills no form.</p>
+    <div class="screen-refs"><span class="ref">§6 Providers</span><span class="ref">US-B2</span></div>
+  </div>
+  <div class="frame" data-shell="app" data-url="/backend/bookings/subjects" data-nav="s9" data-crumbs="Bookings|Subjects">
+    <div class="empty" style="min-height:32rem"></div>
+    <div class="modal modal-wide" data-layer="modal" role="dialog" aria-label="Add existing subjects">
+      <div class="modal-head"><div class="t-section">Add existing subjects</div></div>
+      <div class="modal-body stack-4">
+        <div class="alert alert-info"><svg><use href="#ic-info"/></svg><div><div class="alert-title">Make records you already have bookable</div>These equipment items and people already exist in other modules — Resources and Staff — but are not on the bookings list yet. Adding one creates no new record; it only lets you reserve it.</div></div>
+        <div class="tabs" role="tablist"><button type="button" aria-selected="true">From Resources <span class="tab-count">14</span></button><button type="button" aria-selected="false">From Staff · members <span class="tab-count">22</span></button><button type="button" aria-selected="false">From Staff · teams <span class="tab-count">3</span></button></div>
+        <div class="input-group"><span class="addon"><svg><use href="#ic-search"/></svg></span><input class="input" placeholder="Search Resources" /></div>
+        <table class="table">
+          <thead><tr><th style="width:2rem"></th><th>Name</th><th>Type in Resources</th><th>Category</th><th>State</th></tr></thead>
+          <tbody>
+            <tr><td><span class="check" role="checkbox" aria-checked="true"><svg><use href="#ic-check"/></svg></span></td><td>Volvo EC220 · EX-07</td><td>Excavator</td><td><select class="select"><option>Excavators</option></select></td><td></td></tr>
+            <tr><td><span class="check" role="checkbox" aria-checked="true"><svg><use href="#ic-check"/></svg></span></td><td>JCB 3CX · BL-02</td><td>Backhoe loader</td><td><select class="select"><option>Excavators</option></select></td><td></td></tr>
+            <tr><td><span class="check" role="checkbox" aria-checked="false"><svg><use href="#ic-check"/></svg></span></td><td class="muted">Hitachi ZX85 · EX-04</td><td>Excavator</td><td></td><td><span class="badge badge-neutral">Inactive in Resources</span></td></tr>
+          </tbody>
+        </table>
+        <div class="t-hint">Records already on the bookings list are not shown. Re-adding a removed subject restores its old row and history.</div>
+      </div>
+      <div class="modal-foot"><span class="t-hint num">1–3 of 14</span><span class="grow"></span><button class="btn btn-outline" data-goto="s9">Cancel</button><button class="btn btn-primary" data-goto="s9">Add 2 subjects</button></div>
+    </div>
+  </div>
+  <div class="notes">
+    <div class="note"><b>1</b><span>An explanation at the top, the source module in each tab, and a category chosen per row while adding.</span></div>
+    <div class="note"><b>2</b><span>Only our row is created; adding the same record twice is refused.</span></div>
+  </div>
+</section>
+
+<section class="screen" id="s12" data-phase="1">
+  <div class="screen-meta">
+    <h2>12. Categories</h2>
+    <p>Subjects are grouped into categories with an icon and a colour so the timeline rows are easy to scan.</p>
+    <div class="screen-refs"><span class="ref">§7.3</span><span class="ref">US-B3</span></div>
+    <div class="states" data-states="list:List|new:New category|refused:Delete refused"></div>
+  </div>
+  <div class="frame" data-shell="app" data-url="/backend/bookings/categories" data-nav="s12" data-crumbs="Bookings|Categories">
+    <div class="dt">
+      <div class="dt-head"><div class="dt-head-row"><div class="row between"><h2 class="t-table-title" style="margin:0">Categories</h2><button class="btn btn-primary"><svg><use href="#ic-plus"/></svg> New category</button></div></div></div>
+      <table class="table">
+        <thead><tr><th>Name</th><th>Colour</th><th>Subjects</th><th>Conflict mode</th><th class="right"></th></tr></thead>
+        <tbody>
+          <tr><td><svg width="14" height="14"><use href="#ic-truck"/></svg> Excavators</td><td><span class="swatch c-blue"></span></td><td class="num">4</td><td>Default (Warn)</td><td class="right"><button class="btn btn-ghost btn-icon btn-sm" aria-label="Delete"><svg><use href="#ic-trash"/></svg></button></td></tr>
+          <tr><td><svg width="14" height="14"><use href="#ic-truck"/></svg> Cranes</td><td><span class="swatch c-amber"></span></td><td class="num">2</td><td>Default (Warn)</td><td class="right"><button class="btn btn-ghost btn-icon btn-sm" aria-label="Delete"><svg><use href="#ic-trash"/></svg></button></td></tr>
+          <tr><td><svg width="14" height="14"><use href="#ic-user"/></svg> Operators</td><td><span class="swatch c-emerald"></span></td><td class="num">2</td><td><span class="badge badge-error">Block</span></td><td class="right"><button class="btn btn-ghost btn-icon btn-sm" aria-label="Delete"><svg><use href="#ic-trash"/></svg></button></td></tr>
+          <tr><td><svg width="14" height="14"><use href="#ic-users"/></svg> Crews</td><td><span class="swatch c-violet"></span></td><td class="num">1</td><td>Default (Warn)</td><td class="right"><button class="btn btn-ghost btn-icon btn-sm" aria-label="Delete"><svg><use href="#ic-trash"/></svg></button></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="toast" data-when="refused"><svg><use href="#ic-warn"/></svg> Operators cannot be deleted: 2 subjects use it and a conflict policy exception names it.</div>
+    <div class="modal" data-layer="modal" data-when="new" role="dialog" aria-label="New category">
+      <div class="modal-head"><div class="t-section">New category</div></div>
+      <div class="modal-body stack-4">
+        <div class="field"><label>Name <span class="req">*</span></label><input class="input" value="Loaders" /></div>
+        <div class="field"><label>Icon</label><div class="row wrap"><span class="chip chip-active"><svg><use href="#ic-truck"/></svg></span><span class="chip"><svg><use href="#ic-wrench"/></svg></span><span class="chip"><svg><use href="#ic-user"/></svg></span><span class="chip"><svg><use href="#ic-users"/></svg></span><span class="chip"><svg><use href="#ic-pin"/></svg></span></div></div>
+        <div class="field"><label>Colour</label><div class="row wrap"><span class="swatch c-blue"></span><span class="swatch c-amber"></span><span class="swatch c-emerald"></span><span class="swatch c-violet"></span><span class="swatch c-rose" style="outline:2px solid var(--foreground);outline-offset:2px"></span><span class="swatch c-teal"></span></div><div class="t-hint">Used for the bars and the group header on the timeline.</div></div>
+        <div class="field"><label>Conflict mode</label><select class="select"><option>Organization default (Warn)</option><option>Warn</option><option>Block</option></select><div class="t-hint">Saved as a conflict policy exception when it differs from the default.</div></div>
+        <div class="form-grid form-grid-2"><div class="field"><label>Day starts <span class="badge badge-neutral">Phase 3</span></label><input class="input" value="00:00" disabled /></div><div class="field"><label>Day ends</label><input class="input" value="24:00" disabled /></div></div>
+      </div>
+      <div class="modal-foot"><span class="grow"></span><button class="btn btn-outline">Cancel</button><button class="btn btn-primary">Create</button></div>
+    </div>
+  </div>
+  <div class="notes">
+    <div class="note"><b>1</b><span>The New category dialog. Conflict mode here writes the same exception as the settings screen, so both places stay in sync.</span></div>
+    <div class="note"><b>2</b><span>From phase 3 a category can define its day — a start and an end time, e.g. a rental day 07:00–19:00 (§18).</span></div>
+  </div>
+</section>
+
+<section class="screen" id="s13" data-phase="1">
+  <div class="screen-meta">
+    <h2>13. Targets</h2>
+    <p>Sites and customers as permanent entries that every reservation attaches to, optionally linked to a person or company in Customers.</p>
+    <div class="screen-refs"><span class="ref">§7.4</span><span class="ref">US-B4</span></div>
+    <div class="states" data-states="list:List|filters:Filters open|actions:Row menu open|edit:Edit|refused:Delete refused|loading:Loading|empty:Empty|error:Failed to load"></div>
+  </div>
+  <div class="frame" data-shell="app" data-url="/backend/bookings/targets" data-nav="s13" data-crumbs="Bookings|Targets">
+    <div class="dt">
+      <div class="dt-head">
+        <div class="dt-head-row"><div class="row between"><h2 class="t-table-title" style="margin:0">Targets</h2><button class="btn btn-primary"><svg><use href="#ic-plus"/></svg> New target</button></div></div>
+        <div class="dt-toolbar"><div class="dt-toolbar-row"><div class="input-group dt-search"><span class="addon"><svg><use href="#ic-search"/></svg></span><input class="input" placeholder="Search targets" /></div>
+          <div class="anchor"><button class="btn btn-outline btn-sm"><svg><use href="#ic-filter"/></svg> Filters</button>
+            <div class="popover layer-pop" data-when="filters" style="top:2.5rem">
+              <div class="stack-3" style="padding:0.75rem">
+                <div class="field"><label>Customer</label><div class="segmented"><button type="button" aria-selected="true">Any</button><button type="button" aria-selected="false">Linked</button><button type="button" aria-selected="false">Not linked</button></div></div>
+                <div class="field"><label>Open reservations</label><div class="segmented"><button type="button" aria-selected="true">Any</button><button type="button" aria-selected="false">Has some</button><button type="button" aria-selected="false">None</button></div></div>
+                <div class="field"><label>Time zone</label><select class="select"><option>Any zone</option></select></div>
+                <div class="row"><button class="btn btn-ghost btn-sm">Clear all</button><span class="grow"></span><button class="btn btn-primary btn-sm">Apply</button></div>
+              </div>
+            </div>
+          </div></div></div>
+      </div>
+      <table class="table">
+        <thead><tr><th>Name</th><th>Customer</th><th>Zone</th><th>Open reservations</th><th class="right"></th></tr></thead>
+        <tbody data-when="loading"><tr class="dt-state"><td colspan="5"><div><span class="spin"></span>Loading data…</div></td></tr></tbody>
+        <tbody data-when="error"><tr class="dt-state error"><td colspan="5"><div>Could not load targets. <button class="btn btn-outline btn-sm">Try again</button></div></td></tr></tbody>
+        <tbody data-when="empty"><tr class="dt-state"><td colspan="5"><div class="dt-empty"><div class="empty-icon"><svg><use href="#ic-pin"/></svg></div><div class="t-card-title">No targets yet</div><p class="muted">A target is the place or job a reservation serves, such as a building site.</p><button class="btn btn-primary btn-sm"><svg><use href="#ic-plus"/></svg> New target</button></div></td></tr></tbody>
+        <tbody data-when="list filters actions edit refused">
+          <tr><td>Riverside Offices</td><td class="muted">—</td><td>Europe/Warsaw</td><td class="num">3</td>
+            <td class="right"><div class="anchor" style="display:inline-block"><button class="btn btn-ghost btn-icon btn-sm" aria-label="Actions"><svg><use href="#ic-more"/></svg></button>
+              <div class="popover layer-pop right" data-when="actions" style="top:2.25rem;width:14rem;text-align:left">
+                <span class="menu-item"><svg><use href="#ic-pencil"/></svg> Edit</span>
+                <a class="menu-item" href="#s8" data-goto="s8"><svg><use href="#ic-list"/></svg> Show its bookings</a>
+                <a class="menu-item" href="#s4" data-goto="s4"><svg><use href="#ic-plus"/></svg> New reservation</a>
+                <span class="menu-item"><svg><use href="#ic-link"/></svg> Link a customer</span>
+                <span class="menu-item danger"><svg><use href="#ic-trash"/></svg> Delete</span>
+              </div></div></td></tr>
+          <tr><td>Northgate Warehouse</td><td><a href="#s13">Brightline Ltd</a></td><td>Europe/Warsaw</td><td class="num">3</td><td class="right"><button class="btn btn-ghost btn-icon btn-sm" aria-label="Actions"><svg><use href="#ic-more"/></svg></button></td></tr>
+          <tr><td>Harbour Bridge repair</td><td><a href="#s13">City Roads Authority</a></td><td>Europe/Warsaw</td><td class="num">2</td><td class="right"><button class="btn btn-ghost btn-icon btn-sm" aria-label="Actions"><svg><use href="#ic-more"/></svg></button></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="toast" data-when="refused"><svg><use href="#ic-warn"/></svg> Riverside Offices has 3 open reservations and cannot be deleted.</div>
+    <aside class="drawer" data-layer="drawer" data-when="edit" aria-label="Edit target">
+      <div class="drawer-head"><div class="grow t-section">Northgate Warehouse</div><button class="btn btn-ghost btn-icon btn-sm" aria-label="Close"><svg><use href="#ic-x"/></svg></button></div>
+      <div class="drawer-body stack-4">
+        <div class="field"><label>Name <span class="req">*</span></label><input class="input" value="Northgate Warehouse" /></div>
+        <div class="field"><label>Customer</label><div class="input-group"><span class="addon"><svg><use href="#ic-search"/></svg></span><input class="input" value="Brightline Ltd" /></div><div class="t-hint">Optional link to a person or company in Customers. <a href="#s13">Open customer card <svg width="12" height="12"><use href="#ic-external"/></svg></a></div></div>
+        <div class="field"><label>Time zone</label><select class="select"><option>Europe/Warsaw</option></select><div class="t-hint">Dates of this target's reservations are shown in this zone.</div></div>
+      </div>
+      <div class="drawer-foot row"><button class="btn btn-destructive-outline btn-sm">Delete</button><span class="grow"></span><button class="btn btn-outline btn-sm">Cancel</button><button class="btn btn-primary btn-sm"><svg><use href="#ic-save"/></svg> Save</button></div>
+    </aside>
+  </div>
+  <div class="notes">
+    <div class="note"><b>1</b><span>Filters and the row menu, as on the other lists.</span></div>
+    <div class="note"><b>2</b><span>On the reservation form a target is picked from this list with a search box; it cannot be typed in.</span></div>
+  </div>
+</section>
+
+<section class="screen" id="s14" data-phase="1">
+  <div class="screen-meta">
+    <h2>14. Notifications</h2>
+    <p>A conflict or a coming coverage gap reaches the dispatcher in the bell, and disappears for everyone once the problem is gone.</p>
+    <div class="screen-refs"><span class="ref">§9</span><span class="ref">§12 Events</span><span class="ref">US-D4</span></div>
+  </div>
+  <div class="frame" data-shell="app" data-url="/backend/bookings" data-nav="s2" data-crumbs="Bookings|Timeline">
+    <div class="page-head"><div><h1 class="t-page-title">Timeline</h1><p>Wed 28 Oct – Tue 3 Nov 2026</p></div></div>
+    <div class="empty" style="min-height:24rem"></div>
+    <div class="popover" data-layer="popover" style="position:absolute;top:3.5rem;right:1.5rem;width:24rem;z-index:var(--z-index-modal)">
+      <div class="row between" style="padding:0.5rem 0.75rem"><span class="t-card-title">Notifications</span><span class="badge badge-neutral">3</span></div>
+      <a class="menu-item" href="#s5" data-goto="s5"><svg><use href="#ic-warn"/></svg><span><b>Conflict on Kubota KX080 · EX-05</b><br><span class="t-hint">2 reservations overlap Thu 29 – Fri 30 Oct</span></span></a>
+      <a class="menu-item" href="#s6" data-goto="s6"><svg><use href="#ic-clock"/></svg><span><b>Harbour Bridge has no crane</b><br><span class="t-hint">Expected 29 Oct · overdue</span></span></a>
+      <a class="menu-item" href="#s6" data-goto="s6"><svg><use href="#ic-clock"/></svg><span><b>Northgate Warehouse needs an excavator</b><br><span class="t-hint">Expected 4 Nov · in 3 working days</span></span></a>
+    </div>
+  </div>
+  <div class="notes">
+    <div class="note"><b>1</b><span>Two conflicts of one subject merge into one notification; gaps merge by target. A dismissed notification does not come back the next morning.</span></div>
+    <div class="note"><b>2</b><span>Sent only to holders of <code>bookings.manage_bookings</code>; the hourly scan and every write resolve notifications whose problem is gone.</span></div>
+  </div>
+</section>
+
+<section class="screen" id="s15" data-phase="1">
+  <div class="screen-meta">
+    <h2>15. Timeline — viewer</h2>
+    <p>A user with <code>bookings.view</code> follows the plan without any write control; dragging does nothing.</p>
+    <div class="screen-refs"><span class="ref">§12 Permissions</span><span class="ref">US-D5</span></div>
+  </div>
+  <div class="frame" data-shell="app" data-role="viewer" data-url="/backend/bookings" data-nav="s2" data-crumbs="Bookings|Timeline">
+    <div class="page-head">
+      <div><h1 class="t-page-title">Timeline <span class="badge badge-neutral"><svg><use href="#ic-eye"/></svg> View only</span></h1><p>Wed 28 Oct – Tue 3 Nov 2026 · Europe/Warsaw</p></div>
+    </div>
+    <div class="tl">
+      <div class="tl-grid">
+        <div class="tl-row tl-head"><div class="tl-label">Subject</div><div class="tl-day" style="grid-column:2"><b>Wed 28</b></div><div class="tl-day" style="grid-column:3"><b>Thu 29</b></div><div class="tl-day today" style="grid-column:4"><b>Fri 30</b></div><div class="tl-day off" style="grid-column:5"><b>Sat 31</b></div><div class="tl-day off" style="grid-column:6"><b>Sun 1</b></div><div class="tl-day" style="grid-column:7"><b>Mon 2</b></div><div class="tl-day" style="grid-column:8"><b>Tue 3</b></div></div>
+        <div class="tl-row"><div class="tl-label">CAT 320 · EX-02<small>Thing</small></div><div class="tl-day" style="grid-column:2"></div><div class="tl-day" style="grid-column:3"></div><div class="tl-day today" style="grid-column:4"></div><div class="tl-day off" style="grid-column:5"></div><div class="tl-day off" style="grid-column:6"></div><div class="tl-day" style="grid-column:7"></div><div class="tl-day" style="grid-column:8"></div>
+          <span class="tl-bar c-blue" style="grid-column:2/5">BK-1031 · Riverside Offices</span><span class="tl-bar c-blue" style="grid-column:7/9">BK-1044 · Northgate</span></div>
+        <div class="tl-row"><div class="tl-label">Marek Wiśniewski<small>Person</small></div><div class="tl-day" style="grid-column:2"></div><div class="tl-day" style="grid-column:3"></div><div class="tl-day today" style="grid-column:4"></div><div class="tl-day off" style="grid-column:5"></div><div class="tl-day off" style="grid-column:6"></div><div class="tl-day" style="grid-column:7"></div><div class="tl-day" style="grid-column:8"></div>
+          <span class="tl-bar c-emerald" style="grid-column:3/5">BK-1033 · Riverside Offices</span></div>
+      </div>
+    </div>
+  </div>
+  <div class="notes">
+    <div class="note"><b>1</b><span>No Edit, New reservation or Unavailability; the card opens without actions. Viewers get no notifications. A direct write is refused with 403.</span></div>
+    <div class="note"><b>2</b><span>The shell follows the user's features: the menu shows only Timeline and All bookings, without Bookings setup and Bookings settings, and the bell has no bookings notifications.</span></div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════ PHASE 2 ═══════════════════════════ -->
+
+<section class="screen" id="s16" data-phase="2">
+  <div class="screen-meta">
+    <h2>16. Visit in minutes with a second participant</h2>
+    <p>A receptionist books a ninety-minute visit at a given hour with a doctor and a surgery together.</p>
+    <div class="screen-refs"><span class="ref">§18 Reservations in minutes</span><span class="ref">§7.2</span><span class="ref">US-F1</span><span class="ref">US-F2</span><span class="ref">US-F5</span></div>
+    <div class="states" data-states="ok:Inside hours|outside:Outside working hours"></div>
+  </div>
+  <div class="frame" data-shell="app" data-url="/backend/bookings" data-nav="s2" data-crumbs="Bookings|Timeline">
+    <div class="empty" style="min-height:28rem"></div>
+    <div class="modal" data-layer="modal" role="dialog" aria-label="New reservation">
+      <div class="modal-head"><div class="t-section">New reservation</div></div>
+      <div class="modal-body stack-4">
+        <div class="form-grid form-grid-2">
+          <div class="field"><label>Target <span class="req">*</span></label><input class="input" value="Peter Novak (patient)" /></div>
+          <div class="field"><label>Duration</label><div class="row"><input class="input" value="90" /><select class="select"><option>minutes</option><option>working days</option></select></div></div>
+          <div class="field"><label>Start</label><input class="input" value="Fri 6 Nov 2026, 14:30" data-when="outside" /><input class="input" value="Fri 6 Nov 2026, 09:30" data-when="ok" /></div>
+          <div class="field"><label>End</label><input class="input" value="16:00" disabled data-when="outside" /><input class="input" value="11:00" disabled data-when="ok" /><div class="t-hint">Computed: start plus minutes.</div></div>
+        </div>
+        <div class="field"><label>Participants</label>
+          <table class="table"><thead><tr><th>Subject</th><th>Role</th><th class="right"></th></tr></thead><tbody>
+            <tr><td>Dr Anna Nowak</td><td>Dentist</td><td class="right"><button class="btn btn-ghost btn-icon btn-sm" aria-label="Remove"><svg><use href="#ic-x"/></svg></button></td></tr>
+            <tr><td>Surgery 2</td><td>Room</td><td class="right"><button class="btn btn-ghost btn-icon btn-sm" aria-label="Remove"><svg><use href="#ic-x"/></svg></button></td></tr>
+          </tbody></table>
+          <button class="btn btn-outline btn-sm" style="align-self:flex-start"><svg><use href="#ic-plus"/></svg> Add participant</button>
+        </div>
+        <div class="alert alert-warning" data-when="outside"><svg><use href="#ic-warn"/></svg><div><div class="alert-title">Outside working hours</div>Dr Anna Nowak works 08:00–15:00 on Fridays. The visit runs until 16:00.</div></div>
+        <div class="t-hint">Surgery 2 has no working hours defined, so it is not checked.</div>
+      </div>
+      <div class="modal-foot"><span class="grow"></span><button class="btn btn-outline">Cancel</button><button class="btn btn-primary" data-when="ok">Save</button><button class="btn btn-primary" data-when="outside" data-goto="s17">Save</button></div>
+    </div>
+  </div>
+  <div class="notes">
+    <div class="note"><b>1</b><span>Two visits on one day conflict only when their hours overlap. The reservation conflicts if any participant does; cancelling frees all of them.</span></div>
+    <div class="note"><b>2</b><span>Working hours come from availability already defined in Staff and Resources, read from planner — the module defines no hours of its own.</span></div>
+  </div>
+</section>
+
+<section class="screen" id="s17" data-phase="2">
+  <div class="screen-meta">
+    <h2>17. Confirm warnings</h2>
+    <p>Under the mode "Confirm warnings" a write with warnings stops; a user with the override feature confirms the exact list with a reason.</p>
+    <div class="screen-refs"><span class="ref">§9 Confirming warnings</span><span class="ref">US-F4</span></div>
+    <div class="states" data-states="confirm:Confirm|changed:List changed"></div>
+  </div>
+  <div class="frame" data-shell="app" data-url="/backend/bookings" data-nav="s2" data-crumbs="Bookings|Timeline">
+    <div class="empty" style="min-height:24rem"></div>
+    <div class="modal" data-layer="modal" role="dialog" aria-label="Confirm warnings">
+      <div class="modal-head"><div class="t-section">Save despite 2 warnings?</div></div>
+      <div class="modal-body stack-4">
+        <div class="alert alert-info" data-when="changed"><svg><use href="#ic-refresh"/></svg><div><div class="alert-title">The warnings changed</div>Another booking was saved meanwhile. Review the new list — nothing was written.</div></div>
+        <table class="table"><thead><tr><th>Warning</th><th>With</th></tr></thead><tbody>
+          <tr><td>Outside working hours</td><td>Dr Anna Nowak · works until 15:00</td></tr>
+          <tr><td>Double booking</td><td>Surgery 2 · BK-2210, 15:30–16:30</td></tr>
+          <tr data-when="changed"><td>Unavailability</td><td>Dr Anna Nowak · Training, from 15:30</td></tr>
+        </tbody></table>
+        <div class="field"><label>Reason <span class="req">*</span></label><textarea class="textarea">Patient in pain; Dr Nowak agreed to stay late.</textarea><div class="t-hint">Stored on the reservation, encrypted.</div></div>
+      </div>
+      <div class="modal-foot"><span class="grow"></span><button class="btn btn-outline">Back to form</button><button class="btn btn-primary">Confirm and save</button></div>
+    </div>
+  </div>
+  <div class="notes">
+    <div class="note"><b>1</b><span>Requires <code>bookings.override_conflict</code>; without it the dialog shows the list and only "Back to form".</span></div>
+  </div>
+</section>
+
+<section class="screen" id="s18" data-phase="2">
+  <div class="screen-meta">
+    <h2>18. Calendar view</h2>
+    <p>The second view of the timeline page: day, week, month and agenda for one subject or one target — "what does Dr Nowak's week look like".</p>
+    <div class="screen-refs"><span class="ref">§11 Calendar view</span><span class="ref">US-F3</span></div>
+  </div>
+  <div class="frame" data-shell="app" data-url="/backend/bookings?view=calendar&amp;subject=dr-nowak" data-nav="s2" data-crumbs="Bookings|Timeline|Calendar">
+    <div class="page-head">
+      <div><h1 class="t-page-title">Dr Anna Nowak</h1><p>Week 2–6 Nov 2026 · shown in Europe/Warsaw, the subject's zone</p></div>
+      <div class="page-actions"><div class="segmented"><button type="button" aria-selected="false" data-goto="s2">Timeline</button><button type="button" aria-selected="true">Calendar</button></div></div>
+    </div>
+    <div class="row wrap"><select class="select" style="width:auto"><option>Subject: Dr Anna Nowak</option><option>Target: Peter Novak</option></select><span class="grow"></span><div class="segmented"><button type="button" aria-selected="false">Day</button><button type="button" aria-selected="true">Week</button><button type="button" aria-selected="false">Month</button><button type="button" aria-selected="false">Agenda</button></div></div>
+    <div class="cal"><div class="cal-grid">
+      <div class="cal-dh"></div><div class="cal-dh">Mon 2</div><div class="cal-dh">Tue 3</div><div class="cal-dh">Wed 4</div><div class="cal-dh">Thu 5</div><div class="cal-dh">Fri 6</div>
+      <div class="cal-h">08:00</div><div></div><div><span class="cal-ev h2">08:00 Check-up · Peter Novak</span></div><div></div><div></div><div></div>
+      <div class="cal-h">09:00</div><div><span class="cal-ev h15">09:00 Filling · Eva Lis</span></div><div></div><div></div><div><span class="cal-ev">09:00 GMT · 10:00 here — Remote consult · London clinic</span></div><div><span class="cal-ev h2">09:30 Check-up + cleaning</span></div>
+      <div class="cal-h">10:00</div><div></div><div></div><div><span class="cal-ev">10:00 Extraction · J. Wróbel</span></div><div></div><div></div>
+      <div class="cal-h">11:00</div><div></div><div></div><div></div><div></div><div></div>
+      <div class="cal-h">12:00</div><div></div><div></div><div></div><div></div><div><span class="cal-ev">12:00 Filling · M. Kot</span></div>
+      <div class="cal-h">13:00</div><div></div><div></div><div></div><div></div><div></div>
+      <div class="cal-h">14:00</div><div></div><div></div><div></div><div></div><div></div>
+      <div class="cal-h">15:00</div><div class="cal-closed"></div><div class="cal-closed"></div><div class="cal-closed"></div><div class="cal-closed"></div><div class="cal-closed"></div>
+    </div></div>
+  </div>
+  <div class="notes">
+    <div class="note"><b>1</b><span>Calendar is a view switch on the timeline page instead of its own menu item, and it replaces the hourly scale of the timeline (former screen 19). Specification §11 has both; to be confirmed with the maintainers.</span></div>
+    <div class="note"><b>2</b><span>Built on the shared calendar of <code>@open-mercato/ui</code>, extended to bucket by the view's zone and to drag existing entries; entries of a target in another zone carry their own zone on the label. Grey hours are outside the subject's working windows.</span></div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════ PHASE 3 ═══════════════════════════ -->
+
+<section class="screen" id="s20" data-phase="3">
+  <div class="screen-meta">
+    <h2>20. Catalog product — Booking section</h2>
+    <p>An administrator makes a product bookable on the product screen of Catalog, through a section the bookings module injects.</p>
+    <div class="screen-refs"><span class="ref">§16 Where it is edited</span><span class="ref">§18 Definition of a day</span><span class="ref">US-G1</span><span class="ref">US-G4</span></div>
+    <div class="states" data-states="dental:Dental service|hotel:Hotel night"></div>
+  </div>
+  <div class="frame" data-shell="app" data-url="/backend/catalog/products/check-up" data-nav="" data-crumbs="Catalog|Products|Dental check-up">
+    <div class="form-head"><a class="back-link" href="#s20"><svg><use href="#ic-chevron-left"/></svg> Products</a><span class="title" data-when="dental">Dental check-up</span><span class="title" data-when="hotel">Double room — night</span></div>
+    <div class="form-layout">
+      <div class="form-col">
+        <div class="form-group"><div class="title">General</div><div class="form-grid form-grid-2"><div class="field"><label>Name</label><input class="input" value="Dental check-up" data-when="dental" /><input class="input" value="Double room — night" data-when="hotel" /></div><div class="field"><label>SKU</label><input class="input" value="SRV-CHK" /></div></div></div>
+        <div class="form-group">
+          <div class="row between"><div class="title">Booking</div><span class="badge badge-info">Bookings module</span></div>
+          <div class="desc">Makes this product bookable. Without this section the product cannot be booked.</div>
+          <div class="form-grid form-grid-2">
+            <div class="field"><label>Duration</label><div class="row" data-when="dental"><input class="input" value="30" /><select class="select"><option>minutes</option></select></div><div class="row" data-when="hotel"><input class="input" value="1" /><select class="select"><option>days</option></select></div></div>
+            <div class="field"><label>Price basis</label><select class="select" data-when="dental"><option>Per visit</option></select><select class="select" data-when="hotel"><option>Per day</option></select></div>
+            <div class="field" data-when="hotel"><label>Day starts</label><input class="input" value="15:00" /></div>
+            <div class="field" data-when="hotel"><label>Day ends</label><input class="input" value="11:00 next day" /><div class="t-hint">Three nights from 1 June end on 4 June at 11:00.</div></div>
+          </div>
+          <table class="table"><thead><tr><th>Needs</th><th>From</th><th>Count</th></tr></thead><tbody>
+            <tr data-when="dental"><td>Role: Dentist</td><td>Staff</td><td class="num">1</td></tr>
+            <tr data-when="dental"><td>Role: Assistant</td><td>Staff</td><td class="num">1</td></tr>
+            <tr data-when="dental"><td>Resource type: Surgery</td><td>Resources</td><td class="num">1</td></tr>
+            <tr data-when="hotel"><td>Resource type: Double room</td><td>Resources</td><td class="num">1</td></tr>
+          </tbody></table>
+          <button class="btn btn-outline btn-sm" style="align-self:flex-start"><svg><use href="#ic-plus"/></svg> Add requirement</button>
+        </div>
+      </div>
+      <div class="form-col"><div class="form-group"><div class="title">Pricing</div><div class="t-hint">Prices come from Catalog pricing.</div><div class="row between"><span>Gross</span><b class="num" data-when="dental">PLN 180.00</b><b class="num" data-when="hotel">PLN 420.00</b></div></div></div>
+    </div>
+    <div class="form-foot"><div class="actions"><button class="btn btn-outline">Cancel</button><button class="btn btn-primary"><svg><use href="#ic-save"/></svg> Save</button></div></div>
+  </div>
+  <div class="notes">
+    <div class="note"><b>1</b><span>Injected through the form extension host <code>crud-form:catalog.product</code>; the section saves through the bookings commands. Catalog does not know about reservations.</span></div>
+    <div class="note"><b>2</b><span>Services can also be defined in code by a product module and seeded into each organization (US-G6); an administrator's later change is never overwritten.</span></div>
+  </div>
+</section>
+
+<section class="screen" id="s21" data-phase="3">
+  <div class="screen-meta">
+    <h2>21. Visit with several services and pools</h2>
+    <p>One visit holds a check-up and a cleaning; the module merges what they need and picks a free dentist, assistant and surgery from the pools.</p>
+    <div class="screen-refs"><span class="ref">§16 A reservation of services</span><span class="ref">§17 Pools</span><span class="ref">US-G5</span><span class="ref">US-G2</span></div>
+    <div class="states" data-states="picked:Picked|nofree:Nobody free"></div>
+  </div>
+  <div class="frame" data-shell="app" data-url="/backend/bookings" data-nav="s2" data-crumbs="Bookings|Timeline">
+    <div class="empty" style="min-height:30rem"></div>
+    <div class="modal" data-layer="modal" role="dialog" aria-label="New visit">
+      <div class="modal-head"><div class="t-section">New visit · Peter Novak</div></div>
+      <div class="modal-body stack-4">
+        <table class="table"><thead><tr><th>Service</th><th>Duration</th><th class="right">Price</th><th class="right"></th></tr></thead><tbody>
+          <tr><td>Dental check-up</td><td>30 min</td><td class="right num">PLN 180.00</td><td class="right"><button class="btn btn-ghost btn-icon btn-sm" aria-label="Remove line"><svg><use href="#ic-x"/></svg></button></td></tr>
+          <tr><td>Scaling and cleaning</td><td>45 min</td><td class="right num">PLN 250.00</td><td class="right"><button class="btn btn-ghost btn-icon btn-sm" aria-label="Remove line"><svg><use href="#ic-x"/></svg></button></td></tr>
+        </tbody><tfoot><tr><td><b>Fri 6 Nov, 09:30–10:45</b></td><td>75 min</td><td class="right num"><b>PLN 430.00</b></td><td></td></tr></tfoot></table>
+        <table class="table"><thead><tr><th>Needs</th><th>Pool</th><th>Picked</th></tr></thead><tbody>
+          <tr><td>Dentist</td><td>Any dentist</td><td>Dr Anna Nowak <button class="btn btn-ghost btn-xs">Change</button></td></tr>
+          <tr><td>Assistant</td><td>Any assistant</td><td data-when="picked">Kasia Lis <button class="btn btn-ghost btn-xs">Change</button></td><td data-when="nofree"><span class="badge badge-error">Nobody free</span></td></tr>
+          <tr><td>Surgery</td><td>Any surgery</td><td>Surgery 2 <button class="btn btn-ghost btn-xs">Change</button></td></tr>
+        </tbody></table>
+        <div class="alert alert-error" data-when="nofree"><svg><use href="#ic-x"/></svg><div><div class="alert-title">Not saved</div>No assistant is free 09:30–10:45 on Fri 6 Nov. <a href="#s22" data-goto="s22">Find the first free dates</a></div></div>
+      </div>
+      <div class="modal-foot"><span class="grow"></span><button class="btn btn-outline">Cancel</button><button class="btn btn-primary">Save</button></div>
+    </div>
+  </div>
+  <div class="notes">
+    <div class="note"><b>1</b><span>Lines run one after another in one window; what they need is merged — one dentist for both, not two. Removing a line shortens the visit and drops people only it needed.</span></div>
+    <div class="note"><b>2</b><span>Each requirement is filled by a different free member, picked by round robin; the user can still pick by hand.</span></div>
+  </div>
+</section>
+
+<section class="screen" id="s22" data-phase="3">
+  <div class="screen-meta">
+    <h2>22. First free dates</h2>
+    <p>A receptionist on the phone sees the first starts where every requirement of the service is free.</p>
+    <div class="screen-refs"><span class="ref">§17 Free slots</span><span class="ref">US-G3</span></div>
+  </div>
+  <div class="frame" data-shell="app" data-url="/backend/bookings/free-slots" data-nav="s2" data-crumbs="Bookings|Free dates">
+    <div class="page-head"><div><h1 class="t-page-title">First free dates</h1><p>Within 90 days, on a 15-minute grid.</p></div></div>
+    <div class="row wrap"><div class="field"><label>Service</label><select class="select"><option>Dental check-up + Scaling and cleaning</option></select></div><div class="field"><label>Dentist</label><select class="select"><option>Any dentist</option></select></div></div>
+    <div class="card card-pad stack-4">
+      <div><div class="t-label">Mon 9 Nov</div><div class="slots" style="margin-top:0.5rem"><button class="slot" data-goto="s21">08:00</button><button class="slot" data-goto="s21">08:15</button><button class="slot" data-goto="s21">13:30</button><button class="slot" data-goto="s21">13:45</button></div></div>
+      <div><div class="t-label">Tue 10 Nov</div><div class="slots" style="margin-top:0.5rem"><button class="slot" data-goto="s21">11:00</button><button class="slot" data-goto="s21">11:15</button><button class="slot" data-goto="s21">11:30</button></div></div>
+    </div>
+  </div>
+  <div class="notes">
+    <div class="note"><b>1</b><span>The same free-slots read serves this screen, the public page and other modules — one question in three places (§17).</span></div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════ PHASE 4 ═══════════════════════════ -->
+
+<section class="screen" id="s23" data-phase="4">
+  <div class="screen-meta">
+    <h2>23. Booking pages</h2>
+    <p>Staff create a page per service the way payment links are created, and share its link.</p>
+    <div class="screen-refs"><span class="ref">§19 The page</span><span class="ref">US-H1</span></div>
+    <div class="states" data-states="list:List|new:New page|created:Created|edit:Edit"></div>
+  </div>
+  <div class="frame" data-shell="app" data-url="/backend/bookings/pages" data-nav="s23" data-crumbs="Bookings|Booking pages">
+    <div class="dt">
+      <div class="dt-head"><div class="dt-head-row"><div class="row between"><h2 class="t-table-title" style="margin:0">Booking pages</h2><button class="btn btn-primary"><svg><use href="#ic-plus"/></svg> New page</button></div></div></div>
+      <table class="table">
+        <thead><tr><th>Page</th><th>Link</th><th>Services</th><th>Awaiting</th><th>State</th><th class="right"></th></tr></thead>
+        <tbody>
+          <tr data-when="created"><td>Implants consultation</td><td class="t-mono">/book/smile-implants</td><td>1</td><td class="num">0</td><td><span class="badge badge-success">Active</span></td><td class="right"><button class="btn btn-ghost btn-icon btn-sm" aria-label="Copy link"><svg><use href="#ic-copy"/></svg></button></td></tr>
+          <tr><td>Check-ups</td><td class="t-mono">/book/smile-check-up</td><td>2</td><td class="num">3</td><td><span class="badge badge-success">Active</span></td><td class="right"><button class="btn btn-ghost btn-icon btn-sm" aria-label="Copy link"><svg><use href="#ic-copy"/></svg></button></td></tr>
+          <tr><td>Whitening</td><td class="t-mono">/book/smile-whitening</td><td>1</td><td class="num">0</td><td><span class="badge badge-neutral">Inactive</span></td><td class="right"><button class="btn btn-ghost btn-icon btn-sm" aria-label="Copy link"><svg><use href="#ic-copy"/></svg></button></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="toast" data-when="created"><svg><use href="#ic-check"/></svg> Page created. Link copied: smileclinic.example/book/smile-implants <a href="#s24" data-goto="s24">Open page</a></div>
+    <aside class="drawer" data-layer="drawer" data-when="new" aria-label="New booking page">
+      <div class="drawer-head"><div class="grow t-section">New booking page</div><button class="btn btn-ghost btn-icon btn-sm" aria-label="Close"><svg><use href="#ic-x"/></svg></button></div>
+      <div class="drawer-body stack-3">
+        <div class="field"><label>Name <span class="req">*</span></label><input class="input" value="Implants consultation" /></div>
+        <div class="field"><label>Address <span class="req">*</span></label><div class="input-group"><span class="addon">/book/</span><input class="input" value="smile-implants" /></div><div class="t-hint">Filled from the name; must be unique.</div></div>
+        <div class="field"><label>Services <span class="req">*</span></label><select class="select"><option>Choose bookable services…</option></select><div class="t-hint">Only products with a Booking section are listed.</div></div>
+        <div class="t-label">Rules — defaults, change if needed</div>
+        <div class="form-grid form-grid-2">
+          <div class="field"><label>Customer picks a person</label><select class="select"><option>Yes, or "any"</option></select></div>
+          <div class="field"><label>Lead time</label><input class="input" value="2 hours" /></div>
+          <div class="field"><label>Horizon</label><input class="input" value="60 days" /></div>
+          <div class="field"><label>Grid</label><input class="input" value="15 minutes" /></div>
+          <div class="field"><label>Confirm within</label><input class="input" value="24 hours" /></div>
+          <div class="field"><label>Payment</label><select class="select"><option>None</option></select></div>
+        </div>
+        <div class="row between"><span>Staff confirm each request</span><span class="switch" role="switch" aria-checked="true"></span></div>
+        <div class="row between"><span>Active</span><span class="switch" role="switch" aria-checked="true"></span></div>
+      </div>
+      <div class="drawer-foot row"><span class="grow"></span><button class="btn btn-outline btn-sm">Cancel</button><button class="btn btn-primary btn-sm"><svg><use href="#ic-save"/></svg> Create page</button></div>
+    </aside>
+    <aside class="drawer" data-layer="drawer" data-when="edit" aria-label="Edit booking page">
+      <div class="drawer-head"><div class="grow t-section">Check-ups</div><button class="btn btn-ghost btn-icon btn-sm" aria-label="Close"><svg><use href="#ic-x"/></svg></button></div>
+      <div class="drawer-body stack-3">
+        <div class="field"><label>Address</label><div class="input-group"><span class="addon">/book/</span><input class="input" value="smile-check-up" /></div></div>
+        <div class="field"><label>Services</label><input class="input" value="Dental check-up, Scaling and cleaning" /></div>
+        <div class="form-grid form-grid-2">
+          <div class="field"><label>Customer picks a person</label><select class="select"><option>Yes, or "any"</option><option>No, module picks</option></select></div>
+          <div class="field"><label>Lead time</label><input class="input" value="2 hours" /></div>
+          <div class="field"><label>Horizon</label><input class="input" value="60 days" /></div>
+          <div class="field"><label>Grid</label><input class="input" value="15 minutes" /></div>
+          <div class="field"><label>Confirm within</label><input class="input" value="24 hours" /></div>
+          <div class="field"><label>Payment</label><select class="select"><option>None</option><option>Payment link after confirmation</option></select></div>
+          <div class="field"><label>Keep declined requests</label><input class="input" value="90 days" /></div>
+          <div class="field"><label>Customer account</label><select class="select"><option>Not required</option><option>Required</option></select></div>
+        </div>
+        <div class="row between"><span>Staff confirm each request</span><span class="switch" role="switch" aria-checked="true"></span></div>
+        <div class="row between"><span>Active</span><span class="switch" role="switch" aria-checked="true"></span></div>
+      </div>
+      <div class="drawer-foot row"><span class="grow"></span><button class="btn btn-outline btn-sm">Cancel</button><button class="btn btn-primary btn-sm"><svg><use href="#ic-save"/></svg> Save</button></div>
+    </aside>
+  </div>
+  <div class="notes">
+    <div class="note"><b>1</b><span>New page: name, address, services, then the rules prefilled with defaults; after creating, the link is copied and the page can be opened.</span></div>
+    <div class="note"><b>2</b><span>Defaults: no login, 15-minute grid, two hours lead time, sixty days horizon, confirmation on, 24 hours to confirm, no payment. An inactive page takes no requests.</span></div>
+  </div>
+</section>
+
+<section class="screen" id="s24" data-phase="4">
+  <div class="screen-meta">
+    <h2>24. Public booking page</h2>
+    <p>A customer picks a service, optionally a person, and a free slot, leaves their details, and sees that the request waits for confirmation — without an account.</p>
+    <div class="screen-refs"><span class="ref">§19 The flow</span><span class="ref">§19 Protection</span><span class="ref">US-H2</span><span class="ref">US-H4</span></div>
+    <div class="states" data-states="pick:Pick a slot|taken:Slot just taken|down:Schedules unavailable|details:Your details|received:Request received"></div>
+  </div>
+  <div class="frame" data-shell="public" data-url="https://smileclinic.example/book/smile-check-up">
+    <div class="pub-card">
+      <div class="pub-head"><span class="brand-mark">SC</span><div><div class="t-section">Smile Clinic</div><div class="t-hint">Book a visit</div></div></div>
+      <div class="pub-body">
+        <div class="pub-steps"><span aria-current="step">1 Service and time</span><span>›</span><span>2 Your details</span><span>›</span><span>3 Done</span></div>
+        <div data-when="pick taken down" class="stack-3">
+          <div class="choice" aria-checked="true"><span>Dental check-up · 30 min</span><b class="num">PLN 180</b></div>
+          <div class="choice" aria-checked="false"><span>Scaling and cleaning · 45 min</span><b class="num">PLN 250</b></div>
+          <div class="field"><label>Dentist</label><select class="select"><option>Any dentist</option><option>Dr Anna Nowak</option></select></div>
+        </div>
+        <div class="alert alert-warning" data-when="taken"><svg><use href="#ic-warn"/></svg><div><div class="alert-title">This slot was just taken</div>Someone booked 10:15 a moment ago. Here are other free times.</div></div>
+        <div class="alert alert-info" data-when="down"><svg><use href="#ic-phone"/></svg><div><div class="alert-title">We can't show free times right now</div>Please call us at +48 22 000 00 00.</div></div>
+        <div data-when="pick taken"><div class="t-label">Mon 9 Nov</div><div class="slots" style="margin-top:0.5rem"><button class="slot">08:00</button><button class="slot" aria-pressed="true" data-when="pick">10:15</button><button class="slot" disabled data-when="taken">10:15</button><button class="slot">10:30</button><button class="slot">13:45</button></div></div>
+        <div data-when="details" class="form-grid form-grid-2">
+          <div class="field"><label>Full name <span class="req">*</span></label><input class="input" value="Peter Novak" /></div>
+          <div class="field"><label>E-mail <span class="req">*</span></label><input class="input" value="peter.novak@example.com" /></div>
+          <div class="field"><label>Phone</label><input class="input" value="+48 600 000 000" /></div>
+          <div class="field"><label>&nbsp;</label><span class="row"><span class="check" role="checkbox" aria-checked="true"><svg><use href="#ic-check"/></svg></span> I accept the privacy policy</span></div>
+        </div>
+        <div data-when="received" class="stack-3" style="text-align:center">
+          <div class="empty-icon" style="margin:0 auto"><svg><use href="#ic-clock"/></svg></div>
+          <div class="t-section">Request received</div>
+          <p class="muted" style="margin:0">Dental check-up · Mon 9 Nov, 10:15 · any dentist.<br>The clinic will confirm within 24 hours. We will e-mail you either way.</p>
+        </div>
+        <div class="row" data-when="pick taken details"><span class="grow"></span><button class="btn btn-primary">Continue</button></div>
+      </div>
+    </div>
+  </div>
+  <div class="notes">
+    <div class="note"><b>1</b><span>Only really free slots are shown; when schedules cannot be read, none are shown and the page says to call.</span></div>
+    <div class="note"><b>2</b><span>An awaiting request holds its slot. It expires after the page's time, frees the slot and e-mails the customer (US-H4 — e-mail only, no screen).</span></div>
+    <div class="note"><b>3</b><span>Rate limit, origin check and idempotency protect the page; no CAPTCHA is built in (§19, §21 open question).</span></div>
+    <div class="note"><b>4</b><span>The public shell is illustrative: <code>om-mockup-prototype</code> has no pattern for public pages. Each step is an injection spot and a replaceable component (§20).</span></div>
+  </div>
+</section>
+
+<section class="screen" id="s25" data-phase="4">
+  <div class="screen-meta">
+    <h2>25. Confirm or decline a request</h2>
+    <p>A receptionist confirms a request from the public page and decides which customer it belongs to.</p>
+    <div class="screen-refs"><span class="ref">§19 Confirmation</span><span class="ref">§19 The customer</span><span class="ref">US-H3</span></div>
+  </div>
+  <div class="frame" data-shell="app" data-url="/backend/bookings?reservation=BK-2231" data-nav="s2" data-crumbs="Bookings|Timeline">
+    <div class="empty" style="min-height:30rem"></div>
+    <aside class="drawer" data-layer="drawer" aria-label="Request BK-2231">
+      <div class="drawer-head"><div class="grow"><div class="t-overline">BK-2231 · from Check-ups</div><div class="t-section">Dental check-up · Mon 9 Nov, 10:15</div></div><span class="badge badge-warning">Awaiting · 19 h left</span></div>
+      <div class="drawer-body stack-4">
+        <table class="table"><tbody>
+          <tr><td class="muted">Customer</td><td>Peter Novak · peter.novak@example.com · +48 600 000 000</td></tr>
+          <tr><td class="muted">Dentist</td><td>Any → Dr Anna Nowak</td></tr>
+        </tbody></table>
+        <div class="field"><label>Link to a customer</label>
+          <div class="stack-2">
+            <div class="choice" aria-checked="true"><span>Peter Novak <span class="t-hint">· e-mail matches · 3 visits</span></span><svg width="16" height="16"><use href="#ic-check"/></svg></div>
+            <div class="choice" aria-checked="false"><span>P. Novak <span class="t-hint">· phone matches</span></span></div>
+            <div class="choice" aria-checked="false"><span>Create a new customer</span></div>
+            <div class="choice" aria-checked="false"><span>Leave unlinked</span></div>
+          </div>
+        </div>
+        <div class="t-hint">Confirming e-mails the customer the details. This page asks for no payment.</div>
+      </div>
+      <div class="drawer-foot row"><button class="btn btn-destructive-outline btn-sm">Decline</button><span class="grow"></span><button class="btn btn-primary btn-sm"><svg><use href="#ic-check"/></svg> Confirm</button></div>
+    </aside>
+  </div>
+  <div class="notes">
+    <div class="note"><b>1</b><span>Confirm and decline are commands, not undoable. When the page asks for payment, confirming sends a Checkout payment link.</span></div>
+  </div>
+</section>
+
+</div>
+
+<script>
+(function () {
+  var VIEWS = [
+    ['s2', 'Timeline', 'ic-timeline'],
+    ['s8', 'All bookings', 'ic-list']
+  ];
+  var SETUP = [
+    ['s9', 'Subjects', 'ic-truck'],
+    ['s13', 'Targets', 'ic-pin'],
+    ['s12', 'Categories', 'ic-tag'],
+    ['s23', 'Booking pages', 'ic-link']
+  ];
+
+  function icon(id) { return '<svg><use href="#' + id + '"/></svg>'; }
+
+  function navItem(item, activeId) {
+    var cls = 'nav-item' + (item[0] === activeId ? ' active' : '');
+    return '<a class="' + cls + '" href="#' + item[0] + '" data-goto="' + item[0] + '">' + icon(item[2]) + ' ' + item[1] + '</a>';
+  }
+
+  function navGroup(title, items, activeId) {
+    return '<div class="nav-group"><span>' + title + '</span>' + icon('ic-chevron-down') + '</div>' +
+      '<div class="nav-items">' + items.map(function (item) { return navItem(item, activeId); }).join('') + '</div>';
+  }
+
+  function crumbs(list) {
+    return icon('ic-home') + list.map(function (part, index) {
+      return icon('ic-chevron-right') + (index === list.length - 1 ? '<span class="here">' + part + '</span>' : '<span>' + part + '</span>');
+    }).join('');
+  }
+
+  document.querySelectorAll('.frame[data-shell]').forEach(function (frame) {
+    var layers = Array.prototype.slice.call(frame.querySelectorAll('[data-layer]'));
+    layers.forEach(function (layer) { layer.remove(); });
+    var content = frame.innerHTML;
+    var bar = '<div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">' + frame.getAttribute('data-url') + '</span></div>';
+
+    if (frame.getAttribute('data-shell') === 'public') {
+      frame.innerHTML = bar + '<div class="pub">' + content + '</div>';
+      return;
+    }
+
+    var activeId = frame.getAttribute('data-nav');
+    var viewer = frame.getAttribute('data-role') === 'viewer';
+    var tall = layers.length ? ' app-tall' : '';
+    var nav = viewer
+      ? navGroup('Bookings', VIEWS, activeId)
+      : navGroup('Bookings', VIEWS, activeId) +
+        navGroup('Bookings setup', SETUP, activeId) +
+        navGroup('Settings', [['s1', 'Bookings settings', 'ic-settings']], activeId);
+    var bell = viewer
+      ? '<span class="icon-btn" aria-label="Notifications">' + icon('ic-bell') + '</span>'
+      : '<a class="icon-btn" href="#s14" data-goto="s14" aria-label="Notifications">' + icon('ic-bell') + '<span class="badge-count">3</span></a>';
+    frame.innerHTML = bar +
+      '<div class="app' + tall + '">' +
+        '<aside class="sidebar">' +
+          '<div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Open Mercato</span></div>' +
+          '<div class="sidebar-search">' + icon('ic-search') + ' Search</div>' +
+          '<nav class="sidebar-nav">' + nav + '</nav>' +
+        '</aside>' +
+        '<div class="main">' +
+          '<header class="topbar">' +
+            '<div class="topbar-left"><div class="crumbs">' + crumbs(frame.getAttribute('data-crumbs').split('|')) + '</div></div>' +
+            '<div class="topbar-right"><div class="topbar-search">' + icon('ic-search') + ' Search</div>' +
+              bell +
+              '<span class="avatar">' + (viewer ? 'VK' : 'JD') + '</span></div>' +
+          '</header>' +
+          '<main class="page">' + content + '</main>' +
+          '<footer class="app-foot"><span>v1.0.0</span><nav class="row-3"><span>Terms</span><span>Privacy</span></nav></footer>' +
+        '</div>' +
+      '</div>';
+
+    var app = frame.querySelector('.app');
+    layers.forEach(function (layer) { app.appendChild(layer); });
+  });
+
+  function refreshScrims(root) {
+    root.querySelectorAll('.app').forEach(function (app) {
+      var visible = function (kind) {
+        return Array.prototype.some.call(app.querySelectorAll('[data-layer="' + kind + '"]'), function (layer) {
+          return !layer.classList.contains('is-off');
+        });
+      };
+      app.classList.toggle('drawer-scrim', visible('drawer'));
+      app.classList.toggle('modal-scrim', visible('modal'));
+    });
+  }
+
+  document.querySelectorAll('.screen').forEach(function (screen) {
+    var meta = screen.querySelector('.screen-meta');
+    var phase = screen.getAttribute('data-phase');
+    var refs = meta.querySelector('.screen-refs');
+    var badge = document.createElement('span');
+    badge.className = 'badge ' + (phase === '1' ? 'badge-success' : 'badge-neutral') + ' phase-badge';
+    badge.textContent = 'Phase ' + phase + (phase === '1' ? ' · first delivery' : ' · roadmap');
+    refs.insertBefore(badge, refs.firstChild);
+
+    var holder = meta.querySelector('.states');
+    if (!holder) {
+      refreshScrims(screen);
+      return;
+    }
+    var states = holder.getAttribute('data-states').split('|').map(function (pair) { return pair.split(':'); });
+    holder.innerHTML = '<span>State</span><div class="segmented" role="tablist"></div>';
+    var group = holder.querySelector('.segmented');
+
+    function show(key) {
+      screen.querySelectorAll('[data-when]').forEach(function (node) {
+        node.classList.toggle('is-off', node.getAttribute('data-when').split(' ').indexOf(key) === -1);
+      });
+      group.querySelectorAll('button').forEach(function (button) {
+        button.setAttribute('aria-selected', button.getAttribute('data-state') === key ? 'true' : 'false');
+      });
+      screen.querySelectorAll('[data-set-state]').forEach(function (button) {
+        var target = button.getAttribute('data-set-state');
+        button.setAttribute('aria-selected', target === key || (target === 'thing' && key === 'partial') ? 'true' : 'false');
+      });
+      refreshScrims(screen);
+    }
+
+    screen.querySelectorAll('[data-set-state]').forEach(function (button) {
+      button.addEventListener('click', function () { show(button.getAttribute('data-set-state')); });
+    });
+
+    states.forEach(function (state) {
+      var button = document.createElement('button');
+      button.type = 'button';
+      button.setAttribute('data-state', state[0]);
+      button.textContent = state[1];
+      button.addEventListener('click', function () { show(state[0]); });
+      group.appendChild(button);
+    });
+    show(states[0][0]);
+  });
+
+  document.querySelectorAll('.screen-nav a[href^="#"]').forEach(function (link) {
+    link.setAttribute('data-goto', link.getAttribute('href').slice(1));
+  });
+
+  document.querySelectorAll('[data-phase-filter]').forEach(function (button) {
+    button.addEventListener('click', function () {
+      var value = button.getAttribute('data-phase-filter');
+      document.querySelectorAll('[data-phase-filter]').forEach(function (other) {
+        other.setAttribute('aria-selected', other === button ? 'true' : 'false');
+      });
+      document.querySelectorAll('.screen').forEach(function (screen) {
+        var hidden = value !== 'all' && screen.getAttribute('data-phase') !== value;
+        screen.classList.toggle('is-filtered', hidden);
+        var link = document.querySelector('.screen-nav a[href="#' + screen.id + '"]');
+        if (link) link.classList.toggle('is-filtered', hidden);
+      });
+      document.querySelectorAll('.screen [data-phase], .screen .sidebar [data-goto]').forEach(function (node) {
+        var target = node.hasAttribute('data-phase') ? node : document.getElementById(node.getAttribute('data-goto'));
+        var later = value !== 'all' && Number(target.getAttribute('data-phase')) > Number(value);
+        node.classList.toggle('is-later', later);
+      });
+    });
+  });
+
+  document.getElementById('theme-toggle').addEventListener('click', function () {
+    document.documentElement.classList.toggle('dark');
+  });
+})();
+</script>
+<script src="comments.js"></script>
+<script src="prototype.js"></script>
+</body>
+</html>
