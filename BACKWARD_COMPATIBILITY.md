@@ -638,8 +638,7 @@ SCIM adds 429/503 before credentials; honor Retry-After. Optional `beforeAuth: A
 
 ## Compose encryption (2026-11-01, #7231)
 
-STABLE defaults: published root removed; bridging retains offline decryption.
-Strong keys/Vault preserved. [Migration](UPGRADE_NOTES.md): retain old DEKs,
-re-encrypt data/hashes. [Spec](.ai/specs/2026-11-01-7231-compose-encryption-key.md).
+STABLE config: unsafe root/lookup keys or remote HTTP Vault refused; a bridge
+retains disclosure. [Migrate](UPGRADE_NOTES.md). [Spec](.ai/specs/2026-11-01-7231-compose-encryption-key.md).
 Emergency steps 1–3 waiver **pending**: named human maintainer approval on the
 security PR required before merge.

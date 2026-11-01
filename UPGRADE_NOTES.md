@@ -6,7 +6,11 @@
 Compose template no longer provide a tenant encryption key; copied env examples are
 blank too. Before initialization/serving, a shared preflight requires a unique key of
 at least 32 UTF-8 bytes or configured HashiCorp Vault (`VAULT_ADDR` + `VAULT_TOKEN`).
-It rejects the published key even if explicitly supplied. Existing strong preferred
+It rejects the published key even if explicitly supplied. The effective lookup secret
+must also be unique and at least 32 bytes: Vault-only installations require a dedicated
+`LOOKUP_HASH_PEPPER`, and a weak explicit pepper cannot override a strong derived key.
+Remote Vault requires HTTPS; HTTP is allowed only for exact `localhost`, `127.0.0.1`
+and `[::1]` hosts, even when a fallback key is supplied. Existing strong preferred
 and legacy keys retain their precedence; supported Vault configuration, its mount and
 timeouts, and `LOOKUP_HASH_PEPPER` now reach all app/sidecar consumers consistently.
 The check also applies when the encryption toggle is off; do not disable encryption
@@ -26,8 +30,9 @@ suspect after rotation.
 
 **Downstream app/module authors:** adopt the updated Compose environment and
 preflight dependency together, keep every replica/sidecar consistent, and account
-for custom ciphertext and hash fields in the operator's inventory. No runtime API,
-crypto format, KMS interface or schema changes are required. Do not bypass the
+for custom ciphertext and hash fields in the operator's inventory. Existing weak/missing peppers require the documented hash inventory/backfill, and
+remote HTTP Vault must move to trusted HTTPS while retaining its existing DEKs. No
+runtime API, crypto format, KMS interface or schema changes are required. Do not bypass the
 preflight when starting servers. A missing/unsafe configuration now prevents startup.
 
 [Migration and rollback runbook](starters/docker/encryption-migration.md) ·

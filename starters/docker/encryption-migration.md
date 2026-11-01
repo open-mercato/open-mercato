@@ -7,6 +7,10 @@ create-app template's `docker-compose.fullapp.yml`.
 The `encryption-preflight` service must exit successfully before app initialization,
 MCP, or Documents collaboration starts. It rejects missing configuration, keys
 shorter than 32 UTF-8 bytes, and the formerly published production/example key.
+The effective lookup secret must also meet that requirement: an explicit pepper wins
+over an encryption key, and Vault-only deployments must supply a dedicated pepper.
+Remote Vault endpoints require HTTPS; HTTP is accepted only for exact loopback hosts
+`localhost`, `127.0.0.1` and `[::1]`. A private network hostname is not a loopback exception.
 `docker compose config` can render an incomplete configuration; startup fails
 before the dependent application processes start. `TENANT_DATA_ENCRYPTION=false`
 does not bypass this production deployment check. Development stacks remain
@@ -30,15 +34,19 @@ model to CI logs, or generate a new key on every container boot.
   Use the same value for every replica; keep a protected recovery copy.
 - Or configure the supported HashiCorp Vault KV v2 KMS using both `VAULT_ADDR` and
   `VAULT_TOKEN`, optionally `VAULT_KV_PATH` (default `secret/data`). Verify read and
-  create permissions for the correct tenant and system key paths. Use TLS for a
-  remote Vault. The Compose files forward Vault settings and request/recovery
+  create permissions for the correct tenant and system key paths. Use HTTPS with
+  a trusted certificate chain for remote Vault; plaintext remote HTTP is rejected,
+  including when a derived fallback is also configured. The Compose files forward Vault settings and request/recovery
   timeouts consistently to app and sidecars. Vault credentials are never substituted
   into a derived encryption key. With no explicit fallback, a Vault outage has no
   derived fallback; provision and verify keys and monitor availability.
 
-For a new Vault-only installation, also provision a separate high-entropy
-`LOOKUP_HASH_PEPPER`; otherwise the unchanged runtime uses legacy unkeyed lookup
-hashes. Compose now forwards an explicitly configured pepper to all consumers.
+For a new Vault-only installation, provision a separate random `LOOKUP_HASH_PEPPER`
+of at least 32 UTF-8 bytes. The preflight rejects a missing/weak/published effective
+pepper instead of allowing the runtime to emit unkeyed lookup hashes. With a derived
+key and no dedicated pepper, the existing strong key remains the lookup secret. An
+explicit weak pepper is rejected even if the encryption key is strong. Compose
+forwards the configured pepper to all consumers.
 Setting a pepper on an existing installation requires the lookup migration below.
 
 If both key variables are set, the preferred fallback wins. With Vault configured,
@@ -72,6 +80,11 @@ lookups and decrypting records. A stronger setting alone does not migrate data.
    Vault-backed installation can keep the same Vault DEKs unchanged. Preserve its
    effective lookup pepper too. Verify whether forwarding an already-set pepper
    changes behavior compared to the older Compose files, which omitted that variable.
+   Vault-only installations with no pepper need a strong dedicated pepper and the
+   complete hash backfill below before confidentiality is restored; old unkeyed hashes
+   remain guessable until recomputed. Existing weak dedicated peppers require the same
+   inventory and migration. Move a remote HTTP Vault endpoint behind trusted HTTPS
+   before cutover; retain the same Vault DEKs, KV paths and effective lookup secret.
 5. For a deployment using a published/weak root, stop traffic and **all writers**:
    app replicas, workers, scheduler, MCP, collaboration and external jobs. Work on a
    restored copy first. Do not bring a server up with the exposed key to preserve

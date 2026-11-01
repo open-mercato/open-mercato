@@ -108,6 +108,46 @@ for (const filename of productionFiles) {
     const normalized = rendered(filename, { TENANT_DATA_ENCRYPTION_FALLBACK_KEY: ` '${randomBytes(32).toString('hex')}' ` })
     assert.equal(preflight(normalized).status, 0)
   })
+
+  test(`${filename}: Vault-only deployments require a strong dedicated lookup pepper`, { skip: !dockerAvailable }, () => {
+    const vault = { VAULT_ADDR: 'https://vault.example.test', VAULT_TOKEN: randomBytes(32).toString('hex') }
+    for (const pepper of ['', ' ', "''", 'weak-lookup-pepper', publishedDevelopmentKey]) {
+      const result = preflight(rendered(filename, { ...vault, LOOKUP_HASH_PEPPER: pepper }))
+      assert.notEqual(result.status, 0)
+      assert.match(result.stderr, /lookup/)
+      if (pepper && pepper.trim() && pepper !== "''") assert.ok(!result.stderr.includes(pepper))
+    }
+    assert.equal(preflight(rendered(filename, {
+      ...vault, LOOKUP_HASH_PEPPER: randomBytes(32).toString('hex'),
+    })).status, 0)
+  })
+
+  test(`${filename}: weak explicit peppers cannot override strong encryption keys`, { skip: !dockerAvailable }, () => {
+    const key = randomBytes(32).toString('hex')
+    for (const pepper of ['weak-lookup-pepper', publishedDevelopmentKey]) {
+      const result = preflight(rendered(filename, { TENANT_DATA_ENCRYPTION_FALLBACK_KEY: key, LOOKUP_HASH_PEPPER: pepper }))
+      assert.notEqual(result.status, 0)
+      assert.match(result.stderr, /lookup/)
+      assert.ok(!result.stderr.includes(pepper))
+    }
+  })
+
+  test(`${filename}: remote Vault requires TLS even when an encryption fallback is supplied`, { skip: !dockerAvailable }, () => {
+    const settings = { VAULT_TOKEN: randomBytes(32).toString('hex'), LOOKUP_HASH_PEPPER: randomBytes(32).toString('hex') }
+    for (const key of ['', randomBytes(32).toString('hex')]) {
+      for (const host of ['vault.example.test', '10.0.0.1', 'localhost.example.test', '127.0.0.1.example.test']) {
+        const result = preflight(rendered(filename, {
+          ...settings, TENANT_DATA_ENCRYPTION_FALLBACK_KEY: key, VAULT_ADDR: `http://${host}:8200`,
+        }))
+        assert.notEqual(result.status, 0)
+        assert.match(result.stderr, /HTTPS/)
+        assert.ok(!result.stderr.includes(settings.VAULT_TOKEN))
+      }
+    }
+    for (const address of ['https://vault.example.test', 'http://localhost:8200', 'http://127.0.0.1:8200', 'http://[::1]:8200']) {
+      assert.equal(preflight(rendered(filename, { ...settings, VAULT_ADDR: address })).status, 0)
+    }
+  })
 }
 
 test('shipped env examples contain no tenant encryption key value', () => {

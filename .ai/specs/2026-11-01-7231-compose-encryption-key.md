@@ -22,7 +22,13 @@ CLI signatures, or explicitly supplied strong operator key precedence.
 - A Node preflight process using the application image rejects absent configuration,
   normalized keys below 32 UTF-8 bytes and SHA-256 fingerprints of published keys.
   It preserves runtime normalization and preferred-over-legacy key precedence.
-  Without a key, both a valid HTTP(S) Vault address and nonempty token are required.
+  Without a key, both a valid Vault address and nonempty token are required.
+- Validate the effective lookup secret with the existing pepper-first precedence.
+  Vault-only configurations require a dedicated strong pepper; explicit weak/published
+  peppers are rejected even when a strong encryption key exists.
+- Validate every configured Vault endpoint, including with a derived fallback:
+  HTTPS is mandatory except for exact localhost/127.0.0.1/[::1] loopback hosts.
+  Runtime cryptography and secret precedence remain unchanged.
 - Every app/sidecar depends on preflight `service_completed_successfully`, before
   initialization or serving. The template tags the app image for preflight reuse.
 - Compose rendering alone is not a startup check; the executed preflight enforces
@@ -37,7 +43,8 @@ CLI signatures, or explicitly supplied strong operator key precedence.
 Deployment environment/default behavior is STABLE configuration. Removing the
 published fallback is a deliberate security narrowing: retaining the implicit default
 or a toggle to accept it would leave offline decryption reachable for another release.
-Existing explicit strong keys and supported configured Vault remain accepted, with
+Existing explicit strong keys and Vault with a strong effective lookup secret and
+HTTPS for remote connections remain accepted, with
 ciphertext formats, derivation and lookup precedence unchanged.
 
 The narrow removal needs the Emergency Security Exception in
@@ -63,7 +70,8 @@ No automatic migration, secret regeneration, data deletion or fallback bridge sh
 `node --test scripts/__tests__/fullapp-compose-encryption.test.mjs` renders each
 production stack with a clean environment and runs its rendered preflight command:
 missing/blank settings and incomplete Vault fail; generated preferred/legacy keys
-and configured Vault succeed; short/published keys and invalid Vault URLs fail;
+and configured Vault succeed; short/published keys, missing/weak effective lookup secrets and insecure remote
+Vault URLs fail (including with a configured fallback); explicit loopback HTTP works;
 consumer environments, image reuse, precedence and successful-completion dependencies
 are checked. Env examples must contain empty keys. With
 `OM_COMPOSE_ENCRYPTION_TEST_IMAGE` set to an available Node-capable container image,
@@ -77,3 +85,6 @@ Live Vault connectivity and real installation-wide rotation remain operator chec
 
 - 2026-11-01: Verified #7231, implemented configuration guard and tests, documented
   safe migration, rotation gaps, recovery requirements and pending security waiver.
+
+- 2026-11-01: Addressed inherited High review findings: strong effective lookup secrets,
+  mandatory Vault-only pepper, and HTTPS for remote Vault across all production copies.
