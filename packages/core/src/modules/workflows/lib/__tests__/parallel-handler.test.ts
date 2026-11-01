@@ -1,5 +1,5 @@
-import { describe, test, expect, jest, beforeEach } from '@jest/globals'
-import { openFork, resumeBranchAfterActivities } from '../parallel-handler'
+import { describe, test, expect, jest, beforeEach, afterEach } from '@jest/globals'
+import { applyParallelJoinOutputMapping, openFork, resumeBranchAfterActivities } from '../parallel-handler'
 import { WorkflowBranchInstance, WorkflowEvent, WorkflowInstance } from '../../data/entities'
 
 jest.mock('../step-handler', () => ({
@@ -36,6 +36,32 @@ function makeEmStub() {
 
 const tenantId = '00000000-0000-4000-8000-000000000001'
 const organizationId = '00000000-0000-4000-8000-000000000002'
+
+describe('applyParallelJoinOutputMapping', () => {
+  afterEach(() => {
+    delete (Object.prototype as Record<string, unknown>).workflowPolluted
+  })
+
+  test('keeps top-level mapping semantics, reads own special fields, and ignores unsafe targets', () => {
+    const context = JSON.parse(
+      '{"branches":{"branchA":{"result":"approved","constructor":{"value":"ctor"}}}}',
+    ) as Record<string, unknown>
+    const outputMapping = JSON.parse(
+      '{"decision":"branches.branchA.result","literal.path":"branches.branchA.result","constructorValue":"branches.branchA.constructor.value","__proto__":"branches.branchA"}',
+    ) as Record<string, string>
+
+    applyParallelJoinOutputMapping(context, outputMapping)
+
+    expect(context).toEqual({
+      branches: { branchA: { result: 'approved', constructor: { value: 'ctor' } } },
+      decision: 'approved',
+      'literal.path': 'approved',
+      constructorValue: 'ctor',
+    })
+    expect(Object.getPrototypeOf(context)).toBe(Object.prototype)
+    expect(Object.prototype).not.toHaveProperty('workflowPolluted')
+  })
+})
 
 function makeInstance() {
   return {

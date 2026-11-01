@@ -2,9 +2,15 @@
 import { randomUUID } from 'crypto'
 import { registerApiInterceptors } from '@open-mercato/shared/lib/crud/interceptor-registry'
 import { POST } from '@open-mercato/core/modules/auth/api/login'
+import { AuthSessionRejectedError } from '@open-mercato/core/modules/auth/lib/sessionEligibility'
 
 const tenantId = randomUUID()
 const orgId = randomUUID()
+const mockTenantLookup = jest.fn(async () => ({ id: tenantId }))
+
+jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
+  findOneWithDecryption: (...args: unknown[]) => mockTenantLookup(...args as []),
+}))
 
 const authServiceMock = {
   findUsersByEmail: jest.fn(async (email: string) => ([{ id: 1, email, passwordHash: 'hash', tenantId, organizationId: orgId }])),
@@ -55,6 +61,33 @@ describe('POST /api/auth/login with custom route interceptors', () => {
   beforeEach(() => {
     registerApiInterceptors([])
     jest.clearAllMocks()
+    mockTenantLookup.mockResolvedValue({ id: tenantId })
+  })
+
+  test.each(['inactive', 'soft-deleted', 'missing'])('rejects a correct password for an %s tenant with the generic 401', async () => {
+    mockTenantLookup.mockResolvedValueOnce(null as never)
+    const response = await POST(new Request('http://localhost/api/auth/login', {
+      method: 'POST',
+      body: makeFormData({ email: 'user@example.com', password: 'secret' }),
+    }))
+    expect(response.status).toBe(401)
+    expect(await response.json()).toEqual({ ok: false, error: 'Invalid email or password' })
+    expect(authServiceMock.verifyPassword).toHaveBeenCalledWith(expect.anything(), 'secret')
+    expect(authServiceMock.updateLastLoginAt).not.toHaveBeenCalled()
+    expect(authServiceMock.createSession).not.toHaveBeenCalled()
+    expect(response.headers.get('set-cookie')).toBeNull()
+  })
+
+  test('returns the existing generic 401 when session eligibility changes after password verification', async () => {
+    authServiceMock.createSession.mockRejectedValueOnce(new AuthSessionRejectedError())
+    const response = await POST(new Request('http://localhost/api/auth/login', {
+      method: 'POST',
+      body: makeFormData({ email: 'user@example.com', password: 'secret' }),
+    }))
+
+    expect(response.status).toBe(401)
+    expect(await response.json()).toEqual({ ok: false, error: 'Invalid email or password' })
+    expect(response.headers.get('set-cookie')).toBeNull()
   })
 
   test('accepts application/x-www-form-urlencoded login payloads', async () => {

@@ -61,8 +61,6 @@ test.describe('TC-CART-R13-01: a restricted line merged from an exempt-channel c
   let adminScope: { tenantId: string; organizationId: string; userId: string };
 
   test.beforeAll(async ({ request }) => {
-    await bootstrapFromAppRoot(APP_ROOT);
-
     adminToken = await getAuthToken(request, 'admin');
     adminScope = getTokenScope(adminToken);
 
@@ -154,6 +152,7 @@ test.describe('TC-CART-R13-01: a restricted line merged from an exempt-channel c
   }
 
   test('merging an exempt-channel cart rejects the restricted line and recovers via undo-merge', async () => {
+    await bootstrapFromAppRoot(APP_ROOT);
     const source = await createAgentCartWithLines();
     const target = await createStorefrontCart(store.hostname);
     // §7.1's merge policy resolves to ADOPT (row 1, `strategy: 'replace'`) whenever the

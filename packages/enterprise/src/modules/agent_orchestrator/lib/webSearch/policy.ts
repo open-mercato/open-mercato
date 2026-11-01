@@ -281,3 +281,13 @@ export function isHostAllowed(hostname: string, guardrails: WebSearchGuardrails)
   if (guardrails.allowDomains.length > 0) return guardrails.allowDomains.some(matches)
   return true
 }
+
+export function applyAnswerDomainPolicy(
+  answer: string | null,
+  guardrails: Pick<WebSearchGuardrails, 'allowDomains' | 'denyDomains'>,
+): { answer: string | null; answerWithheld?: 'domain_policy' } {
+  if (answer !== null && (guardrails.allowDomains.length > 0 || guardrails.denyDomains.length > 0)) {
+    return { answer: null, answerWithheld: 'domain_policy' }
+  }
+  return { answer }
+}
