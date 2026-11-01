@@ -15,6 +15,7 @@ import { ZodError } from 'zod'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import { DefaultSalesCalculationService } from '../../services/salesCalculationService'
 import { SalesOrder, SalesQuote, SalesShipment, SalesShipmentItem } from '../../data/entities'
+import { createSalesDocumentLockKyselyFixture } from './salesDocumentLockFixture'
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: async () => ({
@@ -117,13 +118,14 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   }),
 }))
 
-function makeEm() {
+function makeEm(documentId: string) {
   const world = () => (globalThis as any).__partialLineWorld
   const em: any = {
     fork: function () {
       return this
     },
     transactional: async (cb: (tx: unknown) => Promise<unknown>) => cb(em),
+    getKysely: () => createSalesDocumentLockKyselyFixture(documentId),
     find: jest.fn(async (entityClass: unknown) => {
       const entityName = (entityClass as { name?: string })?.name ?? ''
       if (entityName === 'SalesQuoteLine' || entityName === 'SalesOrderLine') return [...world().lines]
@@ -168,7 +170,7 @@ function makeCtx(em: unknown) {
 
 async function runCommand(commandId: string, body: Record<string, unknown>) {
   const handler = commandRegistry.get(commandId)!
-  const em = makeEm()
+  const em = makeEm(String(body.orderId ?? body.quoteId))
   let caught: unknown
   try {
     await handler.execute({ body } as never, makeCtx(em) as never)
