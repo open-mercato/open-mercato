@@ -7,7 +7,7 @@ import { buildOptimisticLockHeader } from "@open-mercato/ui/backend/utils/optimi
 import { deleteCrud } from "@open-mercato/ui/backend/utils/crud";
 import { normalizeCrudServerError } from "@open-mercato/ui/backend/utils/serverErrors";
 import { LoadingMessage, TabEmptyState } from "@open-mercato/ui/backend/detail";
-import { Button } from "@open-mercato/ui/primitives/button";
+import { IconButton } from "@open-mercato/ui/primitives/icon-button";
 import { SimpleTooltip } from "@open-mercato/ui/primitives/tooltip";
 import { flash } from "@open-mercato/ui/backend/FlashMessages";
 import { Pencil, Trash2 } from "lucide-react";
@@ -1057,10 +1057,10 @@ export function SalesDocumentItemsSection({
                             ? t('sales.documents.amountsExternalHint', 'Totals on this document come from an external system and are stored as supplied.')
                             : undefined}
                         >
-                          <Button
-                            size="icon"
+                          <IconButton
+                            type="button"
+                            size="default"
                             variant="ghost"
-                            className="h-8 w-8"
                             aria-label={t('ui.actions.edit', 'Edit')}
                             disabled={amountsReadOnly}
                             onClick={(event) => {
@@ -1069,7 +1069,7 @@ export function SalesDocumentItemsSection({
                             }}
                           >
                             <Pencil className="h-4 w-4" />
-                          </Button>
+                          </IconButton>
                         </DisabledActionHint>
                         <DisabledActionHint
                           label={t('ui.actions.delete', 'Delete')}
@@ -1079,10 +1079,11 @@ export function SalesDocumentItemsSection({
                               ? t('sales.documents.items.errorDeleteLast', 'An order must contain at least one line item.')
                               : undefined}
                         >
-                          <Button
-                            size="icon"
+                          <IconButton
+                            type="button"
+                            size="default"
                             variant="ghost"
-                            className="h-8 w-8 text-destructive"
+                            className="text-destructive"
                             aria-label={t('ui.actions.delete', 'Delete')}
                             disabled={amountsReadOnly || (kind === 'order' && items.length === 1)}
                             onClick={(event) => {
@@ -1091,7 +1092,7 @@ export function SalesDocumentItemsSection({
                             }}
                           >
                             <Trash2 className="h-4 w-4" />
-                          </Button>
+                          </IconButton>
                         </DisabledActionHint>
                       </div>
                     </td>

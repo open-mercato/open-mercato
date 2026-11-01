@@ -47,8 +47,10 @@ jest.mock('@open-mercato/ui/backend/confirm-dialog', () => ({
   }),
 }))
 
-jest.mock('@open-mercato/ui/primitives/button', () => ({
-  Button: ({ children, ...props }: { children?: React.ReactNode }) => <button {...props}>{children}</button>,
+jest.mock('@open-mercato/ui/primitives/icon-button', () => ({
+  IconButton: ({ children, ...props }: { children?: React.ReactNode }) => (
+    <button data-slot="icon-button" {...props}>{children}</button>
+  ),
 }))
 
 jest.mock('@open-mercato/ui/primitives/tooltip', () => ({
@@ -226,8 +228,13 @@ describe('SalesDocumentItemsSection discount column', () => {
     ]
     for (const trigger of triggers) expect(trigger).toHaveAttribute('tabindex', '0')
     for (const trigger of triggers) expect(trigger).toHaveClass('focus-visible:shadow-focus')
-    expect(screen.getByRole('button', { name: 'Edit' })).toBeDisabled()
-    expect(screen.getByRole('button', { name: 'Delete' })).toBeDisabled()
+    const editButton = screen.getByRole('button', { name: 'Edit' })
+    const deleteButton = screen.getByRole('button', { name: 'Delete' })
+    for (const button of [editButton, deleteButton]) {
+      expect(button).toBeDisabled()
+      expect(button).toHaveAttribute('data-slot', 'icon-button')
+      expect(button).toHaveAttribute('type', 'button')
+    }
 
     const touchPointerDown = new Event('pointerdown', { bubbles: true })
     Object.defineProperty(touchPointerDown, 'pointerType', { value: 'touch' })
