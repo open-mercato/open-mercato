@@ -84,6 +84,7 @@ export function LookupSelect({
   const resolvedLoadingLabel = loadingLabel ?? t('ui.lookupSelect.searching', 'Searching…')
   const resolvedSelectLabel = selectLabel ?? t('ui.lookupSelect.select', 'Select')
   const resolvedSelectedLabel = selectedLabel ?? t('ui.lookupSelect.selected', 'Selected')
+  const resolvedChangeLabel = t('ui.lookupSelect.change', 'Change')
   const resolvedStartTypingLabel = startTypingLabel ?? t('ui.lookupSelect.startTyping', 'Start typing to search.')
   const resolvedMinQueryHintLabel = minQueryHintLabel ?? t(
     'ui.lookupSelect.minQueryHint',
@@ -102,6 +103,7 @@ export function LookupSelect({
   const [error, setError] = React.useState<string | null>(null)
   const [fetchKey, setFetchKey] = React.useState(0)
   const [activeIndex, setActiveIndex] = React.useState(-1)
+  const [selectedItem, setSelectedItem] = React.useState<LookupSelectItem | null>(null)
   const listboxId = React.useId()
   const fetchItemsRef = React.useRef(fetchItems ?? fetchOptions)
   const setQueryRef = React.useRef(setQuery)
@@ -109,6 +111,8 @@ export function LookupSelect({
   const optionsWasArrayRef = React.useRef(Array.isArray(options))
   const valueRef = React.useRef(value)
   const selectedItemRef = React.useRef<LookupSelectItem | null>(null)
+  const inputRef = React.useRef<HTMLInputElement>(null)
+  const pendingCommitRef = React.useRef<string | null>(null)
 
   React.useEffect(() => {
     fetchItemsRef.current = fetchItems ?? fetchOptions
@@ -137,9 +141,9 @@ export function LookupSelect({
     if (onReadyRef.current) onReadyRef.current({ setQuery })
   }, [setQuery])
 
-  // A set `value` always opens the list: it is the only place the selected row,
-  // its checkmark and the clear control render, so collapsing over a selection
-  // would hide it with no way to see or undo it. This used to also require an
+  // A set `value` keeps the lookup live: the list (or, once collapsed after a
+  // pick, the summary) is where the selection, its checkmark and the clear control
+  // render, so a selection is never invisible. This used to also require an
   // `options` prop, which left every caller that resolves its selection through
   // `fetchItems` blind whenever minQuery kept the list shut.
   const shouldSearch = defaultOpen || query.trim().length >= minQuery || Boolean(value)
@@ -181,6 +185,40 @@ export function LookupSelect({
   }, [activeIndex, optionDomId])
 
   const listboxVisible = shouldSearch && !disabled
+
+  const finishSelection = React.useCallback(() => {
+    pendingCommitRef.current = null
+    setCollapsed(true)
+    setQuery('')
+    setHasTyped(false)
+    setActiveIndex(-1)
+  }, [])
+
+  // Picking a result ends the interaction (#6196): the list closes and the collapsed
+  // summary takes over, but only once the parent has adopted the id. A host that keeps
+  // `value` at null and collects picks itself (multi-add pickers) keeps browsing.
+  const commitSelection = React.useCallback((item: LookupSelectItem) => {
+    selectedItemRef.current = item
+    setSelectedItem(item)
+    if (valueRef.current === item.id) {
+      finishSelection()
+      return
+    }
+    pendingCommitRef.current = item.id
+    onChange(item.id)
+  }, [finishSelection, onChange])
+
+  React.useEffect(() => {
+    if (!pendingCommitRef.current) return
+    if (value === pendingCommitRef.current) finishSelection()
+    else if (value) pendingCommitRef.current = null
+  }, [finishSelection, value])
+
+  const reopenList = React.useCallback(() => {
+    setCollapsed(false)
+    inputRef.current?.focus()
+  }, [])
+
   const handleInputKeyDown = React.useCallback((event: React.KeyboardEvent<HTMLInputElement>) => {
     if (!listboxVisible) return
     if (event.key === 'ArrowDown') {
@@ -198,8 +236,7 @@ export function LookupSelect({
       const item = items[activeIndex]
       if (!isInteractiveItem(item)) return
       event.preventDefault()
-      onChange(item.id)
-      setActiveIndex(-1)
+      commitSelection(item)
       return
     }
     if (event.key === 'Escape') {
@@ -210,7 +247,7 @@ export function LookupSelect({
       setActiveIndex(-1)
       setCollapsed(true)
     }
-  }, [activeIndex, items, isInteractiveItem, listboxVisible, moveActiveIndex, onChange, query])
+  }, [activeIndex, commitSelection, items, isInteractiveItem, listboxVisible, moveActiveIndex, query])
   React.useEffect(() => {
     if (disabled) {
       setItems(options ?? [])
@@ -261,8 +298,6 @@ export function LookupSelect({
     }
   }, [query, shouldSearch, fetchKey])
 
-  const [selectedItem, setSelectedItem] = React.useState<LookupSelectItem | null>(null)
-
   React.useEffect(() => {
     if (!value) {
       selectedItemRef.current = null
@@ -277,21 +312,22 @@ export function LookupSelect({
   }, [items, value])
 
   /*
-   * The collapsed summary is opt-in: only a consumer that supplies
-   * `selectedHintLabel` asks this component to display the selection, so
-   * consumers rendering their own selected-value label keep their layout and
-   * never get a second summary. A resolver that falls back to the id
-   * (`known.get(id) ?? id`) is treated as unresolved and falls through to the
-   * title of the item that was actually fetched — a record id must never reach
-   * the DOM as a label.
+   * The collapsed summary needs a label it can trust: the consumer's
+   * `selectedHintLabel` when it resolves to a name, otherwise the title of the
+   * item that was actually fetched or picked. A resolver that falls back to the
+   * id (`known.get(id) ?? id`) or embeds it ("Selected customer: <id>") is
+   * treated as unresolved — a record id must never reach the DOM as a label.
+   * With neither (a hydrated value whose lookup returned nothing) there is no
+   * summary, so consumers rendering their own label never get a second one.
    */
   const collapsedSelectionLabel = React.useMemo(() => {
-    if (!value || !selectedHintLabel) return null
-    const hinted = selectedHintLabel(value)
-    if (hinted && hinted !== value) return hinted
+    if (!value) return null
+    const hinted = selectedHintLabel?.(value)
+    if (hinted && hinted !== value && !hinted.includes(value)) return hinted
     const fetchedTitle = selectedItem && selectedItem.id === value ? selectedItem.title : null
     return fetchedTitle && fetchedTitle !== value ? fetchedTitle : null
   }, [selectedHintLabel, selectedItem, value])
+  const collapsedSelectionSubtitle = selectedItem && selectedItem.id === value ? selectedItem.subtitle ?? null : null
 
   return (
     <div className="space-y-3">
@@ -299,7 +335,8 @@ export function LookupSelect({
         <div className="relative flex-1">
           <Search className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <input
-            className="w-full h-10 rounded-lg border border-input bg-background pl-10 pr-3 text-sm shadow-xs transition-colors outline-none placeholder:text-muted-foreground hover:border-foreground/20 focus-visible:shadow-focus focus-visible:border-brand-violet disabled:bg-bg-disabled disabled:border-border-disabled disabled:text-muted-foreground disabled:cursor-not-allowed"
+            ref={inputRef}
+            className="w-full h-9 rounded-lg border border-input bg-background pl-10 pr-3 text-sm shadow-xs transition-colors outline-none placeholder:text-muted-foreground hover:border-foreground/20 focus-visible:shadow-focus focus-visible:border-foreground disabled:bg-bg-disabled disabled:border-border-disabled disabled:text-muted-foreground disabled:cursor-not-allowed"
             value={query}
             onChange={(event) => {
               setQuery(event.target.value)
@@ -353,24 +390,24 @@ export function LookupSelect({
                   key={item.id}
                   id={optionDomId(index)}
                   className={cn(
-                    'group flex items-center gap-4 rounded-xl border p-4 transition-all duration-150 focus-visible:outline-none focus-visible:shadow-focus',
+                    'group flex items-center gap-3 rounded-lg border px-3 py-2 transition-all duration-150 focus-visible:outline-none focus-visible:shadow-focus',
                     isInteractive ? 'cursor-pointer' : 'cursor-not-allowed opacity-60',
                     isSelected
-                      ? 'border-brand-violet bg-brand-violet/5 shadow-sm'
-                      : 'border-input bg-card hover:border-foreground/20 hover:bg-muted/30 hover:shadow-sm',
+                      ? 'border-accent-indigo bg-accent-indigo/5'
+                      : 'border-input bg-card hover:border-foreground/20 hover:bg-muted/30',
                     isActive && !isSelected ? 'border-foreground/20 bg-muted/30 shadow-sm' : null
                   )}
                   role="option"
                   tabIndex={isInteractive ? 0 : -1}
                   onClick={() => {
                     if (!isInteractive) return
-                    onChange(item.id)
+                    commitSelection(item)
                   }}
                   onKeyDown={(event) => {
                     if (event.key === 'Enter' || event.key === ' ') {
                       event.preventDefault()
                       if (!isInteractive) return
-                      onChange(item.id)
+                      commitSelection(item)
                     }
                   }}
                   aria-selected={isSelected}
@@ -378,22 +415,22 @@ export function LookupSelect({
                   title={isSelected ? resolvedSelectedLabel : isInteractive ? resolvedSelectLabel : undefined}
                 >
                   {item.icon ? (
-                    <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden [&>svg]:size-6 [&_svg]:text-muted-foreground">
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden [&>svg]:size-5 [&_svg]:text-muted-foreground">
                       {item.icon}
                     </div>
                   ) : (
                     <div className={cn(
-                      'flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-lg border transition-colors',
+                      'flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-md border transition-colors',
                       isSelected
-                        ? 'border-brand-violet/40 bg-brand-violet/10 text-brand-violet'
+                        ? 'border-accent-indigo/40 bg-accent-indigo/10 text-accent-indigo'
                         : 'border-input bg-muted text-muted-foreground group-hover:border-foreground/20'
                     )}>
-                      <span className="text-base font-semibold uppercase">{item.title.slice(0, 1)}</span>
+                      <span className="text-sm font-medium uppercase">{item.title.slice(0, 1)}</span>
                     </div>
                   )}
                   <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                     <div className="flex items-center justify-between gap-3">
-                      <div className="truncate text-sm font-semibold text-foreground">{item.title}</div>
+                      <div className="truncate text-sm font-medium text-foreground">{item.title}</div>
                       {item.rightLabel ? (
                         <div className="shrink-0 text-overline font-medium uppercase tracking-wider text-muted-foreground">
                           {item.rightLabel}
@@ -407,9 +444,12 @@ export function LookupSelect({
                       <div className="text-xs text-muted-foreground/70 truncate">{item.description}</div>
                     ) : null}
                   </div>
-                  <div className="flex shrink-0 items-center justify-center">
+                  <div className="flex shrink-0 items-center justify-center gap-1.5">
                     {isSelected ? (
-                      <Check className="size-5 text-brand-violet" aria-hidden="true" />
+                      <>
+                        <span className="text-xs font-medium text-foreground">{resolvedSelectedLabel}</span>
+                        <Check className="size-4 text-accent-indigo" aria-hidden="true" />
+                      </>
                     ) : (
                       <div className="size-5" aria-hidden="true" />
                     )}
@@ -440,23 +480,41 @@ export function LookupSelect({
          * never rendered.
          */
         <div
-          className="flex items-center justify-between gap-3 rounded-lg border border-input bg-muted/40 px-3 py-2"
+          className="flex items-center justify-between gap-3 rounded-lg border border-accent-indigo bg-accent-indigo/5 px-3 py-2"
           data-testid="lookup-select-selected"
         >
-          <span className="truncate text-sm font-medium text-foreground">
-            {collapsedSelectionLabel}
-          </span>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="shrink-0 gap-1 text-sm font-normal"
-            disabled={disabled}
-            onClick={() => onChange(null)}
-          >
-            <X className="h-4 w-4" />
-            {resolvedClearLabel}
-          </Button>
+          <div className="flex min-w-0 items-center gap-2">
+            <Check className="size-4 shrink-0 text-accent-indigo" aria-hidden="true" />
+            <div className="flex min-w-0 flex-col">
+              <span className="truncate text-sm font-medium text-foreground">{collapsedSelectionLabel}</span>
+              {collapsedSelectionSubtitle ? (
+                <span className="truncate text-xs text-muted-foreground">{collapsedSelectionSubtitle}</span>
+              ) : null}
+            </div>
+          </div>
+          <div className="flex shrink-0 items-center gap-1">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="text-sm font-normal"
+              disabled={disabled}
+              onClick={reopenList}
+            >
+              {resolvedChangeLabel}
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="gap-1 text-sm font-normal"
+              disabled={disabled}
+              onClick={() => onChange(null)}
+            >
+              <X className="h-4 w-4" />
+              {resolvedClearLabel}
+            </Button>
+          </div>
         </div>
       ) : hasTyped ? (
         <p className="text-xs text-muted-foreground">

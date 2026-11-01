@@ -308,6 +308,111 @@ describe('LookupSelect selected value display', () => {
   })
 })
 
+// Picking a result ends the interaction (#6196): the list used to stay open with the
+// typed query still in the box and only a thin border on one of several identical
+// cards, so users clicked the same customer again, unsure whether it registered.
+describe('LookupSelect closes on pick (#6196)', () => {
+  const ITEMS = [
+    { id: 'cust-1', title: 'ExcelMed', subtitle: 'excel@med.test' },
+    { id: 'cust-2', title: 'Fazenda Sul' },
+  ]
+
+  function Harness({ onPick }: { onPick?: (next: string | null) => void }) {
+    const [value, setValue] = React.useState<string | null>(null)
+    return (
+      <LookupSelect
+        value={value}
+        onChange={(next) => {
+          setValue(next)
+          onPick?.(next)
+        }}
+        fetchItems={async () => ITEMS}
+      />
+    )
+  }
+
+  it('closes the list, clears the query and shows the picked item with Change and Clear', async () => {
+    const { container } = render(<Harness />)
+    const input = getInput(container)
+
+    fireEvent.change(input, { target: { value: 'Ex' } })
+    fireEvent.click(await screen.findByRole('option', { name: /ExcelMed/ }))
+
+    expect(screen.queryByRole('listbox')).toBeNull()
+    expect(input.value).toBe('')
+    const summary = screen.getByTestId('lookup-select-selected')
+    expect(summary).toHaveTextContent('ExcelMed')
+    expect(summary).toHaveTextContent('excel@med.test')
+    expect(screen.getByRole('button', { name: 'Change' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Clear selection' })).toBeInTheDocument()
+  })
+
+  it('reopens the list with the selection marked when Change is clicked', async () => {
+    const { container } = render(<Harness />)
+    const input = getInput(container)
+
+    fireEvent.change(input, { target: { value: 'Ex' } })
+    fireEvent.click(await screen.findByRole('option', { name: /ExcelMed/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Change' }))
+
+    const selected = await screen.findByRole('option', { selected: true })
+    expect(selected).toHaveTextContent('ExcelMed')
+    expect(selected).toHaveTextContent('Selected')
+    expect(document.activeElement).toBe(input)
+  })
+
+  it('commits from the keyboard too', async () => {
+    const onPick = jest.fn()
+    const { container } = render(<Harness onPick={onPick} />)
+    const input = getInput(container)
+
+    fireEvent.change(input, { target: { value: 'Faz' } })
+    await screen.findAllByRole('option')
+    fireEvent.keyDown(input, { key: 'ArrowDown' })
+    fireEvent.keyDown(input, { key: 'ArrowDown' })
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    expect(onPick).toHaveBeenCalledWith('cust-2')
+    expect(screen.queryByRole('listbox')).toBeNull()
+    expect(screen.getByTestId('lookup-select-selected')).toHaveTextContent('Fazenda Sul')
+  })
+
+  it('keeps browsing when the parent does not adopt the pick (multi-add pickers)', async () => {
+    const addPlot = jest.fn()
+    const { container } = render(
+      <LookupSelect value={null} onChange={addPlot} fetchItems={async () => ITEMS} minQuery={0} />,
+    )
+
+    fireEvent.click((await screen.findAllByRole('option'))[0])
+    expect(addPlot).toHaveBeenCalledWith('cust-1')
+    expect(screen.getByRole('listbox')).toBeInTheDocument()
+    expect(screen.queryByTestId('lookup-select-selected')).toBeNull()
+    expect(getInput(container).value).toBe('')
+  })
+
+  it('never shows a hint that embeds the raw id in the summary', async () => {
+    const RECORD_ID = 'd7f88312-f4b3-44b7-b03a-dc10e561cf8e'
+    function SalesHarness() {
+      const [value, setValue] = React.useState<string | null>(null)
+      return (
+        <LookupSelect
+          value={value}
+          onChange={setValue}
+          fetchItems={async () => [{ id: RECORD_ID, title: 'ExcelMed' }]}
+          selectedHintLabel={(id) => `Selected customer: ${id}`}
+        />
+      )
+    }
+    const { container } = render(<SalesHarness />)
+
+    fireEvent.change(getInput(container), { target: { value: 'Ex' } })
+    fireEvent.click(await screen.findByRole('option'))
+
+    expect(screen.getByTestId('lookup-select-selected')).toHaveTextContent('ExcelMed')
+    expect(container.textContent ?? '').not.toContain(RECORD_ID)
+  })
+})
+
 // A set `value` opens the list and fires a browse fetch with an empty query. Its
 // result used to replace the items outright, so an edit form hydrated with
 // `value={storedId}` + `options={[storedOption]}` lost the stored selection from
@@ -407,7 +512,7 @@ describe('LookupSelect keeps the selection across browse fetches', () => {
 
     fireEvent.change(input, { target: { value: 'Stored' } })
     fireEvent.click(await screen.findByRole('option'))
-    fireEvent.change(input, { target: { value: '' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Change' }))
 
     await screen.findByText('Alpha')
     expect(screen.getByRole('option', { selected: true })).toHaveTextContent(STORED.title)
@@ -424,7 +529,7 @@ describe('LookupSelect keeps the selection across browse fetches', () => {
 
     fireEvent.change(input, { target: { value: 'Stored' } })
     fireEvent.click(await screen.findByRole('option'))
-    fireEvent.change(input, { target: { value: '' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Change' }))
 
     await waitFor(() => expect(fetchItems).toHaveBeenLastCalledWith(''))
     await waitFor(() => expect(screen.queryByText('Searching…')).toBeNull())
