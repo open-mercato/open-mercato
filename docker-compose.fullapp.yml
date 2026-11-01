@@ -2,9 +2,48 @@
 # lives there; edit that one. scripts/__tests__/root-compose-backcompat.test.mjs
 # enforces byte equality with the source.
 
-
+x-tenant-encryption-environment: &tenant-encryption-environment
+  TENANT_DATA_ENCRYPTION: ${TENANT_DATA_ENCRYPTION:-true}
+  TENANT_DATA_ENCRYPTION_DEBUG: ${TENANT_DATA_ENCRYPTION_DEBUG:-false}
+  TENANT_DATA_ENCRYPTION_FALLBACK_KEY: ${TENANT_DATA_ENCRYPTION_FALLBACK_KEY:-}
+  TENANT_DATA_ENCRYPTION_KEY: ${TENANT_DATA_ENCRYPTION_KEY:-}
+  LOOKUP_HASH_PEPPER: ${LOOKUP_HASH_PEPPER:-}
+  VAULT_ADDR: ${VAULT_ADDR:-}
+  VAULT_TOKEN: ${VAULT_TOKEN:-}
+  VAULT_KV_PATH: ${VAULT_KV_PATH:-secret/data}
+  VAULT_REQUEST_TIMEOUT_MS: ${VAULT_REQUEST_TIMEOUT_MS:-1000}
+  VAULT_RECOVERY_COOLDOWN_MS: ${VAULT_RECOVERY_COOLDOWN_MS:-30000}
 
 services:
+  encryption-preflight:
+    image: open-mercato/app:${DEPLOY_ENV:-local}
+    restart: "no"
+    environment: *tenant-encryption-environment
+    entrypoint: ["node", "-e"]
+    command:
+      - |
+        const crypto = require('node:crypto')
+        const normalize = (value) => (value || '').trim().replace(/(?:^['"]|['"]$)/g, '')
+        const fail = (message) => { console.error('Tenant encryption configuration: ' + message); process.exit(1) }
+        const published = new Set(['c7eabc7b8d9e7cd03f1bf71364dfdd871518a68c0b9b684c14f4ece5fd7a0e3e'])
+        const unsafe = (value) => Buffer.byteLength(value, 'utf8') < 32 || published.has(crypto.createHash('sha256').update(value).digest('hex'))
+        const fallback = normalize(process.env.TENANT_DATA_ENCRYPTION_FALLBACK_KEY)
+        const legacy = normalize(process.env.TENANT_DATA_ENCRYPTION_KEY)
+        const secret = fallback || legacy
+        const address = normalize(process.env.VAULT_ADDR)
+        const token = normalize(process.env.VAULT_TOKEN)
+        if (secret && unsafe(secret)) fail('supply a unique high-entropy key of at least 32 bytes; do not replace an existing key before migrating ciphertext and lookup hashes')
+        if (!secret && (!address || !token)) fail('supply a tenant encryption key or both VAULT_ADDR and VAULT_TOKEN')
+        if (address && token) {
+          try {
+            const url = new URL(address)
+            if (!['http:', 'https:'].includes(url.protocol) || !url.hostname || url.username || url.password) fail('VAULT_ADDR must be an HTTP(S) URL without embedded credentials')
+            if (url.protocol !== 'https:' && !['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)) fail('VAULT_ADDR must use HTTPS except for explicit loopback hosts')
+          } catch { fail('VAULT_ADDR must be a valid HTTP(S) URL') }
+        }
+        const lookupSecret = normalize(process.env.LOOKUP_HASH_PEPPER) || secret
+        if (!lookupSecret || unsafe(lookupSecret)) fail('supply a unique effective lookup secret of at least 32 bytes; Vault-only deployments require LOOKUP_HASH_PEPPER; migrate existing hashes before changing it')
+
   opencode:
     build:
       context: ./docker/opencode
@@ -90,6 +129,7 @@ services:
     volumes:
       - mcp_shared:/run/mcp-shared
     environment:
+      <<: *tenant-encryption-environment
       # The image (Dockerfile `runner` stage) is a production build installed with
       # `yarn workspaces focus --production`. The Next server child is insulated (the CLI forces
       # NODE_ENV=production for it), but pinning `development` here still leaked into every other
@@ -116,10 +156,6 @@ services:
       NEXT_PUBLIC_APP_URL: http://app:${CONTAINER_PORT:-3000}
       NEXT_PUBLIC_API_BASE_URL: ""
       # Session-token (tier 2) decryption requires the app's encryption config.
-      TENANT_DATA_ENCRYPTION: ${TENANT_DATA_ENCRYPTION:-true}
-      TENANT_DATA_ENCRYPTION_DEBUG: ${TENANT_DATA_ENCRYPTION_DEBUG:-false}
-      TENANT_DATA_ENCRYPTION_FALLBACK_KEY: ${TENANT_DATA_ENCRYPTION_FALLBACK_KEY:-dev-tenant-encryption-fallback-key-32chars}
-      TENANT_DATA_ENCRYPTION_KEY: ${TENANT_DATA_ENCRYPTION_KEY:-}
       OM_INIT_SUPERADMIN_EMAIL: ${OM_INIT_SUPERADMIN_EMAIL:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
@@ -134,6 +170,8 @@ services:
       MCP_WAIT_FOR_APP_TIMEOUT: ${MCP_WAIT_FOR_APP_TIMEOUT:-1800}
       MCP_DEBUG: ${MCP_DEBUG:-false}
     depends_on:
+      encryption-preflight:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       redis:
@@ -198,9 +236,7 @@ services:
     # external reverse proxies (Dokploy, etc.) that also watch the Docker
     # socket don't accidentally pick them up.
     environment:
-      TENANT_DATA_ENCRYPTION: ${TENANT_DATA_ENCRYPTION:-true}
-      TENANT_DATA_ENCRYPTION_DEBUG: ${TENANT_DATA_ENCRYPTION_DEBUG:-false}
-      TENANT_DATA_ENCRYPTION_FALLBACK_KEY: ${TENANT_DATA_ENCRYPTION_FALLBACK_KEY:-dev-tenant-encryption-fallback-key-32chars}
+      <<: *tenant-encryption-environment
       # The image (Dockerfile `runner` stage) is a production build installed with
       # `yarn workspaces focus --production`. The Next server child is insulated (the CLI forces
       # NODE_ENV=production for it), but pinning `development` here still leaked into every other
@@ -294,7 +330,6 @@ services:
       NEW_RELIC_APP_NAME: ${NEW_RELIC_APP_NAME:-}
       NEW_RELIC_LICENSE_KEY: ${NEW_RELIC_LICENSE_KEY:-}
       OM_DISABLE_VECTOR_SEARCH_AUTOINDEXING: ${OM_DISABLE_VECTOR_SEARCH_AUTOINDEXING:-false}
-      TENANT_DATA_ENCRYPTION_KEY: ${TENANT_DATA_ENCRYPTION_KEY:-}
       ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}
       OM_INIT_SUPERADMIN_EMAIL: ${OM_INIT_SUPERADMIN_EMAIL:-}
       OM_INIT_SUPERADMIN_PASSWORD: ${OM_INIT_SUPERADMIN_PASSWORD:-password}
@@ -311,6 +346,8 @@ services:
       MCP_URL: ${MCP_URL:-http://mcp:3001}
       MCP_SERVER_API_KEY_FILE: /run/mcp-shared/mcp-api-key
     depends_on:
+      encryption-preflight:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       redis:
@@ -348,6 +385,7 @@ services:
       timeout: 5s
       retries: 3
     environment:
+      <<: *tenant-encryption-environment
       NODE_ENV: production
       DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@mercato-postgres-${DEPLOY_ENV:-local}:5432/${POSTGRES_DB:-open-mercato}
       # Same required secret and bounded legacy-token window as the app service:
@@ -371,13 +409,11 @@ services:
       DOCUMENTS_COLLAB_APP_ROOT: /app/apps/mercato
       # Mirror the app service's tenant-encryption configuration so the sidecar
       # can decrypt the same data as the app.
-      TENANT_DATA_ENCRYPTION: ${TENANT_DATA_ENCRYPTION:-true}
-      TENANT_DATA_ENCRYPTION_DEBUG: ${TENANT_DATA_ENCRYPTION_DEBUG:-false}
-      TENANT_DATA_ENCRYPTION_FALLBACK_KEY: ${TENANT_DATA_ENCRYPTION_FALLBACK_KEY:-dev-tenant-encryption-fallback-key-32chars}
-      TENANT_DATA_ENCRYPTION_KEY: ${TENANT_DATA_ENCRYPTION_KEY:-}
       CACHE_REDIS_URL: redis://mercato-redis-${DEPLOY_ENV:-local}:6379
       CACHE_STRATEGY: redis
     depends_on:
+      encryption-preflight:
+        condition: service_completed_successfully
       app:
         condition: service_started
       postgres:
