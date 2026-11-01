@@ -253,6 +253,12 @@ function makeEm() {
       rows.forEach((row) => Object.assign(row, data))
       return rows.length
     }),
+    // §7a.4 MAJOR fix #3 — `cart.proposal.accept`'s own advisory-lock-guarded
+    // `nativeUpdate` refreshes `proposal`/`target` afterward; `nativeUpdate` above already
+    // mutates the SAME `seededCarts` row object in place, so this is a safe no-op.
+    refresh: jest.fn(async () => undefined),
+    // Same lock primitive `cart.lines.add`/`cart.lock` already use.
+    execute: jest.fn(async () => undefined),
   }
   em.fork.mockReturnValue(em)
   return em

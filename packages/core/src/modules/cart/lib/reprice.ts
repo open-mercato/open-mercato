@@ -325,6 +325,13 @@ export function buildRecomputeCartTotalsPhase(
   now: Date,
   changes: CartPriceChange[],
   adjustments: SalesAdjustmentDraft[] = [],
+  // BLOCKER fix (TC-CART-CONC-05): when the caller already holds a per-cart
+  // `pg_advisory_xact_lock` on this `em`'s own transaction (`commands/lines.ts`), the
+  // approval-gate recompute below MUST run on that SAME connection — see
+  // `approvalGate.ts#resolveCartRequiresApproval`'s own header comment. Optional and
+  // additive: omitting it preserves the exact previous container-resolved behavior for
+  // every caller that runs outside a held lock.
+  em?: EntityManager,
 ): () => Promise<void> {
   return async () => {
     const salesCalculationService = container.resolve<SalesCalculationService>('salesCalculationService')
@@ -343,6 +350,6 @@ export function buildRecomputeCartTotalsPhase(
     cart.totals = result.totals as unknown as Record<string, unknown>
     cart.totalsComputedAt = now
     if (changes.length > 0) cart.lastPriceChangeAt = now
-    cart.requiresApproval = await resolveCartRequiresApproval(container, cart, computeGoodsGrossAmount(cart.totals))
+    cart.requiresApproval = await resolveCartRequiresApproval(container, cart, computeGoodsGrossAmount(cart.totals), { em })
   }
 }

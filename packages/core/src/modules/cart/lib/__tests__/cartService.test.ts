@@ -128,7 +128,7 @@ describe('CartServiceImpl.resolveBasketByToken (Step 4.5, §5.1/§6.2, D-R5-21)'
     expect(where).toMatchObject({ kind: 'basket' })
   })
 
-  it('maps the matched basket to its plain identity fields, scope-free (no tenantId/organizationId filter)', async () => {
+  it('maps the matched basket to its plain identity fields — scope-free only when the caller has no authenticated principal', async () => {
     mockFindOneWithDecryption.mockResolvedValueOnce({
       id: 'cart-1',
       tenantId: 'tenant-1',
@@ -152,6 +152,26 @@ describe('CartServiceImpl.resolveBasketByToken (Step 4.5, §5.1/§6.2, D-R5-21)'
       customerId: 'customer-1',
       customerUserId: 'customer-user-1',
     })
+    const [, , where] = mockFindOneWithDecryption.mock.calls[0]
+    expect(where).not.toHaveProperty('tenantId')
+    expect(where).not.toHaveProperty('organizationId')
+  })
+
+  // MEDIUM fix (inherited review finding #4): a cross-module caller with its OWN
+  // authenticated tenant context (e.g. `assisted_selling`'s rep-console flow) must never
+  // resolve another tenant's basket through this facade — `buyerIdentity.ts`'s own doc
+  // comment already documents "the SAME outcome ... for an unknown token, a cross-tenant
+  // token" as the intended contract.
+  it('scopes the lookup to the caller\'s own tenant/organization when an authenticated principal is present', async () => {
+    mockFindOneWithDecryption.mockResolvedValueOnce(null)
+    const { container } = makeContainer({ auth: { sub: 'rep-1', tenantId: 'tenant-1', orgId: 'org-1' } })
+    const service = new CartServiceImpl(container)
+
+    const result = await service.resolveBasketByToken({ token: 'cross-tenant-token' })
+
+    expect(result).toBeNull()
+    const [, , where] = mockFindOneWithDecryption.mock.calls[0]
+    expect(where).toMatchObject({ kind: 'basket', tenantId: 'tenant-1', organizationId: 'org-1' })
   })
 
   it('never calls `cart.get` / the command bus — a pure DB read, no re-price', async () => {

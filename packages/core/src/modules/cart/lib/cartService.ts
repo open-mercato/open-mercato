@@ -451,11 +451,27 @@ export class CartServiceImpl implements CartService {
 
   async resolveBasketByToken(input: CartServiceResolveBasketByTokenInput): Promise<CartServiceResolvedBasketIdentity | null> {
     const em = (this.container.resolve('em') as EntityManager).fork()
+    // MEDIUM fix (inherited review finding #4): this read carried no tenant/organization
+    // filter at all — `tokenHash` is globally unique, but that only protects against a
+    // COLLISION, not against a caller that legitimately has its OWN tenant context (e.g.
+    // `assisted_selling`'s rep-console flow, resolved via this same DI facade) presenting a
+    // token that happens to belong to ANOTHER tenant's basket. `buyerIdentity.ts`'s own doc
+    // comment documents the intended outcome as "the SAME [null] outcome ... for an unknown
+    // token, a cross-tenant token" — this never actually filtered by tenant, so a
+    // cross-tenant token resolved successfully instead. Scoped by the CALLER's own
+    // container-resolved `auth` (the same soft-resolve `resolveCartServiceAuth` above
+    // already uses) when present; a caller with no authenticated principal at all (a
+    // trusted/system context) keeps the previous scope-free behavior.
+    const auth = resolveCartServiceAuth(this.container)
+    const where: Record<string, unknown> = { tokenHash: hashCartToken(input.token), kind: 'basket' as const }
+    if (auth?.tenantId) where.tenantId = auth.tenantId
+    if (auth?.orgId) where.organizationId = auth.orgId
     const cart = (await findOneWithDecryption(
       em,
       Cart,
-      { tokenHash: hashCartToken(input.token), kind: 'basket' as const },
+      where as Parameters<typeof findOneWithDecryption>[2],
       {},
+      auth?.tenantId ? { tenantId: auth.tenantId, organizationId: auth.orgId ?? undefined } : undefined,
     )) as Cart | null
     if (!cart) return null
     return {

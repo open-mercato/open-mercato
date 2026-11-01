@@ -217,6 +217,11 @@ function makeEm() {
     }),
     findOne: jest.fn(async () => null),
     execute: jest.fn(async () => undefined),
+    // `cart.proposal.reject`'s own advisory-lock-guarded `nativeUpdate` (MAJOR fix #3)
+    // refreshes `proposal` afterward — the `nativeUpdate` mock above already mutates the
+    // SAME `seededCarts` row object in place (same reference `findOneWithDecryption`
+    // returned as `proposal`), so this just needs to be a safe no-op.
+    refresh: jest.fn(async () => undefined),
     begin: jest.fn(async () => undefined),
     commit: jest.fn(async () => undefined),
     rollback: jest.fn(async () => undefined),

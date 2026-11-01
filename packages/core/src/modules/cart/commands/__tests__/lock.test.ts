@@ -183,6 +183,19 @@ function makeEm() {
     begin: jest.fn(async () => undefined),
     commit: jest.fn(async () => undefined),
     rollback: jest.fn(async () => undefined),
+    // MAJOR fix (inherited review findings #1/#2) — `cart.lock` now takes the same
+    // per-cart advisory lock `cart.lines.add` holds, and transitions `active -> locked`
+    // via a conditional `nativeUpdate` guarded on `status = 'active'` instead of a plain
+    // assign. The mock mutates the SAME `seededCarts` row object `findOneWithDecryption`
+    // already returned as `cart`, so `refresh` is a safe no-op.
+    execute: jest.fn(async () => undefined),
+    nativeUpdate: jest.fn(async (entity: unknown, where: Record<string, unknown>, data: FakeRow) => {
+      if (entity !== Cart) return 0
+      const rows = seededCarts.filter((row) => matchesWhere(row, where))
+      rows.forEach((row) => Object.assign(row, data))
+      return rows.length
+    }),
+    refresh: jest.fn(async () => undefined),
   }
   em.fork.mockReturnValue(em)
   return em

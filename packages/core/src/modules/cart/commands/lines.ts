@@ -829,7 +829,7 @@ export function buildCartPromotionsAndTotalsPhases(params: {
     removedGiftLines,
   })
 
-  const totalsPhase = buildRecomputeCartTotalsPhase(container, cart, lines, now, changes, adjustments)
+  const totalsPhase = buildRecomputeCartTotalsPhase(container, cart, lines, now, changes, adjustments, em)
 
   return [fetchLinesPhase, promotionsPhase, totalsPhase]
 }
@@ -1001,6 +1001,19 @@ const addLineCommand: CommandHandler<CartLinesAddInput, CartLinesAddOutcome> = {
     await withAtomicFlush(em, [
       async () => {
         await em.execute('select pg_advisory_xact_lock(hashtextextended(?::text, 0))', [`cart:lines:${cart.id}`])
+      },
+      // MAJOR fix (inherited review finding #2): `requireActive` above was checked BEFORE
+      // this lock was acquired, off a snapshot that can go stale the moment a concurrent
+      // `cart.lock` commits (it now takes this SAME lock key, `commands/lock.ts`) while this
+      // call was still parked waiting for it. Re-reading the cart's live status, on the SAME
+      // `em`/transaction, right after the lock grants, closes the race: a line can no longer
+      // land on a cart that was locked (and its approval gate/reservations already computed)
+      // in the gap between the pre-check and this lock.
+      async () => {
+        await em.refresh(cart)
+        if (cart.status !== 'active') {
+          throw new CrudHttpError(409, { error: '[internal] cart_not_active', code: 'cart_not_active', status: cart.status })
+        }
       },
       async () => {
         const existing = await findExistingCustomerLine(em, scope, cart.id, input.productId, variantId, input.configuration ?? null)
@@ -1712,6 +1725,14 @@ const bulkAddLinesCommand: CommandHandler<CartLinesBulkAddInput, CartLinesBulkAd
     await withAtomicFlush(em, [
       async () => {
         await em.execute('select pg_advisory_xact_lock(hashtextextended(?::text, 0))', [`cart:lines:${cart.id}`])
+      },
+      // MAJOR fix (inherited review finding #2) — same re-check `cart.lines.add` applies
+      // above: `requireActive` was only checked before this lock was acquired.
+      async () => {
+        await em.refresh(cart)
+        if (cart.status !== 'active') {
+          throw new CrudHttpError(409, { error: '[internal] cart_not_active', code: 'cart_not_active', status: cart.status })
+        }
       },
       ...phases,
       ...buildCartPromotionsAndTotalsPhases({
