@@ -599,7 +599,9 @@ async function executeProposalAcceptance(input: CartMergeManualInput, ctx: Comma
     em,
     [
       async () => {
-        const lockKeys = [`cart:lines:${proposal.id}`, `cart:lines:${target.id}`].sort()
+        const lockKeys = [`cart:lines:${proposal.id}`, `cart:lines:${target.id}`].sort((a, b) =>
+          a < b ? -1 : a > b ? 1 : 0,
+        )
         for (const lockKey of lockKeys) {
           await em.execute('select pg_advisory_xact_lock(hashtextextended(?::text, 0))', [lockKey])
         }
