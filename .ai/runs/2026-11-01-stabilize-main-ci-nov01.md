@@ -28,7 +28,7 @@ Do not weaken checks, remove coverage, bypass the third-party dependency cooldow
 Snapshot publish/deploy jobs cannot safely be exercised by publishing a production release; validate equivalent paths with isolated local infrastructure or existing nonpublishing workflow support. CI may reveal failures not yet observable in currently running main jobs. Dependency resolution is time-sensitive; retain exact evidence and do not globally disable its age gate.
 
 ## Diagnosis
-Snapshot Tiptap 3.32.2 is required for the peer-compatible patched Happy DOM 21.0.4 graph. Older HTML peers require vulnerable Happy DOM 20; do not downgrade. The scaffold lock currently seeds no third-party records, losing the reviewed monorepo resolution. Investigate seeding those exact records without weakening the five-day policy.
+Snapshot Tiptap 3.32.2 is required for the peer-compatible patched Happy DOM 21.0.4 graph. Older HTML peers require vulnerable Happy DOM 20; do not downgrade. The scaffold lock currently seeds no third-party records, losing the reviewed monorepo resolution. Seed those exact checksummed records from the reviewed root lock without weakening the five-day policy. The pinned Yarn 4.17.1 reproduction passes with the actual generated seed, fails without it, and still rejects an unrelated young prosemirror-view release.
 
 Coverage merge was skipped despite all direct dependencies passing: its condition does not override skipped audit ancestors. Restore aggregation with always() plus explicit successful direct-dependency guards.
 
@@ -49,8 +49,8 @@ PR: #8373
 - [x] 1.2 Reproduce repository-controlled causes and identify minimal independent fixes
 
 ### Phase 2: Correct
-- [ ] 2.1 Correct snapshot dependency resolution with regression coverage while retaining supply-chain safeguards
-- [ ] 2.2 Correct any additional verified current CI regressions with focused tests
+- [x] 2.1 Correct snapshot dependency resolution with regression coverage while retaining supply-chain safeguards
+- [x] 2.2 Correct any additional verified current CI regressions with focused tests — 9ca2a6c7a
 
 ### Phase 3: Verify
 - [ ] 3.1 Run the ordered configured validation gate and relevant standalone checks
