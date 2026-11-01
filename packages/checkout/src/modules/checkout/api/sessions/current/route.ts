@@ -11,6 +11,7 @@ import {
   buildCheckoutSessionScopedRateLimitKey,
   checkoutSessionMutateIpRateLimitConfig,
   checkoutSessionMutateSessionRateLimitConfig,
+  checkoutSessionOtherGetRateLimitConfig,
   enforceCheckoutRateLimit,
 } from '../../../lib/rateLimiter'
 import { hashCheckoutSessionToken } from '../../../lib/sessionToken'
@@ -33,6 +34,21 @@ export async function GET(req: Request) {
     const em = container.resolve('em') as import('@mikro-orm/postgresql').EntityManager
     const token = readCheckoutSessionToken(req)
     if (!token) return NextResponse.json({ error: '[internal] checkout session not found' }, { status: 404 })
+
+    const tokenHash = hashCheckoutSessionToken(token)
+    // §13: "Other GET under /sessions/current | 120/min per session | fail-open" — this
+    // route returns the session's own PII (`includePii: true`), so it needs the SAME
+    // bucket `GET .../payment-methods` already enforces, not an unlimited read.
+    const limited = await enforceCheckoutRateLimit({
+      req,
+      container,
+      config: checkoutSessionOtherGetRateLimitConfig,
+      namespace: 'checkout-session-other-get',
+      errorMessage: 'Too many checkout session requests. Please try again later.',
+      posture: 'fail-open',
+      keyOverride: buildCheckoutSessionScopedRateLimitKey('checkout-session-other-get', tokenHash),
+    })
+    if (limited) return limited
 
     const resolved = await resolveCurrentSession(em, req, token)
     if (!resolved.ok) return resolved.response

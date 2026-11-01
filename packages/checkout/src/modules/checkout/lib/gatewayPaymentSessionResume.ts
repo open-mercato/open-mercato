@@ -3,6 +3,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { CheckoutSession, CheckoutTransaction } from '../data/entities'
 import { compensateByCancellingOrder, confirmOrderAndComplete } from '../commands/submit'
 import { writeSessionEvent } from './sessionEvents'
@@ -102,10 +103,22 @@ export function createGatewayPaymentSessionResumeHandler(outcome: GatewayPayment
         failureCode,
       }).catch(() => undefined)
     } catch (err) {
-      logger.warn('[internal] gateway-payment-session-resume: failed to resume checkout session', {
+      // Every intentional no-op above (missing payload, no transaction, no session, a
+      // session already past `awaiting_payment`) already returned BEFORE this point without
+      // throwing — so anything caught here is a genuine failure, never a proven terminal/
+      // idempotent case. The caller (`subscribers/gateway-payment-*.ts`) is `persistent:
+      // true`; swallowing it here would ack the event and drop the redelivery that would
+      // otherwise retry (and eventually confirm the payment or compensate) — so this
+      // reports and rethrows instead of returning successfully.
+      logger.error('[internal] gateway-payment-session-resume: failed to resume checkout session', {
         err,
         paymentId: payload.paymentId,
       })
+      getTelemetryRuntime()?.reportError(err, {
+        module: 'checkout',
+        code: 'checkout.gateway_payment_session_resume_failed',
+      })
+      throw err
     }
   }
 }

@@ -26,9 +26,15 @@ const mockFindOneWithDecryption = jest.fn(async (_em: unknown, _entity: unknown,
   return seededSessions.find((row) => matchesWhere(row, where)) ?? null
 })
 
+// `supersedeOpenSessionsForCart` now reads the cart's other live sessions through
+// `findWithDecryption` instead of a raw `em.find` — delegate to whatever fake `em.find`
+// the caller passed, matching this file's own `em` mock below.
+const mockFindWithDecryption = jest.fn(async (em: FakeRow, entity: unknown, where: Record<string, unknown>) => em.find(entity, where))
+
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: (...args: unknown[]) =>
     mockFindOneWithDecryption(...(args as [unknown, unknown, Record<string, unknown>])),
+  findWithDecryption: (...args: unknown[]) => mockFindWithDecryption(...(args as [FakeRow, unknown, Record<string, unknown>])),
 }))
 
 jest.mock('@open-mercato/shared/lib/crud/optimistic-lock-command', () => ({

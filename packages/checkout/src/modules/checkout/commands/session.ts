@@ -3,7 +3,7 @@ import type { CommandBus, CommandHandler, CommandRuntimeContext } from '@open-me
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
-import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 // `checkout` and `customer_accounts` are both `packages/core` modules — see
 // `lib/currentSessionRoute.ts`'s header note for the same precedent.
 import { getCustomerAuthFromRequest } from '@open-mercato/core/modules/customer_accounts/lib/customerAuth'
@@ -54,12 +54,18 @@ async function supersedeOpenSessionsForCart(
   em: EntityManager,
   scope: { tenantId: string; organizationId: string; cartId: string },
 ): Promise<void> {
-  const existing = await em.find(CheckoutSession, {
-    tenantId: scope.tenantId,
-    organizationId: scope.organizationId,
-    cartId: scope.cartId,
-    status: { $in: ['open', 'awaiting_approval', 'submitting', 'awaiting_payment'] },
-  } as any)
+  const existing = (await findWithDecryption(
+    em,
+    CheckoutSession,
+    {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      cartId: scope.cartId,
+      status: { $in: ['open', 'awaiting_approval', 'submitting', 'awaiting_payment'] },
+    } as any,
+    undefined,
+    { tenantId: scope.tenantId, organizationId: scope.organizationId },
+  )) as CheckoutSession[]
 
   for (const row of existing) {
     if (row.status === 'submitting' || row.status === 'awaiting_payment') {

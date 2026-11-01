@@ -6,6 +6,7 @@ import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 // approval routes (Step 2.6) already use for this exact helper.
 import { getCustomerAuthFromRequest } from '@open-mercato/core/modules/customer_accounts/lib/customerAuth'
 import { CheckoutSession } from '../data/entities'
+import { lookupCartPeerById } from './cartPeer'
 import { hashCheckoutSessionToken } from './sessionToken'
 
 /** §9.0/C4: the ONLY place a checkout session token travels — never a path segment, never
@@ -26,6 +27,7 @@ export type CheckoutSessionScopePeek = {
   id: string
   tenantId: string
   organizationId: string
+  cartId: string | null
   customerUserId: string | null
 }
 
@@ -38,15 +40,36 @@ async function peekSessionScope(em: EntityManager, tokenHash: string): Promise<C
   const row = await em.findOne(
     CheckoutSession,
     { tokenHash },
-    { fields: ['id', 'tenantId', 'organizationId', 'customerUserId'] as any },
+    { fields: ['id', 'tenantId', 'organizationId', 'cartId', 'customerUserId'] as any },
   )
   if (!row) return null
   return {
     id: row.id,
     tenantId: row.tenantId,
     organizationId: row.organizationId,
+    cartId: row.cartId ?? null,
     customerUserId: row.customerUserId ?? null,
   }
+}
+
+/**
+ * The identity to bind D-R5-33's check against: the session's own `customerUserId` is a
+ * snapshot taken when the session was CREATED — a guest cart claimed by a buyer logging in
+ * afterwards (`cart`'s merge `'replace'` strategy) updates the cart's own `customer_user_id`
+ * but never rewrites a session row that already pointed at it. Submit itself resolves terms
+ * (on-account/quote eligibility, credit) off the LIVE cart, so binding identity to the
+ * session's stale snapshot would let the bare token alone — no customer session required —
+ * read PII, request quotes, or buy on_account against whichever company the cart now
+ * belongs to. Falls back to the session's own value when the cart peer cannot be read (cart
+ * module absent, or the cart was deleted) rather than failing the lookup outright.
+ */
+async function resolveSessionIdentityCustomerUserId(
+  em: EntityManager,
+  peek: CheckoutSessionScopePeek,
+): Promise<string | null> {
+  if (!peek.cartId) return peek.customerUserId
+  const cart = await lookupCartPeerById(em, peek.cartId, { tenantId: peek.tenantId, organizationId: peek.organizationId })
+  return cart ? cart.customerUserId : peek.customerUserId
 }
 
 export type ResolvedCurrentSessionResult =
@@ -74,9 +97,10 @@ export async function resolveCurrentSession(
   const peek = await peekSessionScope(em, tokenHash)
   if (!peek) return { ok: false, response: notFoundSessionResponse() }
 
-  if (peek.customerUserId) {
+  const identityCustomerUserId = await resolveSessionIdentityCustomerUserId(em, peek)
+  if (identityCustomerUserId) {
     const auth = await getCustomerAuthFromRequest(request)
-    if (!auth || auth.sub !== peek.customerUserId) {
+    if (!auth || auth.sub !== identityCustomerUserId) {
       return { ok: false, response: notFoundSessionResponse() }
     }
   }

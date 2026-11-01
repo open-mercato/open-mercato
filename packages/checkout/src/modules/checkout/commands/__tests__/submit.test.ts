@@ -55,8 +55,14 @@ import type { CheckoutSessionSubmitCommandInput, CheckoutSessionSubmitStageResul
 import approvalApprovedSubscriber from '../../subscribers/approval-approved'
 
 const mockFindOneWithDecryption = jest.fn()
+// `lib/approvalResumeSubscriber.ts`'s real handler (exercised below via the REAL
+// `approval-approved` subscriber) now reads `CheckoutSession` rows through
+// `findWithDecryption` instead of a raw `em.find` — delegate to whatever fake `em.find`
+// the caller passed, matching this harness's own `em` mock below.
+const mockFindWithDecryption = jest.fn(async (em: FakeRow, entity: unknown, where: Record<string, unknown>) => em.find(entity, where))
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: (...args: unknown[]) => mockFindOneWithDecryption(...(args as [unknown, unknown, Record<string, unknown>])),
+  findWithDecryption: (...args: unknown[]) => mockFindWithDecryption(...(args as [FakeRow, unknown, Record<string, unknown>])),
 }))
 
 const TENANT_ID = 'tenant-submit-1'
@@ -78,7 +84,10 @@ function makeSession(overrides: FakeRow = {}): FakeRow {
     locale: 'en-US',
     customerId: 'customer-1',
     customerUserId: null,
-    shippingAddress: null,
+    expiresAt: new Date('2099-01-01T00:00:00.000Z'),
+    termsAcceptedAt: new Date('2026-02-01T00:00:00.000Z'),
+    email: 'buyer@example.com',
+    shippingAddress: { line1: '1 Main St', city: 'Anytown', postalCode: '00000', countryCode: 'US' },
     billingAddress: null,
     billingSameAsShipping: false,
     shippingMethod: { deliveryMethodCode: 'acme:standard', price: '5.00', currencyCode: 'USD' },
@@ -224,7 +233,21 @@ function buildHarness(opts: {
         })),
         releaseCredit: jest.fn(async () => ({ released: true, entryId: 'entry-2' })),
         linkCreditReservationToOrder: jest.fn(async () => ({ linked: true, entryId: 'entry-1' })),
+        // Finding 1: submit now re-resolves `listCheckoutPaymentMethods` (which calls
+        // `checkCredit` to decide whether `on_account` is offered) BEFORE its own
+        // `isOnAccount` branch below ever reserves credit.
+        checkCredit: jest.fn(async () => ({ allowed: true, reason: 'ok' })),
       }
+
+  // Finding 1: `listCheckoutPaymentMethods` is the canonical allow-list submit now
+  // re-resolves `paymentMethodCode` against — register a descriptor matching
+  // `BASE_INPUT.paymentMethodCode` ('gateway:acme') so the existing gateway-path tests
+  // keep exercising the SAME method they always did.
+  const paymentGatewayDescriptorService = {
+    listResolved: jest.fn(async () => [
+      { providerKey: 'gateway:acme', label: 'Acme', isConfigured: true, sessionConfig: { supportedCurrencies: '*' } },
+    ]),
+  }
 
   const salesCalculationService = {
     calculateDocumentTotals: jest.fn(async () => makeGoodsCalc(opts.goodsCalcTotals ?? SNAPSHOT_TOTALS)),
@@ -301,6 +324,7 @@ function buildHarness(opts: {
     ...(paymentGatewayService ? { paymentGatewayService } : {}),
     ...(promotionsService ? { promotionsService } : {}),
     ...(customerGroupsService ? { customerGroupsService } : {}),
+    paymentGatewayDescriptorService,
   }
 
   function unqualify(col: string): string {
@@ -645,12 +669,17 @@ describe('checkout.session.submit (B.4, steps 1-5 of §7.2/C19)', () => {
     expect(result.stockReservationKey).toBeNull()
   })
 
-  it('refuses on_account with 402 credit_refused when customer_groups is absent (fail-closed)', async () => {
+  it('refuses on_account with 422 payment_method_unavailable when customer_groups is absent (fail-closed) — Finding 1', async () => {
     const h = buildHarness({ customerCreditServiceAvailable: false })
 
+    // Finding 1: `listCheckoutPaymentMethods` (re-resolved at submit, before any
+    // reservation) never offers `on_account` without a `customerCreditService` to run
+    // `checkCredit` through — so this is now caught by the allow-list check, a 422
+    // `payment_method_unavailable`, before the old `isOnAccount` branch's own (now
+    // unreachable for this exact case) 402 `credit_refused` check.
     await expect(getHandler().execute({ ...BASE_INPUT, paymentMethodCode: 'on_account' }, h.ctx)).rejects.toMatchObject({
-      status: 402,
-      body: expect.objectContaining({ code: 'credit_refused' }),
+      status: 422,
+      body: expect.objectContaining({ code: 'payment_method_unavailable' }),
     })
   })
 })
@@ -700,7 +729,12 @@ describe('checkout.session.submit (B.4, steps 6-8 of §7.2/C19 — Step 4.2)', (
     const gatewayCallIndex = callOrder.indexOf('paymentGatewayService.createPaymentSession')
     expect(commitIndex).toBeGreaterThanOrEqual(0)
     expect(gatewayCallIndex).toBeGreaterThan(commitIndex)
-    expect(h.cartService.lock).toHaveBeenCalledTimes(2) // fresh lock (step 1) + payment-window extend (step 7, C1)
+    // Finding 7: fresh lock (step 1) + the pre-gateway payment-window guess (step 7, C1)
+    // + the corrective re-lock to the gateway's OWN `paymentExpiresAt`, once it is known.
+    expect(h.cartService.lock).toHaveBeenCalledTimes(3)
+    const lastLockCall = h.cartService.lock.mock.calls[2][0]
+    expect(lastLockCall.lockTtlMs).toBeGreaterThan(0)
+    expect(lastLockCall.lockTtlMs).toBeLessThanOrEqual(86_400_000)
   })
 
   it('a refused promotion code (C5) compensates by CANCELLING the order (not a hand-rolled release) and aborts 409 promotion_unavailable', async () => {

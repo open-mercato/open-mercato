@@ -13,6 +13,11 @@ jest.mock('../../lib/cartLinesPeer', () => ({
   lookupCartLinePeers: (...args: unknown[]) => mockLookupCartLinePeers(...args),
 }))
 
+const mockLookupCartEnteredCodes = jest.fn(async () => [])
+jest.mock('../../lib/cartPeer', () => ({
+  lookupCartEnteredCodes: (...args: unknown[]) => mockLookupCartEnteredCodes(...args),
+}))
+
 const mockGetOrComputeDeliveryOptions = jest.fn()
 jest.mock('../../lib/deliveryRateCache', () => ({
   getOrComputeDeliveryOptions: (...args: unknown[]) => mockGetOrComputeDeliveryOptions(...args),
@@ -85,6 +90,7 @@ describe('checkout.session.selectDelivery (B.3, §5.3/§5.4)', () => {
     jest.clearAllMocks()
     mockGetOrComputeDeliveryOptions.mockResolvedValue([OPTION])
     mockEvaluateDeliveryDiscount.mockResolvedValue(null)
+    mockLookupCartEnteredCodes.mockResolvedValue([])
   })
 
   it('answers 404 when the session does not exist', async () => {
@@ -192,5 +198,30 @@ describe('checkout.session.selectDelivery (B.3, §5.3/§5.4)', () => {
       amountGross: '-12.50',
     })
     expect(session.quotedTotals).toMatchObject({ deliveryDiscount: '-12.50' })
+  })
+
+  // Finding 3: submit re-derives the cart's entered codes before evaluating the delivery
+  // discount (`commands/submit.ts`) — this route must agree, or a code-gated free-shipping
+  // promotion evaluates here with `codes: []` (never applies to `quoted_totals`) and then
+  // always 409s at submit when the SAME evaluation, now WITH codes, disagrees.
+  it('re-derives the cart\'s entered codes and passes them to evaluateDeliveryDiscount, never codes: []', async () => {
+    const session = makeSession()
+    mockFindOneWithDecryption.mockResolvedValue(session)
+    mockLookupCartEnteredCodes.mockResolvedValue([{ id: 'code-1', type: 'static', codeString: 'FREESHIP' }])
+    const input: CheckoutSessionSelectDeliveryCommandInput = {
+      sessionId: 'session-1',
+      tenantId: TENANT_ID,
+      organizationId: ORG_ID,
+      deliveryMethodCode: 'acme:express',
+    }
+
+    await selectDeliveryCommand.execute(input, makeCtx())
+
+    expect(mockLookupCartEnteredCodes).toHaveBeenCalledWith(expect.anything(), 'cart-1', { tenantId: TENANT_ID, organizationId: ORG_ID })
+    expect(mockEvaluateDeliveryDiscount).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ codes: [{ id: 'code-1', type: 'static', codeString: 'FREESHIP' }] }),
+    )
   })
 })

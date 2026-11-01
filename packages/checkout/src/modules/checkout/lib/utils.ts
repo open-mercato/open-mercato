@@ -1,7 +1,7 @@
 import { createHmac, timingSafeEqual } from 'crypto'
 import bcrypt from 'bcryptjs'
 import { slugify } from '@open-mercato/shared/lib/slugify'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { normalizeCustomFieldResponse } from '@open-mercato/shared/lib/custom-fields/normalize'
 import { parseDecryptedFieldValue } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -343,6 +343,23 @@ export function mapGatewayStatusToCheckoutStatus(status: string | null | undefin
 
 export function isTerminalCheckoutStatus(status: string | null | undefined): boolean {
   return typeof status === 'string' && CHECKOUT_TERMINAL_STATUSES.has(status)
+}
+
+/**
+ * A redelivered/out-of-order gateway webhook can hit `checkout.transaction.updateStatus`
+ * after the transaction already reached a DIFFERENT terminal state — the status machine
+ * (`assertValidCheckoutStatusTransition`) and the CAS `nativeUpdate` both reject that as a
+ * 409, correctly: the transaction is terminal, so retrying the exact same update can never
+ * succeed. That is the ONLY shape of 409 safe to swallow as a no-op; every other error
+ * (missing transaction, a non-terminal conflict, anything else) must propagate so a
+ * persistent subscriber's redelivery can retry it — see `subscribers/gateway-payment-*.ts`.
+ */
+export function isIdempotentCheckoutTransactionStatusConflict(err: unknown): boolean {
+  if (!isCrudHttpError(err) || err.status !== 409) return false
+  const code = err.body?.code
+  if (code !== 'invalid_status_transition' && code !== 'concurrent_status_update') return false
+  const currentStatus = err.body?.currentStatus
+  return isTerminalCheckoutStatus(typeof currentStatus === 'string' ? currentStatus : null)
 }
 
 export function isCheckoutLinkPublic(status: CheckoutLinkStatus | string | null | undefined): boolean {

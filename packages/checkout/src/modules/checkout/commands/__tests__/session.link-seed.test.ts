@@ -34,9 +34,15 @@ const mockFindOneWithDecryption = jest.fn(async (_em: unknown, entity: unknown, 
   return null
 })
 
+// `supersedeOpenSessionsForCart` now reads the cart's other live sessions through
+// `findWithDecryption` instead of a raw `em.find` — delegate to whatever fake `em.find`
+// the caller passed, matching this file's own `em` mock below.
+const mockFindWithDecryption = jest.fn(async (em: FakeRow, entity: unknown, where: Record<string, unknown>) => em.find(entity, where))
+
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: (...args: unknown[]) =>
     mockFindOneWithDecryption(...(args as [unknown, unknown, Record<string, unknown>])),
+  findWithDecryption: (...args: unknown[]) => mockFindWithDecryption(...(args as [FakeRow, unknown, Record<string, unknown>])),
 }))
 
 import { randomUUID } from 'crypto'
@@ -88,6 +94,38 @@ function backingArrayFor(entity: unknown): FakeRow[] {
   return seededSessions
 }
 
+// Models `payLinkCartSeed.ts`'s raw `UPDATE checkout_links` reserve/release statements
+// against `seededLinks` — same fixture, same camelCase fields the real columns map to.
+function fakeCheckoutLinksExecute(sql: string, params: unknown[] = []): unknown[] {
+  if (sql.includes('active_reservation_count = active_reservation_count + 1')) {
+    const [linkId, organizationId, tenantId] = params as string[]
+    const link = seededLinks.find((row) => (
+      row.id === linkId && row.organizationId === organizationId && row.tenantId === tenantId
+      && row.deletedAt == null && row.status === 'active'
+    ))
+    if (!link) return []
+    const available = link.maxCompletions == null
+      || (link.completionCount + link.activeReservationCount) < link.maxCompletions
+    if (!available) return []
+    link.activeReservationCount += 1
+    link.isLocked = true
+    return [{ active_reservation_count: link.activeReservationCount }]
+  }
+  if (sql.includes('GREATEST(active_reservation_count - 1, 0)')) {
+    const [completedDelta, linkId, organizationId, tenantId] = params as [number, string, string, string]
+    const link = seededLinks.find((row) => (
+      row.id === linkId && row.organizationId === organizationId && row.tenantId === tenantId && row.deletedAt == null
+    ))
+    if (link) {
+      link.activeReservationCount = Math.max(link.activeReservationCount - 1, 0)
+      link.completionCount += completedDelta
+      link.isLocked = link.activeReservationCount > 0
+    }
+    return []
+  }
+  return []
+}
+
 function makeFakeEm() {
   const em: any = {
     find: jest.fn(async (entity: unknown, where: Record<string, unknown>) =>
@@ -103,6 +141,7 @@ function makeFakeEm() {
       for (const row of matched) Object.assign(row, set)
       return matched.length
     }),
+    execute: jest.fn(async (sql: string, params: unknown[] = []) => fakeCheckoutLinksExecute(sql, params)),
   }
   return em
 }

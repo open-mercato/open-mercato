@@ -6,7 +6,15 @@ import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { CartService } from '@open-mercato/core/modules/cart/lib/cartService'
 import { CheckoutSession } from '../data/entities'
-import { compensate, compensateByCancellingOrder, completeQuoteOutcome, continueOrderOutcome } from '../commands/submit'
+import {
+  compensate,
+  compensateByCancellingOrder,
+  completeQuoteOutcome,
+  continueOrderOutcome,
+  findExistingOrderById,
+  findExistingQuoteByExternalReference,
+  resumeOrderOutcomeFromQuote,
+} from '../commands/submit'
 import { writeSessionEvent } from '../lib/sessionEvents'
 import { emitCheckoutEvent } from '../events'
 import { tryResolve } from '../lib/tryResolve'
@@ -157,6 +165,92 @@ export async function recoverOneStuckSubmit(
       await compensateByCancellingOrder(container, em, session, scope, session.salesOrderId, 'submit_recovery_failed')
       await writeSessionEvent(em, { ...scope, sessionId: session.id, kind: 'recovery', actor: 'system', payload: { action: 'gave_up', fromProgress: progress } })
       return
+    }
+  }
+
+  // Finding-6 fix: before treating an unrecorded `submit_progress` as "nothing happened
+  // yet" (steps 1-4 crashed), check whether document creation (step 5) actually already
+  // succeeded under THIS attempt's own deterministic `externalReference` — a crash
+  // between `sales.quotes.create`/`convert_to_order` returning and the session's own
+  // `submit_progress`/`salesQuoteId`/`salesOrderId` write landing leaves exactly this gap:
+  // a live quote (and maybe already an order) that the collapsed branch below would never
+  // look for, compensating (releasing stock/credit, reopening the session) while leaving
+  // that order alive and orphaned. Re-deriving the quote by its external reference — never
+  // trusting the session's own possibly-unpersisted columns — closes it; once found, this
+  // persists what was missing and re-enters this SAME function so the existing
+  // `document_created` branch above (with its own retry/give-up semantics) takes it from
+  // there, rather than duplicating that logic here.
+  if (progress == null && !session.salesQuoteId && session.paymentMethodCode) {
+    const externalReference = `checkout:${session.id}:${session.submitAttempt}`
+    const existingQuote = await findExistingQuoteByExternalReference(em, scope, externalReference)
+    if (existingQuote) {
+      const existingOrder = session.paymentMethodCode === 'request_quote'
+        ? null
+        : await findExistingOrderById(em, scope, existingQuote.id)
+
+      if (session.paymentMethodCode === 'request_quote' || existingOrder) {
+        // The quote (and, for an order outcome, the order too) already exists — persist
+        // what the crash never got to write and re-enter this function so the EXISTING
+        // `document_created`/`finalized` branch above (with its own retry/give-up
+        // semantics) resumes it, rather than duplicating that logic here.
+        await em.nativeUpdate(
+          CheckoutSession,
+          { id: session.id, ...scope },
+          {
+            salesQuoteId: existingQuote.id,
+            salesOrderId: existingOrder?.id ?? null,
+            submitProgress: 'document_created',
+            updatedAt: new Date(),
+          },
+        )
+        session.salesQuoteId = existingQuote.id
+        session.salesOrderId = existingOrder?.id ?? null
+        session.submitProgress = 'document_created'
+        await writeSessionEvent(em, { ...scope, sessionId: session.id, kind: 'recovery', actor: 'system', payload: { action: 'recovered_progress', fromProgress: progress } })
+        return recoverOneStuckSubmit(container, em, session, scope)
+      }
+
+      // The quote exists but the order does not — the crash landed inside (or right
+      // after) `sales.quotes.convert_to_order` itself, before either the order's own id
+      // or the session's `submit_progress` could be persisted. `resumeOrderOutcomeFromQuote`
+      // IS this attempt's own find-or-convert-and-continue step; the existing
+      // `document_created`/`finalized` branch above cannot be reused here because it
+      // requires `salesOrderId` to already be known.
+      try {
+        await resumeOrderOutcomeFromQuote(container, {
+          session,
+          scope,
+          attempt: session.submitAttempt,
+          paymentMethodCode: session.paymentMethodCode,
+          stockReservationKey: session.stockReservationKey ?? null,
+          creditReservationKey: session.creditReservationKey ?? null,
+          quoteId: existingQuote.id,
+          request: null,
+        })
+        await writeSessionEvent(em, { ...scope, sessionId: session.id, kind: 'recovery', actor: 'system', payload: { action: 'resumed', fromProgress: progress } })
+        return
+      } catch (err) {
+        const startedAt = session.submitStartedAt ? session.submitStartedAt.getTime() : 0
+        if (Date.now() - startedAt < RECOVERY_GIVE_UP_MS) {
+          logger.warn('[internal] recover-stuck-submits: quote-to-order resume attempt failed, will retry next tick', { err, sessionId: session.id, progress })
+          return
+        }
+        // The order never came into existence (`sales.quotes.convert_to_order` keeps
+        // failing) — compensating here only means releasing the stock/credit reservation
+        // and unlocking the cart; never cancelling an order, because none exists yet.
+        logger.error('[internal] recover-stuck-submits: giving up on an old stuck quote-to-order attempt, compensating', { err, sessionId: session.id, progress })
+        await safeUnlockCart(container, session, scope)
+        await compensate(
+          container,
+          em,
+          session,
+          scope,
+          { releaseCredit: true, releaseStock: true, unlockCart: false },
+          { stockReservationKey: session.stockReservationKey ?? null, creditReservationKey: session.creditReservationKey ?? null },
+        )
+        await writeSessionEvent(em, { ...scope, sessionId: session.id, kind: 'recovery', actor: 'system', payload: { action: 'gave_up', fromProgress: progress } })
+        return
+      }
     }
   }
 

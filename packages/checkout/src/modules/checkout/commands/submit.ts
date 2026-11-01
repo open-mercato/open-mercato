@@ -17,7 +17,7 @@ import type {
 import type { CustomerGroupsService, ResolvedTerms } from '@open-mercato/core/modules/customer_groups/services/customerGroupsService'
 import type { AppliedPromotion, PromotionsService } from '@open-mercato/core/modules/promotions/lib/types'
 import type { PaymentGatewayService } from '@open-mercato/core/modules/payment_gateways/lib/gateway-service'
-import { CheckoutSession, CheckoutTransaction } from '../data/entities'
+import { CheckoutLink, CheckoutSession, CheckoutTransaction } from '../data/entities'
 import {
   assertCartMatchesCheckoutScope,
   resolveRequestStoreIdForConsistencyCheck,
@@ -33,6 +33,8 @@ import { getOrComputeDeliveryOptions } from '../lib/deliveryRateCache'
 import { computeDeliveryOptions } from '../lib/deliveryRateQuote'
 import { hashAddressForCache, hashCartLinesForCache, resolveDestinationAddress } from '../lib/deliveryAddress'
 import { evaluateDeliveryDiscount } from '../lib/promotionsDeliveryEvaluation'
+import { listCheckoutPaymentMethods } from '../lib/paymentMethods'
+import { releaseCheckoutLinkSlot } from '../lib/payLinkCartSeed'
 import { writeSessionEvent } from '../lib/sessionEvents'
 import { tryResolve } from '../lib/tryResolve'
 import { emitCheckoutEvent } from '../events'
@@ -125,6 +127,71 @@ function buildTrustedCtx(
     reason,
   })
   return { ...ctx, container }
+}
+
+/**
+ * §7.4/C19: `submit_idempotency_key` is written at the CAS (step 0) so a retry that lost
+ * its HTTP response — not a genuinely concurrent second caller — can replay the ORIGINAL
+ * attempt's result instead of a confusing 409. Only reached when the session has already
+ * moved past `open` under the SAME key; `null` means there is nothing to replay yet (the
+ * original attempt is still `submitting`), and the caller falls through to the existing
+ * uniform 409.
+ */
+async function replaySubmitIdempotencyKey(
+  container: CommandRuntimeContext['container'],
+  session: CheckoutSession,
+  scope: SubmitScope,
+): Promise<CheckoutSessionSubmitStageResult | null> {
+  if (session.status === 'completed' && session.salesQuoteId) {
+    return {
+      session,
+      attempt: session.submitAttempt,
+      stockReservationKey: session.stockReservationKey ?? null,
+      creditReservationKey: session.creditReservationKey ?? null,
+      salesQuoteId: session.salesQuoteId,
+      salesOrderId: session.salesOrderId ?? null,
+    }
+  }
+  if (session.status === 'failed') {
+    // Replay the ORIGINAL failure, never a generic "not open" — the caller already saw
+    // (or should see) exactly this outcome, not a different error on retry.
+    throw new CrudHttpError(409, {
+      error: '[internal] the previous submit attempt under this idempotency key failed',
+      code: session.failureCode ?? 'submit_failed',
+    })
+  }
+  if (session.status === 'awaiting_payment' && session.salesQuoteId && session.salesOrderId) {
+    let paymentHandoff: NonNullable<CheckoutSessionSubmitStageResult['paymentHandoff']> = {
+      redirectUrl: null,
+      clientSecret: null,
+      providerKey: session.paymentMethodCode ?? null,
+    }
+    // The redirect/clientSecret the buyer actually needs to pay is never persisted on the
+    // session itself — only the gateway's own `providerSessionId` is (`paymentIntentRef`).
+    // Re-read it back from the gateway's own transaction row (FK-id lookup, never a cross-
+    // module entity import) rather than fabricating an empty handoff the buyer cannot act on.
+    const paymentGatewayService = tryResolve<PaymentGatewayService>(container, 'paymentGatewayService')
+    if (paymentGatewayService && session.paymentIntentRef) {
+      const gatewayTransaction = await paymentGatewayService.findTransactionBySessionId(session.paymentIntentRef, scope)
+      if (gatewayTransaction) {
+        paymentHandoff = {
+          redirectUrl: gatewayTransaction.redirectUrl ?? null,
+          clientSecret: gatewayTransaction.clientSecret ?? null,
+          providerKey: session.paymentMethodCode ?? null,
+        }
+      }
+    }
+    return {
+      session,
+      attempt: session.submitAttempt,
+      stockReservationKey: session.stockReservationKey ?? null,
+      creditReservationKey: session.creditReservationKey ?? null,
+      salesQuoteId: session.salesQuoteId,
+      salesOrderId: session.salesOrderId,
+      paymentHandoff,
+    }
+  }
+  return null
 }
 
 function roundTo2dp(amount: number): string {
@@ -303,6 +370,14 @@ const submitSessionCommand: CommandHandler<CheckoutSessionSubmitCommandInput, Ch
     const session = await findOneWithDecryption(em, CheckoutSession, { id: input.sessionId, ...scope }, undefined, scope)
     if (!session) throw notFound('[internal] checkout session not found')
 
+    // §7.4/C19: a retry under the SAME idempotency key as an attempt that already moved
+    // the session past `open` replays that attempt's result — checked before the uniform
+    // "in flight"/"not open" 409s below, which exist for a genuinely DIFFERENT caller.
+    if (session.status !== 'open' && session.submitIdempotencyKey && session.submitIdempotencyKey === input.idempotencyKey) {
+      const replay = await replaySubmitIdempotencyKey(container, session, scope)
+      if (replay) return replay
+    }
+
     if (session.status === 'submitting') {
       // §7.4: a repeat while an attempt is in flight is a uniform 409, never a resume — a
       // crashed attempt is recovered by Step 4.2's own job (C24), not by calling this
@@ -317,6 +392,27 @@ const submitSessionCommand: CommandHandler<CheckoutSessionSubmitCommandInput, Ch
     }
     if (!session.shippingMethod) {
       throw new CrudHttpError(422, { error: '[internal] a delivery method must be selected before submit', code: 'steps_incomplete' })
+    }
+    // §7.1 preconditions (C19/C14): the session must actually be ready to buy before any
+    // reservation is made — an expired session, or one missing contact/consent/address
+    // data the UI should already have collected, is a client bug or an abandoned session
+    // resurfacing, never something submit should silently proceed on.
+    if (session.expiresAt && session.expiresAt.getTime() <= Date.now()) {
+      await em.nativeUpdate(
+        CheckoutSession,
+        { id: session.id, ...scope, status: 'open' },
+        { status: 'expired', updatedAt: new Date() },
+      )
+      throw new CrudHttpError(409, { error: '[internal] checkout session has expired', code: 'session_expired' })
+    }
+    if (!session.termsAcceptedAt) {
+      throw new CrudHttpError(422, { error: '[internal] terms must be accepted before submit', code: 'steps_incomplete' })
+    }
+    if (!session.email) {
+      throw new CrudHttpError(422, { error: '[internal] an email address is required before submit', code: 'steps_incomplete' })
+    }
+    if (!session.shippingAddress) {
+      throw new CrudHttpError(422, { error: '[internal] a shipping address is required before submit', code: 'steps_incomplete' })
     }
     // Preconditions check 4 (C9, re-verified at submit per the C9 guard's own contract —
     // Step 3.5's cart/session may have drifted since session creation). Three of the four
@@ -341,6 +437,31 @@ const submitSessionCommand: CommandHandler<CheckoutSessionSubmitCommandInput, Ch
       },
       resolvedStoreId,
     })
+
+    // §13 Entitlement / Finding-1 fix: `paymentMethodCode` is client input and must never
+    // become `providerKey` unchecked — re-resolve the SAME allowed-methods listing the
+    // `GET /sessions/current/payment-methods` route offers the buyer and refuse anything
+    // not in it. This is what catches an unconfigured/wrong-currency gateway AND a
+    // pay-link session whose `paymentMethodCode` does not match the link's own
+    // `gatewayProviderKey` (Phase A's one-provider-per-link model) — both would otherwise
+    // reach `paymentGatewayService.createPaymentSession` with an adapter the buyer was
+    // never actually offered.
+    let linkGatewayProviderKey: string | null = null
+    if (session.linkId) {
+      const link = await findOneWithDecryption(em, CheckoutLink, { id: session.linkId, ...scope }, undefined, scope)
+      linkGatewayProviderKey = link?.gatewayProviderKey ?? null
+    }
+    const allowedPaymentMethods = await listCheckoutPaymentMethods(container, scope, {
+      currencyCode: session.currencyCode,
+      linkGatewayProviderKey,
+      buyer: { customerId: cartPeer.customerId, customerIds: cartPeer.customerIds },
+    })
+    const isPaymentMethodAllowed = allowedPaymentMethods.some((method) => (
+      method.kind === 'gateway' ? method.providerKey === input.paymentMethodCode : method.kind === input.paymentMethodCode
+    ))
+    if (!isPaymentMethodAllowed) {
+      throw new CrudHttpError(422, { error: '[internal] the selected payment method is not available for this session', code: 'payment_method_unavailable' })
+    }
 
     // ---------------------------------------------------------------------
     // §7.1 preconditions 6/9 (Step 5.1, B.5, D-R5-20/D-R5-23/D-R5-28): resolved ONCE here,
@@ -765,39 +886,15 @@ const submitSessionCommand: CommandHandler<CheckoutSessionSubmitCommandInput, Ch
       return completeQuoteOutcome(container, em, session, scope, quoteId, { stockReservationKey: availabilityActive ? stockReservationKey : null })
     }
 
-    const existingOrder = await findExistingOrderById(em, scope, quoteId)
-    let orderId: string
-    if (existingOrder) {
-      orderId = existingOrder.id
-    } else {
-      const { result: convertResult } = await commandBus.execute<unknown, { orderId: string }>('sales.quotes.convert_to_order', {
-        input: { quoteId },
-        ctx: trustedCtx,
-      })
-      orderId = convertResult.orderId
-    }
-
-    await em.nativeUpdate(
-      CheckoutSession,
-      { id: session.id, ...scope },
-      { salesQuoteId: quoteId, salesOrderId: orderId, submitProgress: 'document_created', updatedAt: new Date() },
-    )
-    session.salesQuoteId = quoteId
-    session.salesOrderId = orderId
-    session.submitProgress = 'document_created'
-
-    await writeSessionEvent(em, { ...scope, sessionId: session.id, kind: 'document_created', actor: 'system', payload: { quoteId, orderId } })
-
-    // ---------------------------------------------------------------------
     // Steps 6-8 (Step 4.2, C5/C6/C18/C24): order outcome only — the quote outcome already
-    // returned above, before this point is ever reached. `continueOrderOutcome` is a
-    // tightly-coupled sibling of this `execute()`, not a
-    // parallel reimplementation — `recover-stuck-submits` (workers/recover-stuck-
-    // submits.worker.ts) calls the SAME function directly for a session whose
-    // `submit_progress` is already `document_created`/`finalized`, re-deriving its inputs
-    // from the session's own stored columns instead of local variables this function
-    // computed in steps 1-5.
-    return continueOrderOutcome(container, {
+    // returned above, before this point is ever reached. `resumeOrderOutcomeFromQuote` is
+    // a tightly-coupled sibling of this `execute()`, not a parallel reimplementation —
+    // `recover-stuck-submits` (workers/recover-stuck-submits.worker.ts) calls the SAME
+    // function directly for a session that crashed between the quote existing and this
+    // write landing, re-deriving `quoteId` from the attempt's own deterministic
+    // `externalReference` instead of trusting a `submitProgress`/`salesQuoteId` column that
+    // crash may never have persisted.
+    return resumeOrderOutcomeFromQuote(container, {
       session,
       scope,
       attempt,
@@ -805,7 +902,6 @@ const submitSessionCommand: CommandHandler<CheckoutSessionSubmitCommandInput, Ch
       stockReservationKey: availabilityActive ? stockReservationKey : null,
       creditReservationKey: isOnAccount ? creditReservationKey : null,
       quoteId,
-      orderId,
       successUrl: input.successUrl,
       cancelUrl: input.cancelUrl,
       request: input.request,
@@ -813,7 +909,7 @@ const submitSessionCommand: CommandHandler<CheckoutSessionSubmitCommandInput, Ch
   },
 }
 
-async function findExistingQuoteByExternalReference(
+export async function findExistingQuoteByExternalReference(
   em: EntityManager,
   scope: SubmitScope,
   externalReference: string,
@@ -832,7 +928,7 @@ async function findExistingQuoteByExternalReference(
   return row ? { id: row.id } : null
 }
 
-async function findExistingOrderById(
+export async function findExistingOrderById(
   em: EntityManager,
   scope: SubmitScope,
   orderId: string,
@@ -1041,6 +1137,12 @@ export async function compensateByCancellingOrder(
     { id: session.id, ...scope },
     { status: 'failed', failureCode, failureDetail: null, updatedAt: new Date() },
   )
+  // Finding 5: a `simple_checkout` link's own usage slot (reserved atomically at cart
+  // seeding, `lib/payLinkCartSeed.ts#reserveCheckoutLinkSlot`) is released back on a
+  // terminal failure — never left permanently claimed by a session that will never order.
+  if (session.linkId) {
+    await releaseCheckoutLinkSlot(em, scope, session.linkId, { completed: false })
+  }
   await writeSessionEvent(em, { ...scope, sessionId: session.id, kind: 'compensation', actor: 'system', payload: { stage: 'order_cancelled', orderId, failureCode } })
   await emitCheckoutEvent('checkout.session.failed', { sessionId: session.id, tenantId: scope.tenantId, organizationId: scope.organizationId, cartId: session.cartId ?? null, attempt: session.submitAttempt, failureCode }).catch(() => undefined)
 }
@@ -1092,6 +1194,12 @@ export async function confirmOrderAndComplete(
   )
   session.status = 'completed'
   session.outcomeKind = 'order'
+
+  // Finding 5: converts the link's reserved slot into a permanent completion — mirrors
+  // `applyTerminalTransactionState`'s own bookkeeping for the Phase A transaction flow.
+  if (session.linkId) {
+    await releaseCheckoutLinkSlot(em, scope, session.linkId, { completed: true })
+  }
 
   await writeSessionEvent(em, { ...scope, sessionId: session.id, kind: 'payment_result', actor: 'system', payload: { orderId, outcome: 'completed' } })
   await emitCheckoutEvent('checkout.session.completed', {
@@ -1179,6 +1287,13 @@ export async function completeQuoteOutcome(
   session.status = 'completed'
   session.outcomeKind = 'quote'
 
+  // Finding 5: a quote outcome is still a terminal use of the link's slot (the session
+  // reaches `completed`, never reopened) — converts the reservation the same way an order
+  // outcome does, see `confirmOrderAndComplete`.
+  if (session.linkId) {
+    await releaseCheckoutLinkSlot(em, scope, session.linkId, { completed: true })
+  }
+
   await writeSessionEvent(em, { ...scope, sessionId: session.id, kind: 'quote_completed', actor: 'system', payload: { quoteId, outcome: 'completed' } })
   await emitCheckoutEvent('checkout.session.completed', {
     sessionId: session.id,
@@ -1199,6 +1314,78 @@ export async function completeQuoteOutcome(
     salesQuoteId: quoteId,
     salesOrderId: null,
   }
+}
+
+export type ResumeOrderOutcomeFromQuoteInput = {
+  session: CheckoutSession
+  scope: SubmitScope
+  attempt: number
+  paymentMethodCode: string
+  stockReservationKey: string | null
+  creditReservationKey: string | null
+  quoteId: string
+  successUrl?: string | null
+  cancelUrl?: string | null
+  request?: Request | null
+}
+
+/**
+ * §7.2 step 5b (D-R5-26)/Step 4.2: the quote exists — find-or-convert its order (idempotent
+ * by `quoteId`, `sales.quotes.convert_to_order` itself 409s "Order already exists" on a
+ * repeat), persist `salesQuoteId`/`salesOrderId`/`submitProgress: 'document_created'` onto
+ * the session, then hand off to `continueOrderOutcome` (steps 6-8). Exported so
+ * `workers/recover-stuck-submits.worker.ts` can resume through this EXACT function — never
+ * a parallel reimplementation — when it finds a quote already created under an attempt's
+ * own deterministic `externalReference` but the session's own `submit_progress` column
+ * never recorded it (a crash between quote/order creation and this write, C24's own gap:
+ * treating that as a steps-1-4 crash would release stock/credit out from under a now-live
+ * order instead of resuming it).
+ */
+export async function resumeOrderOutcomeFromQuote(
+  container: CommandRuntimeContext['container'],
+  input: ResumeOrderOutcomeFromQuoteInput,
+): Promise<CheckoutSessionSubmitStageResult> {
+  const { session, scope, quoteId } = input
+  const em = (container.resolve('em') as EntityManager).fork()
+  const trustedCtx = buildTrustedCtx(container, scope, `checkout:submit:convert:${session.id}:${input.attempt}`)
+  const commandBus = container.resolve('commandBus') as CommandBus
+
+  const existingOrder = await findExistingOrderById(em, scope, quoteId)
+  let orderId: string
+  if (existingOrder) {
+    orderId = existingOrder.id
+  } else {
+    const { result: convertResult } = await commandBus.execute<unknown, { orderId: string }>('sales.quotes.convert_to_order', {
+      input: { quoteId },
+      ctx: trustedCtx,
+    })
+    orderId = convertResult.orderId
+  }
+
+  await em.nativeUpdate(
+    CheckoutSession,
+    { id: session.id, ...scope },
+    { salesQuoteId: quoteId, salesOrderId: orderId, submitProgress: 'document_created', updatedAt: new Date() },
+  )
+  session.salesQuoteId = quoteId
+  session.salesOrderId = orderId
+  session.submitProgress = 'document_created'
+
+  await writeSessionEvent(em, { ...scope, sessionId: session.id, kind: 'document_created', actor: 'system', payload: { quoteId, orderId } })
+
+  return continueOrderOutcome(container, {
+    session,
+    scope,
+    attempt: input.attempt,
+    paymentMethodCode: input.paymentMethodCode,
+    stockReservationKey: input.stockReservationKey,
+    creditReservationKey: input.creditReservationKey,
+    quoteId,
+    orderId,
+    successUrl: input.successUrl,
+    cancelUrl: input.cancelUrl,
+    request: input.request,
+  })
 }
 
 export async function continueOrderOutcome(
@@ -1395,6 +1582,26 @@ export async function continueOrderOutcome(
 
   const mappedStatus = mapGatewayStatusToCheckoutStatus(sessionResult.transaction.unifiedStatus)
   const paymentExpiresAt = sessionResult.transaction.expiresAt ?? new Date(Date.now() + 60 * 60 * 1000)
+
+  // The pre-lock above (`paymentWindowMs`) was only a conservative guess made BEFORE the
+  // gateway answered with its own real expiry — correct it now to the actual payment
+  // window rather than leaving the cart locked on a guessed constant (too short: the lock
+  // can lapse mid-payment and let the cart be edited/reused under a still-live transaction;
+  // too long: an abandoned checkout keeps the cart locked well past when the buyer could
+  // still pay). `cart.lock`'s own TTL bounds (`commands/lock.ts`) are `[60_000,
+  // 86_400_000]` — clamped here rather than imported, since checkout has no business
+  // depending on cart's internal constants.
+  if (cartService) {
+    const correctedLockTtlMs = Math.min(Math.max(paymentExpiresAt.getTime() - Date.now(), 60_000), 86_400_000)
+    await cartService.lock({
+      cartId: session.cartId,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      checkoutSessionId: session.id,
+      lockTtlMs: correctedLockTtlMs,
+      request: input.request,
+    })
+  }
 
   await em.nativeUpdate(
     CheckoutSession,

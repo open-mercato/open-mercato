@@ -1,4 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { CheckoutSession } from '../data/entities'
 import { writeSessionEvent } from './sessionEvents'
@@ -73,12 +74,18 @@ export function createCheckoutApprovalResumeHandler(
 
     try {
       const em = ctx.resolve<EntityManager>('em').fork()
-      const sessions = await em.find(CheckoutSession, {
-        cartId,
-        tenantId,
-        organizationId,
-        status: 'awaiting_approval',
-      } as any)
+      const sessions = (await findWithDecryption(
+        em,
+        CheckoutSession,
+        {
+          cartId,
+          tenantId,
+          organizationId,
+          status: 'awaiting_approval',
+        } as any,
+        undefined,
+        { tenantId, organizationId },
+      )) as CheckoutSession[]
       if (sessions.length === 0) return
 
       const eventId = outcome === 'approved'

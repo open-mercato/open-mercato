@@ -9,6 +9,7 @@ import { resolveDestinationAddress, hashAddressForCache, hashCartLinesForCache }
 import { getOrComputeDeliveryOptions } from '../lib/deliveryRateCache'
 import { computeDeliveryOptions } from '../lib/deliveryRateQuote'
 import { lookupCartLinePeers } from '../lib/cartLinesPeer'
+import { lookupCartEnteredCodes } from '../lib/cartPeer'
 import { evaluateDeliveryDiscount } from '../lib/promotionsDeliveryEvaluation'
 import { writeSessionEvent } from '../lib/sessionEvents'
 import { CHECKOUT_SESSION_RESOURCE_KIND } from './session'
@@ -109,6 +110,12 @@ const selectDeliveryCommand: CommandHandler<
       })
     }
 
+    // §7.2 step 2's own re-evaluation (`commands/submit.ts`) re-derives the cart's
+    // currently-entered codes before evaluating the delivery discount — this selection
+    // route must agree, or a code-gated free-shipping promotion evaluates here with
+    // `codes: []`, never applies to `quoted_totals`, and then always 409s at submit when
+    // the SAME evaluation (now WITH codes) produces a different `deliveryDiscount`.
+    const enteredCodes = session.cartId ? await lookupCartEnteredCodes(em, session.cartId, scope) : []
     const deliveryDiscount = await evaluateDeliveryDiscount(
       container,
       em,
@@ -120,6 +127,7 @@ const selectDeliveryCommand: CommandHandler<
         currencyCode: session.currencyCode,
         deliveryMethodCode: selected.deliveryMethodCode,
         deliveryCost: selected.cost,
+        codes: enteredCodes,
       },
     )
 

@@ -8,6 +8,7 @@ import {
   buildConsentProof,
   ensureUniqueSlug,
   getCheckoutCustomerFieldSemanticType,
+  isIdempotentCheckoutTransactionStatusConflict,
   pickExplicitParsedOverrides,
   resolveLoadedCheckoutCustomFields,
   resolveSubmittedAmount,
@@ -484,5 +485,31 @@ describe('checkout utils', () => {
         email: 'buyer@example.com',
       },
     })
+  })
+})
+
+describe('isIdempotentCheckoutTransactionStatusConflict (blocker fix)', () => {
+  it('swallows a 409 invalid_status_transition whose currentStatus is terminal', () => {
+    const err = new CrudHttpError(409, { code: 'invalid_status_transition', currentStatus: 'failed' })
+    expect(isIdempotentCheckoutTransactionStatusConflict(err)).toBe(true)
+  })
+
+  it('swallows a 409 concurrent_status_update whose currentStatus is terminal', () => {
+    const err = new CrudHttpError(409, { code: 'concurrent_status_update', currentStatus: 'completed' })
+    expect(isIdempotentCheckoutTransactionStatusConflict(err)).toBe(true)
+  })
+
+  it('does not swallow a 409 whose currentStatus is NOT terminal — a genuine race to retry', () => {
+    const err = new CrudHttpError(409, { code: 'concurrent_status_update', currentStatus: 'processing' })
+    expect(isIdempotentCheckoutTransactionStatusConflict(err)).toBe(false)
+  })
+
+  it('does not swallow a 404 (transaction not found) — must propagate for redelivery', () => {
+    const err = new CrudHttpError(404, { error: 'not found' })
+    expect(isIdempotentCheckoutTransactionStatusConflict(err)).toBe(false)
+  })
+
+  it('does not swallow a generic Error', () => {
+    expect(isIdempotentCheckoutTransactionStatusConflict(new Error('boom'))).toBe(false)
   })
 })
