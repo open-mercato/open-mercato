@@ -69,6 +69,10 @@ describe('getCustomerAuthFromRequest — session revocation', () => {
     })
     findOneWithDecryption.mockResolvedValue({
       id: userId,
+      tenantId,
+      organizationId: orgId,
+      customerEntityId: null,
+      personEntityId: null,
       sessionsRevokedAt: null,
       deletedAt: null,
       isActive: true,
@@ -173,6 +177,10 @@ describe('getCustomerAuthFromRequest — session revocation', () => {
   it('rejects tokens for soft-deleted users', async () => {
     findOneWithDecryption.mockResolvedValueOnce({
       id: userId,
+      tenantId,
+      organizationId: orgId,
+      customerEntityId: null,
+      personEntityId: null,
       sessionsRevokedAt: null,
       deletedAt: new Date(),
       isActive: true,
@@ -188,6 +196,10 @@ describe('getCustomerAuthFromRequest — session revocation', () => {
   it('rejects tokens for deactivated users', async () => {
     findOneWithDecryption.mockResolvedValueOnce({
       id: userId,
+      tenantId,
+      organizationId: orgId,
+      customerEntityId: null,
+      personEntityId: null,
       sessionsRevokedAt: null,
       deletedAt: null,
       isActive: false,
@@ -232,6 +244,57 @@ describe('getCustomerAuthFromRequest — session revocation', () => {
     expect(result!.resolvedFeatures).toEqual(['portal.orders.view'])
     expect(result!.isPortalAdmin).toBe(true)
   })
+
+  it('re-derives tenantId/customerEntityId/personEntityId from the DB record, not the token (#2244)', async () => {
+    const dbCustomerEntityId = 'dbdbdbdb-dbdb-4dbd-8dbd-dbdbdbdbdbdb'
+    const dbPersonEntityId = 'ebebebeb-ebeb-4beb-8beb-ebebebebebeb'
+    findOneWithDecryption.mockResolvedValueOnce({
+      id: userId,
+      tenantId,
+      organizationId: orgId,
+      customerEntityId: dbCustomerEntityId,
+      personEntityId: dbPersonEntityId,
+      sessionsRevokedAt: null,
+      deletedAt: null,
+      isActive: true,
+    })
+    // The token claims a different (stale/forged) company than the one on the DB record.
+    const forgedCustomerEntityId = 'fafafafa-fafa-4afa-8afa-fafafafafafa'
+    const token = signAudienceJwt(CUSTOMER_AUDIENCE, buildCustomerPayload({
+      customerEntityId: forgedCustomerEntityId,
+      personEntityId: 'fbfbfbfb-fbfb-4bfb-8bfb-fbfbfbfbfbfb',
+    }))
+    const req = new Request('http://localhost/api/customer/me', {
+      headers: { cookie: buildCustomerCookieHeader(token) },
+    })
+
+    const result = await getCustomerAuthFromRequest(req)
+
+    expect(result).not.toBeNull()
+    expect(result!.customerEntityId).toBe(dbCustomerEntityId)
+    expect(result!.personEntityId).toBe(dbPersonEntityId)
+    expect(result!.customerEntityId).not.toBe(forgedCustomerEntityId)
+  })
+
+  it('rejects a token whose claimed tenant/org no longer matches the persisted record (#2244)', async () => {
+    const otherTenantId = 'ssssssss-ssss-4sss-8sss-ssssssssssss'
+    findOneWithDecryption.mockResolvedValueOnce({
+      id: userId,
+      tenantId: otherTenantId,
+      organizationId: orgId,
+      customerEntityId: null,
+      personEntityId: null,
+      sessionsRevokedAt: null,
+      deletedAt: null,
+      isActive: true,
+    })
+    const token = signAudienceJwt(CUSTOMER_AUDIENCE, buildCustomerPayload())
+    const req = new Request('http://localhost/api/customer/me', {
+      headers: { cookie: buildCustomerCookieHeader(token) },
+    })
+
+    await expect(getCustomerAuthFromRequest(req)).resolves.toBeNull()
+  })
 })
 
 describe('getCustomerAuthFromRequest — legacy raw-secret tokens', () => {
@@ -252,6 +315,10 @@ describe('getCustomerAuthFromRequest — legacy raw-secret tokens', () => {
     hasActiveSessionForUser.mockResolvedValue(true)
     findOneWithDecryption.mockResolvedValue({
       id: userId,
+      tenantId,
+      organizationId: orgId,
+      customerEntityId: null,
+      personEntityId: null,
       sessionsRevokedAt: null,
       deletedAt: null,
       isActive: true,
