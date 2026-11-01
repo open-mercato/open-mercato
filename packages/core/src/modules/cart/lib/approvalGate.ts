@@ -1,5 +1,7 @@
-import type { CustomerGroupsService } from '@open-mercato/core/modules/customer_groups/services/customerGroupsService'
+import type { EntityManager } from '@mikro-orm/postgresql'
+import { createCustomerGroupsService, type CustomerGroupsService } from '@open-mercato/core/modules/customer_groups/services/customerGroupsService'
 import type { ApprovalView } from '@open-mercato/core/modules/customer_groups/services/customerPurchaseApprovalService'
+import type { BaseCurrencyService } from '@open-mercato/core/modules/currencies/services/baseCurrencyService'
 import type { Cart } from '../data/entities'
 
 // Step 3.1 (K1/K2, §9a.1/§9a.2) — the approval gate's own pure math and its one soft-DI
@@ -87,6 +89,49 @@ export type CartForApprovalGate = Pick<
 >
 
 /**
+ * BLOCKER fix (TC-CART-CONC-05, CI-reproduced pool exhaustion): the DI-registered
+ * `customerGroupsService` is bound to the per-REQUEST root `em` (`customer_groups/di.ts`),
+ * a different pooled connection than a caller's own forked, transaction-bound `em`. Calling
+ * `resolveCartRequiresApproval` while already holding a long-lived `pg_advisory_xact_lock`
+ * on the forked connection (`commands/lines.ts#addLineCommand`) therefore needs a SECOND
+ * pooled connection for every one of N concurrent callers blocked on the SAME lock — with a
+ * small pool this deadlocks (the lock holder can never get its second connection because
+ * every other connection is parked waiting on the very lock it holds).
+ *
+ * When the caller supplies `options.em` (its own forked/transactional `EntityManager`), this
+ * constructs a short-lived `CustomerGroupsService` bound to THAT `em` instead of resolving
+ * the DI singleton — every query then runs on the connection the caller already holds, so
+ * no second connection is ever requested. Omitting `options.em` (every pre-existing caller)
+ * preserves the exact previous container-resolved behavior.
+ *
+ * `baseCurrencyService` (the D-R5-37 currency-fallback peer) is still soft-resolved from the
+ * container either way — `currencies` is not a `cart` dependency at all (only an optional
+ * peer of `customer_groups`), so this never adds a new static import to that module, same
+ * "soft-resolve, never a hard import, for an optional peer" rule this file already follows
+ * for `customerGroupsService` itself. That leaves a narrow residual risk: the rare
+ * `termsCurrencyCode`-fallback query still runs on the container's root `em`, not `em`, even
+ * inside a held lock. Acceptable here because it only fires when NO group in the chain sets
+ * an explicit currency — the named, always-on culprit this fix closes is `resolveTerms`.
+ */
+function tryResolveBaseCurrencyService(container: {
+  resolve: <T = unknown>(name: string) => T
+}): BaseCurrencyService | null {
+  try {
+    return container.resolve<BaseCurrencyService>('baseCurrencyService') ?? null
+  } catch {
+    return null
+  }
+}
+
+function resolveApprovalGateCustomerGroupsService(
+  container: { resolve: <T = unknown>(name: string) => T },
+  em: EntityManager | undefined,
+): CustomerGroupsService | null {
+  if (em) return createCustomerGroupsService(em, tryResolveBaseCurrencyService(container))
+  return tryResolveCustomerGroupsService(container)
+}
+
+/**
  * §9a.1: "Terms are resolved by `customerGroupsService.resolveTerms({ customerIds:
  * cart.customerIds, tenantId })` for the cart's own buyer identity, so every channel is
  * covered (D-R5-29)." `organizationId` is passed too (additive on `resolveTerms`'s own
@@ -99,8 +144,9 @@ export async function resolveCartRequiresApproval(
   container: { resolve: <T = unknown>(name: string) => T },
   cart: CartForApprovalGate,
   goodsGrossAmount: number,
+  options?: { em?: EntityManager },
 ): Promise<boolean> {
-  const service = tryResolveCustomerGroupsService(container)
+  const service = resolveApprovalGateCustomerGroupsService(container, options?.em)
   if (!service) return false
   const terms = await service.resolveTerms({
     customerId: cart.customerId ?? null,

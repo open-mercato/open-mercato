@@ -648,9 +648,42 @@ const rejectProposalCommand: CommandHandler<CartProposalRejectInput, CartProposa
 
     const author = await resolveProposalAuthor(em, scope, proposal.id)
     const now = new Date()
-    proposal.status = 'abandoned'
-    proposal.resolvedAt = now
-    await em.flush()
+    // MAJOR fix (inherited review finding #3): the status check above and this write used
+    // to be a plain check-then-set with no lock between them and no conditional guard on the
+    // write itself — a concurrent `cart.proposal.accept` on the SAME proposal (or a second,
+    // racing `reject` call) could land its own status transition in that gap, and this call
+    // would then unconditionally overwrite it back to `abandoned`, silently discarding an
+    // already-merged (or already-rejected) outcome. Guarded the same way `cart.proposal.
+    // accept` now is: take the SAME per-proposal advisory lock
+    // (`commands/merge.ts#executeProposalAcceptance`, keyed identically) and only transition
+    // via a conditional `nativeUpdate` on `status = 'active'` — a caller that loses the race
+    // reports the proposal's real current (already-resolved) status instead of clobbering it.
+    let rejectConflict = false
+    await withAtomicFlush(
+      em,
+      [
+        async () => {
+          await em.execute('select pg_advisory_xact_lock(hashtextextended(?::text, 0))', [`cart:lines:${proposal.id}`])
+        },
+        async () => {
+          const affected = await em.nativeUpdate(
+            Cart,
+            { id: proposal.id, tenantId: scope.tenantId, organizationId: scope.organizationId, status: 'active' },
+            { status: 'abandoned', resolvedAt: now },
+          )
+          // Refreshed either way: on a conflict this re-reads whatever status the winning
+          // concurrent call actually committed, so the caller is told the real current
+          // status rather than the stale pre-lock 'active' snapshot.
+          await em.refresh(proposal)
+          if (affected === 0) rejectConflict = true
+        },
+      ],
+      { transaction: true, label: 'cart.proposal.reject' },
+    )
+
+    if (rejectConflict) {
+      return { proposalCartId: proposal.id, status: proposal.status, alreadyResolved: true }
+    }
 
     // S14/K14: release code reservations by `cartId` for every `CartPromotionApplication`
     // row — a proposal holds no codes in Release 5 (S14), so this finds nothing, but the

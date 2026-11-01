@@ -484,6 +484,16 @@ async function executeProposalAcceptance(input: CartMergeManualInput, ctx: Comma
   if (proposal.status !== 'active') {
     throw new CrudHttpError(409, { error: '[internal] cart_not_active', code: 'cart_not_active', status: proposal.status })
   }
+  const now = new Date()
+  // MEDIUM fix (inherited review finding #7): `status = 'active'` alone is not enough once
+  // the proposal's own `expiresAt` has already passed — the hourly `expire-carts` sweeper
+  // (`lib/sweepers.ts`'s proposal branch) is what actually flips `status` to `'expired'`, so
+  // an accept arriving in the gap between expiry and the next sweep tick would otherwise
+  // still read `status === 'active'` and succeed. Tightened here to the same outcome the
+  // post-sweep read would give, instead of waiting for the sweeper.
+  if (proposal.expiresAt.getTime() <= now.getTime()) {
+    throw new CrudHttpError(409, { error: '[internal] cart_not_active', code: 'cart_not_active', status: 'expired' })
+  }
 
   const proposalLinesAll = (await findWithDecryption(
     em,
@@ -535,53 +545,98 @@ async function executeProposalAcceptance(input: CartMergeManualInput, ctx: Comma
     container: ctx.container,
   })
 
-  const built = buildMergeOutcome(em, acceptedLines, targetCustomerLines, maxQuantities, target, startingLineNumber, mergeVisibility)
   // §7a.4: "the other three are recorded as `declined`, not deleted and not quietly merged."
   const declinedOutcome: StoredMergeOutcomeEntry[] = declinedLines.map((line) => ({
     sourceLineId: line.id,
     targetLineId: null,
     disposition: 'declined',
   }))
-  const outcome: StoredMergeOutcomeEntry[] = [...built.outcome, ...declinedOutcome]
 
-  // §8.3: rotated unconditionally, same as every other `cart.merge` outcome (see this
-  // file's own header comment on that convention).
+  // §8.3: rotated on an actual accept, same as every other `cart.merge` outcome (see this
+  // file's own header comment on that convention) — generated here (pure, no DB/entity
+  // mutation) but only ASSIGNED onto `target`/used to build `outcome`/`mergeLog` inside the
+  // guarded phase below, so a losing/conflicting accept attempt never mutates `target` (its
+  // token, or — critically — an existing line's summed `quantity` via `buildMergeOutcome`)
+  // for nothing.
   const { token: newToken, tokenHash: newTokenHash } = generateCartToken()
-  target.tokenHash = newTokenHash
-
-  const now = new Date()
-  // §7a.1: "merged once accepted (with `merged_into_cart_id` set to the target)" — never
-  // `abandoned` (that means rejected, §7a.1's own vocabulary).
-  proposal.status = 'merged'
-  proposal.mergedIntoCartId = target.id
-  proposal.resolvedAt = now
-
   const sourceSnapshot: StoredSourceSnapshot = { lines: proposalLinesAll.map(toCartLineSnapshot) }
 
-  const mergeLog = em.create(CartMergeLog, {
-    organizationId: scope.organizationId,
-    tenantId: scope.tenantId,
-    sourceCartId: proposal.id,
-    targetCartId: target.id,
-    strategy: 'manual' as CartMergeStrategy,
-    sourceSnapshot: sourceSnapshot as unknown,
-    outcome,
-    mergedByActorType: 'buyer' as CartMergeActorType,
-    mergedByActorId: input.routeContext.customerUserId ?? null,
-    // §7a.7/D-R5-25: the ONE field `cart.mergeUndo`'s refusal keys off.
-    proposalCartId: proposal.id,
-  })
-
+  // MAJOR fix (inherited review finding #3): this used to be a plain check-then-set
+  // (`proposal.status !== 'active'` above, then an unconditional `proposal.status =
+  // 'merged'` assign) with no lock between the check and the commit, AND `buildMergeOutcome`
+  // ran eagerly before that assign — mutating `target`'s own existing line quantities
+  // in-memory regardless of whether the accept would even succeed. A double-click, a network
+  // retry, or a concurrent `cart.proposal.reject` on the SAME proposal could each observe
+  // `status === 'active'` and all proceed: merging (and summing quantities onto) the SAME
+  // target lines twice, writing two merge logs, emitting two `cart.proposal.accepted`
+  // events, and double-counting attribution — reject could likewise silently overwrite an
+  // already-merged proposal. Fixed the same way `commands/lock.ts#lockCartCommand` closes its
+  // own analogous race: acquire the proposal's own per-cart advisory lock, transition
+  // `status` with a conditional `nativeUpdate` guarded on `status = 'active'`, and defer
+  // EVERY mutation `buildMergeOutcome` would make until that guard is confirmed to have won
+  // — whichever caller (accept or reject) commits first wins; the loser's guard matches zero
+  // rows, mutates nothing, and gets a conflict instead of silently clobbering/double-applying
+  // the winner's state.
+  let acceptConflict = false
+  let built: MergeLineFields | null = null
+  let outcome: StoredMergeOutcomeEntry[] = []
+  let mergeLog: CartMergeLog | null = null
   await withAtomicFlush(
     em,
     [
+      async () => {
+        await em.execute('select pg_advisory_xact_lock(hashtextextended(?::text, 0))', [`cart:lines:${proposal.id}`])
+      },
+      async () => {
+        const affected = await em.nativeUpdate(
+          Cart,
+          { id: proposal.id, tenantId: scope.tenantId, organizationId: scope.organizationId, status: 'active' },
+          // §7a.1: "merged once accepted (with `merged_into_cart_id` set to the target)" —
+          // never `abandoned` (that means rejected, §7a.1's own vocabulary).
+          { status: 'merged', mergedIntoCartId: target.id, resolvedAt: now },
+        )
+        if (affected === 0) {
+          acceptConflict = true
+          return
+        }
+        await em.refresh(proposal)
+      },
       () => {
+        if (acceptConflict) return
+        built = buildMergeOutcome(em, acceptedLines, targetCustomerLines, maxQuantities, target, startingLineNumber, mergeVisibility)
+        outcome = [...built.outcome, ...declinedOutcome]
+        target.tokenHash = newTokenHash
+        mergeLog = em.create(CartMergeLog, {
+          organizationId: scope.organizationId,
+          tenantId: scope.tenantId,
+          sourceCartId: proposal.id,
+          targetCartId: target.id,
+          strategy: 'manual' as CartMergeStrategy,
+          sourceSnapshot: sourceSnapshot as unknown,
+          outcome,
+          mergedByActorType: 'buyer' as CartMergeActorType,
+          mergedByActorId: input.routeContext.customerUserId ?? null,
+          // §7a.7/D-R5-25: the ONE field `cart.mergeUndo`'s refusal keys off.
+          proposalCartId: proposal.id,
+        })
         em.persist(mergeLog)
         for (const line of built.newLines) em.persist(line)
       },
     ],
     { transaction: true, label: 'cart.proposal.accept' },
   )
+
+  if (acceptConflict || !built || !mergeLog) {
+    throw new CrudHttpError(409, { error: '[internal] cart_not_active', code: 'cart_not_active', status: 'merged' })
+  }
+  // Captured into plain `const`s rather than read directly off `built`/`mergeLog` from
+  // here on: those are `let`s reassigned inside the `withAtomicFlush` phase closures above,
+  // which (correctly, for cases this step does not control) makes TS stop narrowing them
+  // past the `await` — same precedent `commands/lines.ts#addLineCommand` already sets for
+  // its own `outcome`/`changedLine`/`changedAction`. `never` target-types below absorb that
+  // at zero runtime cost.
+  const finalBuilt = built as MergeLineFields
+  const finalMergeLog = mergeLog as CartMergeLog
 
   const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
   await emitCrudSideEffects({
@@ -592,7 +647,7 @@ async function executeProposalAcceptance(input: CartMergeManualInput, ctx: Comma
     events: cartCrudEvents,
     indexer: cartCrudIndexer,
   })
-  for (const line of built.newLines) {
+  for (const line of finalBuilt.newLines) {
     await emitCrudSideEffects({ dataEngine, action: 'created', entity: line, identifiers: getCartLineIdentifiers(line), indexer: cartLineCrudIndexer })
     await emitCartEvent('cart.line.added', { id: line.id, cartId: line.cartId, organizationId: line.organizationId, tenantId: line.tenantId })
   }
@@ -611,7 +666,7 @@ async function executeProposalAcceptance(input: CartMergeManualInput, ctx: Comma
     // the ordinary guest-merge path above always emits `kind: 'basket'` (its source is
     // always a basket).
     kind: 'proposal',
-    mergeLogId: mergeLog.id,
+    mergeLogId: finalMergeLog.id,
     strategy: 'manual',
     proposalCartId: proposal.id,
     customerId: target.customerId ?? null,
@@ -645,7 +700,7 @@ async function executeProposalAcceptance(input: CartMergeManualInput, ctx: Comma
   return {
     cart: repriceResult.cart,
     token: newToken,
-    mergeSummary: { strategy: 'manual', mergeLogId: mergeLog.id, adopted: false, counts, lines: publicOutcome },
+    mergeSummary: { strategy: 'manual', mergeLogId: finalMergeLog.id, adopted: false, counts, lines: publicOutcome },
     priceChanges: repriceResult.priceChanges,
     ...(repriceResult.warnings && repriceResult.warnings.length > 0 ? { warnings: repriceResult.warnings } : {}),
   }

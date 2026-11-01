@@ -12,10 +12,12 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import type { StoreContextService } from '@open-mercato/core/modules/ecommerce/lib/storeContextService'
 
 import { Cart } from '../../data/entities'
 import { cartProposalAuthorRequestSchema } from '../../data/validators'
-import type { CartProposalCreateInput, CartProposalCreateResult } from '../../commands/proposal'
+import type { CartProposalCreateInput, CartProposalCreateResult, CartProposalRouteContext } from '../../commands/proposal'
 import { createProposalCommand } from '../../commands/proposal'
 import {
   mapRouteErrorToResponse,
@@ -94,6 +96,14 @@ export async function GET(request: Request) {
 
 const paramsSchema = cartProposalAuthorRequestSchema
 
+function tryResolveStoreContextService(container: { resolve: <T = unknown>(name: string) => T }): StoreContextService | null {
+  try {
+    return container.resolve<StoreContextService>('storeContextService') ?? null
+  } catch {
+    return null
+  }
+}
+
 export async function POST(request: Request) {
   const { translate } = await resolveTranslations()
   try {
@@ -131,10 +141,49 @@ export async function POST(request: Request) {
       request,
     }
 
+    // MEDIUM fix (inherited review finding #6): this handler never passed `routeContext`
+    // at all, so `createProposalCommand`'s own storefront-channel guard
+    // (`commands/proposal.ts`: `if (target.channel === 'storefront' && !input.routeContext)
+    // throw 400`) rejected EVERY proposal authored against a storefront-channel target —
+    // the common case, not an edge case. Resolved the same way the sibling admin reprice
+    // route does (`api/carts/[id]/reprice/route.ts`): load the target cart, soft-resolve
+    // `ecommerce`'s `storeContextService` (an optional peer — `cart` degrades to no
+    // assortment-scope enforcement when it is absent, same fallback that route documents),
+    // and refresh the TARGET buyer's own scope via `resolveForBuyer` — never the staff
+    // author's own request context.
+    const organizationId = auth.orgId ?? null
+    const em = (container.resolve('em') as EntityManager).fork()
+    const target = organizationId
+      ? await findOneWithDecryption(
+          em,
+          Cart,
+          { id: body.targetCartId, tenantId, organizationId, kind: 'basket' as const },
+          {},
+          { tenantId, organizationId },
+        )
+      : null
+    let routeContext: CartProposalRouteContext | undefined
+    if (target?.channel === 'storefront' && target.storeId) {
+      const storeContextService = tryResolveStoreContextService(container)
+      const buyerRefresh = storeContextService
+        ? await storeContextService.resolveForBuyer({
+            tenantId: target.tenantId,
+            organizationId: target.organizationId,
+            storeId: target.storeId,
+            customerUserId: target.customerUserId ?? null,
+            customerId: target.customerId ?? null,
+          })
+        : null
+      if (buyerRefresh && buyerRefresh.assortmentScope !== undefined) {
+        routeContext = { assortmentScope: buyerRefresh.assortmentScope }
+      }
+    }
+
     const commandInput: CartProposalCreateInput = {
       targetCartId: body.targetCartId,
       lines: body.lines,
       ttlSeconds: body.ttlSeconds,
+      routeContext,
     }
 
     const commandBus = container.resolve('commandBus') as CommandBus

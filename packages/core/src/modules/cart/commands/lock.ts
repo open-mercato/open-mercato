@@ -264,18 +264,45 @@ const lockCartCommand: CommandHandler<CartLockInput, CartLockResult> = {
     }
 
     const now = new Date()
+    const lockExpiresAt = new Date(now.getTime() + lockTtlMs)
+    // MAJOR fix (inherited review finding #1 + #2):
+    // - #1: the active->locked transition used to be an unconditional assign + flush — two
+    //   concurrent `cart.lock` calls could both read `status === 'active'` above and both
+    //   commit a 'locked' write, double-locking the cart (double stock/credit reservation
+    //   downstream). Replaced with a conditional `nativeUpdate` guarded on `status =
+    //   'active'`; a caller whose guard matches zero rows lost the race and gets a conflict.
+    // - #2: `cart.lines.add`/`.bulkAdd` hold a per-cart `pg_advisory_xact_lock` keyed
+    //   `cart:lines:${cartId}` for their whole mutating transaction (`commands/lines.ts`).
+    //   This command never took that same lock, so a line could land on a cart in the
+    //   window between this function's own pre-checks and this write. Taking the identical
+    //   lock key here, right before the guarded update, serializes the two: whichever side
+    //   commits first is the one the other observes.
+    let lockConflict = false
     await withAtomicFlush(
       em,
       [
-        () => {
-          cart.status = 'locked'
-          cart.lockedAt = now
-          cart.lockExpiresAt = new Date(now.getTime() + lockTtlMs)
-          cart.checkoutSessionId = input.checkoutSessionId
+        async () => {
+          await em.execute('select pg_advisory_xact_lock(hashtextextended(?::text, 0))', [`cart:lines:${cart.id}`])
+        },
+        async () => {
+          const affected = await em.nativeUpdate(
+            Cart,
+            { id: cart.id, tenantId: scope.tenantId, organizationId: scope.organizationId, status: 'active' },
+            { status: 'locked', lockedAt: now, lockExpiresAt, checkoutSessionId: input.checkoutSessionId },
+          )
+          if (affected === 0) {
+            lockConflict = true
+            return
+          }
+          await em.refresh(cart)
         },
       ],
       { transaction: true, label: 'cart.lock' },
     )
+
+    if (lockConflict) {
+      throw new CrudHttpError(409, { error: '[internal] cart_lock_conflict', code: 'cart_lock_conflict' })
+    }
 
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
     await emitCrudSideEffects({

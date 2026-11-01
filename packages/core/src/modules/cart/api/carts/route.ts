@@ -111,8 +111,21 @@ export const cartAdminListCrud = makeCrudRoute<never, never, CartAdminListQuery>
         .map((item) => (typeof item.id === 'string' ? item.id : null))
         .filter((id): id is string => !!id)
       if (!cartIds.length) return
+      // MEDIUM fix (inherited review finding #5): this used to have no tenant/organization
+      // filter at all — the `cartIds` it narrows by are already tenant/org-scoped by the
+      // list query above, so this specific query could not cross a tenant boundary in
+      // practice, but AGENTS.md's "always filter by organization_id for tenant-scoped
+      // entities" rule applies on every query regardless, not only where a leak is
+      // currently reachable.
+      const tenantId = ctx.auth?.tenantId ?? null
+      const organizationId = ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null
       const em = (ctx.container.resolve('em') as EntityManager).fork()
-      const lines = await em.find(CartLine, { cartId: { $in: cartIds }, deletedAt: null })
+      const lines = await em.find(CartLine, {
+        cartId: { $in: cartIds },
+        deletedAt: null,
+        ...(tenantId ? { tenantId } : {}),
+        ...(organizationId ? { organizationId } : {}),
+      })
       const countByCartId = new Map<string, number>()
       for (const line of lines) {
         countByCartId.set(line.cartId, (countByCartId.get(line.cartId) ?? 0) + 1)
@@ -125,26 +138,41 @@ export const cartAdminListCrud = makeCrudRoute<never, never, CartAdminListQuery>
       // FK-id + fetch-separately (never a direct ORM relation, AGENTS.md § Architecture) —
       // batched the same way as `lineCount` above, resolving the raw `customer_id` the list
       // otherwise shows verbatim into the display name admins actually need.
-      const tenantId = ctx.auth?.tenantId ?? null
-      const organizationId = ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null
       if (!tenantId) return
       const readCustomerId = (item: Record<string, unknown>): string | null =>
         typeof item.customerId === 'string' ? item.customerId : (typeof item.customer_id === 'string' ? item.customer_id : null)
-      const customerIds = items.map(readCustomerId).filter((id): id is string => !!id)
-      if (!customerIds.length) return
-      const customers = await findWithDecryption(
-        em,
-        CustomerEntity,
-        {
-          id: { $in: customerIds },
-          tenantId,
-          ...(organizationId ? { organizationId } : {}),
-          deletedAt: null,
-        },
-        { fields: ['id', 'displayName', 'organizationId'] as const },
-        { tenantId, organizationId },
-      )
-      const nameByCustomerId = new Map(customers.map((customer) => [customer.id, customer.displayName]))
+      // MEDIUM fix (inherited review finding #5): a single batch call used a single
+      // top-level `organizationId` (the CALLER's selected org, or its own) for every row's
+      // decryption scope. A multi-org caller with no single `selectedOrganizationId` listing
+      // carts across SEVERAL organizations therefore decrypted every `displayName` under one
+      // (possibly wrong, possibly null) scope, silently reading back as `customerName: null`
+      // for rows belonging to any other org. Each `Cart` row already carries its OWN
+      // `organization_id` (`CART_ADMIN_LIST_FIELDS`) — group customers by THAT (the owning
+      // cart's real org), not the caller's own, and decrypt one batch per distinct org so
+      // every row gets the scope that actually matches its data.
+      const readOrganizationId = (item: Record<string, unknown>): string | null =>
+        typeof item.organizationId === 'string' ? item.organizationId : (typeof item.organization_id === 'string' ? item.organization_id : null)
+      const customerIdsByOrganizationId = new Map<string, Set<string>>()
+      for (const item of items) {
+        const customerId = readCustomerId(item)
+        const organizationId = readOrganizationId(item)
+        if (!customerId || !organizationId) continue
+        const bucket = customerIdsByOrganizationId.get(organizationId) ?? new Set<string>()
+        bucket.add(customerId)
+        customerIdsByOrganizationId.set(organizationId, bucket)
+      }
+      if (!customerIdsByOrganizationId.size) return
+      const nameByCustomerId = new Map<string, string | null>()
+      for (const [organizationId, customerIdSet] of customerIdsByOrganizationId) {
+        const customers = await findWithDecryption(
+          em,
+          CustomerEntity,
+          { id: { $in: Array.from(customerIdSet) }, tenantId, organizationId, deletedAt: null },
+          { fields: ['id', 'displayName', 'organizationId'] as const },
+          { tenantId, organizationId },
+        )
+        for (const customer of customers) nameByCustomerId.set(customer.id, customer.displayName)
+      }
       for (const item of items) {
         const customerId = readCustomerId(item)
         item.customerName = customerId ? nameByCustomerId.get(customerId) ?? null : null

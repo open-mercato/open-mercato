@@ -125,7 +125,7 @@ describe('cart admin list — afterList customerName enrichment (decryption)', (
     mockFindWithDecryption.mockReset()
   })
 
-  it('resolves customerName via findWithDecryption, scoped to the caller\'s tenant and organization', async () => {
+  it('resolves customerName via findWithDecryption, scoped to the caller\'s tenant and EACH row\'s own organization', async () => {
     mockFindWithDecryption.mockResolvedValue([{ id: 'customer-1', displayName: 'Alice Buyer' }])
     const find = jest.fn(async () => [])
     const em = { fork: jest.fn(() => ({ find })) } as unknown as EntityManager
@@ -135,7 +135,10 @@ describe('cart admin list — afterList customerName enrichment (decryption)', (
       selectedOrganizationId: 'org-1',
     }
 
-    const items: Array<Record<string, unknown>> = [{ id: 'cart-1', customerId: 'customer-1' }]
+    // `organizationId` matches the row's OWN `CART_ADMIN_LIST_FIELDS`-listed column, not
+    // just the caller's own `selectedOrganizationId` — this is what the §5 fix below keys
+    // its per-row decryption scope off.
+    const items: Array<Record<string, unknown>> = [{ id: 'cart-1', customerId: 'customer-1', organizationId: 'org-1' }]
     await opts.hooks.afterList({ items }, ctx)
 
     expect(mockFindWithDecryption).toHaveBeenCalledTimes(1)
@@ -144,5 +147,37 @@ describe('cart admin list — afterList customerName enrichment (decryption)', (
     expect(where).toMatchObject({ id: { $in: ['customer-1'] }, tenantId: 'tenant-1', organizationId: 'org-1' })
     expect(scope).toEqual({ tenantId: 'tenant-1', organizationId: 'org-1' })
     expect(items[0].customerName).toBe('Alice Buyer')
+  })
+
+  // MEDIUM fix (inherited review finding #5): a multi-org caller listing carts across
+  // SEVERAL organizations (no single `selectedOrganizationId`) used to decrypt every row's
+  // `displayName` under one top-level scope, reading back as `customerName: null` for any
+  // row belonging to a DIFFERENT org than that one. Each row's OWN `organizationId` now
+  // drives a separate, correctly-scoped decryption batch.
+  it('groups customers by each row\'s OWN organizationId, decrypting each org\'s batch under its own scope', async () => {
+    mockFindWithDecryption.mockImplementation(async (_em, _entity, where: { organizationId: string }) => {
+      if (where.organizationId === 'org-1') return [{ id: 'customer-1', displayName: 'Alice Buyer' }]
+      if (where.organizationId === 'org-2') return [{ id: 'customer-2', displayName: 'Bob Buyer' }]
+      return []
+    })
+    const find = jest.fn(async () => [])
+    const em = { fork: jest.fn(() => ({ find })) } as unknown as EntityManager
+    // No `selectedOrganizationId` at all — the multi-org "all my orgs" view this finding
+    // describes.
+    const ctx = {
+      container: { resolve: (name: string) => (name === 'em' ? em : undefined) },
+      auth: { tenantId: 'tenant-1', orgId: null },
+      selectedOrganizationId: null,
+    }
+
+    const items: Array<Record<string, unknown>> = [
+      { id: 'cart-1', customerId: 'customer-1', organizationId: 'org-1' },
+      { id: 'cart-2', customerId: 'customer-2', organizationId: 'org-2' },
+    ]
+    await opts.hooks.afterList({ items }, ctx)
+
+    expect(mockFindWithDecryption).toHaveBeenCalledTimes(2)
+    expect(items[0].customerName).toBe('Alice Buyer')
+    expect(items[1].customerName).toBe('Bob Buyer')
   })
 })
