@@ -15,7 +15,8 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { SwitchField } from '@open-mercato/ui/primitives/switch-field'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { useOrganizationScopeDetail } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
+import { useOrganizationScopeDetail, useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
+import { getCurrentOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/organizationEvents'
 
 type BrandingPayload = {
   organizationId: string
@@ -42,6 +43,7 @@ export default function OrganizationBrandingPage() {
   const t = useT()
   const queryClient = useQueryClient()
   const { organizationId, tenantId } = useOrganizationScopeDetail()
+  const scopeVersion = useOrganizationScopeVersion()
   const [logoUrl, setLogoUrl] = React.useState('')
   const [logoPreserveAspectRatio, setLogoPreserveAspectRatio] = React.useState(false)
   const [selectedFile, setSelectedFile] = React.useState<File | null>(null)
@@ -67,7 +69,8 @@ export default function OrganizationBrandingPage() {
     setLogoUrl(data?.logoUrl ?? '')
     setLogoPreserveAspectRatio(data?.logoPreserveAspectRatio ?? false)
     setSelectedFile(null)
-  }, [data?.logoPreserveAspectRatio, data?.logoUrl, organizationId, tenantId])
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }, [scopeVersion, organizationId, tenantId, data?.organizationId, data?.logoPreserveAspectRatio, data?.logoUrl])
 
   React.useEffect(() => {
     if (!selectedFile || typeof URL === 'undefined') {
@@ -111,7 +114,13 @@ export default function OrganizationBrandingPage() {
     try {
       await runMutation({
         operation: async () => {
+          if (getCurrentOrganizationScopeVersion() !== scopeVersion) {
+            throw new Error('[internal] Organization scope changed during branding save')
+          }
           const uploadedLogoUrl = shouldUpload ? await uploadLogo(data.organizationId) : null
+          if (getCurrentOrganizationScopeVersion() !== scopeVersion) {
+            throw new Error('[internal] Organization scope changed during branding save')
+          }
           const resolvedLogoUrl = uploadedLogoUrl ?? nextLogoUrl ?? logoUrl.trim()
           const response = await withScopedApiRequestHeaders(
             buildOptimisticLockHeader(data.updatedAt),
@@ -142,12 +151,15 @@ export default function OrganizationBrandingPage() {
           hasUpload: shouldUpload,
         },
       })
+      if (getCurrentOrganizationScopeVersion() !== scopeVersion) return
       await queryClient.invalidateQueries({ queryKey: ['directory-organization-branding'] })
+      if (getCurrentOrganizationScopeVersion() !== scopeVersion) return
       window.dispatchEvent(new Event('om:refresh-sidebar'))
       setSelectedFile(null)
       if (fileInputRef.current) fileInputRef.current.value = ''
       flash(t('directory.branding.flash.saved', 'Organization branding updated'), 'success')
     } catch (err: unknown) {
+      if (getCurrentOrganizationScopeVersion() !== scopeVersion) return
       if (surfaceRecordConflict(err, t)) return
       const fallback = t('directory.branding.errors.save', 'Failed to update organization branding')
       const message = err instanceof Error ? err.message : fallback
@@ -155,7 +167,7 @@ export default function OrganizationBrandingPage() {
     } finally {
       setSaving(false)
     }
-  }, [data, logoPreserveAspectRatio, logoUrl, queryClient, runMutation, selectedFile, t, uploadLogo])
+  }, [data, logoPreserveAspectRatio, logoUrl, queryClient, runMutation, scopeVersion, selectedFile, t, uploadLogo])
 
   const handleSubmit = React.useCallback((event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()

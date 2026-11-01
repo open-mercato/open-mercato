@@ -167,6 +167,96 @@ describe('OrganizationBrandingPage', () => {
     expect(screen.getByRole('switch', { name: 'Keep the aspect ratio' })).toHaveAttribute('aria-checked', 'false')
   })
 
+  it('clears pending edits and uploads when switching organizations with the same branding', async () => {
+    renderWithProviders(<OrganizationBrandingPage />)
+    const input = await screen.findByLabelText('Logo URL')
+    fireEvent.change(input, { target: { value: 'https://example.com/unsaved.svg' } })
+    fireEvent.click(screen.getByRole('switch', { name: 'Keep the aspect ratio' }))
+    fireEvent.change(screen.getByLabelText('Upload logo'), {
+      target: { files: [new File(['logo'], 'pending.png', { type: 'image/png' })] },
+    })
+    readApiResultOrThrowMock.mockResolvedValue({
+      ...brandingPayload,
+      organizationId: '33333333-3333-4333-8333-333333333333',
+      organizationName: 'Second organization',
+    })
+
+    act(() => emitOrganizationScopeChanged({
+      organizationId: '33333333-3333-4333-8333-333333333333',
+      tenantId: brandingPayload.tenantId,
+    }))
+
+    await screen.findByText('Second organization')
+    expect(screen.queryByText('Acme')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Logo URL')).toHaveValue(brandingPayload.logoUrl)
+    expect(screen.getByRole('switch', { name: 'Keep the aspect ratio' })).toHaveAttribute('aria-checked', 'false')
+    expect(screen.getByRole('img')).toHaveAttribute('src', brandingPayload.logoUrl)
+    expect(revokeObjectUrlMock).toHaveBeenCalledWith('blob:organization-logo-preview')
+    fireEvent.click(screen.getByRole('button', { name: /Save branding/ }))
+    await waitFor(() => expect(apiCallOrThrowMock).toHaveBeenCalled())
+    expect(readApiResultOrThrowMock.mock.calls.some(([path]) => path === '/api/attachments')).toBe(false)
+  })
+
+  it('replaces branding with the single-organization prompt in All scope and recovers after selection', async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    renderWithProviders(<OrganizationBrandingPage />, { queryClient })
+    await screen.findByText('Acme')
+    readApiResultOrThrowMock.mockClear()
+
+    act(() => emitOrganizationScopeChanged({ organizationId: null, tenantId: brandingPayload.tenantId }))
+
+    expect(screen.queryByText('Acme')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Save branding/ })).not.toBeInTheDocument()
+    expect(screen.getByRole('alert')).toHaveAttribute('data-status', 'information')
+    expect(readApiResultOrThrowMock).not.toHaveBeenCalled()
+    readApiResultOrThrowMock.mockResolvedValue(brandingPayload)
+    act(() => emitOrganizationScopeChanged({ organizationId: brandingPayload.organizationId, tenantId: brandingPayload.tenantId }))
+    await screen.findByText('Acme')
+    expect(screen.getByLabelText('Logo URL')).toHaveValue(brandingPayload.logoUrl)
+    expect(apiCallOrThrowMock).not.toHaveBeenCalled()
+  })
+
+  it('does not save a completed upload into a newly selected organization', async () => {
+    let finishUpload!: (payload: { item: { url: string } }) => void
+    renderWithProviders(<OrganizationBrandingPage />)
+    await screen.findByText('Acme')
+    fireEvent.change(screen.getByLabelText('Upload logo'), {
+      target: { files: [new File(['logo'], 'pending.png', { type: 'image/png' })] },
+    })
+    readApiResultOrThrowMock.mockImplementationOnce(() => new Promise((resolve) => {
+      finishUpload = resolve
+    }))
+    fireEvent.click(screen.getByRole('button', { name: /Save branding/ }))
+    await waitFor(() => expect(readApiResultOrThrowMock).toHaveBeenCalledWith('/api/attachments', expect.anything(), expect.anything()))
+    readApiResultOrThrowMock.mockResolvedValue({ ...brandingPayload, organizationName: 'Second organization' })
+    act(() => emitOrganizationScopeChanged({ organizationId: '33333333-3333-4333-8333-333333333333', tenantId: brandingPayload.tenantId }))
+    await screen.findByText('Second organization')
+    fireEvent.change(screen.getByLabelText('Logo URL'), { target: { value: 'https://example.com/second-unsaved.svg' } })
+    await act(async () => finishUpload({ item: { url: '/api/attachments/file/previous-logo.png' } }))
+
+    expect(apiCallOrThrowMock).not.toHaveBeenCalled()
+    expect(screen.getByLabelText('Logo URL')).toHaveValue('https://example.com/second-unsaved.svg')
+    expect(flashMock).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: /Save branding/ })).toBeEnabled()
+  })
+
+  it('does not display an earlier scope response after the organization changes', async () => {
+    let resolveEarlierRequest!: (payload: typeof brandingPayload) => void
+    readApiResultOrThrowMock.mockImplementationOnce(() => new Promise<typeof brandingPayload>((resolve) => {
+      resolveEarlierRequest = resolve
+    }))
+    renderWithProviders(<OrganizationBrandingPage />)
+    await waitFor(() => expect(readApiResultOrThrowMock).toHaveBeenCalledTimes(1))
+    readApiResultOrThrowMock.mockResolvedValue({ ...brandingPayload, organizationName: 'Second organization' })
+
+    act(() => emitOrganizationScopeChanged({ organizationId: '33333333-3333-4333-8333-333333333333', tenantId: brandingPayload.tenantId }))
+    await screen.findByText('Second organization')
+    await act(async () => resolveEarlierRequest(brandingPayload))
+
+    expect(screen.getByText('Second organization')).toBeInTheDocument()
+    expect(screen.queryByText('Acme')).not.toBeInTheDocument()
+  })
+
   it('saves a pasted logo URL and refreshes the sidebar chrome', async () => {
     renderWithProviders(<OrganizationBrandingPage />)
 
