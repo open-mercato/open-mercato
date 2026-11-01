@@ -736,25 +736,25 @@ jobs:
         run: yarn agents:check-budget
 
       - name: Checking types
-        # On PRs: scope to packages/app that changed since the base branch.
-        # On pushes to protected branches: full typecheck, no filter.
+        # Workflow edits and protected branch pushes run the full gate.
+        # Other PRs scope to packages/app that changed since the base branch.
         run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            yarn turbo run typecheck --filter=[origin/${{ github.base_ref }}]...
-          else
+          if [ "${{ github.event_name }}" != "pull_request" ] || ! git diff --quiet HEAD^1 HEAD -- .github/workflows/ci.yml; then
             yarn typecheck
+          else
+            yarn turbo run typecheck --filter=[origin/${{ github.base_ref }}]...
           fi
         env:
           TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
           TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
 
       - name: Test
-        # Same scoping as typecheck — affected packages only on PRs.
+        # Same scoping as typecheck, including full gates for workflow edits.
         run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            yarn turbo run test --filter=[origin/${{ github.base_ref }}]...
-          else
+          if [ "${{ github.event_name }}" != "pull_request" ] || ! git diff --quiet HEAD^1 HEAD -- .github/workflows/ci.yml; then
             yarn test
+          else
+            yarn turbo run test --filter=[origin/${{ github.base_ref }}]...
           fi
 
       - name: Test scripts

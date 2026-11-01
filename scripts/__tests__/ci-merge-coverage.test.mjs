@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { spawnSync } from 'node:child_process'
 import test from 'node:test'
 import vm from 'node:vm'
 import { parse } from 'yaml'
@@ -75,4 +78,71 @@ test('CI orchestration changes select the full integration suite without includi
   for (const excludedPath of ['README.md', 'apps/docs/docs/index.mdx', '.github/workflows/community-labels.yml']) {
     assert.doesNotMatch(excludedPath, fullSuitePattern)
   }
+})
+
+function runValidationSteps({ eventName = 'pull_request', changedPath = 'README.md', createParent = true } = {}) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ci-validation-scope-'))
+  try {
+    const git = (...argumentsList) => {
+      const result = spawnSync('git', ['-c', 'user.name=CI Test', '-c', 'user.email=ci-test@example.invalid', ...argumentsList], {
+        cwd: root,
+        encoding: 'utf8',
+        timeout: 10000,
+      })
+      assert.equal(result.status, 0, result.stderr)
+    }
+    git('init', '--quiet')
+    fs.mkdirSync(path.join(root, '.github/workflows'), { recursive: true })
+    fs.writeFileSync(path.join(root, '.github/workflows/ci.yml'), 'baseline\n')
+    git('add', '.')
+    git('commit', '--quiet', '-m', 'initial fixture')
+    if (createParent) {
+      const changedFile = path.join(root, changedPath)
+      fs.mkdirSync(path.dirname(changedFile), { recursive: true })
+      fs.writeFileSync(changedFile, 'changed\n')
+      git('add', '.')
+      git('commit', '--quiet', '-m', 'changed fixture')
+    }
+    const binDir = path.join(root, 'bin')
+    const callsFile = path.join(root, 'yarn-calls')
+    fs.mkdirSync(binDir)
+    fs.writeFileSync(path.join(binDir, 'yarn'), '#!/bin/sh\nprintf "%s\\n" "$*" >> "$YARN_CALLS_FILE"\n', { mode: 0o755 })
+    for (const stepName of ['Checking types', 'Test']) {
+      const step = workflow.jobs.test.steps.find((candidate) => candidate.name === stepName)
+      const script = step.run
+        .replaceAll('${{ github.event_name }}', eventName)
+        .replaceAll('${{ github.base_ref }}', 'main')
+      const result = spawnSync('bash', ['-e', '-o', 'pipefail', '-c', script], {
+        cwd: root,
+        encoding: 'utf8',
+        env: { ...process.env, PATH: `${binDir}${path.delimiter}${process.env.PATH}`, YARN_CALLS_FILE: callsFile },
+        timeout: 10000,
+      })
+      assert.equal(result.status, 0, `${stepName}: ${result.stderr}`)
+    }
+    return fs.readFileSync(callsFile, 'utf8').trim().split('\n')
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+}
+
+test('CI workflow edits run full typecheck and unit gates', () => {
+  assert.deepEqual(runValidationSteps({ changedPath: '.github/workflows/ci.yml' }), ['typecheck', 'test'])
+})
+
+test('documentation and module PRs preserve affected-package validation', () => {
+  for (const changedPath of ['README.md', 'packages/core/src/modules/customers/index.ts']) {
+    assert.deepEqual(runValidationSteps({ changedPath }), [
+      'turbo run typecheck --filter=[origin/main]...',
+      'turbo run test --filter=[origin/main]...',
+    ])
+  }
+})
+
+test('protected branch pushes run full typecheck and unit gates', () => {
+  assert.deepEqual(runValidationSteps({ eventName: 'push' }), ['typecheck', 'test'])
+})
+
+test('unavailable PR comparison ancestry falls back to full validation', () => {
+  assert.deepEqual(runValidationSteps({ createParent: false }), ['typecheck', 'test'])
 })
