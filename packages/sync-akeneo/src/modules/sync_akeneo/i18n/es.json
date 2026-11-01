@@ -52,6 +52,7 @@
   "sync_akeneo.discovery.locales": "Idiomas",
   "sync_akeneo.discovery.priceKinds": "Tipos de precios de catálogo",
   "sync_akeneo.discovery.rediscovered": "Campos Akeneo actualizados y asignaciones faltantes agregadas.",
+  "sync_akeneo.errors.mediaStorageRejected": "El almacenamiento de adjuntos rechazó el archivo multimedia de Akeneo {code} ({reason}).",
   "sync_akeneo.feature.configure": "Configurar ajustes de sincronización Akeneo",
   "sync_akeneo.feature.view": "Ver configuración de sincronización Akeneo",
   "sync_akeneo.firstImport.action": "Ejecutar la primera importación completa",

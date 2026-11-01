@@ -171,7 +171,7 @@ export const { GET, POST, PUT, DELETE } = crud
 
 // Response schemas
 const scheduledJobListItemSchema = z.object({
-  id: z.string().uuid(),
+  id: z.guid(),
   name: z.string(),
   description: z.string().nullable(),
   scopeType: z.enum(['system', 'organization', 'tenant']),

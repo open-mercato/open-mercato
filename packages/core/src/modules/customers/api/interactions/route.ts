@@ -15,9 +15,10 @@ import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CustomerDeal, CustomerInteraction } from '../../data/entities'
-import { User } from '@open-mercato/core/modules/auth/data/entities'
+import { interactionUserKey, loadInteractionAuthors } from '../../lib/interactionUsers'
 import { interactionCreateSchema, interactionUpdateSchema } from '../../data/validators'
 import { parseScopedCommandInput } from '../utils'
 import {
@@ -178,6 +179,7 @@ type InteractionListRow = {
   appearance_icon: string | null
   appearance_color: string | null
   source: string | null
+  timezone: string | null
   duration_minutes: number | null
   location: string | null
   all_day: boolean | null
@@ -313,6 +315,7 @@ const INTERACTION_LIST_COLUMNS = [
   'appearance_icon',
   'appearance_color',
   'source',
+  'timezone',
   'duration_minutes',
   'location',
   'all_day',
@@ -340,12 +343,12 @@ function applyInteractionListFilters(
   baseQuery: any,
   params: {
     tenantId: string
-    organizationIds: string[]
+    organizationIds: string[] | undefined
     query: z.infer<typeof listSchema>
   },
 ): any {
   let q = baseQuery.where('deleted_at', 'is', null).where('tenant_id', '=', params.tenantId)
-  if (params.organizationIds.length > 0) q = q.where('organization_id', 'in', params.organizationIds)
+  if (params.organizationIds !== undefined) q = q.where('organization_id', 'in', params.organizationIds)
   const { query } = params
   if (query.entityId) q = q.where('entity_id', '=', query.entityId)
   if (query.dealId) q = q.where('deal_id', '=', query.dealId)
@@ -452,14 +455,7 @@ export async function GET(req: Request) {
     }
 
     const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
-    const organizationIds = Array.isArray(scope?.filterIds) && scope.filterIds.length > 0
-      ? scope.filterIds
-      : auth.orgId
-        ? [auth.orgId]
-        : []
-    const selectedOrganizationId = scope?.selectedId ?? auth.orgId ?? organizationIds[0] ?? null
-    const em = (container.resolve('em') as EntityManager).fork()
-    const db = em.getKysely<any>() as any
+    const { organizationIds, rbacOrganizationId: selectedOrganizationId } = resolveOrganizationScopeFilter(scope, auth)
 
     const requestedSortField = query.sortField ?? 'scheduledAt'
     const sortConfig = interactionSortConfig[requestedSortField]
@@ -471,6 +467,12 @@ export async function GET(req: Request) {
         error: translate('customers.interactions.cursor.invalid', 'Invalid cursor'),
       })
     }
+    if (organizationIds?.length === 0) {
+      return NextResponse.json({ items: [] })
+    }
+
+    const em = (container.resolve('em') as EntityManager).fork()
+    const db = em.getKysely<any>() as any
 
     // ── Email visibility filter (2026-05-27) ──────────────────────────────
     // Non-email interactions pass through; email rows with visibility='private'
@@ -612,13 +614,6 @@ export async function GET(req: Request) {
       hasMore = rows.length > query.limit
     }
 
-    const authorIds = Array.from(
-      new Set(
-        pageRows
-          .map((row) => (typeof row.author_user_id === 'string' ? row.author_user_id : null))
-          .filter((value): value is string => !!value),
-      ),
-    )
     const dealIds = Array.from(
       new Set(
         pageRows
@@ -642,8 +637,12 @@ export async function GET(req: Request) {
       new Set(pageRows.map((row) => row.organization_id).filter((value): value is string => !!value)),
     )
 
-    const [users, deals, customFieldValues, interactionRecords, encryptedFieldsByOrganization] = await Promise.all([
-      authorIds.length > 0 ? findWithDecryption(em, User, { id: { $in: authorIds } }, undefined, { tenantId: auth.tenantId, organizationId: selectedOrganizationId }) : Promise.resolve([]),
+    const [userMap, deals, customFieldValues, interactionRecords, encryptedFieldsByOrganization] = await Promise.all([
+      loadInteractionAuthors(em, pageRows.map((row) => ({
+        tenantId: row.tenant_id,
+        organizationId: row.organization_id,
+        authorUserId: row.author_user_id,
+      }))),
       dealIds.length > 0 ? findWithDecryption(em, CustomerDeal, { id: { $in: dealIds } }, undefined, { tenantId: auth.tenantId, organizationId: selectedOrganizationId }) : Promise.resolve([]),
       interactionIds.length > 0
         ? loadCustomFieldValues({
@@ -671,15 +670,6 @@ export async function GET(req: Request) {
       })(),
     ])
 
-    const userMap = new Map(
-      users.map((user) => [
-        user.id,
-        {
-          name: user.name ?? null,
-          email: user.email ?? null,
-        },
-      ]),
-    )
     const dealMap = new Map(
       deals.map((deal) => [deal.id, deal.title]),
     )
@@ -713,6 +703,7 @@ export async function GET(req: Request) {
       source: row.source ?? null,
       duration: row.duration_minutes ?? null,
       durationMinutes: row.duration_minutes ?? null,
+      timezone: row.timezone ?? null,
       location: row.location ?? null,
       allDay: row.all_day ?? null,
       recurrenceRule: row.recurrence_rule ?? null,
@@ -728,8 +719,8 @@ export async function GET(req: Request) {
       tenantId: row.tenant_id,
       createdAt: toIsoString(row.created_at) ?? new Date().toISOString(),
       updatedAt: toIsoString(row.updated_at) ?? new Date().toISOString(),
-      authorName: row.author_user_id ? userMap.get(row.author_user_id)?.name ?? null : null,
-      authorEmail: row.author_user_id ? userMap.get(row.author_user_id)?.email ?? null : null,
+      authorName: row.author_user_id ? userMap.get(interactionUserKey({ tenantId: row.tenant_id, organizationId: row.organization_id }, row.author_user_id))?.name ?? null : null,
+      authorEmail: row.author_user_id ? userMap.get(interactionUserKey({ tenantId: row.tenant_id, organizationId: row.organization_id }, row.author_user_id))?.email ?? null : null,
       dealTitle: row.deal_id ? dealMap.get(row.deal_id) ?? null : null,
       customValues: normalizeCustomFieldResponse(customFieldValues[row.id]) ?? null,
     }, interactionRecordMap.get(row.id), encryptedFieldsByOrganization.get(row.organization_id) ?? []))
@@ -794,6 +785,7 @@ const interactionListItemSchema = z
     source: z.string().nullable().optional(),
     duration: z.number().nullable().optional(),
     durationMinutes: z.number().nullable().optional(),
+    timezone: z.string().nullable().optional(),
     location: z.string().nullable().optional(),
     allDay: z.boolean().nullable().optional(),
     recurrenceRule: z.string().nullable().optional(),

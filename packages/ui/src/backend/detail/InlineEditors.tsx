@@ -24,6 +24,13 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('ui')
 
+// Coarse-pointer devices never fire hover, so the hover-only reveal would leave the
+// edit trigger permanently at opacity-0 and untappable. Keep it visible there instead.
+// Exported so sibling inline editors outside this file share one definition rather than
+// re-deriving it — the drift that left these triggers hover-only in the first place.
+export const INLINE_TRIGGER_HIDDEN_CLASSES =
+  'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100'
+
 // Server validation errors arrive as stable i18n keys (e.g. `customers.people.form.*`), the
 // same contract CrudForm resolves via translateValidationMessage; without this they render
 // raw. `t(msg, msg)` is a no-op for already-localized strings.
@@ -170,11 +177,14 @@ export function InlineTextEditor({
     'shrink-0 transition-opacity duration-150',
     editing
       ? 'opacity-100'
-      : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100',
+      : INLINE_TRIGGER_HIDDEN_CLASSES,
     variant === 'muted' ? 'h-8 w-8' : null,
     triggerClassName ?? null,
   )
   const triggerSize = variant === 'plain' ? 'icon' : 'sm'
+  const triggerLabel = editing
+    ? t('ui.detail.inline.cancel', 'Cancel')
+    : t('ui.detail.inline.edit', 'Edit')
 
   const setEditingSafe = React.useCallback(
     (next: boolean) => {
@@ -436,8 +446,10 @@ export function InlineTextEditor({
             const next = !editing
             setEditingSafe(next)
           }}
+          aria-label={triggerLabel}
+          title={triggerLabel}
         >
-          {editing ? <X className="h-4 w-4" /> : <Pencil className="h-4 w-4" />}
+          {editing ? <X className="h-4 w-4" aria-hidden /> : <Pencil className="h-4 w-4" aria-hidden />}
         </Button>
       </div>
     </div>
@@ -597,9 +609,12 @@ export function InlineMultilineEditor({
     'transition-opacity duration-150',
     editing
       ? 'opacity-100'
-      : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100',
+      : INLINE_TRIGGER_HIDDEN_CLASSES,
     triggerClassName ?? null,
   )
+  const triggerLabel = editing
+    ? t('ui.detail.inline.cancel', 'Cancel')
+    : t('ui.detail.inline.edit', 'Edit')
 
   const handleSave = React.useCallback(async () => {
     const trimmed = draft.trim()
@@ -732,8 +747,10 @@ export function InlineMultilineEditor({
             event.stopPropagation()
             setEditing((state) => !state)
           }}
+          aria-label={triggerLabel}
+          title={triggerLabel}
         >
-          {editing ? <X className="h-4 w-4" /> : <Pencil className="h-4 w-4" />}
+          {editing ? <X className="h-4 w-4" aria-hidden /> : <Pencil className="h-4 w-4" aria-hidden />}
         </Button>
       </div>
     </div>
@@ -794,10 +811,13 @@ export function InlineSelectEditor({
     'shrink-0 transition-opacity duration-150',
     editing
       ? 'opacity-100'
-      : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100',
+      : INLINE_TRIGGER_HIDDEN_CLASSES,
     variant === 'muted' ? 'h-8 w-8' : null,
     triggerClassName ?? null,
   )
+  const triggerLabel = editing
+    ? t('ui.detail.inline.cancel', 'Cancel')
+    : t('ui.detail.inline.edit', 'Edit')
 
   const handleSave = React.useCallback(async () => {
     setSaving(true)
@@ -891,8 +911,10 @@ export function InlineSelectEditor({
             event.stopPropagation()
             setEditing((state) => !state)
           }}
+          aria-label={triggerLabel}
+          title={triggerLabel}
         >
-          {editing ? <X className="h-4 w-4" /> : <Pencil className="h-4 w-4" />}
+          {editing ? <X className="h-4 w-4" aria-hidden /> : <Pencil className="h-4 w-4" aria-hidden />}
         </Button>
       </div>
     </div>

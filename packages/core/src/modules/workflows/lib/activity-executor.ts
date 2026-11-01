@@ -62,7 +62,7 @@ import './activity-registry-bootstrap'
 import { bindActivityExecutor } from './activity-types'
 import { getActivityType } from './activity-registry'
 import { logWorkflowEvent } from './event-logger'
-import { calculateWaitDelayMs, parseDuration } from './duration'
+import { MAX_INLINE_WAIT_MS, assertInProcessWaitDelay, calculateWaitDelayMs, parseDuration } from './duration'
 
 export { calculateWaitDelayMs } from './duration'
 import { resolveActivityTimeoutMs } from './activityTimeoutFields'
@@ -74,6 +74,8 @@ import type { AgentDispositionReview } from './agent-disposition-task'
 
 export { isPrivateUrl } from '@open-mercato/shared/lib/network'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import type { TranslateParams } from '@open-mercato/shared/lib/i18n/context'
 
 const logger = createLogger('workflows')
 
@@ -380,7 +382,7 @@ export async function enqueueActivity(
     workflowContext,
     stepContext,
     retryPolicy: activity.retryPolicy,
-    timeoutMs: activity.timeoutMs,
+    timeoutMs: resolveActivityTimeoutMs(activity),
     tenantId: workflowInstance.tenantId,
     organizationId: workflowInstance.organizationId,
     userId: context.userId,
@@ -681,6 +683,31 @@ export async function executeActivity(
   }
 }
 
+export interface ExecuteActivitiesOptions {
+  /**
+   * Hand a synchronous activity with a long `enqueueDelayMs` (a WAIT over
+   * `MAX_INLINE_WAIT_MS`) to the activity queue instead of sleeping in-process.
+   * Only the transition's LAST activity qualifies, so nothing authored after the
+   * wait can run before it elapses. Only callers that park on an `async` result
+   * (the transition handler) may opt in — a caller that does not would let the
+   * run move on without waiting at all.
+   */
+  queueLongInlineWaits?: boolean
+}
+
+function isLongInlineWait(activity: ActivityDefinition, context: ActivityContext): boolean {
+  const entry = getActivityType(activity.activityType)
+  if (!entry?.enqueueDelayMs || entry.async.capable === false) return false
+  try {
+    const delayMs = entry.enqueueDelayMs(
+      interpolateActivityConfig(activity.config, context, activity.activityType, activity.activityName)
+    )
+    return delayMs !== null && delayMs > MAX_INLINE_WAIT_MS
+  } catch {
+    return false
+  }
+}
+
 /**
  * Execute multiple activities in sequence
  * Supports both synchronous and asynchronous (queued) execution
@@ -695,7 +722,8 @@ export async function executeActivities(
   em: EntityManager,
   container: AwilixContainer,
   activities: ActivityDefinition[],
-  context: ActivityContext
+  context: ActivityContext,
+  options: ExecuteActivitiesOptions = {}
 ): Promise<ActivityExecutionResult[]> {
   const results: ActivityExecutionResult[] = []
 
@@ -707,9 +735,15 @@ export async function executeActivities(
 
   for (let i = 0; i < activities.length; i++) {
     const activity = activities[i]
+    const isLastActivity = i === activities.length - 1
+    const queueAsLongWait =
+      !activity.async &&
+      options.queueLongInlineWaits === true &&
+      isLastActivity &&
+      isLongInlineWait(activity, context)
 
     // Check if activity should run async
-    if (activity.async && !forceSynchronous) {
+    if ((activity.async || queueAsLongWait) && !forceSynchronous) {
       // Enqueue for background execution
       const jobId = await enqueueActivity(em, activity, context)
 
@@ -849,6 +883,7 @@ async function executeActivityByType(
     em: em as PostgreSqlEntityManager,
     container,
     signal,
+    timeoutMs: resolveActivityTimeoutMs(activity),
   })
 }
 
@@ -1213,6 +1248,38 @@ export type CallWebhookDeps = {
   allowPrivate?: boolean
   fetchImpl?: typeof fetch
   signal?: AbortSignal
+  timeoutMs?: number
+}
+
+const WEBHOOK_TIMEOUT_MS = 30_000
+const WEBHOOK_MAX_RESPONSE_BYTES = 1024 * 1024
+
+async function readWebhookResponse(response: Response, signal: AbortSignal): Promise<string> {
+  const declaredLength = Number(response.headers.get('content-length'))
+  if (declaredLength > WEBHOOK_MAX_RESPONSE_BYTES) {
+    throw new Error(`[internal] CALL_WEBHOOK response exceeds ${WEBHOOK_MAX_RESPONSE_BYTES} bytes`)
+  }
+  if (!response.body) return ''
+
+  const reader = response.body.getReader()
+  const chunks: Uint8Array[] = []
+  let totalBytes = 0
+  try {
+    for (;;) {
+      throwIfAborted(signal)
+      const { done, value } = await raceAbortable(reader.read(), signal)
+      if (done) break
+      totalBytes += value.byteLength
+      if (totalBytes > WEBHOOK_MAX_RESPONSE_BYTES) {
+        throw new Error(`[internal] CALL_WEBHOOK response exceeds ${WEBHOOK_MAX_RESPONSE_BYTES} bytes`)
+      }
+      chunks.push(value)
+    }
+    return new TextDecoder().decode(Buffer.concat(chunks, totalBytes))
+  } finally {
+    void reader.cancel().catch(() => undefined)
+    reader.releaseLock()
+  }
 }
 
 export async function executeCallWebhook(
@@ -1232,67 +1299,65 @@ export async function executeCallWebhook(
 
   const allowPrivate = deps.allowPrivate ?? isAllowPrivateWorkflowWebhookUrlsEnabled()
 
-  let response: Response
-  try {
-    response = await safeOutboundFetch(
-      url,
-      {
-        method,
-        headers: {
-          'Content-Type': 'application/json',
-          ...headers,
+  return executeWithTimeout(async (deadlineSignal) => {
+    const signal = deps.signal
+      ? AbortSignal.any([deadlineSignal, deps.signal])
+      : deadlineSignal
+    throwIfAborted(signal)
+
+    let response: Response | undefined
+    try {
+      response = await raceAbortable(safeOutboundFetch(
+        url,
+        {
+          method,
+          headers: {
+            'Content-Type': 'application/json',
+            ...headers,
+          },
+          body: body !== undefined && body !== null ? JSON.stringify(body) : undefined,
+          redirect: 'manual',
+          signal,
         },
-        body: body !== undefined && body !== null ? JSON.stringify(body) : undefined,
-        redirect: 'manual',
-        signal: deps.signal,
-      },
-      {
-        subject: 'Workflow webhook URL',
-        allowPrivate,
-        lookupHost: deps.lookupHost,
-        fetchImpl: deps.fetchImpl,
-      },
-    )
-  } catch (error) {
-    if (error instanceof UnsafeOutboundUrlError) {
-      throw new Error(
-        `CALL_WEBHOOK rejected unsafe URL (reason=${error.reason}): ${error.message}`
-      )
+        {
+          subject: 'Workflow webhook URL',
+          allowPrivate,
+          lookupHost: deps.lookupHost,
+          fetchImpl: deps.fetchImpl,
+        },
+      ), signal)
+
+      if (response.status >= 300 && response.status < 400) {
+        const location = response.headers.get('location')
+        throw new Error(
+          `CALL_WEBHOOK refused to follow redirect ${response.status} to ${
+            location ?? '(no Location header)'
+          }`
+        )
+      }
+
+      const text = await readWebhookResponse(response, signal)
+      const contentType = response.headers.get('content-type')
+      const result: unknown = contentType?.includes('application/json') ? JSON.parse(text) : text
+
+      if (!response.ok) {
+        throw new Error(
+          `Webhook request failed with status ${response.status}: ${JSON.stringify(result)}`
+        )
+      }
+
+      return { status: response.status, statusText: response.statusText, result }
+    } catch (error) {
+      if (error instanceof UnsafeOutboundUrlError) {
+        throw new Error(
+          `CALL_WEBHOOK rejected unsafe URL (reason=${error.reason}): ${error.message}`
+        )
+      }
+      throw error
+    } finally {
+      void response?.body?.cancel().catch(() => undefined)
     }
-    throw error
-  }
-
-  if (response.status >= 300 && response.status < 400) {
-    const location = response.headers.get('location')
-    throw new Error(
-      `CALL_WEBHOOK refused to follow redirect ${response.status} to ${
-        location ?? '(no Location header)'
-      }`
-    )
-  }
-
-  // Parse response
-  let result: any
-  const contentType = response.headers.get('content-type')
-
-  if (contentType && contentType.includes('application/json')) {
-    result = await response.json()
-  } else {
-    result = await response.text()
-  }
-
-  // Check for HTTP errors
-  if (!response.ok) {
-    throw new Error(
-      `Webhook request failed with status ${response.status}: ${JSON.stringify(result)}`
-    )
-  }
-
-  return {
-    status: response.status,
-    statusText: response.statusText,
-    result,
-  }
+  }, deps.timeoutMs && deps.timeoutMs > 0 ? deps.timeoutMs : WEBHOOK_TIMEOUT_MS)
 }
 
 /**
@@ -1356,7 +1421,7 @@ export async function executeFunction(
  *   this handler returns immediately when called from the worker
  */
 export async function executeWait(config: any): Promise<any> {
-  const durationMs = calculateWaitDelayMs(config)
+  const durationMs = assertInProcessWaitDelay(calculateWaitDelayMs(config))
 
   // In sync mode, actually sleep for the duration
   // In async mode (called from worker), the delay already happened via queue scheduling
@@ -1630,7 +1695,7 @@ export async function executeCallApi(
   }
 
   // 2. Build full URL (prepend APP_URL for relative paths)
-  const fullUrl = buildApiUrl(endpoint)
+  const requestUrl = await resolveCallApiUrl(endpoint)
 
   // 3. Import the one-time API key helper
   const { withOnetimeApiKey } = await import('../../api_keys/services/apiKeyService')
@@ -1711,7 +1776,7 @@ export async function executeCallApi(
       }
 
       // Make HTTP request
-      const response = await fetch(fullUrl, {
+      const { response, url: responseUrl } = await fetchCallApiWithGuardedRedirects(requestUrl, {
         method,
         headers: requestHeaders,
         body: body ? JSON.stringify(body) : undefined,
@@ -1734,7 +1799,7 @@ export async function executeCallApi(
 
       // Check for HTTP errors and classify
       if (!response.ok) {
-        classifyAndThrowError(response.status, responseBody, fullUrl)
+        classifyAndThrowError(response.status, responseBody, responseUrl.href)
       }
 
       // Validate tenant match (security check)
@@ -1898,40 +1963,141 @@ export async function resolveWorkflowPrincipalUserId(
   return definition?.createdBy ?? null
 }
 
+const CALL_API_MAX_REDIRECTS = 3
+const CALL_API_REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308])
+
+async function createCallApiError(key: string, fallback: string, params?: TranslateParams): Promise<Error> {
+  const { translate } = await resolveTranslations()
+  return new Error(translate(key, fallback, params))
+}
+
+function createAppUrlNotHttpError(appUrl: string): Promise<Error> {
+  return createCallApiError(
+    'workflows.errors.callApi.appUrlNotHttp',
+    'CALL_API requires an http(s) APP_URL, got: {appUrl}',
+    { appUrl },
+  )
+}
+
 /**
- * Build full API URL from endpoint
- * - Relative paths (/api/...) → prepend APP_URL
- * - Absolute URLs → validate domain matches APP_URL (SSRF prevention)
+ * Resolve a CALL_API endpoint to the URL the one-time API key may be sent to
+ * (SSRF prevention). Relative paths are joined to APP_URL; relative and absolute
+ * endpoints must both resolve to APP_URL's exact origin (scheme, host and port)
+ * and to a path under APP_URL's `/api/`.
  */
-function buildApiUrl(endpoint: string): string {
+async function resolveCallApiUrl(endpoint: string): Promise<URL> {
   const appUrl = process.env.APP_URL || 'http://localhost:3000'
 
-  // Relative path - prepend APP_URL
-  if (endpoint.startsWith('/')) {
-    // Security: Only allow /api/* paths
-    if (!endpoint.startsWith('/api/')) {
-      throw new Error(`CALL_API only supports /api/* paths, got: ${endpoint}`)
-    }
-    return `${appUrl}${endpoint}`
+  let appUrlObj: URL
+  try {
+    appUrlObj = new URL(appUrl)
+  } catch {
+    throw await createAppUrlNotHttpError(appUrl)
   }
 
-  // Absolute URL - validate domain matches APP_URL (SSRF prevention)
+  let target: URL
   try {
-    const endpointUrl = new URL(endpoint)
-    const appUrlObj = new URL(appUrl)
-
-    if (endpointUrl.host !== appUrlObj.host) {
-      throw new Error(
-        `SSRF Prevention: CALL_API endpoint domain (${endpointUrl.host}) does not match APP_URL (${appUrlObj.host})`
-      )
-    }
-
-    return endpoint
+    target = endpoint.startsWith('/')
+      ? new URL(`${appUrl.replace(/\/+$/, '')}${endpoint}`)
+      : new URL(endpoint)
   } catch (error) {
     if (error instanceof TypeError) {
       throw new Error(`Invalid endpoint URL: ${endpoint}`)
     }
     throw error
+  }
+
+  if (appUrlObj.protocol !== 'http:' && appUrlObj.protocol !== 'https:') {
+    throw await createAppUrlNotHttpError(appUrl)
+  }
+
+  target.pathname = target.pathname.replace(/\/{2,}/g, '/')
+
+  if (target.username || target.password) {
+    throw await createCallApiError(
+      'workflows.errors.callApi.endpointCredentials',
+      'SSRF Prevention: CALL_API endpoint must not contain credentials',
+    )
+  }
+
+  if (target.origin !== appUrlObj.origin) {
+    throw await createCallApiError(
+      'workflows.errors.callApi.originMismatch',
+      'SSRF Prevention: CALL_API endpoint origin ({endpointOrigin}) does not match APP_URL origin ({appUrlOrigin})',
+      { endpointOrigin: target.origin, appUrlOrigin: appUrlObj.origin },
+    )
+  }
+
+  const apiPathPrefix = `${appUrlObj.pathname.replace(/\/+$/, '')}/api/`
+  if (!target.pathname.startsWith(apiPathPrefix)) {
+    throw new Error(`CALL_API only supports /api/* paths, got: ${endpoint}`)
+  }
+
+  return target
+}
+
+/**
+ * Send a CALL_API request without letting fetch follow redirects on its own.
+ * A redirect is followed only when its target passes `resolveCallApiUrl`, so the
+ * one-time API key never leaves APP_URL's `/api/` surface.
+ */
+async function fetchCallApiWithGuardedRedirects(
+  initialUrl: URL,
+  init: { method: string; headers: Record<string, string>; body?: string; signal?: AbortSignal },
+): Promise<{ response: Response; url: URL }> {
+  let url = initialUrl
+  let { method, headers, body } = init
+
+  for (let redirects = 0; ; redirects++) {
+    const response = await fetch(url.href, {
+      method,
+      headers,
+      body,
+      signal: init.signal,
+      redirect: 'manual',
+    })
+
+    if (!CALL_API_REDIRECT_STATUSES.has(response.status)) {
+      return { response, url }
+    }
+
+    const location = response.headers.get('location')
+    const refuse = async () => {
+      const { translate } = await resolveTranslations()
+      return new Error(
+        translate(
+          'workflows.errors.callApi.redirectRefused',
+          'CALL_API refused to follow redirect {status} to {location}',
+          {
+            status: response.status,
+            location: location ?? translate('workflows.errors.callApi.noLocationHeader', '(no Location header)'),
+          },
+        )
+      )
+    }
+    if (!location || redirects >= CALL_API_MAX_REDIRECTS) {
+      throw await refuse()
+    }
+
+    try {
+      url = await resolveCallApiUrl(new URL(location, url).href)
+    } catch {
+      throw await refuse()
+    }
+
+    await response.body?.cancel()
+
+    const upperMethod = method.toUpperCase()
+    if (
+      (response.status === 303 && upperMethod !== 'HEAD') ||
+      ((response.status === 301 || response.status === 302) && upperMethod === 'POST')
+    ) {
+      method = 'GET'
+      body = undefined
+      headers = Object.fromEntries(
+        Object.entries(headers).filter(([name]) => name.toLowerCase() !== 'content-type')
+      )
+    }
   }
 }
 

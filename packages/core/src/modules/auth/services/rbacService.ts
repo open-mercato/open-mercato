@@ -1,9 +1,11 @@
-import type { EntityManager } from '@mikro-orm/postgresql'
+import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import type { CacheStrategy } from '@open-mercato/cache'
 import { getCurrentCacheTenant, runWithCacheTenant } from '@open-mercato/cache'
-import { UserAcl, RoleAcl, User, UserRole } from '@open-mercato/core/modules/auth/data/entities'
+import { UserAcl, RoleAcl, Role, User, UserRole } from '@open-mercato/core/modules/auth/data/entities'
 import { ApiKey } from '@open-mercato/core/modules/api_keys/data/entities'
-import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { isSessionBoundApiKey, resolveApiKeyRoleIds } from '@open-mercato/core/modules/api_keys/services/sessionKeyRoles'
+import { Organization } from '@open-mercato/core/modules/directory/data/entities'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { OrganizationHierarchyService } from '@open-mercato/shared/lib/auth/principal-service'
 import { buildOrgScopeUserCacheTag, buildOrgScopeTenantCacheTag } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import {
@@ -11,12 +13,58 @@ import {
   resolveEffectiveFeatures,
 } from '@open-mercato/shared/security/featurePolicy'
 import { filterGrantsByEnabledModules } from '@open-mercato/shared/security/enabledModulesRegistry'
+import { hasFeature } from '@open-mercato/shared/security/features'
 import { resolveRoleOrganizationScope, roleAclAllowsOrganization } from './roleOrganizationScope'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('auth.rbac')
 
 interface AclData {
   isSuperAdmin: boolean
   features: string[]
   organizations: string[] | null
+}
+
+function intersectDelegatedAcl(keyAcl: AclData, ownerAcl: AclData): AclData {
+  const keyFeatures = keyAcl.isSuperAdmin ? ['*'] : keyAcl.features
+  const ownerFeatures = ownerAcl.isSuperAdmin ? ['*'] : ownerAcl.features
+  const features = Array.from(new Set([
+    ...keyFeatures.filter((feature) => hasFeature(ownerFeatures, feature)),
+    ...ownerFeatures.filter((feature) => hasFeature(keyFeatures, feature)),
+  ]))
+  const keyOrganizations = keyAcl.isSuperAdmin || keyAcl.organizations?.includes('__all__')
+    ? null : keyAcl.organizations
+  const ownerOrganizations = ownerAcl.isSuperAdmin || ownerAcl.organizations?.includes('__all__')
+    ? null : ownerAcl.organizations
+  const organizations = keyOrganizations === null ? ownerOrganizations
+    : ownerOrganizations === null ? keyOrganizations
+      : keyOrganizations.filter((organizationId) => ownerOrganizations.includes(organizationId))
+  return {
+    isSuperAdmin: keyAcl.isSuperAdmin && ownerAcl.isSuperAdmin,
+    features: organizations?.length === 0 ? [] : features,
+    organizations,
+  }
+}
+
+async function resolveRoleOrganizationScopeWithEntityManager(
+  em: EntityManager,
+  tenantId: string | null,
+  organizationId: string | null,
+): Promise<ReadonlySet<string> | null> {
+  if (!organizationId) return null
+  if (!tenantId) return new Set()
+  const organization = await findOneWithDecryption(
+    em,
+    Organization,
+    { id: organizationId, tenant: tenantId, deletedAt: null } as FilterQuery<Organization>,
+    { fields: ['id', 'ancestorIds'] },
+    { tenantId, organizationId },
+  )
+  if (!organization) return new Set()
+  const ancestors = Array.isArray(organization.ancestorIds)
+    ? organization.ancestorIds.filter((value): value is string => typeof value === 'string' && value.length > 0)
+    : []
+  return new Set([organizationId, ...ancestors])
 }
 
 function isAclData(value: unknown): value is AclData {
@@ -55,7 +103,7 @@ type FeatureOrganizationRoleGrant = {
 
 type FeatureOrganizationGrants =
   | { kind: 'none' }
-  | { kind: 'api_key'; organizationId: string | null; roleGrants: FeatureOrganizationRoleGrant[] }
+  | { kind: 'api_key'; organizationId: string | null; ownerId: string | null; roleGrants: FeatureOrganizationRoleGrant[] }
   | { kind: 'user_acl'; isSuperAdmin: boolean; features: string[]; organizations: string[] | null }
   | { kind: 'roles'; roleGrants: FeatureOrganizationRoleGrant[] }
 
@@ -79,6 +127,7 @@ function isFeatureOrganizationGrants(value: unknown): value is FeatureOrganizati
       return true
     case 'api_key':
       return (record.organizationId === null || typeof record.organizationId === 'string')
+        && (record.ownerId === null || typeof record.ownerId === 'string')
         && Array.isArray(record.roleGrants)
         && record.roleGrants.every(isFeatureOrganizationRoleGrant)
     case 'user_acl':
@@ -234,7 +283,8 @@ export class RbacService {
   }
 
   private getCacheKey(userId: string, scope: { tenantId: string | null; organizationId: string | null }): string {
-    return `rbac:${userId}:${scope.tenantId || 'null'}:${scope.organizationId || 'null'}`
+    const namespace = userId.startsWith('api_key:') ? 'rbac:delegated-v1' : 'rbac'
+    return `${namespace}:${userId}:${scope.tenantId || 'null'}:${scope.organizationId || 'null'}`
   }
 
   private getUserTag(userId: string): string {
@@ -256,12 +306,12 @@ export class RbacService {
     return isAclData(cached) ? cached : null
   }
 
-  private async setCache(cacheKey: string, data: AclData, userId: string, scope: { tenantId: string | null; organizationId: string | null }): Promise<void> {
+  private async setCache(cacheKey: string, data: AclData, userId: string, scope: { tenantId: string | null; organizationId: string | null }, ownerId?: string | null): Promise<void> {
     if (!this.cache) return
 
     await this.cache.set(cacheKey, data, {
       ttl: this.cacheTtlMs,
-      tags: this.buildCacheTags(userId, scope),
+      tags: [...this.buildCacheTags(userId, scope), ...(ownerId ? [this.getUserTag(ownerId)] : [])],
     })
   }
 
@@ -358,39 +408,89 @@ export class RbacService {
     }
   }
 
-  private async isGlobalSuperAdmin(userId: string): Promise<boolean> {
-    if (this.globalSuperAdminCache.has(userId)) return this.globalSuperAdminCache.get(userId)!
-    const em = this.em.fork()
-    const userSuper = await em.findOne(UserAcl, { user: userId as any, isSuperAdmin: true })
-    if (userSuper && (userSuper as any).isSuperAdmin) {
-      this.globalSuperAdminCache.set(userId, true)
+  // A super-admin grant is deliberately GLOBAL: it survives every scope the
+  // caller asks about, which is what lets a platform super-admin work inside a
+  // customer tenant. What it must not do is survive the question of whose grant
+  // it is. Both lookups below are therefore evaluated against the user's OWN
+  // tenant (`users.tenant_id`), never against no tenant at all.
+  //
+  // Without that binding a single `user_acls` row — or a role link — stamped
+  // with ANY tenant confers platform super-admin everywhere, so a row written
+  // under the wrong tenant becomes a full privilege escalation with nothing in
+  // the schema or the UI to show for it. `user_acls` has no organization column
+  // and no uniqueness beyond its primary key, so such a row is cheap to create
+  // and invisible to the tenant/organization cross-wire checks.
+  //
+  // This is the tenant binding `resolveCanonicalStaffAuthContext` already
+  // applies when it computes `auth.isSuperAdmin` (see lib/sessionIntegrity.ts:
+  // `userAclGrantsSuperAdmin` / `roleAclGrantsSuperAdmin`, both bound to the
+  // user's own tenant). Before this change the two authorities disagreed:
+  // session integrity would say "not a super-admin" while `loadAcl` handed the
+  // same request `['*']`.
+  //
+  // The memo stays keyed by `userId` alone because the answer now depends only
+  // on the user's own tenant, which is a property of the user — not on the scope
+  // being asked about. `invalidateUserCache` therefore still clears it correctly.
+  private async isGlobalSuperAdmin(
+    em: EntityManager,
+    userId: string,
+    userTenantId: string | null,
+    useCache = true,
+  ): Promise<boolean> {
+    if (useCache && this.globalSuperAdminCache.has(userId)) return this.globalSuperAdminCache.get(userId)!
+    if (!userTenantId) {
+      logger.warn('Tenant-less principal cannot receive super-admin grants; assign an owning tenant before upgrading', { userId })
+      if (useCache) this.globalSuperAdminCache.set(userId, false)
+      return false
+    }
+    const userSuper = await em.findOne(UserAcl, {
+      user: userId as unknown as User,
+      tenantId: userTenantId,
+      isSuperAdmin: true,
+      deletedAt: null,
+    } as FilterQuery<UserAcl>)
+    if (userSuper?.isSuperAdmin) {
+      if (useCache) this.globalSuperAdminCache.set(userId, true)
       return true
     }
     const links = await findWithDecryption(
       em,
       UserRole,
-      { user: userId as any },
+      // Roles that belong to the user's own tenant, as
+      // `resolveCanonicalStaffAuthContext` already requires. The encryption
+      // scope stays `{ null, null }` as before — this change is about which rows
+      // count, not about which key decrypts them.
+      {
+        user: userId as unknown as User,
+        deletedAt: null,
+        role: { tenantId: userTenantId, deletedAt: null },
+      } as FilterQuery<UserRole>,
       { populate: ['role'] },
       { tenantId: null, organizationId: null },
     )
     const linkList = Array.isArray(links) ? links : []
     if (!linkList.length) {
-      this.globalSuperAdminCache.set(userId, false)
+      if (useCache) this.globalSuperAdminCache.set(userId, false)
       return false
     }
     const roleIds = Array.from(new Set(linkList.map((link) => {
-      const role = link.role as any
+      const role = link.role
       return role?.id ? String(role.id) : null
     }).filter((id): id is string => typeof id === 'string' && id.length > 0)))
     if (!roleIds.length) {
-      this.globalSuperAdminCache.set(userId, false)
+      if (useCache) this.globalSuperAdminCache.set(userId, false)
       return false
     }
-    const roleSupers = await em.find(RoleAcl, { isSuperAdmin: true, role: { $in: roleIds as any } } as any)
+    const roleSupers = await em.find(RoleAcl, {
+      isSuperAdmin: true,
+      tenantId: userTenantId,
+      deletedAt: null,
+      role: { $in: roleIds as unknown as Role[] },
+    } as FilterQuery<RoleAcl>)
     const result = roleSupers.some((roleAcl) => (
       !!roleAcl.isSuperAdmin && !isRestrictedRoleAcl(roleAcl)
     ))
-    this.globalSuperAdminCache.set(userId, result)
+    if (useCache) this.globalSuperAdminCache.set(userId, result)
     return result
   }
 
@@ -421,20 +521,8 @@ export class RbacService {
     organizations: string[] | null
   }> {
     const cacheKey = this.getCacheKey(userId, scope)
-    const cached = await this.getFromCache(cacheKey)
+    const cached = userId.startsWith('api_key:') ? null : await this.getFromCache(cacheKey)
     if (cached) return cached
-
-    // Direct user-level super-admin grants and unrestricted role-level
-    // super-admin grants are global. Organization-restricted role grants are
-    // deliberately excluded by isGlobalSuperAdmin and continue through the
-    // scoped ACL projection below.
-    if (!userId.startsWith('api_key:')) {
-      if (await this.isGlobalSuperAdmin(userId)) {
-        const result = { isSuperAdmin: true, features: ['*'], organizations: null }
-        await this.setCache(cacheKey, result, userId, scope)
-        return result
-      }
-    }
 
     if (userId.startsWith('api_key:')) {
       const apiKeyId = userId.slice('api_key:'.length)
@@ -445,8 +533,13 @@ export class RbacService {
         await this.setCache(cacheKey, result, userId, scope)
         return result
       }
+      const cacheable = !isSessionBoundApiKey(key)
+      if (cacheable) {
+        const cachedKeyAcl = await this.getFromCache(cacheKey)
+        if (cachedKeyAcl) return cachedKeyAcl
+      }
       const tenantId = scope.tenantId || key.tenantId || null
-      const roleIds = Array.isArray(key.rolesJson) ? key.rolesJson.filter(Boolean) : []
+      const roleIds = await resolveApiKeyRoleIds(em, key, tenantId)
       const keyOrganizationId = typeof key.organizationId === 'string' && key.organizationId.trim().length > 0
         ? key.organizationId.trim()
         : null
@@ -461,7 +554,11 @@ export class RbacService {
           tenantId,
           evaluatedOrganizationId,
         )
-        const racls = await em.find(RoleAcl, { tenantId, role: { $in: roleIds as any } } as any)
+        const racls = await em.find(RoleAcl, {
+          tenantId,
+          deletedAt: null,
+          role: { $in: roleIds as unknown as Role[], deletedAt: null },
+        } as FilterQuery<RoleAcl>)
         for (const acl of racls) {
           if (roleAclAllowsOrganization(acl, roleOrganizationScope)) {
             isSuper = isSuper || !!acl.isSuperAdmin
@@ -511,8 +608,9 @@ export class RbacService {
       // the key is restricted so downstream super-admin shortcuts cannot
       // bypass the key or role organization bounds.
       if (isSuper && organizations !== null && !features.includes('*')) features.push('*')
-      const result = { isSuperAdmin: isSuper && organizations === null, features, organizations }
-      await this.setCache(cacheKey, result, userId, scope)
+      const keyAcl = { isSuperAdmin: isSuper && organizations === null, features, organizations }
+      const result = await this.limitDelegatedKeyAcl(em, key, { tenantId, organizationId: evaluatedOrganizationId }, keyAcl)
+      if (cacheable) await this.setCache(cacheKey, result, userId, { tenantId, organizationId: evaluatedOrganizationId }, key.sessionUserId)
       return result
     }
 
@@ -524,6 +622,23 @@ export class RbacService {
       await this.setCache(cacheKey, result, userId, scope)
       return result
     }
+
+    // Direct user-level super-admin grants and unrestricted role-level
+    // super-admin grants are global. Organization-restricted role grants are
+    // deliberately excluded by isGlobalSuperAdmin and continue through the
+    // scoped ACL projection below.
+    //
+    // The check runs AFTER the user is loaded because it is evaluated against
+    // the user's own tenant — see isGlobalSuperAdmin. It reuses that load and
+    // that EntityManager rather than issuing its own, so the reordering costs
+    // no extra query. API-key principals never reached it and still do not:
+    // their branch above has already returned.
+    if (await this.isGlobalSuperAdmin(em, userId, user.tenantId ?? null)) {
+      const result = { isSuperAdmin: true, features: ['*'], organizations: null }
+      await this.setCache(cacheKey, result, userId, scope)
+      return result
+    }
+
     const tenantId = scope.tenantId || user.tenantId || null
     const orgId = scope.organizationId || user.organizationId || null
 
@@ -533,8 +648,25 @@ export class RbacService {
       return result
     }
 
-    // Per-user ACL first
-    const uacl = await em.findOne(UserAcl, { user: userId as any, tenantId })
+    // Per-user ACL first. This row REPLACES the role ACLs rather than merging
+    // with them, so which row is returned decides the whole feature set. A
+    // partial unique index now makes a second live row impossible
+    // (`user_acls_active_unique_idx`, Migration20260828120000_auth), but the
+    // ordering is stated anyway: an index can be dropped by an operator, and an
+    // unordered `findOne` over a table that used to allow duplicates is exactly
+    // the read this pairs with. Soft-deleted rows are excluded — a revoked
+    // override must not keep answering.
+    const uacl = await em.findOne(
+      UserAcl,
+      { user: userId as unknown as User, tenantId, deletedAt: null } as FilterQuery<UserAcl>,
+      // `createdAt`/`id`, not `updatedAt`: `updated_at` is nullable and Postgres
+      // sorts NULLs FIRST under DESC, so ordering by it would prefer a row that
+      // was never updated. The migration's one-time collapse uses
+      // `coalesce(updated_at, created_at)` because there it is picking the row
+      // an operator would call current; here the only requirement is that the
+      // answer not vary between requests.
+      { orderBy: { createdAt: 'desc', id: 'desc' } } as const,
+    )
     if (uacl) {
       const result = {
         isSuperAdmin: !!uacl.isSuperAdmin,
@@ -549,12 +681,18 @@ export class RbacService {
     const links = await findWithDecryption(
       em,
       UserRole,
-      { user: userId as any, role: { tenantId } } as any,
+      {
+        user: userId as unknown as User,
+        deletedAt: null,
+        role: { tenantId, deletedAt: null },
+      } as FilterQuery<UserRole>,
       { populate: ['role'] },
       { tenantId, organizationId: orgId },
     )
     const linkList = Array.isArray(links) ? links : []
-    const roleIds = linkList.map((l) => (l.role as any)?.id).filter(Boolean)
+    const roleIds = linkList
+      .map((link) => link.role?.id ? String(link.role.id) : null)
+      .filter((roleId): roleId is string => roleId !== null)
     let isSuper = false
     const features: string[] = []
     let organizations: string[] | null = []
@@ -565,7 +703,11 @@ export class RbacService {
         tenantId,
         scope.organizationId,
       )
-      const racls = await em.find(RoleAcl, { tenantId, role: { $in: roleIds as any } } as any, {})
+      const racls = await em.find(RoleAcl, {
+        tenantId,
+        deletedAt: null,
+        role: { $in: roleIds as unknown as Role[] },
+      } as FilterQuery<RoleAcl>, {})
       const roleAcls = Array.isArray(racls) ? racls : []
       for (const r of roleAcls) {
         if (roleAclAllowsOrganization(r, roleOrganizationScope)) {
@@ -604,6 +746,203 @@ export class RbacService {
   }
 
   /**
+   * Cache-bypassing ACL resolution bound to a caller-supplied EntityManager.
+   * Replay authorization uses this additive seam after taking its canonical
+   * locks so every user, membership, role, ACL, API-key, and organization-scope
+   * read observes the exact transaction that performs the mutation.
+   */
+  async loadAclWithEntityManager(
+    em: EntityManager,
+    userId: string,
+    scope: { tenantId: string | null; organizationId: string | null },
+  ): Promise<AclData> {
+    if (userId.startsWith('api_key:')) {
+      const key = await em.findOne(ApiKey, {
+        id: userId.slice('api_key:'.length),
+        deletedAt: null,
+      })
+      if (!key || (key.expiresAt && key.expiresAt.getTime() < Date.now())) {
+        return { isSuperAdmin: false, features: [], organizations: null }
+      }
+      const tenantId = scope.tenantId || key.tenantId || null
+      const roleIds = await resolveApiKeyRoleIds(em, key, tenantId)
+      const keyOrganizationId = typeof key.organizationId === 'string' && key.organizationId.trim().length > 0
+        ? key.organizationId.trim()
+        : null
+      const evaluatedOrganizationId = scope.organizationId || keyOrganizationId
+      const roleScope = await resolveRoleOrganizationScopeWithEntityManager(
+        em,
+        tenantId,
+        evaluatedOrganizationId,
+      )
+      const roleAcls = tenantId && roleIds.length
+        ? await em.find(RoleAcl, { tenantId, deletedAt: null, role: { $in: roleIds as never, deletedAt: null } } as never)
+        : []
+      let isSuperAdmin = false
+      const features: string[] = []
+      let organizations: string[] | null = []
+      let hasApplicableRestrictedRole = false
+      for (const acl of roleAcls) {
+        if (roleAclAllowsOrganization(acl, roleScope)) {
+          isSuperAdmin = isSuperAdmin || acl.isSuperAdmin === true
+          for (const feature of Array.isArray(acl.featuresJson) ? acl.featuresJson : []) {
+            if (!features.includes(feature)) features.push(feature)
+          }
+          if (isRestrictedRoleAcl(acl)) hasApplicableRestrictedRole = true
+        }
+        if (organizations !== null) {
+          if (
+            acl.organizationsJson == null
+            || acl.organizationsJson.length === 0
+            || acl.organizationsJson.includes('__all__')
+          ) {
+            organizations = null
+          } else {
+            organizations = Array.from(new Set([...organizations, ...acl.organizationsJson]))
+          }
+        }
+      }
+      if (
+        organizations !== null
+        && evaluatedOrganizationId
+        && roleScope !== null
+        && roleScope.size > 0
+        && hasApplicableRestrictedRole
+        && !organizations.includes(evaluatedOrganizationId)
+      ) {
+        organizations.push(evaluatedOrganizationId)
+      }
+      if (keyOrganizationId) {
+        const keyScope = await resolveRoleOrganizationScopeWithEntityManager(em, tenantId, keyOrganizationId)
+        organizations = organizations === null
+          || organizations.some((organizationId) => keyScope?.has(organizationId))
+          ? [keyOrganizationId]
+          : []
+      }
+      if (isSuperAdmin && organizations !== null && !features.includes('*')) features.push('*')
+      return this.limitDelegatedKeyAcl(
+        em,
+        key,
+        { tenantId, organizationId: evaluatedOrganizationId },
+        { isSuperAdmin: isSuperAdmin && organizations === null, features, organizations },
+        true,
+      )
+    }
+
+    const user = await findOneWithDecryption(
+      em, User, { id: userId }, {}, { tenantId: null, organizationId: null },
+    )
+    if (!user) return { isSuperAdmin: false, features: [], organizations: null }
+    if (await this.isGlobalSuperAdmin(em, userId, user.tenantId ?? null, false)) {
+      return { isSuperAdmin: true, features: ['*'], organizations: null }
+    }
+    const tenantId = scope.tenantId || user.tenantId || null
+    const organizationId = scope.organizationId || user.organizationId || null
+    if (!tenantId) return { isSuperAdmin: false, features: [], organizations: null }
+
+    const userAcl = await em.findOne(
+      UserAcl,
+      { user: userId as never, tenantId, deletedAt: null } as FilterQuery<UserAcl>,
+      { orderBy: { createdAt: 'desc', id: 'desc' } },
+    )
+    if (userAcl) {
+      return {
+        isSuperAdmin: userAcl.isSuperAdmin === true,
+        features: Array.isArray(userAcl.featuresJson) ? [...userAcl.featuresJson] : [],
+        organizations: Array.isArray(userAcl.organizationsJson) ? [...userAcl.organizationsJson] : null,
+      }
+    }
+
+    const links = await findWithDecryption(
+      em,
+      UserRole,
+      { user: userId as never, deletedAt: null, role: { tenantId, deletedAt: null } } as never,
+      { populate: ['role'] },
+      { tenantId, organizationId },
+    )
+    const roleIds = links
+      .map((link) => typeof link.role === 'string' ? link.role : link.role?.id ? String(link.role.id) : null)
+      .filter((roleId): roleId is string => typeof roleId === 'string' && roleId.length > 0)
+    const roleAcls = roleIds.length
+      ? await em.find(RoleAcl, { tenantId, deletedAt: null, role: { $in: roleIds as never, deletedAt: null } } as never)
+      : []
+    const roleScope = await resolveRoleOrganizationScopeWithEntityManager(
+      em,
+      tenantId,
+      scope.organizationId,
+    )
+    let isSuperAdmin = false
+    const features: string[] = []
+    let organizations: string[] | null = []
+    let hasApplicableRestrictedRole = false
+    for (const acl of roleAcls) {
+      if (roleAclAllowsOrganization(acl, roleScope)) {
+        isSuperAdmin = isSuperAdmin || acl.isSuperAdmin === true
+        for (const feature of Array.isArray(acl.featuresJson) ? acl.featuresJson : []) {
+          if (!features.includes(feature)) features.push(feature)
+        }
+        if (isRestrictedRoleAcl(acl)) hasApplicableRestrictedRole = true
+      }
+      if (organizations !== null) {
+        if (acl.organizationsJson == null || acl.organizationsJson.includes('__all__')) {
+          organizations = null
+        } else {
+          organizations = Array.from(new Set([...organizations, ...acl.organizationsJson]))
+        }
+      }
+    }
+    if (
+      organizations !== null
+      && scope.organizationId
+      && roleScope
+      && roleScope.size > 0
+      && hasApplicableRestrictedRole
+      && !organizations.includes(scope.organizationId)
+    ) {
+      organizations.push(scope.organizationId)
+    }
+    return { isSuperAdmin, features, organizations }
+  }
+
+  async userHasAllFeaturesWithEntityManager(
+    em: EntityManager,
+    userId: string,
+    required: string[],
+    scope: { tenantId: string | null; organizationId: string | null },
+  ): Promise<boolean> {
+    if (!required.length) return true
+    const acl = await this.loadAclWithEntityManager(em, userId, scope)
+    const organizationAllowed = acl.isSuperAdmin
+      || !acl.organizations
+      || !scope.organizationId
+      || acl.organizations.includes(scope.organizationId)
+      || acl.organizations.includes('__all__')
+    return authorizeFeatures(required, {
+      grantedFeatures: acl.features,
+      unrestricted: acl.isSuperAdmin,
+      scopeAllowed: organizationAllowed,
+    })
+  }
+
+  async getGrantedFeaturesWithEntityManager(
+    em: EntityManager,
+    userId: string,
+    scope: { tenantId: string | null; organizationId: string | null },
+  ): Promise<string[]> {
+    const acl = await this.loadAclWithEntityManager(em, userId, scope)
+    if (acl.isSuperAdmin) return filterGrantsByEnabledModules(['*'])
+    if (
+      acl.organizations
+      && scope.organizationId
+      && !acl.organizations.includes(scope.organizationId)
+      && !acl.organizations.includes('__all__')
+    ) {
+      return []
+    }
+    return filterGrantsByEnabledModules(acl.features)
+  }
+
+  /**
    * Checks whether any tenant role grants a feature.
    *
    * This supports non-user runtimes such as scheduler workers that execute with
@@ -622,7 +961,7 @@ export class RbacService {
       tenantId,
       opts?.organizationId,
     )
-    const roleAcls = await em.find(RoleAcl, { tenantId, deletedAt: null } as any, {})
+    const roleAcls = await em.find(RoleAcl, { tenantId, deletedAt: null } as FilterQuery<RoleAcl>, {})
     const list = Array.isArray(roleAcls) ? roleAcls : []
 
     for (const acl of list) {
@@ -689,6 +1028,33 @@ export class RbacService {
     })
   }
 
+  private async limitDelegatedKeyAcl(
+    em: EntityManager,
+    key: ApiKey,
+    scope: { tenantId: string | null; organizationId: string | null },
+    keyAcl: AclData,
+    uncached = false,
+  ): Promise<AclData> {
+    if (!key.sessionUserId) return keyAcl
+    if (!key.tenantId || key.tenantId !== scope.tenantId) {
+      return { isSuperAdmin: false, features: [], organizations: [] }
+    }
+    const owner = await findOneWithDecryption(em, User, {
+      id: key.sessionUserId,
+      tenantId: key.tenantId,
+      deletedAt: null,
+    }, undefined, scope)
+    if (!owner) return { isSuperAdmin: false, features: [], organizations: [] }
+    const ownerAcl = uncached
+      ? await this.loadAclWithEntityManager(em, key.sessionUserId, scope)
+      : await this.loadAcl(key.sessionUserId, scope)
+    const result = intersectDelegatedAcl(keyAcl, ownerAcl)
+    if (scope.organizationId && result.organizations && !result.organizations.includes(scope.organizationId)) {
+      return { ...result, isSuperAdmin: false, features: [] }
+    }
+    return result
+  }
+
   async resolveFeatureOrganizationAccess(
     userId: string,
     required: readonly string[],
@@ -699,12 +1065,21 @@ export class RbacService {
     const denyAll = () => []
     if (!required.length) return { unrestricted: true, filterOrganizationIds: allowAll }
     if (!input.tenantId) return { unrestricted: false, filterOrganizationIds: denyAll }
-    if (
-      !userId.startsWith('api_key:')
-      && await this.isGlobalSuperAdmin(userId)
-      && authorizeFeatures(required, { grantedFeatures: ['*'], unrestricted: true })
-    ) {
-      return { unrestricted: true, filterOrganizationIds: allowAll }
+    if (!userId.startsWith('api_key:')) {
+      let globalSuperAdmin = this.globalSuperAdminCache.get(userId)
+      if (globalSuperAdmin === undefined) {
+        const em = this.em.fork()
+        const user = await findOneWithDecryption(
+          em, User, { id: userId }, {}, { tenantId: null, organizationId: null },
+        )
+        globalSuperAdmin = !!user && await this.isGlobalSuperAdmin(em, userId, user.tenantId ?? null)
+      }
+      if (
+        globalSuperAdmin
+        && authorizeFeatures(required, { grantedFeatures: ['*'], unrestricted: true })
+      ) {
+        return { unrestricted: true, filterOrganizationIds: allowAll }
+      }
     }
 
     const grants = await this.loadFeatureOrganizationGrants(userId, input.tenantId)
@@ -712,13 +1087,18 @@ export class RbacService {
 
     if (grants.kind === 'api_key') {
       const keyOrganizationId = grants.organizationId
+      const ownerAccess = grants.ownerId
+        ? await this.resolveFeatureOrganizationAccess(grants.ownerId, required, input)
+        : { unrestricted: true, filterOrganizationIds: allowAll }
       const unrestricted = keyOrganizationId === null
+        && ownerAccess.unrestricted
         && roleAclsAuthorizeFeaturesGlobally(grants.roleGrants, required, true)
       if (unrestricted) return { unrestricted: true, filterOrganizationIds: allowAll }
 
       return {
         unrestricted: false,
         filterOrganizationIds: (candidates) => normalizeFeatureOrganizationCandidates(candidates)
+          .filter((organization) => ownerAccess.filterOrganizationIds([organization]).length > 0)
           .filter((organization) => (
             (!keyOrganizationId || organization.id === keyOrganizationId)
             && roleAclsAuthorizeFeatures(grants.roleGrants, required, organization, true)
@@ -774,16 +1154,23 @@ export class RbacService {
     userId: string,
     tenantId: string,
   ): Promise<FeatureOrganizationGrants> {
-    const cacheKey = `rbac:feature-organizations:${userId}:${tenantId}`
-    if (this.cache) {
+    const cacheKey = `rbac:feature-organizations:delegated-v1:${userId}:${tenantId}`
+    const key = userId.startsWith('api_key:')
+      ? await this.em.fork().findOne(ApiKey, { id: userId.slice('api_key:'.length), deletedAt: null })
+      : undefined
+    const cacheable = key === undefined || (key !== null && !isSessionBoundApiKey(key))
+    if (this.cache && cacheable) {
       const cached = await this.cache.get(cacheKey)
       if (isFeatureOrganizationGrants(cached)) return cached
     }
-    const grants = await this.queryFeatureOrganizationGrants(userId, tenantId)
-    if (this.cache) {
+    const grants = await this.queryFeatureOrganizationGrants(userId, tenantId, key)
+    if (this.cache && cacheable) {
       await this.cache.set(cacheKey, grants, {
         ttl: this.cacheTtlMs,
-        tags: this.buildCacheTags(userId, { tenantId, organizationId: null }),
+        tags: [
+          ...this.buildCacheTags(userId, { tenantId, organizationId: null }),
+          ...(grants.kind === 'api_key' && grants.ownerId ? [this.getUserTag(grants.ownerId)] : []),
+        ],
       })
     }
     return grants
@@ -792,11 +1179,14 @@ export class RbacService {
   private async queryFeatureOrganizationGrants(
     userId: string,
     tenantId: string,
+    knownApiKey?: ApiKey | null,
   ): Promise<FeatureOrganizationGrants> {
     const em = this.em.fork()
     if (userId.startsWith('api_key:')) {
       const apiKeyId = userId.slice('api_key:'.length)
-      const key = await em.findOne(ApiKey, { id: apiKeyId, deletedAt: null })
+      const key = knownApiKey === undefined
+        ? await em.findOne(ApiKey, { id: apiKeyId, deletedAt: null })
+        : knownApiKey
       if (
         !key
         || (key.expiresAt && key.expiresAt.getTime() < Date.now())
@@ -805,11 +1195,22 @@ export class RbacService {
         return { kind: 'none' }
       }
 
-      const roleIds = Array.isArray(key.rolesJson) ? key.rolesJson.filter(Boolean) : []
+      if (key.sessionUserId) {
+        if (key.tenantId !== tenantId) return { kind: 'none' }
+        const owner = await findOneWithDecryption(em, User, {
+          id: key.sessionUserId,
+          tenantId,
+          deletedAt: null,
+        }, undefined, { tenantId, organizationId: null })
+        if (!owner) return { kind: 'none' }
+      }
+
+      const roleIds = await resolveApiKeyRoleIds(em, key, tenantId)
       if (!roleIds.length) return { kind: 'none' }
       const roleAcls = await em.find(RoleAcl, {
         tenantId,
-        role: { $in: roleIds },
+        deletedAt: null,
+        role: { $in: roleIds, deletedAt: null },
       })
       const keyOrganizationId = typeof key.organizationId === 'string' && key.organizationId.trim().length > 0
         ? key.organizationId.trim()
@@ -817,14 +1218,21 @@ export class RbacService {
       return {
         kind: 'api_key',
         organizationId: keyOrganizationId,
+        ownerId: key.sessionUserId ?? null,
         roleGrants: roleAcls.map(toFeatureOrganizationRoleGrant),
       }
     }
 
-    const user = await em.findOne(User, { id: userId })
+    const user = await findOneWithDecryption(
+      em, User, { id: userId }, {}, { tenantId: null, organizationId: null },
+    )
     if (!user) return { kind: 'none' }
 
-    const userAcl = await em.findOne(UserAcl, { user: userId, tenantId })
+    const userAcl = await em.findOne(
+      UserAcl,
+      { user: userId, tenantId, deletedAt: null },
+      { orderBy: { createdAt: 'desc', id: 'desc' } },
+    )
     if (userAcl) {
       return {
         kind: 'user_acl',
@@ -837,7 +1245,7 @@ export class RbacService {
     const links = await findWithDecryption(
       em,
       UserRole,
-      { user: userId, role: { tenantId } },
+      { user: userId, deletedAt: null, role: { tenantId, deletedAt: null } },
       { populate: ['role'] },
       { tenantId, organizationId: null },
     )
@@ -848,7 +1256,8 @@ export class RbacService {
 
     const roleAcls = await em.find(RoleAcl, {
       tenantId,
-      role: { $in: roleIds },
+      deletedAt: null,
+      role: { $in: roleIds, deletedAt: null },
     })
     return { kind: 'roles', roleGrants: roleAcls.map(toFeatureOrganizationRoleGrant) }
   }

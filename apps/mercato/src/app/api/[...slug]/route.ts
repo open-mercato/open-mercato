@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server'
-import { findApiRouteManifestMatch, getApiRouteManifests, registerApiRouteManifests, type HttpMethod } from '@open-mercato/shared/modules/registry'
+import { findApiRouteManifestMatch, getApiRouteManifests, registerApiRouteManifests, type ApiRouteBeforeAuth, type HttpMethod } from '@open-mercato/shared/modules/registry'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { apiRouteFacades } from '@/.mercato/generated/api-route-shards.generated'
@@ -346,7 +346,7 @@ async function handleRequest(
     receivedAt: new Date().toISOString(),
   }
   await emitLifecycleEvent(applicationLifecycleEvents.requestReceived, receivedPayload)
-  const match = findApiRouteManifestMatch(getApiRouteManifests(), method, pathname)
+  const match = findApiRouteManifestMatch(getApiRouteManifests(), method, pathname, req)
   if (!match) {
     const response = NextResponse.json({ error: t('api.errors.notFound', 'Not Found') }, { status: 404 })
     await emitLifecycleEvent(applicationLifecycleEvents.requestNotFound, {
@@ -371,6 +371,18 @@ async function handleRequest(
   }
   const handler = rawHandler as (req: NextRequest, ctx?: HandlerContext) => Promise<Response> | Response
   const routeMetadata = normalizeLoadedMetadata(loadedRouteModule.metadata, method, match.route.kind)
+  if (typeof loadedRouteModule.beforeAuth === 'function') {
+    const beforeAuth = loadedRouteModule.beforeAuth as ApiRouteBeforeAuth
+    const response = await beforeAuth(req, { method, params: match.params })
+    if (response) {
+      await emitLifecycleEvent(
+        response.status === 429 ? applicationLifecycleEvents.requestRateLimited : applicationLifecycleEvents.requestCompleted,
+        { ...receivedPayload, status: response.status, userId: null, tenantId: null, durationMs: Date.now() - startedAt },
+      )
+      getTelemetryRuntime()?.recordHttpDuration(method, match.route.path, response.status, startedAt)
+      return response
+    }
+  }
   const authResolution = await resolveAuthFromRequestDetailed(req)
   const auth = authResolution.auth
   await emitLifecycleEvent(applicationLifecycleEvents.requestAuthResolved, {
@@ -466,6 +478,24 @@ async function handleRequest(
     getTelemetryRuntime()?.recordHttpDuration(method, match.route.path, finalResponse.status, startedAt)
     return finalResponse
   } catch (error) {
+    // A CrudHttpError is a deliberate, typed HTTP outcome (403 from an org-scope
+    // deny, 404 from a guard, 409 from an optimistic lock) that a handler threw
+    // instead of returning. Without this branch it reaches Next as an unhandled
+    // throw and the caller sees a 500 with a leaked stack, hiding the real
+    // decision — so it is answered with its own status and body here rather than
+    // funnelled through the 5xx path below.
+    if (isCrudHttpError(error)) {
+      const response = NextResponse.json(error.body, { status: error.status })
+      await emitLifecycleEvent(applicationLifecycleEvents.requestCompleted, {
+        ...receivedPayload,
+        status: response.status,
+        userId: auth?.sub ?? null,
+        tenantId: auth?.tenantId ?? null,
+        durationMs: Date.now() - startedAt,
+      })
+      getTelemetryRuntime()?.recordHttpDuration(method, match.route.path, response.status, startedAt)
+      return response
+    }
     // Unhandled throws become 500s (Next renders the error). This is the 5xx
     // error funnel: record the exception (correlated to the active trace) and
     // the request-duration metric, then re-throw unchanged.

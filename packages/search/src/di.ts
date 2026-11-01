@@ -25,6 +25,15 @@ import type { VectorIndexJobPayload } from './queue/vector-indexing'
 import type { EncryptionMapEntry } from './lib/field-policy'
 import type { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { createPresenterEnricher } from './lib/presenter-enricher'
+import { createEncryptionMapResolver } from './lib/encryption-map-resolver'
+import { createEncryptedCustomFieldKeysResolver, type CustomFieldDefinitionsDatabase, type EncryptedCustomFieldKeysResolver } from './lib/encrypted-custom-field-resolver'
+import { reportSearchError } from './lib/debug'
+
+export { createEncryptionMapResolver } from './lib/encryption-map-resolver'
+
+type KyselyEntityManager = {
+  getKysely<Database>(): Kysely<Database>
+}
 
 const FULLTEXT_DRIVER_KEY = '__omSearchFulltextDriver__'
 
@@ -46,46 +55,9 @@ function shouldExcludeEncryptedFields(): boolean {
   return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on'
 }
 
-/**
- * Create an encryption map resolver that queries the database.
- * Falls back to empty array if query fails.
- */
-function createEncryptionMapResolver(
-  db: Kysely<any>,
-): (entityId: EntityId) => Promise<EncryptionMapEntry[]> {
-  // Cache encryption maps per entity to avoid repeated queries
-  const cache = new Map<string, { entries: EncryptionMapEntry[]; expiresAt: number }>()
-  const CACHE_TTL_MS = 5 * 60 * 1000 // 5 minutes
-
-  return async (entityId: EntityId): Promise<EncryptionMapEntry[]> => {
-    const cached = cache.get(entityId)
-    if (cached && cached.expiresAt > Date.now()) {
-      return cached.entries
-    }
-
-    try {
-      const row = await db
-        .selectFrom('encryption_maps' as any)
-        .select(['fields_json' as any])
-        .where('entity_id' as any, '=', entityId)
-        .where('is_active' as any, '=', true)
-        .where('deleted_at' as any, 'is', null)
-        .executeTakeFirst() as { fields_json?: unknown } | undefined
-
-      const fieldsJson = row?.fields_json
-      const entries: EncryptionMapEntry[] = Array.isArray(fieldsJson)
-        ? fieldsJson.map((f: { field: string; hashField?: string | null }) => ({
-            field: f.field,
-            hashField: f.hashField ?? null,
-          }))
-        : []
-
-      cache.set(entityId, { entries, expiresAt: Date.now() + CACHE_TTL_MS })
-      return entries
-    } catch {
-      // Query failed, return empty array (don't exclude any fields)
-      return []
-    }
+function createUnavailableEncryptionMapResolver(): (entityId: EntityId) => Promise<EncryptionMapEntry[]> {
+  return async () => {
+    throw new Error('[internal] Encryption map lookup is unavailable; refusing to index potentially encrypted fields')
   }
 }
 
@@ -129,6 +101,15 @@ export function registerSearchModule(
   container: SearchContainer,
   options?: SearchModuleOptions,
 ): void {
+  const moduleConfigs = (options?.moduleConfigs ?? []).map((moduleConfig) => ({
+    ...moduleConfig,
+    entities: moduleConfig.entities.map((entityConfig) => {
+      const buildSource = entityConfig.buildSource
+      return buildSource
+        ? { ...entityConfig, buildSource: (ctx: Parameters<typeof buildSource>[0]) => buildSource.call(entityConfig, { ...ctx, container }) }
+        : entityConfig
+    }),
+  }))
   const strategies: SearchStrategy[] = []
 
   // Token strategy (always available unless explicitly skipped)
@@ -161,7 +142,7 @@ export function registerSearchModule(
 
   // Build entity config map for field policy resolution
   const entityConfigMap = new Map<EntityId, SearchEntityConfig>()
-  for (const moduleConfig of (options?.moduleConfigs ?? [])) {
+  for (const moduleConfig of moduleConfigs) {
     for (const entityConfig of moduleConfig.entities) {
       if (entityConfig.enabled !== false) {
         entityConfigMap.set(entityConfig.entityId as EntityId, entityConfig)
@@ -193,7 +174,7 @@ export function registerSearchModule(
           const db = em.getKysely() as Kysely<any>
           encryptionMapResolver = createEncryptionMapResolver(db)
         } catch {
-          // Kysely not available, encrypted field filtering disabled
+          encryptionMapResolver = createUnavailableEncryptionMapResolver()
         }
       }
 
@@ -260,9 +241,6 @@ export function registerSearchModule(
     presenterEnricher,
   })
 
-  // Create search indexer with module configs
-  const moduleConfigs = options?.moduleConfigs ?? []
-
   // Try to resolve fulltextIndexQueue for queue-based reindexing
   let fulltextQueue: Queue<FulltextIndexJobPayload> | undefined
   try {
@@ -279,10 +257,22 @@ export function registerSearchModule(
     // Queue not available, queue-based vector reindex will be disabled
   }
 
+  let encryptedCustomFieldKeysResolver: EncryptedCustomFieldKeysResolver
+  try {
+    const em = container.resolve<KyselyEntityManager>('em')
+    encryptedCustomFieldKeysResolver = createEncryptedCustomFieldKeysResolver(em.getKysely<CustomFieldDefinitionsDatabase>())
+  } catch (error) {
+    reportSearchError('SearchModule', error, 'search.custom_field_definitions_unavailable')
+    encryptedCustomFieldKeysResolver = async () => {
+      throw new Error('[internal] Custom-field definitions are unavailable')
+    }
+  }
+
   const searchIndexer = new SearchIndexer(searchService, moduleConfigs, {
     queryEngine,
     fulltextQueue,
     vectorQueue,
+    encryptedCustomFieldKeysResolver,
   })
 
   // Register in container

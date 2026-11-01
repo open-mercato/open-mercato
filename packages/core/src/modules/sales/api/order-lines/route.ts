@@ -1,5 +1,5 @@
 import { SalesOrderLine } from "../../data/entities";
-import { orderLineCreateSchema, orderLineUpdateSchema } from "../../data/validators";
+import { orderHeaderTotalsSchema, orderLineCreateSchema, orderLineUpdateSchema } from "../../data/validators";
 import { E } from "#generated/entities.ids.generated";
 import * as F from "#generated/entities/sales_order_line";
 import { makeSalesLineRoute } from "../../lib/makeSalesLineRoute";
@@ -12,6 +12,7 @@ const route = makeSalesLineRoute({
   parentFkParam: "orderId",
   createSchema: orderLineCreateSchema,
   updateSchema: orderLineUpdateSchema,
+  writeExtensionShape: { orderTotals: orderHeaderTotalsSchema.optional() },
   features: { view: "sales.orders.view", manage: "sales.orders.manage" },
   commandPrefix: "sales.orders.lines",
   openApi: {

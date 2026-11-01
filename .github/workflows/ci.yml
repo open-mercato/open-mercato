@@ -1,4 +1,4 @@
-name: CI for Develop&Main
+name: CI for Main & Release Lines
 permissions:
   contents: read
 
@@ -72,19 +72,21 @@ env:
   # explicitly allows them.
   NEXT_PUBLIC_DOCUMENTS_COLLAB_URL: 'ws://127.0.0.1:4101'
 
+# `release/v*` are the release lines (CONTRIBUTING.md § Releasing): backport PRs into them must
+# run the same checks as PRs into main, or a backport merges untested.
 # `feat/wms` is a temporary stacking base. PRs stacked on it target that branch rather than
-# `develop`, and while it is absent from these lists no job is scheduled for them at all.
-# Drop the entry once its stack has landed on `develop`.
+# `main`, and while it is absent from these lists no job is scheduled for them at all.
+# Drop the entry once its stack has landed on `main`.
 on:
   push:
     branches:
       - main
-      - develop
+      - 'release/v*'
       - feat/wms
   pull_request:
     branches:
       - main
-      - develop
+      - 'release/v*'
       - feat/wms
 
 # Cancel any in-progress run on the same branch when a new push arrives.
@@ -122,7 +124,7 @@ jobs:
         # Determines which integration tests to run and whether to shard them.
         # Full-suite runs (push OR PR touching shared packages) use 15 shards.
         # Affected-only runs (PR touching specific modules) use a single runner.
-        # CI/docs/scripts-only PRs skip integration entirely.
+        # This workflow runs the full suite; other CI/docs/scripts-only PRs skip integration.
         # Runs in prepare so shards can start the moment the build is ready,
         # without waiting for typecheck or unit tests to complete.
         id: integration-scope
@@ -143,7 +145,7 @@ jobs:
           # `packages/cli/src/lib/testing/` is the ephemeral harness that boots, drives and tears
           # down this very suite. A change there matches no `src/modules/` path, so without this
           # entry the job that would exercise it is the one job it can never trigger.
-          FULL_SUITE_PATTERN='^packages/shared/|^packages/ui/|^packages/events/|^packages/queue/|^packages/cache/|^packages/search/|^packages/onboarding/|^packages/webhooks/|^packages/core/src/lib/|^packages/enterprise/src/lib/|^packages/cli/src/lib/testing/|^apps/mercato/src/(app|lib|components|layout\.|page\.)'
+          FULL_SUITE_PATTERN='^\.github/workflows/ci\.yml$|^packages/shared/|^packages/ui/|^packages/events/|^packages/queue/|^packages/cache/|^packages/search/|^packages/onboarding/|^packages/webhooks/|^packages/core/src/lib/|^packages/enterprise/src/lib/|^packages/cli/src/lib/testing/|^apps/mercato/src/(app|lib|components|layout\.|page\.)'
           if echo "$CHANGED" | grep -qE "$FULL_SUITE_PATTERN"; then
             echo "skip=false" >> "$GITHUB_OUTPUT"
             echo "modules=" >> "$GITHUB_OUTPUT"
@@ -300,7 +302,7 @@ jobs:
             # the base branch. The merge commit is frozen when the run is created,
             # while the base branch keeps moving: diffing against a freshly fetched
             # `origin/<base>` also reports every file the base branch changed since
-            # then, so a re-run of a UI-only PR after develop bumped `yarn.lock`
+            # then, so a re-run of a UI-only PR after main bumped `yarn.lock`
             # ran (and failed) the audit (#6753).
             CHANGED=$(git diff --name-only HEAD^1 HEAD)
           else
@@ -396,7 +398,7 @@ jobs:
         # This job gates the CHANGE, so it fails only on advisories the change
         # introduces: an advisory already flagged on the base yarn.lock is
         # reported but not blocking. Otherwise a PR adding one clean dependency
-        # stays red for every advisory already on develop (#5868). Those are
+        # stays red for every advisory already on main (#5868). Those are
         # owned by the scheduled `.github/workflows/audit.yml`, which audits
         # without a baseline and keeps a tracking issue open until fixed.
         # When no baseline can be resolved the audit runs strict (fails closed).
@@ -622,14 +624,38 @@ jobs:
     needs: [prepare, audit-scope, audit, lint]
     if: |
       always() &&
+      !cancelled() &&
       needs.prepare.result == 'success' &&
       needs.audit-scope.result == 'success' &&
       (needs.audit.result == 'success' || needs.audit.result == 'skipped') &&
       needs.lint.result == 'success'
+    services:
+      # `@open-mercato/queue` translates its `coalesce` option into BullMQ deduplication,
+      # and the rest of its tests — which mock BullMQ — prove only that the right options
+      # reach `queue.add`. The guarantee callers rely on is BullMQ's own behaviour, and a
+      # semantic change behind an unchanged option name would pass both the mock and the
+      # installed-BullMQ name guard. One server makes that suite run for real.
+      #
+      # No other suite reaches for a default localhost Redis (they all mock ioredis,
+      # bullmq or the connection helper), so this changes nothing else in the job.
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        # Without a health gate the first enqueue can beat the server's startup and fail
+        # the job for a reason that has nothing to do with the change under test.
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
     env:
       # app typecheck (tsc --noEmit on the full Next.js app) peaks at ~4 GB;
       # raise the heap so it does not OOM on cache-miss runs.
       NODE_OPTIONS: --max-old-space-size=5120
+      # Opts the queue's real-BullMQ coalescing suite in; it skips itself when unset,
+      # which is what keeps it out of every environment that has no Redis.
+      QUEUE_TEST_REDIS_URL: redis://127.0.0.1:6379/0
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -733,25 +759,25 @@ jobs:
         run: yarn agents:check-budget
 
       - name: Checking types
-        # On PRs: scope to packages/app that changed since the base branch.
-        # On pushes to protected branches: full typecheck, no filter.
+        # Workflow edits and protected branch pushes run the full gate.
+        # Other PRs scope to packages/app that changed since the base branch.
         run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            yarn turbo run typecheck --filter=[origin/${{ github.base_ref }}]...
-          else
+          if [ "${{ github.event_name }}" != "pull_request" ] || ! git diff --quiet HEAD^1 HEAD -- .github/workflows/ci.yml; then
             yarn typecheck
+          else
+            yarn turbo run typecheck --filter=[origin/${{ github.base_ref }}]...
           fi
         env:
           TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
           TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
 
       - name: Test
-        # Same scoping as typecheck — affected packages only on PRs.
+        # Same scoping as typecheck, including full gates for workflow edits.
         run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            yarn turbo run test --filter=[origin/${{ github.base_ref }}]...
-          else
+          if [ "${{ github.event_name }}" != "pull_request" ] || ! git diff --quiet HEAD^1 HEAD -- .github/workflows/ci.yml; then
             yarn test
+          else
+            yarn turbo run test --filter=[origin/${{ github.base_ref }}]...
           fi
 
       - name: Test scripts
@@ -784,8 +810,8 @@ jobs:
         # above uses --filter=[base]... which selects packages by the dependency graph
         # and never pulls in create-mercato-app when only apps/mercato changes — so on
         # PRs the parity tests can silently skip while the post-merge push build (full,
-        # unfiltered `yarn test`) turns develop red (see #3779). Run the create-app unit
-        # suite unconditionally here so template drift fails the PR, not develop.
+        # unfiltered `yarn test`) turns main red (see #3779). Run the create-app unit
+        # suite unconditionally here so template drift fails the PR, not main.
         run: yarn workspace create-mercato-app test
 
       - name: Run repo-wide audit guards (always, unfiltered)
@@ -793,7 +819,7 @@ jobs:
         # tests are repo-wide AUDITS rather than package unit tests: they deliberately scan
         # other packages, apps/ or scripts/. The turbo filter selects packages, not paths, so
         # a PR touching only scripts/ selects no package and those audits never run — the
-        # violation then lands on develop and the post-merge unfiltered `yarn test` goes red
+        # violation then lands on main and the post-merge unfiltered `yarn test` goes red
         # for everyone (#4527). Run them unconditionally so they fail their own PR — do not
         # move this step behind an `if:`, or the silent skip comes straight back.
         #
@@ -809,6 +835,66 @@ jobs:
         # scans — the whole set is ~10 s, so it stays on the common PR path.
         run: yarn test:repo-wide-guards
 
+  # ── Core suite under a non-UTC timezone ────────────────────────────────────
+  # Runners default to UTC, where wall-clock/timezone defects are invisible: the
+  # planner DTSTART bug (#5862) was built from the host clock, yet every suite
+  # passed at TZ=UTC with it fully present, because the fixtures only ever used
+  # `...Z` values. This job re-runs @open-mercato/core under a positive-offset
+  # zone whose local date differs from UTC for part of the day, so host-clock
+  # leakage fails the build instead of shipping. Kept as its own job rather than
+  # a step in `test`, which is sharded and would repeat the run per shard.
+  core-timezone:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: [prepare, audit-scope, audit, lint]
+    if: |
+      always() &&
+      !cancelled() &&
+      needs.prepare.result == 'success' &&
+      needs.audit-scope.result == 'success' &&
+      (needs.audit.result == 'success' || needs.audit.result == 'skipped') &&
+      needs.lint.result == 'success'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24.19.0
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Cache Yarn packages
+        uses: actions/cache@v6
+        with:
+          path: .yarn/cache
+          key: yarn-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
+          restore-keys: yarn-${{ runner.os }}-
+
+      - name: Cache node_modules
+        id: nm-cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            node_modules
+            packages/*/node_modules
+            apps/*/node_modules
+          key: node-modules-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
+
+      - name: Install dependencies
+        if: steps.nm-cache.outputs.cache-hit != 'true'
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/yarn-retry-on-install-crash.sh" yarn install --immutable
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v8
+        with:
+          name: build-artifacts
+
+      - name: Run core suite at TZ=Pacific/Auckland
+        run: yarn workspace @open-mercato/core test:tz
+
   # ── Documents multi-instance durability ────────────────────────────────────
   # The standard Documents Jest suite intentionally skips this infrastructure
   # regression. Run it as a dedicated required job on GitHub's Docker-capable
@@ -820,6 +906,7 @@ jobs:
     needs: [prepare, audit-scope, audit, lint]
     if: |
       always() &&
+      !cancelled() &&
       needs.prepare.result == 'success' &&
       needs.audit-scope.result == 'success' &&
       (needs.audit.result == 'success' || needs.audit.result == 'skipped') &&
@@ -865,6 +952,18 @@ jobs:
       - name: Run real two-sidecar durability regression
         run: yarn workspace @open-mercato/documents test:multi-instance
 
+      - name: Run advisory lock suite against real Postgres
+        if: ${{ !cancelled() }}
+        run: yarn workspace @open-mercato/shared test:pg-integration
+
+      - name: Run integrations module suites against real Postgres
+        if: ${{ !cancelled() }}
+        run: yarn workspace @open-mercato/core test:pg-integration
+
+      - name: Check OAuth grant import paths resolve against the built dist
+        if: ${{ !cancelled() }}
+        run: node scripts/check-oauth-publish-shape.mjs
+
   # ── Integration tests ───────────────────────────────────────────────────────
   # Boots an ephemeral app server and runs the Playwright suite.
   # Starts as soon as 'prepare' completes — runs in PARALLEL with 'test' so
@@ -873,7 +972,7 @@ jobs:
   #
   # On PRs: a single runner executes only affected modules (OM_INTEGRATION_MODULES).
   #         If no module-level code changed the job is skipped entirely.
-  # On pushes to main/develop: 15 parallel shards run the full suite, cutting
+  # On pushes to main and release/v*: 15 parallel shards run the full suite, cutting
   #         wall time from ~45 min to ~6 min. A merge-coverage job then
   #         combines per-shard coverage reports.
   ephemeral-integration:
@@ -881,6 +980,7 @@ jobs:
     needs: [prepare, audit-scope, audit, lint]
     if: |
       always() &&
+      !cancelled() &&
       needs.prepare.result == 'success' &&
       needs.audit-scope.result == 'success' &&
       (needs.audit.result == 'success' || needs.audit.result == 'skipped') &&
@@ -901,6 +1001,7 @@ jobs:
       # SELF_SERVICE_ONBOARDING_ENABLED is workflow-level for the same reason.
       OM_DISABLE_EMAIL_DELIVERY: '0'
       OM_ENABLE_TEST_CHANNEL_SEEDING: 'true'
+      OM_ENABLE_TEST_OAUTH_GRANTS: 'true'
       SYSTEM_EMAIL_PROVIDER: '__test_seed__'
       EMAIL_FROM: 'system@test-seed.local'
       NOTIFICATIONS_EMAIL_FROM: 'notifications@test-seed.local'
@@ -914,6 +1015,13 @@ jobs:
       DOCUMENTS_COLLAB_JWT_SECRET_V2: 'ci-documents-collaboration-v2-secret-32-bytes'
       JWT_SECRET: 'ci-ephemeral-test-jwt-secret-32-chars-min'
       OM_SECURITY_MFA_SETUP_SECRET: 'ci-ephemeral-test-mfa-setup-secret'
+      # The forms module refuses its DEV-ONLY deterministic KMS adapter under
+      # NODE_ENV=production, which is how the ephemeral harness runs the app.
+      # Without a master key `formsEncryptionService` does not resolve and every
+      # route that touches an encrypted payload answers a bare 500 — the whole
+      # public and portal runtime, the submissions inbox, revisions, audit,
+      # anonymize, export, PDF and analytics. Must decode to exactly 32 bytes.
+      FORMS_ENCRYPTION_MASTER_KEY: '63692d657068656d6572616c2d746573742d666f726d732d6d61737465722d31'
       OM_WEBHOOKS_ALLOW_PRIVATE_URLS: '1'
       # The mock inbound webhook adapter now requires a real HMAC-SHA256
       # signature (#2707). The ephemeral harness spawns the app under
@@ -1100,7 +1208,14 @@ jobs:
   merge-coverage:
     runs-on: blacksmith-4vcpu-ubuntu-2404
     needs: [prepare, test, documents-multi-instance, ephemeral-integration]
-    if: needs.prepare.outputs.shard_matrix != '["none"]'
+    if: |
+      always() &&
+      !cancelled() &&
+      needs.prepare.result == 'success' &&
+      needs.test.result == 'success' &&
+      needs.documents-multi-instance.result == 'success' &&
+      needs.ephemeral-integration.result == 'success' &&
+      needs.prepare.outputs.shard_matrix != '["none"]'
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7

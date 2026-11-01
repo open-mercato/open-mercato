@@ -1,5 +1,16 @@
 import assert from 'node:assert/strict'
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { after, beforeEach, describe, it } from 'node:test'
@@ -43,6 +54,50 @@ function makeInstaller(rootDir, { runNpx } = {}) {
 
 function isLink(path) {
   return Boolean(lstatSync(path, { throwIfNoEntry: false })?.isSymbolicLink())
+}
+
+function writeSkillsLock(rootDir, skills, source = 'open-mercato/skills') {
+  const entries = Object.fromEntries(
+    skills.map((skill) => [skill, { source, sourceType: 'github', skillPath: `skills/${skill}/SKILL.md` }]),
+  )
+  writeFileSync(join(rootDir, 'skills-lock.json'), JSON.stringify({ version: 1, skills: entries }, null, 2))
+}
+
+// Stands in for `npx skills add` / `skills update`: the skills CLI copies every
+// published skill into .agents/skills/ as a real directory, replacing a link
+// that sits at the same path without writing through it, and records each one
+// in skills-lock.json.
+function collectionNpx(rootDir, publishedSkills) {
+  return (args) => {
+    if (args.includes('add')) {
+      for (const skill of publishedSkills) {
+        const dir = join(rootDir, '.agents', 'skills', skill)
+        const entry = lstatSync(dir, { throwIfNoEntry: false })
+        if (entry?.isSymbolicLink()) unlinkSync(dir)
+        else if (entry) rmSync(dir, { recursive: true, force: true })
+        mkdirSync(dir, { recursive: true })
+        writeFileSync(join(dir, 'SKILL.md'), '# external copy\n')
+      }
+      writeSkillsLock(rootDir, publishedSkills)
+    }
+    return true
+  }
+}
+
+function makeUserSkillDir(rootDir, skill) {
+  const dir = join(rootDir, '.agents', 'skills', skill)
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, 'SKILL.md'), '# hand-maintained\n')
+  writeFileSync(join(dir, 'notes.md'), 'unpublished work\n')
+  return dir
+}
+
+function assertUserSkillDirKept(dir, warnings, logs, label) {
+  assert.ok(lstatSync(dir).isDirectory() && !isLink(dir), `${label}: directory kept, not replaced by a link`)
+  assert.equal(readFileSync(join(dir, 'SKILL.md'), 'utf8'), '# hand-maintained\n', `${label}: SKILL.md intact`)
+  assert.equal(readFileSync(join(dir, 'notes.md'), 'utf8'), 'unpublished work\n', `${label}: user files intact`)
+  assert.match(warnings.join('\n'), /refusing to replace non-link path/, `${label}: warns instead of deleting`)
+  assert.doesNotMatch(logs.join('\n'), /replaces the external collection's copy/, `${label}: no replacement logged`)
 }
 
 after(() => {
@@ -192,6 +247,89 @@ describe('install-skills', () => {
     assert.ok(calls[0].includes('claude-code'))
     assert.match(logs.join('\n'), /External skills: installed from open-mercato\/skills\./)
     assert.ok(isLink(join(rootDir, '.agents', 'skills', 'skill-a')), 'local install proceeds after failed update')
+  })
+
+  it('replaces the external collection copy of a selected same-named local tier skill', () => {
+    const { installer, logs, warnings } = makeInstaller(rootDir, {
+      runNpx: collectionNpx(rootDir, ['skill-a', 'om-external-one']),
+    })
+    const localSkill = join(rootDir, '.ai', 'skills', 'skill-a')
+
+    for (const pass of ['first run', 're-run']) {
+      logs.length = 0
+      warnings.length = 0
+      assert.equal(installer.run([]), 0)
+      const canonical = join(rootDir, '.agents', 'skills', 'skill-a')
+      assert.ok(isLink(canonical), `${pass}: canonical entry is the local link, not the collection copy`)
+      assert.equal(realpathSync(canonical), realpathSync(localSkill), `${pass}: canonical link targets .ai/skills`)
+      const agentLink = join(rootDir, '.claude', 'skills', 'skill-a')
+      assert.equal(readFileSync(join(agentLink, 'SKILL.md'), 'utf8'), '# skill-a\n', `${pass}: agents read the local skill`)
+      assert.equal(readFileSync(join(localSkill, 'SKILL.md'), 'utf8'), '# skill-a\n', `${pass}: local source untouched`)
+      assert.match(logs.join('\n'), /local skill 'skill-a' replaces the external collection's copy/)
+      assert.doesNotMatch(warnings.join('\n'), /refusing to replace/)
+      const external = join(rootDir, '.agents', 'skills', 'om-external-one')
+      assert.ok(lstatSync(external).isDirectory() && !isLink(external), `${pass}: non-colliding external skill kept`)
+    }
+  })
+
+  it('keeps a hand-maintained directory the lockfile does not attribute to the collection', () => {
+    const runners = [
+      ['--no-external', ['--no-external'], () => null],
+      ['npx not found', [], () => null],
+      ['external install failed', [], () => false],
+      ['external install succeeded without that skill', [], collectionNpx(rootDir, ['om-external-one'])],
+    ]
+    for (const [label, args, runNpx] of runners) {
+      rmSync(join(rootDir, '.agents'), { recursive: true, force: true })
+      rmSync(join(rootDir, 'skills-lock.json'), { force: true })
+      const dir = makeUserSkillDir(rootDir, 'skill-a')
+      const { installer, logs, warnings } = makeInstaller(rootDir, { runNpx })
+      assert.equal(installer.run(args), 0, `${label}: install still succeeds`)
+      assertUserSkillDirKept(dir, warnings, logs, label)
+    }
+  })
+
+  it('keeps the directory when the lockfile is unreadable or names another source', () => {
+    const lockVariants = [
+      ['malformed lockfile', () => writeFileSync(join(rootDir, 'skills-lock.json'), '{ not json')],
+      ['lockfile without skills', () => writeFileSync(join(rootDir, 'skills-lock.json'), '{"version":1}')],
+      ['entry from another source', () => writeSkillsLock(rootDir, ['skill-a'], 'someone-else/skills')],
+    ]
+    for (const [label, writeLock] of lockVariants) {
+      rmSync(join(rootDir, '.agents'), { recursive: true, force: true })
+      const dir = makeUserSkillDir(rootDir, 'skill-a')
+      writeLock()
+      const { installer, logs, warnings } = makeInstaller(rootDir)
+      assert.equal(installer.run(['--no-external']), 0, `${label}: install still succeeds`)
+      assertUserSkillDirKept(dir, warnings, logs, label)
+    }
+  })
+
+  it('replaces a lockfile-attributed collection copy left by an earlier run under --no-external', () => {
+    const { installer: online } = makeInstaller(rootDir, { runNpx: collectionNpx(rootDir, ['skill-c']) })
+    assert.equal(online.run([]), 0)
+    const canonical = join(rootDir, '.agents', 'skills', 'skill-c')
+    assert.ok(!isLink(canonical), 'collection copy installed while skill-c is not selected')
+
+    const { installer, logs } = makeInstaller(rootDir)
+    assert.equal(installer.run(['--no-external', '--with', 'extra']), 0)
+    assert.ok(isLink(canonical), 'selected local skill replaces the attributed copy offline')
+    assert.equal(realpathSync(canonical), realpathSync(join(rootDir, '.ai', 'skills', 'skill-c')))
+    assert.match(logs.join('\n'), /local skill 'skill-c' replaces the external collection's copy/)
+  })
+
+  it('keeps the external collection copy when the same-named local skill is not selected', () => {
+    const { installer, logs } = makeInstaller(rootDir, { runNpx: collectionNpx(rootDir, ['skill-c']) })
+    assert.equal(installer.run([]), 0)
+    const canonical = join(rootDir, '.agents', 'skills', 'skill-c')
+    assert.ok(lstatSync(canonical).isDirectory() && !isLink(canonical), 'collection copy left in place')
+    assert.equal(readFileSync(join(canonical, 'SKILL.md'), 'utf8'), '# external copy\n')
+    assert.equal(
+      readFileSync(join(rootDir, '.claude', 'skills', 'skill-c', 'SKILL.md'), 'utf8'),
+      '# external copy\n',
+      'claude-code reads the collection copy',
+    )
+    assert.doesNotMatch(logs.join('\n'), /replaces the external collection's copy/)
   })
 
   it('skips the external step when npx is unavailable', () => {

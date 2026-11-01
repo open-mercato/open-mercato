@@ -1,3 +1,5 @@
+import { resolveActorUserId } from '../lib/actor'
+export { resolveActorUserId } from '../lib/actor'
 import { NextResponse } from 'next/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
@@ -138,8 +140,6 @@ export function withDocumentsContextErrors(doc: OpenApiRouteDoc): OpenApiRouteDo
   return { ...doc, methods }
 }
 
-const actorUuidSchema = z.string().uuid()
-
 export const ROUTE_ERROR_TRANSLATIONS: Record<string, { key: string; fallback: string }> = {
   Unauthorized: { key: 'api.errors.unauthorized', fallback: 'Unauthorized' },
   Forbidden: { key: 'api.errors.forbidden', fallback: 'Forbidden' },
@@ -272,16 +272,6 @@ function readAuthScopeId(auth: NonNullable<AuthContext>, key: 'actorTenantId' | 
   const value = auth[key]
   if (typeof value === 'string' && value.trim().length > 0) return value.trim()
   return null
-}
-
-function normalizeActorUuid(value: unknown): string | null {
-  if (typeof value !== 'string') return null
-  const normalized = value.trim()
-  return actorUuidSchema.safeParse(normalized).success ? normalized : null
-}
-
-function isApiKeyAuth(auth: NonNullable<AuthContext>): boolean {
-  return auth.isApiKey === true || auth.sub.trim().startsWith('api_key:')
 }
 
 export function hasDocumentsFeature(auth: DocumentsAuthContext, feature: string): boolean {
@@ -455,30 +445,6 @@ export async function resolveDocumentsContext(
   }
 }
 
-export function resolveActorUserId(auth: NonNullable<AuthContext>): string {
-  const subject = auth.sub.trim()
-  if (isApiKeyAuth(auth)) {
-    // `keyId` is populated only by successful API-key authentication. Do not
-    // recover an actor by parsing an arbitrary prefixed subject when that
-    // validated field is absent, malformed, or disagrees with the subject.
-    const keyId = normalizeActorUuid(auth.keyId)
-    if (!keyId || subject !== `api_key:${keyId}`) {
-      throw new CrudHttpError(403, { error: 'api.errors.forbidden' })
-    }
-    if (auth.userId === undefined || auth.userId === null) return keyId
-    const backingUserId = normalizeActorUuid(auth.userId)
-    if (backingUserId) return backingUserId
-    throw new CrudHttpError(403, { error: 'api.errors.forbidden' })
-  }
-
-  const actorUserId = normalizeActorUuid(subject)
-  const claimedUserId = auth.userId === undefined || auth.userId === null
-    ? actorUserId
-    : normalizeActorUuid(auth.userId)
-  if (actorUserId && claimedUserId === actorUserId) return actorUserId
-  throw new CrudHttpError(403, { error: 'api.errors.forbidden' })
-}
-
 export async function readBody(
   request: Request,
   maxBytes = DOCUMENTS_JSON_BODY_LIMITS.standard,
@@ -553,6 +519,23 @@ export async function loadScopedDocument(ctx: DocumentsRouteContext, id: string)
   }, undefined, { tenantId: ctx.tenantId, organizationId: ctx.organizationId })
   if (!document) throw new CrudHttpError(404, { error: 'documents.documents.notFound' })
   return document
+}
+
+/**
+ * Only the owner (or a documents manager) may learn that a document was
+ * removed, e.g. after undoing its creation; everyone else keeps the
+ * existence-hiding 403 so deleted ids stay indistinguishable from foreign ones.
+ */
+export async function isRemovedDocumentVisibleToActor(ctx: DocumentsRouteContext, id: string): Promise<boolean> {
+  const document = await findOneWithDecryption(ctx.em, Document, {
+    id,
+    tenantId: ctx.tenantId,
+    organizationId: ctx.organizationId,
+    deletedAt: { $ne: null },
+  }, { fields: ['id', 'ownerUserId'] }, { tenantId: ctx.tenantId, organizationId: ctx.organizationId })
+  if (!document) return false
+  if (hasDocumentsFeature(ctx.auth, 'documents.manage')) return true
+  return document.ownerUserId === resolveActorUserId(ctx.auth)
 }
 
 export async function loadScopedShare(

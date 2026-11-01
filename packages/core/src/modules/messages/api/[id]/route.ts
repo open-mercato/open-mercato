@@ -5,6 +5,7 @@ import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { applyResponseEnricherToRecord } from '@open-mercato/shared/lib/crud/enricher-runner'
 import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { User } from '../../../auth/data/entities'
 import { Message, MessageObject, MessageRecipient } from '../../data/entities'
 import { updateDraftSchema } from '../../data/validators'
@@ -15,9 +16,9 @@ import { getMessageTypeOrDefault } from '../../lib/message-types-registry'
 import { attachOperationMetadataHeader } from '../../lib/operationMetadata'
 import {
   canPostToChannelThread,
-  hasChannelThreadReadAccess,
   hasOrganizationAccess,
   resolveMessageContext,
+  resolveMessageReadAccess,
 } from '../../lib/routeHelpers'
 import { resolveUserFeatures, runMessageMutationGuardAfterSuccess, runMessageMutationGuards } from '../guards'
 import {
@@ -102,13 +103,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
     return Response.json({ error: 'Access denied' }, { status: 403 })
   }
 
-  const recipient = await em.findOne(MessageRecipient, {
-    messageId: params.id,
-    recipientUserId: scope.userId,
-    deletedAt: null,
-  })
-
-  const isSender = message.senderUserId === scope.userId
+  const { recipient, isSender, hasChannelThreadAccess } = await resolveMessageReadAccess(ctx, scope, message)
   const isRecipient = Boolean(recipient)
 
   // #5535: a message that arrived over a communication channel has the channel
@@ -125,7 +120,6 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
   // `requireAuth` only so that a participant can always read their own message.
   // The gate goes through RBAC, not through `ctx.auth.features` — the session JWT
   // carries no `features` claim at all, so reading it would deny everyone.
-  const hasChannelThreadAccess = await hasChannelThreadReadAccess(ctx, scope, message)
 
   if (!isSender && !isRecipient && !hasChannelThreadAccess) {
     return Response.json({ error: 'Access denied' }, { status: 403 })
@@ -401,6 +395,22 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
 
   if (!message.isDraft) {
     return Response.json({ error: 'Only draft messages can be edited' }, { status: 409 })
+  }
+
+  // `sendAsUser` composes a fresh message rather than updating an existing
+  // one, so sending a saved draft through a connected mailbox is not
+  // implemented yet. Refuse explicitly instead of silently stripping the
+  // field and falling back to the platform sender.
+  if (input.senderChannelId) {
+    const { t } = await resolveTranslations()
+    const errorMessage = t(
+      'messages.errors.senderDraftSendUnsupported',
+      'Sending a saved draft through a connected mailbox is not supported yet.',
+    )
+    return Response.json(
+      { error: errorMessage, fieldErrors: { senderChannelId: errorMessage } },
+      { status: 422 },
+    )
   }
 
   // A draft is filed on its parent's thread and skips the compose route's

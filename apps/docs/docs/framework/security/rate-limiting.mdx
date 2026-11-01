@@ -20,9 +20,9 @@ REDIS_URL=redis://localhost:6379
 
 ## How It Works
 
-### Two Enforcement Paths
+### Enforcement Paths
 
-Open Mercato supports two complementary ways to enforce rate limits:
+Open Mercato supports three complementary ways to enforce rate limits:
 
 #### 1. Metadata-Driven (Automatic)
 
@@ -49,7 +49,23 @@ export async function POST(req: Request) {
 
 This follows the same pattern as `requireAuth` and `requireFeatures` — zero boilerplate in the handler.
 
-#### 2. Handler-Level (Manual)
+#### 2. Admission Before Authentication
+
+Routes that must limit work before generic credential lookup can export an optional `beforeAuth` function, typed as `ApiRouteBeforeAuth` from `@open-mercato/shared/modules/registry`. After matching a supported route and method, the dispatcher calls this function before resolving staff JWTs, API keys, authorization guards, or metadata-driven limits.
+
+The hook receives the original `Request` and `{ method, params }`. Return `null` to continue through normal authentication and authorization, or return a `Response` to stop immediately with its body, status, and headers intact. A thrown error stops the request without resolving credentials. The hook does not authenticate a principal or bypass any later permission checks. It runs for every supported method in that route file, including legacy routes; routes without it keep their existing behavior.
+
+Public SCIM provisioning routes use this hook before generic credential resolution. Discovery has a separate budget. A full-bearer SHA-256 lookup fingerprint is persisted alongside the existing bcrypt verifier. On a cache miss, an indexed exact match against active tokens selects the private tenant/organization/token-ID budget without running bcrypt. Newly generated tokens are enrolled at creation, so their first request remains admitted when anonymous traffic exhausts the unverified budget, including after cache expiry or restart. A short-lived DI cache accelerates repeated requests. A guessed active prefix with a wrong suffix receives the same unverified trusted-IP or fixed fallback budget as any unknown bearer; the short prefix never selects a private bucket. Private quotas take precedence over trusted IdP egress IPs.
+
+Lookup fingerprints are internal metadata and never appear in token-management responses or limiter keys. No raw bearer or bcrypt hash is cached or logged. Every admitted request still verifies the active token with bcrypt and checks organization/configuration scope. Revocation persists first, then invalidates its cache tag best-effort; cache or telemetry failures cannot turn a committed revocation into an API failure, and stale hints cannot authenticate revoked tokens. Admission-cache reads, fingerprint lookups, and limiter decisions fail closed with SCIM 503 when unavailable.
+
+Legacy tokens keep working with a nullable fingerprint. After a successful bcrypt comparison, backfill checks the token ID, tenant, organization, configuration, active state, compared bcrypt hash, and an absent or identical fingerprint before writing. Until enrollment, legacy tokens still use the bounded unverified budget on a cache miss. The full cold-start protection guarantee requires **zero active unenrolled legacy tokens**. Follow the [SCIM fingerprint rollout and cutover procedure](https://github.com/open-mercato/open-mercato/blob/main/UPGRADE_NOTES.md#scim-token-fingerprint-rollout) to enroll them through existing SCIM requests or rotate them through existing token APIs; a schema migration cannot reconstruct fingerprints from bcrypt hashes. No token is silently invalidated by the migration.
+
+Forwarding headers remain ignored until the actual proxy depth is configured. Size `RATE_LIMIT_SCIM_POINTS` for legitimate provisioning bursts and have IdPs honor `Retry-After`; raising this limit is not a mitigation for unenrolled legacy tokens. Redis shares cache entries and invalidation across replicas, while the database fingerprint preserves enrolled-token admission independently of cache warmth.
+
+The handler-level fallback reuses the same request's admission promise, so dispatch and handler checks consume one point altogether. When adopting this pattern, avoid charging the same request again in the handler and avoid consuming its body before the handler reads it.
+
+#### 3. Handler-Level (Manual)
 
 For advanced key strategies (e.g., compound `IP:emailHash` keys), use the `checkAuthRateLimit` centralizer. This is how the authentication endpoints work — it handles two-layer checks (IP-only + compound), email hashing, fail-open semantics, and i18n in a single call:
 
@@ -118,6 +134,12 @@ The following authentication endpoints have two-layer rate limiting built in:
 The reset-confirm and reset-validate endpoints use IP-only limiting because no email is available at that point — both are reached with a token alone. Reset-validate is the read-only check the reset page makes on load to decide whether to render the password form or a terminal "link is no longer valid" state; it never consumes the token, so it gets a slightly larger budget than reset-confirm.
 
 On successful login, the compound counter is automatically reset so legitimate users aren't penalized for prior typos. The IP-only counter is not reset.
+
+**Attachment uploads** (handler-level, per tenant + authenticated user):
+
+| Endpoint | Key | Points | Window | Block |
+|----------|-----|--------|--------|-------|
+| `POST /api/attachments` | `tenantId:principal` | 30 | 60s | &mdash; |
 
 All limits can be overridden via environment variables (see [Configuration](#configuration)).
 
@@ -207,12 +229,34 @@ When using `redis` strategy, the service reads `REDIS_URL` (already used by cach
 | `RATE_LIMIT_RESET_VALIDATE_POINTS` | `10` | Max reset-token checks per IP per window |
 | `RATE_LIMIT_RESET_VALIDATE_DURATION` | `300` | Window in seconds |
 
+**Attachment uploads:**
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `RATE_LIMIT_ATTACHMENTS_UPLOAD_POINTS` | `100` | Max uploads per tenant+user per window |
+| `RATE_LIMIT_ATTACHMENTS_UPLOAD_DURATION` | `60` | Window in seconds |
+| `RATE_LIMIT_ATTACHMENTS_UPLOAD_BLOCK_DURATION` | &mdash; | Optional block duration after exceeding limit |
+
 **Future:**
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `RATE_LIMIT_2FA_VERIFY_POINTS` | `5` | Max 2FA verification attempts |
 | `RATE_LIMIT_2FA_VERIFY_DURATION` | `300` | Window in seconds |
+
+### Attachment OCR resource bounds
+
+These variables bound LLM OCR cost amplification in the attachments module. They are **not** rate-limit keys — they cap page iteration, per-call timeouts, in-process concurrency, and the OCR wait queue.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `OM_ATTACHMENT_OCR_MAX_PAGES` | `50` | Max PDF pages processed for OCR / text extraction |
+| `OM_ATTACHMENT_OCR_PAGE_TIMEOUT_MS` | `60000` | Per-page LLM OCR call timeout |
+| `OM_ATTACHMENT_OCR_MAX_OUTPUT_TOKENS` | `4096` | Max output tokens per OCR `generateText` call |
+| `OM_ATTACHMENT_OCR_MAX_CONCURRENCY` | `2` | Max concurrent in-process OCR jobs **per replica** |
+| `OM_ATTACHMENT_OCR_MAX_WAIT_QUEUE` | `50` | Max waiters blocked on the concurrency slot |
+
+Cluster-wide OCR concurrency is `OM_ATTACHMENT_OCR_MAX_CONCURRENCY ×` the number of app replicas because counters are in-process, not shared via Redis.
 
 ## Strategies
 

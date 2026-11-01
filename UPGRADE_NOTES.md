@@ -1,5 +1,46 @@
 # Upgrade Notes
 
+## Production Content Security Policy (#7264)
+
+The main app and create-app template now use request nonces for scripts and style
+elements. Production no longer allows inline scripts, eval, or connections to every
+HTTPS/websocket origin. This is defense-in-depth hardening, not a confirmed XSS fix.
+
+**App operators:** adopt the matching `next.config.ts`, `src/proxy.ts`, root layout,
+and `AppProviders` changes together. Configure additional browser destinations at
+both build and runtime with space-separated `OM_CSP_CONNECT_ORIGINS`,
+`OM_CSP_SCRIPT_ORIGINS`, `OM_CSP_STYLE_ORIGINS`, and `OM_CSP_FRAME_ORIGINS`.
+Only explicit HTTPS origins are accepted; connections also accept WSS origins.
+For example, set `OM_CSP_CONNECT_ORIGINS="wss://custom.example.com https://telemetry.example.com"`
+for a custom module's WebSocket and browser telemetry collector. The documents
+package automatically supplies the origin of its validated
+`NEXT_PUBLIC_DOCUMENTS_COLLAB_URL`, preserving its existing production loopback
+gate (`OM_DOCUMENTS_COLLAB_INTEGRATION=1` only for integration environments).
+Development additionally accepts explicit HTTP/WS origins and keeps its tooling
+exceptions. Stripe.js and Link requirements come from the Stripe package; other
+provider SDKs require their documented origins in the matching variable. Server
+integration requests are unaffected by the browser policy.
+
+**Module authors:** server components can read the generated `x-nonce` using
+`headers()`; pass it to inline `<script>`/`<style>` elements and `next/script`.
+Client components use `useContentSecurityPolicyNonce` from
+`@open-mercato/ui/theme/ContentSecurityPolicyProvider` for trusted style elements.
+The provider preserves the original document nonce during client navigation and
+seeds webpack's nonce for Radix scroll-lock styles. Sandboxed `srcDoc` previews
+inherit the parent's CSP too: pass the nonce to their trusted style elements and
+any additional iframe meta policy, as the storefront branding preview does.
+The webpack nonce does not configure every CSS-in-JS runtime. Use ordinary
+nonced style elements or configure the styling library's own nonce integration.
+Do not copy a nonce from user
+input or persist it between document requests. Nonce-dependent pages render
+dynamically; do not cache their HTML separately from its CSP response header.
+
+Inline style **attributes** remain enabled through `style-src-attr` for React,
+Radix positioning and charts. Inline style **elements** require a nonce. Image
+and font permissions, route/DB contracts and the attachment sandbox are unchanged.
+
+[Implementation specification](.ai/specs/2026-10-29-production-content-security-policy.md).
+
 Open Mercato `0.5.0` is our biggest release so far. It bundles more than 250 fixes and
 improvements that landed after the Hackathon in Sopot, alongside several important
 dependency and tooling upgrades. That combination is exactly why this document now exists:
@@ -22,7 +63,1565 @@ most of the patterns listed below in a user's codebase.
 
 ---
 
-## 0.8.0 → 0.8.1 (unreleased)
+## 0.9.0 → 0.9.1 (unreleased)
+
+### SCIM token fingerprint rollout
+
+SCIM rate-limit admission now uses an indexed SHA-256 fingerprint of the full bearer in `scim_tokens.token_lookup_hash`, alongside the existing bcrypt verifier. The new nullable column and index are additive; token format, management payloads, bcrypt verification, and organization scope stay compatible. Fingerprints and raw secrets must never be copied into tickets, logs, shell history, or token-management payloads. Newly issued tokens persist their fingerprint before the one-time token response is returned.
+
+Operators must apply the included SSO migration through their normal approved deployment process **before** deploying the new application code. This change does not apply a migration or rotate credentials automatically. Deploy every app/worker instance before completing the cutover; old instances can still issue unenrolled tokens during a rolling deployment. Use the same authoritative database across replicas. The short-lived admission cache is an optimization; an enrolled token has an independent quota even when its cache entry expires or the cache restarts.
+
+Existing tokens remain valid with a null fingerprint. An admitted successful bcrypt verification enrolls the original token using a tenant/organization/configuration-scoped compare-and-set guarded by active state and the exact bcrypt hash compared. Concurrent revocation or credential changes cannot enroll that stale credential. Existing token values cannot be reconstructed from bcrypt, so SQL alone cannot backfill them. Until enrollment, an old token remains vulnerable to shared unverified-budget exhaustion after cache loss. Do not declare the cold-token availability guarantee complete until the active unenrolled count is zero.
+
+Use this **read-only, non-secret inventory** against the authoritative database, with appropriate operator access:
+
+```sql
+select tenant_id, organization_id, count(*) as active_unenrolled
+from scim_tokens
+where is_active = true and token_lookup_hash is null
+group by tenant_id, organization_id;
+```
+
+A completed cutover returns no rows. The query exposes only tenant/organization identifiers and counts; do not select `token_hash` or `token_lookup_hash`. For each nonzero scope, identify its configurations and tokens through the existing admin UI or `GET /api/sso/scim/tokens?ssoConfigId=<config-id>` under that scope. That API continues to expose only safe token metadata.
+
+1. **Enroll a retained credential:** trigger a normal sync through its existing IdP, or perform an existing `GET /api/sso/scim/v2/Users?count=1` using the credential from its secure store. A successful admitted request enrolls it without changing the secret. Follow normal secret-handling controls; do not paste the bearer into logs or shell history. If an ongoing flood prevents admission, use the rotation route below rather than raising quotas.
+2. **Rotate an unavailable or blocked legacy credential:** as the scoped administrator, call existing `POST /api/sso/scim/tokens` with `ssoConfigId` and `name`, deliver the one-time new secret through the normal secure IdP configuration flow, verify provisioning succeeds, then revoke the replaced token with existing `DELETE /api/sso/scim/tokens/<id>`. The replacement is enrolled at creation and needs no warmup. Do not revoke a working credential before its replacement is confirmed.
+3. Repeat the inventory after all instances have the new code and all affected IdPs have synced or rotated. Investigate every remaining active null row, including forgotten credentials; revoke unused tokens through the existing management API. Zero rows is the cutover acceptance condition. Test a newly issued token after cache clear while anonymous traffic exhausts the unverified bucket, and confirm a wrong-suffix token remains rate-limited.
+
+No new enrollment API or CLI is required. Real credential rotation and migration application remain operator actions. Existing legacy authentication is retained during this bridge; the migration does not silently reject old tokens or mark their fingerprints populated. Manual QA and human security review are still required.
+
+For rollback, revert application instances to code that does not read the new column before an operator runs the migration's `down`. The rollback removes only the new index/nullable column and preserves all token rows, bcrypt hashes, prefixes, and active/revoked state; it also removes the new persistent admission protection. No token secret changes as part of rollback.
+
+<a id="signed-body-limits"></a>
+
+### Signed Discord interactions and agent traces have finite body limits (#7241)
+
+`POST /api/channel_discord/interactions` and `POST /api/agent_orchestrator/trace/ingest`
+now accept at most 1,048,576 bytes (1 MiB) by default, using the existing shared
+`OM_WEBHOOK_MAX_BODY_BYTES` positive safe-integer override. Invalid values use the
+default. Declared or streamed overflow returns `413 { error: 'payload_too_large' }`
+before signature verification, parsing, candidate lookup, or command execution.
+Discord requests with invalid signature headers are rejected before body consumption.
+Bodies exactly at the cap retain their existing verification and success behavior.
+
+**Action for clients:** keep encoded bodies within the deployed cap. Runtime adapters
+must reduce or split oversized traces into valid payloads, preserve ingestion
+idempotency semantics, and sign each resulting body. Retrying unchanged oversized
+payloads will continue to fail.
+
+**Action for operators:** align ingress limits with the application cap. If legitimate
+payloads exceed 1 MiB, set an appropriate finite `OM_WEBHOOK_MAX_BODY_BYTES` after
+considering memory/concurrency and its effect on other shared bounded webhook readers.
+No database migration, credential rotation, or stored-data repair is required.
+See the [Discord migration section](.ai/specs/2026-06-19-discord-communication-channel-integration.md)
+and [trace migration section](.ai/specs/enterprise/agent-orchestrator/next/2026-06-19-agent-trace-eval-capture.md).
+
+### Encrypted custom fields in plaintext search fields (#7894)
+
+Application-managed `SearchIndexer` calls now exclude encrypted custom-field keys
+from fulltext document fields and vector fallback text, while preserving values
+for hashed-token search. A failed definition lookup excludes every custom field
+from those plaintext paths. Explicit source text and callback-generated metadata
+are a separate protection tracked in #7874.
+
+**Operator action:** reindex affected fulltext and vector data after upgrading;
+previously indexed plaintext is not removed until records are rewritten. Review
+any retention/export copies held by external search or embedding providers.
+
+**Module author action:** application DI wires the resolver automatically. Code
+constructing `SearchIndexer` manually must pass `encryptedCustomFieldKeysResolver`
+to enable definition-based exclusions; omission preserves its legacy behavior.
+Direct `SearchService.index`/`bulkIndex` clients can pass
+`IndexableRecord.plaintextExcludedCustomFields` as an array of encrypted definition
+keys, or `'all'` when definitions cannot be resolved. Both `cf:` and sanitized
+`cf_` aliases are excluded. Omission preserves existing behavior, and `fields`
+continues to reach the hashed-token strategy unchanged. Public routes, required
+parameters, strategy IDs and queue payloads are unchanged.
+
+<a id="issue-3805"></a>
+
+### Direct AI tool mutations require agent policy (#3805)
+
+`POST /api/ai_assistant/tools/execute` now returns HTTP 403 for tools declared `isMutation: true`, before invoking their handler, including for superadmins. Previously this endpoint allowed callers with the tool's write features to bypass the agent mutation policy, preview, and confirmation control plane. Read tools retain their existing behavior and response shape. The Emergency Security Exception is requested because keeping direct mutations working during a bridge release would preserve the bypass; named human maintainer sign-off is required before merge.
+
+**Action for clients:** replace direct mutation requests with a registered agent's chat or run-object request (`/api/ai_assistant/ai/chat` or `/api/ai_assistant/ai/run-object`). Allowlist the tool on that agent and follow its effective tenant mutation policy, confirming pending actions when required. Client-supplied `approved`, agent policy, or pending-action fields do not authorize direct execution. Existing approved action confirmation and policy-permitted agent execution continue working.
+
+**Action for operators:** deploy the fix, identify integrations using the direct endpoint for writes, and migrate them before relying on those writes. Review earlier direct mutation requests and affected records for changes without the expected approvals; the fix does not undo or retrospectively approve those writes. No stored credentials, pending actions, or data become unusable. See the [spec](.ai/specs/2026-10-31-issue-3805-direct-tool-mutation-approval.md) and [compatibility exception record](BACKWARD_COMPATIBILITY.md#3805-2026-10-31).
+
+### Nested ACL wildcards now grant their matching enabled-module features (#5523)
+
+Nested role and user ACL grants such as `sales.order.*`, `catalog.product.*`,
+`auth.users.*`, and `security.mfa.*` were incorrectly discarded by the enabled-module
+filter after the module registry initialized. They now resolve to their owning module
+and participate in canonical authorization. This affects all enabled modules, not only
+MFA notification recipients: existing stored nested wildcards can grant access that was
+previously denied. Exact grants, module-level wildcards such as `security.*`, and global
+`*` grants keep their existing semantics. Disabled modules, removed features, and tenant
+or organization scope restrictions still take precedence.
+
+**Action for operators before upgrading:** audit both role ACLs and per-user ACLs for
+nested wildcard grants. Check the matching features in each enabled module and the users
+who inherit those grants. If that access is not intended, remove the wildcard or replace
+it with the explicitly approved feature IDs before upgrading; verify representative users
+in their tenant and organization scopes after upgrading. No database migration or API
+payload change is required. Module authors should use canonical scoped authorization and
+must not rely on nested wildcards being filtered out. The notification design is tracked
+in [PR #7618](https://github.com/open-mercato/open-mercato/pull/7618).
+
+### Workflow steps may last longer than ~24.8 days; `StepInstance.executionTimeMs` is deprecated
+
+A workflow step that lasted 2^31 ms (~24.86 days) or longer could not complete: `step_instances.execution_time_ms`
+is a Postgres `integer`, so the flush that closed the step threw after the step's task had already committed. A
+synchronous `WAIT` activity of that length resolved after 1 ms instead (Node's `setTimeout` ceiling), and a
+`WAIT_FOR_CONDITION` step was forced to time out after 1000 polls whatever its own timeout said.
+
+- `StepInstance.executionTimeMs` (`step_instances.execution_time_ms`) is now `@deprecated` and is written as `null`
+  for a step longer than 2^31 − 1 ms. It was already `null` on every FAILED path. Derive a step's duration from
+  `exitedAt - enteredAt`; the exact value still travels on the `STEP_EXITED` event (`eventData.executionTimeMs`).
+  The column is scheduled for removal no earlier than 0.11.0; no migration ships now.
+- A synchronous `WAIT` longer than one minute that is the last activity of its transition is now queued like an
+  `async: true` WAIT, so the run parks in `WAITING_FOR_ACTIVITIES` instead of holding the request open. A synchronous
+  WAIT longer than ~24.8 days anywhere else now fails with an explicit error instead of resolving early.
+- `OM_WORKFLOWS_MAX_CONDITION_ATTEMPTS` is now the floor of the poll cap: each `WAIT_FOR_CONDITION` waiter may poll
+  as many times as its own `timeout / pollIntervalMs` requires.
+
+### MCP HTTP servers now bind to loopback by default (#2659, #2670)
+
+`runMcpHttpServer` (`mcp:serve-http` / `yarn mcp:serve`, production) and `runMcpDevServer`
+(`mcp:dev` / `yarn mcp:dev`, Claude Code / local testing) used to call `httpServer.listen(port,
+...)` with no host, which binds every network interface (`0.0.0.0`/`::`) rather than loopback.
+Neither server's intended client needs non-loopback reachability, so this widened the API-key
+attack surface to anything with network reach to the host — worse for the dev server, which
+authenticates a single API key once at startup and reuses that same superadmin-equivalent
+context for every request afterward, with no per-request ACL re-check.
+
+**Both servers now default to `127.0.0.1`.** Override with `--host` / `MCP_HTTP_HOST` for the
+production server, `MCP_DEV_HOST` for the dev server.
+
+**Action for operators who reach either MCP server over a non-loopback address** — a reverse
+proxy, sidecar, container, or any other process connecting from outside the host's own loopback
+interface: set the corresponding host override so the server keeps listening where that caller
+expects it. Two shipped topologies already needed this and have been updated as part of this
+change, as a reference for anything else you run:
+
+- The `mcp` service in `docker-compose.fullapp.yml` / `docker-compose.fullapp.dev.yml` (and the
+  `starters/docker/compose.fullapp*.yml` canonicals, and the `create-app` template) is reached
+  by the `app` and `opencode` services over the internal compose network (`mcp:3001`), which is
+  not loopback from the `mcp` container's own point of view. Both now set `MCP_HTTP_HOST:
+  "0.0.0.0"` on that service — the network is internal and the port is not published, so this is
+  not a new exposure, just an explicit opt-in matching the new default-loopback contract.
+- `yarn dev`'s full-stack flow (`scripts/dev.mjs`) spawns this server on the **host** so the
+  Dockerized OpenCode sidecar can reach it via `host.docker.internal`. On Docker Desktop that hop
+  resolves to host loopback, so `yarn dev` keeps the loopback default there. On **native Linux**
+  `host-gateway` is the bridge IP (e.g. `172.17.0.1`), which a loopback-only bind refuses, so
+  `yarn dev` binds `0.0.0.0` on Linux only. Set `MCP_HTTP_HOST` to override either way — for
+  example `MCP_HTTP_HOST=127.0.0.1 yarn dev` restores loopback on Linux. Standalone apps get
+  the same behavior from the `create-app` template's `scripts/dev.mjs` / `scripts/dev-mcp.mjs`;
+  an app scaffolded before this release must copy `resolveDevMcpHost` into its own copies.
+
+No database schema, event id, or CLI command signature changes — only the new options
+(`--host` / `MCP_HTTP_HOST` for `mcp:serve-http`, `MCP_DEV_HOST` for `mcp:dev`) and the changed
+default.
+
+
+### Passkey enrollment requires a WebAuthn registration response (#6800)
+
+Enterprise Security no longer accepts the passkey confirmation shortcut
+`{ credentialId, publicKey, challenge }`. The server previously stored that supplied public
+key without verifying a WebAuthn registration ceremony. The legacy shape now returns
+HTTP 400 without activating the pending method. The shipped browser UI already uses the
+supported path.
+
+**Client action:** call `POST /api/security/mfa/provider/passkey`, use its `clientData` options
+with `navigator.credentials.create` or the SimpleWebAuthn browser registration helper, and
+send the serialized credential to `PUT /api/security/mfa/provider/passkey` as
+`{ setupId, payload: { response, label? } }`. Update fixtures that invented public keys to
+use an actual or virtual authenticator. A disclosed challenge alone is insufficient.
+
+**Operator action:** this upgrade does not delete or invalidate existing passkeys. Their
+stored metadata cannot establish whether enrollment used the shortcut; a key with uncertain
+provenance may still be suspect even though login requires a valid signed assertion. Audit
+enrollment history and exposure, and arrange reset and re-enrollment through a trusted
+ceremony where provenance is uncertain. Preserve alternate MFA/recovery access before a
+reset to avoid locking users out. No database migration is needed.
+
+This is the narrow Emergency Security Exception described in
+[the enrollment specification](.ai/specs/enterprise/2026-10-01-passkey-enrollment-require-webauthn-attestation.md).
+There is no compatibility flag because retaining the shortcut retains the flaw. Credit to @Sawarz for the
+original report and proof of concept (#5296, #6710).
+
+### Organization create undo retains a tombstone (#7663)
+
+Undoing organization creation now sets `deleted_at`, deactivates the row and
+detaches its parent instead of physically removing it. Redo restores the same
+organization and preserves its original creation time. The tombstone reserves
+its slug under the existing tenant-wide unique constraint; creating another
+organization with that name uses the usual numeric slug suffix.
+
+Consumers that inspect raw organization rows must exclude soft-deleted records
+when listing active organizations. Supported list APIs already do so. No schema
+migration is required. Existing replay logs remain readable; recreation restores
+creation time from the stored after-snapshot when available. A historical log
+that lacks that timestamp cannot recover the original time. Rolling back the
+code does not remove tombstones or release their slugs.
+
+### Agent page reads enforce domain rules before redirected egress (#7548)
+
+`web_search` inline content and `web_fetch` now check agent domain rules before
+each HTTP request, including redirects. Permitted inline content uses the final
+page URL. Internal adapter services remain reachable under the operator's
+separate `OM_WEB_SEARCH_ALLOW_PRIVATE_HOSTS` setting.
+
+**Operator action:** with a nonempty domain allowlist or denylist, content reads
+stay on guarded HTTP: automatic browser rendering is skipped and explicit
+`render: 'always'` returns a blocked outcome. Keep domain restrictions configured;
+rendered page reads require future browser redirect-policy enforcement. Restricted
+searches bypass result caches automatically, including previously enriched entries.
+No cache purge or database migration is needed.
+
+**Adapter author action:** existing contract version 1 adapters remain supported
+by the version 2 loader and shared contract-test kit. Adapters rebuilt against
+the current `CONTRACT_VERSION` advertise version 2 and require a host supporting
+version 2; upgrade the host before deploying those rebuilt descriptors.
+Custom HTTP clients must honor the new optional
+`HttpRequestInit.assertUrlAllowed(url)` callback, awaiting synchronous or async
+assertions before DNS and transmission for initial requests and every redirect.
+No tool input or result-field migration is required.
+
+### Warranty claim line numbers must be unique within each live claim (#7306)
+
+Creating or renumbering a line with a number already used by another live line now returns `409`, with a localized `error` and `code: warranty_claims.errors.duplicateLineNo`. Initial claim batches also reject duplicate resolved numbers, including collisions between explicit and default numbers. Valid inputs and automatic numbering remain unchanged.
+
+An undo that would restore an occupied line number is refused before changing the line or totals. Remove the occupying line or move it to a free number through the API, then retry the same undo. Existing duplicates are not automatically renumbered. No database migration is required.
+
+### Workflow webhook responses have resource limits (#7814)
+
+Each `CALL_WEBHOOK` attempt now defaults to a 30-second deadline covering the
+outbound request and response-body consumption. Explicit activity timeouts
+(`timeoutMs` or the legacy `timeout` duration) remain authoritative, including
+values longer than 30 seconds, in both synchronous and queued execution. Every
+attempt accepts at most 1 MiB of response bytes before UTF-8 decoding and JSON
+parsing. Oversized or stalled responses fail the activity and cancel its body;
+the existing retry policy still applies.
+
+**Workflow author and operator action:** update webhook endpoints that exceed
+the byte limit to return a small acknowledgement promptly. Configure an explicit
+activity timeout for a slower endpoint, and move large results behind a separate
+retrieval or asynchronous workflow.
+Existing request configuration and successful response envelopes are unchanged.
+
+### Extension-enabled table tests wait for registry registration (#7484)
+
+Standalone-app tests or isolated hosts that render a `DataTable` with `perspective`
+or `extensionTableId`, or call `useInjectionDataWidgets`, must register both injection
+registries before expecting rows. Application bootstrap already registers them. Tests
+without extensions can use empty registries in setup:
+
+```ts
+import {
+  registerCoreInjectionWidgets,
+  registerCoreInjectionTables,
+} from '@open-mercato/shared/modules/widgets/injection-loader'
+
+registerCoreInjectionWidgets([])
+registerCoreInjectionTables([])
+```
+
+The hook keeps its existing result shape. Pending registration holds the first table
+header until columns are known; rejected client registration releases the base table
+with an extension-load error. Reloading the page retries bootstrap. No API or database
+migration is required.
+
+### Rebuild customer search vectors after the privacy fix (#7826)
+
+The person, company, and customer-account vector builders now use explicit safe
+fields. Contact email/phone, `hashOnly` and `excluded` custom fields, unapproved
+custom fields, and fields declared encrypted are omitted from embedding text.
+Contact details are also omitted from result presenters. Names remain available
+for result display; semantic matching no longer uses encrypted name/contact
+fields. Customer-account email remains available through hashed search.
+
+Single, by-ID, queued-batch, and bulk indexing now honor the configured safe
+source. Failed, null, or empty sources skip vector writes instead of embedding
+raw fields; independent fulltext/token indexing continues. Customer sources also
+exclude live tenant/organization encryption declarations. Search DI supplies the
+existing source-context `container`; integrations invoking customer builders
+directly must provide it with `tenantEncryptionService`. Missing dependencies or
+failed policy lookup skip the vector write. Restore policy access and reindex any
+records skipped during an outage.
+
+When `TENANT_DATA_ENCRYPTION=false`, the policy service cannot read live
+declarations. Person/company vector writes are therefore skipped entirely;
+fulltext/token indexing continues. Turning encryption off does not authorize
+exporting fields classified by retained encryption maps. Re-enable policy access
+and reindex to restore these vectors. Encryption-at-rest toggle behavior is unchanged.
+
+Deploy the fix to every app and indexing worker before rebuilding. Existing
+embeddings and stored presenters are **not automatically removed** by this code
+change. For every affected tenant and organization scope:
+
+1. Pause indexing producers/workers, drain or discard outstanding vector jobs
+   using the deployment's queue tooling, and prevent old workers from restarting.
+2. Purge the affected vector entries through the configured driver's
+   `purge(entityId, tenantId, organizationId)` operation, or the corresponding
+   `searchIndexer.purgeEntity({ entityId, tenantId, organizationId })` DI operation.
+   The latter purges all configured strategies for that entity. Use the published
+   IDs `customers:customer_person_profile`, `customers:customer_company_profile`,
+   and `customer_accounts:customer_user`; include soft-deleted records in the purge.
+   Verify the affected entries are absent before restarting indexing; the reindex
+   API can continue after a failed purge, so `purgeFirst` alone is not proof of deletion.
+3. Re-enable only upgraded workers. As an administrator with
+   `search.embeddings.manage`, call `POST /api/search/embeddings/reindex` with
+   `{ "entityId": "<affected-entity-id>", "purgeFirst": true }` for each ID and scope.
+   Run the `vector-indexing` worker and verify completion and sample results.
+   The vector reindex endpoint also rebuilds fulltext data when that strategy is
+   configured, replacing old presenter metadata; confirm its jobs have drained.
+
+If you use the broader `purgeEntity` operation, rebuild fulltext explicitly with
+`POST /api/search/reindex` as well. `yarn mercato search reindex` alone does not
+rebuild every search store. Rebuild after purging even when a record has not
+changed; otherwise an old checksum can leave stale sensitive metadata behind.
+Review backups, replicas, external vector stores, and embedding-provider retention
+under your deployment's deletion procedures. Local reindexing cannot retract data
+already retained by an external provider. No data purge is run by the upgrade.
+
+### Documents attachments enforce owner permissions at host URLs (#6726)
+
+Host attachment file/image routes, library metadata and attachment mutations now apply
+Documents' existing sharing and feature checks. Organization membership or `attachments.manage`
+alone no longer grants access to an unshared document's files. Authorized owners, shared
+recipients and Documents managers keep their existing capabilities; editing/deleting attachments
+still requires document editing permission and a non-archived owner.
+
+**Operator action:** run the additive attachments migration before serving the new binaries,
+then regenerate and build modules. It adds `attachment_partitions.access_resolver_requirements`
+and backfills the required `documents.document-attachments` provider for existing primary or
+assignment references to the historical `documents:document` identifier. This backfill needs
+no enabled Documents module or Documents table. It preserves unrelated owners in shared
+partitions such as `privateAttachments`, other requirements and malformed policy data (which
+fails closed). Disabling or removing the required provider denies those protected owners;
+restore the provider/registration to restore access. There is no manager API to erase protection.
+
+Protected responses use `Cache-Control: private, no-store`. Purge any affected CDN/reverse-proxy
+copies cached before deployment; the new headers cannot recall cached or downloaded copies.
+A policy timeout returns HTTP 504 without bytes or partial list counts. List authorization has
+a 15-second total budget and a default 1.5-second per-provider budget.
+
+**Module author action:** modules can export `attachmentAccessResolvers` and
+`protectedAttachmentTargets` from `data/attachment-access.ts`, using types exported by
+`@open-mercato/core/modules/attachments`. Regenerate registrations after changing declarations.
+For a new adopter with existing partitions, invoke the trusted
+`syncAttachmentAccessProtection(em)` export during its upgrade/setup while its declarations
+are registered, before disabling that provider. Synchronization unions requirements and never
+removes them. New partition creation and protected uploads synchronize the active declarations.
+Custom code constructing attachment read/link services without DI must provide their optional
+lazy policy context when owner policies apply; missing context denies protected reads.
+The existing synchronous `checkAttachmentAccess` signature and all service method inputs remain
+unchanged. Resolver allows cannot override the baseline; feature checks belong inside the
+callback, and a named required provider cannot be replaced by an unrelated wildcard callback.
+
+**Rollback:** keep the additive schema and roll forward. Older binaries ignore these policies;
+block affected host endpoints at the deployment boundary before any emergency binary rollback.
+Dropping policy data is not a supported security rollback.
+
+This intentional tightening uses the Emergency Security Exception described in
+`BACKWARD_COMPATIBILITY.md` and [design PR #6828](https://github.com/open-mercato/open-mercato/pull/6828).
+Human maintainer @haxiorz [approved the steps 1–3 waiver and acknowledged the client/operator migration](https://github.com/open-mercato/open-mercato/pull/6829#issuecomment-6505350022)
+on 2026-10-29. Independent review, QA and CI remain separate merge gates.
+
+### Public pay-link responses exclude administrative configuration (#7823)
+
+`GET /api/checkout/pay/:slug` now returns an explicit public allowlist, including
+after password verification and in authenticated link preview. It no longer
+returns the start/success/error email subjects, bodies or send flags, nor
+`logoAttachmentId`, `customFieldsetCode`, `templateId`, `maxCompletions`,
+`completionCount`, `activeReservationCount`, `isLocked`, `createdAt` or `updatedAt`.
+Payer-facing prices, branding, legal text, customer-field definitions, result
+messages, public custom fields, and derived availability remain available.
+
+**Client action:** pay-page extensions reading the removed fields must stop doing
+so. Read management configuration only in authenticated administration flows via
+`GET /api/checkout/links/:id` (`checkout.view`), whose response is unchanged. Use
+`logoPreviewUrl`/`logoUrl` and `remainingUses` on public pages. Do not proxy the
+administrative response to unauthenticated clients.
+
+**Operator action:** deploy the patched checkout package and app, invalidate cached
+public pay-link responses, and review email templates for confidential content
+that may already have been publicly exposed. Previously downloaded responses
+cannot be recalled. No database migration or stored-data conversion is needed;
+existing links, templates, credentials and password sessions remain usable.
+
+This response removal follows the Emergency Security Exception in
+[`BACKWARD_COMPATIBILITY.md`](BACKWARD_COMPATIBILITY.md): retaining the old shape
+would preserve the disclosure. Human maintainer @haxiorz [approved the waiver](https://github.com/open-mercato/open-mercato/pull/8087#issuecomment-6505348826)
+on 2026-10-29 for all 18 removed administrative fields and acknowledged the
+client/operator migration. Independent review and QA approval remain required.
+The [pay-links spec](.ai/specs/implemented/2026-03-19-checkout-pay-links.md)
+records the complete allowlist and regression coverage.
+
+### AI-generated keys respect per-user ACL restrictions (#7825)
+
+Persistent MCP keys generated after this upgrade carry the same user binding as
+AI session keys. Their effective feature and organization grants cannot exceed
+the owner's ACL, including after an ACL update while caches are warm. Unbound
+machine keys retain independent role grants. User-bound keys no longer expose a
+raw global super-admin scope-override flag.
+
+Operators must revoke and regenerate existing persistent MCP keys through AI
+Assistant settings: legacy keys did not store a reliable user-binding marker and
+cannot be distinguished safely from independent machine keys. Existing session
+keys already carry the binding and receive the ceiling automatically. Clients
+keep the same endpoint payloads and token formats; update MCP client secrets after
+regeneration. Custom delegated-key issuers should supply `sessionUserId` to
+`createApiKey`; leave it unset only for independently administered machine keys.
+
+Regenerated MCP keys are not available as Business Rules "call Open Mercato"
+API-key profiles; use independently administered machine keys for those actions.
+A regenerated MCP key becomes invalid if its owner's home organization changes,
+including a change from no home organization to a concrete one. Generate a new
+key and update the MCP client secret after such a change.
+
+### Inbound webhook receipt deduplication includes verified scope (#7830)
+
+Inbound receipts now identify duplicates by endpoint, message ID, tenant, and organization.
+The same message ID delivered to different verified scopes is ingested independently; repeated
+delivery within one scope still returns `200 { ok: true, duplicate: true }`. Explicitly unscoped
+legacy adapters retain a separate null/null namespace with the same replay protection.
+
+**Operator action:** apply `Migration20261027193000_receipt_scope` before resuming inbound
+traffic, on PostgreSQL 15+. Schedule for the table lock needed to rebuild the receipt uniqueness
+constraint. The migration preserves its existing name and every receipt/message ID; data valid
+under the previous global uniqueness rule requires no cleanup. Existing receiver code already
+writes the scope fields, so mixed-version receivers can use the migrated schema.
+
+**Module author action:** include verified tenant/organization scope in any independent receipt
+lookup or deduplication cache key. The source/adapter interfaces, events, and HTTP response
+contracts are unchanged, and the named constraint remains available to `ON CONFLICT` consumers.
+After cross-scope collisions have been stored, restoring the former global constraint may fail;
+there is no automatic rollback that deletes receipts. Inspect those collisions and plan recovery
+before reverting the schema. See the [inbound spec](.ai/specs/2026-03-23-inbound-webhook-handlers.md#receipt-scope-migration--backward-compatibility-7830).
+
+### Customer interaction authors and owners must belong to the record's tenant (#7531)
+
+Canonical interaction writes and legacy activity adapters now reject foreign-tenant or missing author/owner IDs, and reject new assignments to deleted users with a generic `400` user-not-found response. Same-tenant users from another home organization remain valid references, including an implicit actor working in another organization. Author normalization, valid superadmin delegation, and existing record-level organization/privacy authorization are preserved.
+
+**Client action:** supply live same-tenant author/owner IDs for new assignments, or clear optional references with null on canonical updates. Omitted update fields keep their previous values. Unchanged references may be resent after the referenced user is offboarded; this does not permit assigning that user to another reference. Legacy promotion preserves the author stored on the same tenant/organization/parent activity, including offboarded authors. Routes and response fields remain available. Historical same-tenant profiles remain readable across organizations and after soft deletion; foreign-tenant or missing profiles return null names and emails.
+
+**Operator action:** audit foreign-tenant or missing author/owner references before replaying affected command history. Snapshot restoration permits a same-tenant author or owner who was soft-deleted after the original write; offboarding does not require rewriting historical attribution. Invalid snapshot restoration and legacy promotion fail rather than copying a foreign-tenant reference. No schema migration or automatic data rewrite is required. See [the interactions specification](.ai/specs/implemented/SPEC-046b-2026-02-27-customers-interactions-unification.md#migration--backward-compatibility--interaction-users-7531).
+
+### SCIM deactivation blocks fresh SSO and password sign-in (#7824)
+
+With the enterprise SSO module enabled, an outstanding SCIM deactivation now denies fresh SSO sign-in for that identity's configuration and denies password verification for the linked account in its own tenant and organization. This includes configurations created without a tenant, after verifying organization and configuration ownership. Password changes and email relinking do not reactivate the identity. Final session issuance and all SCIM deactivation writers share a user lock, so a concurrent login cannot leave a usable session after deactivation commits; access in other scopes is preserved.
+
+**Operator action:** restore intentionally deactivated access through SCIM `active:true`. Clients continue handling the existing invalid-credentials response or `sso_failed` callback redirect. No endpoint, token, or database migration is required. Applications replacing the `authService` DI registration must preserve the SSO module's scoped deactivation check in password verification and atomic final session issuance.
+
+### Scoped attachment bytes no longer advertise shared caching (#7220)
+
+The attachment file and image byte routes now return `Cache-Control: private,
+max-age=60` for tenant- or organization-scoped records, including records in a
+public partition and reads by superadmins. Only records that the existing origin
+access policy permits anonymously retain public caching (global public files:
+86400 seconds; global public images: 3600 seconds). Private partitions keep their
+existing private cache policy. URLs, byte formats, and authorization are unchanged.
+
+**Operator action:** purge previously cached scoped attachment responses from
+CDNs, reverse proxies, and other shared HTTP caches when deploying this fix.
+Include both `/api/attachments/file/*` (including download query variants) and
+`/api/attachments/image/*` (all slugs, sizes, crop options, and query variants).
+Changing origin headers cannot invalidate copies already stored with the old
+public TTL. Check cache rules honor origin `private` and do not force-cache these
+routes. No database or module-code migration is required.
+
+### Dev launchers reject shared-workspace sessions and recover occupied MCP ports (#8044, #8046)
+
+The root and standalone `yarn dev` launchers now claim their canonical workspace before changing
+build caches, generated files, configuration, migrations, or development data. A second mutable
+dev launch in the same checkout exits non-zero and identifies the owning PID, mode, and URL when
+available. This prevents `yarn dev:greenfield` and similar commands from deleting manifests or
+resetting data underneath an active session. Managed parent/child processes share one claim, and
+stale claims are recovered after their processes exit.
+
+**Operator action:** stop the existing session before starting another in the same checkout. To
+run two sessions, use separate checkouts and databases; changing only the HTTP or MCP port does not
+isolate Next output, generated files, package artifacts, workers, or destructive database actions.
+
+`MCP_PORT` is now the managed server's preferred port. When it is occupied, the launcher selects a
+free port and propagates the resulting endpoint to the app and a running OpenCode compose service.
+Explicit external `MCP_URL` and `OPENCODE_MCP_URL` values remain authoritative. No command, flag,
+or environment-variable name changed. See
+`.ai/specs/2026-07-17-hybrid-dev-runtime-and-starters.md` for the lifecycle details.
+
+### Auth ACL live-row canonicalization
+
+Only live ACL rows and live role memberships now grant authorization. A super-admin grant must belong to the user's own tenant. Users whose `users.tenant_id` is NULL no longer obtain global super-admin access from legacy ACL rows; assign an owning tenant and a valid live grant before deploying, especially if that user is your only platform administrator. Foreign-tenant super-admin rows no longer confer super-admin access.
+
+The migration keeps the most recently changed live ACL row per user/tenant or role/tenant (then creation time and id as tie-breakers) and soft-deletes duplicates. Features present only in a superseded role ACL stop being unioned; user ACL resolution may select a different row than the previously unordered read. Review and reconcile intended grants before upgrading. Historical rows remain available for audit; rolling back the indexes does not reactivate them.
+
+Operators should run these read-only audits before deployment:
+
+```sql
+select id from users where tenant_id is null and deleted_at is null;
+
+select 'user' as principal_kind, acl.id, acl.user_id as principal_id,
+       acl.tenant_id as grant_tenant_id, principal.tenant_id as owner_tenant_id
+from user_acls acl join users principal on principal.id = acl.user_id
+where acl.deleted_at is null and acl.is_super_admin = true
+  and acl.tenant_id is distinct from principal.tenant_id
+union all
+select 'role', acl.id, acl.role_id, acl.tenant_id, principal.tenant_id
+from role_acls acl join roles principal on principal.id = acl.role_id
+where acl.deleted_at is null and acl.is_super_admin = true
+  and acl.tenant_id is distinct from principal.tenant_id;
+
+select 'user' as principal_kind, user_id as principal_id, tenant_id, count(*)
+from user_acls where deleted_at is null
+group by user_id, tenant_id having count(*) > 1
+union all
+select 'role', role_id, tenant_id, count(*)
+from role_acls where deleted_at is null
+group by role_id, tenant_id having count(*) > 1;
+```
+
+Drain old application instances when deploying the migration and reader changes together. Restarting clears process-local ACL caches, but a shared cache can retain old grants for up to the configured RBAC TTL (five minutes by default); invalidate shared RBAC cache entries or wait out that TTL before treating revocations as effective. Module authors must filter current ACL and membership reads by `deletedAt: null`, keep parent authorization-state locks around writes, and preserve historical rows for audit.
+
+### Bundled Traefik keeps app and collaboration ports private (#7833)
+
+The optional `starters/docker/compose.fullapp.traefik.yml` overlay (and its
+legacy root duplicate) now removes inherited `app` and `documents-collab`
+host-port publications. Previously the public app port could bypass Traefik's
+TLS and custom-domain ForwardAuth controls. This applies to production and dev
+stacks, including the dev splash port. `APP_PORT` no longer exposes the app
+when the overlay is used. The optional collaboration profile still requires
+explicit enablement and no longer exposes port 4101 with bundled Traefik.
+
+**Operator action:** use Docker Compose **2.24.4+**, inspect the merged config
+including local overlays, and run `up -d` with the deployment's full file/profile
+chain to recreate affected containers. Move direct app-port health probes to
+the public HTTPS hostname. For Documents collaboration, configure a TLS
+WebSocket proxy and set `NEXT_PUBLIC_DOCUMENTS_COLLAB_URL` to its public `wss://`
+URL before rebuilding the app; retain the sidecar's token and Origin checks.
+Verify the recreated containers no longer publish these ports.
+
+Deployments that deliberately use an external proxy or direct access can
+continue to omit the bundled Traefik overlay; their base-file port mappings
+are unchanged. Host-local proxies and diagnostics can use a final loopback-only
+override. See [migration, override examples, WSS routing, and deployment checks](docker/traefik/README.md#private-application-ports-and-migration).
+No application API, database, or module-code migration is required.
+
+### AI session keys revalidate staff roles on every request (#7599)
+
+Removing a staff role now removes that role's privileges from already-issued AI session keys on
+the next request, including cached ACLs, organization visibility, and the raw superadmin flag.
+Role-based resource shares and temporary keys minted by business-rule calls also use current
+session-role membership. A key keeps only roles that were present at issuance and are still held by its owner. Independent
+API keys retain their existing role policy. Endpoints, token/response formats, and schema are unchanged.
+
+**Action for module authors:** do not rely on a session key retaining removed staff privileges.
+After granting a new role, issue a fresh session key to use it. No stored keys need rewriting.
+
+**Action for operators:** deploy and restart every application/worker process that authenticates
+or authorizes API keys. Session authorization now reads live memberships instead of reusing
+cross-request grants, which adds database work for session requests. Verified session-secret
+identities keep the existing bounded authentication cache; live roles and authorization are never
+served from it. Ordinary keys retain cached authentication and authorization results, but ACL,
+feature-organization and enabled organization-scope lookups now read the API-key row before using
+those caches to distinguish session credentials. Last-used write debouncing remains enabled. No
+migration is required.
+
+### `yarn mercato <module> <command>` exits with the code the command signalled (#5936)
+
+The CLI's module-command dispatcher discarded the executed command's exit signal: unless the command *threw*, the process exited `0`. A command that detected a failure and signalled it the idiomatic Node way — assigning `process.exitCode` without throwing — reported success to the shell, so `$?` lied to every script, CI step and `&&` chain built around the CLI. The dispatcher now wraps the command in the CLI's existing `runWithCapturedExitCode` helper and returns the captured code, which is what the built-in `umes inspect` and `umes check` commands already did.
+
+No command, flag, or output line changes — the `🚀 Running …`, `⏱️ Done in …ms` and `💥 Failed: …` lines are byte-identical, so anything parsing CLI output is unaffected, and `BACKWARD_COMPATIBILITY.md` §13 (CLI Commands) is not touched. What changes is the process **exit status** on paths that were previously reported as success.
+
+**The first-party commands whose observable exit status changes** are the ones that already set `process.exitCode` on their failure paths, each of which writes an error to stderr immediately before doing so:
+
+| command family | now exits non-zero when |
+|---|---|
+| `mercato auth setup` | `2` for an invalid `--orgSlug`, missing required arguments, a rejected password policy, or a required derived-user password; `1` for an existing org slug or an existing user |
+| `mercato gateway_stripe …` | `1` for a missing Stripe env preset, or any error while applying it |
+| `mercato sync_akeneo …` | `1` for a missing Akeneo env preset, or any error while applying it |
+| `mercato ai_assistant mcp:ensure-api-key` | `1` when required arguments are missing |
+| `mercato ai_assistant test-tools` | `1` when the tool test report contains at least one failure |
+| `mercato tillio configure-from-env` | `1` for missing `--tenantId`/`--organizationId`, a blocked provisioning result, or any error while applying the env preset |
+| `mercato seeds encrypt` / `decrypt` / `load` | `1` for missing `--in`/`--out`, or a scope that cannot be resolved for `load` |
+| `mercato agent_orchestrator eval` | `2` for missing required arguments or an invalid `--repeat`; `1` or `2` when `--gate` is set and the gate cannot run or fails |
+| `mercato agent_orchestrator token-usage` | `2` for missing `--dir`/`--agent`, an unknown agent id, a directory with no `AGENT.md`, or a manifest with no baked token usage |
+| `mercato scheduler run` | `1` when the schedule id is missing or no schedule with that id exists |
+| `mercato catalog omnibus:backfill` | `2` when the command options fail validation |
+| `mercato gateway_tpay configure-from-env` | `1` for a missing Tpay env preset, or any error while applying it |
+
+Concretely: `mercato auth setup --orgSlug 'Bad Slug!'` printed a validation error and exited `0` before; it now exits `2`.
+
+**Action for operators:** audit any bootstrap, deployment or CI script that chains CLI invocations with `&&`, checks `$?`, or uses `set -e`. A script of the shape `yarn mercato auth setup … && yarn mercato entities install …` that has been silently tolerating a swallowed failure will now stop at the first step. That is the intended behaviour — the failure was always real — but the stop is new, so plan for it rather than discovering it during an upgrade. Custom module commands are affected the same way: one that assigns `process.exitCode` without throwing now propagates it, and one that signals failure by throwing keeps working exactly as before.
+### `customers`, `portal`, and `workflows` now declare their full runtime module dependencies (#7587)
+
+`customers`'s `setup.ts` imports `FeatureToggle` from `feature_toggles` and `./cli` seeds customer
+and currency dictionaries via `Dictionary`/`DictionaryEntry` from `dictionaries`; `portal`'s
+`setup.ts` imports `FeatureToggle` from `feature_toggles`; `workflows`'s `setup.ts` resolves the
+business-rule discovery cache and `lib/seeds.ts` imports `BusinessRule`, both from
+`business_rules`. None of these modules declared the dependency in `requires`, so an app enabling
+one of them without its undeclared dependencies previously passed `yarn generate` and the
+migrations cleanly and only failed during tenant setup (`mercato init` / `yarn reinstall`) with an
+opaque MikroORM error such as `Metadata for entity Dictionary not found` — the same silent-failure
+class as `catalog` (#6517) and `auth` → `api_keys` (#7444).
+
+`customers` now declares `requires: ['progress', 'dictionaries', 'feature_toggles']`, `portal` now
+declares `requires: ['customer_accounts', 'feature_toggles']`, and `workflows` now declares
+`requires: ['business_rules']`. The existing generator-enforced dependency check now covers all
+three. If your `src/modules.ts` enables one of them without its new dependencies, `yarn generate`
+now fails fast instead of shipping the silent setup failure:
+
+```
+Module dependency check failed:
+- Module "customers" requires: dictionaries, feature_toggles
+```
+
+**Action for module authors:** add the missing module ids to `src/modules.ts` (e.g.
+`{ id: 'dictionaries', from: '@open-mercato/core' }`, `{ id: 'feature_toggles', from:
+'@open-mercato/core' }`, `{ id: 'business_rules', from: '@open-mercato/core' }` as applicable),
+then re-run `yarn generate`. `apps/mercato/src/modules.ts` and the `create-app` template already
+enable the full default module set, so this repo's own apps and freshly scaffolded apps are
+unaffected.
+
+### Portal form submissions are limited to the caller's own `customer` subject (#7224)
+
+`POST /api/forms/form-submissions` now answers `403 { error: "SUBJECT_FORBIDDEN" }` unless
+`subject_type` is `customer` and `subject_id` is the signed-in portal customer's own id. Nothing is
+persisted on a refusal. Both submit routes (`POST /api/forms/form-submissions/:id/submit` and the
+customer-session branch of `POST /api/forms/public/submissions/:id/submit`) apply the same rule to a
+submission the caller started themselves, so a draft started for another subject before this
+release can no longer be submitted. A portal customer that staff assigned as an actor through
+`POST /api/forms/submissions/:id/actors` can still submit on that submission's subject, and invitation
+(token) submissions are unchanged. The URL, request and response shapes are unchanged.
+
+**Action for module authors:** portal pages that pass any other `subjectType` (for example `patient`)
+to `EmbeddedForm` / `FormRunner`, or through the `subjectType` query parameter of the portal
+continue page, now get 403 when a submission starts. Start on the caller's own `customer` subject,
+or have staff create the actor assignment for other subjects.
+
+**Operator check:** submissions that a portal customer started before the upgrade on a subject that
+was not their own, together with any consent records projected from them, can be listed with:
+
+```sql
+select s.id as submission_id, s.subject_type, s.subject_id, s.started_by, s.status,
+       c.id as consent_record_id, c.status as consent_status
+from forms_form_submission s
+left join forms_consent_record c on c.submission_id = s.id
+where s.started_by in (select id from customer_users)
+  and (
+    (s.subject_type = 'customer' and s.subject_id <> s.started_by)
+    or s.subject_type <> 'customer'
+  );
+```
+
+Nothing is rewritten automatically. Portal pages that legitimately started submissions on another
+subject type (for example `patient`) also match, so review the rows before revoking anything.
+
+<a id="staff-user-create-org-scope"></a>
+
+### Staff user create enforces the caller's organization scope (#7238)
+
+`POST /api/auth/users`, through the `auth.users.create` command, now applies the same destination
+check that `PUT /api/auth/users` already applied to an organization change. The organization must
+be within the caller's descendant-expanded organization scope, and any roles must belong to its
+tenant and be grantable by the caller. This holds whether or not the request sends `roles`. A caller
+restricted to some organizations who names another organization of the same tenant now gets `403`
+(`Cannot assign user to a destination organization outside actor scope.`) and no user is written.
+Before this release the user was created with `201`.
+
+An organization of another tenant still answers `404 Organization not found`, as before.
+Superadmins, system actors and callers without an organization restriction are unaffected.
+
+**Action for integrators:** a script or API key that creates staff users with an
+organization-restricted principal must either be granted the target organizations or use an
+unrestricted principal.
+
+**Backward compatibility** (recorded here because `BACKWARD_COMPATIBILITY.md` is at its agent-context
+byte budget): intentional security narrowing of the `auth.users.create` command and
+`POST /api/auth/users`, regression-tested in `users.create-destination-scope.test.ts` and
+`TC-AUTH-068`. One additive signature change: `targetUserId` of `resolveUserDestinationRoles`
+(`@open-mercato/core/modules/auth/lib/grantChecks`) becomes optional; without role tokens and without
+a target user it returns `[]`, and every existing call compiles and behaves the same. The route URL,
+request and response schemas, event IDs, ACL features, DI names and database schema are unchanged.
+
+### `AI_RUNTIME_BASEURL_ALLOWLIST` matches scheme and port, and saved base URLs are re-checked (#7228)
+
+An allowlist entry used to match only the hostname, so `api.openai.com` also admitted
+`http://api.openai.com` and any port. A base URL must now match an entry's scheme, hostname and
+effective port. This applies to the chat `?baseUrl=` parameter and to `PUT /api/ai_assistant/settings`;
+both keep answering `400 { code: "baseurl_not_allowlisted" }`. Saved tenant and per-agent base URLs
+are re-checked on every agent turn: a saved value that the current allowlist does not permit,
+including every saved value once the allowlist is empty, is ignored, and the turn uses the provider's
+default endpoint. Each ignored turn logs the warning
+`Stored AI runtime baseURL is not allowed by AI_RUNTIME_BASEURL_ALLOWLIST; ignoring it` until the
+override is re-saved or cleared. Routes, request and response shapes are unchanged.
+
+**Action for operators:** a bare host entry now means HTTPS on port 443. List any other origin
+explicitly as `scheme://host[:port]`:
+
+```env
+# before: admitted https and http on any port
+AI_RUNTIME_BASEURL_ALLOWLIST=openrouter.ai,localhost
+# after: https://openrouter.ai plus a local Ollama server over plain HTTP
+AI_RUNTIME_BASEURL_ALLOWLIST=openrouter.ai,http://localhost:11434
+```
+
+Update the allowlist before upgrading when tenants saved a local or self-hosted base URL: once that
+saved value is ignored, prompts go to the provider's default endpoint instead.
+
+### Staff: customer support tickets (helpdesk) need a per-organization seed and a portal ACL sync
+
+New tenants get everything from `setup.ts`. **Existing** tenants must run, once per organization:
+
+```bash
+yarn mercato staff seed-support-defaults --tenant <tenantId> --org <organizationId>
+yarn mercato customer_accounts sync-customer-role-acls
+```
+
+- `seed-support-defaults` is safe to re-run. It creates the "Customer support" fallback project and the fallback routing rule when they are missing. It seeds the default support ticket categories only in the run that creates the organization's support-category dictionary; once that dictionary exists, a re-run never re-adds a category an admin deleted. Without the fallback project and rule, a portal customer cannot file a ticket because there is no project to route it to.
+- `sync-customer-role-acls` grants the new portal features to the default customer roles: `portal.support_tickets.view` (buyer, viewer) and `portal.support_tickets.manage` (buyer). It is additive and never creates roles. Add `--tenant <tenantId>` to limit it to one tenant.
+- No staff (`acl.ts`) features were added, so `yarn mercato auth sync-role-acls` is not required for this change.
+
+Additive surfaces that third-party code can use. Existing code needs no changes:
+
+- New injection spot `staff.time_tracking.settings:tabs` on the Time Tracking Settings page, with `placement: { kind: 'tab' }` and context `{ moduleId, canManage, settings, onSettingsSaved }`. A tab saves its own changes. It builds each write from `context.settings` and reports the stored result through `onSettingsSaved`.
+- Task comments have an optional `visibility` field (`'internal' | 'customer'`, default `'internal'`). It was added to `staffTimeTaskCommentCreateSchema` and `staffTimeTaskCommentUpdateSchema` as an optional field. `staffTimeTaskCommentUpdateSchema` still requires `body`. The task comment `PUT` route validates against the new `staffTimeTaskCommentUpdateRequestSchema`, which also accepts a visibility-only change.
+- `TimeTrackingBuiltInSettings` has an optional `support: { referencePrefix }` group, stored as the `support.referencePrefix` setting key (default `SUP`). If a settings `PUT` omits it, the stored prefix is kept.
+
+### `GET /api/attachments` without paging returns at most the newest 100 attachments (#3816)
+
+`GET /api/attachments?entityId=…&recordId=…` used to load, decrypt and return every attachment of the
+record when `page` or `pageSize` was omitted. That unpaginated form now returns only the newest `100`
+attachments (ordered by `createdAt` descending), the same ceiling as `pageSize`. The response shape is
+unchanged: the unpaginated form still returns only `items`, and passing both `page` and `pageSize`
+pages as before. Both forms now break `createdAt` ties by `id` descending, so page boundaries are
+stable.
+
+**Action for module authors:** a caller that needs every attachment of a record with more than 100
+attachments must pass `page` and `pageSize` (at most `100`) and request pages until `totalPages` is
+reached. This matters most for code that sends the loaded ids back to a save that removes the
+attachments missing from the list: page through the whole list first, as the message composer now
+does for draft attachments. Built-in display-only lists (the attachment form field, product and
+variant media, sales channel offer media, the warranty claim attachments tab and the warranty claim
+line picker for AI assessment) still use the unpaginated form, so they show at most the newest 100
+attachments of a record and any count derived from them stops at 100.
+
+### Platform-wide catalogues are indexed once, under the null tenant
+
+An entity type declared through `registerTenantGlobalEntityTypes()` is a catalogue every
+tenant reads, and its source table has neither a `tenant_id` nor an `organization_id`
+column to scope it by. A tenant-scoped reindex used to stamp such rows with the caller's
+tenant, and with the caller's organization when it had one. `entity_indexes` is unique on
+`(entity_type, entity_id, organization_id_coalesced)`, so what that did depended on the
+path. A reindex without an organization (the CLI) wrote the same key as the event path's
+null-scope row and moved that one row into its own tenant: the last tenant to reindex took
+the catalogue from every other, whose leftover tokens then produced hits with no presenter,
+title or URL. A reindex with one (`/api/query_index/reindex` always supplies it) wrote a
+separate copy keyed by that organization, readable there and nowhere else, which only that
+organization's next reindex refreshed - the event path writes the null-scope row.
+
+`reindexEntity()` now writes the projection of a declared catalogue under
+`tenant_id = NULL, organization_id = NULL`, which is already where the event path files it
+(`resolveQueryIndexRecordScope()` resolves a table with neither scope column to a null
+scope and requires the payload to say so). The readers in `@open-mercato/search` gained the
+matching declaration-gated branch on both axes:
+
+- tenant, in `TokenSearchStrategy` and the presenter enricher: `tenant_id = <tenant> OR
+  (tenant_id IS NULL AND entity_type IN <declared catalogues>)`;
+- organization, in `TokenSearchStrategy`: `organization_id IN <selected> OR
+  (organization_id IS NULL AND tenant_id IS NULL AND entity_type IN <declared catalogues>)`,
+  and `SearchService` keeps an organization-less result only for a declared type.
+  `SearchService` passes the selected organization even for a superadmin, so without this
+  a selected-organization search dropped every catalogue hit.
+
+The entity-type conjunct is load-bearing: a table with neither scope column is stored under
+the null scope whether it is a catalogue or private data, so an unqualified NULL branch would
+publish `directory:tenant`, `auth:user_role` and their kind to every tenant. A declared type
+whose table carries `organization_id` but no `tenant_id` is refused with
+`declared-global-but-org-scoped`, so `writesGlobalProjection` and
+`loadQueryIndexRowScope()`'s `kind: 'global'` mean the same thing.
+
+Only the projection moves. Vector work for a declared catalogue keeps the caller's scope -
+`query_index.vectorize_one`, the force reindex's `query_index.vectorize_purge` and
+`removeOrphans` - because the vector consumers need a real tenant and nothing defines a
+shared vector; its vectors stay filed per tenant, as before.
+
+The search strategy's single and batch token writes also use the canonical null/null
+scope, including writes from the real vector worker. Search results for declared catalogues
+are fused across token, vector and fulltext strategies after organization filtering, while
+vector/fulltext storage retains caller scope. Document filters resolve the live canonical
+projection for declared types; ordinary types keep their tenant correlation.
+
+**Action for module authors.** None beyond the declaration the previous note describes.
+Ordinary tenant-scoped entity types retain their tenant/organization scope. Tenant-less
+private types are quarantined automatically as described in the security upgrade note below.
+
+**Action for operators.** Reindex each declared catalogue once after upgrading
+(`feature_toggles:feature_toggle`, plus any type your modules declare). The sweep writes
+the canonical rows, then retires every row an earlier sweep stamped with a caller scope,
+whichever tenant stamped it: the projections, their `search_tokens` and their
+`entity_index_coverage` rows. Until then an organization that reindexed before the upgrade
+can be served its old copy alongside the canonical one, with duplicate token contributions
+inflating its search rank. The equivalent manual cleanup,
+safe to run once the canonical rows exist, per declared entity type:
+
+```sql
+DELETE FROM entity_indexes
+ WHERE entity_type = 'feature_toggles:feature_toggle'
+   AND (tenant_id IS NOT NULL OR organization_id IS NOT NULL);
+DELETE FROM search_tokens
+ WHERE entity_type = 'feature_toggles:feature_toggle'
+   AND (tenant_id IS NOT NULL OR organization_id IS NOT NULL);
+DELETE FROM entity_index_coverage
+ WHERE entity_type = 'feature_toggles:feature_toggle'
+   AND (tenant_id IS NOT NULL
+        OR (organization_id IS NOT NULL
+            AND organization_id <> '00000000-0000-0000-0000-000000000000'));
+```
+
+### A tenant-scoped reindex of a table with no `tenant_id` column is refused
+
+Contracts: [scoped reindex](.ai/specs/2026-08-28-tenant-scoped-reindex-of-tenant-less-tables.md) and [global catalogues](.ai/specs/2026-08-28-tenant-global-entity-types-in-the-search-index.md).
+
+`reindexEntity()` applied its tenant predicate only when the source table had a
+`tenant_id` column, and silently dropped it otherwise — while still stamping every
+swept row with the caller's tenant. A tenant-scoped reindex of a tenant-less table
+therefore read every tenant's rows and filed them under whichever tenant ran it, and
+both index readers (`TokenSearchStrategy.search()`, the presenter enricher) match
+`tenant_id` exactly with no NULL branch, so those rows were served as that tenant's
+own. That combination is now refused: `reindexEntity()` returns an empty result and
+logs *"Refusing tenant-scoped reindex of a table with no tenant_id column"*. A
+`tenantId` of `null` or `undefined` is unaffected — it stamps no tenant, so it never
+crossed a boundary.
+
+**Action for module authors.** If a reindex of one of your entity types starts
+returning 0 with that warning, exactly one of two things is true:
+
+1. The table holds per-tenant rows and is missing its `tenant_id` column. Its index
+   was cross-tenant before this release. Add the column, or index the entity through
+   the event path only.
+2. The table is a platform-wide catalogue every tenant is meant to read. Declare it
+   during module registration (a module's `di.ts` is the usual place), before any
+   reindex job runs:
+
+   ```ts
+   import { registerTenantGlobalEntityTypes } from '@open-mercato/core/modules/query_index/lib/tenant-global'
+
+   registerTenantGlobalEntityTypes('billing:plan')
+   ```
+
+   Forgetting the call fails closed: the entity type keeps being refused, and the
+   warning names it. `feature_toggles:feature_toggle` is registered by the platform
+   and needs no action.
+
+**Security upgrade.** Existing private projections and tokens are automatically quarantined
+by physical source-scope verification on the read path, including rows stamped with a victim
+tenant by an older sweep. Quarantine requires no operator cleanup and does not delete source
+or index records. Token reads exclude unsafe types before ranking; hybrid search and presenter
+enrichment enforce the same policy, and query-index document joins for tenant-less sources
+require a null tenant. Provider/synthetic strategy results retain their caller scope and supplied presenters.
+Persisted local tokens, projections and pgvector results require verified ORM scope or exact
+tenant/organization/type/record proof in custom-entity storage; unregistered or disabled-module residue is
+quarantined too. Unverified synthetic local writes are declined, and cannot borrow historical
+projections. Register the source ORM entity, use tenant-scoped custom storage, or keep a
+provider-backed strategy for a virtual source. No unverified source can activate global scope.
+
+Catalogue declarations remain API-compatible but no longer authorize global scope by themselves.
+Registered ORM metadata and physical columns must prove that both scope columns are absent.
+Incorrect tenant-scoped declarations retain ordinary tenant/organization isolation; private
+organization-only types remain quarantined. Verification errors fail closed and are retryable;
+cached verification is isolated by ORM driver and invalidated by entity, metadata or declaration
+changes. Restart application and worker processes after schema migrations. Tenant-scoped custom
+entity storage remains supported. No schema migration or destructive cleanup is introduced.
+
+2026-10-31 follow-up: source identity is the exact registered entity metadata, including
+schema and mapped scope columns; duplicate/ambiguous metadata fails closed. Sweeps,
+subscriber source rows, index documents, query-engine and coverage probes use that same
+qualified source. Same-name tables in another schema cannot supply catalogue proof.
+A schema-qualified query that requires the basic fallback (missing base table, explicit
+automatic-scope bypass, missing index or partial coverage) is refused because that engine
+cannot preserve the source identity. Reindexing can avoid missing/partial-index fallback
+when usable projections exist; empty sources and other fallback-dependent cases remain
+unsupported. Named queries that stay in the hybrid path work normally. Unqualified
+sources retain their existing fallback behavior.
+Custom-storage proof also binds organization in SQL and batched writes/results; stale
+artifacts from another organization cannot authorize a record. Reviewer-supplied schema
+collision and organization regressions ship with the repair.
+
+**Optional operator cleanup.** A deployment that has run an old tenant-scoped reindex
+of a tenant-less private entity type may remove quarantined derived artifacts to reclaim storage.
+Delete only the
+`entity_indexes` and `search_tokens` rows for those entity types and let the event
+path refile the ones that still matter. Entity types whose table has no `tenant_id`
+column, and which are not catalogues, are the ones to check first. Delete the matching
+`entity_index_coverage` rows in the same pass: the guard returns before
+`refreshCoverageSnapshot()`, so a coverage row written by an earlier tenant-scoped run
+is never refreshed again and the indexer status page keeps reporting a stale
+base/indexed pair for that entity type.
+
+A refused sweep is now reported as one. `reindexEntity()` returns
+`refused: 'no-tenant-column' | 'column-probe-failed'`, the reindex subscriber writes it
+into `indexer_status_logs` at `level: 'warn'` with the reason, and the CLI prints
+`reindex REFUSED, nothing was indexed`. Previously a refusal was byte-identical to a
+successful zero-row sweep on all three surfaces, so a module author who forgot the
+`registerTenantGlobalEntityTypes()` call saw a green completion on the one screen built
+to answer "why is this entity type not indexed".
+
+### New `cart` and `promotions` modules, and buyer-scoped catalog visibility in the cart (#7592)
+
+This release adds the `cart` module (guest/customer cart lifecycle, line pricing, merge/undo,
+promotion application) and the `promotions` module (rule-tree evaluation, benefits, discount
+codes), plus enforces buyer-scoped catalog visibility inside the cart write path so a product
+hidden from browsing cannot be bought through the cart API either.
+
+**Action for operators — existing tenants need two commands.** `setup.ts` `defaultRoleFeatures`
+for both modules (`cart.carts.view`/`.manage`/`.settings.manage`/`.proposals.*`/`.channel.*` and
+`promotions.view`/`.create`/`.update`/`.delete`/`.codes.manage`/`.evaluate`/`.codes.redeem`/
+`.usage.manage`) is merged into seeded staff roles during *tenant setup* only — new tenants get
+the grants automatically, **existing tenants receive nothing until you run:**
+
+```bash
+yarn mercato auth sync-role-acls
+```
+
+It is idempotent, additive (never revokes a hand-added feature) and wildcard-aware (a role
+holding `cart.*`/`promotions.*` gains nothing redundant). Until this runs, staff on existing
+tenants see the new cart/promotions admin UI but every call answers `403`. On a running
+instance the new grants take effect once the permission cache expires (`CACHE_TTL`, about 5
+minutes by default), and the "Promotions" menu group appears after
+`yarn mercato configs cache structural --all-tenants`.
+
+Both modules also register queue-backed sweeper schedules (cart lock/reservation cleanup,
+dynamic-code generation, promotion code-reservation expiry) through the `configs` upgrade-action
+mechanism, gated at version `0.9.1` — the version this release ships as. An existing tenant sees
+these as pending upgrade actions (`configs.manage`, the same admin banner every other upgrade
+action uses) once the app reports `0.9.1`; no migration or CLI command runs them automatically.
+
+### Login and portal session routes reject cross-site browser requests with `403` (#7239)
+
+`POST /api/auth/login`, `POST /api/auth/session/refresh`, `POST /api/customer_accounts/login`,
+`POST /api/customer_accounts/magic-link/verify` and `POST /api/customer_accounts/invitations/accept`
+used to issue session cookies to any request, so a form on another site could sign a visitor's
+browser into the attacker's account. They now answer `403 { ok: false, error }` before reading the
+body when the browser marks the request as cross-site:
+
+- `Sec-Fetch-Site: cross-site` is always rejected. `same-origin` and `none` are accepted.
+- Otherwise the `Origin` header decides. A request without `Origin` and without `Sec-Fetch-Site`
+  (CLI, scripts, server-to-server and mobile clients) is accepted unchanged. `Origin: null` and an
+  unparsable `Origin` are rejected. Any other `Origin` must equal `APP_URL`,
+  `NEXT_PUBLIC_APP_URL`, an entry of `APP_ALLOWED_ORIGINS`, or the request's own
+  `X-Forwarded-Host` / `Host` (scheme from `X-Forwarded-Proto` when present). Outside production a
+  loopback `Origin` is accepted when a configured origin is loopback too.
+
+URLs, request bodies and success responses are unchanged. The policy is described in
+[`apps/docs/docs/framework/security/cross-site-login.mdx`](apps/docs/docs/framework/security/cross-site-login.mdx).
+
+**Action for operators:** only browsers that send no Fetch Metadata, and requests from a sibling
+subdomain (`Sec-Fetch-Site: same-site`), reach the `Origin` check. If they report a `403` on
+sign-in, set `APP_URL` to the public origin, list the extra origin in `APP_ALLOWED_ORIGINS`, or make
+the reverse proxy forward `X-Forwarded-Host`. An `Origin` that matches none of these is logged as a
+`Cross-site request rejected` warning with the `origin`, `host` and `forwardedHost` values.
+
+**Action for integrators:** an HTML form or browser app on a different site can no longer sign in
+through these routes, and `APP_ALLOWED_ORIGINS` does not re-enable it. A browser marks such a
+request `Sec-Fetch-Site: cross-site`, and that is always rejected. Sign in on the application's own
+origin, or call the API from a server. A sign-in form on a sibling subdomain of the same site keeps
+working once its origin is listed in `APP_ALLOWED_ORIGINS`.
+### Browser web research: all egress is now restricted to public addresses (#7218)
+
+The `@open-mercato/web-research-browser` sidecar used to vet only the top-level navigation. A
+rendered page's images, scripts, fetches, WebSockets, redirect hops and WebRTC traffic could still
+reach loopback, private-network and cloud-metadata addresses. Some of those responses were returned
+to the model. Chromium now sends every connection through a loopback egress proxy that vets each
+connection and pins it to the vetted public address. Subresources are always filtered, service
+workers are blocked, and non-proxied WebRTC UDP and QUIC are disabled. A render that ends on a non-public URL
+now returns a `navigation` error instead of the page.
+
+`OM_WEB_RESEARCH_BROWSER_FILTER_SUBRESOURCES` is ignored; when it is set, the sidecar logs a
+warning each time it launches Chromium. `LAUNCH_ARGS` now also carries the WebRTC proxy-only policy
+and `--disable-quic`. The `filterSubresources` field of `SidecarState` and option of
+`installNavigationGuard` are `@deprecated` and have no effect. `installNavigationGuard` now throws a
+`SidecarError` of kind `init` instead of warning when `context.route()` is unavailable.
+
+**Action for operators:** nothing to configure. Remove `OM_WEB_RESEARCH_BROWSER_FILTER_SUBRESOURCES`
+from your environment. Intranet assets referenced by rendered pages (images, scripts, APIs on
+private addresses) no longer load; public pages render as before.
+
+### Cross-process event listeners receive portal-only and truncated envelopes (#2973)
+
+`registerCrossProcessEventListener` (`@open-mercato/events/bus`) now also receives events declared only with `portalBroadcast: true`, so a portal event emitted in the queue worker reaches the web process that serves the customer portal stream. An oversize browser-facing envelope (`clientBroadcast` or `portalBroadcast`) is no longer dropped by the Postgres bridge: its payload arrives as `{ truncated: true, id, entityId, entityType }` plus the audience fields, and clients are expected to re-fetch. Private `crossProcessBroadcast` envelopes are unchanged.
+
+*Action for downstream:* a custom listener that handles every envelope should filter by the event flag it serves (`isBroadcastEvent`, `isPortalBroadcastEvent`, ...) and tolerate `payload.truncated === true`. Detect your own echo with `envelope.originInstanceId === CROSS_PROCESS_EVENT_INSTANCE_ID` rather than `originPid`: containers commonly all run as pid 1, so a pid check silently drops envelopes from a worker container.
+
+The portal stream also now treats trusted emit scope as authoritative, as the backoffice stream does: a portal event whose payload names a tenant, or an organization, outside the trusted emit options is not delivered, and one without payload organizations reaches only the trusted organizations.
+
+### Catalog write commands treat records outside the caller's scope as not found (#3825)
+
+`catalog.products.update|delete`, `catalog.variants.update|delete`, `catalog.prices.update|delete`
+and `catalog.offers.update|delete` now load their target only inside the caller's tenant and allowed
+organizations. `PUT` / `DELETE` on `/api/catalog/products`, `/api/catalog/variants`,
+`/api/catalog/prices` and `/api/catalog/offers` with the id of another tenant's or another
+organization's record now answer `404` instead of `403`, exactly like an unknown id. The same
+applies to `POST /api/catalog/variants` with another tenant's `productId`. Commands run
+with `auth: null` and an `organizationScope` (the Akeneo importer, for example) now also match the
+record against `organizationScope.tenantId`. Catalog product bulk-delete jobs (#3826, 0.9.0) now
+report a product from another tenant or organization as not found (`404`) instead of `403`. Request and response shapes
+are unchanged.
+
+**Action for module authors:** none, unless you branch on `403` for these routes or commands; treat
+`404` as the answer for records the caller cannot reach.
+### Catalog price kind PUTs keep `displayMode` when it is omitted (#7555)
+
+`PUT /api/catalog/price-kinds` (the `catalog.priceKinds.update` command) used to reset an omitted
+`displayMode` to `excluding-tax`. The update schema (`priceKindUpdateSchema`) inherited the
+create-time default, so renaming an `including-tax` price kind or toggling its `isActive` switched it
+back to `excluding-tax`. An omitted `displayMode` is now left untouched, and the generated OpenAPI document no
+longer shows a default for it on the PUT body. `priceKindCreateSchema` keeps its `excluding-tax`
+default.
+
+- A caller that relied on omission to reset the display mode must send `displayMode: 'excluding-tax'`
+  explicitly.
+- Price kinds already changed by a partial update are not repaired. Check the display mode in the
+  catalog price kind settings and set it again where needed.
+### Reaction routes answer 404 for messages outside your personal mailbox (#3833)
+
+`POST /api/communication_channels/messages/:messageId/reactions` now answers
+`404 { error: "Message not found" }` (localized) both for a message linked to another user's
+personal mailbox (was `403`) and for a message that does not exist in the caller's scope (was
+`409`). `DELETE /api/communication_channels/messages/:messageId/reactions/:reactionId` answers
+`404 { error: "Reaction not found" }` (now localized) for a reaction on another user's personal
+mailbox (was `403`) and for a message removed while the request runs (was `409`); its other 404
+refusals now carry the same fixed text instead of the command's reason. A message linked to another
+user's deleted personal mailbox (was `409`) is refused the same way on both routes. `409` stays for
+an existing message in the caller's organization that is not channel-linked (or whose channel cannot
+be resolved), and for a duplicate reaction. URLs and success responses are unchanged.
+
+**Action for module authors:** the exported `ToggleOutboundReactionResult` of the
+`communication_channels.reaction.toggle_outbound` command gains a `not_found` member, returned when
+the message does not resolve in scope (previously `no_channel_link` with reason
+`message not found`). Code that switches exhaustively over the result, or treated
+`no_channel_link` as "message missing", should handle `not_found` alongside it.
+
+### Forms: the participant PDF holds only the answers the participant's role can read (#7229)
+
+`GET /api/forms/public/submissions/:id/pdf` (access token or portal session) now applies the same
+role slice as the JSON read of the submission, and every response carries
+`cache-control: private, no-store`. A participant whose role can read every field still gets the
+canonical stored snapshot; any other participant gets an uncached, role-filtered copy
+(`submission-<id>-v<n>-participant.pdf`) that is never stored or linked. The staff route
+`GET /api/forms/submissions/:id/pdf` is unchanged.
+
+**Action for module authors:** code that serves `PdfSnapshotService.ensureSnapshot(...)` to a request
+principal should call `readSnapshotForViewer({ organizationId, tenantId, submissionId, viewerRole })`
+instead. `ensureSnapshot` / `readSnapshot` still return the full canonical snapshot.
+### Notification hrefs must resolve to the application origin (#7240)
+
+Notification `linkHref` and action `href` values were checked only for a leading `/`, so values such as `/\evil.example` or `/<TAB>/evil.example` passed and browsers resolved them to another host. They are now parsed as URLs and must stay on the application origin.
+
+- The create APIs (`POST /api/notifications`, `/api/notifications/batch`, `/api/notifications/role`, `/api/notifications/feature`) answer `400`, and `notificationService.create*` throws, for an href that contains a backslash or a control character, resolves to another origin, or has a path starting with `//`.
+- Notifications stored before the upgrade with such hrefs are served with `linkHref: null` and the action `href` omitted: in the list, the portal list, live events, the action endpoint and push data. Email action links fall back to the panel link.
+- A stored delivery-config `panelPath` with such characters is ignored and the default panel path is used; the rest of the stored delivery config is kept. Saving the settings with such a `panelPath` answers `400`.
+- `NotificationHandlerContext.navigate(href)` in client notification handlers ignores hrefs that do not pass the same check.
+- The predicate is available to other packages as `isSafeNotificationHref` from `@open-mercato/shared/modules/notifications/safeHref` (still re-exported from the notifications module's `lib/safeHref`). Custom delivery strategies receive the stored notification entity; pass `linkHref` and action hrefs through `toSafeNotificationHref` from `@open-mercato/core/modules/notifications/lib/safeHref` before sending them out.
+- Valid `/backend/...` paths need no action.
+### EUDR statement undos refuse to remove or reopen read-only statements (#7506)
+
+Undoing an `eudr.statements.create` through `POST /api/audit_logs/audit-logs/actions/undo` used to
+soft-delete the statement whatever had happened to it since. It now refuses in the same cases
+`eudr.statements.delete` refuses, answering `409 { "error": "<localized message>", "code": "<key>" }`
+and changing nothing:
+
+- the statement is archived (`code: "eudr.errors.archivedReadOnly"`);
+- the statement is available and its amendment window has elapsed (`code: "eudr.errors.amendWindowElapsed"`);
+- the statement is available and another statement references it (`code: "eudr.errors.referencedDownstream"`).
+
+Undoing an `eudr.statements.update` that would change the statement's status refuses the same way
+when the statement is currently in one of those states, so an undo can no longer move an archived
+or protected available statement back to an earlier status (and then make it removable). This
+includes undoing the update that archived the statement; archived statements stay read-only.
+Undos that leave the status unchanged, or start from a deletable state, behave as before.
+
+This is a bug fix that narrows undo behaviour. There is no schema or API-shape change, and explicit
+`eudr.statements.delete` responses are unchanged.
+
+**Action for API clients:** match undo refusals on `code`, not on `error`.
+### Akeneo imports bound media and response sizes and store media through the attachment upload path
+
+The Akeneo client used to read every response body in full with no deadline once headers arrived.
+The importer then wrote media straight to disk, outside the attachment size limit and the tenant
+quota. Now:
+
+- Media go through the shared attachment upload path. A file above `OM_ATTACHMENT_MAX_UPLOAD_MB`
+  (default 25 MB) stops downloading at the limit. SVG/HTML/XML (active content) and executables are
+  rejected. All three are skipped: the product imports without the file and a `warn` integration log
+  entry with code `sync_akeneo.media_rejected` is written (linked to the product, not to a sync run).
+- Imported media reserve and count against `OM_ATTACHMENT_TENANT_QUOTA_MB` (default 512 MB). When
+  the quota is full, the product's import fails and is listed in the sync run.
+- Media are stored with the partition's configured storage driver (no longer always `local`), with a
+  sanitized file name, a sniffed MIME type and the byte size actually received. Downloads of one
+  product's media run one at a time.
+- `OM_INTEGRATION_AKENEO_REQUEST_TIMEOUT_MS` (default 30 000 ms) now covers the whole response,
+  including reading the body. That includes media downloads.
+- JSON and OAuth token responses above the new `OM_INTEGRATION_AKENEO_MAX_RESPONSE_BYTES` (default
+  32 MiB) fail the request with `AkeneoResponseTooLargeError`. Error bodies quoted in thrown
+  messages are truncated to 64 KiB.
+- Removing media that Akeneo no longer lists now goes through `attachmentService.releaseScoped()`: the
+  row is deleted before the stored bytes, and media another record still uses are kept.
+- `downloadMediaFile()` returns `contentLength` as the number of bytes received, not the remote
+  `Content-Length` header.
+
+**Action for operators:** large catalogs may hit the tenant quota on import, so raise
+`OM_ATTACHMENT_TENANT_QUOTA_MB` if needed. Raise `OM_INTEGRATION_AKENEO_REQUEST_TIMEOUT_MS` if large
+media time out on slow links. Check the integration log for `sync_akeneo.media_rejected` warnings
+after the first sync.
+
+### Integration and bundle ids must not end in `__oauth_grant`
+
+The new OAuth2 grant core in `integrations` stores each tenant-level grant as an
+`integration_credentials` row with the id `<integrationId>__oauth_grant`, and reserves that suffix
+so grant secrets never leave the grant service:
+
+- `GET` and `PUT /api/integrations/:id/credentials` answer `404` for any id ending in
+  `__oauth_grant`, even when an integration with that id is registered.
+- `integrationCredentialsService.resolve()` and `resolveUpdatedAt()` no longer fall through to a
+  `bundleId` ending in `__oauth_grant`; they return the child's own credentials or `null`.
+
+No first-party integration or bundle id ends in the suffix, and every other id behaves as before.
+
+**Action for module authors:** rename any integration or bundle id your module registers that ends
+in `__oauth_grant`. To build a provider on OAuth2 grants, see the
+[OAuth2 grants guide](apps/docs/docs/framework/modules/integrations-oauth-grants.mdx).
+
+### Deleting an attachment keeps a stored file that other attachment rows still reference
+
+Catalog copies variant media onto the product, and forwarding a message copies the source message's
+attachments, by creating new `attachments` rows that reuse the source row's stored file
+(`partition_code` + `storage_path`). Every path that deletes an attachment together with its stored
+file used to remove that file with the row it was deleting, which broke all the other rows. Deleting a
+row now removes the stored file only when no other row references it: `DELETE /api/attachments`,
+`DELETE /api/attachments/library/:id`, `attachmentService.releaseScoped()`, `mercato attachments
+delete` and the warranty-claims portal delete go through `removeAttachmentRecord`
+(`@open-mercato/core/modules/attachments/lib/storageReferences`), and Akeneo media reconciliation
+releases through `releaseScoped()`; the deferred `releaseScoped(…, { flush: false })` takes the same
+storage-reference lock inside the caller's transaction. When two requests delete the same row at the
+same time, `DELETE /api/attachments` and `DELETE /api/attachments/library/:id` now answer `404` to
+the one that loses instead of a second `200`, `attachmentService.releaseScoped()` throws a `404`
+`CrudHttpError` (not guaranteed in the deprecated mode below), and Akeneo media reconciliation skips
+the row instead of failing the product.
+
+Calling `attachmentService.releaseScoped(input, { flush: false })` when the entity manager is not
+inside a transaction is deprecated. It still works for at least one minor release, but logs a
+`[deprecated]` warning and decides at call time, without the lock: two such releases racing for rows
+that share a stored file can leave the file orphaned (a storage leak) instead of deleting it, and a
+copy created before the caller flushes is not seen. The lock only protects the decision while the
+caller's transaction is open.
+
+**Action for module authors:** if you call `releaseScoped` with `{ flush: false }`, call it inside
+your own transaction (for example `withAtomicFlush(em, [...], { transaction: true })`) and run the
+returned cleanup after commit — the documented contract. Expect the cleanup to be `undefined` when
+the stored file is still referenced by another row. If you delete `Attachment` rows and their stored
+files yourself, use `removeAttachmentRecord(em, attachment)` outside a transaction and delete the
+file only when it reports `releaseStorage: true`.
+
+The migration adds the index `attachments_storage_reference_idx` on
+`attachments (partition_code, storage_path)`, built `CONCURRENTLY` outside a transaction.
+
+### Webhook credential header values are hidden without `webhooks.secrets` (#7237)
+
+`GET /api/webhooks/:id` and the `PUT /api/webhooks/:id` response (and their `/api/webhooks/webhooks/:id`
+alias) now return `••••••••` as the value of credential-like custom headers unless the caller has
+`webhooks.secrets`. A header counts as credential-like when its name contains (as a substring) `auth`,
+`token`, `secret`, `key`, `pass`, `pwd`, `sig`, `hmac`, `session`, `cookie`, `jwt`, `bearer`,
+`credential` or `private`, or when its value starts with an auth scheme (`Bearer `, `Basic `) or a
+common token prefix. Header names, other values and the response shape are unchanged. The default
+`employee` role (`webhooks.view` only) is affected; `admin` and `superadmin` (`webhooks.*`) still see
+the stored values.
+
+On `PUT /api/webhooks/:id`, a header whose value is exactly `••••••••` keeps its stored value, so a
+client can send back what it read. The route answers `400 { error }` and writes nothing when:
+
+- `••••••••` is sent for a header that has no stored value, or
+- a caller without `webhooks.secrets` changes the webhook URL while keeping a stored credential header
+  (by sending `••••••••` or by omitting `customHeaders`). Re-enter or remove those headers in the same
+  request.
+
+The `makeCrudRoute` update handler behind `PUT /api/webhooks/webhooks` applies the same rules; that route
+currently answers `400 { error: "Invalid id" }` to every request for an unrelated reason.
+
+**Action for API clients:** to change a hidden header, send a new value. To keep it, send
+`••••••••` back unchanged. To delete it, omit the key (`customHeaders` is still a full replacement).
+Grant `webhooks.secrets` to roles that must read the stored values. Code that deep-imports the
+module helper `serializeWebhookDetail()` (`webhooks/api/helpers`) now gets redacted values unless it
+passes `{ revealCredentialHeaders: true }`.
+### Workflow `CALL_API` endpoints must match `APP_URL`'s origin and `/api/` path
+
+A `CALL_API` activity used to accept an absolute endpoint whose host matched `APP_URL`, whatever its
+scheme or path. Now the endpoint must have `APP_URL`'s exact origin (scheme, host and port), and its
+path must be under `/api/` (under `<base path>/api/` when `APP_URL` has one, such as
+`https://shop.example.com/store`). This applies to relative and absolute endpoints, and to every
+redirect hop. A non-matching endpoint, an endpoint with embedded credentials, and an `APP_URL`
+without an `http(s)` scheme fail the activity before the one-time API key is created.
+`fetch` no longer follows redirects on its own: a redirect is followed only when its target passes
+the same check, for at most three hops. Any other redirect fails with
+`CALL_API refused to follow redirect …`.
+
+**Action for operators:** fix any workflow definition whose `CALL_API` endpoint hard-codes a
+different scheme (for example `http://` while `APP_URL` is `https://`) or a non-`/api/` path. Use a
+relative `/api/...` path or `{{env.APP_URL}}/api/...` instead.
+
+### Sales quote enrichment and document injection hosts (#7782, #7783)
+
+Sales quote header reads now run registered response enrichers for `sales:sales_quote`, including the list endpoint and its `?id=` detail read path. Order-only enrichers remain targeted to `sales:sales_order`; URLs, native response fields, and document calculations are unchanged.
+
+**Action for extension authors:** review existing quote-targeted and wildcard enrichers that may previously have been dormant. They must add namespaced, scoped data, enforce their declared feature gates, and retain safe timeout/fallback and cache behavior. No database migration is needed.
+
+The four advertised `detail:sales.{order|quote}:{stage-bar|closure}` IDs now mount real render-widget hosts on the Sales document page. Existing registrations for these IDs may begin rendering after upgrade. Their context follows the document detail host (`kind`, `record`, `formId`, `resourceKind`, `resourceId`, `retryLastMutation`) plus `documentId`, `organizationId`, and `tenantId` from the scoped record, with current document data and the standard local data-change callback. Contributors persist their own data through authorized, guarded APIs; the hosts do not introduce native status/closure mutations or automatically save contributed fields. Empty hosts show no placeholder UI.
+
+**Action for widget authors:** check feature gates and order/quote assumptions before enabling previously dormant widgets. Existing tabs/details/shipping IDs and native document behavior remain available.
+
+## 0.8.0 → 0.9.0 (2026-10-09)
+
+### `POST /api/auth/logout` no longer requires a valid access token (#7225)
+
+The staff logout route is now declared `requireAuth: false`. Its handler already revoked the
+session named by the `auth_token` JWT's `sid` claim and the one behind the `session_token` cookie,
+but the dispatcher used to answer `401` before the handler ran whenever the access token was
+missing or no longer verified, and that `401` cleared no cookie. A logout from a tab whose 8-hour
+access token had lapsed therefore left the remember-me `session_token` (`REMEMBER_ME_DAYS`, default
+30 days) valid in the database and in the browser, so the next visit signed the user straight back
+in.
+
+A `POST /api/auth/logout` that carries an `auth_token` or `session_token` cookie, valid or not,
+now revokes whatever session those cookies identify, clears both cookies and redirects to `/login`
+(`307`). A request that carries neither cookie is only redirected, with no `Set-Cookie`. Every
+staff session cookie is `SameSite=Lax`, so a cross-site form POST carries neither cookie: it can
+neither revoke a session nor clear the user's cookies. The route stays POST-only.
+
+**Action for integrators:** none, unless a client treated a `401` from logout as "already signed
+out". It now receives the `307` redirect instead.
+
+### Warranty claim undo refusals return a localized `error` plus a `code`; claim-line undos refuse stale state
+
+Undoing a `warranty_claims` claim command through `POST /api/audit_logs/audit-logs/actions/undo` used to
+answer `409 { "error": "warranty_claims.errors.conflict" }` with the raw i18n key. It now answers
+`409 { "error": "<localized message>", "code": "warranty_claims.errors.conflict" }`.
+
+Claim-line undos (`warranty_claims.claim_line.create`, `.update`, `.delete`, `.receive`,
+`.release_quarantine`, `.set_assessment`) used to write their stored snapshot over the line whatever had
+happened since. Undoing a line update after the line was received, for example, wiped its grade and
+quarantine hold. They now refuse with `409` and change nothing when:
+
+- the line changed after the operation, the claim was deleted, or the log entry has no after-snapshot
+  (`code: "warranty_claims.errors.conflict"`);
+- the claim status no longer allows the edit, for example a closed claim
+  (`code: "warranty_claims.errors.lineLocked"` or `"warranty_claims.errors.receivingStatusInvalid"`).
+
+Undoing a line delete no longer re-creates a row that is missing. Undoing a set-assessment now
+recomputes the claim header totals.
+
+**Action for API clients:** match undo refusals on `code`, not on `error`.
+
+<a id="discord-proposals"></a>
+
+### Discord AI reply proposals require system origin (issue #7312)
+
+Approving or dismissing an unmarked `channel_discord.ai_reply_proposal` message now fails.
+Previously, a user with `messages.compose` could forge an approval card that caused a colleague
+to post attacker-written text as a public reply. Proposal creation now records a server-only
+origin marker, and both actions verify it against the stored content and tenant/organization.
+
+**Emergency security waiver:** the surface is approval/dismissal through the existing provider
+actions and commands; the classification is security behavior narrowing. Route URLs,
+action/command IDs, schemas, signatures, and database fields remain unchanged. Continued
+acceptance of unmarked cards is itself the exploit: they cannot be distinguished from forgeries.
+A legacy fallback, including checking the mutable bot email, would retain the exploitable branch,
+so no legacy bridge or toggle exists. The PR must carry `security` and a named human maintainer
+approval acknowledging this waiver before merge. The Discord spec contains the corresponding
+"Migration & Backward Compatibility — proposal origin" section.
+Public compose and draft-update requests cannot supply this marker.
+
+**Module authors:** use the Discord provider's `fileDiscordReplyProposal` helper for new cards.
+Posting the message type through `/api/messages` or an unstamped internal compose no longer
+produces an actionable proposal. No new dependency, configuration, or database migration is needed.
+
+**Operators:** upgrade all app/worker processes, remove pending unmarked cards, and generate
+fresh proposals. Old cards cannot be distinguished from forgeries; do not backfill markers using
+their text or sender email. Inspect prior approved replies if forgery is suspected. Normal
+messages and fresh system-filed proposals retain their existing behavior.
+
+### AI-chat session tokens: hashed storage, deploy the app and the MCP server together (#2254, #7304)
+
+`api_keys.session_token` (the ephemeral AI-chat/MCP bearer credential) is replaced by a SHA-256
+`api_keys.session_token_hash`. The old column is kept as a deprecated, always-`null` bridge —
+nothing reads or writes it anymore — rather than dropped, so it is safe to leave in place across
+a rolling deploy.
+
+**Deploy the app and the standalone MCP process (`mcp:serve-http`/`mcp:dev`) together.** During
+the window where they run different code versions:
+- A session minted by the *old* code (plaintext-only) is still resolved by the *new* code — it
+  falls back to the plaintext column on a hash miss and self-heals the row onto the hash on
+  first use — so upgrading the app ahead of the MCP process is safe.
+- A session minted by the *new* code (hash-only) is **not** resolved by an *old* MCP process
+  still running against the same database — the old binary has no way to know about the hash
+  column. Upgrading the MCP process after the app, or running both from the same deploy, avoids
+  this. If hit anyway, the user sees "Your chat session has expired" and recovers by reopening
+  the chat window; no data is corrupted.
+
+**Rolling back after this migration is destructive to sessions minted since the upgrade.** The
+migration backfills the hash from, and then clears, the plaintext column for rows that already
+existed; it cannot retroactively plaintext-store sessions minted by the new code after that
+point. Rolling back (`down()`) drops the hash column, so any session minted between the forward
+migration and the rollback is unrecoverable — users must reopen their chat windows. This is the
+same one-time-TTL (120-minute) cost paid by any session mid-flight at rollback, not an ongoing
+state.
+
+### Payment gateway webhooks: opt-in transport, locator and response options; ambiguous matches are rejected
+
+`registerWebhookHandler(...)` accepts new optional options for providers that sign form-encoded bodies or expect a specific acknowledgement:
+
+- `readSessionIdHint(payload, context?)` now also receives `{ rawBody, headers }`.
+- `readPaymentIdHint(payload, context?)` is a second locator, intersected with the session hint.
+- `rawBody: 'bytes'` hands the verifier and locators the exact request bytes as a `Buffer`.
+- `formatResponse(outcome)` maps the route's typed outcomes to a provider-specific status, body and content type.
+
+Verifiers also receive an optional `candidate` snapshot (`transactionId`, `paymentId`, `providerSessionId`, `amount`, `currencyCode`) and may throw `WebhookVerificationUnavailableError` for transient dependency outages.
+
+Registrations that use none of these options keep their current request handling and byte-identical responses.
+
+One behavior is hardened for every provider. The route now verifies every located candidate, up to 10. When more than one stored transaction verifies the same notification, it rejects the request with the existing `401` instead of accepting the first match. If a candidate cannot be checked (its credentials fail to resolve or its verifier reports `WebhookVerificationUnavailableError`) while another verifies, the route also fails closed, because ambiguity cannot be ruled out; the provider's retry settles it once every candidate can be checked. A locator that throws no longer escapes as an unhandled `500`: it is reported and answered with the legacy `401`.
+
+**Action for provider authors:** none unless you want the new options. If your provider can legitimately store several transactions with the same provider session id under credentials that verify each other's signatures, return a more specific locator so a single transaction matches. A provider that locates transactions only by payment id must reject candidates whose `providerSessionId` or `amount` differ from the signed notification, because a retried checkout can leave several transactions for one payment.
+
+<a id="currencies-one-base"></a>
+
+### Currencies keep exactly one base currency through undo, redo and concurrent writes
+
+- `PUT /api/currencies/currencies` with `isBase: false` on the current base currency now answers
+  `400`. To change the base, promote another currency with `isBase: true`; the previous base is
+  demoted in the same transaction.
+- Undoing a create or update that made a currency the base restores the previous base while the
+  undone currency is still the base; if another currency has become the base since, the base is left
+  unchanged. When no previous base is still live (it was deleted since, there was none, or the
+  action-log entry predates this release), the undo answers `409` and changes nothing while the
+  undone currency is still the base. Undoing a create is also refused
+  when that currency is the live base and the create did not replace a base that is still live (for
+  example, a currency promoted after it was created).
+- Undoing a currency create while active exchange rates reference it answers `409`. Delete or
+  deactivate those rates first, as `DELETE` already required.
+- Currency writes in one organization are serialized by a transaction-scoped advisory lock.
+- `seedExampleCurrencies` (used by `seedDefaults` and `mercato currencies seed`) inserts USD as
+  the base only when the organization has no live base, so re-seeding no longer adds a second base.
+
+**Action for module authors:** none unless a client clears `isBase` to change the base. Existing
+data is not repaired: list `GET /api/currencies/currencies?isBase=true` per organization. If it
+returns zero rows, promote the intended base currency. If it returns two, promote any non-base
+currency first (this demotes both), then promote the intended base. If the organization has no
+non-base currency, create one with `isBase: true` instead (this also demotes both).
+
+**Backward compatibility** (recorded here because `BACKWARD_COMPATIBILITY.md` is at its agent-context
+byte budget):
+
+- `PUT /api/currencies/currencies`: behaviour change on a previously-corrupting path. `{ isBase: false }`
+  on the base answers `400` (`currencies.errors.baseCurrencyUnset`) instead of `200` with no base left,
+  matching the rule `DELETE` already applied. Sending `isBase: false` for a non-base currency or
+  `isBase: true` for the base is unchanged. Response shapes are unchanged.
+- `currencies.currencies.create` / `update` undo: behaviour change. The `409` codes are
+  `currencies.errors.undoWouldClearBase` and `currencies.errors.undoHasRates`. Undoing an update that
+  did not change the base flag no longer rewrites `isBase`. For action-log entries written before the
+  upgrade, undoing an old update that cleared the base flag restores it only when the organization has
+  no base. Undoing a delete revives a row still flagged as base (legacy data only) as non-base when
+  another base is live. Undos that kept one base still succeed, except a create undo while active
+  exchange rates reference the currency.
+- `create` / `update` redo: redo of a create restores the logged base flag and demotes the current
+  base, recording it so the redo can be undone. Redo of an update replays `isBase` only when the
+  original update made the currency the base.
+- Command results: additive optional `base: { promoted, demotedBaseCurrencyIds }` when the command made
+  the currency the base. HTTP response bodies are unchanged.
+- The advisory lock is keyed by tenant and organization; writes in different organizations do not wait
+  for each other. No contract change.
+- Database schema, event IDs, ACL features, DI names and generated files are unchanged.
+
+### The communication-channels OAuth callback reports its result in `?oauth=`, not `?flash=` (#6402)
+
+`GET /api/communication_channels/oauth/[provider]/callback` used to redirect back to `returnUrl`
+with `?flash=<connected|error>&code=…&provider=…&channelId=…`. `?flash=` is the global
+`<FlashMessages>` message-text param, so the raw outcome rendered as a green `error`/`connected`
+toast. The outcome now travels in `?oauth=<connected|error>`; `code`, `provider` and `channelId`
+are unchanged.
+
+**Action for module/app authors:** a custom `returnUrl` page that read `flash=connected|error`
+must read `oauth` instead. The built-in **My communication channels** page is already updated.
+
+### `CrudForm` now dispatches the event handlers of `crud-form:<entityId>:fields` widgets (#6142)
+
+Field widgets (`InjectionFieldWidget`, a `fields` array plus optional `eventHandlers`) declared
+`eventHandlers` that `CrudForm` never invoked. They now run alongside component widgets, in
+priority order: `onBeforeSave` (validation and `requestHeaders`), `onSave`, `onAfterSave`,
+`transformFormData`, `transformDisplayData` and the other lifecycle events, as SPEC-041g specifies.
+Delete events do **not** fall back to a field widget's save handlers; declare
+`onBeforeDelete` / `onDelete` / `onAfterDelete` explicitly if your field widget needs them.
+
+Injected fields that target a group the host form does not declare are also placed differently.
+When the injection-table entry maps the widget with `kind: 'group'`, they render as their own card
+built from `groupLabel` / `groupDescription` / `column`. Otherwise they are appended to the last
+group that renders plain fields, never to a `kind: 'customFields'` or `bare` group, which used to
+drop them silently.
+
+**Action for module authors:** if your field widget declared `eventHandlers` that were never
+called, review them before upgrading: they now run on every save of the host form.
+
+### New `wms.inventory_profile.deleted` event (#6142)
+
+Deleting a WMS inventory profile emitted no event, so the cached `_wms` product enrichment kept
+serving the deleted profile and the product form showed it as still managed. `wms.inventoryProfiles.delete`
+now emits `wms.inventory_profile.deleted` with the same payload as `.created` / `.updated`. Undoing a
+profile create, update or delete also emits the matching event, so the caches follow undo too.
+
+**Action for module authors:** none. Subscribers bound to `wms.inventory_profile.*` now also receive
+`deleted`; check that they handle it.
+
+### Catalog product bulk-delete jobs require tenant, organization and user scope (#3826)
+
+The `catalog-product-bulk-delete` worker used to run `catalog.products.delete` with `auth: null`, so
+the command's tenant check was a no-op. `deleteCatalogProductsWithProgress`
+(`@open-mercato/core/modules/catalog/lib/bulkDelete`) now runs the command as the enqueueing user,
+bound to the job's tenant and organization, so a product from another tenant is rejected with 403.
+The bulk delete is also recorded in the action log under that user.
+
+**Action for module authors:** if you enqueue jobs on `CATALOG_PRODUCT_BULK_DELETE_QUEUE` or call
+`deleteCatalogProductsWithProgress` yourself, always pass `scope.tenantId`, `scope.organizationId`
+and `scope.userId`. A job missing any of them now fails before deleting anything instead of running
+without a tenant check. `POST /api/catalog/bulk-delete` already sends all three, so no action is
+needed if you only use the API.
+
+### Customer portal password-reset and magic-link requests now send email (#5959)
+
+`POST /api/customer_accounts/password/reset-request` and `POST /api/customer_accounts/magic-link/request`
+used to mint a single-use token and emit `customer_accounts.password_reset.requested` /
+`customer_accounts.magic_link.requested` without ever delivering it — no subscriber consumed those
+events, and the raw token was discarded. Both routes now email the link directly through `sendEmail`
+(the same path portal invitations use): password reset links to `/<orgSlug>/portal/reset-password`,
+and magic links to a new `/<orgSlug>/portal/magic-link` page that redeems the token when the user
+clicks "Sign in". Responses stay `200 { ok: true }` in every case, and the events are still emitted
+with unchanged payloads.
+
+**Action for operators:** configure an email sender (`NOTIFICATIONS_EMAIL_FROM`, `EMAIL_FROM` or
+`ADMIN_EMAIL`) and transport if portal customers should receive these messages; without one the send
+fails, is logged and reported (`customer_accounts.password_reset_email_failed` /
+`customer_accounts.magic_link_email_failed`), and the request still answers `200`.
+
+**Action for module authors:** none, unless your app wraps these two routes (an API interceptor or a
+proxy endpoint) to mint and deliver its own link alongside the call — remove that delivery, or
+customers will receive two emails per request.
+
+### Standalone apps must keep `pdfjs-dist` out of the server bundle (#6398)
+
+Production builds bundled `pdfjs-dist` into a Next server chunk, so pdfjs looked for its
+`pdf.worker.mjs` in the chunks folder, where the build never emits it. PDF text extraction and PDF
+OCR then returned nothing: uploaded PDFs kept `attachments.content = NULL`, and the OCR path logged
+`Setting up fake worker failed: Cannot find module '…/chunks/pdf.worker.mjs'`. Development
+(`yarn dev`) was not affected.
+
+The monorepo app and the `create-mercato-app` template now list `'pdfjs-dist'` in
+`serverExternalPackages`, so newly scaffolded apps are fixed.
+
+**Action for standalone app authors:** apps scaffolded before this release keep their own
+`next.config.ts`. Add the package to the existing list:
+
+```ts
+serverExternalPackages: [
+  // ...existing entries
+  'pdfjs-dist',
+],
+```
+
+Rebuild with `yarn build`, then restart the server. pdfjs caches a failed worker setup for the
+lifetime of the process.
+
+### Redoing an `auth.users.create` no longer restores the account's password
+
+Creating a user writes an audit entry, and that entry used to carry the credential twice: the
+plaintext `password` from the command input (persisted verbatim in `action_logs.command_payload`
+as the redo input) and the derived `password_hash` (persisted in the undo snapshot). Both are now
+withheld — the redo input is stored without `password`, and the undo snapshot without
+`passwordHash`.
+
+The operation itself stays fully undoable and redoable, and redo still restores the original row
+with its original id (#2506). What changes is that an account restored by **redo** comes back
+**without a credential** and must go through a password reset before it can sign in again. Undo is
+unaffected: it only deletes the row and never needed a secret.
+
+**Action for operators:** after redoing a user-create, send the account a password reset. The
+account is otherwise intact (same id, email, name, roles, organization, custom fields).
+
+**Action for module authors:** none, unless your own command takes a secret in its input. In that
+case set the new `redoInput` on the metadata your `buildLog` returns — a projection of the input
+with the secret removed — instead of marking the whole entry `replayable: false`:
+
+```ts
+buildLog: async ({ input, result }) => {
+  const { password: _secret, ...redoInput } = input
+  return { redoInput, /* …the rest of the metadata… */ }
+}
+```
+
+`replayable: false` suppresses the undo token as well, which removes the operator's ability to
+revert a write that may carry no secret of its own. Reach for `redoInput` first; keep
+`replayable: false` for the case where replaying genuinely cannot be made safe (an `auth.users.update`
+that changes a password still uses it, because restoring the previous credential would require
+storing it).
+
+### Module API routes answer a thrown `CrudHttpError` with its own status instead of `500`
+
+The `/api/[...slug]` dispatcher now maps a `CrudHttpError` that escapes a route handler onto that
+error's own status and body. Previously only handlers that caught it themselves produced the right
+answer; an uncaught one reached Next.js as an unhandled throw, and the caller saw
+`500 Internal Server Error` — so a deliberate 403/404/409 was indistinguishable from a crash.
+
+**Action for module authors:** none to make it work — a handler may now `throw forbidden()` /
+`notFound()` / `conflict()` without wiring its own `isCrudHttpError` catch. Review any code that
+treated a 500 from your route as the expected outcome of a guard; it now receives the real status.
+Routes that already catch `CrudHttpError` are unchanged.
+
+### Stripe webhook bodies over 1 MiB are rejected with `413` before they are read (#7222)
+
+`POST /api/payment_gateways/webhook/stripe` used to buffer the whole request body before verifying
+the signature, with no size limit. The Stripe webhook handler now registers a `maxBodyBytes` limit of
+1 MiB (`DEFAULT_WEBHOOK_BODY_LIMIT_BYTES`), or `OM_WEBHOOK_MAX_BODY_BYTES` when that is set lower, so
+a body over the limit, by its `Content-Length` or by the bytes actually streamed, is answered
+with `413 {"error":"Webhook payload too large"}` before signature verification or the transaction
+lookup runs.
+
+**Action for operators:** none, unless your Stripe account sends webhook events larger than 1 MiB;
+those are now refused with `413` and Stripe retries them.
+
+### `resolveAttachmentOrganizationId` is deprecated in favour of `resolveAttachmentRequestScope`
+
+`@open-mercato/core/modules/attachments/lib/requestScope` now exports
+`resolveAttachmentRequestScope(container, auth, request)`, which returns
+`{ denied, organizationId }` rather than a bare organization id. A principal whose organization
+visibility resolves to the empty set is reported as `denied`, so each route answers with the status
+its own contract documents (the file and image routes answer `404`, keeping a foreign-tenant id
+indistinguishable from a missing one).
+
+`resolveAttachmentOrganizationId` remains exported and now **throws** `forbidden()` for a denied
+scope instead of returning `null` — returning `null` there would drop the organization predicate
+entirely and read across the tenant. Migrate to `resolveAttachmentRequestScope` so the deny becomes
+a response your route chooses.
+
+### Business rule and rule set PUTs keep `enabled` / `priority` / `version` when they are omitted (#6940)
+
+`PUT /api/business_rules/rules` used to reset an omitted `enabled` to `true`, `priority` to `100` and
+`version` to `1`, and `PUT /api/business_rules/sets` reset an omitted `enabled` to `true`. The update
+schemas (`updateBusinessRuleSchema`, `createLocalizedUpdateBusinessRuleSchema`, `updateRuleSetSchema`)
+inherited the create-time defaults, so disabling a rule also reset its priority and renaming a
+disabled rule set re-enabled it. Omitted fields are now left untouched; the create schemas keep their
+defaults.
+
+- A caller that relied on omission to reset these fields must send the values explicitly.
+- Rules and rule sets already changed by a partial update are not repaired. Check `enabled` and
+  `priority` on the business rules pages and set them again where needed.
 
 ### `directory.organizations.update` keeps `parentId` / `childIds` when they are omitted
 
@@ -43,6 +1642,39 @@ in the audit log either lists `parentId` among its changes although only brandin
 edited, or — for a top-level organization that only lost its children — differs between the `before`
 and `after` `childParents` of its undo snapshot (the detached children get no log entry of their own).
 Re-assign the parent or the children on the organization edit page.
+
+### `SUB_WORKFLOW` output ports are validated against the child context before `outputMapping` (#6714)
+
+When a child workflow declares `definition.io.outputs`, a `SUB_WORKFLOW` step now validates and
+coerces the child's context against **every** declared output port first, and only then applies
+the parent step's `config.outputMapping` (`{ parentKey: childPath }`). Before, the mapped result
+was checked against the child's port names, so a renamed mapping (`renamedValue ← childValue`)
+failed with `Required port "childValue" is missing`. Both the inline completion and the resumed
+parent (`resume_subworkflow_parent`) use the new order. Children that declare no `io.outputs` are
+unaffected.
+
+- **Tightened:** declared ports the parent does not map are now validated too. A required port
+  missing from the child context, or a value that cannot be coerced to its declared type (for
+  example `"n/a"` in a `number` port), now fails the parent step with `OUTPUT_VALIDATION` where
+  the run previously completed.
+- **Relaxed:** callers no longer need to map every required child output port just for
+  validation to pass.
+
+**Action for workflow authors:** make each child satisfy its declared output-port contract, or
+remove or relax (`required: false`, a broader type) any port declaration that is not actually
+part of the child's contract.
+
+### Catalog validates its required modules during generation (#6517)
+
+Standalone apps enabling `catalog` must also enable `attachments`, `currencies`,
+`dictionaries`, `entities` and the latter's `query_index` dependency in `src/modules.ts`.
+Run `yarn generate` after updating the selection, then use the normal initialization
+and migration workflow. Incomplete selections now fail generation instead of failing
+later during Catalog setup or CRUD. Default module sets already include these modules.
+
+`sales` remains optional. Catalog's commerce demo dataset is skipped when Sales is
+disabled; Catalog defaults and ordinary product CRUD remain available. Enable Sales
+when that demo dataset is desired. See the [dependency specification](.ai/specs/2026-10-01-catalog-runtime-module-dependencies.md).
 
 ### Catalog product search now requires the `unaccent` and `pg_trgm` PostgreSQL extensions
 
@@ -73,6 +1705,181 @@ accent-insensitive predicate — in that case build it from
 A predicate that differs by so much as whitespace is still correct, but PostgreSQL will not use the
 index for it.
 
+`buildAccentInsensitivePatternSql()` is deprecated (#6465): `unaccent` folds fullwidth `％ ＿ ＼`
+into the ASCII LIKE metacharacters, so a pattern escaped with `escapeLikePattern` before that call
+regains live wildcards. Bind the **raw** search term to `buildAccentInsensitiveContainsPatternSql()`
+instead — it unaccents first, then escapes, and adds the surrounding `%`. The deprecated helper is
+unchanged and will be removed no earlier than 0.9.0.
+
+### Shipping carrier webhooks now update shipments; status sync applies forward skips
+
+Carrier webhooks were acknowledged (`202`) but never applied: `POST /api/shipping-carriers/webhook/[provider]`
+queued the job inside an extra `{ name, payload }` envelope, so the `shipping-carriers-webhook` worker found no
+provider key and returned without touching the shipment. The route now queues the job payload itself, and the
+worker still accepts the old envelope, so jobs already waiting in a queue at upgrade time are applied too.
+After upgrading, carrier webhooks start changing `carrier_shipments.unified_status` and emitting the shipment
+lifecycle events.
+
+Carriers report the current status, not every step, so `shipping_carriers` now applies a
+carrier-reported status that skips intermediate steps: from `label_created` and `picked_up` the
+shipment can move straight to `out_for_delivery`, `delivered`, `failed_delivery` or `returned`
+(previously only `picked_up` / `in_transit` / `cancelled`, and such reports were silently dropped).
+Backwards moves and moves out of `delivered` / `returned` / `cancelled` are still refused, and the
+user cancel gate is unchanged. Webhook and tracking-refresh updates now decide and write under a
+row lock, so concurrent carrier updates for one shipment cannot regress it. A user cancel
+(`POST /api/shipping-carriers/cancel`) still writes `cancelled` without that lock after the carrier call
+returns, so a `delivered` webhook committed while the cancel call is in flight can still be overwritten.
+
+`shipping_carriers.shipment.status_changed`, `.delivered` and `.returned` emitted by the webhook
+worker used to carry the raw carrier string of the **new** status in `previousStatus`. They now
+carry the unified status the shipment had before the change (as the tracking-refresh path already
+did), and gain an additive `carrierStatus` field with the raw carrier string.
+
+Every `shipping_carriers.shipment.*` event is now emitted with the shipment's tenant and organization as
+trusted event scope. Subscribers that act only on trusted scope — such as
+`warranty_claims:return-shipment-tracking`, which receives an `awaiting_return` claim when its return
+shipment is delivered — skipped these events before. Workflow and agent event triggers configured on
+`shipping_carriers.shipment.*` events need the same scope, so they also start firing after the upgrade.
+
+**Action for subscriber authors:** if a subscriber read the carrier's raw status from
+`previousStatus` on webhook-originated events, read `carrierStatus` instead. Subscribers waiting
+for `delivered` / `returned` may now receive them for shipments that never reported the
+intermediate statuses.
+
+### New `ecommerce` module (stores, storefront read API) is enabled in `apps/mercato`
+
+`apps/mercato/src/modules.ts` now enables `{ id: 'ecommerce', from: '@open-mercato/core' }`. It
+requires `catalog`, `sales`, `customer_accounts` and `customer_groups`; the `create-app` template keeps
+it off.
+
+- **Migrations.** `ecommerce` ships new tables (`ecommerce_stores` and its domain/channel binding
+  tables). `customer_groups` adds a nullable `customer_group_terms.assortment_scope` (jsonb) column;
+  `NULL` keeps today's behavior (no assortment restriction).
+- **Non-transactional index build.** `query_index`'s `Migration20261005201500_query_index` builds a GIN
+  index (`entity_indexes_catalog_product_scope_keys_gin_idx`) on `entity_indexes` with
+  `CREATE INDEX CONCURRENTLY`, outside a transaction. It does not block writes, but it can take a long
+  time on a large `entity_indexes` table. If the build is interrupted, PostgreSQL leaves an `INVALID`
+  index behind; re-running the migration drops it and builds it again.
+- **Reindex products for restricted assortments.** The storefront filters a buyer group's
+  `assortment_scope` against a new `scope_keys` key on each product's `entity_indexes` document. Products
+  indexed before the upgrade have no `scope_keys` and fail closed, so a storefront serving a group with an
+  assortment scope shows an empty catalogue until the products are reindexed. Groups without a scope are
+  unaffected. Run `yarn mercato query_index reindex --entity catalog:catalog_product` (add
+  `--tenant <tenantId>` to limit it to one tenant) after the migrations, before you set an assortment scope.
+- **New ACL features** `ecommerce.stores.view`, `ecommerce.stores.manage`, `ecommerce.branding.manage`,
+  `ecommerce.domains.manage` and `ecommerce.channels.manage`. New tenants get them from `setup.ts`;
+  existing tenants get nothing until you run `yarn mercato auth sync-role-acls`.
+- **Upgrade action `ecommerce.seed-draft-store`.** Existing organizations get one draft store, named
+  after the organization, when an admin runs the action from the upgrade banner. It does nothing when the
+  tenant already has a store. New tenants get it automatically.
+- **Additive `customerIds` on `ResolveGroupsInput` / `ResolveTermsInput`**
+  (`@open-mercato/core/modules/customer_groups/services/customerGroupsService`). When it is non-empty it
+  takes precedence over `customerId` and resolves the groups of all listed buyer identities (for example a
+  person and their company), earlier ids winning ties. Callers that pass
+  only `customerId` see no change.
+
+**Action for operators:** apply the migrations (allow time for the concurrent index build on large
+installations), run `yarn mercato auth sync-role-acls`, reindex `catalog:catalog_product` if any
+customer group will use an assortment scope, then run the "Create the default store" upgrade
+action per organization if you want a starting store. **Action for module authors:** none.
+
+### `FilterOp` gained `overlap` and `noverlap` members; `query_index` gained a doc-enrichment hook (storefront public API §3.3, §14a)
+
+`FilterOp` (`@open-mercato/shared/lib/query/types`) is now
+`'eq' | 'ne' | 'gt' | 'gte' | 'lt' | 'lte' | 'in' | 'nin' | 'like' | 'ilike' | 'exists' | 'overlap' | 'noverlap'`,
+and `WhereOps` accepts the matching `$overlap` and `$noverlap`. `overlap` means "has any of" over a multi-valued
+field: on an index-document string array it compiles to jsonb `(doc -> '<key>') ?| $n::text[]`, on a
+`cf:*` key to "any stored value is in the set", and on an array-typed base column to `&&`. Values are
+always bound as parameters. **An empty value list matches nothing** (it compiles to `false`, never to
+a dropped predicate).
+
+A second member, `noverlap` (`$noverlap`), is its negation — "has none of": on an index-document
+string array it compiles to `(jsonb_typeof(<expr>) = 'array' and not (<expr> ?| $n::text[]))`, so a
+missing, JSON-`null` or scalar key never matches; on an array-typed base column to `not (<col> && $n)`.
+An empty value list excludes nothing. It is not supported on `cf:*` keys (values are stored one row
+per value) and compiles to `false` there, so it can never widen a query.
+
+**Action for module authors:** only if your code has an exhaustive `switch (op)` over `FilterOp` that
+ends in a `never` check (or a `Record<FilterOp, …>` lookup) — add `'overlap'` and `'noverlap'` cases,
+otherwise TypeScript reports the new members as unhandled. Code that passes filters to the query
+engine needs no change.
+
+`query_index` also exposes an optional, programmatic extension point —
+`registerIndexDocEnricher({ id, entityType, keys, enrich })` from
+`@open-mercato/core/modules/query_index/lib/doc-enrichers` — that lets the module owning an entity add
+computed keys to its `entity_indexes.doc` once per indexing batch. It is registered from a module's
+`di.ts`; there is no new auto-discovered file. Entities without an enricher index exactly as before.
+An enricher that throws writes its declared keys as `null`; consumers MUST read `null` (or a missing
+key) as "not indexed". Enriched keys are kept out of `search_text` and `search_tokens`.
+
+### Search strategies can receive an index-document filter (`SearchOptions.indexDocFilter`) (storefront public API §8.2, D19)
+
+`SearchOptions` (`@open-mercato/shared/modules/search`) gained an optional `indexDocFilter` — a
+predicate over the record's `entity_indexes` row in disjunctive normal form
+(`{ anyOf: SearchIndexDocCondition[][] }`, conditions `exists` / `eq` / `overlap` / `noverlap` over
+`doc` keys and `recordIdNotIn`). A strategy that supports it ANDs it into the query that ranks, so a
+restrictive filter cannot starve the result set the way post-filtering a top-k retrieval does.
+One exception: when the `pgvector` planner uses its `ivfflat` index (default `probes = 1`), the
+predicate is still applied to the candidates of the probed list only, so a very restrictive filter can
+return fewer hits than exist — raise `ivfflat.probes` for heavily restricted buyers if that matters.
+`SearchStrategy` gained an optional `supportsIndexDocFilter` flag, and `VectorDriver` the same flag plus
+`VectorDriverQuery.filter.indexDocFilter`. The built-in `tokens` strategy and the `pgvector` driver
+support it; `fulltext` (Meilisearch), `chromadb` and `qdrant` do not. `SearchService.search` skips any
+strategy without the flag for a filtered search, and the vector and fulltext strategies return no
+results for one, so the filter fails closed rather than being ignored.
+
+**Action for module authors:** none for callers — searches without the option behave exactly as before.
+A custom `SearchStrategy` or `VectorDriver` keeps working unchanged and is simply not used for filtered
+searches; to take part in them, apply the filter inside its ranking query (`buildIndexDocFilterExists` for Kysely
+and `compileIndexDocFilterExists` for raw SQL, both from `@open-mercato/search/strategies`) and set `supportsIndexDocFilter: true`.
+
+### Catalog records an append-only price history for the EU Omnibus reference price
+
+The `catalog` module ships a new `catalog_price_history_entries` table (migration
+`Migration20261005150824_catalog`). Every create, delete, undo and redo of a tracked price, and every
+update that changes its amounts, scope or schedule, writes one row, and the Omnibus resolver reads it to present the "lowest price in the prior 30 days" (EU Price
+Indication Directive, Art. 6a). Omnibus itself stays off until a tenant enables it.
+
+- **The history is immutable.** The migration installs a `history_immutable` trigger (function
+  `catalog_price_history_prevent_modification()`) that rejects every `UPDATE` and `DELETE` on the
+  table. Any tooling that removes tenant or organization data with `DELETE` — a tenant purge, a
+  data-retention job, a test-database reset — fails on this table. Plan such purges as a table-owner
+  maintenance step (`ALTER TABLE catalog_price_history_entries DISABLE TRIGGER history_immutable`,
+  delete, re-enable); in disposable environments `TRUNCATE` still works because row triggers do not
+  fire on it.
+- **Production hardening (recommended):** grant the application role `INSERT`/`SELECT` only:
+  `REVOKE UPDATE, DELETE ON catalog_price_history_entries FROM <app_db_role>;`. The trigger is the
+  active guard until you do.
+- **Backfill before enabling.** Run `mercato catalog omnibus:backfill --tenant <tenantId>` (`--dry-run`
+  first) before turning Omnibus on. It writes one baseline row per price that has no history yet and
+  records the backfill coverage that the configuration endpoint requires before it accepts
+  `enabled: true`. Re-run it after raising `lookbackDays`.
+- **Which channels a tenant-wide run covers.** Without `--channel-id`, the backfill covers channel-less
+  prices plus the EU channels **already saved** in the Omnibus configuration. Enabling Omnibus and
+  mapping a new channel in one save is refused until that channel is backfilled. Either save the
+  channel mapping with Omnibus still off, run the backfill, then enable it; or run
+  `--channel-id <channelId>` for each channel listed in the "Backfill required" alert, then save again.
+- **Coverage is tenant-wide.** `--org <organizationId>` narrows which prices are backfilled, but such a
+  run does **not** record coverage — only a run without `--org` does, so recorded coverage always means
+  every organization of the tenant has its baselines.
+- **Only public prices are tracked.** Prices scoped to a customer, customer group, user or user group,
+  and quantity-tier prices (`minQuantity > 1`), are never recorded and never feed the public
+  reference; the backfill reports them as `skippedUntracked`.
+
+**Action for operators:** apply the migration, run the backfill, then enable Omnibus per tenant; add
+the `REVOKE` to your production deploy runbook and review any purge tooling that deletes from
+catalog tables.
+
+### Translation entries accept field keys up to 400 characters
+
+`PUT /api/translations/:entityType/:entityId` (`translationBodySchema` in
+`@open-mercato/core/modules/translations/data/validators`) now accepts field keys of up to 400
+characters, up from 100, so catalog option-schema labels can be translated under dotted keys such as
+`options.<optionCode>.choices.<choiceCode>.label`. Payloads that were valid before stay valid.
+
+**Action for module authors:** none, unless you mirror this limit in your own validation — raise it to
+400 to accept the same keys.
+
 ### OpenAI-compatible presets call Chat Completions by default (#4638)
 
 `createOpenAICompatibleProvider(preset)`
@@ -91,6 +1898,54 @@ and its provider-executed tools such as `web_search`.
 uses Chat Completions. If its backend implements the Responses API and you rely on it, add
 `apiMode: 'responses'` to the preset.
 
+### Customers calendar event-type extension contract (#6684)
+
+Customers now exposes the scoped `GET /api/customers/activity-types` catalog and the additive `calendar:customers.event-types` headless widget spot. Modules can use widget `eventTypeOverrides` and `eventTypePatches` payloads to replace, patch, or hide event types, and use the Customers-owned `calendarEventTypeRegistry` service for process-local contributions. React panels use the new `section:customers.calendar-event-editor.type-panel` UMES handle. The six existing keys and persisted `interactionType` values remain unchanged; the existing `KIND_CONFIG`, `EDITOR_KINDS`, `EditorKindConfig`, and `editorKindOfInteractionType()` exports remain available.
+
+**Action for module authors:** declare new types in an ordinary `widgets/injection/<name>/widget.ts` mapped through `widgets/injection-table.ts`, then run `yarn generate`. No calendar-specific convention file or generated registry is supported. A custom panel must receive the versioned capability-only props and leave submission with the host `CrudForm`. A type-specific widget must check its own selected type and keep an authoritative server rule for direct API writes. Shared form components, widget metadata, and the override dispatcher have no calendar-specific contracts. Calendar-picker writes opt into scoped selectability and applicable-field enforcement with `enforceSelectableType: true`; ordinary existing `POST`/`PUT /api/customers/interactions` callers retain their previous acceptance of hidden/arbitrary keys and same-type fields, including explicit `null` clears of fields the type hides and custom-field values outside its fieldsets. Type-change confirmation is part of the same opt-in: a caller that sends `enforceSelectableType: true` and would clear values must handle the typed `calendar_type_change_confirmation_required` 409 and retry with `confirmDiscardInapplicableValues: true` after user confirmation, while a caller without the flag keeps the pre-catalog behavior exactly — the switch succeeds, only the fields it sent are written, and nothing stored is cleared, even when the new type cannot display it (a Meeting switched to a Note keeps its duration, location and participants, as it did before this release). Stored values are cleared only when a request sends `confirmDiscardInapplicableValues: true`. Judging a type change on the merged stored row would otherwise reject switches legacy clients (the schedule dialog, the deal composer, the kanban quick actions) have always been able to make, because they send partial payloads. One narrowing applies to every caller regardless of the flag: on a same-type edit of a type that has no resources field, a `linkedEntities` payload cannot remove stored `resource` links — they are retained so a partial payload never releases a booking it did not mean to. Existing interactions retain their exact stored keys and can use the historical fallback when a contributor is disabled.
+
+`GET /api/customers/dictionaries/activity-types` is now scoped to the selected organization plus its ancestors, matching the effective catalog. It no longer returns entries from readable sibling organizations; callers that intentionally inspect another organization must select that organization explicitly.
+
+The optional `example` module demonstrates a fixed-behavior `visit` type. Its Meeting label patch requires `OM_EXAMPLE_CALENDAR_DEMO_OVERRIDES=true`; Example preserves every built-in type with either flag value. Missing Staff, Resources, or Planner modules show a warning and skip only the absent integration checks. Visit names each unavailable subject and distinguishes working-hour failures from scoped overlapping bookings of any Customers event type, including recurrence; editing excludes the current interaction. An empty custom-fieldset configuration preserves existing interaction custom-field writes. See the [calendar event-type guide](apps/docs/docs/framework/modules/calendar-event-types.mdx) and the [source specification PR](https://github.com/open-mercato/open-mercato/pull/6687).
+
+### Planner availability replace endpoints honour the declared `timezone`; unresolvable zones are deprecated (#5868)
+
+`POST /api/planner/availability-weekly` and `POST /api/planner/availability-date-specific` used
+to build every `DTSTART` with the host process's local clock and ignore the required
+`timezone` field (#5862). They now anchor each wall-clock time in the declared IANA zone, so
+for a non-UTC zone the stored instant moves by that zone's offset. Rows written before the
+upgrade are not re-anchored; they stay offset from newly written rows until they are replaced.
+On DST days a wall time the zone skips moves forward by the gap, a repeated one takes its
+earlier occurrence, and a full-day block spans local midnight to the next local midnight (23
+or 25 hours instead of a fixed 24).
+
+A recurring window now keeps its local end time on DST days. The weekly save anchors each
+window on a week whose exact length matches the requested local length (the previous week
+when the upcoming one spans a transition), so `DURATION` is always the local length. The
+zone-aware expander (`getMergedAvailabilityWindows` with `respectTimezone`) now ends each
+occurrence at its local end time instead of adding `DURATION` as an exact span. Existing
+weekly and daily rows are therefore 1 hour shorter or longer on DST-transition days only:
+Sunday 00:00–08:00 in `Europe/Warsaw` ends at 08:00 local on every Sunday, rather than at
+09:00 on the spring-forward Sunday and at 07:00 on the fallback Sunday.
+
+Saving the weekly schedule replaces every weekly row, so legacy weekly rows go away on the next
+save. A date-specific save only replaces rows whose start falls on the saved date *in the
+rule's own zone*, and a legacy row can fall on the neighbouring day there — a full-day block in a
+negative-offset zone such as `America/New_York` (stored `T000000Z`, which is the previous day
+locally), or a late window in a large positive-offset zone such as `Pacific/Auckland`. Re-saving
+the intended date then leaves the legacy row in place on the adjacent date; clear it there.
+
+Because `timezone` now decides the stored instant, a value the runtime cannot resolve (a typo
+such as `Europe/Warszawa`, or `UTC+2`) is anchored to UTC and logged as a `[deprecated]`
+warning. The request schemas (`plannerAvailabilityWeeklyReplaceSchema`,
+`plannerAvailabilityDateSpecificReplaceSchema`) still accept it for now, so the request
+contract is unchanged. A future minor release will reject it with `400`.
+
+**Action for API callers:** send a valid IANA zone name (anything `Intl.DateTimeFormat`
+accepts, e.g. `Europe/Warsaw`, `UTC`, `Etc/GMT+2`). Look for
+`Unresolvable availability timezone` warnings in the `planner` logs to find callers that will
+start failing.
+
 ### `reviveSnapshotSeed` throws on an unparsable snapshot date; `extractUndoPayload` can revive dates (#6336)
 
 `reviveSnapshotSeed` (`@open-mercato/shared/lib/commands/redo`) now delegates to the new
@@ -103,6 +1958,21 @@ round-trip through `jsonb`, so `Date` fields come back as ISO strings; pass
 `{ datePaths: ['before.<entity>.<field>'] }` (exact paths) or `{ dateFields: ['<field>'] }`
 (key name at any depth) before assigning snapshot dates to entities. Without options the
 payload is returned unchanged.
+
+### Gmail adapter no longer reads OAuth client config from `credentials._client`
+
+`GmailChannelAdapter.refreshCredentials` previously fell back to
+`credentials._client` (with a one-time deprecation warning) when
+`RefreshCredentialsInput.oauthClient` was absent. That legacy path is **removed**.
+
+**Action:** any custom caller or test fixture that refreshed Gmail tokens without
+`oauthClient` must pass `oauthClient: { clientId, clientSecret, scopes? }` —
+the same shape the `communication_channels` hub already supplies from the
+tenant-scoped `channel_gmail` integration credentials. A missing `oauthClient`
+now throws; a smuggled `_client` key on the per-user credentials blob is ignored.
+
+See #3828 and
+[`BACKWARD_COMPATIBILITY.md`](BACKWARD_COMPATIBILITY.md) (`RefreshCredentialsInput`).
 
 ### `loadDictionary` now lets a host app's own locale file override a module-defined translation key (#5995)
 
@@ -304,6 +2174,31 @@ in create mode and renders its empty state. The bridge also keeps the shipped `e
 `example.injection.customer-priority-field` field widget rendering on this page exactly as before,
 via the dual-published `:fields` child.
 
+### The CLI dispatcher answers `--help`/`-h` for module commands (#5581)
+
+Asking the `mercato` CLI what a command's flags are used to run the command. `mercato db generate --help` performed a full migration generation, `mercato db migrate --help` applied every pending migration, and in a checkout without `.env` any invocation — help included — silently materialized `.env` from `.env.example` against that file's placeholder `DATABASE_URL`. Help is now a no-op that prints usage: the dispatcher intercepts `--help`/`-h` before calling a command's `run()`, and the `.env` bootstrap is skipped for any help invocation.
+
+For a first-party command this is invisible, and no command or flag was renamed or removed. The actionable change is for **out-of-tree modules**: a `ModuleCli` whose `run()` parses `-h` or `--help` itself — a `-h` host shorthand is the obvious case — no longer receives that flag, because the dispatcher answers it first. `-h` meaning help is the overwhelming CLI convention, so it is the new default, but a command that means something else by it needs to say so.
+
+**Action for module authors:** if one of your CLI descriptors parses `-h`/`--help` in its own `run()`, set `handlesHelp: true` on that descriptor and the dispatcher will forward the flag through unchanged:
+
+```typescript
+import type { ModuleCli } from '@open-mercato/shared/modules/registry'
+
+const cli: ModuleCli[] = [
+  {
+    command: 'sync',
+    // The dispatcher forwards --help/-h to run() instead of intercepting it.
+    handlesHelp: true,
+    run: async (argv) => { /* parses -h itself */ },
+  },
+]
+```
+
+Setting `handlesHelp: true` moves the no-op guarantee onto your command: the dispatcher stops standing between the flag and your `run()`, so your handler must answer it before doing any work — including when it follows a subcommand (`mercato mymod cache purge --help`). Check the whole argument list, not just the first position, or a help request executes the very path it was asking about.
+
+Every other descriptor needs no change. Two optional fields were added to `ModuleCli` (`packages/shared/src/modules/registry.ts`), so existing descriptors still typecheck untouched — an ADDITIVE-ONLY change under [`BACKWARD_COMPATIBILITY.md`](BACKWARD_COMPATIBILITY.md) § 13. The companion field `help?: string` is purely opt-in: set it to the usage text the dispatcher should print under `Usage: mercato <module> <command> [args]`, and omit it to get the generic usage line plus the module's command list.
+
 ### An explicit OTLP telemetry backend now fails startup when OpenTelemetry is not installed (#5799)
 
 Only relevant if `TELEMETRY_BACKEND` is set to `otlp`, `signoz`, or `newrelic`. `initTelemetry()`
@@ -368,6 +2263,101 @@ that runs a diagnostic OpenTelemetry Collector. Before this change the `app` con
 these variables, so if your `.env` already sets `TELEMETRY_BACKEND` to an enabled backend,
 telemetry now starts inside the container. Check that value before upgrading. See
 [`apps/docs/docs/framework/runtime/telemetry.mdx`](apps/docs/docs/framework/runtime/telemetry.mdx).
+
+### The SSE event stream rejects API keys and closes connections after a bounded lifetime
+
+`GET /api/events/stream` (the DOM Event Bridge) now accepts staff cookie and Bearer authentication
+only. A request carrying `x-api-key`, `Authorization: ApiKey …`, or one that resolves to an API-key
+principal is answered `401` before the stream opens.
+
+Every open stream also re-resolves the caller's auth and organization scope from the original
+request credentials on an interval, and closes fail-closed when the scope is rejected, validation
+fails, or the user, tenant, selected organization, or roles change. Independently of that, each
+stream is closed after a maximum age so the browser reconnects through fresh authorization. The
+age is jittered by ±15% per connection so clients do not reconnect in synchronized waves.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `OM_EVENTS_SSE_AUTH_REVALIDATION_INTERVAL_MS` | `30000` | How often an open stream re-checks auth and organization scope |
+| `OM_EVENTS_SSE_CONNECTION_MAX_AGE_MS` | `300000` (5 min) | Base maximum lifetime of one stream before the server closes it (±15% jitter) |
+
+Both take positive integer milliseconds. Values below `1000`, non-numeric values, and `Infinity`
+fall back to the default; values above Node's timer maximum (`2147483647`) are capped there.
+
+**Action for integrators:** a server-side consumer that subscribed to the stream with an API key
+must switch to webhooks (or another server-to-server channel). Any non-browser client must expect
+the server to close the stream periodically and reconnect; the shipped browser bridge already does.
+
+**Action for operators:** expect one reconnect per open browser tab roughly every 4¼–5¾ minutes
+with the default max age, and one canonical auth lookup per stream every revalidation interval.
+Tune both variables if connection-level monitoring or database load requires it.
+
+### An explicitly empty organization scope now denies access everywhere
+
+When a principal's organization scope resolves to an explicitly empty set (`filterIds: []` or
+`allowedIds: []` — e.g. a user whose organization visibility list was cleared, or whose only
+organizations were deleted), every module now treats it as deny-all instead of widening it back to
+the home organization. CRUD list routes return an empty page, and routes that need a single
+organization (`resolveSingleOrganizationIdOrDeny`) answer `403`.
+
+**Action for operators:** a user who suddenly sees empty lists or `403` responses after the upgrade
+has no organization visibility; grant the intended organizations in the user's access settings.
+
+**Action for module authors:** resolve an organization through `resolveSingleOrganizationIdOrDeny`
+(or `isExplicitlyEmptyOrganizationScope` when the route must answer its own not-found), and let a
+thrown `CrudHttpError` propagate — or map it with `isCrudHttpError` — instead of turning it into a
+`500` in a generic `catch`.
+
+### Progress APIs follow the selected organization
+
+`/api/progress/*` now resolves scope through the same organization switcher as other modules. With
+a specific organization selected, the progress bar and job lists show only that organization's
+jobs; with **All organizations** selected, an unrestricted user sees every job in the tenant, and a
+new job is stored against the caller's home organization. A user with finite access and no single
+organization selected cannot create a tenant-wide job (`403`).
+
+**Action:** none. Users who expected to see jobs from other organizations in the top bar should
+switch to **All organizations**.
+
+### API interceptors match the dispatcher's canonical route identity
+
+Interceptor `targetRoute` matching now uses the route the `/api/[...slug]` dispatcher actually
+matched (authored static segments plus matched params) instead of re-parsing the caller-controlled
+URL, so case or percent-encoding aliases (`/api/EXAMPLE/todos`, `/api/%65xample/todos`) can no
+longer bypass an interceptor.
+
+- A path with a malformed percent escape fails route matching and is answered `404` before the
+  handler runs.
+- A request that carries a forged, unknown, or evicted `x-open-mercato-route-identity` header is
+  answered `400` by interceptor-aware routes instead of falling back to URL-based matching.
+
+**Action for integrators:** fix clients that send malformed percent-encoded paths, and never set
+`x-open-mercato-route-identity` yourself — it is internal. Proxies that strip or rewrite unknown
+headers are unaffected because the dispatcher sets it per request.
+
+### Run the encryption-map uniqueness migration before serving writes
+
+`Migration20261004120000_encryption_map_scope_uniqueness` (module `entities`) soft-deletes
+duplicate live encryption maps per `(entity_id, tenant_id, organization_id)` and creates the unique
+index `encryption_maps_entity_scope_live_unique`. Saving an encryption map now uses
+`INSERT … ON CONFLICT` on that index, which PostgreSQL rejects when the index does not exist.
+
+**Action for operators:** run `yarn db:migrate` (or your deployment's migration step) **before** the
+new application version serves traffic. Until it has run, saving an encryption map in the admin UI
+or through `upsertCanonicalEncryptionMap` fails. Rolling deploys that start new pods before
+migrating must migrate first.
+
+### Timesheet undos respect the closed-report lock (#7507)
+
+A time entry a closed report has locked (`locked_report_id` set) already refused forward
+writes with `409 time_entry_locked`. Undoing an earlier `staff.timesheets.time_entries.create`,
+`.start_timer` or `.update`, or an earlier `staff.timesheets.tags.assign_entry` /
+`.unassign_entry`, through `POST /api/audit_logs/audit-logs/actions/undo` used to remove or
+rewrite that entry, or change its tags, anyway. These undos now answer with the same
+`409 { "code": "time_entry_locked", "error": "<localized message>", "lockedReportId": "…" }`
+and change nothing; undoing a `.delete` runs the same check as a precaution. Unlock the report
+first; the same undo then works again. No schema, route or permission changes. Undoing a tag
+delete is not covered by this change.
 
 ## 0.7.0 → 0.8.0 (2026-09-18)
 
@@ -512,6 +2502,40 @@ fallback path). Downstream code that assumed a non-null team-member id must bran
 **Existing tenants:** default CRM roles now include `auth.users.list` so owner pickers work without
 the `staff` module. Run `yarn mercato auth sync-role-acls` (or your app's equivalent) so existing
 admin/employee roles pick up the grant.
+
+### WMS `wms.inventory.reserve` excludes staging/dock balances
+
+`wms.inventory.reserve` (and sales-order reservation automation that feeds it) no longer treats
+inventory sitting on `staging` or `dock` locations as reservable pick candidates. Those locations
+hold inbound stock until putaway completes; reserving them blocked putaway and overstated Available
+in sales/WMS widgets.
+
+When only staging/dock quantity remains for a variant, reserve returns the same `409` body as a true
+shortage: `{ error: 'insufficient_stock' }`. Callers that previously reserved straight off receive
+staging must either wait for putaway into storage (or another reservable location type) or retype
+stock into a reservable location before calling reserve.
+
+**Action for module authors:** treat `insufficient_stock` after inbound receive as a possible
+"not yet put away" signal when balances still sit on staging/dock; do not assume every on-hand qty
+is reservable.
+
+### WMS custom POST routes honor body `organizationId` when allowed
+
+`executeWmsCustomPostRoute` (shared by WMS inventory/ASN/putaway custom write routes such as
+`POST /api/wms/inventory/receive`, ASN receive/complete, putaway complete/assign/…) used to
+**silently overwrite** request-body `organizationId` with the session-selected / auth org.
+Multi-org callers that sent a different allowed org therefore mutated the selected org instead.
+
+It now:
+- passes through body `organizationId` when present and validates it with `ensureOrganizationScope`
+  (allowed org ids / Pattern C) — disallowed orgs return `403`
+- defaults to the session-selected / auth org only when the body omits `organizationId`
+- still always takes `tenantId` from auth (never from the body)
+
+**Action for module authors:** if a client relied on the old overwrite (sending org B while
+expecting writes in selected org A), stop sending `organizationId` or send org A explicitly.
+Barcode scan resolve/receive/putaway routes keep their session-only resolve policy and still
+force session org onto the body before this helper runs.
 
 ### `Locale` is now derived from an augmentable `LocaleRegistry` (no action required)
 
@@ -948,6 +2972,19 @@ The query object is now built by `buildQueryParams` from `@open-mercato/shared/l
 
 **Action for module authors:** audit your own list-route schemas for filter params that clients may repeat. Where a param is genuinely multi-valued, widen it to `z.union([z.string(), z.array(z.string())])` (or `z.array(z.string())`) and normalize it with `toQueryValueList`. Where it is genuinely single-valued, no change is needed — a repeated occurrence should be rejected. No route URL, HTTP method, response field, `makeCrudRoute` signature, options type, or database column changes, so `BACKWARD_COMPATIBILITY.md` §2, §3 and §7 are not violated.
 
+### `columnChooserGroup` / `filterGroup` are resolved as translation keys when they look like one (#5924)
+
+The column chooser (`ColumnChooserPanel`) and the advanced-filter field picker (`FilterFieldPicker`) used to render a column's declared group string verbatim. Both now run it through `resolveGroupLabel` from `@open-mercato/ui/backend/utils/groupLabels`, so a group that is *shaped like a translation key* — dot-separated, no whitespace, e.g. `customers.columnGroups.crm` — is looked up in the active dictionary and falls back to the raw string when no key is registered. The bundled customers pages now declare their 12 group labels this way and ship them translated in `en`, `pl`, `de`, `es` and `ko`.
+
+**This is opt-in and additive for module authors.** A group string that is not key-shaped (`'Contact'`, `'Basic Info'`, and every plain-English label third-party modules pass today) renders exactly as before. To localize your own groups, declare the group as a dotted key and register it in your module's locale files.
+
+**Two behavior changes to be aware of.**
+
+- **Group *identity* no longer depends on the active locale.** Fields and columns that declare no group are collected under an internal sentinel (`UNGROUPED_GROUP_ID`) and only translated at render time; previously the translated fallback label itself was the grouping key. A column or filter field that explicitly declares the literal group `'Other'` (column chooser) or `'More'` (field picker) therefore no longer merges into the ungrouped bucket under `en` — it renders as its own group in every locale, which is what it already did in every non-English locale. If you were relying on that English-only merge, drop the explicit group instead.
+- **Tenant-authored group titles are never treated as keys.** Custom-field fieldset titles reach the column chooser through `useAutoDiscoveredFields`, and those are free text a tenant types into the product. The key-shape gate is what keeps a tenant who happens to type a dotted string from having their label silently replaced by a dictionary value.
+
+**One limitation, stated plainly:** the 12 `customers.columnGroups.*` keys this ships are defined by the `customers` module dictionary, and `loadDictionary` (`packages/shared/src/lib/i18n/server.ts`) merges module dictionaries **over** the host app's `src/i18n/<locale>.json`. Adding those keys to your app locale file therefore does **not** override them. Overriding a module-owned key from an app dictionary is not supported today; only keys no module defines — such as the new `ui.advancedFilter.fieldPicker.ungrouped` — are host-overridable.
+
 ### `PortalShell`'s `authenticated={false}` no longer overrides a signed-in portal context (#5678)
 
 `PortalShell` from `@open-mercato/ui/portal/PortalShell` resolved its chrome with `authenticatedProp ?? !!user`, so an explicit `authenticated={false}` won even when the `PortalProvider` above it held a real customer. That was not a safe default: the `(frontend)` layout that supplies the prop sits above the `[...slug]` segment precisely so portal navigation does not remount the client subtree, which means a client-side navigation never re-runs it and the prop can describe the route the visitor *arrived* on rather than the one being rendered. Entering the portal at `/{orgSlug}/portal` and following its `router.replace` to the dashboard left `false` in place, and the shell painted the logged-out header — Log In / Sign Up, no sidebar, and `enableEventBridge={false}` so the portal SSE bridge never mounted — around fully authenticated content.
@@ -1006,6 +3043,29 @@ Module dependency check failed:
 ```
 
 **Action for module authors:** add `{ id: 'progress', from: '@open-mercato/core' }` to `src/modules.ts` before `communication_channels`, then re-run `yarn generate`. `apps/mercato/src/modules.ts`, the `create-app` template's `modules.ts` (used unchanged by the `classic` preset), and the `crm` starter preset (the only other preset that enables `communication_channels`) all enable `progress` too, so this repo's own apps and freshly scaffolded apps are unaffected.
+
+### `sales_order_lines.discount_amount` can be negative on `external` rows (sales external amounts mode)
+
+Sales orders gained an opt-in, persisted `external` amounts mode: `sales_orders.totals_mode` and
+`sales_order_lines.amounts_mode`, both defaulting to `'computed'`. On a row a caller explicitly opted in,
+core stores the supplied net, gross and tax verbatim and derives `discount_amount` as
+`unit_price_net × quantity − total_net_amount` — which is **signed**, so a line whose net is above its
+undiscounted subtotal (upward source rounding, a surcharge priced into the line) stores a negative
+discount. See [`.ai/specs/2026-09-07-sales-external-amounts-mode.md`](.ai/specs/2026-09-07-sales-external-amounts-mode.md).
+
+**Action for module and report authors:** if you read `sales_order_lines.discount_amount` and assumed it
+was non-negative — clamping, `SUM()`-ing it as a positive discount total, or rendering it without a sign —
+decide explicitly what an external row should do. Only rows a caller opted in can be negative, so a
+deployment that never sets the mode is unaffected. A report that sums the column across mixed rows
+understates the discount total rather than failing.
+
+### `GET /api/sales/orders` and `/api/sales/order-lines` gained one field each
+
+Order responses now carry `totalsMode` and order-line responses carry `amounts_mode`, both
+`'computed' | 'external'`. Additive; no field was removed or renamed.
+
+**Action for API consumers:** only relevant if you validate these responses against a strict (no
+additional properties) schema. Add the field or relax the schema.
 
 ## 0.6.7 → 0.7.0 (2026-08-26)
 
@@ -1565,6 +3625,16 @@ Two related changes:
 - **The worker dispatches persistent subscribers only.** It used to select by exact event name and run *every* subscriber registered under it. That difference is invisible on the normal path - with single-delivery on, ephemeral subscribers have already run inline - but one combination changes: an enqueue-only emit (`{ persistent: true, deliverInline: false }`) with `OM_EVENTS_SINGLE_DELIVERY=false` skips inline delivery entirely, so an *ephemeral* subscriber registered on that exact event name no longer runs at all. `packages/events/AGENTS.md` already restricts enqueue-only to events whose subscribers are all `persistent: true`, so a conforming caller is unaffected; if you carry that combination, mark the subscriber `persistent: true` or drop `deliverInline: false`.
 
 **Action for downstream:** none for delivery semantics - `OM_EVENTS_SINGLE_DELIVERY` is read exactly as before. Custom `EventBus` implementations must add `dispatchQueued`; the worker's exported `clearListenerCache()` is now a deprecated no-op and will be removed in a later release. If you carry a local patch swapping the worker's `getCliModules()` for `getModules()`, remove it - `patch-package` will fail to apply against this release.
+
+### Normalized inbound message timestamps may be null
+
+`NormalizedInboundMessage.timestamp` keeps its existing name but now has type `Date | null`. Channel adapters should return the best meaningful message timestamp available from the provider and return `null` when no such value exists. They must not substitute local normalization time.
+
+Existing adapters that always return `Date` remain valid. Consumers of normalized inbound messages must handle `null` explicitly. Gmail and IMAP preserve the current provider receipt-time precedence (#6095), then use a valid MIME `Date` no more than one day ahead, then a legacy fallback, and finally `null`. Internal inbound compose preserves an explicit null `sentAt`; ordinary composed messages that omit it still receive the current send time. Public requests cannot set this server-owned field.
+
+Adapters may additionally return the optional `NormalizedInboundMessage.providerTimestamp` when the provider exposes a distinct native transport or storage time. The communication hub persists that value in `ExternalMessage.providerTimestamp`; it never reclassifies the canonical `timestamp` as provider-native time. Gmail and IMAP populate this field from `internalDate` and `INTERNALDATE`, respectively. See `.ai/specs/2026-08-21-normalized-inbound-message-timestamp-contract.md` for the provenance and compatibility contract.
+
+`ThreadMatchInput.receivedAt` is deprecated and ignored by the matcher, but remains available as an optional field for backward compatibility. Callers may remove it immediately; the field will remain for at least one minor release before removal under the standard deprecation protocol.
 
 ### Query index reindex now fails when a batch loses records
 

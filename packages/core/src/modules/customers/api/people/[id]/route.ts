@@ -1,8 +1,10 @@
+import { enrichCustomerDetailResponse } from '../../../lib/detailResponseEnrichment'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { isExplicitlyEmptyOrganizationScope } from '@open-mercato/shared/lib/auth/organizationScope'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import {
   CustomerEntity,
@@ -506,6 +508,17 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
       return notFound('Person not found')
     }
 
+    // An explicitly empty organization scope is deny-all: the caller can see no
+    // organization, so every person is not-found. Answering here keeps the #5504
+    // existence-oracle collapse intact (a foreign-org id and a non-existent id
+    // stay indistinguishable) and keeps the deny from escaping as an unhandled
+    // throw — this handler re-raises, so a thrown 403 would surface as a 500.
+    if (isExplicitlyEmptyOrganizationScope(scope)) {
+      statusCode = 404
+      profileMeta = { reason: 'organization_scope_empty' }
+      return notFound('Person not found')
+    }
+
     const person = await findOneWithDecryption(
       em,
       CustomerEntity,
@@ -513,7 +526,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
       {},
       {
         tenantId: scope?.tenantId ?? auth.tenantId ?? null,
-        organizationId: scope?.selectedId ?? auth.orgId ?? null,
+        organizationId: (scope?.selectedId ?? auth.orgId) ?? null,
       },
     )
     profiler.mark('person_loaded', { found: !!person })
@@ -551,7 +564,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
           tenantId: personDetailTenantId,
           organizationId: personDetailOrganizationId,
           callerId: auth.sub ?? null,
-          selectedOrganizationId: scope?.selectedId ?? auth.orgId ?? null,
+          selectedOrganizationId: (scope?.selectedId ?? auth.orgId) ?? null,
           scopedOrganizationIds: Array.isArray(scope?.filterIds) ? scope.filterIds : [],
           interactionMode,
           includeTokens: Array.from(includeTokens),
@@ -567,7 +580,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
         statusCode = 200
         profileMeta = { cacheHit: true, include: Array.from(includeTokens), interactionMode }
         profiler.mark('cache_hit')
-        return NextResponse.json(cached)
+        return NextResponse.json(await enrichCustomerDetailResponse(cached as Record<string, unknown>, 'person', { auth, container, em, tenantId: personDetailTenantId, organizationId: personDetailOrganizationId }))
       }
     }
 
@@ -656,7 +669,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
           em,
           container,
           auth,
-          selectedOrganizationId: scope?.selectedId ?? auth.orgId ?? null,
+          selectedOrganizationId: (scope?.selectedId ?? auth.orgId) ?? null,
           interactions: canonicalActiveInteractions,
           enrich: includeInteractions,
         })
@@ -679,7 +692,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
           em,
           container,
           auth,
-          selectedOrganizationId: scope?.selectedId ?? auth.orgId ?? null,
+          selectedOrganizationId: (scope?.selectedId ?? auth.orgId) ?? null,
           interactions: await findWithDecryption(
             em,
             CustomerInteraction,
@@ -758,7 +771,10 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
     if (viewerUserId) authorIds.add(viewerUserId)
 
     if (authorIds.size) {
-      const users = await findWithDecryption(em, User, { id: { $in: Array.from(authorIds) } }, {}, { tenantId: person.tenantId ?? auth.tenantId ?? null, organizationId: person.organizationId ?? auth.orgId ?? null })
+      const users = await findWithDecryption(em, User, {
+        id: { $in: Array.from(authorIds) },
+        tenantId: person.tenantId,
+      }, {}, { tenantId: person.tenantId, organizationId: person.organizationId })
       userMap = new Map(
         users.map((user) => [
           user.id,
@@ -1122,7 +1138,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
       } catch {}
     }
 
-    const response = NextResponse.json(payload)
+    const response = NextResponse.json(await enrichCustomerDetailResponse(payload, 'person', { auth, container, em, tenantId: personDetailTenantId, organizationId: personDetailOrganizationId }))
     statusCode = 200
     profileMeta = {
       include: Array.from(includeTokens),

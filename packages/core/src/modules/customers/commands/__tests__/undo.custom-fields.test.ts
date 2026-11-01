@@ -30,6 +30,12 @@ import {
   CustomerTodoLink,
 } from '../../data/entities'
 import { CustomFieldDef } from '@open-mercato/core/modules/entities/data/entities'
+import { User } from '@open-mercato/core/modules/auth/data/entities'
+import {
+  registerCoreInjectionTables,
+  registerCoreInjectionWidgets,
+  registerEnabledModuleIds,
+} from '@open-mercato/shared/modules/widgets/injection-loader'
 // Todo type removed - example package no longer exists
 type Todo = {
   id: string
@@ -100,6 +106,8 @@ function createMockContext(deps: {
           return em
         case 'dataEngine':
           return engine
+        case 'organizationHierarchyService':
+          return { resolveAncestorIds: async () => [] }
         default:
           throw new Error(`Unexpected dependency: ${token}`)
       }
@@ -121,6 +129,11 @@ function createMockContext(deps: {
 }
 
 describe('customers commands undo custom fields', () => {
+  beforeAll(() => {
+    registerCoreInjectionWidgets([])
+    registerCoreInjectionTables([])
+    registerEnabledModuleIds(['customers'])
+  })
   afterEach(() => {
     jest.clearAllMocks()
   })
@@ -728,6 +741,9 @@ describe('customers commands undo custom fields', () => {
             deletedAt: null,
           } as any
         }
+        if (ctor === User && where.id === 'user-1' && where.tenantId === 'tenant-1' && (where.organizationId === undefined || where.organizationId === 'org-1') && (where.deletedAt === undefined || where.deletedAt === null)) {
+          return { id: 'user-1', tenantId: 'tenant-1', organizationId: 'org-1', deletedAt: null }
+        }
         return null
       }),
       create: jest.fn((_ctor, data) => data),
@@ -1128,6 +1144,9 @@ describe('customers commands undo custom fields', () => {
     const findOne = jest.fn(async (ctor, where: any) => {
       if (ctor === CustomerEntity && where.id === entity.id) return entity
       if (ctor === CustomerInteraction && where.id === 'todo-1') return null
+      if (ctor === User && where.id === 'user-1' && where.tenantId === 'tenant-1' && (where.organizationId === undefined || where.organizationId === 'org-1') && (where.deletedAt === undefined || where.deletedAt === null)) {
+        return { id: 'user-1', tenantId: 'tenant-1', organizationId: 'org-1', deletedAt: null }
+      }
       return null
     })
 

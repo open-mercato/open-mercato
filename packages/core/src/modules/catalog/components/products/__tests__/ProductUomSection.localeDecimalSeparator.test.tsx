@@ -16,7 +16,7 @@
  */
 import * as React from 'react'
 import { render, screen, fireEvent } from '@testing-library/react'
-import { BASE_INITIAL_VALUES } from '../productForm'
+import { BASE_INITIAL_VALUES, type ProductFormValues } from '../productForm'
 
 jest.mock('lucide-react', () => {
   const IconStub = () => null
@@ -36,7 +36,7 @@ jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
 }))
 
 jest.mock('../hooks/useUnitPriceDisplayEnabled', () => ({
-  useUnitPriceDisplayEnabled: () => ({ enabled: false, isLoading: false }),
+  useUnitPriceDisplayEnabled: () => ({ enabled: true, isLoading: false }),
 }))
 
 import { ProductUomSection } from '../ProductUomSection'
@@ -51,10 +51,10 @@ function typeSequentially(input: HTMLInputElement, text: string) {
   }
 }
 
-function renderSection() {
+function renderSection(overrides: Partial<ProductFormValues> = {}) {
   const setValue = jest.fn()
   function Harness() {
-    const [values, setValues] = React.useState(BASE_INITIAL_VALUES)
+    const [values, setValues] = React.useState({ ...BASE_INITIAL_VALUES, ...overrides })
     const handleSetValue = (id: string, next: unknown) => {
       setValue(id, next)
       setValues((current) => ({ ...current, [id]: next }))
@@ -71,8 +71,6 @@ describe('ProductUomSection locale decimal separator (issue #5828)', () => {
     const input = document.getElementById(
       'catalog-product-uom-default-sales-quantity',
     ) as HTMLInputElement
-    // The field defaults to "1" — continue typing from there rather than clearing first, since
-    // this component intentionally falls back to "1" whenever the field is empty.
     expect(input.value).toBe('1')
     typeSequentially(input, ',25')
     expect(input.value).toBe('1,25')
@@ -93,9 +91,44 @@ describe('ProductUomSection locale decimal separator (issue #5828)', () => {
     const input = document.getElementById(
       'catalog-product-uom-default-sales-quantity',
     ) as HTMLInputElement
-    // Same "field defaults to 1" behavior as the comma-decimal test above.
     expect(input.value).toBe('1')
     typeSequentially(input, '.25')
     expect(input.value).toBe('1.25')
+  })
+})
+
+describe('ProductUomSection grouping spaces (issue #6312)', () => {
+  const fieldLabels = [
+    'Default line quantity (in sales unit)',
+    'Reference quantity (in base unit)',
+    'Base units per 1 sales unit',
+  ]
+
+  it.each(fieldLabels)('preserves empty and pasted input in %s', (label) => {
+    renderSection({ unitPriceEnabled: true })
+    fireEvent.click(screen.getByText('Add conversion'))
+    const input = screen.getByRole<HTMLInputElement>('textbox', { name: label })
+
+    fireEvent.change(input, { target: { value: '' } })
+    expect(input.value).toBe('')
+    fireEvent.change(input, { target: { value: ' 1 234,56 ' } })
+    expect(input.value).toBe(' 1 234,56 ')
+  })
+
+  describe.each([' ', '\u00a0', '\u202f'])('with grouping separator %p', (separator) => {
+    it.each(fieldLabels)('preserves each character typed into %s', (label) => {
+      renderSection({ unitPriceEnabled: true })
+      fireEvent.click(screen.getByText('Add conversion'))
+      const input = screen.getByRole<HTMLInputElement>('textbox', { name: label })
+
+      fireEvent.change(input, { target: { value: '' } })
+      typeSequentially(input, separator)
+      expect(input.value).toBe(separator)
+      fireEvent.change(input, { target: { value: '' } })
+      typeSequentially(input, `1${separator}`)
+      expect(input.value).toBe(`1${separator}`)
+      typeSequentially(input, '234,56')
+      expect(input.value).toBe(`1${separator}234,56`)
+    })
   })
 })

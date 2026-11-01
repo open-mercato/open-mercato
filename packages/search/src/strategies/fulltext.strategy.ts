@@ -6,6 +6,7 @@ import type {
   IndexableRecord,
 } from '../types'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
+import { plaintextSearchFields } from '../lib/plaintext-fields'
 import type {
   FullTextSearchDriver,
   FullTextSearchDocument,
@@ -35,6 +36,7 @@ export class FullTextSearchStrategy implements SearchStrategy {
   }
 
   async search(query: string, options: SearchOptions): Promise<SearchResult[]> {
+    if (options.indexDocFilter) return []
     if (Array.isArray(options.organizationIds)) {
       const organizationIds = options.organizationIds
         .map((value) => (typeof value === 'string' ? value.trim() : ''))
@@ -167,7 +169,7 @@ export class FullTextSearchStrategy implements SearchStrategy {
       entityId: record.entityId,
       tenantId: record.tenantId,
       organizationId: record.organizationId,
-      fields: record.fields,
+      fields: plaintextSearchFields(record),
       presenter: record.presenter,
       url: record.url,
       links: record.links,

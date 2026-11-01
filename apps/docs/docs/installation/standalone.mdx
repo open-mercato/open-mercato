@@ -417,13 +417,24 @@ yarn dev
 
 ---
 
+## Publish a custom module
+
+From your installed app, create a module and publish it independently of the app's repository:
+
+```bash
+npx create-mercato-module init visits
+npx create-mercato-module publish visits
+```
+
+If the module already exists, skip `init`. See [Publishing Custom Modules](/framework/modules/publishing-custom-modules) for authentication, dry runs, dedicated-repository development with `link`, and installation in another app from npm or GitHub.
+
 ## Release channels
 
 ```bash
 # Latest stable (default)
 npx create-mercato-app my-app
 
-# Latest prerelease from the develop branch
+# Latest snapshot from the main branch (published under the `develop` dist-tag)
 npx create-mercato-app@develop my-app
 ```
 
