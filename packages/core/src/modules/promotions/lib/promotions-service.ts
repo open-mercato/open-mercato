@@ -1,3 +1,4 @@
+import { TransactionContext } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { computeProductScopeKeys, PRODUCT_SCOPE_CATEGORY_PREFIX } from '@open-mercato/core/modules/catalog/lib/productScopeKeys'
 import { Currency } from '@open-mercato/core/modules/currencies/data/entities'
@@ -93,9 +94,10 @@ function resolvePromotionsServiceScope(container: PromotionsServiceContainer): P
 }
 
 function resolvePromotionsEm(container: PromotionsServiceContainer): EntityManager {
-  // Same fork-on-resolve precedent as `services/promotion-cache.ts`'s
-  // `resolvePromotionEm` / `commands/promotions.ts`'s command handlers.
-  return container.resolve<EntityManager>('em').fork()
+  const registeredEm = container.resolve<EntityManager>('em')
+  const contextualEm = TransactionContext.getEntityManager(registeredEm.name) as EntityManager | undefined
+  const em = contextualEm && contextualEm.getDriver() === registeredEm.getDriver() ? contextualEm : registeredEm
+  return em.fork({ keepTransactionContext: true, disableContextResolution: Boolean(contextualEm && contextualEm !== em) })
 }
 
 // Step 6.2's five code-service methods need the full `auth` (not just tenant/org scope)
