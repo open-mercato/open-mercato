@@ -94,11 +94,12 @@ jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => 
   resolveOrganizationScopeForRequest: jest.fn((args) => mockResolveScope(args)),
 }))
 
-jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
-  resolveTranslations: jest.fn(async () => ({
-    translate: (_key: string, fallback: string) => fallback,
-  })),
-}))
+jest.mock('@open-mercato/shared/lib/i18n/server', () => {
+  const { createFallbackTranslator } = jest.requireActual('@open-mercato/shared/lib/i18n/translate')
+  return {
+    resolveTranslations: jest.fn(async () => ({ translate: createFallbackTranslator({}) })),
+  }
+})
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: jest.fn((...args: unknown[]) => mockFindOneWithDecryption(...args)),
