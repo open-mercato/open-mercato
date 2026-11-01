@@ -951,6 +951,64 @@ describe('customerCreditService', () => {
       expect(emitCustomerGroupsEventMock).toHaveBeenCalledTimes(1)
     })
 
+    test('reusing the same idempotency key on a DIFFERENT credit account never leaks that account\'s entry — it proceeds as a fresh adjustment', async () => {
+      const { em, tables } = createFakeEm()
+      const account = seedAccount(tables, { creditLimit: '500.00' })
+      const otherAccount = seedAccount(tables, { customerId: 'customer-2', creditLimit: '500.00' })
+      const service = buildService(em, allowTerms(true))
+
+      const other = await service.adjustCredit({
+        scope: SCOPE,
+        buyer: { customerId: otherAccount.customerId as string },
+        currencyCode: CURRENCY,
+        amount: '20.00',
+        note: 'Other account correction',
+        idempotencyKey: 'adjust-shared-key-across-accounts',
+      })
+
+      const mine = await service.adjustCredit({
+        scope: SCOPE,
+        buyer: { customerId: CUSTOMER_ID },
+        currencyCode: CURRENCY,
+        amount: '75.00',
+        note: 'My own correction, unrelated to the other account',
+        idempotencyKey: 'adjust-shared-key-across-accounts',
+      })
+
+      expect(mine.entry.entryId).not.toBe(other.entry.entryId)
+      expect(mine.entry.creditAccountId).toBe(account.id)
+      expect(mine.entry.amount).toBe('75.00')
+      expect(mine.entry.balanceAfter).toBe('75.00')
+      expect(tables.get(CustomerCreditLedgerEntry) ?? []).toHaveLength(2)
+    })
+
+    test('reusing the same idempotency key on the SAME account with a different amount answers idempotency_key_mismatch', async () => {
+      const { em, tables } = createFakeEm()
+      seedAccount(tables, { creditLimit: '500.00' })
+      const service = buildService(em, allowTerms(true))
+
+      await service.adjustCredit({
+        scope: SCOPE,
+        buyer: { customerId: CUSTOMER_ID },
+        currencyCode: CURRENCY,
+        amount: '25.00',
+        note: 'First post',
+        idempotencyKey: 'adjust-mismatch',
+      })
+
+      await expect(
+        service.adjustCredit({
+          scope: SCOPE,
+          buyer: { customerId: CUSTOMER_ID },
+          currencyCode: CURRENCY,
+          amount: '99.00',
+          note: 'Different correction, same key',
+          idempotencyKey: 'adjust-mismatch',
+        }),
+      ).rejects.toMatchObject({ code: 'idempotency_key_mismatch' })
+      expect(tables.get(CustomerCreditLedgerEntry) ?? []).toHaveLength(1)
+    })
+
     test('emits customer_groups.credit.adjusted after the write commits', async () => {
       const { em, tables } = createFakeEm()
       const account = seedAccount(tables, { creditLimit: '500.00' })
