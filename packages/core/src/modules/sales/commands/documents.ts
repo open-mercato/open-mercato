@@ -646,8 +646,9 @@ const documentUpdateFieldsSchema = z
     currencyCode: currencyCodeSchema.optional(),
     // Order-only columns — SalesQuote declares none of them. Declared here
     // because the create schema declares them and a caller reusing its create
-    // payload on an update otherwise lost them silently; `applyDocumentUpdate`
-    // rejects each with a 400 on a quote rather than dropping it.
+    // payload on an update otherwise lost them silently. `applyDocumentUpdate`
+    // rejects them on a quote, except `totalsMode`, which is ignored to preserve
+    // quote-create compatibility without enabling external quote amounts.
     exchangeRate: z.union([z.null(), exchangeRateSchema]).optional(),
     paymentStatusEntryId: z.string().uuid().nullable().optional(),
     fulfillmentStatusEntryId: z.string().uuid().nullable().optional(),
@@ -5894,7 +5895,6 @@ const updateQuoteCommand: CommandHandler<
   },
   async execute(rawInput, ctx) {
     const parsed = documentUpdateSchema.parse(rawInput ?? {});
-    await assertAmountsModeUnsupportedOnQuote([parsed]);
     documentEditSchema.parse(rawInput ?? {});
     const em = (ctx.container.resolve("em") as EntityManager).fork();
     let quote!: SalesQuote;
