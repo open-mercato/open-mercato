@@ -1,6 +1,6 @@
 # Backward Compatibility Contract
 
-Open Mercato modules are developed by third-party developers who depend on stable platform APIs. Every surface listed below is a **public contract**. Changes to these surfaces MUST follow the deprecation protocol or they are **breaking changes** that block merge.
+Every listed surface is a **public contract**. Changes MUST follow the deprecation protocol or block merge as **breaking changes**.
 
 ## Deprecation Protocol
 
@@ -68,7 +68,7 @@ The following file names, their expected export names, and their role in module 
 
 ### 2. Type Definitions & Interfaces (STABLE)
 
-These exported types are consumed by module developers. Required fields MUST NOT be removed or have their types narrowed. Optional fields may be added freely.
+Required fields MUST NOT be removed or narrowed. Optional fields may be added freely.
 
 **Immutable required fields** (removing or renaming any is a breaking change):
 
@@ -112,7 +112,7 @@ These exported types are consumed by module developers. Required fields MUST NOT
 
 ### 3. Function Signatures (STABLE)
 
-These functions are called directly by module code. Their signatures MUST NOT change in a breaking way. New optional parameters may be added.
+Signatures MUST NOT change incompatibly. New optional parameters may be added.
 
 |Function|Package|Contract|
 |---|---|---|
@@ -179,8 +179,6 @@ Spot IDs are the addresses where external modules inject UI. Renaming or removin
 - Wildcard spots (`crud-form:*`, `data-table:*`) MUST continue to match as documented
 
 ### 7. API Route URLs (STABLE)
-
-External tools, frontends, and integrations depend on API URL patterns.
 
 - MUST NOT rename or remove an existing API route URL
 - MUST NOT change the HTTP method for an existing operation
@@ -632,3 +630,7 @@ STABLE API §7: `GET /api/checkout/pay/:slug` omits admin fields; retaining them
 ## #3805 2026-10-31
 
 STABLE tools/execute writes bypass approval; no bridge. [Migrate](UPGRADE_NOTES.md#issue-3805)
+
+## SCIM rate limiting (2026-10-27)
+
+SCIM adds 429/503 before credentials; honor Retry-After. Optional `beforeAuth: ApiRouteBeforeAuth` is additive. See [contract and migration](.ai/specs/enterprise/implemented/SPEC-ENT-004-2026-02-19-sso-directory-sync.md#migration--backward-compatibility).

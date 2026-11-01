@@ -65,6 +65,33 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.9.0 → 0.9.1 (unreleased)
 
+### SCIM token fingerprint rollout
+
+SCIM rate-limit admission now uses an indexed SHA-256 fingerprint of the full bearer in `scim_tokens.token_lookup_hash`, alongside the existing bcrypt verifier. The new nullable column and index are additive; token format, management payloads, bcrypt verification, and organization scope stay compatible. Fingerprints and raw secrets must never be copied into tickets, logs, shell history, or token-management payloads. Newly issued tokens persist their fingerprint before the one-time token response is returned.
+
+Operators must apply the included SSO migration through their normal approved deployment process **before** deploying the new application code. This change does not apply a migration or rotate credentials automatically. Deploy every app/worker instance before completing the cutover; old instances can still issue unenrolled tokens during a rolling deployment. Use the same authoritative database across replicas. The short-lived admission cache is an optimization; an enrolled token has an independent quota even when its cache entry expires or the cache restarts.
+
+Existing tokens remain valid with a null fingerprint. An admitted successful bcrypt verification enrolls the original token using a tenant/organization/configuration-scoped compare-and-set guarded by active state and the exact bcrypt hash compared. Concurrent revocation or credential changes cannot enroll that stale credential. Existing token values cannot be reconstructed from bcrypt, so SQL alone cannot backfill them. Until enrollment, an old token remains vulnerable to shared unverified-budget exhaustion after cache loss. Do not declare the cold-token availability guarantee complete until the active unenrolled count is zero.
+
+Use this **read-only, non-secret inventory** against the authoritative database, with appropriate operator access:
+
+```sql
+select tenant_id, organization_id, count(*) as active_unenrolled
+from scim_tokens
+where is_active = true and token_lookup_hash is null
+group by tenant_id, organization_id;
+```
+
+A completed cutover returns no rows. The query exposes only tenant/organization identifiers and counts; do not select `token_hash` or `token_lookup_hash`. For each nonzero scope, identify its configurations and tokens through the existing admin UI or `GET /api/sso/scim/tokens?ssoConfigId=<config-id>` under that scope. That API continues to expose only safe token metadata.
+
+1. **Enroll a retained credential:** trigger a normal sync through its existing IdP, or perform an existing `GET /api/sso/scim/v2/Users?count=1` using the credential from its secure store. A successful admitted request enrolls it without changing the secret. Follow normal secret-handling controls; do not paste the bearer into logs or shell history. If an ongoing flood prevents admission, use the rotation route below rather than raising quotas.
+2. **Rotate an unavailable or blocked legacy credential:** as the scoped administrator, call existing `POST /api/sso/scim/tokens` with `ssoConfigId` and `name`, deliver the one-time new secret through the normal secure IdP configuration flow, verify provisioning succeeds, then revoke the replaced token with existing `DELETE /api/sso/scim/tokens/<id>`. The replacement is enrolled at creation and needs no warmup. Do not revoke a working credential before its replacement is confirmed.
+3. Repeat the inventory after all instances have the new code and all affected IdPs have synced or rotated. Investigate every remaining active null row, including forgotten credentials; revoke unused tokens through the existing management API. Zero rows is the cutover acceptance condition. Test a newly issued token after cache clear while anonymous traffic exhausts the unverified bucket, and confirm a wrong-suffix token remains rate-limited.
+
+No new enrollment API or CLI is required. Real credential rotation and migration application remain operator actions. Existing legacy authentication is retained during this bridge; the migration does not silently reject old tokens or mark their fingerprints populated. Manual QA and human security review are still required.
+
+For rollback, revert application instances to code that does not read the new column before an operator runs the migration's `down`. The rollback removes only the new index/nullable column and preserves all token rows, bcrypt hashes, prefixes, and active/revoked state; it also removes the new persistent admission protection. No token secret changes as part of rollback.
+
 <a id="signed-body-limits"></a>
 
 ### Signed Discord interactions and agent traces have finite body limits (#7241)
