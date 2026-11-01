@@ -104,7 +104,7 @@ export function ConditionBuilder({ predicate, sources, onChange }: ConditionBuil
   }
 
   return (
-    <div className="space-y-3" data-testid="condition-builder">
+    <div className="min-w-0 space-y-3" data-testid="condition-builder">
       <div className="flex items-center justify-between">
         <h4 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
           {t('forms.studio.logic.visibility.heading')}
@@ -113,7 +113,11 @@ export function ConditionBuilder({ predicate, sources, onChange }: ConditionBuil
           variant="outline"
           size="sm"
           type="button"
-          onClick={() => commit({ ...model, rows: [...model.rows, newRow(sources[0]?.value ?? '')] })}
+          onClick={() => {
+            const source = sources[0]
+            const row = { ...newRow(source?.value ?? ''), operator: operatorOptions(source)[0] ?? 'eq' }
+            commit({ ...model, rows: [...model.rows, row] })
+          }}
         >
           {t('forms.studio.logic.visibility.addRule')}
         </Button>
@@ -124,8 +128,11 @@ export function ConditionBuilder({ predicate, sources, onChange }: ConditionBuil
       <div className="space-y-2">
         {model.rows.map((row, index) => {
           const sourceOption = sourceByValue.get(row.source)
-          const operators = operatorOptions(sourceOption)
-          const operator = operators.includes(row.operator) ? row.operator : operators[0] ?? 'eq'
+          const supportedOperators = operatorOptions(sourceOption)
+          const operators = supportedOperators.includes(row.operator)
+            ? supportedOperators
+            : [row.operator, ...supportedOperators]
+          const operator = row.operator
           const valueDisabled =
             operator === 'is_empty' || operator === 'is_not_empty' || operator === 'is_true' || operator === 'is_false'
           const updateRow = (partial: Partial<ConditionRow>) => {
@@ -136,7 +143,7 @@ export function ConditionBuilder({ predicate, sources, onChange }: ConditionBuil
             commit({ ...model, rows: model.rows.filter((entry) => entry.id !== row.id) })
           }
           return (
-            <div key={row.id} className="flex items-center gap-2" data-testid="condition-row">
+            <div key={row.id} className="flex min-w-0 flex-wrap items-center gap-2" data-testid="condition-row">
               {index > 0 ? (
                 <Tag variant="neutral" className="shrink-0 uppercase">
                   {model.combine === 'and'
@@ -144,8 +151,17 @@ export function ConditionBuilder({ predicate, sources, onChange }: ConditionBuil
                     : t('forms.studio.logic.visibility.combine.or')}
                 </Tag>
               ) : null}
-              <Select value={row.source} onValueChange={(value) => updateRow({ source: value })}>
-                <SelectTrigger className="h-8 flex-1">
+              <Select
+                value={row.source}
+                onValueChange={(value) => {
+                  const nextOperators = operatorOptions(sourceByValue.get(value))
+                  updateRow({
+                    source: value,
+                    ...(nextOperators.includes(row.operator) ? {} : { operator: nextOperators[0] ?? 'eq', value: '' }),
+                  })
+                }}
+              >
+                <SelectTrigger size="sm" className="min-w-0 max-w-full flex-1 basis-40">
                   <SelectValue placeholder={t('forms.studio.logic.visibility.sourcePlaceholder')} />
                 </SelectTrigger>
                 <SelectContent>
@@ -160,7 +176,7 @@ export function ConditionBuilder({ predicate, sources, onChange }: ConditionBuil
                 value={operator}
                 onValueChange={(value) => updateRow({ operator: value as ConditionOperator })}
               >
-                <SelectTrigger className="h-8 w-32">
+                <SelectTrigger size="sm" className="min-w-0 max-w-full flex-1 basis-40">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -171,16 +187,19 @@ export function ConditionBuilder({ predicate, sources, onChange }: ConditionBuil
                   ))}
                 </SelectContent>
               </Select>
-              <Input
-                className="h-8 w-32"
-                value={valueDisabled ? '' : String(row.value ?? '')}
-                disabled={valueDisabled}
-                onChange={(event) => updateRow({ value: event.target.value })}
-              />
+              {!valueDisabled ? (
+                <Input
+                  size="sm"
+                  className="min-w-0 max-w-full flex-1 basis-32"
+                  value={String(row.value ?? '')}
+                  onChange={(event) => updateRow({ value: event.target.value })}
+                />
+              ) : null}
               <IconButton
                 aria-label={t('forms.studio.logic.visibility.remove')}
                 variant="ghost"
                 size="sm"
+                className="shrink-0"
                 type="button"
                 onClick={removeRow}
               >
