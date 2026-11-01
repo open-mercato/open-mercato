@@ -887,55 +887,97 @@ export class DefaultCustomerCreditService implements CustomerCreditService {
     let result!: AdjustCreditResult
     let created = false
 
-    await withAtomicFlush(
-      this.em,
-      [
-        async () => {
-          // Same lock/idempotency shape as `reserveCredit`/`settleCredit` (§6.3): lock the
-          // account row first, then look up the idempotency key under the lock. `adjust`
-          // has no caller-supplied business key (§9: the body is `{ amount, note }` only) —
-          // the command mints its own key per execution, so a found row here means either a
-          // genuine replay of the SAME command invocation or the undo key reused on a second
-          // undo attempt, both of which must return the original entry rather than double-post.
-          const account = await this.findAccount(scope, customerId, currencyCode, { lockMode: LockMode.PESSIMISTIC_WRITE })
-          if (!account) {
-            throw new CustomerCreditServiceError('no_account', '[internal] adjustCredit: no credit account for this customer/currency')
-          }
+    const runAdjust = async () => {
+      await withAtomicFlush(
+        this.em,
+        [
+          async () => {
+            // Same lock/idempotency shape as `reserveCredit`/`settleCredit` (§6.3): lock the
+            // account row first, then look up the idempotency key under the lock, scoped to
+            // THIS account (not tenant alone, G2) — an idempotency key is only guaranteed
+            // unique per caller, not globally; without this scope a key collision with an
+            // adjustment on a DIFFERENT account (same tenant) would silently hand back that
+            // other account's ledger entry instead of writing this one. `adjust` has no
+            // caller-supplied business key (§9: the body is `{ amount, note }` only) — the
+            // command mints its own key per execution, so a found row here means either a
+            // genuine replay of the SAME command invocation or the undo key reused on a
+            // second undo attempt, both of which must return the original entry rather than
+            // double-post — but only once it matches the SAME request, mirroring
+            // `reserveCredit`/`settleCredit`'s mismatch check.
+            const account = await this.findAccount(scope, customerId, currencyCode, { lockMode: LockMode.PESSIMISTIC_WRITE })
+            if (!account) {
+              throw new CustomerCreditServiceError('no_account', '[internal] adjustCredit: no credit account for this customer/currency')
+            }
 
-          const existing = await this.em.findOne(CustomerCreditLedgerEntry, {
-            tenantId: scope.tenantId,
-            idempotencyKey: input.idempotencyKey,
-          })
-          if (existing) {
-            result = { entry: toEntryView(existing) }
-            return
-          }
+            const existing = await this.em.findOne(CustomerCreditLedgerEntry, {
+              tenantId: scope.tenantId,
+              creditAccountId: account.id,
+              idempotencyKey: input.idempotencyKey,
+            })
+            if (existing) {
+              const sameRelatedEntry = (existing.relatedEntryId ?? null) === (input.relatedEntryId ?? null)
+              if (existing.entryType !== 'adjust' || toMinorUnits(existing.amount) !== toMinorUnits(amount) || !sameRelatedEntry) {
+                throw idempotencyMismatchError()
+              }
+              result = { entry: toEntryView(existing) }
+              return
+            }
 
-          const exposure = await this.sumExposure(account.id, scope)
-          const balanceAfter = addDecimalStrings(exposure, amount)
-          const entry = this.em.create(CustomerCreditLedgerEntry, {
-            id: randomUUID(),
-            organizationId: scope.organizationId,
-            tenantId: scope.tenantId,
-            creditAccountId: account.id,
-            entryType: 'adjust',
-            amount,
-            sourceType: 'manual',
-            sourceId: null,
-            relatedEntryId: input.relatedEntryId ?? null,
-            idempotencyKey: input.idempotencyKey,
-            balanceAfter,
-            createdByActorType: 'staff_user',
-            createdByUserId: input.createdByUserId ?? null,
-            note: input.note,
-          })
-          this.em.persist(entry)
-          created = true
-          result = { entry: toEntryView(entry) }
-        },
-      ],
-      { transaction: true, label: 'customer_groups.credit.adjust' },
-    )
+            const exposure = await this.sumExposure(account.id, scope)
+            const balanceAfter = addDecimalStrings(exposure, amount)
+            const entry = this.em.create(CustomerCreditLedgerEntry, {
+              id: randomUUID(),
+              organizationId: scope.organizationId,
+              tenantId: scope.tenantId,
+              creditAccountId: account.id,
+              entryType: 'adjust',
+              amount,
+              sourceType: 'manual',
+              sourceId: null,
+              relatedEntryId: input.relatedEntryId ?? null,
+              idempotencyKey: input.idempotencyKey,
+              balanceAfter,
+              createdByActorType: 'staff_user',
+              createdByUserId: input.createdByUserId ?? null,
+              note: input.note,
+            })
+            this.em.persist(entry)
+            created = true
+            result = { entry: toEntryView(entry) }
+          },
+        ],
+        { transaction: true, label: 'customer_groups.credit.adjust' },
+      )
+    }
+
+    try {
+      await runAdjust()
+    } catch (err) {
+      // The ledger's unique constraint is `(tenant_id, idempotency_key)` only (G2: keys
+      // are unique per tenant across every account), so a key already used on a DIFFERENT
+      // account loses the race here instead of at the account lock above, which only
+      // serializes writes to ONE account. Resolve it exactly like a normal replay — never
+      // surface the raw constraint violation, and never silently adopt the other
+      // account's entry as this request's result.
+      if (!isUniqueViolation(err)) throw err
+      const existing = await this.em.findOne(CustomerCreditLedgerEntry, {
+        tenantId: scope.tenantId,
+        idempotencyKey: input.idempotencyKey,
+      })
+      const account = await this.findAccount(scope, customerId, currencyCode)
+      const sameRelatedEntry = existing ? (existing.relatedEntryId ?? null) === (input.relatedEntryId ?? null) : false
+      if (
+        !existing ||
+        !account ||
+        existing.creditAccountId !== account.id ||
+        existing.entryType !== 'adjust' ||
+        toMinorUnits(existing.amount) !== toMinorUnits(amount) ||
+        !sameRelatedEntry
+      ) {
+        throw idempotencyMismatchError()
+      }
+      result = { entry: toEntryView(existing) }
+    }
 
     // Emitted only for the write that actually happened — a replay of the same
     // idempotency key (§6.5 rule 1) must not re-announce an adjustment that already
