@@ -354,6 +354,51 @@ MCP tools on the existing `open-mercato` server (zod-validated; types via `z.inf
 Both `isMutation: false`. Errors return clean tool errors (ACL-denied, guardrail-blocked,
 provider-unhealthy, timeout) — never a crash.
 
+<<<<<<< HEAD
+=======
+## Migration & Backward Compatibility
+
+The #7234 correction applies domain policy to provider-synthesized answers in both
+the agent `web_search` response and the preview route's top-level answer. Either
+nonempty domain list makes that answer `null`: fused result URLs cannot establish
+which sources contributed to provider prose, including sources fusion already dropped.
+Allowed results remain available. `diagnostics.answerWithheld: 'domain_policy'`
+explains when non-null prose was withheld, for live and cached engine outputs.
+With empty domain lists, answers retain their existing behavior. The privileged
+preview's raw `byAdapter` comparison remains available to `agents.manage`; it is
+never included in agent context. The existing nullable answer type, tool IDs,
+route schemas, ACLs, egress guards and stored settings are unchanged. No data
+migration or cache purge is needed. Clients must already handle a null answer;
+keep domain restrictions in place and work from the permitted result sources.
+Handler integration coverage in `webSearchAnswerPolicy.integration.test.ts` covers
+both entry points with denied-only/mixed/allowed-only fused hits, active allow/deny
+rules, cached output, no answer, no policy and privileged raw comparison isolation.
+
+The #7548 security fix preserves tool IDs, input schemas and result fields. Inline content now
+uses the final fetched URL in the existing `url` field, and agent domain rules apply before
+page egress as well as to returned results. Adapter service requests retain their separate
+network policy, including the operator's `allowPrivateHosts` allowlist. DNS pinning and SSRF
+validation still run independently on every authorized HTTP hop.
+
+`HttpRequestInit.assertUrlAllowed`, `SearchEngineOptions.isContentUrlAllowed`, and the blocked
+outcome's optional `code: 'domain_blocked'` discriminator are additive. Domain-denied redirects
+retain the existing `web_fetch` error code `domain_blocked`. The adapter contract advances to
+version 2 while still accepting version 1 adapters in both the loader and the shared contract-test
+suite. Existing version 1 descriptors need no source changes. Adapters rebuilt against the current
+`CONTRACT_VERSION` advertise version 2 and require a host supporting version 2; upgrade the host
+before deploying those rebuilt descriptors. A custom HTTP client must await a supplied assertion
+before DNS and transmission for the initial request and every redirect; synchronous and async
+assertions are supported. The engine also checks final URLs defensively.
+
+When either agent domain list is nonempty, page reads use guarded HTTP only: automatic rendering
+does not escalate, and `render: 'always'` returns a blocked outcome. Browser page navigation
+cannot yet authorize every redirect against these rules, so it must fail closed. Browser search
+and deployments with empty domain lists retain their existing behavior. Restricted searches
+bypass result caching so previously enriched pages cannot survive a policy change. No database
+migration or manual cache purge is required. Operators needing rendered content must wait for
+browser domain enforcement; keep the restrictive domain rules in place.
+
+>>>>>>> 3655f86a1 (fix(agent_orchestrator): enforce domain policy on synthesized answers (#7234) (#8378))
 ## Final Compliance Report (to complete at implementation)
 
 | MUST | Status |
@@ -401,6 +446,16 @@ Notes: `tsconfig.json` sets `types: ["node"]` — this pure-lib package pulls no
 
 ## Changelog
 
+<<<<<<< HEAD
+=======
+- 2026-11-01 — Corrected #7234 independently: suppress unattributed synthesized answers
+  under domain policies at the agent and preview boundaries, with explicit diagnostics
+  and handler-level regressions. Finding and prior proof of concept: @AHKSammich (#7323).
+- 2026-10-29 — Closed redirect policy bypass #7548: authorize inline/direct page reads before
+  each HTTP hop, retain final URL attribution, bypass restricted result caches, and fail closed
+  for browser content navigation with domain restrictions. Added socket-backed tool integration
+  coverage and engine/client regressions; preserved version 1 adapter support.
+>>>>>>> 3655f86a1 (fix(agent_orchestrator): enforce domain policy on synthesized answers (#7234) (#8378))
 - 2026-07-11 — Initial draft. Route B (ACL-gated `defineAiTool` on existing MCP server) chosen over
   native OpenCode `websearch`/Exa/model-built-in. Open Questions resolved: SearXNG-first adapter,
   search + fetch, dedicated package, new ACL feature + permissive (SSRF-always-on) guardrails.
