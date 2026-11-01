@@ -12,36 +12,60 @@ import { buildPortalApprovalListWhere } from '../../../lib/portalApprovalAccess'
 import type { PortalApprovalPrincipal } from '../../../lib/portalApprovalAccess'
 import { toApprovalView } from '../../../services/customerPurchaseApprovalService'
 
-type PortalApprovalIdPage = { ids: string[]; total: number }
+export type PortalApprovalIdPage = { ids: string[]; total: number }
 
 // Pending-first (§9 portal table) is a rank a plain MikroORM `orderBy` cannot express
 // over one column, and `status` itself sorts alphabetically (approved, expired,
 // pending, rejected, withdrawn) — NOT pending-first — so an `orderBy` on the column
 // alone would be silently wrong. Loads the caller's matching rows through the SAME
 // `buildPortalApprovalListWhere` the authorization rule is defined in once
-// (`lib/portalApprovalAccess.ts` — never a second, drifting copy of that `WHERE`), ranks
-// and paginates in memory, and returns only ids; encrypted fields
-// (`buyer_decision_note`/`merchant_decision_note`, G22) are never read off these rows —
-// the caller re-reads only the page's ids through `findWithDecryption` for the actual
-// response.
-async function loadPortalApprovalIdPage(
+// (`lib/portalApprovalAccess.ts` — never a second, drifting copy of that `WHERE`), and
+// returns only ids; encrypted fields (`buyer_decision_note`/`merchant_decision_note`,
+// G22) are never read off these rows — the caller re-reads only the page's ids through
+// `findWithDecryption` for the actual response.
+//
+// Pending-first + newest-first, WITHOUT loading every matching row into memory: the
+// pending/non-pending partition is expressed as two separate SQL queries (`status` is
+// equality-filterable, unlike the rank), each ordered and paginated in the database
+// (`orderBy`/`limit`/`offset`), with only the page's own `id` column selected. A page
+// that straddles the pending/non-pending boundary reads a short page from each half —
+// still at most `pageSize` rows fetched from the DB per request, never the full table.
+export async function loadPortalApprovalIdPage(
   em: import('@mikro-orm/postgresql').EntityManager,
   principal: PortalApprovalPrincipal,
   page: number,
   pageSize: number,
 ): Promise<PortalApprovalIdPage> {
   const where = buildPortalApprovalListWhere(principal)
-  const rows = await em.find(CustomerPurchaseApproval, where)
-  const sorted = [...rows].sort((a, b) => {
-    const pendingRank = (row: CustomerPurchaseApproval) => (row.status === 'pending' ? 0 : 1)
-    const rankDiff = pendingRank(a) - pendingRank(b)
-    if (rankDiff !== 0) return rankDiff
-    const createdDiff = b.createdAt.getTime() - a.createdAt.getTime()
-    if (createdDiff !== 0) return createdDiff
-    return a.id < b.id ? 1 : a.id > b.id ? -1 : 0
-  })
+  const orderBy = { createdAt: 'desc', id: 'desc' } as const
   const offset = (page - 1) * pageSize
-  return { ids: sorted.slice(offset, offset + pageSize).map((row) => row.id), total: sorted.length }
+
+  const [pendingTotal, otherTotal] = await Promise.all([
+    em.count(CustomerPurchaseApproval, { ...where, status: 'pending' }),
+    em.count(CustomerPurchaseApproval, { ...where, status: { $ne: 'pending' } }),
+  ])
+  const total = pendingTotal + otherTotal
+
+  const ids: string[] = []
+  if (offset < pendingTotal) {
+    const pendingRows = await em.find(
+      CustomerPurchaseApproval,
+      { ...where, status: 'pending' },
+      { orderBy, limit: pageSize, offset, fields: ['id'] as const },
+    )
+    ids.push(...pendingRows.map((row) => row.id))
+  }
+  if (ids.length < pageSize) {
+    const otherOffset = Math.max(0, offset - pendingTotal)
+    const otherRows = await em.find(
+      CustomerPurchaseApproval,
+      { ...where, status: { $ne: 'pending' } },
+      { orderBy, limit: pageSize - ids.length, offset: otherOffset, fields: ['id'] as const },
+    )
+    ids.push(...otherRows.map((row) => row.id))
+  }
+
+  return { ids, total }
 }
 
 const logger = createLogger('customer_groups')

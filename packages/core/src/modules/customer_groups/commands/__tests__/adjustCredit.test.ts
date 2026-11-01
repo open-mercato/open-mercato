@@ -143,6 +143,33 @@ describe('customer_groups.credit.adjust command', () => {
       expect(callInput.relatedEntryId).toBeUndefined()
     })
 
+    // Review finding: the command used to mint `adjust:${randomUUID()}` fresh on every
+    // call, with no way for a caller to supply its own key — a client retry after a
+    // dropped response (never knowing whether the first POST committed) would always
+    // post a SECOND adjustment, never a replay. Honoring a caller-supplied key makes a
+    // retry idempotent, the same guarantee `reserveCredit`/`settleCredit` already give.
+    it('honors a caller-supplied idempotencyKey instead of always minting a fresh one', async () => {
+      const account = makeAccount()
+      const em = makeEm(account)
+      const entry = makeEntryView({ amount: '40.00', balanceAfter: '40.00' })
+      const adjustCreditMock = jest.fn(async () => ({ entry }) satisfies AdjustCreditResult)
+      const creditService = makeCreditService(adjustCreditMock)
+      const ctx = makeCtx({ em, creditService, organizationIds: [ORG_ID] })
+
+      await adjustCreditCommand.execute(
+        {
+          creditAccountId: ACCOUNT_ID,
+          amount: '40.00',
+          note: 'Manual correction',
+          idempotencyKey: 'client-retry-key-1',
+        },
+        ctx as never,
+      )
+
+      const callInput = adjustCreditMock.mock.calls[0][0] as AdjustCreditInput
+      expect(callInput.idempotencyKey).toBe('client-retry-key-1')
+    })
+
     it('refuses zero as a validation error before ever reaching the service', async () => {
       const em = makeEm(makeAccount())
       const creditService = makeCreditService(jest.fn())

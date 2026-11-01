@@ -38,7 +38,7 @@ const paramsSchema = z.object({ id: z.string().uuid() })
 
 type RouteContext = { params: Promise<{ id: string }> | { id: string } }
 
-type AdjustCommandInput = { creditAccountId: string; amount: string; note: string }
+type AdjustCommandInput = { creditAccountId: string; amount: string; note: string; idempotencyKey?: string }
 type AdjustCommandResult = { entry: CreditEntryView }
 
 export async function POST(req: Request, context: RouteContext) {
@@ -103,7 +103,15 @@ export async function POST(req: Request, context: RouteContext) {
     const commandBus = container.resolve('commandBus') as CommandBus
     const { result, logEntry } = await commandBus.execute<AdjustCommandInput, AdjustCommandResult>(
       'customer_groups.credit.adjust',
-      { input: { creditAccountId: params.data.id, amount: parsedBody.data.amount, note: parsedBody.data.note }, ctx },
+      {
+        input: {
+          creditAccountId: params.data.id,
+          amount: parsedBody.data.amount,
+          note: parsedBody.data.note,
+          idempotencyKey: parsedBody.data.idempotencyKey,
+        },
+        ctx,
+      },
     )
 
     await guarded.runAfterSuccess()

@@ -172,6 +172,8 @@ export type GetAccountExposureInput = { creditAccountId: string; scope: Commerce
 
 export type AccountExposureView = { exposure: DecimalString; available: DecimalString | null }
 
+export type GetAccountExposuresInput = { creditAccountIds: string[]; scope: CommerceScope }
+
 export interface CustomerCreditService {
   // Read-only, no lock. A hint for the UI and checkout's payment-method list, never a
   // guarantee — only `reserveCredit` decides under the lock (§6.3).
@@ -186,6 +188,13 @@ export interface CustomerCreditService {
   // account whose group's terms later changed). Returns `available: null` only when the
   // account carries no credit limit yet.
   getAccountExposure(input: GetAccountExposureInput): Promise<AccountExposureView>
+
+  // Same answer as `getAccountExposure`, batched: ONE grouped `SUM(amount)` query for
+  // every account's ledger entries plus ONE `id IN (...)` account fetch, instead of a
+  // full per-account ledger scan repeated once per row — the admin list route's
+  // `afterList` hook calls this once per page (grouped by organization) rather than
+  // looping `getAccountExposure` per listed account (review finding: N+1).
+  getAccountExposures(input: GetAccountExposuresInput): Promise<Map<string, AccountExposureView>>
 
   // Row lock on the credit account (§6.3); re-checks under the lock and appends the
   // reserve entry. `amount` is the caller's full payable total.
@@ -250,12 +259,29 @@ function exceedsLimit(total: string, limit: string): boolean {
 // Inputs with more than 2 fraction digits (sales `numeric(18,4)` amounts) round half-up
 // to 2 dp at the service boundary, before the lock (G14, §5.5) — same half-up shape as
 // `effect-resolvers.ts#roundHalfUpToMinorUnits`, generalized to a string input here.
+//
+// String/BigInt arithmetic throughout — never `Number(value)`. A float multiply (e.g.
+// `1.005 * 100`) can land on `100.49999999999999` instead of `100.5`, silently rounding
+// DOWN a value that should round up (G14's whole point: money math never touches a
+// float). Only the digit immediately after the kept 2 d.p. decides the rounding
+// direction, matching standard round-half-up (any value whose third decimal digit is
+// `5`-`9` carries a remainder of at least half a cent, regardless of further digits).
 function roundHalfUpToTwoDp(value: string): string {
-  const amount = Number(value)
-  const absMinorUnits = Math.floor(Math.abs(amount) * MONEY_MINOR_UNIT_FACTOR + 0.5)
-  const isNegative = amount < 0 && absMinorUnits !== 0
-  const formatted = formatMinorUnits(absMinorUnits)
-  return isNegative ? `-${formatted}` : formatted
+  const trimmed = value.trim()
+  const negative = trimmed.startsWith('-')
+  const unsigned = negative ? trimmed.slice(1) : trimmed
+  const [integerPart, fractionPart = ''] = unsigned.split('.')
+  const keptFraction = fractionPart.slice(0, MONEY_FRACTION_DIGITS).padEnd(MONEY_FRACTION_DIGITS, '0')
+  const roundingDigit = fractionPart.charAt(MONEY_FRACTION_DIGITS)
+
+  const factor = BigInt(MONEY_MINOR_UNIT_FACTOR)
+  let minorUnits = BigInt(integerPart || '0') * factor + BigInt(keptFraction)
+  if (roundingDigit !== '' && roundingDigit >= '5') minorUnits += 1n
+
+  const whole = minorUnits / factor
+  const fraction = minorUnits % factor
+  const formatted = `${whole.toString()}.${fraction.toString().padStart(MONEY_FRACTION_DIGITS, '0')}`
+  return negative && minorUnits !== 0n ? `-${formatted}` : formatted
 }
 
 // §10.1 `CreditLimitExceededPayload`. No PII (ids and amounts only), consistent with
@@ -443,6 +469,48 @@ export class DefaultCustomerCreditService implements CustomerCreditService {
     const exposure = await this.sumExposure(creditAccountId, scope)
     const available = account?.creditLimit != null ? addDecimalStrings(account.creditLimit, negateDecimalString(exposure)) : null
     return { exposure, available }
+  }
+
+  // One grouped `SUM(amount)` query for every id (never a per-account ledger scan
+  // repeated N times) plus one `id IN (...)` account fetch for the credit limits.
+  private async sumExposuresByAccount(creditAccountIds: string[], scope: CommerceScope): Promise<Map<string, string>> {
+    const result = new Map<string, string>()
+    if (creditAccountIds.length === 0) return result
+    const placeholders = creditAccountIds.map(() => '?').join(', ')
+    const rows = await this.em.getConnection().execute<Array<{ credit_account_id: string; total: string }>>(
+      `select credit_account_id, sum(amount)::text as total
+         from customer_credit_ledger_entries
+        where tenant_id = ? and organization_id = ? and credit_account_id in (${placeholders})
+        group by credit_account_id`,
+      [scope.tenantId, scope.organizationId, ...creditAccountIds],
+    )
+    for (const row of rows) result.set(row.credit_account_id, row.total)
+    return result
+  }
+
+  async getAccountExposures(input: GetAccountExposuresInput): Promise<Map<string, AccountExposureView>> {
+    const { scope } = input
+    const creditAccountIds = Array.from(new Set(input.creditAccountIds))
+    const result = new Map<string, AccountExposureView>()
+    if (creditAccountIds.length === 0) return result
+
+    const [accounts, sums] = await Promise.all([
+      this.em.find(CustomerCreditAccount, {
+        id: { $in: creditAccountIds },
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+      }),
+      this.sumExposuresByAccount(creditAccountIds, scope),
+    ])
+
+    for (const account of accounts) {
+      const exposure = sums.get(account.id) ?? formatMinorUnits(0)
+      const available = account.creditLimit != null
+        ? addDecimalStrings(account.creditLimit, negateDecimalString(exposure))
+        : null
+      result.set(account.id, { exposure, available })
+    }
+    return result
   }
 
   async checkCredit(input: CheckCreditInput): Promise<CreditCheck> {
@@ -760,8 +828,14 @@ export class DefaultCustomerCreditService implements CustomerCreditService {
 
           let reserveEntry: CustomerCreditLedgerEntry | null = null
           if (input.reserveIdempotencyKey) {
+            // Scoped to THIS credit account, not tenant alone — an idempotency key is
+            // only guaranteed unique per caller, not globally; without this scope a key
+            // collision with a reservation on a DIFFERENT account (different
+            // customer/currency, same tenant) would link this settle to the wrong
+            // account's reservation and compute `openAmount` against it.
             reserveEntry = await this.em.findOne(CustomerCreditLedgerEntry, {
               tenantId: scope.tenantId,
+              creditAccountId: account.id,
               idempotencyKey: input.reserveIdempotencyKey,
               entryType: 'reserve',
             })

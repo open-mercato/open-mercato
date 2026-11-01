@@ -857,6 +857,50 @@ describe('PromotionCodeService.useCode', () => {
     expect(tables.get(CodeUsage)).toHaveLength(1)
   })
 
+  // Review finding (MAJOR): the fast-path idempotency check at the top of `useCode` runs
+  // UNLOCKED, before the `Code` row's `PESSIMISTIC_WRITE` lock is acquired. Two
+  // concurrent retries of the exact same `(codeId, cartId, orderId)` (the C14
+  // crashed-submit-resume scenario covered above) could both pass that check before
+  // either commits, then serialize on the lock and BOTH create a `CodeUsage` row /
+  // increment `used` for what is really one use — unless the lock-acquisition phase
+  // re-checks idempotency under the lock. This simulates that exact race: a concurrent
+  // caller's commit (the usage row AND its `used` increment) lands in between this call's
+  // own fast-path check (which ran first and saw nothing) and this call's `Code` row
+  // lock being granted.
+  it('does not double-consume when a concurrent caller commits the SAME use between the fast-path check and the Code lock', async () => {
+    const { em, tables } = createFakeEm()
+    const code = seedCode(tables, { code: 'MULTI5', usage: 'multiple', usageAmount: 5, used: 0 })
+    seedReservation(tables, { codeId: code.id, cartId: 'cart-1', customerId: 'cust-1' })
+    const service = new PromotionCodeService(fakeContainer())
+
+    const originalFindOne = em.findOne.bind(em)
+    let codeLockAttempts = 0
+    em.findOne = (async (entity: Function, where: Row, options?: unknown) => {
+      if (entity === Code) {
+        codeLockAttempts += 1
+        if (codeLockAttempts === 1) {
+          // The concurrent caller's own transaction, already committed: it incremented
+          // `used` and recorded the usage row for the SAME (codeId, cartId, orderId).
+          code.used = 1
+          seedCodeUsage(tables, { codeId: code.id, customerId: 'cust-1', cartId: 'cart-1', orderId: 'order-1' })
+        }
+      }
+      return originalFindOne(entity, where, options)
+    }) as FakeEm['findOne']
+
+    const result = await service.useCode(
+      em as unknown as import('@mikro-orm/postgresql').EntityManager,
+      { codeId: code.id, codeString: 'MULTI5', cartId: 'cart-1', orderId: 'order-1', customerId: 'cust-1', type: 'static' },
+      SCOPE,
+    )
+
+    expect(result).toEqual({ ok: true })
+    // Must observe the concurrent commit and short-circuit — not create a second
+    // CodeUsage row or double-increment `used`.
+    expect(code.used).toBe(1)
+    expect(tables.get(CodeUsage)).toHaveLength(1)
+  })
+
   it('does not treat a reverted use as a prior use — a cart/order whose use was reverted can use the code again', async () => {
     const { em, tables } = createFakeEm()
     const code = seedCode(tables, { code: 'MULTI5', usage: 'multiple', usageAmount: 5, used: 1 })
@@ -969,6 +1013,70 @@ describe('PromotionCodeService.revertCodeUse', () => {
     // single-use test above.
     expect(code.used).toBe(1)
     expect(code.active).toBe(true)
+  })
+
+  // Review finding (MEDIUM): a code an admin deliberately deactivated while it still had
+  // headroom left (not exhausted) must stay deactivated through a revert of some OTHER
+  // usage on it — the old logic reactivated purely on `hasRemainingGlobalUses` being true
+  // after the decrement, with no regard for WHY the code was inactive.
+  it('does not reactivate a code an admin deactivated while it still had headroom (never exhausted)', async () => {
+    const { em, tables } = createFakeEm()
+    // usageAmount: 5, used: 2 — nowhere near exhausted (`hasRemainingGlobalUses` is
+    // already true), yet `active: false`: this can only be an admin's deliberate choice.
+    const code = seedCode(tables, { code: 'MULTI5', usage: 'multiple', usageAmount: 5, used: 2, active: false })
+    seedCodeUsage(tables, { codeId: code.id, customerId: 'cust-1', cartId: 'cart-1', orderId: 'order-1' })
+    const service = new PromotionCodeService(fakeContainer())
+
+    const result = await service.revertCodeUse(
+      em as unknown as import('@mikro-orm/postgresql').EntityManager,
+      { orderId: 'order-1' },
+      SCOPE,
+    )
+
+    expect(result).toEqual({ ok: true, revertedCount: 1 })
+    expect(code.used).toBe(1)
+    expect(code.active).toBe(false)
+  })
+
+  // Review finding (MAJOR): the lookup feeding this loop (`em.find(CodeUsage, { revertedAt:
+  // null, ... })`) is unlocked — if the order-cancelled subscriber and checkout's own
+  // compensation path both call `revertCodeUse` for the same order concurrently, both
+  // could read the SAME still-unreverted row before either commits its own revert,
+  // decrementing `used` twice for one redemption. The fix re-fetches each row under
+  // `PESSIMISTIC_WRITE`, re-checking `revertedAt: null` — a concurrent caller's commit
+  // landing in that window must be observed and skipped, not double-applied.
+  it('does not double-decrement when a concurrent caller already reverted the SAME usage row between the lookup and the row lock', async () => {
+    const { em, tables } = createFakeEm()
+    const code = seedCode(tables, { code: 'MULTI5', usage: 'multiple', usageAmount: 5, used: 2 })
+    const usage = seedCodeUsage(tables, { codeId: code.id, customerId: 'cust-1', cartId: 'cart-1', orderId: 'order-1' })
+    const service = new PromotionCodeService(fakeContainer())
+
+    const originalFindOne = em.findOne.bind(em)
+    let usageLockAttempts = 0
+    em.findOne = (async (entity: Function, where: Row, options?: unknown) => {
+      if (entity === CodeUsage && (options as { lockMode?: unknown } | undefined)?.lockMode) {
+        usageLockAttempts += 1
+        if (usageLockAttempts === 1) {
+          // A concurrent caller's revert, already committed: it decremented `used` and
+          // marked the usage row reverted for this EXACT row, between the unlocked
+          // lookup above and this lock being granted.
+          code.used = 1
+          usage.revertedAt = new Date()
+        }
+      }
+      return originalFindOne(entity, where, options)
+    }) as FakeEm['findOne']
+
+    const result = await service.revertCodeUse(
+      em as unknown as import('@mikro-orm/postgresql').EntityManager,
+      { orderId: 'order-1' },
+      SCOPE,
+    )
+
+    // The row this call matched is already reverted by the time its lock is granted —
+    // skipped, never double-decremented and never double-counted.
+    expect(result).toEqual({ ok: true, revertedCount: 0 })
+    expect(code.used).toBe(1)
   })
 
   it('reactivates the specific GeneratedCode for a dynamic use, without touching the parent Code.used', async () => {

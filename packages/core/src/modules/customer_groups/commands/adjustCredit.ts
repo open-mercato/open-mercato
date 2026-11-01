@@ -99,8 +99,11 @@ const adjustCreditCommand: CommandHandler<CustomerCreditAdjustCommandInput, Adju
       currencyCode: account.currencyCode,
       amount: parsed.amount,
       note: parsed.note,
-      // No caller-supplied business key (§9.2): the command mints its own per execution.
-      idempotencyKey: `adjust:${randomUUID()}`,
+      // Honor a caller-supplied key so a client retry (e.g. after a dropped response)
+      // replays the SAME adjustment instead of posting a second one — the command only
+      // mints its own random key when the caller didn't supply one, same fallback the
+      // undo path below relies on being absent from a real business key.
+      idempotencyKey: parsed.idempotencyKey ?? `adjust:${randomUUID()}`,
       createdByUserId: actorUserId(ctx),
     })
 

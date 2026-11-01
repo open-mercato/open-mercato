@@ -120,50 +120,96 @@ describe('customer credit account CRUD route', () => {
   })
 
   describe('hooks.afterList (display-only exposure/available)', () => {
-    // Uses `getAccountExposure` (the row's own known account id), never `checkCredit` —
-    // `checkCredit` is purchase-permission-gated (`allowPurchaseOnAccount`) and reports
-    // `exposure: null` whenever the group's CURRENT terms disallow on-account purchasing,
-    // even for an account with real, nonzero ledger history. A display read for an
-    // account that already exists must show its real exposure regardless of today's
-    // purchase policy.
-    it('merges exposure/available per row via customerCreditService.getAccountExposure', async () => {
-      const getAccountExposure = jest.fn(async () => ({ exposure: '250.00', available: '750.00' }))
-      const ctx = createCtx({ customerCreditService: { getAccountExposure } })
+    // Uses `getAccountExposures` — ONE batched call per distinct organization in the
+    // page, never a per-row call (review finding: N+1 full-ledger scans) — and never
+    // `checkCredit`, which is purchase-permission-gated (`allowPurchaseOnAccount`) and
+    // reports `exposure: null` whenever the group's CURRENT terms disallow on-account
+    // purchasing, even for an account with real, nonzero ledger history. A display read
+    // for accounts that already exist must show their real exposure regardless of
+    // today's purchase policy.
+    it('merges exposure/available per row via ONE customerCreditService.getAccountExposures call', async () => {
+      const getAccountExposures = jest.fn(async () => new Map([[ACCOUNT_ID, { exposure: '250.00', available: '750.00' }]]))
+      const ctx = createCtx({ customerCreditService: { getAccountExposures } })
       const payload = {
         items: [
           { id: ACCOUNT_ID, organization_id: ORG_ID, customer_id: CUSTOMER_ID, currency_code: 'USD' },
         ],
       }
       await opts.hooks!.afterList!(payload, { ...ctx, query: {} })
-      expect(getAccountExposure).toHaveBeenCalledWith({
-        creditAccountId: ACCOUNT_ID,
+      expect(getAccountExposures).toHaveBeenCalledTimes(1)
+      expect(getAccountExposures).toHaveBeenCalledWith({
+        creditAccountIds: [ACCOUNT_ID],
         scope: { tenantId: TENANT_ID, organizationId: ORG_ID },
       })
       expect(payload.items[0]).toMatchObject({ exposure: '250.00', available: '750.00' })
     })
 
-    it('skips rows missing the fields getAccountExposure needs, without throwing', async () => {
-      const getAccountExposure = jest.fn()
-      const ctx = createCtx({ customerCreditService: { getAccountExposure } })
+    it('batches every row in the SAME organization into a single call, not one per row', async () => {
+      const otherAccountId = '66666666-6666-4666-8666-666666666666'
+      const getAccountExposures = jest.fn(async () => new Map([
+        [ACCOUNT_ID, { exposure: '100.00', available: '900.00' }],
+        [otherAccountId, { exposure: '50.00', available: '450.00' }],
+      ]))
+      const ctx = createCtx({ customerCreditService: { getAccountExposures } })
+      const payload = {
+        items: [
+          { id: ACCOUNT_ID, organization_id: ORG_ID, customer_id: CUSTOMER_ID, currency_code: 'USD' },
+          { id: otherAccountId, organization_id: ORG_ID, customer_id: 'other-customer', currency_code: 'USD' },
+        ],
+      }
+      await opts.hooks!.afterList!(payload, { ...ctx, query: {} })
+      expect(getAccountExposures).toHaveBeenCalledTimes(1)
+      expect(getAccountExposures).toHaveBeenCalledWith({
+        creditAccountIds: [ACCOUNT_ID, otherAccountId],
+        scope: { tenantId: TENANT_ID, organizationId: ORG_ID },
+      })
+      expect(payload.items[0]).toMatchObject({ exposure: '100.00', available: '900.00' })
+      expect(payload.items[1]).toMatchObject({ exposure: '50.00', available: '450.00' })
+    })
+
+    it('splits rows from DIFFERENT organizations into one call per organization', async () => {
+      const otherOrgId = '77777777-7777-4777-8777-777777777777'
+      const otherAccountId = '88888888-8888-4888-8888-888888888888'
+      const getAccountExposures = jest.fn(async ({ scope }: { scope: { organizationId: string } }) =>
+        scope.organizationId === ORG_ID
+          ? new Map([[ACCOUNT_ID, { exposure: '10.00', available: '990.00' }]])
+          : new Map([[otherAccountId, { exposure: '20.00', available: '980.00' }]]),
+      )
+      const ctx = createCtx({ customerCreditService: { getAccountExposures } })
+      const payload = {
+        items: [
+          { id: ACCOUNT_ID, organization_id: ORG_ID, customer_id: CUSTOMER_ID, currency_code: 'USD' },
+          { id: otherAccountId, organization_id: otherOrgId, customer_id: 'other-customer', currency_code: 'USD' },
+        ],
+      }
+      await opts.hooks!.afterList!(payload, { ...ctx, query: {} })
+      expect(getAccountExposures).toHaveBeenCalledTimes(2)
+      expect(payload.items[0]).toMatchObject({ exposure: '10.00', available: '990.00' })
+      expect(payload.items[1]).toMatchObject({ exposure: '20.00', available: '980.00' })
+    })
+
+    it('skips rows missing the fields getAccountExposures needs, without throwing', async () => {
+      const getAccountExposures = jest.fn()
+      const ctx = createCtx({ customerCreditService: { getAccountExposures } })
       const payload = { items: [{ id: ACCOUNT_ID }] }
       await expect(opts.hooks!.afterList!(payload, { ...ctx, query: {} })).resolves.toBeUndefined()
-      expect(getAccountExposure).not.toHaveBeenCalled()
+      expect(getAccountExposures).not.toHaveBeenCalled()
     })
 
     it('is a no-op for an empty item list', async () => {
-      const getAccountExposure = jest.fn()
-      const ctx = createCtx({ customerCreditService: { getAccountExposure } })
+      const getAccountExposures = jest.fn()
+      const ctx = createCtx({ customerCreditService: { getAccountExposures } })
       const payload = { items: [] as unknown[] }
       await opts.hooks!.afterList!(payload, { ...ctx, query: {} })
-      expect(getAccountExposure).not.toHaveBeenCalled()
+      expect(getAccountExposures).not.toHaveBeenCalled()
     })
 
     // The regression this display-vs-authorization split fixes: a company whose
     // group currently disallows on-account purchasing still has its account's real
     // ledger exposure shown, not `null`/"—".
     it('still reports real exposure when the group currently disallows on-account purchasing', async () => {
-      const getAccountExposure = jest.fn(async () => ({ exposure: '150.00', available: null }))
-      const ctx = createCtx({ customerCreditService: { getAccountExposure } })
+      const getAccountExposures = jest.fn(async () => new Map([[ACCOUNT_ID, { exposure: '150.00', available: null }]]))
+      const ctx = createCtx({ customerCreditService: { getAccountExposures } })
       const payload = {
         items: [
           { id: ACCOUNT_ID, organization_id: ORG_ID, customer_id: CUSTOMER_ID, currency_code: 'USD' },

@@ -25,6 +25,9 @@ export class Migration20261026144220_customer_groups extends Migration {
     this.addSql(`alter table "customer_credit_ledger_entries" drop constraint if exists "customer_credit_ledger_entries_credit_account_id_foreign";`);
 
     this.addSql(`alter table "customer_group_terms" drop column "terms_currency_code", drop column "approval_policy", drop column "allow_quote_requests", drop column "requires_po_number";`);
+
+    this.addSql(`drop table if exists "customer_credit_ledger_entries" cascade;`);
+    this.addSql(`drop table if exists "customer_credit_accounts" cascade;`);
   }
 
 }

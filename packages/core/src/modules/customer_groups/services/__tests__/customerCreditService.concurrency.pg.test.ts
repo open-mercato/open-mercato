@@ -191,3 +191,97 @@ maybe('customerCreditService reserveCredit under real concurrency (G1)', () => {
     expect(consumedInDb).toBe(reserved.length * Number(PER_RESERVE_AMOUNT))
   })
 })
+
+// Review finding: the admin credit-accounts LIST route used to call `getAccountExposure`
+// once per listed row, each one re-reading that account's ENTIRE ledger and summing it in
+// JS — an N+1 that also re-scans the whole table per account on every page view. The fix
+// batches it into `getAccountExposures`: one grouped `SUM(amount) ... GROUP BY
+// credit_account_id` query for every id in the page, plus one `id IN (...)` account fetch
+// — this is the live proof that the grouped SQL sum, run against a REAL Postgres
+// `numeric(16,2)` column, lands on the exact same totals `getAccountExposure` computes one
+// account at a time (the N+1 path this replaces), not an approximation.
+maybe('customerCreditService getAccountExposures batches correctly against real Postgres', () => {
+  jest.setTimeout(60_000)
+  let orm: MikroORM
+
+  beforeAll(async () => {
+    orm = await MikroORM.init({
+      clientUrl: PG_URL,
+      entities: [CustomerCreditAccount, CustomerCreditLedgerEntry],
+      metadataProvider: ReflectMetadataProvider,
+      allowGlobalContext: true,
+      debug: false,
+      pool: { min: 0, max: 8 },
+    })
+    await orm.schema.refresh()
+  }, 60_000)
+
+  afterAll(async () => {
+    await orm?.close(true)
+  })
+
+  async function seedAccountWithLedger(
+    creditLimit: string,
+    ledgerAmounts: string[],
+  ): Promise<{ accountId: string }> {
+    const em = orm.em.fork()
+    const account = em.create(CustomerCreditAccount, {
+      organizationId: ORG_ID,
+      tenantId: TENANT_ID,
+      customerId: randomUUID(),
+      currencyCode: CURRENCY,
+      creditLimit,
+      isOnHold: false,
+    })
+    em.persist(account)
+    // Flush first: `id` is a DB-generated default (`gen_random_uuid()`), not assigned
+    // client-side, so the ledger rows below need the account's row to exist before they
+    // can reference `account.id` as their FK.
+    await em.flush()
+    for (const amount of ledgerAmounts) {
+      em.persist(
+        em.create(CustomerCreditLedgerEntry, {
+          organizationId: ORG_ID,
+          tenantId: TENANT_ID,
+          creditAccountId: account.id,
+          entryType: 'adjust',
+          amount,
+          sourceType: 'manual',
+          sourceId: randomUUID(),
+          idempotencyKey: `seed-${randomUUID()}`,
+          balanceAfter: amount,
+          createdByActorType: 'system',
+        }),
+      )
+    }
+    await em.flush()
+    return { accountId: account.id }
+  }
+
+  test('one grouped-sum call reports the same exposure/available as one getAccountExposure call per account', async () => {
+    const em = orm.em.fork()
+    const service = serviceForExposures(em)
+
+    const accountA = await seedAccountWithLedger('500.00', ['100.00', '1.005', '-20.50'])
+    const accountB = await seedAccountWithLedger('300.00', ['50.00'])
+    const accountC = await seedAccountWithLedger('1000.00', [])
+
+    const expectedA = await service.getAccountExposure({ creditAccountId: accountA.accountId, scope: SCOPE })
+    const expectedB = await service.getAccountExposure({ creditAccountId: accountB.accountId, scope: SCOPE })
+    const expectedC = await service.getAccountExposure({ creditAccountId: accountC.accountId, scope: SCOPE })
+
+    const batched = await service.getAccountExposures({
+      creditAccountIds: [accountA.accountId, accountB.accountId, accountC.accountId],
+      scope: SCOPE,
+    })
+
+    expect(batched.get(accountA.accountId)).toEqual(expectedA)
+    expect(batched.get(accountB.accountId)).toEqual(expectedB)
+    expect(batched.get(accountC.accountId)).toEqual(expectedC)
+    expect(batched.size).toBe(3)
+  })
+
+  function serviceForExposures(em: EntityManager): CustomerCreditService {
+    return new DefaultCustomerCreditService(em, ALWAYS_ALLOWED_GROUPS_SERVICE)
+  }
+})
