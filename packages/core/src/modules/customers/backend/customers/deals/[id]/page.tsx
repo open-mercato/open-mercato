@@ -426,7 +426,10 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
     </div>
   )
 
-  const zone2Content = (
+  const injectedTabContent = injectedTabMap.get(activeTab)
+  const zone2Content = injectedTabContent ? (
+    <div>{injectedTabContent()}</div>
+  ) : (
     <div className="rounded-[10px] border border-border bg-card px-5 py-5">
       {(() => {
 
