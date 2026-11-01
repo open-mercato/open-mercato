@@ -124,7 +124,7 @@ jobs:
         # Determines which integration tests to run and whether to shard them.
         # Full-suite runs (push OR PR touching shared packages) use 15 shards.
         # Affected-only runs (PR touching specific modules) use a single runner.
-        # CI/docs/scripts-only PRs skip integration entirely.
+        # This workflow runs the full suite; other CI/docs/scripts-only PRs skip integration.
         # Runs in prepare so shards can start the moment the build is ready,
         # without waiting for typecheck or unit tests to complete.
         id: integration-scope

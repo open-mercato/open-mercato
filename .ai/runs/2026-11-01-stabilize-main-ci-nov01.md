@@ -4,7 +4,7 @@
 Fix repository-controlled root causes of failing main checks and demonstrate green CI on one new PR.
 
 ## Scope
-Inspect recent main commits, workflow jobs, logs and artifacts; fix each independently verified current regression with focused coverage; run the configured validation gate and observe all applicable PR checks. Reuse this linked worktree on `fix/stabilize-main-ci-nov01`; initially based on `ea24461ae`, refreshed by merging current main `66050c183` at the user’s request.
+Inspect recent main commits, workflow jobs, logs and artifacts; fix each independently verified current regression with focused coverage; run the configured validation gate and observe all applicable PR checks. Reuse this linked worktree on `fix/stabilize-main-ci-nov01`; initially based on `ea24461ae`, refreshed at the user’s request through `83931e7ad` (including upstream webhook and SCIM fixes), which is the verification baseline.
 
 ## Non-goals
 Do not weaken checks, remove coverage, bypass the third-party dependency cooldown, merge into main, change production, or publish releases. Historic failures already fixed on main need no duplicate correction. Conditional checks legitimately skipped by their existing policy are recorded separately from passing checks.
@@ -44,7 +44,7 @@ The initial local full test run reached 47 successful tasks before the macOS doc
 
 Standalone parity passed with local packed packages, the unchanged release-age policy, runtime-disabled and explicitly activated production builds, and TC-DOCUMENTS-001 plus TC-DOCUMENTS-012 (2 passed). Used an isolated Verdaccio registry on port 14873 with task-local request-size/public-URL overrides; no registry config change ships.
 
-Actual PR CI on bf4d0d5af failed the existing lesson-catalog guard: latest main added a 170th record but declared 169. Corrected the declared count in 9981e021a; lessons:check and focused regression tests pass. Added cancellation guards and failure/cancellation matrix coverage in f949c5d89. Current 15-shard artifacts are being collected before completion; no check is weakened.
+Actual PR CI on bf4d0d5af failed the existing lesson-catalog guard: latest main added a 170th record but declared 169. Corrected the declared count in 9981e021a; lessons:check and focused regression tests pass. Added cancellation guards and failure/cancellation matrix coverage in f949c5d89. The green CI job on f26c5cc0d revealed vacuous scoped gates: both Typecheck and Test selected only the root workspace and executed zero tasks. Corrected this in cf7b64f03: workflow edits and protected-branch pushes run literal yarn typecheck/yarn test, while other PRs keep affected filtering; failed comparison ancestry falls back to the full gate. Tests execute both actual YAML scripts against temporary Git histories and fake Yarn. Current-head full gates and 15-shard artifacts remain required; no check is weakened.
 
 ## Progress
 
