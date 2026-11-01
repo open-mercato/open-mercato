@@ -204,7 +204,7 @@ async function loadCode(em: EntityManager, id: string): Promise<Code | null> {
 }
 
 function resolveUndoActiveFlag(code: Code, before: CodeSnapshot, after: CodeSnapshot | null | undefined): boolean {
-  if (!before.active || after?.active === false || code.type !== 'static') return before.active
+  if (!before.active || code.type !== 'static') return before.active
   const redeemedSinceUpdate = code.used > (after?.used ?? before.used)
   return !redeemedSinceUpdate || hasRemainingGlobalUses(code)
 }

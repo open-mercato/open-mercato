@@ -420,6 +420,21 @@ describe('promotions.code.update command', () => {
     await undo()
     expect(code.active).toBe(true)
   })
+
+  it('undo of a deactivation keeps a code inactive when it was reactivated and used up before the undo', async () => {
+    const { em, tables } = createFakeEm()
+    const code = seedCode(tables, { usage: 'single', used: 0, active: true })
+    const undoDeactivation = await runLoggedUpdate(em, code, { active: false })
+    const undoReactivation = await runLoggedUpdate(em, code, { active: true })
+
+    code.used = 1
+    code.active = false
+
+    await undoReactivation()
+    expect(code.active).toBe(false)
+    await undoDeactivation()
+    expect(code.active).toBe(false)
+  })
 })
 
 describe('promotions.code.delete command', () => {
