@@ -196,23 +196,31 @@ describe('module-facts BC resolve guard (T2)', () => {
     // so uniform growth across all four is the evidence that this is repo size,
     // not a duplicated payload. The headroom ratio is kept at the ~1.15 the
     // previous raise used, so the guard keeps the same detection power it had.
-    expect(Buffer.byteLength(completeJson)).toBeLessThan(5_550_000)
+    //
+    // Re-measured again for the additive `channel_ms365` module (#5898). `main`
+    // alone had grown to within 0.3% of every cap (5,539,558 · 2,423,074 ·
+    // 2,096,995 · 2,285,866), so the next additive module of any size would fail
+    // here. `channel_ms365` itself costs +11,329 JSON, +3,228 delta, +6,437
+    // markdown and +7,219 directory markdown — the same order as
+    // `channel_discord`. Caps re-set to ~1.15x the merged-tree measurement below.
+    expect(Buffer.byteLength(completeJson)).toBeLessThan(6_390_000)
     // Measured on the merged tree (`yarn jest module-facts.bc-guard`):
-    //   completeJson 4,823,226 · legacy delta 2,111,784 · markdown 1,820,787 ·
-    //   directory markdown 1,985,779.
-    // (Previous, on develop's tree: 4,120,374 · 1,795,214 · 1,558,590 · 1,709,511.)
-    expect(Buffer.byteLength(completeJson) - Buffer.byteLength(legacyJson)).toBeLessThan(2_430_000)
+    //   completeJson 5,550,887 · legacy delta 2,426,302 · markdown 2,103,432 ·
+    //   directory markdown 2,293,085.
+    // (Previous, on the agent_orchestrator union: 4,823,226 · 2,111,784 ·
+    // 1,820,787 · 1,985,779.)
+    expect(Buffer.byteLength(completeJson) - Buffer.byteLength(legacyJson)).toBeLessThan(2_800_000)
     // Markdown cap raised with the source-link contract: entities, events, ACL
     // features, DI tokens, search entities, notifications, UMES hosts and UMES
     // contributions all render a resolved Source cell, and contribution
     // resolutions render as their own source-linked section — plus the additive
     // `channel_discord` module's own render, per the growth note above.
-    expect(markdownBytes).toBeLessThan(2_100_000)
+    expect(markdownBytes).toBeLessThan(2_420_000)
     // Raised even though it was still passing: at 2,050,000 it sat 3.2% above
     // the union measurement, and a cap that close has stopped detecting blow-ups
     // and started rejecting the next additive module — the failure mode the note
     // above warns about, one merge away.
-    expect(directoryMarkdownBytes).toBeLessThan(2_290_000)
+    expect(directoryMarkdownBytes).toBeLessThan(2_640_000)
   })
 
   it('keeps every shipped directory section resumable and every advertised subsection anchor exact', () => {

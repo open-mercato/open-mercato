@@ -70,7 +70,7 @@ Build provider-owned modules around generic integration, data-sync, webhook, que
 
 - First decide whether the request is **transactional delivery** or a **connected mailbox**. SMTP used only for application-generated mail is a transactional provider: register its `IntegrationDefinition`, encrypted credentials, DI sender/health services, and app module, but do not claim it implements a mailbox contract that the installed framework does not expose.
 - Gmail, IMAP/SMTP mailboxes, inbox sync, threading, history, or per-user send/receive belong to the installed `communication_channels` module. Implement `ChannelAdapter` from `@open-mercato/core/modules/communication_channels/lib/adapter`, set `integration.hub: 'communication_channels'`, register the adapter and exact `healthCheck.service` in `di.ts`, ensure idempotent adapter registration/default grants in `setup.ts`, and activate both the hub and provider in `src/modules.ts`.
-- Use the installed `channel_gmail` and `channel_imap` facts/source as precedent. Thread `userId` on every mailbox credential read/write; tenant-wide transactional credentials must not read per-user rows.
+- Use the installed `channel_gmail`, `channel_imap` and `channel_ms365` facts/source as precedent. Thread `userId` on every mailbox credential read/write; tenant-wide transactional credentials must not read per-user rows.
 
 ## Testing
 
