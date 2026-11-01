@@ -5,6 +5,7 @@ import { seedCheckoutExamples } from './seed/examples'
 import { CHECKOUT_EXPIRY_QUEUE } from './workers/transaction-expiry.worker'
 import { CHECKOUT_RECOVER_STUCK_SUBMITS_QUEUE } from './workers/recover-stuck-submits.worker'
 import { CHECKOUT_EXPIRE_AWAITING_PAYMENT_QUEUE } from './workers/expire-awaiting-payment.worker'
+import { CHECKOUT_EXPIRE_SESSIONS_QUEUE } from './workers/expire-checkout-sessions.worker'
 export { DEFAULT_CHECKOUT_CUSTOMER_FIELDS } from './lib/defaults'
 
 function stableUuidFromString(input: string): string {
@@ -99,6 +100,28 @@ export const setup: ModuleSetupConfig = {
       timezone: 'UTC',
       targetType: 'queue',
       targetQueue: CHECKOUT_EXPIRE_AWAITING_PAYMENT_QUEUE,
+      targetPayload: { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
+      sourceType: 'module',
+      sourceModule: 'checkout',
+      isEnabled: true,
+    })
+
+    // PR 8268 review fix (Finding 5 follow-up, §12's own "expire-checkout-sessions" job,
+    // named but never scheduled since Step 2.12). Mirrors the three schedules above
+    // exactly — same per-(tenant, organization) scope, same re-registration on every
+    // `seedDefaults` pass so an existing tenant also picks this up.
+    await schedulerService.register({
+      id: stableUuidFromString(`checkout:expire-checkout-sessions:${ctx.tenantId}:${ctx.organizationId}`),
+      name: 'Checkout expire sessions',
+      description: 'Expires open/awaiting_approval checkout sessions past their own TTL and releases any pay-link slot they are still holding (§12).',
+      scopeType: 'organization',
+      organizationId: ctx.organizationId,
+      tenantId: ctx.tenantId,
+      scheduleType: 'interval',
+      scheduleValue: '5m',
+      timezone: 'UTC',
+      targetType: 'queue',
+      targetQueue: CHECKOUT_EXPIRE_SESSIONS_QUEUE,
       targetPayload: { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
       sourceType: 'module',
       sourceModule: 'checkout',

@@ -25,6 +25,10 @@ const events = [
   // surface this run's own precedent (Step 2.7) avoided for `customer_groups.approval.decided`.
   { id: 'checkout.session.created', label: 'Checkout Session Created', entity: 'session', category: 'lifecycle' },
   { id: 'checkout.session.canceled', label: 'Checkout Session Canceled', entity: 'session', category: 'lifecycle' },
+  // PR 8268 review fix (Finding 5 follow-up): the `expire-checkout-sessions` job (§12)
+  // named but never shipped since Step 2.12 — see `lib/session-status-machine.ts`'s own
+  // `open -> expired` / `awaiting_approval -> expired` rows.
+  { id: 'checkout.session.expired', label: 'Checkout Session Expired', entity: 'session', category: 'lifecycle' },
   // Release 5, Step 4.1 (B.4 submit, §7.2 step 0 / §7.3). `.submitted` fires once per
   // `open -> submitting` CAS win; the `.completed`/`.failed`/`.payment.*`/`.approval_*`
   // family stays declared incrementally, per this file's own precedent, as the Step that

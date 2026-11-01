@@ -255,6 +255,67 @@ describe('checkout recover-stuck-submits worker', () => {
     expect(mockCompensate).not.toHaveBeenCalled()
   })
 
+  // Finding 6: the existing `submit_progress: null` tests above only ever exercise the
+  // "nothing found" default — this branch (re-deriving document creation by the attempt's
+  // own deterministic `externalReference` BEFORE falling back to the collapsed
+  // compensate-and-reopen path) was never actually exercised. These two cover it finding
+  // a quote (and, for an order outcome, an order too).
+  it('an order-outcome crash recovered via the external_reference lookup resumes forward through continueOrderOutcome, never compensating or duplicating the quote/order', async () => {
+    const session = makeSession({ submitProgress: null, salesQuoteId: null, salesOrderId: null })
+    mockFindWithDecryption.mockResolvedValueOnce([session])
+    mockFindExistingQuoteByExternalReference.mockResolvedValueOnce({ id: 'quote-found-1' })
+    mockFindExistingOrderById.mockResolvedValueOnce({ id: 'order-found-1' })
+    const { default: handle } = await import('../recover-stuck-submits.worker')
+
+    await handle(
+      { ...baseJob, payload: { tenantId: TENANT_ID, organizationId: ORG_ID } } as unknown as QueuedJob<RecoverStuckSubmitsJob>,
+      mockContext,
+    )
+
+    expect(mockFindExistingQuoteByExternalReference).toHaveBeenCalledWith(mockEm, { tenantId: TENANT_ID, organizationId: ORG_ID }, `checkout:${session.id}:${session.submitAttempt}`)
+    expect(mockFindExistingOrderById).toHaveBeenCalledWith(mockEm, { tenantId: TENANT_ID, organizationId: ORG_ID }, 'quote-found-1')
+    // Persists what the crash never got to write, then re-enters the SAME function so the
+    // `document_created` branch above resumes it — through `continueOrderOutcome`, the
+    // exact primitive the live path uses, never a parallel creation.
+    expect(mockEm.nativeUpdate).toHaveBeenCalledWith(
+      CheckoutSession,
+      { id: session.id, tenantId: TENANT_ID, organizationId: ORG_ID },
+      expect.objectContaining({ salesQuoteId: 'quote-found-1', salesOrderId: 'order-found-1', submitProgress: 'document_created' }),
+    )
+    expect(mockContinueOrderOutcome).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      session,
+      quoteId: 'quote-found-1',
+      orderId: 'order-found-1',
+    }))
+    expect(mockResumeOrderOutcomeFromQuote).not.toHaveBeenCalled()
+    expect(mockCompensate).not.toHaveBeenCalled()
+    expect(mockCompensateByCancellingOrder).not.toHaveBeenCalled()
+    expect(mockWriteSessionEvent).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ kind: 'recovery', payload: expect.objectContaining({ action: 'recovered_progress' }) }))
+  })
+
+  it('a quote-to-order crash recovered via the external_reference lookup (quote exists, order does not yet) resumes through resumeOrderOutcomeFromQuote, never compensating', async () => {
+    const session = makeSession({ submitProgress: null, salesQuoteId: null, salesOrderId: null })
+    mockFindWithDecryption.mockResolvedValueOnce([session])
+    mockFindExistingQuoteByExternalReference.mockResolvedValueOnce({ id: 'quote-found-2' })
+    mockFindExistingOrderById.mockResolvedValueOnce(null)
+    const { default: handle } = await import('../recover-stuck-submits.worker')
+
+    await handle(
+      { ...baseJob, payload: { tenantId: TENANT_ID, organizationId: ORG_ID } } as unknown as QueuedJob<RecoverStuckSubmitsJob>,
+      mockContext,
+    )
+
+    expect(mockResumeOrderOutcomeFromQuote).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      session,
+      quoteId: 'quote-found-2',
+      paymentMethodCode: session.paymentMethodCode,
+    }))
+    expect(mockContinueOrderOutcome).not.toHaveBeenCalled()
+    expect(mockCompensate).not.toHaveBeenCalled()
+    expect(mockCompensateByCancellingOrder).not.toHaveBeenCalled()
+    expect(mockWriteSessionEvent).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ kind: 'recovery', payload: expect.objectContaining({ action: 'resumed' }) }))
+  })
+
   it('a single session recovery failure does not stop the batch', async () => {
     const session1 = makeSession({ id: 'session-recover-1', submitProgress: null })
     const session2 = makeSession({ id: 'session-recover-2', submitProgress: null })
