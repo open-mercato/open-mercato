@@ -2217,6 +2217,8 @@ function buildReusableEnvironment(
     OM_TEST_EMAIL_CAPTURE_ACCESS_TOKEN: TEST_EMAIL_CAPTURE_ACCESS_TOKEN,
     OM_TEST_EMAIL_CAPTURE_CORRELATION_TOKEN: TEST_EMAIL_CAPTURE_CORRELATION_TOKEN,
     SYSTEM_EMAIL_PROVIDER: '__test_seed__',
+    // Queued system email specs wait on real retries; keep the backoff short.
+    OM_SYSTEM_EMAIL_RETRY_BASE_MS: '500',
     EMAIL_FROM: process.env.EMAIL_FROM ?? 'system@test-seed.local',
     NOTIFICATIONS_EMAIL_FROM: process.env.NOTIFICATIONS_EMAIL_FROM ?? 'notifications@test-seed.local',
     ADMIN_EMAIL: process.env.ADMIN_EMAIL ?? 'admin@test-seed.local',
@@ -3619,6 +3621,8 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
       OM_TEST_EMAIL_CAPTURE_ACCESS_TOKEN: TEST_EMAIL_CAPTURE_ACCESS_TOKEN,
       OM_TEST_EMAIL_CAPTURE_CORRELATION_TOKEN: TEST_EMAIL_CAPTURE_CORRELATION_TOKEN,
       SYSTEM_EMAIL_PROVIDER: '__test_seed__',
+      // Queued system email specs wait on real retries; keep the backoff short.
+      OM_SYSTEM_EMAIL_RETRY_BASE_MS: '500',
       EMAIL_FROM: process.env.EMAIL_FROM ?? 'system@test-seed.local',
       NOTIFICATIONS_EMAIL_FROM: process.env.NOTIFICATIONS_EMAIL_FROM ?? 'notifications@test-seed.local',
       ADMIN_EMAIL: process.env.ADMIN_EMAIL ?? 'admin@test-seed.local',

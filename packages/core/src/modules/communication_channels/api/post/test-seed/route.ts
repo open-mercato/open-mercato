@@ -15,7 +15,11 @@ import {
   ExternalConversation,
   ExternalMessage,
   MessageChannelLink,
+  SystemEmailDelivery,
 } from '../../../data/entities'
+import { resolveDefaultEmailFromAddress } from '@open-mercato/shared/lib/email/config'
+import { prepareSystemEmailBody } from '../../../lib/system-email'
+import { enqueueSystemEmailDelivery } from '../../../lib/system-email-queue'
 import { ChannelAccessDeniedError, assertCanManageChannel } from '../../../lib/access-control'
 import {
   COMMUNICATION_CHANNELS_CONNECT_CREDENTIAL_CHANNEL_COMMAND_ID,
@@ -230,6 +234,24 @@ const inspectMessageLinksSchema = z.object({
   messageId: z.string().uuid(),
 })
 
+/**
+ * Queue a system email exactly as `sendEmail({ delivery: 'queued' })` would, and return the delivery
+ * row id so a test can follow the worker. Combine with the test-seed subject markers
+ * (`[test-seed:fail-transient-once]`, `[test-seed:fail-permanent]`) to exercise retries.
+ */
+const queueSystemEmailSchema = z.object({
+  action: z.literal('queue-system-email'),
+  to: z.string().email().max(320),
+  subject: z.string().min(1).max(500),
+  text: z.string().min(1).max(10_000),
+})
+
+/** Delivery-state view of a queued system email; never returns recipient or body content. */
+const inspectSystemEmailDeliverySchema = z.object({
+  action: z.literal('inspect-system-email-delivery'),
+  deliveryId: z.string().uuid(),
+})
+
 const bodySchema = z.discriminatedUnion('action', [
   connectChannelSchema,
   inspectMessageLinksSchema,
@@ -239,6 +261,8 @@ const bodySchema = z.discriminatedUnion('action', [
   seedSystemChannelSchema,
   clearCaptureSchema,
   listCaptureSchema,
+  queueSystemEmailSchema,
+  inspectSystemEmailDeliverySchema,
 ])
 
 const logger = createLogger('communication_channels').child({ component: 'test-seed' })
@@ -406,6 +430,49 @@ export async function POST(req: Request): Promise<Response> {
     }
 
     return NextResponse.json({ channelId: channel.id }, { status: 201 })
+  }
+
+  if (body.action === 'queue-system-email') {
+    const from = resolveDefaultEmailFromAddress()
+    if (!from) {
+      return NextResponse.json({ error: 'EMAIL_FROM_NOT_CONFIGURED' }, { status: 422 })
+    }
+    const payload = {
+      to: body.to,
+      subject: body.subject,
+      text: body.text,
+      from,
+      fromIsInstanceDefault: true,
+      tenantId,
+      organizationId,
+    }
+    const deliveryId = await enqueueSystemEmailDelivery(container, payload, await prepareSystemEmailBody(payload))
+    return NextResponse.json({ deliveryId }, { status: 201 })
+  }
+
+  if (body.action === 'inspect-system-email-delivery') {
+    const em = (container.resolve('em') as EntityManager).fork()
+    const delivery = await findOneWithDecryption(
+      em,
+      SystemEmailDelivery,
+      { id: body.deliveryId, tenantId },
+      undefined,
+      { tenantId, organizationId },
+    )
+    if (!delivery) {
+      return NextResponse.json({ error: 'Not found' }, { status: 404 })
+    }
+    return NextResponse.json({
+      id: delivery.id,
+      status: delivery.status,
+      attempts: delivery.attempts,
+      providerKey: delivery.providerKey ?? null,
+      lastError: delivery.lastError ?? null,
+      sentAt: delivery.sentAt?.toISOString() ?? null,
+      hasContent: Boolean(
+        delivery.recipient || delivery.subject || delivery.htmlBody || delivery.textBody || delivery.attachments,
+      ),
+    })
   }
 
   if (body.action === 'connect-channel') {
@@ -782,7 +849,7 @@ export const openApi = {
   methods: {
     POST: {
       summary:
-        'Test-only: seed a connected channel, ingest a real inbound message, emit a seeded inbound link, or purge one (env-gated)',
+        'Test-only: seed a connected channel, ingest a real inbound message, emit a seeded inbound link, purge one, or queue and inspect a system email delivery (env-gated)',
       tags: ['CommunicationChannels'],
       responses: [
         { status: 201, description: 'Channel seeded / inbound message emitted' },

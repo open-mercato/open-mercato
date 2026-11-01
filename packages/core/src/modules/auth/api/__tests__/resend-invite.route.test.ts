@@ -244,6 +244,7 @@ describe('POST /api/auth/users/resend-invite', () => {
     expect(res.status).toBe(200)
     expect(body.ok).toBe(true)
     expect(body.warning).toBe('invite_email_failed')
+    expect(mockSendEmail).toHaveBeenCalledWith(expect.objectContaining({ delivery: 'sync' }))
   })
 
   test('rejects when mutation guard blocks', async () => {

@@ -31,6 +31,10 @@ import type { ModuleEncryptionMap } from '@open-mercato/shared/modules/encryptio
  *     contact resolution looks addresses up by value (see the address blind-index
  *     follow-up in customers/lib/findPeopleByAddresses.ts).
  *
+ * `SystemEmailDelivery` content columns hold queued system emails, whose rendered bodies carry
+ * one-time links (password reset, invitations); they are encrypted for the retry window and purged
+ * once delivery succeeds or gives up.
+ *
  * See `.ai/specs/implemented/2026-05-27-email-integration-inbound-reliability-and-threading.md`
  * (§ 3 Encryption posture).
  */
@@ -38,6 +42,17 @@ export const defaultEncryptionMaps: ModuleEncryptionMap[] = [
   {
     entityId: 'communication_channels:channel_ingest_dead_letter',
     fields: [{ field: 'raw_body' }],
+  },
+  {
+    entityId: 'communication_channels:system_email_delivery',
+    fields: [
+      { field: 'recipient' },
+      { field: 'subject' },
+      { field: 'html_body' },
+      { field: 'text_body' },
+      { field: 'attachments' },
+      { field: 'reply_to' },
+    ],
   },
 ]
 
