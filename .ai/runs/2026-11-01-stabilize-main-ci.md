@@ -36,6 +36,13 @@ Restore every failing required CI check on `main` by identifying the current roo
 - Environment or infrastructure failures will be distinguished from repository defects before code is changed.
 - The final GitHub checks can outlast local validation; the run remains in progress until required checks finish green or a concrete external blocker is recorded.
 
+## Validation evidence
+
+- Runner: local (no running Compose `app` container).
+- `yarn install --immutable` passes after regenerating the lockfile.
+- The configured gate passes in order: package build, generation, package rebuild, i18n sync and usage checks, typecheck, tests, and application build. The long worktree required `TMPDIR=/var/tmp`; the complete test graph used Turbo loose environment propagation and a 2 GB Node heap to avoid runner path-length and memory limits, finishing with 51/51 tasks successful.
+- PR #8428 reports every non-conditional check successful, including `lint`, `ds-lint`, `prepare`, `audit`, `test`, `documents-multi-instance`, `core-timezone`, CodeQL, and CLA. Conditional `docker-build`, `ephemeral-integration`, and `merge-coverage` jobs are skipped by workflow scope.
+
 ## Diagnosis
 
 - Latest affected `main` commit: `a3763359b83d5d2d38a5baf1424b2c91fc68c4b1`.
