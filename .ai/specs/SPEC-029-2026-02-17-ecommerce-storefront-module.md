@@ -2,7 +2,7 @@
 
 | Field | Value |
 |-------|-------|
-| **Status** | Specification (v4.9 — Phase 0 reconciliation, owner decisions, post-merge cache amendments, and review fixes) |
+| **Status** | Specification (v4.10 — Phase 0 reconciliation, owner decisions, post-merge cache amendments, review fixes, and the Release 5 `resolveForBuyer` contract) |
 | **Created** | 2026-02-17 |
 | **Rescoped** | 2026-08-14 |
 | **Pre-implementation fixes** | 2026-08-17 — see §21 |
@@ -26,7 +26,7 @@
 
 **Scope:**
 - `EcommerceStore`, `EcommerceStoreDomainBinding`, `EcommerceStoreChannelBinding`
-- `storeContextService`: store resolution, buyer-context resolution, branding
+- `storeContextService`: store resolution, buyer-context resolution, branding, and the trusted in-process `resolveForBuyer` (§6.3, Release 5)
 - Per-store branding as CSS custom properties, with SSR injection and no FOUC
 - Admin CRUD and admin UI (store list, general, branding with live preview, domains, channels, SEO)
 - Cache and invalidation for the resolution hot path
@@ -306,6 +306,27 @@ export interface StoreContextService {
   resolveBySlug(slug: string, opts?: { locale?: string }): Promise<StoreContext>
   brandingStyles(settings: EcommerceStoreSettings): string   // ':root { --primary: ... }'
   invalidate(storeId: string): Promise<void>
+  // Added 2026-10-26 (Release 5, D-R5-22): trusted, in-process only — see §6.3
+  resolveForBuyer(input: {
+    tenantId: string
+    organizationId: string
+    storeId?: string | null
+    customerUserId?: string | null
+    customerId?: string | null
+  }): Promise<{
+    tenantId: string
+    organizationId: string
+    storeId: string | null
+    customerId: string | null
+    customerIds: string[]             // person + company, person first (§6.0)
+    customerUserId: string | null
+    customerGroupIds: string[]
+    priceKindId: string | null
+    taxMode: 'gross' | 'net' | null   // null only when neither a price kind nor a store resolves
+    currencyCode: string | null       // the store's currency; null without a store
+    buyerDigest: string
+    assortmentScope?: EffectiveAssortmentScope   // present only when storeId is given
+  }>
 }
 ```
 
@@ -372,6 +393,36 @@ A `/om-pre-implement-spec` audit found the original draft resolved `taxMode` ind
 v3 returned `403` for draft stores unconditionally, which confirms a store exists at that host to anyone probing. Outside the explicit development flag (§9.1) the answer is `404`.
 
 **Why `401` rather than anonymous on a tenant mismatch (2026-10-05, D4).** `getCustomerAuthFromRequest` takes the tenant from the JWT and never compares it with the request's host; the portal cookie is host-only with `path: '/'`, so every store on one host receives the same cookie. Treating a foreign token as anonymous would hide the mismatch; the owner chose to reject it. The consequence is accepted and documented: a buyer logged into one organization's store cannot browse another organization's store on the same host until they log out.
+
+### 6.3 Trusted buyer resolution: `resolveForBuyer` (added 2026-10-26, Release 5, D-R5-22)
+
+`resolve(request)` builds the buyer from the request's portal session. Some callers act for a buyer who is not the requester, or with no request at all: a rep authoring a proposal, checkout seeding a pay-link cart, a trusted `api`/`agent` cart, a recovery job re-locking a cart. Before Release 5 these either resolved nothing (trusted carts stored `customerIds = [customerId]`, no groups, no price kind) or had no seam. `resolveForBuyer` is the one trusted seam for all of them. It runs the same composition as `resolve()` (§4.1 step 6, §6.0, §6.1a), with the identity supplied by a trusted caller instead of read from a session.
+
+**Inputs.** `tenantId` and `organizationId` (required), `storeId` (optional), and `customerUserId` and/or `customerId`.
+- `customerUserId` given: the `CustomerUser` is read fresh, and `customerIds` is built exactly as in §6.0 (person, then company). When `customerId` is also given, it MUST be one of those ids.
+- Only `customerId` given (a trusted cart with a CRM customer and no portal user): a person entity resolves with its company (`CustomerPersonProfile.company_entity_id`, read through `customers` by FK id, no ORM relation), and a company entity resolves alone. `customerUserId` is `null` in the result.
+- Neither given: a guest. The result is the anonymous scope: no groups, the channel price kind when a store is given, and the store's anonymous assortment (`[]` when the default channel binding has `require_authentication`).
+
+**Output.** `customerIds`, `customerGroupIds` (`customerGroupsService.resolveGroups` over `customerIds`), `priceKindId` (group terms override, else the store's default channel price kind, else `null`), `taxMode` (§6.1a; `null` only when neither a price kind nor a store resolves, and the caller then keeps its own channel's mode), `currencyCode` (the store's; `null` without a store, and the caller keeps its cart's currency) and `buyerDigest`. `buyerDigest` = sha256(`storeId ?? '-'`, `taxMode ?? '-'`, `priceKindId ?? '-'`, sorted `customerGroupIds`, `assortmentScopeHash ?? '-'`, `customerOverlayId ?? '-'`), truncated to 16 hex characters. It has no locale or channel component, so it is not interchangeable with `StoreContext.digest` and MUST NOT be used as a storefront cache key. It is a record-level fingerprint of the identity a write was priced under.
+
+**`assortmentScope` only with a store.** With `storeId`, the result carries `assortmentScope` = `intersectScopes(defaultChannelBinding.assortmentScope, groupScope)`, as in §4.1 step 6. Without `storeId` the field is absent, not `null`: `null` means unrestricted, and a caller with no store has no scope to enforce (cart §6a.4 exempts those channels).
+
+**Rules.**
+- **In-process only.** No route, AI tool or MCP tool exposes it. Its inputs are trusted by construction and MUST come from stored records (the target cart, the checkout link, the recovered session) or from the authenticated caller's own auth context, never from a request body.
+- **Never cached under the buyer's 60 s key.** It always reads fresh (as `resolve(request, { fresh: true })` does, D-R4-22) and writes nothing to the buyer-context cache, so a trusted resolution can neither read a stale membership nor seed an entry the buyer's own storefront requests would then hit.
+- **Tenant and organization binding.** It refuses a `storeId` whose store is not in `tenantId` and `organizationId` (throws, `code: 'store_out_of_scope'`), and a `customerUserId` or `customerId` outside them, or a `customerId` that is not one of the given user's ids (throws, `code: 'buyer_out_of_scope'`). This is D4's rule (§6.2) for a caller with no token. The store's `status` is not checked: serving gates stay at the storefront edge.
+- **Resolved with `tryResolve`.** `ecommerce` stays optional. When `storeContextService` is not registered, each caller states its fallback: `assisted_selling` fails closed with `503 assortment_scope_unavailable`; the cart trusted path keeps the identity it was given (`customerIds = [customerId]`, no groups), as documented in cart §6a.4.
+
+**Callers (Release 5).**
+
+| Caller | `storeId` | Purpose |
+|---|---|---|
+| `assisted_selling` proposal authoring (assisted-selling §6.3 step 2) | The thread's store | Price and scope the proposal under the target buyer, never the author (roadmap ADR-10) |
+| Checkout pay-link cart seeding with a logged-in buyer (D-R5-19) | None | Template lines without `unit_price_override` price at the buyer's own rate; terms, credit and approval resolve to the company |
+| Trusted `api`/`agent` carts with a customer (cart §6a.4) | None | Same identity as a storefront buyer, so the approval gate (D-R5-29) and credit see the company |
+| Checkout recovery re-locking a cart (X15) | The cart's store, when it has one | Builds the `cart.lock` context from the cart's stored identity, with no request |
+
+The command context those callers run under comes from the shared `buildTrustedCommandContext` helper (X10); `resolveForBuyer` supplies only the buyer identity.
 
 ---
 
@@ -695,6 +746,7 @@ All forms use `CrudForm` and derive the optimistic-lock header from `initialValu
 - Resolution yields exactly one tenant and organization; every downstream query is scoped by both. Cross-tenant exposure is structurally impossible via this path.
 - A portal token is accepted only when its `tenantId` **and** `orgId` equal the resolved store's; otherwise `401` (§6.2, D4). `getCustomerAuthFromRequest` does not perform this check itself, so the resolver must.
 - Buyer identity ids are read from `CustomerUser`, never trusted from JWT claims.
+- `resolveForBuyer` (§6.3) has no route and takes its identity only from stored records or the caller's own auth context; it refuses a store or buyer outside the given tenant and organization, and never reads or writes the buyer-context cache.
 - Storefront product queries always enforce `deleted_at IS NULL` and `is_active = true` — restated here because spec 4 depends on it.
 - Draft stores return `404` unless `OM_ECOMMERCE_DEV_STORE_SLUG=true` (§6.2); their existence is not disclosed.
 - Only an `active` `DomainMapping` serves (DNS verified and TLS issued), preventing a hostname from being served before DNS proves ownership or without TLS.
@@ -807,6 +859,14 @@ Renumbered from v3's `TC-EC-*`; cases covering moved scope now live in the specs
 - General `PUT /stores/:id` that changes `settings.branding` is rejected with a field error
 - `assortment_scope` containing `allOf` is rejected by the channel-binding validator
 
+**Trusted buyer resolution (`resolveForBuyer`, §6.3, Release 5):** it has no route, so it is covered by unit tests in `ecommerce` (`__tests__/resolveForBuyer.test.ts`) and by integration tests through its callers, which ship with those callers:
+- Pricing identity: a rep proposal for a B2B buyer (assisted selling) and a pay-link cart seeded for the same logged-in buyer (checkout B.2) resolve the same `customerIds`, `customerGroupIds` and `priceKindId` as that buyer's own `GET /api/ecommerce/storefront/context`, and their line prices equal the buyer's storefront prices — never the author's (roadmap Phase 4 gate)
+- Tenant mismatch: a `storeId` of a second tenant, or of another organization in the same tenant, is refused (`store_out_of_scope`) and the caller creates nothing; a `customerUserId` or `customerId` from a second tenant is refused (`buyer_out_of_scope`)
+- Without a store: no `assortmentScope` field; a person `customerId` resolves with its company, so credit and approval terms resolve to the company (pay-link and `api` carts)
+- Guest (no identity): the anonymous scope; with a `require_authentication` channel the scope is `[]`
+- Cache: a trusted resolution neither reads nor writes the buyer's 60 s entry (unit test on the cache accessor); a membership change is visible to the next trusted call with no wait
+- Absent `ecommerce`: assisted-selling authoring against a storefront target answers `503 assortment_scope_unavailable`; a pay-link cart keeps the trusted input identity
+
 **API paths:** every route in §9, each asserting tenant isolation against a second-tenant fixture.
 
 **Performance:** uncached resolution P95 under 15 ms with a seeded 50-store tenant (R2).
@@ -839,6 +899,11 @@ Store list and all five tabs, live preview, domain state surfaced read-only from
 
 **Gate:** UI paths in §16 pass, including the optimistic-lock conflict path.
 
+### Phase 4 — Trusted buyer resolution (Release 5, added 2026-10-26)
+`storeContextService.resolveForBuyer` (§6.3, D-R5-22), reusing `buyerContext.ts`'s composition with the identity supplied by the caller, `storeId` optional, fresh reads, no cache write, tenant/organization refusal. Release 5 work: it is a hard prerequisite of assisted-selling Phase 1 authoring (D-R5-11), the cart trusted path (D-R5-19, D-R5-29) and checkout recovery (X15), and ships in Release 5 wave 1 before them. Depends on Phase 1 only.
+
+**Gate:** the §16 trusted-buyer-resolution cases pass, including pricing identity against the buyer's own `resolve()` and the tenant-mismatch refusal.
+
 `setup.ts` seeds one `draft` store per tenant from organization metadata (name, locale, currency) so a fresh tenant has something to configure rather than an empty screen. The seed is idempotent (no second draft if one exists), so the Upgrade Action (§18) and the module-sets spec's future `mercato module setup` can both run it safely.
 
 ---
@@ -851,6 +916,7 @@ Store list and all five tabs, live preview, domain state surfaced read-only from
 - New ACL features reach existing tenants' roles via `yarn mercato auth sync-role-acls`.
 - `OM_ECOMMERCE_DEV_STORE_SLUG` is added to `apps/mercato/.env.example` (and mirrored into the create-app template, `yarn template:sync:fix`).
 - Changes this spec depends on in other modules, all additive (BC category in brackets): `catalog` `PricingContext.priceKindId?` / `customerIds?` [2 Types, 3 Signatures — optional fields]; `pricing-engine.md` Phase 2b indexes [8 DB — new indexes]; `customer_groups` multi-id service inputs [9 DI — optional input fields on an existing service] and `customer_group_terms.assortment_scope jsonb null` [8 DB — new nullable column]; `packages/shared` `hashEffectiveScope`/`canonicalizeEffectiveScope` [4 Import paths — new exports]. New surfaces this module introduces become FROZEN/STABLE on release: event IDs and notification type IDs (§9.4), ACL features (§9.3), API routes (§9), `storeContextService` and the `BuyerContext`/`StoreContext` types (§6).
+- **`storeContextService.resolveForBuyer` (2026-10-26, Release 5, D-R5-22)** is additive [3 Signatures / 9 DI — a new method on an existing service]. `resolve`, `resolveBySlug`, `invalidate`, `BuyerContext` and `StoreContext` are unchanged. It adds no route, event, ACL feature, cache tag or database change. Once released it is STABLE like the rest of `storeContextService`.
 - No data migration. `EcommerceStoreDomain` from v3 was never implemented, so its replacement by `EcommerceStoreDomainBinding` is a spec change, not a schema change — no deprecation protocol is triggered.
 
 ---
@@ -898,6 +964,13 @@ Open:
 ---
 
 ## 21) Changelog
+
+### 2026-10-26 — v4.10 (Release 5 spec revision: `resolveForBuyer`)
+
+Records the obligation the assisted-selling Release 5 analysis raised as S1 (`ANALYSIS-2026-10-26-assisted-selling-release-5.md`) and the owner decision D-R5-22 (`ANALYSIS-2026-10-26-ecommerce-release-5-decisions.md`), which widened it from assisted selling to every trusted caller (cross-spec X2, X15).
+- New §6.3 and an additive `resolveForBuyer` on the §6 interface: inputs `tenantId`, `organizationId`, optional `storeId`, `customerUserId` and/or `customerId`; output identity, groups, price kind, `taxMode`, `currencyCode`, `buyerDigest`, and `assortmentScope` only when a store is given. In-process only, fresh reads with no buyer-cache write, refusal of a store or buyer outside the tenant and organization (`store_out_of_scope`, `buyer_out_of_scope`), guest = anonymous scope. S1's mandatory `storeId` became optional (D-R5-22), because checkout links and `api`/`agent` carts have no store.
+- Callers: assisted-selling authoring, the cart trusted path for `pay_link`/`api`/`agent` carts (D-R5-19, D-R5-29), checkout recovery (X15); each resolves it with `tryResolve` and states its fallback.
+- §12 security bullet, §16 coverage through callers (no route), §17 Phase 4 marked as Release 5 work, §18 additive BC entry.
 
 ### 2026-10-13 — v4.9 (review fixes, PR #7142)
 

@@ -329,25 +329,34 @@ const lineKindSchema = z.enum(['product', 'service', 'shipping', 'discount', 'ad
 
 const adjustmentKindSchema = z.string().trim().min(1).max(150)
 
+export const amountsModeSchema = z.enum(['computed', 'external'])
+
 const linePricingSchema = z.object({
   quantity: decimal({ min: 0, max: MAX_QUANTITY, message: 'Quantity is too large.' }),
-  quantityUnit: z.string().trim().max(25).optional(),
-  normalizedQuantity: decimal({ min: 0, max: MAX_QUANTITY, message: 'Quantity is too large.' }).optional(),
+  // Nullable: entity-to-snapshot mappers (e.g. toCartTotalsLineSnapshot) emit an
+  // explicit `null` rather than omitting these when a line has no value for them —
+  // see SalesLineSnapshot's own nullability — and that snapshot is spread verbatim
+  // into this schema by checkout's document creation (checkout/commands/submit.ts).
+  quantityUnit: z.string().trim().max(25).nullable().optional(),
+  normalizedQuantity: decimal({ min: 0, max: MAX_QUANTITY, message: 'Quantity is too large.' }).nullable().optional(),
   normalizedUnit: z.string().trim().max(25).nullable().optional(),
-  unitPriceNet: decimal({ min: 0 }).optional(),
-  unitPriceGross: decimal({ min: 0 }).optional(),
+  unitPriceNet: decimal({ min: 0 }).nullable().optional(),
+  unitPriceGross: decimal({ min: 0 }).nullable().optional(),
   priceId: uuid().optional(),
   priceMode: z.enum(['net', 'gross']).optional(),
   taxRateId: uuid().optional(),
-  discountAmount: decimal({ min: 0 }).optional(),
+  discountAmount: decimal({ min: 0 }).nullable().optional(),
   // How to read a supplied `discountAmount`. Omitting it reproduces the meaning
   // the API has always documented — per unit — so no existing caller changes.
-  discountAmountBasis: z.enum(['unit', 'line']).optional(),
-  discountPercent: percentage().optional(),
-  taxRate: percentage().optional(),
-  taxAmount: decimal({ min: 0 }).optional(),
-  totalNetAmount: decimal({ min: 0 }).optional(),
-  totalGrossAmount: decimal({ min: 0 }).optional(),
+  discountAmountBasis: z.enum(['unit', 'line']).nullable().optional(),
+  discountPercent: percentage().nullable().optional(),
+  taxRate: percentage().nullable().optional(),
+  taxAmount: decimal({ min: 0 }).nullable().optional(),
+  totalNetAmount: decimal({ min: 0 }).nullable().optional(),
+  totalGrossAmount: decimal({ min: 0 }).nullable().optional(),
+  // Omitted inherits the document's mode; defaulting to `computed` would make an
+  // external order mixed. Order lines only — quote commands reject it.
+  amountsMode: amountsModeSchema.optional(),
 })
 
 const uomSnapshotSchema = z.object({
@@ -379,19 +388,22 @@ const uomSnapshotSchema = z.object({
 const lineSharedSchema = z.object({
   kind: lineKindSchema.optional(),
   statusEntryId: uuid().optional(),
-  productId: uuid().optional(),
-  productVariantId: uuid().optional(),
-  name: z.string().trim().max(255).optional(),
-  description: z.string().trim().max(4000).optional(),
-  comment: z.string().trim().max(2000).optional(),
+  // Nullable: see linePricingSchema's comment above — SalesLineSnapshot declares
+  // these as `| null`, and checkout's document creation spreads a snapshot straight
+  // into this schema, so `null` must be as acceptable as omitting the field.
+  productId: uuid().nullable().optional(),
+  productVariantId: uuid().nullable().optional(),
+  name: z.string().trim().max(255).nullable().optional(),
+  description: z.string().trim().max(4000).nullable().optional(),
+  comment: z.string().trim().max(2000).nullable().optional(),
   currencyCode,
-  configuration: z.record(z.string(), z.unknown()).optional(),
-  promotionCode: z.string().trim().max(120).optional(),
+  configuration: z.record(z.string(), z.unknown()).nullable().optional(),
+  promotionCode: z.string().trim().max(120).nullable().optional(),
   promotionSnapshot: z.record(z.string(), z.unknown()).optional(),
   uomSnapshot: uomSnapshotSchema,
-  metadata,
-  customFieldSetId: uuid().optional(),
-  customFields: z.record(z.string(), z.unknown()).optional(),
+  metadata: jsonRecord.nullable().optional(),
+  customFieldSetId: uuid().nullable().optional(),
+  customFields: z.record(z.string(), z.unknown()).nullable().optional(),
 })
 
 export const orderLineCreateSchema = scoped.extend({
@@ -407,6 +419,77 @@ export const orderLineUpdateSchema = z
     id: uuid(),
   })
   .merge(orderLineCreateSchema.partial())
+
+/**
+ * Translation keys for the bulk-line schema refusals. The schema runs outside a
+ * request, so it cannot translate; it tags each issue with its key in `params`
+ * and the HTTP boundary resolves it. The English text stays here as the
+ * fallback and as the message a non-HTTP caller sees.
+ */
+export const SALES_ORDER_LINE_BULK_ISSUE_KEYS = {
+  empty: 'sales.documents.items.bulk.errorEmptyBatch',
+  duplicate: 'sales.documents.items.bulk.errorDuplicateId',
+  upsertDeleteConflict: 'sales.documents.items.bulk.errorUpsertDeleteConflict',
+} as const
+
+export const SALES_ORDER_LINE_BULK_EMPTY_MESSAGE =
+  'Provide at least one line to upsert or delete.'
+export const SALES_ORDER_LINE_BULK_DUPLICATE_MESSAGE =
+  'The same line id appears more than once in lines.'
+export const SALES_ORDER_LINE_BULK_UPSERT_DELETE_CONFLICT_MESSAGE =
+  'A line id cannot be upserted and deleted in the same request.'
+
+/**
+ * One entry of a bulk line write. Identical to what the per-line upsert accepts,
+ * minus the scope and parent keys the envelope already carries: `id` present
+ * updates that line, `id` absent appends a new one.
+ */
+export const orderLineBulkUpsertEntrySchema = orderLineCreateSchema
+  .omit({ organizationId: true, tenantId: true, orderId: true })
+  .extend({ id: uuid().optional() })
+
+export const orderLineBulkUpsertSchema = scoped
+  .extend({
+    orderId: uuid(),
+    orderTotals: z.lazy(() => orderHeaderTotalsSchema).optional(),
+    lines: z.array(orderLineBulkUpsertEntrySchema).default([]),
+    deleteIds: z.array(uuid()).default([]),
+  })
+  .superRefine((value, ctx) => {
+    if (!value.lines.length && !value.deleteIds.length) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['lines'],
+        message: SALES_ORDER_LINE_BULK_EMPTY_MESSAGE,
+        params: { omKey: SALES_ORDER_LINE_BULK_ISSUE_KEYS.empty },
+      })
+    }
+    const seen = new Set<string>()
+    value.lines.forEach((line, index) => {
+      if (!line.id) return
+      if (seen.has(line.id)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['lines', index, 'id'],
+          message: SALES_ORDER_LINE_BULK_DUPLICATE_MESSAGE,
+          params: { omKey: SALES_ORDER_LINE_BULK_ISSUE_KEYS.duplicate },
+        })
+        return
+      }
+      seen.add(line.id)
+    })
+    value.deleteIds.forEach((id, index) => {
+      if (!seen.has(id)) return
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['deleteIds', index],
+        message: SALES_ORDER_LINE_BULK_UPSERT_DELETE_CONFLICT_MESSAGE,
+        params: { omKey: SALES_ORDER_LINE_BULK_ISSUE_KEYS.upsertDeleteConflict },
+      })
+    })
+  })
+
+export type OrderLineBulkUpsertInput = z.infer<typeof orderLineBulkUpsertSchema>
 
 export const quoteLineCreateSchema = scoped.extend({
   quoteId: uuid(),
@@ -672,6 +755,10 @@ const orderTotalsSchema = z.object({
   lineItemCount: z.coerce.number().int().min(0).optional(),
 })
 
+// `lineItemCount` is core's count of the rows it persisted, not one of the amounts
+// a caller owns; asserting it could make a document disagree with its own lines.
+export const orderHeaderTotalsSchema = orderTotalsSchema.omit({ lineItemCount: true })
+
 const quoteTotalsSchema = z.object({
   subtotalNetAmount: decimal({ min: 0 }).optional(),
   subtotalGrossAmount: decimal({ min: 0 }).optional(),
@@ -728,6 +815,7 @@ export const orderCreateSchema = scoped.extend({
     .min(1, SALES_ORDER_LINES_REQUIRED_MESSAGE_KEY),
   adjustments: z.array(orderAdjustmentCreateSchema.omit({ organizationId: true, tenantId: true, orderId: true })).optional(),
   tags: z.array(uuid()).optional(),
+  totalsMode: amountsModeSchema.optional(),
   ...orderTotalsSchema.shape,
   ...orderPaymentLedgerShape,
 })
@@ -740,6 +828,13 @@ export const orderUpdateSchema = z
 
 export const quoteCreateSchema = scoped.extend({
   quoteNumber: z.string().trim().min(1).max(191).optional(),
+  // Release 5 Phase 4 (checkout C3/C19). Mirrors orderCreateSchema's own pair — the
+  // SalesQuote entity has carried both columns since before this release; only the create
+  // schema/command never exposed them as inputs. Checkout's idempotent document creation
+  // sets externalReference to 'checkout:' + sessionId + ':' + attempt and customerReference
+  // to the buyer's PO number (D-R5-28, deferred past this Step).
+  externalReference: z.string().trim().max(191).optional(),
+  customerReference: z.string().trim().max(191).optional(),
   statusEntryId: uuid().optional(),
   customerEntityId: uuid().optional(),
   customerContactId: uuid().optional(),

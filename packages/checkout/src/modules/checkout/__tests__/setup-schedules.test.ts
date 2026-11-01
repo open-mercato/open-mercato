@@ -3,6 +3,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
 import type { InitSetupContext } from '@open-mercato/shared/modules/setup'
 import { CHECKOUT_EXPIRY_QUEUE } from '../workers/transaction-expiry.worker'
+import { CHECKOUT_EXPIRE_AWAITING_PAYMENT_QUEUE } from '../workers/expire-awaiting-payment.worker'
 
 const ensureCheckoutFieldsetsAndDefinitions = jest.fn(async (..._args: unknown[]) => undefined)
 
@@ -59,6 +60,21 @@ describe('checkout setup schedules', () => {
       tenantId: 'tenant-1',
       scopeType: 'organization',
       targetQueue: CHECKOUT_EXPIRY_QUEUE,
+    }))
+  })
+
+  it('registers one organization-scoped expire-awaiting-payment schedule (C1/§12)', async () => {
+    const { context, register } = createSetupContext({})
+
+    await seedDefaults(context)
+
+    expect(register).toHaveBeenCalledWith(expect.objectContaining({
+      organizationId: 'organization-1',
+      tenantId: 'tenant-1',
+      scopeType: 'organization',
+      scheduleValue: '5m',
+      targetQueue: CHECKOUT_EXPIRE_AWAITING_PAYMENT_QUEUE,
+      targetPayload: { tenantId: 'tenant-1', organizationId: 'organization-1' },
     }))
   })
 

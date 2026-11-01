@@ -1,8 +1,12 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import type { EffectiveAssortmentScope } from '@open-mercato/shared/lib/catalog-visibility'
 import { runWithCacheTenant } from '@open-mercato/cache'
-import { composeStoreContext, resolveBuyerContext } from './buyerContext'
+import { composeStoreContext, composeTrustedBuyer, resolveBuyerContext, resolveTrustedBuyerIdentity } from './buyerContext'
 import { buyerContextCache, ecommerceResolutionCache, ecommerceStoreTag, type CacheContainer } from './cacheKeys'
+import type { EcommercePriceDisplayMode } from '../data/validators'
 import {
+  StorefrontResolutionError,
+  loadStoreChannelForBuyer,
   resolveStoreBySlug,
   resolveStoreFromRequest,
   type ResolveStoreBySlugOptions,
@@ -32,10 +36,43 @@ export type ResolveStoreContextOptions = ResolveStoreFromRequestOptions & {
 
 export type InvalidateStoreContextOptions = { tenantId?: string | null }
 
+/** `resolveForBuyer`'s own input (SPEC-029 §6.3, added 2026-10-26, Release 5, D-R5-22). */
+export type ResolveForBuyerInput = {
+  tenantId: string
+  organizationId: string
+  storeId?: string | null
+  customerUserId?: string | null
+  customerId?: string | null
+}
+
+/** `resolveForBuyer`'s own output (SPEC-029 §6.3). `assortmentScope` is present only when `storeId` is given. */
+export type ResolveForBuyerResult = {
+  tenantId: string
+  organizationId: string
+  storeId: string | null
+  customerId: string | null
+  customerIds: string[]
+  customerUserId: string | null
+  customerGroupIds: string[]
+  priceKindId: string | null
+  taxMode: EcommercePriceDisplayMode | null
+  currencyCode: string | null
+  buyerDigest: string
+  assortmentScope?: EffectiveAssortmentScope
+}
+
 export type StoreContextService = {
   resolve(request: Request, opts?: ResolveStoreContextOptions): Promise<StoreContext>
   resolveBySlug(slug: string, opts?: ResolveStoreContextBySlugOptions): Promise<StoreContext>
   invalidate(storeId: string, opts?: InvalidateStoreContextOptions): Promise<void>
+  /**
+   * Trusted, in-process buyer resolution (SPEC-029 §6.3, D-R5-22): the identity is supplied by a
+   * trusted caller instead of read from a session. `storeId` is optional; a `storeId` or buyer
+   * outside `tenantId`/`organizationId` is refused (`store_out_of_scope` / `buyer_out_of_scope`).
+   * Always reads fresh and never writes to or reads from the buyer's own 60 s cache. No route, AI
+   * tool or MCP tool exposes it.
+   */
+  resolveForBuyer(input: ResolveForBuyerInput): Promise<ResolveForBuyerResult>
 }
 
 type StoreTenantDatabase = {
@@ -79,6 +116,43 @@ export function createStoreContextService(container: CacheContainer): StoreConte
       await ecommerceResolutionCache(container).deleteByTags(tags)
       const tenantId = opts.tenantId ?? (await lookupStoreTenantId(container, storeId))
       if (tenantId) await buyerContextCache(container, { tenantId, storeId }).deleteByTags(tags)
+    },
+    async resolveForBuyer(input) {
+      const { tenantId, organizationId } = input
+      const storeId = input.storeId ?? null
+      let storeInfo: Awaited<ReturnType<typeof loadStoreChannelForBuyer>> = null
+      if (storeId) {
+        storeInfo = await loadStoreChannelForBuyer(container, { storeId, tenantId, organizationId })
+        if (!storeInfo) throw new StorefrontResolutionError(403, 'store_out_of_scope')
+      }
+      const identity = await resolveTrustedBuyerIdentity(container, {
+        tenantId,
+        organizationId,
+        customerUserId: input.customerUserId ?? null,
+        customerId: input.customerId ?? null,
+      })
+      const composed = await composeTrustedBuyer(container, {
+        tenantId,
+        organizationId,
+        storeId,
+        identity,
+        channel: storeInfo?.channel ?? null,
+        priceDisplayModeDefault: storeInfo?.priceDisplayModeDefault ?? null,
+      })
+      return {
+        tenantId,
+        organizationId,
+        storeId,
+        customerId: identity.customerId,
+        customerIds: identity.customerIds,
+        customerUserId: identity.customerUserId,
+        customerGroupIds: composed.customerGroupIds,
+        priceKindId: composed.priceKindId,
+        taxMode: composed.taxMode,
+        currencyCode: storeInfo?.currencyCode ?? null,
+        buyerDigest: composed.buyerDigest,
+        ...(storeId ? { assortmentScope: composed.assortmentScope } : {}),
+      }
     },
   }
 }

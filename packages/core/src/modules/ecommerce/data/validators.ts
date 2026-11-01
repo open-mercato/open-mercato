@@ -184,16 +184,29 @@ export const ecommerceStoreSeoSchema = z
 
 export type EcommerceStoreSeo = z.infer<typeof ecommerceStoreSeoSchema>
 
-export const ecommerceStoreSettingsSchema = z
+const currencyCodeSchema = z
+  .string()
+  .trim()
+  .regex(/^[A-Z]{3}$/, 'ecommerce.validation.currencyCodeInvalid')
+
+// Release 5, Step 2.13 (checkout C13/D-R5-35). `checkout`'s delivery-rate quoting reads
+// this for the flat-rate carrier fallback on STOREFRONT carts (link carts read the
+// analogous fields on `checkout.CheckoutLink` instead, §5.3). Additive to the jsonb
+// `settings` column — no migration, `.prefault({})` keeps every pre-existing store row
+// (which never had this key) parsing to `{ flatRate: null }` unchanged.
+export const ecommerceStoreShippingSchema = z
   .object({
-    branding: ecommerceStoreBrandingSchema.prefault({}),
-    contact: ecommerceStoreContactSchema.prefault({}),
-    display: ecommerceStoreDisplaySchema.prefault({}),
-    seo: ecommerceStoreSeoSchema.prefault({}),
+    flatRate: z
+      .object({
+        amount: z.coerce.number().finite().nonnegative(),
+        currencyCode: currencyCodeSchema,
+      })
+      .nullable()
+      .prefault(null),
   })
   .strict()
 
-export type EcommerceStoreSettings = z.infer<typeof ecommerceStoreSettingsSchema>
+export type EcommerceStoreShipping = z.infer<typeof ecommerceStoreShippingSchema>
 
 export const ecommerceStoreSettingsPatchSchema = z
   .object({
@@ -201,6 +214,10 @@ export const ecommerceStoreSettingsPatchSchema = z
     contact: ecommerceStoreContactSchema.optional(),
     display: z.object(ecommerceStoreDisplayShape).partial().strict().optional(),
     seo: ecommerceStoreSeoSchema.optional(),
+    // Release 5, Step 2.13 gap-fill (fixed at Step 3.1's checkpoint): `shipping` was added
+    // to the full settings schema but never to this patch schema, leaving no way to ever
+    // set it via PUT /stores/:id. Full-object-replace semantics, matching contact/seo/branding.
+    shipping: ecommerceStoreShippingSchema.optional(),
   })
   .strict()
 
@@ -236,10 +253,17 @@ const supportedLocalesSchema = z
     message: 'ecommerce.validation.localesDuplicate',
   })
 
-const currencyCodeSchema = z
-  .string()
-  .trim()
-  .regex(/^[A-Z]{3}$/, 'ecommerce.validation.currencyCodeInvalid')
+export const ecommerceStoreSettingsSchema = z
+  .object({
+    branding: ecommerceStoreBrandingSchema.prefault({}),
+    contact: ecommerceStoreContactSchema.prefault({}),
+    display: ecommerceStoreDisplaySchema.prefault({}),
+    seo: ecommerceStoreSeoSchema.prefault({}),
+    shipping: ecommerceStoreShippingSchema.prefault({}),
+  })
+  .strict()
+
+export type EcommerceStoreSettings = z.infer<typeof ecommerceStoreSettingsSchema>
 
 type LocalePair = { defaultLocale?: string; supportedLocales?: string[] }
 

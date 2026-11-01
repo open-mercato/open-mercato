@@ -41,6 +41,13 @@ export interface EvaluateInput {
   customerOrderCount: number | null
   cartWeight: string | null
   codes: CodeRef[]
+  // Additive (Release 5, D-R5-17, amends D-R4-14): present only once a caller (checkout)
+  // has a selected delivery method/cost to evaluate against. Omitted or null — as every
+  // existing cart-stage caller already does — makes every `delivery_method` rule
+  // evaluate to false and no `DELIVERY_DISCOUNT` effect resolve, leaving D-R4-14's
+  // cart-stage exclusion of delivery from totals unchanged.
+  deliveryMethodCode?: string | null
+  deliveryCost?: string | null
 }
 
 export type EffectBasis = 'net' | 'gross'
@@ -72,7 +79,7 @@ export interface CartDiscountEffect extends ResolvedEffectBase {
 }
 
 export interface DeliveryDiscountEffect extends ResolvedEffectBase {
-  type: 'DELIVERY_DISCOUNT'       // defined; unreachable in Release 4 (D-R4-14)
+  type: 'DELIVERY_DISCOUNT'       // Release 5 (D-R5-17, amends D-R4-14): reachable once a caller supplies deliveryMethodCode/deliveryCost
   deliveryMethodCode: string
   amountNet: string
   amountGross: string
@@ -97,8 +104,17 @@ export interface EvaluateResult { appliedPromotions: AppliedPromotion[] }
 export interface ReserveCodeInput { codeString: string; cartId: string; customerId: string | null }
 export interface CodeReservationResult { ok: true; codeId: string; type: 'static' | 'dynamic' }
 export interface CodeValidationResult { valid: boolean; reason?: string }
-export interface UseCodeInput { codeId: string; codeString: string; cartId: string; customerId: string | null; type: 'static' | 'dynamic' }
+// `orderId` is additive (Release 5 C5/SPEC-055 amendment): optional because nothing
+// calls `useCode` yet, but checkout's Phase 4 submit sequence calls it AFTER document
+// creation (§C19), so the order already exists by then and can pass its id through so
+// `revertCodeUse({ orderId })` has something to key its reversal on later.
+export interface UseCodeInput { codeId: string; codeString: string; cartId: string; orderId?: string | null; customerId: string | null; type: 'static' | 'dynamic' }
 export interface CodeUseResult { ok: true }
+
+// Reversal (Release 5 C5/SPEC-055 amendment, additive). At least one of `cartId`/
+// `orderId` must be given; either locates the `CodeUsage` row(s) `useCode` wrote.
+export interface RevertCodeUseInput { cartId?: string; orderId?: string }
+export interface RevertCodeUseResult { ok: true; revertedCount: number }
 
 // Usage (D-R4-12, D-R4-26)
 export interface RegisterUsageInput {
@@ -119,6 +135,7 @@ export interface PromotionsService {
   validateCode(input: ReserveCodeInput): Promise<CodeValidationResult>
   useCode(input: UseCodeInput): Promise<CodeUseResult>
   releaseCode(codeId: string, cartId: string): Promise<void>
+  revertCodeUse(input: RevertCodeUseInput): Promise<RevertCodeUseResult>
   registerUsage(input: RegisterUsageInput): Promise<{ ok: true; budgetExceeded: string[] }>
   revertUsage(input: RevertUsageInput): Promise<{ ok: true; revertedCount: number }>
 }
@@ -190,6 +207,13 @@ export interface EvaluationContext {
   // defaults to 2 (the ISO 4217 default for the overwhelming majority of currencies) when
   // absent, so this field stays optional and no existing fixture builder needs updating.
   currencyFractionDigits?: number
+  // Additive (Release 5, D-R5-17): mirrors `EvaluateInput.deliveryMethodCode`/
+  // `deliveryCost` one level down. Absent/null on every existing fixture and every
+  // cart-stage call — `rule-evaluators.ts#evaluateDeliveryMethod` and
+  // `effect-resolvers.ts#resolveDeliveryDiscount` both fail closed (no match / no effect)
+  // when either is missing.
+  deliveryMethodCode?: string | null
+  deliveryCost?: string | null
 }
 
 // Enrichment output (SPEC-055 §Data Models "category" row / §API Contracts line ~722):
@@ -223,6 +247,11 @@ export interface EvaluationInput {
   // fixture/test omits it and gets the same default-2 behavior as before this field
   // existed (`lib/effect-resolvers.ts`'s `getCurrencyFractionDigits`).
   currencyFractionDigits?: number
+  // Additive (Release 5, D-R5-17): mirrors `EvaluateInput.deliveryMethodCode`/
+  // `deliveryCost` — `promotionsService.evaluate()` copies these straight through from
+  // its own public input; every existing fixture/test omits them.
+  deliveryMethodCode?: string | null
+  deliveryCost?: string | null
 }
 
 // ---------------------------------------------------------------------------

@@ -394,10 +394,17 @@ export class CodeReservation {
 
 // Append-only usage log — no `updatedAt`/`deletedAt` (optimistic-lock exemption list:
 // append-only logs). `customerId` nullable: a guest's usage never needs per-customer
-// limit tracking (§Data Models).
+// limit tracking (§Data Models). `cartId`/`orderId`/`generatedCodeId`/`revertedAt` are
+// additive (Release 5 C5/SPEC-055 amendment): `useCode` had nothing identifying WHICH
+// cart or order a use belonged to, so `revertCodeUse` had nothing to key a reversal on
+// — these columns close that gap. `revertedAt` is the one post-write mutation this
+// append-only log allows, same non-destructive-revert precedent as
+// `PromotionUsage.revertedAt` below: a reversal marks the row, it never deletes it.
 @Entity({ tableName: 'promotion_code_usages' })
 @Index({ name: 'promotion_code_usages_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
 @Index({ name: 'promotion_code_usages_code_idx', properties: ['codeId'] })
+@Index({ name: 'promotion_code_usages_cart_idx', properties: ['cartId'] })
+@Index({ name: 'promotion_code_usages_order_idx', properties: ['orderId'] })
 export class CodeUsage {
   [OptionalProps]?: 'usedAt'
 
@@ -406,6 +413,22 @@ export class CodeUsage {
 
   @ManyToOne(() => Code, { fieldName: 'code_id', deleteRule: 'cascade', mapToPk: true })
   codeId!: string
+
+  @Property({ name: 'cart_id', type: 'uuid', nullable: true })
+  cartId?: string | null
+
+  // A plain FK-id, never a `ManyToOne` into `sales` — `sales` is a downstream caller,
+  // not an ORM-linked peer (AGENTS.md: no cross-module ORM relationships). Same
+  // precedent as `PromotionUsage.orderId` below.
+  @Property({ name: 'order_id', type: 'text', nullable: true })
+  orderId?: string | null
+
+  // Which specific dynamic voucher this use deactivated, so `revertCodeUse` reactivates
+  // THAT row, never every `GeneratedCode` under the parent `Code`. `null` for a
+  // static-code use. `deleteRule: 'set null'` (not cascade, unlike `codeId` above): a
+  // deleted voucher must not take this audit row's history with it.
+  @ManyToOne(() => GeneratedCode, { fieldName: 'generated_code_id', nullable: true, mapToPk: true, deleteRule: 'set null' })
+  generatedCodeId?: string | null
 
   @Property({ name: 'customer_id', type: 'text', nullable: true })
   customerId?: string | null
@@ -418,6 +441,9 @@ export class CodeUsage {
 
   @Property({ name: 'used_at', type: Date, onCreate: () => new Date() })
   usedAt: Date = new Date()
+
+  @Property({ name: 'reverted_at', type: Date, nullable: true })
+  revertedAt?: Date | null
 }
 
 // Compliance audit ledger + global usage counter (§Data Models). `deleteRule: 'restrict'`
