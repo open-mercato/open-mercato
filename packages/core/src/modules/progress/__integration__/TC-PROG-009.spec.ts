@@ -10,6 +10,7 @@ import { progressJobPath } from './helpers/progress'
  *   - GET    -> 404 { error: 'Not found' }
  *   - PUT    -> 404 { error: 'Not found' }            (service not-found is mapped, not surfaced as 500)
  *   - DELETE -> 400 { error: 'Cannot cancel this job' } (cancel guard rejects unknown jobs)
+ *   - DELETE with a malformed (non-UUID) id -> the same 400
  */
 test.describe('TC-PROG-009: nonexistent progress job returns clean not-found errors', () => {
   test('GET / PUT / DELETE on an unknown job id are 4xx with no stack leak', async ({ request }) => {
@@ -31,6 +32,16 @@ test.describe('TC-PROG-009: nonexistent progress job returns clean not-found err
 
     const deleteRes = await apiRequest(request, 'DELETE', path, { token })
     expect(deleteRes.status()).toBe(400)
+    const deleteBody = await readJsonSafe<{ error?: string; stack?: unknown }>(deleteRes)
+    expect(deleteBody?.error).toBe('Cannot cancel this job')
+    expect(deleteBody).not.toHaveProperty('stack')
+  })
+
+  test('DELETE on a malformed job id stays a 400 with no stack leak', async ({ request }) => {
+    const token = await getAuthToken(request, 'admin')
+
+    const deleteRes = await apiRequest(request, 'DELETE', progressJobPath('not-a-uuid'), { token })
+    expect(deleteRes.status(), 'DELETE on a malformed id must not 500').toBe(400)
     const deleteBody = await readJsonSafe<{ error?: string; stack?: unknown }>(deleteRes)
     expect(deleteBody?.error).toBe('Cannot cancel this job')
     expect(deleteBody).not.toHaveProperty('stack')
