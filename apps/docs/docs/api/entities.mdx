@@ -233,6 +233,7 @@ curl -X POST "$BASE_URL/entities/records" \
 - Feature: `entities.records.manage`.
 - Body `{ entityId, recordId, values }` with the same shape as the create payload (`packages/core/src/modules/entities/api/records.ts:246`).
 - The handler re-validates values against active custom fields and, if the provided `recordId` is not a UUID, falls back to create semantics (useful for spreadsheet imports).
+- A UUID `recordId` must match an existing, non-deleted record in the caller's organization; otherwise the handler answers `404` and writes nothing. Use `POST /entities/records` to create a record under a chosen id.
 
 ```bash
 curl -X PUT "$BASE_URL/entities/records" \
