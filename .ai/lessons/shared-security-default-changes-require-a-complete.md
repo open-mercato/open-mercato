@@ -1,8 +1,8 @@
 ---
 title: "Shared security-default changes require a complete consumer audit"
-modules: ["shared","auth","cache","events","example","create_app"]
+modules: ["shared","auth","cache","events","example","create_app","sso","api_keys"]
 areas: ["integration","testing","module-data"]
-topics: ["access-control","data-scoping","events"]
+topics: ["access-control","data-scoping","events","testing"]
 ---
 
 # Shared security-default changes require a complete consumer audit
@@ -14,6 +14,10 @@ topics: ["access-control","data-scoping","events"]
 **Rule**: When changing a shared security default, enumerate every production call site and remove local overrides that bypass the contract. Centralize repeated key derivation in the owning module and add tests for direct, one-proxy, multi-proxy, and fallback behavior.
 
 **Applies to**: shared auth, rate-limit, origin, session, encryption, and tenant-scoping helpers and every module that consumes them.
+
+- 2026-10-29 · sso: enumerable public token prefixes must never select private admission budgets; use a persistent exact full-bearer lookup fingerprint for cold admission and keep only fully verified hints in the shared DI cache; invalidate hints on revoke and test wrong-suffix exhaustion alongside independent verified-tenant budgets. Cache warmth is not an availability guarantee: document and inventory legacy enrollment before cutover. Cache invalidation after a committed revocation must report failure without reversing API success; a stale admission entry must never bypass active-token verification. Fingerprint lookup, enrollment, and generation failures can contain private SQL literals: replace ORM/driver errors with constant safe errors without the original cause before telemetry or API logging, and inject raw-token/digest/verifier text in regressions.
+
+- 2026-10-28 · sso/api_keys: handler-only SCIM limiter tests missed generic API-key bcrypt before dispatch admission → exercise the production dispatcher and real credential verifiers with instrumented DB/bcrypt boundaries; exhausted requests must skip every credential path, and admitted requests must consume one quota point.
 
 - 2026-08-11 · events/example: options-only SSE scope hardening would have dropped 53 of 62 current browser event types → use an explicit trusted-scope marker and audit every `clientBroadcast` producer before changing the legacy fallback.
 

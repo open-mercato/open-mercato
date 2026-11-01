@@ -11,6 +11,9 @@ import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { E } from '#generated/entities.ids.generated'
+// §8.4 (D-R5-21): same precedent as `lib/currentCartRoute.ts` — a plain static import, both
+// modules being `packages/core`.
+import { getCustomerAuthFromRequest } from '@open-mercato/core/modules/customer_accounts/lib/customerAuth'
 
 import { CatalogProduct } from '@open-mercato/core/modules/catalog/data/entities'
 import { deriveQuantityRules } from '@open-mercato/core/modules/availability/lib/quantityRules'
@@ -26,6 +29,9 @@ import { cartVisibilityKey, evaluateCartVisibility, isVisible } from '../lib/vis
 import type { CartVisibilityResult } from '../lib/visibility'
 import { assertCartNotLocked } from '../lib/lockGuard'
 import { recordBasketMutationActivity } from '../lib/cartActivity'
+import { tryResolveCustomerPurchaseApprovalService, tryResolveCartCodeService } from '../lib/adminCartScope'
+import { withdrawPendingCartApproval } from '../lib/approvalLifecycle'
+import { releaseCartCodeReservations } from '../lib/sweepers'
 import { emitCartEvent } from '../events'
 import { repriceCartCommand } from './cart'
 import type { CartRepriceInput, CartRepriceResult } from './cart'
@@ -240,20 +246,44 @@ function normalizeSourceSnapshot(raw: unknown): StoredSourceSnapshot {
 // cart.merge
 // ---------------------------------------------------------------------------
 
-export type CartMergeInput = {
+type CartMergeInputBase = {
   /** The cart the buyer's own session/token names — resolved by the ROUTE the ordinary
    * way (`X-Cart-Token` + `resolveCurrentCart`), never re-resolved here. */
   targetCartId: string
   tenantId: string
   organizationId: string
-  /** Identifies the SOURCE (guest) cart — the only thing that can, since it has no
-   * session of its own (documented judgment call on the public body shape, §10's route
-   * table never states one — see `data/validators.ts`'s `cartMergeRequestSchema`). */
-  sourceToken: string
   /** Always supplied on this step's one calling path (`POST /current/merge`, always a
    * storefront route) — used for the ADOPT case's ownership reassignment, the merge log's
    * `merged_by_actor_*` attribution, and the post-merge mandatory re-price dispatch. */
   routeContext: ResolvedCartRouteContext
+}
+
+/** (Step 3.4, §7a.4, §3.1a: "`cart.proposal.accept` delegates to `cart.merge`; it is not a
+ * second merge implementation") — per-line proposal acceptance. `targetCartId` is ALWAYS
+ * the survivor for this variant (never `strategy: 'replace'`): the buyer's own basket never
+ * changes identity by accepting someone else's suggestion. `lines` names EVERY proposal
+ * line explicitly — an omitted id is treated as declined, same default a caller selecting
+ * a strict subset would expect. */
+export type CartMergeManualInput = CartMergeInputBase & {
+  proposalCartId: string
+  lines: Array<{ proposalLineId: string; accepted: boolean }>
+  sourceToken?: undefined
+}
+
+/** The ordinary §7.1 guest->customer login-merge path — identifies the SOURCE (guest) cart
+ * by its own token, the only thing that can since it has no session of its own
+ * (documented judgment call on the public body shape, §10's route table never states one —
+ * see `data/validators.ts`'s `cartMergeRequestSchema`). */
+export type CartMergeAutoInput = CartMergeInputBase & {
+  sourceToken: string
+  proposalCartId?: undefined
+  lines?: undefined
+}
+
+export type CartMergeInput = CartMergeAutoInput | CartMergeManualInput
+
+function isManualProposalMergeInput(input: CartMergeInput): input is CartMergeManualInput {
+  return typeof (input as CartMergeManualInput).proposalCartId === 'string'
 }
 
 export type CartMergeSummary = {
@@ -405,6 +435,222 @@ function buildMergeOutcome(
   return { outcome, newLines, updatedLineIds }
 }
 
+// ---------------------------------------------------------------------------
+// §7a.4 — per-line proposal acceptance (Step 3.4). A SEPARATE top-level branch, not woven
+// into the guest-merge flow above: the target is always the survivor here (no adopt/
+// keep_target row selection to make), the "source" lines are a caller-selected SUBSET of
+// the proposal's own lines rather than every customer-origin line on a second basket, and
+// the proposal's own author/attribution must survive onto the merge log (`proposalCartId`)
+// for D-R5-25's undo refusal to key off later. Isolating this as its own function keeps the
+// existing, heavily-tested §7.1 guest-merge path (rows 1-5 above) completely untouched —
+// zero risk of regression to a production path this release does not otherwise touch.
+async function executeProposalAcceptance(input: CartMergeManualInput, ctx: CommandRuntimeContext): Promise<CartMergeResult> {
+  const scope: CartMergeScope = { tenantId: input.tenantId, organizationId: input.organizationId }
+  const em = (ctx.container.resolve('em') as EntityManager).fork()
+
+  const target = await findOneWithDecryption(
+    em,
+    Cart,
+    { id: input.targetCartId, tenantId: scope.tenantId, organizationId: scope.organizationId, kind: 'basket' as const },
+    {},
+    scope,
+  )
+  if (!target) throw notFound('[internal] cart not found')
+
+  // §7a.1/K10: a proposal id that does not name THIS target's own live proposal answers the
+  // same structural 404 as an unknown id — never a distinguishable code.
+  const proposal = await findOneWithDecryption(
+    em,
+    Cart,
+    { id: input.proposalCartId, tenantId: scope.tenantId, organizationId: scope.organizationId, kind: 'proposal' as const, proposedToCartId: target.id },
+    {},
+    scope,
+  )
+  if (!proposal) throw notFound('[internal] proposal cart not found')
+
+  // §7a.4: "A target cart in `locked` status refuses acceptance with `423 Locked` and the
+  // checkout session id." Checked BEFORE reactivation, same ordering the guest-merge path
+  // above uses.
+  assertCartNotLocked(target)
+  // Acceptance is buyer activity on the target (unlike authoring, §7a.2) — an `abandoned`
+  // target reactivates exactly as any other basket mutation would.
+  await recordBasketMutationActivity(em, target)
+  if (target.status !== 'active') {
+    throw new CrudHttpError(409, { error: '[internal] cart_not_active', code: 'cart_not_active', status: target.status })
+  }
+  // A proposal never reactivates (§7a.1) — a non-active proposal (expired, already
+  // merged/abandoned) is simply not acceptable, same code the create command uses for "the
+  // target is not in a state this operation can run against."
+  if (proposal.status !== 'active') {
+    throw new CrudHttpError(409, { error: '[internal] cart_not_active', code: 'cart_not_active', status: proposal.status })
+  }
+
+  const proposalLinesAll = (await findWithDecryption(
+    em,
+    CartLine,
+    { cartId: proposal.id, deletedAt: null, tenantId: scope.tenantId, organizationId: scope.organizationId },
+    {},
+    scope,
+  )) as CartLine[]
+  const targetLinesAll = (await findWithDecryption(
+    em,
+    CartLine,
+    { cartId: target.id, deletedAt: null, tenantId: scope.tenantId, organizationId: scope.organizationId },
+    {},
+    scope,
+  )) as CartLine[]
+  const targetCustomerLines = filterCustomerLines(targetLinesAll)
+
+  const knownLineIds = new Set(proposalLinesAll.map((line) => line.id))
+  for (const entry of input.lines) {
+    if (!knownLineIds.has(entry.proposalLineId)) {
+      throw badRequest('[internal] lines references a proposalLineId that does not belong to this proposal')
+    }
+  }
+  const selection = new Map(input.lines.map((entry) => [entry.proposalLineId, entry.accepted]))
+  const acceptedLines = proposalLinesAll.filter((line) => selection.get(line.id) === true)
+  const declinedLines = proposalLinesAll.filter((line) => selection.get(line.id) !== true)
+
+  // §7a.4's own worked example: "the buyer takes two of five suggestions" — at least one
+  // line must be selected, or there is nothing to merge. Mirrors `cart.proposal.create`'s
+  // own "no admissible line, no cart" refusal shape (422, a distinct code).
+  if (acceptedLines.length === 0) {
+    throw new CrudHttpError(422, { error: '[internal] proposal_accept_empty', code: 'proposal_accept_empty' })
+  }
+
+  const maxQuantities = await resolveMaxOrderQuantities(em, ctx.container, scope, target.storeId ?? null, acceptedLines)
+  const startingLineNumber = targetLinesAll.reduce((max, line) => Math.max(max, line.lineNumber), 0) + 1
+
+  // §6a.5/TC-CART-PROP-04: re-checked against the buyer's OWN freshly-resolved scope, never
+  // the proposal's authoring-time one — the exact same enforcement key the guest-merge path
+  // above already uses for its own §6a.5 pass.
+  const mergeAssortmentScope = shouldEnforceAssortmentScope(target.channel, input.routeContext.assortmentScope)
+    ? input.routeContext.assortmentScope
+    : undefined
+  const mergeVisibility: CartVisibilityResult = await evaluateCartVisibility({
+    lines: acceptedLines.map((line) => ({ productId: line.productId, variantId: line.variantId ?? null })),
+    scope: mergeAssortmentScope,
+    tenantScope: scope,
+    em,
+    container: ctx.container,
+  })
+
+  const built = buildMergeOutcome(em, acceptedLines, targetCustomerLines, maxQuantities, target, startingLineNumber, mergeVisibility)
+  // §7a.4: "the other three are recorded as `declined`, not deleted and not quietly merged."
+  const declinedOutcome: StoredMergeOutcomeEntry[] = declinedLines.map((line) => ({
+    sourceLineId: line.id,
+    targetLineId: null,
+    disposition: 'declined',
+  }))
+  const outcome: StoredMergeOutcomeEntry[] = [...built.outcome, ...declinedOutcome]
+
+  // §8.3: rotated unconditionally, same as every other `cart.merge` outcome (see this
+  // file's own header comment on that convention).
+  const { token: newToken, tokenHash: newTokenHash } = generateCartToken()
+  target.tokenHash = newTokenHash
+
+  const now = new Date()
+  // §7a.1: "merged once accepted (with `merged_into_cart_id` set to the target)" — never
+  // `abandoned` (that means rejected, §7a.1's own vocabulary).
+  proposal.status = 'merged'
+  proposal.mergedIntoCartId = target.id
+  proposal.resolvedAt = now
+
+  const sourceSnapshot: StoredSourceSnapshot = { lines: proposalLinesAll.map(toCartLineSnapshot) }
+
+  const mergeLog = em.create(CartMergeLog, {
+    organizationId: scope.organizationId,
+    tenantId: scope.tenantId,
+    sourceCartId: proposal.id,
+    targetCartId: target.id,
+    strategy: 'manual' as CartMergeStrategy,
+    sourceSnapshot: sourceSnapshot as unknown,
+    outcome,
+    mergedByActorType: 'buyer' as CartMergeActorType,
+    mergedByActorId: input.routeContext.customerUserId ?? null,
+    // §7a.7/D-R5-25: the ONE field `cart.mergeUndo`'s refusal keys off.
+    proposalCartId: proposal.id,
+  })
+
+  await withAtomicFlush(
+    em,
+    [
+      () => {
+        em.persist(mergeLog)
+        for (const line of built.newLines) em.persist(line)
+      },
+    ],
+    { transaction: true, label: 'cart.proposal.accept' },
+  )
+
+  const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
+  await emitCrudSideEffects({
+    dataEngine,
+    action: 'updated',
+    entity: proposal,
+    identifiers: getCartIdentifiers(proposal),
+    events: cartCrudEvents,
+    indexer: cartCrudIndexer,
+  })
+  for (const line of built.newLines) {
+    await emitCrudSideEffects({ dataEngine, action: 'created', entity: line, identifiers: getCartLineIdentifiers(line), indexer: cartLineCrudIndexer })
+    await emitCartEvent('cart.line.added', { id: line.id, cartId: line.cartId, organizationId: line.organizationId, tenantId: line.tenantId })
+  }
+
+  const rejectedCount = outcome.filter((entry) => entry.disposition === 'rejected').length
+  if (rejectedCount > 0) {
+    await emitVisibilityRejectedEvent(target, rejectedCount, 'merge')
+  }
+
+  await emitCartEvent('cart.cart.merged', {
+    sourceCartId: proposal.id,
+    targetCartId: target.id,
+    tenantId: target.tenantId,
+    organizationId: target.organizationId,
+    // TC-CART-PROP-09: "a proposal acceptance's merge event carries `kind: 'proposal'`" —
+    // the ordinary guest-merge path above always emits `kind: 'basket'` (its source is
+    // always a basket).
+    kind: 'proposal',
+    mergeLogId: mergeLog.id,
+    strategy: 'manual',
+    proposalCartId: proposal.id,
+    customerId: target.customerId ?? null,
+    customerUserId: target.customerUserId ?? null,
+  })
+
+  // §7a.4: "Approval after acceptance... the whole-cart re-price recomputes
+  // `requires_approval`." Same mandatory dispatch the guest-merge path always runs.
+  const commandBus = ctx.container.resolve('commandBus') as CommandBus
+  const repriceInput: CartRepriceInput = {
+    cartId: target.id,
+    tenantId: target.tenantId,
+    organizationId: target.organizationId,
+    trigger: 'merge',
+    routeContext: input.routeContext,
+  }
+  const { result: repriceResult } = await commandBus.execute<CartRepriceInput, CartRepriceResult>(repriceCartCommand.id, {
+    input: repriceInput,
+    ctx,
+  })
+
+  const counts = { merged: 0, summed: 0, capped: 0, declined: 0, rejected: 0 }
+  for (const entry of outcome) counts[entry.disposition] += 1
+  const publicOutcome: CartMergeOutcomeEntry[] = outcome.map(({ sourceLineId, targetLineId, disposition, reason }) => ({
+    sourceLineId,
+    targetLineId,
+    disposition,
+    ...(reason ? { reason } : {}),
+  }))
+
+  return {
+    cart: repriceResult.cart,
+    token: newToken,
+    mergeSummary: { strategy: 'manual', mergeLogId: mergeLog.id, adopted: false, counts, lines: publicOutcome },
+    priceChanges: repriceResult.priceChanges,
+    ...(repriceResult.warnings && repriceResult.warnings.length > 0 ? { warnings: repriceResult.warnings } : {}),
+  }
+}
+
 const mergeCartCommand: CommandHandler<CartMergeInput, CartMergeResult> = {
   id: 'cart.merge',
   // §3.1a's command-undo table: "cart.merge | Yes (cart.mergeUndo, 15 min) | §7.2". The
@@ -412,6 +658,9 @@ const mergeCartCommand: CommandHandler<CartMergeInput, CartMergeResult> = {
   // function (`restoreCartMerge`) — see this file's header comment.
   isUndoable: true,
   async execute(input, ctx) {
+    if (isManualProposalMergeInput(input)) {
+      return executeProposalAcceptance(input, ctx)
+    }
     const scope: CartMergeScope = { tenantId: input.tenantId, organizationId: input.organizationId }
     const em = (ctx.container.resolve('em') as EntityManager).fork()
 
@@ -435,6 +684,20 @@ const mergeCartCommand: CommandHandler<CartMergeInput, CartMergeResult> = {
     // token, a cross-tenant token and a genuinely absent source cart all collapse to the
     // same 404 — never a distinguishable reason.
     if (!guestCart) throw notFound('[internal] source cart not found')
+    // §8.4 (D-R5-21)'s own "Consequences" bullet names this exact case: "a `sourceToken`
+    // that resolves an identified basket of another buyer is the same `404`." The TARGET
+    // cart's own identity binding is already enforced at the route edge
+    // (`lib/currentCartRoute.ts#resolveCurrentCart`) before this command ever runs — this is
+    // the SOURCE side of the same rule, since `sourceToken` names a second basket this
+    // command resolves itself, never through that route-edge seam. A guest source cart
+    // (`customerUserId` null) is unaffected — token alone still suffices, same as any other
+    // guest basket.
+    if (guestCart.customerUserId) {
+      const sourceAuth = ctx.request ? await getCustomerAuthFromRequest(ctx.request) : null
+      if (!sourceAuth || sourceAuth.sub !== guestCart.customerUserId) {
+        throw notFound('[internal] source cart not found')
+      }
+    }
     if (guestCart.id === sessionCart.id) throw badRequest('[internal] cannot merge a cart into itself')
     // Same store, same currency only (PLAN.md's own Step 7.3 scope line; §16 Open Question 2
     // — "Cross-store carts [are] scoped to one store per the roadmap" — reads as the reason
@@ -579,6 +842,15 @@ const mergeCartCommand: CommandHandler<CartMergeInput, CartMergeResult> = {
     absorbedCart.mergedIntoCartId = survivorCart.id
     absorbedCart.resolvedAt = now
 
+    // §7.4 (rev 10 — K3): "A source basket whose `approval_id` names a `pending` approval
+    // has it withdrawn ... and its `awaiting_approval_since` is cleared." An `approved`
+    // approval is left exactly as is — the source cart is now `merged`, terminal, and can
+    // never lock again, so nothing further needs to happen to it. Both fields are written
+    // in the SAME flush as the rest of this absorbed cart's own transition, below.
+    const approvalService = tryResolveCustomerPurchaseApprovalService(ctx.container)
+    const approvalWithdrawn = await withdrawPendingCartApproval(approvalService, absorbedCart, 'cart_merged')
+    if (approvalWithdrawn) absorbedCart.awaitingApprovalSince = null
+
     const sourceSnapshot: StoredSourceSnapshot = {
       lines: absorbedLinesForSnapshot.map(toCartLineSnapshot),
       ...(survivorBuyerContextBefore ? { survivorBuyerContextBefore } : {}),
@@ -615,6 +887,16 @@ const mergeCartCommand: CommandHandler<CartMergeInput, CartMergeResult> = {
     // touched by that dispatch, so its own side effects fire here, the only place that ever
     // will.
     await emitCrudSideEffects({ dataEngine, action: 'updated', entity: absorbedCart, identifiers: getCartIdentifiers(absorbedCart), events: cartCrudEvents, indexer: cartCrudIndexer })
+
+    // Step 6.1 (K11 gap-fill): the ABSORBED cart's reserved-but-unused promotion codes are
+    // released by `cartId`, the identical best-effort release `lib/sweepers.ts`'s own
+    // expire/abandon sweeps already apply — a merge-absorbed cart never transitions through
+    // either of those sweeps (it is already `merged`, terminal), so without this call its
+    // codes would only ever be freed by `promotions`' slow TTL sweep.
+    const codeService = tryResolveCartCodeService(ctx.container)
+    if (codeService) {
+      await releaseCartCodeReservations(em, codeService, absorbedCart, 'cart:merge')
+    }
     for (const line of newLines) {
       await emitCrudSideEffects({ dataEngine, action: 'created', entity: line, identifiers: getCartLineIdentifiers(line), indexer: cartLineCrudIndexer })
       await emitCartEvent('cart.line.added', { id: line.id, cartId: line.cartId, organizationId: line.organizationId, tenantId: line.tenantId })
@@ -634,6 +916,13 @@ const mergeCartCommand: CommandHandler<CartMergeInput, CartMergeResult> = {
     await emitCartEvent('cart.cart.merged', {
       sourceCartId: absorbedCart.id,
       targetCartId: survivorCart.id,
+      // Step 3.3 (rev 10 — S3/D-R5-32): every new-or-extended Release 5 event payload
+      // carries tenant/organization scope so a subscriber (`assisted_selling`'s own §8.1
+      // re-author-on-merge subscriber, `assisted_selling/lib/reauthorOnMerge.ts`, as of Step
+      // 4.4-fix) can filter before it loads anything by id — additive fields on an
+      // already-shipped event id, never a removal.
+      tenantId: survivorCart.tenantId,
+      organizationId: survivorCart.organizationId,
       kind: 'basket',
       mergeLogId: mergeLog.id,
       strategy,
@@ -644,6 +933,8 @@ const mergeCartCommand: CommandHandler<CartMergeInput, CartMergeResult> = {
     if (strategy === 'replace') {
       await emitCartEvent('cart.cart.adopted', {
         cartId: survivorCart.id,
+        tenantId: survivorCart.tenantId,
+        organizationId: survivorCart.organizationId,
         customerId: survivorCart.customerId ?? null,
         customerUserId: survivorCart.customerUserId ?? null,
       })
@@ -721,9 +1012,16 @@ const mergeCartCommand: CommandHandler<CartMergeInput, CartMergeResult> = {
       restored = await restoreCartMerge(em, { tenantId: mergeLog.tenantId, organizationId: mergeLog.organizationId }, mergeLog)
     } catch (err) {
       // Same no-HTTP-consumer convention as the window check above: an already-undone
-      // log or a survivor cart that is locked/no-longer-active is a no-op here, not an
-      // error to surface — `cart.mergeUndo` (buyer-facing) is the path that throws these.
-      if (isCrudHttpError(err) && (err.body?.code === 'merge_already_undone' || err.body?.code === 'cart_not_active')) {
+      // log, a survivor cart that is locked/no-longer-active, or — rev 10, D-R5-25 — a
+      // proposal-sourced merge an admin tries to reverse through the generic audit-log
+      // "Undo" action is a no-op here, not an error to surface — `cart.mergeUndo`
+      // (buyer-facing) is the path that throws these.
+      if (
+        isCrudHttpError(err) &&
+        (err.body?.code === 'merge_already_undone' ||
+          err.body?.code === 'cart_not_active' ||
+          err.body?.code === 'merge_undo_not_supported_for_proposal')
+      ) {
         return
       }
       throw err
@@ -788,6 +1086,19 @@ async function restoreCartMerge(em: EntityManager, scope: CartMergeScope, mergeL
   // transaction, and checked here on every call.
   if (mergeLog.undoneAt) {
     throw new CrudHttpError(409, { error: '[internal] merge_already_undone', code: 'merge_already_undone' })
+  }
+  // §7a.7/D-R5-25: "`POST /current/undo-merge` on a merge whose `CartMergeLog.proposal_
+  // cart_id` is set is refused... nothing changes." Checked BEFORE the survivor/absorbed
+  // lookups below, which would otherwise 404 for a proposal-sourced merge anyway (the
+  // absorbed cart here is a `kind = 'proposal'` row, and both lookups below filter
+  // `kind: 'basket'`) — a 404 would be the WRONG signal: the merge is real and reachable,
+  // acceptance just cannot be undone, which is a distinct, documented refusal with its own
+  // error code, not a "nothing found" collapse.
+  if (mergeLog.proposalCartId) {
+    throw new CrudHttpError(409, {
+      error: '[internal] merge_undo_not_supported_for_proposal',
+      code: 'merge_undo_not_supported_for_proposal',
+    })
   }
 
   const survivorCart = await findOneWithDecryption(

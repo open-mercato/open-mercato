@@ -13,6 +13,7 @@ import type { AssortmentScope } from '@open-mercato/shared/lib/catalog-visibilit
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { CustomerGroup, CustomerGroupTerms } from '../../../../data/entities'
+import type { CustomerGroupApprovalPolicy } from '../../../../data/entities'
 import { isPriceKindInTenant } from '../../../../lib/priceKindScope'
 import { announceCustomerGroupTermsUpdated } from '../../../../lib/groupEvents'
 import {
@@ -115,6 +116,10 @@ function serializeTerms(terms: CustomerGroupTerms) {
     creditCurrencyCode: terms.creditCurrencyCode ?? null,
     approvalRequiredAbove: toNumberOrNull(terms.approvalRequiredAbove),
     minOrderValue: toNumberOrNull(terms.minOrderValue),
+    termsCurrencyCode: terms.termsCurrencyCode ?? null,
+    approvalPolicy: terms.approvalPolicy ?? null,
+    allowQuoteRequests: terms.allowQuoteRequests ?? null,
+    requiresPoNumber: terms.requiresPoNumber ?? null,
     assortmentScope: terms.assortmentScope ?? null,
     metadata: terms.metadata ?? null,
     createdAt: terms.createdAt.toISOString(),
@@ -162,6 +167,10 @@ type CustomerGroupTermsEntityData = {
   creditCurrencyCode: string | null
   approvalRequiredAbove: string | null
   minOrderValue: string | null
+  termsCurrencyCode: string | null
+  approvalPolicy: CustomerGroupApprovalPolicy | null
+  allowQuoteRequests: boolean | null
+  requiresPoNumber: boolean | null
   assortmentScope: AssortmentScope | null
   metadata: Record<string, unknown> | null
 }
@@ -178,6 +187,10 @@ function toEntityData(input: CustomerGroupTermsCreateInput): CustomerGroupTermsE
     creditCurrencyCode: input.creditCurrencyCode ?? null,
     approvalRequiredAbove: toNumericString(input.approvalRequiredAbove),
     minOrderValue: toNumericString(input.minOrderValue),
+    termsCurrencyCode: input.termsCurrencyCode ?? null,
+    approvalPolicy: input.approvalPolicy ?? null,
+    allowQuoteRequests: input.allowQuoteRequests ?? null,
+    requiresPoNumber: input.requiresPoNumber ?? null,
     assortmentScope: input.assortmentScope ?? null,
     metadata: input.metadata ?? null,
   }
@@ -198,6 +211,10 @@ function applyTermsUpdate(entity: CustomerGroupTerms, input: CustomerGroupTermsU
   if (hasOwn(input, 'creditCurrencyCode')) entity.creditCurrencyCode = input.creditCurrencyCode ?? null
   if (hasOwn(input, 'approvalRequiredAbove')) entity.approvalRequiredAbove = toNumericString(input.approvalRequiredAbove)
   if (hasOwn(input, 'minOrderValue')) entity.minOrderValue = toNumericString(input.minOrderValue)
+  if (hasOwn(input, 'termsCurrencyCode')) entity.termsCurrencyCode = input.termsCurrencyCode ?? null
+  if (hasOwn(input, 'approvalPolicy')) entity.approvalPolicy = input.approvalPolicy ?? null
+  if (hasOwn(input, 'allowQuoteRequests')) entity.allowQuoteRequests = input.allowQuoteRequests ?? null
+  if (hasOwn(input, 'requiresPoNumber')) entity.requiresPoNumber = input.requiresPoNumber ?? null
   if (hasOwn(input, 'assortmentScope')) entity.assortmentScope = input.assortmentScope ?? null
   if (hasOwn(input, 'metadata')) entity.metadata = input.metadata ?? null
 }
@@ -320,6 +337,10 @@ const termsItemSchema = z.object({
   creditCurrencyCode: z.string().nullable(),
   approvalRequiredAbove: z.number().nullable(),
   minOrderValue: z.number().nullable(),
+  termsCurrencyCode: z.string().nullable(),
+  approvalPolicy: z.string().nullable(),
+  allowQuoteRequests: z.boolean().nullable(),
+  requiresPoNumber: z.boolean().nullable(),
   assortmentScope: assortmentScopeSchema,
   metadata: z.record(z.string(), z.unknown()).nullable(),
   createdAt: z.string(),

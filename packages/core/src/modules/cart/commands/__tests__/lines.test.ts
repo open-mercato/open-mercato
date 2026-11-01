@@ -311,8 +311,8 @@ describe('cart.lines.add', () => {
     expect(result.status).toBe('added')
     if (result.status !== 'added') throw new Error('expected added')
     expect(result.line.quantity).toBe('2')
-    expect(result.line.unitPriceNet).toBe('10')
-    expect(result.line.unitPriceGross).toBe('12')
+    expect(result.line.unitPriceNet).toBe('10.0000')
+    expect(result.line.unitPriceGross).toBe('12.0000')
     expect(result.line.priceRowId).toBe('price-row-1')
     expect(result.line.origin).toBe('customer')
     expect(result.line.name).toBe('Widget')
@@ -516,6 +516,125 @@ describe('cart.lines.add', () => {
     expect(loadScopedProducts).not.toHaveBeenCalled()
     expect(emitCartEventMock.mock.calls.some(([eventId]) => eventId === 'cart.line.visibility_rejected')).toBe(false)
   })
+
+  // Release 5, Step 3.5 (D-R5-19, cart §6a.4 rev 10) — `unitPriceOverride` is the trusted
+  // pay-link seeding path's own mechanism for a merchant-fixed template line price.
+  describe('unitPriceOverride — D-R5-19', () => {
+    function makeSystemCtx(opts: Parameters<typeof makeCtx>[0]) {
+      return { ...makeCtx(opts), systemActor: true }
+    }
+
+    it('prices the line directly from the override, bypassing catalog resolution entirely', async () => {
+      seededCarts = [makeCartFixture({ channel: 'pay_link' })]
+      const handler = getHandler<CartLinesAddInput, CartLinesAddOutcome>('cart.lines.add')
+      const em = makeEm()
+      const resolveLinePrice = jest.fn(async () => makeResolvedLinePrice())
+      const ctx = makeSystemCtx({ em, catalogBuyerPricingService: { resolveLinePrice } })
+
+      const result = await handler.execute(
+        {
+          tenantId: TENANT_ID,
+          organizationId: ORG_ID,
+          cartId: CART_ID,
+          productId: 'product-1',
+          quantity: 1,
+          addedByActorType: 'system',
+          unitPriceOverride: { amount: '49.00', basis: 'gross' },
+        },
+        ctx,
+      )
+
+      expect(result.status).toBe('added')
+      if (result.status !== 'added') throw new Error('expected added')
+      expect(result.line.unitPriceGross).toBe('49.0000')
+      expect(result.line.unitPriceNet).toBeNull()
+      expect(result.line.priceRowId).toBeNull()
+      expect(seededCartLines[0].unitPriceOverride).toEqual({ amount: '49.00', basis: 'gross' })
+      // The whole point of an override: it never even asks the catalog pricing service.
+      expect(resolveLinePrice).not.toHaveBeenCalled()
+    })
+
+    it('rejects an override on a cart that has no catalog price row — the override makes "unpriceable" moot', async () => {
+      seededCarts = [makeCartFixture({ channel: 'pay_link' })]
+      seededPriceRows = []
+      const handler = getHandler<CartLinesAddInput, CartLinesAddOutcome>('cart.lines.add')
+      const em = makeEm()
+      const ctx = makeSystemCtx({ em, catalogBuyerPricingService: { resolveLinePrice: jest.fn(async () => makeResolvedLinePrice({ priceRow: null })) } })
+
+      const result = await handler.execute(
+        {
+          tenantId: TENANT_ID,
+          organizationId: ORG_ID,
+          cartId: CART_ID,
+          productId: 'product-1',
+          quantity: 1,
+          addedByActorType: 'system',
+          unitPriceOverride: { amount: '49.00', basis: 'gross' },
+        },
+        ctx,
+      )
+
+      expect(result.status).toBe('added')
+    })
+
+    it('rejects a non-systemActor caller supplying an override, and persists nothing', async () => {
+      seededCarts = [makeCartFixture({ channel: 'pay_link' })]
+      const handler = getHandler<CartLinesAddInput, CartLinesAddOutcome>('cart.lines.add')
+      const em = makeEm()
+      const ctx = makeCtx({ em })
+
+      let captured: unknown
+      try {
+        await handler.execute(
+          {
+            tenantId: TENANT_ID,
+            organizationId: ORG_ID,
+            cartId: CART_ID,
+            productId: 'product-1',
+            quantity: 1,
+            addedByActorType: 'system',
+            unitPriceOverride: { amount: '49.00', basis: 'gross' },
+          },
+          ctx,
+        )
+      } catch (err) {
+        captured = err
+      }
+
+      expect(isCrudHttpError(captured)).toBe(true)
+      expect((captured as { status: number }).status).toBe(403)
+      expect(seededCartLines).toHaveLength(0)
+    })
+
+    it('rejects a systemActor override on a non-pay_link cart (R22: pay_link only)', async () => {
+      seededCarts = [makeCartFixture({ channel: 'agent' })]
+      const handler = getHandler<CartLinesAddInput, CartLinesAddOutcome>('cart.lines.add')
+      const em = makeEm()
+      const ctx = makeSystemCtx({ em })
+
+      let captured: unknown
+      try {
+        await handler.execute(
+          {
+            tenantId: TENANT_ID,
+            organizationId: ORG_ID,
+            cartId: CART_ID,
+            productId: 'product-1',
+            quantity: 1,
+            addedByActorType: 'system',
+            unitPriceOverride: { amount: '49.00', basis: 'gross' },
+          },
+          ctx,
+        )
+      } catch (err) {
+        captured = err
+      }
+
+      expect(isCrudHttpError(captured)).toBe(true)
+      expect((captured as { status: number }).status).toBe(403)
+      expect(seededCartLines).toHaveLength(0)
+    })
+  })
 })
 
 describe('cart.lines.update', () => {
@@ -595,9 +714,9 @@ describe('cart.lines.update', () => {
         lineId: 'line-1',
         productId: 'product-1',
         oldUnitPriceNet: '10',
-        newUnitPriceNet: '8',
+        newUnitPriceNet: '8.0000',
         oldUnitPriceGross: '12',
-        newUnitPriceGross: '9.6',
+        newUnitPriceGross: '9.6000',
         reason: 'tier_change',
       },
     ])
