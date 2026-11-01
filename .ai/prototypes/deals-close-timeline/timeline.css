@@ -1,0 +1,257 @@
+/* Deals Timeline composition proposed by REQUIREMENTS.md: a lanes × time-bucket
+   grid (weeks, months or quarters) holding compact DealCards. There is no
+   existing @open-mercato/ui primitive for it; every color is a DS token and
+   stage colors come from the chart palette. */
+
+.app { position: relative; }
+
+/* ViewTabsRow (customers/deals/pipeline/components/ViewTabsRow.tsx) */
+.view-tabs { display: flex; align-items: flex-end; gap: 0.25rem; border-bottom: 1px solid var(--border); }
+.view-tabs > * {
+  display: inline-flex; align-items: center; padding: 0.625rem 0.875rem;
+  font-size: 0.875rem; color: var(--muted-foreground); text-decoration: none;
+  border-bottom: 2px solid transparent;
+}
+.view-tabs > a:hover { color: var(--foreground); }
+.view-tabs > [aria-selected="true"] { border-bottom-color: var(--accent-indigo); color: var(--foreground); font-weight: 600; }
+.tl-search { width: 16rem; }
+
+/* FilterBarRow + ChipButton (customers/deals/pipeline/components) */
+.tl-filterbar {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem;
+  padding: 0.75rem 0.875rem; border-radius: var(--radius-lg);
+  background: color-mix(in oklab, var(--muted) 40%, transparent);
+}
+.tl-filter-label {
+  font-size: var(--font-size-overline); line-height: 1.5; font-weight: 700;
+  text-transform: uppercase; color: var(--muted-foreground);
+}
+.tl-chip {
+  display: inline-flex; align-items: center; gap: 0.375rem;
+  padding: 0.375rem 0.625rem; border-radius: var(--radius-sm);
+  border: 1px solid var(--border); background: var(--card); color: var(--foreground);
+  font-size: 0.75rem; line-height: 1.5; cursor: pointer;
+}
+.tl-chip:hover { background: color-mix(in oklab, var(--muted) 60%, transparent); }
+.tl-chip.is-active, .tl-chip.is-open { border-color: color-mix(in oklab, var(--foreground) 40%, transparent); background: var(--muted); }
+.tl-chip-label { color: var(--muted-foreground); }
+.tl-chip-value { font-weight: 600; }
+.tl-chip svg { width: 0.75rem; height: 0.75rem; color: var(--muted-foreground); }
+.tl-chip-anchor { position: relative; display: inline-flex; }
+
+/* PipelineFilterPopover inside FilterPopoverShell */
+.tl-filter-pop {
+  position: absolute; z-index: var(--z-index-popover); left: 0; top: calc(100% + 0.375rem);
+  width: 24rem; overflow: hidden;
+  border: 1px solid var(--border); border-radius: var(--radius-xl);
+  background: var(--card); box-shadow: var(--shadow-xl);
+}
+.tl-filter-pop-head { display: flex; align-items: center; justify-content: space-between; padding: 1rem 1.25rem; border-bottom: 1px solid var(--border); }
+.tl-filter-pop-title { font-size: 1rem; font-weight: 700; }
+.tl-filter-pop-body { display: flex; flex-direction: column; padding: 0.5rem 0; }
+.tl-radio-row {
+  display: flex; align-items: center; gap: 0.75rem; width: 100%;
+  padding: 0.625rem 1rem; border: 0; background: var(--card); text-align: left; cursor: pointer;
+  font-size: 0.875rem; color: var(--foreground);
+}
+.tl-radio-row:hover { background: color-mix(in oklab, var(--muted) 60%, transparent); }
+.tl-radio-row.is-selected { background: var(--muted); font-weight: 600; }
+.tl-radio {
+  width: 1rem; height: 1rem; flex: none; border-radius: 9999px;
+  border: 1px solid var(--input); background: var(--card);
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.tl-radio.is-selected { border-color: var(--accent-indigo); }
+.tl-radio.is-selected::after { content: ""; width: 0.5rem; height: 0.5rem; border-radius: 9999px; background: var(--accent-indigo); }
+.tl-radio-text { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.tl-radio-count { font-size: 0.75rem; color: var(--muted-foreground); }
+.tl-radio-count.is-accent { color: var(--accent-indigo); font-weight: 600; }
+.tl-filter-pop-foot {
+  display: flex; align-items: center; justify-content: space-between; gap: 0.75rem;
+  padding: 0.875rem 1.25rem; border-top: 1px solid var(--border); background: var(--muted);
+}
+.tl-filter-pop-actions { gap: 0.75rem; }
+.tl-apply { background: var(--foreground); color: var(--background); }
+.tl-apply:hover { background: color-mix(in oklab, var(--foreground) 90%, transparent); }
+
+/* Timeline view controls row */
+.tl-controls { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.75rem; }
+.tl-controls-left { gap: 0.75rem; }
+.tl-nav { gap: 0.375rem; }
+.tl-range { font-size: 0.875rem; font-weight: 500; margin-left: 0.25rem; white-space: nowrap; }
+
+/* Board */
+.tl-board {
+  --lane-w: 12rem;
+  position: relative;
+  border: 1px solid var(--border); border-radius: var(--radius-lg);
+  background: var(--card); overflow: hidden;
+}
+.tl-row {
+  display: grid;
+  grid-template-columns: var(--lane-w) repeat(var(--cols), minmax(0, 1fr));
+  border-bottom: 1px solid var(--border);
+}
+.tl-head-row { background: color-mix(in oklab, var(--muted) 40%, transparent); }
+.tl-corner { border-right: 1px solid var(--border); }
+.tl-col-head {
+  display: flex; flex-direction: column; gap: 0.125rem;
+  padding: 0.5rem 0.625rem; border-left: 1px solid var(--border); min-width: 0;
+}
+.tl-row > :nth-child(2) { border-left: 0; }
+.tl-col-label { font-size: 0.875rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tl-col-sub { font-size: 0.75rem; color: var(--muted-foreground); }
+.tl-col-head.is-current { background: color-mix(in srgb, var(--accent-indigo) 8%, transparent); }
+.tl-now {
+  display: inline-flex; padding: 0 0.375rem; border-radius: 9999px;
+  background: var(--accent-indigo); color: var(--accent-indigo-foreground);
+  font-size: 0.6875rem; font-weight: 600;
+}
+
+/* Lanes */
+.tl-lane-head {
+  display: flex; align-items: flex-start; gap: 0.5rem;
+  padding: 0.75rem; min-width: 0;
+  border: 0; border-right: 1px solid var(--border); background: var(--card);
+  text-align: left; font-size: 0.875rem; font-weight: 500; color: var(--foreground); cursor: pointer;
+}
+.tl-lane-head > svg { width: 1rem; height: 1rem; flex: none; color: var(--muted-foreground); margin-top: 0.125rem; }
+.tl-lane-head:hover { background: var(--accent); }
+.tl-lane.is-collapsed .tl-lane-head { padding-top: 0.5rem; padding-bottom: 0.5rem; }
+.tl-lane-label { display: flex; flex-direction: column; gap: 0.125rem; min-width: 0; }
+.tl-lane-count { font-size: 0.75rem; font-weight: 400; color: var(--muted-foreground); }
+.tl-lane-dot { margin-top: 0.375rem; }
+.sk-short { width: 3rem; }
+.tl-avatar-empty svg { width: 0.75rem; height: 0.75rem; color: var(--muted-foreground); }
+.tl-subhead { padding: 0.375rem 0.75rem; border-bottom: 1px solid var(--border); background: color-mix(in oklab, var(--muted) 40%, transparent); }
+.tl-stage-dot { display: inline-block; width: 0.5rem; height: 0.5rem; border-radius: 9999px; background: var(--stage); flex: none; }
+
+.tl-cell {
+  position: relative;
+  display: flex; flex-direction: column; gap: 0.375rem;
+  padding: 0.375rem; min-width: 0; min-height: 3.5rem;
+  border-left: 1px solid var(--border);
+}
+.tl-cell.is-current { background: color-mix(in srgb, var(--accent-indigo) 4%, transparent); }
+.tl-cell.is-drop-target {
+  background: color-mix(in srgb, var(--accent-indigo) 10%, transparent);
+  outline: 1px dashed var(--accent-indigo); outline-offset: -0.25rem;
+}
+.tl-cell-strip { min-height: 0; justify-content: center; padding-top: 0.5rem; padding-bottom: 0.5rem; }
+.tl-cell-count {
+  align-self: flex-start;
+  font-size: 0.75rem; font-weight: 500; padding: 0 0.5rem; border-radius: 9999px;
+  background: var(--muted); color: var(--muted-foreground);
+}
+.tl-cell-count.is-overdue { background: var(--status-error-bg); color: var(--status-error-text); }
+
+/* Compact DealCard: Kanban anatomy (title, value + probability, company,
+   close date) at roughly 4.5rem instead of the Kanban's ~11rem. */
+.tl-deal {
+  position: relative;
+  display: flex; flex-direction: column; gap: 0.125rem;
+  padding: 0.375rem 0.5rem 0.375rem 0.625rem;
+  border: 1px solid var(--border); border-left: 0.1875rem solid var(--stage);
+  border-radius: var(--radius-md);
+  background: var(--card); color: var(--card-foreground); box-shadow: var(--shadow-xs);
+  text-decoration: none; cursor: grab; user-select: none; min-width: 0;
+  transition: box-shadow 150ms;
+}
+.tl-deal:hover { box-shadow: var(--shadow-md); }
+.tl-deal-row { display: flex; align-items: center; justify-content: space-between; gap: 0.375rem; min-width: 0; line-height: 1.25rem; overflow: hidden; }
+.tl-deal-title { font-size: 0.875rem; font-weight: 600; min-width: 0; }
+.tl-deal-prob {
+  flex: none; font-size: 0.6875rem; font-weight: 600; line-height: 1rem;
+  padding: 0 0.375rem; border-radius: var(--radius-sm); background: var(--muted); color: var(--muted-foreground);
+}
+.tl-deal b { font-size: 0.875rem; font-weight: 700; }
+.tl-deal-date { display: inline-flex; align-items: center; gap: 0.25rem; flex: none; font-size: 0.75rem; font-weight: 500; color: var(--foreground); }
+.tl-deal-date svg { width: 0.75rem; height: 0.75rem; color: var(--muted-foreground); }
+.tl-deal.is-overdue .tl-deal-date { color: var(--status-error-text); font-weight: 600; }
+.tl-deal.is-overdue .tl-deal-date svg { color: var(--status-error-icon); }
+.tl-deal-company { display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.75rem; color: var(--muted-foreground); min-width: 0; }
+.tl-deal-company svg { width: 0.75rem; height: 0.75rem; flex: none; }
+.tl-deal .avatar-sm { flex: none; }
+.tl-deal.is-readonly { cursor: pointer; }
+.tl-deal.is-ghost { opacity: 0.45; border-style: dashed; border-left-style: solid; box-shadow: none; }
+.tl-deal.is-dragging { z-index: 3; cursor: grabbing; box-shadow: var(--shadow-lg); transform: rotate(1deg); border-color: var(--ring); border-left-color: var(--stage); }
+.tl-deal.is-saved { box-shadow: 0 0 0 2px var(--accent-indigo), var(--shadow-xs); }
+.tl-deal.is-focused { box-shadow: var(--shadow-focus); }
+.tl-deal.is-reverted { box-shadow: 0 0 0 2px var(--status-error-border), var(--shadow-xs); }
+
+.tl-more {
+  height: 1.5rem; padding: 0 0.5rem;
+  border: 1px dashed var(--border); border-radius: var(--radius-md);
+  background: var(--background); color: var(--muted-foreground);
+  font-size: 0.75rem; font-weight: 500; cursor: pointer; white-space: nowrap;
+}
+.tl-more:hover, .tl-more.is-open { border-style: solid; border-color: var(--accent-indigo); color: var(--foreground); }
+
+.tl-drag-tip {
+  position: absolute; z-index: 4; left: 0.375rem; top: calc(100% - 0.25rem);
+  display: flex; flex-direction: column; gap: 0.125rem;
+  padding: 0.375rem 0.625rem; border-radius: var(--radius-md);
+  background: var(--foreground); color: var(--background); box-shadow: var(--shadow-lg);
+  font-size: 0.75rem; white-space: nowrap; pointer-events: none;
+}
+.tl-drag-tip span { opacity: 0.75; }
+
+.tl-popover { position: absolute; z-index: var(--z-index-popover); left: 0.375rem; top: calc(100% - 0.5rem); width: 26rem; }
+.tl-popover-head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; padding: 0.375rem 0.5rem; border-bottom: 1px solid var(--border); margin-bottom: 0.25rem; }
+.tl-popover-item { text-decoration: none; color: inherit; font-size: 0.75rem; }
+.tl-popover-date { flex: none; color: var(--muted-foreground); }
+.tl-popover-date.is-overdue { color: var(--status-error-text); font-weight: 600; }
+.tl-tooltip { position: absolute; z-index: var(--z-index-tooltip); left: 0.375rem; top: calc(100% - 0.5rem); width: 18rem; padding: 0.5rem 0.625rem; font-size: 0.75rem; }
+
+.tl-edge { padding: 0.375rem 0.5rem 0.375rem calc(var(--lane-w) + 0.375rem); border-bottom: 1px solid var(--border); }
+.tl-overdue-edge {
+  display: inline-flex; align-items: center; gap: 0.25rem;
+  padding: 0.125rem 0.5rem; border-radius: 9999px;
+  border: 1px solid var(--status-error-border); background: var(--status-error-bg); color: var(--status-error-text);
+  font-size: 0.75rem; font-weight: 500; cursor: pointer;
+}
+.tl-overdue-edge svg { width: 0.75rem; height: 0.75rem; }
+
+/* Footer */
+.tl-foot {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.75rem;
+  padding: 0.625rem 1rem;
+  font-size: 0.75rem; color: var(--muted-foreground);
+}
+.tl-legend-item { gap: 0.375rem; margin-right: 0.5rem; }
+.tl-legend-alert { width: 0.75rem; height: 0.75rem; color: var(--status-error-icon); }
+.tl-undated { display: inline-flex; align-items: center; gap: 0.375rem; color: var(--foreground); font-weight: 500; text-decoration: none; }
+.tl-undated:hover { text-decoration: underline; }
+.tl-undated svg { width: 0.875rem; height: 0.875rem; }
+
+/* States */
+.tl-body-empty { padding: 2rem; }
+.tl-error { max-width: 40rem; margin: 0 auto; align-items: center; }
+.tl-noaccess { max-width: 32rem; margin: 3rem auto; }
+.tl-conflict {
+  display: flex; align-items: center; justify-content: space-between; gap: 0.75rem;
+  padding: 0.5rem 0.75rem; border-radius: var(--radius-md);
+  border: 1px solid var(--status-error-border); background: var(--status-error-bg); color: var(--status-error-text);
+  font-size: 0.875rem; box-shadow: var(--shadow-xs);
+}
+.tl-conflict-msg { margin-left: 0.5rem; }
+.tl-conflict-btn { border-color: var(--status-error-border); background: var(--status-error-bg); color: var(--status-error-text); }
+.tl-conflict-btn:hover { background: var(--status-error-border); }
+.tl-conflict .icon-btn { color: var(--status-error-text); }
+.tl-flash { gap: 0.625rem; }
+.tl-flash > svg { color: var(--status-success-icon); }
+.tl-modal { width: 28rem; }
+
+/* Skeleton */
+.sk { display: block; background: var(--muted); border-radius: var(--radius-sm); animation: tl-sk 1.4s ease-in-out infinite; }
+.sk-avatar { width: 1.25rem; height: 1.25rem; border-radius: 9999px; flex: none; }
+.sk-line { width: 6rem; height: 0.75rem; margin-top: 0.25rem; }
+.sk-card { height: 4.25rem; border-radius: var(--radius-md); }
+@keyframes tl-sk { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+@media (prefers-reduced-motion: reduce) { .sk { animation: none; } }
+
+/* Live drag (screen 1) */
+.tl-live .tl-flash { position: fixed; }
+.tl-live .tl-deal { touch-action: none; }
+.tl-live .tl-deal.is-live-dragging { position: relative; z-index: 5; pointer-events: none; }
+.proto-comment .tl-deal { cursor: crosshair; }
