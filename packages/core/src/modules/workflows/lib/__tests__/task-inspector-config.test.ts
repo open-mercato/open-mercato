@@ -12,6 +12,7 @@ import {
   readTaskDeadlineDraft,
   remindersToOffsets,
   resolveTaskDeadlinePersistence,
+  resolveTaskDeadlineSpecPersistence,
 } from '../task-inspector-config'
 import { nodeToFormValues, formValuesToNodeUpdates } from '../nodeFormTransforms'
 import { graphToDefinition } from '../graph-utils'
@@ -57,6 +58,26 @@ describe('task inspector mapping rules', () => {
     expect(resolveTaskDeadlinePersistence({ slaDuration: 'PT1H' }, '  ')).toEqual({})
     expect(readTaskDeadlineDraft({ deadline: { duration: 'PT4H' }, slaDuration: 'P30D' })).toBe('PT4H')
     expect(readTaskDeadlineDraft({ slaDuration: 'P30D' })).toBe('P30D')
+    expect(readTaskDeadlineDraft({ deadline: { at: '{{context.dueDate}}' }, slaDuration: 'P30D' })).toBe('')
+  })
+
+  test('the spec persistence keeps an absolute deadline.at and otherwise answers like the legacy one', () => {
+    expect(resolveTaskDeadlineSpecPersistence({ deadline: { at: '{{context.dueDate}}' } }, '')).toEqual({
+      deadline: { at: '{{context.dueDate}}' },
+    })
+    expect(resolveTaskDeadlineSpecPersistence({ deadline: { at: '{{context.dueDate}}' } }, ' P2D ')).toEqual({
+      deadline: { duration: 'P2D' },
+    })
+    const legacyCases: Array<[{ deadline?: { duration: string }; slaDuration?: string }, string]> = [
+      [{ slaDuration: 'PT1H' }, 'PT2H'],
+      [{}, 'PT4H'],
+      [{ deadline: { duration: 'PT4H' } }, 'PT8H'],
+      [{ deadline: { duration: 'PT4H' } }, 'PT4H'],
+      [{ slaDuration: 'PT1H' }, '  '],
+    ]
+    for (const [config, edited] of legacyCases) {
+      expect(resolveTaskDeadlineSpecPersistence(config, edited)).toEqual(resolveTaskDeadlinePersistence(config, edited))
+    }
   })
 
   test('the assignment tab is derived from the three keys, never stored', () => {
@@ -170,6 +191,30 @@ describe('the inspector sections round trip through the dialog save path', () =>
 
     expect(config.deadline).toEqual({ duration: 'PT8H' })
     expect(config.slaDuration).toBeUndefined()
+  })
+
+  test('When: an absolute deadline.at survives a save that never touched the deadline', () => {
+    const stored = { at: '{{context.dueDate}}' }
+    const { values, config, updates } = roundTrip(
+      { deadline: stored, userTaskConfig: { deadline: stored, slaDuration: 'P30D' } },
+      (draft) => {
+        draft.taskPriority = 'high'
+      },
+    )
+
+    expect(values.slaDuration).toBe('')
+    expect(config.deadline).toEqual(stored)
+    expect(config.slaDuration).toBeUndefined()
+    expect(updates.deadline).toEqual(stored)
+  })
+
+  test('When: typing a duration over deadline.at switches the deadline to that duration', () => {
+    const stored = { at: '2026-12-31' }
+    const { config } = roundTrip({ deadline: stored, userTaskConfig: { deadline: stored } }, (draft) => {
+      draft.slaDuration = 'P2D'
+    })
+
+    expect(config.deadline).toEqual({ duration: 'P2D' })
   })
 
   test('an invalid priority is dropped rather than persisted', () => {

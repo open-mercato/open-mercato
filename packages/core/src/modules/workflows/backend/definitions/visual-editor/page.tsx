@@ -104,6 +104,7 @@ import {
 } from '../../../lib/context-ledger'
 import { useAvailableEvents } from '@open-mercato/ui/backend/inputs/EventSelect'
 import { toUnresolvedContextRefIssues } from '../../../lib/definition-evaluation'
+import { resolveIssueMessage } from '../../../lib/definition-error-body'
 import type { PinnedSampleEnvelope } from '../../../lib/sample-resolver'
 import { Page } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -1879,7 +1880,7 @@ export default function VisualEditorPage() {
       if (result.success) return { ok: true as const, definition: result.data as WorkflowDefinitionData }
       return {
         ok: false as const,
-        messages: result.error.issues.map((issue) => `${issue.path.join('.') || '(root)'}: ${issue.message}`),
+        messages: result.error.issues.map((issue) => `${issue.path.join('.') || '(root)'}: ${resolveIssueMessage(issue, translateIssue)}`),
       }
     },
     // Warnings never block, exactly as they never block a Save; only graph
@@ -1894,7 +1895,7 @@ export default function VisualEditorPage() {
         .filter((issue) => issue.type === 'error')
         .map((issue) => issue.message)
     },
-  }), [])
+  }), [translateIssue])
 
   const codeApplyDecision = useMemo(
     () => evaluateCodeViewDraft<WorkflowDefinitionData>({
