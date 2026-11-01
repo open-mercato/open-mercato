@@ -50,7 +50,7 @@ Restore every failing required CI check on `main` by identifying the current roo
 
 ### Phase 1: Diagnose the failure
 
-- [ ] 1.1 Identify the failing required checks on the latest `main` commit, reproduce them where practical, and document the root cause and affected project guidance.
+- [x] 1.1 Identify the failing required checks on the latest `main` commit, reproduce them where practical, and document the root cause and affected project guidance. — 585f671ddb
 
 ### Phase 2: Correct the root cause
 
