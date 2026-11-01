@@ -454,6 +454,26 @@ A regenerated MCP key becomes invalid if its owner's home organization changes,
 including a change from no home organization to a concrete one. Generate a new
 key and update the MCP client secret after such a change.
 
+### Inbound webhook receipt deduplication includes verified scope (#7830)
+
+Inbound receipts now identify duplicates by endpoint, message ID, tenant, and organization.
+The same message ID delivered to different verified scopes is ingested independently; repeated
+delivery within one scope still returns `200 { ok: true, duplicate: true }`. Explicitly unscoped
+legacy adapters retain a separate null/null namespace with the same replay protection.
+
+**Operator action:** apply `Migration20261027193000_receipt_scope` before resuming inbound
+traffic, on PostgreSQL 15+. Schedule for the table lock needed to rebuild the receipt uniqueness
+constraint. The migration preserves its existing name and every receipt/message ID; data valid
+under the previous global uniqueness rule requires no cleanup. Existing receiver code already
+writes the scope fields, so mixed-version receivers can use the migrated schema.
+
+**Module author action:** include verified tenant/organization scope in any independent receipt
+lookup or deduplication cache key. The source/adapter interfaces, events, and HTTP response
+contracts are unchanged, and the named constraint remains available to `ON CONFLICT` consumers.
+After cross-scope collisions have been stored, restoring the former global constraint may fail;
+there is no automatic rollback that deletes receipts. Inspect those collisions and plan recovery
+before reverting the schema. See the [inbound spec](.ai/specs/2026-03-23-inbound-webhook-handlers.md#receipt-scope-migration--backward-compatibility-7830).
+
 ### Customer interaction authors and owners must belong to the record's tenant (#7531)
 
 Canonical interaction writes and legacy activity adapters now reject foreign-tenant or missing author/owner IDs, and reject new assignments to deleted users with a generic `400` user-not-found response. Same-tenant users from another home organization remain valid references, including an implicit actor working in another organization. Author normalization, valid superadmin delegation, and existing record-level organization/privacy authorization are preserved.
