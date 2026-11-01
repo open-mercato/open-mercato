@@ -13,6 +13,12 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import type { SalesAdjustmentDraft, SalesDocumentAmounts } from '@open-mercato/core/modules/sales/lib/types'
 import { E } from '#generated/entities.ids.generated'
+// §6a.4 (D-R5-22): `ecommerce` stays a SOFT dependency of `cart` (not in `index.ts`'s own
+// `requires`, same convention `lib/routeContext.ts` already documents for
+// `storeContextService`) — only the type is imported here; the service itself is resolved
+// through DI with a local try/catch (`tryResolveStoreContextService` below), never a hard
+// static value import.
+import type { StoreContextService } from '@open-mercato/core/modules/ecommerce/lib/storeContextService'
 import { Cart, CartLine } from '../data/entities'
 import type { CartChannel, CartKind, CartStatus, CartTaxMode } from '../data/entities'
 import { cartCreateInputSchema, type CartCreateInput as CartCreateTrustedInput } from '../data/validators'
@@ -119,14 +125,68 @@ const CART_CHANNEL_FEATURES: Record<Exclude<CartChannel, 'storefront'>, string> 
   api: 'cart.channel.api',
 }
 
+function tryResolveStoreContextService(container: { resolve: <T = unknown>(name: string) => T }): StoreContextService | null {
+  try {
+    return container.resolve<StoreContextService>('storeContextService') ?? null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * §6a.4 (D-R5-22): the trusted-path buyer-identity fill. Before this, a `pos`/`pay_link`/
+ * `agent`/`api` cart created for a known buyer stamped `customerIds = [customerId]`,
+ * `customerGroupIds = []`, `priceKindId = null` directly from the trusted caller's own
+ * input (X2) — the company entity, group memberships and price kind were never resolved, so
+ * credit/approval/terms (`customer_groups`) and pricing both resolved against the PERSON,
+ * never the company, for a B2B buyer on any non-storefront channel.
+ *
+ * Returns `null` — meaning "use the old, caller-supplied-only fields verbatim" — in BOTH
+ * documented fallback cases: no buyer named at all (a genuine guest trusted cart, left
+ * completely unaffected), and `ecommerce` not registered (§6a.4: "that fallback is
+ * documented, not silent: the cart then prices at list and resolves terms against the
+ * person"). A `resolveForBuyer` call that reaches the service but names an id outside the
+ * caller's own tenant/organization scope throws `StorefrontResolutionError` and propagates —
+ * that is a bug in the TRUSTED caller, not an absence of `ecommerce`, and must not be
+ * swallowed the way the DI-resolution failure above is.
+ */
+async function resolveTrustedCartBuyerIdentity(
+  container: { resolve: <T = unknown>(name: string) => T },
+  input: { tenantId: string; organizationId: string; storeId: string | null; customerUserId: string | null; customerId: string | null },
+) {
+  if (!input.customerUserId && !input.customerId) return null
+  const storeContextService = tryResolveStoreContextService(container)
+  if (!storeContextService) return null
+  return storeContextService.resolveForBuyer({
+    tenantId: input.tenantId,
+    organizationId: input.organizationId,
+    storeId: input.storeId,
+    customerUserId: input.customerUserId,
+    customerId: input.customerId,
+  })
+}
+
 // These rejection messages are `[internal]`-prefixed (not yet routed through `t(...)`) because
 // `cart` has no `i18n/` catalog at all yet (checked — Step 4.1 never added one, and no route
 // exists until Step 4.7). Revisit once that catalog exists and a route maps this command's
 // errors to an HTTP response a buyer or integration operator actually reads.
+// Release 5, Step 3.5 (D-R5-19, cart §6a.4 rev 10, R22). `buildTrustedCommandContext`'s
+// `systemActor` branch carries no `auth` at all (checkout's pay-link cart seeding has no
+// end-user actor to attribute to), so it cannot pass an RBAC feature check the normal way.
+// It is accepted for `channel: 'pay_link'` ONLY — checkout's own Phase A link checks
+// (active, not expired, usage limit, password) already gated reaching this call, so no
+// further feature grant is meaningful here. Every other channel still requires a real,
+// RBAC-granted `cart.channel.*` feature; a `systemActor` context is rejected for them
+// exactly like an unauthenticated caller would be (R22's own test: "a system context
+// cannot create any other channel").
 async function requireChannelFeature(
   ctx: CommandRuntimeContext,
   channel: Exclude<CartChannel, 'storefront'>,
 ): Promise<void> {
+  if (ctx.systemActor === true) {
+    if (channel === 'pay_link') return
+    throw forbidden(`[internal] A trusted system context cannot create a "${channel}" cart`)
+  }
   const requiredFeature = CART_CHANNEL_FEATURES[channel]
   const auth = ctx.auth
   if (!auth?.sub || !auth.tenantId) {
@@ -147,8 +207,15 @@ async function requireChannelFeature(
   }
 }
 
-function resolveAuthenticatedScope(ctx: CommandRuntimeContext): { tenantId: string; organizationId: string } {
-  const tenantId = ctx.auth?.tenantId ?? null
+// Release 5, Step 3.5 (D-R5-19). `trustedTenantId` is the trusted path's only source of
+// tenant scope when `ctx.auth` is null (a `systemActor` context, e.g. checkout's pay-link
+// seeding) — an authenticated caller's `ctx.auth.tenantId` always wins when present, so
+// this parameter is never consulted for a real HTTP principal.
+function resolveAuthenticatedScope(
+  ctx: CommandRuntimeContext,
+  trustedTenantId?: string | null,
+): { tenantId: string; organizationId: string } {
+  const tenantId = ctx.auth?.tenantId ?? (ctx.systemActor === true ? trustedTenantId ?? null : null)
   const organizationId = ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null
   if (!tenantId || !organizationId) {
     throw badRequest('[internal] Tenant and organization scope are required to create a cart')
@@ -233,28 +300,49 @@ const createCartCommand: CommandHandler<CartCreateCommandInput, CartCreateResult
         )
       }
       await requireChannelFeature(ctx, parsed.channel)
-      const { tenantId, organizationId } = resolveAuthenticatedScope(ctx)
+      const { tenantId, organizationId } = resolveAuthenticatedScope(ctx, parsed.tenantId ?? null)
+      const storeId = parsed.storeId ?? null
+      const trustedCustomerId = parsed.customerId ?? null
+      const trustedCustomerUserId = parsed.customerUserId ?? null
+      // §6a.4 (D-R5-22): resolves the buyer's REAL company/group/price-kind identity through
+      // the one trusted seam (Step 1.2) instead of the old context-less seeding below. `null`
+      // when no buyer was named at all, or when `ecommerce` is not registered — both
+      // documented fallbacks that leave `fields` exactly as this module shipped before this
+      // step (see `resolveTrustedCartBuyerIdentity`'s own doc comment).
+      const buyerIdentity = await resolveTrustedCartBuyerIdentity(ctx.container, {
+        tenantId,
+        organizationId,
+        storeId,
+        customerUserId: trustedCustomerUserId,
+        customerId: trustedCustomerId,
+      })
       fields = {
         tenantId,
         organizationId,
         channel: parsed.channel,
-        storeId: parsed.storeId ?? null,
+        storeId,
         salesChannelId: parsed.salesChannelId ?? null,
+        // `currencyCode` is deliberately NOT one of the fields `resolveForBuyer` fills (§6a.4's
+        // own fill list names exactly seven: customer_id, customer_ids, customer_user_id,
+        // customer_group_ids, price_kind_id, tax_mode, buyer_digest) — it stays the trusted
+        // caller's own, required input (`cartCreateInputSchema.currencyCode`), the same way it
+        // always has, never derived from the buyer's identity or the resolved store's default.
         currencyCode: parsed.currencyCode,
         locale: parsed.locale,
-        taxMode: parsed.taxMode,
-        // No `StoreContext`/`BuyerContext` is resolved on this path at all (§6a.4: "pos, pay_link,
-        // agent and api carts have no channel binding and no buyer digest") — `customerGroupIds`
-        // stays empty and `priceKindId` stays unresolved; only the single `customerId` the trusted
-        // caller supplied is known, so `customerIds` is derived from it rather than copied from a
+        taxMode: buyerIdentity?.taxMode ?? parsed.taxMode,
+        // No `StoreContext`/`BuyerContext` is resolved when `buyerIdentity` is `null`
+        // (§6a.4: "pos, pay_link, agent and api carts have no channel binding and no buyer
+        // digest" — the documented fallback) — `customerGroupIds` stays empty and
+        // `priceKindId` stays unresolved; only the single `customerId` the trusted caller
+        // supplied is known, so `customerIds` is derived from it rather than copied from a
         // buyer context that was never resolved.
-        customerId: parsed.customerId ?? null,
-        customerIds: parsed.customerId ? [parsed.customerId] : [],
-        customerUserId: parsed.customerUserId ?? null,
-        customerGroupIds: [],
-        priceKindId: null,
+        customerId: buyerIdentity?.customerId ?? trustedCustomerId,
+        customerIds: buyerIdentity?.customerIds ?? (trustedCustomerId ? [trustedCustomerId] : []),
+        customerUserId: buyerIdentity?.customerUserId ?? trustedCustomerUserId,
+        customerGroupIds: buyerIdentity?.customerGroupIds ?? [],
+        priceKindId: buyerIdentity?.priceKindId ?? null,
         email: parsed.email ?? null,
-        buyerDigest: '',
+        buyerDigest: buyerIdentity?.buyerDigest ?? '',
       }
     }
 
@@ -390,6 +478,7 @@ export type CartSummary = {
   promotionEffects: unknown
   requiresApproval: boolean
   approvalId: string | null
+  awaitingApprovalSince: Date | null
   metadata: Record<string, unknown> | null
   salesChannelId: string | null
   lastActivityAt: Date
@@ -440,6 +529,7 @@ export function toCartSummary(cart: Cart): CartSummary {
     promotionEffects: cart.promotionEffects ?? null,
     requiresApproval: cart.requiresApproval,
     approvalId: cart.approvalId ?? null,
+    awaitingApprovalSince: cart.awaitingApprovalSince ?? null,
     metadata: cart.metadata ?? null,
     salesChannelId: cart.salesChannelId ?? null,
     lastActivityAt: cart.lastActivityAt,
@@ -607,6 +697,19 @@ function applyCartRepriceTriggerFields(cart: Cart, input: CartRepriceInput): voi
     cart.customerUserId = input.customerUserId ?? null
     cart.customerGroupIds = input.customerGroupIds ?? []
     cart.priceKindId = input.priceKindId ?? null
+  } else if (input.trigger === 'admin_reprice') {
+    // Step 2.10 (K6/§10.2): unlike `'buyer_context_changed'`, the admin route always has a
+    // FULL, freshly-resolved `BuyerContext` to overwrite with — here the caller may supply
+    // only a SUBSET of fields (e.g. `ecommerce` disabled, so no `resolveForBuyer` call ran
+    // at all — see the admin reprice route's own doc comment). Each field is only written
+    // when the admin route actually resolved it, so a partial/absent refresh can never wipe
+    // an existing identity field back to `null`.
+    if (input.buyerDigest !== undefined) cart.buyerDigest = input.buyerDigest
+    if (input.customerId !== undefined) cart.customerId = input.customerId
+    if (input.customerIds !== undefined) cart.customerIds = input.customerIds
+    if (input.customerUserId !== undefined) cart.customerUserId = input.customerUserId
+    if (input.customerGroupIds !== undefined) cart.customerGroupIds = input.customerGroupIds
+    if (input.priceKindId !== undefined) cart.priceKindId = input.priceKindId
   } else if (input.trigger === 'currency_changed' && input.currencyCode) {
     cart.currencyCode = input.currencyCode
   } else if (input.trigger === 'locale_changed' && input.locale) {
@@ -647,8 +750,15 @@ const repriceCartCommand: CommandHandler<CartRepriceInput, CartRepriceResult> = 
     // already only reprices an active, unlocked cart by convention — this enforces that
     // invariant here too, so a stale token cannot reprice a converted/merged/expired/locked
     // cart directly and drift its stored totals away from the order it became.
+    //
+    // Step 2.10 (K6/§10.2): the admin forced re-price is the one caller allowed to reprice
+    // an `abandoned` basket too ("Runs `cart.reprice` whole-cart for a `kind = 'basket'`
+    // cart in `active` or `abandoned` status"). This is safe to allow generically (not
+    // gated on `input.trigger === 'admin_reprice'` specifically) because this command never
+    // writes `cart.status` anywhere in its own body — re-pricing an abandoned cart leaves it
+    // abandoned, matching §10.2's own "it neither reactivates an `abandoned` basket... " text.
     assertCartNotLocked(cart)
-    if (cart.status !== 'active') {
+    if (cart.status !== 'active' && cart.status !== 'abandoned') {
       throw new CrudHttpError(409, { error: '[internal] cart_not_active', code: 'cart_not_active', status: cart.status })
     }
 
@@ -710,8 +820,14 @@ const repriceCartCommand: CommandHandler<CartRepriceInput, CartRepriceResult> = 
     // closes it: `commands/lock.ts`'s `cart.lock` dispatches this command with
     // `trigger: 'lock'` specifically so this SAME pass runs with a freshly-resolved buyer
     // context (§9, D-R4-22) before `cart.lock` ever checks for a still-flagged line.
+    // Step 2.10 (K6/§10.2) adds `'admin_reprice'`: the admin forced re-price refreshes
+    // identity via `resolveForBuyer` exactly like trigger 2/5, so a storefront cart also
+    // gets this pass against its buyer's CURRENT scope.
     const runWholeCartRevisibilityPass =
-      (input.trigger === 'buyer_context_changed' || input.trigger === 'merge' || input.trigger === 'lock') &&
+      (input.trigger === 'buyer_context_changed' ||
+        input.trigger === 'merge' ||
+        input.trigger === 'lock' ||
+        input.trigger === 'admin_reprice') &&
       assortmentScope !== undefined
     const wholeCartRevisibilityPhases: Array<() => Promise<void>> = runWholeCartRevisibilityPass
       ? [

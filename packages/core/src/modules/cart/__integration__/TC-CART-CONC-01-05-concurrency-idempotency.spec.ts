@@ -168,7 +168,11 @@ test.describe('TC-CART-CONC-01/02/03/04/05: concurrency, idempotency and the re-
     expect(response.status, response.text).toBe(200);
     const body = response.body as { versionBumpReason?: string; priceChanges?: Array<{ reason: string }> };
     expect(body.versionBumpReason).toBe('repricing');
-    expect(body.priceChanges).toEqual([expect.objectContaining({ reason: 'stale_snapshot' })]);
+    // Stale per review (TC-CART-CONC-04): the formatDecimalAmount fix correctly drops a
+    // no-op price change (this product's price hasn't actually moved), so a staleness-only
+    // recompute discloses no priceChanges — same assertion TC-CART-PRICE-01 already uses
+    // for the identical scenario.
+    expect(body.priceChanges).toBeUndefined();
   });
 
   // TC-CART-CONC-05: 20 parallel add-line calls yield a consistent final quantity.

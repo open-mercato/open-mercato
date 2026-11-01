@@ -62,6 +62,10 @@ function makeTerms(overrides: Partial<CustomerGroupTerms> & { groupId: string })
     creditCurrencyCode: null,
     approvalRequiredAbove: null,
     minOrderValue: null,
+    approvalPolicy: null,
+    termsCurrencyCode: null,
+    allowQuoteRequests: null,
+    requiresPoNumber: null,
     metadata: null,
     createdAt: new Date('2026-01-01T00:00:00.000Z'),
     updatedAt: new Date('2026-01-01T00:00:00.000Z'),
@@ -175,12 +179,20 @@ describe('DefaultCustomerGroupsService.resolveTerms', () => {
       allowPurchaseOnAccount: false,
       approvalRequiredAbove: null,
       minOrderValue: null,
+      approvalPolicy: 'buyer',
+      termsCurrencyCode: null,
+      allowQuoteRequests: false,
+      requiresPoNumber: false,
       sources: {
         priceKindId: null,
         paymentTermsDays: null,
         allowPurchaseOnAccount: null,
         approvalRequiredAbove: null,
         minOrderValue: null,
+        approvalPolicy: null,
+        termsCurrencyCode: null,
+        allowQuoteRequests: null,
+        requiresPoNumber: null,
       },
     })
     expect(em.findOne).toHaveBeenCalledTimes(1)
@@ -286,14 +298,192 @@ describe('DefaultCustomerGroupsService.resolveTerms', () => {
       allowPurchaseOnAccount: false,
       approvalRequiredAbove: null,
       minOrderValue: null,
+      approvalPolicy: 'buyer',
+      termsCurrencyCode: null,
+      allowQuoteRequests: false,
+      requiresPoNumber: false,
       sources: {
         priceKindId: null,
         paymentTermsDays: null,
         allowPurchaseOnAccount: null,
         approvalRequiredAbove: null,
         minOrderValue: null,
+        approvalPolicy: null,
+        termsCurrencyCode: null,
+        allowQuoteRequests: null,
+        requiresPoNumber: null,
       },
     })
+  })
+
+  it('inherits approvalPolicy from the parent when the child row leaves it unset, defaulting to "buyer" with no matching group at all (D-R5-1)', async () => {
+    const memberships = [makeMembership({ id: 'm-child', groupId: CHILD_ID })]
+    const groups = [
+      makeGroup({ id: CHILD_ID, code: 'child', name: 'Child', priority: 20, parentId: PARENT_ID }),
+      makeGroup({ id: PARENT_ID, code: 'parent', name: 'Parent', priority: 10, parentId: null }),
+    ]
+    const terms = [
+      makeTerms({ groupId: CHILD_ID, approvalPolicy: null }),
+      makeTerms({ groupId: PARENT_ID, approvalPolicy: 'both' }),
+    ]
+    const em = createEm({ memberships, groups, terms })
+    const service = new DefaultCustomerGroupsService(em as never)
+
+    const result = await service.resolveTerms({ customerId: CUSTOMER_ID, tenantId: TENANT_ID })
+
+    expect(result.approvalPolicy).toBe('both')
+    expect(result.sources.approvalPolicy).toBe(PARENT_ID)
+  })
+
+  // Step 5.1 (checkout B.5, D-R5-20/D-R5-28): `allowQuoteRequests`/`requiresPoNumber`
+  // resolve through the exact same per-field inheritance as `allowPurchaseOnAccount` —
+  // tenant default `false`, no base-currency-style fallback step of their own.
+  it('inherits allowQuoteRequests from the parent when the child row leaves it unset (D-R5-20)', async () => {
+    const memberships = [makeMembership({ id: 'm-child', groupId: CHILD_ID })]
+    const groups = [
+      makeGroup({ id: CHILD_ID, code: 'child', name: 'Child', priority: 20, parentId: PARENT_ID }),
+      makeGroup({ id: PARENT_ID, code: 'parent', name: 'Parent', priority: 10, parentId: null }),
+    ]
+    const terms = [
+      makeTerms({ groupId: CHILD_ID, allowQuoteRequests: null }),
+      makeTerms({ groupId: PARENT_ID, allowQuoteRequests: true }),
+    ]
+    const em = createEm({ memberships, groups, terms })
+    const service = new DefaultCustomerGroupsService(em as never)
+
+    const result = await service.resolveTerms({ customerId: CUSTOMER_ID, tenantId: TENANT_ID })
+
+    expect(result.allowQuoteRequests).toBe(true)
+    expect(result.sources.allowQuoteRequests).toBe(PARENT_ID)
+  })
+
+  it('lets an explicit false on the child override an inherited allowQuoteRequests true', async () => {
+    const memberships = [makeMembership({ id: 'm-child', groupId: CHILD_ID })]
+    const groups = [
+      makeGroup({ id: CHILD_ID, code: 'child', name: 'Child', priority: 20, parentId: PARENT_ID }),
+      makeGroup({ id: PARENT_ID, code: 'parent', name: 'Parent', priority: 10, parentId: null }),
+    ]
+    const terms = [
+      makeTerms({ groupId: CHILD_ID, allowQuoteRequests: false }),
+      makeTerms({ groupId: PARENT_ID, allowQuoteRequests: true }),
+    ]
+    const em = createEm({ memberships, groups, terms })
+    const service = new DefaultCustomerGroupsService(em as never)
+
+    const result = await service.resolveTerms({ customerId: CUSTOMER_ID, tenantId: TENANT_ID })
+
+    expect(result.allowQuoteRequests).toBe(false)
+    expect(result.sources.allowQuoteRequests).toBe(CHILD_ID)
+  })
+
+  it('inherits requiresPoNumber from the parent when the child row leaves it unset (D-R5-28)', async () => {
+    const memberships = [makeMembership({ id: 'm-child', groupId: CHILD_ID })]
+    const groups = [
+      makeGroup({ id: CHILD_ID, code: 'child', name: 'Child', priority: 20, parentId: PARENT_ID }),
+      makeGroup({ id: PARENT_ID, code: 'parent', name: 'Parent', priority: 10, parentId: null }),
+    ]
+    const terms = [
+      makeTerms({ groupId: CHILD_ID, requiresPoNumber: null }),
+      makeTerms({ groupId: PARENT_ID, requiresPoNumber: true }),
+    ]
+    const em = createEm({ memberships, groups, terms })
+    const service = new DefaultCustomerGroupsService(em as never)
+
+    const result = await service.resolveTerms({ customerId: CUSTOMER_ID, tenantId: TENANT_ID })
+
+    expect(result.requiresPoNumber).toBe(true)
+    expect(result.sources.requiresPoNumber).toBe(PARENT_ID)
+  })
+
+  // Step 3.1 (D-R5-4/D-R5-37): `termsCurrencyCode` resolves through the same per-field
+  // inheritance as every other scalar term, PLUS a base-currency fallback when the whole
+  // chain leaves it unset.
+  it('inherits termsCurrencyCode from the parent when the child row leaves it unset', async () => {
+    const memberships = [makeMembership({ id: 'm-child', groupId: CHILD_ID })]
+    const groups = [
+      makeGroup({ id: CHILD_ID, code: 'child', name: 'Child', priority: 20, parentId: PARENT_ID }),
+      makeGroup({ id: PARENT_ID, code: 'parent', name: 'Parent', priority: 10, parentId: null }),
+    ]
+    const terms = [
+      makeTerms({ groupId: CHILD_ID, termsCurrencyCode: null }),
+      makeTerms({ groupId: PARENT_ID, termsCurrencyCode: 'EUR' }),
+    ]
+    const em = createEm({ memberships, groups, terms })
+    const service = new DefaultCustomerGroupsService(em as never)
+
+    const result = await service.resolveTerms({ customerId: CUSTOMER_ID, tenantId: TENANT_ID })
+
+    expect(result.termsCurrencyCode).toBe('EUR')
+    expect(result.sources.termsCurrencyCode).toBe(PARENT_ID)
+  })
+
+  it('falls back to the organization base currency when no group sets termsCurrencyCode (D-R5-37)', async () => {
+    const memberships = [makeMembership({ id: 'm-child', groupId: CHILD_ID })]
+    const groups = [makeGroup({ id: CHILD_ID, code: 'child', name: 'Child', priority: 10, parentId: null })]
+    const terms = [makeTerms({ groupId: CHILD_ID })]
+    const em = createEm({ memberships, groups, terms })
+    const organizationId = 'cccccccc-0000-4000-8000-000000000001'
+    const baseCurrencyService = {
+      resolveBaseCurrency: jest.fn(async () => ({ status: 'resolved' as const, code: 'USD' })),
+    }
+    const service = new DefaultCustomerGroupsService(em as never, baseCurrencyService as never)
+
+    const result = await service.resolveTerms({ customerId: CUSTOMER_ID, tenantId: TENANT_ID, organizationId })
+
+    expect(result.termsCurrencyCode).toBe('USD')
+    expect(result.sources.termsCurrencyCode).toBe('base_currency')
+    expect(baseCurrencyService.resolveBaseCurrency).toHaveBeenCalledWith({ tenantId: TENANT_ID, organizationIds: [organizationId] })
+  })
+
+  it('leaves termsCurrencyCode null (fail-closed, D-R5-4) when the organization has no base currency', async () => {
+    const memberships = [makeMembership({ id: 'm-child', groupId: CHILD_ID })]
+    const groups = [makeGroup({ id: CHILD_ID, code: 'child', name: 'Child', priority: 10, parentId: null })]
+    const terms = [makeTerms({ groupId: CHILD_ID })]
+    const em = createEm({ memberships, groups, terms })
+    const organizationId = 'cccccccc-0000-4000-8000-000000000002'
+    const baseCurrencyService = {
+      resolveBaseCurrency: jest.fn(async () => ({ status: 'missing' as const })),
+    }
+    const service = new DefaultCustomerGroupsService(em as never, baseCurrencyService as never)
+
+    const result = await service.resolveTerms({ customerId: CUSTOMER_ID, tenantId: TENANT_ID, organizationId })
+
+    expect(result.termsCurrencyCode).toBeNull()
+    expect(result.sources.termsCurrencyCode).toBeNull()
+  })
+
+  it('leaves termsCurrencyCode null when no organizationId is supplied, even with a base-currency service available', async () => {
+    const memberships = [makeMembership({ id: 'm-child', groupId: CHILD_ID })]
+    const groups = [makeGroup({ id: CHILD_ID, code: 'child', name: 'Child', priority: 10, parentId: null })]
+    const terms = [makeTerms({ groupId: CHILD_ID })]
+    const em = createEm({ memberships, groups, terms })
+    const baseCurrencyService = {
+      resolveBaseCurrency: jest.fn(async () => ({ status: 'resolved' as const, code: 'USD' })),
+    }
+    const service = new DefaultCustomerGroupsService(em as never, baseCurrencyService as never)
+
+    const result = await service.resolveTerms({ customerId: CUSTOMER_ID, tenantId: TENANT_ID })
+
+    expect(result.termsCurrencyCode).toBeNull()
+    expect(baseCurrencyService.resolveBaseCurrency).not.toHaveBeenCalled()
+  })
+
+  it('does not call the base-currency fallback when a group already sets termsCurrencyCode', async () => {
+    const memberships = [makeMembership({ id: 'm-child', groupId: CHILD_ID })]
+    const groups = [makeGroup({ id: CHILD_ID, code: 'child', name: 'Child', priority: 10, parentId: null })]
+    const terms = [makeTerms({ groupId: CHILD_ID, termsCurrencyCode: 'PLN' })]
+    const em = createEm({ memberships, groups, terms })
+    const organizationId = 'cccccccc-0000-4000-8000-000000000003'
+    const baseCurrencyService = {
+      resolveBaseCurrency: jest.fn(async () => ({ status: 'resolved' as const, code: 'USD' })),
+    }
+    const service = new DefaultCustomerGroupsService(em as never, baseCurrencyService as never)
+
+    const result = await service.resolveTerms({ customerId: CUSTOMER_ID, tenantId: TENANT_ID, organizationId })
+
+    expect(result.termsCurrencyCode).toBe('PLN')
+    expect(result.sources.termsCurrencyCode).toBe(CHILD_ID)
+    expect(baseCurrencyService.resolveBaseCurrency).not.toHaveBeenCalled()
   })
 
   it('resolves different fields on the same object from different groups in the hierarchy independently', async () => {

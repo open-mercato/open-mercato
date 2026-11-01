@@ -1,6 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { JobContext, QueuedJob, WorkerMeta } from '@open-mercato/queue'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import type { CustomerPurchaseApprovalService } from '@open-mercato/core/modules/customer_groups/services/customerPurchaseApprovalService'
 import { CART_PURGE_EXPIRED_QUEUE } from '../lib/queues'
 import { purgeExpiredCarts } from '../lib/sweepers'
 
@@ -31,8 +32,15 @@ export default async function handle(job: QueuedJob<CartSweepTickPayload>, ctx: 
   }
 
   const em = (ctx.resolve('em') as EntityManager).fork()
+  // (rev 10 — K3) Soft-resolved — see `expire.worker.ts`'s identical comment.
+  let approvalService: CustomerPurchaseApprovalService | null = null
   try {
-    const result = await purgeExpiredCarts(em, { tenantId })
+    approvalService = ctx.resolve<CustomerPurchaseApprovalService>('customerPurchaseApprovalService')
+  } catch {
+    approvalService = null
+  }
+  try {
+    const result = await purgeExpiredCarts(em, { tenantId }, approvalService)
     if (result.transitioned > 0) {
       logger.info('cart:purge-expired purged carts', { tenantId, purged: result.transitioned })
     }

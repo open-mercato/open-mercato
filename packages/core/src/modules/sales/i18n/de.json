@@ -1342,6 +1342,7 @@
   "sales.quotes.accept.forbidden": "Die Angebotsannahme von einer fremden Website ist nicht erlaubt.",
   "sales.quotes.accept.invalidStatus": "Dieses Angebot kann in seinem aktuellen Status nicht angenommen werden.",
   "sales.quotes.accept.notFound": "Angebot nicht gefunden.",
+  "sales.quotes.accept.requiresApproval": "Dieses Angebot muss genehmigt werden, bevor es angenommen werden kann.",
   "sales.quotes.adjustments.delete": "Angebotsanpassung löschen",
   "sales.quotes.adjustments.upsert": "Angebotsanpassung aktualisieren",
   "sales.quotes.create": "Angebot erstellen",

@@ -5143,6 +5143,8 @@ const createQuoteCommand: CommandHandler<
       organizationId: parsed.organizationId,
       tenantId: parsed.tenantId,
       quoteNumber: ensuredQuoteNumber,
+      externalReference: parsed.externalReference ?? null,
+      customerReference: parsed.customerReference ?? null,
       statusEntryId: parsed.statusEntryId ?? null,
       status: quoteStatus,
       customerEntityId: parsed.customerEntityId ?? null,

@@ -106,6 +106,13 @@ export const cartCreateInputSchema = z.object({
   customerId: clearableUuidSchema,
   customerUserId: clearableUuidSchema,
   email: clearableStringSchema(320),
+  // Release 5, Step 3.5 (D-R5-19, cart §6a.4 rev 10). Honored ONLY for a trusted
+  // `systemActor` call (e.g. checkout's pay-link cart seeding) — there is no `ctx.auth` to
+  // derive tenant scope from in that case. An authenticated caller's `ctx.auth.tenantId`
+  // stays the source of truth regardless of what this field carries. Not `clearableUuidSchema`
+  // deliberately: `ctx.auth.tenantId` itself is an unvalidated string everywhere else this
+  // module reads it, so this trusted-only fallback holds the same shape, not a stricter one.
+  tenantId: z.preprocess(emptyStringToNull, z.string().trim().min(1).nullable().optional()),
 })
 
 export type CartCreateInput = z.infer<typeof cartCreateInputSchema>
@@ -126,6 +133,53 @@ export const cartLineAddInputSchema = z.object({
 })
 
 export type CartLineAddInput = z.infer<typeof cartLineAddInputSchema>
+
+// ---------------------------------------------------------------------------
+// §7a proposal seam — `cart.proposal.create`'s trusted command-input shape (rev 10 — S5,
+// S13, S14, D-R5-14, §7a.2). `targetCartId`/`routeContext` stay out of this schema (the
+// latter is the branded `ResolvedCartRouteContext`, §6a.1a's "never run through a public
+// `.strict()` schema" rule) — only the structured, caller-supplied parts (`lines`,
+// `ttlSeconds`) are validated here, mirroring `cartCreateInputSchema`'s own split between
+// zod-validated fields and trusted, out-of-band ones. `quantity` is a decimal STRING,
+// matching the spec's own literal pseudocode (`quantity: string`), not `cartLineAddInputSchema`'s
+// sibling shape's divergence.
+//
+// `productId`/`variantId` are plain non-empty strings, not `uuid()` — same precedent
+// `cartMarkConvertedLineMapEntrySchema` above already set ("this is the command's own
+// internal input shape... not an HTTP body validator"): `cart.lines.add`/`.bulkAdd` apply NO
+// zod format check at all at the command layer (`commands/lines.ts` destructures
+// `CartLinesAddInput`/`CartLinesBulkAddEntry` directly), and the real guard against a
+// malformed id is the batched catalog lookup resolving to "not found" -> `product_unavailable`
+// — not the id's lexical format. A `uuid()` constraint here would also break this module's
+// own test-fixture convention (every `CatalogProduct.id` fixture across
+// `commands/__tests__/{lines,cart,merge}.test.ts` is a plain string like `'product-1'`). The
+// public `POST /proposals` HTTP body (Step 3.4) gets its OWN `.strict()` schema with `uuid()`,
+// matching `cartLineAddRequestSchema`'s existing split between the command's internal shape
+// and the route's own stricter public one.
+// ---------------------------------------------------------------------------
+
+export const CART_PROPOSAL_MIN_TTL_SECONDS = 3600
+export const CART_PROPOSAL_MAX_TTL_SECONDS = 1_209_600
+export const CART_PROPOSAL_DEFAULT_TTL_SECONDS = 259_200
+
+export const cartProposalCreateLineInputSchema = z.object({
+  productId: z.string().trim().min(1),
+  variantId: clearableStringSchema(190),
+  quantity: decimalStringSchema,
+  configuration: jsonRecordSchema.nullable().optional(),
+})
+export type CartProposalCreateLineInput = z.infer<typeof cartProposalCreateLineInputSchema>
+
+// `.min(1).max(100)` mirrors `cart.lines.bulkAdd`'s own 1..100 cap (§7a.2's pseudocode:
+// "1..100").
+export const cartProposalCreateLinesSchema = z.array(cartProposalCreateLineInputSchema).min(1).max(100)
+
+export const cartProposalCreateTtlSecondsSchema = z
+  .number()
+  .int()
+  .min(CART_PROPOSAL_MIN_TTL_SECONDS)
+  .max(CART_PROPOSAL_MAX_TTL_SECONDS)
+  .optional()
 
 // ---------------------------------------------------------------------------
 // Public HTTP request bodies for `/api/cart/current/*` (Step 4.7, §6a.1a/§8.1/§10).
@@ -210,3 +264,120 @@ export type CartMergeRequest = z.infer<typeof cartMergeRequestSchema>
  * for the current (resolved) cart, not named by the caller. */
 export const cartMergeUndoRequestSchema = z.object({}).strict()
 export type CartMergeUndoRequest = z.infer<typeof cartMergeUndoRequestSchema>
+
+/** `POST /current/request-approval` (rev 10 — K4, §9a.4/§10). "Body: `{}` (`.strict()`;
+ * amount, currency, requester and subject come from the server, never the body)" — the
+ * spec states this one explicitly, so this mirrors `cartCurrentCreateRequestSchema`'s
+ * empty-but-`.strict()` convention by the spec's own words, not by analogy. */
+export const cartRequestApprovalRequestSchema = z.object({}).strict()
+export type CartRequestApprovalRequest = z.infer<typeof cartRequestApprovalRequestSchema>
+
+// ---------------------------------------------------------------------------
+// `cart.markConverted` (§9.1 rev 10 — K8/D-R5-26) — additive, optional conversion inputs.
+// The TS signature in §9.1 types `lineMap` as one flat shape with BOTH line-id fields
+// optional (`{ cartLineId, salesOrderLineId?, salesQuoteLineId? }`); D-R5-26's own text is
+// the cross-entry constraint ("never both [salesOrderId and salesQuoteId] in one call,
+// since one conversion is either an order or a quote") — enforced at the command layer
+// (`commands/lock.ts`), not by a zod discriminated union here, so this schema matches the
+// spec's own literal signature exactly.
+// ---------------------------------------------------------------------------
+
+// `cartLineId`/`salesOrderLineId`/`salesQuoteLineId` are plain non-empty strings, not
+// `uuid()` — this is the command's own internal input shape (§10: no public route), and
+// the REAL guard against a malformed map is the bijection check against the cart's actual
+// live lines (`commands/lock.ts#validateConversionLineMap`), not the id's lexical format.
+export const cartMarkConvertedLineMapEntrySchema = z.object({
+  cartLineId: z.string().min(1),
+  salesOrderLineId: z.string().min(1).optional(),
+  salesQuoteLineId: z.string().min(1).optional(),
+})
+export type CartMarkConvertedLineMapEntry = z.infer<typeof cartMarkConvertedLineMapEntrySchema>
+
+export const cartMarkConvertedLineMapSchema = z.array(cartMarkConvertedLineMapEntrySchema)
+
+// ---------------------------------------------------------------------------
+// Admin list (§10.2 rev 10 — K6) — `GET /api/cart/carts`. `kind` defaults to, and while the
+// §7a proposal seam is deferred (X5/K5) ONLY accepts, `'basket'` — the admin list never
+// returns a proposal cart until Step 3.4 actually ships the seam. `pageSize` is capped at
+// 100 (root AGENTS.md).
+// ---------------------------------------------------------------------------
+
+export const cartAdminListQuerySchema = z
+  .object({
+    page: z.coerce.number().min(1).default(1),
+    pageSize: z.coerce.number().min(1).max(100).default(50),
+    kind: z.literal('basket').default('basket'),
+    status: cartStatusSchema.optional(),
+    channel: cartChannelSchema.optional(),
+    storeId: uuid().optional(),
+    customerId: uuid().optional(),
+    requiresApproval: z.string().optional(),
+    lastActivityFrom: z.string().optional(),
+    lastActivityTo: z.string().optional(),
+    ids: z.string().optional(),
+    sortField: z.string().optional(),
+    sortDir: z.enum(['asc', 'desc']).optional(),
+  })
+  .passthrough()
+export type CartAdminListQuery = z.infer<typeof cartAdminListQuerySchema>
+
+/** `POST /api/cart/carts/:id/reprice` — no body fields (§10.2); `.strict()` so an
+ * unrecognized key 400s rather than being silently ignored. */
+export const cartAdminRepriceRequestSchema = z.object({}).strict()
+export type CartAdminRepriceRequest = z.infer<typeof cartAdminRepriceRequestSchema>
+
+// ---------------------------------------------------------------------------
+// Public HTTP request bodies for `/api/cart/proposals/*` (Step 3.4, §7a.2/§7a.4). These are
+// the route's OWN `.strict()`, `uuid()`-validated public shapes — distinct from
+// `cartProposalCreateLinesSchema`/`cartProposalCreateTtlSecondsSchema` above, which validate
+// `cart.proposal.create`'s internal, trusted-caller input (plain-string ids, no public body
+// to 400 on an unrecognized key). Same split `cartLineAddRequestSchema` already keeps against
+// `cartLineAddInputSchema`.
+// ---------------------------------------------------------------------------
+
+/** `POST /proposals` (§10: "a staff `auth.User`, or an AI agent principal... takes the
+ * target as `targetCartId`... accepts no cart token"). */
+export const cartProposalAuthorLineRequestSchema = z
+  .object({
+    productId: uuid(),
+    variantId: clearableUuidSchema,
+    quantity: decimalStringSchema,
+    configuration: jsonRecordSchema.nullable().optional(),
+  })
+  .strict()
+
+export const cartProposalAuthorRequestSchema = z
+  .object({
+    targetCartId: uuid(),
+    lines: z.array(cartProposalAuthorLineRequestSchema).min(1).max(100),
+    ttlSeconds: cartProposalCreateTtlSecondsSchema,
+  })
+  .strict()
+export type CartProposalAuthorRequest = z.infer<typeof cartProposalAuthorRequestSchema>
+
+/** `POST /proposals/:id/preview` — no body fields: the scope and buyer context the dry-run
+ * re-prices against are resolved server-side at the route edge (§6a.1a), never caller-supplied. */
+export const cartProposalPreviewRequestSchema = z.object({}).strict()
+export type CartProposalPreviewRequest = z.infer<typeof cartProposalPreviewRequestSchema>
+
+/** `POST /proposals/:id/accept` (§7a.4: `{ acceptanceToken, lines: [{ proposalLineId,
+ * accepted }] }`). */
+export const cartProposalAcceptLineSelectionSchema = z
+  .object({
+    proposalLineId: uuid(),
+    accepted: z.boolean(),
+  })
+  .strict()
+
+export const cartProposalAcceptRequestSchema = z
+  .object({
+    acceptanceToken: z.string().trim().min(1),
+    lines: z.array(cartProposalAcceptLineSelectionSchema).min(1).max(100),
+  })
+  .strict()
+export type CartProposalAcceptRequest = z.infer<typeof cartProposalAcceptRequestSchema>
+
+/** `POST /proposals/:id/reject` — no body fields (mirrors `cartMergeUndoRequestSchema`'s
+ * empty-but-`.strict()` convention); the proposal to reject is named by the path param. */
+export const cartProposalRejectRequestSchema = z.object({}).strict()
+export type CartProposalRejectRequest = z.infer<typeof cartProposalRejectRequestSchema>

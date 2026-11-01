@@ -1,5 +1,5 @@
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
-import type { EntityManager } from '@mikro-orm/core'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import { RateFetchingService } from './services/rateFetchingService'
 import { ExchangeRateService } from './services/exchangeRateService'
 import { NBPProvider } from './services/providers/nbp'
@@ -31,6 +31,15 @@ export function register(container: AppContainer) {
     },
     baseCurrencyService: {
       resolve: (c) => new BaseCurrencyService(c.resolve<EntityManager>('em')),
+    },
+    // Lets an optional-peer caller that already holds its OWN `EntityManager` (e.g. a
+    // transaction with a per-cart `pg_advisory_xact_lock` held, `cart/lib/approvalGate.ts`)
+    // build a `BaseCurrencyService` bound to THAT connection instead of the container's
+    // request-root `em` `baseCurrencyService` above is bound to — resolved through DI (never
+    // a static value import of `BaseCurrencyService` into a module that only soft-depends on
+    // `currencies`) so the caller still degrades to `null` when this module isn't registered.
+    baseCurrencyServiceFactory: {
+      resolve: () => (em: EntityManager) => new BaseCurrencyService(em),
     },
   })
 }

@@ -1342,6 +1342,7 @@
   "sales.quotes.accept.forbidden": "사이트 간 견적 수락은 허용되지 않습니다.",
   "sales.quotes.accept.invalidStatus": "이 견적은 현재 상태에서 수락할 수 없습니다.",
   "sales.quotes.accept.notFound": "견적을 찾을 수 없습니다.",
+  "sales.quotes.accept.requiresApproval": "이 견적은 수락하기 전에 승인이 필요합니다.",
   "sales.quotes.adjustments.delete": "견적 조정 삭제",
   "sales.quotes.adjustments.upsert": "견적 조정 업데이트",
   "sales.quotes.create": "판매 견적 생성",
