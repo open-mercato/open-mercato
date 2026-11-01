@@ -104,19 +104,32 @@ export type CartForApprovalGate = Pick<
  * no second connection is ever requested. Omitting `options.em` (every pre-existing caller)
  * preserves the exact previous container-resolved behavior.
  *
- * `baseCurrencyService` (the D-R5-37 currency-fallback peer) is still soft-resolved from the
- * container either way — `currencies` is not a `cart` dependency at all (only an optional
- * peer of `customer_groups`), so this never adds a new static import to that module, same
- * "soft-resolve, never a hard import, for an optional peer" rule this file already follows
- * for `customerGroupsService` itself. That leaves a narrow residual risk: the rare
- * `termsCurrencyCode`-fallback query still runs on the container's root `em`, not `em`, even
- * inside a held lock. Acceptable here because it only fires when NO group in the chain sets
- * an explicit currency — the named, always-on culprit this fix closes is `resolveTerms`.
+ * `baseCurrencyService` (the D-R5-37 currency-fallback peer, read inside `resolveTerms` via
+ * `applyTermsCurrencyFallback` whenever every group in the chain left `termsCurrencyCode`
+ * `null` — the common/default case, not a rare one) is threaded the SAME `em` the same way:
+ * `tryResolveBaseCurrencyService` below resolves `baseCurrencyServiceFactory` (`currencies/
+ * di.ts`) instead of the `baseCurrencyService` singleton when `em` is supplied, and calls it
+ * with THAT `em` — so `resolveBaseCurrency()`'s own query also runs on the connection the
+ * caller already holds. This closes the exact second residual deadlock window this file used
+ * to leave open: without it, a cart whose group chain never sets an explicit currency
+ * override (termsCurrencyCode stays `null`) would still hit the container's root `em` one
+ * call deeper than `resolveTerms`, inside the very same held lock. Still resolved through DI
+ * (never a static value import of `BaseCurrencyService`) — `currencies` is not a `cart`
+ * dependency at all (only an optional peer of `customer_groups`), so this never adds a new
+ * static import to that module, same "soft-resolve, never a hard import, for an optional
+ * peer" rule this file already follows for `customerGroupsService` itself.
  */
-function tryResolveBaseCurrencyService(container: {
-  resolve: <T = unknown>(name: string) => T
-}): BaseCurrencyService | null {
+function tryResolveBaseCurrencyService(
+  container: { resolve: <T = unknown>(name: string) => T },
+  em: EntityManager | undefined,
+): BaseCurrencyService | null {
   try {
+    if (em) {
+      const factory = container.resolve<((em: EntityManager) => BaseCurrencyService) | undefined>(
+        'baseCurrencyServiceFactory',
+      )
+      return factory ? factory(em) : null
+    }
     return container.resolve<BaseCurrencyService>('baseCurrencyService') ?? null
   } catch {
     return null
@@ -127,7 +140,7 @@ function resolveApprovalGateCustomerGroupsService(
   container: { resolve: <T = unknown>(name: string) => T },
   em: EntityManager | undefined,
 ): CustomerGroupsService | null {
-  if (em) return createCustomerGroupsService(em, tryResolveBaseCurrencyService(container))
+  if (em) return createCustomerGroupsService(em, tryResolveBaseCurrencyService(container, em))
   return tryResolveCustomerGroupsService(container)
 }
 
