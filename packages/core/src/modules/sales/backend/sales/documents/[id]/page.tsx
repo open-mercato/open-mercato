@@ -1849,7 +1849,6 @@ function StatusInlineEditor({
                 onChange={(next) => setDraft(next ?? undefined)}
                 fetchOptions={fetchStatusOptions}
                 allowInlineCreate={false}
-                allowAppearance
                 manageHref={manageHref}
                 sortOptions="none"
                 labels={labels}
