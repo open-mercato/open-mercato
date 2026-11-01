@@ -8,7 +8,9 @@ const accountStatusWidget = {
   kind: 'tab',
   groupId: 'portal-account',
   groupLabel: 'customer_accounts.widgets.portalAccountTab',
-  priority: 40,
+  icon: 'key-round',
+  // Negative: after the person's built-in tabs (#8020 ordering contract).
+  priority: -50,
 } as const
 
 // Column 1 on purpose (#4400): any column-2 group makes CrudForm switch the
