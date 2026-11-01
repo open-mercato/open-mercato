@@ -112,6 +112,13 @@ and is out of scope here.
   `development` or custom `NODE_ENV` while writing the `headers()` result into
   the routes manifest that `next start` serves, so a `NODE_ENV` gate could ship
   the loopback policy in a production build. The phase has neither problem.
+- `src/proxy.ts` (app and template) re-emits the page CSP with a per-request
+  nonce, so it must apply the same frame policy. The development-server config
+  inlines `OM_DEV_SERVER_LOOPBACK_FRAMING='1'` through `env` (every other phase
+  inlines `''`), and the proxy passes the loopback origins to
+  `createContentSecurityPolicy({ frameAncestorOrigins })` only when that flag
+  is `'1'`. `frameAncestorOrigins` is an additive option; without it the helper
+  still emits `frame-ancestors 'self'`.
 - The `/api/attachments/file/:path*` rule keeps its own sandbox CSP and
   `X-Frame-Options: SAMEORIGIN` in every mode.
 - Only plain-HTTP loopback origins are added; no wildcard host, no `https:` or
@@ -237,6 +244,14 @@ Browser QA: load the splash during startup and after ready, click
   `routes-manifest.json` ENOENT).
 - Making Start building reuse an already-running Cezar cockpit is tracked in
   open-mercato/cezar#1732.
+
+### 2026-11-01
+
+- Merged `main`, which moved the page CSP into
+  `@open-mercato/shared/lib/security/contentSecurityPolicy` and re-emits it from
+  `src/proxy.ts`. The dev-only loopback framing now goes through the new
+  `frameAncestorOrigins` option in both `next.config.ts` and the proxy, so the
+  proxy no longer overrides it with `frame-ancestors 'self'` under `next dev`.
 
 ### 2026-10-30
 

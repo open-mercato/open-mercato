@@ -20,34 +20,44 @@ describe.each([PHASE_DEVELOPMENT_SERVER, PHASE_PRODUCTION_BUILD, PHASE_PRODUCTIO
     let directives: string[] = []
 
     beforeAll(async () => {
-      let loaded: LoadedNextConfig | undefined
-      jest.isolateModules(() => {
-        const configModule = require(path.resolve(__dirname, '../../next.config.ts')) as { default: NextConfigFactory }
-        loaded = configModule.default(phase)
-      })
-      if (!loaded) throw new Error('[internal] next.config did not load')
-      const rules = await loaded.headers()
-      const csp = rules
-        .find((rule) => rule.source === '/:path*')
-        ?.headers.find((header) => header.key === 'Content-Security-Policy')?.value ?? ''
-      directives = csp.split(';').map((directive) => directive.trim())
+      const nodeEnvironment = jest.replaceProperty(process.env, 'NODE_ENV', 'production')
+      try {
+        let loaded: LoadedNextConfig | undefined
+        jest.isolateModules(() => {
+          const configModule = require(path.resolve(__dirname, '../../next.config.ts')) as { default: NextConfigFactory }
+          loaded = configModule.default(phase)
+        })
+        if (!loaded) throw new Error('[internal] next.config did not load')
+        const rules = await loaded.headers()
+        const policy = rules
+          .find((rule) => rule.source === '/:path*')
+          ?.headers.find((header) => header.key === 'Content-Security-Policy')?.value
+        expect(policy).toBeDefined()
+        directives = (policy ?? '').split('; ')
+      } finally {
+        nodeEnvironment.restore()
+      }
     })
 
-    function findDirective(prefix: string): string | undefined {
-      return directives.find((line) => line.startsWith(`${prefix} `))
+    function findSources(prefix: string): string[] {
+      return directives.find((directive) => directive.startsWith(`${prefix} `))?.split(' ').slice(1) ?? []
     }
 
     it('allowlists https://js.stripe.com in script-src', () => {
-      const scriptSrc = findDirective('script-src')
-      expect(scriptSrc).toBeDefined()
-      expect(scriptSrc).toContain('https://js.stripe.com')
+      expect(findSources('script-src')).toEqual(expect.arrayContaining(['https://js.stripe.com']))
     })
 
     it('exposes a frame-src directive that allows Stripe.js and Stripe hooks', () => {
-      const frameSrc = findDirective('frame-src')
-      expect(frameSrc).toBeDefined()
-      expect(frameSrc).toContain('https://js.stripe.com')
-      expect(frameSrc).toContain('https://hooks.stripe.com')
+      expect(findSources('frame-src')).toEqual(expect.arrayContaining(['https://js.stripe.com', 'https://hooks.stripe.com']))
+    })
+
+    it('emits restrictive production script, style and connection permissions', () => {
+      expect(findSources('script-src')).not.toContain("'unsafe-inline'")
+      expect(findSources('script-src')).not.toContain("'unsafe-eval'")
+      expect(findSources('style-src')).not.toContain("'unsafe-inline'")
+      expect(findSources('connect-src')).not.toContain('https:')
+      expect(findSources('connect-src')).not.toContain('ws:')
+      expect(findSources('connect-src')).not.toContain('wss:')
     })
   },
 )

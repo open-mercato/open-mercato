@@ -3,32 +3,24 @@ import { PHASE_DEVELOPMENT_SERVER } from "next/constants";
 import path from "node:path";
 import { resolveAllowedDevOrigins } from './src/lib/dev-origins'
 import { telemetryServerExternalPackages } from '@open-mercato/telemetry/nextjs-config'
+import {
+  createContentSecurityPolicy,
+  devServerLoopbackFrameAncestorOrigins,
+} from '@open-mercato/shared/lib/security/contentSecurityPolicy'
+import { stripeContentSecurityPolicy } from '@open-mercato/gateway-stripe/contentSecurityPolicy'
+import { resolveDocumentsCollaborationCspOrigins } from '@open-mercato/documents/contentSecurityPolicy'
 
 const isDevelopment = process.env.NODE_ENV !== 'production'
 const allowedDevOrigins = isDevelopment ? resolveAllowedDevOrigins() : []
 
-const loopbackFrameAncestors = "frame-ancestors 'self' http://localhost:* http://127.0.0.1:*"
-const sameOriginFrameAncestors = "frame-ancestors 'self'"
-
-function buildContentSecurityPolicy(frameAncestors: string): string {
-  return [
-    "default-src 'self'",
-    "base-uri 'self'",
-    "font-src 'self' data: https:",
-    "form-action 'self'",
-    frameAncestors,
-    "frame-src 'self' https://js.stripe.com https://hooks.stripe.com",
-    "img-src 'self' data: blob: https:",
-    "object-src 'none'",
-    "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com",
-    "style-src 'self' 'unsafe-inline'",
-    "connect-src 'self' https: ws: wss:",
-  ].join('; ')
-}
-
 function buildSecurityHeaders(allowLoopbackFraming: boolean) {
   const originHeaderName = (process.env.CUSTOMER_DOMAIN_ORIGIN_HEADER ?? 'X-Open-Mercato-Origin').trim()
-  const frameAncestors = allowLoopbackFraming ? loopbackFrameAncestors : sameOriginFrameAncestors
+  const contentSecurityPolicy = createContentSecurityPolicy({
+    env: process.env,
+    ...stripeContentSecurityPolicy,
+    connectOrigins: [...stripeContentSecurityPolicy.connectOrigins, ...resolveDocumentsCollaborationCspOrigins()],
+    frameAncestorOrigins: allowLoopbackFraming ? devServerLoopbackFrameAncestorOrigins : [],
+  })
   const globalFrameOptionsHeaders = allowLoopbackFraming
     ? []
     : [{ key: 'X-Frame-Options', value: 'SAMEORIGIN' }]
@@ -36,7 +28,7 @@ function buildSecurityHeaders(allowLoopbackFraming: boolean) {
     {
       source: '/:path*',
       headers: [
-        { key: 'Content-Security-Policy', value: buildContentSecurityPolicy(frameAncestors) },
+        { key: 'Content-Security-Policy', value: contentSecurityPolicy },
         { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
         { key: 'X-Content-Type-Options', value: 'nosniff' },
         ...globalFrameOptionsHeaders,
@@ -117,6 +109,7 @@ const nextConfig: NextConfig & { agentRules?: boolean } = {
     'puppeteer-core',
     'jszip',
     'yjs',
+    'pdfjs-dist',
     // Telemetry: the OTEL SDK + instrumentations must run as real Node modules,
     // not be bundled — the auto-instrumentations (pg/undici) monkey-patch the
     // underlying drivers at runtime. The full list is owned by
@@ -128,6 +121,7 @@ const nextConfig: NextConfig & { agentRules?: boolean } = {
   // list minimal — anything added here is inlined into the client bundle.
   env: {
     OM_SEARCH_MIN_LEN: process.env.OM_SEARCH_MIN_LEN,
+    OM_DEV_SERVER_LOOPBACK_FRAMING: '',
   },
   async headers() {
     return buildSecurityHeaders(false)
@@ -138,8 +132,14 @@ const nextConfig: NextConfig & { agentRules?: boolean } = {
 // runs `next dev` with NODE_ENV=production, and `next build` writes these headers
 // into the routes manifest that `next start` serves. Only the development server
 // lets local tools on another loopback port (for example the Cezar cockpit's
-// Preview panel) frame the app.
+// Preview panel) frame the app. The phase-inlined OM_DEV_SERVER_LOOPBACK_FRAMING
+// flag hands the same decision to src/proxy.ts, which re-emits the page CSP with
+// a per-request nonce.
 export default function resolveNextConfig(phase: string): typeof nextConfig {
   if (phase !== PHASE_DEVELOPMENT_SERVER) return nextConfig
-  return { ...nextConfig, headers: async () => buildSecurityHeaders(true) }
+  return {
+    ...nextConfig,
+    env: { ...nextConfig.env, OM_DEV_SERVER_LOOPBACK_FRAMING: '1' },
+    headers: async () => buildSecurityHeaders(true),
+  }
 }

@@ -12,6 +12,7 @@ import { AuthFooter } from '@open-mercato/ui/frontend/AuthFooter'
 import { ClientBootstrapProvider, resolveClientBootstrapProfile } from '@/components/ClientBootstrap'
 import { GlobalNoticeBars } from '@/components/GlobalNoticeBars'
 import { ComponentOverridesBootstrap } from '@/components/ComponentOverridesBootstrap'
+import { ContentSecurityPolicyProvider } from '@open-mercato/ui/theme/ContentSecurityPolicyProvider'
 
 type AppProvidersProps = {
   children: ReactNode
@@ -21,22 +22,25 @@ type AppProvidersProps = {
   supportedLocales: readonly Locale[]
   demoModeEnabled: boolean
   noticeBarsEnabled: boolean
+  nonce?: string
 }
 
-export function AppProviders({ children, locale, dict, localeLocked, supportedLocales, demoModeEnabled, noticeBarsEnabled }: AppProvidersProps) {
+export function AppProviders({ children, locale, dict, localeLocked, supportedLocales, demoModeEnabled, noticeBarsEnabled, nonce }: AppProvidersProps) {
   const profile = resolveClientBootstrapProfile(usePathname())
   return (
-    <I18nProvider locale={locale} dict={dict} localeLocked={localeLocked} supportedLocales={supportedLocales}>
-      <ClientBootstrapProvider profile={profile}>
-        <ComponentOverridesBootstrap profile={profile}>
-          <ThemeProvider>
-            <QueryProvider>
-              <FrontendLayout footer={<AuthFooter />}>{children}</FrontendLayout>
-              {noticeBarsEnabled ? <GlobalNoticeBars demoModeEnabled={demoModeEnabled} /> : null}
-            </QueryProvider>
-          </ThemeProvider>
-        </ComponentOverridesBootstrap>
-      </ClientBootstrapProvider>
-    </I18nProvider>
+    <ContentSecurityPolicyProvider nonce={nonce}>
+      <I18nProvider locale={locale} dict={dict} localeLocked={localeLocked} supportedLocales={supportedLocales}>
+        <ClientBootstrapProvider profile={profile}>
+          <ComponentOverridesBootstrap profile={profile}>
+            <ThemeProvider>
+              <QueryProvider>
+                <FrontendLayout footer={<AuthFooter />}>{children}</FrontendLayout>
+                {noticeBarsEnabled ? <GlobalNoticeBars demoModeEnabled={demoModeEnabled} /> : null}
+              </QueryProvider>
+            </ThemeProvider>
+          </ComponentOverridesBootstrap>
+        </ClientBootstrapProvider>
+      </I18nProvider>
+    </ContentSecurityPolicyProvider>
   )
 }

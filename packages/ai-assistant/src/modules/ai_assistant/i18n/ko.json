@@ -316,6 +316,7 @@
   "ai_assistant.dock.left": "왼쪽 독",
   "ai_assistant.dock.minimize": "최소화",
   "ai_assistant.dock.right": "오른쪽 독",
+  "ai_assistant.errors.directMutationDenied": "변경 도구는 직접 실행할 수 없습니다. 변경 승인 정책이 적용되는 에이전트 채팅 또는 run-object 요청을 사용하세요.",
   "ai_assistant.errors.moderationBlocked": "귀하의 메시지가 콘텐츠 안전 필터에 의해 차단되었습니다. 문구를 바꾸고 다시 시도해 주세요.",
   "ai_assistant.errors.moderationUnavailable": "콘텐츠 안전 확인을 일시적으로 사용할 수 없습니다. 잠시 후 다시 시도해 주세요.",
   "ai_assistant.errors.pendingAllRecordsStale": "대기 중인 모든 레코드가 오래되었습니다. 어시스턴트가 변경을 다시 제안해야 합니다.",
