@@ -1,6 +1,6 @@
 # Lessons
 
-This catalog indexes 170 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
+This catalog indexes 171 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
 
 ## How to use this catalog
 
@@ -17,6 +17,8 @@ This catalog indexes 170 focused lessons. Route the task first, then read only r
 - Run `yarn lessons:check` before committing.
 
 ## Catalog
+
+- [Preserve existing encryption roots during startup](lessons/preserve-existing-encryption-roots-during-startup.md) — area:module-data,architecture; module:shared,cli,create_app; topic:encryption,data-integrity,runtime-startup
 
 - [Content Security Policy must cover srcDoc previews](lessons/content-security-policy-must-cover-srcdoc-previews.md) — area:backend-ui,testing,integration; module:ecommerce,ui,shared,documents; topic:content-security-policy,srcdoc,nonces,security-regression,configured-origins
 

@@ -1,5 +1,45 @@
 # Upgrade Notes
 
+## Startup encryption keys (#8377)
+
+With tenant encryption enabled (the default), CLI initialization, greenfield,
+servers and workers, and direct Next dev/start persist random private roots when
+env-file keys are empty. Non-empty roots are never replaced, including published
+development defaults; existing persisted defaults warn with backup and rotation
+instructions and keep working. An existing legacy root retains its precedence.
+Keep the generated env files and back up their keys securely. Environment-only
+deployments can supply keys without writable files. Environment-only keys may
+belong to an existing deployment, so they are preserved even when published, with
+backup/migration warnings. Conflicting process/file keys also warn and preserve
+existing environment precedence; verify that the effective key matches the data
+before allowing writes. No database probe decides whether a saved key may be
+replaced. Existing opt-in use of the implicit development root is preserved with
+the same warning. First-time copies from examples replace published sample roots
+only in the newly created env file, before data initialization.
+
+Operators with data encrypted under a published key must preserve that old key
+and migrate ciphertext and lookup hashes before configuring a replacement.
+Generating a key is not data rotation and cannot recover ciphertext sealed with
+a lost root. No dedicated lookup pepper is generated or changed automatically.
+Encryption explicitly disabled through `TENANT_DATA_ENCRYPTION=no` skips this
+provisioning. Build, generate and help commands do not provision keys.
+File changes are announced with their paths and variable names, never secrets.
+`OM_ENCRYPTION_STARTUP_UNSAFE_SKIP=true` is an explicitly unsafe compatibility
+opt-out; it warns and preserves the previous behavior. It defaults to `false`.
+
+Back up the database and current keys, verify restoration, stop all writers, and
+securely provide `TENANT_DATA_ENCRYPTION_OLD_KEY` before configuring a new root.
+Preview with `yarn mercato entities rotate-encryption-key --tenant <tenant-id> --dry-run`,
+then run the same command without `--dry-run` for each tenant. This migrates
+tenant-mapped fields and custom entity documents; system-scoped secrets, nested
+credential envelopes and keyed lookup hashes need separate audited migration.
+See the [backup and rotation procedure](apps/docs/docs/user-guide/encryption.mdx#startup-key-provisioning-and-existing-installations).
+
+Downstream apps should update `@open-mercato/cli` and mirror the Next config
+startup hook from the create-app template to cover direct Next launches. CLI
+flags, runtime cryptography, ciphertext formats and database schemas are unchanged.
+See [.ai/specs/2026-11-01-startup-encryption-keys.md](.ai/specs/2026-11-01-startup-encryption-keys.md).
+
 ## Production Content Security Policy (#7264)
 
 The main app and create-app template now use request nonces for scripts and style

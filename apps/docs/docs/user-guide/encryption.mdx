@@ -30,6 +30,106 @@ skip decryption entirely, see [Declining decryption per query](#declining-decryp
 
 Note: changing encryption maps or toggling the **Encrypted** flag on a custom field only applies to data written after the change; previously stored values stay as they were unless you re-save or migrate them.
 
+## Startup key provisioning and existing installations
+
+When tenant encryption is enabled, startup prepares encryption keys before
+initialization, greenfield setup, the application server or workers can use them.
+This covers `yarn setup` in standalone apps, `yarn dev` and its variants,
+`yarn dev:greenfield`, `yarn start`, `yarn initialize`, `yarn db:greenfield`,
+direct `mercato` runtime commands, and direct Next dev/start with the shipped
+Next config. Build, generate and help commands do not create keys.
+
+If both `TENANT_DATA_ENCRYPTION_FALLBACK_KEY` and `TENANT_DATA_ENCRYPTION_KEY`
+are empty, startup generates a random 32-byte root and saves it in the applicable
+env files before starting the application. Later starts reuse the saved values.
+Keep those files private and back up the keys alongside your database. An existing
+preferred or legacy key is retained without filling or replacing the other key.
+`LOOKUP_HASH_PEPPER` is never generated or changed by startup.
+
+Whenever startup creates or updates an env file, it explicitly reports the file
+path and the variable names it filled. It never prints key values. A concurrent
+startup that reuses already generated keys does not report another file change.
+
+`OM_ENCRYPTION_STARTUP_UNSAFE_SKIP=false` is the default. Setting it to `true`
+in the process environment or effective env file bypasses this mechanism and
+keeps the previous startup behavior. Startup prints an unsafe-mode warning.
+This can leave encryption without usable keys; it is a temporary compatibility
+escape hatch, not a rotation or migration strategy. Keep it off for new installs.
+The shipped development and production Compose files forward this default-off
+option to the application and encryption consumers.
+
+Direct Next startup follows its existing precedence: `.env.<mode>.local`,
+`.env.local`, `.env.<mode>`, then `.env`; test mode skips `.env.local`. CLI startup
+keeps its existing `.env` loader and passes those values to the server and workers.
+The guard never switches a configured CLI root to a different mode-specific file.
+If empty values shadow a configured root in another file, it warns and generates
+nothing until the configuration is aligned. Private
+process-environment keys work without writable env files and retain their existing
+precedence over file values. Externally managed keys produce backup guidance
+because startup cannot safely update their source. If a process key differs from
+the effective env-file value, startup warns without printing the secrets or
+changing either source. Verify the effective key matches the existing data before
+allowing writes; restore matching configuration if the override was unintended.
+Explicitly disabling encryption skips provisioning and these key checks.
+
+Startup treats a non-empty key already saved in an env file as existing
+configuration. It never replaces that key, even when it is a published dummy
+value. Existing installations using a published key continue with a warning
+that recommends backup and deliberate rotation. Existing opt-in use of the
+implicit development fallback is preserved with the same warning. Startup does
+not query the database to classify an installation. Environment-only keys may
+also belong to an existing deployment, so even a published external root warns
+and remains unchanged. New setup from the shipped blank example gets generated
+private keys. If an example being copied for the first time contains a published
+dummy root, the newly created env file gets a random root; the example itself is
+unchanged. Startup never treats an already saved env file as disposable.
+
+:::warning Back up and verify recovery before rotating
+
+Replacing a root key without migrating its data can make ciphertext unreadable.
+Changing the effective lookup pepper can also break email/login and other keyed
+lookups. Make a protected database backup **and** preserve the current roots,
+Vault DEKs and lookup pepper. Verify restoration before changing configuration,
+and stop all application writers, workers and sidecars for the migration.
+Startup warnings do not rotate keys or migrate data for you.
+
+:::
+
+For tenant-mapped fields and custom entity documents using a derived root:
+
+1. Inventory every tenant and encrypted field, including any system-scoped or
+   service-level secrets outside the tenant encryption maps.
+2. After backup and restoration checks, securely provide the old root as
+   `TENANT_DATA_ENCRYPTION_OLD_KEY` through your secret manager. Do not put key
+   material in `--old-key` arguments, shell history or process listings.
+3. Configure the new private root consistently in the saved env files and every
+   process/replica. Keep writers stopped. Preserve the previous effective lookup
+   pepper until its hashes have a separate migration plan; if it was implicitly
+   derived from the old root, pin `LOOKUP_HASH_PEPPER` to that previous secret.
+4. Preview the tenant rotation:
+
+   ```bash
+   yarn mercato entities rotate-encryption-key --tenant <tenant-id> --dry-run
+   ```
+
+5. Review the preview, then run the migration and repeat for each tenant:
+
+   ```bash
+   yarn mercato entities rotate-encryption-key --tenant <tenant-id>
+   ```
+
+6. Verify decryption, login and affected lookups, and resolve every skipped or
+   failed field before restarting writers. Retain the old keys with the protected
+   backup for recovery; remove the old-key setting from normal application runtime
+   after successful migration.
+
+These commands do **not** provide a complete installation-wide rotation. They
+skip system-scoped ciphertext and do not migrate every nested credential envelope,
+Vault key or keyed lookup hash. Those require an audited migration specific to
+their owner. `entities backfill-system-encryption` is a system-field backfill, not
+a universal old-root rotation. Keep the installation in maintenance until every
+affected encryption and hash surface has been verified.
+
 ## Vector search embeddings (important)
 
 When using the `vector` module (vector search / embeddings), be aware that **embeddings are stored unencrypted** (for example, in Postgres pgvector the raw vector is stored in `vector_search.embedding`). Even though the source text is decrypted only transiently to compute the embedding and result metadata is encrypted by default, embeddings can still indirectly encode information about the underlying text.

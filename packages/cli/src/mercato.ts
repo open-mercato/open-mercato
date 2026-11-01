@@ -42,6 +42,7 @@ import { parseModuleInstallArgs } from './lib/module-install-args'
 import type { ModuleCommandResult } from './lib/module-install'
 import { resolveNextBuildIdCandidate } from './lib/next-build-id'
 import { acquireServerStartLock } from './lib/server-start-lock'
+import { prepareAppEncryptionEnv } from './lib/load-env'
 import { assertSingleInstanceStrategies } from './lib/single-instance-strategy-guard'
 import { createDevEnvReloader, watchDevEnvFiles } from './lib/dev-env-reload'
 import { quotePostgresIdentifier } from './lib/db/identifiers'
@@ -1004,6 +1005,7 @@ export async function run(argv = process.argv) {
   // Help must never have side effects: it must not create .env, and must not fall through
   // to the command it is asking about.
   const helpRequested = isHelpRequest(parts)
+  await prepareAppEncryptionEnv(argv)
   await ensureEnvLoaded(resolveEnvBootstrapOptions(parts))
 
   // Object.hasOwn, not a truthiness check: the map is indexed with raw user input, and an

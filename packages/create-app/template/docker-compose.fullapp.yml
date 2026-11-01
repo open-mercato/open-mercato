@@ -36,6 +36,7 @@ services:
     environment:
       TENANT_DATA_ENCRYPTION: ${TENANT_DATA_ENCRYPTION:-true}
       TENANT_DATA_ENCRYPTION_DEBUG: ${TENANT_DATA_ENCRYPTION_DEBUG:-false}
+      OM_ENCRYPTION_STARTUP_UNSAFE_SKIP: ${OM_ENCRYPTION_STARTUP_UNSAFE_SKIP:-false}
       TENANT_DATA_ENCRYPTION_FALLBACK_KEY: ${TENANT_DATA_ENCRYPTION_FALLBACK_KEY:-dev-tenant-encryption-fallback-key-32chars}
       # The image is a production build installed with `yarn workspaces focus --production`. The
       # Next server child is insulated (the CLI forces NODE_ENV=production for it), but pinning
@@ -171,6 +172,7 @@ services:
       # can decrypt the same data as the app.
       TENANT_DATA_ENCRYPTION: ${TENANT_DATA_ENCRYPTION:-true}
       TENANT_DATA_ENCRYPTION_DEBUG: ${TENANT_DATA_ENCRYPTION_DEBUG:-false}
+      OM_ENCRYPTION_STARTUP_UNSAFE_SKIP: ${OM_ENCRYPTION_STARTUP_UNSAFE_SKIP:-false}
       TENANT_DATA_ENCRYPTION_FALLBACK_KEY: ${TENANT_DATA_ENCRYPTION_FALLBACK_KEY:-dev-tenant-encryption-fallback-key-32chars}
       TENANT_DATA_ENCRYPTION_KEY: ${TENANT_DATA_ENCRYPTION_KEY:-}
       CACHE_REDIS_URL: redis://redis:6379
@@ -308,6 +310,7 @@ services:
       # Session-token (tier 2) decryption requires the app's encryption config.
       TENANT_DATA_ENCRYPTION: ${TENANT_DATA_ENCRYPTION:-true}
       TENANT_DATA_ENCRYPTION_DEBUG: ${TENANT_DATA_ENCRYPTION_DEBUG:-false}
+      OM_ENCRYPTION_STARTUP_UNSAFE_SKIP: ${OM_ENCRYPTION_STARTUP_UNSAFE_SKIP:-false}
       TENANT_DATA_ENCRYPTION_FALLBACK_KEY: ${TENANT_DATA_ENCRYPTION_FALLBACK_KEY:-dev-tenant-encryption-fallback-key-32chars}
       TENANT_DATA_ENCRYPTION_KEY: ${TENANT_DATA_ENCRYPTION_KEY:-}
       OM_INIT_SUPERADMIN_EMAIL: ${OM_INIT_SUPERADMIN_EMAIL:-}

@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import mainAppConfig from '../../../../apps/mercato/next.config'
-import templateConfig from '../../template/next.config'
+import configureMainApp from '../../../../apps/mercato/next.config'
+import configureTemplate from '../../template/next.config'
+
+const mainAppConfig = await configureMainApp('phase-production-build')
+const templateConfig = await configureTemplate('phase-production-build')
 
 async function resolveHeaders(config: typeof mainAppConfig) {
   assert.equal(typeof config.headers, 'function', 'expected next.config.ts to declare headers()')

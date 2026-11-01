@@ -1,5 +1,7 @@
 import type { NextConfig } from "next";
 import path from "node:path";
+import { createRequire } from 'node:module'
+import { prepareEncryptionEnv } from '@open-mercato/shared/lib/encryption/prepareEnv'
 import { resolveAllowedDevOrigins } from './src/lib/dev-origins'
 import { telemetryServerExternalPackages } from '@open-mercato/telemetry/nextjs-config'
 import { createContentSecurityPolicy } from '@open-mercato/shared/lib/security/contentSecurityPolicy'
@@ -116,4 +118,24 @@ const nextConfig: NextConfig & { agentRules?: boolean } = {
   },
 }
 
-export default nextConfig
+export default async function configureNext(phase: string) {
+  if (phase === 'phase-development-server' || phase === 'phase-production-server') {
+    const require = createRequire(path.join(process.cwd(), 'package.json'))
+    const nextEnv = createRequire(require.resolve('next/package.json'))('@next/env') as {
+      initialEnv?: NodeJS.ProcessEnv
+      updateInitialEnv: (env: NodeJS.ProcessEnv) => void
+    }
+    const values = await prepareEncryptionEnv(process.cwd(), {
+      env: nextEnv.initialEnv ?? process.env,
+      mode: phase === 'phase-development-server' ? 'development' : 'production',
+    })
+    for (const [name, value] of Object.entries(values)) {
+      if (value !== undefined) {
+        values[name] = process.env[name]?.trim() ? process.env[name] : value
+        process.env[name] = values[name]
+      }
+    }
+    nextEnv.updateInitialEnv(values)
+  }
+  return nextConfig
+}

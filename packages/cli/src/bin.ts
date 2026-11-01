@@ -78,6 +78,8 @@ async function main(): Promise<void> {
   // retry-with-`.js` hook before any package dist can be imported.
   installNextSubpathResolveHook()
   const bootstrapMode = resolveCliBootstrapMode(process.argv)
+  const { prepareAppEncryptionEnv } = await import('./lib/load-env.js')
+  await prepareAppEncryptionEnv(process.argv)
 
   if (bootstrapMode !== 'none') {
     // Load the app's `.env` BEFORE initTelemetry(): `run()` only dotenv-loads it

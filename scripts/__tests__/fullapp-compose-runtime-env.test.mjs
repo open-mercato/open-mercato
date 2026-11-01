@@ -20,6 +20,7 @@ const FORWARDED_VARIABLES = [
   'NEXT_PUBLIC_QUEUE_STRATEGY',
   'OM_DISABLE_VECTOR_SEARCH_AUTOINDEXING',
   'OM_INSTANCE_COUNT',
+  'OM_ENCRYPTION_STARTUP_UNSAFE_SKIP',
   'OM_MULTI_INSTANCE',
   'QUEUE_REDIS_URL',
   'QUEUE_STRATEGY',
@@ -36,6 +37,23 @@ function readAppService(relPath) {
   assert.notStrictEqual(nextService, -1, `${relPath} must define a service after app`)
 
   return content.slice(appStart, nextService)
+}
+
+for (const relPath of [
+  'starters/docker/compose.fullapp.yml',
+  'starters/docker/compose.fullapp.dev.yml',
+  'docker-compose.fullapp.yml',
+  'docker-compose.fullapp.dev.yml',
+  'packages/create-app/template/docker-compose.fullapp.yml',
+  'packages/create-app/template/docker-compose.fullapp.dev.yml',
+]) {
+  test(`${relPath} forwards the default-off unsafe opt-out to every encryption consumer`, () => {
+    const source = fs.readFileSync(path.resolve(ROOT, relPath), 'utf8')
+    const consumers = source.match(/^\s+TENANT_DATA_ENCRYPTION_DEBUG:/gm) ?? []
+    const flags = source.match(/^\s+OM_ENCRYPTION_STARTUP_UNSAFE_SKIP: \$\{OM_ENCRYPTION_STARTUP_UNSAFE_SKIP:-false\}/gm) ?? []
+    assert.equal(flags.length, consumers.length)
+    assert.equal(flags.length, 3)
+  })
 }
 
 for (const relPath of COMPOSE_FILES) {

@@ -40,6 +40,41 @@ This document outlines the data-encryption architecture so module owners can wir
 - `VAULT_KV_PATH` – KV v2 mount for tenant keys; defaults to `secret/data`.
 - Fallback secrets (used when Vault is down or missing): `TENANT_DATA_ENCRYPTION_FALLBACK_KEY`, then legacy `TENANT_DATA_ENCRYPTION_KEY`. Auth/session secrets are intentionally excluded. The built-in dev fallback requires `ALLOW_DERIVED_KMS_FALLBACK=true`; production without a dedicated fallback secret falls back to the noop KMS.
 
+### Startup provisioning
+
+The shipped CLI and Next config call the shared startup guard before application
+bootstrap. With encryption enabled and neither root configured, the guard persists
+a random 32-byte root in the effective env files with private permissions and
+atomic replacement. A file lock serializes concurrent startups. Mode-specific
+Next env-file precedence applies to direct Next startup; the CLI preserves its
+existing `.env` loader and validates inherited values before dotenv loads them.
+The Next hook uses Next's initial
+environment snapshot. Direct Next build does not provision keys.
+
+Non-empty roots are never replaced. A saved published development root identifies
+existing configuration and produces a warning with backup requirements and
+`entities rotate-encryption-key` examples; startup continues using the same root.
+The implicit opt-in development root is also preserved. Newly copied examples get
+random roots instead of published defaults. Externally managed keys, including
+environment-only published defaults, remain authoritative and produce backup and
+migration guidance. A process/file key mismatch warns without printing either
+value or changing existing precedence. This conservatively preserves existing
+deployments without a database availability or schema probe; startup never rotates
+configured keys or blocks them solely for being published or externally managed.
+An existing root shadowed by empty values in another file also prevents generation;
+startup warns rather than creating a competing root or changing loader precedence.
+
+The guard does not change KMS derivation, ciphertext formats or lookup-pepper
+precedence. It never generates a separate lookup pepper or rotates existing data.
+Downstream applications should retain the Next config hook as well as updating
+the CLI so direct Next launches receive the same protection. See the
+[backup-first operator procedure](../user-guide/encryption.mdx#startup-key-provisioning-and-existing-installations)
+for rotation commands and their coverage limits.
+
+Every write reports the exact env-file path and changed variable names, never
+the values. `OM_ENCRYPTION_STARTUP_UNSAFE_SKIP` defaults to `false`; explicit `true`
+bypasses provisioning/checks with a warning and retains the previous behavior.
+
 ## Data flow
 
 ```mermaid
