@@ -307,6 +307,12 @@ test.describe('TC-EXAMPLE-015: the nine specialized registries have real local c
   })
 
   test('token search and live deterministic pgvector indexing preserve Todo organization scope', async ({ request }) => {
+    // A live pgvector index over a freshly created per-suffix table can lag a moment on a
+    // loaded CI worker: the list read below resolves immediately, while the similarity search
+    // can transiently return [] until the row is queryable. Poll the two search assertions so
+    // the test tolerates the brief window without weakening what it proves — mirrors the load
+    // hardening the sibling workflow test in this file applies.
+    test.slow()
     const token = await getAuthToken(request, 'admin')
     const { tenantId, organizationId } = getTokenScope(token)
     const suffix = randomUUID().replaceAll('-', '').slice(0, 12)
@@ -414,20 +420,30 @@ test.describe('TC-EXAMPLE-015: the nine specialized registries have real local c
       expect(homeEntries.map((entry) => entry.recordId)).toEqual([todoId])
       expect(foreignEntries.map((entry) => entry.recordId)).toEqual([foreignTodoId])
 
-      const homeHits = await vectorService.search({
-        query: `TC-EXAMPLE-015 vector ${suffix}`,
-        tenantId,
-        organizationId,
-        limit: 10,
-      })
-      const foreignHits = await vectorService.search({
-        query: `TC-EXAMPLE-015 foreign vector ${suffix}`,
-        tenantId,
-        organizationId: foreignOrgId,
-        limit: 10,
-      })
-      expect(homeHits.map((hit) => hit.recordId)).toEqual([todoId])
-      expect(foreignHits.map((hit) => hit.recordId)).toEqual([foreignTodoId])
+      await expect.poll(
+        () =>
+          vectorService
+            .search({
+              query: `TC-EXAMPLE-015 vector ${suffix}`,
+              tenantId,
+              organizationId,
+              limit: 10,
+            })
+            .then((homeHits) => homeHits.map((hit) => hit.recordId)),
+        { timeout: 30_000, message: 'live deterministic pgvector indexing should surface the home Todo' },
+      ).toEqual([todoId])
+      await expect.poll(
+        () =>
+          vectorService
+            .search({
+              query: `TC-EXAMPLE-015 foreign vector ${suffix}`,
+              tenantId,
+              organizationId: foreignOrgId,
+              limit: 10,
+            })
+            .then((foreignHits) => foreignHits.map((hit) => hit.recordId)),
+        { timeout: 30_000, message: 'live deterministic pgvector indexing should surface the foreign Todo' },
+      ).toEqual([foreignTodoId])
       expect(observedVectorQueryScopes).toEqual(expect.arrayContaining([
         organizationId,
         foreignOrgId,
