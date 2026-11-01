@@ -79,6 +79,11 @@ export type UserTaskResponse = {
   canRelease?: boolean
   canReassign?: boolean
   actBlockedReason?: TaskActionBlockReason | null
+  /**
+   * The host completion guard behind `actBlockedReason: 'completion-guard'`
+   * (`lib/task-completion-guards.ts`). `messageKey` is the host's own sentence.
+   */
+  completionGuard?: { guardId: string; code: string; messageKey: string | null } | null
 }
 
 /**
@@ -93,6 +98,7 @@ export type TaskActionBlockReason =
   | 'not-in-your-queue'
   | 'unowned'
   | 'unavailable'
+  | 'completion-guard'
 
 export type UserTaskEntityBinding = {
   entityType: string

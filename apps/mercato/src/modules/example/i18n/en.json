@@ -544,6 +544,7 @@
   "example.widgets.todo.state.allCaughtUp": "All caught up!",
   "example.widgets.todo.state.empty": "No todos found.",
   "example.workPlan.nav.group": "Work plan",
+  "example.workflows.completionGuard.vetoed": "The example precondition is not met",
   "integrations.marketplace.filters.category": "Category",
   "notifications.categories.demo": "Demo",
   "notifications.categories.example": "Examples"

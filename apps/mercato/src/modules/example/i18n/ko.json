@@ -544,6 +544,7 @@
   "example.widgets.todo.state.allCaughtUp": "모두 처리했습니다!",
   "example.widgets.todo.state.empty": "할 일이 없습니다.",
   "example.workPlan.nav.group": "작업 계획",
+  "example.workflows.completionGuard.vetoed": "예제 선행 조건이 충족되지 않았습니다",
   "integrations.marketplace.filters.category": "카테고리",
   "notifications.categories.demo": "데모",
   "notifications.categories.example": "예제"
