@@ -342,14 +342,20 @@ test.describe('TC-CGRP-034: purchase approval staff + portal routes', () => {
       approvalIds.push(buyerWithdrawApprovalId);
 
       // A request by someone else at the SAME company (visible to the portal-admin
-      // holder, not to the plain buyer).
+      // holder, not to the plain buyer). Policy "buyer" so the buyer slot is the one
+      // `pending` — the admin's decide below goes through the PORTAL route, which always
+      // decides the buyer slot (`decideApproval` derives the slot from the actor type,
+      // never the route); a "merchant"-policy request leaves the buyer slot
+      // `not_required` and a buyer-side decide on it always 409s (`approval_not_pending`),
+      // proven by the service's own unit test ("policy 'buyer': ... a merchant decide
+      // answers approval_not_pending (slot not_required)" and its mirror case).
       const otherRequesterApprovalId = await seedPendingApproval({
         tenantId,
         organizationId: orgA,
         customerId: companyA,
         requestedByActorType: 'customer_user',
         requestedByActorId: randomUUID(),
-        approvalPolicy: 'merchant',
+        approvalPolicy: 'buyer',
       });
       approvalIds.push(otherRequesterApprovalId);
 

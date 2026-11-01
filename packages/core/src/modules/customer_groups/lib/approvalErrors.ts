@@ -1,5 +1,5 @@
 import { CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
-import { CustomerPurchaseApprovalServiceError } from '../services/customerPurchaseApprovalService'
+import { isCustomerPurchaseApprovalServiceError } from '../services/customerPurchaseApprovalService'
 
 type Translate = (key: string, fallback?: string) => string
 
@@ -10,7 +10,7 @@ type Translate = (key: string, fallback?: string) => string
 // service never throws here, so each route's own `catch` still falls through to its
 // generic 500.
 export function mapApprovalServiceError(err: unknown, translate: Translate): CrudHttpError | null {
-  if (!(err instanceof CustomerPurchaseApprovalServiceError)) return null
+  if (!isCustomerPurchaseApprovalServiceError(err)) return null
   switch (err.code) {
     case 'approval_not_found':
       return notFound(translate('customer_groups.errors.approvalNotFound', 'Purchase approval not found.'))

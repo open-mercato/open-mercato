@@ -92,7 +92,18 @@ export type ApprovalNotPendingDetails = {
   merchantDecision: CustomerPurchaseApprovalSlotDecision
 }
 
+// Symbol.for so the marker survives module duplication across bundle boundaries — a
+// production Next.js build can load this service and its error-mapping caller
+// (`lib/approvalErrors.ts`, also `cart`'s `approvalLifecycle.ts`/`commands/approval.ts`)
+// from different chunks, which makes a plain `instanceof` check always false and the
+// intended 409 degrade to a generic 500 (same idiom as `CrudHttpError`/`isCrudHttpError`
+// in `@open-mercato/shared/lib/crud/errors`).
+const CUSTOMER_PURCHASE_APPROVAL_SERVICE_ERROR_MARKER = Symbol.for(
+  '@open-mercato/CustomerPurchaseApprovalServiceError',
+)
+
 export class CustomerPurchaseApprovalServiceError extends Error {
+  readonly [CUSTOMER_PURCHASE_APPROVAL_SERVICE_ERROR_MARKER] = true
   readonly code: CustomerPurchaseApprovalServiceErrorCode
   readonly details?: ApprovalNotPendingDetails
 
@@ -102,6 +113,21 @@ export class CustomerPurchaseApprovalServiceError extends Error {
     this.code = code
     this.details = details
   }
+}
+
+/**
+ * Type-safe check for {@link CustomerPurchaseApprovalServiceError} that works across
+ * module/bundle boundaries. Prefer this over `instanceof CustomerPurchaseApprovalServiceError`
+ * everywhere the error may cross a route/command ↔ service chunk boundary.
+ */
+export function isCustomerPurchaseApprovalServiceError(
+  err: unknown,
+): err is CustomerPurchaseApprovalServiceError {
+  return (
+    !!err &&
+    typeof err === 'object' &&
+    (err as Record<symbol, unknown>)[CUSTOMER_PURCHASE_APPROVAL_SERVICE_ERROR_MARKER] === true
+  )
 }
 
 export type RequestApprovalInput = {
