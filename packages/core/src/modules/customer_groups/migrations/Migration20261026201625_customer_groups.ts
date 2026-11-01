@@ -14,4 +14,8 @@ export class Migration20261026201625_customer_groups extends Migration {
     this.addSql(`alter table "customer_purchase_approvals" add constraint "customer_purchase_approvals_buyer_decider_actor_type_chk" check ("buyer_decided_by_actor_type" is null or "buyer_decided_by_actor_type" = 'customer_user');`);
   }
 
+  override down(): void | Promise<void> {
+    this.addSql(`drop table if exists "customer_purchase_approvals" cascade;`);
+  }
+
 }

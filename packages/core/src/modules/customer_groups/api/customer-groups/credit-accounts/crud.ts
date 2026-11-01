@@ -223,12 +223,13 @@ export const customerCreditAccountCrud = makeCrudRoute<
     // service's money math here keeps this admin view consistent with Step 1.6 without
     // duplicating it (root AGENTS.md: reuse the service, don't fork its logic).
     // `transformItem` cannot do this (it is synchronous); `afterList` runs once per
-    // request and can await the service per row. Uses `getAccountExposure` (the row's own
-    // known `id`), never `checkCredit` (buyer/purchase-permission gated) — this is a
-    // display read for an account that already exists, not a purchase-authorization
-    // decision, so it must show the account's real exposure even when the group's
-    // CURRENT terms disallow on-account purchasing (e.g. a historical account whose
-    // group's terms later changed) rather than reporting `exposure: null`.
+    // request and can await the service. Uses `getAccountExposures` (batched by the
+    // row's own known `id`s, grouped by organization — see below), never `checkCredit`
+    // (buyer/purchase-permission gated) — this is a display read for accounts that
+    // already exist, not a purchase-authorization decision, so it must show each
+    // account's real exposure even when the group's CURRENT terms disallow on-account
+    // purchasing (e.g. a historical account whose group's terms later changed) rather
+    // than reporting `exposure: null`.
   },
   create: {
     schema: customerCreditAccountCreateRequestSchema,
@@ -316,17 +317,32 @@ export const customerCreditAccountCrud = makeCrudRoute<
       const tenantId = ctx.auth?.tenantId ?? null
       if (!tenantId) return
       const creditService = ctx.container.resolve('customerCreditService') as CustomerCreditService
+
+      // Grouped by organization (never a per-row call): the list can mix organizations
+      // within one tenant (e.g. a superadmin view), so `getAccountExposures` is called
+      // once per DISTINCT organization in the page — still at most a handful of batched
+      // calls, never one per listed row (review finding: N+1 full-ledger scans).
+      const byOrganization = new Map<string, Array<{ row: Record<string, unknown>; creditAccountId: string }>>()
       for (const item of items) {
         const row = item as Record<string, unknown>
         const creditAccountId = typeof row.id === 'string' ? row.id : null
         const organizationId = typeof row.organization_id === 'string' ? row.organization_id : null
         if (!creditAccountId || !organizationId) continue
-        const { exposure, available } = await creditService.getAccountExposure({
-          creditAccountId,
+        const bucket = byOrganization.get(organizationId) ?? []
+        bucket.push({ row, creditAccountId })
+        byOrganization.set(organizationId, bucket)
+      }
+
+      for (const [organizationId, entries] of byOrganization) {
+        const exposures = await creditService.getAccountExposures({
+          creditAccountIds: entries.map((entry) => entry.creditAccountId),
           scope: { tenantId, organizationId },
         })
-        row.exposure = exposure
-        row.available = available
+        for (const { row, creditAccountId } of entries) {
+          const view = exposures.get(creditAccountId)
+          row.exposure = view?.exposure ?? null
+          row.available = view?.available ?? null
+        }
       }
     },
   },

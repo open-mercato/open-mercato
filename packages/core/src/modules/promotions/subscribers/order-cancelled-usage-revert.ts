@@ -1,5 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { PromotionCodeService, type PromotionsCodeScope } from '../lib/code-service'
 import { PromotionUsageService } from '../lib/promotion-usage-service'
 
@@ -96,6 +97,11 @@ export default async function handle(payload: unknown, ctx: SubscriberContext): 
       orderId,
       tenantId,
       organizationId,
+    })
+    getTelemetryRuntime()?.reportError(error, {
+      module: 'promotions',
+      code: 'promotions.order_cancelled_usage_revert_failed',
+      attributes: { orderId, tenantId, organizationId },
     })
     throw error
   }

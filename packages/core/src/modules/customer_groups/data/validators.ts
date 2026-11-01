@@ -376,6 +376,13 @@ const customerCreditAdjustBaseSchema = z.object({
     .trim()
     .regex(/^-?\d{1,14}(\.\d{1,2})?$/, 'amount must be a signed decimal string with up to 2 fraction digits'),
   note: z.string().trim().min(1).max(2000),
+  // Optional, caller-supplied idempotency key (§9.2's "no caller-supplied business
+  // key" was the original, retry-unsafe design: a client that retries a POST after a
+  // dropped response — never knowing whether the first attempt committed — gets a
+  // SECOND adjustment, not a replay, when the command mints its own key fresh every
+  // call. Honoring a client-supplied key makes the retry an idempotent no-op instead,
+  // the same guarantee `reserveCredit`/`settleCredit` already give integration callers.
+  idempotencyKey: z.string().trim().min(1).max(200).optional(),
 })
 
 // The HTTP body (§9): `{ amount: string, note: string }`, `.strict()` so the account id

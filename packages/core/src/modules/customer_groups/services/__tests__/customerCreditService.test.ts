@@ -758,6 +758,74 @@ describe('customerCreditService', () => {
 
       expect(result.entry.amount).toBe('-20.00')
     })
+
+    // Review finding: `Number('1.005') * 100` is `100.49999999999999` in IEEE754 double
+    // precision, so a float-based half-up rounder floors that to `100` (`1.00`) instead
+    // of rounding up to `1.01` — the exact case the string/BigInt rewrite of
+    // `roundHalfUpToTwoDp` exists to close. `19.995` above happens to round correctly
+    // under the old float math too (it is not float-adjacent at the 3rd decimal), so it
+    // never caught this; `1.005` is the textbook float-imprecision value that does.
+    test('rounds the float-imprecision boundary value 1.005 up to 1.01, not down to 1.00', async () => {
+      const { em, tables } = createFakeEm()
+      seedAccount(tables, { creditLimit: '500.00' })
+      const service = buildService(em, allowTerms(true))
+
+      const result = await service.settleCredit({
+        scope: SCOPE,
+        buyer: { customerId: CUSTOMER_ID },
+        currencyCode: CURRENCY,
+        amount: '1.005',
+        sourceType: 'payment',
+        sourceId: 'payment-1',
+        idempotencyKey: 'settle-rounding-float-boundary',
+      })
+
+      expect(result.entry.amount).toBe('-1.01')
+    })
+
+    // Review finding: `reserveIdempotencyKey` is only guaranteed unique per caller, not
+    // globally — a lookup scoped by tenant + key alone could link this settle to a
+    // reservation on a DIFFERENT credit account (a different customer/currency) that
+    // happens to reuse the same key value. Scoping the lookup by `creditAccountId` too
+    // (the fix) must make that reservation invisible: settling the full amount here must
+    // succeed as an UNLINKED settle, never throw `settle_exceeds_reservation` against the
+    // other account's much smaller reservation.
+    test('does not match a reserveIdempotencyKey that belongs to a DIFFERENT credit account', async () => {
+      const { em, tables } = createFakeEm()
+      seedAccount(tables, { creditLimit: '500.00' })
+      const otherAccount = seedAccount(tables, { customerId: 'customer-2', creditLimit: '500.00' })
+      const service = buildService(em, allowTerms(true))
+
+      // A tiny reservation on a DIFFERENT account, reusing the SAME idempotency key value
+      // this test's settle will pass as `reserveIdempotencyKey`.
+      await service.reserveCredit({
+        scope: SCOPE,
+        buyer: { customerId: otherAccount.customerId as string },
+        currencyCode: CURRENCY,
+        amount: '5.00',
+        sourceType: 'checkout',
+        sourceId: 'session-other',
+        idempotencyKey: 'shared-key-reused-across-accounts',
+      })
+
+      // A much larger settle against the FIRST account, reusing that exact key value as
+      // its `reserveIdempotencyKey` — must not be capped by the other account's $5 open
+      // amount.
+      const result = await service.settleCredit({
+        scope: SCOPE,
+        buyer: { customerId: CUSTOMER_ID },
+        currencyCode: CURRENCY,
+        amount: '200.00',
+        sourceType: 'payment',
+        sourceId: 'payment-1',
+        idempotencyKey: 'settle-cross-account-key-reuse',
+        reserveIdempotencyKey: 'shared-key-reused-across-accounts',
+      })
+
+      expect(result.settled).toBe(true)
+      expect(result.entry.amount).toBe('-200.00')
+      expect(result.entry.relatedEntryId).toBeNull()
+    })
   })
 
   // Step 1.12 (D-R5-2/G20, §6.5/§9). The operator's only direct write path: a signed,
