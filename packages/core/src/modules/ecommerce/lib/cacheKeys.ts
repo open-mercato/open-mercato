@@ -144,6 +144,10 @@ export function ecommerceDomainTag(hostname: string): string {
   return `ecommerce-domain:${hostname}`
 }
 
+export function ecommerceSalesChannelTag(salesChannelId: string): string {
+  return `ecommerce-sales-channel:${salesChannelId}`
+}
+
 export function ecommerceCustomerTag(customerId: string): string {
   return `customer:${customerId}`
 }
