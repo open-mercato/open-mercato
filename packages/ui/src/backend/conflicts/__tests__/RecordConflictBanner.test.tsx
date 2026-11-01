@@ -58,4 +58,63 @@ describe('RecordConflictBanner', () => {
     expect(onRefresh).not.toHaveBeenCalled()
     expect(screen.queryByTestId('record-conflict-banner')).toBeNull()
   })
+
+  describe('while a modal is open', () => {
+    function mountModalContent(slot: string, state = 'open'): HTMLElement {
+      const element = document.createElement('div')
+      element.setAttribute('data-slot', slot)
+      element.setAttribute('data-state', state)
+      document.body.appendChild(element)
+      return element
+    }
+
+    afterEach(() => {
+      document.body.querySelectorAll('[data-slot]').forEach((node) => node.remove())
+    })
+
+    it('renders the bar inside the open dialog instead of behind its overlay', () => {
+      const dialog = mountModalContent('dialog-content')
+      const { container } = render(<RecordConflictBanner />)
+      act(() => {
+        showRecordConflict({ message: 'Changed' })
+      })
+      const banner = screen.getByTestId('record-conflict-banner')
+      expect(dialog.contains(banner)).toBe(true)
+      expect(container.contains(banner)).toBe(false)
+      expect(banner.getAttribute('data-placement')).toBe('modal')
+    })
+
+    it('targets the topmost of several open modals and keeps Refresh working', () => {
+      mountModalContent('dialog-content')
+      const drawer = mountModalContent('drawer-content')
+      const onRefresh = jest.fn()
+      render(<RecordConflictBanner />)
+      act(() => {
+        showRecordConflict({ message: 'Changed', onRefresh })
+      })
+      expect(drawer.contains(screen.getByTestId('record-conflict-banner'))).toBe(true)
+      act(() => {
+        screen.getByRole('button', { name: 'Refresh' }).click()
+      })
+      expect(onRefresh).toHaveBeenCalledTimes(1)
+      expect(screen.queryByTestId('record-conflict-banner')).toBeNull()
+    })
+
+    it('ignores closed modals and moves back inline once the dialog closes', async () => {
+      mountModalContent('sheet-content', 'closed')
+      const dialog = mountModalContent('dialog-content')
+      const { container } = render(<RecordConflictBanner />)
+      act(() => {
+        showRecordConflict({ message: 'Changed' })
+      })
+      expect(dialog.contains(screen.getByTestId('record-conflict-banner'))).toBe(true)
+      await act(async () => {
+        dialog.remove()
+        await Promise.resolve()
+      })
+      const banner = screen.getByTestId('record-conflict-banner')
+      expect(container.contains(banner)).toBe(true)
+      expect(banner.getAttribute('data-placement')).toBe('page')
+    })
+  })
 })
