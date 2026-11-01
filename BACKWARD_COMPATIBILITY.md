@@ -634,3 +634,7 @@ STABLE tools/execute writes bypass approval; no bridge. [Migrate](UPGRADE_NOTES.
 ## SCIM rate limiting (2026-10-27)
 
 SCIM adds 429/503 before credentials; honor Retry-After. Optional `beforeAuth: ApiRouteBeforeAuth` is additive. See [contract and migration](.ai/specs/enterprise/implemented/SPEC-ENT-004-2026-02-19-sso-directory-sync.md#migration--backward-compatibility).
+
+## #8328 2026-11-01
+
+STABLE translations GET 404s soft-deleted owners; no bridge. [Migrate](https://github.com/open-mercato/open-mercato/pull/8329)
