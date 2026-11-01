@@ -8,6 +8,7 @@ import type { RunParameter } from '../../lib/adapter'
 import {
   RunParameterFields,
   buildDefaultRunParameterValues,
+  buildRetryFailureMessage,
   buildRunFailureMessage,
   buildRunParametersPayload,
   hasRequiredRunParameterWithoutDefault,
@@ -158,6 +159,19 @@ describe('buildRunFailureMessage', () => {
       .toBe('Failed to start sync run')
     expect(buildRunFailureMessage({ details: { parameters: [{ key: 'x', message: '  ' }] } }, 'fallback'))
       .toBe('fallback')
+  })
+})
+
+describe('buildRetryFailureMessage', () => {
+  const t = ((_key: string, fallback?: string) => fallback ?? '') as never
+
+  it('explains a refusal caused by a disabled integration', () => {
+    expect(buildRetryFailureMessage({ code: 'integrationDisabled' }, t))
+      .toBe('The integration is disabled. Enable it before retrying this run.')
+  })
+
+  it('falls back to the generic retry error for an unknown code', () => {
+    expect(buildRetryFailureMessage({ code: 'somethingElse' }, t)).toBe('Failed to retry sync run')
   })
 })
 
