@@ -72,7 +72,7 @@ The default `yarn install-skills` ships the **core** tier plus the entire extern
 |------|----------|--------|---------------|
 | `core` | yes | 13 | Daily-driver skills installed by default. |
 | `design` | opt-in | 1 | Figma-side design workflow skills. Opt-in — presumes Figma tooling. |
-| `automation` | opt-in | 2 | PR/issue automation skills. Opt-in; agent-driven workflows. |
+| `automation` | opt-in | 3 | PR/issue automation and experiment operation skills. Opt-in; agent-driven workflows. |
 | `security` | opt-in | 2 | Security audit skills. Opt-in. |
 | `analysis` | opt-in | 3 | Business/engagement analysis skills (app specs, platform gap analysis) and the draft accessibility review. Opt-in. |
 | `migration` | opt-in | 3 | One-shot, version-pinned migrations. Install only when needed. |
@@ -218,6 +218,7 @@ Skills below are grouped by tier in the same order as `.ai/skills/tiers.json`. E
 |-------|-------------|
 | `om-auto-publish-pr` | Publish pkg.pr.new package previews for a same-repository Open Mercato PR by dispatching the Package Previews GitHub Actions workflow with gh. Use when a maintainer asks to publish, republish, or trigger a PR package preview. Does not publish npm snapshots. |
 | `om-auto-qa-scenarios` | Generate a human QA report for a window of merged PRs (date floor, PR-number floor, or default last 7 days) and ship it as a docs-only PR against `main`. Groups work into P0/P1/P2 testing routes with click paths, verification points, and risk callouts. Writes markdown + HTML under `.ai/analysis/`. Hands off to `om-auto-continue-pr` if it cannot finish in one pass. |
+| `om-run-harness-evals` | Run or inspect Open Mercato harness evaluations and monitor registered experiments with the local dashboard. Use for "run harness evals", "inspect experiment results", "compare eval runs", "uruchom ewaluacje harnessu", or "sprawdź wyniki eksperymentu". |
 
 ### external (open-mercato/skills)
 
