@@ -3,6 +3,7 @@ import { expect, test, type APIRequestContext } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { deleteCatalogProductIfExists } from '@open-mercato/core/helpers/integration/catalogFixtures'
 import { drainIntegrationQueue } from '@open-mercato/core/helpers/integration/queue'
+import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 
 const POLL_INTERVAL_MS = 200
 const POLL_TIMEOUT_MS = 30_000
@@ -19,20 +20,29 @@ if (!TEST_APP_ROOT) {
   process.env.QUEUE_BASE_DIR = APP_QUEUE_BASE_DIR
 }
 
+// Mirrors `resolveAutoSpawnWorkersEnabled` (packages/cli/src/lib/auto-spawn-workers.ts), which
+// the ephemeral harness applies to the app with the same environment this process sees.
+const SERVER_RUNS_QUEUE_WORKERS =
+  parseBooleanToken(process.env.AUTO_SPAWN_WORKERS) ??
+  parseBooleanToken(process.env.OM_AUTO_SPAWN_WORKERS) ??
+  true
+
 /**
- * The drained count is returned rather than discarded because it distinguishes the two ways this
- * batch can reach a terminal state. `ephemeral-integration` runs the app with AUTO_SPAWN_WORKERS
- * defaulting to true, so the server's own worker competes with this drain for the same job: 0
- * means the server had already claimed it and this drain was a no-op, 1 means this process ran the
- * batch. #6008 turns on whether both of them ran it, and that is invisible from the job row alone
- * — the drain child's own logs are suppressed unless OM_DRAIN_DEBUG=1.
+ * Drains the queue only when the app runs no worker of its own. The local queue strategy supports
+ * exactly one consumer per queue (packages/queue/src/strategies/local.ts): when the server's
+ * auto-spawned worker and this drain both poll, both claim the job and run the batch at the same
+ * time. Two live attempts of one bulk-create job collide on their own rows and the later
+ * `completeJob` overwrites the correct summary (#6008). That double run is what failed this test
+ * on `main` (`drained 1`, Beta reported as "SKU already in use."), so the test no longer starts a
+ * second consumer. The returned count stays in the failure messages: 0 means the server ran the
+ * batch.
  */
 async function waitForProgressJob(
   request: APIRequestContext,
   token: string,
   jobId: string,
 ): Promise<{ job: Record<string, unknown>; drained: number }> {
-  const drained = await drainIntegrationQueue(QUEUE_NAME, { appRoot: APP_ROOT })
+  const drained = SERVER_RUNS_QUEUE_WORKERS ? 0 : await drainIntegrationQueue(QUEUE_NAME, { appRoot: APP_ROOT })
   const deadline = Date.now() + POLL_TIMEOUT_MS
   let last: Record<string, unknown> | null = null
   while (Date.now() < deadline) {
