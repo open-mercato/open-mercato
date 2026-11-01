@@ -3746,7 +3746,7 @@ function DataTableImpl<T extends RowData>({
           )}
           {shouldRenderToolbarBelow ? <div className={toolbarWrapperClassName}>{builtToolbar}</div> : null}
           {headerInjectionSpotId ? (
-            <div className={embedded ? 'mt-2' : 'mt-3'}>
+            <div className={embedded ? 'mt-2 empty:hidden' : 'mt-3 empty:hidden'}>
               <InjectionSpot spotId={headerInjectionSpotId} context={resolvedInjectionContext} />
             </div>
           ) : null}
@@ -4114,7 +4114,7 @@ function DataTableImpl<T extends RowData>({
       </div>
       </HeaderDndWrapper>
       {footerInjectionSpotId ? (
-        <div className={embedded ? 'mt-3' : 'px-4 py-3 border-t'}>
+        <div className={embedded ? 'mt-3 empty:hidden' : 'px-4 py-3 border-t empty:hidden'}>
           <InjectionSpot spotId={footerInjectionSpotId} context={resolvedInjectionContext} />
         </div>
       ) : null}

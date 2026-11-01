@@ -1622,7 +1622,7 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
             spotId={LEGACY_GLOBAL_MUTATION_INJECTION_SPOT_ID}
             context={injectionContext}
           />
-          <div id="om-top-banners" className="mb-3 space-y-2" />
+          <div id="om-top-banners" className="mb-3 space-y-2 empty:hidden" />
           <OrganizationScopeBoundary active={isOnSettingsPath}>
             <BackendRecordInjectionContextProvider setCurrentRecordInjectionContext={setCurrentRecordInjectionContext}>
               {children}

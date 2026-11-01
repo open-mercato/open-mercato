@@ -227,6 +227,30 @@ describe('AppShell', () => {
     expect(screen.getByRole('main')).toHaveAttribute('tabindex', '-1')
   })
 
+  // Modules portal banners (e.g. record locks) into `#om-top-banners`; while
+  // nothing is portaled in, the slot must not keep its bottom margin as an
+  // empty gap above every page.
+  it('collapses the top banner slot while it is empty and keeps it as a portal target', () => {
+    renderWithProviders(
+      <AppShell email="demo@example.com" groups={groups}>
+        <div>Child content</div>
+      </AppShell>,
+      { dict },
+    )
+
+    const bannerSlot = document.getElementById('om-top-banners')
+    expect(bannerSlot).not.toBeNull()
+    expect(bannerSlot).toHaveClass('empty:hidden')
+    expect(bannerSlot).toBeEmptyDOMElement()
+
+    const banner = document.createElement('div')
+    banner.textContent = 'Multiple users are currently on this record.'
+    bannerSlot?.appendChild(banner)
+
+    expect(bannerSlot).not.toBeEmptyDOMElement()
+    expect(bannerSlot).toHaveTextContent('Multiple users are currently on this record.')
+  })
+
   it('keeps the incoming page breadcrumb when the pathname change and ApplyBreadcrumb land in the same commit', () => {
     const { rerender } = renderWithProviders(
       <AppShell email="demo@example.com" groups={groups}>
