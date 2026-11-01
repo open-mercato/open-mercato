@@ -58,6 +58,8 @@ Restore every failing required CI check on `main` by identifying the current roo
 
 ## Progress
 
+PR: #8428
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Diagnose the failure
@@ -70,4 +72,4 @@ Restore every failing required CI check on `main` by identifying the current roo
 
 ### Phase 3: Prove readiness
 
-- [ ] 3.1 Run the full configured validation gate, obtain an independent final review, and confirm all required pull-request checks are green.
+- [x] 3.1 Run the full configured validation gate, obtain an independent final review, and confirm all required pull-request checks are green. — 2902f0afd5
