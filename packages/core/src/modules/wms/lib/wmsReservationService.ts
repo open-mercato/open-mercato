@@ -124,6 +124,18 @@ export type ReleaseInTransactionResult = {
   touchedBalances: InventoryBalance[]
 }
 
+export type ReleaseInTransactionOptions = {
+  /**
+   * Source types the caller is not allowed to release directly (A16-style guard). The
+   * public `wms.inventory.release` command passes `['checkout']` here: a `'checkout'` row
+   * is system-owned by `availability`'s own reserve/release/commit lifecycle, and releasing
+   * it out of band leaves the `availability_reservations` hold dangling (reconciliation
+   * would then have to repair it). In-process callers that own that lifecycle themselves
+   * (the expiry sweep, reconciliation, `availability.release`) never pass this option.
+   */
+  rejectSourceTypes?: InventoryReservation['sourceType'][]
+}
+
 export type ConvertInTransactionInput = {
   reservationId: string
   tenantId: string
@@ -214,14 +226,24 @@ async function lockCandidateBalances(
     em,
     InventoryBalance,
     where,
-    { populate: ['lot', 'warehouse'], lockMode: LockMode.PESSIMISTIC_WRITE, orderBy: { id: 'asc' } },
+    { populate: ['lot', 'warehouse', 'location'], lockMode: LockMode.PESSIMISTIC_WRITE, orderBy: { id: 'asc' } },
     scope,
   )
+  const reservable: InventoryBalance[] = []
   for (const balance of balances) {
     ensureTenantScope(ctx, balance.tenantId)
     ensureOrganizationScope(ctx, balance.organizationId)
+    // MUST match `listCandidateBalances`'s own filter (staging/dock are inbound holding
+    // locations, never pick/reserve candidates). Locking still covers every row the WHERE
+    // matched above — only the returned/counted set narrows here — so the gate's sellable
+    // aggregate and its per-warehouse bucket view never count quantity that the later
+    // `reserveInTransaction` call (which DOES apply this filter) would refuse to allocate.
+    // Without this, a shortfall could surface as a raw `insufficient_stock` 409 instead of
+    // the gate's own `ReserveShortfallSignal` / `availability.shortfall.detected` path.
+    if (!isBalanceLocationReservable(balance)) continue
+    reservable.push(balance)
   }
-  return balances
+  return reservable
 }
 
 type SafetyStockProfileRow = {
@@ -731,10 +753,34 @@ export class WmsReservationService {
     trx: EntityManager,
     ctx: CommandRuntimeContext,
     input: InventoryReservationReleaseInput,
+    options?: ReleaseInTransactionOptions,
   ): Promise<ReleaseInTransactionResult> {
     return runInTransaction(trx, async (innerTrx) => {
       const scope = resolveScope(ctx, input)
       const reservation = await requireReservation(innerTrx, ctx, input.reservationId, scope, true)
+      if (options?.rejectSourceTypes?.includes(reservation.sourceType)) {
+        throw new CrudHttpError(400, { error: 'checkout_reservation_is_system_only' })
+      }
+      // Idempotency guard: the expiry sweep, reconciliation, `availability.release`, and this
+      // same command can all reach the same row for the same reservation (TTL expiry racing a
+      // manual release, reconciliation racing a user action, etc). Once this row is no longer
+      // `active`, its balances were already decremented by whichever caller won the race — a
+      // second decrement here would double-release and oversell. Checked inside the SAME
+      // PESSIMISTIC_WRITE lock `requireReservation` just took, so no other writer can flip the
+      // status between this check and the lock being held. No-op, matching the idempotent
+      // release contract every caller already relies on (a second release changes nothing).
+      if (reservation.status !== 'active') {
+        return {
+          reservationId: reservation.id,
+          warehouseId: typeof reservation.warehouse === 'string' ? reservation.warehouse : reservation.warehouse.id,
+          catalogVariantId: reservation.catalogVariantId,
+          quantity: reservation.quantity,
+          tenantId: reservation.tenantId,
+          organizationId: reservation.organizationId,
+          reservationEntity: reservation,
+          touchedBalances: [],
+        }
+      }
       const metadata = extractReservationMetadata(reservation)
       const buckets = Array.isArray(metadata.allocatedBuckets) ? (metadata.allocatedBuckets as AllocationBucket[]) : []
       const allocationState = metadata.allocationState ?? 'reserved'

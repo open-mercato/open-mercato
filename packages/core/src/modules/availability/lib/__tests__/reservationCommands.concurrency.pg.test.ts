@@ -20,6 +20,7 @@ import 'reflect-metadata'
 import { randomUUID } from 'node:crypto'
 import { ReflectMetadataProvider } from '@mikro-orm/decorators/legacy'
 import { MikroORM, type EntityManager } from '@mikro-orm/postgresql'
+import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import {
   InventoryBalance,
   InventoryLot,
@@ -32,6 +33,7 @@ import {
 import { AvailabilityReservation } from '../../data/entities'
 import { WmsReservationService } from '../../../wms/lib/wmsReservationService'
 import {
+  buildServiceCtx,
   commitAvailability,
   reserveAvailability,
   releaseAvailability,
@@ -46,6 +48,23 @@ const maybe = PG_URL ? describe : describe.skip
 const TENANT_ID = '11111111-1111-4111-8111-111111111111'
 const ORG_ID = '22222222-2222-4222-8222-222222222222'
 const OTHER_ORG_ID = '22222222-2222-4222-8222-222222222299'
+const ATTACKER_TENANT_ID = '33333333-3333-4333-8333-333333333333'
+const ATTACKER_ORG_ID = '33333333-3333-4333-8333-333333333399'
+
+// A caller authenticated as a DIFFERENT tenant than the one named in `input.tenantId` —
+// the shape `commands/reservations.ts` passes through as `callerCtx` on every real
+// command-bus invocation. `ensureTenantScope`/`ensureOrganizationScope` must reject this
+// combination before `reserveAvailability`/`releaseAvailability`/`commitAvailability`
+// switch to a system-actor ctx scoped to the (attacker-controlled) input ids.
+function attackerCallerCtx(container: Resolver): CommandRuntimeContext {
+  return {
+    container: container as unknown as CommandRuntimeContext['container'],
+    auth: { sub: 'attacker-user', tenantId: ATTACKER_TENANT_ID, orgId: ATTACKER_ORG_ID, isSuperAdmin: false } as CommandRuntimeContext['auth'],
+    organizationScope: null,
+    selectedOrganizationId: ATTACKER_ORG_ID,
+    organizationIds: [ATTACKER_ORG_ID],
+  }
+}
 
 function policyField<T>(value: T): { value: T; policySourceId: null } {
   return { value, policySourceId: null }
@@ -506,5 +525,193 @@ maybe('availability reservationCommands under real concurrency (A1/A14/A15)', ()
 
     const balance = await readBalance(catalogVariantId)
     expect(Number(balance.quantityReserved)).toBe(1)
+  })
+
+  // Review finding: `lockCandidateBalances` (the checkout gate) used to count every
+  // balance row for a variant/warehouse toward "sellable", including staging/dock rows —
+  // while `reserveInTransaction`'s own `listCandidateBalances` (the actual allocator)
+  // already excludes them (A2/A6/A7: inbound holding locations are not pick/reserve
+  // candidates). A request that fit the inflated gate number but not the real reservable
+  // number used to blow up deep inside the warehouse-bucket allocation loop with a raw
+  // `insufficient_stock` 409 that escapes `reserveAvailability` unhandled — never the
+  // structured `{ reserved: false, shortfall }` response `ReserveShortfallSignal`/
+  // `availability.shortfall.detected` exist for. With the candidate sets aligned, the
+  // same request is a clean shortfall.
+  test('checkout gate excludes staging/dock balances from sellable — a real shortfall never escapes as a raw 409', async () => {
+    const { warehouseId, catalogVariantId } = await seedWarehouseWithBalance({ quantityOnHand: '2' })
+    const em = orm.em.fork()
+    const stagingLocation = em.create(WarehouseLocation, {
+      organizationId: ORG_ID,
+      tenantId: TENANT_ID,
+      warehouse: em.getReference(Warehouse, warehouseId),
+      code: `STG-${randomUUID().slice(0, 8)}`,
+      type: 'staging',
+      isActive: true,
+    })
+    em.persist(stagingLocation)
+    await em.flush()
+    const stagingBalance = em.create(InventoryBalance, {
+      organizationId: ORG_ID,
+      tenantId: TENANT_ID,
+      warehouse: em.getReference(Warehouse, warehouseId),
+      location: stagingLocation,
+      catalogVariantId,
+      quantityOnHand: '10',
+      quantityReserved: '0',
+      quantityAllocated: '0',
+    })
+    em.persist(stagingBalance)
+    await em.flush()
+
+    const policyService = fakePolicyService(() => makePolicy())
+    const container = buildContainer(policyService)
+    const productId = randomUUID()
+
+    // Requests 5: more than the 2 reservable (bin) units, less than the 12 the OLD,
+    // staging-inflated gate would have reported as sellable.
+    const result = await reserveAvailability(container, {
+      tenantId: TENANT_ID,
+      organizationId: ORG_ID,
+      items: [{ catalogProductId: productId, catalogVariantId, quantity: 5 }],
+      sourceType: 'checkout',
+      sourceId: randomUUID(),
+      idempotencyKey: `gate-alignment-${randomUUID()}`,
+    })
+
+    expect(result.reserved).toBe(false)
+    expect(result.shortfall).toEqual([
+      expect.objectContaining({ catalogProductId: productId, requested: 5, available: 2 }),
+    ])
+
+    const binBalance = await readBalance(catalogVariantId)
+    expect(Number(binBalance.quantityReserved)).toBe(0)
+    const stagingAfter = await orm.em.fork().findOne(InventoryBalance, { id: stagingBalance.id })
+    expect(Number(stagingAfter?.quantityReserved)).toBe(0)
+  })
+
+  // Review finding: `WmsReservationService.releaseInTransaction` had no `status !== 'active'`
+  // guard. The expiry sweep, reconciliation, `availability.release`, and the public
+  // `wms.inventory.release` command can all reach the SAME wms reservation row for the same
+  // logical release — a second release must not decrement `quantityReserved` again, or it
+  // frees stock another order already holds (overselling). Fires two REAL concurrent
+  // releases of the SAME row from two separate connections/transactions; the `FOR UPDATE`
+  // lock `requireReservation` takes must serialize them so only the first actually decrements.
+  test('releaseInTransaction is race-safe: two concurrent releases of the same row decrement the balance exactly once', async () => {
+    const { catalogVariantId } = await seedWarehouseWithBalance({ quantityOnHand: '5' })
+    const policyService = fakePolicyService(() => makePolicy())
+    const container = buildContainer(policyService)
+    const key = `double-release-${randomUUID()}`
+    const productId = randomUUID()
+
+    const reserved = await reserveAvailability(container, {
+      tenantId: TENANT_ID,
+      organizationId: ORG_ID,
+      items: [{ catalogProductId: productId, catalogVariantId, quantity: 3 }],
+      sourceType: 'checkout',
+      sourceId: randomUUID(),
+      idempotencyKey: key,
+    })
+    expect(reserved.reserved).toBe(true)
+    const balanceAfterReserve = await readBalance(catalogVariantId)
+    expect(Number(balanceAfterReserve.quantityReserved)).toBe(3)
+
+    const hold = await orm.em.fork().findOne(AvailabilityReservation, { idempotencyKey: key })
+    const wmsReservationId = hold!.wmsReservationIds[0]
+    const scope = { tenantId: TENANT_ID, organizationId: ORG_ID }
+    const releaseCtx = buildServiceCtx(container, scope, 'test.double-release')
+
+    // Two independent forks (own connection each), racing a release of the SAME wms row —
+    // simulates the expiry sweep and a manual `availability.release` both winning their own
+    // CAS and reaching `releaseInTransaction` for this id concurrently.
+    const results = await Promise.all([
+      wmsService.releaseInTransaction(orm.em.fork(), releaseCtx, {
+        tenantId: TENANT_ID,
+        organizationId: ORG_ID,
+        reservationId: wmsReservationId,
+        reason: 'race_attempt_a',
+      }),
+      wmsService.releaseInTransaction(orm.em.fork(), releaseCtx, {
+        tenantId: TENANT_ID,
+        organizationId: ORG_ID,
+        reservationId: wmsReservationId,
+        reason: 'race_attempt_b',
+      }),
+    ])
+
+    expect(results).toHaveLength(2)
+    const balanceAfterRelease = await readBalance(catalogVariantId)
+    // Exactly one release's worth of decrement — never negative (double-release) and never
+    // still-held (lost release).
+    expect(Number(balanceAfterRelease.quantityReserved)).toBe(0)
+
+    const reservationAfter = await orm.em.fork().findOne(InventoryReservation, { id: wmsReservationId })
+    expect(reservationAfter?.status).toBe('released')
+  })
+
+  // Review finding: `reserveAvailability`/`releaseAvailability`/`commitAvailability` built
+  // their own system-actor ctx from `input.tenantId`/`.organizationId` (command input, fully
+  // caller-controlled) without ever checking it against the REAL caller's own identity. Any
+  // command-bus caller could act on another tenant's reservations by naming that tenant's id
+  // in the payload. `commands/reservations.ts` now threads the real `ctx` through as
+  // `callerCtx`; this proves the guard rejects a mismatch instead of silently trusting it.
+  test('cross-tenant guard: a caller authenticated as a different tenant cannot act on this tenant\'s reservation', async () => {
+    const { catalogVariantId } = await seedWarehouseWithBalance({ quantityOnHand: '5' })
+    const policyService = fakePolicyService(() => makePolicy())
+    const container = buildContainer(policyService)
+    const key = `tenant-guard-${randomUUID()}`
+    const productId = randomUUID()
+    const attackerCtx = attackerCallerCtx(container)
+
+    await expect(
+      reserveAvailability(
+        container,
+        {
+          tenantId: TENANT_ID,
+          organizationId: ORG_ID,
+          items: [{ catalogProductId: productId, catalogVariantId, quantity: 1 }],
+          sourceType: 'checkout',
+          sourceId: randomUUID(),
+          idempotencyKey: key,
+        },
+        attackerCtx,
+      ),
+    ).rejects.toMatchObject({ status: 403 })
+
+    const reserved = await reserveAvailability(container, {
+      tenantId: TENANT_ID,
+      organizationId: ORG_ID,
+      items: [{ catalogProductId: productId, catalogVariantId, quantity: 1 }],
+      sourceType: 'checkout',
+      sourceId: randomUUID(),
+      idempotencyKey: key,
+    })
+    expect(reserved.reserved).toBe(true)
+
+    await expect(
+      releaseAvailability(
+        container,
+        { tenantId: TENANT_ID, organizationId: ORG_ID, idempotencyKey: key, reason: 'attacker_release' },
+        attackerCtx,
+      ),
+    ).rejects.toMatchObject({ status: 403 })
+
+    await expect(
+      commitAvailability(
+        container,
+        { tenantId: TENANT_ID, organizationId: ORG_ID, idempotencyKey: key, orderId: randomUUID() },
+        attackerCtx,
+      ),
+    ).rejects.toMatchObject({ status: 403 })
+
+    // Nothing the attacker attempted actually touched the hold.
+    const balance = await readBalance(catalogVariantId)
+    expect(Number(balance.quantityReserved)).toBe(1)
+    const released = await releaseAvailability(container, {
+      tenantId: TENANT_ID,
+      organizationId: ORG_ID,
+      idempotencyKey: key,
+      reason: 'legitimate_cleanup',
+    })
+    expect(released.released).toBe(true)
   })
 })
