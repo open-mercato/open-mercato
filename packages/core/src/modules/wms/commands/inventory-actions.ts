@@ -638,8 +638,14 @@ const releaseInventoryReservationCommand: CommandHandler<InventoryReservationRel
     ensureTenantScope(ctx, input.tenantId)
     ensureOrganizationScope(ctx, input.organizationId)
     const em = resolveEm(ctx)
-    // A1 extraction — see the matching comment on `wms.inventory.reserve`.
-    const result = await resolveReservationService(ctx).releaseInTransaction(em, ctx, input)
+    // A1 extraction — see the matching comment on `wms.inventory.reserve`. `'checkout'` rows
+    // are system-owned by `availability`'s own lifecycle (same A16 rule `wms.inventory.reserve`
+    // enforces on create) — this command, and the public route behind it, must never release
+    // one directly: that would desync the `availability_reservations` hold that still thinks
+    // it owns this row.
+    const result = await resolveReservationService(ctx).releaseInTransaction(em, ctx, input, {
+      rejectSourceTypes: ['checkout'],
+    })
     await emitInventorySideEffects(ctx, {
       reservations: [{ entity: result.reservationEntity, action: 'updated' }],
       balances: result.touchedBalances.map((entity) => ({ entity, action: 'updated' as const })),

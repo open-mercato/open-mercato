@@ -23,7 +23,7 @@ const reserveAvailabilityCommand: CommandHandler<unknown, ReserveAvailabilityRes
   id: 'availability.reserve',
   isUndoable: false,
   async execute(input, ctx) {
-    return reserveAvailability(ctx.container, input)
+    return reserveAvailability(ctx.container, input, ctx)
   },
   buildLog: async ({ input, result }) => {
     const parsed = (input ?? {}) as { tenantId?: string; organizationId?: string; sourceId?: string }
@@ -42,7 +42,7 @@ const releaseAvailabilityCommand: CommandHandler<unknown, ReleaseAvailabilityRes
   id: 'availability.release',
   isUndoable: false,
   async execute(input, ctx) {
-    return releaseAvailability(ctx.container, input)
+    return releaseAvailability(ctx.container, input, ctx)
   },
   buildLog: async ({ input, result }) => {
     const parsed = (input ?? {}) as { tenantId?: string; organizationId?: string }
@@ -60,7 +60,7 @@ const commitAvailabilityCommand: CommandHandler<unknown, CommitAvailabilityResul
   id: 'availability.commit',
   isUndoable: false,
   async execute(input, ctx) {
-    return commitAvailability(ctx.container, input)
+    return commitAvailability(ctx.container, input, ctx)
   },
   buildLog: async ({ input, result }) => {
     const parsed = (input ?? {}) as { tenantId?: string; organizationId?: string; orderId?: string }

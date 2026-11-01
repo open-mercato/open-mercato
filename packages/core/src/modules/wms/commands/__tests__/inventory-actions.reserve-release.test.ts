@@ -651,4 +651,77 @@ describe('wms inventory release command', () => {
       expect.objectContaining({ balanceId: BALANCE_ID, field: 'quantityReserved' }),
     )
   })
+
+  // A16-style guard, symmetric with the reserve command's own rejection above: a
+  // `'checkout'` row is system-owned by `availability`'s reserve/release/commit lifecycle.
+  // The public route/command must never release one directly — that would desync the
+  // `availability_reservations` hold, which still believes it owns the row.
+  it('rejects releasing a "checkout"-sourced reservation with 400 and leaves it untouched', async () => {
+    const em = createEm()
+    const reservation = makeReservation({ sourceType: 'checkout', sourceId: 'checkout-session-1' })
+    const balance = makeBalance({ quantityReserved: '5' })
+
+    findOneWithDecryption.mockImplementation((_em: unknown, entity: unknown, where: Record<string, unknown>) => {
+      if (entity === InventoryReservation) return reservation
+      if (entity === InventoryBalance) {
+        if (where?.id === BALANCE_ID || where?.location === LOCATION_A) return balance
+      }
+      return null
+    })
+
+    const handler = commandRegistry.get('wms.inventory.release')
+    await expect(
+      handler!.execute!(
+        {
+          organizationId: ORG,
+          tenantId: TENANT,
+          reservationId: RESERVATION_ID,
+          reason: 'manual_release',
+          performedBy: USER_ID,
+        },
+        createCtx(em),
+      ),
+    ).rejects.toMatchObject({ status: 400, body: { error: 'checkout_reservation_is_system_only' } })
+
+    expect(reservation.status).toBe('active')
+    expect(Number(balance.quantityReserved)).toBe(5)
+    expect(em.flush).not.toHaveBeenCalled()
+  })
+
+  // Overselling guard: the expiry sweep, reconciliation, `availability.release`, and this
+  // command can all reach the SAME wms reservation row for the same logical release (TTL
+  // expiry racing a manual release, etc). A second release must not decrement
+  // `quantityReserved` again — that would free stock another order already holds.
+  it('is idempotent on an already-released reservation — does not double-decrement the balance', async () => {
+    const em = createEm()
+    const releasedReservation = makeReservation({ status: 'released' })
+    const balance = makeBalance({ quantityReserved: '0' })
+
+    findOneWithDecryption.mockImplementation((_em: unknown, entity: unknown, where: Record<string, unknown>) => {
+      if (entity === InventoryReservation) return releasedReservation
+      if (entity === InventoryBalance) {
+        if (where?.id === BALANCE_ID || where?.location === LOCATION_A) return balance
+      }
+      return null
+    })
+
+    const handler = commandRegistry.get('wms.inventory.release')
+    const result = await handler!.execute!(
+      {
+        organizationId: ORG,
+        tenantId: TENANT,
+        reservationId: RESERVATION_ID,
+        reason: 'second_release_attempt',
+        performedBy: USER_ID,
+      },
+      createCtx(em),
+    )
+
+    expect(result).toMatchObject({ reservationId: RESERVATION_ID })
+    // No bucket was read/decremented and nothing was flushed — the guard short-circuited
+    // before any balance mutation.
+    expect(Number(balance.quantityReserved)).toBe(0)
+    expect(releasedReservation.status).toBe('released')
+    expect(em.flush).not.toHaveBeenCalled()
+  })
 })

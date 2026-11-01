@@ -23,6 +23,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { buildTrustedCommandContext } from '@open-mercato/shared/lib/commands/trusted-context'
+import { ensureOrganizationScope, ensureTenantScope } from '@open-mercato/shared/lib/commands/scope'
 import { CrudHttpError, isUniqueViolation } from '@open-mercato/shared/lib/crud/errors'
 import { availabilityItemKey } from '@open-mercato/shared/lib/availability'
 import {
@@ -372,12 +373,25 @@ class ReserveShortfallSignal extends Error {
  * `availability.reserve` (§4.1, A1/A6/A7/A15). One transaction: locks balances through
  * `wmsReservationService.reserveLinesForCheckout`, classifies every line's outcome, and
  * writes the `AvailabilityReservation` hold row — all or nothing.
+ *
+ * `callerCtx` is the REAL command-bus caller context (`ctx.auth`/`ctx.organizationScope`,
+ * before `buildServiceCtx` below swaps in a system-actor ctx scoped to `input`'s own
+ * tenant/organization). Without validating `input.tenantId`/`input.organizationId` against
+ * it first, any command-bus caller could pass another tenant's ids and act on its
+ * reservations — `commands/reservations.ts` (the public call shape) always supplies it;
+ * omitted only by the direct-lib-call tests/sweep paths that already run as a trusted
+ * system actor.
  */
 export async function reserveAvailability(
   container: Resolver,
   rawInput: unknown,
+  callerCtx?: CommandRuntimeContext,
 ): Promise<ReserveAvailabilityResult> {
   const input: AvailabilityReserveInput = availabilityReserveInputSchema.parse(rawInput)
+  if (callerCtx) {
+    ensureTenantScope(callerCtx, input.tenantId)
+    ensureOrganizationScope(callerCtx, input.organizationId)
+  }
   const scope: ReservationScope = { tenantId: input.tenantId, organizationId: input.organizationId }
   const em = (container.resolve('em') as EntityManager).fork()
   const normalizedItems: NormalizedItem[] = input.items.map((item) => ({
@@ -584,12 +598,21 @@ const OPEN_POLICY_DEFAULT: ResolvedAvailabilityPolicy = {
 /**
  * `availability.release` (§4.1, A21). CAS `active → released`; a non-`active` hold (or an
  * unknown key) is a no-op returning its current status, so a compensation retry is safe.
+ *
+ * `callerCtx` — see `reserveAvailability`'s doc comment: validates `input.tenantId`/
+ * `.organizationId` against the REAL caller before this function switches to a system-actor
+ * ctx scoped to those (attacker-controllable, absent this check) ids.
  */
 export async function releaseAvailability(
   container: Resolver,
   rawInput: unknown,
+  callerCtx?: CommandRuntimeContext,
 ): Promise<ReleaseAvailabilityResult> {
   const input: AvailabilityReleaseInput = availabilityReleaseInputSchema.parse(rawInput)
+  if (callerCtx) {
+    ensureTenantScope(callerCtx, input.tenantId)
+    ensureOrganizationScope(callerCtx, input.organizationId)
+  }
   const scope: ReservationScope = { tenantId: input.tenantId, organizationId: input.organizationId }
   const em = (container.resolve('em') as EntityManager).fork()
   const wmsService = tryResolveWmsService(container)
@@ -698,8 +721,13 @@ async function createStockLostNotification(
 export async function commitAvailability(
   container: Resolver,
   rawInput: unknown,
+  callerCtx?: CommandRuntimeContext,
 ): Promise<CommitAvailabilityResult> {
   const input: AvailabilityCommitInput = availabilityCommitInputSchema.parse(rawInput)
+  if (callerCtx) {
+    ensureTenantScope(callerCtx, input.tenantId)
+    ensureOrganizationScope(callerCtx, input.organizationId)
+  }
   const scope: ReservationScope = { tenantId: input.tenantId, organizationId: input.organizationId }
   const em = (container.resolve('em') as EntityManager).fork()
   const wmsService = tryResolveWmsService(container)
