@@ -1,3 +1,4 @@
+import type { EntityManager } from '@mikro-orm/postgresql'
 jest.mock('@open-mercato/shared/lib/auth/jwt', () => ({
   signJwt: jest.fn(() => 'mock-jwt'),
   signAudienceJwt: jest.fn(() => 'mock-jwt'),
@@ -64,18 +65,29 @@ describe('CustomerSessionService.createSession — concurrent session cap', () =
     const persistMock = jest.fn().mockReturnValue({ flush: flushMock })
     const createMock = jest.fn((_entity: any, data: any) => ({ id: 'new-session', ...data }))
     const executeMock = jest.fn(async () => [{ locked: true }])
-    const localEm: any = {
+    const getReferenceMock = jest.fn((_entity: unknown, id: string) => ({ id }))
+    const mockEm = {
       find: findMock,
       nativeUpdate: nativeUpdateMock,
       persist: persistMock,
       flush: flushMock,
       create: createMock,
       execute: executeMock,
-      getReference: jest.fn((_entity: unknown, id: string) => ({ id })),
+      getReference: getReferenceMock,
+      transactional: jest.fn(async (work: (tx: unknown) => Promise<unknown>): Promise<unknown> => work(mockEm)),
+      fork: jest.fn((): unknown => mockEm),
     }
-    localEm.transactional = jest.fn(async (work: (tx: unknown) => Promise<unknown>) => work(localEm))
-    localEm.fork = jest.fn(() => localEm)
-    return { localEm, findMock, persistMock, flushMock, createMock, executeMock }
+    const localEm = mockEm as unknown as EntityManager
+    return {
+      localEm,
+      findMock,
+      persistMock,
+      flushMock,
+      createMock,
+      executeMock,
+      getReferenceMock,
+      transactionalMock: mockEm.transactional,
+    }
   }
 
   const originalCap = process.env.MAX_CUSTOMER_SESSIONS_PER_USER
@@ -164,19 +176,20 @@ describe('CustomerSessionService.createSession — concurrent session cap', () =
   it('takes a per-user advisory lock in the transaction before counting and inserting', async () => {
     const { CustomerSessionService } = await import('../services/customerSessionService')
     const { CustomerUser } = await import('../data/entities')
-    const { localEm, findMock, persistMock, createMock, executeMock } = buildService(['s1'])
+    const { localEm, findMock, persistMock, createMock, executeMock, getReferenceMock, transactionalMock } =
+      buildService(['s1'])
 
     const service = new CustomerSessionService(localEm)
     await service.createSession(user, ['portal.view'])
 
-    expect(localEm.transactional).toHaveBeenCalledTimes(1)
+    expect(transactionalMock).toHaveBeenCalledTimes(1)
     expect(executeMock).toHaveBeenCalledTimes(1)
     const [lockSql, lockParams] = executeMock.mock.calls[0] as unknown as [string, unknown[]]
     expect(lockSql).toContain('pg_try_advisory_xact_lock')
     expect(lockParams).toEqual([`customer_accounts:session_cap:${userId}`])
     expect(executeMock.mock.invocationCallOrder[0]).toBeLessThan(findMock.mock.invocationCallOrder[0])
     expect(findMock.mock.invocationCallOrder[0]).toBeLessThan(persistMock.mock.invocationCallOrder[0])
-    expect(localEm.getReference).toHaveBeenCalledWith(CustomerUser, userId)
+    expect(getReferenceMock).toHaveBeenCalledWith(CustomerUser, userId)
     expect(createMock.mock.calls[0][1].user).toEqual({ id: userId })
   })
 
@@ -187,7 +200,7 @@ describe('CustomerSessionService.createSession — concurrent session cap', () =
     const lockAttempts: { key: string; locked: boolean }[] = []
 
     const buildTx = (holding: string[]) => {
-      const tx: any = {
+      const tx = {
         find: jest.fn(async (_entity: unknown, filter: { user: string }) => {
           const snapshot = rows
             .filter((row) => row.deletedAt === null && row.userId === filter.user)
@@ -224,7 +237,7 @@ describe('CustomerSessionService.createSession — concurrent session cap', () =
       return tx
     }
 
-    const raceEm: any = {
+    const raceEm = {
       ...buildTx([]),
       fork: jest.fn(() => ({
         transactional: jest.fn(async (work: (tx: unknown) => Promise<unknown>) => {
@@ -237,7 +250,11 @@ describe('CustomerSessionService.createSession — concurrent session cap', () =
         }),
       })),
     }
-    return { raceEm, liveRows: () => rows.filter((row) => row.deletedAt === null), lockAttempts }
+    return {
+      raceEm: raceEm as unknown as EntityManager,
+      liveRows: () => rows.filter((row) => row.deletedAt === null),
+      lockAttempts,
+    }
   }
 
   it('keeps at most the cap of live sessions when two logins for the same user race', async () => {
