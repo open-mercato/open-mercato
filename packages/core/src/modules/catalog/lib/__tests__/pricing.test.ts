@@ -1,3 +1,4 @@
+import { CatalogPriceKind } from '../../data/entities'
 import {
   resolvePriceVariantId,
   resolvePriceOfferId,
@@ -55,6 +56,31 @@ describe('catalog pricing helpers', () => {
     expect(variantId).toBe('variant-1')
     expect(offerId).toBe('offer-1')
     expect(channelId).toBe('channel-2')
+  })
+
+  it('treats the validity window as half-open so a price stops matching at its endsAt instant', () => {
+    const promotionKind = Object.assign(new CatalogPriceKind(), {
+      id: 'pk-promo',
+      tenantId: 'tenant-1',
+      code: 'promo',
+      title: 'Promotion',
+      isPromotion: true,
+    })
+    const promotion = baseRow({
+      id: 'promotion',
+      customerId: 'customer-1',
+      priceKind: promotionKind,
+      unitPriceNet: '5.00',
+      unitPriceGross: '6.15',
+      startsAt: new Date('2026-07-01T00:00:00Z'),
+      endsAt: new Date('2026-08-01T00:00:00Z'),
+    })
+    const contract = baseRow({ id: 'contract', customerId: 'customer-1' })
+    const pricingCtx = { ...ctx, customerId: 'customer-1' }
+
+    expect(selectBestPrice([promotion, contract], { ...pricingCtx, date: new Date('2026-08-01T00:00:00Z') })?.id).toBe('contract')
+    expect(selectBestPrice([promotion, contract], { ...pricingCtx, date: new Date('2026-07-31T23:59:59Z') })?.id).toBe('promotion')
+    expect(selectBestPrice([promotion, contract], { ...pricingCtx, date: new Date('2026-07-01T00:00:00Z') })?.id).toBe('promotion')
   })
 
   it('selects the highest scoring price with deterministic tie breakers', () => {
