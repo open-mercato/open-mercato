@@ -2,6 +2,11 @@ import handler, { POLL_CHANNEL_MAX_ATTEMPTS, metadata, type PollChannelJobPayloa
 import type { QueuedJob } from '@open-mercato/queue'
 import { ChannelIngestDeadLetter } from '../../data/entities'
 
+const mockReportError = jest.fn()
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  getTelemetryRuntime: () => ({ reportError: mockReportError }),
+}))
+
 const enqueueMock = jest.fn(async () => 'next-job')
 jest.mock('../../lib/queue', () => {
   const actual = jest.requireActual('../../lib/queue')
@@ -33,6 +38,7 @@ describe('poll-channel worker metadata', () => {
 
 describe('poll-channel worker behaviour', () => {
   beforeEach(() => {
+    mockReportError.mockReset()
     enqueueMock.mockClear()
     emitMock.mockClear()
   })
@@ -157,7 +163,10 @@ describe('poll-channel worker behaviour', () => {
     )
   })
 
-  it('forces one credential refresh on 401 and retries the page before giving up the channel', async () => {
+  it.each([false, true])('recovers a 401 and reports it when telemetry throws=%s', async (telemetryThrows) => {
+    if (telemetryThrows) {
+      mockReportError.mockImplementation(() => { throw new Error('telemetry unavailable') })
+    }
     const channel = {
       id: 'c',
       isActive: true,
@@ -176,6 +185,11 @@ describe('poll-channel worker behaviour', () => {
       .mockResolvedValueOnce({ messages: [] })
     const { ctx } = makeCtx(channel, { providerKey: 'msgraph', refreshCredentials }, fetchHistory)
     await handler(makeJob(), ctx)
+    expect(mockReportError).toHaveBeenCalledWith(err, {
+      module: 'communication_channels',
+      code: 'communication_channels.poll_authentication_failed',
+      attributes: { channelId: 'c', providerKey: 'msgraph' },
+    })
     expect(refreshCredentials).toHaveBeenCalledTimes(1)
     expect(fetchHistory).toHaveBeenCalledTimes(2)
     expect(fetchHistory.mock.calls[1][0].credentials).toEqual({ accessToken: 'fresh' })

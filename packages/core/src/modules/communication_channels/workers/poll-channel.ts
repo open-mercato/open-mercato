@@ -17,6 +17,7 @@ import { emitCommunicationChannelsEvent } from '../events'
 import type { ChannelAdapterRegistry } from '../lib/registry'
 import type { NormalizedInboundMessage } from '../lib/adapter'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 
 const logger = createLogger('communication_channels').child({ component: 'poll-channel' })
 
@@ -205,6 +206,15 @@ export default async function handle(
       result = await fetchPage(credentials)
     } catch (err) {
       if (!isReauthError(classifyOutboundError(err))) throw err
+      try {
+        getTelemetryRuntime()?.reportError(err, {
+          module: 'communication_channels',
+          code: 'communication_channels.poll_authentication_failed',
+          attributes: { channelId: channel.id, providerKey: channel.providerKey },
+        })
+      } catch {
+        logger.warn('poll authentication failure could not be reported', { channelId: channel.id })
+      }
       const forced = await refreshCredentialsIfNeeded(
         { adapter, channelId: channel.id, credentials, scope: credentialsScope, force: true },
         refreshDeps,
