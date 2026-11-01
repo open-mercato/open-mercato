@@ -78,7 +78,7 @@ For server-side bulk work:
 
 Progress HTTP routes resolve the current tenant and organization access through the request-scoped public `OrganizationScopeService`; nullable token organization fields are not authorization scope. Every resolution pins the service's supported `tenantId` input to the normalized authenticated tenant and fails closed unless the normalized returned tenant matches it. A finite `filterIds` list is applied to list, detail, update, cancellation, active/recent, and stale-sweep queries. An explicit empty list denies all access and must never be normalized to an omitted organization predicate. `filterIds: null` remains the canonical unrestricted scope for superadmins and explicitly unrestricted principals. Trusted worker/system callers that omit the finite list retain their exact `organizationId` or intentional tenant-wide behavior.
 
-Creating a job requires a concrete resolved `selectedId` whenever the caller has finite organization access. A rejected explicit selection or finite scope without a concrete write target fails closed. Detail and mutation routes return non-disclosing not-found responses for inaccessible jobs; collection/active reads return empty payloads for deny-all scope.
+Creating a job requires a concrete resolved `selectedId` whenever the caller has finite organization access. A rejected explicit selection or finite scope without a concrete write target fails closed. Detail and mutation routes return non-disclosing not-found responses for inaccessible jobs; collection/active reads return empty payloads for deny-all scope. Updating (`PUT`) or cancelling (`DELETE`) a job additionally requires the caller to be its starter (`startedByUserId`) or to hold `progress.manage` in the job's organization; any other caller gets the same response as for an unknown job (`PUT` 404, `DELETE` 400).
 
 `ProgressService.createJob` enforces an explicitly supplied finite `organizationIds` set before entity construction or persistence: an empty set denies creation, and a non-empty set requires a concrete `organizationId` contained in it. An omitted `organizationIds` preserves legacy single-organization callers, while explicit `null` preserves canonical unrestricted/system callers.
 
@@ -136,6 +136,7 @@ Use stable `jobType` values:
 - Existing injected bulk actions returning `progressJobId` remain valid.
 - `ProgressServiceContext.organizationIds` and the trailing organization-id-set parameters on cancellation polling/stale sweeping are additive and optional. Existing workers keep their exact organization or intentional system-wide behavior without migration; HTTP adapters pass the canonical resolved set explicitly.
 - Clients may now receive the already-documented empty/not-found/forbidden response families where a nullable session organization previously widened access. No successful in-scope request or response shape changes.
+- `progress.update` / `progress.cancel` reach only jobs the caller started; updating or cancelling other users' jobs, or jobs with no recorded starter, also requires `progress.manage`. Feature ids, routes and response shapes are unchanged; custom roles that act on other users' jobs must be granted `progress.manage`.
 
 ## Implementation Plan
 
@@ -231,7 +232,7 @@ Optional display fields may include `description`, `meta`, `etaSeconds`, `starte
 | Server bulk jobs bypass undo/audit metadata | High | Destructive mutations | Require command handlers from workers; do not mutate ORM rows directly. | Bulk undo may need coalescing per module. |
 | Progress top bar becomes noisy | Medium | Backoffice shell | Hide only system/internal jobs with `meta.hiddenFromTopBar`; user-initiated bulk jobs must remain visible. | High-volume operators may see several recent jobs. |
 | Queue worker retries duplicate mutations | High | Data integrity | Workers must be idempotent; commands should tolerate already-mutated records or record failures per item. | Some legacy commands may need hardening. |
-| Progress ACLs block cancellation | Low | Cancellable jobs | Grant `progress.cancel` where modules expose cancellable jobs or provide module-specific cancel routes. | Existing roles may need sync. |
+| Progress ACLs block cancellation | Low | Cancellable jobs | Grant `progress.cancel` where modules expose cancellable jobs (it covers jobs the user started; `progress.manage` covers other users' jobs) or provide module-specific cancel routes. | Existing roles may need sync. |
 | Nullable session organization widens reads or mutations | Critical | Progress APIs and service queries | Resolve request scope through `OrganizationScopeService`, preserve explicit finite/empty filters, and reserve omitted predicates for canonical unrestricted/system contexts. | Trusted non-HTTP callers must continue passing their concrete job organization. |
 
 ## Final Compliance Report
@@ -249,6 +250,7 @@ Optional display fields may include `description`, `meta`, `etaSeconds`, `starte
 
 | Date | Change |
 |------|--------|
+| 2026-10-27 | Required the job's starter or `progress.manage` for updating and cancelling a job through the progress HTTP routes. |
 | 2026-10-04 | Defined fail-closed request-resolved organization scoping for every progress API/service query and service-local throttle cache reuse, including explicit empty, finite multi-org, tenant mismatch, and canonical unrestricted behavior. |
 | 2026-07-27 | Documented multi-instance CAS transitions, post-increment winner reloads, stale-pending recovery, and concurrency regression coverage. |
 | 2026-05-13 | Created framework spec to make progress mandatory for bulk and future long-running operations. |
