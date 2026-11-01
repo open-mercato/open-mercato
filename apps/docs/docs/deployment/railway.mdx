@@ -22,7 +22,7 @@ This command was implemented for [issue #2414](https://github.com/open-mercato/o
 Prepare these pieces before the first deploy:
 
 - A standalone Open Mercato app created with `create-mercato-app`.
-- A real local `.env` file. In a fresh standalone app, run `yarn setup` first; it copies `.env.example` to `.env` when needed and initializes the app.
+- A real local `.env` file. For local initialization with `yarn setup`, first supply a unique policy-compliant `OM_INIT_SUPERADMIN_PASSWORD` in the app environment. Railway deployment itself generates a bootstrap password when the selected env file and existing Railway variables omit it.
 - A Railway account or workspace on a plan that can run the app service, optional worker, PostgreSQL, and Redis. For production and team deployments, prefer a paid plan with at least 16 GB RAM available per service; check [Railway pricing](https://railway.com/pricing) for current limits before deploying.
 - A Railway **Account token** from Account Settings. Do not use a token assigned to a project.
 - A source strategy:
@@ -260,6 +260,7 @@ Values are merged from Railway service references, generated secrets, static pro
 | `OM_AI_PROVIDER` | Loaded from the env file; defaults to `openai`. |
 | `OM_AI_MODEL` | Loaded from the env file; defaults to `gpt-5-mini`. |
 | AI provider API keys | Passed through when present. Missing AI keys do not block deployment. |
+| `OM_INIT_SUPERADMIN_PASSWORD` | Existing local/Railway value is preserved; otherwise a unique 68-character password is generated for first initialization. Read it from the app service’s Railway variables, or the ignored local env file with `--write-env`. Supply an explicit value for a custom minimum above 68 characters. Existing account passwords are not rotated. |
 | `AUTH_SECRET` | Generated once per Railway environment and stored on Railway. |
 | `JWT_SECRET` | Generated backward-compatible auth secret. |
 | `TENANT_DATA_ENCRYPTION_FALLBACK_KEY` | Generated fallback key for tenant data encryption. |

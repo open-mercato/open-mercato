@@ -823,11 +823,13 @@ describe('module command exit signal propagation', () => {
 
 describe('init command failure output', () => {
   const originalDatabaseUrl = process.env.DATABASE_URL
+  const originalSuperadminPassword = process.env.OM_INIT_SUPERADMIN_PASSWORD
 
   beforeEach(() => {
     jest.restoreAllMocks()
     jest.resetModules()
     process.env.DATABASE_URL = 'postgres://postgres:secret@127.0.0.1:5432/open_mercato'
+    process.env.OM_INIT_SUPERADMIN_PASSWORD = 'Bootstrap-7gQ!m9zR'
   })
 
   afterEach(() => {
@@ -842,6 +844,8 @@ describe('init command failure output', () => {
 
   afterAll(() => {
     process.env.DATABASE_URL = originalDatabaseUrl
+    if (originalSuperadminPassword === undefined) delete process.env.OM_INIT_SUPERADMIN_PASSWORD
+    else process.env.OM_INIT_SUPERADMIN_PASSWORD = originalSuperadminPassword
   })
 
   it('shows a targeted message when init cannot reach postgres', async () => {
@@ -1122,6 +1126,7 @@ describe('init command failure output', () => {
 
     expect(exitCode).toBe(0)
     expect(authSetup).toHaveBeenCalledWith(expect.arrayContaining(['--include-demo-users']))
+    expect(authSetup.mock.calls[0][0]).not.toContain('--skip-password-policy')
     expect(consoleLogSpy).toHaveBeenCalledWith('👤 Demo accounts (admin@/employee@): enabled')
     const loggedLines = consoleLogSpy.mock.calls.map((args) => args.join(' '))
     expect(loggedLines.some((line) => line.includes('🧰 Admin:'))).toBe(true)
@@ -1129,6 +1134,122 @@ describe('init command failure output', () => {
 
     consoleErrorSpy.mockRestore()
     consoleLogSpy.mockRestore()
+  })
+
+  it.each([
+    { password: undefined, args: [] },
+    { password: 'password', args: [] },
+    { password: 'secret', args: ['--reinstall'] },
+    { password: 'weak', args: ['--reinstall', '--skip-password-policy'] },
+    { password: 'weak', args: ['--allow-weak-password'] },
+  ])('rejects unsafe bootstrap credentials before setup work ($password, $args)', async ({ password, args }) => {
+    jest.spyOn(console, 'error').mockImplementation()
+    jest.spyOn(console, 'log').mockImplementation()
+    if (password === undefined) delete process.env.OM_INIT_SUPERADMIN_PASSWORD
+    else process.env.OM_INIT_SUPERADMIN_PASSWORD = password
+    const authSetup = jest.fn().mockResolvedValue(undefined)
+    mockInitDependencies({ authSetup })
+
+    const mercato = await import('../mercato')
+    const exitCode = await mercato.run(['node', 'mercato', 'init', ...args])
+
+    expect(exitCode).toBe(1)
+    expect(authSetup).not.toHaveBeenCalled()
+    expect(jest.requireMock('pg').Client).toHaveBeenCalledTimes(args.includes('--reinstall') ? 0 : 1)
+    expect(jest.requireMock('../lib/db').dbMigrate).not.toHaveBeenCalled()
+    expect(jest.requireMock('../lib/generators').generateEntityIds).not.toHaveBeenCalled()
+    expect(jest.requireMock('child_process').execSync).not.toHaveBeenCalled()
+  })
+
+  it('keeps existing-database recovery available without bootstrap credentials', async () => {
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+    jest.spyOn(console, 'log').mockImplementation()
+    delete process.env.OM_INIT_SUPERADMIN_PASSWORD
+    const authSetup = jest.fn().mockResolvedValue(undefined)
+    mockInitDependencies({ authSetup })
+    jest.requireMock('pg').Client.mockImplementation(() => ({
+      connect: jest.fn().mockResolvedValue(undefined),
+      query: jest.fn()
+        .mockResolvedValueOnce({ rows: [{ regclass: 'users' }] })
+        .mockResolvedValueOnce({ rows: [{ count: '3' }] }),
+      end: jest.fn().mockResolvedValue(undefined),
+    }))
+
+    const mercato = await import('../mercato')
+    const exitCode = await mercato.run(['node', 'mercato', 'init'])
+
+    expect(exitCode).toBe(1)
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      '❌ Initialization aborted: found 3 existing user(s) in the database.',
+    )
+    expect(authSetup).not.toHaveBeenCalled()
+    expect(jest.requireMock('../lib/db').dbMigrate).not.toHaveBeenCalled()
+    expect(jest.requireMock('../lib/generators').generateEntityIds).not.toHaveBeenCalled()
+  })
+
+  it('does not create a missing database when bootstrap credentials are unsafe', async () => {
+    jest.spyOn(console, 'error').mockImplementation()
+    jest.spyOn(console, 'log').mockImplementation()
+    delete process.env.OM_INIT_SUPERADMIN_PASSWORD
+    const authSetup = jest.fn().mockResolvedValue(undefined)
+    mockInitDependencies({ authSetup })
+    const databaseQuery = jest.fn()
+    jest.requireMock('pg').Client.mockImplementation(() => ({
+      connect: jest.fn().mockRejectedValue(Object.assign(new Error('database does not exist'), { code: '3D000' })),
+      query: databaseQuery,
+      end: jest.fn().mockResolvedValue(undefined),
+    }))
+
+    const mercato = await import('../mercato')
+    const exitCode = await mercato.run(['node', 'mercato', 'init'])
+
+    expect(exitCode).toBe(1)
+    expect(jest.requireMock('pg').Client).toHaveBeenCalledTimes(1)
+    expect(databaseQuery).not.toHaveBeenCalled()
+    expect(authSetup).not.toHaveBeenCalled()
+  })
+
+  it('creates a missing database after validating a compliant bootstrap password', async () => {
+    jest.spyOn(console, 'error').mockImplementation()
+    jest.spyOn(console, 'log').mockImplementation()
+    const authSetup = jest.fn().mockResolvedValue(undefined)
+    mockInitDependencies({ authSetup })
+    const clientConstructor = jest.requireMock('pg').Client
+    const createDatabaseQuery = jest.fn().mockResolvedValue({ rows: [] })
+    clientConstructor
+      .mockImplementationOnce(() => ({
+        connect: jest.fn().mockRejectedValue(Object.assign(new Error('database does not exist'), { code: '3D000' })),
+        end: jest.fn().mockResolvedValue(undefined),
+      }))
+      .mockImplementationOnce(() => ({
+        connect: jest.fn().mockResolvedValue(undefined),
+        query: createDatabaseQuery,
+        end: jest.fn().mockResolvedValue(undefined),
+      }))
+
+    const mercato = await import('../mercato')
+    const exitCode = await mercato.run(['node', 'mercato', 'init'])
+
+    expect(exitCode).toBe(0)
+    expect(createDatabaseQuery).toHaveBeenCalledWith('CREATE DATABASE "open_mercato"')
+    expect(authSetup).toHaveBeenCalled()
+  })
+
+  it('forwards a compliant CLI password without a policy bypass', async () => {
+    jest.spyOn(console, 'error').mockImplementation()
+    jest.spyOn(console, 'log').mockImplementation()
+    process.env.OM_INIT_SUPERADMIN_PASSWORD = 'password'
+    const authSetup = jest.fn().mockResolvedValue(undefined)
+    mockInitDependencies({ authSetup })
+
+    const mercato = await import('../mercato')
+    const exitCode = await mercato.run([
+      'node', 'mercato', 'init', '--password=Different-9mF!w2qZ', '--skip-password-policy',
+    ])
+
+    expect(exitCode).toBe(0)
+    expect(authSetup).toHaveBeenCalledWith(expect.arrayContaining(['--password', 'Different-9mF!w2qZ']))
+    expect(authSetup.mock.calls[0][0]).not.toContain('--skip-password-policy')
   })
 
   it('skips --include-demo-users when --no-demo-users is passed', async () => {

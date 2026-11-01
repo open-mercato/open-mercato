@@ -67,7 +67,7 @@ export function uncommentEnvLine(content, key, value) {
 }
 
 export function writeEnvFileText(filePath, content) {
-  fs.writeFileSync(filePath, content.replace(/\r\n/g, '\n'))
+  fs.writeFileSync(filePath, content.replace(/\r\n/g, '\n'), { mode: 0o600 })
 }
 
 function escapeRegExp(value) {

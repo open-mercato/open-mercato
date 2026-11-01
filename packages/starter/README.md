@@ -33,6 +33,14 @@ Useful flags: `--non-interactive`, `--skip-llm-prompt`, `--skip-db`, `--no-infra
 
 `up --clean` forces a full re-converge: it clears the completed-step markers (install, build, migrations) and rebuilds the OpenCode service image, without touching any data — the one-time database seed stays done, and `reset` remains the destructive variant. Conversely, a plain `up` now also skips the database step entirely when the database is initialized and no `Migration*.ts` file changed since the last run (new migrations are detected by fingerprint and applied automatically).
 
+## Bootstrap credentials
+
+For a new environment, the starter generates a unique superadmin password in the root `.env` and copies the same value into `apps/mercato/.env`. The generated value contains 32 cryptographically random bytes and all character classes required by the default password policy. Environment setup logs a fingerprint; successful startup summaries show the email and credential location. Retrieve `OM_INIT_SUPERADMIN_PASSWORD` locally from those private environment files. Newly created files use owner-only read/write permissions (`0600`) on POSIX systems; existing file permissions are preserved. Rerunning the starter preserves existing credentials, including company-provided defaults.
+
+The generated password is 68 characters long. If your `OM_PASSWORD_MIN_LENGTH` policy requires more, supply a unique compliant `OM_INIT_SUPERADMIN_PASSWORD` in `.env` or your company defaults before initialization. The CLI still validates every configured password: existing placeholder or weak values are preserved by the starter and rejected during initialization. Updating `.env` does not rotate passwords already stored in the database; use existing account-management or password-reset flows for that.
+
+If the database volume survives a deleted `.env`, regenerating that file creates a new bootstrap value without changing the stored account password. Use the password from the earlier `.env`, reset the account password, or reset the disposable database volume.
+
 ## Design rules
 
 - **Node stdlib only, no build step.** The CLI must run from a fresh clone before any `yarn install` — that is what makes it usable behind broken proxies.

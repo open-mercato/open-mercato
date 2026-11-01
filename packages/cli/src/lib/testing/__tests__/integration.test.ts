@@ -111,11 +111,14 @@ describe('integration cache and options', () => {
   const REUSE_ENV_TEST_TIMEOUT_MS = 60000
   const ephemeralEnvFilePath = path.join(projectRootDirectory, '.ai', 'qa', 'ephemeral-env.json')
   const ephemeralLegacyEnvFilePath = path.join(projectRootDirectory, '.ai', 'qa', 'ephemeral-env.md')
+  const ephemeralSuperadminPasswordPath = path.join(projectRootDirectory, '.ai', 'qa', 'ephemeral-superadmin-password')
   const originalCacheTtl = process.env[CACHE_TTL_ENV_VAR]
   const originalAppReadyTimeout = process.env[APP_READY_TIMEOUT_ENV_VAR]
   const originalCheckoutTestInjectionFlag = process.env[CHECKOUT_TEST_INJECTION_FLAG]
+  const originalSuperadminPassword = process.env.OM_INIT_SUPERADMIN_PASSWORD
   let originalEphemeralEnvState: string | null = null
   let originalEphemeralLegacyEnvState: string | null = null
+  let originalEphemeralSuperadminPassword: string | null = null
 
   const restoreEphemeralStateFiles = async (originalStateText: string | null, originalLegacyStateText: string | null) => {
     await clearEphemeralEnvironmentState()
@@ -125,11 +128,15 @@ describe('integration cache and options', () => {
     if (originalLegacyStateText !== null) {
       await writeFile(ephemeralLegacyEnvFilePath, originalLegacyStateText, 'utf8')
     }
+    if (originalEphemeralSuperadminPassword !== null) {
+      await writeFile(ephemeralSuperadminPasswordPath, originalEphemeralSuperadminPassword, { encoding: 'utf8', mode: 0o600 })
+    }
   }
 
   beforeEach(async () => {
     originalEphemeralEnvState = await readFile(ephemeralEnvFilePath, 'utf8').catch(() => null)
     originalEphemeralLegacyEnvState = await readFile(ephemeralLegacyEnvFilePath, 'utf8').catch(() => null)
+    originalEphemeralSuperadminPassword = await readFile(ephemeralSuperadminPasswordPath, 'utf8').catch(() => null)
     await clearEphemeralEnvironmentState()
   })
 
@@ -149,7 +156,62 @@ describe('integration cache and options', () => {
     } else {
       process.env[CHECKOUT_TEST_INJECTION_FLAG] = originalCheckoutTestInjectionFlag
     }
+    if (originalSuperadminPassword === undefined) delete process.env.OM_INIT_SUPERADMIN_PASSWORD
+    else process.env.OM_INIT_SUPERADMIN_PASSWORD = originalSuperadminPassword
     await restoreEphemeralStateFiles(originalEphemeralEnvState, originalEphemeralLegacyEnvState)
+  })
+
+  it.each([undefined, '', '   '])('privately retains a fresh superadmin credential for reused environments with an unset or blank override (%p) and removes it with state', async (override) => {
+    if (override === undefined) delete process.env.OM_INIT_SUPERADMIN_PASSWORD
+    else process.env.OM_INIT_SUPERADMIN_PASSWORD = override
+    const password = 'Ephemeral-9xQ!w2rT'
+    const fetchSpy = mockHealthyReadinessFetch()
+    try {
+      await writeEphemeralEnvironmentState({
+        baseUrl: 'http://127.0.0.1:5001',
+        port: 5001,
+        databaseUrl: 'postgres://integration:integration@127.0.0.1:5432/open_mercato',
+        queueBaseDir: '/tmp/open-mercato-queue',
+        logPrefix: 'integration',
+        captureScreenshots: false,
+        superadminPassword: password,
+      })
+
+      expect(await readFile(ephemeralEnvFilePath, 'utf8')).not.toContain(password)
+      if (process.platform !== 'win32') {
+        expect((await stat(ephemeralSuperadminPasswordPath)).mode & 0o777).toBe(0o600)
+      }
+      const environment = await tryReuseExistingEnvironment({
+        verbose: false,
+        captureScreenshots: false,
+        logPrefix: 'integration',
+        forceRebuild: false,
+      })
+      expect(environment?.commandEnvironment.OM_INIT_SUPERADMIN_PASSWORD).toBe(password)
+
+      await clearEphemeralEnvironmentState()
+      await expect(stat(ephemeralSuperadminPasswordPath)).rejects.toMatchObject({ code: 'ENOENT' })
+    } finally {
+      fetchSpy.mockRestore()
+    }
+  }, REUSE_ENV_TEST_TIMEOUT_MS)
+
+  it('removes the private credential if publishing reusable environment state fails', async () => {
+    await mkdir(ephemeralEnvFilePath)
+    try {
+      await expect(writeEphemeralEnvironmentState({
+        baseUrl: 'http://127.0.0.1:5001',
+        port: 5001,
+        databaseUrl: 'postgres://integration:integration@127.0.0.1:5432/open_mercato',
+        queueBaseDir: '/tmp/open-mercato-queue',
+        logPrefix: 'integration',
+        captureScreenshots: false,
+        superadminPassword: 'Ephemeral-9xQ!w2rT',
+      })).rejects.toMatchObject({ code: 'EISDIR' })
+      await expect(stat(ephemeralSuperadminPasswordPath)).rejects.toMatchObject({ code: 'ENOENT' })
+    } finally {
+      await rm(ephemeralEnvFilePath, { recursive: true, force: true })
+    }
   })
 
   it('reuses an existing reachable ephemeral environment state', async () => {

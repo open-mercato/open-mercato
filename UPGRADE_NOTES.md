@@ -532,6 +532,22 @@ Changing origin headers cannot invalidate copies already stored with the old
 public TTL. Check cache rules honor origin `private` and do not force-cache these
 routes. No database or module-code migration is required.
 
+### Initialization requires a unique superadmin password (#7809)
+
+`mercato init` / `yarn initialize` no longer fall back to `secret`, and the starter and generated-app full-app Compose files no longer supply `password`. This applies to production and development variants, including the legacy root Compose duplicates. Initialization rejects missing, empty, known-placeholder, or policy-invalid superadmin passwords before dependency installation, generation, migrations, or destructive reinstall work. The init flags `--skip-password-policy` and `--allow-weak-password` cannot relax this requirement; the separate `mercato auth setup` command retains its existing behavior.
+
+**Operator action:** before first-run initialization or a deliberate reinstall, set `OM_INIT_SUPERADMIN_PASSWORD` in the deployment environment or uncommitted `.env` to a unique password from your password manager that satisfies the configured `OM_PASSWORD_*` policy. An explicit `--password` remains available and takes precedence. Already-initialized stacks can use their normal restart and migration path without supplying a bootstrap password.
+
+The cross-platform `@open-mercato/starter` generates a unique password for new environment files and mirrors it into the app `.env`, replacing its earlier `secret` default. It preserves existing values and company defaults. Successful starter summaries show the email and environment-file location; retrieve `OM_INIT_SUPERADMIN_PASSWORD` locally from those private files. Newly created files use `0600` permissions on POSIX systems; existing permissions are preserved. Its generated 68-character value meets the default policy; provide your own value when a custom minimum length requires more. Normal init may perform a read-only existing-user probe before credential validation; database creation/mutation and initialization work remain gated, and reinstall validates before any database access.
+
+Railway deploys generate a unique bootstrap password when neither the selected env file nor the existing Railway environment provides one. Retrieve `OM_INIT_SUPERADMIN_PASSWORD` from the app service’s Railway variables, or use `--write-env` to persist it in the ignored local env file. Explicit values and initialized-account passwords remain unchanged. Supply your own value for a custom minimum above 68 characters. Local `yarn setup`, `yarn initialize`, and `yarn dev:greenfield` require the explicit value documented in both application `.env.example` files.
+
+**Client and automation action:** update scripts that rely on omitted/default credentials or init policy-bypass flags to supply a valid password, and handle failed validation as a non-zero command result. No API, database-schema, or module-code migration is required.
+
+**Existing credentials require review:** this change does not rotate stored passwords. Review superadmin and other privileged accounts created by earlier initialization flows, rotate any predictable or reused credentials through existing account-management or password-reset flows, and follow your normal response process if exposure is suspected. Changing the bootstrap environment variable does not update an existing account; do not reinstall a deployment to rotate credentials.
+
+**Security compatibility exception:** retaining the old predictable-default or bypass branch would preserve the reported provisioning vulnerability throughout a bridge release. This narrow removal follows the emergency security exception in [`BACKWARD_COMPATIBILITY.md`](BACKWARD_COMPATIBILITY.md#emergency-security-exception). See the [specification](.ai/specs/2026-10-29-unique-bootstrap-superadmin-password.md#migration--backward-compatibility).
+
 ### Dev launchers reject shared-workspace sessions and recover occupied MCP ports (#8044, #8046)
 
 The root and standalone `yarn dev` launchers now claim their canonical workspace before changing

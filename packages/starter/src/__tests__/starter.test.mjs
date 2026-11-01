@@ -12,7 +12,7 @@ import { addEnvValue, readEnvValue, setEnvValue } from '../env-file.mjs'
 import { ensureLlmProvider, syncProviderConfigToAppEnv } from '../providers.mjs'
 import { ensureWindowsUtf8Console, resolveSpawnCommand } from '../spawn.mjs'
 import { StepBlocked, buildToolchainStep, clearConvergenceState, databaseIsInitialized, listMigrationModules, migrationsFingerprint, probePostgresCredentials, readAppliedMigrationModules, resolveOpencodeBaseImage, runSteps, workspaceBuildStep } from '../steps.mjs'
-import { ensureEnvFiles } from '../env-setup.mjs'
+import { ensureEnvFiles, formatSuperadminSignIn } from '../env-setup.mjs'
 import { removeLeftoverComposeResources } from '../infra.mjs'
 import { checkBuildToolchain, defenderExclusionCovers, detectHostGateway, hostIpCandidates } from '../doctor.mjs'
 
@@ -478,17 +478,109 @@ function makeFakeAppRepo() {
   return repo
 }
 
-test('ensureEnvFiles writes the documented dev credentials and threads them into DATABASE_URL', () => {
+test('ensureEnvFiles generates a policy-compliant superadmin password and preserves it on reruns', (testContext) => {
   const repo = makeFakeAppRepo()
-  ensureEnvFiles(repo, { log: () => {}, warn: () => {} })
+  testContext.after(() => fs.rmSync(repo, { recursive: true, force: true }))
+  const loggedLines = []
+  const options = { log: (line) => loggedLines.push(line), warn: () => {} }
+  ensureEnvFiles(repo, options)
+  const superadminPassword = readEnvValue(path.join(repo, '.env'), 'OM_INIT_SUPERADMIN_PASSWORD')
   assert.equal(readEnvValue(path.join(repo, '.env'), 'POSTGRES_PASSWORD'), 'postgres')
-  assert.equal(readEnvValue(path.join(repo, '.env'), 'OM_INIT_SUPERADMIN_PASSWORD'), 'secret')
-  assert.equal(readEnvValue(path.join(repo, 'apps', 'mercato', '.env'), 'OM_INIT_SUPERADMIN_PASSWORD'), 'secret')
+  assert.ok(superadminPassword.length >= 32)
+  assert.match(superadminPassword, /[a-z]/)
+  assert.match(superadminPassword, /[A-Z]/)
+  assert.match(superadminPassword, /[0-9]/)
+  assert.match(superadminPassword, /[^A-Za-z0-9]/)
+  assert.equal(readEnvValue(path.join(repo, 'apps', 'mercato', '.env'), 'OM_INIT_SUPERADMIN_PASSWORD'), superadminPassword)
+  assert.equal(loggedLines.some((line) => line.includes(superadminPassword)), false)
+  ensureEnvFiles(repo, options)
+  assert.equal(readEnvValue(path.join(repo, '.env'), 'OM_INIT_SUPERADMIN_PASSWORD'), superadminPassword)
+  assert.equal(readEnvValue(path.join(repo, 'apps', 'mercato', '.env'), 'OM_INIT_SUPERADMIN_PASSWORD'), superadminPassword)
   // The .env.example default says localhost, which breaks on Windows (::1).
   assert.equal(
     readEnvValue(path.join(repo, 'apps', 'mercato', '.env'), 'DATABASE_URL'),
     'postgres://postgres:postgres@127.0.0.1:5432/open-mercato',
   )
+})
+
+test('ensureEnvFiles generates different superadmin credentials for fresh environments', (testContext) => {
+  const passwords = new Set()
+  for (let environmentIndex = 0; environmentIndex < 2; environmentIndex += 1) {
+    const repo = makeFakeAppRepo()
+    testContext.after(() => fs.rmSync(repo, { recursive: true, force: true }))
+    ensureEnvFiles(repo, { log: () => {}, warn: () => {} })
+    passwords.add(readEnvValue(path.join(repo, '.env'), 'OM_INIT_SUPERADMIN_PASSWORD'))
+  }
+  assert.equal(passwords.size, 2)
+})
+
+test('ensureEnvFiles creates private environment files and preserves existing permissions', { skip: process.platform === 'win32' }, (testContext) => {
+  const repo = makeFakeAppRepo()
+  testContext.after(() => fs.rmSync(repo, { recursive: true, force: true }))
+  const { rootEnv, appEnv } = ensureEnvFiles(repo, { log: () => {}, warn: () => {} })
+  for (const envPath of [rootEnv, appEnv]) {
+    assert.equal(fs.statSync(envPath).mode & 0o777, 0o600)
+    fs.chmodSync(envPath, 0o640)
+  }
+  ensureEnvFiles(repo, { log: () => {}, warn: () => {} })
+  for (const envPath of [rootEnv, appEnv]) {
+    assert.equal(fs.statSync(envPath).mode & 0o777, 0o640)
+  }
+})
+
+for (const passwordSource of ['generated', 'configured']) {
+  test(`superadmin sign-in summary points to environment files without exposing ${passwordSource} credentials`, (testContext) => {
+    const repo = makeFakeAppRepo()
+    testContext.after(() => fs.rmSync(repo, { recursive: true, force: true }))
+    const configuredPassword = passwordSource === 'configured' ? 'Configured-Summary-Test8!' : null
+    fs.writeFileSync(path.join(repo, '.env'), `OM_INIT_SUPERADMIN_EMAIL=owner@acme.test\n${configuredPassword ? `OM_INIT_SUPERADMIN_PASSWORD=${configuredPassword}\n` : ''}`)
+    ensureEnvFiles(repo, { log: () => {}, warn: () => {} })
+    const rootPassword = readEnvValue(path.join(repo, '.env'), 'OM_INIT_SUPERADMIN_PASSWORD')
+    const appPassword = readEnvValue(path.join(repo, 'apps', 'mercato', '.env'), 'OM_INIT_SUPERADMIN_PASSWORD')
+    const summary = formatSuperadminSignIn(repo)
+    assert.ok(summary.includes('owner@acme.test'))
+    assert.ok(summary.includes('OM_INIT_SUPERADMIN_PASSWORD'))
+    assert.ok(summary.includes('.env'))
+    assert.ok(summary.includes('apps/mercato/.env'))
+    assert.equal(summary.includes(rootPassword), false)
+    assert.equal(summary.includes(appPassword), false)
+  })
+}
+
+test('both successful starter summaries use the credential-location formatter', () => {
+  const cliSource = fs.readFileSync(new URL('../cli.mjs', import.meta.url), 'utf8')
+  for (const functionName of ['commandUp', 'commandUpDocker']) {
+    const start = cliSource.indexOf(`async function ${functionName}(`)
+    assert.ok(start >= 0)
+    const end = cliSource.indexOf('\nasync function ', start + 1)
+    const commandSource = cliSource.slice(start, end)
+    assert.match(commandSource, /formatSuperadminSignIn\(repoRoot\)/)
+    assert.doesNotMatch(commandSource, /readEnvValue\([^\n]*['"]OM_INIT_SUPERADMIN_PASSWORD['"]/)
+  }
+})
+
+test('ensureEnvFiles preserves configured passwords, including placeholders for the CLI to reject', (testContext) => {
+  const repo = makeFakeAppRepo()
+  testContext.after(() => fs.rmSync(repo, { recursive: true, force: true }))
+  fs.writeFileSync(path.join(repo, '.env'), 'OM_INIT_SUPERADMIN_PASSWORD=secret\n')
+  ensureEnvFiles(repo, { log: () => {}, warn: () => {} })
+  assert.equal(readEnvValue(path.join(repo, '.env'), 'OM_INIT_SUPERADMIN_PASSWORD'), 'secret')
+  assert.equal(readEnvValue(path.join(repo, 'apps', 'mercato', '.env'), 'OM_INIT_SUPERADMIN_PASSWORD'), 'secret')
+})
+
+test('ensureEnvFiles preserves a company superadmin password without logging it', (testContext) => {
+  const repo = makeFakeAppRepo()
+  testContext.after(() => fs.rmSync(repo, { recursive: true, force: true }))
+  const superadminPassword = 'Configured-Only-For-Test9!'
+  const loggedLines = []
+  ensureEnvFiles(repo, {
+    log: (line) => loggedLines.push(line),
+    warn: () => {},
+    extraDefaults: { OM_INIT_SUPERADMIN_PASSWORD: superadminPassword },
+  })
+  assert.equal(readEnvValue(path.join(repo, '.env'), 'OM_INIT_SUPERADMIN_PASSWORD'), superadminPassword)
+  assert.equal(readEnvValue(path.join(repo, 'apps', 'mercato', '.env'), 'OM_INIT_SUPERADMIN_PASSWORD'), superadminPassword)
+  assert.equal(loggedLines.some((line) => line.includes(superadminPassword)), false)
 })
 
 test('ensureEnvFiles never overwrites credentials already present in .env', () => {

@@ -4,12 +4,13 @@ import path from 'node:path'
 import { addEnvValue, readEnvValue, replaceEnvLine, uncommentEnvLine, writeEnvFileText } from './env-file.mjs'
 import { secretFingerprint, secretHex } from './secrets.mjs'
 
+export function formatSuperadminSignIn(repoRoot) {
+  const email = readEnvValue(path.join(repoRoot, '.env'), 'OM_INIT_SUPERADMIN_EMAIL')?.trim() || 'superadmin@acme.com'
+  return `  Superadmin sign-in: ${email} (password: OM_INIT_SUPERADMIN_PASSWORD in .env or apps/mercato/.env)`
+}
+
 // Node port of the Windows launcher's Initialize-EnvFiles: fill-missing-only,
 // machine-local secrets are generated once and never overwritten on re-runs.
-// Postgres and superadmin credentials deliberately stay on the documented dev
-// defaults (postgres/postgres, superadmin@acme.com/secret): the data volume
-// outlives .env, so generated credentials drift from the volume on every
-// re-clone or env regeneration, and the documented login stops working.
 
 export function ensureEnvFiles(repoRoot, { log = console.log, warn = console.warn, extraDefaults = {} } = {}) {
   const rootEnv = path.join(repoRoot, '.env')
@@ -38,11 +39,10 @@ export function ensureEnvFiles(repoRoot, { log = console.log, warn = console.war
   setValue('APP_URL', `http://localhost:${readEnvValue(rootEnv, 'APP_PORT')?.trim() || '3000'}`)
   setValue('OM_INIT_SUPERADMIN_EMAIL', 'superadmin@acme.com')
   for (const [key, value] of Object.entries(extraDefaults)) {
-    setValue(key, value)
+    if (key === 'OM_INIT_SUPERADMIN_PASSWORD') setSecret(key, value)
+    else setValue(key, value)
   }
-  // Dev-default credentials, not secrets (see header). Set after extraDefaults
-  // so a company preset — like anything already in .env — wins.
-  setValue('OM_INIT_SUPERADMIN_PASSWORD', 'secret')
+  setSecret('OM_INIT_SUPERADMIN_PASSWORD', `${secretHex(32)}Aa1!`)
   const postgresPassword = readEnvValue(rootEnv, 'POSTGRES_PASSWORD')?.trim() || 'postgres'
   setValue('POSTGRES_PASSWORD', postgresPassword)
   // NOTE: MCP_SERVER_API_KEY is intentionally NOT generated here. `yarn dev`

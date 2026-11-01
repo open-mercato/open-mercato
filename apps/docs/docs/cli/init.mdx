@@ -9,10 +9,20 @@ The `yarn initialize` script wraps the Open Mercato CLI `mercato init` command a
 ## Usage
 
 ```bash
-yarn initialize [--org=<name>] [--email=<address>] [--password=<value>] [--roles=<csv>] [--skip-password-policy] [--no-examples] [--no-demo-users] [--stresstest] [--lite] [-n <count>] [--count=<count>] [--reinstall|-r]
+yarn initialize [--org=<name>] [--email=<address>] [--password=<value>] [--roles=<csv>] [--no-examples] [--no-demo-users] [--stresstest] [--lite] [-n <count>] [--count=<count>] [--reinstall|-r]
 ```
 
 Ensure `DATABASE_URL` points to the Postgres instance you want to initialize before running the command.
+
+Supply a unique superadmin password through `OM_INIT_SUPERADMIN_PASSWORD` in the environment or `.env`, or through `--password`. There is no default password. For example, replace the placeholder in this `.env` entry with a password generated for this deployment:
+
+```dotenv
+OM_INIT_SUPERADMIN_PASSWORD="<unique password from your password manager>"
+```
+
+The value must satisfy the configured `OM_PASSWORD_*` policy. Missing, empty, known-placeholder, and policy-invalid values abort initialization before dependency installation, generation, migrations, or reinstall table deletion. This applies in development and production. The legacy `--skip-password-policy` and `--allow-weak-password` init flags cannot bypass this validation.
+
+The cross-platform `@open-mercato/starter` prepares a unique password in a new root `.env` and mirrors it to `apps/mercato/.env`. It preserves configured values on reruns, and startup summaries direct you to retrieve `OM_INIT_SUPERADMIN_PASSWORD` from those private files. Newly created files have `0600` permissions on POSIX systems; existing permissions are preserved. Its generated 68-character value satisfies the default policy; supply your own value if a custom minimum length requires more.
 
 ## Options
 
@@ -20,9 +30,9 @@ Ensure `DATABASE_URL` points to the Postgres instance you want to initialize bef
 | --- | --- | --- |
 | `--org`, `--orgName` | Name of the organization that will be created. | `Acme Corp` |
 | `--email` | Superadmin login email. Companion `admin@…` and `employee@…` accounts are also provisioned. | `superadmin@acme.com` |
-| `--password` | Password applied to all seeded accounts. | `secret` |
+| `--password` | Superadmin password; overrides `OM_INIT_SUPERADMIN_PASSWORD` and must satisfy the configured password policy. | Required through flag or environment |
 | `--roles` | Comma-separated list of roles ensured before user creation. | `superadmin,admin,employee` |
-| `--skip-password-policy` | Skip password policy validation during `auth setup` (useful for demo defaults like `secret`). | off |
+| `--skip-password-policy`, `--allow-weak-password` | Legacy init flags; cannot disable superadmin password validation. The separate `mercato auth setup` command retains its own flag behavior. | No bypass |
 | `--no-examples` | Skip demo CRM seeders (companies, people, deals, activities, todos). Alias: `--no-exampls`. | off |
 | `--no-demo-users` | Skip seeding the derived `admin@…`/`employee@…` demo accounts — only the `--email` superadmin account is created. | off |
 | `--stresstest` | Generate a high-volume synthetic CRM dataset (contacts, companies, deals, activities, notes) in addition to the curated examples. | off |
@@ -37,16 +47,18 @@ When you omit CLI flags, the init flow will read environment defaults for the se
 | Variable | Description | Default |
 | --- | --- | --- |
 | `OM_INIT_SUPERADMIN_EMAIL` | Superadmin login email used when `--email` is not provided. | `superadmin@acme.com` |
-| `OM_INIT_SUPERADMIN_PASSWORD` | Superadmin password used when `--password` is not provided. | `secret` |
+| `OM_INIT_SUPERADMIN_PASSWORD` | Unique, policy-compliant superadmin password used when `--password` is not provided. Known placeholders are rejected. | Required through flag or environment |
 | `OM_INIT_ADMIN_EMAIL` | Derived admin account email override. | `admin@<superadmin-domain>` |
 | `OM_INIT_EMPLOYEE_EMAIL` | Derived employee account email override. | `employee@<superadmin-domain>` |
-| `OM_INIT_ADMIN_PASSWORD` | Admin account password override. When unset, a random 16-char base64url password is generated and surfaced in the init summary. | _(randomly generated)_ |
-| `OM_INIT_EMPLOYEE_PASSWORD` | Employee account password override. When unset, a random 16-char base64url password is generated and surfaced in the init summary. | _(randomly generated)_ |
-| `OM_INIT_GENERATE_RANDOM_PASSWORD` | **Deprecated, no-op.** Random derived passwords are now the unconditional default when overrides are unset; setting the flag prints a one-time deprecation warning and is otherwise ignored. | _(unused)_ |
+| `OM_INIT_ADMIN_PASSWORD` | Derived admin account password override. When unset, production generates a random 16-char base64url password; other environments retain the demo default. | Production: randomly generated; otherwise: `secret` |
+| `OM_INIT_EMPLOYEE_PASSWORD` | Derived employee account password override. When unset, production generates a random 16-char base64url password; other environments retain the demo default. | Production: randomly generated; otherwise: `secret` |
+| `OM_INIT_GENERATE_RANDOM_PASSWORD` | **Deprecated, no-op.** Derived passwords are randomized in production when overrides are unset; setting the flag prints a one-time deprecation warning. | _(unused)_ |
 
 `yarn initialize` passes `--include-demo-users` to `mercato auth setup` so the derived `admin@…` / `employee@…` demo accounts are seeded as part of the dev/demo bootstrap. Standalone callers of `mercato auth setup` must opt in themselves; without that flag, no demo accounts are seeded. Pass `--no-demo-users` to `mercato init`/`yarn initialize` to skip them too — for example on a production bootstrap where only the `--email` superadmin account should exist.
 
 ## What the Command Does
+
+Before the steps below, initialization validates the required superadmin password. A read-only existing-user probe may run first for normal initialization so Docker can recognize an initialized database and continue its migration path. Reinstall validates credentials before any database access. Failed password validation prevents database creation or mutation and the initialization steps below.
 
 1. Installs workspace dependencies with `yarn install`.
 2. Runs code generators directly (entity IDs, module registry, entities, DI, API client) — no process spawning.
@@ -85,6 +97,8 @@ Use this mode for destructive resets in development. **Never run it against prod
 
 ## Troubleshooting
 
+- **Missing or rejected superadmin password** — set `OM_INIT_SUPERADMIN_PASSWORD` to a unique password satisfying the configured policy, then retry. Policy-bypass init flags do not permit weak or placeholder credentials.
+- **Deployment initialized with an earlier default password** — review privileged accounts and rotate their passwords through the existing account-management or password-reset flow. Changing the bootstrap environment variable does not change existing account passwords; do not use `--reinstall` to rotate them.
 - **Missing `DATABASE_URL`** — the command aborts before performing database work. Export the variable or place it in `.env`.
 - **Dependency install fails** — run `yarn install` manually to inspect the error, then re-run `yarn initialize`.
 - **Migrations fail** — confirm the database credentials and ensure the target user can create tables. The CLI stops on the first failure so you can address the issue before re-running.
