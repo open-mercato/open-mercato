@@ -95,7 +95,7 @@ describe('ManageTagsDialog', () => {
       if (url === '/api/customers/dictionaries/kind-settings') {
         return Promise.resolve({ items: [] })
       }
-      if (url === '/api/customers/dictionaries/statuses') {
+      if (url === '/api/customers/dictionaries/statuses?labels=base') {
         return Promise.resolve({ items: baseEntries })
       }
       return Promise.resolve({ items: [] })
@@ -138,6 +138,49 @@ describe('ManageTagsDialog', () => {
         .filter((el) => ['Alpha', 'Beta', 'Gamma'].includes((el as HTMLInputElement).value))
       expect((labelInputsAfter[0] as HTMLInputElement).value).toBe('Beta')
       expect((labelInputsAfter[1] as HTMLInputElement).value).toBe('Alpha')
+    })
+  })
+
+  it('edits stored base labels under a non-English locale', async () => {
+    readApiResultOrThrowMock.mockImplementation((url: string) => {
+      if (url === '/api/customers/dictionaries/statuses?labels=base') {
+        return Promise.resolve({
+          items: [{ id: 'status-active', value: 'active', label: 'Active', color: '#3366ff', icon: null }],
+        })
+      }
+      if (url === '/api/customers/dictionaries/statuses') {
+        return Promise.resolve({
+          items: [{ id: 'status-active', value: 'active', label: 'Aktywny', color: '#3366ff', icon: null }],
+        })
+      }
+      return Promise.resolve({ items: [] })
+    })
+
+    await act(async () => {
+      renderWithProviders(<ManageTagsDialog open onClose={jest.fn()} />, { locale: 'pl' })
+    })
+
+    const labelInput = await screen.findByDisplayValue('Active')
+    expect(screen.queryByDisplayValue('Aktywny')).not.toBeInTheDocument()
+    expect(labelInput).toBeInTheDocument()
+
+    fireEvent.change(screen.getByDisplayValue('active'), { target: { value: 'active-client' } })
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+    })
+
+    await waitFor(() => {
+      expect(apiCallOrThrowMock).toHaveBeenCalledWith(
+        '/api/customers/dictionaries/statuses/status-active',
+        expect.objectContaining({ method: 'PATCH' }),
+      )
+    })
+    const patchCall = apiCallOrThrowMock.mock.calls.find(
+      ([url, init]) => url === '/api/customers/dictionaries/statuses/status-active' && (init as RequestInit)?.method === 'PATCH',
+    )
+    expect(JSON.parse(String((patchCall?.[1] as RequestInit).body))).toMatchObject({
+      value: 'active-client',
+      label: 'Active',
     })
   })
 })
