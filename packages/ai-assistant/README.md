@@ -86,6 +86,8 @@ yarn infra:up
 yarn dev
 ```
 
+The MCP endpoint (`MCP_PORT`, default 3001) is owned by `yarn dev` from the start, but the server process itself only starts on the first MCP request, so an idle session does not pay for it. Set `OM_DEV_MCP_LAZY=0` to start it together with `yarn dev`.
+
 To run the pieces individually instead:
 
 ```bash
