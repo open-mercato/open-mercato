@@ -16,7 +16,7 @@ import {
 
 const logger = createLogger('api_keys').child({ component: 'api-key-service' })
 
-const BCRYPT_COST = 10
+const BCRYPT_COST = 12
 
 // =============================================================================
 // Session Secret Encryption Helpers
