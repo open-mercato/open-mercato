@@ -1,22 +1,75 @@
 import { createRequire } from 'node:module'
-import type { JSONContent } from '@tiptap/core'
 import { TiptapTransformer } from '@hocuspocus/transformer'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { getSchema, type Extensions, type JSONContent } from '@tiptap/core'
+import {
+  DOMParser as ProseMirrorDOMParser,
+  DOMSerializer,
+  Node as ProseMirrorNode,
+  type ParseOptions,
+} from '@tiptap/pm/model'
 import * as Y from 'yjs'
 import { deriveContentTextFromHtml } from './contentService'
 import { COLLAB_FRAGMENT_FIELD, getDocumentEditorExtensions } from './editorConfig'
 import { assertDocumentContentResourceLimits } from './resourceLimits'
 
-type TiptapHtmlServer = typeof import('@tiptap/html/server')
+type HappyDomModule = typeof import('happy-dom')
+type HappyDomWindow = InstanceType<HappyDomModule['Window']>
 
 const requireFromHere = createRequire(import.meta.url)
-let tiptapHtmlServer: TiptapHtmlServer | null = null
+let happyDomModule: HappyDomModule | null = null
 
-function getTiptapHtmlServer(): TiptapHtmlServer {
-  if (!tiptapHtmlServer) {
-    tiptapHtmlServer = requireFromHere('@tiptap/html/server') as TiptapHtmlServer
+function createHtmlWindow(): HappyDomWindow {
+  if (!happyDomModule) {
+    happyDomModule = requireFromHere('happy-dom') as HappyDomModule
   }
-  return tiptapHtmlServer
+
+  return new happyDomModule.Window({
+    settings: {
+      disableJavaScriptEvaluation: true,
+      disableJavaScriptFileLoading: true,
+      disableCSSFileLoading: true,
+      disableIframePageLoading: true,
+      disableComputedStyleRendering: true,
+    },
+  })
+}
+
+function generateHtml(doc: JSONContent, extensions: Extensions): string {
+  const schema = getSchema(extensions)
+  const documentNode = ProseMirrorNode.fromJSON(schema, doc)
+  const localWindow = createHtmlWindow()
+
+  try {
+    const wrapper = localWindow.document.createElement('div')
+    DOMSerializer.fromSchema(schema).serializeFragment(
+      documentNode.content,
+      { document: localWindow.document as unknown as Document },
+      wrapper as unknown as HTMLElement,
+    )
+    return wrapper.innerHTML
+  } finally {
+    localWindow.happyDOM.abort()
+    localWindow.happyDOM.close()
+  }
+}
+
+function generateJson(html: string, extensions: Extensions, options?: ParseOptions): JSONContent {
+  const localWindow = createHtmlWindow()
+
+  try {
+    const parsedDocument = new localWindow.DOMParser().parseFromString(
+      `<!DOCTYPE html><html><body>${html}</body></html>`,
+      'text/html',
+    )
+    const schema = getSchema(extensions)
+    return ProseMirrorDOMParser.fromSchema(schema)
+      .parse(parsedDocument.body as unknown as Node, options)
+      .toJSON()
+  } finally {
+    localWindow.happyDOM.abort()
+    localWindow.happyDOM.close()
+  }
 }
 
 function hasRenderableContent(node: JSONContent): boolean {
@@ -36,8 +89,7 @@ export function yDocToContent(ydoc: Y.Doc): { html: string; text: string } | nul
       return { html: '', text: '' }
     }
 
-    const { generateHTML } = getTiptapHtmlServer()
-    const html = generateHTML(json, getDocumentEditorExtensions())
+    const html = generateHtml(json, getDocumentEditorExtensions())
     const text = deriveContentTextFromHtml(html)
     assertDocumentContentResourceLimits({ contentHtml: html, contentText: text })
     return { html, text }
@@ -52,8 +104,7 @@ export function htmlToYDoc(html: string): Y.Doc {
   if (!html.trim()) return new Y.Doc()
 
   const extensions = getDocumentEditorExtensions()
-  const { generateJSON } = getTiptapHtmlServer()
-  const json = generateJSON(html, extensions) as JSONContent
+  const json = generateJson(html, extensions)
   return TiptapTransformer.toYdoc(json, COLLAB_FRAGMENT_FIELD, extensions)
 }
 
