@@ -39,6 +39,10 @@ export {
   type EncryptedCustomFieldKeysResolver,
 } from './lib/encrypted-custom-field-resolver'
 
+type KyselyEntityManager = {
+  getKysely<Database>(): Kysely<Database>
+}
+
 const FULLTEXT_DRIVER_KEY = '__omSearchFulltextDriver__'
 
 type SearchModuleGlobals = {
@@ -57,10 +61,6 @@ function getSearchModuleGlobals(): SearchModuleGlobals {
 function shouldExcludeEncryptedFields(): boolean {
   const raw = (process.env.SEARCH_EXCLUDE_ENCRYPTED_FIELDS ?? '').toLowerCase()
   return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on'
-}
-
-type KyselyEntityManager = {
-  getKysely<Database>(): Kysely<Database>
 }
 
 function createUnavailableEncryptedCustomFieldKeysResolver(): EncryptedCustomFieldKeysResolver {
@@ -115,6 +115,15 @@ export function registerSearchModule(
   container: SearchContainer,
   options?: SearchModuleOptions,
 ): void {
+  const moduleConfigs = (options?.moduleConfigs ?? []).map((moduleConfig) => ({
+    ...moduleConfig,
+    entities: moduleConfig.entities.map((entityConfig) => {
+      const buildSource = entityConfig.buildSource
+      return buildSource
+        ? { ...entityConfig, buildSource: (ctx: Parameters<typeof buildSource>[0]) => buildSource.call(entityConfig, { ...ctx, container }) }
+        : entityConfig
+    }),
+  }))
   const strategies: SearchStrategy[] = []
 
   // Token strategy (always available unless explicitly skipped)
@@ -147,7 +156,7 @@ export function registerSearchModule(
 
   // Build entity config map for field policy resolution
   const entityConfigMap = new Map<EntityId, SearchEntityConfig>()
-  for (const moduleConfig of (options?.moduleConfigs ?? [])) {
+  for (const moduleConfig of moduleConfigs) {
     for (const entityConfig of moduleConfig.entities) {
       if (entityConfig.enabled !== false) {
         entityConfigMap.set(entityConfig.entityId as EntityId, entityConfig)
@@ -245,9 +254,6 @@ export function registerSearchModule(
     },
     presenterEnricher,
   })
-
-  // Create search indexer with module configs
-  const moduleConfigs = options?.moduleConfigs ?? []
 
   // Try to resolve fulltextIndexQueue for queue-based reindexing
   let fulltextQueue: Queue<FulltextIndexJobPayload> | undefined

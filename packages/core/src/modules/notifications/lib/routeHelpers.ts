@@ -5,7 +5,9 @@ import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/d
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { NOTIFICATION_ACTION_COMMAND_NOT_ALLOWED_ERROR_CODE } from '@open-mercato/shared/modules/notifications/types'
 import { resolveNotificationService, type NotificationService } from './notificationService'
+import { actionConflictResponseSchema } from '../api/openapi'
 
 /**
  * Mutation-guard resource kind for notification rows.
@@ -56,6 +58,32 @@ export async function notificationValidationErrorResponse(error: z.ZodError): Pr
   const details = formatZodIssues(error)
   return Response.json(
     { error: details ? `${prefix}: ${details}` : prefix },
+    { status: 400 },
+  )
+}
+
+export type NotificationActionsPayload = { actions?: Array<{ commandId?: string | null }> | null }
+
+/**
+ * Reject an API-supplied action that carries a `commandId`.
+ *
+ * Command-backed actions run with the clicking user's identity, so only server code may attach
+ * them, from the notification type definition. Called after payload validation and before the
+ * mutation guard or the service write.
+ */
+export async function rejectNotificationActionCommands(
+  data: NotificationActionsPayload,
+): Promise<Response | null> {
+  if (!data.actions?.some((action) => action.commandId)) return null
+  const { t } = await resolveTranslations()
+  return Response.json(
+    {
+      error: t(
+        'notifications.error.actionCommandNotAllowed',
+        'Notification actions created through the API cannot run commands',
+      ),
+      code: NOTIFICATION_ACTION_COMMAND_NOT_ALLOWED_ERROR_CODE,
+    },
     { status: 400 },
   )
 }
@@ -235,6 +263,8 @@ export function createBulkNotificationRoute<TSchema extends z.ZodTypeAny>(
     if (!parsed.success) {
       return notificationValidationErrorResponse(parsed.error)
     }
+    const commandRejection = await rejectNotificationActionCommands(parsed.data as NotificationActionsPayload)
+    if (commandRejection) return commandRejection
 
     try {
       const guarded = await runGuardedNotificationWrite(
@@ -295,6 +325,14 @@ export function createBulkNotificationOpenApi<TSchema extends z.ZodTypeAny>(
                 count: z.number(),
                 ids: z.array(z.string().uuid()),
               }),
+            },
+          },
+        },
+        400: {
+          description: `Invalid payload, or an action carries a \`commandId\` (code: ${NOTIFICATION_ACTION_COMMAND_NOT_ALLOWED_ERROR_CODE})`,
+          content: {
+            'application/json': {
+              schema: actionConflictResponseSchema,
             },
           },
         },

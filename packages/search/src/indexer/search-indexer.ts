@@ -31,6 +31,13 @@ type CustomFieldExclusion = Set<string> | 'all' | null
 
 type CustomFieldExclusionLookup = (entityId: EntityId, tenantId: string | null) => Promise<CustomFieldExclusion>
 
+function toPlaintextExcludedCustomFields(
+  exclusion: CustomFieldExclusion,
+): IndexableRecord['plaintextExcludedCustomFields'] {
+  if (!exclusion) return undefined
+  return exclusion === 'all' ? 'all' : Array.from(exclusion)
+}
+
 function mergeCustomFieldExclusions(exclusions: CustomFieldExclusion[]): CustomFieldExclusion {
   if (exclusions.includes('all')) return 'all'
   const sets = exclusions.filter((exclusion): exclusion is Set<string> => exclusion instanceof Set)
@@ -329,12 +336,21 @@ export class SearchIndexer {
    * Index a record in the search service.
    */
   async indexRecord(params: IndexRecordParams): Promise<void> {
+    const indexableRecord = await this.buildIndexableRecord(params)
+    if (indexableRecord) {
+      await this.searchService.index(indexableRecord)
+    }
+  }
+
+  private async buildIndexableRecord(
+    params: IndexRecordParams,
+    exclusions: CustomFieldExclusionLookup = this.createCustomFieldExclusionLookup(),
+  ): Promise<IndexableRecord | null> {
     const config = this.entityConfigMap.get(params.entityId)
     if (!config || config.enabled === false) {
-      return // Entity not configured for search
+      return null
     }
 
-    const exclusions = this.createCustomFieldExclusionLookup()
     const exclusion = await exclusions(params.entityId, params.tenantId)
     const buildContext: SearchBuildContext = {
       record: withoutExcludedRecordCustomFields(params.record, exclusion),
@@ -345,7 +361,7 @@ export class SearchIndexer {
     }
 
     // Try buildSource first (provides text, presenter, links, checksumSource)
-    let text: string | string[] | undefined
+    let text: string | string[] | undefined = config.buildSource ? [] : undefined
     let presenter: SearchResultPresenter | undefined
     let url: string | undefined
     let links: SearchResultLink[] | undefined
@@ -355,7 +371,7 @@ export class SearchIndexer {
       try {
         const source = await config.buildSource(buildContext)
         if (source) {
-          text = source.text
+          text = source.text ?? []
           if (source.presenter) presenter = source.presenter
           if (source.links) links = source.links
           if (source.checksumSource !== undefined) checksumSource = source.checksumSource
@@ -413,21 +429,19 @@ export class SearchIndexer {
 
     applyBuildRecordChanges(buildContext.record, params.record, exclusion)
 
-    // Build IndexableRecord
-    const indexableRecord: IndexableRecord = {
+    return {
       entityId: params.entityId,
       recordId: params.recordId,
       tenantId: params.tenantId,
       organizationId: params.organizationId,
       fields: params.record,
+      plaintextExcludedCustomFields: toPlaintextExcludedCustomFields(exclusion),
       presenter,
       url,
       links,
       text,
       checksumSource,
     }
-
-    await this.searchService.index(indexableRecord)
   }
 
   /**
@@ -738,61 +752,10 @@ export class SearchIndexer {
     const exclusions = this.createCustomFieldExclusionLookup()
 
     for (const param of params) {
-      const config = this.entityConfigMap.get(param.entityId)
-      if (!config || config.enabled === false) {
-        continue
+      const indexableRecord = await this.buildIndexableRecord(param, exclusions)
+      if (indexableRecord) {
+        indexableRecords.push(indexableRecord)
       }
-
-      const exclusion = await exclusions(param.entityId, param.tenantId)
-      const buildContext: SearchBuildContext = {
-        record: withoutExcludedRecordCustomFields(param.record, exclusion),
-        customFields: withoutExcludedCustomFields(param.customFields ?? {}, exclusion),
-        organizationId: param.organizationId,
-        tenantId: param.tenantId,
-      }
-
-      let presenter: SearchResultPresenter | undefined
-      if (config.formatResult) {
-        try {
-          const result = await config.formatResult(buildContext)
-          if (result) presenter = result
-        } catch {
-          // Skip presenter on error
-        }
-      }
-
-      let url: string | undefined
-      if (config.resolveUrl) {
-        try {
-          const result = await config.resolveUrl(buildContext)
-          if (result) url = result
-        } catch {
-          // Skip URL on error
-        }
-      }
-
-      let links: SearchResultLink[] | undefined
-      if (config.resolveLinks) {
-        try {
-          const result = await config.resolveLinks(buildContext)
-          if (result) links = result
-        } catch {
-          // Skip links on error
-        }
-      }
-
-      applyBuildRecordChanges(buildContext.record, param.record, exclusion)
-
-      indexableRecords.push({
-        entityId: param.entityId,
-        recordId: param.recordId,
-        tenantId: param.tenantId,
-        organizationId: param.organizationId,
-        fields: param.record,
-        presenter,
-        url,
-        links,
-      })
     }
 
     if (indexableRecords.length > 0) {
@@ -1284,6 +1247,7 @@ export class SearchIndexer {
     const records: IndexableRecord[] = []
     let dropped = 0
     const exclusion = await exclusions(entityId, tenantId)
+    const plaintextExcludedCustomFields = toPlaintextExcludedCustomFields(exclusion)
     const buildQueryEngine = this.createBuildQueryEngine(exclusions)
 
     // Debug: log first item to see structure
@@ -1325,7 +1289,7 @@ export class SearchIndexer {
       }
 
       // Try buildSource first (provides text, presenter, links, checksumSource)
-      let text: string | string[] | undefined
+      let text: string | string[] | undefined = config.buildSource ? [] : undefined
       let presenter: SearchResultPresenter | undefined
       let url: string | undefined
       let links: SearchResultLink[] | undefined
@@ -1335,7 +1299,7 @@ export class SearchIndexer {
         try {
           const source = await config.buildSource(buildContext)
           if (source) {
-            text = source.text
+            text = source.text ?? []
             if (source.presenter) presenter = source.presenter
             if (source.links) links = source.links
             if (source.checksumSource !== undefined) checksumSource = source.checksumSource
@@ -1387,6 +1351,7 @@ export class SearchIndexer {
         tenantId,
         organizationId,
         fields: item,
+        plaintextExcludedCustomFields,
         presenter,
         url,
         links,

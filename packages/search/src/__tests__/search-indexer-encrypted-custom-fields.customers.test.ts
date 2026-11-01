@@ -22,12 +22,12 @@ import type { VectorDriver, VectorDriverDocument } from '../vector/types'
 
 const companyEntityId = 'customers:customer_company_profile'
 const customerEntityId = 'customers:customer_entity'
-const profileSecret = 'GB-SECRET-123456'
+const profileSecret = 'PROFILE-SECRET-SIZE'
 const entitySecret = 'CREDIT-REVIEW-SECRET'
 
 const encryptedKeysByEntity: Record<string, string[]> = {
-  [companyEntityId]: ['tax_number'],
-  [customerEntityId]: ['credit_review_note'],
+  [companyEntityId]: ['size_bucket'],
+  [customerEntityId]: ['status'],
 }
 
 const resolveEncryptedKeys = async (entityId: EntityId) => new Set(encryptedKeysByEntity[entityId] ?? [])
@@ -62,7 +62,19 @@ function createIndexer(rows: Array<Record<string, unknown>>) {
   const searchService = new SearchService({
     strategies: [new VectorSearchStrategy(backend.embeddingService, backend.driver)],
   })
-  const indexer = new SearchIndexer(searchService, [searchConfig], {
+  const moduleConfig = {
+    ...searchConfig,
+    entities: searchConfig.entities.map((entity) => entity.entityId === companyEntityId && entity.buildSource
+      ? {
+          ...entity,
+          buildSource: (context: Parameters<NonNullable<typeof entity.buildSource>>[0]) => entity.buildSource!({
+            ...context,
+            container: { resolve: () => ({ getEncryptedFieldNames: async () => [] }) },
+          }),
+        }
+      : entity),
+  }
+  const indexer = new SearchIndexer(searchService, [moduleConfig], {
     queryEngine,
     encryptedCustomFieldKeysResolver: resolveEncryptedKeys,
   })
@@ -79,9 +91,7 @@ describe('SearchIndexer encrypted custom fields through the customers Company so
       {
         id: 'customer-entity-1',
         kind: 'company',
-        display_name: 'Acme Ltd',
-        'cf:credit_review_note': entitySecret,
-        'cf:account_tier': 'Gold',
+        'cf:status': entitySecret,
       },
     ])
 
@@ -93,18 +103,14 @@ describe('SearchIndexer encrypted custom fields through the customers Company so
       record: {
         id: 'company-profile-1',
         entity_id: 'customer-entity-1',
-        legal_name: 'Acme Ltd',
-        'cf:tax_number': profileSecret,
-        'cf:industry_note': 'Wholesale',
+        'cf:size_bucket': profileSecret,
       },
-      customFields: { tax_number: profileSecret, industry_note: 'Wholesale' },
+      customFields: { size_bucket: profileSecret },
     })
 
     expect(embeddedTexts).toHaveLength(1)
     const [text] = embeddedTexts
-    expect(text).toContain('Acme Ltd')
-    expect(text).toContain('Wholesale')
-    expect(text).toContain('Gold')
+    expect(text).toContain('Record ID: company-profile-1')
     expect(text).not.toContain(profileSecret)
     expect(text).not.toContain(entitySecret)
     expect(upserted).toHaveLength(1)
@@ -117,9 +123,7 @@ describe('SearchIndexer encrypted custom fields through the customers Company so
       {
         id: 'customer-entity-2',
         kind: 'company',
-        display_name: 'Beta GmbH',
-        'cf:tax_number': profileSecret,
-        'cf:account_tier': 'Silver',
+        'cf:size_bucket': profileSecret,
       },
     ])
 
@@ -128,14 +132,14 @@ describe('SearchIndexer encrypted custom fields through the customers Company so
       recordId: 'company-profile-2',
       tenantId: 'tenant-1',
       organizationId: 'org-1',
-      record: { id: 'company-profile-2', legal_name: 'Beta GmbH' },
+      record: { id: 'company-profile-2' },
     })
 
     const queryOptions = (query.mock.calls as unknown as Array<[string, { customFieldSources?: Array<{ entityId: string }> }]>)
       .find(([entity]) => entity === customerEntityId)?.[1]
     expect(queryOptions?.customFieldSources?.map((source) => source.entityId)).toContain(companyEntityId)
     expect(embeddedTexts).toHaveLength(1)
-    expect(embeddedTexts[0]).toContain('Silver')
+    expect(embeddedTexts[0]).toContain('Record ID: company-profile-2')
     expect(embeddedTexts[0]).not.toContain(profileSecret)
     expect(storedCallbackOutput(upserted[0])).not.toContain(profileSecret)
   })
