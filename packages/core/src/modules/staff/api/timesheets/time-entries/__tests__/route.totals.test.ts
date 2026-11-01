@@ -33,6 +33,7 @@ const ORG_ID = '22222222-2222-4222-8222-222222222222'
 const USER_ID = '33333333-3333-4333-8333-333333333333'
 const MEMBER_ID = '44444444-4444-4444-8444-444444444444'
 const PROJECT_ID = '55555555-5555-4555-8555-555555555555'
+const FOREIGN_PROJECT_ID = '55555555-5555-4555-8555-5555555555ff'
 const TAG_ID = '88888888-8888-4888-8888-000000000001'
 const TAGGED_ENTRY_ID = '77777777-7777-4777-8777-777777777771'
 const OTHER_TAGGED_ENTRY_ID = '77777777-7777-4777-8777-777777777772'
@@ -182,6 +183,40 @@ describe('time-entries list totals', () => {
     expect(payload).toHaveProperty('totals')
     expect(queries[0].sql).toContain('"e"."notes" ilike $')
     expect(queries[0].parameters).toContain('%audit%')
+  })
+
+  it('intersects an advanced project filter with the caller\'s allowed projects', async () => {
+    const { ctx, queries } = buildCtx(
+      {
+        includeTotals: 'true',
+        'filter[conditions][0][field]': 'time_project_id',
+        'filter[conditions][0][op]': 'equals',
+        'filter[conditions][0][value]': FOREIGN_PROJECT_ID,
+      },
+      { canSeeRates: false },
+    )
+
+    await attachTimeEntryTotals(listPayload(), ctx)
+
+    expect(queries[0].parameters).toEqual(expect.arrayContaining([PROJECT_ID, FOREIGN_PROJECT_ID]))
+  })
+
+  it('keeps fail-closed project access when an advanced filter targets an entry', async () => {
+    mockResolveProjectAccess.mockResolvedValue({ canManageAll: false, projectIds: [], staffMemberId: null })
+    const { ctx, queries } = buildCtx(
+      {
+        includeTotals: 'true',
+        'filter[conditions][0][field]': 'id',
+        'filter[conditions][0][op]': 'equals',
+        'filter[conditions][0][value]': TAGGED_ENTRY_ID,
+      },
+      { canSeeRates: false },
+    )
+
+    await attachTimeEntryTotals(listPayload(), ctx)
+
+    expect(queries[0].parameters).toContain(TAGGED_ENTRY_ID)
+    expect(queries[0].parameters).toContain('00000000-0000-0000-0000-000000000000')
   })
 
   it('omits and reports totals when an advanced filter uses an operator the aggregate cannot compile', async () => {

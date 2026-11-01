@@ -35,7 +35,7 @@ import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { isIdsParamProvided, mergeIdFilter, parseIdsParam } from '@open-mercato/shared/lib/crud/ids'
-import { mergeAdvancedFilters } from '@open-mercato/shared/lib/crud/advanced-filter-integration'
+import { mergeAdvancedFiltersFromQuery } from '@open-mercato/shared/lib/crud/advanced-filter-integration'
 import { sanitizeSearchTerm } from '../../helpers'
 import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
 import { StaffTimeEntry, StaffTimeEntryTag, StaffTimeProject } from '../../../data/entities'
@@ -316,7 +316,7 @@ export async function buildScopedTimeEntryListFilters(
   }
 
   const access = await resolveListProjectAccess(ctx)
-  if (access.canManageAll) return filters
+  if (access.canManageAll) return mergeAdvancedFiltersFromQuery(filters, query as Record<string, unknown>)
 
   const branches: Record<string, unknown>[] = []
   if (access.projectIds.length > 0) {
@@ -329,10 +329,10 @@ export async function buildScopedTimeEntryListFilters(
     // A caller with no membership and no staff record gets no row at all — not a
     // redacted one — so an entry's note and its project never leave the server.
     filters[F.id] = { $in: [IMPOSSIBLE_ID] }
-    return filters
+    return mergeAdvancedFiltersFromQuery(filters, query as Record<string, unknown>)
   }
   filters.$or = branches
-  return filters
+  return mergeAdvancedFiltersFromQuery(filters, query as Record<string, unknown>)
 }
 
 /**
@@ -435,11 +435,9 @@ export async function attachTimeEntryTotals(
     const { organizationId } = resolveCtxScope(ctx)
     const query = ctx.query as Record<string, unknown>
     const scopedFilters = await buildScopedTimeEntryListFilters(ctx.query, ctx)
-    const filters = mergeIdFilter(
-      mergeAdvancedFilters(scopedFilters, query),
-      parseIdsParam(query.ids),
-      { idsParamProvided: isIdsParamProvided(query.ids) },
-    ) as Record<string, unknown>
+    const filters = mergeIdFilter(scopedFilters, parseIdsParam(query.ids), {
+      idsParamProvided: isIdsParamProvided(query.ids),
+    }) as Record<string, unknown>
     const rates = await resolveFeatureAccess(ctx.container, ctx.auth?.sub ?? null, [RATES_FEATURE], {
       tenantId,
       organizationId,
