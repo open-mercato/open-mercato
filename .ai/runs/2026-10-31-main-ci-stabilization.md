@@ -48,6 +48,7 @@ Restore the main branch's snapshot-release health by ensuring standalone consume
 - Hosted audit rejected `happy-dom@20.8.9`; TipTap 3.32.2 proves the server conversion runtime is unchanged with 21.0.4, so Documents now owns that small conversion adapter directly and no longer depends on stale third-party peer metadata.
 - The snapshot workflow publishes before standalone validation, so this fix can prove the consumer path only through the PR gate and the next main snapshot after merge.
 - Dependency installation emitted existing peer warnings and optional native-build warnings; the immutable install completed successfully and this run will not absorb unrelated dependency cleanup.
+- The required final review requested committed fresh-consumer/runtime proofs and a spec correction. Those fixes landed in `31c6a0bef6` and all hosted checks are green, but both permitted review subtasks are exhausted; the PR remains draft until a fresh reviewer approves the corrected head.
 
 ## Progress
 
@@ -71,5 +72,5 @@ PR: #8349
 
 ### Phase 3: Verify and review
 
-- [x] 3.1 Run the configured validation gate and the relevant standalone/package checks, fixing any regressions. — 4cafcb28dc
+- [x] 3.1 Run the configured validation gate and the relevant standalone/package checks, fixing any regressions. — 4cafcb28dc, 31c6a0bef6
 - [ ] 3.2 Verify the PR's CI checks and obtain the required independent final-review verdict.
