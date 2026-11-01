@@ -477,7 +477,11 @@ export class DefaultCustomerCreditService implements CustomerCreditService {
     const result = new Map<string, string>()
     if (creditAccountIds.length === 0) return result
     const placeholders = creditAccountIds.map(() => '?').join(', ')
-    const rows = await this.em.getConnection().execute<Array<{ credit_account_id: string; total: string }>>(
+    // em.execute (NOT em.getConnection().execute) - see baseCurrencyService.ts's identical
+    // fix: getConnection().execute() always grabs a fresh pool connection, bypassing any
+    // ambient transaction and risking the same pool-exhaustion deadlock under a caller
+    // holding an advisory lock on its own transaction connection.
+    const rows = await this.em.execute<Array<{ credit_account_id: string; total: string }>>(
       `select credit_account_id, sum(amount)::text as total
          from customer_credit_ledger_entries
         where tenant_id = ? and organization_id = ? and credit_account_id in (${placeholders})

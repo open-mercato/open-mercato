@@ -237,14 +237,7 @@ test.describe('TC-CART-CONC-01/02/03/04/05: concurrency, idempotency and the re-
       const responses = await Promise.all(Array.from({ length: 20 }, () => cartStorefrontRequest(store.hostname, CART_LINES_PATH, {
         method: 'POST', cartToken: cart.token, body: { productId: product.productId, quantity: '1' },
       })));
-      // Budget raised from 15s: the PR #8268 review's approval-gate-bypass fix (lines.ts)
-      // added a mandatory `em.refresh(cart)` inside the per-cart advisory lock so a
-      // concurrent `cart.lock` can't land between the pre-check and the lock grant — a real
-      // DB round-trip now serialized across all 20 contenders, consistently measured at
-      // 16-17s here (vs. this test's original 15s budget, set before that fix existed).
-      // Still comfortably below where genuine pool exhaustion shows up (30s+ or an outright
-      // timeout/500), so this keeps catching the regression #8305 introduced the test for.
-      expect(Date.now() - startedAt, 'concurrent mutations should finish before the pool acquisition timeout').toBeLessThan(25_000);
+      expect(Date.now() - startedAt, 'concurrent mutations should finish before the 15-second pool acquisition timeout').toBeLessThan(15_000);
       for (const response of responses) {
         expect([200, 201], response.text).toContain(response.status);
         expect((response.body as { cart: { lines: Array<{ productId: string }> } }).cart.lines.some((line) => line.productId === product.productId)).toBe(true);
