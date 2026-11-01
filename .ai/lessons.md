@@ -1,6 +1,6 @@
 # Lessons
 
-This catalog indexes 165 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
+This catalog indexes 170 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
 
 ## How to use this catalog
 
@@ -18,6 +18,10 @@ This catalog indexes 165 focused lessons. Route the task first, then read only r
 
 ## Catalog
 
+- [Content Security Policy must cover srcDoc previews](lessons/content-security-policy-must-cover-srcdoc-previews.md) — area:backend-ui,testing,integration; module:ecommerce,ui,shared,documents; topic:content-security-policy,srcdoc,nonces,security-regression,configured-origins
+
+- [Serialize deprovisioning with final session issuance](lessons/serialize-deprovisioning-with-session-issuance.md) — area:module-data,testing; module:auth,sso; topic:security,concurrency,session-revocation,tenant-isolation
+- [Assert auth redirect responses before following them](lessons/assert-auth-redirects-before-following-them.md) — area:integration,testing; module:auth,sso; topic:testing,api-contracts,redirects,session-revocation
 - [Verify integration fixture cleanup against the actual endpoint](lessons/verify-integration-fixture-cleanup-contracts.md) — area:testing,integration; module:resources,entities,customers,sales,warranty_claims,channel_discord; topic:testing,fixture-cleanup,fixture-setup,api-contracts,schema-validation,proposal-origin
 
 ### architecture
@@ -32,19 +36,20 @@ This catalog indexes 165 focused lessons. Route the task first, then read only r
 - [Durable quota reservations need fenced leases, conditional creates, and bounded sizes](lessons/durable-quota-reservations-need-fenced-leases.md) — area:architecture,module-data; module:attachments,storage_s3; topic:data-scoping,command-pattern,database-migrations
 - [Encode untrusted Markdown fragments as data, not chained escapes](lessons/encode-untrusted-markdown-fragments-as-data.md) — area:architecture,testing; module:platform; topic:network-security,testing
 
-- [Feature-gated runtime helpers must use wildcard-aware permission matching](lessons/feature-gated-runtime-helpers-must-use-wildcard-aware.md) — area:architecture,backend-ui,module-data; module:customer_accounts,customers,events; topic:access-control,command-pattern,events
+- [Feature-gated runtime helpers must use wildcard-aware permission matching](lessons/feature-gated-runtime-helpers-must-use-wildcard-aware.md) — area:architecture,backend-ui,module-data; module:customer_accounts,customers,events,shared,auth; topic:access-control,command-pattern,events
 - [Fixing the writer of a bad persisted value needs a remediation branch for values already stored](lessons/fixing-the-writer-of-a-bad-persisted-value-needs-a.md) — area:backend-ui,architecture,testing; module:notifications,directory,auth; topic:data-scoping,template-sync
 - [Fresh standalone Yarn scaffolds must ship a runnable root workspace lockfile entry](lessons/fresh-standalone-yarn-scaffolds-must-ship-a-runnable.md) — area:architecture,testing,module-data; module:create_app; topic:command-pattern,package-runtime,template-sync
 - [Generated standalone app installs in CI must opt out of immutable lockfiles](lessons/generated-standalone-app-installs-in-ci-must-opt-out-of.md) — area:architecture,integration,testing; module:create_app; topic:generated-files,database-migrations,package-runtime
 - [Generator manifests must fall back to source parsing when runtime-importing TS modules is fragile](lessons/generator-manifests-must-fall-back-to-source-parsing.md) — area:architecture,integration,module-data; module:cli,query_index,queue; topic:events,generated-files,query-index
-- [Global registries in publishable packages must use `globalThis`, not module-local state](lessons/global-registries-in-publishable-packages-must-use.md) — area:architecture,module-data; module:shared,create_app; topic:events,module-boundaries,package-runtime
-- [Keep create-app template files in lockstep with app shell/layout changes](lessons/keep-create-app-template-files-in-lockstep-with-app.md) — area:architecture,backend-ui; module:create_app,ui; topic:template-sync,ui-components
+- [Global registries in publishable packages must use `globalThis`, not module-local state](lessons/global-registries-in-publishable-packages-must-use.md) — area:architecture,module-data; module:shared,create_app,query_index; topic:events,module-boundaries,package-runtime
+- [Keep create-app template files in lockstep with app shell/layout changes](lessons/keep-create-app-template-files-in-lockstep-with-app.md) — area:architecture,backend-ui,testing; module:create_app,ui,example; topic:template-sync,ui-components,testing
 - [Keep mirrored dev runtimes aligned with their process registry type](lessons/keep-mirrored-dev-runtimes-aligned-with-their-process.md) — area:architecture,debugging; module:events,create_app; topic:events,dev-runtime,filters
-- [Keep standalone agentic content in sync with module conventions](lessons/keep-standalone-agentic-content-in-sync-with-module.md) — area:architecture,framework-context; module:create_app,documents,events,cli; topic:auto-discovery,generated-files,package-runtime,session-export,testing,context-budget
+- [Keep standalone agentic content in sync with module conventions](lessons/keep-standalone-agentic-content-in-sync-with-module.md) — area:architecture,framework-context; module:create_app,documents,events,cli; topic:context-budget,testing,auto-discovery,generated-files,package-runtime,session-export
 - [Keep standalone template module lists aligned with template package dependencies](lessons/keep-standalone-template-module-lists-aligned-with.md) — area:architecture; module:create_app,cli; topic:generated-files,package-runtime,template-sync
 - [Module-registered schedules can only target workers owned by the same module](lessons/module-schedules-can-only-target-workers-owned-by-the-same-module.md) — area:architecture,integration; module:scheduler,queue,payment_gateways; topic:workers,module-boundaries,provider-lifecycle
 - [Never guard sensitive routes with `requireRoles` on mutable role names](lessons/never-guard-sensitive-routes-with-requireroles-on.md) — area:architecture; module:auth; topic:access-control,data-scoping
 - [Package build scripts must rewrite side-effect ESM imports and declared watch entrypoints must exist](lessons/package-build-scripts-must-rewrite-side-effect-esm.md) — area:architecture,integration; module:checkout; topic:build-output,module-boundaries,package-runtime
+- [Pin coupled dependency trains below the release-age gate before publishing](lessons/pin-coupled-dependency-trains-below-the-release-age-gate.md) — area:architecture,integration,testing; module:documents,create_app; topic:package-runtime,dependency-security,testing
 - [Prefer relative intra-package imports inside package CLI/runtime entrypoints](lessons/prefer-relative-intra-package-imports-inside-package.md) — area:architecture; module:cli; topic:package-runtime,runtime-startup,testing
 - [Standalone module discovery must treat published `src/modules` as canonical over `dist/modules`](lessons/standalone-module-discovery-must-treat-published-src.md) — area:architecture,framework-context,umes; module:create_app,events,cli; topic:build-output,events,generated-files
 - [Standalone scaffolding and generators must not assume monorepo-only paths](lessons/standalone-scaffolding-and-generators-must-not-assume.md) — area:architecture; module:cli,create_app; topic:generated-files,package-runtime,testing
@@ -59,18 +64,18 @@ This catalog indexes 165 focused lessons. Route the task first, then read only r
 - [Personal API-key data must fail closed when policy is unavailable](lessons/personal-data-api-keys-must-fail-closed-on-missing-policy.md) — area:module-data,debugging; module:auth,dashboards; topic:access-control,api-keys,failure-states
 - [Materialize locking prune batches before deleting](lessons/materialize-locking-prune-batches.md) — area:module-data,debugging,testing; module:payment_gateways; topic:concurrency,postgresql,retention,data-integrity
 
-- [Authoritative command guards must validate final interceptor input](lessons/authoritative-command-guards-must-validate-final-interceptor-input.md) — area:module-data,architecture,testing; module:example,customers,shared; topic:command-pattern,data-integrity,concurrency,api-interceptors,testing
+- [Authoritative command guards must validate final interceptor input](lessons/authoritative-command-guards-must-validate-final-interceptor-input.md) — area:module-data,architecture,testing; module:example,customers,shared,sales,warranty_claims; topic:command-pattern,data-integrity,concurrency,api-interceptors,testing
 - [Auto-discovery routing surprises only a running app catches](lessons/api-route-files-must-sit-directly-under-the-resource.md) — area:module-data,backend-ui,testing; module:documents,cli,ui; topic:auto-discovery,generated-files,error-states
 - [Local tooling gotchas: stale snapshots and ephemeral restarts](lessons/db-generate-re-emits-an-unrelated-stale-snapshot.md) — area:module-data,testing,debugging; module:cli,ai_assistant; topic:database-migrations,dev-runtime,regeneration
 - [`dbMigrate` must not write migration snapshots during initialize flows](lessons/dbmigrate-must-not-write-migration-snapshots-during.md) — area:module-data,architecture; module:cli,create_app; topic:generated-files,database-migrations,runtime-startup
 - [A self-request needs data committed outside the caller's transaction](lessons/a-self-request-needs-data-committed-outside-the-callers.md) — area:module-data; module:auth,checkout,query_index; topic:data-integrity,query-index,workers
 - [A migration with swapped up/down can silently drop a unique constraint the code relies on](lessons/swapped-migration-up-down-can-silently-drop-a-unique-constraint.md) — area:module-data,debugging,testing; module:payment_gateways; topic:database-migrations,data-integrity,webhooks
-- [Avoid identity-map stale snapshots in command logs](lessons/avoid-identity-map-stale-snapshots-in-command-logs.md) — area:module-data,debugging,testing; module:audit_logs,cache,customers; topic:command-pattern,data-integrity,generated-files,encryption
+- [Avoid identity-map stale snapshots in command logs](lessons/avoid-identity-map-stale-snapshots-in-command-logs.md) — area:module-data,debugging,testing; module:audit_logs,cache,customers,auth; topic:command-pattern,data-integrity,generated-files,encryption,authorization-locks
 - [Classify redo creation by operation and snapshot](lessons/classify-redo-creation-by-operation-and-snapshot.md) — area:module-data,testing; module:feature_toggles; topic:command-pattern,data-integrity,undo-redo
 - [Classify entity metadata by ORM ownership before custom declarations](lessons/classify-entity-metadata-by-orm-ownership-before-custom.md) — area:module-data; module:entities; topic:access-control,filters
 - [Concurrent index migrations must recover from invalid build stubs](lessons/concurrent-index-migrations-must-recover-from-invalid-build-stubs.md) — area:module-data,debugging,testing; module:query_index; topic:concurrency,database-migrations,data-integrity
 - [Data migrations must declare the query-index projections they invalidate](lessons/data-migrations-must-declare-the-projections-they.md) — area:module-data,architecture,debugging; module:query_index,cli,customers; topic:database-migrations,query-index,events
-- [The decryption `scope` argument is not a WHERE filter](lessons/decryption-scope-argument-is-not-a-where-filter.md) — area:module-data,architecture,testing; module:warranty_claims,shared,customers; topic:data-scoping,access-control,command-pattern,row-locking,reference-integrity
+- [The decryption `scope` argument is not a WHERE filter](lessons/decryption-scope-argument-is-not-a-where-filter.md) — area:module-data,architecture,testing; module:warranty_claims,shared,customers; topic:data-scoping,access-control,command-pattern,historical-attribution,row-locking,reference-integrity
 - [Cross-module query precedent is not permission to copy storage coupling](lessons/cross-module-query-precedent-is-not-permission-to-copy.md) — area:module-data,debugging; module:customers; topic:access-control,module-boundaries,testing
 - [CRUD-owned custom-field writes should not emit a second entity event](lessons/crud-owned-custom-field-writes-should-not-emit-a-second.md) — area:module-data,umes; module:entities,query_index,cli; topic:command-pattern,custom-fields,data-integrity
 - [Data-sync run detail should subscribe to its progress job, not just poll it](lessons/data-sync-run-detail-should-subscribe-to-its-progress.md) — area:module-data,integration,debugging; module:data_sync,progress,events; topic:events,realtime,testing
@@ -109,7 +114,7 @@ This catalog indexes 165 focused lessons. Route the task first, then read only r
 ### umes
 
 - [Declared extension hosts need real mount tests](lessons/declared-extension-hosts-need-real-mount-tests.md) — area:umes,backend-ui,debugging; module:ui,core,catalog,customers; topic:component-overrides,api-interceptors,optional-modules,testing
-- [Client injection hooks must tolerate late registry registration](lessons/client-injection-hooks-must-tolerate-late-registry.md) — area:umes,architecture,integration; module:cli,cache,ui; topic:generated-files,database-migrations,provider-lifecycle
+- [Client injection hooks must tolerate late registry registration](lessons/client-injection-hooks-must-tolerate-late-registry.md) — area:umes,architecture,integration; module:cli,cache,ui; topic:generated-files,database-migrations,provider-lifecycle,data-scoping
 - [Custom-field detail UIs must accept canonical bare keys](lessons/custom-field-detail-uis-must-accept-canonical-bare-keys.md) — area:umes,backend-ui,debugging; module:entities,ui,customers; topic:custom-fields,generated-files,ui-components
 - [Prefer canonical route paths over alias lists for custom APIs](lessons/prefer-canonical-route-paths-over-alias-lists-for.md) — area:umes,architecture; module:cli,create_app; topic:generated-files,package-runtime,testing
 - [Sanitize generated component override entries before runtime use](lessons/sanitize-generated-component-override-entries-before.md) — area:umes,architecture; module:shared,cli; topic:component-overrides,generated-files,filters
@@ -140,7 +145,7 @@ This catalog indexes 165 focused lessons. Route the task first, then read only r
 - [Route-aware backend chrome should use route manifests, not the full module registry](lessons/route-aware-backend-chrome-should-use-route-manifests.md) — area:backend-ui,architecture; module:ui,events; topic:events,generated-files,regeneration
 - [Shared candidate sets must stay identical across display and validation consumers](lessons/shared-candidate-sets-must-stay-identical-across-display.md) — area:backend-ui,testing; module:customers; topic:filters,testing,ui-components
 - [Sidebar hydration must preserve the exact RBAC inclusion semantics of the server layout](lessons/sidebar-hydration-must-preserve-the-exact-rbac.md) — area:backend-ui,debugging; module:ui; topic:access-control,data-scoping,generated-files
-- [Standardize record-not-found as a dedicated page state in backend UI](lessons/standardize-record-not-found-as-a-dedicated-page-state.md) — area:backend-ui,debugging; module:ui,auth,customers; topic:error-states,ui-components
+- [Standardize record-not-found as a dedicated page state in backend UI](lessons/standardize-record-not-found-as-a-dedicated-page-state.md) — area:backend-ui,debugging,module-data,testing; module:ui,auth,customers,sales,audit_logs,shared; topic:error-states,ui-components,i18n,command-pattern
 
 ### integration
 
@@ -160,8 +165,8 @@ This catalog indexes 165 focused lessons. Route the task first, then read only r
 - [Provider credentials must never control authenticated cross-origin requests](lessons/provider-credentials-must-never-control-authenticated.md) — area:integration; module:auth,integrations,data_sync; topic:data-import,data-scoping,media
 - [Provider sandboxes may sign notifications with a separate CA](lessons/provider-sandboxes-may-sign-with-a-separate-ca.md) — area:integration; module:payment_gateways,gateway_tpay; topic:network-security,webhooks
 - [Security caches must outlive request-scoped providers and cover reserved IPv6 space](lessons/security-caches-must-outlive-request-scoped-providers.md) — area:integration,umes; module:cache,auth,cli; topic:data-scoping,network-security,provider-lifecycle
-- [Shared security-default changes require a complete consumer audit](lessons/shared-security-default-changes-require-a-complete.md) — area:integration,testing,module-data; module:shared,auth,cache,events,example,create_app; topic:access-control,data-scoping,events
-- [Stabilize flaky integration tests by finding the hang, not by raising the timeout](lessons/stabilize-flaky-integration-tests-by-finding-the-hang.md) — area:integration,testing,backend-ui; module:events,queue,ui,auth,example,record_locks,warranty_claims,customers,phone_calls,search,cache,query_index,sales,sync_excel,workflows; topic:events,testing,workers,hydration,component-overrides,timers
+- [Shared security-default changes require a complete consumer audit](lessons/shared-security-default-changes-require-a-complete.md) — area:integration,testing,module-data; module:shared,auth,cache,events,example,create_app,sso,api_keys; topic:access-control,data-scoping,events,testing
+- [Stabilize flaky integration tests by finding the hang, not by raising the timeout](lessons/stabilize-flaky-integration-tests-by-finding-the-hang.md) — area:integration,testing,backend-ui,debugging; module:events,queue,ui,auth,example,record_locks,warranty_claims,customers,phone_calls,search,cache,query_index,sales,sync_excel,workflows,data_sync,communication_channels,forms,security; topic:events,testing,workers,hydration,component-overrides,timers
 - [Standalone integration activation must match the asserted runtime surface](lessons/standalone-integration-activation-must-match-the-asserted.md) — area:integration,architecture,testing; module:create_app,example,design_system,auth; topic:access-control,component-overrides,generated-files,testing
 - [Standalone CI runners must mirror webhook-security env from parity scripts](lessons/standalone-ci-runners-must-mirror-webhook-security-env.md) — area:integration,architecture,testing; module:webhooks,create_app,checkout; topic:events,generated-files,database-migrations
 - [Store integration registry state in `globalThis` for standalone workers](lessons/store-integration-registry-state-in-globalthis-for.md) — area:integration,architecture,testing; module:integrations,shared,create_app; topic:generated-files,module-boundaries,database-migrations
@@ -195,7 +200,7 @@ This catalog indexes 165 focused lessons. Route the task first, then read only r
 
 - [Determine super-admin via the immutable `isSuperAdmin` flag, never by role name](lessons/determine-super-admin-via-the-immutable-issuperadmin.md) — area:testing,module-data,debugging; module:auth,events; topic:access-control,command-pattern,data-scoping
 - [Enqueue then stamp](lessons/enqueue-then-stamp.md) — area:testing; module:events; topic:events,workers
-- [Integration routing tests must establish the route they claim to cover](lessons/integration-routing-tests-must-establish-the-route-they-claim-to-cover.md) — area:testing,integration,debugging; module:search,query_index; topic:async-indexing,polling,query-index,route-coverage
+- [Integration routing tests must establish the route they claim to cover](lessons/integration-routing-tests-must-establish-the-route-they-claim-to-cover.md) — area:testing,integration,debugging; module:search,query_index; topic:async-indexing,polling,query-index,route-coverage,embedding-privacy
 - [Permission-sensitive exports need live API coverage](lessons/permission-sensitive-exports-need-live-api-coverage.md) — area:testing,integration; module:staff,auth; topic:access-control,testing,route-coverage
 - [Keep executable integration tests module-local](lessons/keep-executable-integration-tests-module-local.md) — area:testing,module-data; module:platform; topic:module-boundaries,package-runtime,testing
 - [Meilisearch container healthchecks must probe IPv4 explicitly](lessons/meilisearch-container-healthchecks-must-probe-ipv4.md) — area:testing,architecture; module:search,create_app; topic:network-security,package-runtime,runtime-startup
@@ -219,3 +224,4 @@ This catalog indexes 165 focused lessons. Route the task first, then read only r
 
 - [Credit the author, not the merger, when generating a changelog](lessons/credit-the-author-not-the-merger-in-a-changelog.md) — area:spec-pr,ai-workflow; module:platform; topic:data-integrity,generated-files
 - [Write Open Mercato specifications in English](lessons/write-open-mercato-specifications-in-english.md) — area:spec-pr,ai-workflow; module:platform; topic:specifications,documentation-language
+- [Preserve generated fact row selectors when compacting](lessons/preserve-generated-fact-row-selectors-when-compacting.md) — area:testing,debugging; module:cli,create_app; topic:generated-files,context-budgets,backward-compatibility

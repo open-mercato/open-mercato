@@ -17,7 +17,7 @@ import {
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CustomerActivity, CustomerDeal, CustomerInteraction } from '../../data/entities'
-import { User } from '@open-mercato/core/modules/auth/data/entities'
+import { interactionUserKey, loadInteractionAuthors } from '../../lib/interactionUsers'
 import { activityCreateSchema, activityUpdateSchema } from '../../data/validators'
 import { createCustomersCrudOpenApi, createPagedListResponseSchema, defaultOkResponseSchema } from '../openapi'
 import {
@@ -30,6 +30,7 @@ import { resolveCustomersRequestContext } from '../../lib/interactionRequestCont
 import { hydrateCanonicalInteractions } from '../../lib/interactionReadModel'
 import { resolveCanonicalActivityTargetId } from '../../lib/legacyActivityBridge'
 import { buildEmailVisibilityMikroFilter } from '../../lib/visibilityFilter'
+import { buildInteractionOccurredAtOrderBy } from '../../lib/interactionOrderBy'
 import { listGrantsForViewer, listSharedChannelIds } from '../../lib/conversationShares'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
@@ -148,25 +149,25 @@ async function legacyAdaptersDisabledResponse(): Promise<Response> {
 
 function buildLegacyOrderBy(sortField: string | undefined, sortDir: 'asc' | 'desc') {
   if (sortField === 'createdAt') {
-    return { createdAt: sortDir }
+    return { createdAt: sortDir, id: sortDir }
   }
-  return { occurredAt: sortDir, createdAt: sortDir } as const
+  return buildInteractionOccurredAtOrderBy(sortDir)
 }
 
 function buildCanonicalOrderBy(sortField: string | undefined, sortDir: 'asc' | 'desc') {
   if (sortField === 'createdAt') {
-    return { createdAt: sortDir }
+    return { createdAt: sortDir, id: sortDir }
   }
-  return { occurredAt: sortDir, createdAt: sortDir } as const
+  return buildInteractionOccurredAtOrderBy(sortDir)
 }
 
-function resolveActivitySortValue(item: ActivityItem, sortField: string | undefined): number {
+function resolveActivitySortValue(item: ActivityItem, sortField: string | undefined): number | null {
   const raw =
     sortField === 'createdAt'
       ? item.createdAt
-      : item.occurredAt ?? item.createdAt
+      : item.occurredAt
   const timestamp = raw ? new Date(raw).getTime() : Number.NaN
-  return Number.isNaN(timestamp) ? 0 : timestamp
+  return Number.isNaN(timestamp) ? null : timestamp
 }
 
 function sortActivityItems(
@@ -178,10 +179,19 @@ function sortActivityItems(
     const leftValue = resolveActivitySortValue(left, sortField)
     const rightValue = resolveActivitySortValue(right, sortField)
     if (leftValue === rightValue) {
+      const leftCreatedAt = resolveActivitySortValue(left, 'createdAt')
+      const rightCreatedAt = resolveActivitySortValue(right, 'createdAt')
+      if (leftCreatedAt !== rightCreatedAt) {
+        if (leftCreatedAt === null) return 1
+        if (rightCreatedAt === null) return -1
+        return sortDir === 'asc' ? leftCreatedAt - rightCreatedAt : rightCreatedAt - leftCreatedAt
+      }
       return sortDir === 'asc'
         ? left.id.localeCompare(right.id)
         : right.id.localeCompare(left.id)
     }
+    if (leftValue === null) return 1
+    if (rightValue === null) return -1
     return sortDir === 'asc' ? leftValue - rightValue : rightValue - leftValue
   })
 }
@@ -202,16 +212,13 @@ export async function decorateActivityItems(
   em: EntityManager,
   items: ActivityItem[],
   decryptionScope?: { tenantId: string; organizationId: string },
+  authorScopesById?: ReadonlyMap<string, { tenantId: string; organizationId: string }>,
 ): Promise<ActivityItem[]> {
   if (items.length === 0) return items
 
-  const authorIds = Array.from(
-    new Set(
-      items
-        .map((item) => (typeof item.authorUserId === 'string' ? item.authorUserId : null))
-        .filter((value): value is string => !!value),
-    ),
-  )
+  const resolveAuthorScope = (itemId: string) => authorScopesById
+    ? authorScopesById.get(itemId) ?? {}
+    : decryptionScope ?? {}
   const dealIds = Array.from(
     new Set(
       items
@@ -227,8 +234,11 @@ export async function decorateActivityItems(
     })
   }
 
-  const [users, deals] = await Promise.all([
-    authorIds.length > 0 ? em.find(User, { id: { $in: authorIds } }) : Promise.resolve([]),
+  const [userMap, deals] = await Promise.all([
+    loadInteractionAuthors(em, items.map((item) => ({
+      ...resolveAuthorScope(item.id),
+      authorUserId: item.authorUserId,
+    }))),
     dealIds.length > 0 && decryptionScope
       ? findWithDecryption(
           em,
@@ -240,24 +250,20 @@ export async function decorateActivityItems(
       : Promise.resolve([]),
   ])
 
-  const userMap = new Map(
-    users.map((user) => [
-      user.id,
-      {
-        name: user.name ?? null,
-        email: user.email ?? null,
-      },
-    ]),
-  )
   const dealMap = new Map(deals.map((deal) => [deal.id, deal.title]))
 
-  return items.map((item) => ({
-    ...item,
-    activityTypeLabel: item.activityType,
-    authorName: item.authorUserId ? userMap.get(item.authorUserId)?.name ?? null : null,
-    authorEmail: item.authorUserId ? userMap.get(item.authorUserId)?.email ?? null : null,
-    dealTitle: item.dealId ? dealMap.get(item.dealId) ?? null : null,
-  }))
+  return items.map((item) => {
+    const author = item.authorUserId
+      ? userMap.get(interactionUserKey(resolveAuthorScope(item.id), item.authorUserId))
+      : null
+    return {
+      ...item,
+      activityTypeLabel: item.activityType,
+      authorName: author?.name ?? null,
+      authorEmail: author?.email ?? null,
+      dealTitle: item.dealId ? dealMap.get(item.dealId) ?? null : null,
+    }
+  })
 }
 
 function mapLegacyActivity(activity: CustomerActivity): ActivityItem {
@@ -428,6 +434,7 @@ async function listLegacyActivities(
       em,
       rows.map(mapLegacyActivity),
       selectedOrganizationId ? { tenantId, organizationId: selectedOrganizationId } : undefined,
+      new Map(rows.map((row) => [row.id, { tenantId: row.tenantId, organizationId: row.organizationId }])),
     ),
     total,
   }
