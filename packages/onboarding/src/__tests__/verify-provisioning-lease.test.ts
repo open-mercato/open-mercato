@@ -1,4 +1,5 @@
 import { OnboardingRequest } from '../modules/onboarding/data/entities'
+import { PROVISIONING_LEASE_STALE_MS } from '../modules/onboarding/lib/provisioning-lease'
 
 type RequestRow = Pick<
   OnboardingRequest,
@@ -21,6 +22,7 @@ type RequestRow = Pick<
 >
 
 type ProvisioningIds = { tenantId: string; organizationId: string; userId: string }
+type SeedModule = { id: string; setup: { seedDefaults: () => Promise<void> } }
 
 const TOKEN = 'a'.repeat(64)
 const TENANT_ID = '11111111-1111-4111-8111-111111111111'
@@ -33,6 +35,23 @@ let staleTokenLookup: RequestRow | null = null
 let releaseSeedDefaults: () => void = () => {}
 let seedDefaultsEntered: Promise<void> = Promise.resolve()
 let markSeedDefaultsEntered: () => void = () => {}
+let leaseRenewals = 0
+let leaseRenewalsAtCompletion: number | null = null
+
+const blockingSeedModule: SeedModule = {
+  id: 'slow_defaults',
+  setup: {
+    seedDefaults: async () => {
+      events.push('seedDefaults:start')
+      markSeedDefaultsEntered()
+      await new Promise<void>((resolve) => {
+        releaseSeedDefaults = resolve
+      })
+      events.push('seedDefaults:end')
+    },
+  },
+}
+let seedModules: SeedModule[] = [blockingSeedModule]
 
 function toEntity(source: RequestRow): OnboardingRequest {
   return Object.assign(new OnboardingRequest(), { ...source })
@@ -57,10 +76,10 @@ class InMemoryOnboardingService {
     return true
   }
 
-  async renewProcessing(request: OnboardingRequest, renewedAt: Date) {
-    if (row.id !== request.id || row.status !== 'processing') return false
+  async renewProcessing(requestId: string, renewedAt: Date) {
+    leaseRenewals += 1
+    if (row.id !== requestId || row.status !== 'processing') return false
     row.processingStartedAt = renewedAt
-    request.processingStartedAt = renewedAt
     return true
   }
 
@@ -81,6 +100,7 @@ class InMemoryOnboardingService {
 
   async markCompleted(request: OnboardingRequest, data: ProvisioningIds) {
     events.push('markCompleted')
+    leaseRenewalsAtCompletion = leaseRenewals
     const completed = {
       ...data,
       status: 'completed' as const,
@@ -150,21 +170,7 @@ jest.mock('@open-mercato/core/modules/auth/lib/setup-app', () => ({
 }))
 
 jest.mock('@open-mercato/shared/lib/modules/registry', () => ({
-  getModules: () => [
-    {
-      id: 'slow_defaults',
-      setup: {
-        seedDefaults: async () => {
-          events.push('seedDefaults:start')
-          markSeedDefaultsEntered()
-          await new Promise<void>((resolve) => {
-            releaseSeedDefaults = resolve
-          })
-          events.push('seedDefaults:end')
-        },
-      },
-    },
-  ],
+  getModules: () => seedModules,
 }))
 
 import { GET } from '../modules/onboarding/api/get/onboarding/verify'
@@ -177,8 +183,12 @@ describe('onboarding verify provisioning lease', () => {
   const originalSelfServiceOnboardingEnabled = process.env.SELF_SERVICE_ONBOARDING_ENABLED
 
   beforeEach(() => {
+    jest.useFakeTimers({ advanceTimers: true })
     process.env.SELF_SERVICE_ONBOARDING_ENABLED = 'true'
     events.length = 0
+    leaseRenewals = 0
+    leaseRenewalsAtCompletion = null
+    seedModules = [blockingSeedModule]
     staleTokenLookup = null
     seedDefaultsEntered = new Promise<void>((resolve) => {
       markSeedDefaultsEntered = resolve
@@ -205,6 +215,8 @@ describe('onboarding verify provisioning lease', () => {
 
   afterEach(() => {
     releaseSeedDefaults()
+    jest.clearAllTimers()
+    jest.useRealTimers()
   })
 
   afterAll(() => {
@@ -267,6 +279,40 @@ describe('onboarding verify provisioning lease', () => {
       'markCompleted',
       'runDeferredProvisioning',
     ])
+  })
+
+  it('keeps the lease alive while a seedDefaults loop outlasts the stale window, and stops renewing once completed', async () => {
+    const seedDefaultsStepMs = 10_000
+    seedModules = Array.from({ length: 12 }, (_, index) => ({
+      id: `defaults_${index}`,
+      setup: {
+        seedDefaults: () => new Promise<void>((resolve) => {
+          setTimeout(resolve, seedDefaultsStepMs)
+        }),
+      },
+    }))
+    const original = GET(verifyRequest())
+
+    await jest.advanceTimersByTimeAsync(PROVISIONING_LEASE_STALE_MS + seedDefaultsStepMs)
+    const duplicate = await GET(verifyRequest())
+
+    expect(duplicate.headers.get('location')).toBe(
+      `https://app.example.com/onboarding/preparing?tenant=${TENANT_ID}`,
+    )
+    expect(row.status).toBe('processing')
+    expect(events).toEqual([])
+
+    await jest.advanceTimersByTimeAsync(seedModules.length * seedDefaultsStepMs)
+    await original
+
+    expect(events).toEqual(['markCompleted', 'runDeferredProvisioning'])
+    expect(row.status).toBe('completed')
+    expect(leaseRenewalsAtCompletion).toBeGreaterThan(0)
+
+    await jest.advanceTimersByTimeAsync(PROVISIONING_LEASE_STALE_MS)
+
+    expect(leaseRenewals).toBe(leaseRenewalsAtCompletion)
+    expect(row.processingStartedAt).toBeNull()
   })
 
   it.each([

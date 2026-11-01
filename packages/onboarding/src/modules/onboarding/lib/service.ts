@@ -122,15 +122,13 @@ export class OnboardingService {
     return true
   }
 
-  async renewProcessing(request: OnboardingRequest, renewedAt: Date): Promise<boolean> {
+  async renewProcessing(requestId: string, renewedAt: Date): Promise<boolean> {
     const renewedRows = await this.em.nativeUpdate(
       OnboardingRequest,
-      { id: request.id, status: 'processing' },
+      { id: requestId, status: 'processing' },
       { processingStartedAt: renewedAt, updatedAt: new Date() },
     )
-    if (renewedRows === 0) return false
-    request.processingStartedAt = renewedAt
-    return true
+    return renewedRows > 0
   }
 
   async resetProcessing(request: OnboardingRequest): Promise<boolean> {

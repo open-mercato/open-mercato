@@ -208,7 +208,7 @@ export async function GET(req: Request) {
   let tenantId: string | null = null
   let organizationId: string | null = null
   let userId: string | null = null
-  let stopLeaseHeartbeat: () => void = () => {}
+  let stopLeaseHeartbeat: () => Promise<void> = async () => {}
 
   try {
     const setupResult = await setupInitialTenant(em, {
@@ -243,7 +243,7 @@ export async function GET(req: Request) {
       organizationId: resolvedOrganizationId,
       userId: resolvedUserId,
     })
-    stopLeaseHeartbeat = startProvisioningLeaseHeartbeat(new OnboardingService(em.fork()), request)
+    stopLeaseHeartbeat = startProvisioningLeaseHeartbeat(new OnboardingService(em.fork()), request.id)
 
     if (request.marketingConsent) {
       const now = new Date()
@@ -306,7 +306,7 @@ export async function GET(req: Request) {
         }),
       )
     }
-    stopLeaseHeartbeat()
+    await stopLeaseHeartbeat()
     await service.markCompleted(request, {
       tenantId: resolvedTenantId,
       organizationId: resolvedOrganizationId,
@@ -323,7 +323,7 @@ export async function GET(req: Request) {
     })
     return redirectToPreparing(baseUrl, resolvedTenantId)
   } catch (error) {
-    stopLeaseHeartbeat()
+    await stopLeaseHeartbeat()
     if (error instanceof Error && error.message === 'USER_EXISTS') {
       await service.resetProcessing(request)
       return redirectWithStatus(baseUrl, 'already_exists')

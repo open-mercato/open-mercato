@@ -204,25 +204,23 @@ describe('OnboardingService', () => {
       const request = makeRequest({ id: 'req-1', status: 'processing', processingStartedAt: claimedAt })
       const service = new OnboardingService(createRowBackedEm(dbRow, request))
 
-      const renewed = await service.renewProcessing(request, renewedAt)
+      const renewed = await service.renewProcessing('req-1', renewedAt)
 
       expect(renewed).toBe(true)
       expect(dbRow.status).toBe('processing')
       expect(dbRow.processingStartedAt).toBe(renewedAt)
-      expect(request.processingStartedAt).toBe(renewedAt)
+      expect(request.processingStartedAt).toBe(claimedAt)
     })
 
     it('does not touch a request a concurrent worker already completed', async () => {
       const dbRow: DbRow = { id: 'req-1', status: 'completed', processingStartedAt: null }
-      const staleRequest = makeRequest({ id: 'req-1', status: 'processing', processingStartedAt: new Date(0) })
-      const service = new OnboardingService(createRowBackedEm(dbRow, staleRequest))
+      const service = new OnboardingService(createRowBackedEm(dbRow))
 
-      const renewed = await service.renewProcessing(staleRequest, new Date())
+      const renewed = await service.renewProcessing('req-1', new Date())
 
       expect(renewed).toBe(false)
       expect(dbRow.status).toBe('completed')
       expect(dbRow.processingStartedAt).toBeNull()
-      expect(staleRequest.processingStartedAt).toEqual(new Date(0))
     })
   })
 

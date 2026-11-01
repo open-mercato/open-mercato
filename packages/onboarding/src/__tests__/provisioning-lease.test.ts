@@ -1,4 +1,3 @@
-import { OnboardingRequest } from '../modules/onboarding/data/entities'
 import {
   PROVISIONING_LEASE_HEARTBEAT_MS,
   PROVISIONING_LEASE_STALE_MS,
@@ -42,30 +41,63 @@ describe('startProvisioningLeaseHeartbeat', () => {
   it('renews the lease well inside the stale window until stopped', async () => {
     expect(PROVISIONING_LEASE_HEARTBEAT_MS * 4).toBeLessThan(PROVISIONING_LEASE_STALE_MS)
     const renewProcessing = jest.fn().mockResolvedValue(true)
-    const request = Object.assign(new OnboardingRequest(), { id: 'req-1' })
 
-    const stop = startProvisioningLeaseHeartbeat({ renewProcessing }, request)
+    const stop = startProvisioningLeaseHeartbeat({ renewProcessing }, 'req-1')
     await jest.advanceTimersByTimeAsync(PROVISIONING_LEASE_HEARTBEAT_MS * 3)
-    stop()
+    await stop()
     await jest.advanceTimersByTimeAsync(PROVISIONING_LEASE_HEARTBEAT_MS * 3)
 
     expect(renewProcessing).toHaveBeenCalledTimes(3)
-    expect(renewProcessing).toHaveBeenCalledWith(request, expect.any(Date))
+    expect(renewProcessing).toHaveBeenCalledWith('req-1', expect.any(Date))
   })
 
   it('reports a failed renewal without throwing and keeps renewing', async () => {
     const failure = new Error('connection lost')
     const renewProcessing = jest.fn().mockRejectedValueOnce(failure).mockResolvedValue(true)
-    const request = Object.assign(new OnboardingRequest(), { id: 'req-1' })
 
-    const stop = startProvisioningLeaseHeartbeat({ renewProcessing }, request)
+    const stop = startProvisioningLeaseHeartbeat({ renewProcessing }, 'req-1')
     await jest.advanceTimersByTimeAsync(PROVISIONING_LEASE_HEARTBEAT_MS * 2)
-    stop()
+    await stop()
 
     expect(renewProcessing).toHaveBeenCalledTimes(2)
     expect(reportError).toHaveBeenCalledWith(failure, {
       module: 'onboarding',
       code: 'onboarding.provisioning_lease_renewal_failed',
     })
+  })
+
+  it('stops renewing once the lease is no longer held', async () => {
+    const renewProcessing = jest.fn().mockResolvedValue(false)
+
+    const stop = startProvisioningLeaseHeartbeat({ renewProcessing }, 'req-1')
+    await jest.advanceTimersByTimeAsync(PROVISIONING_LEASE_HEARTBEAT_MS * 4)
+    await stop()
+
+    expect(renewProcessing).toHaveBeenCalledTimes(1)
+  })
+
+  it('waits for an in-flight renewal when stopped and never overlaps renewals', async () => {
+    let finishRenewal: (renewed: boolean) => void = () => {}
+    const renewProcessing = jest.fn(
+      () => new Promise<boolean>((resolve) => {
+        finishRenewal = resolve
+      }),
+    )
+
+    const stop = startProvisioningLeaseHeartbeat({ renewProcessing }, 'req-1')
+    await jest.advanceTimersByTimeAsync(PROVISIONING_LEASE_HEARTBEAT_MS * 3)
+    let stopped = false
+    const stopping = stop().then(() => {
+      stopped = true
+    })
+    await Promise.resolve()
+
+    expect(renewProcessing).toHaveBeenCalledTimes(1)
+    expect(stopped).toBe(false)
+
+    finishRenewal(true)
+    await stopping
+
+    expect(stopped).toBe(true)
   })
 })
