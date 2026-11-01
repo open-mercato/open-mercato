@@ -611,9 +611,22 @@ describe('deliverOutboundMessageCommand: provider ids of the sent message', () =
   const TENANT = '550e8400-e29b-41d4-a716-446655440020'
   const ORG = '550e8400-e29b-41d4-a716-446655440030'
 
+  type Row = Record<string, unknown>
+  type DeliverCtx = Parameters<typeof deliverOutboundMessageCommand.execute>[1]
+  type TestEm = {
+    create: jest.Mock
+    persist: jest.Mock
+    flush: jest.Mock
+    fork?: () => unknown
+  }
+
+  function statusOf(result: unknown): unknown {
+    return (result as { status?: unknown }).status
+  }
+
   function makeCtx(sendResult: Record<string, unknown>, convertedMetadata: Record<string, unknown> = {}) {
-    const em: any = {
-      create: jest.fn((_entity: unknown, data: Record<string, any>) => ({ ...data })),
+    const em: TestEm = {
+      create: jest.fn((_entity: unknown, data: Row) => ({ ...data })),
       persist: jest.fn(),
       flush: jest.fn(async () => undefined),
     }
@@ -633,11 +646,11 @@ describe('deliverOutboundMessageCommand: provider ids of the sent message', () =
           throw new Error(`unexpected resolve: ${name}`)
         },
       },
-    } as any
+    } as unknown as DeliverCtx
     return { ctx, em, adapter }
   }
 
-  function primeFinds(mapping: Record<string, any>, link: Record<string, any>) {
+  function primeFinds(mapping: Row, link: Row) {
     mockFindOne.mockReset()
     mockFindOne
       .mockResolvedValueOnce({ id: 'msg-1', threadId: 'thread-1', body: 'hello', bodyFormat: 'text' } as never)
@@ -654,7 +667,7 @@ describe('deliverOutboundMessageCommand: provider ids of the sent message', () =
       } as never)
   }
 
-  function outboundMapping(): Record<string, any> {
+  function outboundMapping(): Row {
     return {
       id: 'map-1',
       messageThreadId: 'thread-1',
@@ -664,7 +677,7 @@ describe('deliverOutboundMessageCommand: provider ids of the sent message', () =
     }
   }
 
-  function pendingLink(): Record<string, any> {
+  function pendingLink(): Row {
     return { id: 'link-1', deliveryStatus: 'pending', channelPayload: { text: 'hello' }, channelMetadata: { to: ['client@example.com'] } }
   }
 
@@ -692,7 +705,7 @@ describe('deliverOutboundMessageCommand: provider ids of the sent message', () =
       ctx,
     )
 
-    expect((result as any).status).toBe('delivered')
+    expect(statusOf(result)).toBe('delivered')
     expect((link.channelMetadata as Record<string, unknown>).messageId).toBe('CAJ+gmail-minted@mail.gmail.com')
   })
 
@@ -714,7 +727,7 @@ describe('deliverOutboundMessageCommand: provider ids of the sent message', () =
 
   it('re-keys the outbound placeholder conversation to the provider conversation id', async () => {
     const mapping = outboundMapping()
-    const conversation: Record<string, any> = { id: 'conv-1', channelId: 'ch-1', externalConversationId: 'outbound:thread-1' }
+    const conversation: Row = { id: 'conv-1', channelId: 'ch-1', externalConversationId: 'outbound:thread-1' }
     const { ctx, em } = makeCtx({
       status: 'sent',
       externalMessageId: '<client-built@gmail.com>',
@@ -730,7 +743,7 @@ describe('deliverOutboundMessageCommand: provider ids of the sent message', () =
       ctx,
     )
 
-    expect((result as any).status).toBe('delivered')
+    expect(statusOf(result)).toBe('delivered')
     expect(conversation.externalConversationId).toBe('gmail-thread:gm-thread-1')
     expect(mapping.externalThreadRef).toBe('gmail-thread:gm-thread-1')
     expect(em.flush).toHaveBeenCalledTimes(2)
@@ -738,7 +751,7 @@ describe('deliverOutboundMessageCommand: provider ids of the sent message', () =
 
   it('leaves the placeholder alone when another conversation already owns the provider id', async () => {
     const mapping = outboundMapping()
-    const conversation: Record<string, any> = { id: 'conv-1', channelId: 'ch-1', externalConversationId: 'outbound:thread-1' }
+    const conversation: Row = { id: 'conv-1', channelId: 'ch-1', externalConversationId: 'outbound:thread-1' }
     const { ctx } = makeCtx({
       status: 'sent',
       externalMessageId: '<client-built@gmail.com>',
@@ -753,7 +766,7 @@ describe('deliverOutboundMessageCommand: provider ids of the sent message', () =
       ctx,
     )
 
-    expect((result as any).status).toBe('delivered')
+    expect(statusOf(result)).toBe('delivered')
     expect(conversation.externalConversationId).toBe('outbound:thread-1')
     expect(mapping.externalThreadRef).toBe('outbound:thread-1')
   })
@@ -792,7 +805,7 @@ describe('deliverOutboundMessageCommand: provider ids of the sent message', () =
       ctx,
     )
 
-    expect((result as any).status).toBe('delivered')
+    expect(statusOf(result)).toBe('delivered')
     expect(link.deliveryStatus).toBe('sent')
     expect(em.flush).toHaveBeenCalled()
     expect(mockEmit).toHaveBeenCalledWith(
@@ -805,12 +818,12 @@ describe('deliverOutboundMessageCommand: provider ids of the sent message', () =
     const reportError = jest.fn()
     registerTelemetryRuntime({ reportError } as unknown as TelemetryRuntime)
     const mapping = outboundMapping()
-    const parentEm: any = {
-      create: jest.fn((_entity: unknown, data: Record<string, any>) => ({ ...data })),
+    const parentEm: TestEm = {
+      create: jest.fn((_entity: unknown, data: Row) => ({ ...data })),
       persist: jest.fn(),
       flush: jest.fn(async () => undefined),
     }
-    const adoptionFork: any = {
+    const adoptionFork: Pick<TestEm, 'flush'> = {
       flush: jest.fn(async () => {
         throw Object.assign(
           new Error('duplicate key value violates unique constraint "external_conversations_channel_external_uq"'),
@@ -838,7 +851,7 @@ describe('deliverOutboundMessageCommand: provider ids of the sent message', () =
           throw new Error(`unexpected resolve: ${name}`)
         },
       },
-    } as any
+    } as unknown as DeliverCtx
     const link = pendingLink()
     primeFinds(mapping, link)
     mockFindOne.mockResolvedValueOnce({ id: 'conv-1', channelId: 'ch-1', externalConversationId: 'outbound:thread-1' } as never)
@@ -851,7 +864,7 @@ describe('deliverOutboundMessageCommand: provider ids of the sent message', () =
         ctx,
       )
 
-      expect((result as any).status).toBe('delivered')
+      expect(statusOf(result)).toBe('delivered')
       expect(link.deliveryStatus).toBe('sent')
       expect(adoptionFork.flush).toHaveBeenCalledTimes(1)
       expect(parentEm.flush).toHaveBeenCalledTimes(1)
@@ -901,7 +914,7 @@ describe('deliverOutboundMessageCommand: provider ids of the sent message', () =
 
       const { result } = await deliverWithFailingRekey(error)
 
-      expect((result as any).status).toBe('delivered')
+      expect(statusOf(result)).toBe('delivered')
       expect(reportError).toHaveBeenCalledTimes(1)
       expect(reportError).toHaveBeenCalledWith(error, {
         module: 'communication_channels',
@@ -917,7 +930,7 @@ describe('deliverOutboundMessageCommand: provider ids of the sent message', () =
 
       const { result, link } = await deliverWithFailingRekey(new Error('db blip'))
 
-      expect((result as any).status).toBe('delivered')
+      expect(statusOf(result)).toBe('delivered')
       expect(link.deliveryStatus).toBe('sent')
     })
 

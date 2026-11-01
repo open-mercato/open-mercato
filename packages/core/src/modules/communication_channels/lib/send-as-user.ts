@@ -1,7 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
-import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import {
   ChannelThreadMapping,
   CommunicationChannel,
@@ -181,23 +181,32 @@ export async function sendAsUser(
   // wraps the whole sequence so a mid-way failure rolls back all three writes
   // instead of leaving an orphaned conversation row.
   await em.transactional(async () => {
-    let conversation = await findOneWithDecryption(
-      em,
-      ExternalConversation,
-      {
-        channelId: channel.id,
-        externalConversationId: externalThreadRef,
-        tenantId,
-        organizationId,
-      },
-      undefined,
-      dscope,
-    )
+    // A reply belongs to the conversation its parent lives in on this channel.
+    // One logical thread can map to several provider conversations on the same
+    // channel, so the thread alone cannot pick the right one.
+    let conversation = input.parentMessageId
+      ? await findParentConversation(em, input.parentMessageId, channel.id, dscope)
+      : null
+    if (!conversation) {
+      conversation = await findOneWithDecryption(
+        em,
+        ExternalConversation,
+        {
+          channelId: channel.id,
+          externalConversationId: externalThreadRef,
+          tenantId,
+          organizationId,
+        },
+        undefined,
+        dscope,
+      )
+    }
     if (!conversation) {
       // The thread may already be mapped on this channel under the provider's own
       // conversation id: an inbound thread, or an earlier send whose `outbound:`
       // placeholder was re-keyed by the delivery command. Reuse that conversation
-      // so a follow-up send stays in it instead of opening a parallel one.
+      // so a follow-up send stays in it instead of opening a parallel one. When
+      // the thread spans several conversations here, the oldest one wins.
       const threadMapping = await findOneWithDecryption(
         em,
         ChannelThreadMapping,
@@ -207,7 +216,7 @@ export async function sendAsUser(
           tenantId,
           organizationId,
         },
-        undefined,
+        { orderBy: { createdAt: 'asc' } },
         dscope,
       )
       if (threadMapping) {
@@ -318,6 +327,34 @@ export async function sendAsUser(
     channelId: channel.id,
     providerKey: channel.providerKey,
   }
+}
+
+async function findParentConversation(
+  em: EntityManager,
+  parentMessageId: string,
+  channelId: string,
+  scope: { tenantId: string; organizationId: string | null },
+): Promise<ExternalConversation | null> {
+  const parentLinks = await findWithDecryption(
+    em,
+    MessageChannelLink,
+    { messageId: parentMessageId, tenantId: scope.tenantId, organizationId: scope.organizationId },
+    { orderBy: { createdAt: 'asc' } },
+    scope,
+  )
+  if (parentLinks.length === 0) return null
+  return findOneWithDecryption(
+    em,
+    ExternalConversation,
+    {
+      id: { $in: parentLinks.map((link) => link.externalConversationId) },
+      channelId,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+    },
+    { orderBy: { createdAt: 'asc' } },
+    scope,
+  )
 }
 
 /** DI service type for cross-module callers (resolve `communicationChannelsSendAsUser`). */

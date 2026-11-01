@@ -537,12 +537,19 @@ const deliverOutboundMessageCommand: CommandHandler<
       // opening a second one. Best-effort and after the success flush: the message is
       // already sent, so a failure here must never turn into a retry (double send).
       try {
-        await adoptProviderConversationRef(em, {
+        const adoption = await adoptProviderConversationRef(em, {
           mapping,
           channelId: channel.id,
           providerConversationRef: sendResult.conversationId,
           scope: dscope,
         })
+        if (adoption === 'conflict') {
+          moduleLogger.info('provider conversation id already belongs to another conversation, keeping the outbound placeholder', {
+            messageId: message.id,
+            channelId: channel.id,
+            conversationId: mapping.externalConversationId,
+          })
+        }
       } catch (adoptErr) {
         moduleLogger.warn('could not adopt the provider conversation id, keeping the outbound placeholder', {
           messageId: message.id,
