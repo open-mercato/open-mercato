@@ -60,7 +60,11 @@ export type PersonDetailTabsProps = {
   children: React.ReactNode
 }
 
-/** Tabs shown inline; everything after this count folds into the More menu unless it is active. */
+function tabSignature(tab: { label: string; count?: React.ReactNode }): string {
+  return `${tab.label}\u0000${tab.count == null ? '' : String(tab.count)}`
+}
+
+/** Fallback split when widths cannot be measured (jsdom): this many tabs inline, the rest in More. */
 const PRIMARY_TAB_LIMIT = 6
 
 const SUPPORTED_TAB_IDS = new Set<PersonTabId>(['activities', 'emails', 'deals', 'companies', 'addresses', 'tasks', 'changelog', 'files'])
@@ -167,28 +171,125 @@ function DefaultPersonDetailTabs({
     if (fallback) onTabChange(fallback)
   }, [activeTab, allTabs, isLoadingInjectedTabs, onTabChange])
 
-  const { visibleTabs, overflowTabs } = React.useMemo(() => {
-    const visible = allTabs.slice(0, PRIMARY_TAB_LIMIT)
-    const overflow = allTabs.slice(PRIMARY_TAB_LIMIT)
-    const activeInOverflow = overflow.find((tab) => tab.id === activeTab)
-    return activeInOverflow
-      ? { visibleTabs: [...visible, activeInOverflow], overflowTabs: overflow.filter((tab) => tab.id !== activeTab) }
-      : { visibleTabs: visible, overflowTabs: overflow }
-  }, [activeTab, allTabs])
+  const rowRef = React.useRef<HTMLDivElement>(null)
+  const listRef = React.useRef<HTMLDivElement>(null)
+  const moreRef = React.useRef<HTMLButtonElement>(null)
+  // Width per tab id, keyed to the label and count it was measured with: counts arrive after
+  // the first paint and widen a tab, so a changed signature triggers a fresh measurement.
+  const widthsRef = React.useRef<Map<string, { width: number; signature: string }>>(new Map())
+  const moreWidthRef = React.useRef(0)
+  const listChromeRef = React.useRef(0)
+  const remeasureRetriesRef = React.useRef(0)
+  const [visibleIds, setVisibleIds] = React.useState<string[] | null>(null)
+
+  const measuring = visibleIds === null || allTabs.some((tab) => widthsRef.current.get(tab.id)?.signature !== tabSignature(tab))
+
+  // Priority+ navigation: render every tab once to learn its width (before paint), then keep
+  // only the tabs that fit beside the More trigger and fold the rest into the menu. jsdom
+  // reports zero widths, so it falls back to the fixed PRIMARY_TAB_LIMIT split.
+  React.useLayoutEffect(() => {
+    const row = rowRef.current
+    const list = listRef.current
+    if (!row || !list) return
+
+    const tabList = list.querySelector<HTMLElement>('[role="tablist"]')
+    const gap = tabList ? Number.parseFloat(getComputedStyle(tabList).columnGap || '0') || 0 : 0
+
+    const compute = () => {
+      if (measuring) {
+        const rendered = Array.from(list.querySelectorAll<HTMLElement>('[role="tab"]'))
+        let tabsWidth = 0
+        rendered.forEach((element, index) => {
+          const tab = allTabs[index]
+          const width = element.getBoundingClientRect().width
+          tabsWidth += width
+          if (tab) widthsRef.current.set(tab.id, { width, signature: tabSignature(tab) })
+        })
+        if (moreRef.current) moreWidthRef.current = moreRef.current.getBoundingClientRect().width
+        if (tabList) {
+          // Padding, borders and anything else the list adds around its tabs.
+          const gaps = Math.max(0, rendered.length - 1) * gap
+          listChromeRef.current = Math.max(0, tabList.getBoundingClientRect().width - tabsWidth - gaps)
+        }
+      }
+      const available = list.clientWidth - listChromeRef.current - 1
+      // Styles can still be settling right after hydration, so a visible strip may have measured
+      // its tabs at 0: drop those entries and measure again on the next frame (a few times at most).
+      const unmeasured = allTabs.some((tab) => (widthsRef.current.get(tab.id)?.width ?? 0) === 0)
+      if (unmeasured && list.clientWidth > 0 && remeasureRetriesRef.current < 5) {
+        remeasureRetriesRef.current += 1
+        requestAnimationFrame(() => {
+          for (const tab of allTabs) {
+            if ((widthsRef.current.get(tab.id)?.width ?? 0) === 0) widthsRef.current.delete(tab.id)
+          }
+          setVisibleIds(null)
+        })
+        return
+      }
+      let next: string[]
+      if (available <= 0) {
+        const inline = allTabs.slice(0, PRIMARY_TAB_LIMIT).map((tab) => tab.id)
+        next = inline.includes(activeTab) || !allTabs.some((tab) => tab.id === activeTab) ? inline : [...inline, activeTab]
+      } else {
+        const widthOf = (id: string) => widthsRef.current.get(id)?.width ?? 0
+        const total = allTabs.reduce((sum, tab) => sum + widthOf(tab.id) + gap, 0) - gap
+        if (total <= available) {
+          next = allTabs.map((tab) => tab.id)
+        } else {
+          const budget = available - moreWidthRef.current
+          let used = 0
+          next = []
+          for (const tab of allTabs) {
+            const width = widthOf(tab.id) + gap
+            if (used + width > budget) break
+            next.push(tab.id)
+            used += width
+          }
+          if (!next.includes(activeTab) && allTabs.some((tab) => tab.id === activeTab)) {
+            const activeWidth = widthOf(activeTab) + gap
+            while (next.length > 0 && used + activeWidth > budget) {
+              const removed = next.pop() as string
+              used -= widthOf(removed) + gap
+            }
+            next.push(activeTab)
+          }
+        }
+      }
+      setVisibleIds((current) => (current && current.join('|') === next.join('|') ? current : next))
+    }
+
+    compute()
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(() => compute())
+    observer.observe(row)
+    return () => observer.disconnect()
+  }, [activeTab, allTabs, measuring])
+
+  const visibleTabs = React.useMemo(() => {
+    if (measuring || !visibleIds) return allTabs
+    const byId = new Map(allTabs.map((tab) => [tab.id, tab]))
+    return visibleIds.map((id) => byId.get(id)).filter((tab): tab is TabDef => Boolean(tab))
+  }, [allTabs, measuring, visibleIds])
+  const overflowTabs = React.useMemo(() => {
+    if (measuring || !visibleIds) return []
+    const visible = new Set(visibleIds)
+    return allTabs.filter((tab) => !visible.has(tab.id))
+  }, [allTabs, measuring, visibleIds])
+  const showMore = measuring || overflowTabs.length > 0
 
   return (
     <div>
-      <div className="flex items-end justify-between gap-2 border-b">
-        <div className="flex min-w-0 flex-1 flex-wrap items-end">
+      <div ref={rowRef} className="flex items-end justify-between gap-2 border-b">
+        <div ref={listRef} className="flex min-w-0 flex-1 flex-nowrap items-end overflow-hidden">
           <Tabs
             value={activeTab}
             onValueChange={(value) => onTabChange(value as PersonTabId)}
             variant="underline"
-            className="min-w-0"
+            className="shrink-0"
           >
             <TabsList
               aria-label={t('customers.people.detail.tabs.label', 'Person detail sections')}
-              className="-mb-px flex-wrap border-b-0 px-1"
+              className="-mb-px flex-nowrap border-b-0 px-1"
             >
               {visibleTabs.map((tab) => (
                 <TabsTrigger key={tab.id} value={tab.id} leading={tab.icon} count={tab.count}>
@@ -197,10 +298,12 @@ function DefaultPersonDetailTabs({
               ))}
             </TabsList>
           </Tabs>
-          {overflowTabs.length > 0 ? (
+          {showMore ? (
             <Popover>
               <PopoverTrigger asChild>
                 <button
+                  data-testid="detail-tabs-more"
+                  ref={moreRef}
                   type="button"
                   aria-haspopup="menu"
                   className="group relative -mb-px inline-flex shrink-0 items-center gap-2 rounded-t-md border-b-2 border-transparent px-3 py-2 text-sm font-medium text-muted-foreground outline-none transition-colors hover:bg-accent-indigo/10 hover:text-accent-indigo focus-visible:shadow-focus"
@@ -237,16 +340,18 @@ function DefaultPersonDetailTabs({
           ) : null}
         </div>
         {sectionAction ? (
-          <Button
-            type="button"
-            size="sm"
-            onClick={sectionAction.onClick}
-            disabled={sectionAction.disabled}
-            className="mb-1.5 mr-1 shrink-0"
-          >
-            <Plus className="mr-1.5 h-4 w-4" />
-            {sectionAction.label}
-          </Button>
+          <div className="shrink-0">
+            <Button
+              type="button"
+              size="sm"
+              onClick={sectionAction.onClick}
+              disabled={sectionAction.disabled}
+              className="mb-1.5 mr-1"
+            >
+              <Plus className="mr-1.5 h-4 w-4" />
+              {sectionAction.label}
+            </Button>
+          </div>
         ) : null}
       </div>
 

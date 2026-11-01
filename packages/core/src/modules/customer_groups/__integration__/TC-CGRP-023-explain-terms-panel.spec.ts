@@ -80,7 +80,7 @@ test.describe('TC-CGRP-023: Explain-terms panel on the customer detail page', ()
         timeout: 15_000,
       });
 
-      await page.getByRole('button', { name: /^More/ }).click();
+      await page.getByTestId('detail-tabs-more').click();
       await page.getByRole('menuitem', { name: 'Groups' }).click();
       await expect(page.getByRole('heading', { name: 'Explain terms' })).toBeVisible({ timeout: 15_000 });
 

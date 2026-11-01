@@ -139,8 +139,14 @@ describe('PersonDetailTabs', () => {
   })
 
   describe('injected tab ordering', () => {
+    // Tabs past the inline limit live in the More menu, so the order spans both lists.
     function tabOrder() {
-      return screen.getAllByRole('tab').map((tab) => tab.textContent?.trim())
+      const inline = screen.getAllByRole('tab').map((tab) => tab.textContent?.trim())
+      const more = screen.queryByRole('button', { name: /^More/ })
+      if (!more) return inline
+      fireEvent.click(more)
+      const overflow = screen.queryAllByRole('menuitem').map((item) => item.textContent?.trim())
+      return [...inline, ...overflow]
     }
 
     it('places an injected tab before the built-in tabs when its priority is higher', () => {

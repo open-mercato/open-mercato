@@ -40,7 +40,7 @@ async function openGroupsTab(page: Page): Promise<void> {
     await groupsTab.click();
     return;
   }
-  const moreMenu = page.getByRole('button', { name: /^More/ });
+  const moreMenu = page.getByTestId('detail-tabs-more');
   if (await moreMenu.isVisible().catch(() => false)) {
     await moreMenu.click();
     await page.getByRole('menuitem', { name: 'Groups' }).click();
@@ -50,7 +50,7 @@ async function openGroupsTab(page: Page): Promise<void> {
   if (await expandPanel.isVisible().catch(() => false)) {
     await expandPanel.click();
   }
-  await page.getByRole('button', { name: /^More/ }).click();
+  await page.getByTestId('detail-tabs-more').click();
   await page.getByRole('menuitem', { name: 'Groups' }).click();
 }
 
