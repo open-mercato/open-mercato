@@ -63,14 +63,19 @@ describe('CustomerSessionService.createSession — concurrent session cap', () =
     const flushMock = jest.fn(async () => {})
     const persistMock = jest.fn().mockReturnValue({ flush: flushMock })
     const createMock = jest.fn((_entity: any, data: any) => ({ id: 'new-session', ...data }))
-    const localEm = {
+    const executeMock = jest.fn(async () => [{ locked: true }])
+    const localEm: any = {
       find: findMock,
       nativeUpdate: nativeUpdateMock,
       persist: persistMock,
       flush: flushMock,
       create: createMock,
-    } as any
-    return { localEm, findMock, persistMock, flushMock, createMock }
+      execute: executeMock,
+      getReference: jest.fn((_entity: unknown, id: string) => ({ id })),
+    }
+    localEm.transactional = jest.fn(async (work: (tx: unknown) => Promise<unknown>) => work(localEm))
+    localEm.fork = jest.fn(() => localEm)
+    return { localEm, findMock, persistMock, flushMock, createMock, executeMock }
   }
 
   const originalCap = process.env.MAX_CUSTOMER_SESSIONS_PER_USER
@@ -154,6 +159,116 @@ describe('CustomerSessionService.createSession — concurrent session cap', () =
 
     // default cap=5; existing 4 + new = 5 → no revoke
     expect(nativeUpdateMock).not.toHaveBeenCalled()
+  })
+
+  it('takes a per-user advisory lock in the transaction before counting and inserting', async () => {
+    const { CustomerSessionService } = await import('../services/customerSessionService')
+    const { CustomerUser } = await import('../data/entities')
+    const { localEm, findMock, persistMock, createMock, executeMock } = buildService(['s1'])
+
+    const service = new CustomerSessionService(localEm)
+    await service.createSession(user, ['portal.view'])
+
+    expect(localEm.transactional).toHaveBeenCalledTimes(1)
+    expect(executeMock).toHaveBeenCalledTimes(1)
+    const [lockSql, lockParams] = executeMock.mock.calls[0] as unknown as [string, unknown[]]
+    expect(lockSql).toContain('pg_try_advisory_xact_lock')
+    expect(lockParams).toEqual([`customer_accounts:session_cap:${userId}`])
+    expect(executeMock.mock.invocationCallOrder[0]).toBeLessThan(findMock.mock.invocationCallOrder[0])
+    expect(findMock.mock.invocationCallOrder[0]).toBeLessThan(persistMock.mock.invocationCallOrder[0])
+    expect(localEm.getReference).toHaveBeenCalledWith(CustomerUser, userId)
+    expect(createMock.mock.calls[0][1].user).toEqual({ id: userId })
+  })
+
+  const buildRaceEm = () => {
+    let rows: { id: string; userId: string; deletedAt: Date | null }[] = []
+    let created = 0
+    const heldKeys = new Set<string>()
+    const lockAttempts: { key: string; locked: boolean }[] = []
+
+    const buildTx = (holding: string[]) => {
+      const tx: any = {
+        find: jest.fn(async (_entity: unknown, filter: { user: string }) => {
+          const snapshot = rows
+            .filter((row) => row.deletedAt === null && row.userId === filter.user)
+            .map((row) => ({ id: row.id }))
+          await new Promise((resolve) => setTimeout(resolve, 10))
+          return snapshot
+        }),
+        nativeUpdate: jest.fn(async (_entity: unknown, filter: { id?: { $in?: string[] } }) => {
+          const ids = filter.id?.$in ?? []
+          rows = rows.map((row) => (ids.includes(row.id) ? { ...row, deletedAt: new Date() } : row))
+          return ids.length
+        }),
+        getReference: jest.fn((_entity: unknown, id: string) => ({ id })),
+        create: jest.fn((_entity: unknown, data: { user: { id: string } }) => {
+          created += 1
+          return { id: `new-${created}`, ...data }
+        }),
+        persist: jest.fn((entity: { id: string; user: { id: string } }) => ({
+          flush: jest.fn(async () => {
+            rows.push({ id: entity.id, userId: entity.user.id, deletedAt: null })
+          }),
+        })),
+        execute: jest.fn(async (_sql: string, params: string[]) => {
+          const key = params[0]
+          const locked = !heldKeys.has(key)
+          lockAttempts.push({ key, locked })
+          if (locked) {
+            heldKeys.add(key)
+            holding.push(key)
+          }
+          return [{ locked }]
+        }),
+      }
+      return tx
+    }
+
+    const raceEm: any = {
+      ...buildTx([]),
+      fork: jest.fn(() => ({
+        transactional: jest.fn(async (work: (tx: unknown) => Promise<unknown>) => {
+          const holding: string[] = []
+          try {
+            return await work(buildTx(holding))
+          } finally {
+            for (const key of holding) heldKeys.delete(key)
+          }
+        }),
+      })),
+    }
+    return { raceEm, liveRows: () => rows.filter((row) => row.deletedAt === null), lockAttempts }
+  }
+
+  it('keeps at most the cap of live sessions when two logins for the same user race', async () => {
+    process.env.MAX_CUSTOMER_SESSIONS_PER_USER = '1'
+    const { CustomerSessionService } = await import('../services/customerSessionService')
+    const { raceEm, liveRows } = buildRaceEm()
+
+    const service = new CustomerSessionService(raceEm)
+    await Promise.all([
+      service.createSession(user, ['portal.view']),
+      service.createSession(user, ['portal.view']),
+    ])
+
+    expect(liveRows()).toHaveLength(1)
+  })
+
+  it('does not make logins of different users wait for each other', async () => {
+    process.env.MAX_CUSTOMER_SESSIONS_PER_USER = '1'
+    const { CustomerSessionService } = await import('../services/customerSessionService')
+    const { raceEm, liveRows, lockAttempts } = buildRaceEm()
+    const otherUser = { ...user, id: '66666666-6666-4666-8666-666666666666' }
+
+    const service = new CustomerSessionService(raceEm)
+    await Promise.all([
+      service.createSession(user, ['portal.view']),
+      service.createSession(otherUser, ['portal.view']),
+    ])
+
+    expect(lockAttempts).toHaveLength(2)
+    expect(lockAttempts.every((attempt) => attempt.locked)).toBe(true)
+    expect(liveRows()).toHaveLength(2)
   })
 })
 
