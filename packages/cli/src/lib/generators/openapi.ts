@@ -92,6 +92,40 @@ function readOpenApiInputManifest(filePath: string): OpenApiInputManifest | null
   }
 }
 
+/** All successful bundle inputs, including generated producers; null means unknown. */
+export function getOpenApiGeneratorDependencies(resolver: PackageResolver): readonly string[] | null {
+  return readOpenApiInputManifest(
+    path.join(resolver.getOutputDir(), 'openapi.generated.inputs.json'),
+  )?.inputPaths ?? null
+}
+
+/**
+ * Returns source inputs from the last successful bundle, including paths since
+ * deleted. An empty result does not prove that no dependencies exist: missing or
+ * invalid manifests require the watcher's conservative unknown-change fallback.
+ */
+export function getOpenApiWatchInputs(resolver: PackageResolver): string[] {
+  const inputPaths = getOpenApiGeneratorDependencies(resolver)
+  if (!inputPaths) return []
+
+  const packageNames = new Set([
+    '@open-mercato/core',
+    ...resolver.loadEnabledModules().map((entry) => entry.from ?? '@open-mercato/core'),
+  ])
+  const generatedRoots = Array.from(new Set([
+    path.resolve(resolver.getOutputDir()),
+    ...Array.from(packageNames, (name) => path.resolve(resolver.getPackageOutputDir(name))),
+  ]))
+  return inputPaths.filter((inputPath) => !generatedRoots.some((root) => {
+    const relative = path.relative(root, inputPath)
+    return relative === '' || (
+      relative !== '..'
+      && !relative.startsWith(`..${path.sep}`)
+      && !path.isAbsolute(relative)
+    )
+  }))
+}
+
 function trackedPathRecord(filePath: string): string {
   try {
     const stat = fs.statSync(filePath)
