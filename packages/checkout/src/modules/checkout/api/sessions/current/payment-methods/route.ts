@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { listCheckoutPaymentMethods } from '../../../../lib/paymentMethods'
 import { lookupCartPeerById } from '../../../../lib/cartPeer'
 import { readCheckoutSessionToken, resolveCurrentSession } from '../../../../lib/currentSessionRoute'
@@ -49,7 +50,7 @@ export async function GET(req: Request) {
 
     let linkGatewayProviderKey: string | null = null
     if (session.linkId) {
-      const link = await em.findOne(CheckoutLink, { id: session.linkId, ...scope } as any)
+      const link = await findOneWithDecryption(em, CheckoutLink, { id: session.linkId, ...scope }, undefined, scope)
       linkGatewayProviderKey = link?.gatewayProviderKey ?? null
     }
 

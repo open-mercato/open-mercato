@@ -19,6 +19,11 @@ jest.mock('../sessionEvents', () => ({
   writeSessionEvent: jest.fn(async () => undefined),
 }))
 
+const mockReportError = jest.fn()
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  getTelemetryRuntime: () => ({ reportError: (...args: unknown[]) => mockReportError(...args) }),
+}))
+
 type FakeRow = Record<string, any>
 
 let seededTransaction: FakeRow | null = null
@@ -142,5 +147,35 @@ describe('createGatewayPaymentSessionResumeHandler', () => {
     await handle({ paymentId: 'txn-1' })
 
     expect(mockConfirmOrderAndComplete).not.toHaveBeenCalled()
+  })
+
+  // BLOCKER regression: a transient failure (e.g. a DB hiccup inside confirmOrderAndComplete)
+  // used to be caught and swallowed, returning successfully — which acks a `persistent: true`
+  // subscriber's event for good, leaving the order confirmed-at-the-gateway but never
+  // confirmed in checkout. It must now propagate so the event bus redelivers, and report the
+  // error for observability.
+  it('propagates a transient failure (never swallows it) and reports it, so a persistent subscriber redelivery can retry', async () => {
+    mockConfirmOrderAndComplete.mockRejectedValueOnce(new Error('transient db error'))
+    const handle = createGatewayPaymentSessionResumeHandler('completed')
+
+    await expect(handle(PAYLOAD)).rejects.toThrow('transient db error')
+    expect(mockReportError).toHaveBeenCalledWith(
+      expect.any(Error),
+      expect.objectContaining({ module: 'checkout', code: 'checkout.gateway_payment_session_resume_failed' }),
+    )
+  })
+
+  it('redelivery after a transient failure completes exactly once', async () => {
+    mockConfirmOrderAndComplete.mockRejectedValueOnce(new Error('transient db error'))
+    const handle = createGatewayPaymentSessionResumeHandler('completed')
+
+    await expect(handle(PAYLOAD)).rejects.toThrow('transient db error')
+    expect(mockConfirmOrderAndComplete).toHaveBeenCalledTimes(1)
+
+    // Redelivery: the session is still `awaiting_payment` (confirmOrderAndComplete never
+    // got far enough to flip it), so the retry resumes and this time succeeds.
+    await handle(PAYLOAD)
+    expect(mockConfirmOrderAndComplete).toHaveBeenCalledTimes(2)
+    expect(mockCompensateByCancellingOrder).not.toHaveBeenCalled()
   })
 })

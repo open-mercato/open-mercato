@@ -35,9 +35,27 @@ const mockContinueOrderOutcome = jest.fn(async () => ({
   salesQuoteId: 'quote-1',
   salesOrderId: 'order-1',
 }))
+// Finding 6: before these tests' own `submit_progress: null` fixtures reach the
+// collapsed compensate-and-reopen branch, the worker now checks whether document
+// creation already succeeded under the attempt's own deterministic external reference —
+// default to "nothing found" so every pre-existing scenario here (a genuine steps-1-4
+// crash, nothing ever created) still exercises that SAME branch unchanged.
+const mockFindExistingQuoteByExternalReference = jest.fn(async () => null)
+const mockFindExistingOrderById = jest.fn(async () => null)
+const mockResumeOrderOutcomeFromQuote = jest.fn(async () => ({
+  session: {},
+  attempt: 1,
+  stockReservationKey: null,
+  creditReservationKey: null,
+  salesQuoteId: 'quote-1',
+  salesOrderId: 'order-1',
+}))
 jest.mock('../../commands/submit', () => ({
   compensate: (...args: unknown[]) => mockCompensate(...args),
   compensateByCancellingOrder: (...args: unknown[]) => mockCompensateByCancellingOrder(...args),
+  findExistingQuoteByExternalReference: (...args: unknown[]) => mockFindExistingQuoteByExternalReference(...args),
+  findExistingOrderById: (...args: unknown[]) => mockFindExistingOrderById(...args),
+  resumeOrderOutcomeFromQuote: (...args: unknown[]) => mockResumeOrderOutcomeFromQuote(...args),
   continueOrderOutcome: (...args: unknown[]) => mockContinueOrderOutcome(...args),
 }))
 

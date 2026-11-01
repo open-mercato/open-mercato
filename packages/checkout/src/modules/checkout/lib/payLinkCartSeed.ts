@@ -61,12 +61,11 @@ function assertLinkAvailableForCartSeeding(link: CheckoutLink, request: Request 
   if (!isCheckoutLinkPublic(link.status)) {
     throw new CrudHttpError(404, { error: '[internal] checkout link not found' })
   }
-  const available = link.maxCompletions == null
-    ? true
-    : (link.completionCount + link.activeReservationCount) < link.maxCompletions
-  if (!available) {
-    throw new CrudHttpError(422, { error: '[internal] this checkout link is no longer available', code: 'checkout_link_unavailable' })
-  }
+  // The usage-limit check itself runs atomically in `reserveCheckoutLinkSlot` below, right
+  // before the cart is actually seeded — a plain read-then-compare here (as this used to
+  // be) is a TOCTOU window: two concurrent requests against a `maxCompletions: 1` link can
+  // both read `activeReservationCount: 0` and both seed a cart, letting a single-use link
+  // produce many orders (Finding 5).
   if (link.passwordHash) {
     const token = request ? readAccessCookie(request) : null
     const verified = verifyCheckoutAccessToken(token, link.slug, { linkId: link.id, sessionVersion: link.passwordHash })
@@ -74,6 +73,73 @@ function assertLinkAvailableForCartSeeding(link: CheckoutLink, request: Request 
       throw new CrudHttpError(401, { error: '[internal] password verification is required', code: 'checkout_link_password_required' })
     }
   }
+}
+
+/**
+ * Atomically claims one usage slot against `maxCompletions`, the SAME compare-and-swap
+ * `commands/transactions.ts#createTransactionCommand` already uses for a Phase A pay-link
+ * transaction — the check (`completion_count + active_reservation_count < max_completions`)
+ * and the increment happen in the SAME statement, so two concurrent seeds against a
+ * `maxCompletions: 1` link can never both win. Throws the SAME `checkout_link_unavailable`
+ * 422 the old read-then-compare check did when no slot is left.
+ */
+async function reserveCheckoutLinkSlot(
+  em: EntityManager,
+  link: Pick<CheckoutLink, 'id' | 'tenantId' | 'organizationId'>,
+): Promise<void> {
+  const reserved = await em.execute<Array<{ active_reservation_count: number }>>(
+    `
+      UPDATE checkout_links
+      SET active_reservation_count = active_reservation_count + 1,
+          is_locked = true,
+          updated_at = clock_timestamp()
+      WHERE id = ?
+        AND organization_id = ?
+        AND tenant_id = ?
+        AND deleted_at IS NULL
+        AND status = 'active'
+        AND (
+          max_completions IS NULL
+          OR completion_count + active_reservation_count < max_completions
+        )
+      RETURNING active_reservation_count
+    `,
+    [link.id, link.organizationId, link.tenantId],
+  )
+  if (!reserved[0]) {
+    throw new CrudHttpError(422, { error: '[internal] this checkout link is no longer available', code: 'checkout_link_unavailable' })
+  }
+}
+
+/**
+ * Releases a slot `reserveCheckoutLinkSlot` claimed — a session that never reaches a
+ * terminal outcome releases it back (`completed: false`); one that completes (order or
+ * quote) converts the reservation into a permanent completion instead, mirroring
+ * `applyTerminalTransactionState`'s own link bookkeeping for the Phase A transaction flow.
+ * Called from `commands/submit.ts`'s own terminal-outcome helpers
+ * (`compensateByCancellingOrder`, `confirmOrderAndComplete`, `completeQuoteOutcome`) — never
+ * duplicated inline there.
+ */
+export async function releaseCheckoutLinkSlot(
+  em: EntityManager,
+  scope: { tenantId: string; organizationId: string },
+  linkId: string,
+  outcome: { completed: boolean },
+): Promise<void> {
+  await em.execute(
+    `
+      UPDATE checkout_links
+      SET active_reservation_count = GREATEST(active_reservation_count - 1, 0),
+          completion_count = completion_count + ?,
+          is_locked = GREATEST(active_reservation_count - 1, 0) > 0,
+          updated_at = clock_timestamp()
+      WHERE id = ?
+        AND organization_id = ?
+        AND tenant_id = ?
+        AND deleted_at IS NULL
+    `,
+    [outcome.completed ? 1 : 0, linkId, scope.organizationId, scope.tenantId],
+  )
 }
 
 function buildTrustedRuntimeContext(
@@ -127,6 +193,11 @@ export async function seedCartFromCheckoutLink(params: {
   }
   const currencyCode = templateLines[0].currencyCode
 
+  // Claims the usage slot atomically (Finding 5) right before the irreversible cart-
+  // creation side effects below — any failure from here on releases it in the `catch`
+  // rather than leaking a permanently-reserved slot off a session that never seeded.
+  await reserveCheckoutLinkSlot(em, link)
+
   const { ctx: trustedCtx } = buildTrustedCommandContext({
     tenantId: link.tenantId,
     organizationId: link.organizationId,
@@ -137,49 +208,55 @@ export async function seedCartFromCheckoutLink(params: {
 
   const buyerIdentity = await resolveLinkBuyerIdentity(container, link, request)
 
-  // Cross-module FK-id call, never a static value import of `cart`'s command module — the
-  // shape below mirrors `cart`'s own `CartCreateInput` (`cart/data/validators.ts`)
-  // one-to-one, kept as a plain object so this file carries no compile-time dependency on
-  // `cart` at all.
-  const createResult = await commandBus.execute<Record<string, unknown>, { cartId: string }>('cart.create', {
-    input: {
-      channel: 'pay_link',
-      storeId: null,
-      salesChannelId: null,
-      currencyCode,
-      locale: DEFAULT_LINK_CART_LOCALE,
-      taxMode: 'gross',
-      customerId: buyerIdentity?.customerId ?? null,
-      customerUserId: buyerIdentity?.customerUserId ?? null,
-      email: null,
-      tenantId: link.tenantId,
-    },
-    ctx: runtimeCtx,
-  })
-  const cartId = createResult.result.cartId
-
-  for (const line of templateLines) {
-    await commandBus.execute('cart.lines.add', {
+  let cartId: string
+  try {
+    // Cross-module FK-id call, never a static value import of `cart`'s command module —
+    // the shape below mirrors `cart`'s own `CartCreateInput` (`cart/data/validators.ts`)
+    // one-to-one, kept as a plain object so this file carries no compile-time dependency
+    // on `cart` at all.
+    const createResult = await commandBus.execute<Record<string, unknown>, { cartId: string }>('cart.create', {
       input: {
+        channel: 'pay_link',
+        storeId: null,
+        salesChannelId: null,
+        currencyCode,
+        locale: DEFAULT_LINK_CART_LOCALE,
+        taxMode: 'gross',
+        customerId: buyerIdentity?.customerId ?? null,
+        customerUserId: buyerIdentity?.customerUserId ?? null,
+        email: null,
         tenantId: link.tenantId,
-        organizationId: link.organizationId,
-        cartId,
-        productId: line.productId,
-        variantId: line.variantId ?? null,
-        quantity: line.quantity,
-        addedByActorType: 'system',
-        addedByActorId: null,
-        metadata: { source: 'checkout_link_cart_template', checkoutLinkId: link.id, templateLineId: line.id },
-        // D-R5-19: a merchant-set price is always a fixed GROSS amount for this release's
-        // pricing modes (`fixedPrice*`/`customAmount*`/`priceListItems` are all gross-
-        // oriented, per `fixedPriceIncludesTax`'s own default) — a line without one prices
-        // at the buyer's own catalog rate instead.
-        unitPriceOverride: line.unitPriceOverride != null
-          ? { amount: line.unitPriceOverride, basis: 'gross' as const }
-          : null,
       },
       ctx: runtimeCtx,
     })
+    cartId = createResult.result.cartId
+
+    for (const line of templateLines) {
+      await commandBus.execute('cart.lines.add', {
+        input: {
+          tenantId: link.tenantId,
+          organizationId: link.organizationId,
+          cartId,
+          productId: line.productId,
+          variantId: line.variantId ?? null,
+          quantity: line.quantity,
+          addedByActorType: 'system',
+          addedByActorId: null,
+          metadata: { source: 'checkout_link_cart_template', checkoutLinkId: link.id, templateLineId: line.id },
+          // D-R5-19: a merchant-set price is always a fixed GROSS amount for this
+          // release's pricing modes (`fixedPrice*`/`customAmount*`/`priceListItems` are
+          // all gross-oriented, per `fixedPriceIncludesTax`'s own default) — a line
+          // without one prices at the buyer's own catalog rate instead.
+          unitPriceOverride: line.unitPriceOverride != null
+            ? { amount: line.unitPriceOverride, basis: 'gross' as const }
+            : null,
+        },
+        ctx: runtimeCtx,
+      })
+    }
+  } catch (err) {
+    await releaseCheckoutLinkSlot(em, { tenantId: link.tenantId, organizationId: link.organizationId }, link.id, { completed: false })
+    throw err
   }
 
   return {

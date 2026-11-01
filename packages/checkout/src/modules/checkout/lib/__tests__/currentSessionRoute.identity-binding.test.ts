@@ -31,6 +31,11 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
     mockFindOneWithDecryption(...(args as [unknown, unknown, Record<string, unknown>])),
 }))
 
+const mockLookupCartPeerById = jest.fn()
+jest.mock('../cartPeer', () => ({
+  lookupCartPeerById: (...args: unknown[]) => mockLookupCartPeerById(...args),
+}))
+
 import { hashCheckoutSessionToken } from '../sessionToken'
 import { resolveCurrentSession } from '../currentSessionRoute'
 
@@ -61,6 +66,7 @@ function makeSessionRow(overrides: FakeRow = {}): FakeRow {
 beforeEach(() => {
   jest.clearAllMocks()
   seededSessions = []
+  mockLookupCartPeerById.mockResolvedValue(null)
 })
 
 describe('resolveCurrentSession — D-R5-33 identity binding', () => {
@@ -128,5 +134,59 @@ describe('resolveCurrentSession — D-R5-33 identity binding', () => {
     const [, , where, , scope] = mockFindOneWithDecryption.mock.calls[0]
     expect(where).toMatchObject({ tenantId: 'tenant-other', organizationId: 'org-other' })
     expect(scope).toEqual({ tenantId: 'tenant-other', organizationId: 'org-other' })
+  })
+
+  // Finding 2: a guest session's cart claimed later at login (cart's merge 'replace'
+  // strategy) updates the CART's own customer_user_id, never the session row that already
+  // pointed at it. Binding must follow the LIVE cart, not the session's creation-time
+  // snapshot — otherwise the bare token alone (no customer session required) keeps reading
+  // PII / requesting quotes / buying on_account against whichever company claimed the cart.
+  describe('Finding 2 — binds identity against the LIVE cart, not the session snapshot', () => {
+    it('a session created as a guest (customerUserId null) whose cart was later claimed now requires that buyer\'s own customer session', async () => {
+      seededSessions = [makeSessionRow({ customerUserId: null, cartId: 'cart-1' })]
+      mockLookupCartPeerById.mockResolvedValue({ customerUserId: 'customer-user-claimed-later' })
+      mockGetCustomerAuthFromRequest.mockResolvedValue(null)
+      const em = makeFakeEm()
+
+      const result = await resolveCurrentSession(em, new Request('https://example.com'), TOKEN)
+
+      expect(result.ok).toBe(false)
+      expect(mockFindOneWithDecryption).not.toHaveBeenCalled()
+    })
+
+    it('succeeds for the cart\'s current claimant even though the session snapshot is still a guest', async () => {
+      seededSessions = [makeSessionRow({ customerUserId: null, cartId: 'cart-1' })]
+      mockLookupCartPeerById.mockResolvedValue({ customerUserId: 'customer-user-claimed-later' })
+      mockGetCustomerAuthFromRequest.mockResolvedValue({ sub: 'customer-user-claimed-later', type: 'customer' })
+      const em = makeFakeEm()
+
+      const result = await resolveCurrentSession(em, new Request('https://example.com'), TOKEN)
+
+      expect(result.ok).toBe(true)
+    })
+
+    it('refuses the session snapshot\'s OWN stale customerUserId once the cart moved to a different buyer', async () => {
+      seededSessions = [makeSessionRow({ customerUserId: 'customer-user-original', cartId: 'cart-1' })]
+      mockLookupCartPeerById.mockResolvedValue({ customerUserId: 'customer-user-claimed-later' })
+      // Presents the ORIGINAL session owner's own valid customer session — but the cart no
+      // longer belongs to them.
+      mockGetCustomerAuthFromRequest.mockResolvedValue({ sub: 'customer-user-original', type: 'customer' })
+      const em = makeFakeEm()
+
+      const result = await resolveCurrentSession(em, new Request('https://example.com'), TOKEN)
+
+      expect(result.ok).toBe(false)
+    })
+
+    it('falls back to the session\'s own customerUserId when the cart peer cannot be read', async () => {
+      seededSessions = [makeSessionRow({ customerUserId: 'customer-user-owner', cartId: 'cart-1' })]
+      mockLookupCartPeerById.mockResolvedValue(null)
+      mockGetCustomerAuthFromRequest.mockResolvedValue({ sub: 'customer-user-owner', type: 'customer' })
+      const em = makeFakeEm()
+
+      const result = await resolveCurrentSession(em, new Request('https://example.com'), TOKEN)
+
+      expect(result.ok).toBe(true)
+    })
   })
 })
