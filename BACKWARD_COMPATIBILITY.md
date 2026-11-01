@@ -634,3 +634,12 @@ STABLE tools/execute writes bypass approval; no bridge. [Migrate](UPGRADE_NOTES.
 ## SCIM rate limiting (2026-10-27)
 
 SCIM adds 429/503 before credentials; honor Retry-After. Optional `beforeAuth: ApiRouteBeforeAuth` is additive. See [contract and migration](.ai/specs/enterprise/implemented/SPEC-ENT-004-2026-02-19-sso-directory-sync.md#migration--backward-compatibility).
+
+
+## Compose encryption (2026-11-01, #7231)
+
+STABLE defaults: published root removed; bridging retains offline decryption.
+Strong keys/Vault preserved. [Migration](UPGRADE_NOTES.md): retain old DEKs,
+re-encrypt data/hashes. [Spec](.ai/specs/2026-11-01-7231-compose-encryption-key.md).
+Emergency steps 1–3 waiver **pending**: named human maintainer approval on the
+security PR required before merge.
