@@ -72,3 +72,4 @@ PR: #7001
 - [x] Post-review fix (pkarw spec review on #7000, 2026-10-30): the nine sibling propsSchema exports are no longer exported here; only timeEntryDialogPropsSchema stays, the export test and docs follow — 87477e913
 - [x] Post-review fix (haxiorz spec review on #8291, 2026-10-30): exported schema documented as the top-level ComponentOverride.propsSchema; consumer-side replacement test through useRegisteredComponent — 8fad73f2d
 - [x] Post-review fix (pkarw re-review on #7001, 2026-10-31): merged main (UPGRADE_NOTES conflict, both entries kept); project combobox named by its label and described by its error through new optional ComboboxInput id/ARIA props — 8910b729c
+- [x] Post-review fix (pkarw re-review on #7001, 2026-11-01): project field shows the projectEmpty state when no active project is reachable or the list is refused; key added to all five locales — fb1c61dae
