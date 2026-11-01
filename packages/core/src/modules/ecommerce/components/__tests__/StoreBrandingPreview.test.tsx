@@ -4,6 +4,7 @@
 import * as React from 'react'
 import { render, screen } from '@testing-library/react'
 import { StoreBrandingPreview, formatPreviewPrice } from '../StoreBrandingPreview'
+import { ContentSecurityPolicyProvider } from '@open-mercato/ui/theme/ContentSecurityPolicyProvider'
 
 let mockLocale = 'en'
 
@@ -23,6 +24,13 @@ describe('formatPreviewPrice', () => {
 })
 
 describe('StoreBrandingPreview', () => {
+  it('passes the parent document nonce into its sandboxed srcDoc', () => {
+    render(<ContentSecurityPolicyProvider nonce="trustedDocumentNonce"><StoreBrandingPreview values={{}} storeName="Main store" currencyCode="EUR" /></ContentSecurityPolicyProvider>)
+    const srcDoc = screen.getByTestId('branding-preview-frame').getAttribute('srcdoc') ?? ''
+    expect(srcDoc.match(/<style nonce="trustedDocumentNonce">/g)).toHaveLength(2)
+    expect(srcDoc).toContain("style-src 'nonce-trustedDocumentNonce'")
+  })
+
   it('renders the sample product price with the locale-aware formatter', () => {
     mockLocale = 'pl'
     render(<StoreBrandingPreview values={{}} storeName="Main store" currencyCode="PLN" />)

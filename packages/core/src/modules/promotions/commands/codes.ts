@@ -24,6 +24,7 @@ import {
   codeReservationReleaseSchema,
   codeReserveInputSchema,
   codeUseInputSchema,
+  revertCodeUseInputSchema,
   promotionCodeCreateSchema,
   promotionCodeUpdateSchema,
   promotionCodeDeleteSchema,
@@ -33,7 +34,7 @@ import {
 } from '../data/validators'
 import { PromotionCodeService, type PromotionsCodeScope } from '../lib/code-service'
 import type { PromotionCodeGenerationService } from '../services/code-generation'
-import type { CodeReservationResult, CodeUseResult } from '../lib/types'
+import type { CodeReservationResult, CodeUseResult, RevertCodeUseResult } from '../lib/types'
 
 const codesLogger = createLogger('promotions').child({ component: 'code-commands' })
 
@@ -109,6 +110,21 @@ const useCodeCommand: CommandHandler<unknown, CodeUseResult> = {
     const scope = resolveActorScope(ctx)
     const em = resolveCommandEm(ctx)
     return resolveCodeService(ctx).useCode(em, parsed, scope)
+  },
+}
+
+// Release 5 C5/SPEC-055 amendment: a sixth command, additive to §A.2a's own five — the
+// reversal counterpart of `useCode` above, "financially or budget consequential" for
+// the same reason (reactivates a code, decrements a usage counter). Wraps
+// `PromotionCodeService.revertCodeUse` the same thin way every command in this file
+// wraps its service method.
+const revertCodeUseCommand: CommandHandler<unknown, RevertCodeUseResult> = {
+  id: 'promotions.code.use.revert',
+  async execute(rawInput, ctx) {
+    const parsed = revertCodeUseInputSchema.parse(rawInput)
+    const scope = resolveActorScope(ctx)
+    const em = resolveCommandEm(ctx)
+    return resolveCodeService(ctx).revertCodeUse(em, parsed, scope)
   },
 }
 
@@ -547,6 +563,7 @@ const deleteCodeCommand: CommandHandler<PromotionCodeDeleteInput, { codeId: stri
 registerCommand(reserveCodeCommand)
 registerCommand(releaseCodeCommand)
 registerCommand(useCodeCommand)
+registerCommand(revertCodeUseCommand)
 registerCommand(createCodeCommand)
 registerCommand(updateCodeCommand)
 registerCommand(deleteCodeCommand)
@@ -555,6 +572,7 @@ export {
   reserveCodeCommand,
   releaseCodeCommand,
   useCodeCommand,
+  revertCodeUseCommand,
   createCodeCommand,
   updateCodeCommand,
   deleteCodeCommand,

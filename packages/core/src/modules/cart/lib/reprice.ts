@@ -11,6 +11,7 @@ import type {
 import type { SalesCalculationService } from '@open-mercato/core/modules/sales/services/salesCalculationService'
 import type { SalesAdjustmentDraft, SalesLineSnapshot } from '@open-mercato/core/modules/sales/lib/types'
 import { Cart, CartLine } from '../data/entities'
+import { computeGoodsGrossAmount, resolveCartRequiresApproval } from './approvalGate'
 
 // Step 5.1 — the whole-cart re-pricing engine behind the `cart.reprice` command (triggers
 // 2-4, §5.2) and the real `Cart.totals` aggregate (§3.2). Closes the gap NOTIFY.md has
@@ -65,6 +66,13 @@ export type CartPriceChangeReason =
   // (`lib/promotionContext.ts`'s `buildPromotionsEffectsPhase` + this file's
   // `buildRecomputeCartTotalsPhase`) rather than dispatching a full `cart.reprice`.
   | 'undo'
+  // Step 2.10 (K6, §10.2) — trigger 7, the admin-forced `POST /api/cart/carts/:id/reprice`.
+  // Manually supplied by the admin reprice route (never detected by
+  // `detectCartRepriceTrigger`), same as `'merge'`/`'lock'` above. Distinct from
+  // `'buyer_context_changed'` because the admin route refreshes identity from the cart's
+  // OWN stored buyer (`resolveForBuyer`), not from a request-resolved `BuyerContext` — see
+  // `applyCartRepriceTriggerFields`'s own `'admin_reprice'` branch in `commands/cart.ts`.
+  | 'admin_reprice'
 
 export type CartPriceChange = {
   lineId: string
@@ -130,10 +138,21 @@ async function fetchLinePriceRows(
   return filterRowsForVariant(rows as unknown as PriceRow[], variantId)
 }
 
+// `unit_price_net`/`unit_price_gross`/`tax_rate` are all `numeric(_, 4)` columns, so a
+// value freshly read back from Postgres always carries 4 decimal places (e.g. "48.7800").
+// `String(aPlainNumber)` does not — `String(48.78)` is "48.78" — so comparing an
+// as-stored old value against a `String(...)`-formatted new one via `!==` (as
+// `buildCartLineRepricePhases` below and `commands/lines.ts` both do) reports a price
+// change on every reprice even when the price never moved. Format to the column's own
+// scale so both sides compare on equal footing.
+export function formatDecimalAmount(value: number | null): string | null {
+  return value !== null ? value.toFixed(4) : null
+}
+
 function applyPriceSnapshot(line: CartLine, resolved: ResolvedLinePrice, pricedAt: Date): void {
-  line.unitPriceNet = resolved.amountNet !== null ? String(resolved.amountNet) : null
-  line.unitPriceGross = resolved.amountGross !== null ? String(resolved.amountGross) : null
-  line.taxRate = resolved.taxRatePercent !== null ? String(resolved.taxRatePercent) : null
+  line.unitPriceNet = formatDecimalAmount(resolved.amountNet)
+  line.unitPriceGross = formatDecimalAmount(resolved.amountGross)
+  line.taxRate = formatDecimalAmount(resolved.taxRatePercent)
   line.priceKindId = resolved.priceRow ? resolvePriceKindId(resolved.priceRow) : null
   line.priceRowId = resolved.priceRow?.id ?? null
   line.priceTierMinQuantity = resolved.currentTier?.minQuantity ?? null
@@ -206,7 +225,13 @@ export function buildCartLineRepricePhases(
   // safe, since no phase ordered before this one in `cart.reprice`'s sequence ever creates a
   // gift line (`buildPromotionsEffectsPhase` always runs AFTER these phases). `flagState`
   // is NOT filtered here, eagerly — see the per-line check inside the mapped closure below.
-  const eligibleLines = lines.filter((line) => line.origin !== 'promotion')
+  //
+  // Release 5, Step 3.5 (D-R5-19) — a line carrying `unitPriceOverride` (the trusted
+  // pay-link seeding path's merchant-fixed price, `commands/lines.ts#addLineCommand`) is
+  // excluded for the identical reason a gift line is: running it through catalog
+  // resolution would silently overwrite the merchant's fixed price with whatever the
+  // underlying product's real catalog price happens to be on the next re-price trigger.
+  const eligibleLines = lines.filter((line) => line.origin !== 'promotion' && line.unitPriceOverride == null)
 
   return eligibleLines.map((line) => async () => {
     // Step 7.4 — §6a.2: checked again HERE, at this line's own EXECUTION time, rather than
@@ -282,6 +307,16 @@ export function toCartTotalsLineSnapshot(line: CartLine, currencyCode: string): 
  * `lines` is filtered to `flagState == null` here (not by the caller) so this is the one
  * place that ever has to remember a flagged line is excluded from totals (§4.2/§6a.2) —
  * mirrors `buildCartLineRepricePhases`'s own defensive filter above.
+ *
+ * Step 3.1 (K2, §9a.2): the SAME phase also recomputes `Cart.requiresApproval` — this is
+ * the one function every totals-changing command (line writes via `commands/lines.ts`,
+ * `cart.reprice` itself, and everything `cart.reprice` is dispatched FROM: `cart.merge`/
+ * `.mergeUndo`, `cart.promotions.apply`/`.remove`, and `cart.lock`'s own forced re-price)
+ * already funnels through, so hooking the gate's "whenever totals change" requirement in
+ * here — rather than adding a second phase every call site would have to remember to add
+ * — also satisfies "recomputes it from fresh terms at `cart.lock`" for free: the lock
+ * command always forces a re-price (`trigger: 'lock'`) immediately before it ever reads
+ * `cart.requiresApproval` for the gate check (`commands/lock.ts`).
  */
 export function buildRecomputeCartTotalsPhase(
   container: { resolve: <T = unknown>(name: string) => T },
@@ -308,5 +343,6 @@ export function buildRecomputeCartTotalsPhase(
     cart.totals = result.totals as unknown as Record<string, unknown>
     cart.totalsComputedAt = now
     if (changes.length > 0) cart.lastPriceChangeAt = now
+    cart.requiresApproval = await resolveCartRequiresApproval(container, cart, computeGoodsGrossAmount(cart.totals))
   }
 }

@@ -2,11 +2,11 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CheckoutLink, CheckoutTransaction } from '../data/entities'
 import { transactionCreateSchema, transactionUpdateStatusSchema } from '../data/validators'
 import { emitCheckoutEvent } from '../events'
 import {
-  applyTerminalTransactionState,
   isTerminalCheckoutStatus,
   mapGatewayStatusToCheckoutStatus,
   parseCheckoutInput,
@@ -64,33 +64,6 @@ const createTransactionCommand: CommandHandler<Record<string, unknown>, { id: st
       if (currentLink.status !== 'active') {
         throw new CrudHttpError(422, { error: 'This payment link is not currently accepting payments' })
       }
-      const reserved = await tx.getConnection().execute<Array<{ id: string }>>(
-        `
-          UPDATE checkout_links
-          SET active_reservation_count = active_reservation_count + 1,
-              is_locked = true,
-              updated_at = now()
-          WHERE id = ?
-            AND organization_id = ?
-            AND tenant_id = ?
-            AND deleted_at IS NULL
-            AND status = 'active'
-            AND (
-              max_completions IS NULL
-              OR completion_count + active_reservation_count < max_completions
-            )
-          RETURNING id
-        `,
-        [parsed.linkId, scope.organizationId, scope.tenantId],
-      )
-      if (!reserved[0]?.id) {
-        throw new CrudHttpError(422, { error: 'This payment link is no longer available' })
-      }
-      lockedLinkId = currentLink.id
-      lockedLinkSlug = currentLink.slug
-      lockedLinkTemplateId = currentLink.templateId ?? null
-      lockedLinkGatewayProvider = currentLink.gatewayProviderKey ?? null
-      shouldEmitLockedEvent = !currentLink.isLocked
       const transaction = tx.create(CheckoutTransaction, {
         ...parsed,
         organizationId: scope.organizationId,
@@ -100,6 +73,33 @@ const createTransactionCommand: CommandHandler<Record<string, unknown>, { id: st
       })
       tx.persist(transaction)
       await tx.flush()
+      const reserved = await tx.execute<Array<{ active_reservation_count: number }>>(
+        `
+          UPDATE checkout_links
+          SET active_reservation_count = active_reservation_count + 1,
+              is_locked = true,
+              updated_at = clock_timestamp()
+          WHERE id = ?
+            AND organization_id = ?
+            AND tenant_id = ?
+            AND deleted_at IS NULL
+            AND status = 'active'
+            AND (
+              max_completions IS NULL
+              OR completion_count + active_reservation_count < max_completions
+            )
+          RETURNING active_reservation_count
+        `,
+        [parsed.linkId, scope.organizationId, scope.tenantId],
+      )
+      if (!reserved[0]) {
+        throw new CrudHttpError(422, { error: 'This payment link is no longer available' })
+      }
+      lockedLinkId = currentLink.id
+      lockedLinkSlug = currentLink.slug
+      lockedLinkTemplateId = currentLink.templateId ?? null
+      lockedLinkGatewayProvider = currentLink.gatewayProviderKey ?? null
+      shouldEmitLockedEvent = Number(reserved[0].active_reservation_count) === 1
       return transaction
     })
     if (shouldEmitLockedEvent && lockedLinkId && lockedLinkSlug) {
@@ -156,13 +156,20 @@ const updateTransactionStatusCommand: CommandHandler<Record<string, unknown>, { 
         tenantId: scope.tenantId,
       })
       if (!transaction) throw new CrudHttpError(404, { error: 'Transaction not found' })
-      const link = await tx.findOne(CheckoutLink, {
-        id: transaction.linkId,
-        organizationId: scope.organizationId,
-        tenantId: scope.tenantId,
-        deletedAt: null,
-      })
-      if (!link) throw new CrudHttpError(404, { error: 'Payment link not found' })
+      // Session-backed transactions (Step 4.2, §4.4) have no `linkId` at all — they
+      // belong to a `CheckoutSession`, not a `CheckoutLink`. Only pay-link transactions
+      // require a resolvable link; the link-specific side effects below (usage-limit
+      // decrement, the link-scoped terminal event) are skipped for the session-backed
+      // case rather than 404ing the whole status update.
+      const link = transaction.linkId
+        ? await tx.findOne(CheckoutLink, {
+          id: transaction.linkId,
+          organizationId: scope.organizationId,
+          tenantId: scope.tenantId,
+          deletedAt: null,
+        })
+        : null
+      if (transaction.linkId && !link) throw new CrudHttpError(404, { error: 'Payment link not found' })
 
       const previousStatus = transaction.status
       const nextStatus = parsed.status
@@ -226,19 +233,46 @@ const updateTransactionStatusCommand: CommandHandler<Record<string, unknown>, { 
       // Only apply terminal link state and emit the terminal event when the
       // status actually changes — prevents double-notification on idempotent
       // redeliveries (e.g. authorized → captured, both mapping to 'completed').
-      if (!previousTerminal && nextTerminal) {
-        const { usageLimitReached } = applyTerminalTransactionState(link, nextStatus)
-        await tx.flush()
-        if (usageLimitReached) {
+      // Link-scoped only: a session-backed transaction has no `checkout_links` row
+      // to decrement and no link-scoped terminal event to emit — its own completion
+      // is driven by the session-aware gateway-payment subscriber instead.
+      if (link && !previousTerminal && nextTerminal) {
+        const released = await tx.execute<Array<{ completion_count: number; max_completions: number | null }>>(
+          `
+            UPDATE checkout_links
+            SET active_reservation_count = GREATEST(active_reservation_count - 1, 0),
+                completion_count = completion_count + ?,
+                is_locked = GREATEST(active_reservation_count - 1, 0) > 0,
+                updated_at = clock_timestamp()
+            WHERE id = ?
+              AND organization_id = ?
+              AND tenant_id = ?
+              AND deleted_at IS NULL
+            RETURNING completion_count, max_completions
+          `,
+          [nextStatus === 'completed' ? 1 : 0, link.id, scope.organizationId, scope.tenantId],
+        )
+        if (!released[0]) {
+          const { translate } = await resolveTranslations()
+          throw new CrudHttpError(404, {
+            error: translate('checkout.errors.links.notFound', 'Payment link not found'),
+          })
+        }
+        const maxCompletions = released[0].max_completions
+        if (
+          nextStatus === 'completed'
+          && maxCompletions != null
+          && Number(released[0].completion_count) === Number(maxCompletions)
+        ) {
           emitUsageLimitReached = true
           usageLimitReachedLinkId = link.id
           usageLimitReachedLinkSlug = link.slug
         }
       }
-      if (nextTerminal && previousStatus !== nextStatus) {
+      if (link && nextTerminal && previousStatus !== nextStatus) {
         terminalEventPayload = {
           transactionId: transaction.id,
-          linkId: transaction.linkId,
+          linkId: transaction.linkId as string,
           templateId: link.templateId ?? null,
           slug: link.slug,
           status: transaction.status,

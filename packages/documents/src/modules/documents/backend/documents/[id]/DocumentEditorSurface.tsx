@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { useContentSecurityPolicyNonce } from '@open-mercato/ui/theme/ContentSecurityPolicyProvider'
 import { Link2, Unlink } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
@@ -30,6 +31,7 @@ type Props = DocumentEditorIslandProps & {
 
 export function DocumentEditorSurface(input: Props) {
   const t = useT()
+  const nonce = useContentSecurityPolicyNonce()
   const [outlineOpen, setOutlineOpen] = React.useState(false)
   const [suggestionRange, setSuggestionRange] = React.useState<{ from: number; to: number } | null>(null)
   const modeChangeInFlightRef = React.useRef(false)
@@ -102,7 +104,7 @@ export function DocumentEditorSurface(input: Props) {
 
   return (
     <div className={cn('space-y-3', input.transport === 'collab' && 'om-doc-collab', input.mode === 'preview' && 'om-doc-preview')}>
-      <style>{EDITOR_PRESENCE_STYLES}</style>
+      <style nonce={nonce}>{EDITOR_PRESENCE_STYLES}</style>
       <div className="overflow-hidden rounded-lg border border-border bg-muted shadow-sm">
         <div className="sticky top-0 z-sticky border-b border-border bg-card/95">
           <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">

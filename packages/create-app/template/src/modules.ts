@@ -133,6 +133,16 @@ export const enabledModules: ModuleEntry[] = [
   // scaffold ships is required by at least one catalog case'). Run the
   // om-refresh-standalone-harness skill to add that coverage, then enable it in the template.
   // { id: 'cart', from: '@open-mercato/core' },
+  // Staff- and AI-authored priced proposals on a buyer's basket, accepted as a cart merge
+  // (.ai/specs/2026-09-22-assisted-selling.md). Stays commented out with cart, customer_groups
+  // and promotions above until the module-sets `commerce` preset enables the suite together
+  // with its standalone-harness coverage: no case in
+  // packages/create-app/agentic/shared/ai/harness/cases.json lists
+  // .ai/guides/modules/assisted_selling/index.md in context.required, so enabling it here
+  // trips packages/create-app/src/lib/module-facts-build.test.ts ('every module fact-sheet a
+  // scaffold ships is required by at least one catalog case'). Run the
+  // om-refresh-standalone-harness skill to add that coverage, then enable it in the template.
+  // { id: 'assisted_selling', from: '@open-mercato/core' },
   { id: 'api_keys', from: '@open-mercato/core' },
   { id: 'devices', from: '@open-mercato/core' },
   { id: 'dictionaries', from: '@open-mercato/core' },
@@ -172,6 +182,12 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'checkout', from: '@open-mercato/checkout' },
   { id: 'documents', from: '@open-mercato/documents' },
   { id: 'gateway_stripe', from: '@open-mercato/gateway-stripe' },
+  // Autopay hosted-redirect PLN payment gateway. The package ships with the
+  // scaffold but stays disabled by default: the hosted-session redirect
+  // transport has not been verified against a live Autopay sandbox (see
+  // .ai/specs/2026-09-10-autopay-hosted-pln-payment-sessions.md). Enabling it
+  // here is a deliberate follow-up once that is resolved, not a one-line edit.
+  // { id: 'gateway_autopay', from: '@open-mercato/gateway-autopay' },
   // Tpay payment gateway (.ai/specs/2026-08-01-tpay-hosted-pln-payment-sessions.md).
   // The package ships with the scaffold as an opt-in provider. Enabling it by
   // default makes the scaffold ship the module's fact-sheet, which then needs an
@@ -183,6 +199,7 @@ export const enabledModules: ModuleEntry[] = [
   // at import time via `setup.ts`; the hub picks them up by `providerKey`.
   { id: 'channel_resend', from: '@open-mercato/channel-resend' },
   { id: 'channel_ses', from: '@open-mercato/channel-ses' },
+  { id: 'channel_smtp', from: '@open-mercato/channel-smtp' },
   { id: 'channel_imap', from: '@open-mercato/channel-imap' },
   { id: 'channel_gmail', from: '@open-mercato/channel-gmail' },
   // Mobile push providers for the push_notifications channel. Each registers a

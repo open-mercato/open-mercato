@@ -45,6 +45,11 @@ const EXPLICIT_TEMPLATE_FILE_MAPPINGS = [
     rel: 'scripts/dev-mcp.mjs',
   },
   {
+    sourceFile: path.join(ROOT, 'scripts', 'dev-session-guard.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-session-guard.mjs'),
+    rel: 'scripts/dev-session-guard.mjs',
+  },
+  {
     // `scripts/dev.mjs` imports this to keep its optional Docker probe bounded,
     // so a scaffolded app fails to boot `yarn dev` without it.
     sourceFile: path.join(ROOT, 'scripts', 'dev-docker-availability.mjs'),
@@ -189,6 +194,7 @@ const SYNC_INTERNAL_PACKAGE_KEYS = [
   // so the dependency must track the monorepo version or a scaffolded app fails
   // module resolution the moment the flag is flipped.
   '@open-mercato/enterprise',
+  '@open-mercato/gateway-autopay',
   '@open-mercato/gateway-stripe',
   '@open-mercato/gateway-tpay',
   '@open-mercato/sync-akeneo',
@@ -333,6 +339,15 @@ export const TEMPLATE_COMMENTED_MODULES: Record<string, { source: string; templa
   // intact'), and #4983 for the discussion.
   // { id: 'channel_discord', from: '@open-mercato/channel-discord' },`,
   },
+  gateway_autopay: {
+    source: `  { id: 'gateway_autopay', from: '@open-mercato/gateway-autopay' },`,
+    template: `  // Autopay hosted-redirect PLN payment gateway. The package ships with the
+  // scaffold but stays disabled by default: the hosted-session redirect
+  // transport has not been verified against a live Autopay sandbox (see
+  // .ai/specs/2026-09-10-autopay-hosted-pln-payment-sessions.md). Enabling it
+  // here is a deliberate follow-up once that is resolved, not a one-line edit.
+  // { id: 'gateway_autopay', from: '@open-mercato/gateway-autopay' },`,
+  },
   carrier_inpost: {
     source: `  { id: 'carrier_inpost', from: '@open-mercato/carrier-inpost' },`,
     template: `  // InPost shipping carrier provider for the shipping_carriers hub. It stays
@@ -428,6 +443,23 @@ export const TEMPLATE_COMMENTED_MODULES: Record<string, { source: string; templa
   // scaffold ships is required by at least one catalog case'). Run the
   // om-refresh-standalone-harness skill to add that coverage, then enable it in the template.
   // { id: 'cart', from: '@open-mercato/core' },`,
+  },
+  assisted_selling: {
+    source: `  // Staff- and AI-authored priced proposals on a buyer's basket, accepted as a cart
+  // merge (.ai/specs/2026-09-22-assisted-selling.md, D-R5-11/D-R5-36). Step 4.4: \`cart\` is now
+  // a hard \`requires\` (thread/proposal commands wrap \`cart.proposal.create\`/\`.reject\`);
+  // \`ecommerce\`'s \`storeContextService.resolveForBuyer\` stays a soft \`tryResolve\` peer.
+  { id: 'assisted_selling', from: '@open-mercato/core' },`,
+    template: `  // Staff- and AI-authored priced proposals on a buyer's basket, accepted as a cart merge
+  // (.ai/specs/2026-09-22-assisted-selling.md). Stays commented out with cart, customer_groups
+  // and promotions above until the module-sets \`commerce\` preset enables the suite together
+  // with its standalone-harness coverage: no case in
+  // packages/create-app/agentic/shared/ai/harness/cases.json lists
+  // .ai/guides/modules/assisted_selling/index.md in context.required, so enabling it here
+  // trips packages/create-app/src/lib/module-facts-build.test.ts ('every module fact-sheet a
+  // scaffold ships is required by at least one catalog case'). Run the
+  // om-refresh-standalone-harness skill to add that coverage, then enable it in the template.
+  // { id: 'assisted_selling', from: '@open-mercato/core' },`,
   },
 }
 
