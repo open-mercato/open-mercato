@@ -52,7 +52,10 @@ test.describe('TC-SALES-7782: Native document UI with empty extension regions', 
         await expect(main.getByRole('button', { name: 'Items', exact: true })).toBeVisible()
         await expect(main.getByRole('button', { name: 'Addresses', exact: true })).toBeVisible()
         await expect(main.getByRole('button', { name: 'Adjustments', exact: true })).toBeVisible()
-        await expect(main.getByRole('button', { name: 'Add item', exact: true })).toBeVisible()
+        if (kind === 'quote') {
+          await expect(main.getByText('No items yet.', { exact: true })).toBeVisible()
+        }
+        await expect(main.getByRole('button', { name: 'Add item', exact: true }).filter({ visible: true })).not.toHaveCount(0)
         await expect(main.getByText('Details', { exact: true })).toBeVisible()
         await expect(main.getByRole('heading', { name: 'Custom data', exact: true })).toBeVisible()
         await expect(main.getByRole('heading', { name: 'Tags', exact: true })).toBeVisible()
