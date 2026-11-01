@@ -1,5 +1,5 @@
 import {
-  CustomerPurchaseApprovalServiceError,
+  isCustomerPurchaseApprovalServiceError,
   type CustomerPurchaseApprovalService,
 } from '@open-mercato/core/modules/customer_groups/services/customerPurchaseApprovalService'
 
@@ -67,7 +67,7 @@ export async function withdrawPendingCartApproval(
     })
     return true
   } catch (err) {
-    if (err instanceof CustomerPurchaseApprovalServiceError && err.code === 'approval_not_pending') return false
+    if (isCustomerPurchaseApprovalServiceError(err) && err.code === 'approval_not_pending') return false
     throw err
   }
 }

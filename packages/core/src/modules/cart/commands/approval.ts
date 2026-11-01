@@ -7,7 +7,7 @@ import { CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
 import type { CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { CustomerPurchaseApprovalServiceError } from '@open-mercato/core/modules/customer_groups/services/customerPurchaseApprovalService'
+import { isCustomerPurchaseApprovalServiceError } from '@open-mercato/core/modules/customer_groups/services/customerPurchaseApprovalService'
 import { E } from '#generated/entities.ids.generated'
 import { Cart } from '../data/entities'
 import { assertCartNotLocked } from '../lib/lockGuard'
@@ -150,7 +150,7 @@ const requestApprovalCommand: CommandHandler<CartRequestApprovalInput, CartReque
           actor: { actorType: 'customer_user', actorId: cart.customerUserId, customerEntityId: cart.customerId ?? '' },
         })
       } catch (err) {
-        const isAlreadySettled = err instanceof CustomerPurchaseApprovalServiceError && err.code === 'approval_not_pending'
+        const isAlreadySettled = isCustomerPurchaseApprovalServiceError(err) && err.code === 'approval_not_pending'
         if (!isAlreadySettled) throw err
       }
     }
