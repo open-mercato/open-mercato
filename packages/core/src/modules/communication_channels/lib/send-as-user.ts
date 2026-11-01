@@ -1,7 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
-import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import {
   ChannelThreadMapping,
   CommunicationChannel,
@@ -185,7 +185,12 @@ export async function sendAsUser(
     // One logical thread can map to several provider conversations on the same
     // channel, so the thread alone cannot pick the right one.
     let conversation = input.parentMessageId
-      ? await findParentConversation(em, input.parentMessageId, channel.id, dscope)
+      ? await findParentConversation(em, {
+          parentMessageId: input.parentMessageId,
+          messageThreadId,
+          channelId: channel.id,
+          scope: dscope,
+        })
       : null
     if (!conversation) {
       conversation = await findOneWithDecryption(
@@ -329,31 +334,49 @@ export async function sendAsUser(
   }
 }
 
+/**
+ * The parent's conversation on this channel, but only when it is mapped to the
+ * reply's own thread there: delivery resolves the mapping by thread and
+ * conversation, so any other conversation would leave the reply undeliverable.
+ */
 async function findParentConversation(
   em: EntityManager,
-  parentMessageId: string,
-  channelId: string,
-  scope: { tenantId: string; organizationId: string | null },
+  params: {
+    parentMessageId: string
+    messageThreadId: string
+    channelId: string
+    scope: { tenantId: string; organizationId: string | null }
+  },
 ): Promise<ExternalConversation | null> {
-  const parentLinks = await findWithDecryption(
+  const { tenantId, organizationId } = params.scope
+  const parentLink = await findOneWithDecryption(
     em,
     MessageChannelLink,
-    { messageId: parentMessageId, tenantId: scope.tenantId, organizationId: scope.organizationId },
-    { orderBy: { createdAt: 'asc' } },
-    scope,
+    { messageId: params.parentMessageId, tenantId, organizationId },
+    undefined,
+    params.scope,
   )
-  if (parentLinks.length === 0) return null
+  if (!parentLink) return null
+  const parentMapping = await findOneWithDecryption(
+    em,
+    ChannelThreadMapping,
+    {
+      externalConversationId: parentLink.externalConversationId,
+      messageThreadId: params.messageThreadId,
+      channelId: params.channelId,
+      tenantId,
+      organizationId,
+    },
+    undefined,
+    params.scope,
+  )
+  if (!parentMapping) return null
   return findOneWithDecryption(
     em,
     ExternalConversation,
-    {
-      id: { $in: parentLinks.map((link) => link.externalConversationId) },
-      channelId,
-      tenantId: scope.tenantId,
-      organizationId: scope.organizationId,
-    },
-    { orderBy: { createdAt: 'asc' } },
-    scope,
+    { id: parentMapping.externalConversationId, channelId: params.channelId, tenantId, organizationId },
+    undefined,
+    params.scope,
   )
 }
 

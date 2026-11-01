@@ -20,7 +20,7 @@ jest.mock('../queue', () => ({
 }))
 
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
-import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { sendAsUser } from '../send-as-user'
 import {
   ChannelThreadMapping,
@@ -30,7 +30,6 @@ import {
 } from '../../data/entities'
 
 const mockFindOne = findOneWithDecryption as jest.MockedFunction<typeof findOneWithDecryption>
-const mockFind = findWithDecryption as jest.MockedFunction<typeof findWithDecryption>
 
 const TENANT = '550e8400-e29b-41d4-a716-446655440020'
 const ORG = '550e8400-e29b-41d4-a716-446655440030'
@@ -38,6 +37,7 @@ const CHANNEL = '550e8400-e29b-41d4-a716-446655440060'
 const USER = '550e8400-e29b-41d4-a716-446655440070'
 const THREAD = '550e8400-e29b-41d4-a716-446655440080'
 const PARENT = '550e8400-e29b-41d4-a716-446655440090'
+const OTHER_THREAD = '550e8400-e29b-41d4-a716-446655440081'
 
 type Row = Record<string, unknown>
 type Created = { entity: unknown; data: Row }
@@ -50,9 +50,6 @@ type Store = {
 
 function matches(row: Row, where: Row): boolean {
   return Object.entries(where).every(([key, expected]) => {
-    if (expected && typeof expected === 'object' && '$in' in expected) {
-      return (expected as { $in: unknown[] }).$in.includes(row[key])
-    }
     if (expected === null) return row[key] === null || row[key] === undefined
     return row[key] === expected
   })
@@ -74,9 +71,6 @@ function primeStore(store: Store) {
   mockFindOne.mockImplementation(async (_em, entity, where) => {
     const found = sortedByCreatedAt(rowsFor(store, entity)).find((row) => matches(row, where as Row))
     return (found ?? null) as never
-  })
-  mockFind.mockImplementation(async (_em, entity, where) => {
-    return sortedByCreatedAt(rowsFor(store, entity)).filter((row) => matches(row, where as Row)) as never
   })
 }
 
@@ -124,11 +118,11 @@ function conversationRow(id: string, ref: string, createdAt: number): Row {
   return { id, channelId: CHANNEL, externalConversationId: ref, subject: 'Offer', assignedUserId: USER, createdAt, ...scoped }
 }
 
-function mappingRow(conversationId: string, ref: string, createdAt: number): Row {
+function mappingRow(conversationId: string, ref: string, createdAt: number, messageThreadId = THREAD): Row {
   return {
     id: `map-${conversationId}`,
     externalConversationId: conversationId,
-    messageThreadId: THREAD,
+    messageThreadId,
     channelId: CHANNEL,
     externalThreadRef: ref,
     createdAt,
@@ -153,7 +147,6 @@ function createdLink(created: Created[]): Row | undefined {
 describe('sendAsUser: conversation of a follow-up send', () => {
   beforeEach(() => {
     mockFindOne.mockReset()
-    mockFind.mockReset()
     enqueue.mockClear()
   })
 
@@ -218,8 +211,32 @@ describe('sendAsUser: conversation of a follow-up send', () => {
 
     expect(result).toMatchObject({ ok: true })
     expect(createdLink(created)?.externalConversationId).toBe('conv-a')
-    const mappingLookup = mockFindOne.mock.calls.find(([, entity]) => entity === ChannelThreadMapping)
-    expect(mappingLookup?.[3]).toEqual({ orderBy: { createdAt: 'asc' } })
+    const fallbackLookup = mockFindOne.mock.calls.find(
+      ([, entity, where]) => entity === ChannelThreadMapping && !('externalConversationId' in (where as Row)),
+    )
+    expect(fallbackLookup?.[3]).toEqual({ orderBy: { createdAt: 'asc' } })
+  })
+
+  it("falls back to the thread's own conversation when the parent's conversation is mapped to another thread", async () => {
+    const { container, created } = makeContainer()
+    primeStore({
+      channels: [channel],
+      conversations: [
+        conversationRow('conv-parent', 'gmail-thread:gm-parent', 1),
+        conversationRow('conv-thread', 'gmail-thread:gm-thread', 2),
+      ],
+      mappings: [
+        mappingRow('conv-parent', 'gmail-thread:gm-parent', 1, OTHER_THREAD),
+        mappingRow('conv-thread', 'gmail-thread:gm-thread', 2),
+      ],
+      links: [{ id: 'link-parent', messageId: PARENT, externalConversationId: 'conv-parent', createdAt: 1, ...scoped }],
+    })
+
+    const result = await sendAsUser(container, actor, input)
+
+    expect(result).toMatchObject({ ok: true })
+    expect(created.find((row) => row.entity === ChannelThreadMapping)).toBeUndefined()
+    expect(createdLink(created)?.externalConversationId).toBe('conv-thread')
   })
 
   it('opens an outbound placeholder conversation for a thread the channel has not seen', async () => {
