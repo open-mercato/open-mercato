@@ -68,7 +68,10 @@ export async function GET(req: Request) {
       },
       { organizationId: auth.orgId, tenantId: auth.tenantId },
     )
-    const linkIds = Array.from(new Set(items.map((item) => item.linkId)))
+    // Release 5, Step 4.2: `linkId` is now nullable (a session-backed, link-less
+    // transaction, §4.4) — filtered out here, same as `serializeTransaction`'s own
+    // `linkMap.get(...)` fallback to `null` for an admin row with no link to join.
+    const linkIds = Array.from(new Set(items.map((item) => item.linkId).filter((id): id is string => Boolean(id))))
     const links = linkIds.length
       ? await findWithDecryption(em, CheckoutLink, {
         id: { $in: linkIds },
@@ -79,7 +82,7 @@ export async function GET(req: Request) {
       : []
     const linkMap = new Map(links.map((link) => [link.id, link]))
     return NextResponse.json({
-      items: items.map((item) => serializeTransaction(item, linkMap.get(item.linkId) ?? null, canViewPii)),
+      items: items.map((item) => serializeTransaction(item, item.linkId ? linkMap.get(item.linkId) ?? null : null, canViewPii)),
       total,
       page,
       pageSize,

@@ -1,11 +1,14 @@
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { CommandBus } from '@open-mercato/shared/lib/commands/command-bus'
+import { createGatewayPaymentSessionResumeHandler } from '../lib/gatewayPaymentSessionResume'
 
 export const metadata = {
   event: 'payment_gateways.payment.captured',
   persistent: true,
   id: 'checkout-gateway-payment-captured',
 }
+
+const resumeSession = createGatewayPaymentSessionResumeHandler('completed')
 
 export default async function handle(payload: { paymentId?: string; organizationId?: string; tenantId?: string; transactionId?: string }) {
   if (!payload.paymentId || !payload.organizationId || !payload.tenantId) return
@@ -28,4 +31,8 @@ export default async function handle(payload: { paymentId?: string; organization
       organizationIds: [payload.organizationId],
     },
   }).catch(() => null)
+  // Link-backed transactions stop here — Phase A's own flow already completes them.
+  // A session-backed transaction (no `linkId`) has no owner past the status update above,
+  // so confirm (or compensate) the `CheckoutSession` that is actually waiting on this answer.
+  await resumeSession(payload)
 }

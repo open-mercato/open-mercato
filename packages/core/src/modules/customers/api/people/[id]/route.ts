@@ -1,3 +1,4 @@
+import { enrichCustomerDetailResponse } from '../../../lib/detailResponseEnrichment'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
@@ -579,7 +580,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
         statusCode = 200
         profileMeta = { cacheHit: true, include: Array.from(includeTokens), interactionMode }
         profiler.mark('cache_hit')
-        return NextResponse.json(cached)
+        return NextResponse.json(await enrichCustomerDetailResponse(cached as Record<string, unknown>, 'person', { auth, container, em, tenantId: personDetailTenantId, organizationId: personDetailOrganizationId }))
       }
     }
 
@@ -770,7 +771,10 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
     if (viewerUserId) authorIds.add(viewerUserId)
 
     if (authorIds.size) {
-      const users = await findWithDecryption(em, User, { id: { $in: Array.from(authorIds) } }, {}, { tenantId: person.tenantId ?? auth.tenantId ?? null, organizationId: person.organizationId ?? auth.orgId ?? null })
+      const users = await findWithDecryption(em, User, {
+        id: { $in: Array.from(authorIds) },
+        tenantId: person.tenantId,
+      }, {}, { tenantId: person.tenantId, organizationId: person.organizationId })
       userMap = new Map(
         users.map((user) => [
           user.id,
@@ -1134,7 +1138,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
       } catch {}
     }
 
-    const response = NextResponse.json(payload)
+    const response = NextResponse.json(await enrichCustomerDetailResponse(payload, 'person', { auth, container, em, tenantId: personDetailTenantId, organizationId: personDetailOrganizationId }))
     statusCode = 200
     profileMeta = {
       include: Array.from(includeTokens),

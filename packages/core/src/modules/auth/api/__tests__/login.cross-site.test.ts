@@ -5,6 +5,10 @@ import { randomUUID } from 'crypto'
 import { registerApiInterceptors } from '@open-mercato/shared/lib/crud/interceptor-registry'
 import { POST } from '@open-mercato/core/modules/auth/api/login'
 
+jest.mock('@open-mercato/core/modules/auth/lib/tenantEligibility', () => ({
+  isStaffTenantActive: jest.fn(async () => true),
+}))
+
 const tenantId = randomUUID()
 const orgId = randomUUID()
 

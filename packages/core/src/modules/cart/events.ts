@@ -18,6 +18,11 @@ const events = [
   { id: 'cart.price.changed', label: 'Cart Price Changed', entity: 'cart', category: 'lifecycle', clientBroadcast: true },
   { id: 'cart.approval.requested', label: 'Cart Approval Requested', entity: 'approval', category: 'lifecycle' },
   { id: 'cart.lock.acquired', label: 'Cart Lock Acquired', entity: 'cart', category: 'lifecycle' },
+  // Step 2.8 (rev 10 — C1/X15): the idempotent-extend transition (`locked -> locked`, §9) —
+  // its own event, distinct from `.acquired` (fresh `active -> locked`) and `.released`/
+  // `.timed_out`, mirroring the existing one-event-per-transition convention this family
+  // already follows with no real caller yet either.
+  { id: 'cart.lock.extended', label: 'Cart Lock Extended', entity: 'cart', category: 'lifecycle' },
   { id: 'cart.lock.released', label: 'Cart Lock Released', entity: 'cart', category: 'lifecycle' },
   { id: 'cart.lock.timed_out', label: 'Cart Lock Timed Out', entity: 'cart', category: 'lifecycle' },
   // D-R4-23: emitted once per REQUEST with a rejected count, never once per rejected line,
