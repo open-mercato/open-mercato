@@ -577,6 +577,20 @@ async function executeProposalAcceptance(input: CartMergeManualInput, ctx: Comma
   // — whichever caller (accept or reject) commits first wins; the loser's guard matches zero
   // rows, mutates nothing, and gets a conflict instead of silently clobbering/double-applying
   // the winner's state.
+  //
+  // MAJOR fix (review follow-up): the lock above only ever covered the PROPOSAL's own id —
+  // it serializes accept-vs-reject-vs-double-accept on the proposal, but `buildMergeOutcome`
+  // below mutates the TARGET cart's EXISTING lines (summing quantities) and its `tokenHash`,
+  // neither of which the target's own lock (`cart:lines:${target.id}`, the one `cart.lines.
+  // add`/`.bulkAdd` already take for every other write to this exact cart) ever guarded here.
+  // A concurrent `cart.lines.add` on the target could interleave its own read-modify-write of
+  // the SAME line between this phase's pre-lock reads (`targetCustomerLines`, fetched above)
+  // and its locked write, losing one side's quantity delta. Fixed by taking BOTH locks before
+  // any target mutation — the proposal's own (still needed for the status guard) and the
+  // target's (matching `cart.lines.add`'s key exactly, so the two call sites actually
+  // serialize against each other). Acquired in a fixed lexicographic order (never
+  // proposal-then-target or target-then-proposal by calling convention) so two concurrent
+  // accepts whose proposal/target pairs cross each other can never deadlock each other.
   let acceptConflict = false
   let built: MergeLineFields | null = null
   let outcome: StoredMergeOutcomeEntry[] = []
@@ -585,7 +599,10 @@ async function executeProposalAcceptance(input: CartMergeManualInput, ctx: Comma
     em,
     [
       async () => {
-        await em.execute('select pg_advisory_xact_lock(hashtextextended(?::text, 0))', [`cart:lines:${proposal.id}`])
+        const lockKeys = [`cart:lines:${proposal.id}`, `cart:lines:${target.id}`].sort()
+        for (const lockKey of lockKeys) {
+          await em.execute('select pg_advisory_xact_lock(hashtextextended(?::text, 0))', [lockKey])
+        }
       },
       async () => {
         const affected = await em.nativeUpdate(
@@ -601,8 +618,18 @@ async function executeProposalAcceptance(input: CartMergeManualInput, ctx: Comma
         }
         await em.refresh(proposal)
       },
-      () => {
+      async () => {
         if (acceptConflict) return
+        // Mirrors `commands/lines.ts#addLineCommand`'s own "refresh inside the lock, never
+        // trust the pre-lock snapshot" discipline (MAJOR fix #2): `targetCustomerLines` was
+        // fetched before this phase's lock was acquired, so a concurrent `cart.lines.add` on
+        // the SAME target (same lock key, serialized by the lock above, not excluded by it)
+        // may have already committed its own quantity change to one of these exact rows.
+        // Re-reading each line fresh, now that the lock is held, is what makes the lock
+        // actually prevent a lost update rather than just prevent two COMMITS from racing —
+        // without this, `buildMergeOutcome` would still sum onto the stale in-memory
+        // `matched.quantity` captured before the lock.
+        for (const line of targetCustomerLines) await em.refresh(line)
         built = buildMergeOutcome(em, acceptedLines, targetCustomerLines, maxQuantities, target, startingLineNumber, mergeVisibility)
         outcome = [...built.outcome, ...declinedOutcome]
         target.tokenHash = newTokenHash
