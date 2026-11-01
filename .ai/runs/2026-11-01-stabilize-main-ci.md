@@ -54,7 +54,7 @@ Restore every failing required CI check on `main` by identifying the current roo
 
 ### Phase 2: Correct the root cause
 
-- [ ] 2.1 Implement the smallest durable fix with regression coverage and targeted validation, then remove any scope creep found in the diff.
+- [x] 2.1 Implement the smallest durable fix with regression coverage and targeted validation, then remove any scope creep found in the diff. — 36abf1d2a9
 
 ### Phase 3: Prove readiness
 
