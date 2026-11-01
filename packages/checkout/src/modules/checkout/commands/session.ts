@@ -15,7 +15,7 @@ import {
   resolveRequestStoreIdForConsistencyCheck,
 } from '../lib/cartSessionConsistency'
 import { seedCartFromCheckoutLink } from '../lib/payLinkCartSeed'
-import { generateCheckoutSessionToken } from '../lib/sessionToken'
+import { generateCheckoutSessionToken, hashCheckoutSessionToken } from '../lib/sessionToken'
 import { assertValidCheckoutSessionTransition } from '../lib/session-status-machine'
 import { writeSessionEvent } from '../lib/sessionEvents'
 import { tryResolve } from '../lib/tryResolve'
@@ -26,10 +26,11 @@ import { emitCheckoutEvent } from '../events'
 export const CHECKOUT_SESSION_RESOURCE_KIND = 'checkout.session'
 
 // §4.1: no explicit default session TTL is named for the `open` state in this Step's own
-// scope (the `expire-checkout-sessions` job that reads it is Step 2.13+ — see NOTIFY.md).
-// One hour is a conservative, documented placeholder consistent with the funnel's own
-// framing ("abandoned checkouts are the majority", §6) — long enough for a buyer to finish
-// a short form, short enough that an abandoned session does not linger indefinitely.
+// scope. One hour is a conservative, documented placeholder consistent with the funnel's
+// own framing ("abandoned checkouts are the majority", §6) — long enough for a buyer to
+// finish a short form, short enough that an abandoned session does not linger
+// indefinitely. `workers/expire-checkout-sessions.worker.ts` is the job that reads it
+// (PR 8268 review fix).
 const DEFAULT_SESSION_OPEN_TTL_MS = 60 * 60 * 1000
 
 /** Soft-dependency gate (C10/D-R5-18): `checkout` declares no `requires` on `cart` —
@@ -43,6 +44,52 @@ export function assertCartPeerAvailable(ctx: CommandRuntimeContext): void {
       code: 'checkout_sessions_unavailable',
     })
   }
+}
+
+/**
+ * Reads the SAME `X-Checkout-Session-Token` header `lib/currentSessionRoute.ts` defines
+ * for `/sessions/current/*` — deliberately duplicated rather than imported (a command
+ * module does not import from a route-shaped file that pulls in `next/server`, the same
+ * precedent `lib/payLinkCartSeed.ts#readAccessCookie` documents for its own borrowed
+ * helper).
+ */
+const CHECKOUT_SESSION_TOKEN_HEADER = 'X-Checkout-Session-Token'
+
+function readCheckoutSessionTokenHeader(request: Request): string | null {
+  const value = request.headers.get(CHECKOUT_SESSION_TOKEN_HEADER)
+  const trimmed = value?.trim()
+  return trimmed ? trimmed : null
+}
+
+/**
+ * Finding 5 follow-up (reload/duplicate-click leak): a caller re-POSTing
+ * `{ source: 'link' }` while already holding the `X-Checkout-Session-Token` a PRIOR call
+ * to this same link handed back is resuming, not starting a new attempt — returning the
+ * SAME still-resumable session avoids seeding another cart and claiming a second
+ * `reserveCheckoutLinkSlot` slot off the same link. `null` (no token, unknown token, a
+ * token for a different link, or one whose session has already left the resumable
+ * `open`/`awaiting_approval` states or passed its own `expiresAt`) falls through to the
+ * normal seed-and-reserve path below.
+ */
+async function findResumableLinkSession(
+  em: EntityManager,
+  link: CheckoutLink,
+  request: Request | null | undefined,
+): Promise<{ token: string; session: CheckoutSession } | null> {
+  const token = request ? readCheckoutSessionTokenHeader(request) : null
+  if (!token) return null
+  const tokenHash = hashCheckoutSessionToken(token)
+  const existing = (await findOneWithDecryption(
+    em,
+    CheckoutSession,
+    { tokenHash, linkId: link.id, tenantId: link.tenantId, organizationId: link.organizationId } as any,
+    undefined,
+    { tenantId: link.tenantId, organizationId: link.organizationId },
+  )) as CheckoutSession | null
+  if (!existing) return null
+  if (existing.status !== 'open' && existing.status !== 'awaiting_approval') return null
+  if (existing.expiresAt && existing.expiresAt.getTime() <= Date.now()) return null
+  return { token, session: existing }
 }
 
 /**
@@ -176,6 +223,12 @@ const createSessionCommand: CommandHandler<CheckoutSessionCreateCommandInput, Ch
       if (!link || link.checkoutType !== 'simple_checkout') {
         throw new CrudHttpError(404, { error: '[internal] checkout link not found' })
       }
+
+      const resumable = await findResumableLinkSession(em, link, input.request)
+      if (resumable) {
+        return { token: resumable.token, session: resumable.session }
+      }
+
       const commandBus = ctx.container.resolve('commandBus') as CommandBus
       const seeded = await seedCartFromCheckoutLink({
         em,

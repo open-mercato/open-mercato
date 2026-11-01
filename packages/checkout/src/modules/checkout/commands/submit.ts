@@ -403,6 +403,15 @@ const submitSessionCommand: CommandHandler<CheckoutSessionSubmitCommandInput, Ch
         { id: session.id, ...scope, status: 'open' },
         { status: 'expired', updatedAt: new Date() },
       )
+      // Finding 5 follow-up: this path moves the session straight to the terminal
+      // `expired` status itself — it never reaches `workers/expire-checkout-sessions.worker.ts`'s
+      // own sweep (which only selects `open`/`awaiting_approval` rows), so a `linkId`-
+      // originated session's `reserveCheckoutLinkSlot` hold has to be released HERE or it
+      // leaks permanently, the exact same shape the sweep closes for a session that never
+      // calls submit at all.
+      if (session.linkId) {
+        await releaseCheckoutLinkSlot(em, scope, session.linkId, { completed: false })
+      }
       throw new CrudHttpError(409, { error: '[internal] checkout session has expired', code: 'session_expired' })
     }
     if (!session.termsAcceptedAt) {

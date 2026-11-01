@@ -70,6 +70,7 @@ export type SessionEventKind =
   | 'failure'
   | 'session_created'
   | 'session_canceled'
+  | 'session_expired'
 
 export type SessionEventActor = 'buyer' | 'system' | 'merchant' | 'agent'
 

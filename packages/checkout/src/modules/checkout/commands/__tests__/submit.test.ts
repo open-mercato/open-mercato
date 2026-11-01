@@ -682,6 +682,82 @@ describe('checkout.session.submit (B.4, steps 1-5 of §7.2/C19)', () => {
       body: expect.objectContaining({ code: 'payment_method_unavailable' }),
     })
   })
+
+  // §7.1 preconditions (C19/C14): none of these four guards had a test asserting they
+  // actually reject an invalid submit — each runs BEFORE the CAS (step 0), so a rejection
+  // here must take nothing: no reservation, no cart lock, no compensation.
+  it('answers 409 session_expired and moves the session to expired when expiresAt has passed', async () => {
+    const h = buildHarness({ session: makeSession({ expiresAt: new Date('2020-01-01T00:00:00.000Z') }) })
+
+    await expect(getHandler().execute(BASE_INPUT, h.ctx)).rejects.toMatchObject({
+      status: 409,
+      body: expect.objectContaining({ code: 'session_expired' }),
+    })
+    expect(h.seededSessions[0].status).toBe('expired')
+    expect(h.cartService.lock).not.toHaveBeenCalled()
+    expect(h.commandBusExecute).not.toHaveBeenCalled()
+  })
+
+  it('answers 422 steps_incomplete when terms have not been accepted', async () => {
+    const h = buildHarness({ session: makeSession({ termsAcceptedAt: null }) })
+
+    await expect(getHandler().execute(BASE_INPUT, h.ctx)).rejects.toMatchObject({
+      status: 422,
+      body: expect.objectContaining({ code: 'steps_incomplete', error: '[internal] terms must be accepted before submit' }),
+    })
+    expect(h.cartService.lock).not.toHaveBeenCalled()
+  })
+
+  it('answers 422 steps_incomplete when no email address is on the session', async () => {
+    const h = buildHarness({ session: makeSession({ email: null }) })
+
+    await expect(getHandler().execute(BASE_INPUT, h.ctx)).rejects.toMatchObject({
+      status: 422,
+      body: expect.objectContaining({ code: 'steps_incomplete', error: '[internal] an email address is required before submit' }),
+    })
+    expect(h.cartService.lock).not.toHaveBeenCalled()
+  })
+
+  it('answers 422 steps_incomplete when no shipping address is on the session', async () => {
+    const h = buildHarness({ session: makeSession({ shippingAddress: null }) })
+
+    await expect(getHandler().execute(BASE_INPUT, h.ctx)).rejects.toMatchObject({
+      status: 422,
+      body: expect.objectContaining({ code: 'steps_incomplete', error: '[internal] a shipping address is required before submit' }),
+    })
+    expect(h.cartService.lock).not.toHaveBeenCalled()
+  })
+})
+
+describe('checkout.session.submit — submit_idempotency_key replay (§7.4/C19)', () => {
+  // PR 8268 review fix: no existing test asserted this fires — a retry that lost its HTTP
+  // response under the SAME idempotency key must replay the ORIGINAL attempt's result,
+  // never re-create the quote/order and never a confusing 409.
+  it('a retry under the SAME idempotency key after the session already completed replays the original result, never duplicating sales.quotes.create', async () => {
+    const h = buildHarness()
+
+    const first = await getHandler().execute(BASE_INPUT, h.ctx)
+    expect(h.seededSessions[0].status).toBe('completed')
+    const createCallsAfterFirst = h.commandBusExecute.mock.calls.filter((call) => call[0] === 'sales.quotes.create').length
+    expect(createCallsAfterFirst).toBe(1)
+
+    const second = await getHandler().execute(BASE_INPUT, h.ctx)
+
+    expect(second.salesQuoteId).toBe(first.salesQuoteId)
+    expect(second.salesOrderId).toBe(first.salesOrderId)
+    const createCallsAfterSecond = h.commandBusExecute.mock.calls.filter((call) => call[0] === 'sales.quotes.create').length
+    expect(createCallsAfterSecond).toBe(1)
+  })
+
+  it('a retry under a DIFFERENT idempotency key still gets the uniform 409 for a non-open session — replay is key-gated', async () => {
+    const h = buildHarness()
+    await getHandler().execute(BASE_INPUT, h.ctx)
+
+    await expect(getHandler().execute({ ...BASE_INPUT, idempotencyKey: 'a-different-key' }, h.ctx)).rejects.toMatchObject({
+      status: 409,
+      body: expect.objectContaining({ code: 'session_not_open' }),
+    })
+  })
 })
 
 describe('checkout.session.submit (B.4, steps 6-8 of §7.2/C19 — Step 4.2)', () => {
