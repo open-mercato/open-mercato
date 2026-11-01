@@ -191,8 +191,6 @@ export function escapeHtml(value: string): string {
   return value.replace(/[&<>"']/g, (character) => HTML_ESCAPES[character] ?? character)
 }
 
-const PREVIEW_CONTENT_SECURITY_POLICY = "default-src 'none'; style-src 'unsafe-inline'; img-src http: https:"
-
 const PREVIEW_STATIC_CSS = [
   '*{box-sizing:border-box}',
   'body{margin:0;background:var(--background);color:var(--foreground);font-family:var(--font-base);font-size:14px;line-height:1.5}',
@@ -212,15 +210,19 @@ const PREVIEW_STATIC_CSS = [
   '.price{font-weight:600}',
 ].join('')
 
-export function buildBrandingPreviewDocument(values: Record<string, unknown>, labels: BrandingPreviewLabels): string {
+export function buildBrandingPreviewDocument(values: Record<string, unknown>, labels: BrandingPreviewLabels, nonce?: string): string {
   const branding = sanitizePreviewBranding(values)
+  const styleNonce = typeof nonce === 'string' && /^[A-Za-z0-9+/_-]{8,128}={0,2}$/.test(nonce) ? nonce : null
+  const styleAttribute = styleNonce ? ` nonce="${styleNonce}"` : ''
+  const styleSource = styleNonce ? `'nonce-${styleNonce}'` : "'unsafe-inline'"
+  const contentSecurityPolicy = `default-src 'none'; style-src ${styleSource}; img-src http: https:`
   const rootRule = renderBrandingRootRule(branding)
   const logo = branding.logoUrl ? `<img src="${escapeHtml(branding.logoUrl)}" alt="">` : ''
   const card = `<div class="card"><div class="thumb"></div><div class="card-body"><div>${escapeHtml(labels.productName)}</div><div class="price">${escapeHtml(labels.productPrice)}</div></div></div>`
   return [
     '<!doctype html><html><head><meta charset="utf-8">',
-    `<meta http-equiv="Content-Security-Policy" content="${PREVIEW_CONTENT_SECURITY_POLICY}">`,
-    `<style>${rootRule}</style><style>${PREVIEW_STATIC_CSS}</style></head><body>`,
+    `<meta http-equiv="Content-Security-Policy" content="${contentSecurityPolicy}">`,
+    `<style${styleAttribute}>${rootRule}</style><style${styleAttribute}>${PREVIEW_STATIC_CSS}</style></head><body>`,
     `<header class="bar"><div class="brand">${logo}<span>${escapeHtml(labels.storeName)}</span></div>`,
     `<nav><span>${escapeHtml(labels.navShop)}</span><span>${escapeHtml(labels.navCategories)}</span><span>${escapeHtml(labels.navCart)}</span></nav></header>`,
     `<section class="hero"><h1>${escapeHtml(labels.heroTitle)}</h1><p>${escapeHtml(labels.heroText)}</p><span class="btn">${escapeHtml(labels.heroButton)}</span></section>`,

@@ -32,6 +32,7 @@ type TabDef = {
   label: string
   icon?: React.ReactNode
   count?: React.ReactNode
+  priority?: number
 }
 
 export const COMPANY_DETAIL_TABS_COMPONENT_ID = 'section:customers.companies.detailTabs'
@@ -135,8 +136,11 @@ function DefaultCompanyDetailTabs({
       ...injectedTabs.filter((tab, index) => !builtInTabs.some((native) => native.id === tab.id) && injectedTabs.findIndex((candidate) => candidate.id === tab.id) === index).map((tab) => ({
         id: tab.id as CompanyTabId,
         label: tab.label,
+        priority: tab.priority,
       })),
-    ].filter((tab) => !hidden.has(tab.id))
+    ]
+      .sort((left, right) => (right.priority ?? 0) - (left.priority ?? 0))
+      .filter((tab) => !hidden.has(tab.id))
   }, [builtInTabs, hiddenTabIds, injectedTabs])
 
   React.useEffect(() => {

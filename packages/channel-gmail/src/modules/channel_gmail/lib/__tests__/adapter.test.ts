@@ -658,6 +658,39 @@ describe('GmailChannelAdapter OAuth flow', () => {
       expect(refreshToken).not.toHaveBeenCalled()
     })
 
+    it('refreshes a legacy blob using only the trusted OAuth client and known token fields', async () => {
+      const refreshToken = jest.fn(async () => ({
+        access_token: 'new-access',
+        expires_in: 1800,
+        token_type: 'Bearer',
+      }))
+      setGoogleOAuthClient(stubOAuth({ refreshToken }))
+
+      const result = await getGmailChannelAdapter().refreshCredentials!({
+        channelId: 'channel-1',
+        credentials: {
+          ...userCredentials,
+          _client: { clientId: 'untrusted-client', clientSecret: 'untrusted-secret' },
+          extra: 'legacy-metadata',
+        },
+        scope: { tenantId: 't', organizationId: 'o' },
+        oauthClient: { clientId: 'trusted-client', clientSecret: 'trusted-secret' },
+      })
+
+      expect(refreshToken).toHaveBeenCalledWith({
+        clientId: 'trusted-client',
+        clientSecret: 'trusted-secret',
+        refreshToken: userCredentials.refreshToken,
+      })
+      expect(result.credentials).toEqual({
+        accessToken: 'new-access',
+        refreshToken: userCredentials.refreshToken,
+        expiresAt: expect.any(String),
+        scopes: undefined,
+        email: userCredentials.email,
+      })
+    })
+
     it('throws a clear error when oauthClient is absent', async () => {
       setGoogleOAuthClient(stubOAuth({}))
       await expect(
