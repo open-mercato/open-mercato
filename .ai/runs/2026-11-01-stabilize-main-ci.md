@@ -40,8 +40,13 @@ Restore every failing required CI check on `main` by identifying the current roo
 
 - Runner: local (no running Compose `app` container).
 - `yarn install --immutable` passes after regenerating the lockfile.
-- The configured gate passes in order: package build, generation, package rebuild, i18n sync and usage checks, typecheck, tests, and application build. The long worktree required `TMPDIR=/var/tmp`; the complete test graph used Turbo loose environment propagation and a 2 GB Node heap to avoid runner path-length and memory limits, finishing with 51/51 tasks successful.
+- The configured package builds, generation, i18n checks, typecheck, and application build pass. The literal root `yarn test` command does not complete on this local cockpit: Turbo needs loose environment propagation to avoid an overlong nested `tsx` socket, then the docs build exits at the root script's hardcoded 1 GB Node heap cap. The complete test graph passes with Turbo loose environment propagation and a 2 GB Node heap (51/51 tasks); the hosted `test` job passes on the PR head.
 - PR #8428 reports every non-conditional check successful, including `lint`, `ds-lint`, `prepare`, `audit`, `test`, `documents-multi-instance`, `core-timezone`, CodeQL, and CLA. Conditional `docker-build`, `ephemeral-integration`, and `merge-coverage` jobs are skipped by workflow scope.
+
+## Independent review
+
+- Final review task `102752e9-c76f-4904-a9ab-23d0238e435c` reviewed all six commits and both changed files. It confirmed the lockfile correction matches the unchanged manifests, preserves nodemailer 10.1.4 resolution, and introduces no security, compatibility, or scope regression.
+- The reviewer requested correction of the earlier statement that the configured local `yarn test` command passed. This plan now records the actual local limitation and the passing equivalent/hosted evidence. Changing the repository validation command or its memory policy is outside this CI-repair scope and would alter pipeline automation; no such change was made.
 
 ## Diagnosis
 
