@@ -11,6 +11,7 @@ import { createAppBin, createStandaloneInstallEnv, ensureVerdaccioPublished, VER
 import { assertProductionBuildArtifacts } from './lib/standalone-build-artifacts.mjs'
 import { createStandaloneIntegrationEnvironment } from './lib/standalone-integration-env.mjs'
 import { startStandaloneDatabase } from './lib/standalone-local-database.mjs'
+import { createStandaloneCleanup, registerStandaloneCleanup } from './lib/standalone-local-cleanup.mjs'
 import { findChromiumPreflightFailure, PLAYWRIGHT_BROWSERS_DOCS_URL } from './lib/playwright-browsers.mjs'
 import {
   EXAMPLE_ACTIVATION_ENTRY,
@@ -170,6 +171,11 @@ async function main(): Promise<void> {
   let standaloneProcess: ChildProcessWithoutNullStreams | null = null
 
   let database: Awaited<ReturnType<typeof startStandaloneDatabase>> | null = null
+  const cleanupRuntime = createStandaloneCleanup({
+    stopServer: () => stopStandaloneEphemeralApp(standaloneProcess),
+    stopDatabase: () => database?.stop(),
+  })
+  const removeSignalHandlers = registerStandaloneCleanup(cleanupRuntime)
 
   console.log(cyan(`Using temporary app directory: ${appDir}`))
 
@@ -271,8 +277,11 @@ async function main(): Promise<void> {
     console.error(yellow(`Temporary app preserved at: ${appDir}`))
     process.exitCode = 1
   } finally {
-    await stopStandaloneEphemeralApp(standaloneProcess)
-    database?.stop()
+    try {
+      await cleanupRuntime()
+    } finally {
+      removeSignalHandlers()
+    }
   }
 }
 
