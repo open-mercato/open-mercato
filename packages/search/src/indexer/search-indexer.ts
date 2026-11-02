@@ -118,6 +118,13 @@ export type IndexRecordParams = {
   customFields?: Record<string, unknown>
 }
 
+type IndexRecordByIdParams = {
+  entityId: EntityId
+  recordId: string
+  tenantId: string
+  organizationId?: string | null
+}
+
 /**
  * Parameters for indexing a batch of records by id in a single bulk write.
  */
@@ -339,7 +346,14 @@ export class SearchIndexer {
    * Index a record in the search service.
    */
   async indexRecord(params: IndexRecordParams): Promise<void> {
-    const indexableRecord = await this.buildIndexableRecord(params)
+    await this.indexRecordWithExclusions(params, this.createCustomFieldExclusionLookup())
+  }
+
+  private async indexRecordWithExclusions(
+    params: IndexRecordParams,
+    exclusions: CustomFieldExclusionLookup,
+  ): Promise<void> {
+    const indexableRecord = await this.buildIndexableRecord(params, exclusions)
     if (indexableRecord) {
       await this.searchService.index(indexableRecord)
     }
@@ -457,6 +471,13 @@ export class SearchIndexer {
     tenantId: string
     organizationId?: string | null
   }): Promise<{ action: 'indexed' | 'skipped'; reason?: string }> {
+    return this.indexRecordByIdWithExclusions(params, this.createCustomFieldExclusionLookup())
+  }
+
+  private async indexRecordByIdWithExclusions(
+    params: IndexRecordByIdParams,
+    exclusions: CustomFieldExclusionLookup,
+  ): Promise<{ action: 'indexed' | 'skipped'; reason?: string }> {
     if (!this.queryEngine) {
       return { action: 'skipped', reason: 'queryEngine not available' }
     }
@@ -490,14 +511,14 @@ export class SearchIndexer {
         }
       }
 
-      await this.indexRecord({
+      await this.indexRecordWithExclusions({
         entityId: params.entityId,
         recordId: params.recordId,
         tenantId: params.tenantId,
         organizationId: params.organizationId,
         record,
         customFields,
-      })
+      }, exclusions)
 
       return { action: 'indexed' }
     } catch (error) {
@@ -1082,6 +1103,7 @@ export class SearchIndexer {
       let page = 1
       let totalProcessed = 0
       let jobsEnqueued = 0
+      const exclusions = this.createCustomFieldExclusionLookup()
 
       for (;;) {
         params.onProgress?.({
@@ -1141,12 +1163,12 @@ export class SearchIndexer {
             // Direct indexing (blocking) - index each record via SearchService
             for (const { entityId, recordId } of batchRecords) {
               try {
-                await this.indexRecordById({
+                await this.indexRecordByIdWithExclusions({
                   entityId: entityId as EntityId,
                   recordId,
                   tenantId: params.tenantId,
                   organizationId: params.organizationId,
-                })
+                }, exclusions)
                 totalProcessed++
               } catch (error) {
                 searchDebugWarn('SearchIndexer', 'Failed to index record to vector', {

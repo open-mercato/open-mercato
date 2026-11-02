@@ -295,6 +295,39 @@ describe('SearchIndexer encrypted custom fields', () => {
     }
   })
 
+  it('memoizes a failed definition lookup across a direct vector reindex operation', async () => {
+    const resolver = jest.fn().mockRejectedValue(new Error('database unavailable'))
+    const reportError = jest.fn()
+    const unregister = registerTelemetryRuntime({ reportError } as unknown as TelemetryRuntime)
+    try {
+      const { indexer, contexts, record } = setup({ resolver, loadParent: false })
+      const records = ['profile-1', 'profile-2'].map((id) => ({ ...record, id }))
+      ;(indexer as unknown as { queryEngine: QueryEngine }).queryEngine = {
+        query: jest.fn(async (_entity, opts) => {
+          const wantedId = (opts?.filters as { id?: string } | undefined)?.id
+          const items = wantedId
+            ? records.filter((candidate) => candidate.id === wantedId)
+            : records
+          return { items, total: items.length, page: 1, pageSize: 200 } as QueryResult
+        }),
+      }
+
+      const result = await indexer.reindexEntityToVector({
+        entityId: companyEntityId,
+        tenantId: 'tenant-1',
+        useQueue: false,
+      })
+
+      expect(result).toEqual(expect.objectContaining({ success: true, recordsIndexed: 2 }))
+      expect(contexts).toHaveLength(2)
+      expect(contexts.map((ctx) => Object.keys(ctx.record).filter((key) => key.startsWith('cf')))).toEqual([[], []])
+      expect(resolver).toHaveBeenCalledTimes(1)
+      expect(reportError).toHaveBeenCalledTimes(1)
+    } finally {
+      unregister()
+    }
+  })
+
   it('excludes every custom field when the encrypted definitions cannot be resolved', async () => {
     const { indexer, searchService, contexts, record } = setup({
       resolver: async () => {

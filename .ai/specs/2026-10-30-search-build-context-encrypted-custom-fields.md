@@ -70,7 +70,7 @@ No route changes. Public TypeScript surface:
 | A key encrypted in one organization is plain in another of the same tenant | Low | Search indexing per tenant | Union across the tenant's organizations, by design | That key is excluded for every organization of the tenant |
 | Values indexed before the upgrade | High | Fulltext and vector indexes, embedding provider | Operators reindex affected entities (`UPGRADE_NOTES.md`) | Values already sent to the embedding provider cannot be recalled by the platform |
 | Code constructs the exported `VectorIndexService` without the resolver | Medium | Apps that register it as `vectorIndexService` | It now follows the same fail-closed contract as `SearchIndexer` and omits every custom field | Non-encrypted custom fields disappear from callback contexts until the resolver is wired |
-| `IndexableRecord.fields` still carries encrypted custom fields to the fulltext driver for entities without a `fieldPolicy.searchable` list and to the vector fallback text | Medium | Fulltext driver, vector fallback text | Out of scope; tracked in #7894 | Unchanged until #7894 lands |
+| `IndexableRecord.fields` retains encrypted values for hashed-token search | Low | Fulltext and vector plaintext strategies | `plaintextExcludedCustomFields`, delivered by #7894, excludes those keys from fulltext document fields and vector fallback text | A custom strategy must honor the same plaintext-exclusion metadata before storing or transmitting fields |
 
 ## Migration & Backward Compatibility
 
