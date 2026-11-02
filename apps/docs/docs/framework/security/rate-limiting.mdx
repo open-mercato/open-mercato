@@ -65,6 +65,8 @@ Forwarding headers remain ignored until the actual proxy depth is configured. Si
 
 The handler-level fallback reuses the same request's admission promise, so dispatch and handler checks consume one point altogether. When adopting this pattern, avoid charging the same request again in the handler and avoid consuming its body before the handler reads it.
 
+Admission also precedes lifecycle-event container initialization. For a rejected or throwing hook, lifecycle events use only an already-initialized global event bus; they do not create a request container. Admitted requests retain normal lifecycle initialization.
+
 #### 3. Handler-Level (Manual)
 
 For advanced key strategies (e.g., compound `IP:emailHash` keys), use the `checkAuthRateLimit` centralizer. This is how the authentication endpoints work — it handles two-layer checks (IP-only + compound), email hashing, fail-open semantics, and i18n in a single call:

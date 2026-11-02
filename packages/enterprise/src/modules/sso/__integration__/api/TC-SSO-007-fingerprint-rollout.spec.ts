@@ -1,6 +1,7 @@
-import { createHash } from 'node:crypto'
-import { expect, test } from '@playwright/test'
-import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures'
+import { createHash, randomUUID } from 'node:crypto'
+import { expect, request as playwrightRequest, test } from '@playwright/test'
+import { createRoleFixture, createUserFixture, deleteRoleIfExists, deleteUserIfExists, setRoleAclFeatures } from '@open-mercato/core/helpers/integration/authFixtures'
+import { createOrganizationInDb, deleteOrganizationInDb, withClient } from '@open-mercato/core/helpers/integration/dbFixtures'
 import {
   apiRequest,
   createSsoConfigFixture,
@@ -38,6 +39,39 @@ test('TC-SSO-007: fingerprints persist, legacy credentials enroll, and revoked c
     for (const privateField of ['tokenLookupHash', 'token_lookup_hash', 'tokenHash', 'token_hash', 'token']) {
       expect(publicToken).not.toHaveProperty(privateField)
     }
+    expect(scope.tenant_id).not.toBeNull()
+    const superadminToken = await getAuthToken(request, 'superadmin')
+    let restrictedRoleId: string | null = null
+    let restrictedUserId: string | null = null
+    const restrictedRequest = await playwrightRequest.newContext()
+    try {
+      restrictedRoleId = await createRoleFixture(request, superadminToken, { name: `scim-restricted-${issued.tokenId}`, tenantId: scope.tenant_id! })
+      await setRoleAclFeatures(request, superadminToken, { roleId: restrictedRoleId, features: [], organizations: [scope.organization_id] })
+      const email = `scim-restricted-${issued.tokenId}@example.com`
+      const password = `QA-${randomUUID()}!aA1`
+      restrictedUserId = await createUserFixture(request, superadminToken, { email, password, organizationId: scope.organization_id, roles: [restrictedRoleId] })
+      const restrictedToken = await getAuthToken(restrictedRequest, email, password)
+      expect((await apiRequest(restrictedRequest, 'GET', `/api/sso/scim/tokens?ssoConfigId=${configId}`, { token: restrictedToken })).status()).toBe(403)
+    } finally {
+      await restrictedRequest.dispose()
+      await deleteUserIfExists(request, superadminToken, restrictedUserId)
+      await deleteRoleIfExists(request, superadminToken, restrictedRoleId)
+    }
+    const foreignOrganizationId = await createOrganizationInDb({ name: `SCIM fingerprint scope ${issued.tokenId}`, tenantId: scope.tenant_id! })
+    try {
+      await withClient(async (client) => {
+        await client.query('update scim_tokens set organization_id = $2 where id = $1', [issued.tokenId, foreignOrganizationId])
+      })
+      const foreignList = await apiRequest(request, 'GET', `/api/sso/scim/tokens?ssoConfigId=${configId}`, { token: adminToken })
+      expect(foreignList.status()).toBe(200)
+      expect(await foreignList.json()).toEqual({ items: [] })
+      expect((await apiRequest(request, 'DELETE', `/api/sso/scim/tokens/${issued.tokenId}`, { token: adminToken })).status()).toBe(404)
+    } finally {
+      await withClient(async (client) => {
+        await client.query('update scim_tokens set organization_id = $2 where id = $1', [issued.tokenId, scope.organization_id])
+      })
+      await deleteOrganizationInDb(foreignOrganizationId)
+    }
     await addDomainFixture(request, adminToken, configId, `fingerprint-${issued.tokenId}.example.com`)
     await activateConfigFixture(request, adminToken, configId)
     expect((await scimRequest(request, 'GET', '/api/sso/scim/v2/Users?count=1', issued.rawToken)).status()).toBe(200)
@@ -63,3 +97,4 @@ test('TC-SSO-007: fingerprints persist, legacy credentials enroll, and revoked c
     await cleanupConfig()
   }
 })
+

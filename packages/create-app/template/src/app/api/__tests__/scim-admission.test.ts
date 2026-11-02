@@ -5,6 +5,7 @@ import { getCachedRateLimiterService } from '@open-mercato/core/bootstrap'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { resetSharedApiKeyAuthCacheForTests } from '@open-mercato/shared/lib/auth/apiKeyAuthCache'
 import { RateLimiterService } from '@open-mercato/shared/lib/ratelimit/service'
+import { getGlobalEventBus } from '@open-mercato/shared/modules/events'
 import { ScimTokenService } from '@open-mercato/enterprise/modules/sso/services/scimTokenService'
 import { ApiKey } from '@open-mercato/core/modules/api_keys/data/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -60,7 +61,7 @@ jest.mock('@open-mercato/shared/lib/modules/resource-usage', () => ({
 }))
 jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({ getTelemetryRuntime: () => null }))
 jest.mock('@open-mercato/shared/modules/events', () => ({
-  getGlobalEventBus: () => ({ emit: async () => undefined }),
+  getGlobalEventBus: jest.fn(() => ({ emit: async () => undefined })),
 }))
 jest.mock('@open-mercato/enterprise/modules/sso/data/entities', () => ({ ScimToken: class {}, SsoConfig: class {} }))
 jest.mock('@open-mercato/enterprise/modules/sso/services/scimService', () => ({ ScimService: class {} }))
@@ -78,7 +79,7 @@ const operations = [
 ] as const
 
 describe('SCIM admission through the API dispatcher', () => {
-  const configKeys = ['RATE_LIMIT_SCIM_POINTS', 'RATE_LIMIT_SCIM_DURATION', 'RATE_LIMIT_SCIM_BLOCK_DURATION']
+  const configKeys = ['RATE_LIMIT_SCIM_POINTS', 'RATE_LIMIT_SCIM_DURATION', 'RATE_LIMIT_SCIM_BLOCK_DURATION', 'RATE_LIMIT_SCIM_ADMISSION_POINTS', 'RATE_LIMIT_SCIM_ADMISSION_DURATION', 'RATE_LIMIT_SCIM_ADMISSION_BLOCK_DURATION']
   const originalConfig = Object.fromEntries(configKeys.map((key) => [key, process.env[key]]))
   const find = jest.fn()
   const findOne = jest.fn()
@@ -91,6 +92,7 @@ describe('SCIM admission through the API dispatcher', () => {
     jest.clearAllMocks()
     jest.useFakeTimers({ now: new Date('2026-10-28T12:00:00Z') })
     resetSharedApiKeyAuthCacheForTests()
+    jest.mocked(getGlobalEventBus).mockReturnValue({ emit: async () => undefined })
     limiter = new RateLimiterService({ enabled: true, strategy: 'memory', keyPrefix: 'dispatcher-scim', trustProxyDepth: 0 })
     jest.mocked(getCachedRateLimiterService).mockReturnValue(limiter)
     find.mockImplementation(async (entity: unknown) => entity === ApiKey ? [{ keyHash: 'known-hash' }] : [])
@@ -240,6 +242,26 @@ describe('SCIM admission through the API dispatcher', () => {
 
     expect((await dispatch(operations[0], 1)).status).toBe(503)
     expect(find).not.toHaveBeenCalled()
+    expect(mockCompare).not.toHaveBeenCalled()
+    expect(mockHash).not.toHaveBeenCalled()
+  })
+
+  it.each([false, true])('bounds cold lifecycle container work when initialization fails, concurrent=%s', async (concurrent) => {
+    process.env.RATE_LIMIT_SCIM_ADMISSION_POINTS = '3'
+    jest.mocked(getGlobalEventBus).mockReturnValue(null)
+    jest.mocked(createRequestContainer).mockRejectedValue(new Error('[internal] Container initialization unavailable'))
+    const calls = Array.from({ length: 12 }, (_, index) => () => dispatch(
+      operations[0], index, usersRoute, 'route-file', `omscim_${index.toString(16).padStart(64, '0')}`,
+    ))
+    const responses: Response[] = []
+    if (concurrent) responses.push(...await Promise.all(calls.map((call) => call())))
+    else for (const call of calls) responses.push(await call())
+
+    expect(responses.filter((response) => response.status === 503)).toHaveLength(3)
+    expect(responses.filter((response) => response.status === 429)).toHaveLength(9)
+    expect(createRequestContainer).toHaveBeenCalledTimes(3)
+    expect(find).not.toHaveBeenCalled()
+    expect(findOne).not.toHaveBeenCalled()
     expect(mockCompare).not.toHaveBeenCalled()
     expect(mockHash).not.toHaveBeenCalled()
   })
