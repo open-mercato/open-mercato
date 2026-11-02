@@ -4,6 +4,7 @@ import * as React from 'react'
 import { Check, Loader2, Search, X } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '../../primitives/button'
+import { IconButton } from '../../primitives/icon-button'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
@@ -117,6 +118,8 @@ export function LookupSelect({
   const selectedItemRef = React.useRef<LookupSelectItem | null>(null)
   const inputRef = React.useRef<HTMLInputElement>(null)
   const pendingCommitRef = React.useRef<string | null>(null)
+  const changeButtonRef = React.useRef<HTMLButtonElement>(null)
+  const focusSummaryRef = React.useRef(false)
 
   React.useEffect(() => {
     fetchItemsRef.current = fetchItems ?? fetchOptions
@@ -192,6 +195,7 @@ export function LookupSelect({
 
   const finishSelection = React.useCallback(() => {
     pendingCommitRef.current = null
+    focusSummaryRef.current = true
     setCollapsed(true)
     setQuery('')
     setHasTyped(false)
@@ -228,13 +232,14 @@ export function LookupSelect({
   const focusAfterReopenRef = React.useRef(false)
   const reopenList = React.useCallback(() => {
     focusAfterReopenRef.current = true
+    focusSummaryRef.current = false
     setCollapsed(false)
   }, [])
-  React.useEffect(() => {
-    if (collapsed || !focusAfterReopenRef.current) return
-    focusAfterReopenRef.current = false
-    inputRef.current?.focus()
-  }, [collapsed])
+  const clearSelection = React.useCallback(() => {
+    focusAfterReopenRef.current = true
+    focusSummaryRef.current = false
+    onChange(null)
+  }, [onChange])
 
   const handleInputKeyDown = React.useCallback((event: React.KeyboardEvent<HTMLInputElement>) => {
     if (!listboxVisible) return
@@ -262,9 +267,10 @@ export function LookupSelect({
       event.stopPropagation()
       setQuery('')
       setActiveIndex(-1)
+      focusSummaryRef.current = Boolean(value)
       setCollapsed(true)
     }
-  }, [activeIndex, commitSelection, items, isInteractiveItem, listboxVisible, moveActiveIndex, query])
+  }, [activeIndex, commitSelection, items, isInteractiveItem, listboxVisible, moveActiveIndex, query, value])
   React.useEffect(() => {
     if (disabled) {
       setItems(options ?? [])
@@ -349,6 +355,20 @@ export function LookupSelect({
   // comes back only when the user asks to change the pick, so the field stays one row tall
   // and fits a narrow column (#5109).
   const showSummaryOnly = collapsed && Boolean(collapsedSelectionLabel)
+
+  // The search box and the summary row replace each other, so whichever held the focus is
+  // gone from the DOM: keyboard users continue on the control that took its place.
+  React.useEffect(() => {
+    if (showSummaryOnly) {
+      if (!focusSummaryRef.current) return
+      focusSummaryRef.current = false
+      changeButtonRef.current?.focus()
+      return
+    }
+    if (!focusAfterReopenRef.current) return
+    focusAfterReopenRef.current = false
+    inputRef.current?.focus()
+  }, [showSummaryOnly])
 
   return (
     <div className="space-y-3">
@@ -515,9 +535,12 @@ export function LookupSelect({
               ) : null}
             </span>
           ) : (
-            <button
+            <Button
+              ref={changeButtonRef}
               type="button"
-              className="flex h-7 min-w-0 flex-1 items-center gap-2 rounded-md px-2 text-left outline-none hover:bg-accent-indigo/10 focus-visible:shadow-focus"
+              variant="ghost"
+              size="sm"
+              className="h-7 min-w-0 flex-1 justify-start gap-2 px-2 text-left font-normal hover:bg-accent-indigo/10 hover:text-accent-indigo"
               onClick={reopenList}
               aria-label={resolvedChangeLabel}
               title={resolvedChangeLabel}
@@ -527,18 +550,20 @@ export function LookupSelect({
               {collapsedSelectionSubtitle ? (
                 <span className="hidden truncate text-xs text-muted-foreground sm:inline">{collapsedSelectionSubtitle}</span>
               ) : null}
-            </button>
+            </Button>
           )}
           {disabled ? null : (
-            <button
+            <IconButton
               type="button"
-              className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground outline-none hover:bg-accent-indigo/10 hover:text-accent-indigo focus-visible:shadow-focus"
-              onClick={() => onChange(null)}
+              variant="ghost"
+              size="sm"
+              className="shrink-0 text-muted-foreground hover:bg-accent-indigo/10 hover:text-accent-indigo"
+              onClick={clearSelection}
               aria-label={resolvedClearLabel}
               title={resolvedClearLabel}
             >
               <X className="size-4" aria-hidden="true" />
-            </button>
+            </IconButton>
           )}
         </div>
       ) : hasTyped ? (

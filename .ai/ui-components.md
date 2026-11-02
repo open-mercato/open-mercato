@@ -5095,7 +5095,7 @@ type LookupSelectItem = {
 - Card: `rounded-xl border p-4` with `gap-4` between the 48×48 leading slot, the text column, and the trailing checkmark slot
 - Leading slot: **frameless** when `item.icon` is provided (the icon brings its own visual — Avatar circle, lucide icon, etc.). The styled `rounded-lg border bg-muted` box renders ONLY for the fallback first-letter case, so Avatar / icon don't get a redundant square frame around them.
 - Default state: `border-input bg-card` with `hover:border-foreground/20 hover:bg-muted/30 hover:shadow-sm` (subtle elevation)
-- Selected state: `border-brand-violet bg-brand-violet/5 shadow-sm` with a `Check` icon (`size-5 text-brand-violet`) on the right and the leading icon box tinted `bg-brand-violet/10`
+- Selected state: `border-accent-indigo bg-accent-indigo/5 shadow-sm` with a `Check` icon (`size-5 text-accent-indigo`) on the right and the leading icon box tinted `bg-accent-indigo/10`
 - The right-hand `Select` / `Selected` button has been **removed** — the entire row is the click target. The resolved labels are still exposed via the row's `title` attribute (browser tooltip + screen-reader hint) for backward compatibility
 - Typography: title `text-sm font-semibold`, subtitle `text-xs text-muted-foreground`, description `text-xs text-muted-foreground/70`, `rightLabel` `text-overline uppercase tracking-wider text-muted-foreground`
 
@@ -5109,7 +5109,7 @@ type LookupSelectItem = {
 | `fetchOptions` | `(query?: string) => Promise<LookupSelectItem[]>` | — | Legacy alias. Prefer `fetchItems`. |
 | `options` | `LookupSelectItem[]` | — | Sync list. Mutually exclusive with `fetchItems`/`fetchOptions`. |
 | `minQuery` | `number` | `2` | Minimum query length before the loader fires. Bypassed by `defaultOpen` or a preselected `value`. |
-| `defaultOpen` | `boolean` | `false` | Loads on mount and ignores `minQuery`. |
+| `defaultOpen` | `boolean` | `false` | Loads on mount, ignores `minQuery` and starts on the open list even with a `value`. Pass it where the lookup mounts because the user asked to change the value (inline editors, "Change user"). |
 | `actionSlot` | `React.ReactNode` | — | Right-of-search slot, typically a "Create new" button. |
 | `onReady` | `(controls: { setQuery: (value: string) => void }) => void` | — | Receives a parent-driven query setter (deep-linking, "Search again" buttons). |
 | `searchPlaceholder` | `string` | `placeholder ?? t('ui.lookupSelect.searchPlaceholder', 'Search…')` | Auto-translated. |
@@ -5127,8 +5127,10 @@ type LookupSelectItem = {
 ### MUST rules
 
 - All default labels (`searchPlaceholder`, `clearLabel`, `emptyLabel`, `loadingLabel`, `selectLabel`, `selectedLabel`, `startTypingLabel`, `minQueryHintLabel`) are auto-translated via `useT()` against `ui.lookupSelect.*` keys. Override only when the surface needs custom copy.
-- Search input is styled `h-9 rounded-lg border-input shadow-xs focus-visible:shadow-focus focus-visible:border-brand-violet` — the default control height, so a default-size `Button` in `actionSlot` lines up with it. The leading search icon sits at `left-3.5`. Card rows are compact (`rounded-lg px-3 py-2`, 32px avatar) with the selected state on the selection accent: `border-accent-indigo bg-accent-indigo/5`, a `Check` in `text-accent-indigo` and a `text-foreground` "Selected" label (never `brand-violet`, see "Selection accent" in [`ds-rules.md`](ds-rules.md)).
-- Picking a result ends the interaction (#6196): once the parent adopts the id the list closes, the query clears and a summary bar (`data-testid="lookup-select-selected"`, same accent tint) shows the picked `title`/`subtitle` with **Change** (reopens the list with the row marked, refocuses the search box) and **Clear selection**; both are ghost buttons with the `hover:bg-accent-indigo/10 hover:text-accent-indigo` hover. A host that keeps `value` at `null` and collects picks itself (multi-add) keeps the list open.
+- Search input is styled `h-9 rounded-lg border-input shadow-xs focus-visible:shadow-focus focus-visible:border-foreground` — the default control height, so a default-size `Button` in `actionSlot` lines up with it. The leading search icon sits at `left-3.5`. Card rows are compact (`rounded-lg px-3 py-2`, 32px avatar) with the selected state on the selection accent: `border-accent-indigo bg-accent-indigo/5`, a `Check` in `text-accent-indigo` and a `text-foreground` "Selected" label (never `brand-violet`, see "Selection accent" in [`ds-rules.md`](ds-rules.md)).
+- Picking a result ends the interaction (#6196): once the parent adopts the id the list closes, the query clears and the search box gives way to a single summary row (`data-testid="lookup-select-selected"`, same accent tint). The picked `title`/`subtitle` is a ghost `Button` that reopens the search (**Change**, its accessible name), and an `IconButton` clears (**Clear selection**); a `disabled` lookup shows plain text with neither. A host that keeps `value` at `null` to collect picks (multi-add) keeps browsing instead.
+- A value already set when the lookup mounts starts on that summary row, unless `defaultOpen` is set.
+- Focus follows the swap: after a pick or `Escape` it lands on the Change control, and after Change or Clear on the search box.
 - Set `minQuery` to match the API's minimum filter length (typically 2 or 3). For pre-loaded short lists, switch to `options` instead of `fetchItems`.
 - Use `actionSlot` for a "Create new" affordance — do not render a separate `<Button>` outside the primitive that breaks the search-row alignment.
 - For modules with permission-gated lookup APIs, route `fetchItems` through `apiCall`/`apiCallOrThrow` so 401/403 flows reach the global error handler.

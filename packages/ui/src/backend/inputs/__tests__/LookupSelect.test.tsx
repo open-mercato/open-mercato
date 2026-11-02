@@ -395,6 +395,12 @@ describe('LookupSelect closes on pick (#6196)', () => {
     expect(onPick).toHaveBeenCalledWith('cust-2')
     expect(screen.queryByRole('listbox')).toBeNull()
     expect(screen.getByTestId('lookup-select-selected')).toHaveTextContent('Fazenda Sul')
+    expect(screen.getByRole('button', { name: 'Change' })).toHaveFocus()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Clear selection' }))
+
+    expect(screen.queryByTestId('lookup-select-selected')).toBeNull()
+    expect(getInput(container)).toHaveFocus()
   })
 
   it('keeps browsing when the parent does not adopt the pick (multi-add pickers)', async () => {
