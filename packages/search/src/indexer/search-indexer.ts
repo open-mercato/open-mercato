@@ -1275,16 +1275,11 @@ export class SearchIndexer {
     const plaintextExcludedCustomFields = toPlaintextExcludedCustomFields(exclusion)
     const buildQueryEngine = this.createBuildQueryEngine(exclusions)
 
-    // Debug: log first item to see structure
     if (items.length > 0) {
       searchDebug('SearchIndexer', 'Sample item structure', {
         entityId,
         sampleKeys: Object.keys(items[0]),
-        sampleId: items[0].id,
         hasId: 'id' in items[0],
-        firstName: items[0].first_name,
-        lastName: items[0].last_name,
-        preferredName: items[0].preferred_name,
       })
     }
 

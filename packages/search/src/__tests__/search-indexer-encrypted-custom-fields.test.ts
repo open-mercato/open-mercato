@@ -2,6 +2,12 @@ import { SearchIndexer } from '../indexer/search-indexer'
 import type { SearchBuildContext, SearchModuleConfig } from '../types'
 import type { QueryEngine, QueryResult } from '@open-mercato/shared/lib/query/types'
 import { registerTelemetryRuntime, type TelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
+import { searchDebug } from '../lib/debug'
+
+jest.mock('../lib/debug', () => ({
+  ...jest.requireActual<typeof import('../lib/debug')>('../lib/debug'),
+  searchDebug: jest.fn(),
+}))
 
 describe('SearchIndexer encrypted custom fields', () => {
   const companyEntityId = 'customers:customer_company_profile'
@@ -204,6 +210,27 @@ describe('SearchIndexer encrypted custom fields', () => {
 
     expect(searchService.bulkIndex.mock.calls[0][0]).toHaveLength(3)
     expect(resolver.mock.calls.filter(([entityId]) => entityId === companyEntityId)).toHaveLength(1)
+  })
+
+  it('logs only structural metadata for a batch sample', async () => {
+    const { indexer, record } = setup({ resolver: encryptedTaxNumber, loadParent: false })
+    const mockedSearchDebug = jest.mocked(searchDebug)
+    mockedSearchDebug.mockClear()
+
+    await indexer.indexRecordsById({
+      items: [{ entityId: companyEntityId, recordId: record.id }],
+      tenantId: 'tenant-1',
+    })
+
+    const sampleCall = mockedSearchDebug.mock.calls.find(([, message]) => message === 'Sample item structure')
+    expect(sampleCall?.[2]).toEqual({
+      entityId: companyEntityId,
+      sampleKeys: Object.keys(record),
+      hasId: true,
+    })
+    expect(JSON.stringify(sampleCall)).not.toContain('Acme Ltd')
+    expect(JSON.stringify(sampleCall)).not.toContain('GB123456')
+    expect(JSON.stringify(sampleCall)).not.toContain('Wholesale')
   })
 
   it('excludes a custom field whose query engine alias sanitizes its key', async () => {
