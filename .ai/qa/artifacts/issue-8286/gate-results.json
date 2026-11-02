@@ -1,0 +1,42 @@
+[
+  {
+    "command": "yarn build:packages",
+    "exit": 0,
+    "log": ".ai/qa/artifacts/issue-8286/gate-1.log"
+  },
+  {
+    "command": "yarn generate",
+    "exit": 0,
+    "log": ".ai/qa/artifacts/issue-8286/gate-2.log"
+  },
+  {
+    "command": "yarn build:packages",
+    "exit": 0,
+    "log": ".ai/qa/artifacts/issue-8286/gate-3.log"
+  },
+  {
+    "command": "yarn i18n:check-sync",
+    "exit": 0,
+    "log": ".ai/qa/artifacts/issue-8286/gate-4.log"
+  },
+  {
+    "command": "yarn i18n:check-usage",
+    "exit": 143,
+    "log": ".ai/qa/artifacts/issue-8286/gate-5.log"
+  },
+  {
+    "command": "yarn typecheck",
+    "exit": 0,
+    "log": ".ai/qa/artifacts/issue-8286/gate-6.log"
+  },
+  {
+    "command": "yarn test",
+    "exit": 1,
+    "log": ".ai/qa/artifacts/issue-8286/gate-7.log"
+  },
+  {
+    "command": "yarn build:app",
+    "exit": 0,
+    "log": ".ai/qa/artifacts/issue-8286/gate-8.log"
+  }
+]

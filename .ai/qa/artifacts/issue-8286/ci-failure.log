@@ -1,0 +1,570 @@
+prepare	Build app	﻿2026-11-02T19:37:00.5805797Z ##[group]Run yarn build:app
+prepare	Build app	2026-11-02T19:37:00.5806000Z ^[[36;1myarn build:app^[[0m
+prepare	Build app	2026-11-02T19:37:00.5818672Z shell: /usr/bin/bash -e {0}
+prepare	Build app	2026-11-02T19:37:00.5818820Z env:
+prepare	Build app	2026-11-02T19:37:00.5818948Z   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+prepare	Build app	2026-11-02T19:37:00.5819109Z   OM_OPTIMISTIC_LOCK: all
+prepare	Build app	2026-11-02T19:37:00.5819246Z   SELF_SERVICE_ONBOARDING_ENABLED: true
+prepare	Build app	2026-11-02T19:37:00.5819402Z   OM_ENABLE_ENTERPRISE_MODULES: true
+prepare	Build app	2026-11-02T19:37:00.5819566Z   OM_ENABLE_ENTERPRISE_MODULES_SSO: true
+prepare	Build app	2026-11-02T19:37:00.5819729Z   OM_ENABLE_ENTERPRISE_MODULES_SECURITY: true
+prepare	Build app	2026-11-02T19:37:00.5819895Z   OM_ENABLE_ENTERPRISE_MODULES_AGENTS: true
+prepare	Build app	2026-11-02T19:37:00.5820048Z   TURBO_ENV_MODE: loose
+prepare	Build app	2026-11-02T19:37:00.5820204Z   NEXT_PUBLIC_DOCUMENTS_COLLAB_URL: ws://127.0.0.1:4101
+prepare	Build app	2026-11-02T19:37:00.5820387Z   BLACKSMITH_RUNNER_MESSAGE_WAIT_MS: 756
+prepare	Build app	2026-11-02T19:37:00.5820538Z   BLACKSMITH_RUNNER_ACQUIRE_JOB_MS: 955
+prepare	Build app	2026-11-02T19:37:00.5820702Z   GITHUB_REPO_NAME: open-mercato/open-mercato
+prepare	Build app	2026-11-02T19:37:00.5820872Z ##[endgroup]
+prepare	Build app	2026-11-02T19:37:01.1408720Z 
+prepare	Build app	2026-11-02T19:37:01.1409999Z    • Packages in scope: @open-mercato/app
+prepare	Build app	2026-11-02T19:37:01.1410582Z    • Running build in 1 packages
+prepare	Build app	2026-11-02T19:37:01.1410988Z    • Remote caching disabled
+prepare	Build app	2026-11-02T19:37:01.1411194Z 
+prepare	Build app	2026-11-02T19:40:43.0624960Z ^[[;31m@open-mercato/app:build^[[;0m
+prepare	Build app	2026-11-02T19:40:43.0639401Z cache miss, executing d433579439d9a2d3
+prepare	Build app	2026-11-02T19:40:43.0642797Z ▲ Next.js 16.4.1 (Turbopack)
+prepare	Build app	2026-11-02T19:40:43.0643126Z - Environments: .env
+prepare	Build app	2026-11-02T19:40:43.0643491Z ✓ Running next.config.ts took 27ms
+prepare	Build app	2026-11-02T19:40:43.0644244Z ⚠ No build cache found. Please configure build caching for faster rebuilds. Read more: https://nextjs.org/docs/messages/no-cache
+prepare	Build app	2026-11-02T19:40:43.0645320Z Attention: Next.js now collects completely anonymous telemetry regarding usage.
+prepare	Build app	2026-11-02T19:40:43.0645882Z This information is used to shape Next.js' roadmap and prioritize features.
+prepare	Build app	2026-11-02T19:40:43.0646623Z You can learn more, including how to opt-out if you'd not like to participate in this anonymous program, by visiting the following URL:
+prepare	Build app	2026-11-02T19:40:43.0647175Z https://nextjs.org/telemetry
+prepare	Build app	2026-11-02T19:40:43.0649998Z 
+prepare	Build app	2026-11-02T19:40:43.0651545Z - Experiments (use with caution):
+prepare	Build app	2026-11-02T19:40:43.0651942Z   · optimizePackageImports
+prepare	Build app	2026-11-02T19:40:43.0652198Z   ⨯ serverMinification
+prepare	Build app	2026-11-02T19:40:43.0652481Z   ⨯ turbopackMinify
+prepare	Build app	2026-11-02T19:40:43.0652599Z 
+prepare	Build app	2026-11-02T19:40:43.0652738Z   Creating an optimized production build ...
+prepare	Build app	2026-11-02T19:40:43.0653074Z ✓ Compiled successfully in 91s
+prepare	Build app	2026-11-02T19:40:43.0653315Z   Running TypeScript ...
+prepare	Build app	2026-11-02T19:40:43.0653925Z ✓ Finished writing to filesystem cache in 25.4s
+prepare	Build app	2026-11-02T19:40:43.0708685Z ##[error]../../packages/core/src/modules/audit_logs/api/audit-logs/actions/redo/route.ts(9,10): error TS2300: Duplicate identifier 'resolveTranslations'.
+prepare	Build app	2026-11-02T19:40:43.0726497Z ##[error]../../packages/core/src/modules/audit_logs/api/audit-logs/actions/redo/route.ts(18,10): error TS2300: Duplicate identifier 'resolveTranslations'.
+prepare	Build app	2026-11-02T19:40:43.0727579Z Failed to type check.
+prepare	Build app	2026-11-02T19:40:43.0727720Z 
+prepare	Build app	2026-11-02T19:40:43.0727874Z Turbopack build encountered 13 warnings:
+prepare	Build app	2026-11-02T19:40:43.0728356Z ./packages/enterprise/dist/modules/agent_orchestrator/lib/sdk/defineAgent.js:142:18
+prepare	Build app	2026-11-02T19:40:43.0728930Z Warning: Module not found: Can't resolve '@/.mercato/generated/file-agents.generated'
+prepare	Build app	2026-11-02T19:40:43.0729564Z   ^[[90m140 |^[[0m   }
+prepare	Build app	2026-11-02T19:40:43.0729813Z   ^[[90m141 |^[[0m   ^[[36mtry^[[0m {
+prepare	Build app	2026-11-02T19:40:43.0730473Z ^[[33m^[[1m>^[[0m ^[[90m142 |^[[0m     ^[[36mreturn^[[0m ^[[36mawait^[[0m ^[[36mimport^[[0m(^[[32m"@/.mercato/generated/file-agents.generated"^[[0m);
+prepare	Build app	2026-11-02T19:40:43.0731115Z   ^[[90m    |^[[0m                  ^[[33m^[[1m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[[0m
+prepare	Build app	2026-11-02T19:40:43.0731510Z   ^[[90m143 |^[[0m   } ^[[36mcatch^[[0m {
+prepare	Build app	2026-11-02T19:40:43.0731770Z   ^[[90m144 |^[[0m   }
+prepare	Build app	2026-11-02T19:40:43.0732016Z   ^[[90m145 |^[[0m   ^[[36mtry^[[0m {
+prepare	Build app	2026-11-02T19:40:43.0732167Z 
+prepare	Build app	2026-11-02T19:40:43.0732571Z Import map: aliased to relative './.mercato/generated/file-agents.generated' inside of [project]/apps/mercato
+prepare	Build app	2026-11-02T19:40:43.0732959Z 
+prepare	Build app	2026-11-02T19:40:43.0732965Z 
+prepare	Build app	2026-11-02T19:40:43.0733045Z Import traces:
+prepare	Build app	2026-11-02T19:40:43.0733240Z   App Route:
+prepare	Build app	2026-11-02T19:40:43.0733605Z     ./packages/enterprise/dist/modules/agent_orchestrator/lib/sdk/defineAgent.js
+prepare	Build app	2026-11-02T19:40:43.0734081Z     ./packages/enterprise/dist/modules/agent_orchestrator/index.js
+prepare	Build app	2026-11-02T19:40:43.0734811Z     ./apps/mercato/.mercato/generated/modules.runtime.generated.ts
+prepare	Build app	2026-11-02T19:40:43.0735208Z     ./apps/mercato/src/app/api/docs/openapi/route.ts
+prepare	Build app	2026-11-02T19:40:43.0735417Z 
+prepare	Build app	2026-11-02T19:40:43.0735508Z   Server Component:
+prepare	Build app	2026-11-02T19:40:43.0735870Z     ./packages/enterprise/dist/modules/agent_orchestrator/lib/sdk/defineAgent.js
+prepare	Build app	2026-11-02T19:40:43.0736325Z     ./packages/enterprise/dist/modules/agent_orchestrator/index.js
+prepare	Build app	2026-11-02T19:40:43.0736890Z     ./apps/mercato/.mercato/generated/modules.app.generated.ts
+prepare	Build app	2026-11-02T19:40:43.0737244Z     ./apps/mercato/src/app/start/page.tsx
+prepare	Build app	2026-11-02T19:40:43.0737417Z 
+prepare	Build app	2026-11-02T19:40:43.0737589Z https://nextjs.org/docs/messages/module-not-found
+prepare	Build app	2026-11-02T19:40:43.0737790Z 
+prepare	Build app	2026-11-02T19:40:43.0737796Z 
+prepare	Build app	2026-11-02T19:40:43.0738017Z ./apps/mercato/src/modules/example/api/qa-events/route.ts:48:10
+prepare	Build app	2026-11-02T19:40:43.0747104Z Warning: Dynamic filesystem access causes tracing of the whole project
+prepare	Build app	2026-11-02T19:40:43.0747808Z   ^[[90m46 |^[[0m   ^[[36mtry^[[0m {
+prepare	Build app	2026-11-02T19:40:43.0748234Z   ^[[90m47 |^[[0m     ^[[36mconst^[[0m filePath = getCapturedEventsFilePath()
+prepare	Build app	2026-11-02T19:40:43.0748852Z ^[[33m^[[1m>^[[0m ^[[90m48 |^[[0m     ^[[36mif^[[0m (!fs.existsSync(filePath)) ^[[36mreturn^[[0m []
+prepare	Build app	2026-11-02T19:40:43.0749415Z   ^[[90m   |^[[0m          ^[[33m^[[1m^^^^^^^^^^^^^^^^^^^^^^^^[[0m
+prepare	Build app	2026-11-02T19:40:43.0749891Z   ^[[90m49 |^[[0m     ^[[36mreturn^[[0m fs.readFileSync(filePath, ^[[32m'utf8'^[[0m)
+prepare	Build app	2026-11-02T19:40:43.0750315Z   ^[[90m50 |^[[0m       .split(^[[32m'\n'^[[0m)
+prepare	Build app	2026-11-02T19:40:43.0750668Z   ^[[90m51 |^[[0m       .map((line) => line.trim())
+prepare	Build app	2026-11-02T19:40:43.0750865Z 
+prepare	Build app	2026-11-02T19:40:43.0751328Z Static analysis determined that this filesystem access causes the whole project to be traced and included in the output.
+prepare	Build app	2026-11-02T19:40:43.0752221Z This is usually unintentional and leads to all source files (including the public folder) to be deployed as part of the server code.
+prepare	Build app	2026-11-02T19:40:43.0753135Z This can slow down deployments or lead to failures when size limits are exceeded.
+prepare	Build app	2026-11-02T19:40:43.0753521Z To resolve this, you can
+prepare	Build app	2026-11-02T19:40:43.0754027Z - make sure the path is statically scoped to some subfolder, for example path.join(process.cwd(), 'data', bar), or
+prepare	Build app	2026-11-02T19:40:43.0754525Z - only use them in development, or
+prepare	Build app	2026-11-02T19:40:43.0755234Z - opt out by adding an ignore comment to the highlighted call: fs.existsSync(/*turbopackIgnore: true*/ ...), or
+prepare	Build app	2026-11-02T19:40:43.0755705Z - remove them.
+prepare	Build app	2026-11-02T19:40:43.0755822Z 
+prepare	Build app	2026-11-02T19:40:43.0755915Z Import traces:
+prepare	Build app	2026-11-02T19:40:43.0756130Z   #1 [App Route]:
+prepare	Build app	2026-11-02T19:40:43.0756456Z     ./apps/mercato/src/modules/example/api/qa-events/route.ts
+prepare	Build app	2026-11-02T19:40:43.0756887Z     ./apps/mercato/.mercato/generated/api-routes.generated.ts
+prepare	Build app	2026-11-02T19:40:43.0757266Z     ./apps/mercato/src/app/api/docs/openapi/route.ts
+prepare	Build app	2026-11-02T19:40:43.0757467Z 
+prepare	Build app	2026-11-02T19:40:43.0757580Z   #2 [App Route]:
+prepare	Build app	2026-11-02T19:40:43.0757853Z     ./apps/mercato/src/modules/example/api/qa-events/route.ts
+prepare	Build app	2026-11-02T19:40:43.0758193Z     ./packages/queue/dist/pending-probe.js
+prepare	Build app	2026-11-02T19:40:43.0758486Z     ./packages/queue/dist/index.js
+prepare	Build app	2026-11-02T19:40:43.0758755Z     ./packages/events/dist/bus.js
+prepare	Build app	2026-11-02T19:40:43.0759029Z     ./packages/core/dist/bootstrap.js
+prepare	Build app	2026-11-02T19:40:43.0759391Z     ./apps/mercato/src/app/api/[...slug]/route.ts
+prepare	Build app	2026-11-02T19:40:43.0759583Z 
+prepare	Build app	2026-11-02T19:40:43.0759589Z 
+prepare	Build app	2026-11-02T19:40:43.0759820Z ./apps/mercato/src/modules/example/api/qa-events/route.ts:49:12
+prepare	Build app	2026-11-02T19:40:43.0760449Z Warning: Dynamic filesystem access causes tracing of the whole project
+prepare	Build app	2026-11-02T19:40:43.0761070Z   ^[[90m47 |^[[0m     ^[[36mconst^[[0m filePath = getCapturedEventsFilePath()
+prepare	Build app	2026-11-02T19:40:43.0761563Z   ^[[90m48 |^[[0m     ^[[36mif^[[0m (!fs.existsSync(filePath)) ^[[36mreturn^[[0m []
+prepare	Build app	2026-11-02T19:40:43.0762140Z ^[[33m^[[1m>^[[0m ^[[90m49 |^[[0m     ^[[36mreturn^[[0m fs.readFileSync(filePath, ^[[32m'utf8'^[[0m)
+prepare	Build app	2026-11-02T19:40:43.0762641Z   ^[[90m   |^[[0m            ^[[33m^[[1m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[[0m
+prepare	Build app	2026-11-02T19:40:43.0763003Z   ^[[90m50 |^[[0m       .split(^[[32m'\n'^[[0m)
+prepare	Build app	2026-11-02T19:40:43.0763330Z   ^[[90m51 |^[[0m       .map((line) => line.trim())
+prepare	Build app	2026-11-02T19:40:43.0763671Z   ^[[90m52 |^[[0m       .filter(^[[33mBoolean^[[0m)
+prepare	Build app	2026-11-02T19:40:43.0763856Z 
+prepare	Build app	2026-11-02T19:40:43.0764296Z Static analysis determined that this filesystem access causes the whole project to be traced and included in the output.
+prepare	Build app	2026-11-02T19:40:43.0765181Z This is usually unintentional and leads to all source files (including the public folder) to be deployed as part of the server code.
+prepare	Build app	2026-11-02T19:40:43.0765898Z This can slow down deployments or lead to failures when size limits are exceeded.
+prepare	Build app	2026-11-02T19:40:43.0766288Z To resolve this, you can
+prepare	Build app	2026-11-02T19:40:43.0766819Z - make sure the path is statically scoped to some subfolder, for example path.join(process.cwd(), 'data', bar), or
+prepare	Build app	2026-11-02T19:40:43.0767799Z - only use them in development, or
+prepare	Build app	2026-11-02T19:40:43.0768571Z - opt out by adding an ignore comment to the highlighted call: fs.readFileSync(/*turbopackIgnore: true*/ ...), or
+prepare	Build app	2026-11-02T19:40:43.0769031Z - remove them.
+prepare	Build app	2026-11-02T19:40:43.0769198Z 
+prepare	Build app	2026-11-02T19:40:43.0769277Z Import traces:
+prepare	Build app	2026-11-02T19:40:43.0769459Z   #1 [App Route]:
+prepare	Build app	2026-11-02T19:40:43.0769741Z     ./apps/mercato/src/modules/example/api/qa-events/route.ts
+prepare	Build app	2026-11-02T19:40:43.0770135Z     ./apps/mercato/.mercato/generated/api-routes.generated.ts
+prepare	Build app	2026-11-02T19:40:43.0770498Z     ./apps/mercato/src/app/api/docs/openapi/route.ts
+prepare	Build app	2026-11-02T19:40:43.0770715Z 
+prepare	Build app	2026-11-02T19:40:43.0770797Z   #2 [App Route]:
+prepare	Build app	2026-11-02T19:40:43.0771098Z     ./apps/mercato/src/modules/example/api/qa-events/route.ts
+prepare	Build app	2026-11-02T19:40:43.0771443Z     ./packages/queue/dist/pending-probe.js
+prepare	Build app	2026-11-02T19:40:43.0771743Z     ./packages/queue/dist/index.js
+prepare	Build app	2026-11-02T19:40:43.0772039Z     ./packages/events/dist/bus.js
+prepare	Build app	2026-11-02T19:40:43.0772315Z     ./packages/core/dist/bootstrap.js
+prepare	Build app	2026-11-02T19:40:43.0772609Z     ./apps/mercato/src/app/api/[...slug]/route.ts
+prepare	Build app	2026-11-02T19:40:43.0772795Z 
+prepare	Build app	2026-11-02T19:40:43.0772801Z 
+prepare	Build app	2026-11-02T19:40:43.0773133Z ./packages/ai-assistant/dist/modules/ai_assistant/lib/generated-registry-loader.js:181:56
+prepare	Build app	2026-11-02T19:40:43.0773691Z Warning: Dynamic filesystem access causes tracing of the whole project
+prepare	Build app	2026-11-02T19:40:43.0774469Z   ^[[90m179 |^[[0m ... (target) => toSafeJsStringLiteral(runtime === ^[[32m"esm"^[[0m ? pathToFileURL(target).href : ta...
+prepare	Build app	2026-11-02T19:40:43.0774999Z   ^[[90m180 |^[[0m ...= (target) => {
+prepare	Build app	2026-11-02T19:40:43.0775684Z ^[[33m^[[1m>^[[0m ^[[90m181 |^[[0m ...xistsSync(target) ? target : fs.existsSync(target + ^[[32m".ts"^[[0m) ? target + ^[[32m".ts"^[[0m : target;
+prepare	Build app	2026-11-02T19:40:43.0776611Z   ^[[90m    |^[[0m                                 ^[[33m^[[1m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[[0m
+prepare	Build app	2026-11-02T19:40:43.0777394Z   ^[[90m182 |^[[0m ...l(candidate);
+prepare	Build app	2026-11-02T19:40:43.0777646Z   ^[[90m183 |^[[0m ...
+prepare	Build app	2026-11-02T19:40:43.0777911Z   ^[[90m184 |^[[0m ...lativePath) => {
+prepare	Build app	2026-11-02T19:40:43.0778067Z 
+prepare	Build app	2026-11-02T19:40:43.0778497Z Static analysis determined that this filesystem access causes the whole project to be traced and included in the output.
+prepare	Build app	2026-11-02T19:40:43.0779431Z This is usually unintentional and leads to all source files (including the public folder) to be deployed as part of the server code.
+prepare	Build app	2026-11-02T19:40:43.0780132Z This can slow down deployments or lead to failures when size limits are exceeded.
+prepare	Build app	2026-11-02T19:40:43.0780515Z To resolve this, you can
+prepare	Build app	2026-11-02T19:40:43.0781029Z - make sure the path is statically scoped to some subfolder, for example path.join(process.cwd(), 'data', bar), or
+prepare	Build app	2026-11-02T19:40:43.0781529Z - only use them in development, or
+prepare	Build app	2026-11-02T19:40:43.0782067Z - opt out by adding an ignore comment to the highlighted call: fs.existsSync(/*turbopackIgnore: true*/ ...), or
+prepare	Build app	2026-11-02T19:40:43.0782506Z - remove them.
+prepare	Build app	2026-11-02T19:40:43.0782616Z 
+prepare	Build app	2026-11-02T19:40:43.0782697Z Import traces:
+prepare	Build app	2026-11-02T19:40:43.0782888Z   App Route:
+prepare	Build app	2026-11-02T19:40:43.0783250Z     ./packages/ai-assistant/dist/modules/ai_assistant/lib/generated-registry-loader.js
+prepare	Build app	2026-11-02T19:40:43.0783928Z     ./packages/ai-assistant/dist/modules/ai_assistant/lib/agent-registry.js
+prepare	Build app	2026-11-02T19:40:43.0784406Z     ./packages/ai-assistant/dist/modules/ai_assistant/lib/agent-runtime.js
+prepare	Build app	2026-11-02T19:40:43.0784945Z     ./packages/enterprise/dist/modules/agent_orchestrator/lib/runtime/nativeAgentRunner.js
+prepare	Build app	2026-11-02T19:40:43.0785521Z     ./packages/enterprise/dist/modules/agent_orchestrator/lib/runtime/agentRuntime.js
+prepare	Build app	2026-11-02T19:40:43.0786006Z     ./packages/enterprise/dist/modules/agent_orchestrator/index.js
+prepare	Build app	2026-11-02T19:40:43.0786438Z     ./apps/mercato/.mercato/generated/modules.runtime.generated.ts
+prepare	Build app	2026-11-02T19:40:43.0786824Z     ./apps/mercato/src/app/api/docs/markdown/route.ts
+prepare	Build app	2026-11-02T19:40:43.0787020Z 
+prepare	Build app	2026-11-02T19:40:43.0787108Z   Server Component:
+prepare	Build app	2026-11-02T19:40:43.0787486Z     ./packages/ai-assistant/dist/modules/ai_assistant/lib/generated-registry-loader.js
+prepare	Build app	2026-11-02T19:40:43.0790859Z     ./packages/ai-assistant/dist/modules/ai_assistant/lib/agent-registry.js
+prepare	Build app	2026-11-02T19:40:43.0791339Z     ./packages/ai-assistant/dist/modules/ai_assistant/lib/agent-runtime.js
+prepare	Build app	2026-11-02T19:40:43.0791876Z     ./packages/enterprise/dist/modules/agent_orchestrator/lib/runtime/nativeAgentRunner.js
+prepare	Build app	2026-11-02T19:40:43.0792441Z     ./packages/enterprise/dist/modules/agent_orchestrator/lib/runtime/agentRuntime.js
+prepare	Build app	2026-11-02T19:40:43.0792927Z     ./packages/enterprise/dist/modules/agent_orchestrator/index.js
+prepare	Build app	2026-11-02T19:40:43.0793337Z     ./apps/mercato/.mercato/generated/modules.app.generated.ts
+prepare	Build app	2026-11-02T19:40:43.0793681Z     ./apps/mercato/src/app/start/page.tsx
+prepare	Build app	2026-11-02T19:40:43.0793855Z 
+prepare	Build app	2026-11-02T19:40:43.0793861Z 
+prepare	Build app	2026-11-02T19:40:43.0794077Z ./packages/core/dist/modules/attachments/lib/storage.js:24:10
+prepare	Build app	2026-11-02T19:40:43.0794540Z Warning: Dynamic filesystem access causes tracing of the whole project
+prepare	Build app	2026-11-02T19:40:43.0795031Z   ^[[90m22 |^[[0m     ^[[36mreturn^[[0m path.resolve(envPath);
+prepare	Build app	2026-11-02T19:40:43.0795330Z   ^[[90m23 |^[[0m   }
+prepare	Build app	2026-11-02T19:40:43.0795750Z ^[[33m^[[1m>^[[0m ^[[90m24 |^[[0m   ^[[36mreturn^[[0m path.join(resolveStorageRoot(), code);
+prepare	Build app	2026-11-02T19:40:43.0796225Z   ^[[90m   |^[[0m          ^[[33m^[[1m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[[0m
+prepare	Build app	2026-11-02T19:40:43.0796536Z   ^[[90m25 |^[[0m }
+prepare	Build app	2026-11-02T19:40:43.0796854Z   ^[[90m26 |^[[0m ^[[36mfunction^[[0m sanitizeFileName(fileName) {
+prepare	Build app	2026-11-02T19:40:43.0797300Z   ^[[90m27 |^[[0m   ^[[36mif^[[0m (!fileName) ^[[36mreturn^[[0m ^[[32m"file"^[[0m;
+prepare	Build app	2026-11-02T19:40:43.0797540Z 
+prepare	Build app	2026-11-02T19:40:43.0797971Z Static analysis determined that this filesystem access causes the whole project to be traced and included in the output.
+prepare	Build app	2026-11-02T19:40:43.0798842Z This is usually unintentional and leads to all source files (including the public folder) to be deployed as part of the server code.
+prepare	Build app	2026-11-02T19:40:43.0799605Z This can slow down deployments or lead to failures when size limits are exceeded.
+prepare	Build app	2026-11-02T19:40:43.0799996Z To resolve this, you can
+prepare	Build app	2026-11-02T19:40:43.0800513Z - make sure the path is statically scoped to some subfolder, for example path.join(process.cwd(), 'data', bar), or
+prepare	Build app	2026-11-02T19:40:43.0801017Z - only use them in development, or
+prepare	Build app	2026-11-02T19:40:43.0801539Z - opt out by adding an ignore comment to the highlighted call: path.join(/*turbopackIgnore: true*/ ...), or
+prepare	Build app	2026-11-02T19:40:43.0801965Z - remove them.
+prepare	Build app	2026-11-02T19:40:43.0802074Z 
+prepare	Build app	2026-11-02T19:40:43.0802154Z Import traces:
+prepare	Build app	2026-11-02T19:40:43.0802338Z   App Route:
+prepare	Build app	2026-11-02T19:40:43.0802601Z     ./packages/core/dist/modules/attachments/lib/storage.js
+prepare	Build app	2026-11-02T19:40:43.0802976Z     ./packages/core/dist/modules/catalog/seed/examples.js
+prepare	Build app	2026-11-02T19:40:43.0803324Z     ./packages/core/dist/modules/catalog/lib/seeds.js
+prepare	Build app	2026-11-02T19:40:43.0803653Z     ./packages/core/dist/modules/catalog/setup.js
+prepare	Build app	2026-11-02T19:40:43.0804033Z     ./apps/mercato/.mercato/generated/modules.runtime.generated.ts
+prepare	Build app	2026-11-02T19:40:43.0804411Z     ./apps/mercato/src/app/api/docs/openapi/route.ts
+prepare	Build app	2026-11-02T19:40:43.0804602Z 
+prepare	Build app	2026-11-02T19:40:43.0804685Z   Server Component:
+prepare	Build app	2026-11-02T19:40:43.0804954Z     ./packages/core/dist/modules/attachments/lib/storage.js
+prepare	Build app	2026-11-02T19:40:43.0805366Z     ./packages/core/dist/modules/attachments/lib/drivers/localDriver.js
+prepare	Build app	2026-11-02T19:40:43.0805821Z     ./packages/core/dist/modules/attachments/lib/drivers/driverFactory.js
+prepare	Build app	2026-11-02T19:40:43.0806205Z     ./packages/core/dist/modules/attachments/di.js
+prepare	Build app	2026-11-02T19:40:43.0806545Z     ./apps/mercato/.mercato/generated/di.generated.ts
+prepare	Build app	2026-11-02T19:40:43.0806858Z     ./apps/mercato/src/bootstrap-common.ts
+prepare	Build app	2026-11-02T19:40:43.0807149Z     ./apps/mercato/src/bootstrap.ts
+prepare	Build app	2026-11-02T19:40:43.0807481Z     ./apps/mercato/src/app/(backend)/backend/[...slug]/page.tsx
+prepare	Build app	2026-11-02T19:40:43.0807709Z 
+prepare	Build app	2026-11-02T19:40:43.0807715Z 
+prepare	Build app	2026-11-02T19:40:43.0807985Z ./packages/core/dist/modules/communication_channels/lib/test-seed.js:104:22
+prepare	Build app	2026-11-02T19:40:43.0808921Z Warning: Dynamic filesystem access causes tracing of the whole project
+prepare	Build app	2026-11-02T19:40:43.0809551Z   ^[[90m102 |^[[0m ^[[36masync^[[0m ^[[36mfunction^[[0m readTestSeedCapturedMessages() {
+prepare	Build app	2026-11-02T19:40:43.0810057Z   ^[[90m103 |^[[0m   ^[[36mconst^[[0m capturePath = resolveCapturePath();
+prepare	Build app	2026-11-02T19:40:43.0810835Z ^[[33m^[[1m>^[[0m ^[[90m104 |^[[0m   ^[[36mconst^[[0m text = ^[[36mawait^[[0m readFile(capturePath, ^[[32m"utf8"^[[0m).^[[36mcatch^[[0m(() => ^[[32m""^[[0m);
+prepare	Build app	2026-11-02T19:40:43.0811454Z   ^[[90m    |^[[0m                      ^[[33m^[[1m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[[0m
+prepare	Build app	2026-11-02T19:40:43.0812111Z   ^[[90m105 |^[[0m   ^[[36mreturn^[[0m text.split(^[[35m/\r?\n/^[[0m).map((line) => line.trim()).filter((line) => line.length > ^[[35m0^[[0m)...
+prepare	Build app	2026-11-02T19:40:43.0812620Z   ^[[90m106 |^[[0m     ^[[36mtry^[[0m {
+prepare	Build app	2026-11-02T19:40:43.0812951Z   ^[[90m107 |^[[0m       ^[[36mreturn^[[0m ^[[33mJSON^[[0m.parse(line);
+prepare	Build app	2026-11-02T19:40:43.0813162Z 
+prepare	Build app	2026-11-02T19:40:43.0813570Z Static analysis determined that this filesystem access causes the whole project to be traced and included in the output.
+prepare	Build app	2026-11-02T19:40:43.0814433Z This is usually unintentional and leads to all source files (including the public folder) to be deployed as part of the server code.
+prepare	Build app	2026-11-02T19:40:43.0815135Z This can slow down deployments or lead to failures when size limits are exceeded.
+prepare	Build app	2026-11-02T19:40:43.0815518Z To resolve this, you can
+prepare	Build app	2026-11-02T19:40:43.0816043Z - make sure the path is statically scoped to some subfolder, for example path.join(process.cwd(), 'data', bar), or
+prepare	Build app	2026-11-02T19:40:43.0816546Z - only use them in development, or
+prepare	Build app	2026-11-02T19:40:43.0817193Z - opt out by adding an ignore comment to the highlighted call: fs.readFile(/*turbopackIgnore: true*/ ...), or
+prepare	Build app	2026-11-02T19:40:43.0817631Z - remove them.
+prepare	Build app	2026-11-02T19:40:43.0817742Z 
+prepare	Build app	2026-11-02T19:40:43.0817822Z Import traces:
+prepare	Build app	2026-11-02T19:40:43.0818000Z   App Route:
+prepare	Build app	2026-11-02T19:40:43.0818314Z     ./packages/core/dist/modules/communication_channels/lib/test-seed.js
+prepare	Build app	2026-11-02T19:40:43.0818752Z     ./packages/core/dist/modules/communication_channels/setup.js
+prepare	Build app	2026-11-02T19:40:43.0819250Z     ./apps/mercato/.mercato/generated/modules.runtime.generated.ts
+prepare	Build app	2026-11-02T19:40:43.0819633Z     ./apps/mercato/src/app/api/docs/openapi/route.ts
+prepare	Build app	2026-11-02T19:40:43.0819829Z 
+prepare	Build app	2026-11-02T19:40:43.0819914Z   Server Component:
+prepare	Build app	2026-11-02T19:40:43.0820237Z     ./packages/core/dist/modules/communication_channels/lib/test-seed.js
+prepare	Build app	2026-11-02T19:40:43.0820672Z     ./packages/core/dist/modules/communication_channels/setup.js
+prepare	Build app	2026-11-02T19:40:43.0821076Z     ./apps/mercato/.mercato/generated/modules.app.generated.ts
+prepare	Build app	2026-11-02T19:40:43.0821421Z     ./apps/mercato/src/app/start/page.tsx
+prepare	Build app	2026-11-02T19:40:43.0821596Z 
+prepare	Build app	2026-11-02T19:40:43.0821602Z 
+prepare	Build app	2026-11-02T19:40:43.0821855Z ./packages/enterprise/dist/modules/agent_orchestrator/ai-skills.js:32:17
+prepare	Build app	2026-11-02T19:40:43.0822362Z Warning: Dynamic filesystem access causes tracing of the whole project
+prepare	Build app	2026-11-02T19:40:43.0822787Z   ^[[90m30 |^[[0m   ^[[36mconst^[[0m entries = [];
+prepare	Build app	2026-11-02T19:40:43.0823193Z   ^[[90m31 |^[[0m   ^[[36mfor^[[0m (^[[36mconst^[[0m file ^[[36mof^[[0m files) {
+prepare	Build app	2026-11-02T19:40:43.0823812Z ^[[33m^[[1m>^[[0m ^[[90m32 |^[[0m     ^[[36mconst^[[0m raw = fs.readFileSync(path.join(dir, file), ^[[32m"utf8"^[[0m);
+prepare	Build app	2026-11-02T19:40:43.0824369Z   ^[[90m   |^[[0m                 ^[[33m^[[1m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[[0m
+prepare	Build app	2026-11-02T19:40:43.0824823Z   ^[[90m33 |^[[0m     ^[[36mconst^[[0m parsed = parseSkillMarkdown(raw);
+prepare	Build app	2026-11-02T19:40:43.0825197Z   ^[[90m34 |^[[0m     ^[[36mif^[[0m (!parsed) {
+prepare	Build app	2026-11-02T19:40:43.0825768Z   ^[[90m35 |^[[0m       logger.warn(^[[32m"skill is missing required frontmatter (id/moduleId/label); skipping"^[[0m, {...
+prepare	Build app	2026-11-02T19:40:43.0826134Z 
+prepare	Build app	2026-11-02T19:40:43.0826563Z Static analysis determined that this filesystem access causes the whole project to be traced and included in the output.
+prepare	Build app	2026-11-02T19:40:43.0827428Z This is usually unintentional and leads to all source files (including the public folder) to be deployed as part of the server code.
+prepare	Build app	2026-11-02T19:40:43.0828512Z This can slow down deployments or lead to failures when size limits are exceeded.
+prepare	Build app	2026-11-02T19:40:43.0828892Z To resolve this, you can
+prepare	Build app	2026-11-02T19:40:43.0829457Z - make sure the path is statically scoped to some subfolder, for example path.join(process.cwd(), 'data', bar), or
+prepare	Build app	2026-11-02T19:40:43.0829959Z - only use them in development, or
+prepare	Build app	2026-11-02T19:40:43.0830500Z - opt out by adding an ignore comment to the highlighted call: fs.readFileSync(/*turbopackIgnore: true*/ ...), or
+prepare	Build app	2026-11-02T19:40:43.0830947Z - remove them.
+prepare	Build app	2026-11-02T19:40:43.0831056Z 
+prepare	Build app	2026-11-02T19:40:43.0831135Z Import traces:
+prepare	Build app	2026-11-02T19:40:43.0831314Z   App Route:
+prepare	Build app	2026-11-02T19:40:43.0831622Z     ./packages/enterprise/dist/modules/agent_orchestrator/ai-skills.js
+prepare	Build app	2026-11-02T19:40:43.0832072Z     ./packages/enterprise/dist/modules/agent_orchestrator/ai-agents.js
+prepare	Build app	2026-11-02T19:40:43.0832561Z     ./packages/enterprise/dist/modules/agent_orchestrator/lib/sdk/defineAgent.js
+prepare	Build app	2026-11-02T19:40:43.0833034Z     ./packages/enterprise/dist/modules/agent_orchestrator/index.js
+prepare	Build app	2026-11-02T19:40:43.0833464Z     ./apps/mercato/.mercato/generated/modules.runtime.generated.ts
+prepare	Build app	2026-11-02T19:40:43.0833845Z     ./apps/mercato/src/app/api/docs/markdown/route.ts
+prepare	Build app	2026-11-02T19:40:43.0834047Z 
+prepare	Build app	2026-11-02T19:40:43.0834135Z   Server Component:
+prepare	Build app	2026-11-02T19:40:43.0834447Z     ./packages/enterprise/dist/modules/agent_orchestrator/ai-skills.js
+prepare	Build app	2026-11-02T19:40:43.0834896Z     ./packages/enterprise/dist/modules/agent_orchestrator/ai-agents.js
+prepare	Build app	2026-11-02T19:40:43.0835372Z     ./packages/enterprise/dist/modules/agent_orchestrator/lib/sdk/defineAgent.js
+prepare	Build app	2026-11-02T19:40:43.0835842Z     ./packages/enterprise/dist/modules/agent_orchestrator/index.js
+prepare	Build app	2026-11-02T19:40:43.0836255Z     ./apps/mercato/.mercato/generated/modules.app.generated.ts
+prepare	Build app	2026-11-02T19:40:43.0836592Z     ./apps/mercato/src/app/start/page.tsx
+prepare	Build app	2026-11-02T19:40:43.0836767Z 
+prepare	Build app	2026-11-02T19:40:43.0836772Z 
+prepare	Build app	2026-11-02T19:40:43.0837027Z ./packages/enterprise/dist/modules/agent_orchestrator/ai-skills.js:29:17
+prepare	Build app	2026-11-02T19:40:43.0837533Z Warning: Dynamic filesystem access causes tracing of the whole project
+prepare	Build app	2026-11-02T19:40:43.0837934Z   ^[[90m27 |^[[0m     ^[[36mreturn^[[0m [];
+prepare	Build app	2026-11-02T19:40:43.0838194Z   ^[[90m28 |^[[0m   }
+prepare	Build app	2026-11-02T19:40:43.0838898Z ^[[33m^[[1m>^[[0m ^[[90m29 |^[[0m   ^[[36mconst^[[0m files = fs.readdirSync(dir).filter((file) => file.endsWith(^[[32m".md"^[[0m)).sort((a, b) => ...
+prepare	Build app	2026-11-02T19:40:43.0839608Z   ^[[90m   |^[[0m                 ^[[33m^[[1m^^^^^^^^^^^^^^^^^^^^[[0m
+prepare	Build app	2026-11-02T19:40:43.0839982Z   ^[[90m30 |^[[0m   ^[[36mconst^[[0m entries = [];
+prepare	Build app	2026-11-02T19:40:43.0840380Z   ^[[90m31 |^[[0m   ^[[36mfor^[[0m (^[[36mconst^[[0m file ^[[36mof^[[0m files) {
+prepare	Build app	2026-11-02T19:40:43.0840918Z   ^[[90m32 |^[[0m     ^[[36mconst^[[0m raw = fs.readFileSync(path.join(dir, file), ^[[32m"utf8"^[[0m);
+prepare	Build app	2026-11-02T19:40:43.0841240Z 
+prepare	Build app	2026-11-02T19:40:43.0841633Z Static analysis determined that this filesystem access causes the whole project to be traced and included in the output.
+prepare	Build app	2026-11-02T19:40:43.0842442Z This is usually unintentional and leads to all source files (including the public folder) to be deployed as part of the server code.
+prepare	Build app	2026-11-02T19:40:43.0843137Z This can slow down deployments or lead to failures when size limits are exceeded.
+prepare	Build app	2026-11-02T19:40:43.0843500Z To resolve this, you can
+prepare	Build app	2026-11-02T19:40:43.0844001Z - make sure the path is statically scoped to some subfolder, for example path.join(process.cwd(), 'data', bar), or
+prepare	Build app	2026-11-02T19:40:43.0844489Z - only use them in development, or
+prepare	Build app	2026-11-02T19:40:43.0844823Z - opt out by adding an ignore comment to the highlighted call: fs.readdir(/*turbopackIgnore: true*/ ...), or
+prepare	Build app	2026-11-02T19:40:43.0845078Z - remove them.
+prepare	Build app	2026-11-02T19:40:43.0845145Z 
+prepare	Build app	2026-11-02T19:40:43.0845197Z Import traces:
+prepare	Build app	2026-11-02T19:40:43.0845313Z   App Route:
+prepare	Build app	2026-11-02T19:40:43.0845497Z     ./packages/enterprise/dist/modules/agent_orchestrator/ai-skills.js
+prepare	Build app	2026-11-02T19:40:43.0845756Z     ./packages/enterprise/dist/modules/agent_orchestrator/ai-agents.js
+prepare	Build app	2026-11-02T19:40:43.0846035Z     ./packages/enterprise/dist/modules/agent_orchestrator/lib/sdk/defineAgent.js
+prepare	Build app	2026-11-02T19:40:43.0846666Z     ./packages/enterprise/dist/modules/agent_orchestrator/index.js
+prepare	Build app	2026-11-02T19:40:43.0846915Z     ./apps/mercato/.mercato/generated/modules.runtime.generated.ts
+prepare	Build app	2026-11-02T19:40:43.0847141Z     ./apps/mercato/src/app/api/docs/markdown/route.ts
+prepare	Build app	2026-11-02T19:40:43.0847261Z 
+prepare	Build app	2026-11-02T19:40:43.0847317Z   Server Component:
+prepare	Build app	2026-11-02T19:40:43.0847504Z     ./packages/enterprise/dist/modules/agent_orchestrator/ai-skills.js
+prepare	Build app	2026-11-02T19:40:43.0847757Z     ./packages/enterprise/dist/modules/agent_orchestrator/ai-agents.js
+prepare	Build app	2026-11-02T19:40:43.0848035Z     ./packages/enterprise/dist/modules/agent_orchestrator/lib/sdk/defineAgent.js
+prepare	Build app	2026-11-02T19:40:43.0848306Z     ./packages/enterprise/dist/modules/agent_orchestrator/index.js
+prepare	Build app	2026-11-02T19:40:43.0848552Z     ./apps/mercato/.mercato/generated/modules.app.generated.ts
+prepare	Build app	2026-11-02T19:40:43.0848757Z     ./apps/mercato/src/app/start/page.tsx
+prepare	Build app	2026-11-02T19:40:43.0848862Z 
+prepare	Build app	2026-11-02T19:40:43.0848870Z 
+prepare	Build app	2026-11-02T19:40:43.0849014Z ./packages/enterprise/dist/modules/agent_orchestrator/ai-skills.js:32:33
+prepare	Build app	2026-11-02T19:40:43.0849389Z Warning: Dynamic filesystem access causes tracing of the whole project
+prepare	Build app	2026-11-02T19:40:43.0849659Z   ^[[90m30 |^[[0m   ^[[36mconst^[[0m entries = [];
+prepare	Build app	2026-11-02T19:40:43.0850044Z   ^[[90m31 |^[[0m   ^[[36mfor^[[0m (^[[36mconst^[[0m file ^[[36mof^[[0m files) {
+prepare	Build app	2026-11-02T19:40:43.0850642Z ^[[33m^[[1m>^[[0m ^[[90m32 |^[[0m     ^[[36mconst^[[0m raw = fs.readFileSync(path.join(dir, file), ^[[32m"utf8"^[[0m);
+prepare	Build app	2026-11-02T19:40:43.0851177Z   ^[[90m   |^[[0m                                 ^[[33m^[[1m^^^^^^^^^^^^^^^^^^^^^[[0m
+prepare	Build app	2026-11-02T19:40:43.0851607Z   ^[[90m33 |^[[0m     ^[[36mconst^[[0m parsed = parseSkillMarkdown(raw);
+prepare	Build app	2026-11-02T19:40:43.0851967Z   ^[[90m34 |^[[0m     ^[[36mif^[[0m (!parsed) {
+prepare	Build app	2026-11-02T19:40:43.0852559Z   ^[[90m35 |^[[0m       logger.warn(^[[32m"skill is missing required frontmatter (id/moduleId/label); skipping"^[[0m, {...
+prepare	Build app	2026-11-02T19:40:43.0852946Z 
+prepare	Build app	2026-11-02T19:40:43.0853406Z Static analysis determined that this filesystem access causes the whole project to be traced and included in the output.
+prepare	Build app	2026-11-02T19:40:43.0854313Z This is usually unintentional and leads to all source files (including the public folder) to be deployed as part of the server code.
+prepare	Build app	2026-11-02T19:40:43.0855079Z This can slow down deployments or lead to failures when size limits are exceeded.
+prepare	Build app	2026-11-02T19:40:43.0855470Z To resolve this, you can
+prepare	Build app	2026-11-02T19:40:43.0855970Z - make sure the path is statically scoped to some subfolder, for example path.join(process.cwd(), 'data', bar), or
+prepare	Build app	2026-11-02T19:40:43.0856486Z - only use them in development, or
+prepare	Build app	2026-11-02T19:40:43.0857330Z - opt out by adding an ignore comment to the highlighted call: path.join(/*turbopackIgnore: true*/ ...), or
+prepare	Build app	2026-11-02T19:40:43.0857773Z - remove them.
+prepare	Build app	2026-11-02T19:40:43.0857886Z 
+prepare	Build app	2026-11-02T19:40:43.0857968Z Import traces:
+prepare	Build app	2026-11-02T19:40:43.0858152Z   App Route:
+prepare	Build app	2026-11-02T19:40:43.0858455Z     ./packages/enterprise/dist/modules/agent_orchestrator/ai-skills.js
+prepare	Build app	2026-11-02T19:40:43.0858907Z     ./packages/enterprise/dist/modules/agent_orchestrator/ai-agents.js
+prepare	Build app	2026-11-02T19:40:43.0859509Z     ./packages/enterprise/dist/modules/agent_orchestrator/lib/sdk/defineAgent.js
+prepare	Build app	2026-11-02T19:40:43.0859986Z     ./packages/enterprise/dist/modules/agent_orchestrator/index.js
+prepare	Build app	2026-11-02T19:40:43.0860334Z     ./apps/mercato/.mercato/generated/modules.runtime.generated.ts
+prepare	Build app	2026-11-02T19:40:43.0860562Z     ./apps/mercato/src/app/api/docs/markdown/route.ts
+prepare	Build app	2026-11-02T19:40:43.0860684Z 
+prepare	Build app	2026-11-02T19:40:43.0860741Z   Server Component:
+prepare	Build app	2026-11-02T19:40:43.0860928Z     ./packages/enterprise/dist/modules/agent_orchestrator/ai-skills.js
+prepare	Build app	2026-11-02T19:40:43.0861187Z     ./packages/enterprise/dist/modules/agent_orchestrator/ai-agents.js
+prepare	Build app	2026-11-02T19:40:43.0861462Z     ./packages/enterprise/dist/modules/agent_orchestrator/lib/sdk/defineAgent.js
+prepare	Build app	2026-11-02T19:40:43.0861733Z     ./packages/enterprise/dist/modules/agent_orchestrator/index.js
+prepare	Build app	2026-11-02T19:40:43.0864592Z     ./apps/mercato/.mercato/generated/modules.app.generated.ts
+prepare	Build app	2026-11-02T19:40:43.0864866Z     ./apps/mercato/src/app/start/page.tsx
+prepare	Build app	2026-11-02T19:40:43.0865001Z 
+prepare	Build app	2026-11-02T19:40:43.0865006Z 
+prepare	Build app	2026-11-02T19:40:43.0865209Z ./packages/enterprise/dist/modules/agent_orchestrator/lib/runtime/attachmentStager.js:31:22
+prepare	Build app	2026-11-02T19:40:43.0865662Z Warning: Dynamic filesystem access causes tracing of the whole project
+prepare	Build app	2026-11-02T19:40:43.0866364Z   ^[[90m29 |^[[0m     ^[[36mconst^[[0m { buffer } = ^[[36mawait^[[0m driver.read(attachment.partitionCode, attachment.storagePath);
+prepare	Build app	2026-11-02T19:40:43.0867031Z   ^[[90m30 |^[[0m     ^[[36mconst^[[0m fileName = safeName(entry.^[[36mas^[[0m ?? attachment.fileName);
+prepare	Build app	2026-11-02T19:40:43.0867623Z ^[[33m^[[1m>^[[0m ^[[90m31 |^[[0m     ^[[36mconst^[[0m destPath = path.join(args.inDir, fileName);
+prepare	Build app	2026-11-02T19:40:43.0868069Z   ^[[90m   |^[[0m                      ^[[33m^[[1m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[[0m
+prepare	Build app	2026-11-02T19:40:43.0868442Z   ^[[90m32 |^[[0m     ^[[36mawait^[[0m writeFile(destPath, buffer);
+prepare	Build app	2026-11-02T19:40:43.0868838Z   ^[[90m33 |^[[0m     ^[[36mlet^[[0m hasSidecar = ^[[36mfalse^[[0m;
+prepare	Build app	2026-11-02T19:40:43.0869302Z   ^[[90m34 |^[[0m     ^[[36mif^[[0m (entry.ocrText) {
+prepare	Build app	2026-11-02T19:40:43.0869488Z 
+prepare	Build app	2026-11-02T19:40:43.0869923Z Static analysis determined that this filesystem access causes the whole project to be traced and included in the output.
+prepare	Build app	2026-11-02T19:40:43.0870801Z This is usually unintentional and leads to all source files (including the public folder) to be deployed as part of the server code.
+prepare	Build app	2026-11-02T19:40:43.0871513Z This can slow down deployments or lead to failures when size limits are exceeded.
+prepare	Build app	2026-11-02T19:40:43.0871892Z To resolve this, you can
+prepare	Build app	2026-11-02T19:40:43.0872426Z - make sure the path is statically scoped to some subfolder, for example path.join(process.cwd(), 'data', bar), or
+prepare	Build app	2026-11-02T19:40:43.0872919Z - only use them in development, or
+prepare	Build app	2026-11-02T19:40:43.0873436Z - opt out by adding an ignore comment to the highlighted call: path.join(/*turbopackIgnore: true*/ ...), or
+prepare	Build app	2026-11-02T19:40:43.0873854Z - remove them.
+prepare	Build app	2026-11-02T19:40:43.0873963Z 
+prepare	Build app	2026-11-02T19:40:43.0874041Z Import traces:
+prepare	Build app	2026-11-02T19:40:43.0874227Z   App Route:
+prepare	Build app	2026-11-02T19:40:43.0874599Z     ./packages/enterprise/dist/modules/agent_orchestrator/lib/runtime/attachmentStager.js
+prepare	Build app	2026-11-02T19:40:43.0875263Z     ./packages/enterprise/dist/modules/agent_orchestrator/lib/runtime/openCodeAgentRunner.js
+prepare	Build app	2026-11-02T19:40:43.0875815Z     ./packages/enterprise/dist/modules/agent_orchestrator/lib/runtime/agentRuntime.js
+prepare	Build app	2026-11-02T19:40:43.0876301Z     ./packages/enterprise/dist/modules/agent_orchestrator/index.js
+prepare	Build app	2026-11-02T19:40:43.0876720Z     ./apps/mercato/.mercato/generated/modules.runtime.generated.ts
+prepare	Build app	2026-11-02T19:40:43.0877039Z     ./apps/mercato/src/app/api/docs/openapi/route.ts
+prepare	Build app	2026-11-02T19:40:43.0877158Z 
+prepare	Build app	2026-11-02T19:40:43.0877244Z   Server Component:
+prepare	Build app	2026-11-02T19:40:43.0877626Z     ./packages/enterprise/dist/modules/agent_orchestrator/lib/runtime/attachmentStager.js
+prepare	Build app	2026-11-02T19:40:43.0878221Z     ./packages/enterprise/dist/modules/agent_orchestrator/lib/runtime/openCodeAgentRunner.js
+prepare	Build app	2026-11-02T19:40:43.0878771Z     ./packages/enterprise/dist/modules/agent_orchestrator/lib/runtime/agentRuntime.js
+prepare	Build app	2026-11-02T19:40:43.0879276Z     ./packages/enterprise/dist/modules/agent_orchestrator/index.js
+prepare	Build app	2026-11-02T19:40:43.0879591Z     ./apps/mercato/.mercato/generated/modules.app.generated.ts
+prepare	Build app	2026-11-02T19:40:43.0879801Z     ./apps/mercato/src/app/start/page.tsx
+prepare	Build app	2026-11-02T19:40:43.0879908Z 
+prepare	Build app	2026-11-02T19:40:43.0879913Z 
+prepare	Build app	2026-11-02T19:40:43.0880011Z ./packages/queue/dist/pending-probe.js:23:39
+prepare	Build app	2026-11-02T19:40:43.0880380Z Warning: Dynamic filesystem access causes tracing of the whole project
+prepare	Build app	2026-11-02T19:40:43.0880820Z   ^[[90m21 |^[[0m ...lobalThis.process;
+prepare	Build app	2026-11-02T19:40:43.0881180Z   ^[[90m22 |^[[0m ...deProcess?.env?.^[[33mQUEUE_BASE_DIR^[[0m;
+prepare	Build app	2026-11-02T19:40:43.0881618Z ^[[33m^[[1m>^[[0m ^[[90m23 |^[[0m ...ns?.baseDir ?? path.resolve(envBaseDir || ^[[33mDEFAULT_LOCAL_QUEUE_BASE_DIR^[[0m);
+prepare	Build app	2026-11-02T19:40:43.0883972Z   ^[[90m   |^[[0m                   ^[[33m^[[1m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[[0m
+prepare	Build app	2026-11-02T19:40:43.0884463Z   ^[[90m24 |^[[0m ...h.join(baseDir, queueName, ^[[32m"queue.json"^[[0m);
+prepare	Build app	2026-11-02T19:40:43.0884796Z   ^[[90m25 |^[[0m ...
+prepare	Build app	2026-11-02T19:40:43.0885003Z   ^[[90m26 |^[[0m ...
+prepare	Build app	2026-11-02T19:40:43.0885118Z 
+prepare	Build app	2026-11-02T19:40:43.0885561Z Static analysis determined that this filesystem access causes the whole project to be traced and included in the output.
+prepare	Build app	2026-11-02T19:40:43.0886454Z This is usually unintentional and leads to all source files (including the public folder) to be deployed as part of the server code.
+prepare	Build app	2026-11-02T19:40:43.0887172Z This can slow down deployments or lead to failures when size limits are exceeded.
+prepare	Build app	2026-11-02T19:40:43.0887559Z To resolve this, you can
+prepare	Build app	2026-11-02T19:40:43.0888084Z - make sure the path is statically scoped to some subfolder, for example path.join(process.cwd(), 'data', bar), or
+prepare	Build app	2026-11-02T19:40:43.0888602Z - only use them in development, or
+prepare	Build app	2026-11-02T19:40:43.0889242Z - opt out by adding an ignore comment to the highlighted call: path.resolve(/*turbopackIgnore: true*/ ...), or
+prepare	Build app	2026-11-02T19:40:43.0889695Z - remove them.
+prepare	Build app	2026-11-02T19:40:43.0889806Z 
+prepare	Build app	2026-11-02T19:40:43.0889886Z Import traces:
+prepare	Build app	2026-11-02T19:40:43.0890069Z   App Route:
+prepare	Build app	2026-11-02T19:40:43.0890284Z     ./packages/queue/dist/pending-probe.js
+prepare	Build app	2026-11-02T19:40:43.0890552Z     ./packages/queue/dist/index.js
+prepare	Build app	2026-11-02T19:40:43.0890810Z     ./packages/events/dist/bus.js
+prepare	Build app	2026-11-02T19:40:43.0891075Z     ./packages/core/dist/bootstrap.js
+prepare	Build app	2026-11-02T19:40:43.0891406Z     ./packages/core/dist/modules/auth/lib/rateLimitCheck.js
+prepare	Build app	2026-11-02T19:40:43.0891771Z     ./packages/core/dist/modules/auth/api/login.js
+prepare	Build app	2026-11-02T19:40:43.0892109Z     ./apps/mercato/src/app/api/auth/login/route.ts
+prepare	Build app	2026-11-02T19:40:43.0892293Z 
+prepare	Build app	2026-11-02T19:40:43.0892379Z   Server Component:
+prepare	Build app	2026-11-02T19:40:43.0892612Z     ./packages/queue/dist/pending-probe.js
+prepare	Build app	2026-11-02T19:40:43.0892874Z     ./packages/queue/dist/index.js
+prepare	Build app	2026-11-02T19:40:43.0893161Z     ./packages/scheduler/dist/modules/scheduler/di.js
+prepare	Build app	2026-11-02T19:40:43.0893499Z     ./apps/mercato/.mercato/generated/di.generated.ts
+prepare	Build app	2026-11-02T19:40:43.0893823Z     ./apps/mercato/src/bootstrap-common.ts
+prepare	Build app	2026-11-02T19:40:43.0894113Z     ./apps/mercato/src/bootstrap.ts
+prepare	Build app	2026-11-02T19:40:43.0894381Z     ./apps/mercato/src/app/start/page.tsx
+prepare	Build app	2026-11-02T19:40:43.0894548Z 
+prepare	Build app	2026-11-02T19:40:43.0894641Z   Client Component SSR:
+prepare	Build app	2026-11-02T19:40:43.0894957Z     ./packages/queue/dist/pending-probe.js [Client Component SSR]
+prepare	Build app	2026-11-02T19:40:43.0895354Z     ./packages/queue/dist/index.js [Client Component SSR]
+prepare	Build app	2026-11-02T19:40:43.0895717Z     ./packages/events/dist/bus.js [Client Component SSR]
+prepare	Build app	2026-11-02T19:40:43.0896088Z     ./packages/core/dist/bootstrap.js [Client Component SSR]
+prepare	Build app	2026-11-02T19:40:43.0896503Z     ./packages/shared/dist/lib/di/container.js [Client Component SSR]
+prepare	Build app	2026-11-02T19:40:43.0897151Z     ./apps/mercato/src/modules/example/lib/messageObjectPreviews.ts [Client Component SSR]
+prepare	Build app	2026-11-02T19:40:43.0897710Z     ./apps/mercato/src/modules/example/message-objects.ts [Client Component SSR]
+prepare	Build app	2026-11-02T19:40:43.0898245Z     ./apps/mercato/.mercato/generated/messages.client.generated.ts [Client Component SSR]
+prepare	Build app	2026-11-02T19:40:43.0898775Z     ./apps/mercato/src/components/ClientBootstrap.tsx [Client Component SSR]
+prepare	Build app	2026-11-02T19:40:43.0899315Z     ./apps/mercato/src/components/AppProviders.tsx [Client Component SSR]
+prepare	Build app	2026-11-02T19:40:43.0899755Z     ./apps/mercato/src/components/AppProviders.tsx [Server Component]
+prepare	Build app	2026-11-02T19:40:43.0900138Z     ./apps/mercato/src/app/layout.tsx [Server Component]
+prepare	Build app	2026-11-02T19:40:43.0900349Z 
+prepare	Build app	2026-11-02T19:40:43.0900355Z 
+prepare	Build app	2026-11-02T19:40:43.0900521Z ./packages/queue/dist/strategies/local.js:40:20
+prepare	Build app	2026-11-02T19:40:43.0900914Z Warning: Dynamic filesystem access causes tracing of the whole project
+prepare	Build app	2026-11-02T19:40:43.0901466Z   ^[[90m38 |^[[0m   ^[[36mconst^[[0m queueBaseDirFromEnv = nodeProcess?.env?.^[[33mQUEUE_BASE_DIR^[[0m;
+prepare	Build app	2026-11-02T19:40:43.0902651Z   ^[[90m39 |^[[0m   ^[[36mconst^[[0m baseDir = options?.baseDir ?? path.resolve(queueBaseDirFromEnv || ^[[33mDEFAULT_LOCAL_QU...^[[0m
+prepare	Build app	2026-11-02T19:40:43.0903333Z ^[[33m^[[1m>^[[0m ^[[90m40 |^[[0m   ^[[36mconst^[[0m queueDir = path.join(baseDir, name);
+prepare	Build app	2026-11-02T19:40:43.0903766Z   ^[[90m   |^[[0m                    ^[[33m^[[1m^^^^^^^^^^^^^^^^^^^^^^^^^[[0m
+prepare	Build app	2026-11-02T19:40:43.0904258Z   ^[[90m41 |^[[0m   ^[[36mconst^[[0m queueFile = path.join(queueDir, ^[[32m"queue.json"^[[0m);
+prepare	Build app	2026-11-02T19:40:43.0904884Z   ^[[90m42 |^[[0m   ^[[36mconst^[[0m stateFile = path.join(queueDir, ^[[32m"state.json"^[[0m);
+prepare	Build app	2026-11-02T19:40:43.0905593Z   ^[[90m43 |^[[0m   ^[[36mconst^[[0m activeFile = path.join(queueDir, ^[[32m"active.json"^[[0m);
+prepare	Build app	2026-11-02T19:40:43.0905951Z 
+prepare	Build app	2026-11-02T19:40:43.0906457Z Static analysis determined that this filesystem access causes the whole project to be traced and included in the output.
+prepare	Build app	2026-11-02T19:40:43.0907445Z This is usually unintentional and leads to all source files (including the public folder) to be deployed as part of the server code.
+prepare	Build app	2026-11-02T19:40:43.0908286Z This can slow down deployments or lead to failures when size limits are exceeded.
+prepare	Build app	2026-11-02T19:40:43.0908758Z To resolve this, you can
+prepare	Build app	2026-11-02T19:40:43.0909482Z - make sure the path is statically scoped to some subfolder, for example path.join(process.cwd(), 'data', bar), or
+prepare	Build app	2026-11-02T19:40:43.0910147Z - only use them in development, or
+prepare	Build app	2026-11-02T19:40:43.0910791Z - opt out by adding an ignore comment to the highlighted call: path.join(/*turbopackIgnore: true*/ ...), or
+prepare	Build app	2026-11-02T19:40:43.0911373Z - remove them.
+prepare	Build app	2026-11-02T19:40:43.0911559Z 
+prepare	Build app	2026-11-02T19:40:43.0911668Z Import traces:
+prepare	Build app	2026-11-02T19:40:43.0911992Z   App Route:
+prepare	Build app	2026-11-02T19:40:43.0912368Z     ./packages/queue/dist/strategies/local.js
+prepare	Build app	2026-11-02T19:40:43.0912729Z     ./packages/queue/dist/factory.js
+prepare	Build app	2026-11-02T19:40:43.0913142Z     ./packages/events/dist/bus.js
+prepare	Build app	2026-11-02T19:40:43.0913509Z     ./packages/core/dist/bootstrap.js
+prepare	Build app	2026-11-02T19:40:43.0913959Z     ./apps/mercato/src/app/api/[...slug]/route.ts
+prepare	Build app	2026-11-02T19:40:43.0914193Z 
+prepare	Build app	2026-11-02T19:40:43.0914289Z   Server Component:
+prepare	Build app	2026-11-02T19:40:43.0914678Z     ./packages/queue/dist/strategies/local.js
+prepare	Build app	2026-11-02T19:40:43.0915034Z     ./packages/queue/dist/factory.js
+prepare	Build app	2026-11-02T19:40:43.0917856Z     ./packages/scheduler/dist/modules/scheduler/di.js
+prepare	Build app	2026-11-02T19:40:43.0918362Z     ./apps/mercato/.mercato/generated/di.generated.ts
+prepare	Build app	2026-11-02T19:40:43.0918792Z     ./apps/mercato/src/bootstrap-common.ts
+prepare	Build app	2026-11-02T19:40:43.0920215Z     ./apps/mercato/src/bootstrap.ts
+prepare	Build app	2026-11-02T19:40:43.0923334Z     ./apps/mercato/src/app/(backend)/backend/[...slug]/page.tsx
+prepare	Build app	2026-11-02T19:40:43.0924165Z 
+prepare	Build app	2026-11-02T19:40:43.0924298Z   Client Component SSR:
+prepare	Build app	2026-11-02T19:40:43.0924717Z     ./packages/queue/dist/strategies/local.js [Client Component SSR]
+prepare	Build app	2026-11-02T19:40:43.0925168Z     ./packages/queue/dist/factory.js [Client Component SSR]
+prepare	Build app	2026-11-02T19:40:43.0925609Z     ./packages/events/dist/bus.js [Client Component SSR]
+prepare	Build app	2026-11-02T19:40:43.0926790Z     ./packages/core/dist/bootstrap.js [Client Component SSR]
+prepare	Build app	2026-11-02T19:40:43.0928765Z     ./packages/shared/dist/lib/di/container.js [Client Component SSR]
+prepare	Build app	2026-11-02T19:40:43.0931216Z     ./apps/mercato/src/modules/example/lib/messageObjectPreviews.ts [Client Component SSR]
+prepare	Build app	2026-11-02T19:40:43.0934426Z     ./apps/mercato/src/modules/example/message-objects.ts [Client Component SSR]
+prepare	Build app	2026-11-02T19:40:43.1046903Z     ./apps/mercato/.mercato/generated/messages.client.generated.ts [Client Component SSR]
+prepare	Build app	2026-11-02T19:40:43.1048221Z     ./apps/mercato/src/components/ClientBootstrap.tsx [Client Component SSR]
+prepare	Build app	2026-11-02T19:40:43.1048702Z     ./apps/mercato/src/components/AppProviders.tsx [Client Component SSR]
+prepare	Build app	2026-11-02T19:40:43.1049217Z     ./apps/mercato/src/components/AppProviders.tsx [Server Component]
+prepare	Build app	2026-11-02T19:40:43.1049613Z     ./apps/mercato/src/app/layout.tsx [Server Component]
+prepare	Build app	2026-11-02T19:40:43.1049824Z 
+prepare	Build app	2026-11-02T19:40:43.1049832Z 
+prepare	Build app	2026-11-02T19:40:43.1050005Z ./packages/queue/dist/strategies/local.js:39:39
+prepare	Build app	2026-11-02T19:40:43.1052532Z Warning: Dynamic filesystem access causes tracing of the whole project
+prepare	Build app	2026-11-02T19:40:43.1053221Z   ^[[90m37 |^[[0m ...s?.coalesceBy;
+prepare	Build app	2026-11-02T19:40:43.1053646Z   ^[[90m38 |^[[0m ... = nodeProcess?.env?.^[[33mQUEUE_BASE_DIR^[[0m;
+prepare	Build app	2026-11-02T19:40:43.1054456Z ^[[33m^[[1m>^[[0m ^[[90m39 |^[[0m ...baseDir ?? path.resolve(queueBaseDirFromEnv || ^[[33mDEFAULT_LOCAL_QUEUE_BASE_DIR^[[0m);
+prepare	Build app	2026-11-02T19:40:43.1055227Z   ^[[90m   |^[[0m               ^[[33m^[[1m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[[0m
+prepare	Build app	2026-11-02T19:40:43.1055671Z   ^[[90m40 |^[[0m ...n(baseDir, name);
+prepare	Build app	2026-11-02T19:40:43.1056067Z   ^[[90m41 |^[[0m ...in(queueDir, ^[[32m"queue.json"^[[0m);
+prepare	Build app	2026-11-02T19:40:43.1056509Z   ^[[90m42 |^[[0m ...in(queueDir, ^[[32m"state.json"^[[0m);
+prepare	Build app	2026-11-02T19:40:43.1056938Z 
+prepare	Build app	2026-11-02T19:40:43.1057357Z Static analysis determined that this filesystem access causes the whole project to be traced and included in the output.
+prepare	Build app	2026-11-02T19:40:43.1058233Z This is usually unintentional and leads to all source files (including the public folder) to be deployed as part of the server code.
+prepare	Build app	2026-11-02T19:40:43.1058927Z This can slow down deployments or lead to failures when size limits are exceeded.
+prepare	Build app	2026-11-02T19:40:43.1059393Z To resolve this, you can
+prepare	Build app	2026-11-02T19:40:43.1059896Z - make sure the path is statically scoped to some subfolder, for example path.join(process.cwd(), 'data', bar), or
+prepare	Build app	2026-11-02T19:40:43.1060433Z - only use them in development, or
+prepare	Build app	2026-11-02T19:40:43.1061077Z - opt out by adding an ignore comment to the highlighted call: path.resolve(/*turbopackIgnore: true*/ ...), or
+prepare	Build app	2026-11-02T19:40:43.1061615Z - remove them.
+prepare	Build app	2026-11-02T19:40:43.1061749Z 
+prepare	Build app	2026-11-02T19:40:43.1061840Z Import traces:
+prepare	Build app	2026-11-02T19:40:43.1062065Z   App Route:
+prepare	Build app	2026-11-02T19:40:43.1062336Z     ./packages/queue/dist/strategies/local.js
+prepare	Build app	2026-11-02T19:40:43.1062688Z     ./packages/queue/dist/factory.js
+prepare	Build app	2026-11-02T19:40:43.1063008Z     ./packages/events/dist/bus.js
+prepare	Build app	2026-11-02T19:40:43.1063328Z     ./packages/core/dist/bootstrap.js
+prepare	Build app	2026-11-02T19:40:43.1063694Z     ./apps/mercato/src/app/api/[...slug]/route.ts
+prepare	Build app	2026-11-02T19:40:43.1063924Z 
+prepare	Build app	2026-11-02T19:40:43.1064019Z   Server Component:
+prepare	Build app	2026-11-02T19:40:43.1064283Z     ./packages/queue/dist/strategies/local.js
+prepare	Build app	2026-11-02T19:40:43.1064572Z     ./packages/queue/dist/factory.js
+prepare	Build app	2026-11-02T19:40:43.1064871Z     ./packages/scheduler/dist/modules/scheduler/di.js
+prepare	Build app	2026-11-02T19:40:43.1065203Z     ./apps/mercato/.mercato/generated/di.generated.ts
+prepare	Build app	2026-11-02T19:40:43.1065502Z     ./apps/mercato/src/bootstrap-common.ts
+prepare	Build app	2026-11-02T19:40:43.1065785Z     ./apps/mercato/src/bootstrap.ts
+prepare	Build app	2026-11-02T19:40:43.1066131Z     ./apps/mercato/src/app/(backend)/backend/[...slug]/page.tsx
+prepare	Build app	2026-11-02T19:40:43.1066357Z 
+prepare	Build app	2026-11-02T19:40:43.1066450Z   Client Component SSR:
+prepare	Build app	2026-11-02T19:40:43.1066764Z     ./packages/queue/dist/strategies/local.js [Client Component SSR]
+prepare	Build app	2026-11-02T19:40:43.1067163Z     ./packages/queue/dist/factory.js [Client Component SSR]
+prepare	Build app	2026-11-02T19:40:43.1067536Z     ./packages/events/dist/bus.js [Client Component SSR]
+prepare	Build app	2026-11-02T19:40:43.1067896Z     ./packages/core/dist/bootstrap.js [Client Component SSR]
+prepare	Build app	2026-11-02T19:40:43.1068308Z     ./packages/shared/dist/lib/di/container.js [Client Component SSR]
+prepare	Build app	2026-11-02T19:40:43.1068824Z     ./apps/mercato/src/modules/example/lib/messageObjectPreviews.ts [Client Component SSR]
+prepare	Build app	2026-11-02T19:40:43.1069426Z     ./apps/mercato/src/modules/example/message-objects.ts [Client Component SSR]
+prepare	Build app	2026-11-02T19:40:43.1069971Z     ./apps/mercato/.mercato/generated/messages.client.generated.ts [Client Component SSR]
+prepare	Build app	2026-11-02T19:40:43.1070489Z     ./apps/mercato/src/components/ClientBootstrap.tsx [Client Component SSR]
+prepare	Build app	2026-11-02T19:40:43.1070953Z     ./apps/mercato/src/components/AppProviders.tsx [Client Component SSR]
+prepare	Build app	2026-11-02T19:40:43.1071400Z     ./apps/mercato/src/components/AppProviders.tsx [Server Component]
+prepare	Build app	2026-11-02T19:40:43.1071771Z     ./apps/mercato/src/app/layout.tsx [Server Component]
+prepare	Build app	2026-11-02T19:40:43.1071977Z 
+prepare	Build app	2026-11-02T19:40:43.1072676Z 
+prepare	Build app	2026-11-02T19:40:43.1088993Z ##[error]command (/home/runner/_work/open-mercato/open-mercato/apps/mercato) /tmp/xfs-1e787fc8/yarn run build exited (1)
+prepare	Build app	2026-11-02T19:40:43.1093587Z @open-mercato/app#build:  ERROR  command (/home/runner/_work/open-mercato/open-mercato/apps/mercato) /tmp/xfs-1e787fc8/yarn run build exited (1)
+prepare	Build app	2026-11-02T19:40:43.1094084Z 
+prepare	Build app	2026-11-02T19:40:43.1094208Z  Tasks:    0 successful, 1 total
+prepare	Build app	2026-11-02T19:40:43.1094480Z Cached:    0 cached, 1 total
+prepare	Build app	2026-11-02T19:40:43.1094701Z   Time:    3m41.995s 
+prepare	Build app	2026-11-02T19:40:43.1094963Z Failed:    @open-mercato/app#build
+prepare	Build app	2026-11-02T19:40:43.1095135Z 
+prepare	Build app	2026-11-02T19:40:43.3140571Z  ERROR  run failed: command  exited (1)
+prepare	Build app	2026-11-02T19:40:43.4130894Z ##[error]Process completed with exit code 1.

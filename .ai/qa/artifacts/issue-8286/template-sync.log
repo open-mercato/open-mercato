@@ -1,0 +1,3 @@
+[36m[template-sync] Checking template parity for synced src folders, mirrored dev scripts/assets, root files, and package dependencies...[0m
+[32mTemplate sync check passed: app and template are in sync for synced src folders/root files.[0m
+[32mTemplate package dependency sync check passed.[0m

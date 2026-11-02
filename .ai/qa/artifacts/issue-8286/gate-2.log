@@ -1,0 +1,25 @@
+• turbo 2.10.12
+
+   • Packages in scope: @open-mercato/app
+   • Running generate in 1 packages
+   • Remote caching disabled, using shared worktree cache
+
+@open-mercato/app:generate: cache bypass, force executing b958b9f2887caa5a
+@open-mercato/app:generate: ◇ injected env (122) from .env // tip: ⌘ custom filepath { path: '/custom/path/.env' }
+@open-mercato/app:generate: ╔═══════════════════════╗
+@open-mercato/app:generate: ║  🧩 Open Mercato CLI  ║
+@open-mercato/app:generate: ╚═══════════════════════╝
+@open-mercato/app:generate: 
+@open-mercato/app:generate: 🚀 Running generate:all 
+@open-mercato/app:generate: Running all generators...
+@open-mercato/app:generate: [OpenAPI] Found 715 API route files
+@open-mercato/app:generate: [OpenAPI] Bundle approach: 716 paths, 525 with requestBody schemas
+@open-mercato/app:generate: [OpenAPI] Skipped (unchanged): /Users/piotrkarwatka/Projects/mercato-development/.ai/cezar/worktrees/d46c8364-f7d5-4eb0-8a37-6f22edcaef6c/apps/mercato/.mercato/generated/openapi.generated.json
+@open-mercato/app:generate: [generate] Generated outputs unchanged; skipping structural invalidation.
+@open-mercato/app:generate: All generators completed.
+@open-mercato/app:generate: ⏱️ Done in 15860ms
+
+ Tasks:    1 successful, 1 total
+Cached:    0 cached, 1 total
+  Time:    18.26s 
+

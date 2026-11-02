@@ -1,0 +1,6 @@
+
+Test Suites: 3 passed, 3 total
+Tests:       7 passed, 7 total
+Snapshots:   0 total
+Time:        7.391 s
+Ran all test suites matching customers/lib/__tests__/(interactionReadModel|interactionOrderBy).

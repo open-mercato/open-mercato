@@ -1,0 +1,1 @@
+Pages directory cannot be found at /Users/piotrkarwatka/Projects/mercato-development/.ai/cezar/worktrees/d46c8364-f7d5-4eb0-8a37-6f22edcaef6c/pages or /Users/piotrkarwatka/Projects/mercato-development/.ai/cezar/worktrees/d46c8364-f7d5-4eb0-8a37-6f22edcaef6c/src/pages. If using a custom path, please configure with the `no-html-link-for-pages` rule in your eslint config file.

@@ -1,0 +1,53 @@
+• turbo 2.10.12
+
+   • Packages in scope: @open-mercato/ai-assistant, @open-mercato/app, @open-mercato/cache, @open-mercato/carrier-inpost, @open-mercato/channel-apns, @open-mercato/channel-discord, @open-mercato/channel-expo, @open-mercato/channel-fcm, @open-mercato/channel-gmail, @open-mercato/channel-imap, @open-mercato/channel-resend, @open-mercato/channel-ses, @open-mercato/channel-smtp, @open-mercato/checkout, @open-mercato/cli, @open-mercato/content, @open-mercato/core, @open-mercato/documents, @open-mercato/enterprise, @open-mercato/eslint-plugin-ds, @open-mercato/events, @open-mercato/gateway-autopay, @open-mercato/gateway-stripe, @open-mercato/gateway-tpay, @open-mercato/onboarding, @open-mercato/queue, @open-mercato/scheduler, @open-mercato/search, @open-mercato/shared, @open-mercato/starter, @open-mercato/storage-s3, @open-mercato/sync-akeneo, @open-mercato/telemetry, @open-mercato/tillio, @open-mercato/ui, @open-mercato/web-research, @open-mercato/web-research-browser, @open-mercato/web-research-exa, @open-mercato/web-research-firecrawl, @open-mercato/web-research-model, @open-mercato/web-research-searxng, @open-mercato/web-research-serp, @open-mercato/web-research-tavily, @open-mercato/webhooks, create-mercato-app, open-mercato-docs
+   • Running typecheck in 46 packages
+   • Remote caching disabled, using shared worktree cache
+
+@open-mercato/core:typecheck: cache miss, executing e453d77f8c10f379
+@open-mercato/web-research-searxng:typecheck: cache hit, replaying logs 8b46c022227fc92d
+@open-mercato/checkout:typecheck: cache hit, replaying logs f7804e1338dee01e
+@open-mercato/events:typecheck: cache hit, replaying logs e227503e0c3a97a2
+@open-mercato/app:typecheck: cache hit, replaying logs 94edc81445c4d1cd
+@open-mercato/ui:typecheck: cache hit, replaying logs a0a7ca13ea67cc80
+@open-mercato/gateway-stripe:typecheck: cache hit, replaying logs 06ee5dd7eb03e3c3
+@open-mercato/web-research-exa:typecheck: cache hit, replaying logs 30b8e893ddee7431
+@open-mercato/channel-discord:typecheck: cache hit, replaying logs 48d24e5629f67118
+@open-mercato/gateway-tpay:typecheck: cache hit, replaying logs 0f2eda480e7c8a01
+@open-mercato/documents:typecheck: cache hit, replaying logs 635d875d8ec44448
+@open-mercato/channel-expo:typecheck: cache hit, replaying logs 5566bcd0bc6bc29c
+@open-mercato/scheduler:typecheck: cache hit, replaying logs 9d8208bb6088b554
+@open-mercato/storage-s3:typecheck: cache hit, replaying logs 67f6db0492e37d11
+@open-mercato/content:typecheck: cache hit, replaying logs 0fbae91f791f0f96
+@open-mercato/sync-akeneo:typecheck: cache hit, replaying logs f74a05f80846e89c
+@open-mercato/cli:typecheck: cache hit, replaying logs 073e85d709c810f9
+@open-mercato/search:typecheck: cache hit, replaying logs d63e7de4dc9ed5bc
+create-mercato-app:typecheck: cache hit, replaying logs aef6d9ec9e7ee8c6
+@open-mercato/tillio:typecheck: cache hit, replaying logs acfd75330aae3ede
+@open-mercato/carrier-inpost:typecheck: cache hit, replaying logs 9d64411088496844
+@open-mercato/web-research-model:typecheck: cache hit, replaying logs 0477d0432c3635f4
+@open-mercato/channel-fcm:typecheck: cache hit, replaying logs 7f3c9a240043994e
+@open-mercato/onboarding:typecheck: cache hit, replaying logs 0f27072320f3f70d
+@open-mercato/channel-apns:typecheck: cache hit, replaying logs 30f6d8d679aab714
+@open-mercato/telemetry:typecheck: cache hit, replaying logs 17b541ee7c56fe3e
+@open-mercato/web-research-browser:typecheck: cache hit, replaying logs 0dde307518f1947b
+@open-mercato/gateway-autopay:typecheck: cache hit, replaying logs 567b94b3ebc41937
+@open-mercato/channel-imap:typecheck: cache hit, replaying logs d26ca41a17244470
+@open-mercato/channel-smtp:typecheck: cache hit, replaying logs bd18f796caf2ee6d
+@open-mercato/cache:typecheck: cache hit, replaying logs ef5f5c8e12700023
+@open-mercato/web-research-serp:typecheck: cache hit, replaying logs d74c6246fa0a1c47
+@open-mercato/webhooks:typecheck: cache hit, replaying logs 005b2059d0d8214a
+@open-mercato/web-research:typecheck: cache hit, replaying logs 6975138a2f122eab
+@open-mercato/channel-ses:typecheck: cache hit, replaying logs 821748cf34a3ef3b
+@open-mercato/shared:typecheck: cache hit, replaying logs 73e9c3ba93940d04
+@open-mercato/channel-gmail:typecheck: cache hit, replaying logs ac8c5eddb4256a00
+@open-mercato/channel-resend:typecheck: cache hit, replaying logs 70a4fdb78838b88b
+@open-mercato/web-research-firecrawl:typecheck: cache hit, replaying logs b6606f8e933f45cf
+@open-mercato/enterprise:typecheck: cache hit, replaying logs cc27644b33e1e4e4
+@open-mercato/web-research-tavily:typecheck: cache hit, replaying logs 6b582d52de4d869f
+@open-mercato/queue:typecheck: cache hit, replaying logs dc95f231eb7c8c1b
+
+ Tasks:    42 successful, 42 total
+Cached:    41 cached, 42 total
+  Time:    4.1s 
+

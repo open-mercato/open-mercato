@@ -1,0 +1,387 @@
+• turbo 2.10.12
+
+   • Packages in scope: @open-mercato/app
+   • Running build in 1 packages
+   • Remote caching disabled, using shared worktree cache
+
+@open-mercato/app:build: cache miss, executing 916fe467e518c755
+@open-mercato/app:build: ▲ Next.js 16.4.1 (Turbopack)
+@open-mercato/app:build: - Environments: .env
+@open-mercato/app:build: ✓ Running next.config.ts took 2.4s
+@open-mercato/app:build: - Experiments (use with caution):
+@open-mercato/app:build:   · optimizePackageImports
+@open-mercato/app:build:   ⨯ serverMinification
+@open-mercato/app:build:   ⨯ turbopackMinify
+@open-mercato/app:build: 
+@open-mercato/app:build:   Creating an optimized production build ...
+@open-mercato/app:build: ✓ Compiled successfully in 107s
+@open-mercato/app:build:   Running TypeScript ...
+@open-mercato/app:build: ✓ Finished filesystem cache database compaction in 10.7s
+@open-mercato/app:build:   Finished TypeScript in 2.4min ...
+@open-mercato/app:build:   Collecting page data using 17 workers ...
+@open-mercato/app:build:   Generating static pages using 17 workers (0/6) ...
+@open-mercato/app:build:   Generating static pages using 17 workers (1/6) 
+@open-mercato/app:build:   Generating static pages using 17 workers (2/6) 
+@open-mercato/app:build:   Generating static pages using 17 workers (4/6) 
+@open-mercato/app:build: {"level":40,"time":1793647509679,"pid":40068,"hostname":"Piotrs-MacBook-Pro.local","name":"shared","component":"i18n-locale-registry","msg":"Replacing an already-registered supported-locales resolver"}
+@open-mercato/app:build: ✓ Generating static pages using 17 workers (6/6) in 4.7s
+@open-mercato/app:build: Turbopack build encountered 8 warnings:
+@open-mercato/app:build: ./apps/mercato/src/modules/example/api/qa-events/route.ts:48:10
+@open-mercato/app:build: Warning: Dynamic filesystem access causes tracing of the whole project
+@open-mercato/app:build:   [90m46 |[0m   [36mtry[0m {
+@open-mercato/app:build:   [90m47 |[0m     [36mconst[0m filePath = getCapturedEventsFilePath()
+@open-mercato/app:build: [33m[1m>[0m [90m48 |[0m     [36mif[0m (!fs.existsSync(filePath)) [36mreturn[0m []
+@open-mercato/app:build:   [90m   |[0m          [33m[1m^^^^^^^^^^^^^^^^^^^^^^^[0m
+@open-mercato/app:build:   [90m49 |[0m     [36mreturn[0m fs.readFileSync(filePath, [32m'utf8'[0m)
+@open-mercato/app:build:   [90m50 |[0m       .split([32m'\n'[0m)
+@open-mercato/app:build:   [90m51 |[0m       .map((line) => line.trim())
+@open-mercato/app:build: 
+@open-mercato/app:build: Static analysis determined that this filesystem access causes the whole project to be traced and included in the output.
+@open-mercato/app:build: This is usually unintentional and leads to all source files (including the public folder) to be deployed as part of the server code.
+@open-mercato/app:build: This can slow down deployments or lead to failures when size limits are exceeded.
+@open-mercato/app:build: To resolve this, you can
+@open-mercato/app:build: - make sure the path is statically scoped to some subfolder, for example path.join(process.cwd(), 'data', bar), or
+@open-mercato/app:build: - only use them in development, or
+@open-mercato/app:build: - opt out by adding an ignore comment to the highlighted call: fs.existsSync(/*turbopackIgnore: true*/ ...), or
+@open-mercato/app:build: - remove them.
+@open-mercato/app:build: 
+@open-mercato/app:build: Import traces:
+@open-mercato/app:build:   #1 [App Route]:
+@open-mercato/app:build:     ./apps/mercato/src/modules/example/api/qa-events/route.ts
+@open-mercato/app:build:     ./apps/mercato/.mercato/generated/api-routes.generated.ts
+@open-mercato/app:build:     ./apps/mercato/src/app/api/docs/openapi/route.ts
+@open-mercato/app:build: 
+@open-mercato/app:build:   #2 [App Route]:
+@open-mercato/app:build:     ./apps/mercato/src/modules/example/api/qa-events/route.ts
+@open-mercato/app:build:     ./packages/core/dist/modules/communication_channels/lib/test-seed.js
+@open-mercato/app:build:     ./packages/core/dist/modules/communication_channels/setup.js
+@open-mercato/app:build:     ./apps/mercato/.mercato/generated/modules.runtime.generated.ts
+@open-mercato/app:build:     ./apps/mercato/src/app/api/docs/openapi/route.ts
+@open-mercato/app:build: 
+@open-mercato/app:build: 
+@open-mercato/app:build: ./apps/mercato/src/modules/example/api/qa-events/route.ts:49:12
+@open-mercato/app:build: Warning: Dynamic filesystem access causes tracing of the whole project
+@open-mercato/app:build:   [90m47 |[0m     [36mconst[0m filePath = getCapturedEventsFilePath()
+@open-mercato/app:build:   [90m48 |[0m     [36mif[0m (!fs.existsSync(filePath)) [36mreturn[0m []
+@open-mercato/app:build: [33m[1m>[0m [90m49 |[0m     [36mreturn[0m fs.readFileSync(filePath, [32m'utf8'[0m)
+@open-mercato/app:build:   [90m   |[0m            [33m[1m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+@open-mercato/app:build:   [90m50 |[0m       .split([32m'\n'[0m)
+@open-mercato/app:build:   [90m51 |[0m       .map((line) => line.trim())
+@open-mercato/app:build:   [90m52 |[0m       .filter([33mBoolean[0m)
+@open-mercato/app:build: 
+@open-mercato/app:build: Static analysis determined that this filesystem access causes the whole project to be traced and included in the output.
+@open-mercato/app:build: This is usually unintentional and leads to all source files (including the public folder) to be deployed as part of the server code.
+@open-mercato/app:build: This can slow down deployments or lead to failures when size limits are exceeded.
+@open-mercato/app:build: To resolve this, you can
+@open-mercato/app:build: - make sure the path is statically scoped to some subfolder, for example path.join(process.cwd(), 'data', bar), or
+@open-mercato/app:build: - only use them in development, or
+@open-mercato/app:build: - opt out by adding an ignore comment to the highlighted call: fs.readFileSync(/*turbopackIgnore: true*/ ...), or
+@open-mercato/app:build: - remove them.
+@open-mercato/app:build: 
+@open-mercato/app:build: Import traces:
+@open-mercato/app:build:   #1 [App Route]:
+@open-mercato/app:build:     ./apps/mercato/src/modules/example/api/qa-events/route.ts
+@open-mercato/app:build:     ./apps/mercato/.mercato/generated/api-routes.generated.ts
+@open-mercato/app:build:     ./apps/mercato/src/app/api/docs/openapi/route.ts
+@open-mercato/app:build: 
+@open-mercato/app:build:   #2 [App Route]:
+@open-mercato/app:build:     ./apps/mercato/src/modules/example/api/qa-events/route.ts
+@open-mercato/app:build:     ./packages/core/dist/modules/communication_channels/lib/test-seed.js
+@open-mercato/app:build:     ./packages/core/dist/modules/communication_channels/setup.js
+@open-mercato/app:build:     ./apps/mercato/.mercato/generated/modules.runtime.generated.ts
+@open-mercato/app:build:     ./apps/mercato/src/app/api/docs/openapi/route.ts
+@open-mercato/app:build: 
+@open-mercato/app:build: 
+@open-mercato/app:build: ./packages/ai-assistant/dist/modules/ai_assistant/lib/generated-registry-loader.js:181:56
+@open-mercato/app:build: Warning: Dynamic filesystem access causes tracing of the whole project
+@open-mercato/app:build:   [90m179 |[0m ... (target) => toSafeJsStringLiteral(runtime === [32m"esm"[0m ? pathToFileURL(target).href : ta...
+@open-mercato/app:build:   [90m180 |[0m ...= (target) => {
+@open-mercato/app:build: [33m[1m>[0m [90m181 |[0m ...xistsSync(target) ? target : fs.existsSync(target + [32m".ts"[0m) ? target + [32m".ts"[0m : target;
+@open-mercato/app:build:   [90m    |[0m                                 [33m[1m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+@open-mercato/app:build:   [90m182 |[0m ...l(candidate);
+@open-mercato/app:build:   [90m183 |[0m ...
+@open-mercato/app:build:   [90m184 |[0m ...lativePath) => {
+@open-mercato/app:build: 
+@open-mercato/app:build: Static analysis determined that this filesystem access causes the whole project to be traced and included in the output.
+@open-mercato/app:build: This is usually unintentional and leads to all source files (including the public folder) to be deployed as part of the server code.
+@open-mercato/app:build: This can slow down deployments or lead to failures when size limits are exceeded.
+@open-mercato/app:build: To resolve this, you can
+@open-mercato/app:build: - make sure the path is statically scoped to some subfolder, for example path.join(process.cwd(), 'data', bar), or
+@open-mercato/app:build: - only use them in development, or
+@open-mercato/app:build: - opt out by adding an ignore comment to the highlighted call: fs.existsSync(/*turbopackIgnore: true*/ ...), or
+@open-mercato/app:build: - remove them.
+@open-mercato/app:build: 
+@open-mercato/app:build: Import traces:
+@open-mercato/app:build:   App Route:
+@open-mercato/app:build:     ./packages/ai-assistant/dist/modules/ai_assistant/lib/generated-registry-loader.js
+@open-mercato/app:build:     ./packages/ai-assistant/dist/modules/ai_assistant/lib/tool-loader.js
+@open-mercato/app:build:     ./packages/ai-assistant/dist/modules/ai_assistant/api/ai/actions/[id]/confirm/route.js
+@open-mercato/app:build:     ./apps/mercato/.mercato/generated/api-routes.generated.ts
+@open-mercato/app:build:     ./apps/mercato/src/app/api/docs/openapi/route.ts
+@open-mercato/app:build: 
+@open-mercato/app:build:   Server Component:
+@open-mercato/app:build:     ./packages/ai-assistant/dist/modules/ai_assistant/lib/generated-registry-loader.js
+@open-mercato/app:build:     ./packages/ai-assistant/dist/modules/ai_assistant/lib/agent-registry.js
+@open-mercato/app:build:     ./packages/ai-assistant/dist/index.js
+@open-mercato/app:build:     ./packages/channel-discord/dist/modules/channel_discord/subscribers/ai-auto-reply.js
+@open-mercato/app:build:     ./apps/mercato/.mercato/generated/modules.app.generated.ts
+@open-mercato/app:build:     ./apps/mercato/src/app/start/page.tsx
+@open-mercato/app:build: 
+@open-mercato/app:build: 
+@open-mercato/app:build: ./packages/core/dist/modules/attachments/lib/storage.js:24:10
+@open-mercato/app:build: Warning: Dynamic filesystem access causes tracing of the whole project
+@open-mercato/app:build:   [90m22 |[0m     [36mreturn[0m path.resolve(envPath);
+@open-mercato/app:build:   [90m23 |[0m   }
+@open-mercato/app:build: [33m[1m>[0m [90m24 |[0m   [36mreturn[0m path.join(resolveStorageRoot(), code);
+@open-mercato/app:build:   [90m   |[0m          [33m[1m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+@open-mercato/app:build:   [90m25 |[0m }
+@open-mercato/app:build:   [90m26 |[0m [36mfunction[0m sanitizeFileName(fileName) {
+@open-mercato/app:build:   [90m27 |[0m   [36mif[0m (!fileName) [36mreturn[0m [32m"file"[0m;
+@open-mercato/app:build: 
+@open-mercato/app:build: Static analysis determined that this filesystem access causes the whole project to be traced and included in the output.
+@open-mercato/app:build: This is usually unintentional and leads to all source files (including the public folder) to be deployed as part of the server code.
+@open-mercato/app:build: This can slow down deployments or lead to failures when size limits are exceeded.
+@open-mercato/app:build: To resolve this, you can
+@open-mercato/app:build: - make sure the path is statically scoped to some subfolder, for example path.join(process.cwd(), 'data', bar), or
+@open-mercato/app:build: - only use them in development, or
+@open-mercato/app:build: - opt out by adding an ignore comment to the highlighted call: path.join(/*turbopackIgnore: true*/ ...), or
+@open-mercato/app:build: - remove them.
+@open-mercato/app:build: 
+@open-mercato/app:build: Import traces:
+@open-mercato/app:build:   App Route:
+@open-mercato/app:build:     ./packages/core/dist/modules/attachments/lib/storage.js
+@open-mercato/app:build:     ./packages/core/dist/modules/catalog/seed/examples.js
+@open-mercato/app:build:     ./packages/core/dist/modules/catalog/lib/seeds.js
+@open-mercato/app:build:     ./packages/core/dist/modules/catalog/setup.js
+@open-mercato/app:build:     ./apps/mercato/.mercato/generated/modules.runtime.generated.ts
+@open-mercato/app:build:     ./apps/mercato/src/app/api/docs/openapi/route.ts
+@open-mercato/app:build: 
+@open-mercato/app:build:   Server Component:
+@open-mercato/app:build:     ./packages/core/dist/modules/attachments/lib/storage.js
+@open-mercato/app:build:     ./packages/core/dist/modules/sync_excel/lib/upload-storage.js
+@open-mercato/app:build:     ./packages/core/dist/modules/sync_excel/lib/adapters/customers.js
+@open-mercato/app:build:     ./packages/core/dist/modules/sync_excel/di.js
+@open-mercato/app:build:     ./apps/mercato/.mercato/generated/di.generated.ts
+@open-mercato/app:build:     ./apps/mercato/src/bootstrap-common.ts
+@open-mercato/app:build:     ./apps/mercato/src/bootstrap.ts
+@open-mercato/app:build:     ./apps/mercato/src/app/start/page.tsx
+@open-mercato/app:build: 
+@open-mercato/app:build: 
+@open-mercato/app:build: ./packages/core/dist/modules/communication_channels/lib/test-seed.js:104:22
+@open-mercato/app:build: Warning: Dynamic filesystem access causes tracing of the whole project
+@open-mercato/app:build:   [90m102 |[0m [36masync[0m [36mfunction[0m readTestSeedCapturedMessages() {
+@open-mercato/app:build:   [90m103 |[0m   [36mconst[0m capturePath = resolveCapturePath();
+@open-mercato/app:build: [33m[1m>[0m [90m104 |[0m   [36mconst[0m text = [36mawait[0m readFile(capturePath, [32m"utf8"[0m).[36mcatch[0m(() => [32m""[0m);
+@open-mercato/app:build:   [90m    |[0m                      [33m[1m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+@open-mercato/app:build:   [90m105 |[0m   [36mreturn[0m text.split([35m/\r?\n/[0m).map((line) => line.trim()).filter((line) => line.length > [35m0[0m)...
+@open-mercato/app:build:   [90m106 |[0m     [36mtry[0m {
+@open-mercato/app:build:   [90m107 |[0m       [36mreturn[0m [33mJSON[0m.parse(line);
+@open-mercato/app:build: 
+@open-mercato/app:build: Static analysis determined that this filesystem access causes the whole project to be traced and included in the output.
+@open-mercato/app:build: This is usually unintentional and leads to all source files (including the public folder) to be deployed as part of the server code.
+@open-mercato/app:build: This can slow down deployments or lead to failures when size limits are exceeded.
+@open-mercato/app:build: To resolve this, you can
+@open-mercato/app:build: - make sure the path is statically scoped to some subfolder, for example path.join(process.cwd(), 'data', bar), or
+@open-mercato/app:build: - only use them in development, or
+@open-mercato/app:build: - opt out by adding an ignore comment to the highlighted call: fs.readFile(/*turbopackIgnore: true*/ ...), or
+@open-mercato/app:build: - remove them.
+@open-mercato/app:build: 
+@open-mercato/app:build: Import traces:
+@open-mercato/app:build:   App Route:
+@open-mercato/app:build:     ./packages/core/dist/modules/communication_channels/lib/test-seed.js
+@open-mercato/app:build:     ./packages/core/dist/modules/communication_channels/setup.js
+@open-mercato/app:build:     ./apps/mercato/.mercato/generated/modules.runtime.generated.ts
+@open-mercato/app:build:     ./apps/mercato/src/app/api/docs/openapi/route.ts
+@open-mercato/app:build: 
+@open-mercato/app:build:   Server Component:
+@open-mercato/app:build:     ./packages/core/dist/modules/communication_channels/lib/test-seed.js
+@open-mercato/app:build:     ./packages/core/dist/modules/communication_channels/setup.js
+@open-mercato/app:build:     ./apps/mercato/.mercato/generated/modules.app.generated.ts
+@open-mercato/app:build:     ./apps/mercato/src/app/start/page.tsx
+@open-mercato/app:build: 
+@open-mercato/app:build: 
+@open-mercato/app:build: ./packages/queue/dist/pending-probe.js:23:39
+@open-mercato/app:build: Warning: Dynamic filesystem access causes tracing of the whole project
+@open-mercato/app:build:   [90m21 |[0m ...lobalThis.process;
+@open-mercato/app:build:   [90m22 |[0m ...deProcess?.env?.[33mQUEUE_BASE_DIR[0m;
+@open-mercato/app:build: [33m[1m>[0m [90m23 |[0m ...ns?.baseDir ?? path.resolve(envBaseDir || [33mDEFAULT_LOCAL_QUEUE_BASE_DIR[0m);
+@open-mercato/app:build:   [90m   |[0m                   [33m[1m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+@open-mercato/app:build:   [90m24 |[0m ...h.join(baseDir, queueName, [32m"queue.json"[0m);
+@open-mercato/app:build:   [90m25 |[0m ...
+@open-mercato/app:build:   [90m26 |[0m ...
+@open-mercato/app:build: 
+@open-mercato/app:build: Static analysis determined that this filesystem access causes the whole project to be traced and included in the output.
+@open-mercato/app:build: This is usually unintentional and leads to all source files (including the public folder) to be deployed as part of the server code.
+@open-mercato/app:build: This can slow down deployments or lead to failures when size limits are exceeded.
+@open-mercato/app:build: To resolve this, you can
+@open-mercato/app:build: - make sure the path is statically scoped to some subfolder, for example path.join(process.cwd(), 'data', bar), or
+@open-mercato/app:build: - only use them in development, or
+@open-mercato/app:build: - opt out by adding an ignore comment to the highlighted call: path.resolve(/*turbopackIgnore: true*/ ...), or
+@open-mercato/app:build: - remove them.
+@open-mercato/app:build: 
+@open-mercato/app:build: Import traces:
+@open-mercato/app:build:   App Route:
+@open-mercato/app:build:     ./packages/queue/dist/pending-probe.js
+@open-mercato/app:build:     ./packages/queue/dist/index.js
+@open-mercato/app:build:     ./packages/events/dist/bus.js
+@open-mercato/app:build:     ./packages/core/dist/bootstrap.js
+@open-mercato/app:build:     ./apps/mercato/src/di.ts
+@open-mercato/app:build:     ./apps/mercato/src/bootstrap-api.ts
+@open-mercato/app:build:     ./apps/mercato/src/app/api/healthz/route.ts
+@open-mercato/app:build: 
+@open-mercato/app:build:   Server Component:
+@open-mercato/app:build:     ./packages/queue/dist/pending-probe.js
+@open-mercato/app:build:     ./packages/queue/dist/index.js
+@open-mercato/app:build:     ./packages/scheduler/dist/modules/scheduler/di.js
+@open-mercato/app:build:     ./apps/mercato/.mercato/generated/di.generated.ts
+@open-mercato/app:build:     ./apps/mercato/src/bootstrap-common.ts
+@open-mercato/app:build:     ./apps/mercato/src/bootstrap.ts
+@open-mercato/app:build:     ./apps/mercato/src/app/start/page.tsx
+@open-mercato/app:build: 
+@open-mercato/app:build:   Client Component SSR:
+@open-mercato/app:build:     ./packages/queue/dist/pending-probe.js [Client Component SSR]
+@open-mercato/app:build:     ./packages/queue/dist/index.js [Client Component SSR]
+@open-mercato/app:build:     ./packages/events/dist/bus.js [Client Component SSR]
+@open-mercato/app:build:     ./packages/core/dist/bootstrap.js [Client Component SSR]
+@open-mercato/app:build:     ./packages/shared/dist/lib/di/container.js [Client Component SSR]
+@open-mercato/app:build:     ./apps/mercato/src/modules/example/lib/messageObjectPreviews.ts [Client Component SSR]
+@open-mercato/app:build:     ./apps/mercato/src/modules/example/message-objects.ts [Client Component SSR]
+@open-mercato/app:build:     ./apps/mercato/.mercato/generated/messages.client.generated.ts [Client Component SSR]
+@open-mercato/app:build:     ./apps/mercato/src/components/ClientBootstrap.tsx [Client Component SSR]
+@open-mercato/app:build:     ./apps/mercato/src/components/AppProviders.tsx [Client Component SSR]
+@open-mercato/app:build:     ./apps/mercato/src/components/AppProviders.tsx [Server Component]
+@open-mercato/app:build:     ./apps/mercato/src/app/layout.tsx [Server Component]
+@open-mercato/app:build: 
+@open-mercato/app:build: 
+@open-mercato/app:build: ./packages/queue/dist/strategies/local.js:40:20
+@open-mercato/app:build: Warning: Dynamic filesystem access causes tracing of the whole project
+@open-mercato/app:build:   [90m38 |[0m   [36mconst[0m queueBaseDirFromEnv = nodeProcess?.env?.[33mQUEUE_BASE_DIR[0m;
+@open-mercato/app:build:   [90m39 |[0m   [36mconst[0m baseDir = options?.baseDir ?? path.resolve(queueBaseDirFromEnv || [33mDEFAULT_LOCAL_QU...[0m
+@open-mercato/app:build: [33m[1m>[0m [90m40 |[0m   [36mconst[0m queueDir = path.join(baseDir, name);
+@open-mercato/app:build:   [90m   |[0m                    [33m[1m^^^^^^^^^^^^^^^^^^^^^^^^[0m
+@open-mercato/app:build:   [90m41 |[0m   [36mconst[0m queueFile = path.join(queueDir, [32m"queue.json"[0m);
+@open-mercato/app:build:   [90m42 |[0m   [36mconst[0m stateFile = path.join(queueDir, [32m"state.json"[0m);
+@open-mercato/app:build:   [90m43 |[0m   [36mconst[0m activeFile = path.join(queueDir, [32m"active.json"[0m);
+@open-mercato/app:build: 
+@open-mercato/app:build: Static analysis determined that this filesystem access causes the whole project to be traced and included in the output.
+@open-mercato/app:build: This is usually unintentional and leads to all source files (including the public folder) to be deployed as part of the server code.
+@open-mercato/app:build: This can slow down deployments or lead to failures when size limits are exceeded.
+@open-mercato/app:build: To resolve this, you can
+@open-mercato/app:build: - make sure the path is statically scoped to some subfolder, for example path.join(process.cwd(), 'data', bar), or
+@open-mercato/app:build: - only use them in development, or
+@open-mercato/app:build: - opt out by adding an ignore comment to the highlighted call: path.join(/*turbopackIgnore: true*/ ...), or
+@open-mercato/app:build: - remove them.
+@open-mercato/app:build: 
+@open-mercato/app:build: Import traces:
+@open-mercato/app:build:   App Route:
+@open-mercato/app:build:     ./packages/queue/dist/strategies/local.js
+@open-mercato/app:build:     ./packages/queue/dist/factory.js
+@open-mercato/app:build:     ./packages/events/dist/bus.js
+@open-mercato/app:build:     ./packages/core/dist/bootstrap.js
+@open-mercato/app:build:     ./apps/mercato/src/app/api/[...slug]/route.ts
+@open-mercato/app:build: 
+@open-mercato/app:build:   Server Component:
+@open-mercato/app:build:     ./packages/queue/dist/strategies/local.js
+@open-mercato/app:build:     ./packages/queue/dist/factory.js
+@open-mercato/app:build:     ./packages/scheduler/dist/modules/scheduler/di.js
+@open-mercato/app:build:     ./apps/mercato/.mercato/generated/di.generated.ts
+@open-mercato/app:build:     ./apps/mercato/src/bootstrap-common.ts
+@open-mercato/app:build:     ./apps/mercato/src/bootstrap.ts
+@open-mercato/app:build:     ./apps/mercato/src/app/start/page.tsx
+@open-mercato/app:build: 
+@open-mercato/app:build:   Client Component SSR:
+@open-mercato/app:build:     ./packages/queue/dist/strategies/local.js [Client Component SSR]
+@open-mercato/app:build:     ./packages/queue/dist/factory.js [Client Component SSR]
+@open-mercato/app:build:     ./packages/events/dist/bus.js [Client Component SSR]
+@open-mercato/app:build:     ./packages/core/dist/bootstrap.js [Client Component SSR]
+@open-mercato/app:build:     ./packages/shared/dist/lib/di/container.js [Client Component SSR]
+@open-mercato/app:build:     ./apps/mercato/src/modules/example/lib/messageObjectPreviews.ts [Client Component SSR]
+@open-mercato/app:build:     ./apps/mercato/src/modules/example/message-objects.ts [Client Component SSR]
+@open-mercato/app:build:     ./apps/mercato/.mercato/generated/messages.client.generated.ts [Client Component SSR]
+@open-mercato/app:build:     ./apps/mercato/src/components/ClientBootstrap.tsx [Client Component SSR]
+@open-mercato/app:build:     ./apps/mercato/src/components/AppProviders.tsx [Client Component SSR]
+@open-mercato/app:build:     ./apps/mercato/src/components/AppProviders.tsx [Server Component]
+@open-mercato/app:build:     ./apps/mercato/src/app/layout.tsx [Server Component]
+@open-mercato/app:build: 
+@open-mercato/app:build: 
+@open-mercato/app:build: ./packages/queue/dist/strategies/local.js:39:39
+@open-mercato/app:build: Warning: Dynamic filesystem access causes tracing of the whole project
+@open-mercato/app:build:   [90m37 |[0m ...s?.coalesceBy;
+@open-mercato/app:build:   [90m38 |[0m ... = nodeProcess?.env?.[33mQUEUE_BASE_DIR[0m;
+@open-mercato/app:build: [33m[1m>[0m [90m39 |[0m ...baseDir ?? path.resolve(queueBaseDirFromEnv || [33mDEFAULT_LOCAL_QUEUE_BASE_DIR[0m);
+@open-mercato/app:build:   [90m   |[0m               [33m[1m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+@open-mercato/app:build:   [90m40 |[0m ...n(baseDir, name);
+@open-mercato/app:build:   [90m41 |[0m ...in(queueDir, [32m"queue.json"[0m);
+@open-mercato/app:build:   [90m42 |[0m ...in(queueDir, [32m"state.json"[0m);
+@open-mercato/app:build: 
+@open-mercato/app:build: Static analysis determined that this filesystem access causes the whole project to be traced and included in the output.
+@open-mercato/app:build: This is usually unintentional and leads to all source files (including the public folder) to be deployed as part of the server code.
+@open-mercato/app:build: This can slow down deployments or lead to failures when size limits are exceeded.
+@open-mercato/app:build: To resolve this, you can
+@open-mercato/app:build: - make sure the path is statically scoped to some subfolder, for example path.join(process.cwd(), 'data', bar), or
+@open-mercato/app:build: - only use them in development, or
+@open-mercato/app:build: - opt out by adding an ignore comment to the highlighted call: path.resolve(/*turbopackIgnore: true*/ ...), or
+@open-mercato/app:build: - remove them.
+@open-mercato/app:build: 
+@open-mercato/app:build: Import traces:
+@open-mercato/app:build:   App Route:
+@open-mercato/app:build:     ./packages/queue/dist/strategies/local.js
+@open-mercato/app:build:     ./packages/queue/dist/factory.js
+@open-mercato/app:build:     ./packages/events/dist/bus.js
+@open-mercato/app:build:     ./packages/core/dist/bootstrap.js
+@open-mercato/app:build:     ./apps/mercato/src/app/api/[...slug]/route.ts
+@open-mercato/app:build: 
+@open-mercato/app:build:   Server Component:
+@open-mercato/app:build:     ./packages/queue/dist/strategies/local.js
+@open-mercato/app:build:     ./packages/queue/dist/factory.js
+@open-mercato/app:build:     ./packages/scheduler/dist/modules/scheduler/di.js
+@open-mercato/app:build:     ./apps/mercato/.mercato/generated/di.generated.ts
+@open-mercato/app:build:     ./apps/mercato/src/bootstrap-common.ts
+@open-mercato/app:build:     ./apps/mercato/src/bootstrap.ts
+@open-mercato/app:build:     ./apps/mercato/src/app/start/page.tsx
+@open-mercato/app:build: 
+@open-mercato/app:build:   Client Component SSR:
+@open-mercato/app:build:     ./packages/queue/dist/strategies/local.js [Client Component SSR]
+@open-mercato/app:build:     ./packages/queue/dist/factory.js [Client Component SSR]
+@open-mercato/app:build:     ./packages/events/dist/bus.js [Client Component SSR]
+@open-mercato/app:build:     ./packages/core/dist/bootstrap.js [Client Component SSR]
+@open-mercato/app:build:     ./packages/shared/dist/lib/di/container.js [Client Component SSR]
+@open-mercato/app:build:     ./apps/mercato/src/modules/example/lib/messageObjectPreviews.ts [Client Component SSR]
+@open-mercato/app:build:     ./apps/mercato/src/modules/example/message-objects.ts [Client Component SSR]
+@open-mercato/app:build:     ./apps/mercato/.mercato/generated/messages.client.generated.ts [Client Component SSR]
+@open-mercato/app:build:     ./apps/mercato/src/components/ClientBootstrap.tsx [Client Component SSR]
+@open-mercato/app:build:     ./apps/mercato/src/components/AppProviders.tsx [Client Component SSR]
+@open-mercato/app:build:     ./apps/mercato/src/components/AppProviders.tsx [Server Component]
+@open-mercato/app:build:     ./apps/mercato/src/app/layout.tsx [Server Component]
+@open-mercato/app:build: 
+@open-mercato/app:build: 
+@open-mercato/app:build:   Finalizing page optimization ...
+@open-mercato/app:build: 
+@open-mercato/app:build: Route (app)
+@open-mercato/app:build: ┌ ƒ /
+@open-mercato/app:build: ├ ƒ /_not-found
+@open-mercato/app:build: ├ ƒ /[...slug]
+@open-mercato/app:build: ├ ƒ /api/[...slug]
+@open-mercato/app:build: ├ ƒ /api/auth/login
+@open-mercato/app:build: ├ ƒ /api/dev-runtime/actions/[action]
+@open-mercato/app:build: ├ ƒ /api/dev-runtime/diagnostics
+@open-mercato/app:build: ├ ƒ /api/dev-runtime/logs
+@open-mercato/app:build: ├ ƒ /api/dev-runtime/status
+@open-mercato/app:build: ├ ƒ /api/docs/markdown
+@open-mercato/app:build: ├ ƒ /api/docs/openapi
+@open-mercato/app:build: ├ ƒ /api/healthz
+@open-mercato/app:build: ├ ƒ /backend
+@open-mercato/app:build: ├ ƒ /backend/[...slug]
+@open-mercato/app:build: ├ ƒ /login
+@open-mercato/app:build: └ ƒ /start
+@open-mercato/app:build: 
+@open-mercato/app:build: 
+@open-mercato/app:build: ƒ Proxy (Middleware)
+@open-mercato/app:build: 
+@open-mercato/app:build: ƒ  (Dynamic)  server-rendered on demand
+@open-mercato/app:build: 
+
+ Tasks:    1 successful, 1 total
+Cached:    0 cached, 1 total
+  Time:    4m29.681s 
+
