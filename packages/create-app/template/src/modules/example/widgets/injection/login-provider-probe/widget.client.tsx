@@ -17,7 +17,6 @@ export default function LoginProviderProbeWidget({ context }: InjectionWidgetCom
 
   React.useEffect(() => {
     if (!claimsFlow) {
-      setAuthOverride(null)
       setSubmitted(false)
       return
     }
