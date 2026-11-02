@@ -55,6 +55,7 @@ describe('module contract override helpers', () => {
           seedDefaults: false,
           seedExamples: false,
           onTenantCreated: false,
+          onOrganizationCreated: false,
         },
         acl: {
           features: {
@@ -84,6 +85,7 @@ describe('module contract override helpers', () => {
       ],
       setup: {
         onTenantCreated: jest.fn(),
+        onOrganizationCreated: jest.fn(),
         seedDefaults: jest.fn(),
         seedExamples: jest.fn(),
         defaultRoleFeatures: { admin: ['example.manage'] },
@@ -113,6 +115,7 @@ describe('module contract override helpers', () => {
     expect(overridden.setup?.seedDefaults).toBeUndefined()
     expect(overridden.setup?.seedExamples).toBeUndefined()
     expect(overridden.setup?.onTenantCreated).toBeUndefined()
+    expect(overridden.setup?.onOrganizationCreated).toBeUndefined()
   })
 
   it('applies registry-entry overrides for widgets, notifications, interceptors, enrichers and guards', () => {

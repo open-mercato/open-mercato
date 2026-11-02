@@ -51,12 +51,12 @@ export default async function seedOrganizationDefaults(
   const rootEm = ctx.resolve<EntityManager>('em')
   const failures: unknown[] = []
   for (const moduleEntry of getModules()) {
-    const seedDefaults = moduleEntry.setup?.seedDefaults
-    if (!seedDefaults) continue
+    const onOrganizationCreated = moduleEntry.setup?.onOrganizationCreated
+    if (!onOrganizationCreated) continue
 
     const em = rootEm.fork()
     try {
-      await seedDefaults({
+      await onOrganizationCreated({
         em,
         tenantId,
         organizationId,

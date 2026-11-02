@@ -37,6 +37,14 @@ export type ModuleSetupConfig = {
   onTenantCreated?: (ctx: TenantSetupContext) => Promise<void>
 
   /**
+   * Called after an organization is created in an existing tenant.
+   * For organization-scoped structural defaults that must exist for every
+   * organization, including organizations added after `mercato init`.
+   * Must be idempotent. Runs from a persistent organization-created subscriber.
+   */
+  onOrganizationCreated?: (ctx: InitSetupContext) => Promise<void>
+
+  /**
    * Called during `mercato init` after tenant exists.
    * For reference/structural data: dictionaries, tax rates, statuses, units,
    * shipping/payment methods, etc.

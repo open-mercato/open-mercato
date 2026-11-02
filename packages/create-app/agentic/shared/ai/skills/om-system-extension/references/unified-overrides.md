@@ -19,7 +19,7 @@ Load this reference when `src/modules.ts` must disable or replace an installed c
 | Response enrichers | `overrides.enrichers` — enricher ID |
 | Page guards/middleware | `overrides.guards` — middleware ID |
 | CLI commands | `overrides.cli` — command string |
-| Setup hooks | `overrides.setup` — entry-scoped `defaultRoleFeatures`, `defaultCustomerRoleFeatures`, `seedDefaults`, `seedExamples`, `onTenantCreated`; hook booleans use `false` to disable |
+| Setup hooks | `overrides.setup` — entry-scoped `defaultRoleFeatures`, `defaultCustomerRoleFeatures`, `seedDefaults`, `seedExamples`, `onTenantCreated`, `onOrganizationCreated`; hook booleans use `false` to disable |
 | ACL features | `overrides.acl.features` — feature ID |
 | DI bindings | `overrides.di` — container key |
 | Encryption maps | `overrides.encryption.maps` — entity ID |

@@ -27,13 +27,15 @@ describe('directory seedOrganizationDefaults subscriber', () => {
     })
   })
 
-  it('runs every enabled seedDefaults hook in an isolated organization scope', async () => {
-    const firstSeed = jest.fn(async () => {})
-    const secondSeed = jest.fn(async () => {})
+  it('runs every enabled onOrganizationCreated hook in an isolated organization scope', async () => {
+    const firstHook = jest.fn(async () => {})
+    const unsafeTenantSeed = jest.fn(async () => {})
+    const secondHook = jest.fn(async () => {})
     registerModules([
-      { id: 'first', setup: { seedDefaults: firstSeed } },
+      { id: 'first', setup: { onOrganizationCreated: firstHook } },
+      { id: 'tenant-seed-only', setup: { seedDefaults: unsafeTenantSeed } },
       { id: 'without-seed' },
-      { id: 'second', setup: { seedDefaults: secondSeed } },
+      { id: 'second', setup: { onOrganizationCreated: secondHook } },
     ] as Module[])
     const { em, forks } = makeEntityManager()
     const schedulerService = { register: jest.fn(async () => {}) }
@@ -50,18 +52,20 @@ describe('directory seedOrganizationDefaults subscriber', () => {
     })
 
     expect(em.fork).toHaveBeenCalledTimes(2)
-    expect(firstSeed).toHaveBeenCalledWith(expect.objectContaining({
+    expect(firstHook).toHaveBeenCalledWith(expect.objectContaining({
       em: forks[0],
       tenantId: 'tenant-1',
       organizationId: 'organization-2',
     }))
-    expect(secondSeed).toHaveBeenCalledWith(expect.objectContaining({
+    expect(secondHook).toHaveBeenCalledWith(expect.objectContaining({
       em: forks[1],
       tenantId: 'tenant-1',
       organizationId: 'organization-2',
     }))
 
-    const firstContainer = firstSeed.mock.calls[0]?.[0].container
+    expect(unsafeTenantSeed).not.toHaveBeenCalled()
+
+    const firstContainer = firstHook.mock.calls[0]?.[0].container
     expect(firstContainer.resolve('em')).toBe(forks[0])
     expect(firstContainer.hasRegistration('schedulerService')).toBe(true)
     expect(firstContainer.resolve('schedulerService')).toBe(schedulerService)
@@ -69,13 +73,13 @@ describe('directory seedOrganizationDefaults subscriber', () => {
   })
 
   it('continues provisioning later modules after one hook fails', async () => {
-    const failingSeed = jest.fn(async () => {
+    const failingHook = jest.fn(async () => {
       throw new Error('seed failed')
     })
-    const succeedingSeed = jest.fn(async () => {})
+    const succeedingHook = jest.fn(async () => {})
     registerModules([
-      { id: 'failing', setup: { seedDefaults: failingSeed } },
-      { id: 'succeeding', setup: { seedDefaults: succeedingSeed } },
+      { id: 'failing', setup: { onOrganizationCreated: failingHook } },
+      { id: 'succeeding', setup: { onOrganizationCreated: succeedingHook } },
     ] as Module[])
     const { em } = makeEntityManager()
 
@@ -88,13 +92,13 @@ describe('directory seedOrganizationDefaults subscriber', () => {
       organizationId: 'organization-2',
     })).rejects.toThrow('One or more organization default hooks failed')
 
-    expect(failingSeed).toHaveBeenCalledTimes(1)
-    expect(succeedingSeed).toHaveBeenCalledTimes(1)
+    expect(failingHook).toHaveBeenCalledTimes(1)
+    expect(succeedingHook).toHaveBeenCalledTimes(1)
   })
 
   it('does nothing without trusted tenant and organization scope', async () => {
-    const seedDefaults = jest.fn(async () => {})
-    registerModules([{ id: 'seeded', setup: { seedDefaults } }] as Module[])
+    const onOrganizationCreated = jest.fn(async () => {})
+    registerModules([{ id: 'seeded', setup: { onOrganizationCreated } }] as Module[])
     const { em } = makeEntityManager()
     const resolve = jest.fn(() => em)
 
@@ -104,6 +108,6 @@ describe('directory seedOrganizationDefaults subscriber', () => {
     )
 
     expect(resolve).not.toHaveBeenCalled()
-    expect(seedDefaults).not.toHaveBeenCalled()
+    expect(onOrganizationCreated).not.toHaveBeenCalled()
   })
 })
