@@ -1399,7 +1399,7 @@ export function SalesDocumentAddressesSection({
         </div>
 
         {additionalFormOpen ? (
-          <div className="space-y-3 rounded border border-dashed p-3">
+          <div className="space-y-3 rounded border border-dashed p-3" data-testid="additional-address-form">
             <div className="flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
               <p className="text-sm font-semibold">
                 {t('sales.documents.detail.addresses.new', 'Add a new address')}

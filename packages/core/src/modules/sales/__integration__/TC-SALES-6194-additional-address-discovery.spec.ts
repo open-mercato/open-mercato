@@ -48,20 +48,22 @@ test.describe('TC-SALES-6194: additional address discovery', () => {
       await expect(addButtons, 'one entry point while the list is empty').toHaveCount(1)
       await addButtons.first().click()
 
-      await expect(page.getByRole('radiogroup', { name: 'Address source' }), 'no choice to make without saved addresses').toHaveCount(0)
-      await expect(page.getByRole('switch', { name: 'Define new address' }), 'no toggle hides the fields').toHaveCount(0)
-      const line1 = page.getByRole('textbox', { name: 'Address line 1' })
+      // The document's own shipping and billing panels sit on the same tab, so look inside the form.
+      const form = page.getByTestId('additional-address-form')
+      await expect(form.getByRole('radiogroup', { name: 'Address source' }), 'no choice to make without saved addresses').toHaveCount(0)
+      await expect(form.getByRole('switch', { name: 'Define new address' }), 'no toggle hides the fields').toHaveCount(0)
+      const line1 = form.getByRole('textbox', { name: 'Address line 1' })
       await expect(line1, 'the fields are the first thing shown').toBeVisible()
-      await page.getByRole('textbox', { name: 'Label' }).fill(`Site ${stamp}`)
+      await form.getByRole('textbox', { name: 'Label' }).fill(`Site ${stamp}`)
       await line1.fill('12 Discovery Street')
       await expect(line1).toHaveValue('12 Discovery Street')
-      await page.getByRole('textbox', { name: 'City' }).fill('London')
-      await page.getByRole('textbox', { name: 'Postal code' }).fill('SW1A 1AA')
+      await form.getByRole('textbox', { name: 'City' }).fill('London')
+      await form.getByRole('textbox', { name: 'Postal code' }).fill('SW1A 1AA')
 
       const saved = page.waitForResponse(
         (response) => new URL(response.url()).pathname === '/api/sales/document-addresses' && response.request().method() === 'POST',
       )
-      await page.getByRole('button', { name: 'Save address', exact: true }).click()
+      await form.getByRole('button', { name: 'Save address', exact: true }).click()
       expect((await saved).status(), 'the typed address is assigned to the document').toBe(201)
       await expect(page.getByText(`Site ${stamp}`)).toBeVisible()
     } finally {
@@ -110,14 +112,15 @@ test.describe('TC-SALES-6194: additional address discovery', () => {
       await page.getByRole('button', { name: 'Addresses' }).click()
       await page.getByRole('button', { name: 'Add address', exact: true }).first().click()
 
-      const source = page.getByRole('radiogroup', { name: 'Address source' })
+      const form = page.getByTestId('additional-address-form')
+      const source = form.getByRole('radiogroup', { name: 'Address source' })
       await expect(source).toBeVisible()
       await expect(source.getByRole('radio', { name: 'Saved address' })).toHaveAttribute('aria-checked', 'true')
-      await expect(page.getByRole('textbox', { name: 'Address line 1' })).toHaveCount(0)
+      await expect(form.getByRole('textbox', { name: 'Address line 1' })).toHaveCount(0)
 
       await source.getByRole('radio', { name: 'New address' }).click()
-      await expect(page.getByRole('textbox', { name: 'Address line 1' })).toBeVisible()
-      await expect(page.getByRole('button', { name: 'Save address', exact: true })).toBeVisible()
+      await expect(form.getByRole('textbox', { name: 'Address line 1' })).toBeVisible()
+      await expect(form.getByRole('button', { name: 'Save address', exact: true })).toBeVisible()
     } finally {
       await deleteSalesEntityIfExists(request, token, '/api/sales/quotes', quoteId)
       await deleteEntityIfExists(request, token, '/api/customers/addresses', addressId)
