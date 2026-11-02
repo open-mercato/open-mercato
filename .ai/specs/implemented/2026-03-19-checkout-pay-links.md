@@ -2077,16 +2077,6 @@ None identified.
 
 ### 2026-08-02
 - Defined the 24-hour payment-session replay window and added tenant-scoped cleanup for expired completed initialization claims (#4861)
-<<<<<<< HEAD
-=======
-
-### 2026-10-10
-- Made pay-link usage counters concurrency-safe: terminal transitions release reservations with an atomic relative update, the reservation runs inside the transaction-insert transaction, and `usageLimitReached`/`locked` fire once per crossing
-- Link undo/redo no longer rewinds usage counters; undoing a link edit is refused while payments are in flight
-- Documented `is_locked` as "has in-flight reservations", matching the implemented behaviour
-
-### 2026-10-18
-- Extended bounded session-claim retention to released and safely abandoned claims after 24 hours, protecting fresh leases and concurrent renewals with row locks; added a concurrent retention index and PostgreSQL state/race coverage (#4888).
 
 ### 2026-10-27
 - Replaced the public pay-link route's administrative response spread with an explicit payer-facing allowlist, including verified-password and preview responses; documented the security exception and client/operator migration for #7823.
@@ -2094,4 +2084,3 @@ None identified.
 
 ### 2026-10-29
 - Recorded @haxiorz’s human approval of the security exception for all 18 administrative fields and acknowledgment of the client/operator migration; independent review and QA remain required.
->>>>>>> 615a6c9ba (fix(checkout): keep admin fields out of public pay links (#8087))
