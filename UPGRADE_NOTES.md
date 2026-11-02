@@ -22,6 +22,153 @@ most of the patterns listed below in a user's codebase.
 
 ---
 
+## 0.9.0 → 0.9.1 (unreleased)
+
+### Agent search answers honor domain policy (#7234)
+
+When an allow-list or deny-list is configured, agent `web_search` and the settings
+preview's top-level `answer` now return `null` instead of provider-generated prose
+whose sources cannot be verified. Allowed result links and snippets remain available;
+`diagnostics.answerWithheld: 'domain_policy'` explains withheld text. This also applies
+to cached engine output and to answers whose denied sources disappeared during fusion.
+No-policy searches are unchanged. Existing clients already accept nullable answers;
+use the permitted results without disabling domain restrictions. The privileged
+`agents.manage` preview still shows raw per-adapter comparisons, including blocked-hit
+markers; those comparisons never enter agent context. No database migration or cache
+purge is required. Credit to @AHKSammich for the finding/proof of concept in #7323;
+this implementation was written independently for the enterprise module.
+
+### Scoped attachment bytes no longer advertise shared caching (#7220)
+
+The attachment file and image byte routes now return `Cache-Control: private,
+max-age=60` for tenant- or organization-scoped records, including records in a
+public partition and reads by superadmins. Only records that the existing origin
+access policy permits anonymously retain public caching (global public files:
+86400 seconds; global public images: 3600 seconds). Private partitions keep their
+existing private cache policy. URLs, byte formats, and authorization are unchanged.
+
+**Operator action:** purge previously cached scoped attachment responses from
+CDNs, reverse proxies, and other shared HTTP caches when deploying this fix.
+Include both `/api/attachments/file/*` (including download query variants) and
+`/api/attachments/image/*` (all slugs, sizes, crop options, and query variants).
+Changing origin headers cannot invalidate copies already stored with the old
+public TTL. Check cache rules honor origin `private` and do not force-cache these
+routes. No database or module-code migration is required.
+
+### Public pay-link responses exclude administrative configuration (#7823)
+
+`GET /api/checkout/pay/:slug` now returns an explicit public allowlist, including
+after password verification and in authenticated link preview. It no longer
+returns the start/success/error email subjects, bodies or send flags, nor
+`logoAttachmentId`, `customFieldsetCode`, `templateId`, `maxCompletions`,
+`completionCount`, `activeReservationCount`, `isLocked`, `createdAt` or `updatedAt`.
+Payer-facing prices, branding, legal text, customer-field definitions, result
+messages, public custom fields, and derived availability remain available.
+
+**Client action:** pay-page extensions reading the removed fields must stop doing
+so. Read management configuration only in authenticated administration flows via
+`GET /api/checkout/links/:id` (`checkout.view`), whose response is unchanged. Use
+`logoPreviewUrl`/`logoUrl` and `remainingUses` on public pages. Do not proxy the
+administrative response to unauthenticated clients.
+
+**Operator action:** deploy the patched checkout package and app, invalidate cached
+public pay-link responses, and review email templates for confidential content
+that may already have been publicly exposed. Previously downloaded responses
+cannot be recalled. No database migration or stored-data conversion is needed;
+existing links, templates, credentials and password sessions remain usable.
+
+This response removal follows the Emergency Security Exception in
+[`BACKWARD_COMPATIBILITY.md`](BACKWARD_COMPATIBILITY.md): retaining the old shape
+would preserve the disclosure. Human maintainer @haxiorz [approved the waiver](https://github.com/open-mercato/open-mercato/pull/8087#issuecomment-6505348826)
+on 2026-10-29 for all 18 removed administrative fields and acknowledged the
+client/operator migration. Independent review and QA approval remain required.
+The [pay-links spec](.ai/specs/implemented/2026-03-19-checkout-pay-links.md)
+records the complete allowlist and regression coverage.
+
+<a id="signed-body-limits"></a>
+
+### Signed Discord interactions and agent traces have finite body limits (#7241)
+
+`POST /api/channel_discord/interactions` and `POST /api/agent_orchestrator/trace/ingest`
+now accept at most 1,048,576 bytes (1 MiB) by default, using the existing shared
+`OM_WEBHOOK_MAX_BODY_BYTES` positive safe-integer override. Invalid values use the
+default. Declared or streamed overflow returns `413 { error: 'payload_too_large' }`
+before signature verification, parsing, candidate lookup, or command execution.
+Discord requests with invalid signature headers are rejected before body consumption.
+Bodies exactly at the cap retain their existing verification and success behavior.
+
+**Action for clients:** keep encoded bodies within the deployed cap. Runtime adapters
+must reduce or split oversized traces into valid payloads, preserve ingestion
+idempotency semantics, and sign each resulting body. Retrying unchanged oversized
+payloads will continue to fail.
+
+**Action for operators:** align ingress limits with the application cap. If legitimate
+payloads exceed 1 MiB, set an appropriate finite `OM_WEBHOOK_MAX_BODY_BYTES` after
+considering memory/concurrency and its effect on other shared bounded webhook readers.
+No database migration, credential rotation, or stored-data repair is required.
+See the [Discord migration section](.ai/specs/2026-06-19-discord-communication-channel-integration.md)
+and [trace migration section](.ai/specs/enterprise/agent-orchestrator/next/2026-06-19-agent-trace-eval-capture.md).
+
+### Inbound webhook receipt deduplication includes verified scope (#7830)
+
+Inbound receipts now identify duplicates by endpoint, message ID, tenant, and organization.
+The same message ID delivered to different verified scopes is ingested independently; repeated
+delivery within one scope still returns `200 { ok: true, duplicate: true }`. Explicitly unscoped
+legacy adapters retain a separate null/null namespace with the same replay protection.
+
+**Operator action:** apply `Migration20261027193000_receipt_scope` before resuming inbound
+traffic, on PostgreSQL 15+. Schedule for the table lock needed to rebuild the receipt uniqueness
+constraint. The migration preserves its existing name and every receipt/message ID; data valid
+under the previous global uniqueness rule requires no cleanup. Existing receiver code already
+writes the scope fields, so mixed-version receivers can use the migrated schema.
+
+**Module author action:** include verified tenant/organization scope in any independent receipt
+lookup or deduplication cache key. The source/adapter interfaces, events, and HTTP response
+contracts are unchanged, and the named constraint remains available to `ON CONFLICT` consumers.
+After cross-scope collisions have been stored, restoring the former global constraint may fail;
+there is no automatic rollback that deletes receipts. Inspect those collisions and plan recovery
+before reverting the schema. See the [inbound spec](.ai/specs/2026-03-23-inbound-webhook-handlers.md#receipt-scope-migration--backward-compatibility-7830).
+
+
+### Agent page reads enforce domain rules before redirected egress (#7548)
+
+`web_search` inline content and `web_fetch` now check agent domain rules before
+each HTTP request, including redirects. Permitted inline content uses the final
+page URL. Internal adapter services remain reachable under the operator's
+separate `OM_WEB_SEARCH_ALLOW_PRIVATE_HOSTS` setting.
+
+**Operator action:** with a nonempty domain allowlist or denylist, content reads
+stay on guarded HTTP: automatic browser rendering is skipped and explicit
+`render: 'always'` returns a blocked outcome. Keep domain restrictions configured;
+rendered page reads require future browser redirect-policy enforcement. Restricted
+searches bypass result caches automatically, including previously enriched entries.
+No cache purge or database migration is needed.
+
+**Adapter author action:** existing contract version 1 adapters remain supported
+by the version 2 loader and shared contract-test kit. Adapters rebuilt against
+the current `CONTRACT_VERSION` advertise version 2 and require a host supporting
+version 2; upgrade the host before deploying those rebuilt descriptors.
+Custom HTTP clients must honor the new optional
+`HttpRequestInit.assertUrlAllowed(url)` callback, awaiting synchronous or async
+assertions before DNS and transmission for initial requests and every redirect.
+No tool input or result-field migration is required.
+
+### Workflow webhook responses have resource limits (#7814)
+
+Each `CALL_WEBHOOK` attempt now defaults to a 30-second deadline covering the
+outbound request and response-body consumption. Explicit activity timeouts
+(`timeoutMs` or the legacy `timeout` duration) remain authoritative, including
+values longer than 30 seconds, in both synchronous and queued execution. Every
+attempt accepts at most 1 MiB of response bytes before UTF-8 decoding and JSON
+parsing. Oversized or stalled responses fail the activity and cancel its body;
+the existing retry policy still applies.
+
+**Workflow author and operator action:** update webhook endpoints that exceed
+the byte limit to return a small acknowledgement promptly. Configure an explicit
+activity timeout for a slower endpoint, and move large results behind a separate
+retrieval or asynchronous workflow.
+Existing request configuration and successful response envelopes are unchanged.
+
 ## 0.8.0 → 0.9.0 (2026-10-09)
 
 ### Catalog product bulk-delete jobs require tenant, organization and user scope (#3826)

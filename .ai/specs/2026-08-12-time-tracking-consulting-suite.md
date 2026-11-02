@@ -547,6 +547,8 @@ Regression coverage: `api/timesheets/reports/[id]/export/__tests__/route.test.ts
 
 `__integration__/TC-TT-026-report-export-money-permissions.spec.ts` covers the live CSV and PDF export APIs with a billable rated entry. It creates its own customer, staff member, project, report, roles and users, and verifies that a reports-view-only caller receives no rate or amount columns/values while a caller with `rates.view` receives them. Separate request contexts isolate their sessions; all fixtures are cleaned up in `finally`.
 
+The #7834 export permission fix adds only the optional `ReportExportInput.canSeeMoney` field; omission preserves existing serializer callers. Routes, methods, format identifiers, ACL features, required input fields and authorized output remain compatible. Contributed serializers now receive redacted money for unauthorized callers and should honor `canSeeMoney: false` when deciding which monetary columns to display. No database migration is required.
+
 **Exit:** TC-TT-013/014/015/021 pass; closing a report freezes values such that a later rounding change does not move the total; an hour already frozen elsewhere cannot reach a second invoice without a deliberate tick.
 
 ### Phase 7 — Settings and polish (screen 16)
@@ -652,8 +654,6 @@ Reviewed against [`BACKWARD_COMPATIBILITY.md`](../../BACKWARD_COMPATIBILITY.md)'
 
 No deprecation protocol is triggered beyond that, because nothing is removed in this change.
 
-The #7834 export permission fix adds only the optional `ReportExportInput.canSeeMoney` field; omission preserves existing serializer callers. Routes, methods, format identifiers, ACL features, required input fields and authorized output remain compatible. Contributed serializers now receive redacted money for unauthorized callers and should honor `canSeeMoney: false` when deciding which monetary columns to display. No database migration is required.
-
 ---
 
 ## Resolved Decisions
@@ -707,12 +707,7 @@ Every question the requirements left open — each one traced to the mockup note
 
 | Date | Change |
 |---|---|
-<<<<<<< HEAD
-=======
 | 2026-10-26 | #7834: redact monetary group/line values before the export serializer registry and omit money from built-in PDF/CSV/XLSX for callers without `staff.timesheets.rates.view`. Preserve amounts for authorized callers using `showRates: false`; add handler/serializer and scope regressions plus self-contained live CSV/PDF API coverage in TC-TT-026. |
-| 2026-10-07 | D-12 extended with an entry-date bound (#6988, split from #6987): time-entry writes also require the entry date to fall inside the granting assignment window (plus grace), and the grid bulk save (`POST /api/staff/timesheets/time-entries/bulk`), which previously checked no membership at all, now enforces the same rule and refuses the batch with 403. Right to write remains today-based. |
-| 2026-10-14 | QA follow-ups on #6998 (#7393, #7394): each bulk 403 `errors[]` item now also carries the payload row `index` and the `date` it refers to (additive). The timesheet grid shows the server's reason and marks the refused cell instead of a generic toast, and the List-view quick add, Duplicate and description edit show the reason too. A grid save that stored some cells before a later cell was refused now drops the stored cells from the pending set and reloads, so retrying never creates them a second time. TC-STAFF-028 and TC-STAFF-029 cover both in the browser. |
->>>>>>> 49be420cb (fix(staff): redact report export money without rates permission (#7988))
 | 2026-10-02 | An entry quoted by two closed reports (D-5 opt-in): each closed report now resolves its own freeze record, so neither sheet nor export drops the hour, and unlocking the report that locked the entry first moves `locked_report_id` to the remaining closed report instead of clearing it. Unlock row-locks the entries it quotes so unlocks of overlapping reports serialize. Integration coverage: TC-TT-023. |
 | 2026-08-16 | Demo data added (`seedStaffTimeTrackingExamples`, `mercato staff seed-time-tracking-examples`, wired into `setup.ts seedExamples`), so a fresh tenant lands on a populated portfolio, board, week grid and report list instead of four empty screens. Projects link to real `customer_entities` when the CRM examples are present and degrade to a snapshot name when they are not. Fixed three raw-SQL sites that bound an id array to a single `= ANY(?)` placeholder — MikroORM interpolates rather than binds, so the projects list 500'd for every tenant that had a project, the rounding-impact preview 500'd for org-narrowed callers, and the retro-rounding job selected no candidates while reporting success. Shared helper: `lib/time-tracking/sqlInClause.ts`. |
 | 2026-08-13 | Pre-implementation code review against the live module closed two gaps the spec had assumed away: `staff_time_projects.customer_id` is dormant (no FK, never populated by any UI) and now targets `customers.customer_entities` with a `customer_snapshot` alongside (D-9); the required-and-unique `code` column, absent from screen 4, is now auto-derived from the name with a 20-character cap so task references stay short (D-10). Corrected `indexer.entityType` to the generated `staff:staff_time_task` convention and `currency_code` to `text` per the `sales` precedent. |
