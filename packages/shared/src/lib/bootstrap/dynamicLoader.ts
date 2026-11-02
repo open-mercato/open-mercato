@@ -855,20 +855,34 @@ export async function loadBootstrapData(appRoot?: string): Promise<BootstrapData
 export async function bootstrapFromAppRoot(appRoot?: string): Promise<BootstrapData> {
   const { createBootstrap, waitForAsyncRegistration } = await import('./factory.js')
   const resolved = resolveAppRootOrThrow(appRoot)
-  // All three loads compile through esbuild, so they share one lifecycle scope: without it
-  // `loadBootstrapData` releases the esbuild helper process and `loadAppDiRegistrar`
-  // silently starts a second one that nothing ever stops.
-  const { data, appDiRegistrar } = await withEsbuildLifecycle(async () => {
+  // All generated and app-source loads compile through esbuild, so they share one lifecycle
+  // scope: without it `loadBootstrapData` releases the helper process and each later load silently
+  // starts a new one that nothing ever stops.
+  const {
+    data,
+    appDiRegistrar,
+    runBootstrapRegistrations,
+  } = await withEsbuildLifecycle(async () => {
     // Dispatch the app's `entry.overrides` (src/modules.ts) BEFORE any registry
     // first-loads — the `bootstrap()` call below runs `registerModules(data.modules)`,
     // and `registerCliModules` in the mercato bin right after this function returns;
     // both read the override side-registry this populates.
     await loadAppModuleOverrides(resolved.appDir)
+    const data = await loadBootstrapData(resolved.appDir)
+    const [appDiRegistrar, bootstrapRegistrationsModule] = await Promise.all([
+      loadAppDiRegistrar(resolved.appDir),
+      loadOptionalGeneratedModule(
+        path.join(resolved.generatedDir, 'bootstrap-registrations.generated.ts'),
+        { runBootstrapRegistrations: () => undefined },
+      ),
+    ])
     return {
-      data: await loadBootstrapData(resolved.appDir),
-      appDiRegistrar: await loadAppDiRegistrar(resolved.appDir),
+      data,
+      appDiRegistrar,
+      runBootstrapRegistrations: bootstrapRegistrationsModule.runBootstrapRegistrations as () => void,
     }
   })
+  runBootstrapRegistrations()
   const bootstrap = createBootstrap(data, appDiRegistrar ? { appDiRegistrar } : {})
   bootstrap()
   // In CLI context, wait for async registrations (UI widgets, search configs, etc.)
