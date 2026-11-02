@@ -22,4 +22,4 @@ The toolbar supports click-through, presentation, and comment modes. Comments ar
 - Sample records must remain synthetic and fictional.
 - `tokens.css` is generated. Refresh it with the skill's `sync-tokens.mjs` script rather than editing it.
 - `timeline.css` holds the proposed timeline composition: a lanes × time-bucket grid (weeks, months or quarters) holding compact Kanban-style deal cards. It has no `@open-mercato/ui` equivalent yet.
-- `timeline.js` makes drag-to-reschedule live on screen 1 only. You can drag a card into another week, press Esc mid-drag to cancel, use Undo in the flash, or focus a card and use the Arrow keys or Enter. Nothing is persisted. All other screens are static states.
+- `timeline.js` makes drag-to-reschedule live on screen 1 only. You can drag a card into another week, press Esc mid-drag to cancel, use Undo in the flash, click a card (or focus it and press Enter) to open the deal drawer, or move between cards with the Arrow keys. Screen 17 shows the drawer as a static state. Nothing is persisted. All other screens are static states.

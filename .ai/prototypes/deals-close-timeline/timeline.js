@@ -1,5 +1,6 @@
-/* Illustrative drag-to-reschedule for screen 1: cards move between week
-   columns of the same lane, shifting the date by whole weeks. Nothing is persisted. */
+/* Illustrative drag-to-reschedule and deal drawer for screen 1: cards move between
+   week columns of the same lane, shifting the date by whole weeks, and a click or
+   Enter opens the deal drawer. Screen 17 renders a static drawer. Nothing is persisted. */
 (function () {
   'use strict';
 
@@ -7,7 +8,15 @@
   var DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   var DAY = 86400000;
   var TODAY = Date.UTC(2026, 9, 26);
+  var STAGES = {
+    'chart-blue': 'Qualification',
+    'chart-cyan': 'Discovery',
+    'chart-violet': 'Proposal',
+    'chart-amber': 'Negotiation',
+    'chart-emerald': 'Commit',
+  };
   var drag = null;
+  var openDrawerState = null;
   var suppressClick = false;
   var flashTimer;
 
@@ -114,6 +123,163 @@
     }, 6000);
   }
 
+  function escapeHtml(value) {
+    return String(value).replace(/[&<>"']/g, function (char) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char];
+    });
+  }
+
+  function dealInfo(card) {
+    var stageMatch = (card.getAttribute('style') || '').match(/--(chart-[a-z]+)/);
+    var lane = card.closest('.tl-lane');
+    var owner = lane ? lane.querySelector('.tl-lane-label .ellipsis') : null;
+    var seed = parseInt((card.getAttribute('data-deal') || 'd1').slice(1), 10) || 1;
+    var daysInStage = 4 + (seed * 11) % 45;
+    var dateMs = parse(card.getAttribute('data-date'));
+    return {
+      id: card.getAttribute('data-deal'),
+      title: card.querySelector('.tl-deal-title').textContent,
+      probability: card.querySelector('.tl-deal-prob').textContent,
+      value: card.querySelector('b.num').textContent,
+      company: card.querySelector('.tl-deal-company').textContent,
+      owner: owner ? owner.textContent : 'Unassigned',
+      stage: stageMatch ? STAGES[stageMatch[1]] || 'Stage' : 'Stage',
+      stageVar: stageMatch ? stageMatch[1] : 'chart-blue',
+      date: long(dateMs),
+      overdue: dateMs < TODAY,
+      openActivities: seed % 3,
+      daysInStage: daysInStage,
+      stalled: daysInStage > 30,
+      readOnly: card.classList.contains('is-readonly'),
+    };
+  }
+
+  function drawerHtml(info) {
+    var manage = !info.readOnly;
+    var activities = info.openActivities === 0
+      ? '<span class="tl-drawer-warn"><svg><use href="#ic-warn"/></svg>No open activities</span>'
+      : info.openActivities + (info.openActivities === 1 ? ' open activity' : ' open activities');
+    var actions = manage
+      ? '<div class="tl-drawer-actions">'
+        + '<button class="btn btn-outline btn-sm" type="button" data-tl-drawer-action="date"><svg><use href="#ic-calendar"/></svg> Change close date</button>'
+        + '<button class="btn btn-outline btn-sm" type="button" data-tl-drawer-action="follow-up"><svg><use href="#ic-plus"/></svg> Schedule follow-up</button>'
+        + '<button class="btn btn-outline btn-sm" type="button" data-tl-drawer-action="stage"><svg><use href="#ic-arrow-right"/></svg> Change stage</button>'
+        + '<button class="btn btn-outline btn-sm" type="button" data-tl-drawer-action="won"><svg><use href="#ic-check"/></svg> Mark won</button>'
+        + '<button class="btn btn-outline btn-sm" type="button" data-tl-drawer-action="lost"><svg><use href="#ic-x"/></svg> Mark lost</button>'
+        + '</div>'
+      : '<p class="t-hint tl-drawer-note"><svg><use href="#ic-lock"/></svg>You can view this deal. Changing it needs the manage-deals permission.</p>';
+    return '<aside class="drawer tl-drawer" role="dialog" aria-modal="true" aria-labelledby="tl-drawer-title-' + escapeHtml(info.id) + '">'
+      + '<div class="drawer-head">'
+      + '<div class="grow"><h3 class="t-section" id="tl-drawer-title-' + escapeHtml(info.id) + '">' + escapeHtml(info.title) + '</h3>'
+      + '<p class="t-hint tl-drawer-sub">' + escapeHtml(info.company) + ' · ' + escapeHtml(info.owner) + '</p></div>'
+      + '<span class="badge badge-info"><span class="dot"></span>Open</span>'
+      + '<button class="icon-btn" type="button" aria-label="Close" data-tl-drawer-close><svg><use href="#ic-x"/></svg></button>'
+      + '</div>'
+      + '<div class="drawer-body">'
+      + '<dl class="tl-drawer-fields">'
+      + '<div><dt>Value</dt><dd class="num strong">' + escapeHtml(info.value) + '</dd></div>'
+      + '<div><dt>Probability</dt><dd class="num">' + escapeHtml(info.probability) + '</dd></div>'
+      + '<div><dt>Stage</dt><dd class="row"><i class="tl-stage-dot" style="--stage:var(--' + escapeHtml(info.stageVar) + ')"></i>' + escapeHtml(info.stage) + '</dd></div>'
+      + '<div><dt>Expected close</dt><dd class="tl-drawer-date' + (info.overdue ? ' is-overdue' : '') + '">'
+      + '<svg><use href="' + (info.overdue ? '#ic-warn' : '#ic-calendar') + '"/></svg>' + escapeHtml(info.date) + (info.overdue ? ' · overdue' : '') + '</dd></div>'
+      + '</dl>'
+      + '<section class="tl-drawer-section"><div class="t-label">Review signals</div><ul class="tl-drawer-signals">'
+      + '<li>' + activities + '</li>'
+      + '<li>In ' + escapeHtml(info.stage) + ' for ' + info.daysInStage + ' days</li>'
+      + (info.stalled ? '<li><span class="badge badge-warning"><span class="dot"></span>Stalled</span></li>' : '')
+      + '</ul></section>'
+      + '<section class="tl-drawer-section"><div class="t-label">Actions</div>' + actions + '</section>'
+      + '<p class="t-hint">Field edits happen on the full page. The drawer has no edit form, so closed deals never get a close-date control here.</p>'
+      + '</div>'
+      + '<div class="drawer-foot"><a class="btn btn-outline btn-sm" href="#s15" data-goto="s15">Open full page <svg><use href="#ic-arrow-right"/></svg></a></div>'
+      + '</aside>';
+  }
+
+  function setFrameUrl(app, dealId) {
+    var url = app.closest('.frame').querySelector('.frame-url');
+    if (!url) return;
+    if (!url.hasAttribute('data-base')) url.setAttribute('data-base', url.textContent);
+    url.textContent = url.getAttribute('data-base') + (dealId ? '?deal=' + dealId : '');
+  }
+
+  function drawerNotice(app, text) {
+    var existing = app.querySelector('.tl-flash');
+    if (existing) existing.remove();
+    var toast = document.createElement('div');
+    toast.className = 'toast tl-flash';
+    toast.setAttribute('role', 'status');
+    toast.innerHTML = '<svg><use href="#ic-info"/></svg><span></span>';
+    toast.querySelector('span').textContent = text;
+    app.appendChild(toast);
+    clearTimeout(flashTimer);
+    flashTimer = setTimeout(function () { toast.remove(); }, 4000);
+  }
+
+  function closeDrawer() {
+    if (!openDrawerState) return;
+    var state = openDrawerState;
+    openDrawerState = null;
+    state.drawer.remove();
+    state.app.classList.remove('drawer-scrim');
+    setFrameUrl(state.app, null);
+    if (state.card.isConnected) state.card.focus();
+  }
+
+  function openDrawer(card) {
+    closeDrawer();
+    var app = card.closest('.app');
+    var holder = document.createElement('div');
+    holder.innerHTML = drawerHtml(dealInfo(card));
+    var drawer = holder.firstChild;
+    app.classList.add('drawer-scrim');
+    app.appendChild(drawer);
+    setFrameUrl(app, card.getAttribute('data-deal'));
+    openDrawerState = { app: app, card: card, drawer: drawer };
+    drawer.querySelector('[data-tl-drawer-close]').focus();
+  }
+
+  var ACTION_NOTICES = {
+    'follow-up': 'Opens the existing activity composer (ActivityComposerDialog).',
+    stage: 'Opens the existing Change stage dialog from the Kanban.',
+    won: 'Runs the existing closure flow from the deal page.',
+    lost: 'Opens the existing lost-reason dialog (ConfirmDealLostDialog).',
+  };
+
+  document.addEventListener('click', function (event) {
+    if (!openDrawerState) return;
+    var state = openDrawerState;
+    if (event.target === state.app) {
+      closeDrawer();
+      return;
+    }
+    if (event.target.closest('[data-tl-drawer-close]')) {
+      closeDrawer();
+      return;
+    }
+    var action = event.target.closest('[data-tl-drawer-action]');
+    if (!action) {
+      if (event.target.closest('[data-goto]') && state.drawer.contains(event.target)) closeDrawer();
+      return;
+    }
+    var kind = action.getAttribute('data-tl-drawer-action');
+    if (kind === 'date') {
+      closeDrawer();
+      var opener = document.getElementById('tl-open-dialog');
+      if (opener) opener.click();
+      return;
+    }
+    drawerNotice(state.app, ACTION_NOTICES[kind]);
+  });
+
+  document.querySelectorAll('[data-tl-drawer-static]').forEach(function (placeholder) {
+    var app = placeholder.closest('.app');
+    var card = app.querySelector('.tl-deal[data-deal="' + placeholder.getAttribute('data-tl-drawer-static') + '"]');
+    if (!card) return;
+    var holder = document.createElement('div');
+    holder.innerHTML = drawerHtml(dealInfo(card));
+    placeholder.replaceWith(holder.firstChild);
+  });
+
   function cancel() {
     if (!drag) return;
     resetCard(drag.card);
@@ -186,10 +352,33 @@
     suppressClick = false;
   }, true);
 
+  document.addEventListener('click', function (event) {
+    var card = event.target.closest('.tl-live .tl-deal');
+    if (!card || inCommentMode()) return;
+    if (event.metaKey || event.ctrlKey || event.shiftKey) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    openDrawer(card);
+  }, true);
+
   document.addEventListener('keydown', function (event) {
     if (event.key === 'Escape' && drag) {
       event.preventDefault();
       cancel();
+      return;
+    }
+    if (openDrawerState && event.key === 'Escape') {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      closeDrawer();
+      return;
+    }
+    if (openDrawerState && event.key === 'Tab') {
+      var focusable = openDrawerState.drawer.querySelectorAll('button, a[href]');
+      var first = focusable[0];
+      var last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
       return;
     }
     var card = event.target.closest && event.target.closest('.tl-live .tl-deal');
@@ -197,8 +386,7 @@
     if (event.key === 'Enter') {
       event.preventDefault();
       event.stopImmediatePropagation();
-      var opener = document.getElementById('tl-open-dialog');
-      if (opener) opener.click();
+      openDrawer(card);
       return;
     }
     var next = null;
