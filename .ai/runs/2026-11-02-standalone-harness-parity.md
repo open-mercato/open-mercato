@@ -32,12 +32,14 @@ Production behavior, API/database contracts, official-module pointers, branch-pr
 
 ## Progress
 
+PR: #8467
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Shared configuration
 
-- [ ] 1.1 Reuse the environment builder in the snapshot workflow and local parity runner
-- [ ] 1.2 Document lane settings, test-selection expectations, and failure ownership
+- [x] 1.1 Reuse the environment builder in the snapshot workflow and local parity runner — 91142b182
+- [x] 1.2 Document lane settings, test-selection expectations, and failure ownership — 91142b182
 
 ### Phase 2: Verification
 
