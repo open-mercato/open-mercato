@@ -21,6 +21,7 @@ const mockCheckLockout = jest.fn()
 const mockIncrementFailedAttempts = jest.fn()
 const mockResetFailedAttemptsUnlessLocked = jest.fn()
 const mockCreateSession = jest.fn()
+const mockRehashPasswordIfNeeded = jest.fn()
 const mockBcryptCompare = jest.fn()
 const mockEmitCustomerAccountsEvent = jest.fn()
 const mockReportError = jest.fn()
@@ -32,6 +33,7 @@ const mockCustomerUserService = {
   incrementFailedAttempts: mockIncrementFailedAttempts,
   resetFailedAttemptsUnlessLocked: mockResetFailedAttemptsUnlessLocked,
   updateLastLoginAt: jest.fn(async () => undefined),
+  rehashPasswordIfNeeded: mockRehashPasswordIfNeeded,
 }
 
 const mockContainer = {
@@ -236,6 +238,32 @@ describe('POST /api/customer_accounts/login — lockout under concurrent attempt
     expect(mockResetFailedAttemptsUnlessLocked).toHaveBeenCalledWith(expect.objectContaining({ id: 'u1' }))
     expect(mockCreateSession).toHaveBeenCalledTimes(1)
     expect(mockIncrementFailedAttempts).not.toHaveBeenCalled()
+  })
+
+  test('offers the password for an opportunistic rehash only after a successful login', async () => {
+    const user = { id: 'u1', isActive: true, passwordHash: 'hash', emailVerifiedAt: new Date() }
+    mockFindByEmail.mockResolvedValueOnce(user)
+    mockVerifyPassword.mockResolvedValueOnce(true)
+    mockResetFailedAttemptsUnlessLocked.mockResolvedValueOnce(true)
+    mockRehashPasswordIfNeeded.mockResolvedValueOnce(true)
+    mockCreateSession.mockResolvedValueOnce({ rawToken: 'raw-session-token', jwt: 'customer-jwt', session: { id: 's1' } })
+
+    const res = await POST(makeRequest(baseBody()))
+
+    expect(res.status).toBe(200)
+    expect(mockRehashPasswordIfNeeded).toHaveBeenCalledWith(user, 'Secret123!')
+  })
+
+  test('does not rehash when the password is wrong or the e-mail is unverified', async () => {
+    mockFindByEmail.mockResolvedValueOnce({ id: 'u1', isActive: true, passwordHash: 'hash', emailVerifiedAt: new Date() })
+    mockVerifyPassword.mockResolvedValueOnce(false)
+    expect((await POST(makeRequest(baseBody()))).status).toBe(401)
+
+    mockFindByEmail.mockResolvedValueOnce({ id: 'u1', isActive: true, passwordHash: 'hash', emailVerifiedAt: null })
+    mockVerifyPassword.mockResolvedValueOnce(true)
+    expect((await POST(makeRequest(baseBody()))).status).toBe(401)
+
+    expect(mockRehashPasswordIfNeeded).not.toHaveBeenCalled()
   })
 })
 

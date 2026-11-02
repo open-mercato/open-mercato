@@ -1,6 +1,6 @@
 import { UniqueConstraintViolationException } from '@mikro-orm/core'
 import { EntityManager } from '@mikro-orm/postgresql'
-import { hash } from 'bcryptjs'
+import { getPasswordHasher } from '@open-mercato/shared/lib/auth/passwordHasher'
 import {
   CustomerUser,
   CustomerUserInvitation,
@@ -12,7 +12,6 @@ import { hashForLookup, lookupHashCandidates } from '@open-mercato/shared/lib/en
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { isCustomerTenantActive } from '@open-mercato/core/modules/customer_accounts/lib/tenantEligibility'
 
-const BCRYPT_COST = 10
 const INVITATION_TTL_MS = 72 * 60 * 60 * 1000 // 72 hours
 
 // Use Symbol.for so the marker survives module duplication across bundle
@@ -233,7 +232,7 @@ export class CustomerInvitationService {
       throw new CustomerInvitationEmailConflictError(invitation.email)
     }
 
-    const passwordHash = await hash(password, BCRYPT_COST)
+    const passwordHash = await getPasswordHasher().hash(password)
 
     // Create user
     const user = this.em.create(CustomerUser, {
@@ -281,7 +280,7 @@ export class CustomerInvitationService {
     invitation.acceptedAt = new Date()
 
     // The guard above is only the friendly fast path: it and this write are
-    // separated by a bcrypt hash and a role query, so two concurrent accepts can
+    // separated by a password hash and a role query, so two concurrent accepts can
     // both pass it. The partial unique index is the real authority — translate
     // its violation onto the same domain error so both paths answer 409.
     try {
