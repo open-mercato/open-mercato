@@ -12,6 +12,8 @@ import { build } from 'esbuild'
 import { parse as parseDotenv } from 'dotenv'
 
 const root = fileURLToPath(new URL('../../', import.meta.url))
+const dependencyDirectory = path.dirname(path.dirname(fileURLToPath(import.meta.resolve('dotenv/package.json'))))
+const nextDirectory = path.dirname(fileURLToPath(import.meta.resolve('next/package.json')))
 const fallbackName = 'TENANT_DATA_ENCRYPTION_FALLBACK_KEY'
 const legacyName = 'TENANT_DATA_ENCRYPTION_KEY'
 const published = 'dev-tenant-encryption-fallback-key-32chars'
@@ -29,7 +31,7 @@ let hashForLookup
 before(async () => {
   temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'encryption-startup-'))
   if (process.env.OM_ENCRYPTION_STARTUP_LIVE === '1') liveTemporaryRoot = fs.mkdtempSync(path.join(root, '.ai/.startup-live-'))
-  fs.symlinkSync(path.join(root, 'node_modules'), path.join(temporaryRoot, 'node_modules'), 'dir')
+  fs.symlinkSync(dependencyDirectory, path.join(temporaryRoot, 'node_modules'), 'dir')
   const alias = {
     '@open-mercato/shared/lib/encryption/prepareEnv': path.join(root, 'packages/shared/src/lib/encryption/prepareEnv.ts'),
     '@open-mercato/shared/lib/boolean': path.join(root, 'packages/shared/src/lib/boolean.ts'),
@@ -431,6 +433,48 @@ for (const command of [['server', 'dev'], ['server', 'start'], ['db', 'greenfiel
   })
 }
 
+for (const layout of ['standalone', 'monorepo']) {
+  test(`${layout} shared dependency symlinks cannot redirect env reads or writes into another checkout`, async () => {
+    const foreignRoot = fs.mkdtempSync(path.join(temporaryRoot, 'foreign-checkout-'))
+    const foreignApp = path.join(foreignRoot, 'apps/mercato')
+    fs.mkdirSync(path.dirname(foreignApp), { recursive: true })
+    fs.renameSync(fixture(`${fallbackName}=\nRECOVERY_ENV_SCOPE=foreign\n`), foreignApp)
+    const foreignCore = path.join(foreignRoot, 'packages/core')
+    fs.mkdirSync(path.join(foreignCore, 'src/modules'), { recursive: true })
+    const actorRoot = fs.mkdtempSync(path.join(temporaryRoot, 'active-checkout-'))
+    fs.writeFileSync(path.join(actorRoot, '.git'), 'gitdir: fixture-only\n')
+    const actorApp = layout === 'monorepo' ? path.join(actorRoot, 'apps/mercato') : actorRoot
+    if (layout === 'monorepo') {
+      fs.mkdirSync(path.dirname(actorApp), { recursive: true })
+      fs.renameSync(fixture(`${fallbackName}=\nRECOVERY_ENV_SCOPE=active\n`), actorApp)
+    } else {
+      fs.mkdirSync(path.join(actorApp, 'src'))
+      fs.writeFileSync(path.join(actorApp, 'package.json'), '{"name":"active-fixture","type":"module"}')
+      fs.writeFileSync(path.join(actorApp, 'src/modules.ts'), 'export const enabledModules = []')
+      fs.writeFileSync(path.join(actorApp, '.env'), `${fallbackName}=\nRECOVERY_ENV_SCOPE=active\n`)
+    }
+    const nodeModules = path.join(actorApp, 'node_modules/@open-mercato')
+    fs.mkdirSync(nodeModules, { recursive: true })
+    fs.rmSync(path.join(nodeModules, 'core'), { recursive: true, force: true })
+    fs.symlinkSync(foreignCore, path.join(nodeModules, 'core'), 'dir')
+    if (layout === 'monorepo') {
+      fs.mkdirSync(path.join(actorRoot, 'node_modules/@open-mercato'), { recursive: true })
+      fs.symlinkSync(foreignCore, path.join(actorRoot, 'node_modules/@open-mercato/core'), 'dir')
+    }
+    const beforeForeign = fs.readFileSync(path.join(foreignApp, '.env'), 'utf8')
+    const cliUrl = pathToFileURL(path.join(temporaryRoot, 'cli.mjs')).href
+    const result = await run(`
+      import { prepareAppEncryptionEnv, loadAppEnv } from ${JSON.stringify(cliUrl)};
+      await prepareAppEncryptionEnv(['node','mercato','server','dev']);
+      await loadAppEnv();
+      if (process.env.RECOVERY_ENV_SCOPE !== 'active') throw new Error('loaded another checkout');
+    `, actorRoot)
+    assert.equal(result.code, 0, result.output)
+    assert.match(parseEnv(fs.readFileSync(path.join(actorApp, '.env'), 'utf8'))[fallbackName], /^[a-f0-9]{64}$/)
+    assert.equal(fs.readFileSync(path.join(foreignApp, '.env'), 'utf8'), beforeForeign)
+  })
+}
+
 test('help, generation and deployment inspection never provision files', async () => {
   const cwd = process.cwd()
   const appDir = fixture(null)
@@ -508,10 +552,10 @@ for (const config of ['monorepo', 'standalone']) {
         import configure from ${JSON.stringify(configUrl)};
         export default async (phase) => {
           const config = await configure(phase);
-          return {...config, transpilePackages: [], turbopack: {...config.turbopack, root: ${JSON.stringify(path.resolve(fs.realpathSync(path.join(root, 'node_modules/next')), '../..'))}}};
+          return {...config, transpilePackages: [], turbopack: {...config.turbopack, root: ${JSON.stringify(path.resolve(nextDirectory, '../..'))}}};
         };
       `)
-      const nextBin = path.join(root, 'node_modules/next/dist/bin/next')
+      const nextBin = path.join(nextDirectory, 'dist/bin/next')
       const env = { ...process.env, NODE_ENV: variant === 'production' ? 'production' : 'development', NEXT_TELEMETRY_DISABLED: '1' }
       for (const name of [fallbackName, legacyName, 'LOOKUP_HASH_PEPPER', 'TENANT_DATA_ENCRYPTION', 'ALLOW_DERIVED_KMS_FALLBACK', 'OM_ENCRYPTION_STARTUP_UNSAFE_SKIP', '__NEXT_PROCESSED_ENV']) delete env[name]
       if (scenario === 'external-default') env[fallbackName] = published

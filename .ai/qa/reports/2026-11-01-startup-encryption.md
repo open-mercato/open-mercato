@@ -100,3 +100,16 @@ lockfiles were changed. Broader shared-package typechecking still reports seven
 unrelated missing/stale cross-package declarations in this dependency installation;
 the changed startup helpers pass focused typechecking. Full repository validation
 and a freshly published Verdaccio standalone installation were not performed.
+
+## Checkout-isolation follow-up — 2026-11-02
+
+CLI env lookup now resolves the active app from its on-disk layout and stops at
+its Git boundary. It does not infer env ownership from installed package symlinks.
+Both early loading and provisioning, plus the ordinary CLI loader, share that
+lookup. Standalone and monorepo regressions with two distinct borrowed-dependency
+checkouts failed before this fix and pass afterward, proving that foreign env
+files are neither loaded nor modified.
+
+The non-live startup and Compose run passes 70 cases; 24 opt-in live cases were
+skipped in that run. Focused TypeScript checking passes. The complete live matrix
+is being rerun separately for this follow-up.

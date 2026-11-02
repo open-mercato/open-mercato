@@ -16,6 +16,9 @@ lookup pepper, since doing so changes existing lookup hashes.
 Preserve each launcher's file precedence: direct Next uses mode-specific files,
 including `.env.local`, while CLI keeps its existing `.env` loader. An existing
 root shadowed by empty values prevents competing-root generation and warns.
+CLI env-file lookup uses the active app's filesystem layout and its Git boundary,
+never the target of a borrowed workspace-package symlink. Both env loading and
+provisioning use that same lookup.
 Validate inherited
 keys before dotenv can hide their origin. Externally managed keys may belong to
 an existing deployment, so published external roots and process/file conflicts
@@ -61,6 +64,10 @@ pass. See [the report](../qa/reports/2026-11-01-startup-encryption.md) for exact
 command alias coverage and remaining full-app/installation validation limits.
 
 ## Changelog
+
+- 2026-11-02: Isolated CLI env reads/writes to the active checkout when worktrees
+  share package symlinks; added standalone and monorepo regressions that failed
+  before the fix and verify the foreign checkout is untouched afterward.
 
 - 2026-11-01: Drafted startup provisioning and mismatch guard requested for #8377.
 - 2026-11-01: User clarified that no non-empty key may be changed, including dummy

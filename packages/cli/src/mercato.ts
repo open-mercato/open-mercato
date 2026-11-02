@@ -42,7 +42,7 @@ import { parseModuleInstallArgs } from './lib/module-install-args'
 import type { ModuleCommandResult } from './lib/module-install'
 import { resolveNextBuildIdCandidate } from './lib/next-build-id'
 import { acquireServerStartLock } from './lib/server-start-lock'
-import { prepareAppEncryptionEnv } from './lib/load-env'
+import { prepareAppEncryptionEnv, resolveAppEnvDir } from './lib/load-env'
 import { assertSingleInstanceStrategies } from './lib/single-instance-strategy-guard'
 import { createDevEnvReloader, watchDevEnvFiles } from './lib/dev-env-reload'
 import { quotePostgresIdentifier } from './lib/db/identifiers'
@@ -346,11 +346,8 @@ async function ensureEnvLoaded(options: { createIfMissing?: boolean; quiet?: boo
     process.env.DOTENV_CONFIG_QUIET === 'true'
 
   // Try to find and load .env from the app directory
-  // First, try to find the app directory via resolver
   try {
-    const { createResolver } = await import('./lib/resolver.js')
-    const resolver = createResolver()
-    const appDir = resolver.getAppDir()
+    const appDir = resolveAppEnvDir()
 
     // Load .env from app directory if it exists
     const envPath = path.join(appDir, '.env')
@@ -375,7 +372,7 @@ async function ensureEnvLoaded(options: { createIfMissing?: boolean; quiet?: boo
       return
     }
   } catch {
-    // Resolver might fail during early init, fall back to default behavior
+    // Environment files may be unavailable during early init.
   }
 
   // Fall back to default dotenv behavior (loads from cwd)

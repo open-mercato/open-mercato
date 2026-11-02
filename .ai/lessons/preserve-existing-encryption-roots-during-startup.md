@@ -21,3 +21,10 @@ existing environment precedence or either stored value. Fresh env files copied
 from examples can receive random keys before data initialization.
 Never imply tenant entity rotation also migrates all system secrets and lookup
 hashes. Document its actual coverage and verify backup recovery before migration.
+
+Resolve the env-file owner from the active application's filesystem layout and
+stop at its nearest Git boundary. Shared `node_modules` package symlinks can point
+into another checkout; they identify installed code, not the owner of configuration.
+Regression tests must include two distinct checkouts with borrowed dependency
+symlinks and assert that both env loading and provisioning leave the foreign
+checkout untouched.

@@ -2,6 +2,31 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { prepareEncryptionEnv } from '@open-mercato/shared/lib/encryption/prepareEnv'
 
+function isApplicationRoot(directory: string): boolean {
+  return fs.existsSync(path.join(directory, 'package.json')) &&
+    ['src/modules.ts', 'src/modules.js', 'next.config.ts', 'next.config.js', 'next.config.mjs']
+      .some((marker) => fs.existsSync(path.join(directory, marker)))
+}
+
+/** @internal Resolve the active app without following installed workspace-package symlinks. */
+export function resolveAppEnvDir(cwd = process.cwd()): string {
+  const originalDirectory = path.resolve(cwd)
+  let directory = originalDirectory
+  while (true) {
+    if (isApplicationRoot(directory)) return directory
+    const appsDirectory = path.join(directory, 'apps')
+    if (fs.existsSync(appsDirectory)) {
+      const appNames = ['mercato', 'app', ...fs.readdirSync(appsDirectory).filter((name) => name !== 'docs')]
+      const appDirectory = appNames.map((name) => path.join(appsDirectory, name)).find(isApplicationRoot)
+      if (appDirectory) return appDirectory
+    }
+    if (fs.existsSync(path.join(directory, '.git'))) return originalDirectory
+    const parentDirectory = path.dirname(directory)
+    if (parentDirectory === directory) return originalDirectory
+    directory = parentDirectory
+  }
+}
+
 export async function prepareAppEncryptionEnv(argv: readonly string[]): Promise<void> {
   const parts = argv.slice(2)
   const [command, subcommand] = parts
@@ -11,11 +36,7 @@ export async function prepareAppEncryptionEnv(argv: readonly string[]): Promise<
     command.startsWith('test:') || (command === 'db' && subcommand === 'generate')
   ) return
 
-  let appDir = process.cwd()
-  try {
-    const { createResolver } = await import('./resolver.js')
-    appDir = createResolver().getAppDir()
-  } catch {}
+  const appDir = resolveAppEnvDir()
   const mode = command === 'server' && subcommand === 'start' ? 'production'
     : command === 'server' && subcommand === 'dev' ? 'development' : undefined
   const values = await prepareEncryptionEnv(appDir, { mode, envFileMode: 'dotenv' })
@@ -34,20 +55,9 @@ export async function prepareAppEncryptionEnv(argv: readonly string[]): Promise<
  * load-order guarantee is preserved.
  */
 export async function loadAppEnv(options: { cwd?: string } = {}): Promise<void> {
-  try {
-    const { createResolver } = await import('./resolver.js')
-    const appDir = createResolver(options.cwd).getAppDir()
-    const envPath = path.join(appDir, '.env')
-    if (fs.existsSync(envPath)) {
-      const dotenv = await import('dotenv')
-      dotenv.config({ path: envPath, quiet: true })
-      return
-    }
-  } catch {
-    // Resolver can fail outside an app dir — fall through to plain cwd loading.
-  }
-  try {
+  const envPath = path.join(resolveAppEnvDir(options.cwd), '.env')
+  if (fs.existsSync(envPath)) {
     const dotenv = await import('dotenv')
-    dotenv.config({ quiet: true })
-  } catch {}
+    dotenv.config({ path: envPath, quiet: true })
+  }
 }
