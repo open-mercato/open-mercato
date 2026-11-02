@@ -1009,6 +1009,22 @@ successful zero-row sweep on all three surfaces, so a module author who forgot t
 `registerTenantGlobalEntityTypes()` call saw a green completion on the one screen built
 to answer "why is this entity type not indexed".
 
+### Canonical customer form hosts also cover creation (#5882, #8269)
+
+Person creation (`people/create` and the company-detail "Add new person" dialog) publishes
+`crud-form:customers.person` while preserving `crud-form:customers.customer_entity` through
+`legacyInjectionSpotId`. Prefer the canonical host for new registrations. Body/group and `:fields`
+widgets registered on both hosts are deduplicated; header widgets registered on both still render
+twice. Keep the legacy bridge for at least one minor version before removing it.
+
+Full and quick deal creation use `CrudForm` on `crud-form:customers.deal`, including its `:fields`
+spot and shared lifecycle; the former hand-rolled form's save-only and placement limitations no
+longer apply. Create hosts have no `recordId` before the native save; successful create callbacks
+supply the new identity to `onAfterSave` before navigation or dialog closure. Record-scoped widgets
+must tolerate the missing ID. The `customer_accounts` Account Status widget renders no account
+content until that ID exists. These runtime changes already landed in #8269; no schema migration
+is required.
+
 ### New `cart` and `promotions` modules, and buyer-scoped catalog visibility in the cart (#7592)
 
 This release adds the `cart` module (guest/customer cart lifecycle, line pricing, merge/undo,
