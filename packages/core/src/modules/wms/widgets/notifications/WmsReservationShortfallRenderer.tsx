@@ -42,11 +42,12 @@ export function WmsReservationShortfallRenderer({
         : actionId === 'view-inventory'
           ? inventoryAction
           : null
-    if (!action && fallbackHref) {
+    const alreadyActioned = notification.status === 'actioned'
+    if ((!action || alreadyActioned) && fallbackHref) {
       router.push(fallbackHref)
       return
     }
-    if (!action) return
+    if (!action || alreadyActioned) return
     setExecuting(actionId)
     try {
       await onAction(action.id)
@@ -139,7 +140,7 @@ export function WmsReservationShortfallRenderer({
               event.stopPropagation()
               void handleAction('view-order', notification.linkHref ?? undefined)
             }}
-            disabled={executing !== null}
+            disabled={executing !== null || (notification.status === 'actioned' && !notification.linkHref)}
           >
             <ExternalLink className="size-3.5" aria-hidden="true" />
             {t('wms.notifications.reservationShortfall.renderer.viewOrder', 'View order')}

@@ -1,4 +1,4 @@
-import { priceCreateSchema, priceUpdateSchema } from '../validators'
+import { priceCreateSchema, priceKindCreateSchema, priceKindUpdateSchema, priceUpdateSchema } from '../validators'
 
 const scope = {
   organizationId: '22222222-2222-4222-8222-222222222222',
@@ -85,5 +85,27 @@ describe('price cross-field validators', () => {
       unitPriceNet: '12.50',
     })
     expect(result.success).toBe(true)
+  })
+})
+
+describe('price kind update schema', () => {
+  const priceKindId = '77777777-7777-4777-8777-777777777777'
+
+  it('leaves displayMode out when a partial update omits it', () => {
+    const parsed = priceKindUpdateSchema.parse({ id: priceKindId, title: 'Renamed' })
+    expect(parsed).toEqual({ id: priceKindId, title: 'Renamed' })
+    expect(parsed).not.toHaveProperty('displayMode')
+  })
+
+  it('keeps an explicit displayMode and still validates it', () => {
+    expect(priceKindUpdateSchema.parse({ id: priceKindId, displayMode: 'including-tax' }).displayMode).toBe(
+      'including-tax',
+    )
+    expect(priceKindUpdateSchema.safeParse({ id: priceKindId, displayMode: 'bogus' }).success).toBe(false)
+  })
+
+  it('keeps the excluding-tax default on create', () => {
+    const parsed = priceKindCreateSchema.parse({ ...scope, code: 'regular', title: 'Regular' })
+    expect(parsed.displayMode).toBe('excluding-tax')
   })
 })

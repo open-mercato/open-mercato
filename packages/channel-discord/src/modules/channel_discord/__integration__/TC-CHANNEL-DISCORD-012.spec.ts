@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
+import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures'
 import { getTokenScope, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 import {
   deleteChannelIfExists,
@@ -12,6 +13,7 @@ import {
   CHANNEL_DISCORD_AI_PROPOSAL_APPROVE_ACTION_ID,
   CHANNEL_DISCORD_AI_PROPOSAL_MESSAGE_TYPE,
 } from '../message-types'
+import { stampSystemProposalFixture } from './helpers/proposals'
 
 /**
  * TC-CHANNEL-DISCORD-012 — the AI auto-reply SEND path completes for a sender
@@ -53,6 +55,7 @@ test.describe('TC-CHANNEL-DISCORD-012: the AI reply send path', () => {
     test.slow()
     let token: string | null = null
     let channelId: string | null = null
+    const messageIds: string[] = []
 
     try {
       token = await getAuthToken(request, 'admin')
@@ -82,29 +85,33 @@ test.describe('TC-CHANNEL-DISCORD-012: the AI reply send path', () => {
         externalConversationId: `tc-discord-012-conv-${stamp}`,
       })
       expect(inbound.messageId, 'the inbound message must land before a reply can be proposed').toBeTruthy()
+      messageIds.push(inbound.messageId!)
 
       // The proposal the `complex` tier files: an internal note addressed to a
       // reviewer, carrying the drafted reply as its body and pointing at the
       // inbound message it answers. Nothing here can reach Discord on its own —
       // it is `visibility: 'internal'`, which the outbound bridge never delivers.
+      const proposalInput = {
+        type: CHANNEL_DISCORD_AI_PROPOSAL_MESSAGE_TYPE,
+        visibility: 'internal' as const,
+        sourceEntityType: CHANNEL_DISCORD_AI_PROPOSAL_SOURCE_ENTITY_TYPE,
+        sourceEntityId: inbound.messageId,
+        recipients: [{ userId, type: 'to' }],
+        subject: 'Asked whether they may write in Polish.',
+        body: 'Oczywiście, piszcie po polsku — odpowiemy w tym samym języku.',
+        bodyFormat: 'markdown' as const,
+        isDraft: false,
+      }
       const proposalResponse = await apiRequest(request, 'POST', '/api/messages', {
         token,
-        data: {
-          type: CHANNEL_DISCORD_AI_PROPOSAL_MESSAGE_TYPE,
-          visibility: 'internal',
-          sourceEntityType: CHANNEL_DISCORD_AI_PROPOSAL_SOURCE_ENTITY_TYPE,
-          sourceEntityId: inbound.messageId,
-          recipients: [{ userId, type: 'to' }],
-          subject: 'Asked whether they may write in Polish.',
-          body: 'Oczywiście, piszcie po polsku — odpowiemy w tym samym języku.',
-          bodyFormat: 'markdown',
-          isDraft: false,
-        },
+        data: proposalInput,
       })
       expect(proposalResponse.status(), 'POST /api/messages should file the proposal').toBe(201)
       const proposal = await readJsonSafe<{ id?: string }>(proposalResponse)
       const proposalId = proposal?.id
       expect(proposalId, 'the proposal response should include its message id').toBeTruthy()
+      messageIds.push(proposalId!)
+      await stampSystemProposalFixture(token, proposalId!, proposalInput)
 
       // The approve action, dispatched the way the inbox dispatches it. This is
       // the call that used to fail with
@@ -130,8 +137,19 @@ test.describe('TC-CHANNEL-DISCORD-012: the AI reply send path', () => {
       expect(approved?.ok).toBe(true)
       expect(approved?.actionId).toBe(CHANNEL_DISCORD_AI_PROPOSAL_APPROVE_ACTION_ID)
       expect(approved?.result?.sentMessageId, 'the approved reply should have been composed').toBeTruthy()
+      messageIds.push(approved!.result!.sentMessageId!)
     } finally {
       await deleteChannelIfExists(request, token, channelId)
+      if (token && messageIds.length) {
+        const { tenantId } = getTokenScope(token)
+        await withClient(async (client) => {
+          await client.query(
+            'delete from message_recipients where message_id in (select id from messages where id = any($1::uuid[]) and tenant_id = $2)',
+            [messageIds, tenantId],
+          )
+          await client.query('delete from messages where id = any($1::uuid[]) and tenant_id = $2', [messageIds, tenantId])
+        })
+      }
     }
   })
 })

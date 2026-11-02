@@ -1,4 +1,4 @@
-import { ReferenceKind } from '@mikro-orm/core'
+import { DriverException, ReferenceKind } from '@mikro-orm/core'
 import { TenantEncryptionSubscriber } from '../subscriber'
 import { registerEntityIds } from '../entityIds'
 import type { TenantDataEncryptionService } from '../tenantDataEncryptionService'
@@ -119,5 +119,70 @@ describe('TenantEncryptionSubscriber deep-decrypt of loaded collection relations
 
     expect(child.secret).toBe('epsilon')
     expect(decryptedEntityIds).toContain('test:child')
+  })
+})
+
+describe('TenantEncryptionSubscriber nested decrypt failures inside a transaction', () => {
+  const originalToggle = process.env.TENANT_DATA_ENCRYPTION
+
+  beforeEach(() => {
+    delete process.env.TENANT_DATA_ENCRYPTION
+    registerEntityIds({ test: { parent: 'test:parent', child: 'test:child' } })
+  })
+
+  afterEach(() => {
+    if (originalToggle === undefined) delete process.env.TENANT_DATA_ENCRYPTION
+    else process.env.TENANT_DATA_ENCRYPTION = originalToggle
+  })
+
+  function makeFailingChildService(error: Error): TenantDataEncryptionService {
+    return {
+      isEnabled: () => true,
+      async decryptEntityPayload(entityId: string) {
+        if (entityId === 'test:child') throw error
+        return {}
+      },
+    } as unknown as TenantDataEncryptionService
+  }
+
+  function makeGraph() {
+    const child = { secret: 'enc:zeta', tenantId: 't1', __meta: CHILD_META }
+    const meta = parentMeta(ReferenceKind.MANY_TO_ONE, 'child')
+    return { meta, parent: { tenantId: 't1', child: makeReference(child), __meta: meta } }
+  }
+
+  function makeTransactionalEm(inTransaction: boolean) {
+    return { ...makeEm(), isInTransaction: () => inTransaction }
+  }
+
+  const abortedStatement = () => new DriverException(
+    Object.assign(new Error('current transaction is aborted'), { code: '25P02' }),
+  )
+
+  it('rethrows a database error so the caller sees its aborted transaction', async () => {
+    const { meta, parent } = makeGraph()
+    const subscriber = new TenantEncryptionSubscriber(makeFailingChildService(abortedStatement()))
+
+    await expect(
+      subscriber.decryptEntityGraph(parent, meta, makeTransactionalEm(true), { syncOriginal: true }),
+    ).rejects.toBeInstanceOf(DriverException)
+  })
+
+  it('keeps swallowing a database error outside a transaction', async () => {
+    const { meta, parent } = makeGraph()
+    const subscriber = new TenantEncryptionSubscriber(makeFailingChildService(abortedStatement()))
+
+    await expect(
+      subscriber.decryptEntityGraph(parent, meta, makeTransactionalEm(false), { syncOriginal: true }),
+    ).resolves.toBeUndefined()
+  })
+
+  it('keeps swallowing a non-database decrypt error inside a transaction', async () => {
+    const { meta, parent } = makeGraph()
+    const subscriber = new TenantEncryptionSubscriber(makeFailingChildService(new Error('malformed payload')))
+
+    await expect(
+      subscriber.decryptEntityGraph(parent, meta, makeTransactionalEm(true), { syncOriginal: true }),
+    ).resolves.toBeUndefined()
   })
 })

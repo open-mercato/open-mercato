@@ -29,6 +29,7 @@ Gmail email channel provider for the Communications Hub (`communication_channels
 - Tenant OAuth client config (`{ clientId, clientSecret, scopes? }`) lives on `IntegrationCredentials` for provider `gmail`; per-user tokens live on `CommunicationChannel.credentials`.
 - `fetchHistory` is cursor-driven via `channelState.historyId`. The terminal `historyId` MUST only advance over messages actually normalized; a transient (non-404/410) fetch failure pins the cursor and re-fetches next tick (see the L3 fix in `fetchAndNormalize`).
 - `importHistory` is the operator-triggered BACKLOG sweep and is independent of `fetchHistory`: it walks `users.messages.list?q=after:<epochSeconds>[ from:(… OR …)]` backwards and MUST NOT read or write `channelState.historyId`. Its cursor carries only Gmail's `nextPageToken`, the frozen query, the group index and the collected counter, so it stays compact for a multi-year mailbox. Senders are chunked into groups of 25 and walked sequentially across pages.
+- `importHistory` lists with `labelIds: ['INBOX']` (same scope as `fetchHistory` and the IMAP adapter), so archived mail and other messages outside the inbox are NOT swept — expect a long backfill to miss old mail the user archived. Widening the scope is a behavior change: update this note and `.ai/qa/scenarios/TC-CHANNEL-EMAIL-032-gmail-import-history.md` with it.
 - The clients are swappable via `setGmailApiClient` / `setGoogleOAuthClient` (test-only hooks).
 
 ## Health Check

@@ -13,6 +13,10 @@
 
 import type { ApiInterceptor } from '@open-mercato/shared/lib/crud/api-interceptor'
 import { registerApiInterceptors } from '@open-mercato/shared/lib/crud/interceptor-registry'
+import {
+  findApiRouteManifestMatch,
+  type ApiRouteManifestEntry,
+} from '@open-mercato/shared/modules/registry'
 import { runTimesheetInterceptors, readSearchParamsRecord } from '../withTimesheetInterceptors'
 
 const TENANT_ID = '11111111-1111-4111-8111-111111111111'
@@ -121,6 +125,52 @@ describe('runTimesheetInterceptors', () => {
     if (run.ok) throw new Error('[internal] expected the run to be denied')
     expect(run.response.status).toBe(409)
     await expect(run.response.json()).resolves.toMatchObject({ error: 'Period closed' })
+  })
+
+  it.each([
+    [
+      'cloned mixed-case',
+      'https://app.test/api/STAFF/TIMESHEETS/MY-WORK',
+      '/STAFF/TIMESHEETS/MY-WORK',
+      (source: Request) => source.clone(),
+    ],
+    [
+      'reconstructed percent-encoded',
+      'https://app.test/api/%73taff/%74imesheets/my-work',
+      '/staff/timesheets/my-work',
+      (source: Request) => new Request(source.url, source),
+    ],
+  ])('uses the dispatcher identity to deny a %s alias', async (_label, url, dispatcherPath, transform) => {
+    const before = jest.fn(async () => ({ ok: false, statusCode: 403, message: 'Policy denied' }))
+    registerApiInterceptors([{
+      moduleId: 'test',
+      interceptors: [{
+        id: 'test.canonical-deny',
+        targetRoute: 'staff/timesheets/my-work',
+        methods: ['GET'],
+        before,
+      }],
+    }])
+    const manifest: ApiRouteManifestEntry[] = [{
+      moduleId: 'staff',
+      kind: 'route-file',
+      path: '/staff/timesheets/my-work',
+      methods: ['GET'],
+      load: async () => ({}),
+    }]
+    const aliasedRequest = request(url, 'GET')
+    expect(findApiRouteManifestMatch(manifest, 'GET', dispatcherPath, aliasedRequest)).toBeDefined()
+
+    const run = await runTimesheetInterceptors({
+      request: transform(aliasedRequest),
+      method: 'GET',
+      scope: scopeFor(),
+    })
+
+    expect(run.ok).toBe(false)
+    expect(before).toHaveBeenCalledTimes(1)
+    if (run.ok) throw new Error('[internal] expected the run to be denied')
+    expect(run.response.status).toBe(403)
   })
 
   it('threads before-pass metadata into the after-pass and merges its response', async () => {

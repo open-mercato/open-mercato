@@ -73,7 +73,11 @@ export interface BootstrapOptions {
   registrationKey?: string
   /** Skip browser-facing dashboard/injection registries in API-only runtimes. */
   skipUiRegistries?: boolean
-  /** Keep an existing core injection-widget registry intact in partitioned runtimes. */
+  /**
+   * Keep an existing core injection-widget registry intact in partitioned runtimes: this
+   * bootstrap's entries are merged in rather than published as the whole registry, so a
+   * partition that registers second never shrinks what the first one already exposed.
+   */
   skipCoreInjectionWidgets?: boolean
   onRegistrationComplete?: () => void
   appDiRegistrar?: AppDiRegistrar

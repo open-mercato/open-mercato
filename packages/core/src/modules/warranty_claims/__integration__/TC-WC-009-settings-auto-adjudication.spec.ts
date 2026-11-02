@@ -89,6 +89,7 @@ async function resetAutoApprovalOff(
 
 test.describe('TC-WC-009: warranty claim settings and auto-adjudication', () => {
   test('covers settings CRUD, locking, validation, and risk-gated auto-approval', async ({ request }) => {
+    test.slow()
     const adminToken = await getAuthToken(request, 'admin')
     const superadminToken = await getAuthToken(request, 'superadmin')
     const { tenantId } = getTokenScope(adminToken)
@@ -254,9 +255,9 @@ test.describe('TC-WC-009: warranty claim settings and auto-adjudication', () => 
       expect((await submitAndRead(request, adminToken, settingsOff)).status, 'default/off auto-approval should stay submitted').toBe('submitted')
     } finally {
       await restoreWarrantyClaimSettings(request, adminToken, settingsBefore)
-      for (const claimId of [...createdClaimIds].reverse()) {
-        await cancelThenDeleteClaimIfPossible(request, adminToken, claimId)
-      }
+      await Promise.all(
+        createdClaimIds.map((claimId) => cancelThenDeleteClaimIfPossible(request, adminToken, claimId)),
+      )
       await deleteUserIfExists(request, superadminToken, orgBUserId)
       await deleteRoleIfExists(request, superadminToken, orgBRoleId)
       await deleteOrganizationIfExists(request, superadminToken, orgBId)

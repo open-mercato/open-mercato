@@ -9,7 +9,9 @@
  */
 
 import { resolveRequestContext } from '@open-mercato/shared/lib/api/context'
+import type { OrganizationScopeService } from '@open-mercato/shared/lib/auth/principal-service'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { parseNumberWithDefault } from '@open-mercato/shared/lib/number'
 import { isBroadcastEvent } from '@open-mercato/shared/modules/events'
 import {
   CROSS_PROCESS_EVENT_INSTANCE_ID,
@@ -23,17 +25,131 @@ export const metadata = {
 }
 
 const HEARTBEAT_INTERVAL_MS = 30_000
+const DEFAULT_AUTH_REVALIDATION_INTERVAL_MS = 30_000
+const DEFAULT_CONNECTION_MAX_AGE_MS = 5 * 60_000
+const MIN_AUTH_REVALIDATION_INTERVAL_MS = 1_000
+const MIN_CONNECTION_MAX_AGE_MS = 1_000
+const CONNECTION_MAX_AGE_JITTER_RATIO = 0.15
+const MAX_TIMER_DELAY_MS = 2_147_483_647
 const MAX_PAYLOAD_BYTES = 4096
 
 const logger = createLogger('events').child({ component: 'stream' })
 
-type SseConnection = {
+type SseConnectionIdentity = {
   tenantId: string
   organizationId: string | null
   userId: string
   roleIds: string[]
+}
+
+type SseConnection = {
+  identity: SseConnectionIdentity
   send: (data: string) => void
   close: () => void
+}
+
+function resolveTimingConfig(): {
+  authRevalidationIntervalMs: number
+  connectionMaxAgeMs: number
+} {
+  return {
+    authRevalidationIntervalMs: Math.min(
+      parseNumberWithDefault(
+        process.env.OM_EVENTS_SSE_AUTH_REVALIDATION_INTERVAL_MS,
+        DEFAULT_AUTH_REVALIDATION_INTERVAL_MS,
+        { integer: true, min: MIN_AUTH_REVALIDATION_INTERVAL_MS },
+      ),
+      MAX_TIMER_DELAY_MS,
+    ),
+    connectionMaxAgeMs: applyConnectionMaxAgeJitter(
+      parseNumberWithDefault(
+        process.env.OM_EVENTS_SSE_CONNECTION_MAX_AGE_MS,
+        DEFAULT_CONNECTION_MAX_AGE_MS,
+        { integer: true, min: MIN_CONNECTION_MAX_AGE_MS },
+      ),
+    ),
+  }
+}
+
+function applyConnectionMaxAgeJitter(configuredMs: number): number {
+  const jitterFactor = 1 + (Math.random() * 2 - 1) * CONNECTION_MAX_AGE_JITTER_RATIO
+  const jitteredMs = Math.round(configuredMs * jitterFactor)
+  return Math.min(Math.max(jitteredMs, MIN_CONNECTION_MAX_AGE_MS), MAX_TIMER_DELAY_MS)
+}
+
+function normalizeRoleIds(input: unknown): string[] {
+  if (!Array.isArray(input)) return []
+  return Array.from(new Set(
+    input
+      .filter((role): role is string => typeof role === 'string')
+      .map((role) => role.trim())
+      .filter((role) => role.length > 0),
+  )).sort((left, right) => left.localeCompare(right))
+}
+
+function resolveOrganizationScopeService(
+  ctx: Awaited<ReturnType<typeof resolveRequestContext>>['ctx'],
+): OrganizationScopeService | null {
+  try {
+    const service = ctx.container.resolve<OrganizationScopeService>('organizationScopeService')
+    return service && typeof service.resolveForRequest === 'function' ? service : null
+  } catch {
+    return null
+  }
+}
+
+function normalizeId(input: unknown): string | null {
+  return typeof input === 'string' && input.trim().length > 0 ? input.trim() : null
+}
+
+async function resolveConnectionIdentity(
+  ctx: Awaited<ReturnType<typeof resolveRequestContext>>['ctx'],
+  request: Request,
+): Promise<SseConnectionIdentity | null> {
+  const canonicalTenantId = normalizeId(ctx.auth?.tenantId)
+  if (!canonicalTenantId || !ctx.auth?.sub) return null
+  const organizationScopeService = resolveOrganizationScopeService(ctx)
+  if (!organizationScopeService) return null
+  const scope = await organizationScopeService.resolveForRequest({ auth: ctx.auth, request })
+  const tenantId = normalizeId(scope.tenantId)
+  // `selectedId` is null whenever the caller has "All organizations" selected —
+  // the default an unrestricted admin's organization switcher persists — so using
+  // it alone leaves the connection with no organization and `matchesAudience`
+  // then rejects EVERY organization-scoped event. Keep the home-organization
+  // fallback the bridge has always used; the allowed-set check below still
+  // refuses an organization the principal may not see.
+  const organizationId = normalizeId(scope.selectedId) ?? normalizeId(ctx.auth.orgId)
+  if (!tenantId || tenantId !== canonicalTenantId || scope.selectionRejected) return null
+  if (organizationId && Array.isArray(scope.allowedIds) && !scope.allowedIds.includes(organizationId)) {
+    return null
+  }
+  return {
+    tenantId,
+    organizationId,
+    userId: ctx.auth.sub,
+    roleIds: normalizeRoleIds(ctx.auth.roles),
+  }
+}
+
+function identitiesMatch(left: SseConnectionIdentity, right: SseConnectionIdentity): boolean {
+  return left.tenantId === right.tenantId
+    && left.organizationId === right.organizationId
+    && left.userId === right.userId
+    && left.roleIds.length === right.roleIds.length
+    && left.roleIds.every((roleId, index) => roleId === right.roleIds[index])
+}
+
+function hasApiKeyCredentials(req: Request): boolean {
+  if ((req.headers.get('x-api-key') ?? '').trim().length > 0) return true
+  const authorization = (req.headers.get('authorization') ?? '').trim()
+  return /^apikey(?:\s|$)/i.test(authorization)
+}
+
+function createAuthRevalidationRequest(req: Request): Request {
+  return new Request(req.url, {
+    method: req.method,
+    headers: req.headers,
+  })
 }
 
 function collectStringValues(input: unknown): string[] {
@@ -106,19 +222,19 @@ function normalizeAudience(data: Record<string, unknown>, options?: EmitOptions)
 
 function matchesAudience(conn: SseConnection, audience: ReturnType<typeof normalizeAudience>): boolean {
   if (!audience.tenantId) return false
-  if (conn.tenantId !== audience.tenantId) return false
+  if (conn.identity.tenantId !== audience.tenantId) return false
 
   if (audience.organizationScopes.length > 0) {
-    if (!conn.organizationId) return false
-    if (!audience.organizationScopes.includes(conn.organizationId)) return false
+    if (!conn.identity.organizationId) return false
+    if (!audience.organizationScopes.includes(conn.identity.organizationId)) return false
   }
 
-  if (audience.recipientUserScopes.length > 0 && !audience.recipientUserScopes.includes(conn.userId)) {
+  if (audience.recipientUserScopes.length > 0 && !audience.recipientUserScopes.includes(conn.identity.userId)) {
     return false
   }
 
   if (audience.recipientRoleScopes.length > 0) {
-    const roleMatched = conn.roleIds.some((roleId) => audience.recipientRoleScopes.includes(roleId))
+    const roleMatched = conn.identity.roleIds.some((roleId) => audience.recipientRoleScopes.includes(roleId))
     if (!roleMatched) return false
   }
 
@@ -226,39 +342,48 @@ function ensureGlobalTapSubscription(): void {
 }
 
 export async function GET(req: Request): Promise<Response> {
-  const { ctx } = await resolveRequestContext(req)
-
-  if (!ctx.auth?.tenantId || !ctx.auth?.sub) {
+  if (hasApiKeyCredentials(req)) {
     return new Response('Unauthorized', { status: 401 })
   }
-
-  const tenantId = ctx.auth.tenantId
-  const organizationId = (ctx.selectedOrganizationId as string) ?? ctx.auth.orgId ?? null
-  const userId = ctx.auth.sub
-  const roleIds = Array.isArray(ctx.auth.roles)
-    ? ctx.auth.roles.filter((role): role is string => typeof role === 'string' && role.trim().length > 0)
-    : []
+  const { ctx } = await resolveRequestContext(req)
+  if (ctx.auth?.isApiKey === true) {
+    return new Response('Unauthorized', { status: 401 })
+  }
+  const initialIdentity = await resolveConnectionIdentity(ctx, req)
+  if (!initialIdentity) {
+    return new Response('Unauthorized', { status: 401 })
+  }
+  const authorizedIdentity = initialIdentity
+  const { authRevalidationIntervalMs, connectionMaxAgeMs } = resolveTimingConfig()
 
   ensureGlobalTapSubscription()
 
   const encoder = new TextEncoder()
   let heartbeatTimer: ReturnType<typeof setInterval> | null = null
+  let authRevalidationTimer: ReturnType<typeof setInterval> | null = null
+  let maxAgeTimer: ReturnType<typeof setTimeout> | null = null
+  let streamController: ReadableStreamDefaultController<Uint8Array> | null = null
   let connection: SseConnection | null = null
-  const onAbort = () => cleanup()
+  let authRevalidationInFlight = false
+  let cleanedUp = false
+  const onAbort = () => closeConnection()
 
   const stream = new ReadableStream({
     start(controller) {
+      streamController = controller
       const send = (data: string) => {
-        controller.enqueue(encoder.encode(`data: ${data}\n\n`))
+        if (cleanedUp) return
+        try {
+          streamController?.enqueue(encoder.encode(`data: ${data}\n\n`))
+        } catch {
+          closeConnection()
+        }
       }
 
       connection = {
-        tenantId,
-        organizationId,
-        userId,
-        roleIds,
+        identity: authorizedIdentity,
         send,
-        close: () => controller.close(),
+        close: closeConnection,
       }
       connections.add(connection)
 
@@ -268,37 +393,86 @@ export async function GET(req: Request): Promise<Response> {
       // delays the browser EventSource `open` event — clients that gate work on
       // a "connected" signal would otherwise stall for up to 30s after mount.
       // Comment lines (`:` prefix) are ignored by EventSource message parsing.
-      controller.enqueue(encoder.encode(': connected\n\n'))
+      streamController.enqueue(encoder.encode(': connected\n\n'))
 
       // Start heartbeat to keep connection alive
       heartbeatTimer = setInterval(() => {
         try {
-          controller.enqueue(encoder.encode(':heartbeat\ndata: :heartbeat\n\n'))
+          streamController?.enqueue(encoder.encode(':heartbeat\ndata: :heartbeat\n\n'))
         } catch {
-          // Stream may have been closed
+          closeConnection()
         }
       }, HEARTBEAT_INTERVAL_MS)
+
+      authRevalidationTimer = setInterval(() => {
+        void revalidateAuthorization()
+      }, authRevalidationIntervalMs)
+
+      maxAgeTimer = setTimeout(() => {
+        closeConnection()
+      }, connectionMaxAgeMs)
     },
     cancel() {
       cleanup()
     },
   })
 
+  async function revalidateAuthorization(): Promise<void> {
+    if (cleanedUp || authRevalidationInFlight) return
+    authRevalidationInFlight = true
+    try {
+      const validationRequest = createAuthRevalidationRequest(req)
+      const { ctx: freshCtx } = await resolveRequestContext(validationRequest)
+      if (cleanedUp) return
+      const freshIdentity = await resolveConnectionIdentity(freshCtx, validationRequest)
+      if (!freshIdentity || !identitiesMatch(authorizedIdentity, freshIdentity)) {
+        closeConnection()
+        return
+      }
+      if (connection) connection.identity = freshIdentity
+    } catch {
+      closeConnection()
+    } finally {
+      authRevalidationInFlight = false
+    }
+  }
+
+  function closeConnection(): void {
+    if (cleanedUp) return
+    const controller = streamController
+    cleanup()
+    try {
+      controller?.close()
+    } catch {}
+  }
+
   function cleanup() {
+    if (cleanedUp) return
+    cleanedUp = true
     if (heartbeatTimer) {
       clearInterval(heartbeatTimer)
       heartbeatTimer = null
+    }
+    if (authRevalidationTimer) {
+      clearInterval(authRevalidationTimer)
+      authRevalidationTimer = null
+    }
+    if (maxAgeTimer) {
+      clearTimeout(maxAgeTimer)
+      maxAgeTimer = null
     }
     if (connection) {
       connections.delete(connection)
       connection = null
     }
+    streamController = null
     // Detach from the request signal so reconnect churn does not accumulate
     // listeners and closures on long-lived AbortSignals.
     req.signal.removeEventListener('abort', onAbort)
   }
 
   req.signal.addEventListener('abort', onAbort, { once: true })
+  if (req.signal.aborted) onAbort()
 
   return new Response(stream, {
     status: 200,
@@ -314,7 +488,7 @@ export async function GET(req: Request): Promise<Response> {
 export const openApi = {
   GET: {
     summary: 'Subscribe to server events via SSE (DOM Event Bridge)',
-    description: 'Long-lived SSE connection that receives server-side events marked with clientBroadcast: true. Events are server-filtered by tenant, organization, recipient user, and recipient role.',
+    description: 'Server-bounded SSE connection for staff cookie or Bearer authentication that receives server-side events marked with clientBroadcast: true. API-key credentials are not accepted. Events are server-filtered by tenant, organization, recipient user, and recipient role, with periodic canonical authorization revalidation.',
     tags: ['Events'],
     responses: {
       200: {

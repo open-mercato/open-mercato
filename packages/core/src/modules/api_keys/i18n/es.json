@@ -35,6 +35,7 @@
   "api_keys.list.error.loadFailed": "No se pudieron cargar las claves API",
   "api_keys.list.noDate": "—",
   "api_keys.list.noRoles": "Ninguno",
+  "api_keys.list.success.created": "Clave API creada",
   "api_keys.list.success.deleted": "Clave API eliminada",
   "api_keys.list.title": "Claves API",
   "api_keys.nav.apiKeys": "Claves API",
