@@ -702,22 +702,12 @@ const createInteractionCommand: CommandHandler<InteractionCreateInput, { interac
 
 // ─── Update ─────────────────────────────────────────────────────────
 
-<<<<<<< HEAD
-=======
-async function prepareUpdateInteractionSnapshot(rawInput: InteractionUpdateInput, ctx: CommandRuntimeContext) {
-  const { parsed } = parseWithCustomFields(interactionUpdateSchema, rawInput)
-  const em = ctx.transactionalEm ?? (ctx.container.resolve('em') as EntityManager).fork()
-  const snapshot = await loadInteractionSnapshot(em, parsed.id, ctx)
-  return snapshot ? { before: snapshot } : {}
-}
-
->>>>>>> 59e670c16 (fix(customers): prevent private email exposure through interaction mutations (#8027))
 const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interactionId: string }> = {
   id: 'customers.interactions.update',
   async prepare(rawInput, ctx) {
     const { parsed } = parseWithCustomFields(interactionUpdateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const snapshot = await loadInteractionSnapshot(em, parsed.id)
+    const snapshot = await loadInteractionSnapshot(em, parsed.id, ctx)
     return snapshot ? { before: snapshot } : {}
   },
   async execute(rawInput, ctx) {
@@ -745,116 +735,7 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
         request: ctx.request ?? null,
       })
 
-<<<<<<< HEAD
-      // Email visibility is an access-controlled field: only the interaction's
-      // author may change a
-      // private email's visibility (mirrors the dedicated PATCH .../visibility
-      // route). Enforce it here — the single persistence path — so the generic
-      // update route (PUT /api/interactions) cannot bypass the gate. Evaluated
-      // against the row's pre-mutation author/type. 404 (not 403) keeps the
-      // existence-masking consistent with the dedicated route.
-      if (
-        parsed.visibility !== undefined &&
-        interaction.interactionType === 'email' &&
-        (parsed.visibility ?? null) !== (interaction.visibility ?? null)
-      ) {
-        const actorUserId = (ctx.auth as { sub?: string | null } | null)?.sub ?? null
-        if (
-          !canChangeEmailVisibility({
-            interactionType: interaction.interactionType,
-            currentVisibility: interaction.visibility,
-            nextVisibility: parsed.visibility,
-            authorUserId: interaction.authorUserId,
-            actorUserId,
-            // v1 strict owner-only: only the author may flip visibility; no admin
-            // bypass (canChangeEmailVisibility ignores caller features in v1).
-            userFeatures: undefined,
-          })
-        ) {
-          throw notFound('Email not found')
-        }
-      }
-=======
       await ensureInteractionPrivacyChangeAccess(ctx, interaction, parsed)
-
-      const nextType = parsed.interactionType ?? interaction.interactionType
-      const changingType = nextType !== interaction.interactionType
-      const enforceSelectableType = requestsSelectableTypeEnforcement(rawInput)
-      const { behavior, organizationIds } = await resolveInteractionTypeBehavior(
-        ctx, trx, interaction.tenantId, interaction.organizationId, nextType, !changingType, enforceSelectableType,
-      )
-      const currentCoreValues = {
-        durationMinutes: interaction.durationMinutes,
-        timezone: interaction.timezone ?? null,
-        allDay: interaction.allDay,
-        recurrenceRule: interaction.recurrenceRule,
-        recurrenceEnd: interaction.recurrenceEnd,
-        location: interaction.location,
-        participants: interaction.participants,
-        priority: interaction.priority,
-        linkedEntities: interaction.linkedEntities,
-      }
-      const typeChangeFields = changingType && enforceSelectableType ? omitHiddenCoreClears(behavior, parsed) : parsed
-      const coreValues = { ...currentCoreValues, ...typeChangeFields }
-      const inapplicableCore = findInapplicableCoreFields(behavior, changingType ? coreValues : parsed)
-      const confirmsDiscard = parsed.confirmDiscardInapplicableValues === true
-      const currentCustom = changingType && (enforceSelectableType || confirmsDiscard)
-        ? await loadCustomFieldSnapshot(trx, {
-          entityId: INTERACTION_ENTITY_ID,
-          recordId: interaction.id,
-          tenantId: interaction.tenantId,
-          organizationId: interaction.organizationId,
-        })
-        : {}
-      const customValues = changingType ? { ...currentCustom, ...custom } : custom
-      const customKeys = Object.keys(customValues).length
-        ? await loadApplicableCustomFieldKeys(trx, interaction.tenantId, organizationIds, behavior)
-        : null
-      const inapplicableCustom = customKeys ? inapplicableCustomFieldKeys(customValues, customKeys) : []
-      if (!changingType && enforceSelectableType && (inapplicableCore.length || inapplicableCustom.length)) {
-        const { translate } = await resolveTranslations()
-        throw inapplicableFieldError(
-          [...inapplicableCore, ...inapplicableCustom.map((key) => `cf_${key}`)],
-          translate('customers.calendar.activityTypes.errors.fieldNotApplicable', 'Field is not applicable to this activity type'),
-        )
-      }
-      if (changingType && enforceSelectableType && (inapplicableCore.length || inapplicableCustom.length) && !confirmsDiscard) {
-        const { translate } = await resolveTranslations()
-        throw new CrudHttpError(409, {
-          error: translate('customers.calendar.activityTypes.errors.changeConfirmationRequired', 'Changing type will clear existing values'),
-          code: 'calendar_type_change_confirmation_required',
-          fields: [...inapplicableCore, ...inapplicableCustom.map((key) => `cf_${key}`)],
-        })
-      }
-      // The type-change 409 is scoped to the selectable-type opt-in, and stored
-      // values are cleared only on an explicit `confirmDiscardInapplicableValues`.
-      // A legacy caller (the schedule dialog, the deal composer, the kanban quick
-      // actions, a direct API client) sends a partial payload and does not handle
-      // the 409, so judging it on the merged stored row rejected switches it has
-      // always been able to make — e.g. a Task carrying a priority becoming a
-      // Meeting. Those callers keep the pre-catalog behavior exactly: the fields
-      // they sent are written and nothing stored is cleared, even when the new
-      // type cannot display it.
-      const discardsInapplicableValues = changingType && confirmsDiscard
-      const clearedCore = discardsInapplicableValues
-        ? clearInapplicableCoreFields(behavior, coreValues)
-        : {}
-      const clearedCustom = discardsInapplicableValues
-        ? Object.fromEntries(inapplicableCustom.map((key) => [key, Array.isArray(customValues[key]) ? [] : null]))
-        : {}
-      // Narrowing a same-type edit (ignoring explicit clears of hidden core fields,
-      // dropping custom fields outside the type's fieldsets) is part of the opt-in
-      // contract too: a legacy caller's write is accepted as sent.
-      const sameTypeFields = changingType
-        ? typeChangeFields
-        : preserveHiddenCoreValuesOnSameTypeEdit(behavior, currentCoreValues, parsed, {
-          ignoreHiddenClears: enforceSelectableType,
-        })
-      const sameTypeCustom = changingType || !customKeys || !enforceSelectableType
-        ? custom
-        : Object.fromEntries(Object.entries(custom).filter(([key]) =>
-          !customKeys.defined.has(key.toLowerCase()) || customKeys.allowed.has(key.toLowerCase())))
->>>>>>> 59e670c16 (fix(customers): prevent private email exposure through interaction mutations (#8027))
 
       // Re-link to a different person/company (#5938). Resolved before any scalar
       // mutation below so the lookup never lands between a mutation and `trx.flush()`

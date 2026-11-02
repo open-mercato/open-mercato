@@ -30,14 +30,6 @@ jest.mock('../../lib/interactionProjection', () => ({
   recomputeNextInteraction: jest.fn(async () => ({ nextInteractionId: null })),
 }))
 
-jest.mock('../../lib/calendar/eventTypeResolver', () => ({
-  resolveScopedCalendarEventTypes: jest.fn(async () => ({
-    items: jest.requireActual('../../calendar-event-types').calendarEventTypes,
-  })),
-  resolveCatalogEventType: (catalog: { items: Array<{ key: string }> }, key: string) =>
-    catalog.items.find((item) => item.key === key),
-}))
-
 jest.mock('../../lib/conversationShares', () => ({
   listGrantsForViewerOnPerson: jest.fn(async () => []),
   listSharedChannelIds: jest.fn(async () => []),
