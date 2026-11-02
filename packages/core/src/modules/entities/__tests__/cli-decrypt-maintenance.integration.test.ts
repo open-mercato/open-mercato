@@ -43,7 +43,7 @@ describePostgres('offline encryption maintenance in PostgreSQL', () => {
     await admin.query(`CREATE SCHEMA "${schema}"`)
     pool = new Pool({ connectionString: databaseUrl, options: `-c search_path=${schema},public` })
     await pool.query(`CREATE TABLE encryption_maps (id text PRIMARY KEY, entity_id text, tenant_id text, organization_id text, fields_json jsonb, is_active boolean, deleted_at timestamptz)`)
-    await pool.query(`CREATE TABLE access_logs (id text PRIMARY KEY, tenant_id text, organization_id text, resource_id text)`)
+    await pool.query(`CREATE TABLE access_logs (id text PRIMARY KEY, tenant_id text, organization_id text, resource_id text, resource_hash text)`)
     await pool.query(`INSERT INTO encryption_maps VALUES ('global-map', 'audit_logs:access_log', $1, NULL, '[{"field":"resource_id"}]', true, NULL)`, [tenantId])
     beforeTransaction = undefined
     afterRowRead = undefined
@@ -52,6 +52,7 @@ describePostgres('offline encryption maintenance in PostgreSQL', () => {
       properties: {
         id: { name: 'id', fieldNames: ['id'], type: 'text', columnTypes: ['text'] },
         resourceId: { name: 'resourceId', fieldNames: ['resource_id'], type: 'text', columnTypes: ['text'] },
+        resourceHash: { name: 'resourceHash', fieldNames: ['resource_hash'], type: 'text', columnTypes: ['text'] },
       },
     }
     const buildManager = (connection: Pool | PoolClient) => {
@@ -111,7 +112,7 @@ describePostgres('offline encryption maintenance in PostgreSQL', () => {
   }
   const insert = async (id: string, organizationId: string | null) => {
     const ciphertext = encryptWithAesGcm(`secret-${id}`, mockKey).value
-    await pool.query(`INSERT INTO access_logs VALUES ($1, $2, $3, $4)`, [id, tenantId, organizationId, ciphertext])
+    await pool.query(`INSERT INTO access_logs (id, tenant_id, organization_id, resource_id) VALUES ($1, $2, $3, $4)`, [id, tenantId, organizationId, ciphertext])
     return ciphertext
   }
 
@@ -174,6 +175,28 @@ describePostgres('offline encryption maintenance in PostgreSQL', () => {
       { id: 'global', resource_id: 'secret-global' }, { id: 'one', resource_id: 'secret-one' },
     ])
     expect((await pool.query(`SELECT is_active FROM encryption_maps`)).rows[0].is_active).toBe(false)
+  })
+
+  test('selects a real non-null lookup hash before comparing and clearing it during decryption', async () => {
+    await pool.query(`UPDATE encryption_maps SET fields_json = '[{"field":"resource_id","hashField":"resource_hash"}]'::jsonb`)
+    await insert('one', 'org-a')
+    await pool.query(`UPDATE access_logs SET resource_hash = 'existing-non-null-hash' WHERE id = 'one'`)
+    await run()
+    expect((await pool.query(`SELECT resource_id, resource_hash FROM access_logs`)).rows).toEqual([
+      { resource_id: 'secret-one', resource_hash: null },
+    ])
+  })
+
+  test('checks every bounded final-sweep page before retiring policies', async () => {
+    await insert('one', 'org-a')
+    await insert('two', 'org-a')
+    beforeTransaction = async () => {
+      await pool.query(`UPDATE access_logs SET resource_id = $1 WHERE id = 'two'`, [encryptWithAesGcm('late-second-page', mockKey).value])
+    }
+    await expect(run(['--deactivate-maps', '--batch-size', '1'])).rejects.toThrow('protected final sweep')
+    expect((await pool.query(`SELECT is_active FROM encryption_maps`)).rows[0].is_active).toBe(true)
+    expect((await pool.query(`SELECT resource_id FROM access_logs WHERE id = 'one'`)).rows[0].resource_id).toBe('secret-one')
+    expect(isEncryptedPayloadShape((await pool.query(`SELECT resource_id FROM access_logs WHERE id = 'two'`)).rows[0].resource_id)).toBe(true)
   })
 
 })

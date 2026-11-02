@@ -10,7 +10,7 @@
 - New `decrypt-database` command in `packages/core/src/modules/entities/cli.ts`
 - `--confirm <tenantUuid>` required safety gate — no interactive fallback; suitable for CI and runbooks
 - `--dry-run` mode that reports what would change without touching the database
-- Optional `--deactivate-maps` flag to mark `EncryptionMap` records as inactive after decryption
+- Optional `--deactivate-maps` flag retires exact validated `EncryptionMap` records only after tenant-confirmed offline maintenance and a locked, paged verification sweep
 - Hash-field clearing: lookup hash columns (e.g. `email_hash`) are conditionally nulled after decryption
 - Scoping: `--tenant` required; optional `--org` / `--entity` to narrow scope
 
@@ -18,6 +18,7 @@
 - `--batch-size <n>` (default: 500) — rows fetched per transaction batch; keyset-paginated by `id`
 - `--sleep-ms <n>` (default: 0) — pause between batches to reduce prod write pressure
 - `--confirm <tenantUuid>` — safety gate; operator must pass the exact tenant UUID; no interactive fallback
+- `--confirm-offline-maintenance <tenantUuid>` — additionally required for non-preview map retirement, after all application, worker and integration writers are stopped
 - `--check` — report env status (`TENANT_DATA_ENCRYPTION`), active map count, and sampling decrypt estimate without touching data
 
 **Concerns:**
@@ -32,7 +33,7 @@
 Open Mercato encrypts sensitive entity fields at rest using AES-GCM via `TenantDataEncryptionService`. The encryption lifecycle is:
 
 1. **Enable**: seed `EncryptionMap` records (`mercato entities seed-encryption --tenant <uuid>`)
-2. **Rotate keys**: re-encrypt under a new DEK (`mercato entities rotate-encryption-key --tenant <uuid> --old-key <secret>`)
+2. **Rotate keys**: re-encrypt under a new DEK (`mercato entities rotate-encryption-key --tenant <uuid>`, with `TENANT_DATA_ENCRYPTION_OLD_KEY` injected by the secret manager)
 3. **Disable** *(this spec)*: decrypt all fields to plaintext and optionally deactivate maps (`mercato entities decrypt-database --tenant <uuid> --confirm <tenantUuid>`)
 
 Operators who decide to disable encryption (e.g. when moving to an external vault or changing compliance posture) currently have no supported path to drain encrypted data back to plaintext. They must patch rows manually or write one-off scripts, which is error-prone and untested.
@@ -72,7 +73,7 @@ Add a `decrypt-database` command to the existing `entities` module CLI (`package
 4. Decrypts via `decryptWithAesGcm` using the tenant DEK obtained from `createKmsService()`.
 5. Writes the plaintext value back using raw SQL (same pattern as `rotate-encryption-key`). JSON.parse is attempted on the decrypted string; if JSON.parse returns a non-string primitive (number, boolean, object, array), the raw string is written instead to avoid type mismatches with text columns.
 6. Clears hash-field columns (`hashField` entries in `EncryptionMap.fieldsJson`) by setting them to `NULL` **only if `rowDecrypted = true`**. Hash fields are never nulled on rows where all field values were already plaintext. If any mapped field or `hashField` column does not exist in metadata, preflight fails before reading or updating rows so the command cannot report success while leaving ciphertext or stale hashes behind.
-7. Optionally (via `--deactivate-maps`) sets `EncryptionMap.isActive = false` and `deletedAt = now()` for all **processed maps** — defined as every map included in the run's selected map set after applying `--tenant`, `--org`, and `--entity` filters, regardless of whether any rows were actually updated. When `--org` is provided, global maps (`organization_id IS NULL`) are always included in the processed set, because they were part of the selected map set and apply to tenant-wide rows.
+7. Optionally (via `--deactivate-maps`) retires exact validated policy IDs in a transaction after `--confirm-offline-maintenance <tenantUuid>`. Stop every writer before retirement and restart every replica before resuming. The transaction locks selected tables and policies, confirms policy definitions are unchanged, and performs a primary-key-paged final ciphertext sweep. An organization-only run processes the applicable tenant fallback but never retires tenant-wide (`organization_id IS NULL`) policies.
 8. Prints a final summary and a post-step reminder to set `TENANT_DATA_ENCRYPTION=false`.
 
 ### Design Decisions
@@ -93,7 +94,7 @@ Add a `decrypt-database` command to the existing `entities` module CLI (`package
 | `--confirm <tenantUuid>` with no interactive fallback | Operator must type the exact tenant UUID. Deterministic for CI pipelines and runbooks; prevents copy-paste accidents. |
 | Separate `--deactivate-maps` flag (not default) | Operator may want to verify decryption before committing to disable; decouples the two concerns. |
 | "Processed map" = map in the selected set, not "map with updated rows" | Deactivation should not depend on whether any rows changed — a tenant already in plaintext still benefits from removing map overhead. |
-| Global maps always processed when `--org` is provided | Global maps apply to tenant-wide rows and are part of the selected map set; deactivating only per-org maps while leaving global maps active would leave overhead and potential confusion. |
+| Tenant-wide fallback remains active after `--org` work | Processing one organization cannot prove the other governed organizations are plaintext. Only a complete tenant sweep may retire that shared fallback. |
 | `--check` reports both encrypted candidates and malformed payloads | Active map count alone doesn't reveal ciphertexts. Sampling gives "estimated encrypted candidates" + "malformed payloads" — both surfaced so the operator has a complete picture. Labeled as an estimate. Unavailable DEKs or failed sample queries are reported after the sweep and make the check exit non-zero. |
 | JSON.parse result must be string | Encrypted values are always serialized strings. If JSON.parse returns non-string, write the raw string to avoid type mismatch on text columns. |
 | Do not toggle `TENANT_DATA_ENCRYPTION` env var | Env var lives in infrastructure config; CLI cannot reliably change it across all replicas. |
@@ -126,7 +127,8 @@ mercato entities decrypt-database
   [--entity <id>]              Optional: limit to one entity type (e.g. customers:customer_entity)
   [--dry-run]                  Preview only — no writes
   [--check]                    Report env status, active map count, and sampling decrypt/malformed estimate; implies --dry-run
-  [--deactivate-maps]          Mark processed EncryptionMap records as inactive after decryption
+  [--deactivate-maps]          Retire exact validated policies after protected verification
+  [--confirm-offline-maintenance <tenantUuid>]  Required with non-preview --deactivate-maps
   [--confirm <tenantUuid>]     Required safety gate: operator must pass the exact tenant UUID; no interactive fallback
   [--batch-size <n>]           Rows fetched per transaction batch; default 500; use keyset pagination on id
   [--sleep-ms <n>]             Milliseconds to pause between batches; default 0; use on prod to reduce write pressure
@@ -200,15 +202,13 @@ CLI invocation
              totalMalformedPayloadCount += scopeMalformedCount
   └─ if totalMalformedPayloadCount > 0: print summary, exit non-zero, and leave maps active
   └─ if --deactivate-maps and not dry-run:
-       -- "processed maps" = all maps in selected set after --tenant/--org/--entity filters
-       -- (not conditional on rows being updated; plaintext-already tenants still benefit)
-       -- when --org provided: global maps (org IS NULL) are also deactivated — they were in the selected set
-       UPDATE encryption_maps SET is_active = false, deleted_at = now()
-         WHERE tenant_id = ? AND deleted_at IS NULL
-         [AND (organization_id = ? OR organization_id IS NULL) -- if --org provided]
-         [AND entity_id = ? -- if --entity provided]
-       print ⚠ "Restart all application replicas — in-process map caches may still be active."
-       if TENANT_DATA_ENCRYPTION=true: print ⚠ "Env TENANT_DATA_ENCRYPTION is still true — new writes will be re-encrypted."
+       require tenant-confirmed offline maintenance
+       preserve tenant-wide fallback policies during organization-only work
+       begin transaction; lock policy and selected data tables
+       refresh and compare selected policy definitions
+       scan every selected scope with bounded primary-key keyset pages
+       abort if ciphertext remains; otherwise retire exact validated policy IDs
+       commit; require replica restart before writers resume
   └─ print summary + post-step instructions
 ```
 
@@ -324,20 +324,16 @@ No user-facing UI strings. CLI output is English-only (consistent with existing 
 
 **Goal**: `--deactivate-maps` flag cleanly deactivates processed maps after decryption.
 
-1. After all scopes processed (and not `--dry-run`), soft-delete **processed maps** (maps in the selected set after filters; not conditioned on rows being updated):
-   - If `--org` is provided: deactivate maps for that `organization_id` **and** global maps (`organization_id IS NULL`). Global maps are included because they were part of the selected map set and apply to tenant-wide rows; leaving them active while deactivating per-org maps would produce inconsistent state.
-   - If `--org` is absent: deactivate all active maps for the tenant.
+1. Require `--confirm-offline-maintenance <tenantUuid>` for non-preview retirement. The operator stops all application, worker and integration writers first. After all scopes are processed, lock the policy and selected data tables in one transaction, refresh policy definitions, and verify all selected rows through bounded primary-key pages. Abort if policies changed or ciphertext remains. Retire only the exact validated policy IDs:
+   - With `--org`, retire only the selected organization policies; preserve every tenant-wide fallback.
+   - Without `--org`, retire selected tenant policies only after the complete governed-scope sweep.
    ```sql
    UPDATE encryption_maps
    SET is_active = false, deleted_at = now()
-   WHERE tenant_id = ? AND deleted_at IS NULL
-     [AND (organization_id = ? OR organization_id IS NULL) -- if --org provided]
-     [AND entity_id = ? -- if --entity flag provided]
+   WHERE tenant_id = ? AND id IN (<validated policy IDs>) AND deleted_at IS NULL
    ```
 
-2. After deactivation, unconditionally print:
-   - `⚠ Restart all application replicas — in-process map caches may still be active.`
-   - If `TENANT_DATA_ENCRYPTION=true` in current env: `⚠ Env TENANT_DATA_ENCRYPTION is still true — new writes will be re-encrypted until env is updated and replicas restarted.`
+2. Require restarting every application replica before resuming writes. Organization-only output warns that tenant-wide fallback policies remain active and encryption must stay enabled. Offline confirmation is operator attestation; online policy retirement is unsupported because stale encrypted payloads can outlive a database lock.
 
 3. In `--dry-run` (without `--check`), report which maps would be deactivated if `--deactivate-maps` is passed.
 
@@ -365,7 +361,7 @@ No user-facing UI strings. CLI output is English-only (consistent with existing 
   - Simulate non-`TenantDataEncryptionError` exception from `decryptWithAesGcm`: assert treated as `DECRYPT_INTERNAL` → batch rolled back, run aborted
   - Simulate `KMS_UNAVAILABLE`: assert ROLLBACK, run aborts with error, no partial commit
   - Simulate missing mapped or `hashField` column: assert preflight exits non-zero before reading or updating rows
-  - With `--deactivate-maps` and `--org` provided: assert that org maps **and** global maps deactivated; maps for other orgs untouched
+  - With `--deactivate-maps` and `--org` provided: assert that only selected org maps retire; tenant-wide fallback and other org maps remain active
   - With `--deactivate-maps` and no `--org`: assert all active maps for tenant deactivated; assert restart warning printed
   - With `--deactivate-maps` on an already-plaintext tenant: assert maps are still deactivated (deactivation not conditional on rows updated)
   - With `--entity` filter: assert only targeted entity type processed
@@ -498,7 +494,7 @@ No user-facing UI strings. CLI output is English-only (consistent with existing 
 | Safety gate identifies target by value | Pass | `--confirm <tenantUuid>` must match `--tenant` exactly |
 | Batch single-connection constraint documented | Pass | Data flow and Design Decisions both state no autocommit interleaving |
 | Summary distinguishes rows fetched vs updated | Pass | Both counters in final output |
-| `--deactivate-maps` scope matches processed scope | Pass | SQL WHERE conditioned on `--org` and `--entity` |
+| `--deactivate-maps` retires only validated scope | Pass | Offline confirmation, refreshed policies, bounded final sweep and exact policy-ID update; partial org runs preserve tenant-wide fallback |
 | Global maps deactivated when `--org` provided | Pass | `OR organization_id IS NULL` in WHERE; rationale documented |
 | "Processed map" defined precisely | Pass | Map in selected set after filters; not conditioned on rows updated |
 | `--check` labeled as estimate | Pass | "estimated … (sampled)" + "not a proof of absence" |
@@ -520,6 +516,12 @@ None.
 ---
 
 ## Changelog
+
+### 2026-11-02 — Offline maintenance safety
+
+- Require tenant-confirmed offline retirement, stop every writer, and restart replicas before resuming. Preserve fallback maps after organization-only work; retire exact validated IDs after a locked, paged final sweep.
+- Snapshot encrypted and hash columns for scoped compare-and-swap updates. Prefer the environment-key path; deprecated argv keys require the explicit unsafe bridge.
+
 
 ### 2026-10-27 (rev 6)
 - Aligned the spec with fail-closed implementation behavior: malformed ciphertext and missing mapped columns prevent a successful run and map deactivation.
