@@ -1,4 +1,6 @@
-import type { Kysely } from 'kysely'
+import { DatabaseSync, type SQLInputValue } from 'node:sqlite'
+import { Kysely, SqliteDialect } from 'kysely'
+import { createEncryptedCustomFieldKeysResolver, type CustomFieldDefinitionsDatabase } from '../lib/encrypted-custom-field-resolver'
 import { SearchService } from '../service'
 import { SearchIndexer } from '../indexer/search-indexer'
 import { FullTextSearchStrategy } from '../strategies/fulltext.strategy'
@@ -26,6 +28,7 @@ function makeFields(id = 'record-1') {
   return {
     id,
     title: 'Public title',
+    organization_id: null,
     cf_secret: 'PRIVATE-ALIAS',
     'cf:secret': 'PRIVATE-CANONICAL',
     cf_order_ref: 'PRIVATE-SANITIZED',
@@ -106,6 +109,73 @@ beforeEach(() => {
 })
 
 describe('plaintext custom-field boundaries (#7894)', () => {
+  it.each(['direct', 'bulk', 'by-id', 'by-ids', 'reindex'] as const)('resolves organization policy from tenant-loaded rows through %s with real SQL', async (entryPoint) => {
+    const sqlite = new DatabaseSync(':memory:')
+    sqlite.exec(`create table custom_field_defs (
+      entity_id text, key text, config_json text, deleted_at text, tenant_id text, organization_id text
+    )`)
+    const insert = sqlite.prepare('insert into custom_field_defs values (?, ?, ?, null, ?, ?)')
+    insert.run(entityId, 'secret', JSON.stringify({ encrypted: true }), 'tenant-1', 'org-1')
+    insert.run(entityId, 'note', JSON.stringify({ encrypted: true }), 'tenant-2', 'org-2')
+    const database = new Kysely<CustomFieldDefinitionsDatabase>({
+      dialect: new SqliteDialect({ database: {
+        close: () => sqlite.close(),
+        prepare: (query) => {
+          const statement = sqlite.prepare(query)
+          const values = (parameters: readonly unknown[]) => parameters as readonly SQLInputValue[]
+          return {
+            reader: statement.columns().length > 0,
+            all: (parameters) => statement.all(...values(parameters)),
+            run: (parameters) => statement.run(...values(parameters)),
+            iterate: (parameters) => statement.iterate(...values(parameters)),
+          }
+        },
+      } }),
+    })
+    try {
+      const rows = [
+        { ...makeFields('first'), organization_id: 'org-1', cf_secret: 'ORG-SECRET', 'cf:secret': 'ORG-SECRET' },
+        { ...makeFields('second'), organization_id: 'org-2', cf_secret: 'Public second', 'cf:secret': 'Public second' },
+      ]
+      const harness = createHarness({ resolver: createEncryptedCustomFieldKeysResolver(database), records: rows })
+      const params = rows.map((record) => ({ entityId, recordId: record.id, tenantId: 'tenant-1', record }))
+      if (entryPoint === 'direct') {
+        for (const param of params) await harness.indexer.indexRecord(param)
+      } else if (entryPoint === 'bulk') {
+        await harness.indexer.bulkIndexRecords(params)
+      } else if (entryPoint === 'by-id') {
+        for (const param of params) await harness.indexer.indexRecordById(param)
+      } else if (entryPoint === 'by-ids') {
+        await harness.indexer.indexRecordsById({ tenantId: 'tenant-1', items: params })
+      } else {
+        expect((await harness.indexer.reindexEntity({ entityId, tenantId: 'tenant-1' })).success).toBe(true)
+      }
+      expect(harness.documents).toHaveLength(2)
+      expect(harness.documents[0].fields).not.toHaveProperty('cf_secret')
+      expect(harness.documents[0].fields).not.toHaveProperty('cf:secret')
+      expect(harness.embeddings[0]).not.toContain('ORG-SECRET')
+      expect(harness.documents[1].fields.cf_secret).toBe('Public second')
+      expect(harness.documents[1].fields.cf_note).toBe('Visible custom note')
+      const tokenDocuments = [
+        ...jest.mocked(replaceSearchTokensForRecord).mock.calls.map((call) => call[1].doc),
+        ...jest.mocked(replaceSearchTokensForBatch).mock.calls.flatMap((call) => call[1].map((record) => record.doc)),
+      ]
+      expect(tokenDocuments).toHaveLength(2)
+      expect(tokenDocuments[0]['cf:secret']).toBe('ORG-SECRET')
+    } finally {
+      await database.destroy()
+    }
+  })
+
+  it('denies plaintext custom fields when neither operation nor row proves organization scope', async () => {
+    const resolver = jest.fn(async () => new Set<string>())
+    const harness = createHarness({ resolver })
+    const { organization_id: _organizationId, ...record } = makeFields()
+    await harness.indexer.indexRecord({ entityId, recordId: 'record-1', tenantId: 'tenant-1', record })
+    expect(harness.documents[0].fields).toEqual({ id: 'record-1', title: 'Public title' })
+    expect(resolver).not.toHaveBeenCalled()
+  })
+
   it('isolates exclusion cache entries by trusted tenant and organization', async () => {
     const resolver = jest.fn(async () => new Set(['secret', 'order-ref', 'order_ref']))
     const harness = createHarness({ resolver })
@@ -182,7 +252,7 @@ describe('plaintext custom-field boundaries (#7894)', () => {
     }
 
     expect(harness.documents).toHaveLength(1)
-    expect(harness.documents[0].fields).toEqual({ id: 'record-1', title: 'Public title', cf_note: 'Visible custom note' })
+    expect(harness.documents[0].fields).toEqual({ id: 'record-1', organization_id: null, title: 'Public title', cf_note: 'Visible custom note' })
     expect(JSON.stringify(harness.documents[0])).not.toContain('PRIVATE-')
     expect(harness.embeddings).toEqual([])
     const tokenDocuments = [
@@ -202,7 +272,7 @@ describe('plaintext custom-field boundaries (#7894)', () => {
 
     await harness.indexer.indexRecord({ entityId, recordId: 'record-1', tenantId: 'tenant-1', record: makeFields() })
 
-    expect(harness.documents[0].fields).toEqual({ id: 'record-1', title: 'Public title' })
+    expect(harness.documents[0].fields).toEqual({ id: 'record-1', organization_id: null, title: 'Public title' })
     expect(harness.embeddings[0]).toBe('record-1 Public title')
     expect(jest.mocked(replaceSearchTokensForRecord).mock.calls[0][1].doc).toEqual(expect.objectContaining({ 'cf:secret': 'PRIVATE-CANONICAL', 'cf:note': 'Visible custom note' }))
     expect(mockReportError).toHaveBeenCalledWith(error, expect.objectContaining({ code: 'search.encrypted_custom_fields_unresolved' }))
@@ -228,13 +298,13 @@ describe('plaintext custom-field boundaries (#7894)', () => {
     await harness.indexer.indexRecord({ entityId, recordId: 'record-1', tenantId: 'tenant-1', record: makeFields() })
 
     expect(harness.embeddings).toEqual(['Explicit source text'])
-    expect(harness.documents[0].fields).toEqual({ id: 'record-1', title: 'Public title' })
+    expect(harness.documents[0].fields).toEqual({ id: 'record-1', organization_id: null, title: 'Public title' })
   })
 
   it('fails closed for direct service clients without exclusion metadata while preserving token inputs', async () => {
     const harness = createHarness({ resolver: null })
     await harness.service.index({ entityId, recordId: 'record-1', tenantId: 'tenant-1', fields: makeFields() })
-    expect(harness.documents[0].fields).toEqual({ id: 'record-1', title: 'Public title' })
+    expect(harness.documents[0].fields).toEqual({ id: 'record-1', organization_id: null, title: 'Public title' })
     expect(harness.embeddings).toEqual(['record-1 Public title'])
     expect(jest.mocked(replaceSearchTokensForRecord).mock.calls[0][1].doc['cf:secret']).toBe('PRIVATE-CANONICAL')
   })

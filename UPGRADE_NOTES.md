@@ -52,7 +52,7 @@ any retention/export copies held by external search or embedding providers.
 
 **Module author action:** application DI wires the resolver automatically. Code
 constructing `SearchIndexer` manually must pass `encryptedCustomFieldKeysResolver`
-for definition-based exclusions; omission excludes all custom fields from plaintext paths.
+for definition-based exclusions; omission excludes all custom fields from plaintext paths. Tenant-wide indexing uses each loaded row’s `organization_id` (or `organizationId`) for its policy. Custom callers must provide a trusted operation organization or preserve the row organization, including explicit `null` for an organization-less row; unknown organization scope excludes all custom fields from plaintext paths.
 Direct `SearchService.index`/`bulkIndex` clients can pass
 `IndexableRecord.plaintextExcludedCustomFields` as an array of encrypted definition
 keys, or `'all'` when definitions cannot be resolved. Both `cf:` and sanitized

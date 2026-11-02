@@ -233,7 +233,7 @@ additive metadata for fulltext fields and generic vector fallback text. Omission
 excludes every custom field from plaintext strategies. `SearchIndexer` resolves encrypted custom-field
 keys once per entity and trusted tenant/organization scope within a call; the application DI registration always wires
 the resolver and lookup failures exclude every custom field from plaintext fields.
-Definitions include only applicable global and current-tenant/current-organization policies, including inactive but non-deleted definitions. Original `fields` and hashed-token inputs remain intact.
+Definitions include only applicable global and current-tenant/current-organization policies, including inactive but non-deleted definitions. Tenant-wide indexing resolves policy separately for each loaded row using its `organization_id` (or `organizationId`), while retaining the operation tenant. Without an operation organization or a known row organization (including explicit `null`), custom fields are excluded from plaintext strategies. Original `fields` and hashed-token inputs remain intact.
 
 Filtering runs before any fulltext driver and before fallback embedding creation.
 It does not sanitize explicit `buildSource` text, presenters or links; those
@@ -248,7 +248,7 @@ Operators must reindex affected fulltext/vector data after upgrade to replace ol
 plaintext values; the fix cannot recall copies retained by an external provider.
 Regression coverage exercises real indexer/service/strategy boundaries, DI failure,
 JSON-safe metadata, single/bulk/ID/reindex paths, provider/driver outputs and token
-writer inputs without external services.
+writer inputs without external services. An in-memory SQLite/Kysely regression executes the definition query across direct, bulk, single-ID, batched-ID and tenant-wide reindex paths, proving organization-specific exclusions and foreign-tenant policy isolation; this is not a PostgreSQL execution claim.
 
 ## Non-goals
 

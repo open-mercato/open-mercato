@@ -22,7 +22,7 @@ import type { EncryptedCustomFieldKeysResolver } from '../lib/encrypted-custom-f
  */
 const MAX_PAGES = 10000
 
-type PlaintextExclusionLookup = (entityId: EntityId, scope: { tenantId: string; organizationId?: string | null }) => Promise<IndexableRecord['plaintextExcludedCustomFields']>
+type PlaintextExclusionLookup = (entityId: EntityId, scope: { tenantId: string; organizationId?: string | null }, record: Record<string, unknown>) => Promise<IndexableRecord['plaintextExcludedCustomFields']>
 
 /**
  * Parameters for indexing a record.
@@ -161,12 +161,16 @@ export class SearchIndexer {
   private createPlaintextExclusionLookup(): PlaintextExclusionLookup {
     const resolver = this.encryptedCustomFieldKeysResolver
     const cache = new Map<string, Promise<IndexableRecord['plaintextExcludedCustomFields']>>()
-    return (entityId, scope) => {
+    return (entityId, scope, record) => {
       if (!resolver) return Promise.resolve('all')
-      const cacheKey = JSON.stringify([entityId, scope.tenantId, scope.organizationId ?? null])
+      const organizationId = scope.organizationId ?? ('organization_id' in record ? record.organization_id : record.organizationId)
+      if (organizationId !== null && (typeof organizationId !== 'string' || organizationId.length === 0)) {
+        return Promise.resolve('all')
+      }
+      const cacheKey = JSON.stringify([entityId, scope.tenantId, organizationId])
       let pending = cache.get(cacheKey)
       if (!pending) {
-        pending = Promise.resolve().then(() => resolver(entityId, { tenantId: scope.tenantId, organizationId: scope.organizationId ?? null })).then((keys) => Array.from(keys)).catch((error): 'all' => {
+        pending = Promise.resolve().then(() => resolver(entityId, { tenantId: scope.tenantId, organizationId })).then((keys) => Array.from(keys)).catch((error): 'all' => {
           reportSearchError('SearchIndexer', error, 'search.encrypted_custom_fields_unresolved', { entityId })
           return 'all'
         })
@@ -310,7 +314,7 @@ export class SearchIndexer {
       tenantId: params.tenantId,
       organizationId: params.organizationId,
       fields: params.record,
-      plaintextExcludedCustomFields: await exclusions(params.entityId, params),
+      plaintextExcludedCustomFields: await exclusions(params.entityId, params, params.record),
       presenter,
       url,
       links,
@@ -1116,7 +1120,6 @@ export class SearchIndexer {
     exclusions = this.createPlaintextExclusionLookup(),
   ): Promise<{ records: IndexableRecord[]; dropped: number }> {
     const records: IndexableRecord[] = []
-    const plaintextExcludedCustomFields = await exclusions(entityId, { tenantId, organizationId })
     let dropped = 0
 
     // Debug: log first item to see structure
@@ -1219,7 +1222,7 @@ export class SearchIndexer {
         tenantId,
         organizationId,
         fields: item,
-        plaintextExcludedCustomFields,
+        plaintextExcludedCustomFields: await exclusions(entityId, { tenantId, organizationId }, item),
         presenter,
         url,
         links,

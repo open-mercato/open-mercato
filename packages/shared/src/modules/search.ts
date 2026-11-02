@@ -114,7 +114,7 @@ export type IndexableRecord = {
   organizationId?: string | null
   /** All fields from the record (strategies will filter based on their needs) */
   fields: Record<string, unknown>
-  /** Custom-field keys excluded from plaintext fulltext/vector fields; `all` denies every custom field. Tokens retain `fields`; omission preserves legacy direct-client behavior. */
+  /** Custom-field keys excluded from plaintext fulltext/vector fields; `all` denies every custom field. Tokens retain `fields`; omission denies every custom field in plaintext strategies. */
   plaintextExcludedCustomFields?: readonly string[] | 'all'
   /** Optional presenter for result display */
   presenter?: SearchResultPresenter

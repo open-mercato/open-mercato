@@ -55,7 +55,7 @@ function registerIndexer(container: SearchContainer): SearchIndexer {
 
 async function index(indexer: SearchIndexer) {
   await indexer.indexRecord({
-    entityId: 'example:todo', recordId: 'record-1', tenantId: 'tenant-1',
+    entityId: 'example:todo', recordId: 'record-1', tenantId: 'tenant-1', organizationId: 'org-1',
     record: { title: 'Public title', cf_secret: 'PRIVATE', cf_note: 'Public note' },
   })
 }
