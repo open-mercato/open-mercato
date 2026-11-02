@@ -21,12 +21,7 @@
 import { createContainer, asValue, InjectionMode } from 'awilix'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import { DefaultSalesCalculationService } from '../../services/salesCalculationService'
-<<<<<<< HEAD
-import { SalesOrder, SalesShipment, SalesShipmentItem } from '../../data/entities'
-=======
 import { SalesOrder, SalesQuote, SalesShipment, SalesShipmentItem } from '../../data/entities'
-import { createSalesDocumentLockKyselyFixture } from './salesDocumentLockFixture'
->>>>>>> 66360a567 (fix(sales): store the unit net before discounts for gross-only lines (#8267))
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: async () => ({
