@@ -103,6 +103,16 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.9.0 → 0.9.1 (unreleased)
 
+### WMS supervisor roles can identify catalog variants
+
+The seeded WMS `supervisor` role now includes the existing `catalog.products.view` feature so ASN and inventory variant pickers can load product identity. Catalog write features (`catalog.products.manage`, `catalog.variants.manage`) are not granted. New tenants receive the grant from WMS setup. Existing tenants do not until you run:
+
+```bash
+yarn mercato auth sync-role-acls
+```
+
+The sync is additive and does not revoke features already on the role.
+
 ### Encryption maintenance safety confirmations (#6767)
 
 Use `TENANT_DATA_ENCRYPTION_OLD_KEY` from your secret manager for entity key rotation. The deprecated `--old-key`/`--oldKey` compatibility bridge now requires `--allow-unsafe-old-key`; it still exposes the secret to operating-system process listings and should be used only for an unavoidable legacy invocation. No removal date is scheduled.
