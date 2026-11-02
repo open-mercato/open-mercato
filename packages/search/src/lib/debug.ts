@@ -73,11 +73,16 @@ export function reportSearchError(
   attributes?: Record<string, string | number | boolean | undefined>,
 ): void {
   try {
-    getTelemetryRuntime()?.reportError(error, { module: 'search', code, attributes })
+    const reportedError = error instanceof Error
+      ? error
+      : new Error('[internal] Search failure rejected with a non-Error value')
+    getTelemetryRuntime()?.reportError(reportedError, { module: 'search', code, attributes })
   } catch (telemetryError) {
     componentLogger(prefix).warn('Telemetry error report failed', {
       code,
-      error: telemetryError instanceof Error ? telemetryError.message : telemetryError,
+      error: telemetryError instanceof Error
+        ? telemetryError.message
+        : '[internal] Telemetry backend threw a non-Error value',
     })
   }
 }

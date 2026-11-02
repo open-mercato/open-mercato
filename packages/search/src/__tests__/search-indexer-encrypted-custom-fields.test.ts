@@ -10,6 +10,7 @@ describe('SearchIndexer encrypted custom fields', () => {
   function setup(options: {
     resolver?: (entityId: string, tenantId?: string | null) => Promise<Set<string>>
     parentRecord?: Record<string, unknown>
+    loadParent?: boolean
   } = {}) {
     const contexts: SearchBuildContext[] = []
     const hydrated: Array<Record<string, unknown> | undefined> = []
@@ -21,9 +22,11 @@ describe('SearchIndexer encrypted custom fields', () => {
             enabled: true,
             buildSource: async (ctx) => {
               contexts.push(ctx)
-              const engine = ctx.queryEngine as QueryEngine | undefined
-              const parent = await engine?.query(parentEntityId, { tenantId: 'tenant-1', filters: { id: 'entity-1' } })
-              hydrated.push(parent?.items[0] as Record<string, unknown> | undefined)
+              if (options.loadParent !== false) {
+                const engine = ctx.queryEngine as QueryEngine | undefined
+                const parent = await engine?.query(parentEntityId, { tenantId: 'tenant-1', filters: { id: 'entity-1' } })
+                hydrated.push(parent?.items[0] as Record<string, unknown> | undefined)
+              }
               ctx.record.entity_id = 'entity-1'
               return { text: JSON.stringify({ record: ctx.record, customFields: ctx.customFields }) }
             },
@@ -253,26 +256,43 @@ describe('SearchIndexer encrypted custom fields', () => {
     expect(contexts[0].customFields).toEqual({ 'cf:industry_note': 'Wholesale' })
   })
 
-  it('retries a failed definition lookup for the next record of the same batch', async () => {
-    const resolver = jest.fn(encryptedTaxNumber).mockRejectedValueOnce(new Error('database unavailable'))
-    const { indexer, contexts, record } = setup({ resolver })
-    const records = ['profile-1', 'profile-2'].map((id) => ({ ...record, id }))
-    ;(indexer as unknown as { queryEngine: QueryEngine }).queryEngine = {
-      query: jest.fn(async (entity, opts) => {
-        if (entity === parentEntityId) return { items: [], total: 0, page: 1, pageSize: 1 } as QueryResult
-        const wantedId = (opts?.filters as { id?: string } | undefined)?.id
-        const items = records.filter((candidate) => candidate.id === wantedId)
-        return { items, total: items.length, page: 1, pageSize: 1 } as QueryResult
-      }),
+  it('memoizes a failed definition lookup for the batch and normalizes non-Error failures', async () => {
+    const rejectedValue = { credentials: 'must-not-reach-telemetry' }
+    const resolver = jest.fn().mockRejectedValue(rejectedValue)
+    const reportError = jest.fn()
+    const unregister = registerTelemetryRuntime({ reportError } as unknown as TelemetryRuntime)
+    try {
+      const { indexer, contexts, record } = setup({ resolver, loadParent: false })
+      const records = ['profile-1', 'profile-2'].map((id) => ({ ...record, id }))
+      ;(indexer as unknown as { queryEngine: QueryEngine }).queryEngine = {
+        query: jest.fn(async (_entity, opts) => {
+          const wantedId = (opts?.filters as { id?: string } | undefined)?.id
+          const items = records.filter((candidate) => candidate.id === wantedId)
+          return { items, total: items.length, page: 1, pageSize: 1 } as QueryResult
+        }),
+      }
+
+      await indexer.indexRecordsById({
+        items: records.map((candidate) => ({ entityId: companyEntityId, recordId: candidate.id })),
+        tenantId: 'tenant-1',
+      })
+
+      const customFieldKeys = contexts.map((ctx) => Object.keys(ctx.record).filter((key) => key.startsWith('cf')))
+      expect(customFieldKeys).toEqual([[], []])
+      expect(resolver).toHaveBeenCalledTimes(1)
+      expect(reportError).toHaveBeenCalledTimes(1)
+      expect(reportError).toHaveBeenCalledWith(
+        expect.objectContaining({ message: '[internal] Encrypted custom-field resolver rejected with a non-Error value' }),
+        {
+          module: 'search',
+          code: 'search.encrypted_custom_fields_unresolved',
+          attributes: { entityId: companyEntityId },
+        },
+      )
+      expect(reportError.mock.calls[0][0]).not.toBe(rejectedValue)
+    } finally {
+      unregister()
     }
-
-    await indexer.indexRecordsById({
-      items: records.map((candidate) => ({ entityId: companyEntityId, recordId: candidate.id })),
-      tenantId: 'tenant-1',
-    })
-
-    const customFieldKeys = contexts.map((ctx) => Object.keys(ctx.record).filter((key) => key.startsWith('cf')))
-    expect(customFieldKeys).toEqual([[], ['cf:industry_note']])
   })
 
   it('excludes every custom field when the encrypted definitions cannot be resolved', async () => {

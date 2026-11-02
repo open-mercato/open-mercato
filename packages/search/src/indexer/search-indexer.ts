@@ -257,7 +257,8 @@ export class SearchIndexer {
   /**
    * Returns a lookup of the custom fields to keep out of build contexts, memoized per entity and
    * tenant for one indexing call or reindex run. A missing resolver or a failed resolution excludes
-   * every custom field; a failed resolution is retried on the next lookup.
+   * every custom field. Failed resolutions stay cached for the current operation and are retried by
+   * the fresh lookup created for the next top-level indexing call.
    */
   private createCustomFieldExclusionLookup(): CustomFieldExclusionLookup {
     const resolver = this.encryptedCustomFieldKeysResolver
@@ -268,12 +269,14 @@ export class SearchIndexer {
       let pending = cache.get(cacheKey)
       if (!pending) {
         pending = Promise.resolve().then(() => resolver(entityId, tenantId)).catch((error): CustomFieldExclusion => {
+          const resolutionError = error instanceof Error
+            ? error
+            : new Error('[internal] Encrypted custom-field resolver rejected with a non-Error value')
           searchWarn('SearchIndexer', 'Encrypted custom fields could not be resolved; excluding every custom field', {
             entityId,
-            error: error instanceof Error ? error.message : error,
+            error: resolutionError.message,
           })
-          reportSearchError('SearchIndexer', error, 'search.encrypted_custom_fields_unresolved', { entityId })
-          cache.delete(cacheKey)
+          reportSearchError('SearchIndexer', resolutionError, 'search.encrypted_custom_fields_unresolved', { entityId })
           return 'all'
         })
         cache.set(cacheKey, pending)
