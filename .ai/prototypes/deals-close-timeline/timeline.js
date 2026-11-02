@@ -107,21 +107,31 @@
     var toast = document.createElement('div');
     toast.className = 'toast tl-flash';
     toast.setAttribute('role', 'status');
-    toast.innerHTML = '<svg><use href="#ic-check"/></svg><span><b></b>: close date moved to </span><button class="btn btn-outline btn-xs" type="button">Undo</button>';
+    toast.innerHTML = '<svg><use href="#ic-check"/></svg><span><b></b>: close date moved to </span>';
     toast.querySelector('b').textContent = card.querySelector('.tl-deal-company').textContent;
     toast.querySelector('span').appendChild(document.createTextNode(long(parse(card.getAttribute('data-date')))));
-    toast.querySelector('button').addEventListener('click', function () {
-      undo();
-      card.classList.remove('is-saved');
-      toast.remove();
-      card.focus();
-    });
     app.appendChild(toast);
     clearTimeout(flashTimer);
     flashTimer = setTimeout(function () {
       toast.remove();
       card.classList.remove('is-saved');
     }, 6000);
+
+    var main = app.querySelector('main.page');
+    var previous = main.querySelector('.tl-op-banner');
+    if (previous) previous.remove();
+    var banner = document.createElement('div');
+    banner.className = 'tl-op-banner';
+    banner.setAttribute('role', 'status');
+    banner.innerHTML = '<span><b>Last operation:</b> Update deal</span><button class="btn btn-outline btn-sm" type="button"><svg><use href="#ic-refresh"/></svg> Undo</button>';
+    banner.querySelector('button').addEventListener('click', function () {
+      undo();
+      card.classList.remove('is-saved');
+      banner.remove();
+      toast.remove();
+      card.focus();
+    });
+    main.insertBefore(banner, main.firstChild);
   }
 
   function escapeHtml(value) {

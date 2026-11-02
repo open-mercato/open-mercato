@@ -50,7 +50,7 @@
     <a href="#s2">2 Quarters · stage</a>
     <a href="#s3">3 Months · +more</a>
     <a href="#s4">4 Dragging</a>
-    <a href="#s5">5 Undo</a>
+    <a href="#s5">5 After drop</a>
     <a href="#s6">6 Date dialog</a>
     <a href="#s7">7 Conflict</a>
     <a href="#s8">8 Read-only</a>
@@ -142,11 +142,18 @@
           </div>
           <div class="tl-filterbar">
             <span class="tl-filter-label">Filter:</span>
-            <button class="tl-chip is-active" type="button" aria-haspopup="dialog" aria-expanded="false"><span class="tl-chip-label">Status:</span><span class="tl-chip-value">Open</span><svg><use href="#ic-chevron-down"/></svg></button>
+            <div class="segmented" role="tablist" aria-label="Closed deals"><button type="button" aria-selected="true">Hide closed deals</button><button type="button" aria-selected="false">All deals</button></div>
+            <button class="tl-chip" type="button" aria-haspopup="dialog" aria-expanded="false"><span class="tl-chip-label">Status:</span><span class="tl-chip-value">All</span><svg><use href="#ic-chevron-down"/></svg></button>
             <span class="tl-chip-anchor"><button class="tl-chip is-active" type="button" aria-haspopup="dialog" aria-expanded="false" data-goto="s16"><span class="tl-chip-label">Pipeline:</span><span class="tl-chip-value">New business</span><svg><use href="#ic-chevron-down"/></svg></button></span>
             <button class="tl-chip" type="button" aria-haspopup="dialog" aria-expanded="false"><span class="tl-chip-label">Owner:</span><span class="tl-chip-value">All</span><svg><use href="#ic-chevron-down"/></svg></button>
             <button class="tl-chip" type="button" aria-haspopup="dialog" aria-expanded="false"><span class="tl-chip-label">People:</span><span class="tl-chip-value">Any</span><svg><use href="#ic-chevron-down"/></svg></button>
             <button class="tl-chip" type="button" aria-haspopup="dialog" aria-expanded="false"><span class="tl-chip-label">Companies:</span><span class="tl-chip-value">Any</span><svg><use href="#ic-chevron-down"/></svg></button>
+          </div>
+          <div class="tl-views" aria-label="Saved views">
+            <span class="tl-filter-label">Views:</span>
+            <button class="tl-chip" type="button">My Q4 review</button>
+            <button class="tl-chip" type="button">Team weekly</button>
+            <button class="btn btn-ghost btn-xs" type="button"><svg><use href="#ic-save"/></svg> Save view</button>
           </div>
           <div class="tl-controls">
             <div class="row wrap tl-controls-left">
@@ -261,7 +268,7 @@
             
             <div class="tl-foot">
               <div class="row wrap"><span class="row tl-legend-item"><i class="tl-stage-dot" style="--stage:var(--chart-blue)"></i>Qualification</span><span class="row tl-legend-item"><i class="tl-stage-dot" style="--stage:var(--chart-cyan)"></i>Discovery</span><span class="row tl-legend-item"><i class="tl-stage-dot" style="--stage:var(--chart-violet)"></i>Proposal</span><span class="row tl-legend-item"><i class="tl-stage-dot" style="--stage:var(--chart-amber)"></i>Negotiation</span><span class="row tl-legend-item"><i class="tl-stage-dot" style="--stage:var(--chart-emerald)"></i>Commit</span><span class="row tl-legend-item"><svg class="tl-legend-alert"><use href="#ic-warn"/></svg>Overdue</span></div>
-              <a class="tl-undated" href="#s1"><svg><use href="#ic-calendar-x"/></svg> 12 open deals have no close date <svg><use href="#ic-arrow-right"/></svg></a>
+              <a class="tl-undated" href="#s1"><svg><use href="#ic-calendar-x"/></svg> 12 deals have no close date <svg><use href="#ic-arrow-right"/></svg></a>
             </div>
           </div>
           <button id="tl-open-dialog" type="button" data-goto="s6" hidden>Change close date</button>
@@ -276,10 +283,10 @@
   </div>
   <div class="notes">
     <div class="note"><b>1</b><span>Columns are time buckets, not a day axis. The window shows last week (so recent slips stay visible), this week and three weeks ahead, and the current week is tinted. The card's date line carries the exact day, so its width never suggests a duration.</span></div>
-    <div class="note"><b>2</b><span>The card is a compact DealCard from the Kanban (title, probability, value, close date, company) at about 4.5rem instead of about 11rem. Quick actions, activity badge and days-in-stage are left out to keep the height down.</span></div>
-    <div class="note"><b>3</b><span>Cards in a cell are sorted by date, then value. A fourth deal collapses into "+N more" (Maya, Oct 26 – Nov 1). Screen 3 shows the expanded list.</span></div>
+    <div class="note"><b>2</b><span>The card is a compact DealCard from the Kanban (title, probability, value, close date, company) at about 4.5rem instead of about 11rem. Quick actions, activity badge and days-in-stage are left out to keep the height down; the deal drawer (screen 17) shows them.</span></div>
+    <div class="note"><b>3</b><span>Cards in a cell are sorted by date, then id (amounts in different currencies aren't comparable). A fourth deal collapses into "+N more" (Maya, Oct 26 – Nov 1). Screen 3 shows the expanded list.</span></div>
     <div class="note"><b>4</b><span>Overdue = open deal whose close date is before today. It uses the same status-error date treatment as the Kanban card. Overdue deals before the window are summarised by the button above the lanes, which pages back to them.</span></div>
-    <div class="note"><b>5</b><span>Dragging into another week shifts the date by whole weeks and keeps the weekday (Mon, Nov 2 → Mon, Nov 9). The exact day is set in the dialog, through Change close date in the deal drawer or the card menu. The Undo flash is illustrative: no data is saved.</span></div>
+    <div class="note"><b>5</b><span>Dragging into another week shifts the date by whole weeks and keeps the weekday (Mon, Nov 2 → Mon, Nov 9). The exact day is set in the dialog, through Change close date in the deal drawer. Undo comes from the shell's "Last operation" banner, as for every other deal edit (screen 5). No data is saved in the prototype.</span></div>
   </div>
 </section>
 
@@ -342,11 +349,18 @@
           </div>
           <div class="tl-filterbar">
             <span class="tl-filter-label">Filter:</span>
-            <button class="tl-chip is-active" type="button" aria-haspopup="dialog" aria-expanded="false"><span class="tl-chip-label">Status:</span><span class="tl-chip-value">Open</span><svg><use href="#ic-chevron-down"/></svg></button>
+            <div class="segmented" role="tablist" aria-label="Closed deals"><button type="button" aria-selected="true">Hide closed deals</button><button type="button" aria-selected="false">All deals</button></div>
+            <button class="tl-chip" type="button" aria-haspopup="dialog" aria-expanded="false"><span class="tl-chip-label">Status:</span><span class="tl-chip-value">All</span><svg><use href="#ic-chevron-down"/></svg></button>
             <span class="tl-chip-anchor"><button class="tl-chip is-active" type="button" aria-haspopup="dialog" aria-expanded="false" data-goto="s16"><span class="tl-chip-label">Pipeline:</span><span class="tl-chip-value">New business</span><svg><use href="#ic-chevron-down"/></svg></button></span>
             <button class="tl-chip" type="button" aria-haspopup="dialog" aria-expanded="false"><span class="tl-chip-label">Owner:</span><span class="tl-chip-value">All</span><svg><use href="#ic-chevron-down"/></svg></button>
             <button class="tl-chip" type="button" aria-haspopup="dialog" aria-expanded="false"><span class="tl-chip-label">People:</span><span class="tl-chip-value">Any</span><svg><use href="#ic-chevron-down"/></svg></button>
             <button class="tl-chip" type="button" aria-haspopup="dialog" aria-expanded="false"><span class="tl-chip-label">Companies:</span><span class="tl-chip-value">Any</span><svg><use href="#ic-chevron-down"/></svg></button>
+          </div>
+          <div class="tl-views" aria-label="Saved views">
+            <span class="tl-filter-label">Views:</span>
+            <button class="tl-chip" type="button">My Q4 review</button>
+            <button class="tl-chip" type="button">Team weekly</button>
+            <button class="btn btn-ghost btn-xs" type="button"><svg><use href="#ic-save"/></svg> Save view</button>
           </div>
           <div class="tl-controls">
             <div class="row wrap tl-controls-left">
@@ -469,7 +483,7 @@
             
             <div class="tl-foot">
               <div class="row wrap"><span class="row tl-legend-item"><i class="tl-stage-dot" style="--stage:var(--chart-blue)"></i>Qualification</span><span class="row tl-legend-item"><i class="tl-stage-dot" style="--stage:var(--chart-cyan)"></i>Discovery</span><span class="row tl-legend-item"><i class="tl-stage-dot" style="--stage:var(--chart-violet)"></i>Proposal</span><span class="row tl-legend-item"><i class="tl-stage-dot" style="--stage:var(--chart-amber)"></i>Negotiation</span><span class="row tl-legend-item"><i class="tl-stage-dot" style="--stage:var(--chart-emerald)"></i>Commit</span><span class="row tl-legend-item"><svg class="tl-legend-alert"><use href="#ic-warn"/></svg>Overdue</span></div>
-              <a class="tl-undated" href="#s1"><svg><use href="#ic-calendar-x"/></svg> 12 open deals have no close date <svg><use href="#ic-arrow-right"/></svg></a>
+              <a class="tl-undated" href="#s1"><svg><use href="#ic-calendar-x"/></svg> 12 deals have no close date <svg><use href="#ic-arrow-right"/></svg></a>
             </div>
           </div>
         </main>
@@ -547,11 +561,18 @@
           </div>
           <div class="tl-filterbar">
             <span class="tl-filter-label">Filter:</span>
-            <button class="tl-chip is-active" type="button" aria-haspopup="dialog" aria-expanded="false"><span class="tl-chip-label">Status:</span><span class="tl-chip-value">Open</span><svg><use href="#ic-chevron-down"/></svg></button>
+            <div class="segmented" role="tablist" aria-label="Closed deals"><button type="button" aria-selected="true">Hide closed deals</button><button type="button" aria-selected="false">All deals</button></div>
+            <button class="tl-chip" type="button" aria-haspopup="dialog" aria-expanded="false"><span class="tl-chip-label">Status:</span><span class="tl-chip-value">All</span><svg><use href="#ic-chevron-down"/></svg></button>
             <span class="tl-chip-anchor"><button class="tl-chip is-active" type="button" aria-haspopup="dialog" aria-expanded="false" data-goto="s16"><span class="tl-chip-label">Pipeline:</span><span class="tl-chip-value">New business</span><svg><use href="#ic-chevron-down"/></svg></button></span>
             <button class="tl-chip" type="button" aria-haspopup="dialog" aria-expanded="false"><span class="tl-chip-label">Owner:</span><span class="tl-chip-value">All</span><svg><use href="#ic-chevron-down"/></svg></button>
             <button class="tl-chip" type="button" aria-haspopup="dialog" aria-expanded="false"><span class="tl-chip-label">People:</span><span class="tl-chip-value">Any</span><svg><use href="#ic-chevron-down"/></svg></button>
             <button class="tl-chip" type="button" aria-haspopup="dialog" aria-expanded="false"><span class="tl-chip-label">Companies:</span><span class="tl-chip-value">Any</span><svg><use href="#ic-chevron-down"/></svg></button>
+          </div>
+          <div class="tl-views" aria-label="Saved views">
+            <span class="tl-filter-label">Views:</span>
+            <button class="tl-chip" type="button">My Q4 review</button>
+            <button class="tl-chip" type="button">Team weekly</button>
+            <button class="btn btn-ghost btn-xs" type="button"><svg><use href="#ic-save"/></svg> Save view</button>
           </div>
           <div class="tl-controls">
             <div class="row wrap tl-controls-left">
@@ -702,7 +723,7 @@
             
             <div class="tl-foot">
               <div class="row wrap"><span class="row tl-legend-item"><i class="tl-stage-dot" style="--stage:var(--chart-blue)"></i>Qualification</span><span class="row tl-legend-item"><i class="tl-stage-dot" style="--stage:var(--chart-cyan)"></i>Discovery</span><span class="row tl-legend-item"><i class="tl-stage-dot" style="--stage:var(--chart-violet)"></i>Proposal</span><span class="row tl-legend-item"><i class="tl-stage-dot" style="--stage:var(--chart-amber)"></i>Negotiation</span><span class="row tl-legend-item"><i class="tl-stage-dot" style="--stage:var(--chart-emerald)"></i>Commit</span><span class="row tl-legend-item"><svg class="tl-legend-alert"><use href="#ic-warn"/></svg>Overdue</span></div>
-              <a class="tl-undated" href="#s1"><svg><use href="#ic-calendar-x"/></svg> 12 open deals have no close date <svg><use href="#ic-arrow-right"/></svg></a>
+              <a class="tl-undated" href="#s1"><svg><use href="#ic-calendar-x"/></svg> 12 deals have no close date <svg><use href="#ic-arrow-right"/></svg></a>
             </div>
           </div>
         </main>
@@ -780,11 +801,18 @@
           </div>
           <div class="tl-filterbar">
             <span class="tl-filter-label">Filter:</span>
-            <button class="tl-chip is-active" type="button" aria-haspopup="dialog" aria-expanded="false"><span class="tl-chip-label">Status:</span><span class="tl-chip-value">Open</span><svg><use href="#ic-chevron-down"/></svg></button>
+            <div class="segmented" role="tablist" aria-label="Closed deals"><button type="button" aria-selected="true">Hide closed deals</button><button type="button" aria-selected="false">All deals</button></div>
+            <button class="tl-chip" type="button" aria-haspopup="dialog" aria-expanded="false"><span class="tl-chip-label">Status:</span><span class="tl-chip-value">All</span><svg><use href="#ic-chevron-down"/></svg></button>
             <span class="tl-chip-anchor"><button class="tl-chip is-active" type="button" aria-haspopup="dialog" aria-expanded="false" data-goto="s16"><span class="tl-chip-label">Pipeline:</span><span class="tl-chip-value">New business</span><svg><use href="#ic-chevron-down"/></svg></button></span>
             <button class="tl-chip" type="button" aria-haspopup="dialog" aria-expanded="false"><span class="tl-chip-label">Owner:</span><span class="tl-chip-value">All</span><svg><use href="#ic-chevron-down"/></svg></button>
             <button class="tl-chip" type="button" aria-haspopup="dialog" aria-expanded="false"><span class="tl-chip-label">People:</span><span class="tl-chip-value">Any</span><svg><use href="#ic-chevron-down"/></svg></button>
             <button class="tl-chip" type="button" aria-haspopup="dialog" aria-expanded="false"><span class="tl-chip-label">Companies:</span><span class="tl-chip-value">Any</span><svg><use href="#ic-chevron-down"/></svg></button>
+          </div>
+          <div class="tl-views" aria-label="Saved views">
+            <span class="tl-filter-label">Views:</span>
+            <button class="tl-chip" type="button">My Q4 review</button>
+            <button class="tl-chip" type="button">Team weekly</button>
+            <button class="btn btn-ghost btn-xs" type="button"><svg><use href="#ic-save"/></svg> Save view</button>
           </div>
           <div class="tl-controls">
             <div class="row wrap tl-controls-left">
@@ -903,7 +931,7 @@
             
             <div class="tl-foot">
               <div class="row wrap"><span class="row tl-legend-item"><i class="tl-stage-dot" style="--stage:var(--chart-blue)"></i>Qualification</span><span class="row tl-legend-item"><i class="tl-stage-dot" style="--stage:var(--chart-cyan)"></i>Discovery</span><span class="row tl-legend-item"><i class="tl-stage-dot" style="--stage:var(--chart-violet)"></i>Proposal</span><span class="row tl-legend-item"><i class="tl-stage-dot" style="--stage:var(--chart-amber)"></i>Negotiation</span><span class="row tl-legend-item"><i class="tl-stage-dot" style="--stage:var(--chart-emerald)"></i>Commit</span><span class="row tl-legend-item"><svg class="tl-legend-alert"><use href="#ic-warn"/></svg>Overdue</span></div>
-              <a class="tl-undated" href="#s1"><svg><use href="#ic-calendar-x"/></svg> 12 open deals have no close date <svg><use href="#ic-arrow-right"/></svg></a>
+              <a class="tl-undated" href="#s1"><svg><use href="#ic-calendar-x"/></svg> 12 deals have no close date <svg><use href="#ic-arrow-right"/></svg></a>
             </div>
           </div>
         </main>
@@ -917,7 +945,7 @@
   </div>
   <div class="notes">
     <div class="note"><b>1</b><span>The drag moves between columns of the same lane only. Changing owner or stage by drag is out of scope for v1.</span></div>
-    <div class="note"><b>2</b><span>Snapping is by column: whole weeks, months or quarters, keeping the weekday or day of month. To pick a specific day, use Change close date from the card menu or the deal drawer.</span></div>
+    <div class="note"><b>2</b><span>Snapping is by column: whole weeks, months or quarters, keeping the weekday or day of month. To pick a specific day, use Change close date in the deal drawer.</span></div>
     <div class="note"><b>3</b><span>Esc at any point cancels the drag and returns the card to its origin. No request is sent.</span></div>
     <div class="note"><b>4</b><span>Dropping into a past week is allowed without confirmation (decision §7.1). The card picks up the overdue treatment immediately.</span></div>
   </div>
@@ -925,8 +953,8 @@
 
 <section class="screen" id="s5">
   <div class="screen-meta">
-    <h2>5. After the drop: optimistic move with Undo</h2>
-    <p>The card moves immediately and a flash message confirms the change with an Undo action, so a mis-drop costs one click.</p>
+    <h2>5. After the drop: optimistic move, Undo in the last-operation banner</h2>
+    <p>The card moves immediately and a flash message confirms the change. Undo comes from the shell's existing "Last operation" banner, the same one every other deal edit uses, so a mis-drop costs one click.</p>
     <div class="screen-refs"><span class="ref">US-C1</span></div>
   </div>
 
@@ -964,6 +992,7 @@
           </div>
         </header>
         <main class="page">
+          <div class="tl-op-banner" role="status"><span><b>Last operation:</b> Update deal</span><button class="btn btn-outline btn-sm" type="button" data-goto="s1"><svg><use href="#ic-refresh"/></svg> Undo</button></div>
 
           <div class="stack-2">
             <div class="page-head">
@@ -982,11 +1011,18 @@
           </div>
           <div class="tl-filterbar">
             <span class="tl-filter-label">Filter:</span>
-            <button class="tl-chip is-active" type="button" aria-haspopup="dialog" aria-expanded="false"><span class="tl-chip-label">Status:</span><span class="tl-chip-value">Open</span><svg><use href="#ic-chevron-down"/></svg></button>
+            <div class="segmented" role="tablist" aria-label="Closed deals"><button type="button" aria-selected="true">Hide closed deals</button><button type="button" aria-selected="false">All deals</button></div>
+            <button class="tl-chip" type="button" aria-haspopup="dialog" aria-expanded="false"><span class="tl-chip-label">Status:</span><span class="tl-chip-value">All</span><svg><use href="#ic-chevron-down"/></svg></button>
             <span class="tl-chip-anchor"><button class="tl-chip is-active" type="button" aria-haspopup="dialog" aria-expanded="false" data-goto="s16"><span class="tl-chip-label">Pipeline:</span><span class="tl-chip-value">New business</span><svg><use href="#ic-chevron-down"/></svg></button></span>
             <button class="tl-chip" type="button" aria-haspopup="dialog" aria-expanded="false"><span class="tl-chip-label">Owner:</span><span class="tl-chip-value">All</span><svg><use href="#ic-chevron-down"/></svg></button>
             <button class="tl-chip" type="button" aria-haspopup="dialog" aria-expanded="false"><span class="tl-chip-label">People:</span><span class="tl-chip-value">Any</span><svg><use href="#ic-chevron-down"/></svg></button>
             <button class="tl-chip" type="button" aria-haspopup="dialog" aria-expanded="false"><span class="tl-chip-label">Companies:</span><span class="tl-chip-value">Any</span><svg><use href="#ic-chevron-down"/></svg></button>
+          </div>
+          <div class="tl-views" aria-label="Saved views">
+            <span class="tl-filter-label">Views:</span>
+            <button class="tl-chip" type="button">My Q4 review</button>
+            <button class="tl-chip" type="button">Team weekly</button>
+            <button class="btn btn-ghost btn-xs" type="button"><svg><use href="#ic-save"/></svg> Save view</button>
           </div>
           <div class="tl-controls">
             <div class="row wrap tl-controls-left">
@@ -1101,7 +1137,7 @@
             
             <div class="tl-foot">
               <div class="row wrap"><span class="row tl-legend-item"><i class="tl-stage-dot" style="--stage:var(--chart-blue)"></i>Qualification</span><span class="row tl-legend-item"><i class="tl-stage-dot" style="--stage:var(--chart-cyan)"></i>Discovery</span><span class="row tl-legend-item"><i class="tl-stage-dot" style="--stage:var(--chart-violet)"></i>Proposal</span><span class="row tl-legend-item"><i class="tl-stage-dot" style="--stage:var(--chart-amber)"></i>Negotiation</span><span class="row tl-legend-item"><i class="tl-stage-dot" style="--stage:var(--chart-emerald)"></i>Commit</span><span class="row tl-legend-item"><svg class="tl-legend-alert"><use href="#ic-warn"/></svg>Overdue</span></div>
-              <a class="tl-undated" href="#s1"><svg><use href="#ic-calendar-x"/></svg> 12 open deals have no close date <svg><use href="#ic-arrow-right"/></svg></a>
+              <a class="tl-undated" href="#s1"><svg><use href="#ic-calendar-x"/></svg> 12 deals have no close date <svg><use href="#ic-arrow-right"/></svg></a>
             </div>
           </div>
         </main>
@@ -1110,12 +1146,12 @@
           <nav class="row-3"><span>Terms</span><span>Privacy</span></nav>
         </footer>
       </div>
-      <div class="toast tl-flash" role="status"><svg><use href="#ic-check"/></svg><span><b>Veridian Labs</b>: close date moved to Mon, Nov 9, 2026</span><button class="btn btn-outline btn-xs" type="button" data-goto="s1">Undo</button><button class="icon-btn" type="button" aria-label="Dismiss"><svg><use href="#ic-x"/></svg></button></div>
+      <div class="toast tl-flash" role="status"><svg><use href="#ic-check"/></svg><span><b>Veridian Labs</b>: close date moved to Mon, Nov 9, 2026</span><button class="icon-btn" type="button" aria-label="Dismiss"><svg><use href="#ic-x"/></svg></button></div>
     </div>
   </div>
   <div class="notes">
     <div class="note"><b>1</b><span>The request is a PUT to /api/customers/deals with { id, expectedCloseAt } plus the optimistic-lock header built from the deal's updatedAt. No new endpoint is needed.</span></div>
-    <div class="note"><b>2</b><span>Undo sends a second update back to the original date, using the updatedAt returned by the first save. It stays available for about 6 seconds.</span></div>
+    <div class="note"><b>2</b><span>The update runs through the existing customers.deals.update command, which records an undoable operation. The shell's LastOperationBanner offers Undo and reloads the page after a successful undo; the timeline state is in the URL, so the view comes back as it was. There is no timeline-specific Undo.</span></div>
     <div class="note"><b>3</b><span>A short highlight ring marks the moved card so the eye can find it after the drop. Within the target cell the card is re-sorted by date.</span></div>
   </div>
 </section>
@@ -1123,7 +1159,7 @@
 <section class="screen" id="s6">
   <div class="screen-meta">
     <h2>6. Change close date dialog (exact day, keyboard path)</h2>
-    <p>A keyboard user focuses a card (arrow keys move between cards), opens the card menu or the deal drawer (Enter), and chooses Change close date. This is also how anyone picks an exact day rather than shifting by a whole column.</p>
+    <p>A keyboard user focuses a card (arrow keys move between cards), opens the deal drawer (Enter), and chooses Change close date. This is also how anyone picks an exact day rather than shifting by a whole column.</p>
     <div class="screen-refs"><span class="ref">US-C2</span></div>
   </div>
 
@@ -1179,11 +1215,18 @@
           </div>
           <div class="tl-filterbar">
             <span class="tl-filter-label">Filter:</span>
-            <button class="tl-chip is-active" type="button" aria-haspopup="dialog" aria-expanded="false"><span class="tl-chip-label">Status:</span><span class="tl-chip-value">Open</span><svg><use href="#ic-chevron-down"/></svg></button>
+            <div class="segmented" role="tablist" aria-label="Closed deals"><button type="button" aria-selected="true">Hide closed deals</button><button type="button" aria-selected="false">All deals</button></div>
+            <button class="tl-chip" type="button" aria-haspopup="dialog" aria-expanded="false"><span class="tl-chip-label">Status:</span><span class="tl-chip-value">All</span><svg><use href="#ic-chevron-down"/></svg></button>
             <span class="tl-chip-anchor"><button class="tl-chip is-active" type="button" aria-haspopup="dialog" aria-expanded="false" data-goto="s16"><span class="tl-chip-label">Pipeline:</span><span class="tl-chip-value">New business</span><svg><use href="#ic-chevron-down"/></svg></button></span>
             <button class="tl-chip" type="button" aria-haspopup="dialog" aria-expanded="false"><span class="tl-chip-label">Owner:</span><span class="tl-chip-value">All</span><svg><use href="#ic-chevron-down"/></svg></button>
             <button class="tl-chip" type="button" aria-haspopup="dialog" aria-expanded="false"><span class="tl-chip-label">People:</span><span class="tl-chip-value">Any</span><svg><use href="#ic-chevron-down"/></svg></button>
             <button class="tl-chip" type="button" aria-haspopup="dialog" aria-expanded="false"><span class="tl-chip-label">Companies:</span><span class="tl-chip-value">Any</span><svg><use href="#ic-chevron-down"/></svg></button>
+          </div>
+          <div class="tl-views" aria-label="Saved views">
+            <span class="tl-filter-label">Views:</span>
+            <button class="tl-chip" type="button">My Q4 review</button>
+            <button class="tl-chip" type="button">Team weekly</button>
+            <button class="btn btn-ghost btn-xs" type="button"><svg><use href="#ic-save"/></svg> Save view</button>
           </div>
           <div class="tl-controls">
             <div class="row wrap tl-controls-left">
@@ -1298,7 +1341,7 @@
             
             <div class="tl-foot">
               <div class="row wrap"><span class="row tl-legend-item"><i class="tl-stage-dot" style="--stage:var(--chart-blue)"></i>Qualification</span><span class="row tl-legend-item"><i class="tl-stage-dot" style="--stage:var(--chart-cyan)"></i>Discovery</span><span class="row tl-legend-item"><i class="tl-stage-dot" style="--stage:var(--chart-violet)"></i>Proposal</span><span class="row tl-legend-item"><i class="tl-stage-dot" style="--stage:var(--chart-amber)"></i>Negotiation</span><span class="row tl-legend-item"><i class="tl-stage-dot" style="--stage:var(--chart-emerald)"></i>Commit</span><span class="row tl-legend-item"><svg class="tl-legend-alert"><use href="#ic-warn"/></svg>Overdue</span></div>
-              <a class="tl-undated" href="#s1"><svg><use href="#ic-calendar-x"/></svg> 12 open deals have no close date <svg><use href="#ic-arrow-right"/></svg></a>
+              <a class="tl-undated" href="#s1"><svg><use href="#ic-calendar-x"/></svg> 12 deals have no close date <svg><use href="#ic-arrow-right"/></svg></a>
             </div>
           </div>
         </main>
@@ -1336,7 +1379,7 @@
   <div class="notes">
     <div class="note"><b>1</b><span>Saving goes through the same optimistic path as a drop (screen 5), including Undo and conflict handling.</span></div>
     <div class="note"><b>2</b><span>Quick chips are relative to the current close date, not to today.</span></div>
-    <div class="note"><b>3</b><span>Focus returns to the moved card after the dialog closes. Arrow Up/Down move within a cell, Left/Right across columns.</span></div>
+    <div class="note"><b>3</b><span>Focus returns to the moved card after the dialog closes when it is still visible. If the new date is outside the window or behind "+N more", the view stays and the flash offers "Show deal", which receives focus. Arrow Up/Down move within a cell, Left/Right across columns.</span></div>
   </div>
 </section>
 
@@ -1405,11 +1448,18 @@
           
           <div class="tl-filterbar">
             <span class="tl-filter-label">Filter:</span>
-            <button class="tl-chip is-active" type="button" aria-haspopup="dialog" aria-expanded="false"><span class="tl-chip-label">Status:</span><span class="tl-chip-value">Open</span><svg><use href="#ic-chevron-down"/></svg></button>
+            <div class="segmented" role="tablist" aria-label="Closed deals"><button type="button" aria-selected="true">Hide closed deals</button><button type="button" aria-selected="false">All deals</button></div>
+            <button class="tl-chip" type="button" aria-haspopup="dialog" aria-expanded="false"><span class="tl-chip-label">Status:</span><span class="tl-chip-value">All</span><svg><use href="#ic-chevron-down"/></svg></button>
             <span class="tl-chip-anchor"><button class="tl-chip is-active" type="button" aria-haspopup="dialog" aria-expanded="false" data-goto="s16"><span class="tl-chip-label">Pipeline:</span><span class="tl-chip-value">New business</span><svg><use href="#ic-chevron-down"/></svg></button></span>
             <button class="tl-chip" type="button" aria-haspopup="dialog" aria-expanded="false"><span class="tl-chip-label">Owner:</span><span class="tl-chip-value">All</span><svg><use href="#ic-chevron-down"/></svg></button>
             <button class="tl-chip" type="button" aria-haspopup="dialog" aria-expanded="false"><span class="tl-chip-label">People:</span><span class="tl-chip-value">Any</span><svg><use href="#ic-chevron-down"/></svg></button>
             <button class="tl-chip" type="button" aria-haspopup="dialog" aria-expanded="false"><span class="tl-chip-label">Companies:</span><span class="tl-chip-value">Any</span><svg><use href="#ic-chevron-down"/></svg></button>
+          </div>
+          <div class="tl-views" aria-label="Saved views">
+            <span class="tl-filter-label">Views:</span>
+            <button class="tl-chip" type="button">My Q4 review</button>
+            <button class="tl-chip" type="button">Team weekly</button>
+            <button class="btn btn-ghost btn-xs" type="button"><svg><use href="#ic-save"/></svg> Save view</button>
           </div>
           <div class="tl-controls">
             <div class="row wrap tl-controls-left">
@@ -1524,7 +1574,7 @@
             
             <div class="tl-foot">
               <div class="row wrap"><span class="row tl-legend-item"><i class="tl-stage-dot" style="--stage:var(--chart-blue)"></i>Qualification</span><span class="row tl-legend-item"><i class="tl-stage-dot" style="--stage:var(--chart-cyan)"></i>Discovery</span><span class="row tl-legend-item"><i class="tl-stage-dot" style="--stage:var(--chart-violet)"></i>Proposal</span><span class="row tl-legend-item"><i class="tl-stage-dot" style="--stage:var(--chart-amber)"></i>Negotiation</span><span class="row tl-legend-item"><i class="tl-stage-dot" style="--stage:var(--chart-emerald)"></i>Commit</span><span class="row tl-legend-item"><svg class="tl-legend-alert"><use href="#ic-warn"/></svg>Overdue</span></div>
-              <a class="tl-undated" href="#s1"><svg><use href="#ic-calendar-x"/></svg> 12 open deals have no close date <svg><use href="#ic-arrow-right"/></svg></a>
+              <a class="tl-undated" href="#s1"><svg><use href="#ic-calendar-x"/></svg> 12 deals have no close date <svg><use href="#ic-arrow-right"/></svg></a>
             </div>
           </div>
         </main>
@@ -1602,11 +1652,18 @@
           </div>
           <div class="tl-filterbar">
             <span class="tl-filter-label">Filter:</span>
-            <button class="tl-chip is-active" type="button" aria-haspopup="dialog" aria-expanded="false"><span class="tl-chip-label">Status:</span><span class="tl-chip-value">Open</span><svg><use href="#ic-chevron-down"/></svg></button>
+            <div class="segmented" role="tablist" aria-label="Closed deals"><button type="button" aria-selected="true">Hide closed deals</button><button type="button" aria-selected="false">All deals</button></div>
+            <button class="tl-chip" type="button" aria-haspopup="dialog" aria-expanded="false"><span class="tl-chip-label">Status:</span><span class="tl-chip-value">All</span><svg><use href="#ic-chevron-down"/></svg></button>
             <span class="tl-chip-anchor"><button class="tl-chip is-active" type="button" aria-haspopup="dialog" aria-expanded="false" data-goto="s16"><span class="tl-chip-label">Pipeline:</span><span class="tl-chip-value">New business</span><svg><use href="#ic-chevron-down"/></svg></button></span>
             <button class="tl-chip" type="button" aria-haspopup="dialog" aria-expanded="false"><span class="tl-chip-label">Owner:</span><span class="tl-chip-value">All</span><svg><use href="#ic-chevron-down"/></svg></button>
             <button class="tl-chip" type="button" aria-haspopup="dialog" aria-expanded="false"><span class="tl-chip-label">People:</span><span class="tl-chip-value">Any</span><svg><use href="#ic-chevron-down"/></svg></button>
             <button class="tl-chip" type="button" aria-haspopup="dialog" aria-expanded="false"><span class="tl-chip-label">Companies:</span><span class="tl-chip-value">Any</span><svg><use href="#ic-chevron-down"/></svg></button>
+          </div>
+          <div class="tl-views" aria-label="Saved views">
+            <span class="tl-filter-label">Views:</span>
+            <button class="tl-chip" type="button">My Q4 review</button>
+            <button class="tl-chip" type="button">Team weekly</button>
+            <button class="btn btn-ghost btn-xs" type="button"><svg><use href="#ic-save"/></svg> Save view</button>
           </div>
           <div class="tl-controls">
             <div class="row wrap tl-controls-left">
@@ -1721,7 +1778,7 @@
             
             <div class="tl-foot">
               <div class="row wrap"><span class="row tl-legend-item"><i class="tl-stage-dot" style="--stage:var(--chart-blue)"></i>Qualification</span><span class="row tl-legend-item"><i class="tl-stage-dot" style="--stage:var(--chart-cyan)"></i>Discovery</span><span class="row tl-legend-item"><i class="tl-stage-dot" style="--stage:var(--chart-violet)"></i>Proposal</span><span class="row tl-legend-item"><i class="tl-stage-dot" style="--stage:var(--chart-amber)"></i>Negotiation</span><span class="row tl-legend-item"><i class="tl-stage-dot" style="--stage:var(--chart-emerald)"></i>Commit</span><span class="row tl-legend-item"><svg class="tl-legend-alert"><use href="#ic-warn"/></svg>Overdue</span></div>
-              <a class="tl-undated" href="#s1"><svg><use href="#ic-calendar-x"/></svg> 12 open deals have no close date <svg><use href="#ic-arrow-right"/></svg></a>
+              <a class="tl-undated" href="#s1"><svg><use href="#ic-calendar-x"/></svg> 12 deals have no close date <svg><use href="#ic-arrow-right"/></svg></a>
             </div>
           </div>
         </main>
@@ -1799,11 +1856,18 @@
           </div>
           <div class="tl-filterbar">
             <span class="tl-filter-label">Filter:</span>
-            <button class="tl-chip is-active" type="button" aria-haspopup="dialog" aria-expanded="false"><span class="tl-chip-label">Status:</span><span class="tl-chip-value">Open</span><svg><use href="#ic-chevron-down"/></svg></button>
+            <div class="segmented" role="tablist" aria-label="Closed deals"><button type="button" aria-selected="true">Hide closed deals</button><button type="button" aria-selected="false">All deals</button></div>
+            <button class="tl-chip" type="button" aria-haspopup="dialog" aria-expanded="false"><span class="tl-chip-label">Status:</span><span class="tl-chip-value">All</span><svg><use href="#ic-chevron-down"/></svg></button>
             <span class="tl-chip-anchor"><button class="tl-chip is-active" type="button" aria-haspopup="dialog" aria-expanded="false" data-goto="s16"><span class="tl-chip-label">Pipeline:</span><span class="tl-chip-value">New business</span><svg><use href="#ic-chevron-down"/></svg></button></span>
             <button class="tl-chip" type="button" aria-haspopup="dialog" aria-expanded="false"><span class="tl-chip-label">Owner:</span><span class="tl-chip-value">All</span><svg><use href="#ic-chevron-down"/></svg></button>
             <button class="tl-chip" type="button" aria-haspopup="dialog" aria-expanded="false"><span class="tl-chip-label">People:</span><span class="tl-chip-value">Any</span><svg><use href="#ic-chevron-down"/></svg></button>
             <button class="tl-chip" type="button" aria-haspopup="dialog" aria-expanded="false"><span class="tl-chip-label">Companies:</span><span class="tl-chip-value">Any</span><svg><use href="#ic-chevron-down"/></svg></button>
+          </div>
+          <div class="tl-views" aria-label="Saved views">
+            <span class="tl-filter-label">Views:</span>
+            <button class="tl-chip" type="button">My Q4 review</button>
+            <button class="tl-chip" type="button">Team weekly</button>
+            <button class="btn btn-ghost btn-xs" type="button"><svg><use href="#ic-save"/></svg> Save view</button>
           </div>
           <div class="tl-controls">
             <div class="row wrap tl-controls-left">
@@ -1890,7 +1954,7 @@
             
             <div class="tl-foot">
               <div class="row wrap"><span class="row tl-legend-item"><i class="tl-stage-dot" style="--stage:var(--chart-blue)"></i>Qualification</span><span class="row tl-legend-item"><i class="tl-stage-dot" style="--stage:var(--chart-cyan)"></i>Discovery</span><span class="row tl-legend-item"><i class="tl-stage-dot" style="--stage:var(--chart-violet)"></i>Proposal</span><span class="row tl-legend-item"><i class="tl-stage-dot" style="--stage:var(--chart-amber)"></i>Negotiation</span><span class="row tl-legend-item"><i class="tl-stage-dot" style="--stage:var(--chart-emerald)"></i>Commit</span><span class="row tl-legend-item"><svg class="tl-legend-alert"><use href="#ic-warn"/></svg>Overdue</span></div>
-              <a class="tl-undated" href="#s1"><svg><use href="#ic-calendar-x"/></svg> 12 open deals have no close date <svg><use href="#ic-arrow-right"/></svg></a>
+              <a class="tl-undated" href="#s1"><svg><use href="#ic-calendar-x"/></svg> 12 deals have no close date <svg><use href="#ic-arrow-right"/></svg></a>
             </div>
           </div>
         </main>
@@ -1967,11 +2031,18 @@
           </div>
           <div class="tl-filterbar">
             <span class="tl-filter-label">Filter:</span>
-            <button class="tl-chip is-active" type="button" aria-haspopup="dialog" aria-expanded="false"><span class="tl-chip-label">Status:</span><span class="tl-chip-value">Open</span><svg><use href="#ic-chevron-down"/></svg></button>
+            <div class="segmented" role="tablist" aria-label="Closed deals"><button type="button" aria-selected="true">Hide closed deals</button><button type="button" aria-selected="false">All deals</button></div>
+            <button class="tl-chip" type="button" aria-haspopup="dialog" aria-expanded="false"><span class="tl-chip-label">Status:</span><span class="tl-chip-value">All</span><svg><use href="#ic-chevron-down"/></svg></button>
             <span class="tl-chip-anchor"><button class="tl-chip is-active" type="button" aria-haspopup="dialog" aria-expanded="false" data-goto="s16"><span class="tl-chip-label">Pipeline:</span><span class="tl-chip-value">New business</span><svg><use href="#ic-chevron-down"/></svg></button></span>
             <button class="tl-chip is-active" type="button" aria-haspopup="dialog" aria-expanded="false"><span class="tl-chip-label">Owner:</span><span class="tl-chip-value">Tomás Lindqvist</span><svg><use href="#ic-chevron-down"/></svg></button>
             <button class="tl-chip" type="button" aria-haspopup="dialog" aria-expanded="false"><span class="tl-chip-label">People:</span><span class="tl-chip-value">Any</span><svg><use href="#ic-chevron-down"/></svg></button>
             <button class="tl-chip" type="button" aria-haspopup="dialog" aria-expanded="false"><span class="tl-chip-label">Companies:</span><span class="tl-chip-value">Any</span><svg><use href="#ic-chevron-down"/></svg></button>
+          </div>
+          <div class="tl-views" aria-label="Saved views">
+            <span class="tl-filter-label">Views:</span>
+            <button class="tl-chip" type="button">My Q4 review</button>
+            <button class="tl-chip" type="button">Team weekly</button>
+            <button class="btn btn-ghost btn-xs" type="button"><svg><use href="#ic-save"/></svg> Save view</button>
           </div>
           <div class="tl-controls">
             <div class="row wrap tl-controls-left">
@@ -2004,6 +2075,7 @@
                 <p class="t-hint" style="margin:0;max-width:40ch">No open deals for Tomás Lindqvist have an expected close date between Jan 4 and Feb 7, 2027.</p>
                 <div class="row">
                   <button class="btn btn-outline btn-sm" type="button" data-goto="s1">Clear filters</button>
+                  <button class="btn btn-outline btn-sm" type="button" data-goto="s1">Show closed deals</button>
                   <button class="btn btn-outline btn-sm" type="button" data-goto="s1"><svg><use href="#ic-chevron-left"/></svg> Jump to previous deal · Dec 18</button>
                 </div>
               </div>
@@ -2021,7 +2093,7 @@
   </div>
   <div class="notes">
     <div class="note"><b>1</b><span>The jump button points to the nearest matching deal in either direction ("previous" here, since Tomás's last deal closes Dec 18). It is hidden when nothing matches at all.</span></div>
-    <div class="note"><b>2</b><span>The undated counter respects the active filters and links to the List view with expectedCloseAt filtered to "empty". v1 has no undated tray.</span></div>
+    <div class="note"><b>2</b><span>The undated counter respects the active filters and opens the List with the "no close date" filter (hasExpectedCloseAt=false), carrying the same filters and the closed-deals exclusion, so the List shows exactly the counted deals. v1 has no undated tray. Because the organization has deals, the filters stay visible here, unlike first run (screen 11).</span></div>
   </div>
 </section>
 
@@ -2107,7 +2179,7 @@
     </div>
   </div>
   <div class="notes">
-    <div class="note"><b>1</b><span>The filter, column-size and group controls are hidden while the tenant has no deals at all, because they have nothing to act on.</span></div>
+    <div class="note"><b>1</b><span>The filter, column-size and group controls are hidden only when the organization has no deals at all (scopeHasDeals is false). An organization whose deals are all closed, undated or filtered out gets screen 10 instead, with the filters visible.</span></div>
     <div class="note"><b>2</b><span>Without customers.deals.manage, the button is replaced by "Ask an administrator to create deals".</span></div>
   </div>
 </section>
@@ -2171,11 +2243,18 @@
           </div>
           <div class="tl-filterbar">
             <span class="tl-filter-label">Filter:</span>
-            <button class="tl-chip is-active" type="button" aria-haspopup="dialog" aria-expanded="false"><span class="tl-chip-label">Status:</span><span class="tl-chip-value">Open</span><svg><use href="#ic-chevron-down"/></svg></button>
+            <div class="segmented" role="tablist" aria-label="Closed deals"><button type="button" aria-selected="true">Hide closed deals</button><button type="button" aria-selected="false">All deals</button></div>
+            <button class="tl-chip" type="button" aria-haspopup="dialog" aria-expanded="false"><span class="tl-chip-label">Status:</span><span class="tl-chip-value">All</span><svg><use href="#ic-chevron-down"/></svg></button>
             <span class="tl-chip-anchor"><button class="tl-chip is-active" type="button" aria-haspopup="dialog" aria-expanded="false" data-goto="s16"><span class="tl-chip-label">Pipeline:</span><span class="tl-chip-value">New business</span><svg><use href="#ic-chevron-down"/></svg></button></span>
             <button class="tl-chip" type="button" aria-haspopup="dialog" aria-expanded="false"><span class="tl-chip-label">Owner:</span><span class="tl-chip-value">All</span><svg><use href="#ic-chevron-down"/></svg></button>
             <button class="tl-chip" type="button" aria-haspopup="dialog" aria-expanded="false"><span class="tl-chip-label">People:</span><span class="tl-chip-value">Any</span><svg><use href="#ic-chevron-down"/></svg></button>
             <button class="tl-chip" type="button" aria-haspopup="dialog" aria-expanded="false"><span class="tl-chip-label">Companies:</span><span class="tl-chip-value">Any</span><svg><use href="#ic-chevron-down"/></svg></button>
+          </div>
+          <div class="tl-views" aria-label="Saved views">
+            <span class="tl-filter-label">Views:</span>
+            <button class="tl-chip" type="button">My Q4 review</button>
+            <button class="tl-chip" type="button">Team weekly</button>
+            <button class="btn btn-ghost btn-xs" type="button"><svg><use href="#ic-save"/></svg> Save view</button>
           </div>
           <div class="tl-controls">
             <div class="row wrap tl-controls-left">
@@ -2231,7 +2310,7 @@
   </div>
   <div class="notes">
     <div class="note"><b>1</b><span>Changing the window keeps the previous cards (dimmed) until the new page arrives, instead of flashing the skeleton.</span></div>
-    <div class="note"><b>2</b><span>The fetch is GET /api/customers/deals with expectedCloseAtFrom/To for the window plus a pageSize=100 cap. A separate isOverdue count feeds the overdue button. When a window holds more than 100 deals, a "Showing first 100, narrow filters" alert appears.</span></div>
+    <div class="note"><b>2</b><span>The fetch is GET /api/customers/deals/timeline, which returns the bucketed grid, the overdue-before count, the undated count and the nearest deals outside the window in one response. A column holding more than 300 deals is flagged as truncated: the alert names the column, warns that owners may be missing, shows partial counts as "{n}+", and offers Open in List.</span></div>
   </div>
 </section>
 
@@ -2294,11 +2373,18 @@
           </div>
           <div class="tl-filterbar">
             <span class="tl-filter-label">Filter:</span>
-            <button class="tl-chip is-active" type="button" aria-haspopup="dialog" aria-expanded="false"><span class="tl-chip-label">Status:</span><span class="tl-chip-value">Open</span><svg><use href="#ic-chevron-down"/></svg></button>
+            <div class="segmented" role="tablist" aria-label="Closed deals"><button type="button" aria-selected="true">Hide closed deals</button><button type="button" aria-selected="false">All deals</button></div>
+            <button class="tl-chip" type="button" aria-haspopup="dialog" aria-expanded="false"><span class="tl-chip-label">Status:</span><span class="tl-chip-value">All</span><svg><use href="#ic-chevron-down"/></svg></button>
             <span class="tl-chip-anchor"><button class="tl-chip is-active" type="button" aria-haspopup="dialog" aria-expanded="false" data-goto="s16"><span class="tl-chip-label">Pipeline:</span><span class="tl-chip-value">New business</span><svg><use href="#ic-chevron-down"/></svg></button></span>
             <button class="tl-chip" type="button" aria-haspopup="dialog" aria-expanded="false"><span class="tl-chip-label">Owner:</span><span class="tl-chip-value">All</span><svg><use href="#ic-chevron-down"/></svg></button>
             <button class="tl-chip" type="button" aria-haspopup="dialog" aria-expanded="false"><span class="tl-chip-label">People:</span><span class="tl-chip-value">Any</span><svg><use href="#ic-chevron-down"/></svg></button>
             <button class="tl-chip" type="button" aria-haspopup="dialog" aria-expanded="false"><span class="tl-chip-label">Companies:</span><span class="tl-chip-value">Any</span><svg><use href="#ic-chevron-down"/></svg></button>
+          </div>
+          <div class="tl-views" aria-label="Saved views">
+            <span class="tl-filter-label">Views:</span>
+            <button class="tl-chip" type="button">My Q4 review</button>
+            <button class="tl-chip" type="button">Team weekly</button>
+            <button class="btn btn-ghost btn-xs" type="button"><svg><use href="#ic-save"/></svg> Save view</button>
           </div>
           <div class="tl-controls">
             <div class="row wrap tl-controls-left">
@@ -2532,7 +2618,8 @@
           </div>
           <div class="tl-filterbar">
             <span class="tl-filter-label">Filter:</span>
-            <button class="tl-chip is-active" type="button" aria-haspopup="dialog" aria-expanded="false"><span class="tl-chip-label">Status:</span><span class="tl-chip-value">Open</span><svg><use href="#ic-chevron-down"/></svg></button>
+            <div class="segmented" role="tablist" aria-label="Closed deals"><button type="button" aria-selected="true">Hide closed deals</button><button type="button" aria-selected="false">All deals</button></div>
+            <button class="tl-chip" type="button" aria-haspopup="dialog" aria-expanded="false"><span class="tl-chip-label">Status:</span><span class="tl-chip-value">All</span><svg><use href="#ic-chevron-down"/></svg></button>
             <span class="tl-chip-anchor"><button class="tl-chip is-active is-open" type="button" aria-haspopup="dialog" aria-expanded="true"><span class="tl-chip-label">Pipeline:</span><span class="tl-chip-value">New business</span><svg><use href="#ic-chevron-down"/></svg></button>
               <div class="tl-filter-pop" role="dialog" aria-label="Filter · Pipeline">
                 <div class="tl-filter-pop-head"><span class="tl-filter-pop-title">Filter · Pipeline</span><button class="btn btn-outline btn-sm btn-icon" type="button" aria-label="Close" data-goto="s1"><svg><use href="#ic-x"/></svg></button></div>
@@ -2545,6 +2632,12 @@
             <button class="tl-chip" type="button" aria-haspopup="dialog" aria-expanded="false"><span class="tl-chip-label">Owner:</span><span class="tl-chip-value">All</span><svg><use href="#ic-chevron-down"/></svg></button>
             <button class="tl-chip" type="button" aria-haspopup="dialog" aria-expanded="false"><span class="tl-chip-label">People:</span><span class="tl-chip-value">Any</span><svg><use href="#ic-chevron-down"/></svg></button>
             <button class="tl-chip" type="button" aria-haspopup="dialog" aria-expanded="false"><span class="tl-chip-label">Companies:</span><span class="tl-chip-value">Any</span><svg><use href="#ic-chevron-down"/></svg></button>
+          </div>
+          <div class="tl-views" aria-label="Saved views">
+            <span class="tl-filter-label">Views:</span>
+            <button class="tl-chip" type="button">My Q4 review</button>
+            <button class="tl-chip" type="button">Team weekly</button>
+            <button class="btn btn-ghost btn-xs" type="button"><svg><use href="#ic-save"/></svg> Save view</button>
           </div>
           <div class="tl-controls">
             <div class="row wrap tl-controls-left">
@@ -2659,7 +2752,7 @@
             
             <div class="tl-foot">
               <div class="row wrap"><span class="row tl-legend-item"><i class="tl-stage-dot" style="--stage:var(--chart-blue)"></i>Qualification</span><span class="row tl-legend-item"><i class="tl-stage-dot" style="--stage:var(--chart-cyan)"></i>Discovery</span><span class="row tl-legend-item"><i class="tl-stage-dot" style="--stage:var(--chart-violet)"></i>Proposal</span><span class="row tl-legend-item"><i class="tl-stage-dot" style="--stage:var(--chart-amber)"></i>Negotiation</span><span class="row tl-legend-item"><i class="tl-stage-dot" style="--stage:var(--chart-emerald)"></i>Commit</span><span class="row tl-legend-item"><svg class="tl-legend-alert"><use href="#ic-warn"/></svg>Overdue</span></div>
-              <a class="tl-undated" href="#s1"><svg><use href="#ic-calendar-x"/></svg> 12 open deals have no close date <svg><use href="#ic-arrow-right"/></svg></a>
+              <a class="tl-undated" href="#s1"><svg><use href="#ic-calendar-x"/></svg> 12 deals have no close date <svg><use href="#ic-arrow-right"/></svg></a>
             </div>
           </div>
         </main>
@@ -2738,11 +2831,18 @@
           </div>
           <div class="tl-filterbar">
             <span class="tl-filter-label">Filter:</span>
-            <button class="tl-chip is-active" type="button" aria-haspopup="dialog" aria-expanded="false"><span class="tl-chip-label">Status:</span><span class="tl-chip-value">Open</span><svg><use href="#ic-chevron-down"/></svg></button>
+            <div class="segmented" role="tablist" aria-label="Closed deals"><button type="button" aria-selected="true">Hide closed deals</button><button type="button" aria-selected="false">All deals</button></div>
+            <button class="tl-chip" type="button" aria-haspopup="dialog" aria-expanded="false"><span class="tl-chip-label">Status:</span><span class="tl-chip-value">All</span><svg><use href="#ic-chevron-down"/></svg></button>
             <span class="tl-chip-anchor"><button class="tl-chip is-active" type="button" aria-haspopup="dialog" aria-expanded="false" data-goto="s16"><span class="tl-chip-label">Pipeline:</span><span class="tl-chip-value">New business</span><svg><use href="#ic-chevron-down"/></svg></button></span>
             <button class="tl-chip" type="button" aria-haspopup="dialog" aria-expanded="false"><span class="tl-chip-label">Owner:</span><span class="tl-chip-value">All</span><svg><use href="#ic-chevron-down"/></svg></button>
             <button class="tl-chip" type="button" aria-haspopup="dialog" aria-expanded="false"><span class="tl-chip-label">People:</span><span class="tl-chip-value">Any</span><svg><use href="#ic-chevron-down"/></svg></button>
             <button class="tl-chip" type="button" aria-haspopup="dialog" aria-expanded="false"><span class="tl-chip-label">Companies:</span><span class="tl-chip-value">Any</span><svg><use href="#ic-chevron-down"/></svg></button>
+          </div>
+          <div class="tl-views" aria-label="Saved views">
+            <span class="tl-filter-label">Views:</span>
+            <button class="tl-chip" type="button">My Q4 review</button>
+            <button class="tl-chip" type="button">Team weekly</button>
+            <button class="btn btn-ghost btn-xs" type="button"><svg><use href="#ic-save"/></svg> Save view</button>
           </div>
           <div class="tl-controls">
             <div class="row wrap tl-controls-left">
@@ -2857,7 +2957,7 @@
             
             <div class="tl-foot">
               <div class="row wrap"><span class="row tl-legend-item"><i class="tl-stage-dot" style="--stage:var(--chart-blue)"></i>Qualification</span><span class="row tl-legend-item"><i class="tl-stage-dot" style="--stage:var(--chart-cyan)"></i>Discovery</span><span class="row tl-legend-item"><i class="tl-stage-dot" style="--stage:var(--chart-violet)"></i>Proposal</span><span class="row tl-legend-item"><i class="tl-stage-dot" style="--stage:var(--chart-amber)"></i>Negotiation</span><span class="row tl-legend-item"><i class="tl-stage-dot" style="--stage:var(--chart-emerald)"></i>Commit</span><span class="row tl-legend-item"><svg class="tl-legend-alert"><use href="#ic-warn"/></svg>Overdue</span></div>
-              <a class="tl-undated" href="#s1"><svg><use href="#ic-calendar-x"/></svg> 12 open deals have no close date <svg><use href="#ic-arrow-right"/></svg></a>
+              <a class="tl-undated" href="#s1"><svg><use href="#ic-calendar-x"/></svg> 12 deals have no close date <svg><use href="#ic-arrow-right"/></svg></a>
             </div>
           </div>
         </main>
@@ -2871,10 +2971,10 @@
     </div>
   </div>
   <div class="notes">
-    <div class="note"><b>1</b><span>The drawer is a summary plus existing actions, not the edit form. Field edits stay on the full page, so a closed deal never gets a close-date control here.</span></div>
+    <div class="note"><b>1</b><span>The drawer is a summary plus existing actions, not the edit form. Field edits stay on the existing deal page, so a closed deal never gets a close-date control here.</span></div>
     <div class="note"><b>2</b><span>Review signals come from the Kanban's pipeline enrichment: open activities, days in the current stage, and the stalled flag. A deal with no open activity is flagged.</span></div>
     <div class="note"><b>3</b><span>Actions reuse existing dialogs: Change close date (screen 6), Schedule follow-up, Change stage, and Mark won or lost with a reason. Read-only users see the summary only: no actions, and the deal title is plain text because the existing deal page needs the manage-deals permission.</span></div>
-    <div class="note"><b>4</b><span>In the drawer header, the deal title, company and person link to their existing CRM pages (screen 15), each only when the user can open that page; the browser's Back returns here. The status badge sits next to the stage. The open deal is in the URL (<code class="t-mono">?deal=</code>), so reload and shared links reopen it and Back closes it. Escape closes it too, and focus returns to the card. Cmd/Ctrl-click on a card opens the full page instead.</span></div>
+    <div class="note"><b>4</b><span>In the drawer header, the deal title, company and person link to their existing CRM pages (screen 15), each only when the user can open that page; the browser's Back returns here. The status badge sits next to the stage. The open deal is in the URL (<code class="t-mono">?deal=</code>), so reload and shared links reopen it and Back closes it. Escape closes it too, and focus returns to the card. Cmd/Ctrl-click on a card opens the existing deal page instead (for users who can manage deals).</span></div>
   </div>
 </section>
 

@@ -111,7 +111,7 @@ row by row. Slipped or bunched-up deals get missed.
   - AC: Esc during a drag cancels it, and the card returns to its origin.
   - AC: dropping into the original column does nothing and makes no request.
 - **US-C2** As a keyboard user, I want to reschedule without a mouse.
-  - AC: a "Change close date" action on the card menu, in the deal drawer, and on each "+N more" popover row, opens a
+  - AC: a "Change close date" action in the deal drawer (opened from a card or a "+N more" row) opens a
     dialog containing a date input. This is also the path for picking an exact day. When the new
     date isn't visible, the view stays and the flash offers "Show deal", which receives focus. `Cmd/Ctrl+Enter` saves and `Escape` cancels.
     Arrow Up/Down move focus within a cell, and Left/Right move it across columns.
@@ -126,8 +126,9 @@ row by row. Slipped or bunched-up deals get missed.
 ### Epic D — Edge states
 
 - **US-D1** Empty tenant (no deals): an empty state with "Create deal" (if permitted).
-- **US-D2** Filters match nothing in range: "No deals close in this period" with "Clear filters"
-  and "Jump to next deal" when one exists outside the window.
+- **US-D2** Filters match nothing in range: "No deals close in this period" with "Clear filters",
+  "Show closed deals" while closed deals are hidden, and "Jump to next deal" when one exists outside
+  the window. The filters stay visible, because the organization has deals.
 - **US-D3** Deals with no expected close date: a footer counter "12 deals have no close date →"
   that opens the list view pre-filtered (no tray in v1).
 - **US-D4** No access (`customers.deals.view` missing): the standard backend no-access page.
@@ -149,7 +150,7 @@ row by row. Slipped or bunched-up deals get missed.
 | s2 | Timeline — quarter columns, lanes by Stage | US-A2, B2 |
 | s3 | Timeline — month columns, "+N more" popover open | US-A1, A2 |
 | s4 | Drag in progress (ghost + target cell + date tooltip) | US-C1 |
-| s5 | After drop: optimistic move + Undo flash | US-C1 |
+| s5 | After drop: optimistic move + last-operation banner with Undo | US-C1 |
 | s6 | "Change close date" dialog (keyboard path) | US-C2 |
 | s7 | Conflict (409) bar after drop | US-C3 |
 | s8 | Read-only user | US-C4 |
@@ -159,8 +160,9 @@ row by row. Slipped or bunched-up deals get missed.
 | s12 | Loading skeleton | US-D5 |
 | s13 | Load error | US-D5 |
 | s14 | No access | US-D4 |
-| s15 | Deal detail (click-through target, abbreviated) | US-A1 |
+| s15 | Existing CRM pages (deal, company, person), unchanged stand-in | US-A1 |
 | s16 | Pipeline filter dropdown open | §3.1, US-B2 |
+| s17 | Deal drawer over the timeline | US-A1, C2, C4 |
 
 ## §7 Resolved questions
 

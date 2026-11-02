@@ -292,3 +292,16 @@
 .tl-existing-page svg { width: 1.5rem; height: 1.5rem; }
 .tl-existing-page .t-section { color: var(--foreground); }
 .tl-existing-page p { margin: 0; }
+
+/* Saved views row */
+.tl-views { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin-bottom: 0.75rem; }
+
+/* Shell last-operation banner (LastOperationBanner) */
+.tl-op-banner {
+  display: flex; align-items: center; justify-content: space-between; gap: 0.75rem;
+  margin-bottom: 1rem; padding: 0.5rem 0.5rem 0.5rem 0.75rem; border-radius: var(--radius-md);
+  border: 1px solid var(--status-warning-border); background: var(--status-warning-bg);
+  color: var(--status-warning-text); font-size: 0.875rem; box-shadow: var(--shadow-xs);
+}
+.tl-op-banner .btn { border-color: var(--status-warning-border); background: var(--status-warning-bg); color: var(--status-warning-text); }
+.tl-op-banner svg { width: 0.875rem; height: 0.875rem; }
