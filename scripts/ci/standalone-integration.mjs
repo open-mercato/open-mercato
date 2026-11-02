@@ -44,7 +44,7 @@ const logPath = `${appDir}.log`
 const selectionPath = path.join(repoRoot, '.ai', 'qa', 'test-results', 'standalone-selection.json')
 let server = null
 
-function run(command, args, { cwd = repoRoot, env = {}, capture = false, retry = false } = {}) {
+function run(command, args, { cwd = repoRoot, env = {}, retry = false } = {}) {
   const invocation = retry
     ? ['bash', [path.join(repoRoot, 'scripts', 'ci', 'npm-retry-on-quarantine.sh'), command, ...args]]
     : [command, args]
@@ -52,13 +52,12 @@ function run(command, args, { cwd = repoRoot, env = {}, capture = false, retry =
   const result = spawnSync(invocation[0], invocation[1], {
     cwd,
     env: { ...process.env, ...env },
-    stdio: capture ? ['ignore', 'pipe', 'inherit'] : 'inherit',
+    stdio: 'inherit',
     encoding: 'utf8',
     maxBuffer: 64 * 1024 * 1024,
   })
   if (result.error) throw result.error
   if (result.status !== 0) throw new Error(`Standalone command failed (${result.status}): ${command} ${args.join(' ')}`)
-  return result.stdout
 }
 
 function packLocalPackages() {
@@ -141,10 +140,6 @@ try {
   run('yarn', ['tsx', 'scripts/ci/select-standalone-tests.ts', suite, values['base-ref'] ?? '', selectionPath], { env: testEnv })
   const selection = JSON.parse(fs.readFileSync(selectionPath, 'utf8'))
   if (!selection.selected.length) throw new Error('Standalone gate selected no tests')
-  const listOutput = run('yarn', ['playwright', 'test', '--config', '.ai/qa/tests/playwright.config.ts',
-    ...selection.selected, '--list', '--reporter=json'], { env: { ...testEnv, OM_INTEGRATION_MODULES: '' }, capture: true })
-  const listed = JSON.parse(listOutput)
-  assertStandaloneSmokeCoverage(listed)
   run('yarn', ['test:integration', ...selection.selected], { env: { ...testEnv, OM_INTEGRATION_MODULES: '' } })
   assertStandaloneSmokeCoverage(JSON.parse(fs.readFileSync(path.join(repoRoot, '.ai', 'qa', 'test-results', 'results.json'), 'utf8')), { executed: true })
 } catch (error) {
