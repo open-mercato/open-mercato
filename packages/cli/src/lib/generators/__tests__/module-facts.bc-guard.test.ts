@@ -72,7 +72,7 @@ describe('module-facts BC resolve guard (T2)', () => {
     expect(legacySecurity?.kind === 'component-override' ? legacySecurity.details.mode : null).toBe('replace')
     expect(v2Security?.kind === 'component-override' ? v2Security.details.mode : null).toBe('wrapper')
 
-    const recoveredContribution = 'catalog.injection.product-bulk-delete@data-table:catalog.products.list:bulk-actions'
+    const recoveredContribution = 'catalog.injection.product-seo@crud-form:catalog.catalog_product'
     expect(legacyFactsByModule.catalog.extensionSurfaces?.contributions.map((entry) => entry.id))
       .not.toContain(recoveredContribution)
     expect(factsByModule.catalog.extensionSurfaces?.contributions.map((entry) => entry.id))
