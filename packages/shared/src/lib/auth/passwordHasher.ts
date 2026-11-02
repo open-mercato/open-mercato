@@ -232,15 +232,30 @@ export function createPasswordHasher(
   }
 }
 
-let activePasswordHasher: PasswordHasher | null = null
+// Kept on globalThis so every copy of this module (separate server bundles,
+// CLI vs worker entry points) shares one hasher and one `setPasswordHasher` override.
+const GLOBAL_KEY = Symbol.for('@open-mercato/shared.passwordHasher')
+
+type PasswordHasherStore = { active?: PasswordHasher | null }
+
+function store(): PasswordHasherStore {
+  const globalStore = globalThis as unknown as Record<symbol, PasswordHasherStore | undefined>
+  let current = globalStore[GLOBAL_KEY]
+  if (!current) {
+    current = {}
+    globalStore[GLOBAL_KEY] = current
+  }
+  return current
+}
 
 /**
  * The process-wide password hasher, built from the environment on first use.
  * Also registered in DI as `passwordHasher` by the `auth` module.
  */
 export function getPasswordHasher(): PasswordHasher {
-  if (!activePasswordHasher) activePasswordHasher = createPasswordHasher()
-  return activePasswordHasher
+  const current = store()
+  if (!current.active) current.active = createPasswordHasher()
+  return current.active
 }
 
 /**
@@ -249,5 +264,5 @@ export function getPasswordHasher(): PasswordHasher {
  * on next use.
  */
 export function setPasswordHasher(hasher: PasswordHasher | null): void {
-  activePasswordHasher = hasher
+  store().active = hasher
 }
