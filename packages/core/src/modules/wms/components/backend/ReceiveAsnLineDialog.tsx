@@ -61,6 +61,17 @@ export function parseReceiveSerialNumbers(value: string): string[] {
     .filter((part) => part.length > 0)
 }
 
+async function reloadReceivingLineQty(lineId: string): Promise<number | null> {
+  const call = await apiCall<{
+    items?: Array<{ received_qty?: string | number | null }>
+  }>(`/api/wms/receiving-lines?ids=${encodeURIComponent(lineId)}&page=1&pageSize=1`)
+  if (!call.ok) return null
+  const raw = call.result?.items?.[0]?.received_qty
+  if (raw == null || raw === '') return null
+  const parsed = typeof raw === 'number' ? raw : Number(raw)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
 type ReceiveAsnLineDialogProps = {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -130,6 +141,11 @@ export function ReceiveAsnLineDialog({
   const [lockUpdatedAt, setLockUpdatedAt] = React.useState<string | null>(null)
   /** Fresh If-Match after 409; ref so guarded retry reads latest without re-seed. */
   const lockUpdatedAtRef = React.useRef<string | null>(null)
+  /** Server received qty. A 409 reload writes this before a retry rebuilds the absolute target. */
+  const baselineReceivedQtyRef = React.useRef(line?.receivedQty ?? 0)
+  const intendedDeltaRef = React.useRef(0)
+  /** Set when a 409 could not reload the line, so a later no-op must not look like a new receipt. */
+  const receiptNeedsReconcileRef = React.useRef(false)
 
   const closeDialog = React.useCallback(() => {
     if (submitting) return
@@ -138,6 +154,8 @@ export function ReceiveAsnLineDialog({
 
   React.useEffect(() => {
     if (!open || !line) return
+    baselineReceivedQtyRef.current = line.receivedQty
+    receiptNeedsReconcileRef.current = false
     setBaselineReceivedQty(line.receivedQty)
     setReceivedQty(remaining > 0 ? remaining : 1)
     setQcStatus('passed')
@@ -213,36 +231,52 @@ export function ReceiveAsnLineDialog({
 
       setSubmitting(true)
       setFieldErrors({})
-      const targetReceivedQty = baselineReceivedQty + parsed.data.receivedQty
-      const payload: Record<string, unknown> = {
-        organizationId: access.organizationId,
-        tenantId: access.tenantId,
-        lineId: line.lineId,
-        receivedQty: parsed.data.receivedQty,
-        targetReceivedQty,
+      intendedDeltaRef.current = parsed.data.receivedQty
+      const attemptFields = {
         qcStatus: parsed.data.qcStatus,
-        performedBy: access.userId,
+        targetStagingLocationId: parsed.data.targetStagingLocationId,
+        lotNumber: parsed.data.lotNumber,
+        rejectionReason: parsed.data.rejectionReason,
+        serialNumbers,
       }
-      if (parsed.data.targetStagingLocationId) {
-        payload.targetStagingLocationId = parsed.data.targetStagingLocationId
-      }
-      if (parsed.data.lotNumber) payload.lotNumber = parsed.data.lotNumber
-      if (serialNumbers.length > 0) payload.serialNumbers = serialNumbers
-      if (parsed.data.rejectionReason) payload.rejectionReason = parsed.data.rejectionReason
 
       try {
         let conflictHandled = false
+        let deltaApplied = false
         let mutationResult: {
           ok?: boolean
           receivedQty?: number
           asnUpdatedAt?: string
+          movementIds?: string[]
         } = {}
         await runMutation({
           operation: async () => {
+            const delta = intendedDeltaRef.current
+            const baseline = baselineReceivedQtyRef.current
+            const targetReceivedQty = baseline + delta
+            const payload: Record<string, unknown> = {
+              organizationId: access.organizationId,
+              tenantId: access.tenantId,
+              lineId: line.lineId,
+              receivedQty: delta,
+              targetReceivedQty,
+              qcStatus: attemptFields.qcStatus,
+              performedBy: access.userId,
+            }
+            if (attemptFields.targetStagingLocationId) {
+              payload.targetStagingLocationId = attemptFields.targetStagingLocationId
+            }
+            if (attemptFields.lotNumber) payload.lotNumber = attemptFields.lotNumber
+            if (attemptFields.serialNumbers.length > 0) {
+              payload.serialNumbers = attemptFields.serialNumbers
+            }
+            if (attemptFields.rejectionReason) payload.rejectionReason = attemptFields.rejectionReason
+
             const call = await apiCall<{
               ok?: boolean
               receivedQty?: number
               asnUpdatedAt?: string
+              movementIds?: string[]
             }>(
               `/api/wms/asns/${encodeURIComponent(asnId)}/receive`,
               {
@@ -273,6 +307,14 @@ export function ReceiveAsnLineDialog({
                 })
               ) {
                 refreshLockFromConflict()
+                const reconciled = await reloadReceivingLineQty(line.lineId)
+                if (reconciled == null) {
+                  receiptNeedsReconcileRef.current = true
+                } else {
+                  receiptNeedsReconcileRef.current = false
+                  baselineReceivedQtyRef.current = reconciled
+                  setBaselineReceivedQty(reconciled)
+                }
                 conflictHandled = true
                 return {}
               }
@@ -282,18 +324,43 @@ export function ReceiveAsnLineDialog({
               )
             }
             mutationResult = call.result ?? {}
+            const serverQty =
+              typeof mutationResult.receivedQty === 'number'
+                ? mutationResult.receivedQty
+                : targetReceivedQty
+            const movementIds = mutationResult.movementIds
+            const noNewMovement = !Array.isArray(movementIds) || movementIds.length === 0
+            const reachedTarget = serverQty + 0.000001 >= targetReceivedQty
+            // A lost response replays the same absolute target and still reaches it.
+            // After a failed reload, that same shape is a stale no-op, not a new receipt.
+            const staleNoOp =
+              receiptNeedsReconcileRef.current &&
+              noNewMovement &&
+              Math.abs(serverQty - targetReceivedQty) <= 0.000001
+            deltaApplied = reachedTarget && !staleNoOp
+            if (deltaApplied) {
+              receiptNeedsReconcileRef.current = false
+            } else {
+              baselineReceivedQtyRef.current = serverQty
+              setBaselineReceivedQty(serverQty)
+            }
             return mutationResult
           },
           context: mutationContext,
-          mutationPayload: payload,
+          mutationPayload: {
+            lineId: line.lineId,
+            receivedQty: parsed.data.receivedQty,
+            qcStatus: parsed.data.qcStatus,
+          },
         })
 
-        if (conflictHandled) return
+        if (conflictHandled || !deltaApplied) return
 
         const nextReceivedQty =
           typeof mutationResult.receivedQty === 'number'
             ? mutationResult.receivedQty
-            : targetReceivedQty
+            : baselineReceivedQtyRef.current + intendedDeltaRef.current
+        baselineReceivedQtyRef.current = nextReceivedQty
         setBaselineReceivedQty(nextReceivedQty)
         if (mutationResult.asnUpdatedAt) {
           setLockUpdatedAt(mutationResult.asnUpdatedAt)
@@ -328,7 +395,6 @@ export function ReceiveAsnLineDialog({
     [
       access,
       asnId,
-      baselineReceivedQty,
       closeDialog,
       line,
       lockUpdatedAt,

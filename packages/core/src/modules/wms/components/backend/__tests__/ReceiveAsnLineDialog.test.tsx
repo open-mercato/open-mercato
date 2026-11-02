@@ -4,6 +4,7 @@
 import * as React from 'react'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { ReceiveAsnLineDialog } from '../ReceiveAsnLineDialog'
 
 const mockApiCall = jest.fn()
@@ -70,6 +71,38 @@ const access = {
   canReceive: true,
 } as any
 
+function lineReload(receivedQty: number | string) {
+  return {
+    ok: true,
+    status: 200,
+    result: { items: [{ received_qty: receivedQty }] },
+    response: new Response(null, { status: 200 }),
+  }
+}
+
+function receiveOk(receivedQty: number, movementIds?: string[]) {
+  return {
+    ok: true,
+    status: 200,
+    result: { ok: true, receivedQty, movementIds, asnUpdatedAt: '2026-08-22T10:05:00.000Z' },
+    response: new Response(null, { status: 200 }),
+  }
+}
+
+function conflict(currentUpdatedAt: string) {
+  return {
+    ok: false,
+    status: 409,
+    result: {
+      error: 'record_modified',
+      code: 'optimistic_lock_conflict',
+      expectedUpdatedAt: line.asnUpdatedAt,
+      currentUpdatedAt,
+    },
+    response: new Response(null, { status: 409 }),
+  }
+}
+
 const line = {
   lineId: 'line-1',
   catalogVariantId: 'var-1',
@@ -130,23 +163,9 @@ describe('ReceiveAsnLineDialog', () => {
   it('refreshes the optimistic-lock token from a 409 so retry sends a fresh If-Match', async () => {
     const freshUpdatedAt = '2026-08-22T10:05:00.000Z'
     mockApiCall
-      .mockResolvedValueOnce({
-        ok: false,
-        status: 409,
-        result: {
-          error: 'record_modified',
-          code: 'optimistic_lock_conflict',
-          expectedUpdatedAt: line.asnUpdatedAt,
-          currentUpdatedAt: freshUpdatedAt,
-        },
-        response: new Response(null, { status: 409 }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        result: { ok: true, receivedQty: 10, asnUpdatedAt: freshUpdatedAt },
-        response: new Response(null, { status: 200 }),
-      })
+      .mockResolvedValueOnce(conflict(freshUpdatedAt))
+      .mockResolvedValueOnce(lineReload(2))
+      .mockResolvedValueOnce(receiveOk(10))
 
     render(
       <ReceiveAsnLineDialog
@@ -161,13 +180,14 @@ describe('ReceiveAsnLineDialog', () => {
 
     fireEvent.click(screen.getByTestId('receive-asn-submit'))
 
-    await waitFor(() => expect(mockApiCall).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(mockApiCall).toHaveBeenCalledTimes(2))
     expect(mockApiCall.mock.calls[0][1].headers[OPTIMISTIC_LOCK_HEADER_NAME]).toBe(line.asnUpdatedAt)
+    expect(String(mockApiCall.mock.calls[1][0])).toContain('/api/wms/receiving-lines?ids=line-1')
 
     fireEvent.click(screen.getByTestId('receive-asn-submit'))
 
-    await waitFor(() => expect(mockApiCall).toHaveBeenCalledTimes(2))
-    expect(mockApiCall.mock.calls[1][1].headers[OPTIMISTIC_LOCK_HEADER_NAME]).toBe(freshUpdatedAt)
+    await waitFor(() => expect(mockApiCall).toHaveBeenCalledTimes(3))
+    expect(mockApiCall.mock.calls[2][1].headers[OPTIMISTIC_LOCK_HEADER_NAME]).toBe(freshUpdatedAt)
   })
 
   it('retryLastMutation reuses the closed operation with a fresh If-Match from the lock ref', async () => {
@@ -178,23 +198,9 @@ describe('ReceiveAsnLineDialog', () => {
       return operation()
     })
     mockApiCall
-      .mockResolvedValueOnce({
-        ok: false,
-        status: 409,
-        result: {
-          error: 'record_modified',
-          code: 'optimistic_lock_conflict',
-          expectedUpdatedAt: line.asnUpdatedAt,
-          currentUpdatedAt: freshUpdatedAt,
-        },
-        response: new Response(null, { status: 409 }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        result: { ok: true, receivedQty: 10, asnUpdatedAt: freshUpdatedAt },
-        response: new Response(null, { status: 200 }),
-      })
+      .mockResolvedValueOnce(conflict(freshUpdatedAt))
+      .mockResolvedValueOnce(lineReload(2))
+      .mockResolvedValueOnce(receiveOk(10))
 
     render(
       <ReceiveAsnLineDialog
@@ -208,13 +214,70 @@ describe('ReceiveAsnLineDialog', () => {
     )
 
     fireEvent.click(screen.getByTestId('receive-asn-submit'))
-    await waitFor(() => expect(capturedOperation).toBeTruthy())
+    await waitFor(() => expect(mockApiCall).toHaveBeenCalledTimes(2))
     expect(mockApiCall.mock.calls[0][1].headers[OPTIMISTIC_LOCK_HEADER_NAME]).toBe(line.asnUpdatedAt)
 
     // Simulate injection retry: same closed operation, no re-render required.
     await capturedOperation!()
-    expect(mockApiCall).toHaveBeenCalledTimes(2)
-    expect(mockApiCall.mock.calls[1][1].headers[OPTIMISTIC_LOCK_HEADER_NAME]).toBe(freshUpdatedAt)
+    expect(mockApiCall).toHaveBeenCalledTimes(3)
+    expect(mockApiCall.mock.calls[2][1].headers[OPTIMISTIC_LOCK_HEADER_NAME]).toBe(freshUpdatedAt)
+  })
+
+  it('reloads the received quantity after a conflict before the additional receipt is retried', async () => {
+    const freshUpdatedAt = '2026-08-22T10:05:00.000Z'
+    mockApiCall
+      .mockResolvedValueOnce(conflict(freshUpdatedAt))
+      .mockResolvedValueOnce(lineReload(5))
+      .mockResolvedValueOnce(receiveOk(5, []))
+
+    render(
+      <ReceiveAsnLineDialog
+        open
+        onOpenChange={jest.fn()}
+        access={access}
+        asnId="11111111-1111-1111-1111-111111111111"
+        warehouseId="22222222-2222-2222-2222-222222222222"
+        line={line}
+      />,
+    )
+
+    fireEvent.change(screen.getByTestId('receive-asn-qty'), { target: { value: '3' } })
+    fireEvent.click(screen.getByTestId('receive-asn-submit'))
+
+    await waitFor(() => expect(mockApiCall).toHaveBeenCalledTimes(2))
+    const firstBody = JSON.parse(String(mockApiCall.mock.calls[0][1].body)) as { targetReceivedQty?: number }
+    expect(firstBody.targetReceivedQty).toBe(5)
+    expect(flash).not.toHaveBeenCalled()
+    expect(screen.getByText(/Received: 5/)).toBeTruthy()
+
+    fireEvent.click(screen.getByTestId('receive-asn-submit'))
+
+    await waitFor(() => expect(mockApiCall).toHaveBeenCalledTimes(3))
+    const retryBody = JSON.parse(String(mockApiCall.mock.calls[2][1].body)) as { targetReceivedQty?: number }
+    expect(retryBody.targetReceivedQty).toBe(8)
+    expect(flash).not.toHaveBeenCalled()
+    expect(screen.getByTestId('receive-asn-submit')).toBeTruthy()
+  })
+
+  it('keeps a same-target replay successful when the response was lost', async () => {
+    mockApiCall.mockResolvedValueOnce(receiveOk(10, []))
+
+    render(
+      <ReceiveAsnLineDialog
+        open
+        onOpenChange={jest.fn()}
+        access={access}
+        asnId="11111111-1111-1111-1111-111111111111"
+        warehouseId="22222222-2222-2222-2222-222222222222"
+        line={line}
+      />,
+    )
+
+    fireEvent.click(screen.getByTestId('receive-asn-submit'))
+
+    await waitFor(() => expect(flash).toHaveBeenCalled())
+    const body = JSON.parse(String(mockApiCall.mock.calls[0][1].body)) as { targetReceivedQty?: number }
+    expect(body.targetReceivedQty).toBe(10)
   })
 
   it('forwards trimmed serials stored on the line', async () => {
