@@ -3,7 +3,7 @@ import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWith
 import { compile, optimize } from '@tailwindcss/node'
 import MdxEditorImpl from '../MdxEditorImpl'
 
-jest.mock('@mdxeditor/editor/style.css', () => ({}))
+jest.mock('@mdxeditor/editor/style.css', () => ({}), { virtual: true })
 jest.mock('../../../theme', () => ({ useTheme: () => ({ resolvedTheme: 'light' }) }))
 jest.mock('@mdxeditor/editor', () => {
   const React = require('react') as typeof import('react')
