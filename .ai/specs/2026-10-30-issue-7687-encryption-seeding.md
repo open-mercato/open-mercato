@@ -22,7 +22,7 @@ The scope is the auth CLI, tenant provisioning subscribers owned by entities, an
 
 ## Migration & Backward Compatibility
 
-No database schema, API surface, exported signature, event ID, CLI flag, success output or authentication contract changes. New subscribers use the existing discovery convention; run normal module generation during deployment. No migration or compatibility waiver is needed.
+No database schema, API surface, existing exported signature, event ID, CLI flag, success output or authentication contract changes. The release backport includes the missing #7629 organization inline/retry subscribers and additive shared seeding helpers required by this tenant implementation; it preserves existing CLI behavior and excludes the unrelated existing-tenant upgrade action. New subscribers use the existing discovery convention; run normal module generation during deployment. No migration or compatibility waiver is needed.
 
 Existing affected tenants and organizations require an operator audit. The existing `mercato entities seed-encryption --tenant <tenant-id>` and `--tenant <tenant-id> --org <organization-id>` commands can materialize policies for previously created scopes. These commands alone do not retroactively encrypt plaintext rows. Re-encryption/backfill of existing data is outside this creation-path fix and must follow the relevant entity's operational procedure.
 
@@ -31,5 +31,7 @@ Existing affected tenants and organizations require an operator audit. The exist
 CLI persistence remains per-record autocommit. An inline seed error rejects the command but may leave a newly created tenant or organization persisted, as with existing partial CLI provisioning errors. Operators should inspect the failed scope before retrying. Directory command side effects retain their existing best-effort inline delivery and durable retry semantics: a transient seed failure can defer policy creation until retry. This patch does not change event-bus delivery contracts or claim a transactional policy guarantee for that path.
 
 ## Changelog
+
+- 2026-11-02: Repaired the release backport's missing #7629 prerequisite (organization inline/retry delivery, shared canonical helpers and original regressions). Local Node 24: 22 focused tests including disposable PostgreSQL first-write encryption passed; module generation, core typecheck, whitespace and lesson catalog passed. Hosted current-head CI remains required.
 
 - 2026-10-30: Confirmed both omitted paths at `3b2ea82ea7`; implemented existing lifecycle delivery and entities-owned tenant seeding with focused and disposable PostgreSQL regressions for #7687.
