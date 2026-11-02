@@ -635,7 +635,7 @@ describe('CompanyPeopleSection', () => {
     expect(await screen.findByText('Grace Hopper')).toBeInTheDocument()
   })
 
-  it('shows the people search controls by default when linked people exist', () => {
+  it('shows the search box and sortable headers by default when linked people exist', async () => {
     mockCompanyPeopleApi({
       linkedPeople: [
         {
@@ -663,8 +663,9 @@ describe('CompanyPeopleSection', () => {
     )
 
     expect(screen.getByPlaceholderText('Search by name, role, email...')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Filters' })).toBeInTheDocument()
-    expect(screen.getByRole('combobox')).toBeInTheDocument()
+    expect(await screen.findByRole('columnheader', { name: 'Name' })).toHaveAttribute('aria-sort', 'ascending')
+    expect(screen.getByRole('button', { name: 'Linked' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /search and sort/i })).not.toBeInTheDocument()
   })
 
   // Live refresh for a detach performed in ANOTHER session. A link-backed detach broadcasts
