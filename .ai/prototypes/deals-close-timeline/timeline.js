@@ -173,6 +173,7 @@
       + '<div class="grow"><h3 class="t-section" id="tl-drawer-title-' + escapeHtml(info.id) + '">' + escapeHtml(info.title) + '</h3>'
       + '<p class="t-hint tl-drawer-sub">' + escapeHtml(info.company) + ' · ' + escapeHtml(info.owner) + '</p></div>'
       + '<span class="badge badge-info"><span class="dot"></span>Open</span>'
+      + '<a class="btn btn-ghost btn-xs tl-drawer-full" href="#s15" data-goto="s15" title="Open the deal detail page"><svg><use href="#ic-maximize"/></svg> Full page</a>'
       + '<button class="icon-btn" type="button" aria-label="Close" data-tl-drawer-close><svg><use href="#ic-x"/></svg></button>'
       + '</div>'
       + '<div class="drawer-body">'
@@ -191,7 +192,6 @@
       + '<section class="tl-drawer-section"><div class="t-label">Actions</div>' + actions + '</section>'
       + '<p class="t-hint">Field edits happen on the full page. The drawer has no edit form, so closed deals never get a close-date control here.</p>'
       + '</div>'
-      + '<div class="drawer-foot"><a class="btn btn-outline btn-sm" href="#s15" data-goto="s15">Open full page <svg><use href="#ic-arrow-right"/></svg></a></div>'
       + '</aside>';
   }
 
@@ -215,14 +215,14 @@
     flashTimer = setTimeout(function () { toast.remove(); }, 4000);
   }
 
-  function closeDrawer() {
+  function closeDrawer(restoreFocus) {
     if (!openDrawerState) return;
     var state = openDrawerState;
     openDrawerState = null;
     state.drawer.remove();
     state.app.classList.remove('drawer-scrim');
     setFrameUrl(state.app, null);
-    if (state.card.isConnected) state.card.focus();
+    if (restoreFocus !== false && state.card.isConnected) state.card.focus();
   }
 
   function openDrawer(card) {
@@ -258,12 +258,12 @@
     }
     var action = event.target.closest('[data-tl-drawer-action]');
     if (!action) {
-      if (event.target.closest('[data-goto]') && state.drawer.contains(event.target)) closeDrawer();
+      if (event.target.closest('[data-goto]') && state.drawer.contains(event.target)) closeDrawer(false);
       return;
     }
     var kind = action.getAttribute('data-tl-drawer-action');
     if (kind === 'date') {
-      closeDrawer();
+      closeDrawer(false);
       var opener = document.getElementById('tl-open-dialog');
       if (opener) opener.click();
       return;

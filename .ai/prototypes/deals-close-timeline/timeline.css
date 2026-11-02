@@ -276,5 +276,5 @@
 .tl-drawer-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
 .tl-drawer-note { display: inline-flex; align-items: center; gap: 0.375rem; margin: 0; }
 .tl-drawer-note svg { width: 0.875rem; height: 0.875rem; }
-.tl-drawer .drawer-foot svg { width: 0.875rem; height: 0.875rem; }
+.tl-drawer-full { flex: none; align-self: center; text-decoration: none; }
 @media (max-width: 640px) { .tl-drawer { width: 100%; max-width: 100%; } }
