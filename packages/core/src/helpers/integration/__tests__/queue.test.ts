@@ -66,7 +66,7 @@ describe('drainIntegrationQueue', () => {
   })
 
   it('observes the managed worker in a standalone app without spawning a competing consumer', async () => {
-    process.env.OM_TEST_APP_ROOT = path.resolve(process.cwd(), 'apps/mercato')
+    process.env.OM_TEST_APP_ROOT = path.resolve(process.cwd(), 'standalone-app')
     getJobCounts.mockResolvedValueOnce(counts({ waiting: 1, completed: 2 }))
       .mockResolvedValue(counts({ completed: 3 }))
     jest.mocked(getQueuePendingProbe)
@@ -81,7 +81,7 @@ describe('drainIntegrationQueue', () => {
   })
 
   it('drains a standalone app in its own process when automatic workers are disabled through the alias', async () => {
-    const appRoot = path.resolve(process.cwd(), 'apps/mercato')
+    const appRoot = path.resolve(process.cwd(), 'standalone-app')
     process.env.OM_TEST_APP_ROOT = appRoot
     process.env.OM_AUTO_SPAWN_WORKERS = 'false'
     jest.mocked(spawn).mockReturnValue(createDrainChild(4) as never)
