@@ -10,6 +10,7 @@ describe('module locators', () => {
     ['git@github.com:Open-Mercato/marketing-consents.git', 'github:open-mercato/marketing-consents'],
     ['git+ssh://git@github.com/Open-Mercato/marketing-consents.git#main', 'github:open-mercato/marketing-consents'],
     ['github.com/Open-Mercato/marketing-consents.git', 'github:open-mercato/marketing-consents'],
+    ['https://github.com/https://github.com/Open-Mercato/marketing-consents', 'github:open-mercato/marketing-consents'],
     ['github:marketing-consents', 'github:marketing-consents'],
     ['marketing_consents', 'marketing_consents'],
   ])('normalizes %s', (input, expected) => expect(normalizeModuleLocator(input)).toBe(expected))

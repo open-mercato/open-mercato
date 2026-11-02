@@ -48,13 +48,15 @@ Only packages that satisfy all of the following criteria can be installed with t
 
 Module identity and ejectability are read directly from each module's `src/modules/<moduleId>/index.ts` — no extra fields in `package.json` are required. The `@open-mercato/*` scope is **not** a hard requirement for the module to work; it only gates the implicit-trust default, which `--allow-third-party` overrides.
 
+When a descriptor declares `metadata.requires`, it must use a static array containing only string literals. Computed arrays, spreads, identifiers, and non-string entries fail enablement because the CLI must validate dependencies without executing package code.
+
 ## Fresh Releases and the 5-Day Age Gate
 
 Apps created with `create-mercato-app` set `npmMinimalAgeGate: 5d` in `.yarnrc.yml`, so Yarn refuses third-party versions published less than 5 days ago. The `@open-mercato/*` scope is preapproved and installs immediately. The [module page](https://modules.openmercato.com) shows the date a fresh release becomes installable as **Installable from**, and its install command keeps the previous version until then. Pass that exact version in `<packageSpec>`.
 
 ## What the Command Does
 
-1. Parses `<packageSpec>` and inspects the selected source before changing the app's dependency binding. For npm, it uses `npm pack --ignore-scripts` to inspect the published artifact and retains the requested npm selector and verifies the installed version matches the inspected artifact. Local `file:` sources are inspected directly. For GitHub, it resolves and inspects a pinned commit.
+1. Parses `<packageSpec>` and inspects the selected source before changing the app's dependency binding. For npm, it uses `npm pack --ignore-scripts` to inspect the published artifact, retains the requested npm selector, and verifies the installed version matches the inspected artifact. This preflight requires the `npm` executable and registry access even when Yarn could otherwise satisfy an install from its offline cache. In an intentionally offline environment, install through Yarn first and then run `yarn mercato module enable <packageName>`. Local `file:` sources are inspected directly. For GitHub, it resolves and inspects a pinned commit. GitHub preflight validates repository layout and export-map coverage from source paths; because it derives the corresponding `dist/` paths without downloading a built package, actual compiled output is verified only after Yarn installs the pinned commit.
 2. Discovers the shipped module IDs and selects `--module`, or the sole module when there is exactly one. Missing or ambiguous selections stop before Yarn runs.
 3. Checks the selected runtime module ID against existing registrations and local source. It also checks every enabled module using the package binding: an update must preserve their canonical source and module directories. A conflicting provider or binding replacement stops before Yarn changes the dependency.
 4. Installs the inspected target using Yarn (`yarn add` for standalone apps; `yarn workspace <app> add` inside a monorepo). The inspection suppresses npm pack lifecycle scripts; installation still uses the app's normal package-manager behavior.

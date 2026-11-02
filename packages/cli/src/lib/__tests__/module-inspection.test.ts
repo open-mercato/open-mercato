@@ -138,6 +138,23 @@ describe('module artifact inspection', () => {
     expect(() => inspectNpmModuleTarget('@vendor/example@next', '@vendor/example', root)).toThrow('No package was installed')
   })
 
+  it('reports the safe export validation cause without exposing npm output', () => {
+    jest.spyOn(childProcess, 'execFileSync').mockImplementation((_command, args) => {
+      if (args?.[0] === '-xOf' && args?.[2] === 'package/package.json') {
+        return JSON.stringify({ name: '@vendor/example', version: '1.2.3', exports: { './modules/example/index': null } })
+      }
+      if (args?.[0] === '-tf') return 'package/src/modules/example/index.ts\npackage/dist/modules/example/index.js\n'
+      return 'export const metadata = {}'
+    })
+    jest.spyOn(spawn, 'sync').mockReturnValue({ status: 0, stdout: JSON.stringify([{ name: '@vendor/example', version: '1.2.3', filename: 'candidate.tgz' }]), stderr: 'private registry token', pid: 1, output: [], signal: null })
+
+    expect(() => inspectNpmModuleTarget('@vendor/example@next', '@vendor/example', root)).toThrow('while trying to validate the packed module artifact')
+    try { inspectNpmModuleTarget('@vendor/example@next', '@vendor/example', root) } catch (error) {
+      expect(String(error)).toContain('@vendor/example/modules/example/index')
+      expect(String(error)).not.toContain('private registry token')
+    }
+  })
+
   it.each([0, 1])('mirrors scoped Yarn authentication and removes the temporary npmrc after status %s', (status) => {
     fs.writeFileSync(path.join(root, '.yarnrc.yml'), 'npmScopes: {}')
     const config: Record<string, unknown> = {

@@ -307,7 +307,10 @@ Rules:
 Required behavior:
 
 - if package installation fails, CLI exits with no registration changes
+- npm exact-artifact preflight may require registry access even when Yarn has an offline cache; an offline operator can install through Yarn and use `module enable`
+- GitHub preflight validates source layout and export-map coverage, while the post-install validation proves compiled runtime artifacts exist
 - if validation fails after package install, CLI MUST NOT mutate app source or `src/modules.ts`
+- `metadata.requires` MUST be a static array of string literals so validation never executes package code
 - if `metadata.requires` names a module that is not enabled, CLI MUST list every missing id and tell the developer to enable those modules before retrying
 - if registration or source extraction fails, CLI MUST leave the app in a fail-closed state and print remediation guidance
 - if `mercato generate` fails after registration, CLI exits non-zero and reports that the module is enabled but generated artifacts are stale

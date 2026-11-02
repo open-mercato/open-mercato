@@ -648,6 +648,8 @@ Module generation now rejects duplicate enabled runtime IDs before writing gener
 
 `locator` and `packageName` are optional provenance fields; existing entries do not need a bulk migration. npm and GitHub sources remain distinct: a package's `repository` field alone does not satisfy a GitHub-qualified requirement. Correct stale retained provenance or restore the intended package binding when it disagrees with the installed source. Before replacing a binding, disable every enabled module that consumes it, then install and enable the new provider explicitly. Disabling discovery preserves source and data and does not remove manual imports; review those before removing the old dependency. See [module installation and recovery](apps/docs/docs/cli/module-add.mdx).
 
+Module descriptors that declare `metadata.requires` must now use a static array of string literals; computed values, spreads, identifiers, and non-string entries fail enablement. npm preflight uses `npm pack` and therefore needs the `npm` executable plus registry access even when Yarn has a cached artifact; offline operators can install with Yarn and then run `yarn mercato module enable <packageName>`. GitHub preflight checks repository layout and export-map coverage but cannot prove that build output exists until Yarn installs the pinned commit, after which the CLI performs the full installed-package validation.
+
 ### AI session keys revalidate staff roles on every request (#7599)
 
 Removing a staff role now removes that role's privileges from already-issued AI session keys on

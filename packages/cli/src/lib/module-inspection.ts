@@ -3,7 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { execFileSync } from 'node:child_process'
 import spawn from 'cross-spawn'
-import { assertModulePackageExports } from './module-package'
+import { assertModulePackageExports, isModulePackageExportError } from './module-package'
 
 export type InspectedModuleTarget = {
   packageName: string
@@ -107,21 +107,26 @@ export function inspectNpmModuleTarget(packageSpec: string, packageName: string,
   }
 
   const temporaryDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mercato-module-inspection-'))
+  let inspectionStep = 'read the project registry configuration'
   try {
     const configurationArgs = yarnNpmConfiguration(appDir, packageName, temporaryDir)
+    inspectionStep = 'fetch the exact npm artifact'
     const packedProcess = spawn.sync(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['pack', packageSpec, '--ignore-scripts', '--json', '--pack-destination', temporaryDir, ...configurationArgs], {
       cwd: appDir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 60_000, maxBuffer: 16 * 1024 * 1024,
     })
     if (packedProcess.error || packedProcess.status !== 0) throw new Error('Artifact inspection failed')
+    inspectionStep = 'parse the npm artifact response'
     const packages: unknown = JSON.parse(packedProcess.stdout)
     const packed = record(Array.isArray(packages) ? packages[0] : undefined)
     if (packed.name !== packageName || typeof packed.version !== 'string' || !/^[0-9A-Za-z.+-]+$/.test(packed.version)
       || typeof packed.filename !== 'string' || path.basename(packed.filename) !== packed.filename) throw new Error('Invalid packed manifest')
+    inspectionStep = 'validate the packed module artifact'
     const inspected = inspectArchive(path.join(temporaryDir, packed.filename), packageName, requiredModuleIds)
     if (inspected.version !== packed.version) throw new Error('Packed artifact version disagrees with resolution')
     return { packageName, packageSpec, ...inspected, locator: `npm:${packageName}` }
-  } catch {
-    throw new Error(`Cannot inspect the exact module artifact for "${packageName}". Check project registry credentials, package access and shipped src/dist module descriptors before retrying. No package was installed.`)
+  } catch (error) {
+    const safeDetail = isModulePackageExportError(error) && error instanceof Error ? ` ${error.message}` : ''
+    throw new Error(`Cannot inspect the exact module artifact for "${packageName}" while trying to ${inspectionStep}.${safeDetail} Check project registry credentials, package access and shipped src/dist module descriptors before retrying. No package was installed.`)
   } finally {
     fs.rmSync(temporaryDir, { recursive: true, force: true })
   }

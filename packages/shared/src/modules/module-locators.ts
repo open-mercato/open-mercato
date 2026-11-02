@@ -10,7 +10,7 @@ export type ModuleIdentity = {
 }
 
 export function parseModuleLocator(input: string): ModuleLocator | null {
-  const value = input.trim().replace(/^https:\/\/github\.com\/https:\/\/github\.com\//i, 'https://github.com/')
+  const value = input.trim()
   if (!value || /\s/.test(value)) return null
   if (/^[a-z][a-z0-9_]*$/.test(value)) return { kind: 'module', identity: value }
   const npmValue = value.startsWith('npm:') ? value.slice(4) : value
@@ -20,9 +20,9 @@ export function parseModuleLocator(input: string): ModuleLocator | null {
     return { kind: 'npm', identity: `npm:${match[1]}`, installSpecifier: npmValue }
   }
   const githubValue = value
+    .replace(/^(?:(?:git\+)?https?:\/\/github\.com\/)+/i, '')
     .replace(/^github:/i, '')
     .replace(/^github\.com\//i, '')
-    .replace(/^(?:git\+)?https?:\/\/github\.com\//i, '')
     .replace(/^(?:git\+)?ssh:\/\/(?:git@)?github\.com\//i, '')
     .replace(/^git@github\.com:/i, '')
   const githubMatch = githubValue.match(/^([a-z0-9][a-z0-9-]*)\/([a-z0-9._-]+?)(?:\.git)?(?:[#@][A-Za-z0-9][A-Za-z0-9._/-]{0,254})?\/?$/i)
