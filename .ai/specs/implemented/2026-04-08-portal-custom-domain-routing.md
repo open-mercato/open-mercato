@@ -1936,6 +1936,10 @@ None.
 
 ## Changelog
 
+### 2026-11-02 — Target-organization domain management regression coverage
+
+`TC-CACC-DOMAIN-SCOPE-001` exercises persisted role ACLs and mappings through HTTP: organization A grants management while B remains visible; unfiltered and filtered lists isolate A; B create/delete/verify/health-check attempts leave rows unchanged; foreign-tenant IDs return not found; authorized A operations succeed. A cross-organization replacement ID is never persisted as a replacement relationship, and the existing B mapping survives the new mapping's deletion. Fixtures are created and cleaned within the scenario. Domain-route permission denials use the shared localized `api.errors.forbidden` message.
+
 ### 2026-10-26 — Private ports behind bundled Traefik (#7833)
 - Reset app and optional collaboration host-port publications in the canonical
   and root compatibility overlays; retain base-stack external-proxy behavior.
