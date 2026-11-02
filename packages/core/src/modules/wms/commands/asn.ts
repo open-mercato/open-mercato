@@ -626,6 +626,50 @@ function assertIncomingSerialsAreNew(
   }
 }
 
+const ACTIVE_SERIAL_LOCK_SQL = 'select pg_advisory_xact_lock(hashtextextended(?, 0))'
+
+function activeSerialLockKey(scope: Scope, catalogVariantId: string, serialNumber: string): string {
+  return [
+    'wms:active-serial',
+    scope.organizationId,
+    scope.tenantId,
+    catalogVariantId,
+    serialNumber,
+  ].join(':')
+}
+
+/** Reject a serial that still has on-hand stock for this variant, including on another ASN. */
+async function assertNoActiveSerialBalance(
+  em: EntityManager,
+  scope: Scope,
+  catalogVariantId: string,
+  serialNumbers: string[],
+): Promise<void> {
+  if (serialNumbers.length === 0) return
+  const connection = em.getConnection()
+  for (const serialNumber of serialNumbers) {
+    await connection.execute(ACTIVE_SERIAL_LOCK_SQL, [
+      activeSerialLockKey(scope, catalogVariantId, serialNumber),
+    ])
+    const rows = await connection.execute<Array<{ id: string }>>(
+      `select id
+       from wms_inventory_balances
+       where organization_id = ?
+         and tenant_id = ?
+         and catalog_variant_id = ?
+         and serial_number = ?
+         and deleted_at is null
+         and quantity_on_hand > 0
+       limit 1
+       for update`,
+      [scope.organizationId, scope.tenantId, catalogVariantId, serialNumber],
+    )
+    if (rows.length > 0) {
+      throw new CrudHttpError(422, { error: 'duplicate_serial' })
+    }
+  }
+}
+
 function mergeReceivedSerials(stored: string[] | null | undefined, incoming: string[]): string[] {
   const next = normalizeStoredSerials(stored)
   const seen = new Set(next)
@@ -1866,6 +1910,9 @@ const receiveAsnLineCommand: CommandHandler<AsnReceiveLineInput, ReceiveAsnLineR
       }
       if (serialNumbers.length > 0 && serialNumbers.length !== attempt.applyQty) {
         throw new CrudHttpError(422, { error: 'tracking_required' })
+      }
+      if (serialNumbers.length > 0) {
+        await assertNoActiveSerialBalance(trx, scope, line.catalogVariantId, serialNumbers)
       }
 
       const movementResults: InventoryReceiveMutationResult[] = []

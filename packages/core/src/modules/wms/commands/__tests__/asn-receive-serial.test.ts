@@ -361,4 +361,106 @@ describe('wms.asns.receive-line serial identity', () => {
     }))
     expect(receivingLine.receivedQty).toBe('2')
   })
+
+  it('rejects an active serial already on hand for the variant before writing', async () => {
+    const em = createEm()
+    const execute = jest.fn(async (sql: string) => {
+      if (String(sql).includes('quantity_on_hand')) return [{ id: 'balance-active' }]
+      return []
+    })
+    em.getConnection.mockReturnValue({ execute })
+    const receivingLine = line()
+    stubReceiveLookups(em, receivingLine)
+
+    const handler = commandRegistry.get('wms.asns.receive-line')
+    await expect(
+      handler!.execute(
+        receiveInput({ receivedQty: 1, targetReceivedQty: 1, serialNumbers: ['SN-X'] }),
+        createCtx(em) as never,
+      ),
+    ).rejects.toMatchObject({ status: 422, body: { error: 'duplicate_serial' } })
+
+    expect(applyInventoryReceiveInTransaction).not.toHaveBeenCalled()
+    expect(em.create).not.toHaveBeenCalled()
+    expect(receivingLine.receivedQty).toBe('0')
+    const lockCall = execute.mock.calls.find((call) => String(call[0]).includes('pg_advisory_xact_lock'))
+    expect(lockCall?.[1]).toEqual([
+      `wms:active-serial:${ORG}:${TENANT}:${VARIANT_ID}:SN-X`,
+    ])
+    const balanceCall = execute.mock.calls.find((call) => String(call[0]).includes('quantity_on_hand'))
+    expect(String(balanceCall?.[0])).toContain('for update')
+    expect(balanceCall?.[1]).toEqual([ORG, TENANT, VARIANT_ID, 'SN-X'])
+  })
+
+  it('receives a fresh serial and ignores historical serials with no on-hand balance', async () => {
+    const em = createEm()
+    const execute = jest.fn(async () => [])
+    em.getConnection.mockReturnValue({ execute })
+    const receivingLine = line({ expectedQty: '1' })
+    stubReceiveLookups(em, receivingLine)
+
+    const handler = commandRegistry.get('wms.asns.receive-line')
+    await handler!.execute(
+      receiveInput({ receivedQty: 1, targetReceivedQty: 1, serialNumbers: ['SN-NEW'] }),
+      createCtx(em) as never,
+    )
+
+    expect(applyInventoryReceiveInTransaction).toHaveBeenCalledWith(
+      em,
+      expect.anything(),
+      expect.objectContaining({ serialNumber: 'SN-NEW', quantity: 1 }),
+    )
+    const balanceCall = execute.mock.calls.find((call) => String(call[0]).includes('quantity_on_hand'))
+    expect(String(balanceCall?.[0])).toContain('quantity_on_hand > 0')
+    expect(receivingLine.receivedQty).toBe('1')
+  })
+
+  it('does not treat an idempotent replay as a duplicate active serial', async () => {
+    const em = createEm()
+    const execute = jest.fn(async (sql: string) => {
+      if (String(sql).includes('quantity_on_hand')) return [{ id: 'balance-active' }]
+      return []
+    })
+    em.getConnection.mockReturnValue({ execute })
+    const receivingLine = line({
+      expectedQty: '1',
+      receivedQty: '1',
+      serialNumbers: ['SN-X'],
+      qcStatus: 'passed',
+    })
+    findOneWithDecryption.mockImplementation(async (_em, entity, where) => {
+      if (entity === Asn) return asn()
+      if (entity === ReceivingLine) return receivingLine
+      if (entity === WarehouseLocation) {
+        return {
+          id: (where as { id?: string }).id,
+          tenantId: TENANT,
+          organizationId: ORG,
+          warehouse: { id: WH_ID },
+          type: 'staging',
+          isActive: true,
+        }
+      }
+      if (entity === PutawayTask) {
+        return {
+          id: 'open-1',
+          quantity: '1',
+          status: 'open',
+          serialNumber: 'SN-X',
+        }
+      }
+      return null
+    })
+
+    const handler = commandRegistry.get('wms.asns.receive-line')
+    const result = await handler!.execute(
+      receiveInput({ receivedQty: 1, targetReceivedQty: 1, serialNumbers: ['SN-X'] }),
+      createCtx(em) as never,
+    )
+
+    expect(result).toEqual(expect.objectContaining({ movementIds: [], receivedQty: 1 }))
+    expect(applyInventoryReceiveInTransaction).not.toHaveBeenCalled()
+    expect(execute.mock.calls.some((call) => String(call[0]).includes('quantity_on_hand'))).toBe(false)
+    expect(receivingLine.receivedQty).toBe('1')
+  })
 })
