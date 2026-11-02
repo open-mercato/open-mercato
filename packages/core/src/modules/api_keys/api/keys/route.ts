@@ -197,11 +197,9 @@ const crud = makeCrudRoute<
         ? { organizationId: { $in: organizationIds } }
         : auth.orgId ? { organizationId: auth.orgId } : null
       if (organizationConstraint) {
-        const tenantWideAccess = isOrganizationAccessAllowed({
-          targetOrganizationId: null,
-          allowedOrganizationIds: ctx.organizationScope ? ctx.organizationScope.allowedIds : [],
-          isSuperAdmin: await resolveIsSuperAdmin(ctx),
-        })
+        const isSuperAdmin = await resolveIsSuperAdmin(ctx)
+        const tenantWideAccess = isSuperAdmin || (await (ctx.container.resolve('rbacService') as RbacService)
+          .resolveFeatureOrganizationAccess(auth.sub, ['api_keys.view'], { tenantId: auth.tenantId })).unrestricted
         qb.andWhere(tenantWideAccess
           ? { $or: [{ organizationId: null }, organizationConstraint] }
           : organizationConstraint)

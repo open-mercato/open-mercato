@@ -31,13 +31,14 @@ function listFixture(organizationIds: string[] | null, allowedIds: string[] | nu
     getResultAndCount: jest.fn(async () => [[], 0]),
   }
   const createQueryBuilder = jest.fn(() => queryBuilder)
+  const resolveFeatureOrganizationAccess = jest.fn(async () => ({ unrestricted: allowedIds === null }))
   const context = {
     auth: { sub: 'list-reader', tenantId, orgId: authOrganization },
     organizationIds,
     organizationScope: { allowedIds },
-    container: { resolve: () => ({ createQueryBuilder }) },
+    container: { resolve: (name: string) => name === 'rbacService' ? { resolveFeatureOrganizationAccess } : { createQueryBuilder } },
   } as unknown as CrudCtx
-  return { queryBuilder, createQueryBuilder, context }
+  return { queryBuilder, createQueryBuilder, resolveFeatureOrganizationAccess, context }
 }
 
 describe('API-key list organization policy', () => {
@@ -89,9 +90,23 @@ describe('API-key list organization policy', () => {
   it('withholds tenant-wide keys when organization policy is unavailable', async () => {
     const { queryBuilder, context } = listFixture([selectedOrganization], null, selectedOrganization)
     context.organizationScope = null
+    jest.spyOn(context.container.resolve('rbacService') as { resolveFeatureOrganizationAccess: () => Promise<{ unrestricted: boolean }> }, 'resolveFeatureOrganizationAccess').mockResolvedValue({ unrestricted: false })
 
     await expect(beforeList?.({}, context)).rejects.toBeInstanceOf(Response)
 
+    expect(queryBuilder.andWhere.mock.calls).toEqual([
+      [{ tenantId }],
+      [{ organizationId: { $in: [selectedOrganization] } }],
+    ])
+  })
+
+  it('does not inherit tenant-wide key access from an unrelated globally scoped role', async () => {
+    const { queryBuilder, context, resolveFeatureOrganizationAccess } = listFixture([selectedOrganization], null, selectedOrganization)
+    resolveFeatureOrganizationAccess.mockResolvedValue({ unrestricted: false })
+
+    await expect(beforeList?.({}, context)).rejects.toBeInstanceOf(Response)
+
+    expect(resolveFeatureOrganizationAccess).toHaveBeenCalledWith('list-reader', ['api_keys.view'], { tenantId })
     expect(queryBuilder.andWhere.mock.calls).toEqual([
       [{ tenantId }],
       [{ organizationId: { $in: [selectedOrganization] } }],
