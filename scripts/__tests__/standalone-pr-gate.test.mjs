@@ -67,6 +67,10 @@ test('package verification rejects registry content mixed into an otherwise loca
       return { name: `@open-mercato/${name}`, unpackedDir: sourceDir, installedDir }
     })
     assert.deepEqual(verifyStandalonePackages(appDir, packages), ['@open-mercato/core', '@open-mercato/shared'])
+    const extraFile = path.join(packages[0].installedDir, 'registry-only.js')
+    fs.writeFileSync(extraFile, 'export const unexpected = true\n')
+    assert.throws(() => verifyStandalonePackages(appDir, packages), /absent from the PR tarball/)
+    fs.rmSync(extraFile)
     fs.writeFileSync(path.join(packages[0].installedDir, 'index.js'), 'export const builtFromPr = false\n')
     assert.throws(() => verifyStandalonePackages(appDir, packages), /differs from the PR tarball/)
   } finally {
