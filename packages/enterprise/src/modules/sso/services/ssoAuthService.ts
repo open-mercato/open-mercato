@@ -12,6 +12,12 @@ type SsoSessionScope = {
   ssoConfigId: string
 }
 
+const UNRESOLVED_PASSWORD_SCOPE = {
+  userId: '00000000-0000-0000-0000-000000000000',
+  tenantId: '00000000-0000-0000-0000-000000000000',
+  organizationId: '00000000-0000-0000-0000-000000000000',
+}
+
 export class SsoAuthService extends AuthService {
   constructor(private ssoEm: EntityManager) {
     super(ssoEm)
@@ -19,13 +25,12 @@ export class SsoAuthService extends AuthService {
 
   override async verifyPassword(user: User | null, password: string): Promise<boolean> {
     const verified = await super.verifyPassword(user, password)
-    if (!verified || !user) return false
-
-    return !await isSsoUserDeactivated(this.ssoEm, {
+    const deactivated = await isSsoUserDeactivated(this.ssoEm, user ? {
       userId: user.id,
       tenantId: user.tenantId ?? null,
       organizationId: user.organizationId ?? null,
-    })
+    } : UNRESOLVED_PASSWORD_SCOPE)
+    return verified && !deactivated
   }
 
   override async createSession(
