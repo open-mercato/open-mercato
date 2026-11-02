@@ -3,7 +3,6 @@ import { expect, test, type APIRequestContext } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { deleteCatalogProductIfExists } from '@open-mercato/core/helpers/integration/catalogFixtures'
 import { drainIntegrationQueue } from '@open-mercato/core/helpers/integration/queue'
-import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 
 const POLL_INTERVAL_MS = 200
 const POLL_TIMEOUT_MS = 30_000
@@ -20,29 +19,17 @@ if (!TEST_APP_ROOT) {
   process.env.QUEUE_BASE_DIR = APP_QUEUE_BASE_DIR
 }
 
-// Mirrors `resolveAutoSpawnWorkersEnabled` (packages/cli/src/lib/auto-spawn-workers.ts), which
-// the ephemeral harness applies to the app with the same environment this process sees.
-const SERVER_RUNS_QUEUE_WORKERS =
-  parseBooleanToken(process.env.AUTO_SPAWN_WORKERS) ??
-  parseBooleanToken(process.env.OM_AUTO_SPAWN_WORKERS) ??
-  true
-
 /**
- * Drains the queue only when the app runs no worker of its own. The local queue strategy supports
- * exactly one consumer per queue (packages/queue/src/strategies/local.ts): when the server's
- * auto-spawned worker and this drain both poll, both claim the job and run the batch at the same
- * time. Two live attempts of one bulk-create job collide on their own rows and the later
- * `completeJob` overwrites the correct summary (#6008). That double run is what failed this test
- * on `main` (`drained 1`, Beta reported as "SKU already in use."), so the test no longer starts a
- * second consumer. The returned count stays in the failure messages: 0 means the server ran the
- * batch.
+ * The shared helper observes the app's managed worker instead of starting a second consumer, or
+ * drains in the correct app context when automatic workers are disabled. The returned count stays
+ * in failure messages so a worker-mode mismatch remains diagnosable.
  */
 async function waitForProgressJob(
   request: APIRequestContext,
   token: string,
   jobId: string,
 ): Promise<{ job: Record<string, unknown>; drained: number }> {
-  const drained = SERVER_RUNS_QUEUE_WORKERS ? 0 : await drainIntegrationQueue(QUEUE_NAME, { appRoot: APP_ROOT })
+  const drained = await drainIntegrationQueue(QUEUE_NAME, { appRoot: APP_ROOT })
   const deadline = Date.now() + POLL_TIMEOUT_MS
   let last: Record<string, unknown> | null = null
   while (Date.now() < deadline) {
