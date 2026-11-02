@@ -566,3 +566,8 @@ Spec: [`.ai/specs/2026-09-08-error-reporting-policy.md`](.ai/specs/2026-09-08-er
 ## Public pay links (2026-10-27, #7823)
 
 STABLE API §7: `GET /api/checkout/pay/:slug` omits admin fields; retaining them preserves disclosure. Client/operator migration: [notes](UPGRADE_NOTES.md). @haxiorz [approved](https://github.com/open-mercato/open-mercato/pull/8087#issuecomment-6505348826) on 2026-10-29: steps 1–3 waived for all 18 admin fields; client/operator migration acknowledged.
+
+
+## Scoped delegated authentication eligibility (2026-11-02, #8346)
+
+`AuthService.isUserSessionEligible({ userId, tenantId, organizationId, apiKeyId? })` is additive and optional for custom DI replacements. Without an API-key ID the core default permits existing behavior; with an ID it verifies live key ownership, scope, deletion and expiry, and SSO adds its scoped live deactivation policy. The internal auth context adds optional `sessionBoundApiKey` to distinguish delegated credentials from machine keys on cache hits. Existing import paths, signatures, HTTP payloads, and database schema remain unchanged. [Migration and operator guidance](UPGRADE_NOTES.md#scim-deactivation-blocks-fresh-sso-and-password-sign-in-7824).

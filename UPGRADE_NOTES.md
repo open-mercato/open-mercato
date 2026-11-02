@@ -48,6 +48,14 @@ are unchanged. Host-local proxies and diagnostics can use a final loopback-only
 override. See [migration, override examples, WSS routing, and deployment checks](docker/traefik/README.md#private-application-ports-and-migration).
 No application API, database, or module-code migration is required.
 
+### SCIM deactivation blocks fresh SSO and password sign-in (#7824)
+
+User-bound AI/MCP API keys now check live scoped deactivation state on every resolution, including warm authorization-cache hits and requests on other replicas. Outstanding deactivation denies them immediately; independently administered machine keys retain their existing behavior. SCIM `active:false` creation/linking and retries persist identity, deactivation, session revocation, and audit together. A failed write rolls back the complete operation. Custom `authService` replacements must also preserve the additive `isUserSessionEligible` capability. Scoped user-bound AI/MCP keys are revoked in the deactivation transaction. Explicit reactivation does not revive those old secrets; obtain fresh AI/MCP credentials after restoring the user. Independently administered machine keys are not revoked.
+
+With the enterprise SSO module enabled, an outstanding SCIM deactivation now denies fresh SSO sign-in for that identity's configuration and denies password verification for the linked account in its own tenant and organization. This includes configurations created without a tenant, after verifying organization and configuration ownership. Password changes and email relinking do not reactivate the identity. Final session issuance and all SCIM deactivation writers share a user lock, so a concurrent login cannot leave a usable session after deactivation commits; access in other scopes is preserved.
+
+**Operator action:** restore intentionally deactivated access through SCIM `active:true`. Clients continue handling the existing invalid-credentials response or `sso_failed` callback redirect. No endpoint, token, or database migration is required. Applications replacing the `authService` DI registration must preserve the SSO module's scoped deactivation check in password verification and atomic final session issuance.
+
 ### Agent search answers honor domain policy (#7234)
 
 When an allow-list or deny-list is configured, agent `web_search` and the settings

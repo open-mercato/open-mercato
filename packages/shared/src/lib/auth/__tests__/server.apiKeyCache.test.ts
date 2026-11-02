@@ -278,6 +278,44 @@ describe('resolveApiKeyAuth caching + lastUsedAt debounce', () => {
     ).resolves.toBeNull()
   })
 
+  it.each([false, true])('checks live session eligibility for a user-bound key with cached=%s', async (cached) => {
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    const isUserSessionEligible = jest.fn().mockResolvedValue(true)
+    createRequestContainer.mockResolvedValue({
+      resolve: (name: string) => name === 'em' ? em : { isUserSessionEligible },
+    })
+    findApiKeyBySecret.mockResolvedValue({
+      id: 'delegated-key', name: 'delegated', tenantId: 'tenant-1', organizationId: 'org-1',
+      rolesJson: [], sessionUserId: 'user-1', expiresAt: null,
+    })
+    emFindOne.mockResolvedValue({ id: 'user-1', tenantId: 'tenant-1', organizationId: 'org-1' })
+    if (cached) expect(await getAuthFromRequest(buildRequest('delegated-secret'))).not.toBeNull()
+    isUserSessionEligible.mockResolvedValue(false)
+
+    expect(await getAuthFromRequest(buildRequest('delegated-secret'))).toBeNull()
+    expect(isUserSessionEligible).toHaveBeenLastCalledWith({
+      userId: 'user-1', tenantId: 'tenant-1', organizationId: 'org-1', apiKeyId: 'delegated-key',
+    })
+    expect(findApiKeyBySecret).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps independently administered keys outside their creator session policy', async () => {
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    const isUserSessionEligible = jest.fn().mockResolvedValue(false)
+    createRequestContainer.mockResolvedValue({
+      resolve: (name: string) => name === 'em' ? em : { isUserSessionEligible },
+    })
+    findApiKeyBySecret.mockResolvedValue({
+      id: 'independent-key', name: 'machine', tenantId: 'tenant-1', organizationId: null,
+      rolesJson: [], createdBy: 'user-1', expiresAt: null,
+    })
+    emFindOne.mockResolvedValue({ id: 'user-1', tenantId: 'tenant-1', organizationId: 'org-1' })
+
+    expect(await getAuthFromRequest(buildRequest('machine-secret'))).not.toBeNull()
+    expect(await getAuthFromRequest(buildRequest('machine-secret'))).not.toBeNull()
+    expect(isUserSessionEligible).not.toHaveBeenCalled()
+  })
+
   it('keeps session keys strictly bound to their persisted user and scope', async () => {
     const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
     findApiKeyBySecret.mockResolvedValue({
