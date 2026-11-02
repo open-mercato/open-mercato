@@ -1,6 +1,6 @@
 # Startup encryption verification — PR #8377 follow-up
 
-Runner: local. Result: **160 passed, 0 failed, 0 skipped**, including **24 live HTTP
+Runner: local. Result: **164 passed, 0 failed, 0 skipped**, including **24 live HTTP
 startup cases**. Tests use disposable fixtures and never apply application
 migrations or reset a developer database. This is evidence for the local follow-up
 implementation, not certification of the separate production preflight currently
@@ -112,7 +112,7 @@ files are neither loaded nor modified.
 
 The non-live startup and Compose run passes 70 cases; 24 opt-in live cases were
 skipped in that initial narrow run. The complete follow-up run then passes all
-160 cases, including all 24 live HTTP starts and the additional checkout-isolation
+164 cases, including all 24 live HTTP starts and the additional checkout-isolation
 and Compose propagation cases. Shared/CLI builds, focused TypeScript checking,
 MDX compilation, lessons validation and template parity checks pass. The template
 check used the equivalent direct Node/tsx script because this worktree has no
@@ -126,3 +126,9 @@ it, alongside the two symlink-isolation regressions (4/4 focused checks).
 Two additional failing-before/passing-after cases verify that root env keys and
 an explicit encryption-off setting are honored before provisioning. All loaders
 and the preparer now use the same selected env-file path (6/6 focused checks).
+
+Independent re-review approved commit `ecf6a08333` after verifying the six focused
+regressions and supplemental boundary/precedence probes. The reviewer made no
+source changes. The parent's final run passes all 164 cases with no skips, and
+the CLI package build passes. Disposable live fixture directories are ignored by
+Git so concurrent task snapshots cannot stage them.

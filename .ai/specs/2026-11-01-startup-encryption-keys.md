@@ -60,7 +60,7 @@ conflicts, dotenv syntax/precedence, read-only environment deployments, failed
 writes, simultaneous launches, and supported startup entrypoints. No API or UI
 paths change. Build the affected packages and check template parity.
 
-Local verification: 160 checks pass, including 24 real Next HTTP fixture starts
+Local verification: 164 checks pass, including 24 real Next HTTP fixture starts
 across monorepo/standalone, Webpack/Turbopack dev and production, with empty,
 saved-default, external-default and unsafe configurations. Shared and CLI builds,
 focused TypeScript checks, MDX compilation, template sync and lessons validation
