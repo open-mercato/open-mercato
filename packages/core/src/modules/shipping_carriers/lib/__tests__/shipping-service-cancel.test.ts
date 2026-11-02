@@ -223,3 +223,29 @@ describe('ShippingCarrierService.cancelShipment adapter error propagation', () =
     expect(shipment.unifiedStatus).toBe('label_created')
   })
 })
+
+describe('ShippingCarrierService.cancelShipment event scope', () => {
+  const mockEmitEvent = emitShippingEvent as jest.MockedFunction<typeof emitShippingEvent>
+
+  afterEach(() => jest.clearAllMocks())
+
+  it('emits the cancelled event with the trusted tenant and organization scope', async () => {
+    const scope = makeScope()
+    const shipment = makeShipment({ unifiedStatus: 'label_created', ...scope })
+    mockFindOne.mockResolvedValueOnce(shipment as any)
+    mockGetAdapter.mockReturnValueOnce(makeAdapter() as any)
+
+    const service = createShippingCarrierService({
+      em: makeEm() as any,
+      integrationCredentialsService: makeCredentialsService() as any,
+    })
+
+    await service.cancelShipment({ ...makeCancelInput(), ...scope })
+
+    expect(mockEmitEvent).toHaveBeenCalledWith(
+      'shipping_carriers.shipment.cancelled',
+      expect.objectContaining({ shipmentId: shipment.id }),
+      { tenantId: scope.tenantId, organizationId: scope.organizationId },
+    )
+  })
+})

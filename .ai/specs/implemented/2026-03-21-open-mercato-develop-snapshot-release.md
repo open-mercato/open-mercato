@@ -428,3 +428,6 @@ None in this draft.
 - [x] Step 1: Keep standalone integration validation against the exact snapshot version emitted by the workflow
 - [x] Step 2: Update workflow summaries or PR comments to show the exact snapshot version and moving install target when applicable
 - [x] Step 3: Document `@develop` as the official moving channel for unreleased integration work
+
+### 2026-10-21
+- `develop` is retired (release lines, CONTRIBUTING.md § Releasing): snapshots now publish on pushes to `main`. The channel, version suffix and `develop` dist-tag are unchanged, so `@open-mercato/*@develop` installs keep working

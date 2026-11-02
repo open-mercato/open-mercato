@@ -99,7 +99,7 @@ export async function GET(req: Request) {
   }
 
   const acl = tenantScope
-    ? await em.findOne(RoleAcl, { role, tenantId: tenantScope })
+    ? await em.findOne(RoleAcl, { role, tenantId: tenantScope, deletedAt: null })
     : null
   const response = acl
     ? {
@@ -178,7 +178,7 @@ export async function PUT(req: Request) {
     }
   }
 
-  const acl = await em.findOne(RoleAcl, { role, tenantId: targetTenantId })
+  const acl = await em.findOne(RoleAcl, { role, tenantId: targetTenantId, deletedAt: null })
   // Optimistic lock: refuse a stale ACL overwrite so two admins editing the same
   // role's features in parallel cannot silently clobber each other (#2055). The
   // check is strictly additive — when the client sends no expected-version header

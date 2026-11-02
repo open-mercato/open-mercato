@@ -122,6 +122,20 @@ describe('auth server integrity checks', () => {
     await expect(resolveAuthFromRequestDetailed(request)).resolves.toEqual({ auth: null, status: 'invalid' })
   })
 
+  it('treats a malformed %-escape auth_token as an invalid token instead of 500ing (issue #7382)', async () => {
+    const { resolveAuthFromRequestDetailed } = await import('@open-mercato/shared/lib/auth/server')
+    verifyJwt.mockImplementation(() => {
+      throw new Error('malformed token')
+    })
+
+    const request = new Request('https://example.test/api/test', {
+      headers: { cookie: 'auth_token=%zz' },
+    })
+
+    await expect(resolveAuthFromRequestDetailed(request)).resolves.toEqual({ auth: null, status: 'invalid' })
+    expect(verifyJwt).toHaveBeenCalledWith('%zz')
+  })
+
   it('replaces stale JWT roles with canonical roles from the database', async () => {
     const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
     const jwtAuth = {

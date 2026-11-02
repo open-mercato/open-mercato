@@ -6,6 +6,7 @@ import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/er
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { applyEmailVisibilityFilter } from '../../../lib/visibilityFilter'
@@ -71,11 +72,13 @@ export async function GET(req: Request) {
     }
 
     const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
-    const organizationIds = Array.isArray(scope?.filterIds) && scope.filterIds.length > 0
-      ? scope.filterIds
-      : auth.orgId
-        ? [auth.orgId]
-        : []
+    const { organizationIds } = resolveOrganizationScopeFilter(scope, auth)
+    if (organizationIds?.length === 0) {
+      return NextResponse.json({
+        ok: true,
+        result: { call: 0, email: 0, meeting: 0, note: 0, task: 0, total: 0 },
+      })
+    }
     const em = (container.resolve('em') as EntityManager).fork()
     const kysely = em.getKysely<any>()
 
@@ -85,9 +88,9 @@ export async function GET(req: Request) {
       .where('tenant_id', '=', auth.tenantId)
       .where('deleted_at', 'is', null)
 
-    if (organizationIds.length === 1) {
+    if (organizationIds?.length === 1) {
       baseQuery = baseQuery.where('organization_id', '=', organizationIds[0])
-    } else if (organizationIds.length > 1) {
+    } else if (organizationIds && organizationIds.length > 1) {
       baseQuery = baseQuery.where('organization_id', 'in', organizationIds)
     }
 
@@ -107,7 +110,7 @@ export async function GET(req: Request) {
       tenantId: auth.tenantId as string,
       // Grants are org-scoped; with a multi-org scope fall back to tenant-wide
       // (the predicate still matches on person + owner, never on org alone).
-      organizationId: organizationIds.length === 1 ? organizationIds[0] : null,
+      organizationId: organizationIds?.length === 1 ? organizationIds[0] : null,
     }
     const [emailShareGrants, emailSharedChannelIds] = await Promise.all([
       listGrantsForViewer(em, emailShareScope, viewerUserId),

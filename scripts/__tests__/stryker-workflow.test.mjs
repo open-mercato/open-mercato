@@ -19,9 +19,9 @@ test('is a standalone workflow, separate from ci.yml', () => {
   )
 })
 
-test('runs on pull requests to the long-lived branches only', () => {
+test('runs on pull requests to main only', () => {
   const on = workflow.on ?? workflow[true]
-  assert.deepEqual(on.pull_request.branches, ['main', 'develop'])
+  assert.deepEqual(on.pull_request.branches, ['main'])
   assert.equal(on.push, undefined, 'a push trigger would score merges, not changes')
 })
 

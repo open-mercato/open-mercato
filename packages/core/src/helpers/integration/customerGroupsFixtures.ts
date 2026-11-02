@@ -1,5 +1,6 @@
 import { randomInt } from 'node:crypto';
 import { expect, type APIRequestContext } from '@playwright/test';
+import type { AssortmentScope } from '@open-mercato/shared/lib/catalog-visibility';
 import { apiRequest } from './api';
 import { expectId, readJsonSafe } from './generalFixtures';
 
@@ -114,6 +115,7 @@ export type CustomerGroupTermsFixtureInput = {
   creditCurrencyCode?: string | null;
   approvalRequiredAbove?: number | null;
   minOrderValue?: number | null;
+  assortmentScope?: AssortmentScope | null;
   metadata?: Record<string, unknown> | null;
 };
 

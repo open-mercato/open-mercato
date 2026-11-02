@@ -385,6 +385,7 @@ export default function CreateCatalogProductPage() {
           backHref="/backend/catalog/products"
           fields={[]}
           groups={groups}
+          entityId={E.catalog.catalog_product}
           injectionSpotId={extensionPoints.hosts.productForm.spotId}
           initialValues={
             initialValuesRef.current ?? createInitialProductFormValues()

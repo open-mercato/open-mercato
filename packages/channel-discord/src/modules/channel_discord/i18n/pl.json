@@ -34,6 +34,8 @@
   "channel_discord.aiAutoReply.widget.truncated": "Pokazano tylko najnowsze kanały. Pozostałe skonfigurujesz, otwierając kanał na liście kanałów.",
   "channel_discord.aiProposal.actions.approve": "Zatwierdź i wyślij",
   "channel_discord.aiProposal.actions.dismiss": "Odrzuć",
+  "channel_discord.aiProposal.errors.sourceMessageNotFound": "Rozmowa, na którą odpowiada ta propozycja, już nie istnieje.",
+  "channel_discord.aiProposal.errors.sourceMessageUnreadable": "Nie masz już dostępu do rozmowy, na którą odpowiada ta propozycja.",
   "channel_discord.aiProposal.messageType": "Propozycja odpowiedzi na Discordzie",
   "channel_discord.connect.blocked": "Połączenie zablokowane przez walidację",
   "channel_discord.connect.button": "Połącz Discord",

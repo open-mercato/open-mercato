@@ -51,6 +51,9 @@ jest.mock('../../../../lib/test-seed', () => ({
   isTestChannelSeedingEnabled: () => true,
 }))
 
+import { z } from 'zod'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CommandInterceptorError } from '@open-mercato/shared/lib/commands/errors'
 import { POST } from '../route'
 
 const CALLER_USER = 'caller-user-id'
@@ -161,14 +164,42 @@ describe('POST /api/communication_channels/test-seed — ingest-inbound (#4975)'
     })
   })
 
-  it('refuses to ingest against a channel connected with the email-shaped stub', async () => {
-    // Ingest does not verify that providerKey matches the channel it names, so
-    // accepting an email-flavored channel here would silently stamp the wrong
-    // provider onto the link — and normalizeInbound would throw anyway.
+  it('ingests against the email-shaped stub as an email channel, forwarding the subject (#6089)', async () => {
     mockFindOneWithDecryption.mockResolvedValue({
       id: CHANNEL_ID,
       userId: CALLER_USER,
       providerKey: '__test_seed__',
+      channelType: 'email',
+      externalIdentifier: 'seed@test-seed.local',
+    })
+
+    const response = await POST(
+      ingestRequest({
+        senderIdentifier: 'inbound-sender@example.test',
+        senderDisplayName: 'Inbound Sender',
+        subject: 'Inbound subject',
+      }),
+    )
+
+    expect(response.status).toBe(201)
+    // The channel's own provider key and type, so the hub applies the email
+    // identity contract (mandatory externalEmail derived from the sender).
+    const ingestInput = mockCommandExecute.mock.calls[0][1].input
+    expect(ingestInput.channelType).toBe('email')
+    expect(ingestInput.providerKey).toBe('__test_seed__')
+    const rawFrame = mockNormalizeInbound.mock.calls[0][0].raw
+    expect(rawFrame.senderIdentifier).toBe('inbound-sender@example.test')
+    expect(rawFrame.subject).toBe('Inbound subject')
+  })
+
+  it('refuses to ingest against a channel connected through a non-stub provider', async () => {
+    // Ingest does not verify that providerKey matches the channel it names, so
+    // accepting an arbitrary channel here would run a real provider adapter
+    // and silently stamp its provider onto the link.
+    mockFindOneWithDecryption.mockResolvedValue({
+      id: CHANNEL_ID,
+      userId: CALLER_USER,
+      providerKey: 'imap',
       channelType: 'email',
       externalIdentifier: 'seed@test-seed.local',
     })
@@ -186,5 +217,62 @@ describe('POST /api/communication_channels/test-seed — ingest-inbound (#4975)'
 
     expect(response.status).toBe(404)
     expect(mockCommandExecute).not.toHaveBeenCalled()
+  })
+})
+
+describe('POST /api/communication_channels/test-seed — ingest-inbound failures (#6392)', () => {
+  it('answers 422 with the adapter message when normalizeInbound rejects the frame', async () => {
+    mockNormalizeInbound.mockRejectedValue(
+      new Error('[internal] TestSeedChannelAdapter requires an email-shaped senderIdentifier'),
+    )
+
+    const response = await POST(ingestRequest())
+
+    expect(response.status).toBe(422)
+    expect(await response.json()).toEqual({
+      error: '[internal] TestSeedChannelAdapter requires an email-shaped senderIdentifier',
+    })
+    expect(mockCommandExecute).not.toHaveBeenCalled()
+  })
+
+  it('answers 422 with the zod issues when compose rejects the message', async () => {
+    const zodError = z.object({ body: z.string() }).safeParse({}).error
+    mockCommandExecute.mockRejectedValue(zodError)
+
+    const response = await POST(ingestRequest({ body: undefined }))
+
+    expect(response.status).toBe(422)
+    const payload = await response.json()
+    expect(payload.error).toEqual(expect.any(String))
+    expect(payload.issues).toEqual([expect.objectContaining({ path: ['body'] })])
+  })
+
+  it('passes a CrudHttpError status and body through', async () => {
+    mockCommandExecute.mockRejectedValue(new CrudHttpError(409, { error: 'Conflict' }))
+
+    const response = await POST(ingestRequest())
+
+    expect(response.status).toBe(409)
+    expect(await response.json()).toEqual({ error: 'Conflict' })
+  })
+
+  it('passes a command interceptor rejection status and body through', async () => {
+    mockCommandExecute.mockRejectedValue(
+      new CommandInterceptorError('Blocked', { status: 403, body: { error: 'Blocked by policy' } }),
+    )
+
+    const response = await POST(ingestRequest())
+
+    expect(response.status).toBe(403)
+    expect(await response.json()).toEqual({ error: 'Blocked by policy' })
+  })
+
+  it('answers a non-empty 500 for an unexpected command failure', async () => {
+    mockCommandExecute.mockRejectedValue(new Error('boom'))
+
+    const response = await POST(ingestRequest())
+
+    expect(response.status).toBe(500)
+    expect(await response.json()).toEqual({ error: 'boom' })
   })
 })

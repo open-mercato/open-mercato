@@ -4,6 +4,7 @@ import {
   ORGANIZATION_SCOPE_REQUIRED_ERROR_CODE,
   organizationScopeRequiredResponse,
   resolveActiveOrganizationId,
+  resolveSingleOrganizationIdOrDeny,
 } from '../organizationScope'
 
 const accountOrgId = '22222222-2222-4222-8222-222222222222'
@@ -103,5 +104,31 @@ describe('organizationScopeRequiredResponse', () => {
     const body = await response.json()
     expect(body.code).toBe(ORGANIZATION_SCOPE_REQUIRED_ERROR_CODE)
     expect(typeof body.error).toBe('string')
+  })
+})
+
+describe('resolveSingleOrganizationIdOrDeny', () => {
+  const auth = { orgId: accountOrgId }
+
+  it('prefers a selected organization and preserves unrestricted or absent home fallback', () => {
+    expect(resolveSingleOrganizationIdOrDeny(
+      { selectedId: selectedOrgId, filterIds: [selectedOrgId], allowedIds: [selectedOrgId] },
+      auth,
+    )).toBe(selectedOrgId)
+    expect(resolveSingleOrganizationIdOrDeny(
+      { selectedId: null, filterIds: null, allowedIds: null },
+      auth,
+    )).toBe(accountOrgId)
+    expect(resolveSingleOrganizationIdOrDeny(undefined, auth)).toBe(accountOrgId)
+  })
+
+  it.each([
+    { selectedId: null, filterIds: [], allowedIds: [] },
+    { selectedId: null, filterIds: [], allowedIds: null },
+    { selectedId: null, filterIds: null, allowedIds: [] },
+  ])('denies an explicit finite empty scope', (scope) => {
+    expect(() => resolveSingleOrganizationIdOrDeny(scope, auth)).toThrow(
+      expect.objectContaining({ status: 403, body: { error: 'Forbidden' } }),
+    )
   })
 })
