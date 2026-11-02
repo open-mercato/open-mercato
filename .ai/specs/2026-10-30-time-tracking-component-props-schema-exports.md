@@ -6,7 +6,7 @@
 
 ## 📝 TLDR
 
-The staff module publishes ten replaceable time-tracking components (EP-31). Each one declares a zod `propsSchema` that `useRegisteredComponent` checks in development, but nine of them keep that schema in a module-local `const`, so anyone writing a replacement has to copy it by hand. This spec turns those nine declarations into named exports, so a replacement imports the exact contract. The tenth, `timeEntryDialogPropsSchema`, is exported by the project-mode spec. Nothing else changes: no behaviour, no new file, no moved code.
+The staff module publishes ten replaceable time-tracking components (EP-31). Each one declares a zod `propsSchema` that `useRegisteredComponent` checks in development, but nine of them keep that schema in a module-local `const`, so anyone writing a replacement has to copy it by hand. This spec turns those nine declarations into named exports, so a replacement imports the exact contract. The tenth, `timeEntryDialogPropsSchema`, is exported by the project-mode spec. No production behaviour changes, no production file is added and no production code moves. Consumer-side regression coverage is added separately below.
 
 ## 📝 Overview
 
@@ -91,6 +91,9 @@ None.
 | Shipping before #7001's `optionalCallbackProp` fix | Medium | Dev-time validation | The implementation PR is gated on #7001 being merged (see Architecture). | None once sequenced. |
 
 - **Blast radius:** low. No runtime behaviour changes.
+
+### Migration & Backward Compatibility
+
 - **Rollback (before publication):** while the exports exist only on `main` and in no released version, a straight revert is allowed.
 - **After publication:** a revert is not allowed. Removing a released export breaks the STABLE import/type contract in `BACKWARD_COMPATIBILITY.md`. Fix forward instead and keep every name and import path, or re-export it from its old path if the schema has to move. A later removal follows the deprecation protocol: `@deprecated` JSDoc, a bridge for at least one minor version, an `UPGRADE_NOTES.md` entry and a spec with a migration section.
 
@@ -104,7 +107,7 @@ One phase, independently shippable after #7001: the nine exports, the extended t
 2. **Host identity.** Extend `componentPropsSchemas.test.tsx` with the nine exports. Each must be the registered schema for its handle, and the ten exports together must cover the ten handles exactly once. Verify: the staff Jest suite.
 3. **Consumer side.** Add `componentPropsSchemas.replacement.test.tsx` (jsdom, `NODE_ENV` left at `test`, so the development check runs). It imports the schemas through their documented package paths (`@open-mercato/core/modules/staff/...`), not relative ones. For each handle, it registers a typed `ComponentOverride` with a stub `replacement` and the exported schema as its top-level `propsSchema`, through `registerComponentOverrides`. It then renders through the unmocked `useRegisteredComponent(handle, Fallback)` and checks three things:
    - valid minimal props render the replacement, including props that leave every optional callback out (`optionalCallbackProp`);
-   - a non-function value for a required callback renders the fallback (the host's default component), and the replacement is not mounted;
+   - invalid required props render the fallback (the host's default component), and the replacement is not mounted: use a non-function value for an existing required callback on callback-bearing schemas; for `reportSheetPropsSchema`, `projectCardPropsSchema` and `timeEntriesSummaryFooterPropsSchema`, which have no callbacks, use an invalid required scalar (`reference`, `href` and `totalCount`, respectively);
    - the registry is isolated: `afterEach` calls `registerComponentOverrides([])`, so one handle's override never leaks into the next case.
 
    The cases are table-driven over the nine handles, with one minimal valid props object per handle. Verify: the staff Jest suite.
@@ -128,5 +131,6 @@ No API path or UI path changes, so there is no new Playwright case. Coverage has
 
 ## 📝 Changelog
 
+- 2026-11-03. Autofix re-review: use existing required scalars for the three callback-free schemas' fallback cases, distinguish the new consumer test from unchanged production files, and name the migration/backward-compatibility section. The implementation remains gated on #7001.
 - 2026-10-30. Initial spec, split out of #7000 on spec review (pkarw, review 5718058063): the nine sibling `propsSchema` exports are an independently deployable capability, separate from the time entry dialog project mode.
 - 2026-10-30. Spec review on #8291 (haxiorz, review 5719611884): a replacement passes the exported schema as the top-level `ComponentOverride.propsSchema`, not `metadata.propsSchema`, and a typed override example is added. The plan adds a consumer-side test that renders a typed override through the unmocked `useRegisteredComponent` (valid render, fallback, registry isolation). A revert is allowed only before publication; after release, fix forward and use the deprecation protocol.
