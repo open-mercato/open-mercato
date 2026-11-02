@@ -206,6 +206,11 @@ The custom provider is immediately available under its id in
 `OPENCODE_PROVIDER`, the backend settings dropdown, and the routing
 layer — no changes needed in core.
 
+Presets speak the Chat Completions protocol (`POST {baseURL}/chat/completions`)
+by default, which every OpenAI-compatible backend implements. Set
+`apiMode: 'responses'` only when the backend implements OpenAI's Responses API
+(`POST {baseURL}/responses`) — the built-in `openai` preset does so.
+
 ### .mcp.json Configuration
 
 For Claude Code integration, create `.mcp.json` in the project root:

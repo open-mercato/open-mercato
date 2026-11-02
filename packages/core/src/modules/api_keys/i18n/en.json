@@ -35,6 +35,7 @@
   "api_keys.list.error.loadFailed": "Failed to load API keys",
   "api_keys.list.noDate": "—",
   "api_keys.list.noRoles": "None",
+  "api_keys.list.success.created": "API key created",
   "api_keys.list.success.deleted": "API key deleted",
   "api_keys.list.title": "API Keys",
   "api_keys.nav.apiKeys": "API Keys",

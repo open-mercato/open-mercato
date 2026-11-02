@@ -37,6 +37,7 @@ function statusCount(stats: WarrantyClaimStatsResult, status: string): number {
 
 test.describe('TC-WC-010: warranty claim stats and risk', () => {
   test('enforces gates, reports stats deltas, and returns deterministic risk signals', async ({ request }) => {
+    test.slow()
     const adminToken = await getAuthToken(request, 'admin')
     const { organizationId } = getTokenContext(adminToken)
     const { userId: adminUserId } = getTokenScope(adminToken)

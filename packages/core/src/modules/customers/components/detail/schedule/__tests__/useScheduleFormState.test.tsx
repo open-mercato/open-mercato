@@ -157,3 +157,79 @@ describe('useScheduleFormState seeding (#5940)', () => {
     expect(result.current.reminderMinutes).toBe(30)
   })
 })
+
+describe('useScheduleFormState unsupported-type seeding (#7486)', () => {
+  beforeEach(() => {
+    jest.useFakeTimers().setSystemTime(localDate(2026, 9, 11, 14, 12))
+  })
+
+  afterEach(() => {
+    jest.useRealTimers()
+  })
+
+  it.each([
+    ['event'],      // built-in Event — outside this dialog's five legacy kinds
+    ['workshop'],   // custom dictionary key an admin configured
+    ['legacy-sms'], // historical key no longer offered by the type picker
+  ])('seeds an edit of an unsupported "%s" interactionType without crashing and preserves the raw key', (interactionType) => {
+    const editData = presetCreateData({
+      id: 'b0a1c2d3-0000-4000-8000-000000000005',
+      interactionType,
+      scheduledAt: localDate(2026, 9, 12, 10, 0).toISOString(),
+      reminderMinutes: null,
+    })
+    const { result } = renderHook(() => useScheduleFormState({ open: true, editData }))
+
+    // The raw persisted key is preserved verbatim — never silently rewritten to 'meeting'.
+    expect(result.current.activityType).toBe(interactionType)
+    // Seeding resolves presentation safely (falls back to Meeting's field shape)
+    // instead of throwing while indexing a map keyed by the five legacy kinds.
+    expect(result.current.date).toBe('2026-09-12')
+    expect(result.current.startTime).toBe('10:00')
+    expect(result.current.reminderMinutes).toBe(15)
+  })
+})
+
+describe('useScheduleFormState undated seeding (#5941)', () => {
+  beforeEach(() => {
+    jest.useFakeTimers().setSystemTime(localDate(2026, 9, 11, 14, 12))
+  })
+
+  afterEach(() => {
+    jest.useRealTimers()
+  })
+
+  it('leaves a real edit of an undated task blank instead of seeding a due date', () => {
+    const editData = presetCreateData({
+      id: 'b0a1c2d3-0000-4000-8000-000000000003',
+      interactionType: 'task',
+      scheduledAt: null,
+      occurredAt: null,
+    })
+    const { result } = renderHook(() => useScheduleFormState({ open: true, editData }))
+
+    expect(result.current.date).toBe('')
+    expect(result.current.startTime).toBe('')
+  })
+
+  it('still forward-seeds a menu-driven "New Task" (empty id) instead of leaving it blank', () => {
+    const editData = presetCreateData({ id: '', interactionType: 'task', scheduledAt: null, occurredAt: null })
+    const { result } = renderHook(() => useScheduleFormState({ open: true, editData }))
+
+    expect(result.current.date).toBe('2026-09-11')
+    expect(result.current.startTime).toBe('17:00')
+  })
+
+  it('still seeds a date when editing an undated meeting, which requires one', () => {
+    const editData = presetCreateData({
+      id: 'b0a1c2d3-0000-4000-8000-000000000004',
+      interactionType: 'meeting',
+      scheduledAt: null,
+      occurredAt: null,
+    })
+    const { result } = renderHook(() => useScheduleFormState({ open: true, editData }))
+
+    expect(result.current.date).toBe('2026-09-11')
+    expect(result.current.startTime).toBe('14:30')
+  })
+})

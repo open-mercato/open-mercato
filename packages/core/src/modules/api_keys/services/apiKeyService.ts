@@ -1,14 +1,18 @@
-import { randomBytes } from 'node:crypto'
+import { randomBytes, createHash } from 'node:crypto'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { hash, compare } from 'bcryptjs'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
-import { Role } from '@open-mercato/core/modules/auth/data/entities'
 import { ApiKey } from '../data/entities'
 import { createKmsService, resolveEncryptionMode } from '@open-mercato/shared/lib/encryption/kms'
 import { encryptWithAesGcm, decryptWithAesGcm, looksLikeEncryptedPayload } from '@open-mercato/shared/lib/encryption/aes'
 import { getSharedApiKeyAuthCache } from '@open-mercato/shared/lib/auth/apiKeyAuthCache'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
+import {
+  lockAuthorizationApiKeyRows,
+  lockRoleWriterAuthorizationState,
+} from '@open-mercato/core/modules/auth/lib/authorizationStateLocks'
 
 const logger = createLogger('api_keys').child({ component: 'api-key-service' })
 
@@ -103,6 +107,7 @@ export type CreateApiKeyInput = {
   roles?: string[]
   expiresAt?: Date | null
   createdBy?: string | null
+  sessionUserId?: string | null
 }
 
 export type ApiKeyWithSecret = {
@@ -129,23 +134,33 @@ export async function verifyApiKey(secret: string, keyHash: string): Promise<boo
 export async function createApiKey(
   em: EntityManager,
   input: CreateApiKeyInput,
-  opts: { rbac?: RbacService } = {},
+  opts: {
+    rbac?: RbacService
+    authorizeRoles?: (roleIds: readonly string[]) => Promise<void> | void
+  } = {},
 ): Promise<ApiKeyWithSecret> {
   const { secret, prefix } = generateApiKeySecret()
   const keyHash = await hashApiKey(secret)
-  const record = em.create(ApiKey, {
-    name: input.name,
-    description: input.description ?? null,
-    tenantId: input.tenantId ?? null,
-    organizationId: input.organizationId ?? null,
-    keyHash,
-    keyPrefix: prefix,
-    rolesJson: Array.isArray(input.roles) ? input.roles : [],
-    createdBy: input.createdBy ?? null,
-    expiresAt: input.expiresAt ?? null,
-    createdAt: new Date(),
-  })
-  await em.persist(record).flush()
+  const roleIds = Array.from(new Set((input.roles ?? []).filter(Boolean))).sort((left, right) => left.localeCompare(right))
+  let record!: ApiKey
+  await withAtomicFlush(em, [async () => {
+    await lockRoleWriterAuthorizationState(em, roleIds)
+    await opts.authorizeRoles?.(roleIds)
+    record = em.create(ApiKey, {
+      name: input.name,
+      description: input.description ?? null,
+      tenantId: input.tenantId ?? null,
+      organizationId: input.organizationId ?? null,
+      keyHash,
+      keyPrefix: prefix,
+      rolesJson: roleIds,
+      createdBy: input.createdBy ?? null,
+      sessionUserId: input.sessionUserId ?? null,
+      expiresAt: input.expiresAt ?? null,
+      createdAt: new Date(),
+    })
+    em.persist(record)
+  }], { transaction: true, label: 'api_keys.create' })
   if (opts.rbac) {
     await opts.rbac.invalidateUserCache(`api_key:${record.id}`)
   }
@@ -155,16 +170,24 @@ export async function createApiKey(
 export async function deleteApiKey(
   em: EntityManager,
   id: string,
-  opts: { rbac?: RbacService } = {},
-): Promise<void> {
-  const record = await em.findOne(ApiKey, { id })
-  if (!record) return
-  record.deletedAt = new Date()
-  await em.persist(record).flush()
-  getSharedApiKeyAuthCache().invalidateByKeyId(record.id)
+  opts: { rbac?: RbacService; authorize?: (record: ApiKey) => Promise<void> | void } = {},
+): Promise<boolean> {
+  let deletedId: string | null = null
+  await withAtomicFlush(em, [async () => {
+    const records = await lockAuthorizationApiKeyRows(em, [id])
+    const record = records.find((candidate) => String(candidate.id) === id)
+    if (!record || record.deletedAt) return
+    await opts.authorize?.(record)
+    record.deletedAt = new Date()
+    await em.persist(record).flush()
+    deletedId = String(record.id)
+  }], { transaction: true, label: 'api_keys.delete' })
+  if (!deletedId) return false
+  getSharedApiKeyAuthCache().invalidateByKeyId(deletedId)
   if (opts.rbac) {
-    await opts.rbac.invalidateUserCache(`api_key:${record.id}`)
+    await opts.rbac.invalidateUserCache(`api_key:${deletedId}`)
   }
+  return true
 }
 
 export async function findApiKeyBySecret(em: EntityManager, secret: string): Promise<ApiKey | null> {
@@ -207,6 +230,17 @@ export function generateSessionToken(): string {
 }
 
 /**
+ * Hash a session token for storage/lookup (#2254). The session token is a bearer credential —
+ * it unlocks the decrypted API key secret and the user's ACL on the MCP server — so, mirroring
+ * `customer_accounts`' `hashToken`, only its hash is ever persisted. 128 bits of entropy from
+ * `generateSessionToken` is sufficient for a plain SHA-256 (no bcrypt cost needed, and a slow
+ * hash would just add latency to every MCP tool call that resolves a session).
+ */
+export function hashSessionToken(sessionToken: string): string {
+  return createHash('sha256').update(sessionToken).digest('hex')
+}
+
+/**
  * Create an ephemeral API key scoped to a chat session.
  * The key inherits the user's roles and expires after ttlMinutes (default 30).
  * The API key secret is encrypted and stored so it can be recovered for API calls.
@@ -223,23 +257,31 @@ export async function createSessionApiKey(
   // Encrypt the secret for later retrieval (used by MCP server for API calls)
   const encryptedSecret = await encryptSessionSecret(secret, input.tenantId ?? null)
 
-  const record = em.create(ApiKey, {
-    name: `__session_${input.sessionToken}__`,
-    description: 'Ephemeral session API key for AI chat',
-    tenantId: input.tenantId ?? null,
-    organizationId: input.organizationId ?? null,
-    keyHash,
-    keyPrefix: prefix,
-    rolesJson: input.userRoles,
-    createdBy: input.userId,
-    sessionToken: input.sessionToken,
-    sessionUserId: input.userId,
-    sessionSecretEncrypted: encryptedSecret,
-    expiresAt,
-    createdAt: new Date(),
-  })
+  // Hash before storage (#2254) — the row (and its `name` column, previously embedding the raw
+  // token for operator visibility) must never carry the live bearer credential in the clear.
+  const sessionTokenHash = hashSessionToken(input.sessionToken)
 
-  await em.persist(record).flush()
+  const roleIds = Array.from(new Set(input.userRoles.filter(Boolean))).sort((left, right) => left.localeCompare(right))
+  let record!: ApiKey
+  await withAtomicFlush(em, [async () => {
+    await lockRoleWriterAuthorizationState(em, roleIds)
+    record = em.create(ApiKey, {
+      name: `__session_${sessionTokenHash.slice(0, 12)}__`,
+      description: 'Ephemeral session API key for AI chat',
+      tenantId: input.tenantId ?? null,
+      organizationId: input.organizationId ?? null,
+      keyHash,
+      keyPrefix: prefix,
+      rolesJson: roleIds,
+      createdBy: input.userId,
+      sessionTokenHash,
+      sessionUserId: input.userId,
+      sessionSecretEncrypted: encryptedSecret,
+      expiresAt,
+      createdAt: new Date(),
+    })
+    em.persist(record)
+  }], { transaction: true, label: 'api_keys.session.create' })
 
   return {
     keyId: record.id,
@@ -258,10 +300,26 @@ export async function findApiKeyBySessionToken(
 ): Promise<ApiKey | null> {
   if (!sessionToken) return null
 
-  const record = await em.findOne(ApiKey, {
-    sessionToken,
-    deletedAt: null,
-  })
+  // Looked up by hash, never by the raw token (#2254).
+  const sessionTokenHash = hashSessionToken(sessionToken)
+  let record = await em.findOne(ApiKey, { sessionTokenHash, deletedAt: null })
+
+  if (!record) {
+    // Version-skew fallback (#7304): during a rolling deploy/rollback window the app and the
+    // separate MCP process can briefly run different code versions. A row minted by
+    // pre-#2254 code in that window carries only the plaintext token (sessionTokenHash is
+    // still null) — fall back to it so the session still resolves instead of answering a
+    // false SESSION_EXPIRED, then self-heal the row onto the hash immediately so this is the
+    // only lookup that ever sees the plaintext, and the window closes as soon as each
+    // outstanding legacy row is touched once.
+    const legacyRecord = await em.findOne(ApiKey, { sessionToken, deletedAt: null })
+    if (legacyRecord) {
+      legacyRecord.sessionTokenHash = sessionTokenHash
+      legacyRecord.sessionToken = null
+      await em.persist(legacyRecord).flush()
+      record = legacyRecord
+    }
+  }
 
   if (!record) return null
   if (record.expiresAt && record.expiresAt.getTime() < Date.now()) return null
@@ -367,12 +425,37 @@ export async function deleteSessionApiKey(
   em: EntityManager,
   sessionToken: string
 ): Promise<void> {
-  const record = await em.findOne(ApiKey, { sessionToken, deletedAt: null })
-  if (!record) return
-
-  record.deletedAt = new Date()
-  await em.persist(record).flush()
-  getSharedApiKeyAuthCache().invalidateByKeyId(record.id)
+  // Looked up and re-checked by hash, never by the raw token (#2254). Deliberately does not
+  // call findApiKeyBySessionToken: that helper also drops already-expired rows, but deleting
+  // an expired-but-not-yet-cleaned-up row must still work here.
+  const sessionTokenHash = hashSessionToken(sessionToken)
+  let candidate = await em.findOne(ApiKey, { sessionTokenHash, deletedAt: null })
+  if (!candidate) {
+    // Version-skew fallback (#7304): see findApiKeyBySessionToken for the full rationale — a
+    // row minted by pre-#2254 code during a deploy window is plaintext-only until touched.
+    const legacyCandidate = await em.findOne(ApiKey, { sessionToken, deletedAt: null })
+    if (legacyCandidate) {
+      legacyCandidate.sessionTokenHash = sessionTokenHash
+      legacyCandidate.sessionToken = null
+      await em.persist(legacyCandidate).flush()
+      candidate = legacyCandidate
+    }
+  }
+  if (!candidate) return
+  let deletedId: string | null = null
+  await withAtomicFlush(em, [async () => {
+    const records = await lockAuthorizationApiKeyRows(em, [String(candidate.id)])
+    const record = records.find((entry) => (
+      String(entry.id) === String(candidate.id)
+      && entry.sessionTokenHash === sessionTokenHash
+      && !entry.deletedAt
+    ))
+    if (!record) return
+    record.deletedAt = new Date()
+    await em.persist(record).flush()
+    deletedId = String(record.id)
+  }], { transaction: true, label: 'api_keys.session.delete' })
+  if (deletedId) getSharedApiKeyAuthCache().invalidateByKeyId(deletedId)
 }
 
 /**
@@ -411,9 +494,7 @@ export async function withOnetimeApiKey<T>(
     return result
   } finally {
     try {
-      record.deletedAt = new Date()
-      await em.persist(record).flush()
-      getSharedApiKeyAuthCache().invalidateByKeyId(record.id)
+      await deleteApiKey(em, String(record.id))
     } catch (error) {
       logger.error('Failed to soft-delete one-time API key', { err: error })
     }

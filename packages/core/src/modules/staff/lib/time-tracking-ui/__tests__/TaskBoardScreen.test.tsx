@@ -6,6 +6,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider'
+import { registerCoreInjectionWidgets, registerCoreInjectionTables } from '@open-mercato/shared/modules/widgets/injection-loader'
 import { TaskBoardScreen } from '../TaskBoardScreen'
 
 const PROJECT_ID = '11111111-1111-4111-8111-111111111111'
@@ -66,7 +67,10 @@ const mockTranslate = (
   return interpolate(key, fallbackOrParams)
 }
 
-jest.mock('@open-mercato/shared/lib/i18n/context', () => ({ useT: () => mockTranslate }))
+jest.mock('@open-mercato/shared/lib/i18n/context', () => {
+  const actual = jest.requireActual('@open-mercato/shared/lib/i18n/context')
+  return { ...actual, useT: () => mockTranslate, useLocale: () => 'en' }
+})
 
 jest.mock('@open-mercato/shared/lib/frontend/useOrganizationScope', () => ({
   useOrganizationScopeVersion: () => 1,
@@ -220,6 +224,8 @@ async function applyAssignedToMe() {
 }
 
 beforeEach(() => {
+  registerCoreInjectionWidgets([])
+  registerCoreInjectionTables([])
   jest.clearAllMocks()
   window.localStorage.clear()
   taskRows = [

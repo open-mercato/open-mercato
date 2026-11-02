@@ -27,12 +27,19 @@ export async function register(): Promise<void> {
   // Initialize telemetry (no-op unless TELEMETRY_BACKEND is set). OTEL's NodeSDK
   // is Node-only and incompatible with the edge runtime, so the telemetry
   // bootstrap — which can pull in the SDK — is imported only on the Node.js
-  // runtime. The helper owns init + graceful degrade + shutdown flush.
+  // runtime. The helper owns init + graceful degrade + shutdown flush; a
+  // deliberate configuration failure bubbles here so the host exits loudly.
   if (
     process.env.NEXT_RUNTIME === 'nodejs'
     && isTelemetryBackendEnabled()
   ) {
     const { registerTelemetryForNextjs } = await import('@open-mercato/telemetry/nextjs')
-    await registerTelemetryForNextjs()
+    try {
+      await registerTelemetryForNextjs()
+    } catch (err) {
+      const nodeProcess = process
+      nodeProcess.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`)
+      nodeProcess.exit(1)
+    }
   }
 }

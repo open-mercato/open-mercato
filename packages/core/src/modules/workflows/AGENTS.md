@@ -94,13 +94,13 @@ Definition → startWorkflow() → Instance → executeWorkflow() loop
 
 | Activity type | When to use |
 |---------------|-------------|
-| `SEND_EMAIL` | Send templated email via mail service |
+| `SEND_EMAIL` | Send templated email via mail service. The handler passes `signal?: AbortSignal` on the send payload; honouring it is optional for implementations. Adapter authors serializing the payload for a queue must strip the field before enqueuing. |
 | `CALL_API` | Call an internal API endpoint |
 | `CALL_WEBHOOK` | Call an external HTTP endpoint (SSRF-guarded via `@open-mercato/shared/lib/url-safety`; `redirect: 'manual'`, 3xx rejected) |
-| `UPDATE_ENTITY` | Mutate an entity via the command bus |
-| `EMIT_EVENT` | Emit a domain event to the event bus |
-| `EXECUTE_FUNCTION` | Run a registered custom function |
-| `WAIT` | Delay execution for a configured duration |
+| `UPDATE_ENTITY` | Mutate an entity via the command bus. `CommandBus.execute` does not declare a signal; a write that has already begun cannot be cancelled on timeout. |
+| `EMIT_EVENT` | Emit a domain event to the event bus. `eventBus.emitEvent` does not declare a signal; an emit that has already begun cannot be cancelled on timeout. |
+| `EXECUTE_FUNCTION` | Run a registered custom function. Functions receive `(args, context, signal?: AbortSignal)` — the third arg is additive; existing two-arg functions are unaffected. |
+| `WAIT` | Delay execution for a configured duration. A sync WAIT over `MAX_INLINE_WAIT_MS` (60 s) that ENDS its transition is queued like an async one (`executeActivities` `queueLongInlineWaits`, opted into by the transition handler only — the AUTOMATED-step caller does not park on a queued result). An in-process WAIT never hands `setTimeout` more than `MAX_TIMER_DELAY_MS` (2^31−1 ms): Node would fire it after 1 ms. |
 | `SET_VARIABLE` | Write values into workflow context at dot paths (assignments land at top-level context, not namespaced under the activity) |
 
 ## Context Backbone (contextSchema · ledger · picker · samples · test step)
@@ -934,7 +934,7 @@ Treat a regression here as a broken feature, not a nit.
 | Variable | Effect | Default |
 |----------|--------|---------|
 | `OM_WORKFLOWS_ALLOW_PRIVATE_URLS` | When `1`/`true`/`yes`, bypasses the SSRF guard in `CALL_WEBHOOK` so workflow authors can hit `localhost`, RFC1918, and `.internal` targets. For dev only — MUST remain unset in production. | unset (guard enforced) |
-| `OM_WORKFLOWS_MAX_CONDITION_ATTEMPTS` | Hard cap on WAIT_FOR_CONDITION poll re-enqueues; reaching it forces `CONDITION_TIMED_OUT` so a never-satisfiable predicate cannot saturate the queue. | `1000` |
+| `OM_WORKFLOWS_MAX_CONDITION_ATTEMPTS` | Floor of the cap on WAIT_FOR_CONDITION poll re-enqueues; reaching the cap forces `CONDITION_TIMED_OUT` so a never-satisfiable predicate cannot saturate the queue. Each waiter's cap is raised to the polls its own timeout needs (`resolveConditionAttemptCap`: `timeoutMs / pollIntervalMs + 1`), so a long timeout is never cut short by the floor. | `1000` |
 | `OM_WORKFLOWS_ENV_INTERPOLATION_ALLOWLIST` | Comma-separated non-secret process env keys allowed for `{{env.*}}` interpolation in workflow activity config. `APP_URL` is always allowed. Never include secrets. | unset (`APP_URL` only) |
 
 ## DI Services
@@ -995,6 +995,8 @@ Configure automatic workflow starts from domain events:
 
 Precedence: **a DB-backed definition wins over its code counterpart.** Any non-deleted `workflow_definitions` row shadows the code projection for the same `workflowId` — including a disabled row, and including a customization whose `triggers[]` was emptied. This preserves `customize` semantics: once an operator materializes a code workflow, the DB row alone decides which triggers are live.
 
+Versions: **embedded triggers come only from the highest enabled, published version of each `workflowId`** — the row an unpinned `findWorkflowDefinition` returns among DB rows. Publishing copies `triggers[]` into the new version and leaves the source row enabled for pinned instances and callers, so projecting every enabled row would start one instance per version for a single event. Older, disabled, `draft` and `archived` rows still count for the shadow rule above but contribute no triggers.
+
 MUST invalidate the trigger cache after any write that changes which source owns a workflow's triggers — `loadTriggersForTenant()` caches per tenant/organization for `TRIGGER_CACHE_TTL` (5 min), so without invalidation the wildcard subscriber keeps matching a stale snapshot:
 
 ```typescript
@@ -1003,7 +1005,7 @@ import { invalidateTriggerCache } from '../lib/event-trigger-service'
 if (tenantId) invalidateTriggerCache(tenantId, organizationId ?? undefined)
 ```
 
-This covers definition create/update/delete **and** `POST .../[id]/customize` (code projection → embedded row) and `POST .../[id]/reset-to-code` (embedded row → code projection). Invalidate for the **written row's own** tenant/organization rather than the caller's — `customize` looks an override up by `(workflowId, tenantId)`, so it can revive a row owned by a sibling organization. Omitting `organizationId` clears every organization under the tenant.
+This covers definition create/update/delete **and** `POST .../[id]/customize` (code projection → embedded row), `POST .../[id]/reset-to-code` (embedded row → code projection) and `POST .../[id]/publish` (the minted version becomes the one triggers resolve to). Invalidate for the **written row's own** tenant/organization rather than the caller's — `customize` looks an override up by `(workflowId, tenantId)`, so it can revive a row owned by a sibling organization. Omitting `organizationId` clears every organization under the tenant.
 
 ## Widget Injection
 

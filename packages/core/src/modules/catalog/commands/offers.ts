@@ -5,6 +5,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { UniqueConstraintViolationException } from '@mikro-orm/core'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CatalogOffer } from '../data/entities'
 import {
   offerCreateSchema,
@@ -15,6 +16,7 @@ import {
 import {
   cloneJson,
   commandActorScope,
+  commandScopeWhere,
   ensureOrganizationScope,
   ensureSameScope,
   ensureTenantScope,
@@ -59,10 +61,15 @@ const OFFER_CHANGE_KEYS = [
   'isActive',
 ] as const satisfies readonly string[]
 
-async function loadOfferSnapshot(em: EntityManager, id: string): Promise<OfferSnapshot | null> {
-  const record = await em.findOne(
+async function loadOfferSnapshot(
+  em: EntityManager,
+  id: string,
+  scopeWhere: Record<string, unknown> = {},
+): Promise<OfferSnapshot | null> {
+  const record = await findOneWithDecryption(
+    em,
     CatalogOffer,
-    { id },
+    { id, ...scopeWhere },
     { populate: ['product'], strategy: 'select-in' },
   )
   if (!record) return null
@@ -255,7 +262,7 @@ const updateOfferCommand: CommandHandler<OfferUpdateInput, { offerId: string }> 
   async prepare(input, ctx) {
     const id = requireId(input, 'Offer id is required.')
     const em = ctx.container.resolve('em') as EntityManager
-    const snapshot = await loadOfferSnapshot(em, id)
+    const snapshot = await loadOfferSnapshot(em, id, commandScopeWhere(ctx))
     if (snapshot) {
       ensureTenantScope(ctx, snapshot.tenantId)
       ensureOrganizationScope(ctx, snapshot.organizationId)
@@ -265,7 +272,11 @@ const updateOfferCommand: CommandHandler<OfferUpdateInput, { offerId: string }> 
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(offerUpdateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const record = await em.findOne(CatalogOffer, { id: parsed.id, deletedAt: null })
+    const record = await findOneWithDecryption(em, CatalogOffer, {
+      id: parsed.id,
+      deletedAt: null,
+      ...commandScopeWhere(ctx),
+    })
     if (!record) throw new CrudHttpError(404, { error: 'Catalog offer not found' })
     await em.populate(record, ['product'])
     ensureTenantScope(ctx, record.tenantId)
@@ -434,7 +445,7 @@ const deleteOfferCommand: CommandHandler<{ id?: string }, { offerId: string }> =
   async prepare(input, ctx) {
     const id = requireId(input, 'Offer id is required.')
     const em = ctx.container.resolve('em') as EntityManager
-    const snapshot = await loadOfferSnapshot(em, id)
+    const snapshot = await loadOfferSnapshot(em, id, commandScopeWhere(ctx))
     if (snapshot) {
       ensureTenantScope(ctx, snapshot.tenantId)
       ensureOrganizationScope(ctx, snapshot.organizationId)

@@ -43,6 +43,7 @@ test.describe('TC-PHONE-HUB-006: ingest invalidates the cached calls list', () =
 
     const stamp = `${Date.now()}-${randomInt(1_000_000)}`
     const externalCallId = `qa-phone-hub-006-${stamp}`
+    const providerKey = `qa-cache-${stamp}`
     let ingestedId: string | null = null
 
     try {
@@ -50,7 +51,7 @@ test.describe('TC-PHONE-HUB-006: ingest invalidates the cached calls list', () =
       const scope = getTokenScope(token)
       // The query never changes across the three reads: a differing key would be a cache miss
       // for the trivial reason and would prove nothing about invalidation.
-      const query = `/api/phone_calls/calls?q=${encodeURIComponent(externalCallId)}&pageSize=100`
+      const query = `/api/phone_calls/calls?providerKey=${encodeURIComponent(providerKey)}&pageSize=100`
 
       async function read(context: APIRequestContext): Promise<{ cache: string | undefined; ids: string[] }> {
         const response = await apiRequest(context, 'GET', query, { token })
@@ -82,7 +83,7 @@ test.describe('TC-PHONE-HUB-006: ingest invalidates the cached calls list', () =
           input: {
             organizationId: scope.organizationId,
             tenantId: scope.tenantId,
-            providerKey: 'tillio',
+            providerKey,
             externalCallId,
             direction: 'inbound',
             status: 'completed',

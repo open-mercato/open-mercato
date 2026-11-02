@@ -48,7 +48,7 @@ interface ExtractionEntityClasses {
   catalogProduct?: EntityClass<{ id: string; name: string; sku?: string | null; tenantId?: string; organizationId?: string; deletedAt?: Date | null }>
   catalogProductPrice?: EntityClass<{ product?: unknown; unitPriceNet?: string | null; unitPriceGross?: string | null; currencyCode?: string | null; tenantId?: string; organizationId?: string; deletedAt?: Date | null; createdAt?: Date }>
   salesOrder?: EntityClass<{ id: string; orderNumber: string; customerReference?: string | null; tenantId?: string; organizationId?: string; deletedAt?: Date | null }>
-  salesChannel?: EntityClass<{ id: string; name: string; currencyCode?: string; tenantId?: string; organizationId?: string; deletedAt?: Date | null }>
+  salesChannel?: EntityClass<{ id: string; name: string; tenantId?: string; organizationId?: string; deletedAt?: Date | null }>
   customerAddress?: EntityClass<{ id: string; isPrimary: boolean; tenantId?: string; organizationId?: string; entity?: { id: string } | string; createdAt?: Date }>
 }
 

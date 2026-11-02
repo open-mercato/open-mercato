@@ -27,11 +27,21 @@ export type EmailThreadMessage = {
   direction: EmailThreadDirection
   fromName: string | null
   fromEmail: string | null
+  /**
+   * True when the viewer wrote this message — the only thing that earns a "You"
+   * label. Outbound direction alone does NOT imply authorship: a shared
+   * conversation or team mailbox puts a colleague's sent mail in this list, and
+   * labelling that "You" attributes their email to the reader. Optional and
+   * fail-safe: omitted (or false) renders the sender identity instead.
+   */
+  authoredByViewer?: boolean
+  /** Display label of the sending colleague, when the viewer is not the author. */
+  authorName?: string | null
   to: string[]
   cc: string[]
   subject: string | null
   bodyText: string | null
-  sentAt: string
+  sentAt: string | null
   providerKey: string | null
   /** Optimistic send status; absent on server-confirmed messages. */
   status?: EmailThreadMessageStatus
@@ -44,7 +54,7 @@ export type EmailThread = {
   subject: string | null
   preview: string | null
   participants: string[]
-  lastMessageAt: string
+  lastMessageAt: string | null
   messageCount: number
   providerKey: string | null
   lastDirection: EmailThreadDirection
@@ -66,8 +76,8 @@ export type EmailThreadsPanelProps = {
   className?: string
 }
 
-function formatWhen(value: string): string {
-  return formatDateTime(value) ?? value
+function formatWhen(value: string | null, unknownLabel: string): string {
+  return value ? formatDateTime(value) ?? value : unknownLabel
 }
 
 /**
@@ -184,7 +194,7 @@ export function EmailThreadsPanel({
                           {thread.subject || t('ui.email.threads.noSubject', '(no subject)')}
                         </span>
                         <span className="min-w-0 max-w-full break-words text-xs text-muted-foreground">
-                          {formatWhen(thread.lastMessageAt)}
+                          {formatWhen(thread.lastMessageAt, t('ui.email.threads.unknownDate', 'Unknown date'))}
                         </span>
                       </div>
                       <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
@@ -259,6 +269,16 @@ function EmailMessageCard({
   const fromLabel = message.fromName
     ? `${message.fromName}${message.fromEmail ? ` <${message.fromEmail}>` : ''}`
     : message.fromEmail ?? t('ui.email.threads.unknownParticipant', 'Unknown sender')
+  // Outbound mail carries no `from` address, so a colleague's message falls back
+  // to their resolved name and then to a generic label — never to "You", which
+  // would credit the reader with an email they did not send.
+  const senderLabel = isOutbound
+    ? message.authoredByViewer
+      ? t('ui.email.threads.you', 'You')
+      : message.authorName?.trim() ||
+        message.fromEmail ||
+        t('ui.email.threads.teammate', 'A teammate')
+    : fromLabel
   return (
     <div
       className={`min-w-0 rounded-md border border-border p-3 ${isOutbound ? 'bg-accent' : 'bg-muted'}`}
@@ -272,7 +292,7 @@ function EmailMessageCard({
               <ArrowDownLeft className="h-3.5 w-3.5 shrink-0" />
             )}
             <span className="min-w-0 break-words font-medium text-foreground">
-              {isOutbound ? t('ui.email.threads.you', 'You') : fromLabel}
+              {senderLabel}
             </span>
           </div>
           {message.to.length > 0 ? (
@@ -283,7 +303,7 @@ function EmailMessageCard({
             </span>
           ) : null}
         </div>
-        <span className="min-w-0 max-w-full break-words text-xs text-muted-foreground">{formatWhen(message.sentAt)}</span>
+        <span className="min-w-0 max-w-full break-words text-xs text-muted-foreground">{formatWhen(message.sentAt, t('ui.email.threads.unknownDate', 'Unknown date'))}</span>
       </div>
       <div className="whitespace-pre-wrap break-words text-sm text-foreground">
         {message.bodyText || t('ui.email.threads.noBody', '(no content)')}

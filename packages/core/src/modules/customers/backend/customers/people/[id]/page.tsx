@@ -135,8 +135,10 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
     sectionAction.onClick()
   }, [sectionAction])
 
-  React.useEffect(() => {
+  const handleTabChange = React.useCallback((tab: SectionKey) => {
+    if (tab === activeTab) return
     setSectionAction(null)
+    setActiveTab(tab)
   }, [activeTab])
   const validators = React.useMemo(() => ({
     email: (value: string) => {
@@ -807,7 +809,7 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
           <DetailTabsLayout
             tabs={tabs}
             activeTab={activeTab}
-            onTabChange={setActiveTab}
+            onTabChange={handleTabChange}
             sectionAction={sectionAction}
             onSectionAction={handleSectionAction}
             navAriaLabel={t('customers.people.detail.tabs.label', 'Person detail sections')}

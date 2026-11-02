@@ -1,4 +1,4 @@
-import { OptionalProps } from '@mikro-orm/core'
+import { BigIntType, OptionalProps } from '@mikro-orm/core'
 import { Entity, Index, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
 import type {
   AgentType,
@@ -155,7 +155,8 @@ export class AgentRun {
   @Property({ name: 'output_tokens', type: 'integer', nullable: true })
   outputTokens?: number | null
 
-  @Property({ name: 'cost_minor', type: 'bigint', nullable: true })
+  /** Backed by a `bigint` column; hydrate as `number` (safe under Number.MAX_SAFE_INTEGER for minor-unit costs) instead of MikroORM's default JS `bigint`. */
+  @Property({ name: 'cost_minor', type: new BigIntType('number'), nullable: true })
   costMinor?: number | null
 
   @Property({ name: 'currency', type: 'varchar', length: 3, nullable: true })
@@ -1506,8 +1507,8 @@ export class ProcessInstance {
   @Property({ name: 'subject_title', type: 'varchar', length: 300, nullable: true })
   subjectTitle?: string | null
 
-  /** Claim value in minor units — High-value filter / value sort. Plaintext by design. */
-  @Property({ name: 'subject_value_minor', type: 'bigint', nullable: true })
+  /** Claim value in minor units — High-value filter / value sort. Plaintext by design. Backed by a `bigint` column; hydrate as `number`, not MikroORM's default JS `bigint`. */
+  @Property({ name: 'subject_value_minor', type: new BigIntType('number'), nullable: true })
   subjectValueMinor?: number | null
 
   /** Fraud signal — Fraud-flagged filter. Plaintext by design. */
@@ -1538,7 +1539,8 @@ export class ProcessInstance {
   @Property({ name: 'agent_ids', type: 'jsonb', nullable: true })
   agentIds?: string[] | null
 
-  @Property({ name: 'cost_minor', type: 'bigint', nullable: true })
+  /** Backed by a `bigint` column; hydrate as `number`, not MikroORM's default JS `bigint`. */
+  @Property({ name: 'cost_minor', type: new BigIntType('number'), nullable: true })
   costMinor?: number | null
 
   @Property({ name: 'currency', type: 'varchar', length: 3, nullable: true })

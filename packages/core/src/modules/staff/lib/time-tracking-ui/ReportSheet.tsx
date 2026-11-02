@@ -29,6 +29,7 @@ import * as React from 'react'
 import { z } from 'zod'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 import { Badge } from '@open-mercato/ui/primitives/badge'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@open-mercato/ui/primitives/table'
 import { formatCurrency } from '@open-mercato/ui/utils/format'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
@@ -202,26 +203,26 @@ function ReportSheetGroup({ group, showRates, money }: GroupProps) {
       </div>
 
       <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-border text-xs uppercase tracking-wide text-muted-foreground">
-              <th className="px-6 py-2 text-left font-medium">
+        <Table>
+          <TableHeader>
+            <TableRow className="text-xs uppercase tracking-wide text-muted-foreground">
+              <TableHead className="px-6 py-2 text-left">
                 {t('staff.time_tracking.reports.sheet.lineLabel', 'Line')}
-              </th>
-              <th className="px-3 py-2 text-right font-medium">
+              </TableHead>
+              <TableHead className="px-3 py-2 text-right">
                 {t('staff.time_tracking.reports.sheet.time', 'Time')}
-              </th>
+              </TableHead>
               {showRates ? (
-                <th className="px-3 py-2 text-right font-medium">
+                <TableHead className="px-3 py-2 text-right">
                   {t('staff.time_tracking.reports.sheet.rate', 'Rate')}
-                </th>
+                </TableHead>
               ) : null}
-              <th className="px-6 py-2 text-right font-medium">
+              <TableHead className="px-6 py-2 text-right">
                 {t('staff.time_tracking.reports.sheet.amount', 'Amount')}
-              </th>
-            </tr>
-          </thead>
-          <tbody>
+              </TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
             {group.lines.map((line) => (
               <ReportSheetLine
                 key={line.key}
@@ -232,8 +233,8 @@ function ReportSheetGroup({ group, showRates, money }: GroupProps) {
                 money={money}
               />
             ))}
-          </tbody>
-        </table>
+          </TableBody>
+        </Table>
       </div>
     </div>
   )
@@ -255,8 +256,8 @@ function ReportSheetLine({ line, depth, isNonBillable, showRates, money }: LineP
 
   return (
     <>
-      <tr className="border-b border-border/60 last:border-b-0">
-        <td className="px-6 py-2" style={{ paddingLeft: `${1.5 + depth * 1.25}rem` }}>
+      <TableRow>
+        <TableCell className="px-6 py-2" style={{ paddingLeft: `${1.5 + depth * 1.25}rem` }}>
           <div className="flex items-center gap-2">
             {hasChildren ? (
               <button
@@ -284,17 +285,19 @@ function ReportSheetLine({ line, depth, isNonBillable, showRates, money }: LineP
               </Badge>
             ) : null}
           </div>
-        </td>
-        <td className="px-3 py-2 text-right font-mono tabular-nums">{formatReportMinutes(line.minutes)}</td>
+        </TableCell>
+        <TableCell className="px-3 py-2 text-right font-mono tabular-nums">
+          {formatReportMinutes(line.minutes)}
+        </TableCell>
         {showRates ? (
-          <td className="px-3 py-2 text-right font-mono tabular-nums">
+          <TableCell className="px-3 py-2 text-right font-mono tabular-nums">
             {isNonBillable ? EM_DASH : money(line.rate)}
-          </td>
+          </TableCell>
         ) : null}
-        <td className="px-6 py-2 text-right font-mono tabular-nums">
+        <TableCell className="px-6 py-2 text-right font-mono tabular-nums">
           {isNonBillable ? EM_DASH : money(line.amount)}
-        </td>
-      </tr>
+        </TableCell>
+      </TableRow>
       {expanded
         ? line.children.map((child) => (
             <ReportSheetLine
@@ -308,11 +311,11 @@ function ReportSheetLine({ line, depth, isNonBillable, showRates, money }: LineP
           ))
         : null}
       {expanded && line.children.length === 0 ? (
-        <tr>
-          <td colSpan={columns} className="px-6 py-2 text-xs text-muted-foreground">
+        <TableRow>
+          <TableCell colSpan={columns} className="px-6 py-2 text-xs text-muted-foreground">
             {t('staff.time_tracking.reports.sheet.noSubtasks', 'No subtasks')}
-          </td>
-        </tr>
+          </TableCell>
+        </TableRow>
       ) : null}
     </>
   )

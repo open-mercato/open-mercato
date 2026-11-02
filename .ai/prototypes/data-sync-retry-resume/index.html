@@ -1,0 +1,1362 @@
+<!doctype html>
+<html lang="en" data-prototype-id="data-sync-retry-resume">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Data Sync — Retry vs Resume — interactive backend prototype</title>
+<link rel="stylesheet" href="tokens.css" />
+<link rel="stylesheet" href="components.css" />
+<link rel="stylesheet" href="screens.css" />
+<link rel="stylesheet" href="prototype.css" />
+<style>
+  /* Prototype-local helpers. Structure only — no colors outside DS tokens. */
+  .matrix td, .matrix th { vertical-align: top; }
+  .matrix .t-mono { white-space: nowrap; }
+  .resume-line {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 0.375rem;
+    font-size: 0.75rem; color: var(--muted-foreground); justify-content: flex-end;
+  }
+  .resume-line svg { width: 0.875rem; height: 0.875rem; flex: none; }
+  .hdr {
+    display: flex; flex-direction: column; gap: 0.75rem;
+  }
+  @media (min-width: 768px) { .hdr { flex-direction: row; align-items: flex-start; justify-content: space-between; } }
+  .hdr-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 0.375rem; }
+  .hdr-actions .row { justify-content: flex-end; }
+  .kv { display: grid; gap: 0.5rem; grid-template-columns: minmax(0, 1fr); }
+  @media (min-width: 640px) { .kv { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  .kv > div {
+    display: flex; align-items: center; justify-content: space-between; gap: 0.75rem;
+    border: 1px solid var(--border); border-radius: var(--radius-md);
+    background: var(--card); padding: 0.5rem 0.75rem; font-size: 0.875rem;
+  }
+  .kv dt { font-weight: 500; color: var(--muted-foreground); }
+  .kv dd { margin: 0; }
+  .counters { display: grid; gap: 1rem; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  @media (min-width: 640px) { .counters { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+  .counter { padding: 1.25rem 1rem; text-align: center; }
+  .counter .v { font-size: 1.5rem; font-weight: 700; font-variant-numeric: tabular-nums; display: block; }
+  .v-success { color: var(--status-success-text); }
+  .v-info { color: var(--status-info-text); }
+  .v-muted { color: var(--muted-foreground); }
+  .v-error { color: var(--status-error-text); }
+  .pop-anchor { position: relative; }
+  .legend { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+  /* .stack-* spaces siblings with margin-top, which inline spans ignore. */
+  .stack-2 > span, .stack-3 > span, .stack-4 > span, .stack-6 > span { display: block; }
+  .vstack { display: flex; flex-direction: column; }
+  /* screens.css ships .form-grid-2 only; the start form is a three-up row. */
+  @media (min-width: 768px) { .form-grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+</style>
+</head>
+<body>
+
+<!-- Lucide icon sprite. Only the paths this prototype uses. -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+<symbol id="ic-home" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 22V12h6v10"/></symbol>
+<symbol id="ic-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol>
+<symbol id="ic-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></symbol>
+<symbol id="ic-chevron-right" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></symbol>
+<symbol id="ic-chevron-left" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></symbol>
+<symbol id="ic-chevron-down" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></symbol>
+<symbol id="ic-bell" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></symbol>
+<symbol id="ic-more" viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="5" cy="12" r="1.75"/><circle cx="12" cy="12" r="1.75"/><circle cx="19" cy="12" r="1.75"/></symbol>
+<symbol id="ic-refresh" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/><path d="M3 21v-5h5"/></symbol>
+<symbol id="ic-rotate-ccw" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></symbol>
+<symbol id="ic-rewind" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 19 2 12l9-7z"/><path d="M22 19l-9-7 9-7z"/></symbol>
+<symbol id="ic-play" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="6 3 20 12 6 21 6 3"/></symbol>
+<symbol id="ic-x-circle" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/></symbol>
+<symbol id="ic-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></symbol>
+<symbol id="ic-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
+<symbol id="ic-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7"/><circle cx="12" cy="12" r="3"/></symbol>
+<symbol id="ic-filter" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></symbol>
+<symbol id="ic-info" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></symbol>
+<symbol id="ic-warn" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></symbol>
+<symbol id="ic-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></symbol>
+<symbol id="ic-repeat" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/></symbol>
+<symbol id="ic-bookmark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></symbol>
+<symbol id="ic-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></symbol>
+<symbol id="ic-list" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/></symbol>
+<symbol id="ic-link" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 17H7A5 5 0 0 1 7 7h2"/><path d="M15 7h2a5 5 0 1 1 0 10h-2"/><path d="M8 12h8"/></symbol>
+</defs></svg>
+
+<div class="doc-toolbar">
+  <strong style="font-size:0.875rem">Data Sync — Retry vs Resume</strong>
+  <nav class="screen-nav" aria-label="Screens">
+    <a href="#s1">1 Model</a>
+    <a href="#s2">2 List</a>
+    <a href="#s3">3 Menu · failed</a>
+    <a href="#s4">4 Menu · no full sync</a>
+    <a href="#s5">5 Menu · completed</a>
+    <a href="#s6">6 Confirm</a>
+    <a href="#s7">7 Detail · failed</a>
+    <a href="#s8">8 Detail · no cursor</a>
+    <a href="#s9">9 Detail · cancelled</a>
+    <a href="#s10">10 Detail · running</a>
+    <a href="#s11">11 Detail · completed</a>
+    <a href="#s12">12 Run again form</a>
+    <a href="#s13">13 Rejections</a>
+  </nav>
+  <!-- prototype.js injects the review-mode controls. -->
+  <button class="btn btn-outline btn-sm" id="theme-toggle" type="button">
+    <svg><use href="#ic-sun"/></svg> Theme
+  </button>
+</div>
+
+<div class="doc">
+
+<header class="doc-head">
+  <h1>Data Sync — Retry vs Resume — screen inventory</h1>
+  <p class="muted" style="max-width:70ch;margin:0">
+    Interactive backend screens derived from <code class="t-mono">.ai/prototypes/data-sync-retry-resume/REQUIREMENTS.md</code>.
+    The shell, page scaffolding, DataTable chrome, and CrudForm layout mirror
+    <code class="t-mono">packages/ui/src/backend/</code>; colors and spacing come from
+    <code class="t-mono">globals.css</code>. Every screen lists its requirement and user-story coverage.
+    All data is fictional. Nothing here is implemented — it is a proposal to accept or reject.
+  </p>
+</header>
+
+<!-- ═══ SCREEN 1 ══════════════════════════════════════════════════ -->
+<section class="screen" id="s1">
+  <div class="screen-meta">
+    <h2>1. Action model by run state</h2>
+    <p>The single table the rest of the prototype draws. Read this first; every later screen is one cell of it.</p>
+    <div class="screen-refs"><span class="ref">§2</span><span class="ref">US-A2</span><span class="ref">US-B1</span></div>
+  </div>
+
+  <div class="card">
+    <div class="card-head"><span class="t-card-title">What each run state offers, and what it sends</span></div>
+    <div class="card-body stack-4">
+      <table class="table matrix">
+        <thead>
+          <tr>
+            <th>Run state</th>
+            <th>List row menu</th>
+            <th>Detail page</th>
+            <th>Resume-point line</th>
+            <th>Request</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><span class="badge badge-neutral">pending</span></td>
+            <td>View · <span class="strong">Cancel</span></td>
+            <td><span class="strong">Cancel</span></td>
+            <td class="muted">none — nothing committed yet</td>
+            <td class="t-mono t-hint">POST …/cancel</td>
+          </tr>
+          <tr>
+            <td><span class="badge badge-info">running</span></td>
+            <td>View · <span class="strong">Cancel</span></td>
+            <td><span class="strong">Cancel</span></td>
+            <td class="muted">none — live progress instead</td>
+            <td class="t-mono t-hint">POST …/cancel</td>
+          </tr>
+          <tr>
+            <td><span class="badge badge-success">completed</span></td>
+            <td>View · <span class="strong">Run again</span></td>
+            <td><span class="strong">Run again</span></td>
+            <td class="muted">none</td>
+            <td class="t-mono t-hint">navigate → start form</td>
+          </tr>
+          <tr>
+            <td><span class="badge badge-error">failed</span></td>
+            <td>View · <span class="strong">Retry (resume from batch N)</span> · Retry from the beginning</td>
+            <td><span class="strong">Retry</span> + overflow</td>
+            <td>“Resumes from batch 41”</td>
+            <td class="t-mono t-hint">POST …/retry <span class="t-hint">{fromBeginning:false}</span></td>
+          </tr>
+          <tr>
+            <td><span class="badge badge-warning">cancelled</span></td>
+            <td>as <span class="badge badge-error">failed</span>, but the primary reads <span class="strong">Resume</span></td>
+            <td>as <span class="badge badge-error">failed</span>, but the primary reads <span class="strong">Resume</span></td>
+            <td>“Resumes from batch 3”</td>
+            <td class="t-mono t-hint">POST …/retry</td>
+          </tr>
+          <tr>
+            <td><span class="badge badge-error">failed</span> <span class="t-hint">· before batch 1</span></td>
+            <td>View · <span class="strong">Retry</span> · Retry from the beginning</td>
+            <td><span class="strong">Retry</span> + overflow</td>
+            <td>“This run committed no batch. Retry starts from this feed's last saved position.”</td>
+            <td class="t-mono t-hint">POST …/retry <span class="t-hint">(cursor resolves to null)</span></td>
+          </tr>
+          <tr>
+            <td><span class="badge badge-error">failed</span> <span class="t-hint">· full sync inapplicable</span></td>
+            <td>View · <span class="strong">Retry</span> <span class="t-hint">(no “from the beginning”)</span></td>
+            <td><span class="strong">Retry</span> alone; the from-scratch item is absent</td>
+            <td>“Resumes from batch 12. This feed cannot be replayed from the start.”</td>
+            <td class="t-hint">UI gating only — the endpoint still accepts <span class="t-mono">fromBeginning:true</span> by design</td>
+          </tr>
+          <tr>
+            <td><span class="badge badge-warning">paused</span></td>
+            <td class="muted">—</td>
+            <td class="muted">—</td>
+            <td class="muted">—</td>
+            <td class="muted t-hint">vestigial: nothing in the engine sets this status</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="alert alert-info">
+        <svg><use href="#ic-info"/></svg>
+        <div class="stack-2">
+          <span class="alert-title">Why not two peer buttons named Resume and Retry</span>
+          <span class="t-body">To an operator they are synonyms; they would have to learn which is which every time.
+          The rare action is presented as a <i>modifier</i> of the common one, and the common one explains
+          itself in a helper line. If peer buttons are ever wanted, the only unambiguous pair is
+          <b>Resume</b> / <b>Restart</b> — never Resume / Retry.</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>“Retry” always creates a <b>new</b> <code class="t-mono">sync_runs</code> row with fresh counters and a new progress job. No screen in this prototype implies the original row changes — and no screen can currently link the two, because there is no <code class="t-mono">retried_from_run_id</code> column. That gap is listed in §4 of the requirements.</span></div>
+    <div class="note"><b>2</b><span>The last row is a finding, not a design: <code class="t-mono">paused</code> is in the status union, the validator, the entity and the badge map, but nothing in <code class="t-mono">sync-engine.ts</code> or <code class="t-mono">sync-run-service.ts</code> ever writes it. Either produce it or drop it; the prototype shows no actions for it.</span></div>
+  </div>
+</section>
+
+<!-- ═══ SCREEN 2 ══════════════════════════════════════════════════ -->
+<section class="screen" id="s2">
+  <div class="screen-meta">
+    <h2>2. Runs list — all states at once</h2>
+    <p>The operator's entry point. Every run state this prototype covers is present in one table.</p>
+    <div class="screen-refs"><span class="ref">§2</span><span class="ref">US-A2</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar">
+      <div class="frame-dots"><i></i><i></i><i></i></div>
+      <span class="frame-url">/backend/data-sync</span>
+    </div>
+    <div class="app app-tall">
+
+      <aside class="sidebar">
+        <a class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Open Mercato</span></a>
+        <div class="sidebar-search"><svg><use href="#ic-search"/></svg> Search</div>
+        <nav class="sidebar-nav">
+          <div class="nav-group"><span>Integrations</span><svg><use href="#ic-chevron-down"/></svg></div>
+          <div class="nav-items">
+            <span class="nav-item active"><svg><use href="#ic-repeat"/></svg> Data sync</span>
+            <a class="nav-item"><svg><use href="#ic-link"/></svg> Connections</a>
+            <a class="nav-item"><svg><use href="#ic-list"/></svg> Logs</a>
+          </div>
+        </nav>
+      </aside>
+
+      <div class="main">
+        <header class="topbar">
+          <div class="topbar-left">
+            <div class="crumbs">
+              <svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg>
+              <span class="here">Data sync</span>
+            </div>
+          </div>
+          <div class="topbar-right">
+            <div class="topbar-search"><svg><use href="#ic-search"/></svg> Search</div>
+            <button class="icon-btn" aria-label="Notifications"><svg><use href="#ic-bell"/></svg></button>
+            <span class="avatar">AN</span>
+          </div>
+        </header>
+
+        <main class="page">
+          <div class="card">
+            <div class="card-head">
+              <div class="stack-2">
+                <span class="t-overline"><svg style="width:.875rem;height:.875rem;vertical-align:-2px"><use href="#ic-repeat"/></svg> Run once or keep it recurring</span>
+                <span class="t-card-title">Start or schedule a sync</span>
+              </div>
+              <button class="btn btn-outline btn-sm"><svg><use href="#ic-chevron-down"/></svg> Expand</button>
+            </div>
+          </div>
+
+          <div class="dt">
+            <div class="dt-head">
+              <div class="dt-head-row">
+                <h2 class="t-table-title">Sync runs</h2>
+                <div class="dt-head-actions">
+                  <button class="btn btn-outline btn-sm"><svg><use href="#ic-refresh"/></svg> Refresh</button>
+                </div>
+              </div>
+              <div class="dt-toolbar">
+                <div class="dt-toolbar-row">
+                  <div class="dt-search"><span class="input" style="display:flex;align-items:center;gap:.5rem;color:var(--muted-foreground)"><svg style="width:1rem;height:1rem"><use href="#ic-search"/></svg> Search runs…</span></div>
+                  <div class="dt-toolbar-right">
+                    <button class="btn btn-outline btn-sm"><svg><use href="#ic-filter"/></svg> Filters</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="scroll-x">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>Integration</th><th>Entity type</th><th>Direction</th><th>Status</th>
+                    <th class="right">Created</th><th class="right">Updated</th><th class="right">Failed</th>
+                    <th>Started</th><th class="right"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr class="clickable" data-goto="s10">
+                    <td class="strong">shopify-nordvik</td><td>orders</td>
+                    <td><span class="badge badge-neutral">import</span></td>
+                    <td><span class="badge badge-info">running</span></td>
+                    <td class="right num">512</td><td class="right num">44</td><td class="right num">0</td>
+                    <td class="muted t-mono">15 Sep 05:10</td>
+                    <td class="right"><span class="row-actions"><button class="btn btn-ghost btn-xs" aria-label="Row actions"><svg><use href="#ic-more"/></svg></button></span></td>
+                  </tr>
+                  <tr class="clickable">
+                    <td class="strong">shopify-nordvik</td><td>categories</td>
+                    <td><span class="badge badge-neutral">import</span></td>
+                    <td><span class="badge badge-neutral">pending</span></td>
+                    <td class="right num">0</td><td class="right num">0</td><td class="right num">0</td>
+                    <td class="muted t-mono">15 Sep 05:12</td>
+                    <td class="right"><span class="row-actions"><button class="btn btn-ghost btn-xs" aria-label="Row actions"><svg><use href="#ic-more"/></svg></button></span></td>
+                  </tr>
+                  <tr class="clickable" data-goto="s7">
+                    <td class="strong">shopify-nordvik</td><td>products</td>
+                    <td><span class="badge badge-neutral">import</span></td>
+                    <td><span class="badge badge-error">failed</span></td>
+                    <td class="right num">3 214</td><td class="right num">906</td><td class="right num">12</td>
+                    <td class="muted t-mono">15 Sep 04:02</td>
+                    <td class="right"><span class="row-actions"><button class="btn btn-ghost btn-xs" aria-label="Row actions" data-goto="s3"><svg><use href="#ic-more"/></svg></button></span></td>
+                  </tr>
+                  <tr class="clickable">
+                    <td class="strong">erp-ambra</td><td>stock_levels</td>
+                    <td><span class="badge badge-neutral">import</span></td>
+                    <td><span class="badge badge-error">failed</span></td>
+                    <td class="right num">0</td><td class="right num">1 880</td><td class="right num">3</td>
+                    <td class="muted t-mono">15 Sep 03:40</td>
+                    <td class="right"><span class="row-actions"><button class="btn btn-ghost btn-xs" aria-label="Row actions" data-goto="s4"><svg><use href="#ic-more"/></svg></button></span></td>
+                  </tr>
+                  <tr class="clickable" data-goto="s11">
+                    <td class="strong">erp-ambra</td><td>customers</td>
+                    <td><span class="badge badge-neutral">export</span></td>
+                    <td><span class="badge badge-success">completed</span></td>
+                    <td class="right num">1 002</td><td class="right num">318</td><td class="right num">0</td>
+                    <td class="muted t-mono">14 Sep 23:00</td>
+                    <td class="right"><span class="row-actions"><button class="btn btn-ghost btn-xs" aria-label="Row actions" data-goto="s5"><svg><use href="#ic-more"/></svg></button></span></td>
+                  </tr>
+                  <tr class="clickable" data-goto="s9">
+                    <td class="strong">warehouse-inpost</td><td>shipments</td>
+                    <td><span class="badge badge-neutral">export</span></td>
+                    <td><span class="badge badge-warning">cancelled</span></td>
+                    <td class="right num">88</td><td class="right num">0</td><td class="right num">0</td>
+                    <td class="muted t-mono">14 Sep 21:33</td>
+                    <td class="right"><span class="row-actions"><button class="btn btn-ghost btn-xs" aria-label="Row actions"><svg><use href="#ic-more"/></svg></button></span></td>
+                  </tr>
+                  <tr class="clickable" data-goto="s8">
+                    <td class="strong">erp-ambra</td><td>price_lists</td>
+                    <td><span class="badge badge-neutral">import</span></td>
+                    <td><span class="badge badge-error">failed</span></td>
+                    <td class="right num">0</td><td class="right num">0</td><td class="right num">0</td>
+                    <td class="muted t-mono">14 Sep 19:05</td>
+                    <td class="right"><span class="row-actions"><button class="btn btn-ghost btn-xs" aria-label="Row actions"><svg><use href="#ic-more"/></svg></button></span></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="dt-foot">
+              <span class="t-hint num">Showing 1 to 7 of 7 results</span>
+              <div class="pager"><button disabled><svg><use href="#ic-chevron-left"/></svg></button><button class="active">1</button><button disabled><svg><use href="#ic-chevron-right"/></svg></button></div>
+            </div>
+          </div>
+        </main>
+        <footer class="app-foot">
+          <span>v1.0.0</span>
+          <nav class="row-3"><span>Terms</span><span>Privacy</span></nav>
+        </footer>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>The list itself is unchanged from production — same columns, same row click into the detail page. Everything this prototype proposes on the list lives in the row-action menu, which opens on screens <a href="#s3" data-goto="s3">3</a>, <a href="#s4" data-goto="s4">4</a> and <a href="#s5" data-goto="s5">5</a>. Click a ⋯ button on a failed or completed row to follow it.</span></div>
+    <div class="note"><b>2</b><span><b>Decided, and the columns stay as they are.</b> A row gives no hint that a retry would resume — the resume point is legible on the detail page and inside the open row menu, and nowhere else. A dedicated “resumed from” column would spend a column on a value that is null for every row that is not <span class="badge badge-error">failed</span> or <span class="badge badge-warning">cancelled</span>, which is most of them.</span></div>
+    <div class="note"><b>3</b><span>The two <span class="badge badge-error">failed</span> rows differ in ways the table cannot show: <code class="t-mono">erp-ambra / stock_levels</code> is a delta feed whose adapter declares full sync inapplicable, and <code class="t-mono">erp-ambra / price_lists</code> died before committing a single batch. Their menus differ accordingly.</span></div>
+  </div>
+</section>
+
+<!-- ═══ SCREEN 3 ══════════════════════════════════════════════════ -->
+<section class="screen" id="s3">
+  <div class="screen-meta">
+    <h2>3. Row menu — failed run, full replay available</h2>
+    <p>The common case: a run died mid-way and the operator wants it to carry on.</p>
+    <div class="screen-refs"><span class="ref">§2</span><span class="ref">US-A2</span><span class="ref">US-B1</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar">
+      <div class="frame-dots"><i></i><i></i><i></i></div>
+      <span class="frame-url">/backend/data-sync</span>
+    </div>
+    <div class="app app-narrow">
+      <aside class="sidebar">
+        <a class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Open Mercato</span></a>
+        <div class="sidebar-search"><svg><use href="#ic-search"/></svg> Search</div>
+        <nav class="sidebar-nav">
+          <div class="nav-group"><span>Integrations</span><svg><use href="#ic-chevron-down"/></svg></div>
+          <div class="nav-items">
+            <span class="nav-item active"><svg><use href="#ic-repeat"/></svg> Data sync</span>
+          </div>
+        </nav>
+      </aside>
+      <div class="main">
+        <header class="topbar">
+          <div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><span class="here">Data sync</span></div></div>
+          <div class="topbar-right"><div class="topbar-search"><svg><use href="#ic-search"/></svg> Search</div><span class="avatar">AN</span></div>
+        </header>
+        <main class="page">
+          <div class="dt pop-anchor">
+            <div class="dt-head"><div class="dt-head-row"><h2 class="t-table-title">Sync runs</h2></div></div>
+            <table class="table">
+              <thead><tr><th>Integration</th><th>Entity type</th><th>Status</th><th class="right">Failed</th><th>Started</th><th class="right"></th></tr></thead>
+              <tbody>
+                <tr>
+                  <td class="strong">shopify-nordvik</td><td>products</td>
+                  <td><span class="badge badge-error">failed</span></td>
+                  <td class="right num">12</td><td class="muted t-mono">15 Sep 04:02</td>
+                  <td class="right"><span class="row-actions"><button class="btn btn-ghost btn-xs" aria-label="Row actions"><svg><use href="#ic-more"/></svg></button></span></td>
+                </tr>
+                <tr>
+                  <td class="strong">erp-ambra</td><td>customers</td>
+                  <td><span class="badge badge-success">completed</span></td>
+                  <td class="right num">0</td><td class="muted t-mono">14 Sep 23:00</td>
+                  <td class="right"><span class="row-actions"><button class="btn btn-ghost btn-xs" aria-label="Row actions"><svg><use href="#ic-more"/></svg></button></span></td>
+                </tr>
+              </tbody>
+            </table>
+
+            <div class="popover" style="position:absolute;right:1rem;top:5.5rem;width:20rem;z-index:30">
+              <div class="menu-item" data-goto="s7"><svg><use href="#ic-eye"/></svg> View run</div>
+              <div class="menu-item"><svg><use href="#ic-rotate-ccw"/></svg> Retry</div>
+              <div class="menu-item" data-goto="s6"><svg><use href="#ic-rewind"/></svg> Retry from the beginning</div>
+            </div>
+          </div>
+        </main>
+        <footer class="app-foot"><span>v1.0.0</span><nav class="row-3"><span>Terms</span><span>Privacy</span></nav></footer>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span><b>Redrawn twice (D8).</b> An earlier draft gave this item a two-line label; <code class="t-mono">RowActionItem.label</code> is a <code class="t-mono">string</code> with no sub-label slot, so that collapsed into one long string — which then <i>overflowed</i> the fixed <code class="t-mono">w-44</code>, <code class="t-mono">whitespace-nowrap</code> menu once it was driven for real. The resume point left the list altogether: the row menu names the action, the detail page states the position. What the list adds is the second item below Retry. In production today the menu is <span class="t-mono">View · Retry</span> and Retry silently resumes (<code class="t-mono">backend/data-sync/page.tsx:398</code> hardcodes <code class="t-mono">fromBeginning:false</code>).</span></div>
+    <div class="note"><b>2</b><span><span class="strong">Retry</span> fires immediately — no confirm. It is the safe, additive action, and demanding a dialog for the common path is what makes operators stop reading dialogs.</span></div>
+    <div class="note"><b>3</b><span><span class="strong">Retry from the beginning</span> never fires from the menu; it always opens the confirm on screen <a href="#s6" data-goto="s6">6</a>. It is the only from-scratch path in the UI.</span></div>
+    <div class="note"><b>4</b><span><b>Corrected since this screen was first drawn.</b> An earlier draft rendered “of ~118”. There is no such number: the progress job's <code class="t-mono">totalCount</code> estimates source <i>records</i> (<code class="t-mono">batch.totalEstimate</code>), and converting it to batches needs a batch size <code class="t-mono">sync_runs</code> does not store. Every surface shows the batch number alone.</span></div>
+    <div class="note"><b>5</b><span><b>Decided (D2), and this screen was redrawn.</b> An earlier draft also offered “Run again with these settings…” here. It is now <span class="badge badge-success">completed</span>-only: on a failed run it differs from Retry-from-the-beginning solely in offering an edit step, which does not earn a second near-identical item on the state whose menu is already longest.</span></div>
+  </div>
+</section>
+
+<!-- ═══ SCREEN 4 ══════════════════════════════════════════════════ -->
+<section class="screen" id="s4">
+  <div class="screen-meta">
+    <h2>4. Row menu — failed run whose feed cannot be replayed</h2>
+    <p><code class="t-mono">erp-ambra / stock_levels</code> is a delta feed. Its adapter declares <code class="t-mono">supportsStartControl('fullSync', …)</code> false.</p>
+    <div class="screen-refs"><span class="ref">§2.2</span><span class="ref">US-B1</span><span class="ref">US-C1</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar">
+      <div class="frame-dots"><i></i><i></i><i></i></div>
+      <span class="frame-url">/backend/data-sync</span>
+    </div>
+    <div class="app app-narrow">
+      <aside class="sidebar">
+        <a class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Open Mercato</span></a>
+        <div class="sidebar-search"><svg><use href="#ic-search"/></svg> Search</div>
+        <nav class="sidebar-nav">
+          <div class="nav-group"><span>Integrations</span><svg><use href="#ic-chevron-down"/></svg></div>
+          <div class="nav-items"><span class="nav-item active"><svg><use href="#ic-repeat"/></svg> Data sync</span></div>
+        </nav>
+      </aside>
+      <div class="main">
+        <header class="topbar">
+          <div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><span class="here">Data sync</span></div></div>
+          <div class="topbar-right"><div class="topbar-search"><svg><use href="#ic-search"/></svg> Search</div><span class="avatar">AN</span></div>
+        </header>
+        <main class="page">
+          <div class="dt pop-anchor">
+            <div class="dt-head"><div class="dt-head-row"><h2 class="t-table-title">Sync runs</h2></div></div>
+            <table class="table">
+              <thead><tr><th>Integration</th><th>Entity type</th><th>Status</th><th class="right">Updated</th><th>Started</th><th class="right"></th></tr></thead>
+              <tbody>
+                <tr>
+                  <td class="strong">erp-ambra</td><td>stock_levels</td>
+                  <td><span class="badge badge-error">failed</span></td>
+                  <td class="right num">1 880</td><td class="muted t-mono">15 Sep 03:40</td>
+                  <td class="right"><span class="row-actions"><button class="btn btn-ghost btn-xs" aria-label="Row actions"><svg><use href="#ic-more"/></svg></button></span></td>
+                </tr>
+                <tr>
+                  <td class="strong">erp-ambra</td><td>price_lists</td>
+                  <td><span class="badge badge-error">failed</span></td>
+                  <td class="right num">0</td><td class="muted t-mono">14 Sep 19:05</td>
+                  <td class="right"><span class="row-actions"><button class="btn btn-ghost btn-xs" aria-label="Row actions"><svg><use href="#ic-more"/></svg></button></span></td>
+                </tr>
+              </tbody>
+            </table>
+
+            <div class="popover" style="position:absolute;right:1rem;top:5.5rem;width:20rem;z-index:30">
+              <div class="menu-item"><svg><use href="#ic-eye"/></svg> View run</div>
+              <div class="menu-item"><svg><use href="#ic-rotate-ccw"/></svg> Retry</div>
+            </div>
+          </div>
+        </main>
+        <footer class="app-foot"><span>v1.0.0</span><nav class="row-3"><span>Terms</span><span>Privacy</span></nav></footer>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>“Retry from the beginning” is <b>absent</b>, not disabled. A disabled menu item invites a hunt for the permission that would enable it; this is a property of the feed, not of the operator.</span></div>
+    <div class="note"><b>2</b><span><b>Decided (D5), and this screen was redrawn.</b> An earlier draft put an explanatory footnote under this menu. The menu now stays terse and the detail page carries the sentence instead — a row menu is a list of actions, not a place to explain an absent one, and the operator who wants the reason is one click from it.</span></div>
+    <div class="note"><b>3</b><span><b>Corrected since this screen was first drawn.</b> An earlier draft called the missing <code class="t-mono">supportsStartControl</code> check in <code class="t-mono">api/runs/[id]/retry.ts</code> a server-side hole. It is not — it is the documented design. <code class="t-mono">BACKWARD_COMPATIBILITY.md</code> § Data Sync Start Control Applicability commits that the declaration “governs what the dashboard <b>offers</b>, never what the run API <b>accepts</b>”, and that the separation “MUST hold for any future change here”. So this is <b>UI gating only</b>: the endpoint keeps accepting <code class="t-mono">fromBeginning:true</code> from a direct caller, on purpose. See <code class="t-mono">.ai/specs/2026-09-16-data-sync-retry-resume-actions.md</code> § D0.</span></div>
+  </div>
+</section>
+
+<!-- ═══ SCREEN 5 ══════════════════════════════════════════════════ -->
+<section class="screen" id="s5">
+  <div class="screen-meta">
+    <h2>5. Row menu — completed and running runs</h2>
+    <p>Two states that must <i>not</i> offer Retry, and what they offer instead.</p>
+    <div class="screen-refs"><span class="ref">§2</span><span class="ref">US-B2</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar">
+      <div class="frame-dots"><i></i><i></i><i></i></div>
+      <span class="frame-url">/backend/data-sync</span>
+    </div>
+    <div class="app app-narrow">
+      <aside class="sidebar">
+        <a class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Open Mercato</span></a>
+        <div class="sidebar-search"><svg><use href="#ic-search"/></svg> Search</div>
+        <nav class="sidebar-nav">
+          <div class="nav-group"><span>Integrations</span><svg><use href="#ic-chevron-down"/></svg></div>
+          <div class="nav-items"><span class="nav-item active"><svg><use href="#ic-repeat"/></svg> Data sync</span></div>
+        </nav>
+      </aside>
+      <div class="main">
+        <header class="topbar">
+          <div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><span class="here">Data sync</span></div></div>
+          <div class="topbar-right"><div class="topbar-search"><svg><use href="#ic-search"/></svg> Search</div><span class="avatar">AN</span></div>
+        </header>
+        <main class="page">
+          <div class="dt pop-anchor">
+            <div class="dt-head"><div class="dt-head-row"><h2 class="t-table-title">Sync runs</h2></div></div>
+            <table class="table">
+              <thead><tr><th>Integration</th><th>Entity type</th><th>Status</th><th class="right">Created</th><th>Started</th><th class="right"></th></tr></thead>
+              <tbody>
+                <tr>
+                  <td class="strong">erp-ambra</td><td>customers</td>
+                  <td><span class="badge badge-success">completed</span></td>
+                  <td class="right num">1 002</td><td class="muted t-mono">14 Sep 23:00</td>
+                  <td class="right"><span class="row-actions"><button class="btn btn-ghost btn-xs" aria-label="Row actions"><svg><use href="#ic-more"/></svg></button></span></td>
+                </tr>
+                <tr>
+                  <td class="strong">shopify-nordvik</td><td>orders</td>
+                  <td><span class="badge badge-info">running</span></td>
+                  <td class="right num">512</td><td class="muted t-mono">15 Sep 05:10</td>
+                  <td class="right"><span class="row-actions"><button class="btn btn-ghost btn-xs" aria-label="Row actions"><svg><use href="#ic-more"/></svg></button></span></td>
+                </tr>
+              </tbody>
+            </table>
+
+            <div class="popover" style="position:absolute;right:1rem;top:5.5rem;width:20rem;z-index:30">
+              <div class="menu-item" data-goto="s11"><svg><use href="#ic-eye"/></svg> View run</div>
+              <div class="menu-item" data-goto="s12"><svg><use href="#ic-play"/></svg> Run again…</div>
+            </div>
+
+            <div class="popover" style="position:absolute;right:1rem;top:12.5rem;width:20rem;z-index:30">
+              <div class="menu-item" data-goto="s10"><svg><use href="#ic-eye"/></svg> View run</div>
+              <div class="menu-item danger"><svg><use href="#ic-x-circle"/></svg> Cancel run</div>
+            </div>
+          </div>
+        </main>
+        <footer class="app-foot"><span>v1.0.0</span><nav class="row-3"><span>Terms</span><span>Privacy</span></nav></footer>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>Two menus are drawn open at once purely so both fit on one review screen. In the app only one is ever open.</span></div>
+    <div class="note"><b>2</b><span>A <span class="badge badge-success">completed</span> run gets <b>no Retry</b>. The endpoint 409s on anything but failed/cancelled, and rightly: re-running a finished run is “start a run with these settings”, and resume-from-cursor on a completed run is just what the next incremental run does anyway. Routing it through <code class="t-mono">retry</code> would overload the endpoint.</span></div>
+    <div class="note"><b>3</b><span>“Run again” needs <b>no new endpoint</b> — it is navigation into the existing start form carrying the run's integration, entity type, direction and stored parameters. Screen <a href="#s12" data-goto="s12">12</a>.</span></div>
+    <div class="note"><b>4</b><span>A <span class="badge badge-neutral">pending</span> run's menu is identical to the running one: View · Cancel. Not drawn separately.</span></div>
+  </div>
+</section>
+
+<!-- ═══ SCREEN 6 ══════════════════════════════════════════════════ -->
+<section class="screen" id="s6">
+  <div class="screen-meta">
+    <h2>6. Confirm — “Retry from the beginning”</h2>
+    <p>The only from-scratch path in the UI, and the only place a dialog appears in this flow.</p>
+    <div class="screen-refs"><span class="ref">§2</span><span class="ref">US-B1</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar">
+      <div class="frame-dots"><i></i><i></i><i></i></div>
+      <span class="frame-url">/backend/data-sync</span>
+    </div>
+    <div class="app app-tall modal-scrim">
+      <aside class="sidebar">
+        <a class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Open Mercato</span></a>
+        <div class="sidebar-search"><svg><use href="#ic-search"/></svg> Search</div>
+        <nav class="sidebar-nav">
+          <div class="nav-group"><span>Integrations</span><svg><use href="#ic-chevron-down"/></svg></div>
+          <div class="nav-items"><span class="nav-item active"><svg><use href="#ic-repeat"/></svg> Data sync</span></div>
+        </nav>
+      </aside>
+      <div class="main">
+        <header class="topbar">
+          <div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><span class="here">Data sync</span></div></div>
+          <div class="topbar-right"><div class="topbar-search"><svg><use href="#ic-search"/></svg> Search</div><span class="avatar">AN</span></div>
+        </header>
+        <main class="page">
+          <div class="dt">
+            <div class="dt-head"><div class="dt-head-row"><h2 class="t-table-title">Sync runs</h2></div></div>
+            <table class="table">
+              <thead><tr><th>Integration</th><th>Entity type</th><th>Status</th><th>Started</th></tr></thead>
+              <tbody>
+                <tr><td class="strong">shopify-nordvik</td><td>products</td><td><span class="badge badge-error">failed</span></td><td class="muted t-mono">15 Sep 04:02</td></tr>
+                <tr><td class="strong">erp-ambra</td><td>stock_levels</td><td><span class="badge badge-error">failed</span></td><td class="muted t-mono">15 Sep 03:40</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </main>
+      </div>
+
+      <div class="modal">
+        <div class="modal-head">
+          <div class="between">
+            <div class="stack-2">
+              <span class="t-section">Retry from the beginning?</span>
+              <span class="t-hint">shopify-nordvik · products · import</span>
+            </div>
+            <button class="btn btn-ghost btn-sm btn-icon" aria-label="Close" data-goto="s3"><svg><use href="#ic-x"/></svg></button>
+          </div>
+        </div>
+        <div class="modal-body">
+          <span class="t-body">
+            This ignores the saved cursor and reads the entire source again — about
+            <b class="num">14 200</b> products, the source-record estimate from this run's progress job —
+            instead of continuing from batch 41.
+          </span>
+          <div class="alert alert-warning">
+            <svg><use href="#ic-warn"/></svg>
+            <div class="stack-2">
+              <span class="alert-title">The 4 120 records this run already processed will be read a second time</span>
+              <span class="t-body">Existing records are matched and updated, not duplicated. Expect the run to take roughly as long as a first import.</span>
+            </div>
+          </div>
+          <div class="kv">
+            <div><dt>Resumable retry would start at</dt><dd class="t-mono">batch 41</dd></div>
+            <div><dt>This retry starts at</dt><dd class="t-mono">batch 1</dd></div>
+          </div>
+          <span class="t-hint">Run parameters from the failed run are replayed unchanged, and there is no way to edit them here. To start with different settings, use the “Start or schedule a sync” form on the Data Sync dashboard.</span>
+        </div>
+        <div class="modal-foot">
+          <span class="t-hint"><span class="kbd">⌘</span><span class="kbd">↵</span> confirm · <span class="kbd">esc</span> cancel</span>
+          <div class="row">
+            <button class="btn btn-ghost" data-goto="s3">Cancel</button>
+            <button class="btn btn-primary" data-goto="s2"><svg><use href="#ic-rewind"/></svg> Retry from the beginning</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>The dialog's job is to make the cost concrete: it names the record count, the batch the resumable retry <i>would</i> have started at, and the batch this one starts at. A generic “Are you sure?” would teach operators to click through it.</span></div>
+    <div class="note"><b>2</b><span>The confirm button is <span class="strong">not</span> destructive-styled. Nothing is deleted — a full replay updates matched records. Using <code class="t-mono">destructive</code> here would spend the red budget the real destructive action (Cancel run) needs.</span></div>
+    <div class="note"><b>3</b><span>Confirming posts <code class="t-mono">{ fromBeginning: true }</code> and lands on the <b>new</b> run's detail page. The failed run keeps its own counters — no screen shows the two runs as one logical sync, because nothing in the schema joins them.</span></div>
+    <div class="note"><b>4</b><span>Per the dialog conventions: <span class="kbd">⌘</span><span class="kbd">↵</span> submits, <span class="kbd">esc</span> cancels. Both are required, not optional.</span></div>
+  </div>
+</section>
+
+<!-- ═══ SCREEN 7 ══════════════════════════════════════════════════ -->
+<section class="screen" id="s7">
+  <div class="screen-meta">
+    <h2>7. Run detail — failed, resume point known</h2>
+    <p>The screen the whole design exists for: the operator learns where Retry would resume <i>before</i> pressing it.</p>
+    <div class="screen-refs"><span class="ref">§1</span><span class="ref">§2.1</span><span class="ref">US-A1</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar">
+      <div class="frame-dots"><i></i><i></i><i></i></div>
+      <span class="frame-url">/backend/data-sync/runs/8f21c4e2-…</span>
+    </div>
+    <div class="app app-taller">
+      <aside class="sidebar">
+        <a class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Open Mercato</span></a>
+        <div class="sidebar-search"><svg><use href="#ic-search"/></svg> Search</div>
+        <nav class="sidebar-nav">
+          <div class="nav-group"><span>Integrations</span><svg><use href="#ic-chevron-down"/></svg></div>
+          <div class="nav-items"><a class="nav-item active" data-goto="s2"><svg><use href="#ic-repeat"/></svg> Data sync</a></div>
+        </nav>
+      </aside>
+      <div class="main">
+        <header class="topbar">
+          <div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><span>Data sync</span><svg><use href="#ic-chevron-right"/></svg><span class="here">Run detail</span></div></div>
+          <div class="topbar-right"><div class="topbar-search"><svg><use href="#ic-search"/></svg> Search</div><span class="avatar">AN</span></div>
+        </header>
+        <main class="page">
+
+          <div class="hdr pop-anchor">
+            <div class="stack-2">
+              <a class="back-link" data-goto="s2"><svg style="width:1rem;height:1rem"><use href="#ic-chevron-left"/></svg> Back to sync runs</a>
+              <span class="t-overline">Sync run</span>
+              <h1 class="t-page-title">shopify-nordvik — products</h1>
+              <div class="row" style="flex-wrap:wrap;gap:.5rem">
+                <span class="badge badge-neutral">import</span>
+                <span class="badge badge-error">failed</span>
+                <span class="badge badge-neutral">anna.nowak@nordvik.example</span>
+              </div>
+            </div>
+            <div class="hdr-actions">
+              <div class="row">
+                <button class="btn btn-outline btn-sm"><svg><use href="#ic-rotate-ccw"/></svg> Retry</button>
+                <button class="btn btn-outline btn-sm btn-icon" aria-label="More run actions"><svg><use href="#ic-more"/></svg></button>
+              </div>
+              <span class="resume-line">
+                <svg><use href="#ic-bookmark"/></svg>
+                Resumes from batch <b class="num">41</b> —
+                <span class="t-mono">updated_at:2026-09-12T04:15:07Z</span>
+              </span>
+            </div>
+
+            <div class="popover" style="position:absolute;right:0;top:4.5rem;width:19rem;z-index:30">
+              <div class="menu-item" data-goto="s6"><svg><use href="#ic-rewind"/></svg> Retry from the beginning</div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-head"><span class="t-card-title">Progress</span><span class="badge badge-error">failed</span></div>
+            <div class="card-body stack-3">
+              <div class="between"><span class="strong num">35%</span><span class="muted t-hint">stopped after 1 h 12 m</span></div>
+              <div class="progress progress-error"><span style="width:35%"></span></div>
+              <div class="between t-hint">
+                <span class="num">4 132 of ~11 800 items processed</span>
+                <span class="num">40 batches completed</span>
+              </div>
+              <hr class="separator" />
+              <dl class="kv">
+                <div><dt>Started from</dt><dd class="t-mono">updated_at:2026-09-01T00:00:00Z</dd></div>
+                <div><dt>Committed through</dt><dd class="t-mono">updated_at:2026-09-12T04:15:07Z</dd></div>
+              </dl>
+            </div>
+          </div>
+
+          <div class="counters">
+            <div class="card counter"><span class="v v-success num">3 214</span><span class="t-hint">Created</span></div>
+            <div class="card counter"><span class="v v-info num">906</span><span class="t-hint">Updated</span></div>
+            <div class="card counter"><span class="v v-muted num">0</span><span class="t-hint">Skipped</span></div>
+            <div class="card counter"><span class="v v-error num">12</span><span class="t-hint">Failed</span></div>
+          </div>
+
+          <div class="card">
+            <div class="card-head"><span class="t-card-title">Run parameters</span></div>
+            <div class="card-body">
+              <dl class="kv">
+                <div><dt>Collection</dt><dd class="t-mono">all-products</dd></div>
+                <div><dt>Include drafts</dt><dd class="t-mono">false</dd></div>
+                <div><dt>Batch size</dt><dd class="t-mono">100</dd></div>
+                <div><dt>Full sync</dt><dd class="t-mono">false</dd></div>
+              </dl>
+            </div>
+          </div>
+
+          <div class="alert alert-error">
+            <svg><use href="#ic-warn"/></svg>
+            <div class="stack-2">
+              <span class="alert-title">Last error</span>
+              <span class="t-mono t-body">ShopifyRateLimit: 429 Too Many Requests — retry budget exhausted after 5 attempts (batch 41)</span>
+            </div>
+          </div>
+        </main>
+        <footer class="app-foot"><span>v1.0.0</span><nav class="row-3"><span>Terms</span><span>Privacy</span></nav></footer>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span><b>The one line that fixes the original confusion</b> is under the buttons: “Resumes from batch 41 — <span class="t-mono">updated_at:…</span>”. Production renders neither <code class="t-mono">cursor</code> nor <code class="t-mono">initialCursor</code> today, although <code class="t-mono">api/runs/[id]/route.ts</code> already returns both. No API change is needed for this.</span></div>
+    <div class="note"><b>2</b><span>The helper line is about the <i>next</i> run; the “Started from / Committed through” rows in the Progress card are about <i>this</i> run. They are deliberately not the same statement — this run's record stays visible for every state, including completed ones where no retry is offered.</span></div>
+    <div class="note"><b>3</b><span>The raw cursor is shown verbatim in a monospace face. It is an adapter-defined opaque string (here a watermark, elsewhere an id or a page token) and paraphrasing it would destroy the only thing an operator can paste into a support ticket.</span></div>
+    <div class="note"><b>4</b><span>The overflow menu is drawn open for review. It holds exactly two items; if a third ever appears, the primary button is probably wrong.</span></div>
+    <div class="note"><b>5</b><span>An operator with <code class="t-mono">data_sync.view</code> but not <code class="t-mono">data_sync.run</code> sees this screen with the resume line and without both buttons. Not drawn — it is this screen minus the action row.</span></div>
+  </div>
+</section>
+
+<!-- ═══ SCREEN 8 ══════════════════════════════════════════════════ -->
+<section class="screen" id="s8">
+  <div class="screen-meta">
+    <h2>8. Run detail — failed before committing a batch</h2>
+    <p>The edge case that makes “Retry” and “Retry from the beginning” the same action, and says so.</p>
+    <div class="screen-refs"><span class="ref">§2.1</span><span class="ref">US-A1</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar">
+      <div class="frame-dots"><i></i><i></i><i></i></div>
+      <span class="frame-url">/backend/data-sync/runs/5e44a013-…</span>
+    </div>
+    <div class="app app-tall">
+      <aside class="sidebar">
+        <a class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Open Mercato</span></a>
+        <div class="sidebar-search"><svg><use href="#ic-search"/></svg> Search</div>
+        <nav class="sidebar-nav">
+          <div class="nav-group"><span>Integrations</span><svg><use href="#ic-chevron-down"/></svg></div>
+          <div class="nav-items"><a class="nav-item active" data-goto="s2"><svg><use href="#ic-repeat"/></svg> Data sync</a></div>
+        </nav>
+      </aside>
+      <div class="main">
+        <header class="topbar">
+          <div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><span>Data sync</span><svg><use href="#ic-chevron-right"/></svg><span class="here">Run detail</span></div></div>
+          <div class="topbar-right"><div class="topbar-search"><svg><use href="#ic-search"/></svg> Search</div><span class="avatar">AN</span></div>
+        </header>
+        <main class="page">
+          <div class="hdr">
+            <div class="stack-2">
+              <a class="back-link" data-goto="s2"><svg style="width:1rem;height:1rem"><use href="#ic-chevron-left"/></svg> Back to sync runs</a>
+              <span class="t-overline">Sync run</span>
+              <h1 class="t-page-title">erp-ambra — price_lists</h1>
+              <div class="row" style="flex-wrap:wrap;gap:.5rem">
+                <span class="badge badge-neutral">import</span>
+                <span class="badge badge-error">failed</span>
+                <span class="badge badge-neutral">schedule</span>
+              </div>
+            </div>
+            <div class="hdr-actions">
+              <div class="row">
+                <button class="btn btn-outline btn-sm"><svg><use href="#ic-rotate-ccw"/></svg> Retry</button>
+                <button class="btn btn-outline btn-sm btn-icon" aria-label="More run actions"><svg><use href="#ic-more"/></svg></button>
+              </div>
+              <span class="resume-line">
+                <svg><use href="#ic-bookmark"/></svg>
+                This run committed no batch. Retry starts from this feed's last saved position.
+              </span>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-head"><span class="t-card-title">Progress</span><span class="badge badge-error">failed</span></div>
+            <div class="card-body stack-3">
+              <div class="between"><span class="strong num">0 items processed</span><span class="muted t-hint">failed after 4 s</span></div>
+              <div class="progress progress-error"><span style="width:2%"></span></div>
+              <div class="between t-hint"><span class="num">0 batches completed</span></div>
+              <hr class="separator" />
+              <dl class="kv">
+                <div><dt>Started from</dt><dd class="muted">beginning of source</dd></div>
+                <div><dt>Committed through</dt><dd class="muted">nothing committed</dd></div>
+              </dl>
+            </div>
+          </div>
+
+          <div class="counters">
+            <div class="card counter"><span class="v v-muted num">0</span><span class="t-hint">Created</span></div>
+            <div class="card counter"><span class="v v-muted num">0</span><span class="t-hint">Updated</span></div>
+            <div class="card counter"><span class="v v-muted num">0</span><span class="t-hint">Skipped</span></div>
+            <div class="card counter"><span class="v v-muted num">0</span><span class="t-hint">Failed</span></div>
+          </div>
+
+          <div class="alert alert-error">
+            <svg><use href="#ic-warn"/></svg>
+            <div class="stack-2">
+              <span class="alert-title">Last error</span>
+              <span class="t-mono t-body">AmbraAuthError: credential rejected (401) — no records were read</span>
+            </div>
+          </div>
+        </main>
+        <footer class="app-foot"><span>v1.0.0</span><nav class="row-3"><span>Terms</span><span>Privacy</span></nav></footer>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span><b>The copy here is deliberately non-committal</b>, and an earlier draft's “Retry starts from the beginning” was simply false. The run row records no committed cursor, but the endpoint's fallback may still find one in the shared <code class="t-mono">sync_cursors</code> row. The page says only what the row knows. Stating the exact position would need an additive <code class="t-mono">retryStartCursor</code> response field, which the spec declines and records as the follow-up.</span></div>
+    <div class="note"><b>2</b><span><b>D3 was withdrawn after specification review, and this screen was redrawn twice.</b> The draft that hid “Retry from the beginning” here argued the two requests were byte-identical. They are not: <code class="t-mono">retry.ts:121</code> resolves <code class="t-mono">previous.cursor ?? resolveStartCursor(...)</code>, so a run that died on its first batch can still resume at a <i>shared</i> cursor written by an earlier run — silently skipping everything before it. Hiding the from-scratch action removed the one control that guarantees a replay, exactly where it was most needed. It is back.</span></div>
+    <div class="note"><b>3</b><span>“Started from: beginning of source” is <code class="t-mono">initialCursor === null</code> rendered in words. A literal <code class="t-mono">null</code> would be worse than nothing.</span></div>
+  </div>
+</section>
+
+<!-- ═══ SCREEN 9 ══════════════════════════════════════════════════ -->
+<section class="screen" id="s9">
+  <div class="screen-meta">
+    <h2>9. Run detail — cancelled</h2>
+    <p>A cancelled run is retryable exactly like a failed one. The copy is the only difference.</p>
+    <div class="screen-refs"><span class="ref">§2</span><span class="ref">US-A1</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar">
+      <div class="frame-dots"><i></i><i></i><i></i></div>
+      <span class="frame-url">/backend/data-sync/runs/2de5f7a8-…</span>
+    </div>
+    <div class="app app-tall">
+      <aside class="sidebar">
+        <a class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Open Mercato</span></a>
+        <div class="sidebar-search"><svg><use href="#ic-search"/></svg> Search</div>
+        <nav class="sidebar-nav">
+          <div class="nav-group"><span>Integrations</span><svg><use href="#ic-chevron-down"/></svg></div>
+          <div class="nav-items"><a class="nav-item active" data-goto="s2"><svg><use href="#ic-repeat"/></svg> Data sync</a></div>
+        </nav>
+      </aside>
+      <div class="main">
+        <header class="topbar">
+          <div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><span>Data sync</span><svg><use href="#ic-chevron-right"/></svg><span class="here">Run detail</span></div></div>
+          <div class="topbar-right"><div class="topbar-search"><svg><use href="#ic-search"/></svg> Search</div><span class="avatar">AN</span></div>
+        </header>
+        <main class="page">
+          <div class="hdr">
+            <div class="stack-2">
+              <a class="back-link" data-goto="s2"><svg style="width:1rem;height:1rem"><use href="#ic-chevron-left"/></svg> Back to sync runs</a>
+              <span class="t-overline">Sync run</span>
+              <h1 class="t-page-title">warehouse-inpost — shipments</h1>
+              <div class="row" style="flex-wrap:wrap;gap:.5rem">
+                <span class="badge badge-neutral">export</span>
+                <span class="badge badge-warning">cancelled</span>
+                <span class="badge badge-neutral">anna.nowak@nordvik.example</span>
+              </div>
+            </div>
+            <div class="hdr-actions">
+              <div class="row">
+                <button class="btn btn-outline btn-sm"><svg><use href="#ic-rotate-ccw"/></svg> Resume</button>
+                <button class="btn btn-outline btn-sm btn-icon" aria-label="More run actions"><svg><use href="#ic-more"/></svg></button>
+              </div>
+              <span class="resume-line">
+                <svg><use href="#ic-bookmark"/></svg>
+                Resumes from batch <b class="num">3</b> —
+                <span class="t-mono">shipment_id:SHP-0000884</span>
+              </span>
+            </div>
+          </div>
+
+          <div class="alert alert-info">
+            <svg><use href="#ic-info"/></svg>
+            <div class="stack-2">
+              <span class="alert-title">Cancelled by Anna Nowak at 21:41, 14 Sep 2026</span>
+              <span class="t-body">The 88 shipments exported before cancellation were committed and will not be exported again.</span>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-head"><span class="t-card-title">Progress</span><span class="badge badge-warning">cancelled</span></div>
+            <div class="card-body stack-3">
+              <div class="between"><span class="strong num">11%</span><span class="muted t-hint">ran for 8 m</span></div>
+              <div class="progress progress-warning"><span style="width:11%"></span></div>
+              <div class="between t-hint"><span class="num">88 of ~800 items processed</span><span class="num">3 batches completed</span></div>
+              <hr class="separator" />
+              <dl class="kv">
+                <div><dt>Started from</dt><dd class="t-mono">shipment_id:SHP-0000796</dd></div>
+                <div><dt>Committed through</dt><dd class="t-mono">shipment_id:SHP-0000884</dd></div>
+              </dl>
+            </div>
+          </div>
+
+          <div class="counters">
+            <div class="card counter"><span class="v v-success num">88</span><span class="t-hint">Created</span></div>
+            <div class="card counter"><span class="v v-muted num">0</span><span class="t-hint">Updated</span></div>
+            <div class="card counter"><span class="v v-muted num">0</span><span class="t-hint">Skipped</span></div>
+            <div class="card counter"><span class="v v-muted num">0</span><span class="t-hint">Failed</span></div>
+          </div>
+        </main>
+        <footer class="app-foot"><span>v1.0.0</span><nav class="row-3"><span>Terms</span><span>Privacy</span></nav></footer>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span><b>Decided (D1), and this screen was redrawn.</b> The primary action reads <b>Resume</b> here and <b>Retry</b> on a <span class="badge badge-error">failed</span> run. Nothing went wrong with a run the operator stopped on purpose, and “Retry” misdescribes that. This is the only place in the design where two different words are justified, because the two states genuinely differ in intent — and it costs one conditional string on each of the two surfaces.</span></div>
+    <div class="note"><b>2</b><span>The cancellation banner has no equivalent today. It is proposed because an operator arriving at a cancelled run otherwise cannot tell it apart from a run that died silently.</span></div>
+    <div class="note"><b>3</b><span>No “Last error” card — a cancelled run has no <code class="t-mono">lastError</code>. The layout must not leave a hole where it would be.</span></div>
+  </div>
+</section>
+
+<!-- ═══ SCREEN 10 ═════════════════════════════════════════════════ -->
+<section class="screen" id="s10">
+  <div class="screen-meta">
+    <h2>10. Run detail — running</h2>
+    <p>No retry exists here. What replaces the resume line is live progress.</p>
+    <div class="screen-refs"><span class="ref">§2</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar">
+      <div class="frame-dots"><i></i><i></i><i></i></div>
+      <span class="frame-url">/backend/data-sync/runs/41ad9b60-…</span>
+    </div>
+    <div class="app app-tall">
+      <aside class="sidebar">
+        <a class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Open Mercato</span></a>
+        <div class="sidebar-search"><svg><use href="#ic-search"/></svg> Search</div>
+        <nav class="sidebar-nav">
+          <div class="nav-group"><span>Integrations</span><svg><use href="#ic-chevron-down"/></svg></div>
+          <div class="nav-items"><a class="nav-item active" data-goto="s2"><svg><use href="#ic-repeat"/></svg> Data sync</a></div>
+        </nav>
+      </aside>
+      <div class="main">
+        <header class="topbar">
+          <div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><span>Data sync</span><svg><use href="#ic-chevron-right"/></svg><span class="here">Run detail</span></div></div>
+          <div class="topbar-right"><div class="topbar-search"><svg><use href="#ic-search"/></svg> Search</div><span class="avatar">AN</span></div>
+        </header>
+        <main class="page">
+          <div class="hdr">
+            <div class="stack-2">
+              <a class="back-link" data-goto="s2"><svg style="width:1rem;height:1rem"><use href="#ic-chevron-left"/></svg> Back to sync runs</a>
+              <span class="t-overline">Sync run</span>
+              <h1 class="t-page-title">shopify-nordvik — orders</h1>
+              <div class="row" style="flex-wrap:wrap;gap:.5rem">
+                <span class="badge badge-neutral">import</span>
+                <span class="badge badge-info">running</span>
+                <span class="badge badge-neutral">schedule</span>
+              </div>
+            </div>
+            <div class="hdr-actions">
+              <div class="row">
+                <button class="btn btn-destructive btn-sm"><svg><use href="#ic-x-circle"/></svg> Cancel</button>
+              </div>
+
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-head"><span class="t-card-title">Progress</span><span class="badge badge-info">running</span></div>
+            <div class="card-body stack-3">
+              <div class="between"><span class="strong num">64%</span><span class="muted">~3 m remaining</span></div>
+              <div class="progress"><span style="width:64%"></span></div>
+              <div class="between t-hint"><span class="num">556 of 870 items processed</span><span class="num">6 batches completed</span></div>
+              <hr class="separator" />
+              <dl class="kv">
+                <div><dt>Started from</dt><dd class="t-mono">updated_at:2026-09-15T04:00:00Z</dd></div>
+                <div><dt>Committed through</dt><dd class="t-mono">updated_at:2026-09-15T05:07:41Z</dd></div>
+              </dl>
+            </div>
+          </div>
+
+          <div class="counters">
+            <div class="card counter"><span class="v v-success num">512</span><span class="t-hint">Created</span></div>
+            <div class="card counter"><span class="v v-info num">44</span><span class="t-hint">Updated</span></div>
+            <div class="card counter"><span class="v v-muted num">0</span><span class="t-hint">Skipped</span></div>
+            <div class="card counter"><span class="v v-muted num">0</span><span class="t-hint">Failed</span></div>
+          </div>
+        </main>
+        <footer class="app-foot"><span>v1.0.0</span><nav class="row-3"><span>Terms</span><span>Privacy</span></nav></footer>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>Progress here is live — the page subscribes to <code class="t-mono">progress.job.updated</code> over the DOM event bridge. The static screen shows one frozen tick; the percentage, ETA and counters move without a reload.</span></div>
+    <div class="note"><b>2</b><span><b>Decided, and this screen was redrawn.</b> An earlier draft carried a greyed line reading “Retry becomes available if this run fails or is cancelled”. It is gone: the resume-point line is a statement about a retry that could actually happen, and a running run has none. The spec's <span class="t-mono">ResumePoint</span> returns <span class="t-mono">{ kind: 'none' }</span> here and nothing renders.</span></div>
+    <div class="note"><b>3</b><span>“Committed through” updates live while the run is in flight. That is the same value a retry would resume from, which is what makes showing it on every state worth the row.</span></div>
+    <div class="note"><b>4</b><span>A <span class="badge badge-neutral">pending</span> run is this screen with an indeterminate progress bar, both cursor rows reading “—”, and the same Cancel button. Not drawn separately.</span></div>
+  </div>
+</section>
+
+<!-- ═══ SCREEN 11 ═════════════════════════════════════════════════ -->
+<section class="screen" id="s11">
+  <div class="screen-meta">
+    <h2>11. Run detail — completed</h2>
+    <p>No Retry, by design. “Run again” is a different feature and says so.</p>
+    <div class="screen-refs"><span class="ref">§2</span><span class="ref">US-B2</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar">
+      <div class="frame-dots"><i></i><i></i><i></i></div>
+      <span class="frame-url">/backend/data-sync/runs/9c73e015-…</span>
+    </div>
+    <div class="app app-tall">
+      <aside class="sidebar">
+        <a class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Open Mercato</span></a>
+        <div class="sidebar-search"><svg><use href="#ic-search"/></svg> Search</div>
+        <nav class="sidebar-nav">
+          <div class="nav-group"><span>Integrations</span><svg><use href="#ic-chevron-down"/></svg></div>
+          <div class="nav-items"><a class="nav-item active" data-goto="s2"><svg><use href="#ic-repeat"/></svg> Data sync</a></div>
+        </nav>
+      </aside>
+      <div class="main">
+        <header class="topbar">
+          <div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><span>Data sync</span><svg><use href="#ic-chevron-right"/></svg><span class="here">Run detail</span></div></div>
+          <div class="topbar-right"><div class="topbar-search"><svg><use href="#ic-search"/></svg> Search</div><span class="avatar">AN</span></div>
+        </header>
+        <main class="page">
+          <div class="hdr">
+            <div class="stack-2">
+              <a class="back-link" data-goto="s2"><svg style="width:1rem;height:1rem"><use href="#ic-chevron-left"/></svg> Back to sync runs</a>
+              <span class="t-overline">Sync run</span>
+              <h1 class="t-page-title">erp-ambra — customers</h1>
+              <div class="row" style="flex-wrap:wrap;gap:.5rem">
+                <span class="badge badge-neutral">export</span>
+                <span class="badge badge-success">completed</span>
+                <span class="badge badge-neutral">schedule</span>
+              </div>
+            </div>
+            <div class="hdr-actions">
+              <div class="row">
+                <button class="btn btn-outline btn-sm" data-goto="s12"><svg><use href="#ic-play"/></svg> Run again</button>
+              </div>
+              <span class="resume-line">Opens the start form with this run's settings</span>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-head"><span class="t-card-title">Progress</span><span class="badge badge-success">completed</span></div>
+            <div class="card-body stack-3">
+              <div class="between"><span class="strong num">100%</span><span class="muted t-hint">finished in 21 m</span></div>
+              <div class="progress"><span style="width:100%"></span></div>
+              <div class="between t-hint"><span class="num">1 320 of 1 320 items processed</span><span class="num">14 batches completed</span></div>
+              <hr class="separator" />
+              <dl class="kv">
+                <div><dt>Started from</dt><dd class="t-mono">updated_at:2026-09-13T23:00:00Z</dd></div>
+                <div><dt>Committed through</dt><dd class="t-mono">updated_at:2026-09-14T22:59:12Z</dd></div>
+              </dl>
+            </div>
+          </div>
+
+          <div class="counters">
+            <div class="card counter"><span class="v v-success num">1 002</span><span class="t-hint">Created</span></div>
+            <div class="card counter"><span class="v v-info num">318</span><span class="t-hint">Updated</span></div>
+            <div class="card counter"><span class="v v-muted num">0</span><span class="t-hint">Skipped</span></div>
+            <div class="card counter"><span class="v v-muted num">0</span><span class="t-hint">Failed</span></div>
+          </div>
+
+          <div class="card">
+            <div class="card-head"><span class="t-card-title">Run parameters</span></div>
+            <div class="card-body">
+              <dl class="kv">
+                <div><dt>Segment</dt><dd class="t-mono">b2b-active</dd></div>
+                <div><dt>Include archived</dt><dd class="t-mono">false</dd></div>
+                <div><dt>Batch size</dt><dd class="t-mono">100</dd></div>
+              </dl>
+            </div>
+          </div>
+        </main>
+        <footer class="app-foot"><span>v1.0.0</span><nav class="row-3"><span>Terms</span><span>Privacy</span></nav></footer>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>There is no overflow menu at all — one action, no ⋯. An empty or single-item overflow is worse than none.</span></div>
+    <div class="note"><b>2</b><span>The cursor rows stay, because they are this run's own record. They are <i>not</i> framed as a resume point, since nothing here resumes.</span></div>
+    <div class="note"><b>3</b><span>“Run again” is the answer to the gap that exists today: a full replay currently means retyping every parameter into the start form by hand, because nothing carries them across.</span></div>
+  </div>
+</section>
+
+<!-- ═══ SCREEN 12 ═════════════════════════════════════════════════ -->
+<section class="screen" id="s12">
+  <div class="screen-meta">
+    <h2>12. Start a sync run — prefilled by “Run again”</h2>
+    <p>Where “Run again” lands. The existing start form, seeded from the run, with a banner naming its source.</p>
+    <div class="screen-refs"><span class="ref">§2.3</span><span class="ref">US-B2</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar">
+      <div class="frame-dots"><i></i><i></i><i></i></div>
+      <span class="frame-url">/backend/data-sync?from=9c73e015-…</span>
+    </div>
+    <div class="app app-tall">
+      <aside class="sidebar">
+        <a class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Open Mercato</span></a>
+        <div class="sidebar-search"><svg><use href="#ic-search"/></svg> Search</div>
+        <nav class="sidebar-nav">
+          <div class="nav-group"><span>Integrations</span><svg><use href="#ic-chevron-down"/></svg></div>
+          <div class="nav-items"><span class="nav-item active"><svg><use href="#ic-repeat"/></svg> Data sync</span></div>
+        </nav>
+      </aside>
+      <div class="main">
+        <header class="topbar">
+          <div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><span class="here">Data sync</span></div></div>
+          <div class="topbar-right"><div class="topbar-search"><svg><use href="#ic-search"/></svg> Search</div><span class="avatar">AN</span></div>
+        </header>
+        <main class="page">
+          <div class="card">
+            <div class="card-head">
+              <div class="stack-2">
+                <span class="t-overline"><svg style="width:.875rem;height:.875rem;vertical-align:-2px"><use href="#ic-repeat"/></svg> Run once or keep it recurring</span>
+                <span class="t-card-title">Start or schedule a sync</span>
+              </div>
+            </div>
+            <div class="card-body stack-4">
+
+              <div class="alert alert-info">
+                <svg><use href="#ic-info"/></svg>
+                <div class="stack-2">
+                  <span class="alert-title">Prefilled from a previous run</span>
+                  <span class="t-body">
+                    Integration, entity type, direction and run parameters copied from
+                    <a class="t-mono" data-goto="s11" style="text-decoration:underline">erp-ambra — customers</a>,
+                    completed 14 Sep 23:21. Batch size and full sync are at their defaults — a past run does not record them.
+                    Change anything below before starting; nothing is submitted yet.
+                  </span>
+                </div>
+              </div>
+
+              <div class="form-grid form-grid-3">
+                <div class="field">
+                  <label>Integration</label>
+                  <select class="select"><option>erp-ambra</option><option>shopify-nordvik</option><option>warehouse-inpost</option></select>
+                </div>
+                <div class="field">
+                  <label>Entity type</label>
+                  <select class="select"><option>customers</option><option>price_lists</option><option>stock_levels</option></select>
+                </div>
+                <div class="field">
+                  <label>Direction</label>
+                  <div class="segmented"><button type="button">Import</button><button type="button" aria-selected="true">Export</button></div>
+                </div>
+              </div>
+
+              <hr class="separator" />
+
+              <div class="form-grid form-grid-3">
+                <div class="field">
+                  <label>Batch size</label>
+                  <input class="input" value="100" style="max-width:10rem" />
+                </div>
+                <div class="field">
+                  <label>Segment</label>
+                  <input class="input" value="b2b-active" />
+                </div>
+                <div class="field">
+                  <label>Include archived</label>
+                  <div class="row"><span class="switch" role="switch" aria-checked="false"></span> <span class="t-hint">Off</span></div>
+                </div>
+              </div>
+
+              <div class="card card-pad" style="background:var(--muted)">
+                <div class="between">
+                  <div class="stack-2">
+                    <span class="strong">Run as full sync</span>
+                    <span class="t-hint">Ignore the saved cursor and process the entire source again for this run</span>
+                  </div>
+                  <span class="switch" role="switch" aria-checked="false"></span>
+                </div>
+              </div>
+
+              <div class="alert alert-warning">
+                <svg><use href="#ic-warn"/></svg>
+                <div class="stack-2">
+                  <span class="alert-title">One stored parameter was dropped</span>
+                  <span class="t-body"><code class="t-mono">legacy_region</code> is no longer declared by <b>erp-ambra</b> and was not carried over. Everything else was.</span>
+                </div>
+              </div>
+
+              <div class="form-foot">
+                <span class="t-hint">The run starts immediately and appears in the table below.</span>
+                <div class="actions">
+                  <button class="btn btn-ghost" data-goto="s11">Cancel</button>
+                  <button class="btn btn-primary" data-goto="s2"><svg><use href="#ic-play"/></svg> Start sync</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </main>
+        <footer class="app-foot"><span>v1.0.0</span><nav class="row-3"><span>Terms</span><span>Privacy</span></nav></footer>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>This is the <b>existing</b> start form. “Run again” adds three things and no endpoint: a source banner, prefilled values, and the dropped-parameter warning. It scrolls the page to the card and focuses it.</span></div>
+    <div class="note"><b>2</b><span><b>D4 was restated after specification review.</b> An earlier draft defaulted this switch <i>on</i>; the draft after that said it copies the source run's own value “faithfully”. Neither is buildable — <code class="t-mono">sync_runs</code> has no <code class="t-mono">full_sync</code> column and no <code class="t-mono">batch_size</code> column, so there is nothing to copy. <code class="t-mono">fullSync</code> is consumed by <code class="t-mono">api/run.ts</code> to pick a start cursor and thrown away. The switch renders at its form default and the banner names which fields <i>were</i> seeded. The prototype's own <code class="t-mono">REQUIREMENTS.md</code> US-B2 had this right all along.</span></div>
+    <div class="note"><b>3</b><span>The “Run as full sync” switch is hidden entirely when the adapter declares it inapplicable — that gating already ships today (<code class="t-mono">lib/start-controls.ts</code>). The same declaration hides the from-the-beginning retry in the UI, and in both places it governs only what is <i>offered</i>; neither endpoint rejects the field. See <code class="t-mono">.ai/specs/2026-09-16-data-sync-retry-resume-actions.md</code> § D0.</span></div>
+    <div class="note"><b>4</b><span>The dropped-parameter warning matches what the retry endpoint already does server-side: stored parameters are re-normalized against the adapter's <i>current</i> declaration, and undeclared keys fall away silently. Here the operator is told, because there is a form in front of them to fix it in.</span></div>
+    <div class="note"><b>5</b><span><b>Undecided:</b> how the prefill travels. A query parameter (drawn) survives a reload and is linkable; router state does not leak ids into the URL. The prototype shows <code class="t-mono">?from=…</code> without committing to it.</span></div>
+  </div>
+</section>
+
+<!-- ═══ SCREEN 13 ═════════════════════════════════════════════════ -->
+<section class="screen" id="s13">
+  <div class="screen-meta">
+    <h2>13. When a retry is refused</h2>
+    <p>The two rejections the endpoint already produces, and what the operator sees instead of a raw status code.</p>
+    <div class="screen-refs"><span class="ref">§2.2</span><span class="ref">US-C1</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar">
+      <div class="frame-dots"><i></i><i></i><i></i></div>
+      <span class="frame-url">/backend/data-sync/runs/8f21c4e2-…</span>
+    </div>
+    <div class="app app-tall">
+      <aside class="sidebar">
+        <a class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Open Mercato</span></a>
+        <div class="sidebar-search"><svg><use href="#ic-search"/></svg> Search</div>
+        <nav class="sidebar-nav">
+          <div class="nav-group"><span>Integrations</span><svg><use href="#ic-chevron-down"/></svg></div>
+          <div class="nav-items"><a class="nav-item active" data-goto="s2"><svg><use href="#ic-repeat"/></svg> Data sync</a></div>
+        </nav>
+      </aside>
+      <div class="main">
+        <header class="topbar">
+          <div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><span>Data sync</span><svg><use href="#ic-chevron-right"/></svg><span class="here">Run detail</span></div></div>
+          <div class="topbar-right"><div class="topbar-search"><svg><use href="#ic-search"/></svg> Search</div><span class="avatar">AN</span></div>
+        </header>
+        <main class="page">
+          <div class="hdr">
+            <div class="stack-2">
+              <span class="t-overline">Sync run</span>
+              <h1 class="t-page-title">shopify-nordvik — products</h1>
+              <div class="row"><span class="badge badge-error">failed</span></div>
+            </div>
+            <div class="hdr-actions">
+              <div class="row">
+                <button class="btn btn-outline btn-sm"><svg><use href="#ic-rotate-ccw"/></svg> Retry</button>
+                <button class="btn btn-outline btn-sm btn-icon" aria-label="More run actions"><svg><use href="#ic-more"/></svg></button>
+              </div>
+            </div>
+          </div>
+
+          <div class="alert alert-error">
+            <svg><use href="#ic-warn"/></svg>
+            <div class="stack-2" style="width:100%">
+              <span class="alert-title">This run's saved settings are no longer valid for shopify-nordvik</span>
+              <span class="t-body">The <code class="t-mono">collection</code> parameter no longer accepts <code class="t-mono">all-products</code>. A retry replays the stored settings unchanged, so there is nothing here to fix them in.</span>
+              <div class="row"><button class="btn btn-outline btn-sm" data-goto="s12"><svg><use href="#ic-play"/></svg> Start a new run with these settings…</button></div>
+              <span class="t-hint t-mono">422 · code: parametersStale</span>
+            </div>
+          </div>
+
+          <div class="alert alert-warning">
+            <svg><use href="#ic-warn"/></svg>
+            <div class="stack-2" style="width:100%">
+              <span class="alert-title">A sync for shopify-nordvik · products · import is already running</span>
+              <span class="t-body">Only one run per integration, entity type and direction can be in flight. Wait for it to finish, or cancel it first.</span>
+              <div class="row"><button class="btn btn-outline btn-sm" data-goto="s10"><svg><use href="#ic-eye"/></svg> Open the running run</button></div>
+              <span class="t-hint t-mono">409 · findRunningOverlap</span>
+            </div>
+          </div>
+        </main>
+        <footer class="app-foot"><span>v1.0.0</span><nav class="row-3"><span>Terms</span><span>Privacy</span></nav></footer>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>Both alerts are stacked on one screen for review. In the app each arrives on its own as a flash message and only one can be true at a time.</span></div>
+    <div class="note"><b>2</b><span>Both exist today. <code class="t-mono">parametersStale</code> is already machine-readable so the dashboard can render it in the operator's language; what is missing is the <b>way out</b> — the button into the prefilled start form, which is the same navigation “Run again” performs.</span></div>
+    <div class="note"><b>3</b><span><b>A third alert was removed from this screen.</b> It showed a <code class="t-mono">422 fullSyncUnsupported</code> for a from-scratch retry of an entity type whose adapter forbids full sync. That rejection will never exist: per <code class="t-mono">BACKWARD_COMPATIBILITY.md</code> the declaration governs what the dashboard offers, never what the API accepts, so the endpoint keeps accepting the request. The restriction is stated on the run detail page instead of raised as an error — screen <a href="#s4" data-goto="s4">4</a> note 3.</span></div>
+    <div class="note"><b>4</b><span>The overlap error names the blocking run but cannot link it — this screen guesses a link. Whether the endpoint returns the conflicting run's id is undecided; today the 409 body is a bare sentence.</span></div>
+  </div>
+</section>
+
+</div>
+
+<script>
+(function () {
+  var btn = document.getElementById('theme-toggle');
+  btn.addEventListener('click', function () {
+    document.documentElement.classList.toggle('dark');
+  });
+})();
+</script>
+<script src="comments.js"></script>
+<script src="prototype.js"></script>
+</body>
+</html>

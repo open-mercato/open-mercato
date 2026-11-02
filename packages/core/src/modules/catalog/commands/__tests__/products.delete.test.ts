@@ -146,4 +146,39 @@ describe('catalog.products.delete', () => {
       }),
     ])
   })
+
+  it('invalidates the offers list cache alias on delete so a stale offers list is not served after the write (#7721)', async () => {
+    let deleteCommand: any
+    jest.isolateModules(() => {
+      require('../products')
+      deleteCommand = registerCommand.mock.calls.find(([cmd]) => cmd.id === 'catalog.products.delete')?.[0]
+    })
+    expect(deleteCommand).toBeDefined()
+
+    const beforeSnapshot = {
+      id: '11111111-1111-4111-8111-111111111111',
+      organizationId: 'org-1',
+      tenantId: 'tenant-1',
+      gtuCodes: [],
+      offers: [
+        {
+          id: 'offer-1',
+          channelId: 'channel-1',
+          title: 'Existing offer',
+          isActive: true,
+        },
+      ],
+      tags: [],
+      categoryIds: [],
+      custom: null,
+    }
+
+    const log = await deleteCommand.buildLog({
+      snapshots: { before: beforeSnapshot, children: null },
+    })
+
+    expect(log?.context?.cacheAliases).toEqual(
+      expect.arrayContaining(['catalog.product', 'catalog.offer']),
+    )
+  })
 })

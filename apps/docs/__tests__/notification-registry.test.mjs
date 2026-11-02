@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
-import { join, relative, resolve } from 'node:path';
+import { join, relative, resolve, sep } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
@@ -27,7 +27,7 @@ const SKIPPED_DIRECTORIES = new Set([
   'build',
   '.docusaurus',
 ]);
-const ENTERPRISE_PACKAGE = join('packages', 'enterprise') + '/';
+const ENTERPRISE_PACKAGE = join('packages', 'enterprise') + sep;
 
 function collectConventionFiles(dir, found = []) {
   let entries;

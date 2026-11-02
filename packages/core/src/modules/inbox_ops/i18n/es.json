@@ -52,7 +52,7 @@
   "inbox_ops.discrepancy.desc.draft_reply_no_contact": "El destinatario del borrador no tiene un contacto coincidente. Cree el contacto primero.",
   "inbox_ops.discrepancy.desc.duplicate_order_reference": "Ya existe un pedido con esta referencia de cliente",
   "inbox_ops.discrepancy.desc.no_channel": "No hay canal de ventas disponible. Cree un canal en la configuraci\u00f3n de ventas antes de aceptar este pedido.",
-  "inbox_ops.discrepancy.desc.no_currency": "No se pudo determinar la moneda para este pedido. Establezca un c\u00f3digo de moneda o configure un canal de ventas con una moneda predeterminada.",
+  "inbox_ops.discrepancy.desc.no_currency": "No se pudo determinar la moneda para este pedido. Establezca un c\u00f3digo de moneda para el pedido.",
   "inbox_ops.discrepancy.desc.no_matching_contact": "No se encontr\u00f3 un contacto coincidente",
   "inbox_ops.discrepancy.desc.product_not_matched": "El producto no pudo vincularse a ning\u00fan producto del cat\u00e1logo",
   "inbox_ops.discrepancy.expected": "Esperado",

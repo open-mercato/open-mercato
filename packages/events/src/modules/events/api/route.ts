@@ -40,6 +40,7 @@ const eventDefinitionSchema = z.object({
   clientBroadcast: z.boolean().optional(),
   crossProcessBroadcast: z.boolean().optional(),
   portalBroadcast: z.boolean().optional(),
+  broadcastCoalescing: z.boolean().optional(),
   payloadSchema: eventPayloadSchemaSchema.optional(),
 })
 

@@ -1,4 +1,4 @@
-import { CrudHttpError, isCrudHttpError, assertFound, notFound } from '../errors'
+import { CrudHttpError, isCrudHttpError, assertFound, notFound, translateCrudErrorBody } from '../errors'
 
 describe('CrudHttpError', () => {
   it('builds from string body', () => {
@@ -78,5 +78,35 @@ describe('assertFound', () => {
     } catch (err) {
       expect((err as CrudHttpError).body).toEqual({ error: translated })
     }
+  })
+})
+
+describe('translateCrudErrorBody', () => {
+  it('translates a raw i18n key found in the dictionary', () => {
+    const dict: Record<string, string> = {
+      'warranty_claims.errors.lineLocked': 'This line is locked in the current claim status.',
+    }
+    const translate = (key: string, fallback?: string) => dict[key] ?? fallback ?? key
+    const body = translateCrudErrorBody({ error: 'warranty_claims.errors.lineLocked' }, translate)
+    expect(body).toEqual({ error: 'This line is locked in the current claim status.' })
+  })
+
+  it('falls back to the raw key when the dictionary has no entry, instead of throwing', () => {
+    const translate = (key: string, fallback?: string) => fallback ?? key
+    const body = translateCrudErrorBody({ error: 'warranty_claims.errors.unknownKey' }, translate)
+    expect(body).toEqual({ error: 'warranty_claims.errors.unknownKey' })
+  })
+
+  it('preserves other body fields untouched', () => {
+    const translate = (key: string) => `translated:${key}`
+    const body = translateCrudErrorBody({ error: 'some.key', field: 'x', code: 42 }, translate)
+    expect(body).toEqual({ error: 'translated:some.key', field: 'x', code: 42 })
+  })
+
+  it('returns the body unchanged when error is not a string', () => {
+    const translate = jest.fn((key: string) => key)
+    const body = translateCrudErrorBody({ field: 'x' }, translate)
+    expect(body).toEqual({ field: 'x' })
+    expect(translate).not.toHaveBeenCalled()
   })
 })

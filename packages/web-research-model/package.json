@@ -1,6 +1,6 @@
 {
   "name": "@open-mercato/web-research-model",
-  "version": "0.8.0",
+  "version": "0.10.0",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
@@ -50,7 +50,7 @@
     }
   },
   "dependencies": {
-    "zod": "^4.4.3"
+    "zod": "^4.6.6"
   },
   "devDependencies": {
     "@ai-sdk/anthropic": "^4.0.1",
@@ -61,7 +61,7 @@
     "@types/node": "^26.0.1",
     "ai": "^7.0.4",
     "esbuild": "^0.28.1",
-    "glob": "^13.0.6",
+    "glob": "^14.0.2",
     "jest": "^30.4.2",
     "ts-jest": "^29.4.11",
     "typescript": "^6.0.3"
