@@ -33,8 +33,10 @@ Restore the `main` build by removing the duplicate `resolveTranslations` import 
 
 ## Progress
 
+PR: #8525
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Remove duplicate import
 
-- [ ] 1.1 Remove the duplicate import and verify typecheck plus the redo route tests
+- [x] 1.1 Remove the duplicate import and verify typecheck plus the redo route tests — 55ea61054
