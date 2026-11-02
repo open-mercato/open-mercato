@@ -7,7 +7,7 @@ import { parseArgs } from 'node:util'
 import { setTimeout as delay } from 'node:timers/promises'
 import { listPublishablePackages } from '../registry/publish.mjs'
 import { createStandaloneIntegrationEnvironment } from '../lib/standalone-integration-env.mjs'
-import { pinStandalonePackages, verifyStandalonePackages } from '../lib/standalone-pr-gate.mjs'
+import { assertStandaloneSmokeCoverage, pinStandalonePackages, verifyStandalonePackages } from '../lib/standalone-pr-gate.mjs'
 import { assertProductionBuildArtifacts } from '../lib/standalone-build-artifacts.mjs'
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
@@ -144,8 +144,9 @@ try {
   const listOutput = run('yarn', ['playwright', 'test', '--config', '.ai/qa/tests/playwright.config.ts',
     ...selection.selected, '--list', '--reporter=json'], { env: { ...testEnv, OM_INTEGRATION_MODULES: '' }, capture: true })
   const listed = JSON.parse(listOutput)
-  if (listed.errors?.length || !listed.suites?.length) throw new Error('Playwright did not collect the standalone suite successfully')
+  assertStandaloneSmokeCoverage(listed)
   run('yarn', ['test:integration', ...selection.selected], { env: { ...testEnv, OM_INTEGRATION_MODULES: '' } })
+  assertStandaloneSmokeCoverage(JSON.parse(fs.readFileSync(path.join(repoRoot, '.ai', 'qa', 'test-results', 'results.json'), 'utf8')), { executed: true })
 } catch (error) {
   console.error(error.message)
   if (fs.existsSync(logPath)) console.error(fs.readFileSync(logPath, 'utf8').split('\n').slice(-200).join('\n'))

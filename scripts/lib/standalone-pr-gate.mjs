@@ -8,6 +8,30 @@ export const STANDALONE_SMOKE_SPECS = [
   'packages/core/src/modules/phone_calls/__integration__/TC-PHONE-HUB-006-calls-list-cache.spec.ts',
 ]
 
+export function assertStandaloneSmokeCoverage(report, { executed = false } = {}) {
+  if (report.errors?.length) throw new Error('Standalone Playwright report contains collection or runtime errors')
+  const specs = []
+  function visit(suites) {
+    for (const suite of suites ?? []) {
+      specs.push(...suite.specs ?? [])
+      visit(suite.suites)
+    }
+  }
+  visit(report.suites)
+  for (const smokePath of STANDALONE_SMOKE_SPECS) {
+    const matching = specs.filter((spec) => {
+      const filePath = spec.file?.replaceAll('\\', '/') ?? ''
+      return filePath === smokePath || filePath.endsWith(`/${smokePath}`)
+    })
+    if (!matching.length || matching.some((spec) => !spec.tests?.length)) {
+      throw new Error(`Required standalone smoke spec was not collected: ${smokePath}`)
+    }
+    if (executed && matching.some((spec) => spec.tests.some((entry) => !entry.results?.some((result) => result.status === 'passed')))) {
+      throw new Error(`Required standalone smoke spec did not execute successfully: ${smokePath}`)
+    }
+  }
+}
+
 export function selectStandaloneSpecs(discovered, changedPaths, suite) {
   const available = new Set(discovered.map((spec) => spec.path))
   for (const smokePath of STANDALONE_SMOKE_SPECS) {

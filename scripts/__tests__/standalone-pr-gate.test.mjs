@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
 import { parse } from 'yaml'
-import { STANDALONE_SMOKE_SPECS, pinStandalonePackages, selectStandaloneSpecs, verifyStandalonePackages } from '../lib/standalone-pr-gate.mjs'
+import { STANDALONE_SMOKE_SPECS, assertStandaloneSmokeCoverage, pinStandalonePackages, selectStandaloneSpecs, verifyStandalonePackages } from '../lib/standalone-pr-gate.mjs'
 import { createStandaloneIntegrationEnvironment } from '../lib/standalone-integration-env.mjs'
 
 const discovered = [
@@ -32,6 +32,15 @@ test('shared infrastructure changes conservatively run every discovered test', (
 test('missing smoke prerequisites and missing affected diff fail closed', () => {
   assert.throws(() => selectStandaloneSpecs(discovered.slice(1), [], 'smoke'), /Required standalone smoke spec/)
   assert.throws(() => selectStandaloneSpecs(discovered, [], 'affected'), /requires changed files/)
+})
+
+test('a nonempty Playwright report cannot hide a missing or skipped smoke test', () => {
+  const specs = STANDALONE_SMOKE_SPECS.map((file) => ({ file, tests: [{ results: [{ status: 'passed' }] }] }))
+  assert.doesNotThrow(() => assertStandaloneSmokeCoverage({ suites: [{ suites: [{ specs }] }] }, { executed: true }))
+  assert.throws(() => assertStandaloneSmokeCoverage({ suites: [{ specs: specs.slice(1) }] }), /was not collected/)
+  specs[0].tests[0].results[0].status = 'skipped'
+  assert.doesNotThrow(() => assertStandaloneSmokeCoverage({ suites: [{ specs }] }))
+  assert.throws(() => assertStandaloneSmokeCoverage({ suites: [{ specs }] }, { executed: true }), /did not execute successfully/)
 })
 
 test('local sources pin both root and transitive first-party requests', () => {
