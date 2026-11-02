@@ -4,12 +4,16 @@ import type { CommandBus, CommandHandler } from '@open-mercato/shared/lib/comman
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { forbidden, notFound } from '@open-mercato/shared/lib/crud/errors'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { Message } from '@open-mercato/core/modules/messages/data/entities'
+import { resolveMessageReadAccess } from '@open-mercato/core/modules/messages/lib/routeHelpers'
 import {
   CHANNEL_DISCORD_AI_PROPOSAL_APPROVE_COMMAND_ID,
   CHANNEL_DISCORD_AI_PROPOSAL_DISMISS_COMMAND_ID,
 } from '../lib/ai-proposal-contract'
 import { DISCORD_CHANNEL_TYPE } from '../lib/channel-identity'
+import { hasDiscordProposalOrigin } from '../lib/ai-proposal-origin'
 import { CHANNEL_DISCORD_AI_PROPOSAL_MESSAGE_TYPE } from '../message-types'
 
 const logger = createLogger('channel_discord').child({ component: 'ai-reply-proposal' })
@@ -54,7 +58,7 @@ async function loadProposal(
   const proposal = await findOneWithDecryption(
     em,
     Message,
-    { id: messageId, tenantId: scope.tenantId, deletedAt: null },
+    { id: messageId, tenantId: scope.tenantId, organizationId: scope.organizationId, deletedAt: null },
     undefined,
     { tenantId: scope.tenantId, organizationId: scope.organizationId },
   )
@@ -64,6 +68,9 @@ async function loadProposal(
     // the id was swapped, so refuse rather than sending an unrelated message body
     // into a Discord server.
     throw new Error('[internal] Message is not a Discord AI reply proposal')
+  }
+  if (!hasDiscordProposalOrigin(proposal)) {
+    throw new Error('[internal] Discord AI reply proposal has no valid system origin')
   }
   return proposal
 }
@@ -87,12 +94,22 @@ const approveProposalCommand: CommandHandler<ProposalActionInput, ApproveProposa
     const inbound = await findOneWithDecryption(
       em,
       Message,
-      { id: inboundMessageId, tenantId: scope.tenantId, deletedAt: null },
+      { id: inboundMessageId, tenantId: scope.tenantId, organizationId: scope.organizationId, deletedAt: null },
       undefined,
       { tenantId: scope.tenantId, organizationId: scope.organizationId },
     )
     if (!inbound) {
-      throw new Error('[internal] The message this proposal answers no longer exists')
+      const { t } = await resolveTranslations()
+      throw notFound(t('channel_discord.aiProposal.errors.sourceMessageNotFound'))
+    }
+    // The send joins the answered message's thread, so the approving operator
+    // must be able to read that message — the same rule a compose naming it as
+    // its parent is held to. Access revoked after the proposal was filed refuses
+    // the send instead of posting into a conversation the operator lost.
+    const access = await resolveMessageReadAccess(ctx, scope, inbound)
+    if (!access.canRead) {
+      const { t } = await resolveTranslations()
+      throw forbidden(t('channel_discord.aiProposal.errors.sourceMessageUnreadable'))
     }
 
     const body = (proposal.body ?? '').trim()

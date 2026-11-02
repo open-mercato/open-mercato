@@ -116,7 +116,7 @@ Tuning knobs for `auto-optimized`:
 
 - `OM_WATCH_GIT_STATUS=off` — ignore uncommitted working-tree changes (use only the branch diff).
 - `OM_WATCH_GIT_BRANCH=off` — ignore the branch diff (use only the working tree).
-- `OM_WATCH_BASE_REF=origin/main` — override the base ref the branch diff is computed against (defaults to the first of `origin/develop`, `develop`, `origin/main`, `main` that exists).
+- `OM_WATCH_BASE_REF=origin/main` — override the base ref the branch diff is computed against (defaults to `origin/main`, falling back to `main`).
 
 If a non-`all` scope ever leaves out a package you are actively editing, either switch back with `OM_WATCH_SCOPE=all` / `--watch=all`, add it to `OM_WATCH_PACKAGES`, or just wait — `auto-optimized` will pick it up at the next 2-minute sweep once it has a git change.
 
@@ -151,3 +151,17 @@ psql "postgresql://postgres:postgres@localhost:55432/open-mercato" -c "select 1;
 ```
 
 If this succeeds but `:5432` still fails, keep using the alternate port (or stop the other local PostgreSQL service that occupies `5432`).
+
+## Module install fails with `YN0016` (quarantined) {#yn0016-quarantined}
+
+`yarn mercato module add` or `yarn add` stops with Yarn error `YN0016` and a message that the versions satisfying the requested range are quarantined.
+
+### Cause
+
+Apps created with `create-mercato-app` set `npmMinimalAgeGate: 5d` in `.yarnrc.yml`. Yarn refuses versions of packages outside `@open-mercato/*` that were published less than 5 days ago. The `@open-mercato/*` scope is preapproved, so official releases install on the day they ship.
+
+### Fix
+
+- Open the module page on [modules.openmercato.com](https://modules.openmercato.com). **Installable from** shows the date the fresh release clears the gate, and the install box shows the exact version you can install today.
+- Install that version, or wait until the date on the page.
+- If you have reviewed the release and need it now, install it from its GitHub repository (see [Publishing Custom Modules](../framework/modules/publishing-custom-modules)) or add the package to `npmPreapprovedPackages` in `.yarnrc.yml` deliberately. Both skip the supply-chain cooldown for that package.

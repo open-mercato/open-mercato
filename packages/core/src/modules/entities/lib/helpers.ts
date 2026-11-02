@@ -7,6 +7,23 @@ import {
 } from '@open-mercato/shared/modules/entities/validation'
 import { CustomFieldDef, CustomFieldValue } from '../data/entities'
 import { loadScopedCustomFieldDefs } from './scoped-field-defs'
+import { encryptCustomEntityDocument } from '@open-mercato/shared/lib/encryption/customEntityDoc'
+import { isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encryption/toggles'
+
+/** @internal */
+export async function encryptCustomEntityRecordDocument(
+  em: EntityManager,
+  opts: { entityId: string; organizationId: string | null; tenantId: string | null; doc: Record<string, unknown>; encryptionService?: TenantDataEncryptionService | null },
+): Promise<Record<string, unknown>> {
+  if (!isTenantDataEncryptionEnabled() || Object.keys(opts.doc).every((key) => key === 'id')) return opts.doc
+  const definitions = await loadScopedCustomFieldDefs(em, opts)
+  const fields = Array.from(definitions.values(), (definition) => ({
+    key: definition.key,
+    kind: definition.kind,
+    encrypted: Boolean(definition.configJson?.encrypted),
+  }))
+  return encryptCustomEntityDocument(opts.doc, fields, opts.tenantId, resolveTenantEncryptionService(em, opts.encryptionService))
+}
 
 type Primitive = string | number | boolean | null | undefined
 type PrimitiveOrArray = Primitive | Primitive[]

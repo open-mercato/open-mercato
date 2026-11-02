@@ -2,6 +2,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -42,7 +43,7 @@ export async function resolveDictionariesRouteContext(req: Request): Promise<Dic
   const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
   const em = (container.resolve('em') as EntityManager)
   const tenantId: string = scope?.tenantId ?? auth.tenantId
-  const organizationId = scope?.selectedId ?? auth.orgId ?? null
+  const organizationId = resolveSingleOrganizationIdOrDeny(scope, auth) ?? null
 
   const normalizeId = (value: unknown): string | null => {
     if (typeof value !== 'string') return null

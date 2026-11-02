@@ -15,6 +15,7 @@
 
 import { NextResponse } from 'next/server'
 import { resolveFeatureAccess } from '../../../../../lib/time-tracking/featureAccess'
+import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { z } from 'zod'
 import { forbidden, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
@@ -113,7 +114,7 @@ export async function POST(req: Request) {
       container,
       auth,
       organizationScope,
-      selectedOrganizationId: organizationScope?.selectedId ?? auth.orgId ?? null,
+      selectedOrganizationId: resolveSingleOrganizationIdOrDeny(organizationScope, auth) ?? null,
       organizationIds: organizationScope?.filterIds ?? (auth.orgId ? [auth.orgId] : null),
       request: req,
     }
@@ -193,7 +194,7 @@ export const openApi: OpenApiRouteDoc = {
     POST: {
       summary: 'Unlock a closed customer report',
       description:
-        'Clears locked_report_id / locked_at on every entry this report froze, removes its freeze records so a previously billed hour stops being counted as already reported, returns the report to draft and appends an `unlocked` event carrying the reason, the actor and the totals that were frozen. The reason is mandatory. Requires staff.timesheets.reports.unlock, which is deliberately separate from staff.timesheets.lock.',
+        'Removes the freeze records of this report so a previously billed hour stops being counted as already reported by it, returns the report to draft and appends an `unlocked` event carrying the reason, the actor and the totals that were frozen. Clears locked_report_id / locked_at on every entry this report locked that no other closed report quotes; an entry another closed report re-included stays locked, and its lock moves to that report. `unlockedEntryCount` counts the entries actually freed. The reason is mandatory. Requires staff.timesheets.reports.unlock, which is deliberately separate from staff.timesheets.lock.',
       requestBody: { contentType: 'application/json', schema: staffTimeReportUnlockSchema.pick({ reason: true }) },
       responses: [{ status: 200, description: 'Report unlocked', schema: unlockResponseSchema }],
       errors: [

@@ -10,8 +10,9 @@ jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
   useLocale: () => 'en',
 }))
 
+const mockPush = jest.fn()
 jest.mock('next/navigation', () => ({
-  useRouter: () => ({ push: jest.fn() }),
+  useRouter: () => ({ push: mockPush }),
 }))
 
 jest.mock('@open-mercato/shared/lib/time', () => ({
@@ -49,6 +50,7 @@ const defaultProps = {
 describe('WmsLowStockRenderer', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    mockPush.mockClear()
   })
 
   it('renders without crashing', () => {
@@ -132,5 +134,35 @@ describe('WmsLowStockRenderer', () => {
     )
     const unreadDot = container.querySelector('.bg-status-warning-icon.ring-2')
     expect(unreadDot).toBeNull()
+  })
+
+  it('navigates via linkHref instead of re-calling onAction once the notification is actioned (#6436)', () => {
+    const onAction = jest.fn(async () => {})
+    render(
+      <WmsLowStockRenderer
+        {...defaultProps}
+        onAction={onAction}
+        actions={[{ id: 'view', labelKey: 'wms.notifications.lowStock.renderer.viewSku', label: 'View SKU' }]}
+        notification={{ ...baseNotification, status: 'actioned' }}
+      />,
+    )
+    fireEvent.click(screen.getByText('View SKU'))
+    expect(onAction).not.toHaveBeenCalled()
+    expect(mockPush).toHaveBeenCalledWith(baseNotification.linkHref)
+  })
+
+  it('calls onAction (not navigation) on the first click, before the notification is actioned', () => {
+    const onAction = jest.fn(async () => {})
+    render(
+      <WmsLowStockRenderer
+        {...defaultProps}
+        onAction={onAction}
+        actions={[{ id: 'view', labelKey: 'wms.notifications.lowStock.renderer.viewSku', label: 'View SKU' }]}
+        notification={{ ...baseNotification, status: 'unread' }}
+      />,
+    )
+    fireEvent.click(screen.getByText('View SKU'))
+    expect(onAction).toHaveBeenCalledWith('view')
+    expect(mockPush).not.toHaveBeenCalled()
   })
 })

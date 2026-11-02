@@ -69,6 +69,7 @@ import { applyResponseEnrichers, applyResponseEnricherToRecord, resolveListCache
 import type { EnricherContext } from './response-enricher'
 import type { ApiInterceptorMethod, InterceptorRequest, InterceptorResponse } from './api-interceptor'
 import { runApiInterceptorsAfter, runApiInterceptorsBefore } from './interceptor-runner'
+import { resolveApiInterceptorRoutePath } from '../modules/api-route-identity'
 import { mergeIdFilter, parseIdsParam, isIdsParamProvided } from './ids'
 import { buildQueryParams } from './query-params'
 import { mergeAdvancedFilters } from './advanced-filter-integration'
@@ -270,6 +271,16 @@ export type ListConfig<TList> = {
    * filters/sorts, `search_tokens` fulltext filtering, and vector-search branches are bypassed.
    */
   omitAutomaticTenantOrgScope?: boolean
+  /**
+   * When false, the query engine returns encrypted fields as stored (ciphertext) and performs no
+   * DEK lookup. Defaults to true — today's behaviour. Set it on generic, entity-agnostic list
+   * surfaces that select every column and do not need plaintext.
+   *
+   * Caveat: declining also disables the plaintext-sort path, so a sort on an encrypted field
+   * degrades to SQL `ORDER BY` over ciphertext. The query engine logs one warning when that
+   * combination is requested.
+   */
+  decryptEncryptedFields?: boolean
   /** When true, skip server-side CRUD GET cache for this list (avoids stale empty payloads after mutations). */
   disableListCache?: boolean
 }
@@ -790,17 +801,6 @@ function snapshotEntity(entity: unknown): Record<string, unknown> | undefined {
   return safeClone(entity) as Record<string, unknown>
 }
 
-function normalizeInterceptorRoutePath(request: Request): string {
-  try {
-    const pathname = new URL(request.url).pathname
-    if (pathname.startsWith('/api/')) return pathname.slice(5)
-    if (pathname === '/api') return ''
-    return pathname.replace(/^\/+/, '')
-  } catch {
-    return ''
-  }
-}
-
 function toInterceptorHeaders(headers: Headers): Record<string, string> {
   const output: Record<string, string> = {}
   headers.forEach((value, key) => {
@@ -1029,7 +1029,7 @@ function safeClone<T>(value: T): T {
 }
 
 function collectScopeOrganizationIds(ctx: CrudCtx): Array<string | null> {
-  if (Array.isArray(ctx.organizationIds) && ctx.organizationIds.length > 0) {
+  if (Array.isArray(ctx.organizationIds)) {
     return Array.from(new Set(ctx.organizationIds))
   }
   const fallback = ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null
@@ -1059,7 +1059,7 @@ function buildCrudCacheKey(
   const scopeIds = collectScopeOrganizationIds(ctx)
   const scopeSegment = scopeIds.length
     ? scopeIds.map((id) => normalizeTagSegment(id)).sort((a, b) => a.localeCompare(b)).join(',')
-    : 'none'
+    : 'empty'
   const segments = [
     'crud',
     normalizeTagSegment(resource),
@@ -1417,12 +1417,20 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
     if (!interceptorContext) {
       return { errorResponse: null, requestPayload, metadataByInterceptor: {} }
     }
+    const routePath = resolveApiInterceptorRoutePath(args.request)
+    if (routePath === null) {
+      return {
+        errorResponse: json({ error: 'Bad request' }, { status: 400 }),
+        requestPayload,
+        metadataByInterceptor: {},
+      }
+    }
     const contextWithHeaders = {
       ...interceptorContext,
       extensionHeaders: parseExtensionHeaders(requestPayload.headers),
     }
     const result = await runApiInterceptorsBefore({
-      routePath: normalizeInterceptorRoutePath(args.request),
+      routePath,
       method: args.method,
       request: requestPayload,
       context: contextWithHeaders,
@@ -1445,8 +1453,12 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
   }): Promise<{ ok: boolean; statusCode: number; body: Record<string, unknown>; headers: Record<string, string> } | null> {
     const interceptorContext = await buildInterceptorContext(args.ctx)
     if (!interceptorContext) return { ok: true, statusCode: args.statusCode, body: args.body, headers: args.headers ?? {} }
+    const routePath = resolveApiInterceptorRoutePath(args.request)
+    if (routePath === null) {
+      return { ok: false, statusCode: 400, body: { error: 'Bad request' }, headers: {} }
+    }
     const result = await runApiInterceptorsAfter({
-      routePath: normalizeInterceptorRoutePath(args.request),
+      routePath,
       method: args.method,
       request: args.requestPayload,
       response: {
@@ -1523,10 +1535,16 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           orgId: scopedOrgId ?? null,
         }
       : null
-    const fallbackOrgId = scopedOrgId ?? rawAuth?.orgId ?? null
+    const fallbackOrgId = scope ? scopedOrgId : (rawAuth?.orgId ?? null)
+    const hasExplicitEmptyScope = Boolean(scope && (
+      (Array.isArray(scope.filterIds) && scope.filterIds.length === 0)
+      || (Array.isArray(scope.allowedIds) && scope.allowedIds.length === 0)
+    ))
     const rawScopeIds = scope?.filterIds
     const scopedIds = Array.isArray(rawScopeIds) ? rawScopeIds.filter((id): id is string => typeof id === 'string' && id.length > 0) : null
-    if (!scope) {
+    if (hasExplicitEmptyScope) {
+      organizationIds = []
+    } else if (!scope) {
       organizationIds = fallbackOrgId ? [fallbackOrgId] : null
     } else if (scopedIds === null) {
       organizationIds = scope.allowedIds === null ? null : (fallbackOrgId ? [fallbackOrgId] : null)
@@ -1537,7 +1555,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       let canUseFallback = false
       if (allowedIds === null) {
         canUseFallback = true
-      } else if (allowedIds.includes(fallbackOrgId) || allowedIds.length === 0) {
+      } else if (allowedIds.includes(fallbackOrgId)) {
         canUseFallback = true
       }
       if (canUseFallback) {
@@ -1629,6 +1647,25 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       let validated = opts.list.schema.parse(rawQueryParams)
       profiler.mark('query_validated')
 
+      if (ormCfg.orgField && Array.isArray(ctx.organizationIds) && ctx.organizationIds.length === 0) {
+        profiler.mark('scope_blocked')
+        logForbidden({
+          resourceKind,
+          action: 'list',
+          reason: 'organization_scope_empty',
+          userId: ctx.auth?.sub ?? null,
+          tenantId: ctx.auth?.tenantId ?? null,
+          organizationIds: ctx.organizationIds,
+        })
+        const page = Number((validated as Record<string, unknown>).page ?? 1) || 1
+        const pageSize = Math.min(
+          Math.max(Number((validated as Record<string, unknown>).pageSize ?? 50) || 50, 1),
+          100,
+        )
+        finishProfile({ result: 'scope_blocked', itemCount: 0, total: 0 })
+        return json({ items: [], total: 0, page, pageSize, totalPages: 0 })
+      }
+
       const beforeInterceptors = await applyInterceptorsBefore({
         ctx,
         request,
@@ -1664,6 +1701,18 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       const exportScope = typeof exportScopeParam === 'string' ? exportScopeParam.toLowerCase() : null
       const exportFullRequested = exportRequested && (exportScope === 'full' || parseBooleanToken((queryParams as any).full) === true)
       profiler.mark('export_configured', { exportRequested, exportFullRequested })
+
+      // A full export still owes the route's own visibility predicate. Routes with
+      // `omitAutomaticTenantOrgScope` own their entire scope inside `buildFilters` — the
+      // query engine/ORM fallback add no tenant/org predicate of their own for them — so
+      // dropping to `{}` here would leak every tenant's rows (#7806). Re-run `buildFilters`
+      // with an empty query so only its scope branches apply, not the caller's UI filters.
+      const resolveFullExportBaseFilters = async () => {
+        if (opts.list?.omitAutomaticTenantOrgScope && opts.list.buildFilters) {
+          return opts.list.buildFilters({} as TList, ctx)
+        }
+        return {} as Where<Record<string, unknown>>
+      }
 
       const cacheEnabled =
         isCrudCacheEnabled() && !exportRequested && !opts.list?.disableListCache
@@ -1876,7 +1925,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           ? { page: 1, pageSize: exportPageSize }
           : { page: requestedPage, pageSize: requestedPageSize }
         const baseFilters = exportFullRequested
-          ? ({} as Where<any>)
+          ? await resolveFullExportBaseFilters()
           : (opts.list.buildFilters ? await opts.list.buildFilters(validated as any, ctx) : ({} as Where<any>))
         const filters = exportFullRequested
           ? baseFilters
@@ -1949,6 +1998,9 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         }
         if (opts.list.omitAutomaticTenantOrgScope) {
           queryOpts.omitAutomaticTenantOrgScope = true
+        }
+        if (opts.list.decryptEncryptedFields === false) {
+          queryOpts.decryptEncryptedFields = false
         }
         const queryEntity = String(opts.list.entityId)
         profiler.mark('query_options_ready')
@@ -2179,7 +2231,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         return response
       }
       const fallbackBaseFilters = exportFullRequested
-        ? ({} as Where<any>)
+        ? await resolveFullExportBaseFilters()
         : (opts.list.buildFilters ? await opts.list.buildFilters(validated as any, ctx) : ({} as Where<any>))
       const fallbackFilters = exportFullRequested
         ? fallbackBaseFilters

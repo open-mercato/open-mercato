@@ -72,7 +72,7 @@ test.describe('TC-CAL-005: Create event via calendar editor', () => {
 
       // -- Type switcher: Task shows Due + Priority + Assignee -------------------
       const typeSwitcher = dialog.getByRole('group', { name: 'Event type' });
-      await expect(typeSwitcher.getByRole('button', { name: 'Meeting', exact: true })).toHaveAttribute('aria-pressed', 'true');
+      await expect(typeSwitcher.getByRole('button', { name: /meeting/i })).toHaveAttribute('aria-pressed', 'true');
       await typeSwitcher.getByRole('button', { name: 'Task', exact: true }).click();
       await expect(typeSwitcher.getByRole('button', { name: 'Task', exact: true })).toHaveAttribute('aria-pressed', 'true');
       await expect(dialog.getByText('Due', { exact: true })).toBeVisible();
@@ -85,7 +85,7 @@ test.describe('TC-CAL-005: Create event via calendar editor', () => {
       await expect(dialog.getByText('Starts', { exact: true })).toBeHidden();
 
       // -- Back to Meeting: Starts/Ends return, Priority leaves ------------------
-      await typeSwitcher.getByRole('button', { name: 'Meeting', exact: true }).click();
+      await typeSwitcher.getByRole('button', { name: /meeting/i }).click();
       await expect(dialog.getByText('Starts', { exact: true })).toBeVisible();
       await expect(dialog.getByText('Ends', { exact: true })).toBeVisible();
       await expect(dialog.getByRole('button', { name: 'Priority', exact: true })).toBeHidden();
