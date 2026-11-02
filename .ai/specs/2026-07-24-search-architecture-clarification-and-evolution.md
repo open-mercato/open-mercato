@@ -77,6 +77,51 @@ Prerequisites for the fulltext path to actually drain: `QUEUE_STRATEGY=async` + 
 
 ### A.4 Configuration surface
 
+#### Customer vector privacy invariant (#7826)
+
+Custom `buildSource` functions must enforce their own allowlists: the default
+vector source's `fieldPolicy` filtering does not sanitize custom text. Person and
+company sources now select approved scalar fields, with `hashOnly`/`excluded`
+taking precedence across snake/camel and custom-field prefixes. Fields declared
+encrypted by the module are excluded from embedding text, including encrypted
+names. Sources resolve the live tenant/organization encryption policy for both the
+profile and related customer entity, union it with module defaults, and normalize
+field aliases before exclusion. Search DI supplies the existing `container` context
+to source callbacks. Tenant-wide indexing also unions organization declarations
+from the loaded profile/related rows; row scope never replaces the trusted tenant
+or weakens the context's exclusions. A missing policy dependency or failed lookup
+skips vector writes. Person/company vector writes are also skipped when `TENANT_DATA_ENCRYPTION`
+is disabled, because the real policy service returns no declarations in that state.
+Encryption-at-rest behavior is unchanged; other search strategies continue.
+Related customer contact details and arbitrary record/custom-field fallback
+serialization are excluded. Customer-account source text uses the account ID;
+email stays hash-only. Presenters retain permitted display names but no contact
+email or phone, and source checksums use only the resulting safe source/presenter.
+
+The legacy `VectorIndexService` also applies the existing field-policy filter to
+snapshot, title, and subtitle fallback fields, including sources without a presenter.
+Regression tests call the real customer source
+builders through `SearchIndexer` → `SearchService` → `VectorSearchStrategy`, with a
+fake embedding provider and captured vector driver writes. These tests
+cover direct, by-ID, and bulk entry points. Bulk indexing shares source preparation
+with single-record indexing. Configured source errors, null, and empty text skip
+vector embedding rather than activating raw-field fallback; other strategies still
+run. Provider-boundary tests exercise these cases through single, by-ID, queued
+batch, and bulk paths, plus scoped live encryption additions and lookup failures.
+Real-service regressions cover the encryption toggle both on and off, with an
+unhealthy fake KMS, active scoped declarations, and captured provider/write boundaries.
+Read-time presenter fallback also applies `fieldPolicy` after formatter failures.
+Direct builder tests
+cover aliases, sparse records, policy precedence, and nested values. Legacy service
+tests cover excluded, hash-only, and unlisted snapshot fields. No live customer
+data or external embedding call is required for these checks.
+
+Migration & Backward Compatibility: search registration, entity IDs, types, API
+routes, database schema, and tenant/organization scoping remain unchanged. Existing
+vectors and presenter metadata require operator purge and reindex after all
+workers are upgraded; see `UPGRADE_NOTES.md` (#7826). No destructive remediation
+runs automatically, and provider retention must be handled separately.
+
 Seven env vars (`packages/shared/src/lib/search/config.ts`) are **token/Postgres-only** — none affect fulltext or vector:
 
 | Env var | Default | Controls |
@@ -226,6 +271,31 @@ Memoization is per engine instance; engines are constructed per request (`create
 - **Phase 2/3**: new drivers/packages are additive and env-gated; a Postgres-only profile is opt-in. `SearchStrategyId`, `SearchStrategy`, event IDs (`search.index_record`, `search.delete_record`, `query_index.*`), queue names (`fulltext-indexing`, `vector-indexing`), and DI keys (`searchService`, `searchIndexer`, `searchStrategies`) are FROZEN/STABLE surfaces — extend, never rename.
 - **Phase 4**: no contract surfaces touched — every deleted/moved member is `private` (`hasSearchTokens`, `searchSourcesHaveTokens`, `tableExists`, `applySearchTokens`) or a module-private type (`SearchRuntime`, `SearchTokenSource`); the new shared module is an additive export; no DB schema, API route, event ID, or DI key changes. The only behavior change (gating `BasicQueryEngine`'s probe) is observable solely as absent SQL statements on queries that carry no search filter.
 
+## Migration & Backward Compatibility — Plaintext Custom Fields (#7894)
+
+`IndexableRecord.plaintextExcludedCustomFields?: readonly string[] | 'all'` is
+additive metadata for fulltext fields and generic vector fallback text. Omission
+preserves direct-client behavior. `SearchIndexer` resolves encrypted custom-field
+keys once per entity within a call; the application DI registration always wires
+the resolver and lookup failures exclude every custom field from plaintext fields.
+Definitions are conservatively unioned across scopes, including inactive but
+non-deleted definitions. Original `fields` and hashed-token inputs remain intact.
+
+Filtering runs before any fulltext driver and before fallback embedding creation.
+It does not sanitize explicit `buildSource` text, presenters or links; those
+build-context protections are tracked separately in #7874. Application DI wires
+the resolver automatically; manually constructed `SearchIndexer` instances must
+pass `encryptedCustomFieldKeysResolver`, otherwise their legacy behavior remains.
+Direct `SearchService` clients must provide the optional metadata for their own
+custom-field records.
+No route, database schema, queue payload, strategy ID or existing signature changes.
+
+Operators must reindex affected fulltext/vector data after upgrade to replace old
+plaintext values; the fix cannot recall copies retained by an external provider.
+Regression coverage exercises real indexer/service/strategy boundaries, DI failure,
+JSON-safe metadata, single/bulk/ID/reindex paths, provider/driver outputs and token
+writer inputs without external services.
+
 ## Non-goals
 
 - No change to how `SearchService.search()` merges/ranks (RRF) in this spec.
@@ -243,6 +313,15 @@ Memoization is per engine instance; engines are constructed per request (`create
 - **Phase 4 (when implemented)**: `yarn workspace @open-mercato/shared test` + `yarn workspace @open-mercato/core test`; the four probe-count tests from #4723 pass without modification; new `BasicQueryEngine` parity and memoization tests as listed in B.4; no integration tests required (no API/DB/UI surface changes — same exemption #4723 claims).
 
 ## Changelog
+
+- 2026-10-31 — Integrated #7894 exclusions with shared single/bulk source preparation; source failures still skip vector writes, with by-ID/bulk/reindex boundary regressions preserving fulltext filtering and token inputs.
+
+- 2026-10-27 — Added #7894 plaintext custom-field exclusion metadata and driver/provider boundary protection; preserved token values and documented reindex requirements.
+- 2026-10-29 — Made person/company vector sources fail closed when the encryption toggle disables declaration lookup; added real-service coverage for active maps across four indexing entry points and documented the skipped-vector behavior.
+
+- 2026-10-28 — Closed independent-review gaps for #7826: scoped live encryption declarations, config-aware bulk sources, fail-closed source errors/null/empty text, and protected read-time presenter fallback.
+
+- 2026-10-27 — Added the customer vector privacy invariant and #7826 regression/remediation contract: allowlisted sources and presenters, encrypted-field exclusion from embedding text, policy-filtered snapshot fallback, and operator purge/reindex.
 
 - 2026-07-24 — Initial draft: current-architecture clarification (Part A) + evolution roadmap (Part B).
 - 2026-07-31 — Added Phase 4 (B.4): unified read-path token-availability resolver shared by both query engines — makes the #4723 probe gate structural, extends it to `BasicQueryEngine`, and gives the future durable probe fix a single landing site. Renumbered the decision matrix to B.5 and added its row.
