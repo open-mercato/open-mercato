@@ -1,6 +1,6 @@
 # Execution plan — pluggable password hashing (opt-in Argon2id)
 
-Status: in-progress
+Status: complete
 Source doc: .ai/specs/2026-11-02-pluggable-password-hashing.md
 
 ## Goal
@@ -47,6 +47,8 @@ Route every user and customer-portal password hash/verify through one `passwordH
 
 ## Progress
 
+PR: #8473
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Spec and shared service
@@ -63,4 +65,4 @@ Route every user and customer-portal password hash/verify through one `passwordH
 ### Phase 3: Docs and gate
 
 - [x] 3.1 Env docs and docs page — c49bc163f, 20b0ad236
-- [ ] 3.2 Full validation gate
+- [x] 3.2 Full validation gate — a985ca409
