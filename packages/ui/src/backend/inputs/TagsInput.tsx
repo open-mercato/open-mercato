@@ -25,6 +25,7 @@ export type TagsInputProps = {
   allowCustomValues?: boolean
   showSuggestionsOnFocus?: boolean
   suppressInitialSuggestionsOnFocus?: boolean
+  closeSuggestionsOnSelect?: boolean
 }
 
 function normalizeOptions(input?: Array<string | TagsInputOption>): TagsInputOption[] {
@@ -61,6 +62,7 @@ export function TagsInput({
   allowCustomValues = true,
   showSuggestionsOnFocus = true,
   suppressInitialSuggestionsOnFocus = false,
+  closeSuggestionsOnSelect = false,
 }: TagsInputProps) {
   const t = useT()
   const [input, setInput] = React.useState('')
@@ -275,6 +277,7 @@ export function TagsInput({
               event.preventDefault()
               addTag(input)
               setInput('')
+              if (closeSuggestionsOnSelect) setSuggestionsDismissed(true)
             } else if (event.key === 'Backspace' && input === '' && value.length > 0) {
               removeTag(value[value.length - 1])
             }
@@ -310,6 +313,7 @@ export function TagsInput({
                   suppressBlurCommitRef.current = false
                   addValue(option.value)
                   setInput('')
+                  if (closeSuggestionsOnSelect) setSuggestionsDismissed(true)
                 }}
               >
                 <span>{option.label}</span>

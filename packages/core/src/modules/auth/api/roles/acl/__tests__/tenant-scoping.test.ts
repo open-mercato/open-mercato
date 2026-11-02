@@ -175,6 +175,17 @@ describe('role ACL tenant scoping — existence oracle prevention', () => {
     expect(res.status).toBe(200)
   })
 
+  it('reads only the live role ACL row', async () => {
+    const role = { id: ROLE_ID, tenantId: ACTOR_TENANT_ID }
+    mockEm.findOne.mockImplementation(async (entity: unknown) => entity === Role ? role : null)
+
+    const res = await GET(new Request(`http://localhost/api/auth/roles/acl?roleId=${ROLE_ID}`))
+
+    expect(res.status).toBe(200)
+    const aclLookup = mockEm.findOne.mock.calls.find(([entity]) => entity === RoleAcl)
+    expect(aclLookup?.[1]).toMatchObject({ tenantId: ACTOR_TENANT_ID, deletedAt: null })
+  })
+
   it('PUT rejects feature grants outside the actor effective ACL', async () => {
     const role = { id: ROLE_ID, tenantId: ACTOR_TENANT_ID }
     mockRbacService.loadAcl.mockResolvedValueOnce({
@@ -213,6 +224,8 @@ describe('role ACL tenant scoping — existence oracle prevention', () => {
     expect(res.status).toBe(403)
     expect(body.error).toContain('Cannot grant feature api_keys.create')
     expect(mockEm.persist).not.toHaveBeenCalled()
+    const aclLookup = mockEm.findOne.mock.calls.find(([entity]) => entity === RoleAcl)
+    expect(aclLookup?.[1]).toMatchObject({ tenantId: ACTOR_TENANT_ID, deletedAt: null })
   })
 
   it('PUT rejects superadmin grants from non-superadmin actors', async () => {

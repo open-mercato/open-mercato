@@ -358,4 +358,98 @@ describe('refreshCredentialsIfNeeded', () => {
       expect(refresh).toHaveBeenCalledTimes(2)
     })
   })
+
+  // Issue #6333 — a refresh that never settles must not be handed to every
+  // later caller for the lifetime of the process. Past the in-flight deadline
+  // later callers continue with their stored credentials, and no second
+  // exchange of a rotating refresh token starts while the first is pending.
+  describe('in-flight deadline', () => {
+    const credentials = { accessToken: 'a' }
+    let nowSpy: jest.SpyInstance<number, []>
+    let now: number
+
+    beforeEach(() => {
+      now = 1_000_000
+      nowSpy = jest.spyOn(Date, 'now').mockImplementation(() => now)
+    })
+
+    afterEach(() => {
+      nowSpy.mockRestore()
+    })
+
+    function hungAdapter() {
+      const refresh = jest.fn(() => new Promise<{ credentials: { accessToken: string } }>(() => {}))
+      return { refresh, adapter: makeAdapter(refresh) }
+    }
+
+    it('stops handing a hung refresh to later callers once the default deadline passes', async () => {
+      const { refresh, adapter } = hungAdapter()
+      const channelId = 'ch-hung-default'
+      const firstSettled = jest.fn()
+      refreshCredentialsIfNeeded({ adapter, channelId, credentials, scope, force: true }).then(firstSettled)
+      await Promise.resolve()
+
+      now += 120_001
+      const later = await refreshCredentialsIfNeeded({ adapter, channelId, credentials, scope, force: true })
+
+      expect(later).toEqual({ refreshed: false, credentials })
+      expect(refresh).toHaveBeenCalledTimes(1)
+      expect(firstSettled).not.toHaveBeenCalled()
+    })
+
+    it('still coalesces onto the pending refresh within the deadline', async () => {
+      const refresh = jest.fn(async () => ({ credentials: { accessToken: 'rotated' } }))
+      const adapter = makeAdapter(refresh)
+      const channelId = 'ch-within-deadline'
+      const first = refreshCredentialsIfNeeded({ adapter, channelId, credentials, scope, force: true, inFlightTtlMs: 5_000 })
+      now += 5_000
+      const second = refreshCredentialsIfNeeded({ adapter, channelId, credentials, scope, force: true, inFlightTtlMs: 5_000 })
+      const [firstResult, secondResult] = await Promise.all([first, second])
+      expect(refresh).toHaveBeenCalledTimes(1)
+      expect(firstResult.credentials.accessToken).toBe('rotated')
+      expect(secondResult.credentials.accessToken).toBe('rotated')
+    })
+
+    it('honours a caller-supplied deadline and never starts a second exchange while the first is pending', async () => {
+      const { refresh, adapter } = hungAdapter()
+      const logger = jest.fn()
+      const channelId = 'ch-hung-custom'
+      void refreshCredentialsIfNeeded({ adapter, channelId, credentials, scope, force: true, inFlightTtlMs: 1_000 })
+
+      now += 1_001
+      const afterDeadline = await refreshCredentialsIfNeeded(
+        { adapter, channelId, credentials, scope, force: true, inFlightTtlMs: 1_000 },
+        { logger },
+      )
+      now += 60_000
+      const muchLater = await refreshCredentialsIfNeeded({
+        adapter,
+        channelId,
+        credentials,
+        scope,
+        force: true,
+        inFlightTtlMs: 1_000,
+      })
+
+      expect(afterDeadline).toEqual({ refreshed: false, credentials })
+      expect(muchLater).toEqual({ refreshed: false, credentials })
+      expect(refresh).toHaveBeenCalledTimes(1)
+      expect(logger).toHaveBeenCalledWith(expect.stringContaining('past its deadline'), channelId)
+    })
+
+    it('waits on the pending refresh indefinitely when inFlightTtlMs is Infinity', async () => {
+      const { refresh, adapter } = hungAdapter()
+      const channelId = 'ch-hung-infinite'
+      void refreshCredentialsIfNeeded({ adapter, channelId, credentials, scope, force: true, inFlightTtlMs: Infinity })
+
+      now += 24 * 60 * 60 * 1000
+      const laterSettled = jest.fn()
+      refreshCredentialsIfNeeded({ adapter, channelId, credentials, scope, force: true, inFlightTtlMs: Infinity }).then(laterSettled)
+      await Promise.resolve()
+      await Promise.resolve()
+
+      expect(laterSettled).not.toHaveBeenCalled()
+      expect(refresh).toHaveBeenCalledTimes(1)
+    })
+  })
 })

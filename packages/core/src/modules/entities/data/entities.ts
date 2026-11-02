@@ -264,6 +264,11 @@ export class CustomFieldValue {
   name: 'encryption_maps_entity_scope_idx',
   properties: ['entityId', 'tenantId', 'organizationId'],
 })
+@Index({
+  name: 'encryption_maps_entity_scope_live_unique',
+  expression:
+    'create unique index "encryption_maps_entity_scope_live_unique" on "encryption_maps" ("entity_id", "tenant_id", "organization_id") nulls not distinct where deleted_at is null',
+})
 export class EncryptionMap {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string

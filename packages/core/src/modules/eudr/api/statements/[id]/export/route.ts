@@ -10,6 +10,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import {
   EudrDueDiligenceStatement,
   EudrEvidenceSubmission,
@@ -267,7 +268,7 @@ async function loadExportData(req: NextRequest, id: string) {
     if (Array.isArray(orgScope?.filterIds)) {
       statementFilter.organizationId = { $in: orgScope.filterIds }
     } else {
-      const organizationId = orgScope?.selectedId ?? auth.orgId
+      const organizationId = resolveSingleOrganizationIdOrDeny(orgScope, auth)
       if (!organizationId) {
         return { response: Response.json({ error: translate('eudr.errors.forbidden', 'Forbidden') }, { status: 403 }) }
       }
