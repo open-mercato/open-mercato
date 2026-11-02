@@ -620,20 +620,7 @@ const rotateEncryptionKey: ModuleCli = {
       )
       return false
     })
-<<<<<<< HEAD
-=======
     const resolvedMaps = resolveMapsOrFail(maps, metaByEntityId)
-    const customDocuments = await rotateCustomEntityDocuments(em, {
-      encryptionService,
-      oldKms,
-      tenantId: tenantIdArg,
-      organizationId: organizationIdArg,
-      dryRun,
-    })
-    if (customDocuments > 0) {
-      console.log(`${dryRun ? '[dry-run] ' : ''}Encrypted ${customDocuments} custom entity document(s).`)
-    }
->>>>>>> 9e83bd3a6 (security(encryption): harden key rotation operations (#6767))
     if (!maps.length) {
       console.log('No encryption maps found for the selected scope.')
       return
