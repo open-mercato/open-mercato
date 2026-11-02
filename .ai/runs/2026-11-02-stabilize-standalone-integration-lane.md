@@ -44,13 +44,15 @@ Run `41392794720` (main @ `185c04f3b`): 157 failed / 2737 passed. The same set f
 
 ## Progress
 
+PR: #8452
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Discovery gating
 
-- [ ] 1.1 Gate standalone specs on their own module's enablement
-- [ ] 1.2 Declare the customer_groups dependency on TC-CAT-PRICES-001
+- [x] 1.1 Gate standalone specs on their own module's enablement — f2e929bf4
+- [x] 1.2 Declare the customer_groups dependency on TC-CAT-PRICES-001 — 3bdf9dc23
 
 ### Phase 2: Command registry singleton
 
-- [ ] 2.1 Make commandRegistry a globalThis singleton
+- [x] 2.1 Make commandRegistry a globalThis singleton — aa7302eef
