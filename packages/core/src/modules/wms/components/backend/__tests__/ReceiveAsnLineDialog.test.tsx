@@ -43,15 +43,18 @@ jest.mock('@open-mercato/ui/backend/inputs/ComboboxInput', () => ({
     placeholder,
     value,
     onChange,
+    disabled,
   }: {
     placeholder: string
     value: string
     onChange: (v: string) => void
+    disabled?: boolean
   }) => (
     <input
       placeholder={placeholder}
       value={value}
       onChange={(e) => onChange(e.target.value)}
+      disabled={disabled}
       data-testid={`combobox-${placeholder}`}
     />
   ),
@@ -119,6 +122,29 @@ describe('ReceiveAsnLineDialog', () => {
     mockRunMutation.mockImplementation(async ({ operation }: { operation: () => Promise<unknown> }) =>
       operation(),
     )
+  })
+
+  it('disables receipt fields while the submit request is pending', async () => {
+    mockApiCall.mockImplementation(() => new Promise(() => undefined))
+    render(
+      <ReceiveAsnLineDialog
+        open
+        onOpenChange={jest.fn()}
+        access={access}
+        asnId="11111111-1111-1111-1111-111111111111"
+        warehouseId="22222222-2222-2222-2222-222222222222"
+        line={line}
+      />,
+    )
+
+    expect(screen.getByTestId('receive-asn-qty')).not.toBeDisabled()
+    fireEvent.click(screen.getByTestId('receive-asn-submit'))
+
+    await waitFor(() => expect(screen.getByTestId('receive-asn-qty')).toBeDisabled())
+    expect(screen.getByTestId('receive-asn-qc')).toBeDisabled()
+    expect(screen.getByTestId('receive-asn-serials')).toBeDisabled()
+    expect(screen.getByRole('textbox', { name: 'Lot number' })).toBeDisabled()
+    expect(screen.getByTestId('combobox-Select staging or dock')).toBeDisabled()
   })
 
   it('associates the QC outcome label with the select trigger', () => {

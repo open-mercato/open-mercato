@@ -522,6 +522,7 @@ export function ReceiveAsnLineDialog({
             <FormField
               label={t('wms.backend.asns.receive.form.receivedQty', 'Received quantity')}
               required
+              disabled={submitting}
               error={fieldErrors.receivedQty}
             >
               <Input
@@ -530,7 +531,6 @@ export function ReceiveAsnLineDialog({
                 step="any"
                 value={receivedQty}
                 onChange={(event) => setReceivedQty(Number(event.target.value))}
-                disabled={submitting}
                 data-testid="receive-asn-qty"
               />
             </FormField>
@@ -538,6 +538,7 @@ export function ReceiveAsnLineDialog({
             <FormField
               label={t('wms.backend.asns.receive.form.qcStatus', 'QC outcome')}
               required
+              disabled={submitting}
               error={fieldErrors.qcStatus}
             >
               <QcOutcomeSelect
@@ -552,6 +553,7 @@ export function ReceiveAsnLineDialog({
               <FormField
                 label={t('wms.backend.asns.receive.form.staging', 'Staging location')}
                 required
+                disabled={submitting || !warehouseId}
                 error={fieldErrors.targetStagingLocationId}
               >
                 <ComboboxInput
@@ -566,19 +568,18 @@ export function ReceiveAsnLineDialog({
                     'Select staging or dock',
                   )}
                   allowCustomValues={false}
-                  disabled={submitting || !warehouseId}
                 />
               </FormField>
             ) : (
               <FormField
                 label={t('wms.backend.asns.receive.form.rejectionReason', 'Rejection reason')}
                 required
+                disabled={submitting}
                 error={fieldErrors.rejectionReason}
               >
                 <Textarea
                   value={rejectionReason}
                   onChange={(event) => setRejectionReason(event.target.value)}
-                  disabled={submitting}
                   rows={3}
                   data-testid="receive-asn-rejection"
                 />
@@ -587,6 +588,7 @@ export function ReceiveAsnLineDialog({
 
             <FormField
               label={t('wms.backend.asns.receive.form.serialNumbers', 'Serial numbers')}
+              disabled={submitting}
               error={fieldErrors.serialNumbers}
               description={t(
                 'wms.backend.asns.receive.form.serialNumbersHint',
@@ -596,7 +598,6 @@ export function ReceiveAsnLineDialog({
               <Textarea
                 value={serialNumbersText}
                 onChange={(event) => setSerialNumbersText(event.target.value)}
-                disabled={submitting}
                 rows={3}
                 placeholder={t(
                   'wms.backend.asns.receive.form.serialNumbersPlaceholder',
@@ -608,12 +609,12 @@ export function ReceiveAsnLineDialog({
 
             <FormField
               label={t('wms.backend.asns.receive.form.lotNumber', 'Lot number')}
+              disabled={submitting}
               error={fieldErrors.lotNumber}
             >
               <Input
                 value={lotNumber}
                 onChange={(event) => setLotNumber(event.target.value)}
-                disabled={submitting}
               />
             </FormField>
           </div>
