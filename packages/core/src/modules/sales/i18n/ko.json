@@ -1091,6 +1091,7 @@
   "sales.documents.items.table.discountAmount": "−{{value}}",
   "sales.documents.items.table.discountPercent": "{{value}}%",
   "sales.documents.items.table.gross": "세금 포함",
+  "sales.documents.items.table.markupAmount": "+{{value}}",
   "sales.documents.items.table.net": "세금 제외",
   "sales.documents.items.table.product": "상품",
   "sales.documents.items.table.quantity": "수량",

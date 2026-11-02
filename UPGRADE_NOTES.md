@@ -1,5 +1,60 @@
 # Upgrade Notes
 
+## Agent search answers honor domain policy (#7234)
+
+When an allow-list or deny-list is configured, agent `web_search` and the settings
+preview's top-level `answer` now return `null` instead of provider-generated prose
+whose sources cannot be verified. Allowed result links and snippets remain available;
+`diagnostics.answerWithheld: 'domain_policy'` explains withheld text. This also applies
+to cached engine output and to answers whose denied sources disappeared during fusion.
+No-policy searches are unchanged. Existing clients already accept nullable answers;
+use the permitted results without disabling domain restrictions. The privileged
+`agents.manage` preview still shows raw per-adapter comparisons, including blocked-hit
+markers; those comparisons never enter agent context. No database migration or cache
+purge is required. Credit to @AHKSammich for the finding/proof of concept in #7323;
+this implementation was written independently for the enterprise module.
+
+## Production Content Security Policy (#7264)
+
+The main app and create-app template now use request nonces for scripts and style
+elements. Production no longer allows inline scripts, eval, or connections to every
+HTTPS/websocket origin. This is defense-in-depth hardening, not a confirmed XSS fix.
+
+**App operators:** adopt the matching `next.config.ts`, `src/proxy.ts`, root layout,
+and `AppProviders` changes together. Configure additional browser destinations at
+both build and runtime with space-separated `OM_CSP_CONNECT_ORIGINS`,
+`OM_CSP_SCRIPT_ORIGINS`, `OM_CSP_STYLE_ORIGINS`, and `OM_CSP_FRAME_ORIGINS`.
+Only explicit HTTPS origins are accepted; connections also accept WSS origins.
+For example, set `OM_CSP_CONNECT_ORIGINS="wss://custom.example.com https://telemetry.example.com"`
+for a custom module's WebSocket and browser telemetry collector. The documents
+package automatically supplies the origin of its validated
+`NEXT_PUBLIC_DOCUMENTS_COLLAB_URL`, preserving its existing production loopback
+gate (`OM_DOCUMENTS_COLLAB_INTEGRATION=1` only for integration environments).
+Development additionally accepts explicit HTTP/WS origins and keeps its tooling
+exceptions. Stripe.js and Link requirements come from the Stripe package; other
+provider SDKs require their documented origins in the matching variable. Server
+integration requests are unaffected by the browser policy.
+
+**Module authors:** server components can read the generated `x-nonce` using
+`headers()`; pass it to inline `<script>`/`<style>` elements and `next/script`.
+Client components use `useContentSecurityPolicyNonce` from
+`@open-mercato/ui/theme/ContentSecurityPolicyProvider` for trusted style elements.
+The provider preserves the original document nonce during client navigation and
+seeds webpack's nonce for Radix scroll-lock styles. Sandboxed `srcDoc` previews
+inherit the parent's CSP too: pass the nonce to their trusted style elements and
+any additional iframe meta policy, as the storefront branding preview does.
+The webpack nonce does not configure every CSS-in-JS runtime. Use ordinary
+nonced style elements or configure the styling library's own nonce integration.
+Do not copy a nonce from user
+input or persist it between document requests. Nonce-dependent pages render
+dynamically; do not cache their HTML separately from its CSP response header.
+
+Inline style **attributes** remain enabled through `style-src-attr` for React,
+Radix positioning and charts. Inline style **elements** require a nonce. Image
+and font permissions, route/DB contracts and the attachment sandbox are unchanged.
+
+[Implementation specification](.ai/specs/2026-10-29-production-content-security-policy.md).
+
 Open Mercato `0.5.0` is our biggest release so far. It bundles more than 250 fixes and
 improvements that landed after the Hackathon in Sopot, alongside several important
 dependency and tooling upgrades. That combination is exactly why this document now exists:
@@ -38,6 +93,77 @@ Quotes and orders accept an optional `recurrence` (`{ frequency, startsOn, ancho
 | `sales.orders.delete` | The recurring order has an issued period | `409` `recurring_order_invoiced` |
 
 **What to change:** a module that sets order statuses, edits lines, records returns or deletes orders on behalf of users should handle these codes. In particular, automations that cancel orders by status must skip recurring orders, or (once Phase 3 ships) use *Cancel recurring order*. `QuoteGraphSnapshot` and `OrderGraphSnapshot` undo payloads gain an optional `recurrence` field; snapshots recorded before this change leave the recurrence untouched on undo.
+
+### `SearchResultPresenter.badge` is deprecated — no search UI renders it (#5716)
+
+`SearchResultPresenter.badge` from `@open-mercato/shared/modules/search` has never been rendered. Fourteen modules populate it, #4886 taught the presenter enricher to re-translate it per request, and the vector index writes it to the `result_badge` column and reads it back — but the Cmd+K dialog, the topbar inline results and `/backend/search` all render only `title`, `subtitle` and `icon`. `git log -S"presenter.badge" -- packages/search/src/modules/search/frontend` is empty across the project's whole history. The spec that introduced the request-time re-render described the dialog as rendering the badge, which is what made the field read like a display seam; that description was aspirational and never matched the renderers.
+
+The direction is not to start rendering it. #4886 also added `resolveEntityTypeLabel()` and the `search.entityType.<module>.<entity>` keys, and all three surfaces already render that label next to each result. Nearly every producer's badge holds the same per-entity-**type** string that label now carries — `search.entityType.customers.customer_person_profile` is "Person" against a `customers.search.badge.person` of "Person", `messages.message` is "Message" against a badge of "Message", and the same duplication holds for `resources`, `customer_accounts`, `staff`, `planner`, `sales` and `catalog`. Rendering `badge` would print the same word twice on those results.
+
+Three producers used to be the exception — `wms`, `eudr` and `documents` had no `search.entityType.*` key, so their chips read `Wms · Warehouse Location` and the like while their badges held properly localized copy. #6006 added those keys (from each module's own `i18n/*.json`), so for them too the chip now carries the same localized label as the badge. One producer added since repeats the gap: `ecommerce` (#7142) sets a `'Store'` badge on `ecommerce:ecommerce_store` but declares no `search.entityType.ecommerce.ecommerce_store` key, so its chip still reads `Ecommerce · Ecommerce Store`. That key has to exist before `badge` is deleted; it does not change the decision.
+
+The field is therefore deprecated rather than removed, and is **slated for removal in 0.11.0** (it was originally pinned to 0.9.0, which shipped before this change merged; 0.11.0 keeps at least one full minor of bridge). The same deprecation applies to `VectorResultPresenter.badge` in `@open-mercato/shared/modules/vector`, the sibling type written into the vector index — it is equally unrendered and retires at the same time. Nothing changes at runtime for downstream modules in this release: `badge` is still declared on both types, still accepted, still populated by 12 of the 14 in-repo producers, still localized per request, and still stored. Only the types' JSDoc changed, so no module breaks and no migration is forced yet.
+
+The deprecation is also applied to the surfaces module authors read *before* writing a `search.ts`, so the field stops acquiring new producers: `packages/search/AGENTS.md` no longer describes `badge` as "shown next to title" and no longer sets it in its two authoring examples, the `hybrid-search.mdx` worked example no longer sets it, and the `example` module — which ships in the create-app template, so it seeds every newly scaffolded app — no longer populates it on either its `search.ts` or its `vector.ts`. Both modules migrated here perform the *whole* migration rather than just the deletion half: `search.entityType.warranty_claims.warranty_claim` and `search.entityType.example.todo` are added in all five locales, from each module's own dictionary, so the example an author copies demonstrates the replacement too.
+
+**Action for module authors:** stop populating `presenter.badge` in your module's `search.ts` before 0.11.0, and move the value to whichever of the two replacements matches what it holds.
+
+- **An entity-type label** (the common case — a constant like `'Document'` or one string per record kind): delete the `badge` and add a `search.entityType.<module>.<entity>` translation key instead. Every search surface already renders that label, so this is usually a pure deletion plus one key per entity; without the key the label falls back to a humanized `entityId` such as `Warranty Claims · Warranty Claim`. Declare the key in **your own module's** `i18n/*.json` — most existing keys happen to live in the search package, but `loadDictionary()` merges every module's dictionary into one flat namespace, so a `search.*` key contributed by any module resolves normally. The two modules this release migrates do exactly that: see `packages/core/src/modules/warranty_claims/i18n/en.json` and `apps/mercato/src/modules/example/i18n/en.json`.
+- **Per-record detail** (a status, a counterparty, a date): append it to `subtitle`, which is rendered on all three surfaces.
+
+The `result_badge` column, the Meilisearch document field and the vector round-trip are untouched here and retire separately once the deprecation window closes; dropping the presenter field itself needs no migration. The full rationale, the deprecation-protocol checklist and the 0.11.0 removal plan are in [`.ai/specs/2026-08-28-search-presenter-badge-deprecation.md`](.ai/specs/2026-08-28-search-presenter-badge-deprecation.md).
+
+The one in-repo producer whose badge carried genuine per-record information was `warranty_claims`, which put the claim status there — so claim status was written, stored and never shown. It now appends the **localized** status to the subtitle (`Ada Lovelace — repair — In review`) via the existing `warranty_claims.status.*` keys, which are already translated in all five locales. Warranty-claim search results therefore gain a status segment in their subtitle; no other module's search output changes.
+### SCIM token fingerprint rollout
+
+SCIM rate-limit admission now uses an indexed SHA-256 fingerprint of the full bearer in `scim_tokens.token_lookup_hash`, alongside the existing bcrypt verifier. The new nullable column and index are additive; token format, management payloads, bcrypt verification, and organization scope stay compatible. Fingerprints and raw secrets must never be copied into tickets, logs, shell history, or token-management payloads. Newly issued tokens persist their fingerprint before the one-time token response is returned.
+
+Operators must apply the included SSO migration through their normal approved deployment process **before** deploying the new application code. This change does not apply a migration or rotate credentials automatically. Deploy every app/worker instance before completing the cutover; old instances can still issue unenrolled tokens during a rolling deployment. Use the same authoritative database across replicas. The short-lived admission cache is an optimization; an enrolled token has an independent quota even when its cache entry expires or the cache restarts.
+
+Existing tokens remain valid with a null fingerprint. An admitted successful bcrypt verification enrolls the original token using a tenant/organization/configuration-scoped compare-and-set guarded by active state and the exact bcrypt hash compared. Concurrent revocation or credential changes cannot enroll that stale credential. Existing token values cannot be reconstructed from bcrypt, so SQL alone cannot backfill them. Until enrollment, an old token remains vulnerable to shared unverified-budget exhaustion after cache loss. Do not declare the cold-token availability guarantee complete until the active unenrolled count is zero.
+
+Use this **read-only, non-secret inventory** against the authoritative database, with appropriate operator access:
+
+```sql
+select tenant_id, organization_id, count(*) as active_unenrolled
+from scim_tokens
+where is_active = true and token_lookup_hash is null
+group by tenant_id, organization_id;
+```
+
+A completed cutover returns no rows. The query exposes only tenant/organization identifiers and counts; do not select `token_hash` or `token_lookup_hash`. For each nonzero scope, identify its configurations and tokens through the existing admin UI or `GET /api/sso/scim/tokens?ssoConfigId=<config-id>` under that scope. That API continues to expose only safe token metadata.
+
+1. **Enroll a retained credential:** trigger a normal sync through its existing IdP, or perform an existing `GET /api/sso/scim/v2/Users?count=1` using the credential from its secure store. A successful admitted request enrolls it without changing the secret. Follow normal secret-handling controls; do not paste the bearer into logs or shell history. If an ongoing flood prevents admission, use the rotation route below rather than raising quotas.
+2. **Rotate an unavailable or blocked legacy credential:** as the scoped administrator, call existing `POST /api/sso/scim/tokens` with `ssoConfigId` and `name`, deliver the one-time new secret through the normal secure IdP configuration flow, verify provisioning succeeds, then revoke the replaced token with existing `DELETE /api/sso/scim/tokens/<id>`. The replacement is enrolled at creation and needs no warmup. Do not revoke a working credential before its replacement is confirmed.
+3. Repeat the inventory after all instances have the new code and all affected IdPs have synced or rotated. Investigate every remaining active null row, including forgotten credentials; revoke unused tokens through the existing management API. Zero rows is the cutover acceptance condition. Test a newly issued token after cache clear while anonymous traffic exhausts the unverified bucket, and confirm a wrong-suffix token remains rate-limited.
+
+No new enrollment API or CLI is required. Real credential rotation and migration application remain operator actions. Existing legacy authentication is retained during this bridge; the migration does not silently reject old tokens or mark their fingerprints populated. Manual QA and human security review are still required.
+
+For rollback, revert application instances to code that does not read the new column before an operator runs the migration's `down`. The rollback removes only the new index/nullable column and preserves all token rows, bcrypt hashes, prefixes, and active/revoked state; it also removes the new persistent admission protection. No token secret changes as part of rollback.
+
+<a id="signed-body-limits"></a>
+
+### Signed Discord interactions and agent traces have finite body limits (#7241)
+
+`POST /api/channel_discord/interactions` and `POST /api/agent_orchestrator/trace/ingest`
+now accept at most 1,048,576 bytes (1 MiB) by default, using the existing shared
+`OM_WEBHOOK_MAX_BODY_BYTES` positive safe-integer override. Invalid values use the
+default. Declared or streamed overflow returns `413 { error: 'payload_too_large' }`
+before signature verification, parsing, candidate lookup, or command execution.
+Discord requests with invalid signature headers are rejected before body consumption.
+Bodies exactly at the cap retain their existing verification and success behavior.
+
+**Action for clients:** keep encoded bodies within the deployed cap. Runtime adapters
+must reduce or split oversized traces into valid payloads, preserve ingestion
+idempotency semantics, and sign each resulting body. Retrying unchanged oversized
+payloads will continue to fail.
+
+**Action for operators:** align ingress limits with the application cap. If legitimate
+payloads exceed 1 MiB, set an appropriate finite `OM_WEBHOOK_MAX_BODY_BYTES` after
+considering memory/concurrency and its effect on other shared bounded webhook readers.
+No database migration, credential rotation, or stored-data repair is required.
+See the [Discord migration section](.ai/specs/2026-06-19-discord-communication-channel-integration.md)
+and [trace migration section](.ai/specs/enterprise/agent-orchestrator/next/2026-06-19-agent-trace-eval-capture.md).
 
 ### Encrypted custom fields in plaintext search fields (#7894)
 
@@ -404,6 +530,40 @@ A regenerated MCP key becomes invalid if its owner's home organization changes,
 including a change from no home organization to a concrete one. Generate a new
 key and update the MCP client secret after such a change.
 
+### Inbound webhook receipt deduplication includes verified scope (#7830)
+
+Inbound receipts now identify duplicates by endpoint, message ID, tenant, and organization.
+The same message ID delivered to different verified scopes is ingested independently; repeated
+delivery within one scope still returns `200 { ok: true, duplicate: true }`. Explicitly unscoped
+legacy adapters retain a separate null/null namespace with the same replay protection.
+
+**Operator action:** apply `Migration20261027193000_receipt_scope` before resuming inbound
+traffic, on PostgreSQL 15+. Schedule for the table lock needed to rebuild the receipt uniqueness
+constraint. The migration preserves its existing name and every receipt/message ID; data valid
+under the previous global uniqueness rule requires no cleanup. Existing receiver code already
+writes the scope fields, so mixed-version receivers can use the migrated schema.
+
+**Module author action:** include verified tenant/organization scope in any independent receipt
+lookup or deduplication cache key. The source/adapter interfaces, events, and HTTP response
+contracts are unchanged, and the named constraint remains available to `ON CONFLICT` consumers.
+After cross-scope collisions have been stored, restoring the former global constraint may fail;
+there is no automatic rollback that deletes receipts. Inspect those collisions and plan recovery
+before reverting the schema. See the [inbound spec](.ai/specs/2026-03-23-inbound-webhook-handlers.md#receipt-scope-migration--backward-compatibility-7830).
+
+### Customer interaction authors and owners must belong to the record's tenant (#7531)
+
+Canonical interaction writes and legacy activity adapters now reject foreign-tenant or missing author/owner IDs, and reject new assignments to deleted users with a generic `400` user-not-found response. Same-tenant users from another home organization remain valid references, including an implicit actor working in another organization. Author normalization, valid superadmin delegation, and existing record-level organization/privacy authorization are preserved.
+
+**Client action:** supply live same-tenant author/owner IDs for new assignments, or clear optional references with null on canonical updates. Omitted update fields keep their previous values. Unchanged references may be resent after the referenced user is offboarded; this does not permit assigning that user to another reference. Legacy promotion preserves the author stored on the same tenant/organization/parent activity, including offboarded authors. Routes and response fields remain available. Historical same-tenant profiles remain readable across organizations and after soft deletion; foreign-tenant or missing profiles return null names and emails.
+
+**Operator action:** audit foreign-tenant or missing author/owner references before replaying affected command history. Snapshot restoration permits a same-tenant author or owner who was soft-deleted after the original write; offboarding does not require rewriting historical attribution. Invalid snapshot restoration and legacy promotion fail rather than copying a foreign-tenant reference. No schema migration or automatic data rewrite is required. See [the interactions specification](.ai/specs/implemented/SPEC-046b-2026-02-27-customers-interactions-unification.md#migration--backward-compatibility--interaction-users-7531).
+
+### SCIM deactivation blocks fresh SSO and password sign-in (#7824)
+
+With the enterprise SSO module enabled, an outstanding SCIM deactivation now denies fresh SSO sign-in for that identity's configuration and denies password verification for the linked account in its own tenant and organization. This includes configurations created without a tenant, after verifying organization and configuration ownership. Password changes and email relinking do not reactivate the identity. Final session issuance and all SCIM deactivation writers share a user lock, so a concurrent login cannot leave a usable session after deactivation commits; access in other scopes is preserved.
+
+**Operator action:** restore intentionally deactivated access through SCIM `active:true`. Clients continue handling the existing invalid-credentials response or `sso_failed` callback redirect. No endpoint, token, or database migration is required. Applications replacing the `authService` DI registration must preserve the SSO module's scoped deactivation check in password verification and atomic final session issuance.
+
 ### Scoped attachment bytes no longer advertise shared caching (#7220)
 
 The attachment file and image byte routes now return `Cache-Control: private,
@@ -543,6 +703,13 @@ No command, flag, or output line changes — the `🚀 Running …`, `⏱️ Don
 Concretely: `mercato auth setup --orgSlug 'Bad Slug!'` printed a validation error and exited `0` before; it now exits `2`.
 
 **Action for operators:** audit any bootstrap, deployment or CI script that chains CLI invocations with `&&`, checks `$?`, or uses `set -e`. A script of the shape `yarn mercato auth setup … && yarn mercato entities install …` that has been silently tolerating a swallowed failure will now stop at the first step. That is the intended behaviour — the failure was always real — but the stop is new, so plan for it rather than discovering it during an upgrade. Custom module commands are affected the same way: one that assigns `process.exitCode` without throwing now propagates it, and one that signals failure by throwing keeps working exactly as before.
+### Cart line contention returns retryable 503 (#8072)
+
+`POST /api/cart/current/lines` and `POST /api/cart/current/lines/bulk` release pooled connections while waiting for the existing cart transaction lock. If contention lasts for the 15-second wait budget, they now return `503` with `code: "cart_busy"`, a localized `error`, `Retry-After: 1` and `Cache-Control: no-store`. This response is issued only after an unsuccessful pre-mutation lock attempt has rolled back; the requested line add/bulk-add mutation phases did not run and no successful idempotency response was recorded. Existing preflight cart activity/reactivation or context-triggered repricing may already have persisted; normal optimistic-lock checks still apply to a retry.
+
+**Client action:** wait at least one second and retry the same body and `Idempotency-Key`. Do not apply this safe-retry rule to unrelated `500` responses or uncertain commit outcomes. Successful responses, request schemas and database structure are unchanged; no operator migration is required. See [Cart API](apps/docs/docs/api/cart.mdx) and the [cart specification](.ai/specs/2026-08-14-cart-module.md).
+
+
 ### `customers`, `portal`, and `workflows` now declare their full runtime module dependencies (#7587)
 
 `customers`'s `setup.ts` imports `FeatureToggle` from `feature_toggles` and `./cli` seeds customer
