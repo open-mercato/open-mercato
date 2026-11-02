@@ -1,10 +1,6 @@
 # Lessons
 
-<<<<<<< HEAD
-This catalog indexes 144 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
-=======
-This catalog indexes 156 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
->>>>>>> 49be420cb (fix(staff): redact report export money without rates permission (#7988))
+This catalog indexes 145 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
 
 ## How to use this catalog
 
