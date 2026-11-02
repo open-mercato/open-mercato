@@ -50,7 +50,7 @@ describe('SSO-scoped password verification', () => {
 
     expect(compare).toHaveBeenCalledTimes(1)
     expect(compare).toHaveBeenCalledWith('password', 'stored-hash')
-    expect(findOneWithDecryption).toHaveBeenCalledTimes(2)
+    expect(findOneWithDecryption).toHaveBeenCalledTimes(4)
     expect(findOneWithDecryption).toHaveBeenNthCalledWith(
       1, em, SsoUserDeactivation,
       { userId: 'user-1', tenantId: 'tenant-1', organizationId: 'org-1', reactivatedAt: null },
@@ -73,7 +73,7 @@ describe('SSO-scoped password verification', () => {
     await expect(new SsoAuthService(em).verifyPassword(user, 'password')).resolves.toBe(false)
 
     expect(compare).toHaveBeenCalledWith('password', 'stored-hash')
-    expect(findOneWithDecryption).toHaveBeenCalledTimes(1)
+    expect(findOneWithDecryption).toHaveBeenCalledTimes(4)
     expect(findOneWithDecryption).toHaveBeenCalledWith(
       em, SsoUserDeactivation,
       { userId: 'user-1', tenantId: 'tenant-1', organizationId: 'org-1', reactivatedAt: null },
@@ -124,14 +124,66 @@ describe('SSO-scoped password verification', () => {
     await expect(service.verifyPassword(user, 'password')).resolves.toBe(false)
   })
 
-  it.each([true, false])('keeps unknown-user bcrypt work when bcrypt returns %s', async (verified) => {
+  it.each([true, false])('keeps unknown-user bcrypt and scoped sentinel reads when bcrypt returns %s', async (verified) => {
     jest.mocked(compare).mockImplementation(async () => verified)
 
     await expect(new SsoAuthService(em).verifyPassword(null, 'password')).resolves.toBe(false)
 
     expect(compare).toHaveBeenCalledTimes(1)
     expect(compare).toHaveBeenCalledWith('password', expect.stringMatching(/^\$2[aby]\$10\$/))
-    expect(findOneWithDecryption).not.toHaveBeenCalled()
+    expect(findOneWithDecryption).toHaveBeenCalledTimes(4)
+    expect(findOneWithDecryption).toHaveBeenNthCalledWith(
+      1, em, SsoUserDeactivation,
+      {
+        userId: '00000000-0000-0000-0000-000000000000',
+        tenantId: '00000000-0000-0000-0000-000000000000',
+        organizationId: '00000000-0000-0000-0000-000000000000',
+        reactivatedAt: null,
+      },
+      {}, {
+        tenantId: '00000000-0000-0000-0000-000000000000',
+        organizationId: '00000000-0000-0000-0000-000000000000',
+      },
+    )
+  })
+
+  describe.each([true, false])('fixed eligibility schedule when bcrypt returns %s', (verified) => {
+    it.each([
+      { name: 'unknown', account: null, results: [null, null, null, null], deactivated: false },
+      { name: 'passwordless', account: { ...user, passwordHash: null }, results: [null, null, null, null], deactivated: false },
+      { name: 'active', account: user, results: [null, null, null, null], deactivated: false },
+      { name: 'scoped deactivation', account: user, results: [{ id: 'marker-1' }, null, null, null], deactivated: true },
+      {
+        name: 'legacy deactivation', account: user,
+        results: [null, { ssoConfigId: 'config-1' }, { id: 'org-1' }, { id: 'config-1' }], deactivated: true,
+      },
+      {
+        name: 'unowned legacy scope', account: user,
+        results: [null, { ssoConfigId: 'config-1' }, null, { id: 'config-1' }], deactivated: false,
+      },
+      { name: 'organization missing', account: { ...user, organizationId: null }, results: [null, null, null, null], deactivated: false },
+      { name: 'tenant missing', account: { ...user, tenantId: null }, results: [null, null, null, null], deactivated: false },
+    ])('uses identical query shapes for $name', async ({ account, results, deactivated }) => {
+      jest.mocked(compare).mockImplementation(async () => verified)
+      for (const result of results) {
+        jest.mocked(findOneWithDecryption).mockResolvedValueOnce(result)
+      }
+
+      await expect(new SsoAuthService(em).verifyPassword(account as User | null, 'password')).resolves.toBe(
+        Boolean(account?.passwordHash && verified && !deactivated),
+      )
+
+      expect(findOneWithDecryption).toHaveBeenCalledTimes(4)
+      expect(jest.mocked(findOneWithDecryption).mock.calls.map((call) => ({
+        entity: call[1],
+        fields: Object.keys(call[2]).sort((left, right) => left.localeCompare(right)),
+      }))).toEqual([
+        { entity: SsoUserDeactivation, fields: ['organizationId', 'reactivatedAt', 'tenantId', 'userId'] },
+        { entity: SsoUserDeactivation, fields: ['organizationId', 'reactivatedAt', 'tenantId', 'userId'] },
+        { entity: Organization, fields: ['id', 'tenant'] },
+        { entity: SsoConfig, fields: ['id', 'organizationId', 'tenantId'] },
+      ])
+    })
   })
 
   it.each([true, false])('denies a passwordless resolved account when bcrypt returns %s', async (verified) => {
@@ -141,42 +193,47 @@ describe('SSO-scoped password verification', () => {
 
     expect(compare).toHaveBeenCalledTimes(1)
     expect(compare).toHaveBeenCalledWith('password', expect.stringMatching(/^\$2[aby]\$10\$/))
-    expect(findOneWithDecryption).toHaveBeenCalledTimes(2)
+    expect(findOneWithDecryption).toHaveBeenCalledTimes(4)
   })
 
   describe.each([true, false])('when bcrypt returns %s', (verified) => {
-    it.each([1, 2, 3, 4])('fails closed when eligibility read %s fails', async (failedRead) => {
-      jest.mocked(compare).mockImplementation(async () => verified)
-      const lookupError = new Error('[internal] database unavailable')
-      const precedingResults = [
-        null,
-        { id: 'legacy-1', ssoConfigId: 'config-1' } as SsoUserDeactivation,
-        { id: 'org-1' } as Organization,
-      ]
-      for (const result of precedingResults.slice(0, failedRead - 1)) {
-        jest.mocked(findOneWithDecryption).mockResolvedValueOnce(result)
-      }
-      jest.mocked(findOneWithDecryption).mockRejectedValueOnce(lookupError)
+    it.each([1, 2, 3, 4].flatMap((failedRead) => [user, null].map((account) => ({ failedRead, account }))))(
+      'fails closed when eligibility read $failedRead fails for $account', async ({ failedRead, account }) => {
+        jest.mocked(compare).mockImplementation(async () => verified)
+        const lookupError = new Error('[internal] database unavailable')
+        const precedingResults = [
+          null,
+          { id: 'legacy-1', ssoConfigId: 'config-1' } as SsoUserDeactivation,
+          { id: 'org-1' } as Organization,
+        ]
+        for (const result of precedingResults.slice(0, failedRead - 1)) {
+          jest.mocked(findOneWithDecryption).mockResolvedValueOnce(result)
+        }
+        jest.mocked(findOneWithDecryption).mockRejectedValueOnce(lookupError)
 
-      await expect(new SsoAuthService(em).verifyPassword(user, 'password')).rejects.toBe(lookupError)
+        await expect(new SsoAuthService(em).verifyPassword(account, 'password')).rejects.toBe(lookupError)
 
-      expect(compare).toHaveBeenCalledWith('password', 'stored-hash')
-      expect(findOneWithDecryption).toHaveBeenCalledTimes(failedRead)
-    })
+        expect(compare).toHaveBeenCalledTimes(1)
+        expect(findOneWithDecryption).toHaveBeenCalledTimes(failedRead)
+      },
+    )
   })
 
   describe('core login route with the registered SSO verifier', () => {
     it.each([
-      { verified: false, deactivated: false, resolved: true, reads: 2 },
-      { verified: false, deactivated: true, resolved: true, reads: 1 },
-      { verified: true, deactivated: true, resolved: true, reads: 1 },
-      { verified: false, deactivated: false, resolved: false, reads: 0 },
-    ])('returns the same public denial for $verified/$deactivated/$resolved', async ({ verified, deactivated, resolved, reads }) => {
+      { verified: false, deactivated: false, resolved: true, reads: 4, ambiguous: false },
+      { verified: false, deactivated: true, resolved: true, reads: 4, ambiguous: false },
+      { verified: true, deactivated: true, resolved: true, reads: 4, ambiguous: false },
+      { verified: false, deactivated: false, resolved: false, reads: 4, ambiguous: false },
+      { verified: false, deactivated: false, resolved: false, reads: 4, ambiguous: true },
+    ])('returns the same public denial for $verified/$deactivated/$resolved', async ({ verified, deactivated, resolved, reads, ambiguous }) => {
       const container = createContainer({ injectionMode: InjectionMode.CLASSIC })
       container.register({ em: asValue(em) })
       register(container)
       const service = container.resolve<SsoAuthService>('authService')
-      const lookup = jest.spyOn(service, 'findUsersByEmail').mockResolvedValue(resolved ? [user] : [])
+      const accounts = resolved ? [user] : []
+      if (ambiguous) accounts.push(user, { ...user, id: 'user-2', tenantId: 'tenant-2' })
+      const lookup = jest.spyOn(service, 'findUsersByEmail').mockResolvedValue(accounts)
       const createSession = jest.spyOn(service, 'createSession')
       jest.mocked(createRequestContainer).mockResolvedValue(container)
       jest.mocked(compare).mockImplementation(async () => verified)
