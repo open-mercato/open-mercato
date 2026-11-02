@@ -557,6 +557,10 @@ Spec: [`.ai/specs/2026-09-08-error-reporting-policy.md`](.ai/specs/2026-09-08-er
 
 **Migration path for existing modules**: send `parentId: null` / `childIds: []` where clearing is intended. Trees flattened before the upgrade are not repaired (see UPGRADE_NOTES.md).
 
+## Scoped attachment bytes no longer advertise shared caching (#7220)
+
+[Cache policy and operator migration](UPGRADE_NOTES.md#scoped-attachment-bytes-no-longer-advertise-shared-caching-7220). URLs, byte formats, and authorization are unchanged.
+
 ---
 
 ## Public pay links (2026-10-27, #7823)
