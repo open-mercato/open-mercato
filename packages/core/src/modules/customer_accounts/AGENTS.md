@@ -4,7 +4,7 @@ Customer-facing identity and portal authentication with a two-tier RBAC model. T
 
 ## Always
 
-1. **MUST hash passwords with `bcryptjs` (cost >= 10)** — never store plaintext passwords
+1. **MUST hash and verify passwords through `getPasswordHasher()` (`@open-mercato/shared/lib/auth/passwordHasher`)** — never store plaintext passwords, never call `bcryptjs` directly for passwords
 2. **MUST return minimal error messages on auth endpoints** — never reveal whether an email exists (use generic "Invalid email or password")
 3. **MUST rate-limit all public auth endpoints** (login, signup, password reset, magic link) — both per-email and per-IP
 4. **MUST validate all inputs with zod** — schemas live in `data/validators.ts`
@@ -79,7 +79,7 @@ Both have `showInSidebar: false` and `defaultEditor: false`.
 2. Validate input with `loginSchema`
 3. Look up user by email hash + tenantId
 4. Check account active and not locked
-5. Verify password with bcrypt
+5. Verify password with `passwordHasher` (outdated hashes are re-hashed after a successful login)
 6. On failure: increment failed attempts, lock after 5 failures (15 min lockout)
 7. On success: reset failed attempts, update `lastLoginAt`
 8. Resolve RBAC features via `CustomerRbacService.loadAcl`
@@ -350,7 +350,7 @@ host. Register against the normalized (dot) form only — `injection-table.test.
 
 ### Password Handling
 
-- Hash with `bcryptjs` cost 10 (`BCRYPT_COST = 10`)
+- Hash with `getPasswordHasher()` (bcrypt cost 10 by default, Argon2id with `OM_PASSWORD_HASH=argon2id`)
 - Minimum 8 characters, maximum 128 characters
 - Never log password values
 

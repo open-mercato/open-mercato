@@ -16,5 +16,5 @@ DB entities used (defined in root schema):
 - `roles` (name unique) and `user_roles` junction.
 
 Notes:
-- Passwords are hashed with `bcryptjs`.
+- Passwords are hashed through `passwordHasher` (bcrypt by default, opt-in Argon2id via `OM_PASSWORD_HASH`).
 - Session management will be added later; login redirects to `/backend` on success.

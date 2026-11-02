@@ -4,7 +4,7 @@ The auth module handles authentication, authorization, users, roles, and RBAC.
 
 ## Always
 
-1. Hash passwords with `bcryptjs` using cost >= 10.
+1. Hash and verify passwords only through `getPasswordHasher()` (`@open-mercato/shared/lib/auth/passwordHasher`) — bcrypt cost 10 by default, Argon2id with `OM_PASSWORD_HASH=argon2id`. Never call `bcryptjs` directly for passwords.
 2. Use `findWithDecryption` / `findOneWithDecryption` for user queries.
 3. Use declarative `requireFeatures` in page/API metadata for access control; never add role-name guards such as `requireRoles: ['admin']`.
 4. Declare every module feature in `acl.ts` and seed role grants through `setup.ts`.
@@ -41,13 +41,13 @@ yarn workspace @open-mercato/core test
 ## Authentication Flow
 
 1. User submits credentials via `/api/auth/session` (POST)
-2. Password verified with `bcryptjs` (cost >= 10)
+2. Password verified with `passwordHasher` (an outdated hash is re-hashed after a successful login)
 3. JWT session token issued
 4. Session attached to requests via middleware
 
 ### Security Rules
 
-- Hash passwords with `bcryptjs` (cost >= 10)
+- Hash passwords through `getPasswordHasher()`; timing floors use `equalizeTiming()`
 - **Never log credentials**
 - Return minimal error messages — never reveal whether an email exists
 - Use `findWithDecryption`/`findOneWithDecryption` for user queries
