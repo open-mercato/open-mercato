@@ -27,6 +27,7 @@ import {
 } from './task-decisions'
 import { loadTaskDecisionContext } from './task-decision-context'
 import { readRequiredFormFields } from './task-form-schema'
+import { isRunClosedToUserTasks } from './instance-status'
 import * as stepHandler from './step-handler'
 import * as transitionHandler from './transition-handler'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -174,6 +175,23 @@ export async function completeUserTask(
     )
   }
 
+  const instance = await em.findOne(WorkflowInstance, task.workflowInstanceId)
+  if (!instance) {
+    throw new UserTaskError(
+      'Workflow instance not found',
+      'INSTANCE_NOT_FOUND',
+      { workflowInstanceId: task.workflowInstanceId }
+    )
+  }
+
+  if (isRunClosedToUserTasks(instance.status)) {
+    throw new UserTaskError(
+      'Workflow is no longer active',
+      'WORKFLOW_NOT_ACTIVE',
+      { taskId, workflowInstanceId: instance.id, status: instance.status }
+    )
+  }
+
   // The chosen decision rides along inside the completion payload the task
   // already persists — no new column, and downstream route conditions can read
   // it once the payload is merged into the run context.
@@ -189,16 +207,6 @@ export async function completeUserTask(
   task.updatedAt = now
 
   await em.flush()
-
-  // Fetch workflow instance
-  const instance = await em.findOne(WorkflowInstance, task.workflowInstanceId)
-  if (!instance) {
-    throw new UserTaskError(
-      'Workflow instance not found',
-      'INSTANCE_NOT_FOUND',
-      { workflowInstanceId: task.workflowInstanceId }
-    )
-  }
 
   // Branch-scoped completion: when the task belongs to a parallel branch,
   // merge form data into the branch namespace and resume just that branch.

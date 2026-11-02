@@ -17,11 +17,25 @@ test('TC-SALES-ADDR-CONTACT-002: the document form persists address contact fiel
 
   try {
     await login(page)
+    const numberResponsePromise = page.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname === '/api/sales/document-numbers' &&
+        response.request().method() === 'POST',
+    )
     await page.goto(resolveUrl('/backend/sales/documents/create?kind=quote'), {
       waitUntil: 'domcontentloaded',
     })
+    const numberResponse = await numberResponsePromise
+    expect(numberResponse.ok(), 'initial document number generation should succeed').toBeTruthy()
+    const numberBody = (await numberResponse.json()) as { number: string }
+    expect(numberBody.number, 'initial generation should return a document number').toMatch(/\S/)
+    await expect(
+      page.locator('[data-crud-field-id="documentNumber"]').getByRole('textbox'),
+    ).toHaveValue(numberBody.number)
     await expect(page.getByRole('button', { name: 'Generate' })).toBeEnabled()
-    await page.getByRole('switch', { name: 'Define new address' }).click()
+    const newAddressSwitch = page.getByRole('switch', { name: 'Define new address' })
+    await newAddressSwitch.click()
+    await expect(newAddressSwitch).toBeChecked()
     await page.getByRole('textbox', { name: 'Label' }).fill('QA create contact fixture')
     await page.getByRole('textbox', { name: 'Address line 1' }).fill('12 Browser Street')
     await page.getByRole('textbox', { name: 'City' }).fill('London')

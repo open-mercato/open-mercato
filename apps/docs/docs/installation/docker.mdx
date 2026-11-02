@@ -33,7 +33,6 @@ This setup works on any OS. On **Windows**, it is slower than the [native monore
 ```bash
 git clone https://github.com/open-mercato/open-mercato.git
 cd open-mercato
-git checkout develop
 
 # Optional: customise environment before first run
 cp apps/mercato/.env.example apps/mercato/.env
@@ -122,7 +121,7 @@ yarn docker:test
 yarn docker:install-skills # optional — only if you use an AI coding agent
 ```
 
-`yarn docker:install-skills` is the container equivalent of `yarn install-skills`: nothing in the Docker setup installs agent skills for you, so run it once per clone if you plan to use Codex, Claude Code, Cursor, or another supported coding agent. It fetches the shared [open-mercato/skills](https://github.com/open-mercato/skills) collection into the gitignored `.agents/skills/` directory. Skip it otherwise; see [Develop setup steps](./setup#develop-setup-steps-recommended) for the full explanation.
+`yarn docker:install-skills` is the container equivalent of `yarn install-skills`: nothing in the Docker setup installs agent skills for you, so run it once per clone if you plan to use Codex, Claude Code, Cursor, or another supported coding agent. It fetches the shared [open-mercato/skills](https://github.com/open-mercato/skills) collection into the gitignored `.agents/skills/` directory. Skip it otherwise; see [Setup steps](./setup#setup-steps-recommended) for the full explanation.
 
 Restart the app service and tail logs:
 

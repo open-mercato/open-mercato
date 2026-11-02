@@ -95,6 +95,6 @@ test('the scheduled dependency audit restores its Yarn cache without saving one'
   assert.doesNotMatch(
     auditWorkflow,
     /uses: actions\/cache@/,
-    'The audit checks out develop and main from the default branch context, so it must never save a cache',
+    'The audit checks out its matrix branches from the default branch context, so it must never save a cache',
   )
 })
