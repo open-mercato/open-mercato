@@ -3,11 +3,12 @@ import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { ProgressService, ProgressServiceContext } from '../../../progress/lib/progressService'
 import type { CatalogCategorizationService } from './categorizationService'
+import { CATALOG_PRODUCT_AI_CATEGORIZE_MAX_PRODUCTS } from './bulkLimits'
 import { createProductSuggester, type ProductSuggester } from './suggestProduct'
 
 export const CATALOG_PRODUCT_AI_CATEGORIZE_QUEUE = 'catalog-product-ai-categorize'
 export const CATALOG_PRODUCT_AI_CATEGORIZE_JOB_TYPE = 'catalog.products.ai_categorize'
-export const CATALOG_PRODUCT_AI_CATEGORIZE_MAX_PRODUCTS = 1000
+export { CATALOG_PRODUCT_AI_CATEGORIZE_MAX_PRODUCTS }
 
 const RATE_LIMIT_RETRY_DELAY_MS = 2000
 const MAX_RECORDED_FAILURES = 50

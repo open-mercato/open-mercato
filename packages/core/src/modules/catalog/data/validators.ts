@@ -19,6 +19,7 @@ import {
   omnibusMinimizationAxisSchema,
   omnibusNoChannelModeSchema,
 } from '../lib/omnibusTypes'
+import { CATALOG_PRODUCT_AI_CATEGORIZE_MAX_PRODUCTS } from '../lib/aiCategorization/bulkLimits'
 
 const uuid = () => z.string().uuid()
 
@@ -733,6 +734,12 @@ export const aiCategorizationSettingsSchema = z.object({
   autoSuggestOnCreate: z.boolean().default(false),
 })
 export type AiCategorizationSettings = z.infer<typeof aiCategorizationSettingsSchema>
+
+export const aiCategorizationBulkSchema = z.object({
+  productIds: z.array(uuid()).min(1).max(CATALOG_PRODUCT_AI_CATEGORIZE_MAX_PRODUCTS),
+  scope: z.enum(['selected', 'filtered']).default('selected'),
+})
+export type AiCategorizationBulkInput = z.infer<typeof aiCategorizationBulkSchema>
 
 export const categorySuggestionAcceptSchema = z.object({
   categoryId: uuid().optional(),
