@@ -1127,6 +1127,10 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
     [],
   )
 
+  // The order lines card only exists for orders; CrudForm cannot read the live
+  // document kind from its own values, so the toggle mirrors it here.
+  const [documentKindState, setDocumentKindState] = React.useState<DocumentKind>(initialKind === 'order' ? 'order' : 'quote')
+
   const fields = React.useMemo<CrudField[]>(() => [
     {
       id: 'documentKind',
@@ -1146,7 +1150,10 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
                     key={kind}
                     type="button"
                     variant={current === kind ? 'default' : 'ghost'}
-                    onClick={() => setValue(kind)}
+                    onClick={() => {
+                      setValue(kind)
+                      setDocumentKindState(kind)
+                    }}
                   >
                     {t(`sales.documents.form.kind.${kind}`, kind.charAt(0).toUpperCase() + kind.slice(1))}
                   </Button>
@@ -1553,6 +1560,7 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
       submitLabel={t('sales.documents.form.submit', 'Create')}
       cancelHref={cancelHref}
       onSubmit={handleSubmit}
+      hiddenGroupIds={documentKindState === 'order' ? undefined : ['lines']}
     />
   )
 }
