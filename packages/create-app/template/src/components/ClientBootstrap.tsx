@@ -157,6 +157,10 @@ export function groupsForProfile(profile: ClientBootstrapProfile): ClientRegistr
       return ['translations', 'injection']
     case 'checkout':
       return ['translations', 'injection', 'payments']
+    case 'login':
+      // The login form hosts the `auth.login:form` injection spot for alternative
+      // sign-in providers, which renders empty without the injection registry.
+      return ['translations', 'injection']
     case 'message':
       return ['messages']
     default:

@@ -148,7 +148,10 @@ describe('GET /api/checkout/pay/[slug] public response', () => {
       { key: 'campaign', label: 'Campaign', value: 'Community', kind: 'text', multi: false },
     ])
     jest.mocked(readCheckoutAccessCookie).mockReturnValue(null)
-    jest.mocked(requirePreviewContext).mockResolvedValue({} as Awaited<ReturnType<typeof requirePreviewContext>>)
+    jest.mocked(requirePreviewContext).mockResolvedValue({
+      auth: { sub: 'viewer', tenantId: link.tenantId, orgId: link.organizationId },
+      container: { resolve: () => ({}) },
+    } as Awaited<ReturnType<typeof requirePreviewContext>>)
   })
 
   afterAll(() => {

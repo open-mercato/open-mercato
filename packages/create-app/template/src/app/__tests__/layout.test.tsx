@@ -5,6 +5,10 @@
 import * as React from 'react'
 import type { ReactElement, ReactNode } from 'react'
 
+jest.mock('next/headers', () => ({
+  headers: jest.fn(async () => new Headers({ 'x-nonce': 'trustedDocumentNonce' })),
+}))
+
 jest.mock('next/font/google', () => ({
   Geist: () => ({ variable: 'geist-sans' }),
   Geist_Mono: () => ({ variable: 'geist-mono' }),
@@ -55,6 +59,18 @@ function findElementByType(node: ReactNode, targetType: unknown): ReactElement |
 describe('RootLayout', () => {
   const originalDemoMode = process.env.DEMO_MODE
   const originalIntegrationFlag = process.env.OM_INTEGRATION_TEST
+
+  it('passes the trusted request nonce to the theme script and client provider', async () => {
+    const { default: RootLayout } = await import('../layout')
+    const { AppProviders } = await import('@/components/AppProviders')
+    const tree = await RootLayout({ children: 'child' })
+    const script = findElementByType(tree, 'script')
+    const appProviders = findElementByType(tree, AppProviders)
+
+    expect(script?.props.id).toBe('om-theme-init')
+    expect(script?.props.nonce).toBe('trustedDocumentNonce')
+    expect(appProviders?.props.nonce).toBe('trustedDocumentNonce')
+  })
 
   afterEach(() => {
     if (originalDemoMode === undefined) {
