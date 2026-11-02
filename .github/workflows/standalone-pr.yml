@@ -61,9 +61,11 @@ jobs:
       - name: Test PR packages in a production standalone app
         env:
           STANDALONE_BASE_REF: ${{ github.event.pull_request.base.sha || github.sha }}
+          STANDALONE_SUITE: ${{ github.event_name == 'pull_request' && 'affected' || 'smoke' }}
+          STANDALONE_DATABASE_URL: postgres://mercato:secret@localhost:5432/mercato_test
         run: >-
           node scripts/ci/standalone-integration.mjs --source local
-          --app-dir /tmp/standalone-app --suite affected --base-ref "$STANDALONE_BASE_REF"
+          --app-dir /tmp/standalone-app --suite "$STANDALONE_SUITE" --base-ref "$STANDALONE_BASE_REF"
 
       - name: Upload standalone evidence
         if: always()

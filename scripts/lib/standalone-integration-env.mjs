@@ -32,6 +32,7 @@ export function createStandaloneIntegrationEnvironment({ appDir, repoRoot, baseU
     OM_ENABLE_ENTERPRISE_MODULES_SECURITY: 'true',
     AUTO_SPAWN_WORKERS: 'false',
     AUTO_SPAWN_SCHEDULER: 'false',
+    QUEUE_BASE_DIR: path.join(appDir, '.mercato', 'queue'),
     CACHE_STRATEGY: 'sqlite',
     CACHE_SQLITE_PATH: path.join(appDir, '.mercato', 'cache', 'cache.db'),
     OM_TEST_EMAIL_CAPTURE_PATH: path.join(repoRoot, '.ai', 'qa', 'email-capture.jsonl'),
@@ -39,6 +40,6 @@ export function createStandaloneIntegrationEnvironment({ appDir, repoRoot, baseU
   }
   return {
     appEnv: { ...shared, OM_DOCUMENTS_COLLAB_INTEGRATION: '1' },
-    testEnv: { ...shared, BASE_URL: baseUrl, OM_TEST_APP_ROOT: appDir, OM_DRAIN_DEBUG: '1' },
+    testEnv: { ...shared, BASE_URL: baseUrl, OM_TEST_APP_ROOT: appDir, OM_DRAIN_DEBUG: '1', OM_DOCUMENTS_COLLAB_INTEGRATION: '' },
   }
 }
