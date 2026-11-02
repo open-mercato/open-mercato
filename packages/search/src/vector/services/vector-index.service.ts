@@ -16,14 +16,93 @@ import {
 } from '../types'
 import type { VectorDriver } from '../types'
 import type { SearchFieldPolicy } from '@open-mercato/shared/modules/search'
+import { normalizeDefinitionKey } from '@open-mercato/shared/lib/crud/custom-field-definition-index'
 import { computeChecksum } from './checksum'
 import { EmbeddingService } from './embedding'
 import { logVectorOperation } from '../lib/vector-logs'
-import { searchDebug, searchDebugWarn } from '../../lib/debug'
+import { reportSearchError, searchDebug, searchDebugWarn, searchWarn } from '../../lib/debug'
 import { extractSearchableFields } from '../../lib/field-policy'
 
 type ContainerResolver = () => unknown
+type CustomFieldExclusion = Set<string> | 'all'
+type CustomFieldExclusionLookup = (entityId: EntityId, tenantId: string | null) => Promise<CustomFieldExclusion>
 const VECTOR_ENTRY_ENCRYPTION_ENTITY_ID = 'vector:vector_search'
+
+function isExcludedCustomField(key: string, exclusion: CustomFieldExclusion): boolean {
+  if (exclusion === 'all') return true
+  return exclusion.has(normalizeDefinitionKey(key))
+}
+
+function withoutExcludedRecordCustomFields(
+  record: Record<string, any>,
+  exclusion: CustomFieldExclusion,
+): Record<string, any> {
+  if (exclusion !== 'all' && exclusion.size === 0) return record
+  const filtered: Record<string, any> = {}
+  for (const [key, value] of Object.entries(record)) {
+    const isCustomField = key.startsWith('cf:') || key.startsWith('cf_')
+    if (isCustomField && isExcludedCustomField(key.slice(3), exclusion)) continue
+    filtered[key] = value
+  }
+  return filtered
+}
+
+function withoutExcludedCustomFields(
+  customFields: Record<string, any>,
+  exclusion: CustomFieldExclusion,
+): Record<string, any> {
+  if (exclusion !== 'all' && exclusion.size === 0) return customFields
+  const filtered: Record<string, any> = {}
+  for (const [key, value] of Object.entries(customFields)) {
+    const isPrefixed = key.startsWith('cf:') || key.startsWith('cf_')
+    if (isExcludedCustomField(key, exclusion)) continue
+    if (isPrefixed && isExcludedCustomField(key.slice(3), exclusion)) continue
+    filtered[key] = value
+  }
+  return filtered
+}
+
+function applyBuildRecordChanges(
+  buildRecord: Record<string, any>,
+  record: Record<string, any>,
+  exclusion: CustomFieldExclusion,
+): void {
+  if (buildRecord === record) return
+  for (const [key, value] of Object.entries(buildRecord)) {
+    if (record[key] !== value) record[key] = value
+  }
+  for (const key of Object.keys(record)) {
+    if (key in buildRecord) continue
+    const isCustomField = key.startsWith('cf:') || key.startsWith('cf_')
+    if (isCustomField && isExcludedCustomField(key.slice(3), exclusion)) continue
+    delete record[key]
+  }
+}
+
+function applyBuildCustomFieldChanges(
+  buildCustomFields: Record<string, any>,
+  customFields: Record<string, any>,
+  exclusion: CustomFieldExclusion,
+): void {
+  if (buildCustomFields === customFields) return
+  for (const [key, value] of Object.entries(buildCustomFields)) {
+    if (customFields[key] !== value) customFields[key] = value
+  }
+  for (const key of Object.keys(customFields)) {
+    if (key in buildCustomFields || isExcludedCustomField(key, exclusion)) continue
+    delete customFields[key]
+  }
+}
+
+function mergeCustomFieldExclusions(exclusions: CustomFieldExclusion[]): CustomFieldExclusion {
+  if (exclusions.includes('all')) return 'all'
+  return new Set(exclusions.flatMap((exclusion) => Array.from(exclusion)))
+}
+
+function normalizeResolverError(error: unknown): Error {
+  if (error instanceof Error) return error
+  return new Error('[internal] Encrypted custom-field resolver rejected with a non-Error value')
+}
 
 const DEFAULT_SOURCE_SCOPE_FIELDS = new Set<string>([
   'id',
@@ -88,6 +167,10 @@ export type VectorIndexServiceOptions = {
   moduleConfigs: VectorModuleConfig[]
   defaultDriverId?: VectorDriverId
   containerResolver?: ContainerResolver
+  encryptedCustomFieldKeysResolver?: (
+    entityId: EntityId,
+    tenantId?: string | null,
+  ) => Promise<Set<string>>
   eventBus?: {
     emitEvent(event: string, payload: any, options?: any): Promise<void>
   }
@@ -338,6 +421,52 @@ export class VectorIndexService {
     return Array.from(unique)
   }
 
+  private createCustomFieldExclusionLookup(): CustomFieldExclusionLookup {
+    const resolver = this.opts.encryptedCustomFieldKeysResolver
+    const cache = new Map<string, Promise<CustomFieldExclusion>>()
+    return (entityId, tenantId) => {
+      const cacheKey = `${entityId}\u0000${tenantId ?? ''}`
+      let pending = cache.get(cacheKey)
+      if (!pending) {
+        pending = resolver
+          ? Promise.resolve().then(() => resolver(entityId, tenantId)).catch((failure): CustomFieldExclusion => {
+            const error = normalizeResolverError(failure)
+            searchWarn('VectorIndexService', 'Encrypted custom fields could not be resolved; excluding every custom field', {
+              entityId,
+              tenantId,
+              error: error.message,
+            })
+            reportSearchError('VectorIndexService', error, 'search.encrypted_custom_fields_unresolved', {
+              entityId,
+              tenantId: tenantId ?? undefined,
+            })
+            return 'all'
+          })
+          : Promise.resolve('all')
+        cache.set(cacheKey, pending)
+      }
+      return pending
+    }
+  }
+
+  private createBuildQueryEngine(exclusions: CustomFieldExclusionLookup): QueryEngine {
+    const queryEngine = this.opts.queryEngine
+    return {
+      query: async (entity, opts) => {
+        const result = await queryEngine.query(entity, { ...opts, skipAutoReindex: true })
+        const sourceEntityIds = [entity, ...(opts?.customFieldSources ?? []).map((source) => source.entityId)]
+        const tenantId = opts?.tenantId ?? null
+        const exclusion = mergeCustomFieldExclusions(
+          await Promise.all(sourceEntityIds.map((sourceEntityId) => exclusions(sourceEntityId as EntityId, tenantId))),
+        )
+        return {
+          ...result,
+          items: result.items.map((item) => withoutExcludedRecordCustomFields(item as Record<string, any>, exclusion) as typeof item),
+        }
+      },
+    }
+  }
+
   private async fetchRecord(entityId: EntityId, recordIds: string[], tenantId: string, organizationId?: string | null) {
     const filters: Record<string, any> = { id: { $in: recordIds } }
     const result = await this.opts.queryEngine.query(entityId, {
@@ -397,17 +526,22 @@ export class VectorIndexService {
     driver: VectorDriver,
     args: IndexRecordArgs,
     raw: Record<string, any>,
+    exclusions: CustomFieldExclusionLookup,
     opts: { skipDelete?: boolean } = {},
   ): Promise<VectorIndexOperationResult> {
     const scopeOrg = args.organizationId ?? null
     const { record, customFields } = this.extractRecordPayload(args.entityId, raw)
     const resolvedOrgId = scopeOrg ?? (record.organization_id ?? record.organizationId ?? null)
+    const exclusion = await exclusions(args.entityId, args.tenantId)
+    const buildRecord = withoutExcludedRecordCustomFields(record, exclusion)
+    const buildCustomFields = withoutExcludedCustomFields(customFields, exclusion)
+    const buildQueryEngine = this.createBuildQueryEngine(exclusions)
     const source = await this.resolveSource(args.entityId, entry.config, {
-      record,
-      customFields,
+      record: buildRecord,
+      customFields: buildCustomFields,
       tenantId: args.tenantId,
       organizationId: resolvedOrgId,
-    })
+    }, buildQueryEngine)
     if (!source) {
       const existing = await driver.getChecksum(args.entityId, args.recordId, args.tenantId)
       if (!opts.skipDelete && existing) {
@@ -428,7 +562,11 @@ export class VectorIndexService {
       }
     }
 
-    const checksumSource = source.checksumSource ?? { record, customFields }
+    applyBuildRecordChanges(buildRecord, record, exclusion)
+    applyBuildCustomFieldChanges(buildCustomFields, customFields, exclusion)
+    const checksumSource = entry.config.buildSource
+      ? source.checksumSource ?? { record, customFields }
+      : { record, customFields }
     const checksum = computeChecksum(checksumSource)
     const current = await driver.getChecksum(args.entityId, args.recordId, args.tenantId)
     if (current && current === checksum) {
@@ -445,11 +583,11 @@ export class VectorIndexService {
     }
     const embedding = await this.opts.embeddingService.createEmbedding(source.input)
     const presenter = await this.resolvePresenter(entry.config, {
-      record,
-      customFields,
+      record: buildRecord,
+      customFields: buildCustomFields,
       tenantId: args.tenantId,
       organizationId: resolvedOrgId,
-    }, source.presenter ?? null)
+    }, buildQueryEngine, source.presenter ?? null)
     if (!presenter?.title) {
       searchDebugWarn('vector.index', 'missing presenter title', {
         entityId: args.entityId,
@@ -465,20 +603,22 @@ export class VectorIndexService {
       })
     }
     const links = await this.resolveLinks(entry.config, {
-      record,
-      customFields,
+      record: buildRecord,
+      customFields: buildCustomFields,
       tenantId: args.tenantId,
       organizationId: resolvedOrgId,
-    }, source.links ?? null)
+    }, buildQueryEngine, source.links ?? null)
     const url = await this.resolveUrl(entry.config, {
-      record,
-      customFields,
+      record: buildRecord,
+      customFields: buildCustomFields,
       tenantId: args.tenantId,
       organizationId: resolvedOrgId,
-    })
+    }, buildQueryEngine)
 
-    const metadataRecord = extractSearchableFields(record, { fieldPolicy: entry.config.fieldPolicy })
-    const metadataCustomFields = extractSearchableFields(customFields, { fieldPolicy: entry.config.fieldPolicy })
+    applyBuildRecordChanges(buildRecord, record, exclusion)
+    applyBuildCustomFieldChanges(buildCustomFields, customFields, exclusion)
+    const metadataRecord = extractSearchableFields(buildRecord, { fieldPolicy: entry.config.fieldPolicy })
+    const metadataCustomFields = extractSearchableFields(buildCustomFields, { fieldPolicy: entry.config.fieldPolicy })
     const normalizedPresenter = this.ensurePresenter(presenter, metadataRecord, metadataCustomFields, args.recordId, args.entityId)
     const normalizedLinks = Array.isArray(links) && links.length ? links : null
     const snapshot = this.deriveSnapshot(metadataRecord, metadataCustomFields)
@@ -724,13 +864,13 @@ export class VectorIndexService {
     customFields: Record<string, any>
     organizationId?: string | null
     tenantId: string
-  }): Promise<VectorIndexSource | null> {
+  }, queryEngine: QueryEngine): Promise<VectorIndexSource | null> {
     const baseCtx = {
       record: ctx.record,
       customFields: ctx.customFields,
       organizationId: ctx.organizationId ?? null,
       tenantId: ctx.tenantId,
-      queryEngine: this.opts.queryEngine,
+      queryEngine,
       container: this.opts.containerResolver ? this.opts.containerResolver() : undefined,
     }
     if (config.buildSource) {
@@ -749,6 +889,7 @@ export class VectorIndexService {
       organizationId?: string | null
       tenantId: string
     },
+    queryEngine: QueryEngine,
     fallback?: VectorResultPresenter | null,
   ): Promise<VectorResultPresenter | null> {
     const baseCtx = {
@@ -756,7 +897,7 @@ export class VectorIndexService {
       customFields: ctx.customFields,
       organizationId: ctx.organizationId ?? null,
       tenantId: ctx.tenantId,
-      queryEngine: this.opts.queryEngine,
+      queryEngine,
       container: this.opts.containerResolver ? this.opts.containerResolver() : undefined,
     }
     if (config.formatResult) {
@@ -784,6 +925,7 @@ export class VectorIndexService {
       organizationId?: string | null
       tenantId: string
     },
+    queryEngine: QueryEngine,
     fallback?: VectorLinkDescriptor[] | null,
   ): Promise<VectorLinkDescriptor[] | null> {
     const baseCtx = {
@@ -791,7 +933,7 @@ export class VectorIndexService {
       customFields: ctx.customFields,
       organizationId: ctx.organizationId ?? null,
       tenantId: ctx.tenantId,
-      queryEngine: this.opts.queryEngine,
+      queryEngine,
       container: this.opts.containerResolver ? this.opts.containerResolver() : undefined,
     }
     if (config.resolveLinks) {
@@ -809,6 +951,7 @@ export class VectorIndexService {
       organizationId?: string | null
       tenantId: string
     },
+    queryEngine: QueryEngine,
     fallback?: string | null,
   ): Promise<string | null> {
     if (config.resolveUrl) {
@@ -817,7 +960,7 @@ export class VectorIndexService {
         customFields: ctx.customFields,
         organizationId: ctx.organizationId ?? null,
         tenantId: ctx.tenantId,
-        queryEngine: this.opts.queryEngine,
+        queryEngine,
         container: this.opts.containerResolver ? this.opts.containerResolver() : undefined,
       })
       if (candidate) return candidate
@@ -860,7 +1003,7 @@ export class VectorIndexService {
         reason: 'missing_record',
       }
     }
-    return this.indexExisting(entry, driver, args, raw as Record<string, any>)
+    return this.indexExisting(entry, driver, args, raw as Record<string, any>, this.createCustomFieldExclusionLookup())
   }
 
   async deleteRecord(args: DeleteRecordArgs): Promise<VectorIndexOperationResult> {
@@ -897,6 +1040,13 @@ export class VectorIndexService {
   }
 
   async reindexEntity(args: { entityId: EntityId; tenantId?: string | null; organizationId?: string | null; purgeFirst?: boolean }): Promise<void> {
+    await this.reindexEntityWithExclusions(args, this.createCustomFieldExclusionLookup())
+  }
+
+  private async reindexEntityWithExclusions(
+    args: { entityId: EntityId; tenantId?: string | null; organizationId?: string | null; purgeFirst?: boolean },
+    exclusions: CustomFieldExclusionLookup,
+  ): Promise<void> {
     const entry = this.entityConfig.get(args.entityId)
     if (!entry) return
     const driver = this.getDriver(entry.driverId)
@@ -959,6 +1109,7 @@ export class VectorIndexService {
             organizationId: args.organizationId ?? null,
           },
           raw as Record<string, any>,
+          exclusions,
           { skipDelete: true },
         )
         await logVectorOperation({
@@ -984,8 +1135,12 @@ export class VectorIndexService {
   }
 
   async reindexAll(args: { tenantId?: string | null; organizationId?: string | null; purgeFirst?: boolean }): Promise<void> {
+    const exclusions = this.createCustomFieldExclusionLookup()
     for (const entityId of this.listEnabledEntities()) {
-      await this.reindexEntity({ entityId, tenantId: args.tenantId, organizationId: args.organizationId ?? null, purgeFirst: args.purgeFirst })
+      await this.reindexEntityWithExclusions(
+        { entityId, tenantId: args.tenantId, organizationId: args.organizationId ?? null, purgeFirst: args.purgeFirst },
+        exclusions,
+      )
     }
   }
 

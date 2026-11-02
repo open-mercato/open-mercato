@@ -1,4 +1,4 @@
-import { VectorIndexService } from '../vector/services/vector-index.service'
+import { VectorIndexService, type VectorIndexServiceOptions } from '../vector/services/vector-index.service'
 import type { EmbeddingService } from '../vector/services/embedding'
 import type { VectorDriver, VectorDriverDocument } from '../vector/types'
 import type { VectorModuleConfig } from '@open-mercato/shared/modules/vector'
@@ -18,6 +18,12 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: async () => ({ t: (_key: string, fallback: string) => fallback }),
 }))
 jest.mock('../fulltext/drivers', () => ({ createFulltextDriver: jest.fn() }))
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  getTelemetryRuntime: () => ({ reportError: (...args: unknown[]) => mockReportError(...args) }),
+}))
+
+const mockReportError = jest.fn((..._args: unknown[]) => {})
+type EncryptedCustomFieldKeysResolver = NonNullable<VectorIndexServiceOptions['encryptedCustomFieldKeysResolver']>
 
 type CapturedEmbeddingInput = { value: string | string[] | null }
 
@@ -80,12 +86,16 @@ function createService(args: {
   queryEngine: QueryEngine
   moduleConfigs: VectorModuleConfig[]
   encryptionService?: TenantDataEncryptionService | null
+  encryptedCustomFieldKeysResolver?: EncryptedCustomFieldKeysResolver | null
 }): VectorIndexService {
   return new VectorIndexService({
     drivers: [args.driver],
     embeddingService: args.embeddingService,
     queryEngine: args.queryEngine,
     moduleConfigs: args.moduleConfigs,
+    ...(args.encryptedCustomFieldKeysResolver === null
+      ? {}
+      : { encryptedCustomFieldKeysResolver: args.encryptedCustomFieldKeysResolver ?? (async () => new Set()) }),
     containerResolver: () => ({
       resolve: (name: string) => {
         if (name === 'tenantEncryptionService') {
@@ -170,6 +180,238 @@ describe('VectorIndexService default source field protection (issue #2716)', () 
     expect(lines).not.toContain('123-45-6789')
     expect(lines).not.toContain('person@example.com')
     expect(lines).not.toContain('sk-should-not-leak')
+  })
+})
+
+describe('VectorIndexService encrypted custom-field callback boundaries (PR #8410)', () => {
+  it('filters encrypted keys from every callback and hydrated custom-field source with tenant-aware lookups', async () => {
+    const rawRecord = {
+      id: 'callback-record',
+      name: 'Visible Name',
+      cf_secret: 'PRIVATE-RECORD',
+      cf_note: 'Visible record note',
+      'cf:secret': 'PRIVATE-CUSTOM',
+      'cf:note': 'Visible custom note',
+    }
+    const originalRecord = { ...rawRecord }
+    const callbackContexts: Array<{ record: Record<string, unknown>; customFields: Record<string, unknown> }> = []
+    const hydratedRecords: Record<string, unknown>[] = []
+    const queryEngine = {
+      query: jest.fn(async (entityId: string, options?: Record<string, unknown>) => {
+        if (entityId === 'demo:item') return { items: [rawRecord], total: 1 }
+        expect(options).toEqual(expect.objectContaining({ tenantId: 'callback-tenant', skipAutoReindex: true }))
+        return {
+          items: [{
+            id: 'related-record',
+            'cf:related_secret': 'PRIVATE-RELATED',
+            cf_source_secret: 'PRIVATE-SOURCE',
+            'cf:related_note': 'Visible related note',
+            cf_source_note: 'Visible source note',
+          }],
+          total: 1,
+        }
+      }),
+    } as unknown as QueryEngine
+    const resolver = jest.fn<ReturnType<EncryptedCustomFieldKeysResolver>, Parameters<EncryptedCustomFieldKeysResolver>>(async (entityId) => {
+      if (entityId === 'demo:item') return new Set(['secret'])
+      if (entityId === 'demo:related') return new Set(['related_secret'])
+      return new Set(['source_secret'])
+    })
+    const captureContext = (context: { record: Record<string, unknown>; customFields: Record<string, unknown> }) => {
+      callbackContexts.push({ record: { ...context.record }, customFields: { ...context.customFields } })
+    }
+    const service = createService({
+      driver: createDriver(),
+      embeddingService: createEmbeddingService({ value: null }),
+      queryEngine,
+      encryptedCustomFieldKeysResolver: resolver,
+      moduleConfigs: [{ entities: [{
+        entityId: 'demo:item',
+        buildSource: async (context) => {
+          captureContext(context)
+          const hydrated = await context.queryEngine!.query('demo:related', {
+            tenantId: 'callback-tenant',
+            customFieldSources: [{
+              entityId: 'demo:source',
+              join: { fromField: 'id', toField: 'related_id' },
+            }],
+          })
+          hydratedRecords.push(hydrated.items[0])
+          return { input: 'Visible source' }
+        },
+        formatResult: (context) => {
+          captureContext(context)
+          return { title: 'Visible title' }
+        },
+        resolveLinks: (context) => {
+          captureContext(context)
+          return [{ href: '/visible', label: 'Visible' }]
+        },
+        resolveUrl: (context) => {
+          captureContext(context)
+          return '/visible'
+        },
+      }] }],
+    })
+
+    await service.indexRecord({ entityId: 'demo:item', recordId: 'callback-record', tenantId: 'outer-tenant' })
+
+    expect(callbackContexts).toHaveLength(4)
+    for (const context of callbackContexts) {
+      expect(context.record).toEqual(expect.objectContaining({ name: 'Visible Name', cf_note: 'Visible record note' }))
+      expect(context.record).not.toHaveProperty('cf_secret')
+      expect(context.customFields).toEqual({ note: 'Visible custom note' })
+    }
+    expect(hydratedRecords).toEqual([expect.objectContaining({
+      id: 'related-record',
+      'cf:related_note': 'Visible related note',
+      cf_source_note: 'Visible source note',
+    })])
+    expect(JSON.stringify(hydratedRecords)).not.toContain('PRIVATE-')
+    expect(resolver).toHaveBeenCalledWith('demo:item', 'outer-tenant')
+    expect(resolver).toHaveBeenCalledWith('demo:related', 'callback-tenant')
+    expect(resolver).toHaveBeenCalledWith('demo:source', 'callback-tenant')
+    expect(rawRecord).toEqual(originalRecord)
+  })
+
+  it('removes every custom field from callbacks and callback queries when the resolver is absent', async () => {
+    const contexts: Array<{ record: Record<string, unknown>; customFields: Record<string, unknown> }> = []
+    const hydratedRecords: Record<string, unknown>[] = []
+    const queryEngine = {
+      query: async (entityId: string) => entityId === 'demo:item'
+        ? { items: [{ id: 'missing-resolver', name: 'Visible', cf_note: 'PRIVATE-ALIAS', 'cf:secret': 'PRIVATE-CUSTOM' }], total: 1 }
+        : { items: [{ id: 'related', 'cf:secret': 'PRIVATE-RELATED', cf_note: 'PRIVATE-RELATED-ALIAS' }], total: 1 },
+    } as unknown as QueryEngine
+    const capture = (context: { record: Record<string, unknown>; customFields: Record<string, unknown> }) => {
+      contexts.push({ record: { ...context.record }, customFields: { ...context.customFields } })
+    }
+    const service = createService({
+      driver: createDriver(),
+      embeddingService: createEmbeddingService({ value: null }),
+      queryEngine,
+      encryptedCustomFieldKeysResolver: null,
+      moduleConfigs: [{ entities: [{
+        entityId: 'demo:item',
+        buildSource: async (context) => {
+          capture(context)
+          const hydrated = await context.queryEngine!.query('demo:related', { tenantId: 'tenant-closed' })
+          hydratedRecords.push(hydrated.items[0])
+          return { input: 'Visible source' }
+        },
+        formatResult: (context) => { capture(context); return { title: 'Visible' } },
+        resolveLinks: (context) => { capture(context); return [] },
+        resolveUrl: (context) => { capture(context); return null },
+      }] }],
+    })
+
+    await service.indexRecord({ entityId: 'demo:item', recordId: 'missing-resolver', tenantId: 'tenant-closed' })
+
+    expect(contexts).toHaveLength(4)
+    for (const context of contexts) {
+      expect(context.record).toEqual({ id: 'missing-resolver', name: 'Visible' })
+      expect(context.customFields).toEqual({})
+    }
+    expect(hydratedRecords).toEqual([{ id: 'related' }])
+  })
+
+  it('memoizes normalized resolver failures for one reindex operation and retries on the next operation', async () => {
+    mockReportError.mockClear()
+    const records = [
+      { id: 'first', title: 'First', 'cf:secret': 'PRIVATE-FIRST' },
+      { id: 'second', title: 'Second', 'cf:secret': 'PRIVATE-SECOND' },
+    ]
+    const queryEngine = {
+      query: async (entityId: string, options?: { page?: unknown; filters?: unknown }) => {
+        if (entityId === 'demo:item') {
+          return { items: options?.page ? records : [records[0]], total: options?.page ? 2 : 1 }
+        }
+        return { items: [{ id: 'related', 'cf:secret': 'PRIVATE-RELATED' }], total: 1 }
+      },
+    } as unknown as QueryEngine
+    const resolver = jest.fn<ReturnType<EncryptedCustomFieldKeysResolver>, Parameters<EncryptedCustomFieldKeysResolver>>(() => {
+      throw { secret: 'PRIVATE-REJECTION' }
+    })
+    const hydrate = async (context: { queryEngine?: QueryEngine }) => {
+      const result = await context.queryEngine!.query('demo:related', {
+        tenantId: 'tenant-failure',
+        customFieldSources: [{
+          entityId: 'demo:source',
+          join: { fromField: 'id', toField: 'related_id' },
+        }],
+      })
+      expect(result.items).toEqual([{ id: 'related' }])
+    }
+    const service = createService({
+      driver: createDriver(),
+      embeddingService: createEmbeddingService({ value: null }),
+      queryEngine,
+      encryptedCustomFieldKeysResolver: resolver,
+      moduleConfigs: [{ entities: [{
+        entityId: 'demo:item',
+        buildSource: async (context) => { await hydrate(context); return { input: String(context.record.title) } },
+        formatResult: async (context) => { await hydrate(context); return { title: String(context.record.title) } },
+        resolveLinks: async (context) => { await hydrate(context); return [] },
+        resolveUrl: async (context) => { await hydrate(context); return null },
+      }] }],
+    })
+
+    await service.reindexEntity({ entityId: 'demo:item', tenantId: 'tenant-failure' })
+
+    expect(resolver).toHaveBeenCalledTimes(3)
+    expect(resolver.mock.calls).toEqual(expect.arrayContaining([
+      ['demo:item', 'tenant-failure'],
+      ['demo:related', 'tenant-failure'],
+      ['demo:source', 'tenant-failure'],
+    ]))
+    expect(mockReportError).toHaveBeenCalledTimes(3)
+    for (const [error, context] of mockReportError.mock.calls) {
+      expect(error).toBeInstanceOf(Error)
+      expect((error as Error).message).toBe('[internal] Encrypted custom-field resolver rejected with a non-Error value')
+      expect((error as Error).message).not.toContain('PRIVATE-REJECTION')
+      expect(context).toEqual(expect.objectContaining({ code: 'search.encrypted_custom_fields_unresolved' }))
+    }
+
+    await service.indexRecord({ entityId: 'demo:item', recordId: 'first', tenantId: 'tenant-failure' })
+
+    expect(resolver).toHaveBeenCalledTimes(6)
+    expect(mockReportError).toHaveBeenCalledTimes(6)
+  })
+
+  it('keeps encrypted metadata-like values in the checksum without embedding or storing them', async () => {
+    let record = {
+      id: 'checksum-record',
+      public_label: 'Visible',
+      'cf:title': 'PRIVATE-TITLE-FIRST',
+      'cf:summary': 'PRIVATE-SUMMARY-FIRST',
+    }
+    const capturedInputs: string[] = []
+    const driver = createDriver()
+    const service = createService({
+      driver,
+      embeddingService: {
+        available: true,
+        createEmbedding: async (input: string | string[]) => {
+          capturedInputs.push(Array.isArray(input) ? input.join('\n') : input)
+          return [0.1, 0.2, 0.3]
+        },
+      } as EmbeddingService,
+      queryEngine: { query: async () => ({ items: [record], total: 1 }) } as unknown as QueryEngine,
+      encryptedCustomFieldKeysResolver: async () => new Set(['title', 'summary']),
+      moduleConfigs: [{ entities: [{ entityId: 'demo:item' }] }],
+    })
+
+    await service.indexRecord({ entityId: 'demo:item', recordId: 'checksum-record', tenantId: 'tenant-checksum' })
+    record = {
+      ...record,
+      'cf:title': 'PRIVATE-TITLE-SECOND',
+      'cf:summary': 'PRIVATE-SUMMARY-SECOND',
+    }
+    await service.indexRecord({ entityId: 'demo:item', recordId: 'checksum-record', tenantId: 'tenant-checksum' })
+
+    expect(capturedInputs).toHaveLength(2)
+    expect(capturedInputs.join('\n')).not.toContain('PRIVATE-')
+    expect(JSON.stringify(driver.upsertCalls)).not.toContain('PRIVATE-')
+    expect(driver.upsertCalls[0].checksum).not.toBe(driver.upsertCalls[1].checksum)
   })
 })
 
