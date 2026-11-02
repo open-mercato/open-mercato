@@ -1,3 +1,4 @@
+import { TransactionContext } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { runWithCacheTenant, type CacheStrategy } from '@open-mercato/cache'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -284,6 +285,7 @@ export type PromotionCacheContainer = {
 }
 
 function resolvePromotionCacheStrategy(container: PromotionCacheContainer): CacheStrategy | null {
+  if (resolvePromotionEm(container).isInTransaction()) return null
   try {
     return container.resolve<CacheStrategy>('cache') ?? null
   } catch {
@@ -292,15 +294,21 @@ function resolvePromotionCacheStrategy(container: PromotionCacheContainer): Cach
 }
 
 function resolvePromotionEm(container: PromotionCacheContainer): EntityManager {
-  // Exact precedent: `commands/promotions.ts` resolves/forks the same way —
-  // `(ctx.container.resolve('em') as EntityManager).fork()` — before any read/write.
-  return (container.resolve<EntityManager>('em')).fork()
+  const registeredEm = container.resolve<EntityManager>('em')
+  const contextualEm = TransactionContext.getEntityManager(registeredEm.name) as EntityManager | undefined
+  const em = contextualEm && contextualEm.getDriver() === registeredEm.getDriver() ? contextualEm : registeredEm
+  return em.fork({ keepTransactionContext: true, disableContextResolution: Boolean(contextualEm && contextualEm !== em) })
 }
 
 export class PromotionCacheService {
   constructor(private readonly container: PromotionCacheContainer) {}
 
   async getActivePromotions(tenantId: string, organizationId: string): Promise<NormalizedPromotion[]> {
+    const em = resolvePromotionEm(this.container)
+    if (em.isInTransaction()) {
+      const promotions = await this.buildActivePromotionTrees(tenantId, organizationId)
+      return this.buildTransactionalUsageSnapshot(em, promotions, tenantId, organizationId)
+    }
     const cache = resolvePromotionCacheStrategy(this.container)
     const treeKey = buildPromotionTreeCacheKey(tenantId, organizationId)
 
@@ -315,6 +323,35 @@ export class PromotionCacheService {
     return Promise.all(
       promotions.map((promotion) => this.overlayUsageCounter(promotion, tenantId, organizationId)),
     )
+  }
+
+  private async buildTransactionalUsageSnapshot(
+    em: EntityManager,
+    promotions: NormalizedPromotion[],
+    tenantId: string,
+    organizationId: string,
+  ): Promise<NormalizedPromotion[]> {
+    const budgeted = promotions.filter((promotion) => promotion.maxBudget !== null)
+    const currencies = [...new Set(budgeted.map((promotion) => promotion.budgetCurrency).filter((currency): currency is string => !!currency))]
+    const totals = new Map<string, string>()
+    if (budgeted.length > 0 && currencies.length > 0) {
+      const promotionIds = budgeted.map((promotion) => promotion.id)
+      const promotionSlots = promotionIds.map(() => '?').join(', ')
+      const currencySlots = currencies.map(() => '?').join(', ')
+      const rows = await em.execute<Array<{ promotion_id: string; currency: string; total: string }>>(
+        `SELECT promotion_id, currency, COALESCE(SUM(total_discount_amount), 0)::text AS total
+         FROM promotion_usages
+         WHERE promotion_id IN (${promotionSlots}) AND currency IN (${currencySlots})
+           AND organization_id = ? AND tenant_id = ? AND reverted_at IS NULL
+         GROUP BY promotion_id, currency`,
+        [...promotionIds, ...currencies, organizationId, tenantId],
+      )
+      for (const row of rows) totals.set(`${row.promotion_id}:${row.currency}`, row.total)
+    }
+    return promotions.map((promotion) => promotion.maxBudget === null ? promotion : freezeOutsideProduction({
+      ...promotion,
+      totalDiscountGranted: totals.get(`${promotion.id}:${promotion.budgetCurrency}`) ?? '0',
+    }))
   }
 
   // §Cache Build Contract item 4: "read only for budget-capped promotions" — an
@@ -369,7 +406,7 @@ export class PromotionCacheService {
   ): Promise<string> {
     if (!budgetCurrency) return '0'
     const em = resolvePromotionEm(this.container)
-    const rows = (await em.getConnection().execute(
+    const rows = (await em.execute(
       `SELECT COALESCE(SUM(total_discount_amount), 0)::text AS total
        FROM promotion_usages
        WHERE promotion_id = ? AND organization_id = ? AND tenant_id = ? AND currency = ? AND reverted_at IS NULL`,
