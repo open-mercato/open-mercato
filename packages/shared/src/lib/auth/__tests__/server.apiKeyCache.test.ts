@@ -7,6 +7,7 @@ const emFind = jest.fn()
 const emFindOne = jest.fn()
 const emPersist = jest.fn()
 const emFlush = jest.fn()
+const findWithDecryption = jest.fn()
 
 jest.mock('next/headers', () => ({
   cookies: async () => ({ get: () => undefined }),
@@ -28,10 +29,20 @@ jest.mock('@open-mercato/core/modules/api_keys/services/apiKeyService', () => ({
   findApiKeyBySecret: (...args: unknown[]) => findApiKeyBySecret(...args),
 }))
 
+jest.mock('@open-mercato/core/modules/api_keys/data/entities', () => ({
+  ApiKey: class {},
+}))
+
 jest.mock('@open-mercato/core/modules/auth/data/entities', () => ({
   Role: class {},
   RoleAcl: class {},
   User: class {},
+  UserRole: class {},
+}))
+
+jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
+  findWithDecryption: (...args: unknown[]) => findWithDecryption(...args),
+  findOneWithDecryption: (_manager: unknown, ...args: unknown[]) => emFindOne(...args),
 }))
 
 jest.mock('@open-mercato/core/modules/directory/data/entities', () => ({
@@ -57,6 +68,7 @@ describe('resolveApiKeyAuth caching + lastUsedAt debounce', () => {
     })
     emFind.mockResolvedValue([])
     emFindOne.mockResolvedValue(null)
+    findWithDecryption.mockResolvedValue([])
     emPersist.mockReturnValue(undefined)
     emFlush.mockResolvedValue(undefined)
     const { resetSharedApiKeyAuthCacheForTests } = await import('@open-mercato/shared/lib/auth/apiKeyAuthCache')
@@ -94,8 +106,6 @@ describe('resolveApiKeyAuth caching + lastUsedAt debounce', () => {
     expect(emFlush).toHaveBeenCalledTimes(1)
   })
 
-<<<<<<< HEAD
-=======
   it('immediately removes revoked session roles and super-admin status while retaining issued roles still held', async () => {
     const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
     const { getSharedApiKeyAuthCache } = await import('@open-mercato/shared/lib/auth/apiKeyAuthCache')
@@ -231,7 +241,6 @@ describe('resolveApiKeyAuth caching + lastUsedAt debounce', () => {
     }
   })
 
->>>>>>> 90fa052c1 (fix(auth): bound AI-generated keys by the user ACL (#8086))
   it('retains the creator identity for a regular tenant-scoped key', async () => {
     const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
     findApiKeyBySecret.mockResolvedValue({
@@ -406,6 +415,7 @@ describe('resolveApiKeyAuth caching + lastUsedAt debounce', () => {
       if (where.id === 'creator-1') {
         return { id: 'creator-1', tenantId: 'tenant-1', organizationId: 'org-1' }
       }
+      if (where.id === 'tenant-1') return { id: 'tenant-1', isActive: true, deletedAt: null }
       return null
     })
 
@@ -536,8 +546,6 @@ describe('resolveApiKeyAuth caching + lastUsedAt debounce', () => {
     expect(findApiKeyBySecret).toHaveBeenCalledTimes(2)
   })
 
-<<<<<<< HEAD
-=======
   describe.each(['unbound', 'creator-bound', 'session-bound', 'mcp-bound'] as const)('%s tenant liveness', (binding) => {
     let tenant: { id: string; isActive: boolean; deletedAt: Date | null } | null
 
@@ -640,7 +648,6 @@ describe('resolveApiKeyAuth caching + lastUsedAt debounce', () => {
     })
   })
 
->>>>>>> 90fa052c1 (fix(auth): bound AI-generated keys by the user ACL (#8086))
   describe('super-admin bit stays bounded by the effective key scope', () => {
     async function resolveWithSuperAdminRole(input: {
       secret: string
