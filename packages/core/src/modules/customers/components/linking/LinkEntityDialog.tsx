@@ -548,8 +548,11 @@ export function LinkEntityDialog<TDetails = unknown, TLinkSettings = Record<stri
   return (
     <>
       <Dialog open={open} onOpenChange={handleDialogOpenChange}>
+        {/* Fixed desktop height (`sm:h-160`, still capped by the primitive's `max-h-[90vh]`):
+            the modal used to open at the loading-state size and jump ~180px taller once
+            the first results page arrived. Both panes scroll inside the fixed shell. */}
         <DialogContent
-          className="flex flex-col gap-0 overflow-hidden p-0"
+          className="flex flex-col gap-0 overflow-hidden p-0 sm:h-160"
           style={{
             width: 'min(calc(100vw - 2rem), 920px)',
             maxWidth: 'min(calc(100vw - 2rem), 920px)',
@@ -895,7 +898,14 @@ export function LinkEntityDialog<TDetails = unknown, TLinkSettings = Record<stri
             </div>
           </div>
 
-          <DialogFooter className="flex flex-row items-center justify-between border-t border-border/70 bg-muted/30 px-6 py-4 sm:flex-row sm:justify-between">
+          {/* `bordered={false}`: the primitive's default rule ships `-mx-6` to escape the
+              usual `p-6` DialogContent padding. This host is `p-0` + `overflow-hidden`, so
+              those margins pushed the footer 24px past both edges and the clipped overflow
+              swallowed its own `px-6` inset (#7495). The separator is drawn here instead. */}
+          <DialogFooter
+            bordered={false}
+            className="flex flex-row items-center justify-between border-t border-border/70 bg-muted/30 px-6 py-4 sm:flex-row sm:justify-between"
+          >
             <div className="text-xs text-muted-foreground">{selectedCountLabel}</div>
             <div className="flex items-center gap-3">
               <Button

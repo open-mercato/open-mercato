@@ -66,6 +66,31 @@ describe('LinkEntityDialog', () => {
     ).toBeInTheDocument()
   })
 
+  // Regression guard for #7495: the dialog host is `p-0` + `overflow-hidden`, so the
+  // primitive's default bordered footer (`-mx-6`) would push the count and actions
+  // past the clipped edges. The footer must keep its own inset instead.
+  it('renders the footer without the primitive negative margins so its inset survives the p-0 host', async () => {
+    const adapter = buildAdapter()
+    renderWithProviders(
+      <LinkEntityDialog
+        open
+        onOpenChange={() => undefined}
+        adapter={adapter}
+        initialSelectedIds={[]}
+        onConfirm={async () => undefined}
+      />,
+    )
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument())
+    const footer = screen.getByRole('button', { name: 'Cancel' }).closest('[data-slot="dialog-footer"]')
+    expect(footer).not.toBeNull()
+    const classes = (footer as HTMLElement).className.split(/\s+/)
+    expect(classes).toContain('px-6')
+    expect(classes).not.toContain('-mx-6')
+    expect(classes).not.toContain('border-input')
+    expect(footer).not.toHaveAttribute('data-bordered')
+    expect(classes).toContain('border-t')
+  })
+
   it('toggles selection when a row is clicked and reports diff on save', async () => {
     const adapter = buildAdapter()
     const onConfirm = jest.fn(async () => undefined)
