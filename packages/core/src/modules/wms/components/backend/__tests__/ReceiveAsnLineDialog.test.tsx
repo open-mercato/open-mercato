@@ -421,4 +421,47 @@ describe('ReceiveAsnLineDialog', () => {
     expect(await screen.findByText('Duplicate serial numbers are not allowed.')).toBeTruthy()
     expect(mockApiCall).not.toHaveBeenCalled()
   })
+
+  it('reopens a rejected line on the stored QC decision', async () => {
+    Element.prototype.scrollIntoView = jest.fn()
+    mockApiCall.mockResolvedValue({
+      ok: true,
+      status: 200,
+      result: { ok: true, receivedQty: 5, movementIds: [] },
+      response: new Response(null, { status: 200 }),
+    })
+    render(
+      <ReceiveAsnLineDialog
+        open
+        onOpenChange={jest.fn()}
+        access={access}
+        asnId="11111111-1111-1111-1111-111111111111"
+        warehouseId="22222222-2222-2222-2222-222222222222"
+        line={{
+          ...line,
+          expectedQty: 5,
+          receivedQty: 2,
+          qcStatus: 'failed',
+          rejectionReason: 'Damaged carton',
+        }}
+      />,
+    )
+
+    const reason = screen.getByTestId('receive-asn-rejection') as HTMLTextAreaElement
+    expect(reason.value).toBe('Damaged carton')
+    expect(screen.queryByTestId('combobox-Select staging or dock')).toBeNull()
+
+    fireEvent.click(screen.getByTestId('receive-asn-qc'))
+    expect(await screen.findByRole('option', { name: 'Failed' })).toBeTruthy()
+    expect(screen.queryByRole('option', { name: 'Passed' })).toBeNull()
+
+    fireEvent.click(screen.getByTestId('receive-asn-submit'))
+    await waitFor(() => expect(mockApiCall).toHaveBeenCalledTimes(1))
+    const body = JSON.parse(String(mockApiCall.mock.calls[0][1].body)) as {
+      qcStatus?: string
+      rejectionReason?: string
+    }
+    expect(body.qcStatus).toBe('failed')
+    expect(body.rejectionReason).toBe('Damaged carton')
+  })
 })

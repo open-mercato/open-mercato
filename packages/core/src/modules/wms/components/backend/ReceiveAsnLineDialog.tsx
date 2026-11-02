@@ -52,6 +52,22 @@ export type ReceiveAsnLineTarget = {
   variantLabel?: string | null
   updatedAt?: string | null
   asnUpdatedAt?: string | null
+  qcStatus?: 'pending' | 'passed' | 'failed' | null
+  rejectionReason?: string | null
+}
+
+export function initialReceiveQcDecision(
+  current: string | null | undefined,
+): 'passed' | 'failed' {
+  return current === 'failed' ? 'failed' : 'passed'
+}
+
+export function allowedReceiveQcDecisions(
+  current: string | null | undefined,
+): Array<'passed' | 'failed'> {
+  if (current === 'failed') return ['failed']
+  if (current === 'passed') return ['passed']
+  return ['passed', 'failed']
 }
 
 export function parseReceiveSerialNumbers(value: string): string[] {
@@ -80,8 +96,7 @@ type QcOutcomeSelectProps = {
   'aria-required'?: boolean
   value: 'passed' | 'failed'
   onValueChange: (value: 'passed' | 'failed') => void
-  passedLabel: string
-  failedLabel: string
+  options: Array<{ value: 'passed' | 'failed'; label: string }>
 }
 
 const QcOutcomeSelect = React.forwardRef<HTMLButtonElement, QcOutcomeSelectProps>(
@@ -91,8 +106,7 @@ const QcOutcomeSelect = React.forwardRef<HTMLButtonElement, QcOutcomeSelectProps
       disabled,
       value,
       onValueChange,
-      passedLabel,
-      failedLabel,
+      options,
       'aria-describedby': ariaDescribedBy,
       'aria-invalid': ariaInvalid,
       'aria-required': ariaRequired,
@@ -117,8 +131,11 @@ const QcOutcomeSelect = React.forwardRef<HTMLButtonElement, QcOutcomeSelectProps
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
-          <SelectItem value="passed">{passedLabel}</SelectItem>
-          <SelectItem value="failed">{failedLabel}</SelectItem>
+          {options.map((option) => (
+            <SelectItem key={option.value} value={option.value}>
+              {option.label}
+            </SelectItem>
+          ))}
         </SelectContent>
       </Select>
     )
@@ -211,14 +228,15 @@ export function ReceiveAsnLineDialog({
     receiptNeedsReconcileRef.current = false
     setBaselineReceivedQty(line.receivedQty)
     setReceivedQty(remaining > 0 ? remaining : 1)
-    setQcStatus('passed')
+    const nextQcStatus = initialReceiveQcDecision(line.qcStatus)
+    setQcStatus(nextQcStatus)
     setTargetStagingLocationId(line.targetStagingLocationId?.trim() || '')
     setLotNumber(line.lotNumber?.trim() || '')
     const storedSerials = (line.serialNumbers ?? []).map((value) => value.trim()).filter(Boolean)
     // After a partial receipt the field is this batch only. Planned serials still
     // prefill the first receipt, when nothing has been received yet.
     setSerialNumbersText(line.receivedQty > 0 ? '' : storedSerials.join('\n'))
-    setRejectionReason('')
+    setRejectionReason(nextQcStatus === 'failed' ? line.rejectionReason?.trim() || '' : '')
     setFieldErrors({})
     setSubmitting(false)
     const seed = line.asnUpdatedAt ?? line.updatedAt ?? null
@@ -544,8 +562,13 @@ export function ReceiveAsnLineDialog({
               <QcOutcomeSelect
                 value={qcStatus}
                 onValueChange={setQcStatus}
-                passedLabel={t('wms.backend.asns.qc.passed', 'Passed')}
-                failedLabel={t('wms.backend.asns.qc.failed', 'Failed')}
+                options={allowedReceiveQcDecisions(line.qcStatus).map((value) => ({
+                  value,
+                  label: t(
+                    value === 'passed' ? 'wms.backend.asns.qc.passed' : 'wms.backend.asns.qc.failed',
+                    value === 'passed' ? 'Passed' : 'Failed',
+                  ),
+                }))}
               />
             </FormField>
 

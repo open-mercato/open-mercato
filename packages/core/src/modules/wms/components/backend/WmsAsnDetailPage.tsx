@@ -181,6 +181,11 @@ export default function WmsAsnDetailPage({ asnId }: { asnId: string }) {
       variantLabel: line.catalog_variant_id
         ? labelCache[line.catalog_variant_id] ?? line.catalog_variant_id
         : null,
+      qcStatus:
+        line.qc_status === 'passed' || line.qc_status === 'failed' || line.qc_status === 'pending'
+          ? line.qc_status
+          : 'pending',
+      rejectionReason: line.rejection_reason ?? null,
       updatedAt: line.updated_at ?? null,
       asnUpdatedAt: resolveAsnReceiveLockToken(asnReceiveLockRef, asn?.updated_at),
     })
