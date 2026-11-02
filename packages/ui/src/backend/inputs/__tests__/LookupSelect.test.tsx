@@ -199,12 +199,31 @@ describe('LookupSelect keyboard accessibility', () => {
       />,
     )
 
-    const selected = await view.findByRole('option', { selected: true })
-    expect(selected).toHaveTextContent(ITEMS[0].title)
+    // A value that is there on mount is a finished pick (#5109): the summary carries the
+    // fetched title and the clear control, the list stays shut.
+    const summary = await view.findByTestId('lookup-select-selected')
+    expect(summary).toHaveTextContent(ITEMS[0].title)
+    expect(view.queryByRole('listbox')).toBeNull()
 
     const clear = view.getByRole('button', { name: 'Clear selection' })
     fireEvent.click(clear)
     expect(onChange).toHaveBeenCalledWith(null)
+  })
+
+  it('collapses onto the summary when the host seeds a value after mount', async () => {
+    function SeededHarness() {
+      const [value, setValue] = React.useState<string | null>(null)
+      React.useEffect(() => {
+        setValue('plot-1')
+      }, [])
+      return <LookupSelect value={value} onChange={setValue} fetchItems={async () => ITEMS} minQuery={1} />
+    }
+    const view = render(<SeededHarness />)
+    expect((await view.findByTestId('lookup-select-selected'))).toHaveTextContent(ITEMS[0].title)
+    expect(view.queryByRole('listbox')).toBeNull()
+
+    fireEvent.click(view.getByRole('button', { name: 'Change' }))
+    expect(await view.findAllByRole('option')).toHaveLength(2)
   })
 
   it('stays collapsed at minQuery >= 1 once the selection is cleared', async () => {
@@ -339,7 +358,8 @@ describe('LookupSelect closes on pick (#6196)', () => {
     fireEvent.click(await screen.findByRole('option', { name: /ExcelMed/ }))
 
     expect(screen.queryByRole('listbox')).toBeNull()
-    expect(input.value).toBe('')
+    // The summary row stands in for the search box until Change is clicked.
+    expect(container.querySelector('input')).toBeNull()
     const summary = screen.getByTestId('lookup-select-selected')
     expect(summary).toHaveTextContent('ExcelMed')
     expect(summary).toHaveTextContent('excel@med.test')
@@ -358,7 +378,7 @@ describe('LookupSelect closes on pick (#6196)', () => {
     const selected = await screen.findByRole('option', { selected: true })
     expect(selected).toHaveTextContent('ExcelMed')
     expect(selected).toHaveTextContent('Selected')
-    expect(document.activeElement).toBe(input)
+    expect(document.activeElement).toBe(getInput(container))
   })
 
   it('commits from the keyboard too', async () => {
@@ -424,6 +444,11 @@ describe('LookupSelect keeps the selection across browse fetches', () => {
     { id: 'contractor-1', title: 'Alpha' },
     { id: 'contractor-2', title: 'Beta' },
   ]
+  // A value present on mount starts on the collapsed summary (#5109); browsing resumes
+  // through its Change control.
+  async function openList() {
+    fireEvent.click(await screen.findByRole('button', { name: 'Change' }))
+  }
 
   it('keeps a hydrated selection that is missing from the first page', async () => {
     const fetchItems = jest.fn(async () => FIRST_PAGE)
@@ -436,6 +461,8 @@ describe('LookupSelect keeps the selection across browse fetches', () => {
       />,
     )
 
+    expect(await screen.findByTestId('lookup-select-selected')).toHaveTextContent(STORED.title)
+    await openList()
     await screen.findByText('Alpha')
     expect(fetchItems).toHaveBeenCalledWith('')
     expect(screen.getByRole('option', { selected: true })).toHaveTextContent(STORED.title)
@@ -456,6 +483,7 @@ describe('LookupSelect keeps the selection across browse fetches', () => {
       />,
     )
 
+    await openList()
     await screen.findByText('Alpha')
     expect(screen.getAllByRole('option')).toHaveLength(3)
     expect(screen.getByRole('option', { selected: true })).toHaveTextContent('Stored Contractor (renamed)')
@@ -471,6 +499,7 @@ describe('LookupSelect keeps the selection across browse fetches', () => {
         fetchItems={fetchItems}
       />,
     )
+    await openList()
     await screen.findByText('Beta')
 
     fireEvent.change(getInput(container), { target: { value: 'Alp' } })
@@ -490,6 +519,7 @@ describe('LookupSelect keeps the selection across browse fetches', () => {
         fetchItems={fetchItems}
       />,
     )
+    await openList()
     const input = getInput(container)
     await screen.findByText('Beta')
 
@@ -548,6 +578,7 @@ describe('LookupSelect keeps the selection across browse fetches', () => {
         fetchItems={fetchItems}
       />,
     )
+    await openList()
     await screen.findByText('Beta')
 
     view.rerender(
@@ -605,29 +636,16 @@ describe('LookupSelect disabled', () => {
 
   it('still shows the current selection so the value stays readable', () => {
     renderDisabled(() => {})
-    expect(screen.getByRole('option')).toHaveTextContent('Product One')
+    expect(screen.getByTestId('lookup-select-selected')).toHaveTextContent('Product One')
   })
 
-  it('ignores clicks on the option row', () => {
+  it('offers no option row and no Change control while disabled', () => {
     const onChange = jest.fn()
     renderDisabled(onChange)
 
-    fireEvent.click(screen.getByRole('option'))
-
+    expect(screen.queryByRole('option')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Change' })).toBeNull()
     expect(onChange).not.toHaveBeenCalled()
-  })
-
-  it('ignores Enter and Space on the option row and keeps it out of the tab order', () => {
-    const onChange = jest.fn()
-    renderDisabled(onChange)
-    const option = screen.getByRole('option')
-
-    fireEvent.keyDown(option, { key: 'Enter' })
-    fireEvent.keyDown(option, { key: ' ' })
-
-    expect(onChange).not.toHaveBeenCalled()
-    expect(option).toHaveAttribute('tabindex', '-1')
-    expect(option).toHaveAttribute('aria-disabled', 'true')
   })
 
   it('hides the clear-selection button so the value cannot be nulled', () => {
@@ -640,15 +658,12 @@ describe('LookupSelect disabled', () => {
     expect(screen.queryByTestId('quick-create')).toBeNull()
   })
 
-  it('keeps the search box disabled and its keyboard path inert', () => {
+  it('offers no search box at all while disabled with a selection', () => {
     const onChange = jest.fn()
     const { container } = renderDisabled(onChange)
-    const input = getInput(container)
 
-    expect(input.disabled).toBe(true)
-    fireEvent.keyDown(input, { key: 'ArrowDown' })
-    fireEvent.keyDown(input, { key: 'Enter' })
-
+    expect(container.querySelector('input')).toBeNull()
+    expect(screen.getByTestId('lookup-select-selected')).toHaveTextContent('Product One')
     expect(onChange).not.toHaveBeenCalled()
   })
 })

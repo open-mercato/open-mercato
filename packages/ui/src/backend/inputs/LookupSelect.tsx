@@ -98,7 +98,11 @@ export function LookupSelect({
   // enough here: Escape empties the query but the fetched `items` linger, so the
   // list would stay open and the collapsed summary — the branch that keeps a raw
   // record id out of the DOM (TC-EUDR-013) — would never render.
-  const [collapsed, setCollapsed] = React.useState(false)
+  // A value that is already there when the lookup mounts (hydrated, or seeded by the host,
+  // e.g. the deal owner defaulting to the current user) is a finished selection: it starts
+  // collapsed on the summary instead of an open list with one row checked (#5109).
+  // `defaultOpen` keeps the list on screen regardless (pickers that browse a short list).
+  const [collapsed, setCollapsed] = React.useState(() => Boolean(value) && !defaultOpen)
   const [hasTyped, setHasTyped] = React.useState(defaultOpen)
   const [error, setError] = React.useState<string | null>(null)
   const [fetchKey, setFetchKey] = React.useState(0)
@@ -209,15 +213,28 @@ export function LookupSelect({
   }, [finishSelection, onChange])
 
   React.useEffect(() => {
-    if (!pendingCommitRef.current) return
-    if (value === pendingCommitRef.current) finishSelection()
-    else if (value) pendingCommitRef.current = null
-  }, [finishSelection, value])
+    if (pendingCommitRef.current) {
+      if (value === pendingCommitRef.current) finishSelection()
+      else if (value) pendingCommitRef.current = null
+      return
+    }
+    // The host adopted a value the user never picked here (seeded after mount): treat it
+    // like a finished pick as long as the user is not mid-search.
+    if (value && !hasTyped && query.length === 0) setCollapsed(true)
+  }, [finishSelection, hasTyped, query, value])
 
+  // The search box is not in the DOM while the summary row stands in for it, so the focus
+  // moves once the box has mounted again.
+  const focusAfterReopenRef = React.useRef(false)
   const reopenList = React.useCallback(() => {
+    focusAfterReopenRef.current = true
     setCollapsed(false)
-    inputRef.current?.focus()
   }, [])
+  React.useEffect(() => {
+    if (collapsed || !focusAfterReopenRef.current) return
+    focusAfterReopenRef.current = false
+    inputRef.current?.focus()
+  }, [collapsed])
 
   const handleInputKeyDown = React.useCallback((event: React.KeyboardEvent<HTMLInputElement>) => {
     if (!listboxVisible) return
@@ -328,9 +345,14 @@ export function LookupSelect({
     return fetchedTitle && fetchedTitle !== value ? fetchedTitle : null
   }, [selectedHintLabel, selectedItem, value])
   const collapsedSelectionSubtitle = selectedItem && selectedItem.id === value ? selectedItem.subtitle ?? null : null
+  // Once collapsed on a resolved selection the summary row IS the control: the search box
+  // comes back only when the user asks to change the pick, so the field stays one row tall
+  // and fits a narrow column (#5109).
+  const showSummaryOnly = collapsed && Boolean(collapsedSelectionLabel)
 
   return (
     <div className="space-y-3">
+      {showSummaryOnly ? null : (
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
         <div className="relative flex-1">
           <Search className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -355,6 +377,7 @@ export function LookupSelect({
         </div>
         {actionSlot && !disabled ? <div className="sm:self-start">{actionSlot}</div> : null}
       </div>
+      )}
       {/*
        * `shouldSearch` decides whether to FETCH; this decides whether to RENDER a
        * list. They differ for a set value whose lookup comes back empty: develop's
@@ -473,48 +496,50 @@ export function LookupSelect({
         </div>
       ) : collapsedSelectionLabel ? (
         /*
-         * The visible input is the *search box*, not a value display: once the
-         * list closes it shows its placeholder again, so a selection made and
-         * then collapsed left the control looking empty even though the form
-         * held the id. `selectedHintLabel` existed for exactly this and was
-         * never rendered.
+         * The selection as a single row: the name is the control that reopens the
+         * search (Change), the icon clears. No second search box above it.
          */
         <div
-          className="flex items-center justify-between gap-3 rounded-lg border border-accent-indigo bg-accent-indigo/5 px-3 py-2"
+          className={cn(
+            'flex h-9 items-center gap-1 rounded-lg border border-accent-indigo bg-accent-indigo/5 pl-1 pr-1',
+            disabled && 'border-border-disabled bg-bg-disabled',
+          )}
           data-testid="lookup-select-selected"
         >
-          <div className="flex min-w-0 items-center gap-2">
-            <Check className="size-4 shrink-0 text-accent-indigo" aria-hidden="true" />
-            <div className="flex min-w-0 flex-col">
-              <span className="truncate text-sm font-medium text-foreground">{collapsedSelectionLabel}</span>
+          {disabled ? (
+            <span className="flex h-7 min-w-0 flex-1 items-center gap-2 px-2 text-muted-foreground">
+              <Check className="size-4 shrink-0" aria-hidden="true" />
+              <span className="truncate text-sm">{collapsedSelectionLabel}</span>
               {collapsedSelectionSubtitle ? (
-                <span className="truncate text-xs text-muted-foreground">{collapsedSelectionSubtitle}</span>
+                <span className="hidden truncate text-xs sm:inline">{collapsedSelectionSubtitle}</span>
               ) : null}
-            </div>
-          </div>
-          <div className="flex shrink-0 items-center gap-1">
-            <Button
+            </span>
+          ) : (
+            <button
               type="button"
-              variant="ghost"
-              size="sm"
-              className="text-sm font-normal hover:bg-accent-indigo/10 hover:text-accent-indigo"
-              disabled={disabled}
+              className="flex h-7 min-w-0 flex-1 items-center gap-2 rounded-md px-2 text-left outline-none hover:bg-accent-indigo/10 focus-visible:shadow-focus"
               onClick={reopenList}
+              aria-label={resolvedChangeLabel}
+              title={resolvedChangeLabel}
             >
-              {resolvedChangeLabel}
-            </Button>
-            <Button
+              <Check className="size-4 shrink-0 text-accent-indigo" aria-hidden="true" />
+              <span className="truncate text-sm text-foreground">{collapsedSelectionLabel}</span>
+              {collapsedSelectionSubtitle ? (
+                <span className="hidden truncate text-xs text-muted-foreground sm:inline">{collapsedSelectionSubtitle}</span>
+              ) : null}
+            </button>
+          )}
+          {disabled ? null : (
+            <button
               type="button"
-              variant="ghost"
-              size="sm"
-              className="gap-1 text-sm font-normal hover:bg-accent-indigo/10 hover:text-accent-indigo"
-              disabled={disabled}
+              className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground outline-none hover:bg-accent-indigo/10 hover:text-accent-indigo focus-visible:shadow-focus"
               onClick={() => onChange(null)}
+              aria-label={resolvedClearLabel}
+              title={resolvedClearLabel}
             >
-              <X className="h-4 w-4" />
-              {resolvedClearLabel}
-            </Button>
-          </div>
+              <X className="size-4" aria-hidden="true" />
+            </button>
+          )}
         </div>
       ) : hasTyped ? (
         <p className="text-xs text-muted-foreground">
