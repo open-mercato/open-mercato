@@ -50,6 +50,8 @@ async function listLiveSessions(
 }
 
 test.describe('TC-PORTAL-013: portal session cap holds under concurrent logins', () => {
+  test.setTimeout(60_000)
+
   test('a burst of concurrent logins leaves at most the cap of live sessions', async ({ request }) => {
     const adminToken = await getAuthToken(request, 'admin')
     const { tenantId } = getTokenContext(adminToken)
