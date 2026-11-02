@@ -5,6 +5,7 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands/types'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { ResourcesResource } from '../../data/entities'
+import { resourceTypeLockKey } from '../../lib/resourceTypeLock'
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: async () => ({
@@ -53,10 +54,30 @@ function buildTypeSnapshot() {
 
 function buildEnvelope(assignedCount: number) {
   const record: Record<string, unknown> = { ...buildTypeSnapshot(), deletedAt: null }
+  const calls: string[] = []
+  let inTransaction = false
   const em = {
+    begin: jest.fn().mockImplementation(async () => {
+      inTransaction = true
+    }),
+    commit: jest.fn().mockImplementation(async () => {
+      inTransaction = false
+    }),
+    rollback: jest.fn().mockImplementation(async () => {
+      inTransaction = false
+    }),
+    isInTransaction: jest.fn(() => inTransaction),
+    execute: jest.fn().mockImplementation(async (_sql: string, params: unknown[]) => {
+      expect(inTransaction).toBe(true)
+      calls.push(`lock:${String(params[0])}`)
+      return []
+    }),
     fork: jest.fn(),
     findOne: jest.fn().mockResolvedValue(record),
-    count: jest.fn().mockResolvedValue(assignedCount),
+    count: jest.fn().mockImplementation(async () => {
+      calls.push('count:assigned')
+      return assignedCount
+    }),
     flush: jest.fn().mockResolvedValue(undefined),
   }
   em.fork.mockReturnValue(em)
@@ -70,7 +91,7 @@ function buildEnvelope(assignedCount: number) {
     request: {} as Request,
     organizationScope: null,
   } as unknown as CommandRuntimeContext
-  return { em, ctx, record }
+  return { em, ctx, record, calls }
 }
 
 function createLogEntry() {
@@ -88,7 +109,7 @@ describe('resource type "has assigned resources" guard', () => {
   })
 
   it('refuses to undo a resource type create while live resources are assigned to it', async () => {
-    const { em, ctx, record } = buildEnvelope(3)
+    const { em, ctx, record, calls } = buildEnvelope(3)
     const handler = commandRegistry.get('resources.resourceTypes.create')
 
     const failure = await handler!.undo!({ input: undefined, logEntry: createLogEntry(), ctx }).catch((err: unknown) => err)
@@ -104,6 +125,9 @@ describe('resource type "has assigned resources" guard', () => {
     })
     expect(record.deletedAt).toBeNull()
     expect(em.flush).not.toHaveBeenCalled()
+    expect(calls).toEqual([`lock:${resourceTypeLockKey(TEST_TYPE_ID)}`, 'count:assigned'])
+    expect(em.rollback).toHaveBeenCalledTimes(1)
+    expect(em.commit).not.toHaveBeenCalled()
   })
 
   it('still soft-deletes the resource type on undo when no live resource references it', async () => {
@@ -128,7 +152,7 @@ describe('resource type "has assigned resources" guard', () => {
   })
 
   it('keeps refusing a direct delete of a resource type with assigned resources', async () => {
-    const { em, ctx, record } = buildEnvelope(2)
+    const { em, ctx, record, calls } = buildEnvelope(2)
     ;(findOneWithDecryption as jest.Mock).mockResolvedValue(record)
     const handler = commandRegistry.get('resources.resourceTypes.delete')
 
@@ -139,5 +163,8 @@ describe('resource type "has assigned resources" guard', () => {
     expect((failure as CrudHttpError).body).toEqual(ASSIGNED_BODY)
     expect(record.deletedAt).toBeNull()
     expect(em.flush).not.toHaveBeenCalled()
+    expect(calls).toEqual([`lock:${resourceTypeLockKey(TEST_TYPE_ID)}`, 'count:assigned'])
+    expect(em.rollback).toHaveBeenCalledTimes(1)
+    expect(em.commit).not.toHaveBeenCalled()
   })
 })

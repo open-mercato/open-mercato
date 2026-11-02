@@ -19,6 +19,7 @@ import {
   type ResourcesResourceUpdateInput,
 } from '../data/validators'
 import { resourcesResourceCrudEvents } from '../lib/crud'
+import { lockResourceType } from '../lib/resourceTypeLock'
 import { ensureOrganizationScope, ensureTenantScope, extractUndoPayload } from './shared'
 import { RESOURCES_CAPACITY_UNIT_DICTIONARY_KEY } from '../lib/capacityUnits'
 import { E } from '#generated/entities.ids.generated'
@@ -229,9 +230,15 @@ async function assertResourceTypeAssignable(
   resourceTypeId: string | null | undefined,
   scope: ResourceScope,
 ): Promise<void> {
-  if (!resourceTypeId || await countResourceTypes(em, resourceTypeId, scope, 'live') > 0) return
+  if (!resourceTypeId) return
+  await lockResourceType(em, resourceTypeId)
+  if (await countResourceTypes(em, resourceTypeId, scope, 'live') > 0) return
+  throw await resourceTypeUnavailableError(400)
+}
+
+async function resourceTypeUnavailableError(status: 400 | 409): Promise<CrudHttpError> {
   const { translate } = await resolveTranslations()
-  throw new CrudHttpError(400, {
+  return new CrudHttpError(status, {
     error: translate('resources.resources.errors.resourceTypeUnavailable', 'The selected resource type is no longer available.'),
     code: 'resources.resources.errors.resourceTypeUnavailable',
   })
@@ -244,8 +251,12 @@ async function assertResourceTypeRestorable(
   scope: ResourceScope,
 ): Promise<void> {
   if (!resourceTypeId) return
-  if (record && !record.deletedAt && record.resourceTypeId === resourceTypeId) return
-  if (await countResourceTypes(em, resourceTypeId, scope, 'deleted') === 0) return
+  await lockResourceType(em, resourceTypeId)
+  if (record && await em.count(ResourcesResource, { id: record.id, resourceTypeId, deletedAt: null }) > 0) return
+  if (await countResourceTypes(em, resourceTypeId, scope, 'live') > 0) return
+  if (await countResourceTypes(em, resourceTypeId, scope, 'deleted') === 0) {
+    throw await resourceTypeUnavailableError(409)
+  }
   const { translate } = await resolveTranslations()
   throw new CrudHttpError(409, {
     error: translate(
@@ -264,7 +275,6 @@ const createResourceCommand: CommandHandler<ResourcesResourceCreateInput, { reso
     ensureOrganizationScope(ctx, parsed.organizationId)
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    await assertResourceTypeAssignable(em, parsed.resourceTypeId, parsed)
     const now = new Date()
     const unitValue =
       typeof parsed.capacityUnitValue === 'string' ? parsed.capacityUnitValue.trim() : ''
@@ -292,6 +302,7 @@ const createResourceCommand: CommandHandler<ResourcesResourceCreateInput, { reso
     })
     await withAtomicFlush(em, [
       async () => {
+        await assertResourceTypeAssignable(em, parsed.resourceTypeId, parsed)
         em.persist(record)
         await em.flush()
       },
@@ -391,9 +402,9 @@ const createResourceCommand: CommandHandler<ResourcesResourceCreateInput, { reso
     const fallbackCustomAfter = (after as ResourceSnapshot).customFields ?? null
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     let record = await em.findOne(ResourcesResource, { id: after.id })
-    await assertResourceTypeRestorable(em, record, after.resourceTypeId, after)
     await withAtomicFlush(em, [
       async () => {
+        await assertResourceTypeRestorable(em, record, after.resourceTypeId, after)
         if (!record) {
           record = em.create(ResourcesResource, {
             id: after.id,
@@ -498,9 +509,7 @@ const updateResourceCommand: CommandHandler<ResourcesResourceUpdateInput, { reso
     if (!record) throw new CrudHttpError(404, { error: 'Resources resource not found.' })
     ensureTenantScope(ctx, record.tenantId)
     ensureOrganizationScope(ctx, record.organizationId)
-    if (parsed.resourceTypeId !== undefined && parsed.resourceTypeId !== record.resourceTypeId) {
-      await assertResourceTypeAssignable(em, parsed.resourceTypeId, record)
-    }
+    const resourceTypeChanged = parsed.resourceTypeId !== undefined && parsed.resourceTypeId !== record.resourceTypeId
 
     let capacityUnit: CapacityUnitSnapshot | null | undefined
     if (parsed.capacityUnitValue !== undefined) {
@@ -515,7 +524,8 @@ const updateResourceCommand: CommandHandler<ResourcesResourceUpdateInput, { reso
         : null
     }
     await withAtomicFlush(em, [
-      () => {
+      async () => {
+        if (resourceTypeChanged) await assertResourceTypeAssignable(em, parsed.resourceTypeId, record)
         if (parsed.capacityUnitValue !== undefined) {
           record.capacityUnitValue = capacityUnit?.value ?? null
           record.capacityUnitName = capacityUnit?.name ?? null
@@ -629,9 +639,9 @@ const updateResourceCommand: CommandHandler<ResourcesResourceUpdateInput, { reso
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const record = await em.findOne(ResourcesResource, { id: before.id })
     if (!record) return
-    await assertResourceTypeRestorable(em, record, before.resourceTypeId, before)
     await withAtomicFlush(em, [
-      () => {
+      async () => {
+        await assertResourceTypeRestorable(em, record, before.resourceTypeId, before)
         record.name = before.name
         record.description = before.description ?? null
         record.resourceTypeId = before.resourceTypeId ?? null
@@ -759,9 +769,9 @@ const deleteResourceCommand: CommandHandler<{ id?: string }, { resourceId: strin
     const fallbackCustomBefore = (before as ResourceSnapshot).customFields ?? null
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     let record = await em.findOne(ResourcesResource, { id: before.id })
-    await assertResourceTypeRestorable(em, record, before.resourceTypeId, before)
     await withAtomicFlush(em, [
       async () => {
+        await assertResourceTypeRestorable(em, record, before.resourceTypeId, before)
         if (!record) {
           record = em.create(ResourcesResource, {
             id: before.id,

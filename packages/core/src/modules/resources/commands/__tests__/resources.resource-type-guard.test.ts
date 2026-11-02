@@ -4,7 +4,8 @@ import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { CommandRuntimeContext, CommandUndoLogEntry } from '@open-mercato/shared/lib/commands/types'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { ResourcesResourceType } from '../../data/entities'
+import { ResourcesResource, ResourcesResourceType } from '../../data/entities'
+import { resourceTypeLockKey } from '../../lib/resourceTypeLock'
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: async () => ({
@@ -35,6 +36,7 @@ const TEST_ORG_ID = 'bbbbbbbb-bbbb-4bbb-abbb-bbbbbbbbbbbb'
 const TEST_RESOURCE_ID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
 const TEST_TYPE_ID = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
 const OTHER_TYPE_ID = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
+const OTHER_ORG_ID = 'ffffffff-ffff-4fff-8fff-ffffffffffff'
 
 const UNAVAILABLE_BODY = {
   error: 'The selected resource type is no longer available.',
@@ -69,23 +71,57 @@ function buildSnapshot(overrides: Record<string, unknown> = {}) {
   }
 }
 
-type EnvelopeOptions = { record?: Record<string, unknown> | null; liveTypeIds?: string[]; deletedTypeIds?: string[] }
-type TypeCountWhere = { id: string; tenantId: string; organizationId: string; deletedAt: null | { $ne: null } }
+type EnvelopeOptions = {
+  record?: Record<string, unknown> | null
+  liveTypeIds?: string[]
+  deletedTypeIds?: string[]
+  otherOrgTypeIds?: string[]
+}
+type CountWhere = {
+  id: string
+  tenantId?: string
+  organizationId?: string
+  resourceTypeId?: string
+  deletedAt: null | { $ne: null }
+}
 
 function buildEnvelope(options: EnvelopeOptions = {}) {
   const liveTypeIds = new Set(options.liveTypeIds ?? [])
   const deletedTypeIds = new Set(options.deletedTypeIds ?? [])
+  const otherOrgTypeIds = new Set(options.otherOrgTypeIds ?? [])
+  const calls: string[] = []
+  let inTransaction = false
   const em = {
-    begin: jest.fn().mockResolvedValue(undefined),
-    commit: jest.fn().mockResolvedValue(undefined),
-    rollback: jest.fn().mockResolvedValue(undefined),
+    begin: jest.fn().mockImplementation(async () => {
+      inTransaction = true
+    }),
+    commit: jest.fn().mockImplementation(async () => {
+      inTransaction = false
+    }),
+    rollback: jest.fn().mockImplementation(async () => {
+      inTransaction = false
+    }),
+    isInTransaction: jest.fn(() => inTransaction),
+    execute: jest.fn().mockImplementation(async (_sql: string, params: unknown[]) => {
+      expect(inTransaction).toBe(true)
+      calls.push(`lock:${String(params[0])}`)
+      return []
+    }),
     flush: jest.fn().mockResolvedValue(undefined),
     persist: jest.fn(),
     nativeDelete: jest.fn().mockResolvedValue(undefined),
     find: jest.fn().mockResolvedValue([]),
     findOne: jest.fn().mockResolvedValue(options.record ?? null),
-    count: jest.fn().mockImplementation(async (_entity: unknown, where: TypeCountWhere) => {
-      if (where.tenantId !== TEST_TENANT_ID || where.organizationId !== TEST_ORG_ID) return 0
+    count: jest.fn().mockImplementation(async (entity: unknown, where: CountWhere) => {
+      calls.push(entity === ResourcesResource ? 'count:resource' : 'count:type')
+      if (entity === ResourcesResource) {
+        const record = options.record
+        if (!record || record.id !== where.id || record.deletedAt) return 0
+        return record.resourceTypeId === where.resourceTypeId ? 1 : 0
+      }
+      if (where.tenantId !== TEST_TENANT_ID) return 0
+      if (otherOrgTypeIds.has(where.id)) return where.organizationId === OTHER_ORG_ID && where.deletedAt === null ? 1 : 0
+      if (where.organizationId !== TEST_ORG_ID) return 0
       return (where.deletedAt === null ? liveTypeIds : deletedTypeIds).has(where.id) ? 1 : 0
     }),
     getReference: jest.fn((_entity: unknown, id: string) => ({ id })),
@@ -104,7 +140,7 @@ function buildEnvelope(options: EnvelopeOptions = {}) {
     request: {} as Request,
     organizationScope: null,
   } as unknown as CommandRuntimeContext
-  return { em, ctx }
+  return { em, ctx, calls }
 }
 
 function asLogEntry(commandPayload: unknown): CommandUndoLogEntry {
@@ -146,8 +182,9 @@ describe('resources commands — resource type must be live', () => {
       organizationId: TEST_ORG_ID,
       deletedAt: null,
     })
-    expect(em.persist).not.toHaveBeenCalled()
-    expect(em.begin).not.toHaveBeenCalled()
+    expect(em.flush).not.toHaveBeenCalled()
+    expect(em.rollback).toHaveBeenCalledTimes(1)
+    expect(em.commit).not.toHaveBeenCalled()
   })
 
   it('create accepts a live resource type of the same organization', async () => {
@@ -176,7 +213,8 @@ describe('resources commands — resource type must be live', () => {
     expect(failure.status).toBe(400)
     expect(failure.body).toEqual(UNAVAILABLE_BODY)
     expect(record.resourceTypeId).toBeNull()
-    expect(em.begin).not.toHaveBeenCalled()
+    expect(em.rollback).toHaveBeenCalledTimes(1)
+    expect(em.commit).not.toHaveBeenCalled()
   })
 
   it('update accepts switching to a live resource type of the same organization', async () => {
@@ -222,7 +260,8 @@ describe('resources commands — resource type must be live', () => {
     expect(failure.status).toBe(409)
     expect(failure.body).toEqual(DELETED_BODY)
     expect(record.deletedAt).toBeInstanceOf(Date)
-    expect(em.begin).not.toHaveBeenCalled()
+    expect(em.rollback).toHaveBeenCalledTimes(1)
+    expect(em.commit).not.toHaveBeenCalled()
   })
 
   it('delete undo restores the resource while its type is still live', async () => {
@@ -235,20 +274,79 @@ describe('resources commands — resource type must be live', () => {
     expect(record.deletedAt).toBeNull()
   })
 
-  it('delete undo leaves a legacy reference to an id that is not a deleted type in scope as it was', async () => {
+  it.each([
+    ['an unknown', { deletedTypeIds: [] as string[], otherOrgTypeIds: [] as string[] }],
+    ['another organization\'s', { deletedTypeIds: [] as string[], otherOrgTypeIds: [TEST_TYPE_ID] }],
+  ])('delete undo refuses to restore a resource onto %s resource type id', async (_label, typeState) => {
     const record = buildSnapshot({ deletedAt: new Date() })
-    const { em, ctx } = buildEnvelope({ record })
+    const { em, ctx } = buildEnvelope({ record, ...typeState })
     const handler = commandRegistry.get('resources.resources.delete')
 
-    await handler!.undo!({ input: undefined, logEntry: asLogEntry({ undo: { before: buildSnapshot() } }), ctx })
+    const failure = await captureFailure(
+      handler!.undo!({ input: undefined, logEntry: asLogEntry({ undo: { before: buildSnapshot() } }), ctx }),
+    )
 
+    expect(failure.status).toBe(409)
+    expect(failure.body).toEqual(UNAVAILABLE_BODY)
     expect(em.count).toHaveBeenCalledWith(ResourcesResourceType, {
       id: TEST_TYPE_ID,
       tenantId: TEST_TENANT_ID,
       organizationId: TEST_ORG_ID,
-      deletedAt: { $ne: null },
+      deletedAt: null,
     })
-    expect(record.deletedAt).toBeNull()
+    expect(em.count).not.toHaveBeenCalledWith(ResourcesResourceType, expect.objectContaining({ organizationId: OTHER_ORG_ID }))
+    expect(record.deletedAt).toBeInstanceOf(Date)
+    expect(em.rollback).toHaveBeenCalledTimes(1)
+    expect(em.commit).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['an unknown', [] as string[]],
+    ['another organization\'s', [TEST_TYPE_ID]],
+  ])('update undo refuses to move a resource back onto %s resource type id', async (_label, otherOrgTypeIds) => {
+    const record = buildSnapshot({ resourceTypeId: OTHER_TYPE_ID })
+    const { em, ctx } = buildEnvelope({ record, liveTypeIds: [OTHER_TYPE_ID], otherOrgTypeIds })
+    const handler = commandRegistry.get('resources.resources.update')
+    const logEntry = asLogEntry({
+      undo: { before: buildSnapshot(), after: buildSnapshot({ resourceTypeId: OTHER_TYPE_ID }) },
+    })
+
+    const failure = await captureFailure(handler!.undo!({ input: undefined, logEntry, ctx }))
+
+    expect(failure.status).toBe(409)
+    expect(failure.body).toEqual(UNAVAILABLE_BODY)
+    expect(record.resourceTypeId).toBe(OTHER_TYPE_ID)
+    expect(em.rollback).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
+    ['an unknown', [] as string[]],
+    ['another organization\'s', [TEST_TYPE_ID]],
+  ])('create redo refuses to re-create a resource on %s resource type id', async (_label, otherOrgTypeIds) => {
+    const record = buildSnapshot({ deletedAt: new Date() })
+    const { em, ctx } = buildEnvelope({ record, otherOrgTypeIds })
+    const handler = commandRegistry.get('resources.resources.create')
+
+    const failure = await captureFailure(
+      handler!.redo!({ input: undefined, logEntry: asLogEntry({ undo: { after: buildSnapshot() } }), ctx }),
+    )
+
+    expect(failure.status).toBe(409)
+    expect(failure.body).toEqual(UNAVAILABLE_BODY)
+    expect(record.deletedAt).toBeInstanceOf(Date)
+    expect(em.rollback).toHaveBeenCalledTimes(1)
+  })
+
+  it('takes the resource type lock inside the transaction before any check', async () => {
+    const record = buildSnapshot({ deletedAt: new Date() })
+    const { em, ctx, calls } = buildEnvelope({ record, liveTypeIds: [TEST_TYPE_ID] })
+    const handler = commandRegistry.get('resources.resources.delete')
+
+    await handler!.undo!({ input: undefined, logEntry: asLogEntry({ undo: { before: buildSnapshot() } }), ctx })
+
+    expect(calls).toEqual([`lock:${resourceTypeLockKey(TEST_TYPE_ID)}`, 'count:resource', 'count:type'])
+    expect(em.begin.mock.invocationCallOrder[0]).toBeLessThan(em.execute.mock.invocationCallOrder[0])
+    expect(em.execute.mock.invocationCallOrder[0]).toBeLessThan(em.commit.mock.invocationCallOrder[0])
   })
 
   it('update undo refuses to move a resource back to a deleted type', async () => {
@@ -264,7 +362,8 @@ describe('resources commands — resource type must be live', () => {
     expect(failure.status).toBe(409)
     expect(failure.body).toEqual(DELETED_BODY)
     expect(record.resourceTypeId).toBe(OTHER_TYPE_ID)
-    expect(em.begin).not.toHaveBeenCalled()
+    expect(em.rollback).toHaveBeenCalledTimes(1)
+    expect(em.commit).not.toHaveBeenCalled()
   })
 
   it('update undo moves a resource back to its previous type while that type is live', async () => {
@@ -281,7 +380,7 @@ describe('resources commands — resource type must be live', () => {
       id: TEST_TYPE_ID,
       tenantId: TEST_TENANT_ID,
       organizationId: TEST_ORG_ID,
-      deletedAt: { $ne: null },
+      deletedAt: null,
     })
     expect(record.resourceTypeId).toBe(TEST_TYPE_ID)
   })
@@ -297,18 +396,19 @@ describe('resources commands — resource type must be live', () => {
     expect(failure.status).toBe(409)
     expect(failure.body).toEqual(DELETED_BODY)
     expect(record.deletedAt).toBeInstanceOf(Date)
-    expect(em.begin).not.toHaveBeenCalled()
+    expect(em.rollback).toHaveBeenCalledTimes(1)
+    expect(em.commit).not.toHaveBeenCalled()
   })
 
-  it('update undo with an unchanged type does not re-check it', async () => {
+  it('update undo keeps a live resource on its unchanged type without checking the type', async () => {
     const record = buildSnapshot({ name: 'Renamed' })
-    const { em, ctx } = buildEnvelope({ record })
+    const { ctx, calls } = buildEnvelope({ record })
     const handler = commandRegistry.get('resources.resources.update')
     const logEntry = asLogEntry({ undo: { before: buildSnapshot(), after: buildSnapshot({ name: 'Renamed' }) } })
 
     await handler!.undo!({ input: undefined, logEntry, ctx })
 
-    expect(em.count).not.toHaveBeenCalled()
+    expect(calls).toEqual([`lock:${resourceTypeLockKey(TEST_TYPE_ID)}`, 'count:resource'])
     expect(record.name).toBe('Resource A')
   })
 
@@ -324,7 +424,8 @@ describe('resources commands — resource type must be live', () => {
     expect(failure.status).toBe(409)
     expect(failure.body).toEqual(DELETED_BODY)
     expect(record.deletedAt).toBeInstanceOf(Date)
-    expect(em.begin).not.toHaveBeenCalled()
+    expect(em.rollback).toHaveBeenCalledTimes(1)
+    expect(em.commit).not.toHaveBeenCalled()
   })
 
   it('create redo re-creates the resource while its type is live', async () => {
@@ -338,7 +439,7 @@ describe('resources commands — resource type must be live', () => {
       id: TEST_TYPE_ID,
       tenantId: TEST_TENANT_ID,
       organizationId: TEST_ORG_ID,
-      deletedAt: { $ne: null },
+      deletedAt: null,
     })
     expect(record.deletedAt).toBeNull()
   })

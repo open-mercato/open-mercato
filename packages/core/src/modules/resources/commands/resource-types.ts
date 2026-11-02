@@ -6,6 +6,7 @@ import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { buildChanges, emitCrudSideEffects, emitCrudUndoSideEffects, parseWithCustomFields, setCustomFieldsIfAny } from '@open-mercato/shared/lib/commands/helpers'
 import { buildCustomFieldResetMap, diffCustomFieldChanges, loadCustomFieldSnapshot, type CustomFieldSnapshot } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 import { ResourcesResource, ResourcesResourceType } from '../data/entities'
@@ -16,6 +17,7 @@ import {
   type ResourcesResourceTypeUpdateInput,
 } from '../data/validators'
 import { resourcesResourceTypeCrudEvents } from '../lib/crud'
+import { lockResourceType } from '../lib/resourceTypeLock'
 import { makeCreateRedo } from '@open-mercato/shared/lib/commands/redo'
 import { ensureOrganizationScope, ensureTenantScope, extractUndoPayload } from './shared'
 import { E } from '#generated/entities.ids.generated'
@@ -171,10 +173,16 @@ const createResourceTypeCommand: CommandHandler<ResourcesResourceTypeCreateInput
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const resourceType = await em.findOne(ResourcesResourceType, { id: after.id })
     if (resourceType) {
-      if (!resourceType.deletedAt) await assertNoAssignedResources(em, resourceType, 409)
-      resourceType.deletedAt = new Date()
-      resourceType.updatedAt = new Date()
-      await em.flush()
+      await withAtomicFlush(em, [
+        async () => {
+          if (!resourceType.deletedAt) {
+            await lockResourceType(em, resourceType.id)
+            await assertNoAssignedResources(em, resourceType, 409)
+          }
+          resourceType.deletedAt = new Date()
+          resourceType.updatedAt = new Date()
+        },
+      ], { transaction: true })
 
       const dataEngine = (ctx.container.resolve('dataEngine') as DataEngine)
       await emitCrudUndoSideEffects({
@@ -381,10 +389,14 @@ const deleteResourceTypeCommand: CommandHandler<{ id?: string }, { resourceTypeI
     if (!record) throw new CrudHttpError(404, { error: 'Resources resource type not found.' })
     ensureTenantScope(ctx, record.tenantId)
     ensureOrganizationScope(ctx, record.organizationId)
-    await assertNoAssignedResources(em, record, 400)
-    record.deletedAt = new Date()
-    record.updatedAt = new Date()
-    await em.flush()
+    await withAtomicFlush(em, [
+      async () => {
+        await lockResourceType(em, record.id)
+        await assertNoAssignedResources(em, record, 400)
+        record.deletedAt = new Date()
+        record.updatedAt = new Date()
+      },
+    ], { transaction: true })
 
     const dataEngine = (ctx.container.resolve('dataEngine') as DataEngine)
     await emitCrudSideEffects({
