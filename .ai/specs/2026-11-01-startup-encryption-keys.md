@@ -21,6 +21,8 @@ never the target of a borrowed workspace-package symlink. Both env loading and
 provisioning use that same lookup.
 If the discovered app has no env file, early loading retains the requested
 working directory's env-file fallback without reading from another checkout.
+Provisioning uses the same selected file, so keys and encryption-off settings in
+a root cwd env cannot be shadowed by a newly generated app env file.
 Validate inherited
 keys before dotenv can hide their origin. Externally managed keys may belong to
 an existing deployment, so published external roots and process/file conflicts

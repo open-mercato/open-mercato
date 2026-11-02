@@ -42,7 +42,7 @@ import { parseModuleInstallArgs } from './lib/module-install-args'
 import type { ModuleCommandResult } from './lib/module-install'
 import { resolveNextBuildIdCandidate } from './lib/next-build-id'
 import { acquireServerStartLock } from './lib/server-start-lock'
-import { prepareAppEncryptionEnv, resolveAppEnvDir } from './lib/load-env'
+import { prepareAppEncryptionEnv, resolveAppEnvPath } from './lib/load-env'
 import { assertSingleInstanceStrategies } from './lib/single-instance-strategy-guard'
 import { createDevEnvReloader, watchDevEnvFiles } from './lib/dev-env-reload'
 import { quotePostgresIdentifier } from './lib/db/identifiers'
@@ -347,16 +347,15 @@ async function ensureEnvLoaded(options: { createIfMissing?: boolean; quiet?: boo
 
   // Try to find and load .env from the app directory
   try {
-    const appDir = resolveAppEnvDir()
+    const envPath = resolveAppEnvPath()
+    const envDir = path.dirname(envPath)
 
-    // Load .env from app directory if it exists
-    const envPath = path.join(appDir, '.env')
     if (
       options.createIfMissing !== false &&
       !fs.existsSync(envPath) &&
       process.env.NODE_ENV !== 'production'
     ) {
-      const examplePath = path.join(appDir, '.env.example')
+      const examplePath = path.join(envDir, '.env.example')
       if (fs.existsSync(examplePath)) {
         fs.copyFileSync(examplePath, envPath)
         console.log('')

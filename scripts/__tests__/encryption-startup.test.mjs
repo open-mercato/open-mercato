@@ -500,6 +500,29 @@ for (const explicitCwd of [false, true]) {
   })
 }
 
+for (const setting of ['private-root', 'disabled']) {
+  test(`cwd env ${setting} is respected before provisioning an app without its own env file`, async () => {
+    const monorepo = fs.mkdtempSync(path.join(temporaryRoot, 'root-config-checkout-'))
+    fs.writeFileSync(path.join(monorepo, '.git'), 'gitdir: fixture-only\n')
+    fs.mkdirSync(path.join(monorepo, 'apps'))
+    const appDir = path.join(monorepo, 'apps/mercato')
+    fs.renameSync(fixture(null), appDir)
+    const rootContent = 'RECOVERY_CWD_ENV=active\n' + (setting === 'private-root' ? `${fallbackName}=${privateKey}\n` : 'TENANT_DATA_ENCRYPTION=no\n')
+    fs.writeFileSync(path.join(monorepo, '.env'), rootContent)
+    const cliUrl = pathToFileURL(path.join(temporaryRoot, 'cli.mjs')).href
+    const result = await run(`
+      import { prepareAppEncryptionEnv, loadAppEnv } from ${JSON.stringify(cliUrl)};
+      await prepareAppEncryptionEnv(['node','mercato','server','start']);
+      await loadAppEnv();
+      if (process.env.RECOVERY_CWD_ENV !== 'active') throw new Error('root env was shadowed');
+      ${setting === 'private-root' ? `if (process.env.${fallbackName} !== ${JSON.stringify(privateKey)}) throw new Error('configured root was replaced');` : `if (process.env.TENANT_DATA_ENCRYPTION !== 'no' || process.env.${fallbackName}) throw new Error('disabled encryption was provisioned');`}
+    `, monorepo, { NODE_ENV: 'production' })
+    assert.equal(result.code, 0, result.output)
+    assert.equal(fs.readFileSync(path.join(monorepo, '.env'), 'utf8'), rootContent)
+    assert.ok(!fs.existsSync(path.join(appDir, '.env')))
+  })
+}
+
 test('help, generation and deployment inspection never provision files', async () => {
   const cwd = process.cwd()
   const appDir = fixture(null)

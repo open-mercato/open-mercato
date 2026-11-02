@@ -67,6 +67,8 @@ env file; it does not follow workspace-package links into another checkout.
 When the app-level env file is absent, early loading retains the requested
 working directory's env fallback, including telemetry settings for env-only
 production deployments.
+Provisioning uses that same file, preserving root-level keys and an explicit
+encryption-off setting rather than creating a competing app-level env file.
 If empty values shadow a configured root in another file, it warns and generates
 nothing until the configuration is aligned. Private
 process-environment keys work without writable env files and retain their existing

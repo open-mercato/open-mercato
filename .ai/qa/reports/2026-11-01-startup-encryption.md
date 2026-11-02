@@ -123,3 +123,6 @@ startup. The correction retains that fallback inside the requested checkout;
 explicit cwd loading cannot leak settings from an unrelated process cwd. Both
 new production/telemetry regressions failed before the correction and pass after
 it, alongside the two symlink-isolation regressions (4/4 focused checks).
+Two additional failing-before/passing-after cases verify that root env keys and
+an explicit encryption-off setting are honored before provisioning. All loaders
+and the preparer now use the same selected env-file path (6/6 focused checks).

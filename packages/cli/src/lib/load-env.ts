@@ -27,6 +27,14 @@ export function resolveAppEnvDir(cwd = process.cwd()): string {
   }
 }
 
+/** @internal Keep provisioning and loading on the same checkout-owned env file. */
+export function resolveAppEnvPath(cwd = process.cwd()): string {
+  const directory = path.resolve(cwd)
+  const appEnvPath = path.join(resolveAppEnvDir(directory), '.env')
+  const cwdEnvPath = path.join(directory, '.env')
+  return fs.existsSync(appEnvPath) || !fs.existsSync(cwdEnvPath) ? appEnvPath : cwdEnvPath
+}
+
 export async function prepareAppEncryptionEnv(argv: readonly string[]): Promise<void> {
   const parts = argv.slice(2)
   const [command, subcommand] = parts
@@ -36,10 +44,10 @@ export async function prepareAppEncryptionEnv(argv: readonly string[]): Promise<
     command.startsWith('test:') || (command === 'db' && subcommand === 'generate')
   ) return
 
-  const appDir = resolveAppEnvDir()
+  const envDir = path.dirname(resolveAppEnvPath())
   const mode = command === 'server' && subcommand === 'start' ? 'production'
     : command === 'server' && subcommand === 'dev' ? 'development' : undefined
-  const values = await prepareEncryptionEnv(appDir, { mode, envFileMode: 'dotenv' })
+  const values = await prepareEncryptionEnv(envDir, { mode, envFileMode: 'dotenv' })
   for (const [name, value] of Object.entries(values)) {
     if (value !== undefined) process.env[name] = value
   }
@@ -55,10 +63,8 @@ export async function prepareAppEncryptionEnv(argv: readonly string[]): Promise<
  * load-order guarantee is preserved.
  */
 export async function loadAppEnv(options: { cwd?: string } = {}): Promise<void> {
-  const cwd = path.resolve(options.cwd ?? process.cwd())
-  const envPath = [path.join(resolveAppEnvDir(cwd), '.env'), path.join(cwd, '.env')]
-    .find((candidate) => fs.existsSync(candidate))
-  if (envPath) {
+  const envPath = resolveAppEnvPath(options.cwd)
+  if (fs.existsSync(envPath)) {
     const dotenv = await import('dotenv')
     dotenv.config({ path: envPath, quiet: true })
   }
