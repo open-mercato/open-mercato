@@ -10,6 +10,11 @@ import { writeSessionEvent } from '../lib/sessionEvents'
 import { emitCheckoutEvent } from '../events'
 import { tryResolve } from '../lib/tryResolve'
 import { mapGatewayStatusToCheckoutStatus } from '../lib/utils'
+import {
+  claimAwaitingPaymentSession,
+  derivePersistedPaymentOutcome,
+  releaseAwaitingPaymentClaim,
+} from '../lib/sessionPaymentClaim'
 
 const logger = createLogger('checkout').child({ component: 'expire-awaiting-payment' })
 
@@ -74,9 +79,10 @@ export async function expireOneAwaitingPayment(
   }
 
   const paymentGatewayService = tryResolve<PaymentGatewayService>(container, 'paymentGatewayService')
-  let mappedStatus: CheckoutTransaction['status'] | null = null
+  const persistedOutcome = derivePersistedPaymentOutcome(transaction?.status)
+  let mappedStatus: CheckoutTransaction['status'] | null = persistedOutcome
 
-  if (paymentGatewayService && session.paymentIntentRef) {
+  if (!persistedOutcome && paymentGatewayService && session.paymentIntentRef) {
     try {
       const gatewayTransaction = await paymentGatewayService.findTransactionBySessionId(
         session.paymentIntentRef,
@@ -97,34 +103,42 @@ export async function expireOneAwaitingPayment(
     }
   }
 
-  if (mappedStatus === 'completed') {
-    // §7.2 step 7 success branch, verbatim: confirm the order, build the C18 lineMap,
-    // markConverted, complete the session — then the SAME two events the live path emits
-    // alongside `confirmOrderAndComplete`'s own `checkout.session.completed`.
-    await confirmOrderAndComplete(container, em, session, scope, session.salesOrderId, session.salesQuoteId, reservationKeys)
-    await writeSessionEvent(em, { ...scope, sessionId: session.id, kind: 'payment_result', actor: 'system', payload: { orderId: session.salesOrderId, outcome: 'succeeded' } })
-    await emitCheckoutEvent('checkout.payment.succeeded', {
+  const claimed = await claimAwaitingPaymentSession(em, session.id, scope)
+  if (!claimed) return
+
+  try {
+    if (mappedStatus === 'completed') {
+      // §7.2 step 7 success branch, verbatim: confirm the order, build the C18 lineMap,
+      // markConverted, complete the session — then the SAME two events the live path emits
+      // alongside `confirmOrderAndComplete`'s own `checkout.session.completed`.
+      await confirmOrderAndComplete(container, em, session, scope, session.salesOrderId, session.salesQuoteId, reservationKeys)
+      await writeSessionEvent(em, { ...scope, sessionId: session.id, kind: 'payment_result', actor: 'system', payload: { orderId: session.salesOrderId, outcome: 'succeeded' } })
+      await emitCheckoutEvent('checkout.payment.succeeded', {
+        sessionId: session.id,
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+        orderId: session.salesOrderId,
+        transactionId: transaction?.id ?? null,
+      }).catch(() => undefined)
+      return
+    }
+
+    // §12: "otherwise compensate (cancel the order) and fail with `payment_expired`" — the
+    // gateway answered failed/cancelled/expired, or never answered at all past the deadline.
+    await compensateByCancellingOrder(container, em, session, scope, session.salesOrderId, 'payment_expired')
+    await writeSessionEvent(em, { ...scope, sessionId: session.id, kind: 'payment_result', actor: 'system', payload: { orderId: session.salesOrderId, outcome: 'failed' } })
+    await emitCheckoutEvent('checkout.payment.failed', {
       sessionId: session.id,
       tenantId: scope.tenantId,
       organizationId: scope.organizationId,
       orderId: session.salesOrderId,
       transactionId: transaction?.id ?? null,
+      failureCode: 'payment_expired',
     }).catch(() => undefined)
-    return
+  } catch (err) {
+    await releaseAwaitingPaymentClaim(em, session.id, scope).catch(() => undefined)
+    throw err
   }
-
-  // §12: "otherwise compensate (cancel the order) and fail with `payment_expired`" — the
-  // gateway answered failed/cancelled/expired, or never answered at all past the deadline.
-  await compensateByCancellingOrder(container, em, session, scope, session.salesOrderId, 'payment_expired')
-  await writeSessionEvent(em, { ...scope, sessionId: session.id, kind: 'payment_result', actor: 'system', payload: { orderId: session.salesOrderId, outcome: 'failed' } })
-  await emitCheckoutEvent('checkout.payment.failed', {
-    sessionId: session.id,
-    tenantId: scope.tenantId,
-    organizationId: scope.organizationId,
-    orderId: session.salesOrderId,
-    transactionId: transaction?.id ?? null,
-    failureCode: 'payment_expired',
-  }).catch(() => undefined)
 }
 
 export default async function handle(job: QueuedJob<ExpireAwaitingPaymentJob>, ctx: HandlerContext): Promise<void> {

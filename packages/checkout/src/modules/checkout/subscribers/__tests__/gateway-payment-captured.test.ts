@@ -78,4 +78,29 @@ describe('checkout-gateway-payment-captured subscriber', () => {
     await handle(PAYLOAD)
     expect(mockResumeSession).toHaveBeenCalledTimes(1)
   })
+
+  it.each([
+    ['gateway-payment-captured'],
+    ['gateway-payment-authorized'],
+    ['gateway-payment-cancelled'],
+    ['gateway-payment-failed'],
+  ])('%s treats a payment with no checkout transaction as an idempotent no-op (never rethrown, never reported)', async (name) => {
+    const { default: subscriber } = await import(`../${name}`)
+    mockExecute.mockRejectedValueOnce(new CrudHttpError(404, {
+      error: 'Transaction not found',
+      code: 'checkout_transaction_not_found',
+    }))
+
+    await expect(subscriber(PAYLOAD)).resolves.toBeUndefined()
+
+    expect(mockReportError).not.toHaveBeenCalled()
+    expect(mockResumeSession).not.toHaveBeenCalled()
+  })
+
+  it('still propagates a 404 that is not the missing-transaction case (for example a missing link)', async () => {
+    mockExecute.mockRejectedValueOnce(new CrudHttpError(404, { error: 'Payment link not found' }))
+
+    await expect(handle(PAYLOAD)).rejects.toMatchObject({ status: 404 })
+    expect(mockReportError).toHaveBeenCalled()
+  })
 })

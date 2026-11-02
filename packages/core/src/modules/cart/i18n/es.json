@@ -25,6 +25,7 @@
   "cart.admin.detail.sections.lines": "Líneas",
   "cart.admin.detail.sections.mergeLog": "Historial de fusiones",
   "cart.admin.detail.sections.warnings": "Avisos",
+  "cart.admin.errors.buyerResolutionUnavailable": "La resolución de la identidad del comprador no está disponible, por lo que este carrito de la tienda no puede recalcularse ahora.",
   "cart.admin.errors.cartNotActive": "El carrito no está activo ni abandonado.",
   "cart.admin.errors.cartNotFound": "Carrito no encontrado.",
   "cart.admin.errors.detailFailed": "No se pudo cargar el carrito.",

@@ -76,6 +76,37 @@ function assertLinkAvailableForCartSeeding(link: CheckoutLink, request: Request 
 }
 
 /**
+ * Non-consuming availability probe run at session creation. Creating a session is
+ * anonymous and cheap, so it must never hold scarce completion capacity — otherwise one
+ * unauthenticated request could keep a `maxCompletions: 1` link unavailable to its intended
+ * buyer. The slot is claimed atomically by `reserveCheckoutLinkSlot` when submit starts.
+ */
+async function assertCheckoutLinkHasCapacity(
+  em: EntityManager,
+  link: Pick<CheckoutLink, 'id' | 'tenantId' | 'organizationId'>,
+): Promise<void> {
+  const rows = await em.execute<Array<{ id: string }>>(
+    `
+      SELECT id
+      FROM checkout_links
+      WHERE id = ?
+        AND organization_id = ?
+        AND tenant_id = ?
+        AND deleted_at IS NULL
+        AND status = 'active'
+        AND (
+          max_completions IS NULL
+          OR completion_count + active_reservation_count < max_completions
+        )
+    `,
+    [link.id, link.organizationId, link.tenantId],
+  )
+  if (!rows[0]) {
+    throw new CrudHttpError(422, { error: '[internal] this checkout link is no longer available', code: 'checkout_link_unavailable' })
+  }
+}
+
+/**
  * Atomically claims one usage slot against `maxCompletions`, the SAME compare-and-swap
  * `commands/transactions.ts#createTransactionCommand` already uses for a Phase A pay-link
  * transaction — the check (`completion_count + active_reservation_count < max_completions`)
@@ -83,7 +114,7 @@ function assertLinkAvailableForCartSeeding(link: CheckoutLink, request: Request 
  * `maxCompletions: 1` link can never both win. Throws the SAME `checkout_link_unavailable`
  * 422 the old read-then-compare check did when no slot is left.
  */
-async function reserveCheckoutLinkSlot(
+export async function reserveCheckoutLinkSlot(
   em: EntityManager,
   link: Pick<CheckoutLink, 'id' | 'tenantId' | 'organizationId'>,
 ): Promise<void> {
@@ -164,7 +195,7 @@ async function resolveLinkBuyerIdentity(
   const auth = await getCustomerAuthFromRequest(request)
   if (!auth || auth.tenantId !== link.tenantId || auth.orgId !== link.organizationId) return null
   const storeContextService = tryResolve<StoreContextService>(container, 'storeContextService')
-  if (!storeContextService) return null
+  if (!storeContextService?.resolveForBuyer) return null
   const resolved = await storeContextService.resolveForBuyer({
     tenantId: link.tenantId,
     organizationId: link.organizationId,
@@ -193,10 +224,7 @@ export async function seedCartFromCheckoutLink(params: {
   }
   const currencyCode = templateLines[0].currencyCode
 
-  // Claims the usage slot atomically (Finding 5) right before the irreversible cart-
-  // creation side effects below — any failure from here on releases it in the `catch`
-  // rather than leaking a permanently-reserved slot off a session that never seeded.
-  await reserveCheckoutLinkSlot(em, link)
+  await assertCheckoutLinkHasCapacity(em, link)
 
   const { ctx: trustedCtx } = buildTrustedCommandContext({
     tenantId: link.tenantId,
@@ -255,7 +283,6 @@ export async function seedCartFromCheckoutLink(params: {
       })
     }
   } catch (err) {
-    await releaseCheckoutLinkSlot(em, { tenantId: link.tenantId, organizationId: link.organizationId }, link.id, { completed: false })
     throw err
   }
 

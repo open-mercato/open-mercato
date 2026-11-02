@@ -66,9 +66,11 @@ describe('checkout expire-awaiting-payment worker', () => {
   const mockFindTransactionBySessionId = jest.fn()
   const mockGetPaymentStatus = jest.fn()
   const mockEmFindOne = jest.fn(async () => ({ id: 'checkout-transaction-1' } as CheckoutTransaction))
+  const mockNativeUpdate = jest.fn(async (..._args: unknown[]) => 1)
   const mockEm = {
     fork: () => mockEm,
     findOne: (...args: unknown[]) => mockEmFindOne(...args),
+    nativeUpdate: (...args: unknown[]) => mockNativeUpdate(...args),
   }
 
   const resolve = <T = unknown>(name: string): T => {
@@ -94,6 +96,7 @@ describe('checkout expire-awaiting-payment worker', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     mockEmFindOne.mockResolvedValue({ id: 'checkout-transaction-1' } as CheckoutTransaction)
+    mockNativeUpdate.mockResolvedValue(1)
     mockFindTransactionBySessionId.mockResolvedValue({ id: GATEWAY_TRANSACTION_ID })
     mockGetPaymentStatus.mockResolvedValue({ status: 'captured' })
   })
@@ -256,5 +259,77 @@ describe('checkout expire-awaiting-payment worker', () => {
 
     expect(mockConfirmOrderAndComplete).not.toHaveBeenCalled()
     expect(mockCompensateByCancellingOrder).not.toHaveBeenCalled()
+  })
+
+  it('derives the outcome from the persisted transaction state without probing the gateway: a completed transaction confirms', async () => {
+    const session = makeSession()
+    mockFindWithDecryption.mockResolvedValueOnce([session])
+    mockEmFindOne.mockResolvedValue({ id: 'checkout-transaction-1', status: 'completed' } as CheckoutTransaction)
+    mockFindTransactionBySessionId.mockResolvedValue(null)
+    const { default: handle } = await import('../expire-awaiting-payment.worker')
+
+    await handle(
+      { ...baseJob, payload: { tenantId: TENANT_ID, organizationId: ORG_ID } } as unknown as QueuedJob<ExpireAwaitingPaymentJob>,
+      mockContext,
+    )
+
+    expect(mockFindTransactionBySessionId).not.toHaveBeenCalled()
+    expect(mockConfirmOrderAndComplete).toHaveBeenCalledTimes(1)
+    expect(mockCompensateByCancellingOrder).not.toHaveBeenCalled()
+  })
+
+  it('a persisted failed transaction compensates even when the gateway probe would report a capture', async () => {
+    const session = makeSession()
+    mockFindWithDecryption.mockResolvedValueOnce([session])
+    mockEmFindOne.mockResolvedValue({ id: 'checkout-transaction-1', status: 'failed' } as CheckoutTransaction)
+    mockGetPaymentStatus.mockResolvedValue({ status: 'captured' })
+    const { default: handle } = await import('../expire-awaiting-payment.worker')
+
+    await handle(
+      { ...baseJob, payload: { tenantId: TENANT_ID, organizationId: ORG_ID } } as unknown as QueuedJob<ExpireAwaitingPaymentJob>,
+      mockContext,
+    )
+
+    expect(mockConfirmOrderAndComplete).not.toHaveBeenCalled()
+    expect(mockCompensateByCancellingOrder).toHaveBeenCalledTimes(1)
+  })
+
+  it('claims the awaiting_payment session atomically and skips every side effect when the claim is lost', async () => {
+    const session = makeSession()
+    mockFindWithDecryption.mockResolvedValueOnce([session])
+    mockNativeUpdate.mockResolvedValueOnce(0)
+    const { default: handle } = await import('../expire-awaiting-payment.worker')
+
+    await handle(
+      { ...baseJob, payload: { tenantId: TENANT_ID, organizationId: ORG_ID } } as unknown as QueuedJob<ExpireAwaitingPaymentJob>,
+      mockContext,
+    )
+
+    expect(mockNativeUpdate).toHaveBeenCalledWith(
+      CheckoutSession,
+      expect.objectContaining({ id: session.id, status: 'awaiting_payment' }),
+      expect.objectContaining({ submitProgress: 'payment_resolving' }),
+    )
+    expect(mockConfirmOrderAndComplete).not.toHaveBeenCalled()
+    expect(mockCompensateByCancellingOrder).not.toHaveBeenCalled()
+    expect(mockEmitCheckoutEvent).not.toHaveBeenCalled()
+  })
+
+  it('releases the claim when the finalizer throws so the next tick can retry', async () => {
+    const session = makeSession()
+    mockFindWithDecryption.mockResolvedValueOnce([session])
+    mockConfirmOrderAndComplete.mockRejectedValueOnce(new Error('unexpected'))
+    const { default: handle } = await import('../expire-awaiting-payment.worker')
+
+    await handle(
+      { ...baseJob, payload: { tenantId: TENANT_ID, organizationId: ORG_ID } } as unknown as QueuedJob<ExpireAwaitingPaymentJob>,
+      mockContext,
+    )
+
+    expect(mockNativeUpdate).toHaveBeenLastCalledWith(
+      CheckoutSession,
+      expect.objectContaining({ id: session.id, submitProgress: 'payment_resolving' }),
+      expect.objectContaining({ submitProgress: 'payment_initiated' }),
+    )
   })
 })

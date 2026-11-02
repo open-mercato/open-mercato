@@ -25,6 +25,7 @@
   "cart.admin.detail.sections.lines": "라인",
   "cart.admin.detail.sections.mergeLog": "병합 기록",
   "cart.admin.detail.sections.warnings": "경고",
+  "cart.admin.errors.buyerResolutionUnavailable": "구매자 신원 확인을 사용할 수 없어 지금은 이 스토어프론트 장바구니의 가격을 다시 계산할 수 없습니다.",
   "cart.admin.errors.cartNotActive": "장바구니가 활성 상태이거나 방치된 상태가 아닙니다.",
   "cart.admin.errors.cartNotFound": "장바구니를 찾을 수 없습니다.",
   "cart.admin.errors.detailFailed": "장바구니를 불러오지 못했습니다.",

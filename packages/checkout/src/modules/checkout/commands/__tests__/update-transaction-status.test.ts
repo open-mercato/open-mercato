@@ -519,4 +519,36 @@ describe('updateTransactionStatusCommand — pay-link usage counters', () => {
     await runUpdateStatus(nonTerminal, 'processing')
     expect(linkCounterUpdateCalls(nonTerminal)).toHaveLength(0)
   })
+
+  describe('session-backed transactions own no link slot', () => {
+    it.each(['completed', 'failed', 'cancelled'] as const)(
+      'processing → %s leaves the link counters untouched when the transaction belongs to a session (the session releases the slot exactly once)',
+      async (status) => {
+        const transaction = { ...makeTransaction('processing'), sessionId: 'session-1' }
+        const em = makeMockEm(transaction, 1)
+
+        await runUpdateStatus(em, status)
+
+        expect(linkCounterUpdateCalls(em)).toHaveLength(0)
+      },
+    )
+
+    it('a transaction without a session still moves the link counters once', async () => {
+      const em = makeMockEm(makeTransaction('processing'), 1)
+
+      await runUpdateStatus(em, 'completed')
+
+      expect(linkCounterUpdateCalls(em)).toHaveLength(1)
+    })
+
+    it('a missing transaction is reported with the checkout_transaction_not_found code', async () => {
+      const em = makeMockEm(makeTransaction('processing'), 1)
+      em.findOne.mockResolvedValueOnce(null)
+
+      await expect(runUpdateStatus(em, 'completed')).rejects.toMatchObject({
+        status: 404,
+        body: expect.objectContaining({ code: 'checkout_transaction_not_found' }),
+      })
+    })
+  })
 })

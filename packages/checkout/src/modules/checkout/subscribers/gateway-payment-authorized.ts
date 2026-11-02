@@ -1,7 +1,7 @@
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { CommandBus } from '@open-mercato/shared/lib/commands/command-bus'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
-import { isIdempotentCheckoutTransactionStatusConflict } from '../lib/utils'
+import { isCheckoutTransactionNotFound, isIdempotentCheckoutTransactionStatusConflict } from '../lib/utils'
 
 export const metadata = {
   event: 'payment_gateways.payment.authorized',
@@ -32,6 +32,7 @@ export default async function handle(payload: { paymentId?: string; organization
       },
     })
   } catch (err) {
+    if (isCheckoutTransactionNotFound(err)) return
     // See `gateway-payment-captured.ts` for why only a proven terminal/idempotent no-op
     // may be swallowed here — this subscriber is `persistent: true` too.
     if (!isIdempotentCheckoutTransactionStatusConflict(err)) {

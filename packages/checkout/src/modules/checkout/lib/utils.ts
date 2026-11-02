@@ -362,6 +362,10 @@ export function isIdempotentCheckoutTransactionStatusConflict(err: unknown): boo
   return isTerminalCheckoutStatus(typeof currentStatus === 'string' ? currentStatus : null)
 }
 
+export function isCheckoutTransactionNotFound(err: unknown): boolean {
+  return isCrudHttpError(err) && err.status === 404 && err.body?.code === 'checkout_transaction_not_found'
+}
+
 export function isCheckoutLinkPublic(status: CheckoutLinkStatus | string | null | undefined): boolean {
   return status === 'active'
 }

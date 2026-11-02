@@ -7,6 +7,11 @@ import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { CheckoutSession, CheckoutTransaction } from '../data/entities'
 import { compensateByCancellingOrder, confirmOrderAndComplete } from '../commands/submit'
 import { writeSessionEvent } from './sessionEvents'
+import {
+  claimAwaitingPaymentSession,
+  derivePersistedPaymentOutcome,
+  releaseAwaitingPaymentClaim,
+} from './sessionPaymentClaim'
 import { emitCheckoutEvent } from '../events'
 
 const logger = createLogger('checkout')
@@ -52,56 +57,66 @@ export function createGatewayPaymentSessionResumeHandler(outcome: GatewayPayment
       // resume, finds the session already past that state and no-ops here.
       if (!session || session.status !== 'awaiting_payment' || !session.salesOrderId || !session.salesQuoteId) return
 
+      if (derivePersistedPaymentOutcome(transaction.status) !== outcome) return
+
+      const claimed = await claimAwaitingPaymentSession(em, session.id, scope)
+      if (!claimed) return
+
       const runtimeContainer = container as unknown as CommandRuntimeContext['container']
       const reservationKeys = {
         stockReservationKey: session.stockReservationKey ?? null,
         creditReservationKey: session.creditReservationKey ?? null,
       }
 
-      if (outcome === 'completed') {
-        await confirmOrderAndComplete(
-          runtimeContainer,
-          em,
-          session,
-          scope,
-          session.salesOrderId,
-          session.salesQuoteId,
-          reservationKeys,
-        )
+      try {
+        if (outcome === 'completed') {
+          await confirmOrderAndComplete(
+            runtimeContainer,
+            em,
+            session,
+            scope,
+            session.salesOrderId,
+            session.salesQuoteId,
+            reservationKeys,
+          )
+          await writeSessionEvent(em, {
+            ...scope,
+            sessionId: session.id,
+            kind: 'payment_result',
+            actor: 'system',
+            payload: { orderId: session.salesOrderId, outcome: 'succeeded' },
+          })
+          await emitCheckoutEvent('checkout.payment.succeeded', {
+            sessionId: session.id,
+            tenantId: scope.tenantId,
+            organizationId: scope.organizationId,
+            orderId: session.salesOrderId,
+            transactionId: transaction.id,
+          }).catch(() => undefined)
+          return
+        }
+
+        const failureCode = outcome === 'cancelled' ? 'payment_cancelled' : 'payment_failed'
+        await compensateByCancellingOrder(runtimeContainer, em, session, scope, session.salesOrderId, failureCode)
         await writeSessionEvent(em, {
           ...scope,
           sessionId: session.id,
           kind: 'payment_result',
           actor: 'system',
-          payload: { orderId: session.salesOrderId, outcome: 'succeeded' },
+          payload: { orderId: session.salesOrderId, outcome: 'failed' },
         })
-        await emitCheckoutEvent('checkout.payment.succeeded', {
+        await emitCheckoutEvent('checkout.payment.failed', {
           sessionId: session.id,
           tenantId: scope.tenantId,
           organizationId: scope.organizationId,
           orderId: session.salesOrderId,
           transactionId: transaction.id,
+          failureCode,
         }).catch(() => undefined)
-        return
+      } catch (finalizeError) {
+        await releaseAwaitingPaymentClaim(em, session.id, scope).catch(() => undefined)
+        throw finalizeError
       }
-
-      const failureCode = outcome === 'cancelled' ? 'payment_cancelled' : 'payment_failed'
-      await compensateByCancellingOrder(runtimeContainer, em, session, scope, session.salesOrderId, failureCode)
-      await writeSessionEvent(em, {
-        ...scope,
-        sessionId: session.id,
-        kind: 'payment_result',
-        actor: 'system',
-        payload: { orderId: session.salesOrderId, outcome: 'failed' },
-      })
-      await emitCheckoutEvent('checkout.payment.failed', {
-        sessionId: session.id,
-        tenantId: scope.tenantId,
-        organizationId: scope.organizationId,
-        orderId: session.salesOrderId,
-        transactionId: transaction.id,
-        failureCode,
-      }).catch(() => undefined)
     } catch (err) {
       // Every intentional no-op above (missing payload, no transaction, no session, a
       // session already past `awaiting_payment`) already returned BEFORE this point without

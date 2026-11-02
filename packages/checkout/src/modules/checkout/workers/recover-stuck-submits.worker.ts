@@ -15,6 +15,7 @@ import {
   findExistingQuoteByExternalReference,
   resumeOrderOutcomeFromQuote,
 } from '../commands/submit'
+import { releaseCheckoutLinkSlot } from '../lib/payLinkCartSeed'
 import { writeSessionEvent } from '../lib/sessionEvents'
 import { emitCheckoutEvent } from '../events'
 import { tryResolve } from '../lib/tryResolve'
@@ -110,7 +111,14 @@ export async function recoverOneStuckSubmit(
       }
       logger.error('[internal] recover-stuck-submits: giving up on an old stuck quote attempt, compensating', { err, sessionId: session.id, progress })
       await safeUnlockCart(container, session, scope)
-      await em.nativeUpdate(CheckoutSession, { id: session.id, ...scope }, { status: 'failed', failureCode: 'submit_recovery_failed', updatedAt: new Date() })
+      const gaveUp = await em.nativeUpdate(
+        CheckoutSession,
+        { id: session.id, ...scope, status: 'submitting' },
+        { status: 'failed', failureCode: 'submit_recovery_failed', updatedAt: new Date() },
+      )
+      if (gaveUp > 0 && session.linkId) {
+        await releaseCheckoutLinkSlot(em, scope, session.linkId, { completed: false })
+      }
       await writeSessionEvent(em, { ...scope, sessionId: session.id, kind: 'recovery', actor: 'system', payload: { action: 'gave_up', fromProgress: progress } })
       await emitCheckoutEvent('checkout.session.failed', { sessionId: session.id, tenantId: scope.tenantId, organizationId: scope.organizationId, cartId: session.cartId ?? null, attempt: session.submitAttempt, failureCode: 'submit_recovery_failed' }).catch(() => undefined)
       return

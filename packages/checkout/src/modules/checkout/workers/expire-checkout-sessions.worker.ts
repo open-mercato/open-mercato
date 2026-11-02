@@ -3,7 +3,6 @@ import type { JobContext, QueuedJob, WorkerMeta } from '@open-mercato/queue'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { CheckoutSession } from '../data/entities'
-import { releaseCheckoutLinkSlot } from '../lib/payLinkCartSeed'
 import { writeSessionEvent } from '../lib/sessionEvents'
 import { emitCheckoutEvent } from '../events'
 
@@ -27,22 +26,10 @@ type HandlerContext = JobContext & { resolve: <T = unknown>(name: string) => T }
 type ExpiryScope = { tenantId: string; organizationId: string }
 
 /**
- * PR 8268 review fix (Finding 5 follow-up, §12). This is the `expire-checkout-sessions`
- * job named but never shipped since Step 2.12 — `lib/session-status-machine.ts`'s own
- * `open -> expired` / `awaiting_approval -> expired` rows document it as reachable "from
- * code this Step ships" even though no caller ever drove either transition until now.
- *
- * `commands/session.ts`'s `{ source: 'link' }` branch claims a `reserveCheckoutLinkSlot`
- * slot (`lib/payLinkCartSeed.ts`) at session creation and only ever releases it on a
- * TERMINAL submit outcome (`commands/submit.ts`'s `compensateByCancellingOrder` /
- * `confirmOrderAndComplete` / `completeQuoteOutcome`). A buyer who never calls submit at
- * all — the common case, per the funnel's own "abandoned checkouts are the majority"
- * framing — leaves that slot claimed forever; against a `maxCompletions: 1` link, one
- * abandoned visit permanently kills it for every other buyer. This sweep CASes every
- * `open`/`awaiting_approval` session past its own `expiresAt` (§4.1's funnel TTL) to
- * `expired` and, for a `linkId`-originated one, releases the hold — the SAME permanent-
- * leak shape `transaction-expiry.worker.ts` already closes for the Phase A `pay_link`
- * transaction flow.
+ * Sweeps `open`/`awaiting_approval` sessions past their own `expiresAt` to `expired`. Such
+ * sessions never hold a checkout-link slot: the slot is claimed when submit starts and is
+ * released exactly once by whichever terminal compare-and-swap leaves `submitting` /
+ * `awaiting_payment`, so this sweep deliberately touches no link counters.
  */
 export async function expireOneCheckoutSession(
   em: EntityManager,
@@ -58,10 +45,6 @@ export async function expireOneCheckoutSession(
   // supersede) already moved this row out of the status this sweep observed — skipped,
   // never reported as an error, same CAS-race tolerance this module's other jobs apply.
   if (affected === 0) return
-
-  if (session.linkId) {
-    await releaseCheckoutLinkSlot(em, scope, session.linkId, { completed: false })
-  }
 
   await writeSessionEvent(em, {
     ...scope,

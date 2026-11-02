@@ -25,6 +25,7 @@
   "cart.admin.detail.sections.lines": "Positionen",
   "cart.admin.detail.sections.mergeLog": "Zusammenführungsverlauf",
   "cart.admin.detail.sections.warnings": "Warnungen",
+  "cart.admin.errors.buyerResolutionUnavailable": "Die Auflösung der Käuferidentität ist nicht verfügbar, daher kann dieser Storefront-Warenkorb derzeit nicht neu bepreist werden.",
   "cart.admin.errors.cartNotActive": "Der Warenkorb ist nicht aktiv oder verlassen.",
   "cart.admin.errors.cartNotFound": "Warenkorb nicht gefunden.",
   "cart.admin.errors.detailFailed": "Warenkorb konnte nicht geladen werden.",

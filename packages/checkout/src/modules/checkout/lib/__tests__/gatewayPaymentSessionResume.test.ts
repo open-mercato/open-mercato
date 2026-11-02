@@ -34,8 +34,10 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: (...args: unknown[]) => mockFindOneWithDecryption(...args),
 }))
 
+const mockNativeUpdate = jest.fn(async (..._args: unknown[]) => 1)
 const mockEm = {
   findOne: jest.fn(async () => seededTransaction),
+  nativeUpdate: (...args: unknown[]) => mockNativeUpdate(...args),
   fork: jest.fn(),
 }
 mockEm.fork.mockReturnValue(mockEm)
@@ -50,7 +52,7 @@ import { createGatewayPaymentSessionResumeHandler } from '../gatewayPaymentSessi
 const PAYLOAD = { paymentId: 'txn-1', organizationId: 'org-1', tenantId: 'tenant-1', transactionId: 'gw-1' }
 
 function makeTransaction(overrides: FakeRow = {}): FakeRow {
-  return { id: 'txn-1', sessionId: 'session-1', linkId: null, ...overrides }
+  return { id: 'txn-1', sessionId: 'session-1', linkId: null, status: 'completed', ...overrides }
 }
 
 function makeSession(overrides: FakeRow = {}): FakeRow {
@@ -69,6 +71,7 @@ beforeEach(() => {
   jest.clearAllMocks()
   seededTransaction = makeTransaction()
   seededSession = makeSession()
+  mockNativeUpdate.mockResolvedValue(1)
 })
 
 describe('createGatewayPaymentSessionResumeHandler', () => {
@@ -89,6 +92,7 @@ describe('createGatewayPaymentSessionResumeHandler', () => {
   })
 
   it('failed: compensates by cancelling the order', async () => {
+    seededTransaction = makeTransaction({ status: 'failed' })
     const handle = createGatewayPaymentSessionResumeHandler('failed')
     await handle(PAYLOAD)
 
@@ -104,6 +108,7 @@ describe('createGatewayPaymentSessionResumeHandler', () => {
   })
 
   it('cancelled: compensates with the cancelled failure code', async () => {
+    seededTransaction = makeTransaction({ status: 'cancelled' })
     const handle = createGatewayPaymentSessionResumeHandler('cancelled')
     await handle(PAYLOAD)
 
@@ -177,5 +182,53 @@ describe('createGatewayPaymentSessionResumeHandler', () => {
     await handle(PAYLOAD)
     expect(mockConfirmOrderAndComplete).toHaveBeenCalledTimes(2)
     expect(mockCompensateByCancellingOrder).not.toHaveBeenCalled()
+  })
+
+  it('is a no-op when the persisted transaction state differs from the event outcome (captured event, failed transaction)', async () => {
+    seededTransaction = makeTransaction({ status: 'failed' })
+    await createGatewayPaymentSessionResumeHandler('completed')(PAYLOAD)
+
+    expect(mockNativeUpdate).not.toHaveBeenCalled()
+    expect(mockConfirmOrderAndComplete).not.toHaveBeenCalled()
+    expect(mockCompensateByCancellingOrder).not.toHaveBeenCalled()
+  })
+
+  it('is a no-op for a failed event when the persisted transaction was already completed', async () => {
+    seededTransaction = makeTransaction({ status: 'completed' })
+    await createGatewayPaymentSessionResumeHandler('failed')(PAYLOAD)
+
+    expect(mockConfirmOrderAndComplete).not.toHaveBeenCalled()
+    expect(mockCompensateByCancellingOrder).not.toHaveBeenCalled()
+  })
+
+  it('is a no-op while the persisted transaction is still processing', async () => {
+    seededTransaction = makeTransaction({ status: 'processing' })
+    await createGatewayPaymentSessionResumeHandler('completed')(PAYLOAD)
+
+    expect(mockConfirmOrderAndComplete).not.toHaveBeenCalled()
+  })
+
+  it('atomically claims the awaiting_payment session before any finalizer side effect and no-ops when the claim is lost', async () => {
+    mockNativeUpdate.mockResolvedValueOnce(0)
+    await createGatewayPaymentSessionResumeHandler('completed')(PAYLOAD)
+
+    expect(mockNativeUpdate).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ id: 'session-1', status: 'awaiting_payment' }),
+      expect.objectContaining({ submitProgress: 'payment_resolving' }),
+    )
+    expect(mockConfirmOrderAndComplete).not.toHaveBeenCalled()
+    expect(mockCompensateByCancellingOrder).not.toHaveBeenCalled()
+  })
+
+  it('releases the claim when the finalizer fails so a redelivery can reclaim', async () => {
+    mockConfirmOrderAndComplete.mockRejectedValueOnce(new Error('transient db error'))
+    await expect(createGatewayPaymentSessionResumeHandler('completed')(PAYLOAD)).rejects.toThrow('transient db error')
+
+    expect(mockNativeUpdate).toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.objectContaining({ id: 'session-1', submitProgress: 'payment_resolving' }),
+      expect.objectContaining({ submitProgress: 'payment_initiated' }),
+    )
   })
 })

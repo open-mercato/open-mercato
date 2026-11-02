@@ -34,7 +34,8 @@ import { computeDeliveryOptions } from '../lib/deliveryRateQuote'
 import { hashAddressForCache, hashCartLinesForCache, resolveDestinationAddress } from '../lib/deliveryAddress'
 import { evaluateDeliveryDiscount } from '../lib/promotionsDeliveryEvaluation'
 import { listCheckoutPaymentMethods } from '../lib/paymentMethods'
-import { releaseCheckoutLinkSlot } from '../lib/payLinkCartSeed'
+import { releaseCheckoutLinkSlot, reserveCheckoutLinkSlot } from '../lib/payLinkCartSeed'
+import { resolveGatewayReturnUrl } from '../lib/gatewayReturnUrl'
 import { writeSessionEvent } from '../lib/sessionEvents'
 import { tryResolve } from '../lib/tryResolve'
 import { emitCheckoutEvent } from '../events'
@@ -114,6 +115,8 @@ export type CheckoutSessionSubmitStageResult = {
 }
 
 type SubmitScope = { tenantId: string; organizationId: string }
+
+const SLOT_HOLDING_SESSION_STATUSES: CheckoutSession['status'][] = ['submitting', 'awaiting_payment']
 
 function buildTrustedCtx(
   container: CommandRuntimeContext['container'],
@@ -332,11 +335,14 @@ export async function compensate(
   }
 
   const revertedAt = new Date()
-  await em.nativeUpdate(
+  const reverted = await em.nativeUpdate(
     CheckoutSession,
     { id: session.id, tenantId: scope.tenantId, organizationId: scope.organizationId, status: 'submitting' },
     { status: 'open', updatedAt: revertedAt },
   )
+  if (reverted > 0 && session.linkId) {
+    await releaseCheckoutLinkSlot(em, scope, session.linkId, { completed: false })
+  }
   // `nativeUpdate` bypasses the unit of work, so without this the `session` entity this
   // function was handed stays dirty with its caller's in-memory `status: 'submitting'` —
   // a later `em.flush()` anywhere in this em's lifetime (this function's own em is reused
@@ -403,15 +409,6 @@ const submitSessionCommand: CommandHandler<CheckoutSessionSubmitCommandInput, Ch
         { id: session.id, ...scope, status: 'open' },
         { status: 'expired', updatedAt: new Date() },
       )
-      // Finding 5 follow-up: this path moves the session straight to the terminal
-      // `expired` status itself — it never reaches `workers/expire-checkout-sessions.worker.ts`'s
-      // own sweep (which only selects `open`/`awaiting_approval` rows), so a `linkId`-
-      // originated session's `reserveCheckoutLinkSlot` hold has to be released HERE or it
-      // leaks permanently, the exact same shape the sweep closes for a session that never
-      // calls submit at all.
-      if (session.linkId) {
-        await releaseCheckoutLinkSlot(em, scope, session.linkId, { completed: false })
-      }
       throw new CrudHttpError(409, { error: '[internal] checkout session has expired', code: 'session_expired' })
     }
     if (!session.termsAcceptedAt) {
@@ -511,6 +508,13 @@ const submitSessionCommand: CommandHandler<CheckoutSessionSubmitCommandInput, Ch
     const creditReservationKey = `checkout:${session.id}:${attempt}:credit`
     const externalReference = `checkout:${session.id}:${attempt}`
 
+    const successUrl = resolveGatewayReturnUrl(input.successUrl, input.request)
+    const cancelUrl = resolveGatewayReturnUrl(input.cancelUrl, input.request)
+
+    if (session.linkId) {
+      await reserveCheckoutLinkSlot(em, { id: session.linkId, ...scope })
+    }
+
     const casAffected = await em.nativeUpdate(
       CheckoutSession,
       { id: session.id, ...scope, status: 'open' },
@@ -532,6 +536,9 @@ const submitSessionCommand: CommandHandler<CheckoutSessionSubmitCommandInput, Ch
       },
     )
     if (casAffected === 0) {
+      if (session.linkId) {
+        await releaseCheckoutLinkSlot(em, scope, session.linkId, { completed: false })
+      }
       throw new CrudHttpError(409, { error: '[internal] a submit attempt is already in flight for this session', code: 'submit_in_progress' })
     }
     session.status = 'submitting'
@@ -580,299 +587,316 @@ const submitSessionCommand: CommandHandler<CheckoutSessionSubmitCommandInput, Ch
       throw new CrudHttpError(409, { error: '[internal] the cart re-priced at submit', code: 'price_changed', priceChanges: lockResult.priceChanges })
     }
 
-    await writeSessionEvent(em, { ...scope, sessionId: session.id, kind: 'cart_locked', actor: 'system', payload: { cartId: session.cartId } })
-
-    // ---------------------------------------------------------------------
-    // §7.2 step 2 (delivery re-evaluation, D-R5-17): re-validate the stored shipping rate
-    // and delivery promotion against the SAME deliveryMethodCode, closing the §7.2-step-2
-    // gap Step 2.13's own NOTIFY entry flagged for this Step to close "for real" — codes are
-    // re-derived from the cart's own `cart_promotion_applications` rows, never `codes: []`.
-    // ---------------------------------------------------------------------
-    const shippingMethod = session.shippingMethod as { deliveryMethodCode: string; price: string } | null
-    if (!shippingMethod) {
-      await compensate(container, em, session, scope, { releaseCredit: false, releaseStock: false, unlockCart: true }, { stockReservationKey, creditReservationKey })
-      throw new CrudHttpError(422, { error: '[internal] a delivery method must be selected before submit', code: 'steps_incomplete' })
+    let compensated = false
+    const held = { stock: false, credit: false }
+    const compensateOnce = async (flags: CompensationFlags): Promise<void> => {
+      if (compensated) return
+      compensated = true
+      await compensate(container, em, session, scope, flags, { stockReservationKey, creditReservationKey })
     }
+    let availabilityActive = false
+    let isOnAccount = false
+    let quoteId: string
 
-    const containerWithRegister = container as unknown as {
-      resolve: <T = unknown>(name: string) => T
-      register: (registrations: Record<string, unknown>) => unknown
-    }
-    const destination = resolveDestinationAddress(session.shippingAddress)
-    let freshDeliveryCost = shippingMethod.price
-    if (destination) {
-      const lines = await lookupCartLinePeers(em, session.cartId, scope)
-      const addressHash = hashAddressForCache(destination)
-      const cartHash = hashCartLinesForCache(lines)
-      const options = await getOrComputeDeliveryOptions(
-        containerWithRegister,
-        { tenantId: scope.tenantId, organizationId: scope.organizationId, sessionId: session.id },
-        addressHash,
-        cartHash,
-        () =>
-          computeDeliveryOptions(
-            containerWithRegister,
-            em,
-            {
-              id: session.id,
-              tenantId: session.tenantId,
-              organizationId: session.organizationId,
-              cartId: session.cartId ?? null,
-              storeId: session.storeId ?? null,
-              linkId: session.linkId ?? null,
-              channel: session.channel,
-              currencyCode: session.currencyCode,
-            },
-            destination,
-          ),
-      )
-      const stillOffered = options.find((option) => option.deliveryMethodCode === shippingMethod.deliveryMethodCode)
-      if (!stillOffered) {
-        await compensate(container, em, session, scope, { releaseCredit: false, releaseStock: false, unlockCart: true }, { stockReservationKey, creditReservationKey })
-        throw new CrudHttpError(409, { error: '[internal] the delivery method is no longer available', code: 'price_changed', reason: 'delivery_changed' })
-      }
-      freshDeliveryCost = stillOffered.cost
-    }
-
-    const enteredCodes = await lookupCartEnteredCodes(em, session.cartId, scope)
-    const freshDeliveryDiscount = await evaluateDeliveryDiscount(containerWithRegister, em, {
-      sessionId: session.id,
-      tenantId: scope.tenantId,
-      organizationId: scope.organizationId,
-      cartId: session.cartId,
-      currencyCode: session.currencyCode,
-      deliveryMethodCode: shippingMethod.deliveryMethodCode,
-      deliveryCost: freshDeliveryCost,
-      codes: enteredCodes,
-    })
-
-    const storedQuotedTotals = (session.quotedTotals ?? {}) as { deliveryCost?: string; deliveryDiscount?: string | null }
-    const freshDeliveryDiscountGross = freshDeliveryDiscount ? freshDeliveryDiscount.amountGross : null
-    if (
-      storedQuotedTotals.deliveryCost !== undefined &&
-      !amountsEqual(toNumber(storedQuotedTotals.deliveryCost), toNumber(freshDeliveryCost))
-    ) {
-      await compensate(container, em, session, scope, { releaseCredit: false, releaseStock: false, unlockCart: true }, { stockReservationKey, creditReservationKey })
-      throw new CrudHttpError(409, { error: '[internal] the delivery cost changed at submit', code: 'price_changed', reason: 'delivery_changed' })
-    }
-    if (
-      storedQuotedTotals.deliveryDiscount !== undefined &&
-      !amountsEqual(toNumber(storedQuotedTotals.deliveryDiscount ?? '0'), toNumber(freshDeliveryDiscountGross ?? '0'))
-    ) {
-      await compensate(container, em, session, scope, { releaseCredit: false, releaseStock: false, unlockCart: true }, { stockReservationKey, creditReservationKey })
-      throw new CrudHttpError(409, { error: '[internal] a newly-eligible delivery promotion changed the price', code: 'price_changed', reason: 'promotion_newly_eligible' })
-    }
-
-    // ---------------------------------------------------------------------
-    // cartService.getSalesSnapshot (C7) — the one source checkout uses to build the quote.
-    // ---------------------------------------------------------------------
-    let snapshot: CartSalesSnapshot
     try {
-      snapshot = await cartService.getSalesSnapshot({
-        cartId: session.cartId,
+      await writeSessionEvent(em, { ...scope, sessionId: session.id, kind: 'cart_locked', actor: 'system', payload: { cartId: session.cartId } })
+
+      // ---------------------------------------------------------------------
+      // §7.2 step 2 (delivery re-evaluation, D-R5-17): re-validate the stored shipping rate
+      // and delivery promotion against the SAME deliveryMethodCode, closing the §7.2-step-2
+      // gap Step 2.13's own NOTIFY entry flagged for this Step to close "for real" — codes are
+      // re-derived from the cart's own `cart_promotion_applications` rows, never `codes: []`.
+      // ---------------------------------------------------------------------
+      const shippingMethod = session.shippingMethod as { deliveryMethodCode: string; price: string } | null
+      if (!shippingMethod) {
+        await compensateOnce({ releaseCredit: false, releaseStock: false, unlockCart: true })
+        throw new CrudHttpError(422, { error: '[internal] a delivery method must be selected before submit', code: 'steps_incomplete' })
+      }
+
+      const containerWithRegister = container as unknown as {
+        resolve: <T = unknown>(name: string) => T
+        register: (registrations: Record<string, unknown>) => unknown
+      }
+      const destination = resolveDestinationAddress(session.shippingAddress)
+      let freshDeliveryCost = shippingMethod.price
+      if (destination) {
+        const lines = await lookupCartLinePeers(em, session.cartId, scope)
+        const addressHash = hashAddressForCache(destination)
+        const cartHash = hashCartLinesForCache(lines)
+        const options = await getOrComputeDeliveryOptions(
+          containerWithRegister,
+          { tenantId: scope.tenantId, organizationId: scope.organizationId, sessionId: session.id },
+          addressHash,
+          cartHash,
+          () =>
+            computeDeliveryOptions(
+              containerWithRegister,
+              em,
+              {
+                id: session.id,
+                tenantId: session.tenantId,
+                organizationId: session.organizationId,
+                cartId: session.cartId ?? null,
+                storeId: session.storeId ?? null,
+                linkId: session.linkId ?? null,
+                channel: session.channel,
+                currencyCode: session.currencyCode,
+              },
+              destination,
+            ),
+        )
+        const stillOffered = options.find((option) => option.deliveryMethodCode === shippingMethod.deliveryMethodCode)
+        if (!stillOffered) {
+          await compensateOnce({ releaseCredit: false, releaseStock: false, unlockCart: true })
+          throw new CrudHttpError(409, { error: '[internal] the delivery method is no longer available', code: 'price_changed', reason: 'delivery_changed' })
+        }
+        freshDeliveryCost = stillOffered.cost
+      }
+
+      const enteredCodes = await lookupCartEnteredCodes(em, session.cartId, scope)
+      const freshDeliveryDiscount = await evaluateDeliveryDiscount(containerWithRegister, em, {
+        sessionId: session.id,
         tenantId: scope.tenantId,
         organizationId: scope.organizationId,
-        checkoutSessionId: session.id,
+        cartId: session.cartId,
+        currencyCode: session.currencyCode,
+        deliveryMethodCode: shippingMethod.deliveryMethodCode,
+        deliveryCost: freshDeliveryCost,
+        codes: enteredCodes,
       })
-    } catch (err) {
-      await compensate(container, em, session, scope, { releaseCredit: false, releaseStock: false, unlockCart: true }, { stockReservationKey, creditReservationKey })
-      throw err
-    }
-    // Precondition 3 (§7.1): "Cart non-empty, active..." — checked here, right after the
-    // one read that can prove it, rather than a second, earlier cart-lines read of its own.
-    if (snapshot.lines.length === 0) {
-      await compensate(container, em, session, scope, { releaseCredit: false, releaseStock: false, unlockCart: true }, { stockReservationKey, creditReservationKey })
-      throw new CrudHttpError(409, { error: '[internal] the cart has no lines', code: 'cart_empty' })
-    }
 
-    // §7.1 precondition 8 / §8.5 (D-R5-4, D-R5-23): checked on the K1 basis (goods gross
-    // after promotions, excluding delivery) in `terms_currency_code`. §8.5's own text is
-    // explicit that a cart in another currency is simply NOT checked (never fail-closed —
-    // unlike the approval gate's own currency-mismatch rule, D-R5-4 deliberately gives
-    // these two fields opposite postures for a mismatch). Skipped entirely for a
-    // `request_quote` submit (D-R5-23).
-    if (!isQuotePurpose && terms?.minOrderValue != null && terms.termsCurrencyCode === session.currencyCode) {
-      const goodsGross = toNumber(snapshot.totals.grandTotalGrossAmount)
-      if (goodsGross < terms.minOrderValue) {
-        await compensate(container, em, session, scope, { releaseCredit: false, releaseStock: false, unlockCart: true }, { stockReservationKey, creditReservationKey })
-        throw new CrudHttpError(409, {
-          error: '[internal] the cart total is below the minimum order value',
-          code: 'below_min_order_value',
-          minOrderValue: terms.minOrderValue,
-          currencyCode: terms.termsCurrencyCode,
-        })
+      const storedQuotedTotals = (session.quotedTotals ?? {}) as { deliveryCost?: string; deliveryDiscount?: string | null }
+      const freshDeliveryDiscountGross = freshDeliveryDiscount ? freshDeliveryDiscount.amountGross : null
+      if (
+        storedQuotedTotals.deliveryCost !== undefined &&
+        !amountsEqual(toNumber(storedQuotedTotals.deliveryCost), toNumber(freshDeliveryCost))
+      ) {
+        await compensateOnce({ releaseCredit: false, releaseStock: false, unlockCart: true })
+        throw new CrudHttpError(409, { error: '[internal] the delivery cost changed at submit', code: 'price_changed', reason: 'delivery_changed' })
       }
-    }
+      if (
+        storedQuotedTotals.deliveryDiscount !== undefined &&
+        !amountsEqual(toNumber(storedQuotedTotals.deliveryDiscount ?? '0'), toNumber(freshDeliveryDiscountGross ?? '0'))
+      ) {
+        await compensateOnce({ releaseCredit: false, releaseStock: false, unlockCart: true })
+        throw new CrudHttpError(409, { error: '[internal] a newly-eligible delivery promotion changed the price', code: 'price_changed', reason: 'promotion_newly_eligible' })
+      }
 
-    // ---------------------------------------------------------------------
-    // Step 3 (§7.2 step 3, A6/A15, D-R5-9): availability.reserve
-    // ---------------------------------------------------------------------
-    const availabilityActive = !!tryResolve(container, 'policyResolutionService')
-    if (availabilityActive) {
-      const items = buildReservationItems(snapshot.lines.map((line) => line.snapshot))
-      if (items.length > 0) {
-        const commandBus = container.resolve('commandBus') as CommandBus
-        const { result: reserveResult } = await commandBus.execute<unknown, {
-          reserved: boolean
-          shortfall: Array<{ catalogProductId: string; catalogVariantId: string | null; requested: number; available: number }>
-        }>('availability.reserve', {
+      // ---------------------------------------------------------------------
+      // cartService.getSalesSnapshot (C7) — the one source checkout uses to build the quote.
+      // ---------------------------------------------------------------------
+      let snapshot: CartSalesSnapshot
+      try {
+        snapshot = await cartService.getSalesSnapshot({
+          cartId: session.cartId,
+          tenantId: scope.tenantId,
+          organizationId: scope.organizationId,
+          checkoutSessionId: session.id,
+        })
+      } catch (err) {
+        await compensateOnce({ releaseCredit: false, releaseStock: false, unlockCart: true })
+        throw err
+      }
+      // Precondition 3 (§7.1): "Cart non-empty, active..." — checked here, right after the
+      // one read that can prove it, rather than a second, earlier cart-lines read of its own.
+      if (snapshot.lines.length === 0) {
+        await compensateOnce({ releaseCredit: false, releaseStock: false, unlockCart: true })
+        throw new CrudHttpError(409, { error: '[internal] the cart has no lines', code: 'cart_empty' })
+      }
+
+      // §7.1 precondition 8 / §8.5 (D-R5-4, D-R5-23): checked on the K1 basis (goods gross
+      // after promotions, excluding delivery) in `terms_currency_code`. §8.5's own text is
+      // explicit that a cart in another currency is simply NOT checked (never fail-closed —
+      // unlike the approval gate's own currency-mismatch rule, D-R5-4 deliberately gives
+      // these two fields opposite postures for a mismatch). Skipped entirely for a
+      // `request_quote` submit (D-R5-23).
+      if (!isQuotePurpose && terms?.minOrderValue != null && terms.termsCurrencyCode === session.currencyCode) {
+        const goodsGross = toNumber(snapshot.totals.grandTotalGrossAmount)
+        if (goodsGross < terms.minOrderValue) {
+          await compensateOnce({ releaseCredit: false, releaseStock: false, unlockCart: true })
+          throw new CrudHttpError(409, {
+            error: '[internal] the cart total is below the minimum order value',
+            code: 'below_min_order_value',
+            minOrderValue: terms.minOrderValue,
+            currencyCode: terms.termsCurrencyCode,
+          })
+        }
+      }
+
+      // ---------------------------------------------------------------------
+      // Step 3 (§7.2 step 3, A6/A15, D-R5-9): availability.reserve
+      // ---------------------------------------------------------------------
+      availabilityActive = !!tryResolve(container, 'policyResolutionService')
+      if (availabilityActive) {
+        const items = buildReservationItems(snapshot.lines.map((line) => line.snapshot))
+        if (items.length > 0) {
+          const commandBus = container.resolve('commandBus') as CommandBus
+          held.stock = true
+          const { result: reserveResult } = await commandBus.execute<unknown, {
+            reserved: boolean
+            shortfall: Array<{ catalogProductId: string; catalogVariantId: string | null; requested: number; available: number }>
+          }>('availability.reserve', {
+            input: {
+              tenantId: scope.tenantId,
+              organizationId: scope.organizationId,
+              items,
+              sourceType: 'checkout',
+              sourceId: session.id,
+              idempotencyKey: stockReservationKey,
+              ttlSeconds: 900,
+            },
+            ctx: trustedCtx,
+          })
+          if (!reserveResult.reserved) {
+            await compensateOnce({ releaseCredit: false, releaseStock: true, unlockCart: true })
+            throw new CrudHttpError(409, { error: '[internal] one or more lines are out of stock', code: 'stock_shortfall', shortfall: reserveResult.shortfall })
+          }
+        }
+      }
+      await writeSessionEvent(em, { ...scope, sessionId: session.id, kind: 'stock_reserved', actor: 'system', payload: { stockReservationKey } })
+
+      // ---------------------------------------------------------------------
+      // Step 4 (§7.2 step 4, D-R5-24): on-account reserveCredit, for the FULL PAYABLE amount
+      // (goods gross after promotions + delivery cost - delivery discount).
+      // ---------------------------------------------------------------------
+      const goodsGross = toNumber(snapshot.totals.grandTotalGrossAmount)
+      const deliveryDiscountGrossAbs = freshDeliveryDiscount ? Math.abs(toNumber(freshDeliveryDiscount.amountGross)) : 0
+      const payableGross = goodsGross + toNumber(freshDeliveryCost) - deliveryDiscountGrossAbs
+      const payableAmount = roundTo2dp(payableGross)
+
+      isOnAccount = input.paymentMethodCode === 'on_account'
+      if (isOnAccount) {
+        const customerCreditService = tryResolve<CustomerCreditService>(container, 'customerCreditService')
+        let reserveResult: ReserveCreditResult | null = null
+        if (customerCreditService) {
+          held.credit = true
+          reserveResult = await customerCreditService.reserveCredit({
+            scope,
+            buyer: { customerIds: cartPeer.customerIds },
+            currencyCode: session.currencyCode,
+            amount: payableAmount,
+            sourceType: 'checkout',
+            sourceId: session.id,
+            idempotencyKey: creditReservationKey,
+          })
+        }
+        if (!reserveResult || !reserveResult.reserved) {
+          await compensateOnce({ releaseCredit: false, releaseStock: true, unlockCart: true })
+          throw new CrudHttpError(402, { error: '[internal] credit was refused', code: 'credit_refused', reason: reserveResult?.check.reason ?? 'no_account' })
+        }
+        await writeSessionEvent(em, { ...scope, sessionId: session.id, kind: 'credit_reserved', actor: 'system', payload: { creditReservationKey } })
+      }
+
+      // ---------------------------------------------------------------------
+      // Step 5 (§7.2 step 5, C3/C7/D-R5-24): idempotent document creation.
+      // ---------------------------------------------------------------------
+      const commandBus = container.resolve('commandBus') as CommandBus
+      const salesCalculationService = tryResolve<SalesCalculationService>(container, 'salesCalculationService')
+      if (!salesCalculationService) {
+        await compensateOnce({ releaseCredit: isOnAccount, releaseStock: true, unlockCart: true })
+        throw new CrudHttpError(503, { error: '[internal] checkout submit is unavailable without the sales module', code: 'checkout_sessions_unavailable' })
+      }
+
+      const existingQuote = await findExistingQuoteByExternalReference(em, scope, externalReference)
+      if (existingQuote) {
+        quoteId = existingQuote.id
+      } else {
+        const quoteLines = snapshot.lines.map((line, index) => ({
+          ...line.snapshot,
+          lineNumber: index + 1,
+          metadata: { ...(line.snapshot.metadata ?? {}), cartLineId: line.cartLineId },
+        }))
+        const { result: createResult } = await commandBus.execute<unknown, { quoteId: string }>('sales.quotes.create', {
           input: {
             tenantId: scope.tenantId,
             organizationId: scope.organizationId,
-            items,
-            sourceType: 'checkout',
-            sourceId: session.id,
-            idempotencyKey: stockReservationKey,
-            ttlSeconds: 900,
+            externalReference,
+            currencyCode: session.currencyCode,
+            customerEntityId: session.customerId ?? undefined,
+            shippingAddressSnapshot: session.shippingAddress ?? undefined,
+            billingAddressSnapshot: session.billingSameAsShipping ? session.shippingAddress ?? undefined : session.billingAddress ?? undefined,
+            shippingMethodCode: shippingMethod.deliveryMethodCode,
+            shippingMethodSnapshot: session.shippingMethod ?? undefined,
+            paymentMethodCode: input.paymentMethodCode,
+            // §8.4/D-R5-28: written regardless of outcome whenever the buyer supplied one —
+            // the resolved `requiresPoNumber` term only gates whether it is REQUIRED
+            // (checked above as a precondition), not whether it is recorded when supplied.
+            customerReference: input.poNumber ?? undefined,
+            lines: quoteLines,
+            adjustments: [
+              ...snapshot.adjustments,
+              {
+                scope: 'order' as const,
+                kind: 'shipping',
+                label: 'Shipping',
+                amountNet: toNumber(freshDeliveryCost),
+                amountGross: toNumber(freshDeliveryCost),
+                currencyCode: session.currencyCode,
+              },
+              ...(freshDeliveryDiscount
+                ? [
+                    {
+                      scope: 'order' as const,
+                      kind: 'discount',
+                      label: freshDeliveryDiscount.promotionName,
+                      promotionId: freshDeliveryDiscount.promotionId,
+                      amountNet: Number(freshDeliveryDiscount.amountNet),
+                      amountGross: Number(freshDeliveryDiscount.amountGross),
+                      currencyCode: session.currencyCode,
+                    },
+                  ]
+                : []),
+            ],
+            // D-R5-23: `purpose: 'quote'` skipped `cart.lock`'s own approval gate (K2) —
+            // `lockResult.cart` carries that gate's own fresh, post-reprice verdict, computed
+            // moments ago by the SAME `cart.lock` call this command just dispatched above.
+            // Snapshotting it here (FK-id + snapshot, `packages/core/AGENTS.md` § Cross-Module
+            // Coupling) lets `sales/api/quotes/accept` re-run the gate before converting an
+            // accepted quote to an order — the "approval returns at quote acceptance" half of
+            // D-R5-23 that this quote-creation step is the only place positioned to supply.
+            metadata: {
+              sourceModule: 'checkout',
+              checkoutSessionId: session.id,
+              pendingApproval: { required: lockResult.cart.requiresApproval, approvalId: lockResult.cart.approvalId },
+            },
           },
           ctx: trustedCtx,
         })
-        if (!reserveResult.reserved) {
-          await compensate(container, em, session, scope, { releaseCredit: false, releaseStock: true, unlockCart: true }, { stockReservationKey, creditReservationKey })
-          throw new CrudHttpError(409, { error: '[internal] one or more lines are out of stock', code: 'stock_shortfall', shortfall: reserveResult.shortfall })
-        }
+        quoteId = createResult.quoteId
       }
-    }
-    await writeSessionEvent(em, { ...scope, sessionId: session.id, kind: 'stock_reserved', actor: 'system', payload: { stockReservationKey } })
 
-    // ---------------------------------------------------------------------
-    // Step 4 (§7.2 step 4, D-R5-24): on-account reserveCredit, for the FULL PAYABLE amount
-    // (goods gross after promotions + delivery cost - delivery discount).
-    // ---------------------------------------------------------------------
-    const goodsGross = toNumber(snapshot.totals.grandTotalGrossAmount)
-    const deliveryDiscountGrossAbs = freshDeliveryDiscount ? Math.abs(toNumber(freshDeliveryDiscount.amountGross)) : 0
-    const payableGross = goodsGross + toNumber(freshDeliveryCost) - deliveryDiscountGrossAbs
-    const payableAmount = roundTo2dp(payableGross)
-
-    const isOnAccount = input.paymentMethodCode === 'on_account'
-    if (isOnAccount) {
-      const customerCreditService = tryResolve<CustomerCreditService>(container, 'customerCreditService')
-      let reserveResult: ReserveCreditResult | null = null
-      if (customerCreditService) {
-        reserveResult = await customerCreditService.reserveCredit({
-          scope,
-          buyer: { customerIds: cartPeer.customerIds },
-          currencyCode: session.currencyCode,
-          amount: payableAmount,
-          sourceType: 'checkout',
-          sourceId: session.id,
-          idempotencyKey: creditReservationKey,
+      // C7: the goods totals that will land on this quote's LINES must equal the cart's own
+      // locked totals — computed independently, via the SAME engine and the SAME lines +
+      // (goods-only) adjustments, rather than read off the persisted quote row (which also
+      // carries the shipping/delivery-discount adjustments added just above and therefore is
+      // not directly comparable key-for-key, since the calculation engine folds a `shipping`
+      // adjustment into `subtotalNet/GrossAmount` by design).
+      const goodsCalc = await salesCalculationService.calculateDocumentTotals({
+        documentKind: 'quote',
+        lines: snapshot.lines.map((line) => line.snapshot),
+        adjustments: snapshot.adjustments,
+        context: { tenantId: scope.tenantId, organizationId: scope.organizationId, currencyCode: session.currencyCode, metadata: { source: 'checkout', sessionId: session.id } },
+      })
+      const mismatchKey = findGoodsTotalsMismatch(snapshot.totals, goodsCalc.totals as unknown as Record<string, unknown>)
+      // `payableAmount` was already rounded to the reservation's own 2dp currency scale above
+      // (`roundTo2dp`), so the recomputed side must be rounded the same way before comparing —
+      // comparing a rounded cent amount against an unrounded `numeric(16,4)` total with a
+      // sub-cent epsilon fails on any gross total that isn't already a whole number of cents
+      // (common with gross-inclusive VAT pricing).
+      const payableFromGoodsCalc = roundTo2dp(toNumber(goodsCalc.totals.grandTotalGrossAmount) + toNumber(freshDeliveryCost) - deliveryDiscountGrossAbs)
+      const payableMismatch = isOnAccount && payableAmount !== payableFromGoodsCalc
+      if (mismatchKey || payableMismatch) {
+        logger.error('[internal] checkout submit: totals mismatch at document creation, raising an ops notification', {
+          sessionId: session.id,
+          mismatchKey,
+          payableMismatch,
         })
+        await compensateOnce({ releaseCredit: isOnAccount, releaseStock: true, unlockCart: true })
+        throw new CrudHttpError(500, { error: '[internal] totals did not match at document creation', code: 'totals_mismatch' })
       }
-      if (!reserveResult || !reserveResult.reserved) {
-        await compensate(container, em, session, scope, { releaseCredit: false, releaseStock: true, unlockCart: true }, { stockReservationKey, creditReservationKey })
-        throw new CrudHttpError(402, { error: '[internal] credit was refused', code: 'credit_refused', reason: reserveResult?.check.reason ?? 'no_account' })
-      }
-      await writeSessionEvent(em, { ...scope, sessionId: session.id, kind: 'credit_reserved', actor: 'system', payload: { creditReservationKey } })
-    }
-
-    // ---------------------------------------------------------------------
-    // Step 5 (§7.2 step 5, C3/C7/D-R5-24): idempotent document creation.
-    // ---------------------------------------------------------------------
-    const commandBus = container.resolve('commandBus') as CommandBus
-    const salesCalculationService = tryResolve<SalesCalculationService>(container, 'salesCalculationService')
-    if (!salesCalculationService) {
-      await compensate(container, em, session, scope, { releaseCredit: isOnAccount, releaseStock: true, unlockCart: true }, { stockReservationKey, creditReservationKey })
-      throw new CrudHttpError(503, { error: '[internal] checkout submit is unavailable without the sales module', code: 'checkout_sessions_unavailable' })
-    }
-
-    const existingQuote = await findExistingQuoteByExternalReference(em, scope, externalReference)
-    let quoteId: string
-    if (existingQuote) {
-      quoteId = existingQuote.id
-    } else {
-      const quoteLines = snapshot.lines.map((line, index) => ({
-        ...line.snapshot,
-        lineNumber: index + 1,
-        metadata: { ...(line.snapshot.metadata ?? {}), cartLineId: line.cartLineId },
-      }))
-      const { result: createResult } = await commandBus.execute<unknown, { quoteId: string }>('sales.quotes.create', {
-        input: {
-          tenantId: scope.tenantId,
-          organizationId: scope.organizationId,
-          externalReference,
-          currencyCode: session.currencyCode,
-          customerEntityId: session.customerId ?? undefined,
-          shippingAddressSnapshot: session.shippingAddress ?? undefined,
-          billingAddressSnapshot: session.billingSameAsShipping ? session.shippingAddress ?? undefined : session.billingAddress ?? undefined,
-          shippingMethodCode: shippingMethod.deliveryMethodCode,
-          shippingMethodSnapshot: session.shippingMethod ?? undefined,
-          paymentMethodCode: input.paymentMethodCode,
-          // §8.4/D-R5-28: written regardless of outcome whenever the buyer supplied one —
-          // the resolved `requiresPoNumber` term only gates whether it is REQUIRED
-          // (checked above as a precondition), not whether it is recorded when supplied.
-          customerReference: input.poNumber ?? undefined,
-          lines: quoteLines,
-          adjustments: [
-            ...snapshot.adjustments,
-            {
-              scope: 'order' as const,
-              kind: 'shipping',
-              label: 'Shipping',
-              amountNet: toNumber(freshDeliveryCost),
-              amountGross: toNumber(freshDeliveryCost),
-              currencyCode: session.currencyCode,
-            },
-            ...(freshDeliveryDiscount
-              ? [
-                  {
-                    scope: 'order' as const,
-                    kind: 'discount',
-                    label: freshDeliveryDiscount.promotionName,
-                    promotionId: freshDeliveryDiscount.promotionId,
-                    amountNet: Number(freshDeliveryDiscount.amountNet),
-                    amountGross: Number(freshDeliveryDiscount.amountGross),
-                    currencyCode: session.currencyCode,
-                  },
-                ]
-              : []),
-          ],
-          // D-R5-23: `purpose: 'quote'` skipped `cart.lock`'s own approval gate (K2) —
-          // `lockResult.cart` carries that gate's own fresh, post-reprice verdict, computed
-          // moments ago by the SAME `cart.lock` call this command just dispatched above.
-          // Snapshotting it here (FK-id + snapshot, `packages/core/AGENTS.md` § Cross-Module
-          // Coupling) lets `sales/api/quotes/accept` re-run the gate before converting an
-          // accepted quote to an order — the "approval returns at quote acceptance" half of
-          // D-R5-23 that this quote-creation step is the only place positioned to supply.
-          metadata: {
-            sourceModule: 'checkout',
-            checkoutSessionId: session.id,
-            pendingApproval: { required: lockResult.cart.requiresApproval, approvalId: lockResult.cart.approvalId },
-          },
-        },
-        ctx: trustedCtx,
-      })
-      quoteId = createResult.quoteId
-    }
-
-    // C7: the goods totals that will land on this quote's LINES must equal the cart's own
-    // locked totals — computed independently, via the SAME engine and the SAME lines +
-    // (goods-only) adjustments, rather than read off the persisted quote row (which also
-    // carries the shipping/delivery-discount adjustments added just above and therefore is
-    // not directly comparable key-for-key, since the calculation engine folds a `shipping`
-    // adjustment into `subtotalNet/GrossAmount` by design).
-    const goodsCalc = await salesCalculationService.calculateDocumentTotals({
-      documentKind: 'quote',
-      lines: snapshot.lines.map((line) => line.snapshot),
-      adjustments: snapshot.adjustments,
-      context: { tenantId: scope.tenantId, organizationId: scope.organizationId, currencyCode: session.currencyCode, metadata: { source: 'checkout', sessionId: session.id } },
-    })
-    const mismatchKey = findGoodsTotalsMismatch(snapshot.totals, goodsCalc.totals as unknown as Record<string, unknown>)
-    // `payableAmount` was already rounded to the reservation's own 2dp currency scale above
-    // (`roundTo2dp`), so the recomputed side must be rounded the same way before comparing —
-    // comparing a rounded cent amount against an unrounded `numeric(16,4)` total with a
-    // sub-cent epsilon fails on any gross total that isn't already a whole number of cents
-    // (common with gross-inclusive VAT pricing).
-    const payableFromGoodsCalc = roundTo2dp(toNumber(goodsCalc.totals.grandTotalGrossAmount) + toNumber(freshDeliveryCost) - deliveryDiscountGrossAbs)
-    const payableMismatch = isOnAccount && payableAmount !== payableFromGoodsCalc
-    if (mismatchKey || payableMismatch) {
-      logger.error('[internal] checkout submit: totals mismatch at document creation, raising an ops notification', {
-        sessionId: session.id,
-        mismatchKey,
-        payableMismatch,
-      })
-      await compensate(container, em, session, scope, { releaseCredit: isOnAccount, releaseStock: true, unlockCart: true }, { stockReservationKey, creditReservationKey })
-      throw new CrudHttpError(500, { error: '[internal] totals did not match at document creation', code: 'totals_mismatch' })
+    } catch (err) {
+      await compensateOnce({ releaseCredit: held.credit, releaseStock: held.stock, unlockCart: true })
+      throw err
     }
 
     // ---------------------------------------------------------------------
@@ -911,8 +935,8 @@ const submitSessionCommand: CommandHandler<CheckoutSessionSubmitCommandInput, Ch
       stockReservationKey: availabilityActive ? stockReservationKey : null,
       creditReservationKey: isOnAccount ? creditReservationKey : null,
       quoteId,
-      successUrl: input.successUrl,
-      cancelUrl: input.cancelUrl,
+      successUrl,
+      cancelUrl,
       request: input.request,
     })
   },
@@ -1119,9 +1143,16 @@ export async function compensateByCancellingOrder(
   scope: SubmitScope,
   orderId: string,
   failureCode: string,
-): Promise<void> {
+): Promise<boolean> {
   const trustedCtx = buildTrustedCtx(container, scope, `checkout:submit:compensate-cancel:${session.id}`)
   const commandBus = container.resolve('commandBus') as CommandBus
+  const claimed = await em.nativeUpdate(
+    CheckoutSession,
+    { id: session.id, ...scope, status: { $in: SLOT_HOLDING_SESSION_STATUSES } },
+    { status: 'failed', failureCode, failureDetail: null, updatedAt: new Date() },
+  )
+  if (claimed === 0) return false
+  session.status = 'failed'
   try {
     const canceledEntryId = await resolveSalesOrderStatusEntryId(em, scope, 'canceled')
     await commandBus.execute('sales.orders.update', {
@@ -1141,19 +1172,12 @@ export async function compensateByCancellingOrder(
     }
   }
 
-  await em.nativeUpdate(
-    CheckoutSession,
-    { id: session.id, ...scope },
-    { status: 'failed', failureCode, failureDetail: null, updatedAt: new Date() },
-  )
-  // Finding 5: a `simple_checkout` link's own usage slot (reserved atomically at cart
-  // seeding, `lib/payLinkCartSeed.ts#reserveCheckoutLinkSlot`) is released back on a
-  // terminal failure — never left permanently claimed by a session that will never order.
   if (session.linkId) {
     await releaseCheckoutLinkSlot(em, scope, session.linkId, { completed: false })
   }
   await writeSessionEvent(em, { ...scope, sessionId: session.id, kind: 'compensation', actor: 'system', payload: { stage: 'order_cancelled', orderId, failureCode } })
   await emitCheckoutEvent('checkout.session.failed', { sessionId: session.id, tenantId: scope.tenantId, organizationId: scope.organizationId, cartId: session.cartId ?? null, attempt: session.submitAttempt, failureCode }).catch(() => undefined)
+  return true
 }
 
 /**
@@ -1196,16 +1220,24 @@ export async function confirmOrderAndComplete(
     })
   }
 
-  await em.nativeUpdate(
+  const completed = await em.nativeUpdate(
     CheckoutSession,
-    { id: session.id, ...scope },
+    { id: session.id, ...scope, status: { $in: SLOT_HOLDING_SESSION_STATUSES } },
     { status: 'completed', outcomeKind: 'order', completedAt: new Date(), updatedAt: new Date() },
   )
+  if (completed === 0) {
+    return {
+      session,
+      attempt: session.submitAttempt,
+      stockReservationKey: reservationKeys.stockReservationKey,
+      creditReservationKey: reservationKeys.creditReservationKey,
+      salesQuoteId: quoteId,
+      salesOrderId: orderId,
+    }
+  }
   session.status = 'completed'
   session.outcomeKind = 'order'
 
-  // Finding 5: converts the link's reserved slot into a permanent completion — mirrors
-  // `applyTerminalTransactionState`'s own bookkeeping for the Phase A transaction flow.
   if (session.linkId) {
     await releaseCheckoutLinkSlot(em, scope, session.linkId, { completed: true })
   }
@@ -1288,17 +1320,24 @@ export async function completeQuoteOutcome(
     })
   }
 
-  await em.nativeUpdate(
+  const completed = await em.nativeUpdate(
     CheckoutSession,
-    { id: session.id, ...scope },
+    { id: session.id, ...scope, status: { $in: SLOT_HOLDING_SESSION_STATUSES } },
     { status: 'completed', outcomeKind: 'quote', completedAt: new Date(), updatedAt: new Date() },
   )
+  if (completed === 0) {
+    return {
+      session,
+      attempt: session.submitAttempt,
+      stockReservationKey: reservationKeys.stockReservationKey,
+      creditReservationKey: null,
+      salesQuoteId: quoteId,
+      salesOrderId: null,
+    }
+  }
   session.status = 'completed'
   session.outcomeKind = 'quote'
 
-  // Finding 5: a quote outcome is still a terminal use of the link's slot (the session
-  // reaches `completed`, never reopened) — converts the reservation the same way an order
-  // outcome does, see `confirmOrderAndComplete`.
   if (session.linkId) {
     await releaseCheckoutLinkSlot(em, scope, session.linkId, { completed: true })
   }

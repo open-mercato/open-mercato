@@ -1,10 +1,6 @@
-// PR 8268 review fix (Finding 5 follow-up, §12): `expire-checkout-sessions` closes the
-// permanent pay-link slot leak `commands/session.ts`'s `{ source: 'link' }` branch and
-// `commands/submit.ts`'s generic `compensate()` path both leave behind — neither releases
-// `reserveCheckoutLinkSlot`'s hold for a session the buyer simply never finishes. This
-// sweep is the "job-driven open -> expired / awaiting_approval -> expired" path
-// `lib/session-status-machine.ts` already documents as reachable, but nothing drove until
-// now — mirrors `transaction-expiry.worker.ts`'s own shape for the Phase A flow.
+// `expire-checkout-sessions` sweeps abandoned `open`/`awaiting_approval` sessions to
+// `expired`. Such sessions never hold a checkout-link slot (the slot is claimed when submit
+// starts), so the sweep must never touch the link counters.
 
 import { beforeEach, describe, expect, it, jest } from '@jest/globals'
 import type { JobContext, QueuedJob } from '@open-mercato/queue'
@@ -29,6 +25,7 @@ jest.mock('../../events', () => ({
 const mockReleaseCheckoutLinkSlot = jest.fn(async () => undefined)
 jest.mock('../../lib/payLinkCartSeed', () => ({
   releaseCheckoutLinkSlot: (...args: unknown[]) => mockReleaseCheckoutLinkSlot(...args),
+  reserveCheckoutLinkSlot: jest.fn(),
 }))
 
 const TENANT_ID = 'tenant-expire-sessions-1'
@@ -105,7 +102,7 @@ describe('checkout expire-checkout-sessions worker', () => {
     )
   })
 
-  it('an abandoned, never-submitted, now-expired link session is moved to expired and its reserved slot is released', async () => {
+  it('an abandoned, never-submitted, now-expired link session is moved to expired without touching the link counters (no slot is held before submit)', async () => {
     const session = makeSession({ linkId: 'link-1' })
     mockFindWithDecryption.mockResolvedValueOnce([session])
     const { default: handle } = await import('../expire-checkout-sessions.worker')
@@ -120,12 +117,7 @@ describe('checkout expire-checkout-sessions worker', () => {
       { id: session.id, tenantId: TENANT_ID, organizationId: ORG_ID, status: 'open' },
       expect.objectContaining({ status: 'expired' }),
     )
-    expect(mockReleaseCheckoutLinkSlot).toHaveBeenCalledWith(
-      mockEm,
-      { tenantId: TENANT_ID, organizationId: ORG_ID },
-      'link-1',
-      { completed: false },
-    )
+    expect(mockReleaseCheckoutLinkSlot).not.toHaveBeenCalled()
     expect(mockWriteSessionEvent).toHaveBeenCalledWith(mockEm, expect.objectContaining({ sessionId: session.id, kind: 'session_expired' }))
     expect(mockEmitCheckoutEvent).toHaveBeenCalledWith('checkout.session.expired', expect.objectContaining({ sessionId: session.id }))
   })
@@ -163,7 +155,7 @@ describe('checkout expire-checkout-sessions worker', () => {
     const session1 = makeSession({ id: 'session-expire-sessions-1', linkId: 'link-1' })
     const session2 = makeSession({ id: 'session-expire-sessions-2', linkId: 'link-2' })
     mockFindWithDecryption.mockResolvedValueOnce([session1, session2])
-    mockReleaseCheckoutLinkSlot.mockRejectedValueOnce(new Error('unexpected'))
+    mockWriteSessionEvent.mockRejectedValueOnce(new Error('unexpected'))
     const { default: handle } = await import('../expire-checkout-sessions.worker')
 
     await handle(
@@ -171,6 +163,6 @@ describe('checkout expire-checkout-sessions worker', () => {
       mockContext,
     )
 
-    expect(mockReleaseCheckoutLinkSlot).toHaveBeenCalledTimes(2)
+    expect(mockWriteSessionEvent).toHaveBeenCalledTimes(2)
   })
 })

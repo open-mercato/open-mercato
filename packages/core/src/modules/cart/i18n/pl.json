@@ -25,6 +25,7 @@
   "cart.admin.detail.sections.lines": "Pozycje",
   "cart.admin.detail.sections.mergeLog": "Historia scalania",
   "cart.admin.detail.sections.warnings": "Ostrzeżenia",
+  "cart.admin.errors.buyerResolutionUnavailable": "Rozpoznawanie tożsamości kupującego jest niedostępne, więc ten koszyk sklepu nie może zostać teraz przeliczony.",
   "cart.admin.errors.cartNotActive": "Koszyk nie jest aktywny lub opuszczony.",
   "cart.admin.errors.cartNotFound": "Koszyk nie został znaleziony.",
   "cart.admin.errors.detailFailed": "Nie udało się wczytać koszyka.",

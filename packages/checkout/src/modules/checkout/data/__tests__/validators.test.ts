@@ -1,4 +1,5 @@
 import {
+  checkoutSessionSubmitSchema,
   createLinkSchema,
   createTemplateSchema,
   updateLinkSchema,
@@ -126,5 +127,34 @@ describe('checkout validators', () => {
         gatewayProviderKey: null,
       }),
     ).toThrow()
+  })
+
+  describe('checkoutSessionSubmitSchema gateway return URLs', () => {
+    const base = { paymentMethodCode: 'gateway:acme' }
+
+    test('accepts relative paths', () => {
+      const parsed = checkoutSessionSubmitSchema.parse({ ...base, successUrl: '/checkout/success?x=1', cancelUrl: '/checkout/cancel' })
+      expect(parsed.successUrl).toBe('/checkout/success?x=1')
+      expect(parsed.cancelUrl).toBe('/checkout/cancel')
+    })
+
+    test('treats omitted and blank values as absent', () => {
+      const parsed = checkoutSessionSubmitSchema.parse({ ...base, successUrl: '   ' })
+      expect(parsed.successUrl).toBeNull()
+      expect(parsed.cancelUrl).toBeUndefined()
+    })
+
+    test.each([
+      'https://evil.example/phish',
+      'http://evil.example',
+      '//evil.example/phish',
+      '/\\evil.example',
+      'javascript:alert(1)',
+      'checkout/success',
+      '/ok\nhttps://evil.example',
+    ])('rejects %j', (value) => {
+      expect(checkoutSessionSubmitSchema.safeParse({ ...base, successUrl: value }).success).toBe(false)
+      expect(checkoutSessionSubmitSchema.safeParse({ ...base, cancelUrl: value }).success).toBe(false)
+    })
   })
 })

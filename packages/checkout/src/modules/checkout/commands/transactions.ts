@@ -155,7 +155,7 @@ const updateTransactionStatusCommand: CommandHandler<Record<string, unknown>, { 
         organizationId: scope.organizationId,
         tenantId: scope.tenantId,
       })
-      if (!transaction) throw new CrudHttpError(404, { error: 'Transaction not found' })
+      if (!transaction) throw new CrudHttpError(404, { error: 'Transaction not found', code: 'checkout_transaction_not_found' })
       // Session-backed transactions (Step 4.2, §4.4) have no `linkId` at all — they
       // belong to a `CheckoutSession`, not a `CheckoutLink`. Only pay-link transactions
       // require a resolvable link; the link-specific side effects below (usage-limit
@@ -233,10 +233,10 @@ const updateTransactionStatusCommand: CommandHandler<Record<string, unknown>, { 
       // Only apply terminal link state and emit the terminal event when the
       // status actually changes — prevents double-notification on idempotent
       // redeliveries (e.g. authorized → captured, both mapping to 'completed').
-      // Link-scoped only: a session-backed transaction has no `checkout_links` row
-      // to decrement and no link-scoped terminal event to emit — its own completion
-      // is driven by the session-aware gateway-payment subscriber instead.
-      if (link && !previousTerminal && nextTerminal) {
+      // Link-scoped only: a session-backed transaction never moves the link counters —
+      // the owning `CheckoutSession` holds the slot and releases it exactly once through
+      // its own status compare-and-swap (`commands/submit.ts`).
+      if (link && !transaction.sessionId && !previousTerminal && nextTerminal) {
         const released = await tx.execute<Array<{ completion_count: number; max_completions: number | null }>>(
           `
             UPDATE checkout_links

@@ -89,9 +89,7 @@ describe('POST /api/checkout/pay/[slug]/verify-password', () => {
     expect(verifyCheckoutPassword).not.toHaveBeenCalled()
   })
 
-  // "Not registered" is a configuration error rather than a transient outage, so the
-  // request is served instead of being rejected as temporarily unavailable forever.
-  it('verifies the password when no rate limiter is registered', async () => {
+  it('rejects with 503 when no rate limiter is registered', async () => {
     ;(createRequestContainer as jest.Mock).mockResolvedValue({
       hasRegistration: (name: string) => name !== 'rateLimiterService',
       resolve: (name: string) => {
@@ -103,9 +101,9 @@ describe('POST /api/checkout/pay/[slug]/verify-password', () => {
 
     const response = await verifyRequest()
 
-    expect(response.status).toBe(200)
+    expect(response.status).toBe(503)
     expect(checkRateLimit).not.toHaveBeenCalled()
-    expect(verifyCheckoutPassword).toHaveBeenCalled()
+    expect(verifyCheckoutPassword).not.toHaveBeenCalled()
   })
 
   it('passes a 503 from the limiter straight through', async () => {

@@ -25,6 +25,7 @@
   "cart.admin.detail.sections.lines": "Lines",
   "cart.admin.detail.sections.mergeLog": "Merge history",
   "cart.admin.detail.sections.warnings": "Warnings",
+  "cart.admin.errors.buyerResolutionUnavailable": "Buyer identity resolution is unavailable, so this storefront cart cannot be re-priced right now.",
   "cart.admin.errors.cartNotActive": "The cart is not active or abandoned.",
   "cart.admin.errors.cartNotFound": "Cart not found.",
   "cart.admin.errors.detailFailed": "Failed to load the cart.",

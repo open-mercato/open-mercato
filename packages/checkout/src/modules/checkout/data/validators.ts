@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { fieldsetCodeRegex } from '@open-mercato/shared/modules/entities/validators'
 import { DEFAULT_CHECKOUT_CUSTOMER_FIELDS } from '../lib/defaults'
 import { CHECKOUT_LINK_STATUSES } from '../lib/constants'
+import { isSafeRelativeReturnPath } from '../lib/gatewayReturnUrl'
 
 function normalizeBlankString(value: unknown): unknown {
   if (typeof value !== 'string') return value
@@ -36,6 +37,15 @@ const optionalTrimmedString = z.preprocess(
 const optionalUrlSchema = z.preprocess(
   normalizeBlankString,
   z.string().url('checkout.validation.common.invalidUrl').optional().nullable(),
+)
+const MAX_RETURN_PATH_LENGTH = 2048
+const optionalReturnPathSchema = z.preprocess(
+  normalizeBlankString,
+  z.string()
+    .max(MAX_RETURN_PATH_LENGTH, 'checkout.validation.common.invalidReturnPath')
+    .refine(isSafeRelativeReturnPath, 'checkout.validation.common.invalidReturnPath')
+    .optional()
+    .nullable(),
 )
 const optionalFieldsetCodeSchema = z.preprocess(
   normalizeBlankString,
@@ -353,8 +363,8 @@ export const checkoutSessionSubmitSchema = z.object({
   // pages — this package has none for a session-backed checkout (unlike the §9 pay-link
   // surface) — so a redirect-type gateway is handed the caller's own URLs rather than one
   // this package would have to invent.
-  successUrl: optionalUrlSchema,
-  cancelUrl: optionalUrlSchema,
+  successUrl: optionalReturnPathSchema,
+  cancelUrl: optionalReturnPathSchema,
 })
 
 export type CheckoutSessionCreateInput = z.infer<typeof checkoutSessionCreateSchema>

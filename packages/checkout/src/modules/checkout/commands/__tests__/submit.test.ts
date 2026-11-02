@@ -44,6 +44,7 @@ type FakeRow = Record<string, any>
 function matchesWhere(row: FakeRow, where: Record<string, unknown>): boolean {
   return Object.entries(where).every(([key, value]) => {
     if (value === undefined) return true
+    if (value && typeof value === 'object' && '$in' in value) return (value as { $in: unknown[] }).$in.includes(row[key])
     return row[key] === value
   })
 }
@@ -158,6 +159,7 @@ type Harness = {
   seededQuotes: FakeRow[]
   seededOrders: FakeRow[]
   commandBusExecute: jest.Mock
+  emExecute: jest.Mock
   cartService: { lock: jest.Mock; unlock: jest.Mock; getSalesSnapshot: jest.Mock; markConverted: jest.Mock }
   customerCreditService: { reserveCredit: jest.Mock; releaseCredit: jest.Mock; linkCreditReservationToOrder: jest.Mock } | null
   policyResolutionServiceAvailable: boolean
@@ -332,8 +334,10 @@ function buildHarness(opts: {
     return idx >= 0 ? col.slice(idx + 1) : col
   }
 
+  const emExecute = jest.fn(async (_sql: string, _params?: unknown[]) => [{ active_reservation_count: 1 }])
   const em: FakeRow = {
     fork: () => em,
+    execute: emExecute,
     // Step 5.2's own resume subscriber reads `CheckoutSession` rows via `em.find` (never
     // `nativeUpdate`'s `findOne`) — additive so the REAL subscriber handler can run against
     // this SAME `seededSessions` array in the cross-module "resubmit re-hits cart.lock's
@@ -414,6 +418,7 @@ function buildHarness(opts: {
     seededQuotes,
     seededOrders,
     commandBusExecute,
+    emExecute,
     cartService,
     customerCreditService,
     policyResolutionServiceAvailable: opts.policyResolutionServiceAvailable !== false,
@@ -932,11 +937,34 @@ describe('checkout.session.submit (B.4, steps 6-8 of §7.2/C19 — Step 4.2)', (
     const h = buildHarness({ createPaymentSessionResult: { transaction: { id: 'gw-1', unifiedStatus: 'pending', expiresAt: null }, session: { sessionId: 'gw-session-1', status: 'pending' } } })
     const paymentGatewayService = h.ctx.container.resolve('paymentGatewayService') as { createPaymentSession: jest.Mock }
 
-    await getHandler().execute({ ...BASE_INPUT, successUrl: 'https://shop.example.com/success', cancelUrl: 'https://shop.example.com/cancel' }, h.ctx)
+    const previousAppUrl = process.env.APP_URL
+    process.env.APP_URL = 'https://shop.example.com'
+    try {
+      await getHandler().execute({ ...BASE_INPUT, successUrl: '/checkout/success', cancelUrl: '/checkout/cancel' }, h.ctx)
+    } finally {
+      if (previousAppUrl === undefined) delete process.env.APP_URL
+      else process.env.APP_URL = previousAppUrl
+    }
 
     expect(paymentGatewayService.createPaymentSession).toHaveBeenCalledWith(
-      expect.objectContaining({ successUrl: 'https://shop.example.com/success', cancelUrl: 'https://shop.example.com/cancel' }),
+      expect.objectContaining({ successUrl: 'https://shop.example.com/checkout/success', cancelUrl: 'https://shop.example.com/checkout/cancel' }),
     )
+  })
+
+  it.each([
+    'https://evil.example/phish',
+    '//evil.example/phish',
+    '/\\evil.example',
+    'javascript:alert(1)',
+  ])('rejects the external or protocol-relative return URL %s before any side effect', async (badUrl) => {
+    const h = buildHarness()
+
+    await expect(
+      getHandler().execute({ ...BASE_INPUT, successUrl: badUrl }, h.ctx),
+    ).rejects.toMatchObject({ status: 422, body: expect.objectContaining({ code: 'invalid_return_url' }) })
+
+    expect(h.seededSessions[0].status).toBe('open')
+    expect(h.cartService.lock).not.toHaveBeenCalled()
   })
 })
 
@@ -1134,6 +1162,162 @@ describe('approval resume -> resubmit (Step 5.2, C11/§8.2)', () => {
     // availability/credit reservation) — `compensate`'s no-op release flags leave
     // `failures` empty, so the session reverts to `open` immediately, same as any other
     // lock-time refusal that attempts no release (price_changed, delivery changes).
+    expect(h.seededSessions[0].status).toBe('open')
+  })
+})
+
+describe('checkout.session.submit — pay-link slot ownership and unexpected-failure compensation', () => {
+  beforeAll(async () => {
+    await import('../submit')
+  })
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+  })
+
+  function slotCalls(h: Harness, kind: 'reserve' | 'release') {
+    return h.emExecute.mock.calls.filter(([sql]) => (
+      typeof sql === 'string'
+      && (kind === 'reserve'
+        ? sql.includes('active_reservation_count = active_reservation_count + 1')
+        : sql.includes('GREATEST(active_reservation_count - 1, 0)'))
+    ))
+  }
+
+  it('claims the link slot when submit starts and converts it into exactly one completion on a synchronous capture', async () => {
+    const h = buildHarness({ session: makeSession({ linkId: 'link-1' }) })
+
+    await getHandler().execute(BASE_INPUT, h.ctx)
+
+    expect(slotCalls(h, 'reserve')).toHaveLength(1)
+    const releases = slotCalls(h, 'release')
+    expect(releases).toHaveLength(1)
+    expect(releases[0][1]).toEqual([1, 'link-1', ORG_ID, TENANT_ID])
+  })
+
+  it('does not claim a link slot for a session that has no link', async () => {
+    const h = buildHarness()
+
+    await getHandler().execute(BASE_INPUT, h.ctx)
+
+    expect(slotCalls(h, 'reserve')).toHaveLength(0)
+    expect(slotCalls(h, 'release')).toHaveLength(0)
+  })
+
+  it('422s without touching the session when the link has no capacity left at submit', async () => {
+    const h = buildHarness({ session: makeSession({ linkId: 'link-1' }) })
+    h.emExecute.mockResolvedValueOnce([])
+
+    await expect(getHandler().execute(BASE_INPUT, h.ctx)).rejects.toMatchObject({
+      status: 422,
+      body: expect.objectContaining({ code: 'checkout_link_unavailable' }),
+    })
+
+    expect(h.seededSessions[0].status).toBe('open')
+    expect(h.cartService.lock).not.toHaveBeenCalled()
+  })
+
+  it('releases the slot exactly once when a failed attempt is compensated back to open', async () => {
+    const h = buildHarness({ session: makeSession({ linkId: 'link-1' }), reserveResult: { reserved: false, shortfall: [] } })
+
+    await expect(getHandler().execute(BASE_INPUT, h.ctx)).rejects.toMatchObject({ status: 409 })
+
+    expect(slotCalls(h, 'reserve')).toHaveLength(1)
+    const releases = slotCalls(h, 'release')
+    expect(releases).toHaveLength(1)
+    expect(releases[0][1]).toEqual([0, 'link-1', ORG_ID, TENANT_ID])
+    expect(h.seededSessions[0].status).toBe('open')
+  })
+
+  it('a second finalizer that loses the status compare-and-swap neither completes nor releases the slot again', async () => {
+    const { confirmOrderAndComplete } = await import('../submit')
+    const h = buildHarness({
+      session: makeSession({ linkId: 'link-1', status: 'awaiting_payment', salesOrderId: 'order-1', salesQuoteId: 'quote-1' }),
+      seededOrders: [{ id: 'order-1', tenant_id: TENANT_ID, organization_id: ORG_ID, deleted_at: null }],
+    })
+    const em = h.ctx.container.resolve('em') as FakeRow
+    const session = h.seededSessions[0] as never
+    const keys = { stockReservationKey: null, creditReservationKey: null }
+    const scope = { tenantId: TENANT_ID, organizationId: ORG_ID }
+
+    await confirmOrderAndComplete(h.ctx.container, em as never, session, scope, 'order-1', 'quote-1', keys)
+    await confirmOrderAndComplete(h.ctx.container, em as never, session, scope, 'order-1', 'quote-1', keys)
+
+    expect(slotCalls(h, 'release')).toHaveLength(1)
+  })
+
+  it('a cancel that loses the CAS to a completed session has no side effects and releases nothing', async () => {
+    const { compensateByCancellingOrder } = await import('../submit')
+    const h = buildHarness({ session: makeSession({ linkId: 'link-1', status: 'completed', salesOrderId: 'order-1' }) })
+    const em = h.ctx.container.resolve('em') as FakeRow
+
+    const cancelled = await compensateByCancellingOrder(
+      h.ctx.container,
+      em as never,
+      h.seededSessions[0] as never,
+      { tenantId: TENANT_ID, organizationId: ORG_ID },
+      'order-1',
+      'payment_failed',
+    )
+
+    expect(cancelled).toBe(false)
+    expect(slotCalls(h, 'release')).toHaveLength(0)
+    expect(h.commandBusExecute).not.toHaveBeenCalledWith('sales.orders.update', expect.anything())
+    expect(h.cartService.unlock).not.toHaveBeenCalled()
+  })
+
+  it('compensates (stock released, cart unlocked, session reopened) when availability.reserve throws unexpectedly', async () => {
+    const h = buildHarness({ session: makeSession({ linkId: 'link-1' }) })
+    const original = h.commandBusExecute.getMockImplementation()!
+    h.commandBusExecute.mockImplementation(async (id: string, options: { input: unknown }) => {
+      if (id === 'availability.reserve') throw new Error('reserve exploded')
+      return original(id, options as never)
+    })
+
+    await expect(getHandler().execute(BASE_INPUT, h.ctx)).rejects.toThrow('reserve exploded')
+
+    expect(h.cartService.unlock).toHaveBeenCalledTimes(1)
+    expect(h.commandBusExecute).toHaveBeenCalledWith('availability.release', expect.anything())
+    expect(h.seededSessions[0].status).toBe('open')
+    expect(slotCalls(h, 'release')).toHaveLength(1)
+  })
+
+  it('compensates when sales.quotes.create throws unexpectedly, releasing credit for an on_account attempt', async () => {
+    const h = buildHarness()
+    const original = h.commandBusExecute.getMockImplementation()!
+    h.commandBusExecute.mockImplementation(async (id: string, options: { input: unknown }) => {
+      if (id === 'sales.quotes.create') throw new Error('quote exploded')
+      return original(id, options as never)
+    })
+
+    await expect(getHandler().execute({ ...BASE_INPUT, paymentMethodCode: 'on_account' }, h.ctx)).rejects.toThrow('quote exploded')
+
+    expect(h.customerCreditService?.releaseCredit).toHaveBeenCalledTimes(1)
+    expect(h.cartService.unlock).toHaveBeenCalledTimes(1)
+    expect(h.seededSessions[0].status).toBe('open')
+  })
+
+  it('compensates when the totals calculation throws unexpectedly, and never double-compensates an already-compensated failure', async () => {
+    const h = buildHarness()
+    h.salesCalculationService.calculateDocumentTotals.mockRejectedValueOnce(new Error('totals exploded'))
+
+    await expect(getHandler().execute(BASE_INPUT, h.ctx)).rejects.toThrow('totals exploded')
+
+    expect(h.cartService.unlock).toHaveBeenCalledTimes(1)
+    expect(h.seededSessions[0].status).toBe('open')
+
+    const mismatch = buildHarness({ goodsCalcTotals: { ...SNAPSHOT_TOTALS, grandTotalGrossAmount: 999 } })
+    await expect(getHandler().execute(BASE_INPUT, mismatch.ctx)).rejects.toMatchObject({ status: 500 })
+    expect(mismatch.cartService.unlock).toHaveBeenCalledTimes(1)
+  })
+
+  it('compensates when the delivery re-evaluation throws unexpectedly', async () => {
+    const h = buildHarness()
+    mockEvaluateDeliveryDiscount.mockRejectedValueOnce(new Error('delivery exploded'))
+
+    await expect(getHandler().execute(BASE_INPUT, h.ctx)).rejects.toThrow('delivery exploded')
+
+    expect(h.cartService.unlock).toHaveBeenCalledTimes(1)
     expect(h.seededSessions[0].status).toBe('open')
   })
 })

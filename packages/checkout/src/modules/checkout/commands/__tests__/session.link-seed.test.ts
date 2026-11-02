@@ -97,6 +97,17 @@ function backingArrayFor(entity: unknown): FakeRow[] {
 // Models `payLinkCartSeed.ts`'s raw `UPDATE checkout_links` reserve/release statements
 // against `seededLinks` — same fixture, same camelCase fields the real columns map to.
 function fakeCheckoutLinksExecute(sql: string, params: unknown[] = []): unknown[] {
+  if (sql.includes('SELECT id')) {
+    const [linkId, organizationId, tenantId] = params as string[]
+    const link = seededLinks.find((row) => (
+      row.id === linkId && row.organizationId === organizationId && row.tenantId === tenantId
+      && row.deletedAt == null && row.status === 'active'
+    ))
+    if (!link) return []
+    const available = link.maxCompletions == null
+      || (link.completionCount + link.activeReservationCount) < link.maxCompletions
+    return available ? [{ id: link.id }] : []
+  }
   if (sql.includes('active_reservation_count = active_reservation_count + 1')) {
     const [linkId, organizationId, tenantId] = params as string[]
     const link = seededLinks.find((row) => (
@@ -358,20 +369,14 @@ describe('checkout.session.create { source: "link" } — B.2/D-R5-19', () => {
     })
   })
 
-  // PR 8268 review fix (Finding 5 follow-up): `seedCartFromCheckoutLink` claims a
-  // `reserveCheckoutLinkSlot` slot on EVERY call, so a page reload (the browser re-POSTing
-  // `{ source: 'link' }`, this time WITH the `X-Checkout-Session-Token` the first response
-  // already handed it) used to seed a second cart and burn a second slot off a
-  // `maxCompletions: 1` link, permanently killing it after a single reload. The fix
-  // resumes the still-open session the token addresses instead of reserving again.
-  it('a reload presenting the prior X-Checkout-Session-Token resumes the same session, never claiming a second slot (Finding 5 follow-up)', async () => {
+  it('a reload presenting the prior X-Checkout-Session-Token resumes the same session, and creating sessions never holds a slot', async () => {
     seededLinks = [makeLinkFixture({ maxCompletions: 1, completionCount: 0, activeReservationCount: 0 })]
     const em = makeFakeEm()
     const bus = makeFakeCommandBus({ cartCreateResult: { cartId: 'cart-abc' } })
     const ctx = makeCtx(em, { commandBus: bus })
 
     const first = await createSessionCommand.execute({ source: 'link', slug: 'donate' }, ctx)
-    expect(seededLinks[0].activeReservationCount).toBe(1)
+    expect(seededLinks[0].activeReservationCount).toBe(0)
 
     const reloadRequest = new Request('https://merchant.example/pay/donate', {
       headers: { 'X-Checkout-Session-Token': first.token },
@@ -380,19 +385,19 @@ describe('checkout.session.create { source: "link" } — B.2/D-R5-19', () => {
 
     expect(second.token).toBe(first.token)
     expect(second.session.id).toBe(first.session.id)
-    // Still ONE slot claimed, ONE cart ever created — the reload replayed the existing
-    // session instead of seeding a second cart and re-reserving.
-    expect(seededLinks[0].activeReservationCount).toBe(1)
+    expect(seededLinks[0].activeReservationCount).toBe(0)
     expect(bus.calls.filter((call) => call.id === 'cart.create')).toHaveLength(1)
+  })
 
-    // The link is now fully committed (`maxCompletions: 1`, one active reservation) — a
-    // genuinely different visitor presenting no token at all still correctly 422s rather
-    // than being handed the first buyer's session.
-    const thirdCtx = makeCtx(em, { commandBus: makeFakeCommandBus() })
-    await expect(createSessionCommand.execute({ source: 'link', slug: 'donate' }, thirdCtx)).rejects.toMatchObject({
-      status: 422,
-      body: expect.objectContaining({ code: 'checkout_link_unavailable' }),
-    })
+  it('an abandoned anonymous session cannot monopolize a maxCompletions:1 link — another visitor can still start a session', async () => {
+    seededLinks = [makeLinkFixture({ maxCompletions: 1, completionCount: 0, activeReservationCount: 0 })]
+    const em = makeFakeEm()
+
+    await createSessionCommand.execute({ source: 'link', slug: 'donate' }, makeCtx(em, { commandBus: makeFakeCommandBus({ cartCreateResult: { cartId: 'cart-1' } }) }))
+    const other = await createSessionCommand.execute({ source: 'link', slug: 'donate' }, makeCtx(em, { commandBus: makeFakeCommandBus({ cartCreateResult: { cartId: 'cart-2' } }) }))
+
+    expect(other.session.linkId).toBe(LINK_ID)
+    expect(seededLinks[0].activeReservationCount).toBe(0)
   })
 
   it('an unknown or expired X-Checkout-Session-Token falls through to seeding a fresh session', async () => {
@@ -407,7 +412,6 @@ describe('checkout.session.create { source: "link" } — B.2/D-R5-19', () => {
     const result = await createSessionCommand.execute({ source: 'link', slug: 'donate', request }, ctx)
 
     expect(result.session.linkId).toBe(LINK_ID)
-    expect(seededLinks[0].activeReservationCount).toBe(1)
     expect(bus.calls.filter((call) => call.id === 'cart.create')).toHaveLength(1)
   })
 })

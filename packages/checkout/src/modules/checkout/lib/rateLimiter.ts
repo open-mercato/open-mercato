@@ -55,9 +55,9 @@ function resolveOptionalRateLimiter(container: RateLimiterContainer): RateLimite
  * sent instead of handling it, or null to continue.
  *
  * Three outcomes are deliberately distinguished:
- * - the limiter is not configured at all → logged as a configuration error and the check is
- *   skipped, matching `sales/quotes/accept`; the endpoint is never reported as temporarily
- *   unavailable for a condition that lasts until an operator fixes the environment
+ * - the limiter is not configured at all → logged as a configuration error; a `fail-closed`
+ *   route rejects with 503 (an unenforced limit on a resource-creating or payment route is
+ *   worse than a rejected request), a `fail-open` read skips the check
  * - the limiter is configured but could not decide (degraded, or the check threw) → 503 under
  *   `fail-closed`, a logged warning under `fail-open`
  * - the limiter decided the quota is exhausted → the 429 from `checkRateLimit`
@@ -84,6 +84,9 @@ export async function enforceCheckoutRateLimit(options: {
       namespace,
       posture,
     })
+    if (posture === 'fail-closed') {
+      return NextResponse.json({ error: RATE_LIMIT_UNAVAILABLE_FALLBACK }, { status: 503 })
+    }
     return null
   }
 
