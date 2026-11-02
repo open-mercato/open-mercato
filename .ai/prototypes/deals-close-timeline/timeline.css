@@ -278,3 +278,13 @@
 .tl-drawer-note svg { width: 0.875rem; height: 0.875rem; }
 .tl-drawer-full { flex: none; align-self: center; text-decoration: none; }
 @media (max-width: 640px) { .tl-drawer { width: 100%; max-width: 100%; } }
+
+/* Stand-in for the existing deal page (screen 15) */
+.tl-existing-page {
+  display: flex; flex-direction: column; align-items: center; gap: 0.5rem; text-align: center;
+  margin: 3rem auto; max-width: 36rem; padding: 2rem;
+  border: 1px dashed var(--border); border-radius: var(--radius-lg); color: var(--muted-foreground);
+}
+.tl-existing-page svg { width: 1.5rem; height: 1.5rem; }
+.tl-existing-page .t-section { color: var(--foreground); }
+.tl-existing-page p { margin: 0; }

@@ -167,13 +167,13 @@
         + '<button class="btn btn-outline btn-sm" type="button" data-tl-drawer-action="won"><svg><use href="#ic-check"/></svg> Mark won</button>'
         + '<button class="btn btn-outline btn-sm" type="button" data-tl-drawer-action="lost"><svg><use href="#ic-x"/></svg> Mark lost</button>'
         + '</div>'
-      : '<p class="t-hint tl-drawer-note"><svg><use href="#ic-lock"/></svg>You can view this deal. Changing it needs the manage-deals permission.</p>';
+      : '<p class="t-hint tl-drawer-note"><svg><use href="#ic-lock"/></svg>You can view this deal. Changing it or opening the full deal page needs the manage-deals permission.</p>';
     return '<aside class="drawer tl-drawer" role="dialog" aria-modal="true" aria-labelledby="tl-drawer-title-' + escapeHtml(info.id) + '">'
       + '<div class="drawer-head">'
       + '<div class="grow"><h3 class="t-section" id="tl-drawer-title-' + escapeHtml(info.id) + '">' + escapeHtml(info.title) + '</h3>'
       + '<p class="t-hint tl-drawer-sub">' + escapeHtml(info.company) + ' · ' + escapeHtml(info.owner) + '</p></div>'
       + '<span class="badge badge-info"><span class="dot"></span>Open</span>'
-      + '<a class="btn btn-ghost btn-xs tl-drawer-full" href="#s15" data-goto="s15" title="Open the deal detail page"><svg><use href="#ic-maximize"/></svg> Full page</a>'
+      + (manage ? '<a class="btn btn-ghost btn-xs tl-drawer-full" href="#s15" data-goto="s15" title="Open the existing deal page"><svg><use href="#ic-maximize"/></svg> Full page</a>' : '')
       + '<button class="icon-btn" type="button" aria-label="Close" data-tl-drawer-close><svg><use href="#ic-x"/></svg></button>'
       + '</div>'
       + '<div class="drawer-body">'
@@ -190,7 +190,7 @@
       + (info.stalled ? '<li><span class="badge badge-warning"><span class="dot"></span>Stalled</span></li>' : '')
       + '</ul></section>'
       + '<section class="tl-drawer-section"><div class="t-label">Actions</div>' + actions + '</section>'
-      + '<p class="t-hint">Field edits happen on the full page. The drawer has no edit form, so closed deals never get a close-date control here.</p>'
+      + '<p class="t-hint">Field edits happen on the existing deal page. The drawer has no edit form, so closed deals never get a close-date control here.</p>'
       + '</div>'
       + '</aside>';
   }

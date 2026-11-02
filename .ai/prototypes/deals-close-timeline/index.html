@@ -61,7 +61,7 @@
     <a href="#s12">12 Loading</a>
     <a href="#s13">13 Error</a>
     <a href="#s14">14 No access</a>
-    <a href="#s15">15 Deal</a>
+    <a href="#s15">15 Existing deal page</a>
     <a href="#s16">16 Pipeline filter</a>
     <a href="#s17">17 Deal drawer</a>
   </nav>
@@ -1735,7 +1735,7 @@
     </div>
   </div>
   <div class="notes">
-    <div class="note"><b>1</b><span>No grab cursor and no drag. Enter opens the deal drawer with the summary and the header's Full page link only, without Change close date or other actions. "New deal" is hidden.</span></div>
+    <div class="note"><b>1</b><span>No grab cursor and no drag. Enter opens the deal drawer with the summary only: no Change close date, no other actions and no Full page link. "New deal" is hidden.</span></div>
     <div class="note"><b>2</b><span>The tooltip carries the permission hint, so read-only users understand why dragging does nothing instead of assuming it is broken.</span></div>
     <div class="note"><b>3</b><span>The server enforces customers.deals.manage on the update regardless. The UI gate only avoids a pointless failed request.</span></div>
   </div>
@@ -2411,8 +2411,8 @@
 
 <section class="screen" id="s15">
   <div class="screen-meta">
-    <h2>15. Deal detail (click-through target, abbreviated)</h2>
-    <p>The Full page link in the deal drawer header (or Cmd/Ctrl-click on a card) opens the existing deal detail page. Only the fields relevant to this flow are drawn. The real page is unchanged.</p>
+    <h2>15. Existing CRM deal page (unchanged)</h2>
+    <p>The drawer's Full page link (or Cmd/Ctrl-click on a card) opens the <b>existing</b> CRM deal page at <code class="t-mono">/backend/customers/deals/{id}</code>. The timeline adds no new detail page, and this prototype doesn't redraw the existing one.</p>
     <div class="screen-refs"><span class="ref">US-A1</span></div>
   </div>
 
@@ -2440,7 +2440,7 @@
             <div class="crumbs">
               <svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg>
               <span>Deals</span><svg><use href="#ic-chevron-right"/></svg>
-              <span class="here">Veridian Labs · LIMS migration</span>
+              <span class="here">Deal details</span>
             </div>
           </div>
           <div class="topbar-right">
@@ -2450,27 +2450,10 @@
           </div>
         </header>
         <main class="page">
-
-          <div class="form-head">
-            <a class="back-link" href="#s1" data-goto="s1"><svg><use href="#ic-chevron-left"/></svg> Back to timeline</a>
-            <div class="row"><button class="btn btn-outline btn-sm" type="button"><svg><use href="#ic-pencil"/></svg> Edit</button></div>
-          </div>
-          <div class="page-head"><div><h1 class="t-page-title">LIMS migration</h1><p>Veridian Labs · owned by Daniel Osei</p></div><span class="badge badge-info"><span class="dot"></span>Open</span></div>
-          <div class="form-layout">
-            <div class="form-col">
-              <div class="form-group">
-                <div class="title">Deal</div>
-                <div class="form-grid form-grid-2">
-                  <div class="field"><label>Value</label><div class="num strong">€91,000</div></div>
-                  <div class="field"><label>Probability</label><div class="num">65%</div></div>
-                  <div class="field"><label>Pipeline stage</label><div class="row"><i class="tl-stage-dot" style="--stage:var(--chart-amber)"></i>Negotiation</div></div>
-                  <div class="field"><label>Expected close</label><div>Mon, Nov 2, 2026 <span class="t-hint">· in 7 days</span></div></div>
-                </div>
-              </div>
-            </div>
-            <div class="form-col">
-              <div class="form-group"><div class="title">Activity</div><p class="t-hint" style="margin:0">Expected close changed from Oct 23 to Nov 2 by Daniel Osei · 3 days ago</p></div>
-            </div>
+          <div class="tl-existing-page">
+            <svg><use href="#ic-briefcase"/></svg>
+            <h1 class="t-section">Existing deal page</h1>
+            <p class="t-hint"><code class="t-mono">packages/core/src/modules/customers/backend/customers/deals/[id]/page.tsx</code>, reused as it is today: deal settings, people and companies, notes and activities, closure actions.</p>
           </div>
         </main>
         <footer class="app-foot">
@@ -2482,8 +2465,9 @@
     </div>
   </div>
   <div class="notes">
-    <div class="note"><b>1</b><span>Back returns to the timeline with the same column size, grouping, window and scroll position (kept in the URL query).</span></div>
-    <div class="note"><b>2</b><span>Timeline reschedules write the same audit/activity entry as editing the field here. Nothing is special-cased.</span></div>
+    <div class="note"><b>1</b><span>Only users with <code class="t-mono">customers.deals.manage</code> see the link, because the existing page requires that feature. View-only users stay in the drawer.</span></div>
+    <div class="note"><b>2</b><span>The existing page doesn't read <code class="t-mono">returnTo</code> and isn't changed. The timeline keeps its whole state in the URL (window, grouping, filters and <code class="t-mono">?deal=</code>), so the browser's Back returns to the same review with the drawer open.</span></div>
+    <div class="note"><b>3</b><span>Timeline reschedules write the same audit and activity entry as editing the close date on this page. Nothing is special-cased.</span></div>
   </div>
 </section>
 
@@ -2887,8 +2871,8 @@
   <div class="notes">
     <div class="note"><b>1</b><span>The drawer is a summary plus existing actions, not the edit form. Field edits stay on the full page, so a closed deal never gets a close-date control here.</span></div>
     <div class="note"><b>2</b><span>Review signals come from the Kanban's pipeline enrichment: open activities, days in the current stage, and the stalled flag. A deal with no open activity is flagged.</span></div>
-    <div class="note"><b>3</b><span>Actions reuse existing dialogs: Change close date (screen 6), Schedule follow-up, Change stage, and Mark won or lost with a reason. Read-only users see the summary and the full-page link only.</span></div>
-    <div class="note"><b>4</b><span>"Full page" in the drawer header opens the deal detail page (screen 15) and keeps the timeline URL as <code class="t-mono">returnTo</code>. The open deal is in the URL (<code class="t-mono">?deal=</code>), so reload and shared links reopen it and Back closes it. Escape closes it too, and focus returns to the card. Cmd/Ctrl-click on a card opens the full page instead.</span></div>
+    <div class="note"><b>3</b><span>Actions reuse existing dialogs: Change close date (screen 6), Schedule follow-up, Change stage, and Mark won or lost with a reason. Read-only users see the summary only: no actions and no Full page link, because the existing deal page needs the manage-deals permission.</span></div>
+    <div class="note"><b>4</b><span>"Full page" in the drawer header opens the existing CRM deal page (screen 15), for users who can manage deals; the browser's Back returns here. The open deal is in the URL (<code class="t-mono">?deal=</code>), so reload and shared links reopen it and Back closes it. Escape closes it too, and focus returns to the card. Cmd/Ctrl-click on a card opens the full page instead.</span></div>
   </div>
 </section>
 
