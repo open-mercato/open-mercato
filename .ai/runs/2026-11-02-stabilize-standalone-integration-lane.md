@@ -72,4 +72,4 @@ PR: #8452
 ### Phase 3: Standalone-only spec failures
 
 - [x] 3.1 Fix ENTITIES-002/QIDX-5723/START-001/TELEMETRY-002 — d2a323aab
-- [ ] 3.2 Drain worker queues in the eight queue-dependent specs
+- [x] 3.2 Drain worker queues in the eight queue-dependent specs — ec83cf1a9
