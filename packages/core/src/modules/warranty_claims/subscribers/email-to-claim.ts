@@ -171,5 +171,6 @@ export default async function handle(payload: unknown, ctx: SubscriberContext): 
     })
   } catch (err) {
     logger.warn('[warranty_claims:email-to-claim] failed to create warranty claim from inbound email', { err })
+    throw err
   }
 }

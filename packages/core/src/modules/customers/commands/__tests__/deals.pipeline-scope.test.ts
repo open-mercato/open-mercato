@@ -255,11 +255,15 @@ describe.each(['create', 'update'] as const)('customers.deals.%s pipeline refere
     } else {
       expect(harness.deal).toMatchObject(expectedAssignment)
     }
-    expect(harness.em.upsert).toHaveBeenCalledWith(CustomerDictionaryEntry, expect.objectContaining({
+    const expectedDictionaryEntry = {
       tenantId: ids.tenant,
       organizationId: ids.organization,
+      kind: 'pipeline_stage',
       value: 'Confidential stage',
-    }), expect.anything())
+      normalizedValue: 'confidential stage',
+    }
+    expect(harness.em.create).toHaveBeenCalledWith(CustomerDictionaryEntry, expect.objectContaining(expectedDictionaryEntry))
+    expect(harness.em.persist).toHaveBeenCalledWith(expect.objectContaining(expectedDictionaryEntry))
     expect(harness.em.create).toHaveBeenCalledWith(CustomerDealStageTransition, expect.objectContaining({
       pipelineId: ids.pipeline,
       stageId: ids.stage,

@@ -13,14 +13,9 @@ import {
   type PipelineStageDeleteInput,
   type PipelineStageReorderInput,
 } from '../data/validators'
-<<<<<<< HEAD
 import { ensureOrganizationScope, ensureTenantScope, ensureDictionaryEntry } from './shared'
-import { CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
-=======
-import { ensureOrganizationScope, ensureTenantScope, ensureDictionaryEntry, invalidateDictionaryKindCaches } from './shared'
 import { CrudHttpError, badRequest, notFound } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
->>>>>>> b5507bc84 (fix(customers): reject out-of-scope deal pipeline references (#7851) (#7950))
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import {
   enforceCommandOptimisticLockWithGuards,
