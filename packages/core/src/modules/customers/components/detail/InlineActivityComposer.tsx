@@ -38,7 +38,7 @@ function formatDateBadge(isoLocal: string, t: TranslateFn): string {
   const dayLabel = isToday
     ? t('customers.activityComposer.today', 'Today')
     : date.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })
-  return `${dayLabel} · ${time}`
+  return `${dayLabel}, ${time}`
 }
 
 interface InlineActivityComposerProps {
