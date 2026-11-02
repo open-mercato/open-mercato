@@ -1,6 +1,0 @@
-
-Test Suites: 8 passed, 8 total
-Tests:       59 passed, 59 total
-Snapshots:   0 total
-Time:        3.723 s, estimated 8 s
-Ran all test suites matching customers/components/detail/__tests__/(ActivitiesSection|ActivityTimeline|ActivityCard|ActivityHistorySection).

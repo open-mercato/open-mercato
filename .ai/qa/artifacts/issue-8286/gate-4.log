@@ -1,7 +1,0 @@
-[check] Checking translation sync against reference locale en...
-[2m  apps/mercato: en, pl, es, de, ko[0m
-[2m  platform: en, pl, es, de, ko[0m
-[2mFound 70 modules with translations
-[0m
-
-[32mAll translation files are in sync.[0m
