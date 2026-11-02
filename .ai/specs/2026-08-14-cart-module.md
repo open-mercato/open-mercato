@@ -2,7 +2,7 @@
 
 | Field | Value |
 |-------|-------|
-| **Status** | Specification (rev 9 — Release 4 decisions applied; **Phases 1–3 implemented 2026-10-15, PR adeptofvoltron/open-mercato#15** — see §18 Changelog; Phase 4 unchanged, spec-only, not built) |
+| **Status** | Specification (rev 10 — checkout lock contract on top of rev 9; **rev 9 Phases 1–3 implemented 2026-10-15, PR adeptofvoltron/open-mercato#15** — see §18 Changelog; the rev 10 lock deltas (§3.1b) and idempotency amendment (§4.5) and Phase 4 are spec-only, not built) |
 | **Created** | 2026-08-14 |
 | **Suite** | [Ecommerce Suite Roadmap](./2026-08-14-ecommerce-suite-roadmap.md) — spec 5, Phase 2 |
 | **Modules** | `cart` (new) |
@@ -100,6 +100,7 @@ cart.merge · cart.mergeUndo
 cart.approval.request
 cart.reprice
 cart.lock · cart.unlock · cart.markConverted                            (rev 9 — §9, F7/C6; no public route)
+cart.extendLock                                                         (rev 10 — §3.1b; not built)
 cart.proposal.create · cart.proposal.accept · cart.proposal.reject      (rev 7 — §7a)
 ```
 
@@ -111,12 +112,57 @@ cart.proposal.create · cart.proposal.accept · cart.proposal.reject      (rev 7
 | `cart.merge` | Yes (`cart.mergeUndo`, 15 min) | §7.2 |
 | `cart.lines.update` | No | Quantity changes re-price; the "undo" a buyer wants is setting the quantity back, not a system rollback |
 | `cart.reprice`, trigger-driven re-snapshots | No | Re-pricing to a stale price is never a desired restore target |
-| `cart.lock` / `.unlock` | No | A lock is a checkout-session concern, not buyer content |
+| `cart.lock` / `.unlock` / `.extendLock` (rev 10) | No | A lock is a checkout-session concern, not buyer content |
 | `cart.markConverted` | No | Terminal; the cart becomes read-only history once a `SalesOrder` exists |
 
 `cart.proposal.accept` **delegates to `cart.merge`**; it is not a second merge implementation. `cart.proposal.create` takes a target cart **id** (§7a.2). That delegation is the whole reason the proposal seam costs this module three commands rather than an entity family: disclosure (`mergeSummary`), reversal (`cart.mergeUndo`), the append-only pre-merge snapshot (`CartMergeLog.source_snapshot`) and the mandatory whole-cart re-price (§7.3) are already specified, already tested, and already the behaviour a buyer accepting someone else's suggestion needs.
 
 Each command's `execute` phase runs the optimistic-lock pre-check (§8.1) before touching the entity manager, then mutates `Cart`/`CartLine`/`CartPromotionApplication` inside `withAtomicFlush(em, phases, { transaction: true, label: 'cart.<op>' })` — not a raw conditional SQL update — because the write flow (load → call `catalogBuyerPricingService.resolveLinePrice`/`promotionsService` → call `salesCalculationService.calculateDocumentTotals` → persist totals) is exactly the multi-phase "mutate → external work → mutate again" shape that helper exists to protect. Side effects (`emitCrudSideEffects`, cache invalidation, `clientBroadcast` events) fire after commit, never inside the atomic-flush block. `cart.lines.add`/`.remove` and `cart.merge` carry meaningful undo via `extractUndoPayload`; `cart.reprice` and pricing-triggered re-snapshots are not undoable (re-pricing to a stale price is not a state a client would ever want restored) and are documented as such.
+
+### 3.1b Service interface and the checkout lock contract (rev 10)
+
+`checkout` reaches the cart through one DI service, not through HTTP (§3.1). Rev 9 shipped that service as `CartServiceImpl` (`cart/lib/cartService.ts`, DI key `cartService`), a thin facade over the commands in `cart/commands/lock.ts`:
+
+```typescript
+// shipped (rev 9)
+cartService.lock({ cartId, tenantId, organizationId, checkoutSessionId, routeContext? })   // → { cart, priceChanges, warnings? }
+cartService.unlock({ cartId, tenantId, organizationId })                                   // → { cart }
+cartService.markConverted({ cartId, tenantId, organizationId })                            // → { cart }
+```
+
+What the shipped commands do:
+
+- `cart.lock` dispatches `cart.reprice` with `trigger: 'lock'` — trigger 5: the whole-cart re-price always, and the §6a.2 re-visibility pass only when the caller passed a `routeContext` carrying an `assortmentScope` that `shouldEnforceAssortmentScope` accepts for the cart's channel (`commands/cart.ts`, `runWholeCartRevisibilityPass`); without one the pass is skipped silently — then re-reads the lines and throws `409 cart_has_unavailable_lines` while any line carries a `flag_state`. The throw comes before any status change, so a refused lock leaves the cart `active`. On success it sets `status = 'locked'`, `locked_at`, `lock_expires_at` (`locked_at` plus `resolveCartLockTimeoutMs()`, default 30 min) and the caller's `checkout_session_id`, emits `cart.lock.acquired`, and returns the re-price's `priceChanges` and `warnings`.
+- A cart that is already `locked` — by any session, the caller's own included — gets `423 cart_locked` carrying the holder's `checkoutSessionId` (`assertCartNotLocked`, `cart/lib/lockGuard.ts`). Any other non-`active` status gets `404`.
+- `cart.unlock` moves `locked → active`, clears `locked_at`, `lock_expires_at` and `checkout_session_id`, and emits `cart.lock.released`. It does not check the caller's session, and a cart that is not `locked` gets `404`.
+- `cart.markConverted` moves `locked → converted`, sets `resolved_at`, and emits `cart.cart.converted` with `{ cartId, tenantId, organizationId }` only. A cart that is not `locked`, including one already `converted`, gets `404`.
+
+**Rev 10 contract deltas (not built; owned here, required before `checkout` calls the service).** Spec 7's submit protocol (`2026-03-19-checkout-simple-checkout.md` §3.3, §6, §7.2, §7.3) needs a lock it can own, extend, refuse cleanly and release safely from any compensation path. The shipped surface covers the re-price, the visibility refusal and the lock columns; the rest is this amendment:
+
+```typescript
+// rev 10 additions and input changes
+cartService.read(basketRef, scope)                       // token or cart id → CartView
+cartService.reprice(basketRef, scope)                    // trigger 7, operator only; checkout's re-price is trigger 5, inside the lock
+cartService.lock({ ..., checkoutSessionId, routeContext, expectedTotal? })   // routeContext required for a storefront cart (item 7)
+cartService.unlock({ ..., checkoutSessionId })                                     // ... = cartId, tenantId, organizationId
+cartService.extendLock({ cartId, tenantId, organizationId, checkoutSessionId, intentExpiresAt })
+cartService.markConverted({ ..., checkoutSessionId, salesOrderId | salesQuoteId, lineMap })
+cartService.resolveBasketByToken(token, scope)           // §8.3
+```
+
+1. **A price change refuses the lock.** When the forced re-price returns a non-empty `priceChanges`, or the new total differs from `expectedTotal`, `cart.lock` does not lock and throws `409 cart_price_changed` carrying `priceChanges`, leaving the cart `active` at its new prices. Spec 7 §7.2 step 1 then aborts with nothing to undo. The shipped command locks and returns `priceChanges`, which would leave checkout holding a lock on a total the buyer has not seen.
+2. **An unapproved over-threshold cart refuses the lock** with `409 cart_approval_required` while `requires_approval` is set and no approved `approval_id` is attached, leaving the cart `active`. This is the Phase 4 approval gate (§15); spec 7's `awaiting_approval` is a session state and does not lock the cart.
+3. **The lock has an owner.** Re-locking from the owning `checkoutSessionId` does not answer `423`: only the lock row is idempotent. Every call, the owner's included, re-runs the trigger 5 re-price and visibility pass and the `expectedTotal` check, so a retried submit can never confirm a total the buyer has not seen; a refusal on an owner re-lock throws the same `409` and leaves the lock in place for the owner's compensation to release. A successful owner re-lock does not move `lock_expires_at`, which is `cart.extendLock`'s job. A different session still gets the shipped `423 cart_locked` with the holder's `checkoutSessionId`; this per-cart lock, not spec 7's per-session `submit_idempotency_key`, is what stops a second session creating a second order.
+4. **`cart.unlock`, `cart.markConverted` and `cart.extendLock` are owner-only; the owner may re-run them.** All three take `checkoutSessionId`, and all three keep the shipped throw style:
+   - `cart.unlock` from the owner on a `locked` cart releases it. Re-run on a cart that is no longer `locked`, or called from a different session, it is a no-op that returns the cart rather than a `404`, because every compensation path in spec 7 §7.3 may run twice and must never fail.
+   - `cart.markConverted` from the owner on a `locked` cart converts it; re-run by the same owner on a cart already `converted` under that `checkout_session_id` (rev 9 leaves the column set on conversion), it returns the cart and emits nothing.
+   - A different session gets `409 cart_lock_not_owned` carrying the holder's `checkoutSessionId`; a cart that is neither `locked` nor (for `markConverted`) already converted by the caller gets `409 cart_not_locked` carrying its `status`. Both apply to `cart.markConverted` and `cart.extendLock`, so checkout can abort or raise an operational notification instead of reading a silent success.
+   - `cart.markConverted` takes exactly one of `salesOrderId` / `salesQuoteId` plus `lineMap`, and `cart.cart.converted` carries them as §11 requires.
+5. **`cart.extendLock` (new)** takes the payment intent's `intentExpiresAt` and sets `lock_expires_at` to `min(intentExpiresAt + 5 min, now + CART_LOCK_MAX_PAYMENT_WINDOW_MINUTES)`, where `CART_LOCK_MAX_PAYMENT_WINDOW_MINUTES` (default 60, resolved in `lib/sweepConfig.ts` next to `CART_LOCK_TIMEOUT_MINUTES`) is the longest payment window the cart will hold a lock for. It never moves `lock_expires_at` earlier than it already is, and an `intentExpiresAt` that is already in the past is refused with `400 cart_lock_extension_invalid`. The caller supplies only the intent's expiry; the cart computes the lock expiry and bounds it with its own maximum, so no caller can hold a lock past that window. It never re-prices and never refuses for a price or visibility change: it runs while a payment settles, and a price move in that window is the session's to reconcile. A different session or a cart that is not `locked` is refused as item 4 describes. Spec 7 calls it when the session enters `awaiting_payment` (§7.2 step 6). It moves the shipped `lock_expires_at`; there is no second expiry column.
+6. **`release-stale-locks` emits `cart.lock.timed_out`.** The shipped sweeper (`releaseStaleCartLocks`, `cart/lib/sweepers.ts`) releases any lock past `lock_expires_at` unconditionally but emits nothing, although `cart.lock.timed_out` is declared in `cart/events.ts`. Because the owning session extends `lock_expires_at` via `cart.extendLock` while it settles, a 3-DS redirect the buyer takes minutes to complete never outlives its cart lock and lets a second session in (§9), and the job needs no `awaiting_payment` exception.
+7. **A storefront-channel lock without a `routeContext` is refused (fail-closed).** `cart.lock` on a cart whose channel requires assortment enforcement (§6a.1b) and that receives no `routeContext` with an `assortmentScope` throws `400 assortment_scope_required_for_storefront_channel` before re-pricing. The shipped command skips the §6a.2 pass in that case, which would let a line that has left the buyer's assortment past trigger 5.
+8. **The lock write is a conditional update.** The shipped `cart.lock` reads the cart, asserts it is not locked, dispatches the re-price, re-reads, asserts again and flushes; nothing in the final write is conditional, and `Cart` carries no version column the write could compare (only `updated_at`), so two sessions racing between the re-read and the flush can both lock. The rev 10 write is a single conditional update: `status = 'active'` → `locked` with the caller's `checkout_session_id`, or, for an owner re-lock, `WHERE status = 'locked' AND checkout_session_id = :caller`. Zero rows updated answers `423 cart_locked` with the holder's `checkoutSessionId`, re-read after the failed update.
+9. **`cart.reprice` accepts the owner's locked cart for `trigger: 'lock'`.** The shipped `cart.reprice` calls `assertCartNotLocked` and answers `423` for any locked cart, which would make item 3's owner re-lock impossible. With `trigger: 'lock'` and a `checkoutSessionId` equal to the cart's `checkout_session_id`, it re-prices the locked cart; every other trigger, and any other session, still gets `423`.
 
 ### 3.2 Totals
 
@@ -184,8 +230,8 @@ Standard scoped columns throughout.
 | `last_activity_at` | timestamptz | Drives abandonment |
 | `last_price_change_at` | timestamptz, nullable | **(rev 9 — §5.3 referenced this column; rev 8 never declared it)** Set whenever a re-price populates `priceChanges` |
 | `locked_at` | timestamptz, nullable | **(rev 9 — F7/C6/D-R4-4)** Set by `cart.lock` |
-| `lock_expires_at` | timestamptz, nullable | **(rev 9 — F7/C6)** Lock timeout (default 30 min, §9); `release-stale-locks` clears both lock columns past this |
-| `checkout_session_id` | text, nullable | **(rev 9 — F7/C6)** Opaque id supplied by the lock caller; returned in the `423 cart_locked` body (§9, §15 error catalogue) |
+| `lock_expires_at` | timestamptz, nullable | **(rev 9 — F7/C6)** Lock timeout (default 30 min, §9); `release-stale-locks` clears both lock columns past this. **(rev 10)** Extended by the owning session via `cart.extendLock` while it settles payment (§3.1b) |
+| `checkout_session_id` | text, nullable | **(rev 9 — F7/C6)** Opaque id supplied by the lock caller; returned in the `423 cart_locked` body (§9, §15 error catalogue). `checkout` passes its `CheckoutSession.id`. **(rev 10)** Names the lock's owner for `cart.unlock`, `cart.extendLock` and `cart.markConverted` (§3.1b) |
 | `resolved_at` | timestamptz, nullable | **(rev 9 — Q6/D-R4-20, C8)** Set when a cart (basket or proposal) leaves `active` for any terminal-for-purge reason (`converted`, `abandoned` past purge-eligibility, `expired`, or — for a proposal — `merged`/`abandoned`). `purge-expired-carts` counts the 90-day retention window from this column rather than from `expires_at`, which is what makes an accepted or rejected proposal's retention well-defined (§7a.3, §12, §16 Q6) |
 | `expires_at` | timestamptz | TTL |
 
@@ -246,7 +292,7 @@ Indexes: unique `token_hash`; `(tenant_id, customer_id, status)`; `(tenant_id, s
 | `amount_net` / `amount_gross` | numeric(16,4), nullable | |
 | `applied_at` | timestamptz | |
 
-**`CartIdempotencyKey` (`cart_idempotency_keys`) (rev 9 — §8.2, previously undeclared).**
+**`CartIdempotencyKey` (`cart_idempotency_keys`) (rev 9 — §8.2, previously undeclared; superseded by §4.5 in rev 10).**
 
 | Column | Type | Notes |
 |---|---|---|
@@ -257,7 +303,7 @@ Indexes: unique `token_hash`; `(tenant_id, customer_id, status)`; `(tenant_id, s
 | `response_body` | jsonb | The original response envelope (§10.1), replayed verbatim |
 | `created_at` | timestamptz | |
 
-Unique `(cart_id, key)`. Swept by `expire-carts` alongside the cart it belongs to (no independent TTL — an idempotency key outlives its cart only as long as the cart does).
+Unique `(cart_id, key)`. No independent TTL: rows go with their cart, through the `cart_id` foreign key's `deleteRule: 'cascade'` (`data/entities.ts`) when `purge-expired-carts` hard-deletes it. Superseded by §4.5 in rev 10.
 
 ### 4.4 `CartMergeLog` (`cart_merge_logs`)
 
@@ -278,6 +324,34 @@ Rev 6 described `outcome` only as "per-line disposition and reason", which is en
 `merged_by_actor_type`/`_id` **replace** rev 6's `merged_by_customer_user_id`. That column could only name a `CustomerUser`, which was adequate while login was the only thing that caused a merge. A sales rep is an `auth.User` — a different table, with no foreign key between the two (`users` and `customer_users` are deliberately separate, down to distinct JWT audiences) — so a single-typed column could not record who performed a proposal acceptance at all, and would have silently recorded NULL.
 
 Without this log, "my basket disappeared when I logged in" is unanswerable. With it, it is a support query and, if needed, a restore. Rev 7 extends that guarantee to "where did these three lines come from".
+
+### 4.5 `CartIdempotencyKey` amendment (rev 10 — not built)
+
+The table §4.3 declares shipped in rev 9 with a non-nullable `cart_id` and a unique `(cart_id, key)`, so it can only dedupe a mutation on a cart that already exists. `lib/idempotency.ts` records a row after the command has committed and is wired into `cart.lines.add` and `.bulkAdd` only; `POST /current` (`cart.create`) is not deduped at all. Rev 10 changes the same table rather than adding a second one:
+
+| Column | Change | Notes |
+|---|---|---|
+| `scope` | new, text | `cart.create` (`POST /current` without a token) \| `cart` (a mutation on an existing basket) |
+| `cart_id` | becomes nullable | Set for `scope = 'cart'`; null for `cart.create`, which runs before a cart exists |
+| `store_id` | new, uuid, nullable | `ecommerce.EcommerceStore.id`; null for non-storefront channels |
+| `key` | stored hashed | sha256 of the client's `Idempotency-Key`; the raw value is no longer stored |
+| `request_digest` | covers the route as well as the body | Still drives `422 idempotency_key_mismatch` |
+| `status` | new, text | `pending \| done` |
+| `response_status` / `response_body` | become nullable | Written when a `scope = 'cart'` row flips to `done`; never written for `cart.create` (§8.2) |
+| `expires_at` | new, timestamptz | `created_at` plus `CART_IDEMPOTENCY_RETENTION_HOURS` (default 24, `lib/sweepConfig.ts`), independent of the cart; swept by `expire-carts` (§12) |
+| `legacy_digest` | new, boolean, default false | Set only on rows migrated from rev 9, whose `request_digest` covers the body alone |
+
+Indexes, all partial unique, the same shape `messages_idempotency_key_uq` uses (`messages/data/entities.ts`):
+
+- `(cart_id, scope, key)` where `cart_id is not null`: a mutation key stays scoped to its cart, as rev 9's `(cart_id, key)` already is, so two carts can never collide on one key;
+- `(tenant_id, organization_id, store_id, scope, key)` where `scope = 'cart.create' and store_id is not null`;
+- `(tenant_id, organization_id, scope, key)` where `scope = 'cart.create' and store_id is null`.
+
+Plus `(tenant_id, expires_at)` for the sweeper; the first index already serves lookups by `cart_id`. These replace unique `(cart_id, key)`.
+
+**Existing rows.** Rev 9 rows hold the raw `Idempotency-Key`, and `yarn db:generate` emits only the schema change, so the migration carries a hand-written data step in the same file: set `scope = 'cart'`, `status = 'done'` and `legacy_digest = true`, rewrite `key` in place as `encode(sha256(convert_to(key, 'UTF8')), 'hex')` (the same hex digest the application computes), and set `expires_at` to `created_at` plus `CART_IDEMPOTENCY_RETENTION_HOURS`. A `legacy_digest` row is compared on the body-only digest rev 9 wrote, since its route is not recoverable; such rows age out within one retention window. Truncating the table instead is acceptable only if the release notes say that in-flight retries across the deploy lose their dedupe.
+
+`cart.create` keys MUST be client-generated random values of at least 128 bits. A `scope = 'cart'` replay is honoured only before `expires_at` and only with the same `request_digest`, else `422 idempotency_key_mismatch`; the lookup is by the cart the presented token resolves to, so a key can never reach another cart's row. A `cart.create` replay never returns the created cart (§8.2). The full protocol is §8.2. Because the table now holds live rows, this is a migration against a shipped table and needs its own `yarn db:generate` output; it is not a paper rename like those in §16a.
 
 ---
 
@@ -555,9 +629,13 @@ The lock check runs before any entity manager work; the entity mutations themsel
 
 ### 8.2 Idempotency
 
-Mutations accept an `Idempotency-Key`. A repeated key within the cart's lifetime returns the original result without re-applying — this is what makes "add to cart" safe under a double-tap or a retried request on a flaky mobile connection. The idempotency lookup precedes the §8.1 optimistic-lock check (clarified 2026-09-30): a retry of a mutation that landed but lost its response carries the pre-mutation `updatedAt`, so a lock check that ran first would answer it with a `409` against the cart the original request itself changed.
+Mutations accept an `Idempotency-Key`. A repeated key within the cart's lifetime (rev 10: within the row's `expires_at`; `cart.create` excepted) returns the original result without re-applying — this is what makes "add to cart" safe under a double-tap or a retried request on a flaky mobile connection. The idempotency lookup precedes the §8.1 optimistic-lock check (clarified 2026-09-30): a retry of a mutation that landed but lost its response carries the pre-mutation `updatedAt`, so a lock check that ran first would answer it with a `409` against the cart the original request itself changed.
 
-Keys are stored per cart with the resulting `updatedAt` and a response digest. A key replayed with a different body returns `422 idempotency_key_mismatch`.
+**Storage (rev 9, shipped).** `CartIdempotencyKey` (§4.3) stores a key per cart with its request digest and the verbatim response. `findIdempotencyReplay` (`cart/lib/idempotency.ts`) returns the stored response, or `422 idempotency_key_mismatch` for the same key with a different body; `recordIdempotencyResponse` writes the row after the command has committed and swallows a unique violation, so the loser of a concurrent first request has already applied its own mutation. Only `POST /current/lines` and `POST /current/lines/bulk` use it.
+
+**Storage (rev 10 amendment, not built).** Two gaps remain in the shipped design: `POST /current` cannot be deduped, because a row needs a cart, and two concurrent requests under one key can both apply. With the §4.5 columns, a request claims its key by inserting a `pending` row **before** the mutation, committed in its own transaction so the claim is durable before any work starts. The partial unique index makes a concurrent duplicate fail to insert, and that loser gets `409 idempotency_in_flight` rather than queueing behind the first (the storefront's double-tap, offline-field-mode's replay and spec 7's `submit_in_progress` all want "refused, not queued"). On commit the row flips to `done` with the verbatim response envelope (§10.1), and a later replay of a `scope = 'cart'` key returns that stored response untouched; `cart.create` is the one exception (below). A request that fails cleanly — a validation error, a refusal, any error response — deletes its `pending` claim before answering, so the client can retry with the same key; a `pending` row left behind by a crashed request is reclaimed past a short lease, so a lost response cannot wedge a key forever. This is the unique-index-then-recover shape `checkout`'s pay-link submit already uses: `CheckoutTransaction` carries a unique `(organizationId, tenantId, linkId, idempotencyKey)` index (`checkout/data/entities.ts`), and `api/pay/[slug]/submit/route.ts` re-reads the winning row on a duplicate-key error.
+
+`POST /current` without a token uses `scope = 'cart.create'` with `cart_id` null. Its `done` row stores no response body, because the only thing worth replaying is the plaintext token, which is never stored (§8.3). A replay of a completed `cart.create` key therefore answers `409 idempotency_key_consumed` with no token and no cart id: it tells a double-tap that a cart was created without handing out a credential for it. Returning or rotating a token on a replay would make the `Idempotency-Key` itself a bearer credential, one that proxies and APM tooling log, that replays with a near-constant body, that revokes the buyer's live token each time, and that a late replay after adoption could use to reach the buyer's session through checkout's `POST /sessions`. A client that lost the original response starts a new cart under a new key; the orphaned empty cart is swept by the normal `mark-abandoned-carts` / `expire-carts` path (§12). A concurrent duplicate still gets `409 idempotency_in_flight` while the first is `pending`. Rows are swept by `expire-carts` (§12) past `expires_at`; the shared `CART_CREATE` per-IP rate limit (§15a) bounds a client that sends fresh keys forever.
 
 ### 8.3 Token security
 
@@ -588,9 +666,9 @@ active ──lock (checkout)──► locked ──submit──► converted
 
 | Transition | Rule |
 |---|---|
-| `active → locked` | **(rev 9 — F7/C6/D-R4-4)** `cartService.lock` / command `cart.lock`, called by `checkout` (no public route in Release 4); forces a whole-cart re-price **and a whole-cart re-visibility pass with a freshly-resolved buyer context** (§6a.2, §6a.5, D-R4-22) first; **refused with `409 cart_has_unavailable_lines` while any line carries a `flag_state`**; sets `locked_at`, `lock_expires_at` and the caller-supplied `checkout_session_id`; rejects mutation while locked |
-| `locked → active` | `cartService.unlock` (command `cart.unlock`), explicit, or a lock timeout (default 30 min) clearing `locked_at`/`lock_expires_at` |
-| `locked → converted` | **(rev 9 — F7/C6)** `cartService.markConverted` (command `cart.markConverted`), called by `checkout` once a `SalesOrder` exists; terminal — no command mutates a `converted` cart; sets `resolved_at` (§4.1, D-R4-20) |
+| `active → locked` | **(rev 9 — F7/C6/D-R4-4)** `cartService.lock` / command `cart.lock`, called by `checkout` (no public route in Release 4); forces a whole-cart re-price **and a whole-cart re-visibility pass with a freshly-resolved buyer context** (§6a.2, §6a.5, D-R4-22) first — the pass runs only when the caller passes a `routeContext` carrying an `assortmentScope` (§3.1b); **refused with `409 cart_has_unavailable_lines` while any line carries a `flag_state`**; sets `locked_at`, `lock_expires_at` and the caller-supplied `checkout_session_id`; rejects mutation while locked. **(rev 10, not built — §3.1b)** Also refused with `409 cart_price_changed` when the forced re-price changed a price, and with `409 cart_approval_required` while approval is outstanding; a refusal leaves the cart `active`; a storefront cart locked without a `routeContext` is refused with `400 assortment_scope_required_for_storefront_channel`; re-locking from the owning session re-prices and keeps the lock instead of answering `423` |
+| `locked → active` | `cartService.unlock` (command `cart.unlock`), explicit, or a lock timeout (default 30 min) clearing `locked_at`/`lock_expires_at`. **(rev 10, not built — §3.1b)** `cart.unlock` is owner-only and a no-op when re-run or called from another session; the owning session may move `lock_expires_at` with `cart.extendLock`; the timeout emits `cart.lock.timed_out` |
+| `locked → converted` | **(rev 9 — F7/C6)** `cartService.markConverted` (command `cart.markConverted`), called by `checkout` once a `SalesOrder` exists; terminal — no command mutates a `converted` cart; sets `resolved_at` (§4.1, D-R4-20). **(rev 10, not built — §3.1b)** Owner-only (`409 cart_lock_not_owned` for another session), a no-op when the owner re-runs it, and carries `salesOrderId` or `salesQuoteId` and `lineMap` into `cart.cart.converted` (§11) |
 | `active → abandoned` | Baskets: no activity for 24 h (configurable); emits an event for recovery flows. Proposals: only by `cart.proposal.reject` (§7a.5) |
 | `abandoned → active` | Baskets only: any mutation; extends `expires_at`. Never for a proposal (§7a.1). "Any mutation" is intentionally the mutation *attempt*, not its outcome — `loadMutableCart` reactivates before input validation runs, so a rejected add (inactive product, quantity ≤ 0) still reactivates the basket and moves `last_activity_at` (nit raised in the 2026-10-23 re-review) |
 | `active → expired` | `expires_at` reached (default 30 days for identified buyers, 7 for guests); releases promotion code reservations |
@@ -626,7 +704,7 @@ A `locked` cart that a client tries to mutate returns `423 Locked` with the chec
 | POST | `/proposals/:proposalId/accept` | Per-line acceptance; delegates to `cart.merge` with `strategy: 'manual'`. Token in header |
 | POST | `/proposals/:proposalId/reject` | Terminal; touches the target cart not at all. Token in header |
 
-`cart.lock`/`.unlock`/`.markConverted` have **no public route** in Release 4 (F7/C6) — `checkout` calls the DI service/command directly, in-process.
+`cart.lock`/`.unlock`/`.markConverted` have **no public route** in Release 4 (F7/C6) — `checkout` calls the DI service/command directly, in-process. Rev 10's `cart.extendLock` (§3.1b) has none either.
 
 **Authoring is the one route on this base path that a cart token cannot reach.** The proposal routes (rev 8) are addressed by proposal id with the buyer's basket token in the `X-Cart-Token` header, never the path (§7a.4, §8.3). `GET`, `preview`, `accept` and `reject` are token-bound like the rest of `/api/cart`, because they are the buyer acting on their own basket and a guest buyer has no session to present. `POST /proposals` is the opposite: it is somebody *other* than the buyer writing, so it requires an authenticated principal holding `cart.proposals.author` — a staff `auth.User`, or an AI agent principal (`users.kind = 'agent'`). It takes the target as `targetCartId` and accepts no cart token. Letting a leaked cart token author proposals into its own cart would hand an attacker a way to put priced lines in front of a buyer under the store's own branding, which is R15.
 
@@ -709,7 +787,7 @@ export const features = [
 
 The four lifecycle `cart.proposal.*` events carry `{ proposalCartId, targetCartId, authoredByActorType, authoredByActorId, lineCount }`, and `.accepted` additionally carries `mergeLogId` and `acceptedLineCount`. `cart.proposal.acceptance_undone` (rev 8, §7a.7) carries `{ proposalCartId, targetCartId, mergeLogId, proposalCartStatus: 'active' | 'expired' }`. They are `clientBroadcast: true` so a rep's console reflects a buyer's decision without polling, and — once the transport of [`assisted_selling`](./2026-09-22-assisted-selling.md) exists — they are the events its buyer-facing bridge relays. Like every other broadcast event in this platform they are a **signal, not a payload**: the recipient re-reads state through the API. They deliberately carry no line, price or total.
 
-`cart.cart.converted` gains a payload requirement in rev 7, because commission attribution depends on it: it MUST carry `salesOrderId` and `lineMap: Array<{ cartLineId, salesOrderLineId }>`. Whoever creates the order from the cart holds that mapping at creation time — it is the same ordered traversal that builds `SalesLineSnapshot[]` — so this records an obligation on spec 7 (checkout) rather than inventing new work. Where `lineMap` is absent, a consumer degrades to order-level attribution and says so; it never guesses the mapping from product identity, because a cart may legitimately hold two lines of the same product with different `configuration_hash`.
+`cart.cart.converted` gains a payload requirement in rev 7, because commission attribution depends on it: it MUST carry `lineMap: Array<{ cartLineId, salesDocumentLineId }>` — an order line id for `salesOrderId`, a quote line id for `salesQuoteId` — and exactly one of `salesOrderId` / `salesQuoteId` — a quote outcome carries `salesQuoteId` rather than an order id, and codes and promotion usage for a quote are consumed at `sales.quotes.convert_to_order`, not at finalize. Whoever creates the document from the cart holds that mapping at creation time — it is the same ordered traversal that builds `SalesLineSnapshot[]` — so this records an obligation on spec 7 (checkout) rather than inventing new work. `cart.markConverted` is the command that emits it (§3.1b). **(rev 10, not built)** The shipped command takes no document id or `lineMap` and emits `{ cartId, tenantId, organizationId }` only; the payload requirement lands with the §3.1b input change, before `checkout` calls it. Where `lineMap` is absent, a consumer degrades to order-level attribution and says so; it never guesses the mapping from product identity, because a cart may legitimately hold two lines of the same product with different `configuration_hash`.
 
 `cart.line.visibility_rejected`'s `triggeredBy` enum gains `'merge'` (§6a.5) — an additional value on an existing event, not a new event.
 
@@ -734,8 +812,8 @@ The four lifecycle `cart.proposal.*` events carry `{ proposalCartId, targetCartI
 | Job | Cadence | Purpose |
 |---|---|---|
 | `mark-abandoned-carts` | every 15 min | `active` → `abandoned` past the inactivity window. `kind = 'basket'` only — a proposal is never abandoned by inactivity (§7a.1) |
-| `expire-carts` | hourly | Expire past TTL; release promotion code reservations. The expiry path for proposals, at their own `expires_at` (§7a.3); emits `cart.proposal.expired` for them |
-| `release-stale-locks` | every 5 min | `locked` → `active` past the lock timeout |
+| `expire-carts` | hourly | Expire past TTL; release promotion code reservations; **(rev 10, not built)** sweep `CartIdempotencyKey` rows past their own `expires_at` (§4.5). The expiry path for proposals, at their own `expires_at` (§7a.3); emits `cart.proposal.expired` for them |
+| `release-stale-locks` | every 5 min | Release `locked` → `active` past `lock_expires_at` (default 30 min), unconditionally, clearing the lock columns (`releaseStaleCartLocks`). **(rev 10, not built)** Emits `cart.lock.timed_out`; the owning session keeps the lock alive with `cart.extendLock` rather than relying on an exception here (§3.1b) |
 | `purge-expired-carts` | daily | Hard-delete carts expired more than 90 days ago, retaining the merge log; emits `cart.cart.purged` per cart. For proposal carts the rule is §16 Q6 |
 
 ---
@@ -789,10 +867,13 @@ The four lifecycle `cart.proposal.*` events carry `{ proposalCartId, targetCartI
 
 **Concurrency & idempotency (`TC-CART-CONC-*`, Phase 1 gate):**
 - `TC-CART-CONC-01` Two clients presenting the same `updatedAt`: one succeeds, one gets 409 (standard `enforceCommandOptimisticLock` body) with the current cart additionally embedded
-- `TC-CART-CONC-02` Repeated `Idempotency-Key` returns the original result without re-applying; the lookup precedes the optimistic-lock check (§8.2)
+- `TC-CART-CONC-02` Repeated `Idempotency-Key` returns the original result without re-applying (rev 10: within `expires_at`; `cart.create` excepted); the lookup precedes the optimistic-lock check (§8.2)
 - `TC-CART-CONC-03` Same key with a different body returns 422
 - `TC-CART-CONC-04` Re-pricing bump carries `versionBumpReason: 'repricing'` (R3)
 - `TC-CART-CONC-05` 20 parallel add-line calls yield a consistent final quantity
+- **(rev 10, with §4.5)** A concurrent duplicate under the same `Idempotency-Key` returns `409 idempotency_in_flight` while the first still commits
+- **(rev 10, with §4.5)** `POST /current` replayed under a completed `Idempotency-Key` returns `409 idempotency_key_consumed` with no token and no cart id, creates no second cart, and leaves the original cart's token valid
+- **(rev 10, with §4.5)** The same key under a different tenant or store is independent; an expired or swept key no longer dedupes
 
 **Merge (`TC-CART-MERGE-*`, Phase 3 gate):**
 - `TC-CART-MERGE-01` All six §7.1 situations, including the `manual` row added in rev 7
@@ -864,11 +945,15 @@ The four lifecycle `cart.proposal.*` events carry `{ proposalCartId, targetCartI
 
 **Lifecycle:**
 - Lock forces a re-price; mutation while locked returns 423 with the session id
+- `cart.lock` refused with `409 cart_has_unavailable_lines` leaves the cart `active`; a locked cart answers a second `cart.lock` with `423 cart_locked` and the holder's `checkoutSessionId`
+- **(rev 10, with §3.1b)** `cart.lock` refusals `409 cart_price_changed` and `409 cart_approval_required` leave the cart `active` with nothing to undo; two sessions racing `cart.lock` lock exactly once (the other gets `423`); a re-lock from the owning session re-runs the re-price (accepted by `cart.reprice` for its own lock) and `expectedTotal` check, refuses the same way on a change while keeping the lock, and does not move `lock_expires_at`; a storefront cart locked without a `routeContext` gets `400 assortment_scope_required_for_storefront_channel`
+- **(rev 10, with §3.1b)** `cart.extendLock` sets `lock_expires_at` to `min(intentExpiresAt + 5 min, now + CART_LOCK_MAX_PAYMENT_WINDOW_MINUTES)` for the owning session only, never earlier than its current value, refuses a past `intentExpiresAt` with `400 cart_lock_extension_invalid`, and never re-prices; a non-owning call gets `409 cart_lock_not_owned` and a non-`locked` cart `409 cart_not_locked`; `release-stale-locks` then releases only past the extended `lock_expires_at` and emits `cart.lock.timed_out`
+- **(rev 10, with §3.1b)** `cart.unlock` from a non-owning session, or re-run, is a no-op; `cart.markConverted` emits `cart.cart.converted` with `salesOrderId` or `salesQuoteId` and `lineMap`, a re-run by the owner is a no-op that emits nothing, and a call from another session gets `409 cart_lock_not_owned`
 - Lock timeout returns the cart to active
 - Abandonment and expiry transitions; expiry releases code reservations (R8)
 - Limits enforced (R10)
 
-**API:** every route, with tenant isolation and cross-tenant token rejection.
+**API:** every route, with tenant isolation and cross-tenant token rejection, and no route carrying the token in its path (§16 Q5).
 
 ---
 
@@ -918,6 +1003,13 @@ Approval routing, bulk lines, admin cart list, abandonment events, **and the who
 | `cart_has_unavailable_lines` | 409 | `cart.lock` refused while a line is flagged (F7) |
 | `cart_not_active` | 409 | **(rev 9 — F15, corrected 2026-10-23 — #7880)** A write was attempted against a merged, expired or converted cart; the response carries the cart's actual `status`. An `abandoned` basket is not refused — §9's `abandoned → active` applies: the write reactivates it and extends `expires_at` |
 | `idempotency_key_mismatch` | 422 | §8.2 |
+| `idempotency_in_flight` | 409 | **(rev 10, not built)** A concurrent duplicate under a key still `pending` (§4.5, §8.2) |
+| `idempotency_key_consumed` | 409 | **(rev 10, not built)** A replay of a completed `cart.create` key; carries no token and no cart id (§8.2) |
+| `cart_lock_not_owned` | 409 | **(rev 10, not built)** `cart.markConverted` / `cart.extendLock` from a session that does not hold the lock; carries the holder's `checkoutSessionId` (§3.1b) |
+| `cart_lock_extension_invalid` | 400 | **(rev 10, not built)** `cart.extendLock` with an `intentExpiresAt` already in the past (§3.1b) |
+| `cart_not_locked` | 409 | **(rev 10, not built)** `cart.markConverted` / `cart.extendLock` on a cart that is not `locked` (and, for `markConverted`, not already converted by the caller); carries `status` (§3.1b) |
+| `cart_price_changed` | 409 | **(rev 10, not built)** `cart.lock` refused because the forced re-price changed a price; carries `priceChanges` (§3.1b) |
+| `cart_approval_required` | 409 | **(rev 10, not built, Phase 4)** `cart.lock` refused while approval is outstanding (§3.1b) |
 | `promotion_line_immutable` | 409 | A buyer attempted to edit/remove a gift line (F4) |
 | `proposal_cart_immutable` | 409 | A line/promotion command targeted a `kind = 'proposal'` cart (§7a.1) |
 | `assortment_scope_required_for_storefront_channel` | 400 | No `StoreContext` resolved for a route that needs one (§6a.1a) — never caused by a missing *request field* in rev 9, only by `storeContextService` itself failing to resolve |
@@ -942,7 +1034,7 @@ Via the shared `ratelimit` module (`checkRateLimit`, `readEndpointRateLimitConfi
 2. **Cross-store carts** — scoped to one store per the roadmap. Revisit if a tenant wants a shared basket across storefronts.
 3. **Cart-level currency switching** — currently re-prices the whole cart. Whether a buyer may switch currency mid-cart at all, or must start over, is a merchandising decision. *Assumed re-price is acceptable.*
 4. **Agent-authored carts** — `added_by: 'agent'` is in the model. Whether an AI-proposed line needs explicit buyer confirmation before it counts toward totals is an approval-contract question for the AI framework. *Reserved, not specified.* **Closed 2026-09-22 (rev 7):** the question dissolves rather than being answered. An unaccepted line is not in the buyer's cart at all — it is in a separate cart holding the role `proposal` (§7a) — so it cannot count toward the buyer's totals, and nothing has to decide whether it does. The alternative that was implicitly on the table, a per-line `pending` flag, would have pushed a conditional into every totals path in a module whose entire discipline is that it performs no arithmetic of its own; it would also have had to be honoured by `promotionsService` evaluation, by the `salesCalculationService` mapping and by every `nextTier` and threshold calculation, each of which is a place the flag could be forgotten. It was never an approval-contract question for the AI framework: it was a modelling question about where an unaccepted intention lives, and the same answer serves a human rep, for whom the AI framework has nothing to say.
-5. **The cart token in `/carts/:token/...` paths** (raised 2026-09-27). **Closed 2026-10-14 (rev 9 — C7/D-R4-6).** Moved to a header-bound `/api/cart/current/*` shape before Phase 1 (§10, §8.3): the only credential is `X-Cart-Token`; the platform does not read a cookie for it — the storefront app owns an httpOnly cookie and forwards the header itself (CSRF boundary stays with the storefront). `POST /current` returns the token once in the body. Admin keeps `/carts` and `/carts/:id` (Phase 4), so there is no path collision with the public routes. Nothing is implemented, so the change was free; `storefront-app.md` is the consumer that must call the new shape.
+5. **The cart token in `/carts/:token/...` paths** (raised 2026-09-27). **Closed 2026-10-14 (rev 9 — C7/D-R4-6).** Moved to a header-bound `/api/cart/current/*` shape before Phase 1 (§10, §8.3): the only credential is `X-Cart-Token`; the platform does not read a cookie for it — the storefront app owns an httpOnly cookie and forwards the header itself (CSRF boundary stays with the storefront). `POST /current` returns the token once in the body. Admin keeps `/carts` and `/carts/:id` (Phase 4), so there is no path collision with the public routes. Nothing is implemented, so the change was free; `storefront-app.md` is the consumer that must call the new shape. **(rev 10)** The consuming specs move to the `/current` base in a follow-up, and with it to the renamed `cart.cart.converted` `lineMap` field (`salesDocumentLineId`) and its `salesQuoteId` variant (§11); [Assisted Selling](./2026-09-22-assisted-selling.md) is one of them.
 6. **Retention of resolved proposal carts** (raised 2026-09-27). **Closed 2026-10-14 (rev 9 — C8/D-R4-20).** Adopted the stated default: proposal carts follow the 90-day purge, counted from `resolved_at` (§4.1) rather than `expires_at` — which is what makes an accepted or rejected proposal's retention well-defined, since `resolved_at` is set at resolution (acceptance, rejection or expiry) while `expires_at` is set at creation. Each purge emits `cart.cart.purged` so assisted selling can render "details purged" on a surviving metadata row; accepted lines survive in `CartMergeLog.source_snapshot`, which the purge already retains. The only Release 4 obligation this closes with is the `resolved_at` column landing in the Phase 1 migration (D-R4-19); the purge sweeper's proposal-aware behaviour is Phase 4 work, same as the rest of the proposal seam.
 
 ---
@@ -969,9 +1061,10 @@ Via the shared `ratelimit` module (`checkRateLimit`, `readEndpointRateLimitConfi
 | Tenant/organization scoping | Every entity and query; cross-tenant token resolution rejected |
 | Optimistic locking | `updated_at` via `enforceCommandOptimisticLock` (§8.1, fixed 2026-08-17 — no `version` counter; the platform's helper is hard-coded to timestamp comparison and cannot accept one), distinguishable re-price bumps via `versionBumpReason` |
 | Command pattern | Every mutation is a registered command (§3.1a, fixed 2026-08-17 — an earlier draft described plain HTTP handlers with no command wiring at all) |
+| Checkout lock protocol | **(rev 9)** `cartService.lock`/`unlock`/`markConverted` over the `cart.lock`/`.unlock`/`.markConverted` commands, no public route; a refused lock leaves the cart `active`; a locked cart answers `423 cart_locked` with the holder's `checkoutSessionId`; `release-stale-locks` releases a lock past `lock_expires_at`. **(rev 10, not built)** owner-only `unlock`/`markConverted`/`extendLock` with `409 cart_lock_not_owned` / `cart_not_locked` (a no-op `unlock`), owner re-runs as no-ops, the `cart_price_changed`/`cart_approval_required` refusals, and a fail-closed storefront lock without `routeContext` (§3.1b, §4.1, §9, §12) |
 | Scope/channel/store never caller-supplied | **(rev 9 — F1/F2/D-R4-1/D-R4-2)** Resolved server-side at the route edge via `storeContextService`; public request bodies are `.strict()` and declare no such field (§6a.1a) |
 | Trust boundaries | Public routes resolve `storeContextService` soft-DI at the edge; a missing registration yields no storefront carts, never an unchecked write (§6a.1a) |
-| Bearer credential at rest | Only `token_hash` is persisted; the plaintext token is shown once, at creation (§4.1, §8.3, C13/D-R4-18) |
+| Bearer credential at rest | Only `token_hash` is persisted; the plaintext token is shown once, at creation (§4.1, §8.3, C13/D-R4-18). **(rev 10)** A replayed `cart.create` `Idempotency-Key` answers `409 idempotency_key_consumed` and never returns or re-mints a token (§8.2) |
 | Encryption | `email` and `note` declared in `cart/encryption.ts`'s `defaultEncryptionMaps` (`entityId: 'cart:cart'`); reads via `findWithDecryption`; `configuration` stays plaintext because encrypting it breaks the stored `configuration_hash` generated column |
 | Zod validation | All routes; `.strict()` on every public body (§6a.1a); `z.infer` types |
 | No `any` | Service and payload contracts fully typed |
@@ -988,6 +1081,15 @@ Via the shared `ratelimit` module (`checkRateLimit`, `readEndpointRateLimitConfi
 ---
 
 ## 18) Changelog
+
+### 2026-10-26 (rev 10 — checkout lock contract on top of the shipped rev 9)
+
+Drafted 2026-10-11 against the unbuilt rev 8 from the post-merge review of [#5384](https://github.com/open-mercato/open-mercato/pull/5384), and rewritten here against the rev 9 code that #7592 shipped. Everything rev 9 already built is now described as shipped; what spec 7 (checkout) still needs from the cart is kept as a list of deltas marked "not built".
+
+- **The lock contract states what ships and what checkout still needs (§3.1b).** Rev 9 shipped `cartService.lock/unlock/markConverted` (`cart/lib/cartService.ts`, `cart/commands/lock.ts`), the lock columns `locked_at` / `lock_expires_at` / `checkout_session_id`, the `409 cart_has_unavailable_lines` refusal and the `423 cart_locked` answer for a locked cart. Rev 10 adds `cart.extendLock` (bounded by the intent's expiry and `CART_LOCK_MAX_PAYMENT_WINDOW_MINUTES`), owner-only `unlock` / `markConverted` / `extendLock` that keep the shipped throw style (`409 cart_lock_not_owned`, `409 cart_not_locked`, a no-op `unlock` and owner re-runs as no-ops), an owner re-lock that re-prices on every call (with `cart.reprice` accepting the owner's locked cart for `trigger: 'lock'`), a conditional-update lock write, a fail-closed storefront lock without `routeContext`, the `409 cart_price_changed` and `409 cart_approval_required` refusals that leave the cart `active`, and a `cart.lock.timed_out` emission from `release-stale-locks`. The 2026-10-11 draft's own lock columns (`Cart.checkout_session_id` as uuid, `Cart.locked_until`), its discriminated-union lock result, `409 cart_not_lockable` and `409 cart_locked { lockedBySessionId }` are withdrawn in favour of the shipped columns and error shapes. `cart.extendLock` moves the shipped `lock_expires_at`.
+- **Idempotency storage is an amendment to the shipped table (§4.5, §8.2).** The 2026-10-11 draft introduced `CartIdempotencyKey` as a new table. Rev 9 has since shipped one keyed `(cart_id, key)`, written after the mutation and covering `cart.lines.add` / `.bulkAdd` only, so rev 10 now changes that table: a `scope`, a nullable `cart_id`, `store_id`, a hashed key, a `pending → done` claim with `409 idempotency_in_flight`, `expires_at`, and partial unique indexes. `POST /current` (not the draft's `POST /carts`) is covered by it, but a replay of a completed `cart.create` key answers `409 idempotency_key_consumed` with no token and no cart id: rev 9 never stores a plaintext token, and returning or re-minting one on a replay would turn the `Idempotency-Key` into a credential. The `(cart_id, scope, key)` uniqueness is kept for mutations, and existing raw-key rows are hashed in place by a hand-written migration step.
+- **§16 Q5 needed no rev 10 change.** Rev 9 already moved the basket routes to `/api/cart/current/*` behind the `X-Cart-Token` header. The draft's own route table, its `POST /carts` create route and its httpOnly-cookie wording are dropped in favour of the shipped shape.
+- **`cart.cart.converted`'s `lineMap` is a contract change for subscribers (§11).** The payload renames `lineMap`'s `salesOrderLineId` to `salesDocumentLineId` — an order line id for `salesOrderId`, a quote line id for `salesQuoteId` — and adds the `salesQuoteId` variant, carrying exactly one of the two. The shipped `cart.markConverted` emits neither yet; it gains them with the §3.1b input change.
 
 ### 2026-10-24 (re-review M1 — PR #7592)
 
