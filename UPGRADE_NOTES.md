@@ -1,5 +1,19 @@
 # Upgrade Notes
 
+## Agent search answers honor domain policy (#7234)
+
+When an allow-list or deny-list is configured, agent `web_search` and the settings
+preview's top-level `answer` now return `null` instead of provider-generated prose
+whose sources cannot be verified. Allowed result links and snippets remain available;
+`diagnostics.answerWithheld: 'domain_policy'` explains withheld text. This also applies
+to cached engine output and to answers whose denied sources disappeared during fusion.
+No-policy searches are unchanged. Existing clients already accept nullable answers;
+use the permitted results without disabling domain restrictions. The privileged
+`agents.manage` preview still shows raw per-adapter comparisons, including blocked-hit
+markers; those comparisons never enter agent context. No database migration or cache
+purge is required. Credit to @AHKSammich for the finding/proof of concept in #7323;
+this implementation was written independently for the enterprise module.
+
 ## Production Content Security Policy (#7264)
 
 The main app and create-app template now use request nonces for scripts and style
@@ -65,6 +79,26 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.9.0 → 0.9.1 (unreleased)
 
+### `SearchResultPresenter.badge` is deprecated — no search UI renders it (#5716)
+
+`SearchResultPresenter.badge` from `@open-mercato/shared/modules/search` has never been rendered. Fourteen modules populate it, #4886 taught the presenter enricher to re-translate it per request, and the vector index writes it to the `result_badge` column and reads it back — but the Cmd+K dialog, the topbar inline results and `/backend/search` all render only `title`, `subtitle` and `icon`. `git log -S"presenter.badge" -- packages/search/src/modules/search/frontend` is empty across the project's whole history. The spec that introduced the request-time re-render described the dialog as rendering the badge, which is what made the field read like a display seam; that description was aspirational and never matched the renderers.
+
+The direction is not to start rendering it. #4886 also added `resolveEntityTypeLabel()` and the `search.entityType.<module>.<entity>` keys, and all three surfaces already render that label next to each result. Nearly every producer's badge holds the same per-entity-**type** string that label now carries — `search.entityType.customers.customer_person_profile` is "Person" against a `customers.search.badge.person` of "Person", `messages.message` is "Message" against a badge of "Message", and the same duplication holds for `resources`, `customer_accounts`, `staff`, `planner`, `sales` and `catalog`. Rendering `badge` would print the same word twice on those results.
+
+Three producers used to be the exception — `wms`, `eudr` and `documents` had no `search.entityType.*` key, so their chips read `Wms · Warehouse Location` and the like while their badges held properly localized copy. #6006 added those keys (from each module's own `i18n/*.json`), so for them too the chip now carries the same localized label as the badge. One producer added since repeats the gap: `ecommerce` (#7142) sets a `'Store'` badge on `ecommerce:ecommerce_store` but declares no `search.entityType.ecommerce.ecommerce_store` key, so its chip still reads `Ecommerce · Ecommerce Store`. That key has to exist before `badge` is deleted; it does not change the decision.
+
+The field is therefore deprecated rather than removed, and is **slated for removal in 0.11.0** (it was originally pinned to 0.9.0, which shipped before this change merged; 0.11.0 keeps at least one full minor of bridge). The same deprecation applies to `VectorResultPresenter.badge` in `@open-mercato/shared/modules/vector`, the sibling type written into the vector index — it is equally unrendered and retires at the same time. Nothing changes at runtime for downstream modules in this release: `badge` is still declared on both types, still accepted, still populated by 12 of the 14 in-repo producers, still localized per request, and still stored. Only the types' JSDoc changed, so no module breaks and no migration is forced yet.
+
+The deprecation is also applied to the surfaces module authors read *before* writing a `search.ts`, so the field stops acquiring new producers: `packages/search/AGENTS.md` no longer describes `badge` as "shown next to title" and no longer sets it in its two authoring examples, the `hybrid-search.mdx` worked example no longer sets it, and the `example` module — which ships in the create-app template, so it seeds every newly scaffolded app — no longer populates it on either its `search.ts` or its `vector.ts`. Both modules migrated here perform the *whole* migration rather than just the deletion half: `search.entityType.warranty_claims.warranty_claim` and `search.entityType.example.todo` are added in all five locales, from each module's own dictionary, so the example an author copies demonstrates the replacement too.
+
+**Action for module authors:** stop populating `presenter.badge` in your module's `search.ts` before 0.11.0, and move the value to whichever of the two replacements matches what it holds.
+
+- **An entity-type label** (the common case — a constant like `'Document'` or one string per record kind): delete the `badge` and add a `search.entityType.<module>.<entity>` translation key instead. Every search surface already renders that label, so this is usually a pure deletion plus one key per entity; without the key the label falls back to a humanized `entityId` such as `Warranty Claims · Warranty Claim`. Declare the key in **your own module's** `i18n/*.json` — most existing keys happen to live in the search package, but `loadDictionary()` merges every module's dictionary into one flat namespace, so a `search.*` key contributed by any module resolves normally. The two modules this release migrates do exactly that: see `packages/core/src/modules/warranty_claims/i18n/en.json` and `apps/mercato/src/modules/example/i18n/en.json`.
+- **Per-record detail** (a status, a counterparty, a date): append it to `subtitle`, which is rendered on all three surfaces.
+
+The `result_badge` column, the Meilisearch document field and the vector round-trip are untouched here and retire separately once the deprecation window closes; dropping the presenter field itself needs no migration. The full rationale, the deprecation-protocol checklist and the 0.11.0 removal plan are in [`.ai/specs/2026-08-28-search-presenter-badge-deprecation.md`](.ai/specs/2026-08-28-search-presenter-badge-deprecation.md).
+
+The one in-repo producer whose badge carried genuine per-record information was `warranty_claims`, which put the claim status there — so claim status was written, stored and never shown. It now appends the **localized** status to the subtitle (`Ada Lovelace — repair — In review`) via the existing `warranty_claims.status.*` keys, which are already translated in all five locales. Warranty-claim search results therefore gain a status segment in their subtitle; no other module's search output changes.
 ### SCIM token fingerprint rollout
 
 SCIM rate-limit admission now uses an indexed SHA-256 fingerprint of the full bearer in `scim_tokens.token_lookup_hash`, alongside the existing bcrypt verifier. The new nullable column and index are additive; token format, management payloads, bcrypt verification, and organization scope stay compatible. Fingerprints and raw secrets must never be copied into tickets, logs, shell history, or token-management payloads. Newly issued tokens persist their fingerprint before the one-time token response is returned.
@@ -660,6 +694,13 @@ No command, flag, or output line changes — the `🚀 Running …`, `⏱️ Don
 Concretely: `mercato auth setup --orgSlug 'Bad Slug!'` printed a validation error and exited `0` before; it now exits `2`.
 
 **Action for operators:** audit any bootstrap, deployment or CI script that chains CLI invocations with `&&`, checks `$?`, or uses `set -e`. A script of the shape `yarn mercato auth setup … && yarn mercato entities install …` that has been silently tolerating a swallowed failure will now stop at the first step. That is the intended behaviour — the failure was always real — but the stop is new, so plan for it rather than discovering it during an upgrade. Custom module commands are affected the same way: one that assigns `process.exitCode` without throwing now propagates it, and one that signals failure by throwing keeps working exactly as before.
+### Cart line contention returns retryable 503 (#8072)
+
+`POST /api/cart/current/lines` and `POST /api/cart/current/lines/bulk` release pooled connections while waiting for the existing cart transaction lock. If contention lasts for the 15-second wait budget, they now return `503` with `code: "cart_busy"`, a localized `error`, `Retry-After: 1` and `Cache-Control: no-store`. This response is issued only after an unsuccessful pre-mutation lock attempt has rolled back; the requested line add/bulk-add mutation phases did not run and no successful idempotency response was recorded. Existing preflight cart activity/reactivation or context-triggered repricing may already have persisted; normal optimistic-lock checks still apply to a retry.
+
+**Client action:** wait at least one second and retry the same body and `Idempotency-Key`. Do not apply this safe-retry rule to unrelated `500` responses or uncertain commit outcomes. Successful responses, request schemas and database structure are unchanged; no operator migration is required. See [Cart API](apps/docs/docs/api/cart.mdx) and the [cart specification](.ai/specs/2026-08-14-cart-module.md).
+
+
 ### `customers`, `portal`, and `workflows` now declare their full runtime module dependencies (#7587)
 
 `customers`'s `setup.ts` imports `FeatureToggle` from `feature_toggles` and `./cli` seeds customer
@@ -973,6 +1014,22 @@ into `indexer_status_logs` at `level: 'warn'` with the reason, and the CLI print
 successful zero-row sweep on all three surfaces, so a module author who forgot the
 `registerTenantGlobalEntityTypes()` call saw a green completion on the one screen built
 to answer "why is this entity type not indexed".
+
+### Canonical customer form hosts also cover creation (#5882, #8269)
+
+Person creation (`people/create` and the company-detail "Add new person" dialog) publishes
+`crud-form:customers.person` while preserving `crud-form:customers.customer_entity` through
+`legacyInjectionSpotId`. Prefer the canonical host for new registrations. Body/group and `:fields`
+widgets registered on both hosts are deduplicated; header widgets registered on both still render
+twice. Keep the legacy bridge for at least one minor version before removing it.
+
+Full and quick deal creation use `CrudForm` on `crud-form:customers.deal`, including its `:fields`
+spot and shared lifecycle; the former hand-rolled form's save-only and placement limitations no
+longer apply. Create hosts have no `recordId` before the native save; successful create callbacks
+supply the new identity to `onAfterSave` before navigation or dialog closure. Record-scoped widgets
+must tolerate the missing ID. The `customer_accounts` Account Status widget renders no account
+content until that ID exists. These runtime changes already landed in #8269; no schema migration
+is required.
 
 ### New `cart` and `promotions` modules, and buyer-scoped catalog visibility in the cart (#7592)
 
@@ -1670,6 +1727,14 @@ unaffected.
 remove or relax (`required: false`, a broader type) any port declaration that is not actually
 part of the child's contract.
 
+### Optional strict attachment storage configuration
+
+Attachment factory resolution now supports `OM_ATTACHMENT_STORAGE_POLICY=strict` across web, worker, CLI and direct/late factory instances. The default `legacy` policy preserves local fallback. Before opting in, verify partitions select explicit drivers and register provider-owned synchronous validators with `registerStorageDriverValidator`; the S3 package registers its validator automatically when enabled. Strict invalid configuration produces redacted typed errors instead of selecting local storage. The `attachments` module's own routes map these errors to HTTP 503 and validate deletion before removing metadata; its quota recovery worker and CLI preserve typed failures. Missing requested partitions are rejected before substituting defaults.
+
+These caller-level guarantees do not yet cover warranty portal attachments, the documents attachment download route or enterprise `agent_orchestrator` attachment staging; [#7941](https://github.com/open-mercato/open-mercato/issues/7941) tracks them. Their factory resolutions still reject invalid configuration, but errors may be generic or swallowed. Warranty portal deletion currently removes metadata before resolving storage and can leave orphaned bytes on strict rejection. Audit these independent paths before enabling strict mode in deployments that use them; do not rely on HTTP 503 mapping or metadata preservation there yet.
+
+No migration or data rewrite is required. Set the policy consistently in every process; rollback is returning to `legacy` and restarting. Supported explicit-local storage, ambient S3 credentials and existing endpoint allowances remain available. See [the attachment API policy guide](apps/docs/docs/api/attachments.mdx#storage-configuration-policy) and [design PR #6819](https://github.com/open-mercato/open-mercato/pull/6819).
+
 ### Catalog validates its required modules during generation (#6517)
 
 Standalone apps enabling `catalog` must also enable `attachments`, `currencies`,
@@ -2269,6 +2334,44 @@ that runs a diagnostic OpenTelemetry Collector. Before this change the `app` con
 these variables, so if your `.env` already sets `TELEMETRY_BACKEND` to an enabled backend,
 telemetry now starts inside the container. Check that value before upgrading. See
 [`apps/docs/docs/framework/runtime/telemetry.mdx`](apps/docs/docs/framework/runtime/telemetry.mdx).
+
+### `yarn generate` now enforces a module's declared `requires` dependencies
+
+A module's `metadata.requires: ['<other-module>']` used to be documentation only. The generator
+collected it, but the collection step used a bare `require()` call — and `@open-mercato/cli` is
+built as an ES module, where `require` is undefined. The resulting `ReferenceError` was swallowed
+by a `catch {}`, so the dependency map stayed empty and `yarn generate` never refused any
+combination, no matter what `requires` declared. An installation could enable `eudr` or
+`sync_excel` (or `sales`, `wms`, `push_notifications`, `documents`, `sync_akeneo`, `tillio`, or any
+other module with a `requires` list) without the modules they depend on, generate successfully,
+and only find out at runtime — in `eudr`'s case, by losing the login screen.
+
+`yarn generate` now actually enforces every existing `requires` declaration: it reads
+`metadata.requires` through a real `import()` of the module's `index.ts` with a static,
+AST-based fallback (no `require()` left to break under ESM), and still exits with "Module
+dependency check failed" plus the missing module name when a requirement is not enabled.
+
+**Action for standalone app authors:** if `src/modules.ts` enables a module from the table below
+without the module(s) it requires, `yarn generate` now fails where it previously succeeded. Enable
+the missing module(s), or remove the dependent module, before upgrading.
+
+| Module | Requires |
+|---|---|
+| `api_keys`, `devices` | `auth` |
+| `channel_resend`, `channel_ses` | `communication_channels`, `integrations` |
+| `communication_channels`, `customers` | `progress` |
+| `documents` | `auth`, `directory`, `attachments` |
+| `entities` | `query_index` |
+| `eudr` | `catalog` |
+| `portal` | `customer_accounts` |
+| `push_notifications` | `auth`, `devices`, `notifications`, `communication_channels`, `integrations` |
+| `resources` | `planner` |
+| `sales` | `catalog`, `customers`, `dictionaries` |
+| `staff` | `planner`, `resources` |
+| `sync_akeneo` | `integrations`, `data_sync`, `catalog`, `sales` |
+| `sync_excel` | `customers`, `data_sync` |
+| `tillio` | `integrations`, `phone_calls` |
+| `wms` | `catalog`, `sales`, `feature_toggles` |
 
 ### The SSE event stream rejects API keys and closes connections after a bounded lifetime
 
