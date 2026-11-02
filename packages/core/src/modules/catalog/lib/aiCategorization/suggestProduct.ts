@@ -2,7 +2,7 @@ import type { AwilixContainer } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { createLogger } from '@open-mercato/shared/lib/logger'
-import { CatalogProductCategory } from '../../data/entities'
+import { CatalogProductCategory, type CatalogCategorySuggestionTrigger } from '../../data/entities'
 import { emitCatalogEvent } from '../../events'
 import { computeHierarchyForCategories } from '../categoryHierarchy'
 import { maybeAutoApplySuggestion } from './autoApply'
@@ -22,7 +22,7 @@ const logger = createLogger('catalog')
 export type ProductSuggestionScope = {
   tenantId: string
   organizationId: string
-  userId: string
+  userId?: string | null
 }
 
 export type ProductSuggestionOutcome =
@@ -50,8 +50,10 @@ export function createProductSuggester(params: {
   container: AwilixContainer
   scope: ProductSuggestionScope
   commandContext?: CommandRuntimeContext
+  trigger?: CatalogCategorySuggestionTrigger
 }): ProductSuggester {
   const { container, scope, commandContext } = params
+  const trigger = params.trigger ?? 'bulk'
   const em = (container.resolve('em') as EntityManager).fork()
   let tree: { roots: TreeWalkCategory[]; childrenOf: (categoryId: string) => TreeWalkCategory[] } | null = null
 
@@ -118,12 +120,12 @@ export function createProductSuggester(params: {
       categoryPathIds: walkResult.outcome === 'suggested' ? walkResult.categoryPathIds : [],
       confidence: walkResult.outcome === 'suggested' ? walkResult.confidence : null,
       levels: walkResult.outcome === 'suggested' ? walkResult.levels : [],
-      trigger: 'bulk',
+      trigger,
       provider: availability.provider ?? null,
       model: availability.model ?? null,
       promptVersion: CATEGORIZATION_PROMPT_VERSION,
       durationMs,
-      requestedByUserId: scope.userId,
+      requestedByUserId: scope.userId ?? null,
     })
     const serialized = serializeCategorySuggestion(suggestion)
     await emitCatalogEvent(
@@ -145,7 +147,7 @@ export function createProductSuggester(params: {
           container,
           em,
           suggestion,
-          trigger: 'bulk',
+          trigger,
           settings,
           commandContext,
         })

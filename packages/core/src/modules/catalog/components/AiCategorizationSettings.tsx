@@ -185,6 +185,14 @@ export function AiCategorizationSettings() {
     [saveSettings, settings],
   )
 
+  const handleAutoSuggestOnCreateToggle = React.useCallback(
+    (next: boolean) => {
+      if (!settings) return
+      void saveSettings({ ...settings, autoSuggestOnCreate: next })
+    },
+    [saveSettings, settings],
+  )
+
   const handleThresholdCommit = React.useCallback(() => {
     if (!settings) return
     const parsed = parseThreshold(thresholdDraft)
@@ -297,6 +305,16 @@ export function AiCategorizationSettings() {
                     </p>
                   </div>
                 ) : null}
+                <SwitchField
+                  label={t('catalog.settings.aiCategorization.autoSuggestOnCreate.label', 'Suggest categories for new products')}
+                  description={t(
+                    'catalog.settings.aiCategorization.autoSuggestOnCreate.description',
+                    'Each new product without a category gets one AI-suggested category, costing one decision-model request per product. Suggestions are never applied automatically: they wait for review on the suggestions page, even in auto-apply mode.',
+                  )}
+                  checked={settings.autoSuggestOnCreate}
+                  disabled={saving}
+                  onCheckedChange={handleAutoSuggestOnCreateToggle}
+                />
               </div>
             ) : null}
             <div className="rounded-md border border-border bg-muted/30 p-3 text-xs text-muted-foreground space-y-1">

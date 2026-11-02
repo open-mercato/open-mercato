@@ -862,6 +862,8 @@
   "catalog.settings.aiCategorization.applyMode.label": "Tryb zastosowania",
   "catalog.settings.aiCategorization.applyMode.suggest.description": "Każda sugestia czeka na zaakceptowanie lub odrzucenie przez osobę. Zalecane.",
   "catalog.settings.aiCategorization.applyMode.suggest.label": "Sugeruj i weryfikuj",
+  "catalog.settings.aiCategorization.autoSuggestOnCreate.description": "Każdy nowy produkt bez kategorii otrzymuje jedną kategorię zasugerowaną przez AI, co kosztuje jedno zapytanie do modelu decyzyjnego na produkt. Sugestie nigdy nie są stosowane automatycznie: czekają na przegląd na stronie sugestii, także w trybie automatycznego stosowania.",
+  "catalog.settings.aiCategorization.autoSuggestOnCreate.label": "Sugeruj kategorie dla nowych produktów",
   "catalog.settings.aiCategorization.description": "Suggests a category for a product from its organization’s category tree using the configured decision model.",
   "catalog.settings.aiCategorization.disclosureAkeneo": "An Akeneo (or other external master) re-sync replaces a product’s full category list, including AI-accepted categories.",
   "catalog.settings.aiCategorization.disclosureBody": "Title, subtitle, description, SKU, product type, tag labels, option names/values, and custom field values are sent to classify a product. Custom fields marked encrypted, and any column covered by this tenant’s encryption map, are never sent. Category names are limited to this product’s own organization.",

@@ -862,6 +862,8 @@
   "catalog.settings.aiCategorization.applyMode.label": "적용 모드",
   "catalog.settings.aiCategorization.applyMode.suggest.description": "모든 제안은 담당자가 수락하거나 거부할 때까지 대기합니다. 권장.",
   "catalog.settings.aiCategorization.applyMode.suggest.label": "제안 후 검토",
+  "catalog.settings.aiCategorization.autoSuggestOnCreate.description": "카테고리가 없는 신규 상품마다 AI가 카테고리를 하나 제안하며, 상품당 결정 모델 요청이 1회 발생합니다. 제안은 자동으로 적용되지 않으며, 자동 적용 모드에서도 제안 페이지에서 검토를 기다립니다.",
+  "catalog.settings.aiCategorization.autoSuggestOnCreate.label": "신규 상품에 대한 카테고리 제안",
   "catalog.settings.aiCategorization.description": "Suggests a category for a product from its organization’s category tree using the configured decision model.",
   "catalog.settings.aiCategorization.disclosureAkeneo": "An Akeneo (or other external master) re-sync replaces a product’s full category list, including AI-accepted categories.",
   "catalog.settings.aiCategorization.disclosureBody": "Title, subtitle, description, SKU, product type, tag labels, option names/values, and custom field values are sent to classify a product. Custom fields marked encrypted, and any column covered by this tenant’s encryption map, are never sent. Category names are limited to this product’s own organization.",

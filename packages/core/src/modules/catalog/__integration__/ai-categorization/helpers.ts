@@ -21,7 +21,7 @@ export async function setAiCategorizationEnabled(
   request: APIRequestContext,
   token: string,
   enabled: boolean,
-  options: { applyMode?: 'suggest' | 'auto_apply'; autoApplyThreshold?: number } = {},
+  options: { applyMode?: 'suggest' | 'auto_apply'; autoApplyThreshold?: number; autoSuggestOnCreate?: boolean } = {},
 ): Promise<void> {
   const response = await apiRequest(request, 'PUT', SETTINGS_PATH, {
     token,
@@ -30,7 +30,7 @@ export async function setAiCategorizationEnabled(
         enabled,
         applyMode: options.applyMode ?? 'suggest',
         autoApplyThreshold: options.autoApplyThreshold ?? 0.85,
-        autoSuggestOnCreate: false,
+        autoSuggestOnCreate: options.autoSuggestOnCreate ?? false,
       },
     },
   })

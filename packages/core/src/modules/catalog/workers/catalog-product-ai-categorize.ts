@@ -7,6 +7,11 @@ import {
   resolveAiCategorizeConcurrency,
   type CatalogProductAiCategorizeJobPayload,
 } from '../lib/aiCategorization/bulkCategorize'
+import {
+  isOnCreateJobPayload,
+  runOnCreateSuggestion,
+  type CatalogProductAiCategorizeOnCreateJobPayload,
+} from '../lib/aiCategorization/onCreateSuggest'
 
 type HandlerContext = JobContext & {
   resolve: <T = unknown>(name: string) => T
@@ -19,29 +24,36 @@ export const metadata: WorkerMeta = {
 }
 
 export default async function handle(
-  job: QueuedJob<CatalogProductAiCategorizeJobPayload>,
+  job: QueuedJob<CatalogProductAiCategorizeJobPayload | CatalogProductAiCategorizeOnCreateJobPayload>,
   _ctx: HandlerContext,
 ): Promise<void> {
   const container = await createRequestContainer()
 
+  if (isOnCreateJobPayload(job.payload)) {
+    await runOnCreateSuggestion({ container, payload: job.payload })
+    return
+  }
+
+  const bulkPayload = job.payload
+
   try {
     await categorizeProductsWithProgress({
       container,
-      progressJobId: job.payload.progressJobId,
-      ids: job.payload.ids,
-      scope: job.payload.scope,
+      progressJobId: bulkPayload.progressJobId,
+      ids: bulkPayload.ids,
+      scope: bulkPayload.scope,
     })
   } catch (error) {
     const progressService = container.resolve('progressService') as ProgressService
     await progressService.failJob(
-      job.payload.progressJobId,
+      bulkPayload.progressJobId,
       {
         errorMessage: error instanceof Error ? error.message : 'Bulk AI categorization failed',
       },
       {
-        tenantId: job.payload.scope.tenantId,
-        organizationId: job.payload.scope.organizationId,
-        userId: job.payload.scope.userId,
+        tenantId: bulkPayload.scope.tenantId,
+        organizationId: bulkPayload.scope.organizationId,
+        userId: bulkPayload.scope.userId,
       },
     )
     throw error
