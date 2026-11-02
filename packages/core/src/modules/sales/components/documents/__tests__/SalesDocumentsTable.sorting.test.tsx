@@ -3,6 +3,7 @@
  */
 import * as React from 'react'
 import { render, act } from '@testing-library/react'
+import type { SortingState } from '@tanstack/react-table'
 import { SalesDocumentsTable } from '../SalesDocumentsTable'
 
 jest.mock('../../useSalesChannelsEnabled', () => ({
@@ -10,34 +11,42 @@ jest.mock('../../useSalesChannelsEnabled', () => ({
   useSalesChannelsEnabled: () => ({ enabled: true, isLoading: false }),
 }))
 
-// Capture the props handed to DataTable so we can assert the sorting wiring.
-const mockDataTable = jest.fn()
+type TestDataTableProps = {
+  sortable?: boolean
+  manualSorting?: boolean
+  sorting?: SortingState
+  columns?: Array<{ id: string; enableSorting?: boolean }>
+  pagination?: { onPageChange?: (page: number) => void }
+  onSortingChange?: (sorting: SortingState) => void
+}
+
+const mockDataTable = jest.fn<void, [TestDataTableProps]>()
 const mockApiCall = jest.fn()
 
 jest.mock('@open-mercato/ui/backend/DataTable', () => ({
   withDataTableNamespaces: (mappedRow: Record<string, unknown>) => mappedRow,
-  DataTable: (props: any) => {
+  DataTable: (props: TestDataTableProps) => {
     mockDataTable(props)
     return null
   },
 }))
 
 jest.mock('@open-mercato/ui/backend/Page', () => ({
-  Page: ({ children }: any) => <div>{children}</div>,
-  PageBody: ({ children }: any) => <div>{children}</div>,
+  Page: ({ children }: React.PropsWithChildren) => <div>{children}</div>,
+  PageBody: ({ children }: React.PropsWithChildren) => <div>{children}</div>,
 }))
 
 jest.mock('@open-mercato/ui/backend/RowActions', () => ({
-  RowActions: ({ children }: any) => <div>{children}</div>,
+  RowActions: ({ children }: React.PropsWithChildren) => <div>{children}</div>,
 }))
 
 jest.mock('@open-mercato/ui/primitives/button', () => ({
-  Button: ({ children, ...props }: any) => <button {...props}>{children}</button>,
+  Button: ({ children, ...props }: React.ComponentProps<'button'>) => <button {...props}>{children}</button>,
 }))
 
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
-  apiCall: (...args: any[]) => mockApiCall(...args),
-  withScopedApiRequestHeaders: (_header: unknown, callback: any) => callback?.(),
+  apiCall: (...args: unknown[]) => mockApiCall(...args),
+  withScopedApiRequestHeaders: (_header: unknown, callback: () => unknown) => callback?.(),
 }))
 
 jest.mock('@open-mercato/ui/backend/utils/optimisticLock', () => ({
@@ -62,21 +71,19 @@ jest.mock('@open-mercato/shared/lib/frontend/useOrganizationScope', () => ({
 }))
 
 jest.mock('@open-mercato/shared/lib/i18n/context', () => {
-  // Stable reference: the real useT() is memoized. Returning a fresh function
-  // each render would re-create the data-load callback and loop the effect.
   const translate = (key: string, fallback?: string) => fallback ?? key
   return { useT: () => translate }
 })
 
 jest.mock('@open-mercato/core/modules/dictionaries/components/dictionaryAppearance', () => ({
-  DictionaryValue: ({ value }: any) => <span>{value}</span>,
+  DictionaryValue: ({ value }: { value?: React.ReactNode }) => <span>{value}</span>,
   createDictionaryMap: () => ({}),
   normalizeDictionaryEntries: () => [],
 }))
 
 jest.mock('next/link', () => ({
   __esModule: true,
-  default: ({ children, ...props }: any) => <a {...props}>{children}</a>,
+  default: ({ children, ...props }: React.ComponentProps<'a'>) => <a {...props}>{children}</a>,
 }))
 
 jest.mock('next/navigation', () => ({
@@ -110,8 +117,8 @@ describe('SalesDocumentsTable column sorting (issue #6943)', () => {
     expect(props?.sorting).toEqual([{ id: 'createdAt', desc: true }])
 
     const sortableIds = (props?.columns ?? [])
-      .filter((column: any) => column.enableSorting !== false)
-      .map((column: any) => column.id)
+      .filter((column) => column.enableSorting !== false)
+      .map((column) => column.id)
     expect(sortableIds).toEqual(['number', 'lineItemCount', 'grandTotalNetAmount', 'grandTotalGrossAmount', 'createdAt'])
   })
 
