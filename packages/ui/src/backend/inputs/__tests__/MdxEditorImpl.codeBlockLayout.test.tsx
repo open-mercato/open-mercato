@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { render } from '@testing-library/react'
+import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { compile, optimize } from '@tailwindcss/node'
 import MdxEditorImpl from '../MdxEditorImpl'
 
@@ -10,6 +10,7 @@ jest.mock('@mdxeditor/editor', () => {
   const plugins = Object.fromEntries([
     'headingsPlugin', 'listsPlugin', 'quotePlugin', 'thematicBreakPlugin',
     'linkPlugin', 'linkDialogPlugin', 'imagePlugin', 'tablePlugin',
+    'codeBlockPlugin', 'codeMirrorPlugin',
     'markdownShortcutPlugin', 'diffSourcePlugin', 'toolbarPlugin',
   ].map((name) => [name, jest.fn()]))
   return {
@@ -27,7 +28,7 @@ jest.mock('@mdxeditor/editor', () => {
 
 describe('code block toolbar layout', () => {
   it('reserves space above code and lets controls wrap without styling other editors', async () => {
-    const { container } = render(<MdxEditorImpl onChange={jest.fn()} />)
+    const { container } = renderWithProviders(<MdxEditorImpl onChange={jest.fn()} />)
     const editor = container.querySelector('.om-mdx-editor')
     const toolbar = container.querySelector<HTMLElement>('._codeMirrorToolbar_vendor')
     expect(editor).not.toBeNull()
