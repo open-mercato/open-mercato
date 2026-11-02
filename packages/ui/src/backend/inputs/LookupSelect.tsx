@@ -497,7 +497,7 @@ export function LookupSelect({
               type="button"
               variant="ghost"
               size="sm"
-              className="text-sm font-normal"
+              className="text-sm font-normal hover:bg-accent-indigo/10 hover:text-accent-indigo"
               disabled={disabled}
               onClick={reopenList}
             >
@@ -507,7 +507,7 @@ export function LookupSelect({
               type="button"
               variant="ghost"
               size="sm"
-              className="gap-1 text-sm font-normal"
+              className="gap-1 text-sm font-normal hover:bg-accent-indigo/10 hover:text-accent-indigo"
               disabled={disabled}
               onClick={() => onChange(null)}
             >

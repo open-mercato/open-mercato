@@ -100,6 +100,7 @@ All sizes share `rounded-md`. Same-row buttons MUST share `size`.
 3. Use `IconButton` (not `Button size="icon"`) for icon-only buttons.
 4. Add `hover:bg-transparent` when using `variant="ghost"` for tab-style buttons with underline indicators.
 5. Add `h-auto` in compact inline contexts (tag chips, toolbars, inline lists) where fixed height would overflow.
+6. A `ghost` button placed on an `accent-indigo`-tinted surface (selected summary bar, selected card, tab rail) MUST hover with `hover:bg-accent-indigo/10 hover:text-accent-indigo`, not the default grey ghost hover — see "Selection accent" in [`ds-rules.md`](ds-rules.md).
 
 ### Same-row size consistency (MUST)
 
@@ -5119,14 +5120,15 @@ type LookupSelectItem = {
 | `selectLabel` / `selectedLabel` | `string` | `t('ui.lookupSelect.select', 'Select')` / `t('ui.lookupSelect.selected', 'Selected')` | Auto-translated button labels per row. |
 | `minQueryHintLabel` | `string` | `t('ui.lookupSelect.minQueryHint', 'Type at least {minQuery} characters or paste an id to search.', { minQuery })` | Shown when the user has typed but below `minQuery`. |
 | `startTypingLabel` | `string` | `t('ui.lookupSelect.startTyping', 'Start typing to search.')` | Auto-translated. |
-| `selectedHintLabel` | `(id: string) => string` | — | Future hook for an inline preview block (currently unused by the primitive — pass through for forward-compat). |
+| `selectedHintLabel` | `(id: string) => string` | — | Label resolver for the collapsed selection summary. Only a value that is a real name counts: a resolver that returns the id or embeds it (`Selected customer: <id>`) is ignored and the summary falls back to the picked item's `title`, so a record id never reaches the DOM. |
 | `disabled` | `boolean` | `false` | Disables both the search input and row interaction. |
 | `loading` | `boolean` | `false` | Force the loading state regardless of the internal fetch — useful when the parent owns the request. |
 
 ### MUST rules
 
 - All default labels (`searchPlaceholder`, `clearLabel`, `emptyLabel`, `loadingLabel`, `selectLabel`, `selectedLabel`, `startTypingLabel`, `minQueryHintLabel`) are auto-translated via `useT()` against `ui.lookupSelect.*` keys. Override only when the surface needs custom copy.
-- Search input is styled `h-10 rounded-lg border-input shadow-xs focus-visible:shadow-focus focus-visible:border-brand-violet` — slightly bigger and more rounded than a standard form `Input` to read as a picker chrome rather than a form field. The leading search icon sits at `left-3.5`. Card rows use `rounded-xl p-4` with selected state `border-brand-violet bg-brand-violet/5 shadow-sm` and a leading `Check` icon (DS active token).
+- Search input is styled `h-9 rounded-lg border-input shadow-xs focus-visible:shadow-focus focus-visible:border-brand-violet` — the default control height, so a default-size `Button` in `actionSlot` lines up with it. The leading search icon sits at `left-3.5`. Card rows are compact (`rounded-lg px-3 py-2`, 32px avatar) with the selected state on the selection accent: `border-accent-indigo bg-accent-indigo/5`, a `Check` in `text-accent-indigo` and a `text-foreground` "Selected" label (never `brand-violet`, see "Selection accent" in [`ds-rules.md`](ds-rules.md)).
+- Picking a result ends the interaction (#6196): once the parent adopts the id the list closes, the query clears and a summary bar (`data-testid="lookup-select-selected"`, same accent tint) shows the picked `title`/`subtitle` with **Change** (reopens the list with the row marked, refocuses the search box) and **Clear selection**; both are ghost buttons with the `hover:bg-accent-indigo/10 hover:text-accent-indigo` hover. A host that keeps `value` at `null` and collects picks itself (multi-add) keeps the list open.
 - Set `minQuery` to match the API's minimum filter length (typically 2 or 3). For pre-loaded short lists, switch to `options` instead of `fetchItems`.
 - Use `actionSlot` for a "Create new" affordance — do not render a separate `<Button>` outside the primitive that breaks the search-row alignment.
 - For modules with permission-gated lookup APIs, route `fetchItems` through `apiCall`/`apiCallOrThrow` so 401/403 flows reach the global error handler.
