@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { useContentSecurityPolicyNonce } from '@open-mercato/ui/theme/ContentSecurityPolicyProvider'
 import { EditorContent, useEditor } from '@tiptap/react'
 import { RotateCcw } from 'lucide-react'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
@@ -63,7 +64,9 @@ export function normalizeVersionPreview(
 }
 
 function ReadOnlyVersion({ contentHtml, fallbackLabel }: { contentHtml: string; fallbackLabel: string }) {
+  const nonce = useContentSecurityPolicyNonce()
   const editor = useEditor({
+    injectNonce: nonce,
     extensions: getDocumentEditorExtensions({ entityRefFallbackLabel: fallbackLabel }),
     content: contentHtml,
     editable: false,

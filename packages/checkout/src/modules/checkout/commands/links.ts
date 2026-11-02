@@ -17,6 +17,7 @@ import {
   ensureGatewayProviderConfigured,
   type PaymentGatewayDescriptorService,
 } from '../lib/gatewayProviderAvailability'
+import { ensurePayerFieldsCollected } from '../lib/payerFieldRequirements'
 import { emitCheckoutEvent } from '../events'
 import {
   deriveConfiguredCurrencies,
@@ -101,6 +102,7 @@ const createLinkCommand: CommandHandler<Record<string, unknown>, { id: string; s
     validateDescriptorCurrencies(sourceValues.gatewayProviderKey ?? null, deriveConfiguredCurrencies(sourceValues))
     const descriptorService = ctx.container.resolve('paymentGatewayDescriptorService') as PaymentGatewayDescriptorService
     await ensureGatewayProviderConfigured(sourceValues.gatewayProviderKey ?? null, descriptorService, scope)
+    ensurePayerFieldsCollected(sourceValues)
     if (isCheckoutLinkPublic(sourceValues.status) && !sourceValues.gatewayProviderKey) {
       throw new CrudHttpError(422, { error: 'A payment gateway must be configured before this link can be published' })
     }
@@ -302,6 +304,7 @@ const updateLinkCommand: CommandHandler<Record<string, unknown>, { ok: true; slu
     )
     const descriptorService = ctx.container.resolve('paymentGatewayDescriptorService') as PaymentGatewayDescriptorService
     await ensureGatewayProviderConfigured(nextValues.gatewayProviderKey ?? null, descriptorService, scope)
+    ensurePayerFieldsCollected(nextValues)
     if (isCheckoutLinkPublic(nextValues.status) && !nextValues.gatewayProviderKey) {
       throw new CrudHttpError(422, { error: 'A payment gateway must be configured before this link can be published' })
     }
@@ -389,6 +392,12 @@ const updateLinkCommand: CommandHandler<Record<string, unknown>, { ok: true; slu
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
     const link = await em.findOne(CheckoutLink, { id: before.id, ...scope, deletedAt: null })
     if (!link) return
+    if (link.isLocked) {
+      const { translate } = await resolveTranslations()
+      throw new CrudHttpError(422, {
+        error: translate('checkout.errors.links.lockedEdit', 'This link has active transactions and cannot be edited'),
+      })
+    }
     restoreLinkFromSnapshot(link, before)
     link.slug = await resolveRestoredLinkSlug(em, before)
     await em.flush()

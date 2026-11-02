@@ -6,6 +6,10 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { AiAgentDefinition, AiAgentMutationPolicy } from './ai-agent-definition'
 import type { AiChatRequestContext, AiUiPart } from './attachment-bridge-types'
 import type { AiToolDefinition, McpToolContext } from './types'
+import type {
+  AiPendingActionExecutionResult,
+  AiPendingActionStatus,
+} from './pending-action-types'
 import { loadAgentRegistry } from './agent-registry'
 import {
   checkAgentPolicy,
@@ -180,7 +184,28 @@ function formatPendingActionToolResult(
   tool: AiToolDefinition,
   pendingActionId: string,
   expiresAt: Date,
+  reused: boolean,
+  status: AiPendingActionStatus,
+  executionResult: AiPendingActionExecutionResult | null,
 ): string {
+  // A reused `confirmed`/`executing` row means this exact mutation already
+  // ran (or is running) under the same idempotency key — tell the model so
+  // it does not resubmit, instead of always claiming a fresh approval is
+  // pending (issue #7550).
+  if (reused && (status === 'confirmed' || status === 'executing')) {
+    const resultStatus = status === 'executing' ? 'executing' : 'already-executed'
+    return formatToolResult({
+      status: resultStatus,
+      agentId: agent.id,
+      toolName: tool.name,
+      pendingActionId,
+      executionResult: executionResult ?? null,
+      message:
+        resultStatus === 'executing'
+          ? `Mutation "${tool.name}" is already executing from a prior confirmed call. Do NOT submit it again; wait for the result.`
+          : `Mutation "${tool.name}" already ran for this input (idempotency key reused). Do NOT submit it again — see executionResult for the prior outcome.`,
+    })
+  }
   return formatToolResult({
     status: 'pending-confirmation',
     agentId: agent.id,
@@ -245,7 +270,7 @@ function adaptToolToAiSdk(
             args && typeof args === 'object' && !Array.isArray(args)
               ? { ...(args as Record<string, unknown>) }
               : {}
-          const { uiPart, pendingAction } = await prepareMutation(
+          const { uiPart, pendingAction, reused } = await prepareMutation(
             {
               agent: mutation.agent,
               tool: mutation.tool,
@@ -268,6 +293,9 @@ function adaptToolToAiSdk(
             mutation.tool,
             pendingAction.id,
             pendingAction.expiresAt,
+            reused,
+            pendingAction.status,
+            pendingAction.executionResult ?? null,
           )
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error)

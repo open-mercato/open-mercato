@@ -5,10 +5,21 @@ import { Role, RoleAcl, User, UserAcl, UserRole } from '@open-mercato/core/modul
 import { lockOrganizationHierarchyForTenant } from '@open-mercato/core/modules/directory/lib/hierarchy'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { getEntityIds } from '@open-mercato/shared/lib/encryption/entityIds'
 import {
   getTransactionLifetime,
   onTransactionLifetimeComplete,
 } from '@open-mercato/shared/lib/commands/transaction-lifetime'
+
+/**
+ * `api_keys` is an optional module (see module-decoupling.test.ts): its entity
+ * metadata is only registered with the ORM when the module is enabled, so this
+ * lookup must be skipped rather than attempted when it is disabled. Mirrors the
+ * same guard in `audit_logs/api/audit-logs/display.ts`.
+ */
+function isApiKeysModuleEnabled(): boolean {
+  return Boolean(getEntityIds(false).api_keys?.api_key)
+}
 
 function uniqueSortedIds(values: readonly string[]): string[] {
   return Array.from(new Set(values.filter((value) => value.length > 0))).sort((left, right) => left.localeCompare(right))
@@ -112,6 +123,7 @@ export async function findApiKeyIdsReferencingRoles(
 ): Promise<string[]> {
   const ids = uniqueSortedIds(roleIds)
   if (!ids.length) return []
+  if (!isApiKeysModuleEnabled()) return []
   const apiKeys = await em.find(
     ApiKey,
     {
@@ -183,7 +195,6 @@ export async function lockAuthorizationState(
   }
 
   const apiKeyIds = uniqueSortedIds(targets.apiKeyIds ?? [])
-  const userIds = uniqueSortedIds(targets.userIds ?? [])
   const explicitRoleIds = uniqueSortedIds(targets.roleIds ?? [])
   const tenantIds = uniqueSortedIds(targets.tenantIds ?? [])
   const explicitApiKeys = apiKeyIds.length
@@ -195,9 +206,16 @@ export async function lockAuthorizationState(
         { tenantId: null, organizationId: null },
       )
     : []
-  const explicitApiKeyRoleIds = uniqueSortedIds(explicitApiKeys.flatMap((apiKey) => (
-    Array.isArray(apiKey.rolesJson) ? apiKey.rolesJson : []
-  )))
+  const explicitApiKeySnapshots = new Map(explicitApiKeys.map((apiKey) => [String(apiKey.id), {
+    sessionUserId: apiKey.sessionUserId ?? null,
+    roles: Array.isArray(apiKey.rolesJson) ? [...apiKey.rolesJson] : [],
+  }]))
+  const apiKeySnapshots = [...explicitApiKeySnapshots.values()]
+  const userIds = uniqueSortedIds([
+    ...(targets.userIds ?? []),
+    ...apiKeySnapshots.flatMap((apiKey) => apiKey.sessionUserId ? [apiKey.sessionUserId] : []),
+  ])
+  const explicitApiKeyRoleIds = uniqueSortedIds(apiKeySnapshots.flatMap((apiKey) => apiKey.roles))
   const discoveredBeforeLocks = userIds.length
     ? await findWithDecryption(
         em,
@@ -224,10 +242,10 @@ export async function lockAuthorizationState(
   for (const apiKey of lockedApiKeys) {
     const id = String(apiKey.id)
     if (!apiKeyIds.includes(id)) continue
-    const before = explicitApiKeys.find((candidate) => String(candidate.id) === id)
-    const beforeRoles = Array.isArray(before?.rolesJson) ? before.rolesJson : []
+    const before = explicitApiKeySnapshots.get(id)
+    const beforeRoles = before?.roles ?? []
     const lockedRoles = Array.isArray(apiKey.rolesJson) ? apiKey.rolesJson : []
-    if (!sameIds(beforeRoles, lockedRoles)) {
+    if (!sameIds(beforeRoles, lockedRoles) || (before?.sessionUserId ?? null) !== (apiKey.sessionUserId ?? null)) {
       throw authorizationStateDrift()
     }
   }
