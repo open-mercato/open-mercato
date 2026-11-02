@@ -1256,6 +1256,7 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
                                         )}
                                       </span>
                                       {!compact && <span>{i.title}</span>}
+                                      <NavItemBadge href={i.href} compact={compact} />
                                     </Link>
                                     {showChildren ? (
                                       <div className={`relative flex flex-col ${compact ? 'items-center' : ''} gap-1`}>
@@ -1289,6 +1290,7 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
                                                 )}
                                               </span>
                                               {!compact && <span>{c.title}</span>}
+                                              <NavItemBadge href={c.href} compact={compact} />
                                             </Link>
                                           )
                                         })}

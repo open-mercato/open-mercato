@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { readEndpointRateLimitConfig } from '@open-mercato/shared/lib/ratelimit/config'
+import { readBoundedRequestBody, WebhookBodyTooLargeError } from '@open-mercato/shared/lib/webhooks'
 import { traceIngestSchema } from '../../../data/validators'
 import { enforcePublicEndpointRateLimit } from '../../../lib/guardrails/publicEndpointRateLimit'
 import { verifyTraceIngestRequest } from '../../../lib/trace/ingestAuth'
@@ -34,7 +35,15 @@ export async function POST(req: Request) {
   const rateLimited = await enforcePublicEndpointRateLimit(container, req, traceIngestRateLimitConfig)
   if (rateLimited) return rateLimited
 
-  const rawBody = await req.text()
+  let rawBody: string
+  try {
+    rawBody = await readBoundedRequestBody(req)
+  } catch (error) {
+    if (error instanceof WebhookBodyTooLargeError) {
+      return NextResponse.json({ error: 'payload_too_large' }, { status: 413 })
+    }
+    throw error
+  }
 
   const principal = verifyTraceIngestRequest(req.headers, rawBody)
   if (!principal) {
@@ -89,6 +98,7 @@ export const openApi = {
       responses: [
         { status: 202, description: 'Trace accepted (run upserted, spans/tool-calls appended)' },
         { status: 401, description: 'HMAC signature verification failed' },
+        { status: 413, description: 'Request body exceeds the byte limit (1 MiB by default; OM_WEBHOOK_MAX_BODY_BYTES overrides)' },
         { status: 422, description: 'Invalid trace payload' },
         { status: 429, description: 'Too many ingest requests from this client IP' },
         { status: 503, description: 'Rate limiter unavailable — the request is refused rather than left uncounted' },
