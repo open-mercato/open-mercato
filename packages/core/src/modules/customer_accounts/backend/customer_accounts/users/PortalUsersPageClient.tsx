@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Globe, Settings } from 'lucide-react'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
+import { ErrorMessage, LoadingMessage } from '@open-mercato/ui/backend/detail'
 import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -55,20 +56,26 @@ function formatDate(value: string | null | undefined, fallback: string): string 
   return date.toLocaleDateString()
 }
 
-async function fetchRoleFilterOptions(organizationId?: string | null): Promise<Array<{ value: string; label: string; id: string }>> {
+type RoleOption = { value: string; label: string; id: string }
+
+type OrganizationRolesState =
+  | { organizationId: string; status: 'loading' | 'error' }
+  | { organizationId: string; status: 'loaded'; options: RoleOption[] }
+
+async function fetchRoleFilterOptions(organizationId?: string | null): Promise<RoleOption[] | null> {
   try {
     const params = new URLSearchParams({ pageSize: '100' })
     if (organizationId) params.set('organizationId', organizationId)
     const call = await apiCall<{ items?: Array<{ id: string; name: string }> }>(
       `/api/customer_accounts/admin/roles?${params.toString()}`,
     )
-    if (!call.ok) return []
-    const items = Array.isArray(call.result?.items) ? call.result!.items : []
+    if (!call.ok || !Array.isArray(call.result?.items)) return null
+    const items = call.result.items
     return items
       .filter((item) => typeof item?.id === 'string' && typeof item?.name === 'string')
       .map((item) => ({ value: item.id, label: item.name, id: item.id }))
   } catch {
-    return []
+    return null
   }
 }
 
@@ -90,7 +97,8 @@ function CreateUserDialog({
   const [displayName, setDisplayName] = React.useState('')
   const [password, setPassword] = React.useState('')
   const [organizationId, setOrganizationId] = React.useState<string | null>(null)
-  const [organizationRoleOptions, setOrganizationRoleOptions] = React.useState<Array<{ id: string; label: string }> | null>(null)
+  const [organizationRoles, setOrganizationRoles] = React.useState<OrganizationRolesState | null>(null)
+  const [roleReloadToken, setRoleReloadToken] = React.useState(0)
   const [selectedRoleIds, setSelectedRoleIds] = React.useState<string[]>([])
   const [isSubmitting, setIsSubmitting] = React.useState(false)
 
@@ -107,18 +115,22 @@ function CreateUserDialog({
 
   React.useEffect(() => {
     if (!open || !roleOrganizationId) {
-      setOrganizationRoleOptions(null)
+      setOrganizationRoles(null)
       return
     }
     let cancelled = false
-    setOrganizationRoleOptions(null)
+    setOrganizationRoles({ organizationId: roleOrganizationId, status: 'loading' })
     fetchRoleFilterOptions(roleOrganizationId).then((opts) => {
-      if (!cancelled) setOrganizationRoleOptions(opts)
+      if (cancelled) return
+      setOrganizationRoles(opts === null
+        ? { organizationId: roleOrganizationId, status: 'error' }
+        : { organizationId: roleOrganizationId, status: 'loaded', options: opts })
     })
     return () => { cancelled = true }
-  }, [open, roleOrganizationId])
+  }, [open, roleOrganizationId, roleReloadToken])
 
-  const availableRoleOptions = organizationRoleOptions ?? []
+  const currentOrganizationRoles = organizationRoles?.organizationId === roleOrganizationId ? organizationRoles : null
+  const availableRoleOptions = currentOrganizationRoles?.status === 'loaded' ? currentOrganizationRoles.options : []
 
   const handleOrganizationChange = React.useCallback((next: string | null) => {
     setOrganizationId(next ?? null)
@@ -239,9 +251,25 @@ function CreateUserDialog({
               className="w-full h-9 rounded border px-2 text-sm"
             />
           </div>
-          {availableRoleOptions.length > 0 && (
+          {roleOrganizationId && (
             <div className="space-y-2">
               <p className="text-sm font-medium">{t('customer_accounts.admin.createUser.fields.roles', 'Roles')}</p>
+              {currentOrganizationRoles?.status === 'error' ? (
+                <ErrorMessage
+                  label={t('customer_accounts.admin.createUser.error.loadRoles', 'Could not load roles for this organization')}
+                  action={
+                    <Button type="button" variant="outline" size="sm" onClick={() => setRoleReloadToken((token) => token + 1)}>
+                      {t('customer_accounts.admin.createUser.actions.retryRoles', 'Retry')}
+                    </Button>
+                  }
+                />
+              ) : currentOrganizationRoles?.status !== 'loaded' ? (
+                <LoadingMessage label={t('customer_accounts.admin.createUser.loadingRoles', 'Loading roles...')} />
+              ) : availableRoleOptions.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  {t('customer_accounts.admin.createUser.noRoles', 'No roles are available for this organization')}
+                </p>
+              ) : null}
               <div className="flex flex-wrap gap-2">
                 {availableRoleOptions.map((role) => {
                   const isSelected = selectedRoleIds.includes(role.id)
@@ -329,7 +357,7 @@ export function PortalUsersPageClient({
   React.useEffect(() => {
     let cancelled = false
     fetchRoleFilterOptions().then((opts) => {
-      if (!cancelled) setRoleOptions(opts)
+      if (!cancelled) setRoleOptions(opts ?? [])
     })
     return () => { cancelled = true }
   }, [])

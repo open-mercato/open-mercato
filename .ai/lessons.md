@@ -1,6 +1,6 @@
 # Lessons
 
-This catalog indexes 171 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
+This catalog indexes 172 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
 
 ## How to use this catalog
 
@@ -17,6 +17,8 @@ This catalog indexes 171 focused lessons. Route the task first, then read only r
 - Run `yarn lessons:check` before committing.
 
 ## Catalog
+
+- [Scoped option loaders must distinguish failure from empty results](lessons/scoped-option-loaders-must-distinguish-failure-from-empty.md) — area:backend-ui,testing; module:customer_accounts,ui; topic:error-states,data-scoping,ui-components
 
 - [Content Security Policy must cover srcDoc previews](lessons/content-security-policy-must-cover-srcdoc-previews.md) — area:backend-ui,testing,integration; module:ecommerce,ui,shared,documents; topic:content-security-policy,srcdoc,nonces,security-regression,configured-origins
 

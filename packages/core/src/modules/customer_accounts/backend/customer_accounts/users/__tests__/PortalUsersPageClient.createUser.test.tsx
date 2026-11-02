@@ -28,6 +28,11 @@ jest.mock('@open-mercato/ui/backend/RowActions', () => ({
   RowActions: () => null,
 }))
 
+jest.mock('@open-mercato/ui/backend/detail', () => ({
+  ErrorMessage: jest.requireActual('@open-mercato/ui/backend/detail/ErrorMessage').ErrorMessage,
+  LoadingMessage: jest.requireActual('@open-mercato/ui/backend/detail/LoadingMessage').LoadingMessage,
+}))
+
 jest.mock('@open-mercato/ui/backend/filters/ListEmptyState', () => ({
   ListEmptyState: () => null,
 }))
@@ -157,6 +162,102 @@ describe('PortalUsersPageClient — create user organization (#5576)', () => {
 
     expect(screen.getByRole('button', { name: 'Current Buyer' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Target Buyer' })).not.toBeInTheDocument()
+  })
+
+  it.each(['http', 'network', 'payload'])('retries a %s role-load failure for the selected organization without clearing the form', async (failure) => {
+    let targetRequests = 0
+    apiCallMock.mockImplementation(async (url: string) => {
+      if (url === '/api/customer_accounts/admin/users') {
+        return { ok: true, status: 201, result: { ok: true }, response: new Response() } as never
+      }
+      if (url.includes('organizationId=org-target')) {
+        targetRequests += 1
+        if (targetRequests === 1) {
+          if (failure === 'network') throw new TypeError('Network unavailable')
+          if (failure === 'payload') return { ok: true, status: 200, result: null, response: new Response() } as never
+          return { ok: false, status: 500, result: null, response: new Response(null, { status: 500 }) } as never
+        }
+        return { ok: true, status: 200, result: { items: [targetOrgRole] }, response: new Response() } as never
+      }
+      return { ok: true, status: 200, result: { items: [currentOrgRole] }, response: new Response() } as never
+    })
+    render(<PortalUsersPageClient portalOrigin="https://shop.example.com" activeOrganizationId="org-home" />)
+    fireEvent.click(screen.getByRole('button', { name: 'Create User' }))
+    const organizationSelect = await screen.findByLabelText('Organization')
+    await screen.findByRole('option', { name: 'Target Org' })
+    fireEvent.click(await screen.findByRole('button', { name: 'Current Buyer' }))
+    fireEvent.change(screen.getByLabelText('Email'), { target: { value: 'buyer@example.com' } })
+    fireEvent.change(screen.getByLabelText('Display Name'), { target: { value: 'Buyer' } })
+    fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'Secret123!' } })
+
+    fireEvent.change(organizationSelect, { target: { value: 'org-target' } })
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not load roles for this organization')
+    expect(screen.queryByRole('button', { name: 'Current Buyer' })).not.toBeInTheDocument()
+    expect(organizationSelect).toHaveValue('org-target')
+    expect(screen.getByLabelText('Email')).toHaveValue('buyer@example.com')
+    expect(screen.getByLabelText('Display Name')).toHaveValue('Buyer')
+    expect(screen.getByLabelText('Password')).toHaveValue('Secret123!')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+
+    const targetRoleButton = await screen.findByRole('button', { name: 'Target Buyer' })
+    expect(targetRoleButton).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(targetRequests).toBe(2)
+    expect(organizationSelect).toHaveValue('org-target')
+    expect(screen.getByLabelText('Email')).toHaveValue('buyer@example.com')
+    expect(screen.getByLabelText('Display Name')).toHaveValue('Buyer')
+    expect(screen.getByLabelText('Password')).toHaveValue('Secret123!')
+    fireEvent.click(targetRoleButton)
+    fireEvent.submit(organizationSelect.closest('form')!)
+    await waitFor(() => expect(apiCallMock).toHaveBeenCalledWith(
+      '/api/customer_accounts/admin/users', expect.objectContaining({ method: 'POST' }),
+    ))
+    const createCall = apiCallMock.mock.calls.find((call) => call[0] === '/api/customer_accounts/admin/users')!
+    expect(JSON.parse(String((createCall[1] as RequestInit).body))).toMatchObject({
+      organizationId: 'org-target', roleIds: ['role-target'], email: 'buyer@example.com', displayName: 'Buyer',
+    })
+  })
+
+  it('shows a valid empty role list without a failure or retry action', async () => {
+    apiCallMock.mockResolvedValue({ ok: true, status: 200, result: { items: [] }, response: new Response() } as never)
+    render(<PortalUsersPageClient portalOrigin="https://shop.example.com" activeOrganizationId="org-home" />)
+    fireEvent.click(screen.getByRole('button', { name: 'Create User' }))
+
+    expect(await screen.findByText('No roles are available for this organization')).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument()
+  })
+
+  it('shows loading without stale roles and ignores a late failure from the previous organization', async () => {
+    let failTargetRequest: () => void = () => undefined
+    apiCallMock.mockImplementation(async (url: string) => {
+      if (url.includes('organizationId=org-target')) {
+        return new Promise((resolve) => {
+          failTargetRequest = () => resolve({
+            ok: false, status: 500, result: null, response: new Response(null, { status: 500 }),
+          } as never)
+        })
+      }
+      return { ok: true, status: 200, result: { items: [currentOrgRole] }, response: new Response() } as never
+    })
+    render(<PortalUsersPageClient portalOrigin="https://shop.example.com" activeOrganizationId="org-home" />)
+    fireEvent.click(screen.getByRole('button', { name: 'Create User' }))
+    const organizationSelect = await screen.findByLabelText('Organization')
+    await screen.findByRole('option', { name: 'Target Org' })
+    await screen.findByRole('button', { name: 'Current Buyer' })
+
+    fireEvent.change(organizationSelect, { target: { value: 'org-target' } })
+    expect(await screen.findByText('Loading roles...')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Current Buyer' })).not.toBeInTheDocument()
+    fireEvent.change(organizationSelect, { target: { value: '' } })
+    await screen.findByRole('button', { name: 'Current Buyer' })
+    await act(async () => { failTargetRequest() })
+
+    expect(screen.getByRole('button', { name: 'Current Buyer' })).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument()
   })
 
   it('omits organizationId when the current organization is kept', async () => {
