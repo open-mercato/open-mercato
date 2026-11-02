@@ -12,6 +12,14 @@ Build and pack PR workspaces without publishing, scaffold a disposable app, pin 
 
 The first real GitHub run is required to measure duration and validate the runner image. The gate starts as a normal PR check; maintainers can require its stable job name after observing green representative runs. A second PR consolidates snapshot and local integration configuration onto this runner's environment helper.
 
+Local validation remains blocked: three full unit-gate attempts ended in native Jest worker `SIGSEGV` crashes in different untouched suites (enterprise p2-polish, shared encryption/default-indexer, APNs message-golden). No passing full unit gate is claimed, so the PR remains draft with verification incomplete.
+
+## Validation evidence
+
+Runner: local, Node 24.19.0. The configured package build, generate, package rebuild, i18n sync/usage, typecheck and app production build commands all passed. `yarn test` failed as recorded above. Fourteen focused script tests passed, including corrupted/additional package files and missing/skipped smoke coverage.
+
+A real run against a freshly provisioned disposable PostgreSQL container packed all publishable first-party workspaces, scaffolded from the packed CLI, installed and byte-verified 32 first-party packages, initialized its database, production-built and started the app. All three smoke specs passed (3.1 minutes), and the final report assertion confirmed actual successful execution for every required smoke file. Test selection chose the three fixed smoke specs from 1,461 eligible discovered files. GitHub CI and required-check rollout remain separate proof.
+
 ## Running locally
 
 Build packages, generate registries, and build packages again. Provision a disposable PostgreSQL database, then set `STANDALONE_DATABASE_URL` explicitly and run `node scripts/ci/standalone-integration.mjs --source local --suite smoke`. Use `--suite affected --base-ref origin/main` for affected coverage or `--suite full` for the complete discovered standalone suite. The runner never defaults to a developer database.
