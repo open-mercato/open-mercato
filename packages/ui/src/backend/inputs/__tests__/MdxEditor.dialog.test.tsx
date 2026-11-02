@@ -57,8 +57,18 @@ async function openBlockTypes() {
 }
 
 describe('MDXEditor toolbar select inside a Dialog', () => {
+  const originalScrollIntoView = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollIntoView')
+
   beforeAll(() => {
     Element.prototype.scrollIntoView ??= () => undefined
+  })
+
+  afterAll(() => {
+    if (originalScrollIntoView) {
+      Object.defineProperty(Element.prototype, 'scrollIntoView', originalScrollIntoView)
+    } else {
+      Reflect.deleteProperty(Element.prototype, 'scrollIntoView')
+    }
   })
 
   it('closes the dropdown before the dialog and releases pointer locking after Escape', async () => {
