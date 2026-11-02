@@ -12,6 +12,12 @@ Build and pack PR workspaces without publishing, scaffold a disposable app, pin 
 
 The first real GitHub run is required to measure duration and validate the runner image. The gate starts as a normal PR check; maintainers can require its stable job name after observing green representative runs. A second PR consolidates snapshot and local integration configuration onto this runner's environment helper.
 
+## Running locally
+
+Build packages, generate registries, and build packages again. Provision a disposable PostgreSQL database, then set `STANDALONE_DATABASE_URL` explicitly and run `node scripts/ci/standalone-integration.mjs --source local --suite smoke`. Use `--suite affected --base-ref origin/main` for affected coverage or `--suite full` for the complete discovered standalone suite. The runner never defaults to a developer database.
+
+For snapshot verification use `--source published --version <exact-version> --suite full`. The caller installs Playwright browsers before invocation. App directories and the server log are retained for inspection; the selection report records eligible specs excluded by affected selection. Module/environment discovery exclusions remain governed by the CLI's existing discovery logic.
+
 ## Implementation Plan
 
 ### Phase 1: Package and test selection
@@ -29,16 +35,18 @@ The first real GitHub run is required to measure duration and validate the runne
 
 ## Progress
 
+PR: #8468
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Package and test selection
 
-- [ ] 1.1 Add isolated local package packing, install provenance verification and conservative affected-test selection with regression tests.
+- [x] 1.1 Add isolated local package packing, install provenance verification and conservative affected-test selection with regression tests. — 5cca0c98d
 
 ### Phase 2: Standalone lifecycle and CI
 
-- [ ] 2.1 Add a production standalone lifecycle runner and shared environment builder.
-- [ ] 2.2 Add the unprivileged PR workflow and operational instructions.
+- [x] 2.1 Add a production standalone lifecycle runner and shared environment builder. — 72b212a2a
+- [x] 2.2 Add the unprivileged PR workflow and operational instructions. — 2ca1da34f
 
 ### Phase 3: Verification
 
