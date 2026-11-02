@@ -556,3 +556,8 @@ Spec: [`.ai/specs/2026-09-08-error-reporting-policy.md`](.ai/specs/2026-09-08-er
 | Database schema, event IDs, ACL features, DI names, CLI commands | No change | ✓ n/a |
 
 **Migration path for existing modules**: send `parentId: null` / `childIds: []` where clearing is intended. Trees flattened before the upgrade are not repaired (see UPGRADE_NOTES.md).
+
+
+## Encryption maintenance safety gates (2026-11-02, #6767)
+
+CLI command names and key/ciphertext formats remain stable. The deprecated `entities rotate-encryption-key --old-key` / `--oldKey` bridge now requires explicit `--allow-unsafe-old-key`; prefer `TENANT_DATA_ENCRYPTION_OLD_KEY`. No removal is scheduled. `entities decrypt-database --deactivate-maps` requires `--confirm-offline-maintenance <tenantUuid>` after stopping every application, worker and integration writer; restart replicas before resuming writes. These are intentional safety confirmations for legacy risky invocations, documented in [upgrade notes](UPGRADE_NOTES.md#encryption-maintenance-safety-confirmations-6767) and the [maintenance specification](.ai/specs/2026-09-30-encryption-key-rotation-hardening.md). Organization-only runs preserve tenant-wide fallback maps. Online policy retirement is unsupported.

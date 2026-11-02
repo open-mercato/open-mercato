@@ -22,6 +22,14 @@ most of the patterns listed below in a user's codebase.
 
 ---
 
+## Encryption maintenance safety confirmations (#6767)
+
+Use `TENANT_DATA_ENCRYPTION_OLD_KEY` from your secret manager for entity key rotation. The deprecated `--old-key`/`--oldKey` compatibility bridge now requires `--allow-unsafe-old-key`; it still exposes the secret to operating-system process listings and should be used only for an unavoidable legacy invocation. No removal date is scheduled.
+
+`entities decrypt-database --deactivate-maps` now requires `--confirm-offline-maintenance <tenantUuid>`. Operators must stop all application, worker and integration writers, run the operation, and restart every replica before resuming writes. The CLI cannot discover every external writer or invalidate another process's cached policy. An organization-only sweep preserves tenant-wide fallback policies; use a complete tenant sweep for their retirement. Concurrent edits, changed policies or remaining ciphertext fail closed and keep policies active.
+
+Existing scripts must supply the new explicit safety confirmations or use the safe environment-key path. Schemas, ciphertext formats, key derivation, routes and ordinary encrypted writes are unchanged. See [the safety specification](.ai/specs/2026-09-30-encryption-key-rotation-hardening.md) for the remaining online-retirement coordination limitation.
+
 ## 0.8.0 → 0.9.0 (2026-10-09)
 
 ### Catalog product bulk-delete jobs require tenant, organization and user scope (#3826)
