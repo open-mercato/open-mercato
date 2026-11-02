@@ -45,6 +45,8 @@ test('local standalone parity runner consumes shared settings instead of an inde
   assert.match(source, /onStarted: \(child\) => \{ standaloneProcess = child \}/)
   assert.match(source, /spawn\('yarn', \['start'\]/)
   assert.match(source, /database = await startStandaloneDatabase\(\{ onStarted:/)
+  assert.match(source, /stopCommand: commandRunner\.stop/)
+  assert.doesNotMatch(source, /runCommand\(/)
   assert.match(source, /stopDatabase\?\.\(\)/)
   assert.doesNotMatch(source, /'test:ephemeral'/)
   assert.doesNotMatch(source, /env: \{ \.\.\.integrationEnv, NODE_ENV: 'production' \}/)
@@ -53,8 +55,9 @@ test('local standalone parity runner consumes shared settings instead of an inde
 
 test('the shared CI lifecycle also cleans detached app servers on interruption', () => {
   const source = read('scripts/ci/standalone-integration.mjs')
-  assert.match(source, /createStandaloneCleanup\(\{ stopServer,/)
+  assert.match(source, /createStandaloneCleanup\(\{ stopCommand: commandRunner\.stop, stopServer,/)
   assert.match(source, /registerStandaloneCleanup\(cleanupRuntime\)/)
   assert.match(source, /await cleanupRuntime\(\)/)
   assert.match(source, /removeSignalHandlers\(\)/)
+  assert.doesNotMatch(source, /spawnSync/)
 })

@@ -28,7 +28,7 @@ Intentional differences:
 
 The snapshot lane runs the full eligible suite and verifies that the fixed smoke tests actually execute. The runner records selection in `.ai/qa/test-results/standalone-selection.json`; inspect that artifact alongside the Playwright report and app log.
 
-The same runner can optionally verify locally packed packages on demand. With a disposable database already provisioned, run `STANDALONE_DATABASE_URL=<disposable-database-url> node scripts/ci/standalone-integration.mjs --source local --suite smoke`. Use `--suite affected --base-ref origin/main` to add changed-module and dependent specs, with a full-suite fallback for shared infrastructure changes. These commands are manual; no pull-request workflow invokes them.
+The same runner can optionally verify locally packed packages on demand. It runs the required `yarn build:packages` → `yarn generate` → `yarn build:packages` sequence before packing, so the installed tarballs represent the reviewed source rather than ignored stale `dist` output. With a disposable database already provisioned, run `STANDALONE_DATABASE_URL=<disposable-database-url> node scripts/ci/standalone-integration.mjs --source local --suite smoke`. Use `--suite affected --base-ref origin/main` to add changed-module and dependent specs, with a full-suite fallback for shared infrastructure changes. These commands are manual; no pull-request workflow invokes them.
 
 Disabled owning modules are excluded by the CLI discovery rules added in #8452. Dependency and environment prerequisites still apply. Missing app configuration, an empty selection, or missing smoke coverage must fail rather than produce a successful no-op.
 

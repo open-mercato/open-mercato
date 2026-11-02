@@ -2,13 +2,14 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { spawn, spawnSync } from 'node:child_process'
+import { spawn } from 'node:child_process'
 import { parseArgs } from 'node:util'
 import { setTimeout as delay } from 'node:timers/promises'
 import { listPublishablePackages } from '../registry/publish.mjs'
 import { createStandaloneIntegrationEnvironment } from '../lib/standalone-integration-env.mjs'
-import { assertStandaloneSmokeCoverage, pinStandalonePackages, verifyStandalonePackages } from '../lib/standalone-pr-gate.mjs'
+import { assertStandaloneSmokeCoverage, pinStandalonePackages, prepareStandaloneLocalPackages, verifyStandalonePackages } from '../lib/standalone-pr-gate.mjs'
 import { assertProductionBuildArtifacts } from '../lib/standalone-build-artifacts.mjs'
+import { createStandaloneCommandRunner } from '../lib/standalone-command.mjs'
 import { createStandaloneCleanup, registerStandaloneCleanup } from '../lib/standalone-local-cleanup.mjs'
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
@@ -44,34 +45,23 @@ const installEnv = {
 const logPath = `${appDir}.log`
 const selectionPath = path.join(repoRoot, '.ai', 'qa', 'test-results', 'standalone-selection.json')
 let server = null
-const cleanupRuntime = createStandaloneCleanup({ stopServer, stopDatabase: () => {} })
+const commandRunner = createStandaloneCommandRunner({
+  defaultCwd: repoRoot,
+  retryScript: path.join(repoRoot, 'scripts', 'ci', 'npm-retry-on-quarantine.sh'),
+})
+const cleanupRuntime = createStandaloneCleanup({ stopCommand: commandRunner.stop, stopServer, stopDatabase: () => {} })
 const removeSignalHandlers = registerStandaloneCleanup(cleanupRuntime)
+const run = commandRunner.run
 
-function run(command, args, { cwd = repoRoot, env = {}, retry = false } = {}) {
-  const invocation = retry
-    ? ['bash', [path.join(repoRoot, 'scripts', 'ci', 'npm-retry-on-quarantine.sh'), command, ...args]]
-    : [command, args]
-  console.log(`$ ${command} ${args.join(' ')}`)
-  const result = spawnSync(invocation[0], invocation[1], {
-    cwd,
-    env: { ...process.env, ...env },
-    stdio: 'inherit',
-    encoding: 'utf8',
-    maxBuffer: 64 * 1024 * 1024,
-  })
-  if (result.error) throw result.error
-  if (result.status !== 0) throw new Error(`Standalone command failed (${result.status}): ${command} ${args.join(' ')}`)
-}
-
-function packLocalPackages() {
+async function packLocalPackages() {
   const packages = listPublishablePackages(repoRoot).filter((entry) => entry.name.startsWith('@open-mercato/') || entry.name === 'create-mercato-app')
   for (const entry of packages) {
     const fileName = entry.name.replaceAll('/', '-').replaceAll('@', '')
     entry.tarball = path.join(scratchDir, `${fileName}.tgz`)
-    run('yarn', ['workspace', entry.name, 'pack', '--out', entry.tarball])
+    await run('yarn', ['workspace', entry.name, 'pack', '--out', entry.tarball])
     const unpackRoot = path.join(scratchDir, fileName)
     fs.mkdirSync(unpackRoot)
-    run('tar', ['-xzf', entry.tarball, '-C', unpackRoot])
+    await run('tar', ['-xzf', entry.tarball, '-C', unpackRoot])
     entry.unpackedDir = path.join(unpackRoot, 'package')
   }
   return packages
@@ -116,12 +106,13 @@ async function stopServer() {
 }
 
 try {
-  const packages = source === 'local' ? packLocalPackages() : []
+  if (source === 'local') await prepareStandaloneLocalPackages(run)
+  const packages = source === 'local' ? await packLocalPackages() : []
   const scaffoldPackage = source === 'local'
     ? packages.find((entry) => entry.name === 'create-mercato-app')?.tarball
     : `create-mercato-app@${values.version}`
   if (!scaffoldPackage) throw new Error('create-mercato-app was not packed')
-  run('npm', ['exec', '--yes', '--package', scaffoldPackage, '--', 'create-mercato-app', appDir,
+  await run('npm', ['exec', '--yes', '--package', scaffoldPackage, '--', 'create-mercato-app', appDir,
     '--preset', 'classic', '--skip-agentic-setup', '--no-init-git'], { retry: source === 'published' })
   const manifestPath = path.join(appDir, 'package.json')
   const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'))
@@ -131,22 +122,22 @@ try {
   fs.writeFileSync(manifestPath, `${JSON.stringify(installedManifest, null, 2)}\n`)
   const exampleEnv = fs.readFileSync(path.join(appDir, '.env.example'), 'utf8')
   fs.writeFileSync(path.join(appDir, '.env'), `${exampleEnv.trimEnd()}\n${Object.entries(appEnv).map(([key, value]) => `${key}=${value}`).join('\n')}\n`)
-  run('yarn', ['install'], { cwd: appDir, env: installEnv, retry: source === 'published' })
+  await run('yarn', ['install'], { cwd: appDir, env: installEnv, retry: source === 'published' })
   if (source === 'local') console.log(`Verified PR package contents: ${verifyStandalonePackages(appDir, packages).join(', ')}`)
-  run('yarn', ['generate'], { cwd: appDir, env: appEnv })
-  run('yarn', ['tsx', 'scripts/prepare-standalone-example-integration.ts', appDir], { env: appEnv })
-  run('yarn', ['generate'], { cwd: appDir, env: appEnv })
-  run('yarn', ['initialize'], { cwd: appDir, env: appEnv })
-  run('yarn', ['build'], {
+  await run('yarn', ['generate'], { cwd: appDir, env: appEnv })
+  await run('yarn', ['tsx', 'scripts/prepare-standalone-example-integration.ts', appDir], { env: appEnv })
+  await run('yarn', ['generate'], { cwd: appDir, env: appEnv })
+  await run('yarn', ['initialize'], { cwd: appDir, env: appEnv })
+  await run('yarn', ['build'], {
     cwd: appDir,
     env: { ...appEnv, NODE_ENV: 'production', NODE_OPTIONS: '--max-old-space-size=8192' },
   })
   assertProductionBuildArtifacts(appDir)
   await startServer()
-  run('yarn', ['tsx', 'scripts/ci/select-standalone-tests.ts', suite, values['base-ref'] ?? '', selectionPath], { env: testEnv })
+  await run('yarn', ['tsx', 'scripts/ci/select-standalone-tests.ts', suite, values['base-ref'] ?? '', selectionPath], { env: testEnv })
   const selection = JSON.parse(fs.readFileSync(selectionPath, 'utf8'))
   if (!selection.selected.length) throw new Error('Standalone gate selected no tests')
-  run('yarn', ['test:integration', ...selection.selected], { env: { ...testEnv, OM_INTEGRATION_MODULES: '' } })
+  await run('yarn', ['test:integration', ...selection.selected], { env: { ...testEnv, OM_INTEGRATION_MODULES: '' } })
   assertStandaloneSmokeCoverage(JSON.parse(fs.readFileSync(path.join(repoRoot, '.ai', 'qa', 'test-results', 'results.json'), 'utf8')), { executed: true })
 } catch (error) {
   console.error(error.message)

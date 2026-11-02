@@ -1,11 +1,15 @@
-export function createStandaloneCleanup({ stopServer, stopDatabase }) {
+export function createStandaloneCleanup({ stopCommand = async () => {}, stopServer, stopDatabase }) {
   let completion
   return () => {
     completion ??= (async () => {
       try {
-        await stopServer()
+        await stopCommand()
       } finally {
-        stopDatabase()
+        try {
+          await stopServer()
+        } finally {
+          stopDatabase()
+        }
       }
     })()
     return completion

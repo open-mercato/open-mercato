@@ -8,6 +8,18 @@ export const STANDALONE_SMOKE_SPECS = [
   'packages/core/src/modules/phone_calls/__integration__/TC-PHONE-HUB-006-calls-list-cache.spec.ts',
 ]
 
+export const STANDALONE_LOCAL_PREPACK_COMMANDS = [
+  ['yarn', ['build:packages']],
+  ['yarn', ['generate']],
+  ['yarn', ['build:packages']],
+]
+
+export async function prepareStandaloneLocalPackages(run) {
+  for (const [command, args] of STANDALONE_LOCAL_PREPACK_COMMANDS) {
+    await run(command, args)
+  }
+}
+
 export function assertStandaloneSmokeCoverage(report, { executed = false } = {}) {
   if (report.errors?.length) throw new Error('Standalone Playwright report contains collection or runtime errors')
   const specs = []

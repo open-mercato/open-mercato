@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
-import { STANDALONE_SMOKE_SPECS, assertStandaloneSmokeCoverage, pinStandalonePackages, selectStandaloneSpecs, verifyStandalonePackages } from '../lib/standalone-pr-gate.mjs'
+import { STANDALONE_LOCAL_PREPACK_COMMANDS, STANDALONE_SMOKE_SPECS, assertStandaloneSmokeCoverage, pinStandalonePackages, prepareStandaloneLocalPackages, selectStandaloneSpecs, verifyStandalonePackages } from '../lib/standalone-pr-gate.mjs'
 import { createStandaloneIntegrationEnvironment } from '../lib/standalone-integration-env.mjs'
 
 const discovered = [
@@ -49,6 +49,19 @@ test('local sources pin both root and transitive first-party requests', () => {
   assert.equal(result.resolutions['@open-mercato/shared'], 'file:/tmp/shared.tgz')
   assert.equal(result.dependencies.next, '16')
   assert.throws(() => pinStandalonePackages({ dependencies: { '@open-mercato/unknown': '0.10.0' } }, packages), /No PR package/)
+})
+
+test('local package provenance rebuilds generated output before packing', async () => {
+  const calls = []
+  await prepareStandaloneLocalPackages(async (command, args) => { calls.push([command, args]) })
+  assert.deepEqual(calls, STANDALONE_LOCAL_PREPACK_COMMANDS)
+  assert.deepEqual(calls, [
+    ['yarn', ['build:packages']],
+    ['yarn', ['generate']],
+    ['yarn', ['build:packages']],
+  ])
+  const runner = fs.readFileSync(new URL('../ci/standalone-integration.mjs', import.meta.url), 'utf8')
+  assert.ok(runner.indexOf('await prepareStandaloneLocalPackages(run)') < runner.indexOf('await packLocalPackages()'))
 })
 
 test('package verification rejects registry content mixed into an otherwise local install', () => {

@@ -7,8 +7,9 @@ import { setTimeout as delay } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 
 import { chromium } from '@playwright/test'
-import { createAppBin, createStandaloneInstallEnv, ensureVerdaccioPublished, VERDACCIO_URL, runCommand } from './lib/verdaccio'
+import { createAppBin, createStandaloneInstallEnv, VERDACCIO_URL } from './lib/verdaccio'
 import { assertProductionBuildArtifacts } from './lib/standalone-build-artifacts.mjs'
+import { createStandaloneCommandRunner } from './lib/standalone-command.mjs'
 import { createStandaloneIntegrationEnvironment } from './lib/standalone-integration-env.mjs'
 import { startStandaloneDatabase } from './lib/standalone-local-database.mjs'
 import { createStandaloneCleanup, registerStandaloneCleanup } from './lib/standalone-local-cleanup.mjs'
@@ -174,7 +175,9 @@ async function main(): Promise<void> {
 
   let database: Awaited<ReturnType<typeof startStandaloneDatabase>> | null = null
   let stopDatabase: (() => void) | null = null
+  const commandRunner = createStandaloneCommandRunner({ defaultCwd: ROOT })
   const cleanupRuntime = createStandaloneCleanup({
+    stopCommand: commandRunner.stop,
     stopServer: () => stopStandaloneEphemeralApp(standaloneProcess),
     stopDatabase: () => stopDatabase?.(),
   })
@@ -183,9 +186,9 @@ async function main(): Promise<void> {
   console.log(cyan(`Using temporary app directory: ${appDir}`))
 
   try {
-    await ensureVerdaccioPublished(ROOT)
+    await commandRunner.run('yarn', ['registry:publish'])
 
-    runCommand(process.execPath, [CREATE_APP_BIN, appDir, '--registry', VERDACCIO_URL, '--skip-agentic-setup'], { cwd: ROOT })
+    await commandRunner.run(process.execPath, [CREATE_APP_BIN, appDir, '--registry', VERDACCIO_URL, '--skip-agentic-setup'])
 
     assertExists(path.join(appDir, 'package.json'), 'Scaffolded standalone app created')
     assertExists(path.join(appDir, '.ai', 'qa', 'tests', 'playwright.config.ts'), 'Standalone QA config present')
@@ -214,13 +217,13 @@ async function main(): Promise<void> {
 
     writeStandaloneEnv(appDir, appEnv)
     ensureEnterpriseDependency(appDir)
-    runCommand('yarn', ['install'], {
+    await commandRunner.run('yarn', ['install'], {
       cwd: appDir,
       env: standaloneInstallEnv,
     })
 
     console.log(cyan('Building the runtime-disabled scaffold baseline in production mode'))
-    runCommand('yarn', ['build'], {
+    await commandRunner.run('yarn', ['build'], {
       cwd: appDir,
       env: { ...appRuntimeEnv, NODE_ENV: 'production' },
     })
@@ -230,7 +233,7 @@ async function main(): Promise<void> {
 
     enableModuleEntry(modulesConfigPath(appDir), EXAMPLE_ACTIVATION_ENTRY)
     console.log(cyan('Building the explicitly activated example fixture in production mode'))
-    runCommand('yarn', ['build'], {
+    await commandRunner.run('yarn', ['build'], {
       cwd: appDir,
       env: { ...appRuntimeEnv, NODE_ENV: 'production' },
     })
@@ -238,7 +241,7 @@ async function main(): Promise<void> {
     await assertExampleActivation(appDir)
     console.log(green('✔ Activated disposable app exposes example without design_system'))
 
-    runCommand('yarn', ['initialize'], { cwd: appDir, env: appRuntimeEnv })
+    await commandRunner.run('yarn', ['initialize'], { cwd: appDir, env: appRuntimeEnv })
     standaloneProcess = await waitForStandaloneApp({
       appDir,
       env: appRuntimeEnv,
@@ -249,7 +252,7 @@ async function main(): Promise<void> {
     if (testArgs.length > 0) {
       console.log(cyan(`Playwright args: ${testArgs.join(' ')}`))
     }
-    runCommand('yarn', ['test:integration', ...testArgs], {
+    await commandRunner.run('yarn', ['test:integration', ...testArgs], {
       cwd: ROOT,
       env: {
         ...integrationEnv,
