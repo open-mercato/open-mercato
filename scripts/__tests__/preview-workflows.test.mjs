@@ -158,22 +158,27 @@ test('npm snapshot approval rejects self approval and fails closed before PR che
 })
 
 test('published standalone lanes verify the disabled baseline before activating TC-EXAMPLE-016', () => {
-  for (const workflowPath of [snapshotWorkflowPath, npmSnapshotPreviewWorkflowPath]) {
-    assertStandaloneExampleActivationLane(readText(workflowPath))
-  }
+  assertStandaloneExampleActivationLane(readText(npmSnapshotPreviewWorkflowPath))
+  assert.match(readText(snapshotWorkflowPath), /scripts\/ci\/standalone-integration\.mjs/)
+  const runner = readText(path.resolve('scripts/ci/standalone-integration.mjs'))
+  const baselineIndex = runner.indexOf("run('yarn', ['generate']")
+  const activationIndex = runner.indexOf('scripts/prepare-standalone-example-integration.ts')
+  const activatedGenerationIndex = runner.indexOf("run('yarn', ['generate']", baselineIndex + 1)
+  const buildIndex = runner.indexOf("run('yarn', ['build']")
+  const startIndex = runner.indexOf('await startServer()')
+  const testIndex = runner.indexOf("run('yarn', ['test:integration'")
+  assert.ok(baselineIndex >= 0 && baselineIndex < activationIndex)
+  assert.ok(activationIndex < activatedGenerationIndex && activatedGenerationIndex < buildIndex)
+  assert.ok(buildIndex < startIndex && startIndex < testIndex)
 })
 
 test('develop snapshot standalone initialization replaces the scaffold database URL', () => {
   const workflow = readText(snapshotWorkflowPath)
-  const configureStart = stepIndex(workflow, 'Configure standalone app environment')
-  const installStart = stepIndex(workflow, 'Install standalone app dependencies')
-  const configureStep = workflow.slice(configureStart, installStart)
-  const appendedEnvironment = configureStep.slice(configureStep.indexOf("cat >> .env"))
-
-  assert.ok(configureStep.includes(
-    "sed -i 's|^DATABASE_URL=.*$|DATABASE_URL=postgres://mercato:secret@localhost:5432/mercato_test|' .env",
-  ))
-  assert.equal(countOccurrences(appendedEnvironment, 'DATABASE_URL='), 0)
+  const runner = readText(path.resolve('scripts/ci/standalone-integration.mjs'))
+  assert.match(workflow, /STANDALONE_DATABASE_URL: postgres:\/\/mercato:secret@localhost:5432\/mercato_test/)
+  assert.match(runner, /process\.env\.STANDALONE_DATABASE_URL/)
+  assert.match(runner, /Object\.entries\(appEnv\)/)
+  assert.match(runner, /run\('yarn', \['initialize'\], \{ cwd: appDir, env: appEnv \}\)/)
 })
 
 test('standalone example activation helper is executable through the workflow CJS entrypoint', () => {
