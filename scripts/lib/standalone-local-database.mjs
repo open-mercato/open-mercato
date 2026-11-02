@@ -7,18 +7,22 @@ function docker(args) {
   return result
 }
 
-export async function startStandaloneDatabase({ run = docker, wait = delay, attempts = 60 } = {}) {
+export async function startStandaloneDatabase({ run = docker, wait = delay, attempts = 60, onStarted = (database) => { void database } } = {}) {
   const created = run(['run', '--rm', '--detach',
     '--env', 'POSTGRES_USER=mercato', '--env', 'POSTGRES_PASSWORD=secret', '--env', 'POSTGRES_DB=mercato_test',
     '--publish', '127.0.0.1::5432', 'pgvector/pgvector:pg17-trixie'])
   if (created.status !== 0) throw new Error('Could not start disposable standalone database')
   const containerId = created.stdout.trim()
   if (!/^[a-f0-9]{64}$/.test(containerId)) throw new Error('Docker did not return a standalone database container id')
+  let stopped = false
   const stop = () => {
-    const stopped = run(['rm', '--force', containerId])
-    if (stopped.status !== 0) throw new Error(`Could not remove standalone database container ${containerId}`)
+    if (stopped) return
+    const result = run(['rm', '--force', containerId])
+    if (result.status !== 0) throw new Error(`Could not remove standalone database container ${containerId}`)
+    stopped = true
   }
   try {
+    onStarted({ stop })
     const published = run(['port', containerId, '5432/tcp'])
     const port = /^127\.0\.0\.1:(\d+)\s*$/.exec(published.stdout)?.[1]
     if (published.status !== 0 || !port) throw new Error('Could not resolve disposable database loopback port')

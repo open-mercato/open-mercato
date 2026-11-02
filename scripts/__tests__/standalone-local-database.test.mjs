@@ -39,3 +39,15 @@ test('database readiness timeout remains bounded and cleans up', async () => {
   assert.equal(fixture.calls.filter((args) => args[0] === 'exec').length, 2)
   assert.deepEqual(fixture.calls.at(-1), ['rm', '--force', containerId])
 })
+
+test('partial setup exposes idempotent cleanup before the first readiness wait', async () => {
+  const fixture = dockerFixture({ readiness: [1, 1] })
+  let stopDuringSetup
+  await assert.rejects(startStandaloneDatabase({
+    ...fixture,
+    attempts: 1,
+    onStarted: ({ stop }) => { stopDuringSetup = stop },
+    wait: async () => { stopDuringSetup() },
+  }), /did not become ready/)
+  assert.equal(fixture.calls.filter((args) => args[0] === 'rm').length, 1)
+})

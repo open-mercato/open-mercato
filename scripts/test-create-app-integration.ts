@@ -100,6 +100,7 @@ async function availableAppPort(): Promise<number> {
 async function waitForStandaloneApp(params: {
   appDir: string
   env: NodeJS.ProcessEnv
+  onStarted: (child: ChildProcessWithoutNullStreams) => void
 }): Promise<ChildProcessWithoutNullStreams> {
   const child = spawn('yarn', ['start'], {
     cwd: params.appDir,
@@ -107,6 +108,7 @@ async function waitForStandaloneApp(params: {
     stdio: ['ignore', 'pipe', 'pipe'],
     detached: process.platform !== 'win32',
   })
+  params.onStarted(child)
   child.stdout.on('data', (chunk: Buffer) => process.stdout.write(chunk))
   child.stderr.on('data', (chunk: Buffer) => process.stderr.write(chunk))
   let spawnError: Error | null = null
@@ -171,9 +173,10 @@ async function main(): Promise<void> {
   let standaloneProcess: ChildProcessWithoutNullStreams | null = null
 
   let database: Awaited<ReturnType<typeof startStandaloneDatabase>> | null = null
+  let stopDatabase: (() => void) | null = null
   const cleanupRuntime = createStandaloneCleanup({
     stopServer: () => stopStandaloneEphemeralApp(standaloneProcess),
-    stopDatabase: () => database?.stop(),
+    stopDatabase: () => stopDatabase?.(),
   })
   const removeSignalHandlers = registerStandaloneCleanup(cleanupRuntime)
 
@@ -192,7 +195,7 @@ async function main(): Promise<void> {
     }
     console.log(green(`✔ Scaffolded standalone app uses Verdaccio at ${VERDACCIO_URL}`))
 
-    database = await startStandaloneDatabase()
+    database = await startStandaloneDatabase({ onStarted: (resource) => { stopDatabase = resource.stop } })
     const baseUrl = `http://localhost:${await availableAppPort()}`
     const { appEnv, testEnv } = createStandaloneIntegrationEnvironment({
       appDir,
@@ -236,7 +239,11 @@ async function main(): Promise<void> {
     console.log(green('✔ Activated disposable app exposes example without design_system'))
 
     runCommand('yarn', ['initialize'], { cwd: appDir, env: appRuntimeEnv })
-    standaloneProcess = await waitForStandaloneApp({ appDir, env: appRuntimeEnv })
+    standaloneProcess = await waitForStandaloneApp({
+      appDir,
+      env: appRuntimeEnv,
+      onStarted: (child) => { standaloneProcess = child },
+    })
 
     console.log(cyan(`Running monorepo integration tests against standalone app at ${baseUrl}`))
     if (testArgs.length > 0) {
