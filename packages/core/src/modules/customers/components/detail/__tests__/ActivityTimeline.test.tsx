@@ -91,3 +91,14 @@ describe('ActivityTimeline canceled status', () => {
     expect(screen.getByRole('button', { name: /Mark done/i })).toBeInTheDocument()
   })
 })
+
+it.each([
+  { locale: 'en', dict: enDict, label: 'Unknown date' },
+  { locale: 'pl', dict: plDict, label: 'Nieznana data' },
+])('ActivityTimeline preserves unknown dates ($locale)', ({ locale, dict, label }) => {
+  const activity = createActivity({ occurredAt: null, scheduledAt: null, createdAt: '2035-01-01T12:34:00.000Z' })
+  renderWithProviders(<ActivityTimeline activities={[activity]} />, { locale, dict })
+  expect(screen.getByText(label)).toBeInTheDocument()
+  expect(screen.queryByText('2035')).not.toBeInTheDocument()
+  expect(screen.queryByText(/12:34/)).not.toBeInTheDocument()
+})
