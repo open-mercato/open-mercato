@@ -30,15 +30,12 @@ import {
   CustomerTodoLink,
 } from '../../data/entities'
 import { CustomFieldDef } from '@open-mercato/core/modules/entities/data/entities'
-<<<<<<< HEAD
-=======
 import { User } from '@open-mercato/core/modules/auth/data/entities'
 import {
   registerCoreInjectionTables,
   registerCoreInjectionWidgets,
   registerEnabledModuleIds,
 } from '@open-mercato/shared/modules/widgets/injection-loader'
->>>>>>> 52db3dc0d (fix(customers): scope interaction author and owner references (#8358))
 // Todo type removed - example package no longer exists
 type Todo = {
   id: string

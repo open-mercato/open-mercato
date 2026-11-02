@@ -2,11 +2,7 @@
 title: "The decryption `scope` argument is not a WHERE filter"
 modules: ["warranty_claims","shared","customers"]
 areas: ["module-data","architecture","testing"]
-<<<<<<< HEAD
-topics: ["data-scoping","access-control","command-pattern"]
-=======
 topics: ["data-scoping","access-control","command-pattern","historical-attribution","row-locking","reference-integrity"]
->>>>>>> 52db3dc0d (fix(customers): scope interaction author and owner references (#8358))
 ---
 
 # The decryption `scope` argument is not a WHERE filter

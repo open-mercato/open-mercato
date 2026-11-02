@@ -65,7 +65,7 @@ export async function loadInteractionAuthors(
     group.userIds.add(reference.authorUserId)
   }
   const profiles = new Map<string, AuthorProfile>()
-  await Promise.all(Array.from(groups.values(), async ({ tenantId, organizationId, userIds }) => {
+  for (const { tenantId, organizationId, userIds } of groups.values()) {
     const scope = { tenantId, organizationId }
     const users = await findWithDecryption(em, User, {
       id: { $in: Array.from(userIds) },
@@ -74,6 +74,6 @@ export async function loadInteractionAuthors(
     for (const user of users) {
       profiles.set(interactionUserKey(scope, user.id), { name: user.name ?? null, email: user.email ?? null })
     }
-  }))
+  }
   return profiles
 }

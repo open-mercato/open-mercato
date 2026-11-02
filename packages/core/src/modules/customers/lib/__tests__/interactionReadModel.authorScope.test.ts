@@ -84,3 +84,23 @@ describe('canonical interaction author scope', () => {
     }))
   })
 })
+
+it('bounds decryption query concurrency across a large mixed-organization author page', async () => {
+  const { loadInteractionAuthors } = await import('../interactionUsers')
+  let activeQueries = 0
+  let peakQueries = 0
+  const find = jest.fn(async (_entity: unknown, where: { id: { $in: string[] }; tenantId: string }) => {
+    activeQueries += 1
+    peakQueries = Math.max(peakQueries, activeQueries)
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    activeQueries -= 1
+    return where.id.$in.map((id) => ({ id, name: id, email: `${id}@example.com` }))
+  })
+  const references = Array.from({ length: 150 }, (_, index) => ({
+    tenantId, organizationId: `organization-${index}`, authorUserId: `author-${index}`,
+  }))
+  const profiles = await loadInteractionAuthors({ find } as unknown as EntityManager, references)
+  expect(find).toHaveBeenCalledTimes(150)
+  expect(peakQueries).toBe(1)
+  expect(profiles.size).toBe(150)
+})

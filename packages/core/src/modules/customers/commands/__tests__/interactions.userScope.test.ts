@@ -35,18 +35,7 @@ jest.mock('../../lib/interactionProjection', () => ({
   recomputeNextInteraction: jest.fn(async () => ({ nextInteractionId: null })),
 }))
 
-jest.mock('../../lib/calendar/eventTypeResolver', () => ({
-  resolveScopedCalendarEventTypes: jest.fn(async () => ({
-    items: jest.requireActual('../../calendar-event-types').calendarEventTypes,
-  })),
-  resolveCatalogEventType: (catalog: { items: Array<{ key: string }> }, key: string) =>
-    catalog.items.find((item) => item.key === key),
-}))
 
-jest.mock('../../lib/conversationShares', () => ({
-  listGrantsForViewerOnPerson: jest.fn(async () => []),
-  listSharedChannelIds: jest.fn(async () => []),
-}))
 
 import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
@@ -56,7 +45,6 @@ import { User } from '@open-mercato/core/modules/auth/data/entities'
 import { CustomerActivity, CustomerEntity, CustomerInteraction } from '../../data/entities'
 import { ensureCanonicalActivityBridge } from '../../lib/legacyActivityBridge'
 import { CUSTOMER_INTERACTION_ACTIVITY_ADAPTER_SOURCE } from '../../lib/interactionCompatibility'
-import { listGrantsForViewerOnPerson, listSharedChannelIds } from '../../lib/conversationShares'
 import '../interactions'
 import '../activities'
 
