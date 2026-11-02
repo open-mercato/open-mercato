@@ -1,4 +1,5 @@
 import path from 'node:path'
+import { assertStandaloneIntegrationEnvironment } from './standalone-integration-contract.mjs'
 
 export function createStandaloneIntegrationEnvironment({ appDir, repoRoot, baseUrl, databaseUrl }) {
   const shared = {
@@ -38,8 +39,10 @@ export function createStandaloneIntegrationEnvironment({ appDir, repoRoot, baseU
     OM_TEST_EMAIL_CAPTURE_PATH: path.join(repoRoot, '.ai', 'qa', 'email-capture.jsonl'),
     OM_OPTIMISTIC_LOCK: 'all',
   }
-  return {
+  const environment = {
     appEnv: { ...shared, OM_DOCUMENTS_COLLAB_INTEGRATION: '1' },
     testEnv: { ...shared, BASE_URL: baseUrl, OM_TEST_APP_ROOT: appDir, OM_DRAIN_DEBUG: '1', OM_DOCUMENTS_COLLAB_INTEGRATION: '' },
   }
+  assertStandaloneIntegrationEnvironment(environment)
+  return environment
 }
