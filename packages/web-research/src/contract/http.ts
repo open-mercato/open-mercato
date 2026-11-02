@@ -7,6 +7,7 @@ export type HttpRequestInit = {
   readonly maxBytes?: number
   readonly timeoutMs?: number
   readonly signal?: AbortSignal
+  readonly assertUrlAllowed?: (url: string) => void | Promise<void>
   /**
    * Content-type prefixes the caller can handle. A response outside the list is
    * rejected with `unsupported_content_type` instead of being decoded as text —
