@@ -6,7 +6,7 @@
  * - the picked customer shows in a selected summary with Change and Clear actions,
  *   never the raw record id
  * - Change reopens the list with the customer marked as selected
- * - Clear removes the selection
+ * - Clear removes the selection and the e-mail that was filled in from it
  *
  * Fixture: one person created through the API and removed in `finally`.
  */
@@ -53,6 +53,8 @@ test.describe('TC-SALES-6196: customer picker closes on pick', () => {
       await expect(summary).toContainText(displayName)
       await summary.getByRole('button', { name: 'Clear selection' }).click()
       await expect(page.getByTestId('lookup-select-selected')).toHaveCount(0)
+      await expect(page.getByLabel('Send to'), 'the e-mail filled in from the customer goes with it').toHaveValue('')
+      await expect(page.getByText(/belongs to/), 'no known-customer notice for the customer just cleared').toHaveCount(0)
     } finally {
       await deleteEntityIfExists(request, token, '/api/customers/people', personId)
     }
