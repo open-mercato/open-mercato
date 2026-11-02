@@ -40,14 +40,14 @@
   "dependencies": {
     "@open-mercato/web-research-serp": "workspace:*",
     "playwright": "^1.40.0",
-    "zod": "^4.4.3"
+    "zod": "^4.6.6"
   },
   "devDependencies": {
     "@open-mercato/web-research": "workspace:*",
     "@types/jest": "^30.0.0",
     "@types/node": "^26.0.1",
     "esbuild": "^0.28.1",
-    "glob": "^13.0.6",
+    "glob": "^14.0.2",
     "jest": "^30.4.2",
     "ts-jest": "^29.4.11",
     "typescript": "^6.0.3"
