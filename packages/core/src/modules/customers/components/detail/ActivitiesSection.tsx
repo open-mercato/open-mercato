@@ -10,6 +10,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Kbd } from '@open-mercato/ui/primitives/kbd'
 import { ActivityTimelineFilters } from './ActivityTimelineFilters'
 import { ActivityTimeline } from './ActivityTimeline'
+import { compareActivitiesByOccurrence } from './activityDates'
 import { resolveAuthorUserNames } from './authorUserLookup'
 import type { ActivitySummary, InteractionSummary } from './types'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -94,11 +95,10 @@ function sortTimelineActivities(items: InteractionSummary[]): InteractionSummary
       return leftScheduled - rightScheduled
     }
 
-    const leftTime = left.occurredAt ?? left.createdAt
-    const rightTime = right.occurredAt ?? right.createdAt
-    const compare = rightTime.localeCompare(leftTime)
-    if (compare !== 0) return compare
-    return right.id.localeCompare(left.id)
+    // Fall through to the activity's real occurrence date (occurred_at ->
+    // scheduled_at). An undated activity sorts last; created_at is never used as
+    // a fake occurrence time (issue #8286).
+    return compareActivitiesByOccurrence(left, right, 'desc')
   })
 }
 
@@ -242,9 +242,18 @@ export function ActivitiesSection({
       }
       const legacyFiltered = legacyItems.filter((entry) => {
         if (filterTypes.length > 0 && !filterTypes.includes(entry.interactionType)) return false
-        const dateOnly = toDateOnly(entry.occurredAt ?? entry.createdAt)
-        if (filterDateFrom && dateOnly < filterDateFrom) return false
-        if (filterDateTo && dateOnly > filterDateTo) return false
+        // Match an active date range against the activity's occurrence date only
+        // (occurred_at -> scheduled_at). A range-active undated activity is
+        // hidden rather than matched by its created_at materialisation time
+        // (issue #8286).
+        const occurrence = entry.occurredAt ?? entry.scheduledAt
+        if (occurrence) {
+          const dateOnly = toDateOnly(occurrence)
+          if (filterDateFrom && dateOnly < filterDateFrom) return false
+          if (filterDateTo && dateOnly > filterDateTo) return false
+        } else if (filterDateFrom || filterDateTo) {
+          return false
+        }
         return true
       })
 

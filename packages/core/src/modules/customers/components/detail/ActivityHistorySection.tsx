@@ -16,6 +16,7 @@ import { ErrorMessage, LoadingMessage, TabEmptyState } from '@open-mercato/ui/ba
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import type { ActivitySummary, InteractionSummary } from './types'
 import { ActivityCard } from './ActivityCard'
+import { activityOccurrenceDate, compareActivitiesByOccurrence } from './activityDates'
 
 type GuardedMutationRunner = <T,>(
   operation: () => Promise<T>,
@@ -118,9 +119,10 @@ function sortTimelineActivities(items: InteractionSummary[]): InteractionSummary
     if (leftIsUpcoming !== rightIsUpcoming) return leftIsUpcoming ? -1 : 1
     if (leftIsUpcoming && rightIsUpcoming) return leftScheduled - rightScheduled
 
-    const compare = toTimelineTimestamp(right).localeCompare(toTimelineTimestamp(left))
-    if (compare !== 0) return compare
-    return right.id.localeCompare(left.id)
+    // Fall through to the activity's real occurrence date (occurred_at ->
+    // scheduled_at). An undated activity sorts last; created_at is never used as
+    // a fake occurrence time (issue #8286).
+    return compareActivitiesByOccurrence(left, right, 'desc')
   })
 }
 
@@ -451,8 +453,13 @@ export function ActivityHistorySection({
         ) : (
           <div className="space-y-4">
             {activities.map((activity, index) => {
-              const currentYear = new Date(toTimelineTimestamp(activity)).getFullYear()
-              const previousYear = index > 0 ? new Date(toTimelineTimestamp(activities[index - 1])).getFullYear() : null
+              // Year separator uses the real occurrence date; an undated
+              // activity contributes no year so it never splits the feed
+              // (issue #8286).
+              const currentOccurrence = activityOccurrenceDate(activity)
+              const currentYear = currentOccurrence ? new Date(currentOccurrence).getFullYear() : null
+              const previousOccurrence = index > 0 ? activityOccurrenceDate(activities[index - 1]) : null
+              const previousYear = previousOccurrence ? new Date(previousOccurrence).getFullYear() : null
               const showYearSeparator = previousYear !== null && currentYear !== previousYear
               return (
                 <React.Fragment key={activity.id}>

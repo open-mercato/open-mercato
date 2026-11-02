@@ -90,4 +90,26 @@ describe('ActivityTimeline canceled status', () => {
 
     expect(screen.getByRole('button', { name: /Mark done/i })).toBeInTheDocument()
   })
+
+  it('shows an undated activity without fabricating a date from created_at (issue #8286)', () => {
+    renderWithProviders(
+      <ActivityTimeline
+        activities={[
+          createActivity({
+            id: 'undated-1',
+            title: 'Undated task',
+            status: 'done',
+            scheduledAt: null,
+            occurredAt: null,
+            createdAt: '2026-01-15T09:30:00.000Z',
+          }),
+        ]}
+      />,
+      { locale: 'en', dict: enDict as Record<string, string> },
+    )
+
+    // The undated state renders explicitly; created_at must not leak into the date column.
+    expect(screen.getByText(enDict['customers.timeline.date.undated'] as string)).toBeInTheDocument()
+    expect(screen.queryByText('01/15')).not.toBeInTheDocument()
+  })
 })

@@ -11,6 +11,7 @@ import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { cn } from '@open-mercato/shared/lib/utils'
 import type { InteractionSummary } from './types'
+import { activityOccurrenceDate } from './activityDates'
 import { isCanceledInteractionStatus, isOpenInteractionStatus } from '../../lib/interactionStatus'
 import { ActivityAiActions } from './ActivityAiActions'
 import { EmailCardActions, type EmailCardWidgetData } from './EmailCardActions'
@@ -45,7 +46,8 @@ const TYPE_ICONS: Record<string, React.ComponentType<{ className?: string }>> = 
   task: ListTodo,
 }
 
-function formatDayLabel(value: string, t: ReturnType<typeof useT>): string {
+function formatDayLabel(value: string | null, t: ReturnType<typeof useT>): string {
+  if (value === null) return ''
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return ''
   const now = new Date()
@@ -57,7 +59,8 @@ function formatDayLabel(value: string, t: ReturnType<typeof useT>): string {
   return date.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })
 }
 
-function formatTimeLabel(value: string): string {
+function formatTimeLabel(value: string | null): string {
+  if (value === null) return ''
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return ''
   return date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
@@ -116,7 +119,10 @@ function buildEmailCardWidgetData(activity: InteractionSummary): EmailCardWidget
 
 export function ActivityCard({ activity, onOpen, onChanged, runMutation }: ActivityCardProps) {
   const t = useT()
-  const timestamp = activity.occurredAt ?? activity.scheduledAt ?? activity.createdAt
+  // Show the activity's real occurrence date (occurred_at -> scheduled_at).
+  // A `NULL` occurrence never displays its created_at materialisation time as
+  // the date it happened (issue #8286).
+  const occurrenceDate = activityOccurrenceDate(activity)
   const TypeIcon = TYPE_ICONS[activity.interactionType] ?? StickyNote
   const titleBase = activity.title ?? activity.body ?? activity.interactionType
   const title = activity.duration ? `${titleBase} (${activity.duration} min)` : titleBase
@@ -179,8 +185,14 @@ export function ActivityCard({ activity, onOpen, onChanged, runMutation }: Activ
       } : undefined}
     >
       <div className="pt-1 text-xs text-muted-foreground">
-        <div className="font-semibold text-foreground">{formatDayLabel(timestamp, t)}</div>
-        <div>{formatTimeLabel(timestamp)}</div>
+        {occurrenceDate ? (
+          <>
+            <div className="font-semibold text-foreground">{formatDayLabel(occurrenceDate, t)}</div>
+            <div>{formatTimeLabel(occurrenceDate)}</div>
+          </>
+        ) : (
+          <div>{t('customers.timeline.date.undated', 'No date')}</div>
+        )}
       </div>
 
       <div className="flex size-9 items-center justify-center rounded-lg bg-muted/80">

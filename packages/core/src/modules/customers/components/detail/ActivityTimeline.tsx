@@ -7,6 +7,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { AiActionChips } from './AiActionChips'
+import { activityOccurrenceDate } from './activityDates'
 import type { InteractionSummary } from './types'
 import { isCanceledInteractionStatus, isOpenInteractionStatus } from '../../lib/interactionStatus'
 
@@ -38,10 +39,12 @@ export function ActivityTimeline({ activities, onEdit, onMarkDone }: ActivityTim
   return (
     <div>
       {activities.map((activity, index) => {
-        const dateStr = activity.scheduledAt ?? activity.occurredAt ?? activity.createdAt
-        const activityYear = dateStr ? new Date(dateStr).getFullYear() : null
-        const prevDateStr = index > 0 ? (activities[index - 1].scheduledAt ?? activities[index - 1].occurredAt ?? activities[index - 1].createdAt) : null
-        const prevYear = prevDateStr ? new Date(prevDateStr).getFullYear() : null
+        // An undated activity contributes no year, so it never splits the
+        // timeline (issue #8286 — occurrence date, never created_at).
+        const occurrenceDate = activityOccurrenceDate(activity)
+        const activityYear = occurrenceDate ? new Date(occurrenceDate).getFullYear() : null
+        const prevOccurrenceDate = index > 0 ? activityOccurrenceDate(activities[index - 1]) : null
+        const prevYear = prevOccurrenceDate ? new Date(prevOccurrenceDate).getFullYear() : null
         const showYearSeparator = activityYear !== null && prevYear !== null && activityYear !== prevYear
 
         return (
@@ -82,7 +85,11 @@ function TimelineEntry({
   onEdit?: (activity: InteractionSummary) => void
   onMarkDone?: (activityId: string, updatedAt?: string | null) => void | Promise<void>
 }) {
-  const dateStr = activity.scheduledAt ?? activity.occurredAt ?? activity.createdAt
+  // Show the activity's real occurrence date (occurred_at → scheduled_at). A
+  // `NULL` occurrence must never display its `created_at` materialisation time as
+  // the date the activity happened — render an explicitly undated state instead
+  // (issue #8286).
+  const occurrenceDate = activityOccurrenceDate(activity)
   const TypeIcon = TYPE_ICONS[activity.interactionType]
   const title = activity.title ?? activity.body ?? activity.interactionType
   const duration = activity.duration ? ` (${activity.duration} min)` : ''
@@ -112,12 +119,20 @@ function TimelineEntry({
       <div className="grid items-start gap-3" style={{ gridTemplateColumns: '75px 32px 1fr' }}>
         {/* Column 1: Date */}
         <div className="shrink-0">
-          <span className="block text-[11px] font-semibold leading-tight text-foreground">
-            {formatRelativeDate(dateStr, t)}
-          </span>
-          <span className="block text-[10px] leading-tight text-muted-foreground">
-            {formatTime(dateStr)}
-          </span>
+          {occurrenceDate ? (
+            <>
+              <span className="block text-[11px] font-semibold leading-tight text-foreground">
+                {formatRelativeDate(occurrenceDate, t)}
+              </span>
+              <span className="block text-[10px] leading-tight text-muted-foreground">
+                {formatTime(occurrenceDate)}
+              </span>
+            </>
+          ) : (
+            <span className="block text-[11px] font-semibold leading-tight text-muted-foreground">
+              {t('customers.timeline.date.undated', 'No date')}
+            </span>
+          )}
         </div>
 
         {/* Column 2: Type icon */}
@@ -178,7 +193,8 @@ function TimelineEntry({
   )
 }
 
-function formatRelativeDate(isoString: string, t: TranslateFn): string {
+function formatRelativeDate(isoString: string | null, t: TranslateFn): string {
+  if (isoString === null) return ''
   try {
     const date = new Date(isoString)
     const now = new Date()
@@ -195,7 +211,8 @@ function formatRelativeDate(isoString: string, t: TranslateFn): string {
   }
 }
 
-function formatTime(isoString: string): string {
+function formatTime(isoString: string | null): string {
+  if (isoString === null) return ''
   try {
     return new Date(isoString).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
   } catch {

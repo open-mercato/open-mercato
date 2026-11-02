@@ -2926,6 +2926,7 @@
   "customers.timeline.date.today": "dziś",
   "customers.timeline.date.tomorrow": "jutro",
   "customers.timeline.date.yesterday": "wczoraj",
+  "customers.timeline.date.undated": "brak daty",
   "customers.timeline.edit": "Edytuj",
   "customers.timeline.empty": "Brak aktywności pasujących do filtrów.",
   "customers.timeline.filter.all": "Wszystkie aktywności",
