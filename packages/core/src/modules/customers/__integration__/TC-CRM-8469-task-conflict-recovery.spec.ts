@@ -71,7 +71,6 @@ async function expectAlignedStatusAppearance(trigger: Locator): Promise<void> {
 
 test.describe('TC-CRM-8469: native customer task dialog conflict recovery', () => {
   test('preserves the title draft and concurrent description edit, retries, and keeps status appearance aligned on mobile', async ({ page, request }) => {
-    test.setTimeout(120_000)
     const token = await getAuthToken(request, 'admin')
     const stamp = Date.now()
     const marker = `QA TC-CRM-8469 ${stamp}`
@@ -101,7 +100,7 @@ test.describe('TC-CRM-8469: native customer task dialog conflict recovery', () =
       }
 
       await login(page, 'admin')
-      await page.goto(`/backend/customers/people/${personId}?tab=tasks`)
+      await page.goto(`/backend/customers/people-v2/${personId}?tab=tasks`)
       await page.getByText(`${marker} first`, { exact: true }).waitFor({ state: 'visible' })
       await page.getByText(`${marker} first`, { exact: true }).locator('xpath=ancestor::article').getByRole('button', { name: /edit/i }).click()
       const dialog = page.getByRole('dialog', { name: /edit task/i })
@@ -152,7 +151,7 @@ test.describe('TC-CRM-8469: native customer task dialog conflict recovery', () =
       await expectAlignedStatusAppearance(nextDialog.getByRole('combobox', { name: /status/i }))
 
       await page.setViewportSize({ width: 390, height: 844 })
-      await page.goto(`/backend/customers/people/${personId}?tab=tasks`)
+      await page.goto(`/backend/customers/people-v2/${personId}?tab=tasks`)
       await page.getByText(`${marker} edited title`, { exact: true }).waitFor({ state: 'visible' })
       await page.getByText(`${marker} edited title`, { exact: true }).locator('xpath=ancestor::article').getByRole('button', { name: /edit/i }).click()
       const mobileDialog = page.getByRole('dialog', { name: /edit task/i })
