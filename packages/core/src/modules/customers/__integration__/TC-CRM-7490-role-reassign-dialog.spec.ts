@@ -28,6 +28,12 @@ function decodeJwtSub(token: string): string {
   return parsed.sub
 }
 
+type RoleItem = { id: string; roleType: string; userId: string; userName?: string | null; userEmail?: string | null }
+
+function assigneeLabel(item: RoleItem | undefined): string {
+  return item?.userName ?? item?.userEmail ?? item?.userId ?? ''
+}
+
 test.describe('TC-CRM-7490: role assignment and reassignment share one dialog', () => {
   test('assigns, reassigns through the same dialog and hides the shortcut when nothing is free', async ({ page, request }) => {
     test.slow()
@@ -87,19 +93,21 @@ test.describe('TC-CRM-7490: role assignment and reassignment share one dialog', 
       await expect(dialog).toBeHidden({ timeout: 15_000 })
 
       const assignedCard = page.locator('div', { hasText: roleLabel }).filter({ has: page.getByRole('button', { name: /^Change user$/ }) }).last()
-      await expect(assignedCard.getByText(firstMemberName)).toBeVisible({ timeout: 15_000 })
 
       const listAfterAssign = await apiRequest(request, 'GET', `/api/customers/companies/${companyId}/roles`, { token: adminToken })
-      const assignedItems = ((await listAfterAssign.json()) as { items?: Array<{ id: string; roleType: string; userId: string }> }).items ?? []
+      const assignedItems = ((await listAfterAssign.json()) as { items?: RoleItem[] }).items ?? []
       const assignment = assignedItems.find((item) => item.roleType === roleValue)
       expect(assignment, 'the assignment exists for the fixture role').toBeTruthy()
       expect(assignment?.userId).toBe(adminUserId)
+      // The card names the assigned user account, not the team member picked in the dialog.
+      const firstAssignee = assigneeLabel(assignment)
+      await expect(assignedCard.getByText(firstAssignee).first()).toBeVisible({ timeout: 15_000 })
 
       // --- Step 2: Escape on the reassign dialog writes nothing ---
       await assignedCard.getByRole('button', { name: /^Change user$/ }).click()
       const reassignDialog = page.getByRole('dialog', { name: /^Change assignee$/ })
       await expect(reassignDialog, 'Change user opens the shared dialog in reassign mode').toBeVisible()
-      await expect(reassignDialog.getByText(`Currently: ${firstMemberName}`)).toBeVisible()
+      await expect(reassignDialog.getByText(`Currently: ${firstAssignee}`)).toBeVisible()
       await expect(reassignDialog.getByRole('button', { name: /^Change$/ }), 'the role stays fixed').toHaveCount(0)
       await page.keyboard.press('Escape')
       await expect(reassignDialog).toBeHidden()
@@ -115,13 +123,13 @@ test.describe('TC-CRM-7490: role assignment and reassignment share one dialog', 
       await reassignDialog.getByRole('button', { name: 'Next' }).click()
       await reassignDialog.getByRole('button', { name: 'Save change' }).click()
       await expect(reassignDialog).toBeHidden({ timeout: 15_000 })
-      await expect(assignedCard.getByText(secondMemberName)).toBeVisible({ timeout: 15_000 })
 
       const listAfterReassign = await apiRequest(request, 'GET', `/api/customers/companies/${companyId}/roles`, { token: adminToken })
-      const reassignedItems = ((await listAfterReassign.json()) as { items?: Array<{ id: string; roleType: string; userId: string }> }).items ?? []
+      const reassignedItems = ((await listAfterReassign.json()) as { items?: RoleItem[] }).items ?? []
       const reassigned = reassignedItems.find((item) => item.roleType === roleValue)
       expect(reassigned?.id, 'reassignment keeps the assignment identity').toBe(assignment?.id)
       expect(reassigned?.userId).toBe(employeeUserId)
+      await expect(assignedCard.getByText(assigneeLabel(reassigned)).first()).toBeVisible({ timeout: 15_000 })
 
       // --- Step 4: the generic shortcut says "Assign role" and goes away once nothing is free ---
       const shortcut = page.getByRole('button', { name: /^Assign role$/ })
