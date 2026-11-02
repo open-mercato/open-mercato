@@ -1204,7 +1204,7 @@ const decryptDatabase: ModuleCli = {
           const tables = Array.from(new Set(resolvedMaps.map(({ mapMeta }) => {
             const { meta } = mapMeta
             return meta.schema ? `"${meta.schema}"."${meta.tableName}"` : `"${meta.tableName}"`
-          }))).sort()
+          }))).sort((left, right) => left.localeCompare(right))
           await executeProtected(`LOCK TABLE encryption_maps, ${tables.join(', ')} IN SHARE ROW EXCLUSIVE MODE`)
           const lockedPolicies = await transaction.find(EncryptionMap, mapWhere, { refresh: true })
           if (policySignature(lockedPolicies) !== selectedPolicySignature) {

@@ -23,3 +23,5 @@ topics: ["data-integrity","encryption","query-index","filters","concurrency","te
 Encryption-maintenance compare-and-swap updates must select every column whose old value they compare, including non-null lookup hashes, and pin the original tenant and organization in SQL. A mocked row containing fields that the real SELECT omits hides this failure; prove the persistence boundary against PostgreSQL.
 
 A protected final verification sweep must remain bounded. Scan by primary-key keyset pages under the same protection as policy retirement, inspect every page, and test residual ciphertext beyond the first page with a tiny batch size. Table locks do not make materializing a tenant's entire table safe.
+
+When adding an explicit CLI safety acknowledgment, update existing security fixtures so they still reach their original guard instead of failing at argument parsing. Run repository-wide invariant checks as well as focused feature tests; deterministic lock ordering must use an explicit sort comparator.
