@@ -20,15 +20,17 @@ Source doc: `.ai/specs/implemented/SPEC-031-2026-02-18-decrypt-database-cli.md`
 
 ## Risks
 
-The full local validation gate is blocked by a docs-worker heap exhaustion and a create-app execution-sandbox package-config permission failure; keep the PR draft until a supported-environment rerun completes.
+The full local validation gate is blocked by repeated native Jest worker SIGSEGVs under CI-exact Node 24.19.0; keep the PR draft until a supported-environment rerun completes.
 
 Offline confirmation is an operator acknowledgment, not a mechanism that stops external writers. Operators must stop every writer before map retirement and restart all replicas before resuming. Do not claim online coordination of previously queued encrypted payloads. Keep the argv compatibility bridge explicit and document the exposure.
 
 ## Validation evidence and remaining work
 
-Local runner: Node 24.22.2 and pinned Yarn 4.17.1, with a full worktree-local install. Package builds, generation, translation sync/usage, all workspace typechecks, and the production app build passed. The repaired source passes 83 focused tests (including main custom-document support) and eight real PostgreSQL scenarios in a disposable database; its container was stopped after testing. Independent code review verified the hash snapshot and bounded final-scan corrections at `66789e02f` without another source finding.
+Local runner: pinned Yarn 4.17.1 with a full worktree-local install, initially Node 24.22.2 and then CI-exact Node 24.19.0. Package builds, generation, translation sync/usage, all workspace typechecks, and the production app build passed. Final core build/typecheck and lessons validation passed after the last source correction. The repaired source passes 83 focused tests (including main custom-document support) and eight real PostgreSQL scenarios in a disposable database; its container was stopped after testing. Independent code review verified the hash snapshot and bounded final-scan corrections at `66789e02f` without another source finding.
 
-The configured literal `yarn test` did not pass: the docs worker exhausted its script-configured 1 GiB heap. The docs workspace passed all 24 tests with a 4 GiB heap. A rerun of the complete Turbo test scope with the same assertions and a 4 GiB heap completed 49 of 51 tasks successfully, then failed create-app writable-harness tests because Node could not read a fixture package configuration under the local execution sandbox (`ERR_INVALID_PACKAGE_CONFIG`, operation not permitted), before the behavior oracles could execute. No harness permissions or assertions were weakened. This is incomplete full-gate evidence, not a passing test gate.
+Initial Node 24.22.2 full runs failed a docs worker 1 GiB heap limit and create-app sandbox package reads. CI-exact Node 24.19.0 eliminated those failures: docs passed all 24 tests at the configured heap and writable-harness execution proceeded. That run exposed actual omissions repaired in `90e824a46` (explicit table-sort comparator and the existing system-scope fixture's unsafe-key acknowledgment). Four regression suites passed 42 tests. The new compatibility summary exceeded a fixed standalone context budget; `7fb10f417` shortened the summary while retaining safety flags and linking complete migration guidance. All six budget checks passed without changing caps or tests. The complete create-app package then passed on Node 24.19.0: 996 passed, six skipped, zero failed.
+
+Repeated literal configured `yarn test` runs under Node 24.19.0 then failed native Jest workers with SIGSEGV in different unrelated suites. A full-scope concurrency-one run also hit SIGSEGV, so this is not resolved by workspace scheduling. Crashed core and shared suites passed isolated in-band rechecks (42, eight and four tests); no assertion, harness permission or cap was weakened. The literal full test gate has not passed and must not be reported green.
 
 Keep this PR draft and `Status: in-progress` until the complete configured gate can run successfully in a supported environment, then complete independent review and manual QA before merge. Steps 2.1 and 2.2 remain pending.
 
