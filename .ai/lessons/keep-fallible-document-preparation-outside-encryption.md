@@ -24,4 +24,4 @@ Encryption-maintenance compare-and-swap updates must select every column whose o
 
 A protected final verification sweep must remain bounded. Scan by primary-key keyset pages under the same protection as policy retirement, inspect every page, and test residual ciphertext beyond the first page with a tiny batch size. Table locks do not make materializing a tenant's entire table safe.
 
-When adding an explicit CLI safety acknowledgment, update existing security fixtures so they still reach their original guard instead of failing at argument parsing. Run repository-wide invariant checks as well as focused feature tests; deterministic lock ordering must use an explicit sort comparator.
+When adding an explicit CLI safety acknowledgment, update existing security fixtures so they still reach their original guard instead of failing at argument parsing. Run repository-wide invariant checks as well as focused feature tests; deterministic lock ordering must use an explicit sort comparator. Keep compatibility summaries concise and link detailed migration guidance so standalone harness context budgets remain intact.
