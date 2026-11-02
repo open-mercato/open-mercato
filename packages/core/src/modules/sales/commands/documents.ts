@@ -7,6 +7,13 @@ import { registerCommand } from "@open-mercato/shared/lib/commands";
 import type { CommandHandler, CommandRuntimeContext } from "@open-mercato/shared/lib/commands";
 import { withAtomicFlush } from "@open-mercato/shared/lib/commands/flush";
 import {
+  buildQuoteApprovalRequirement,
+  extractPendingApprovalClaim,
+  isTrustedSystemCommandContext,
+  omitPendingApprovalMetadata,
+} from "../lib/quoteApprovalRequirement";
+import { createQuoteApprovalLookup } from "../lib/quoteApprovalLookup";
+import {
   buildChanges,
   emitCrudSideEffects,
   emitCrudUndoSideEffects,
@@ -283,6 +290,7 @@ type QuoteGraphSnapshot = {
     deliveryWindowSnapshot: Record<string, unknown> | null;
     paymentMethodSnapshot: Record<string, unknown> | null;
     metadata: Record<string, unknown> | null;
+    approvalRequirement?: Record<string, unknown> | null;
     customFieldSetId: string | null;
     customFields: Record<string, unknown> | null;
     subtotalNetAmount: string;
@@ -1241,7 +1249,10 @@ async function applyDocumentUpdate({
     entity.customerSnapshot = input.customerSnapshot ?? null;
   }
   if (input.metadata !== undefined) {
-    entity.metadata = input.metadata ?? null;
+    entity.metadata =
+      kind === "quote"
+        ? omitPendingApprovalMetadata(input.metadata ?? null)
+        : (input.metadata ?? null);
   }
   if (input.externalReference !== undefined) {
     const normalized =
@@ -1789,6 +1800,9 @@ async function loadQuoteSnapshot(
         ? cloneJson(quote.paymentMethodSnapshot)
         : null,
       metadata: quote.metadata ? cloneJson(quote.metadata) : null,
+      approvalRequirement: quote.approvalRequirement
+        ? cloneJson(quote.approvalRequirement)
+        : null,
       customFieldSetId: quote.customFieldSetId ?? null,
       customFields: quoteCustomFields[quote.id]
         ? cloneJson(quoteCustomFields[quote.id])
@@ -4282,6 +4296,9 @@ async function restoreQuoteGraph(
       metadata: snapshot.quote.metadata
         ? cloneJson(snapshot.quote.metadata)
         : null,
+      approvalRequirement: snapshot.quote.approvalRequirement
+        ? cloneJson(snapshot.quote.approvalRequirement)
+        : null,
       channelId: snapshot.quote.channelId ?? null,
       customFieldSetId: snapshot.quote.customFieldSetId ?? null,
       subtotalNetAmount: snapshot.quote.subtotalNetAmount,
@@ -5137,6 +5154,18 @@ const createQuoteCommand: CommandHandler<
       parsed.statusEntryId ?? null,
       { tenantId: parsed.tenantId },
     );
+    const pendingApprovalClaim = extractPendingApprovalClaim(parsed.metadata);
+    const approvalRequirement =
+      pendingApprovalClaim && isTrustedSystemCommandContext(ctx)
+        ? await buildQuoteApprovalRequirement({
+            claim: pendingApprovalClaim,
+            buyerCustomerEntityId: parsed.customerEntityId ?? null,
+            lookupApproval: createQuoteApprovalLookup(ctx.container, {
+              tenantId: parsed.tenantId,
+              organizationId: parsed.organizationId,
+            }),
+          })
+        : null;
     const quoteId = randomUUID();
     const quote = em.create(SalesQuote, {
       id: quoteId,
@@ -5241,7 +5270,12 @@ const createQuoteCommand: CommandHandler<
                   : null,
             }
           : null,
-      metadata: parsed.metadata ? cloneJson(parsed.metadata) : null,
+      metadata: parsed.metadata
+        ? cloneJson(omitPendingApprovalMetadata(parsed.metadata))
+        : null,
+      approvalRequirement: approvalRequirement
+        ? (approvalRequirement as unknown as Record<string, unknown>)
+        : null,
       channelId: parsed.channelId ?? null,
       customFieldSetId: parsed.customFieldSetId ?? null,
       subtotalNetAmount: "0",

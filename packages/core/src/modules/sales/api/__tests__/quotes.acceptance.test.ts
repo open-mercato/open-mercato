@@ -31,6 +31,7 @@ jest.mock('@open-mercato/shared/lib/auth/server', () => ({
 }))
 
 let approvalServiceAvailable = true
+const approvalFactoryEms: unknown[] = []
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn(async () => ({
@@ -38,7 +39,16 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
       if (token === 'commandBus') return mockCommandBus
       if (token === 'em') return mockEm
       if (token === 'accessLogService') return null
-      if (token === 'customerPurchaseApprovalService') return approvalServiceAvailable ? mockApprovalService : null
+      if (token === 'customerPurchaseApprovalService') {
+        throw new Error('[test] the request-root approval service must not be used by quote acceptance')
+      }
+      if (token === 'customerPurchaseApprovalServiceFactory') {
+        if (!approvalServiceAvailable) return null
+        return (em: unknown) => {
+          approvalFactoryEms.push(em)
+          return mockApprovalService
+        }
+      }
       return null
     },
   })),
@@ -894,6 +904,35 @@ describe('accept - always uses em.transactional (no fallback)', () => {
 describe('accept - re-checks the approval gate for a quote flagged by checkout (D-R5-23 bypass fix)', () => {
   const ACCEPTANCE_TOKEN = '00000000-0000-4000-8000-0000000d23a0'
   const APPROVAL_ID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+  const CART_ID = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
+  const COMPANY_ID = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
+  const BUYER_ENTITY_ID = 'ffffffff-ffff-4fff-8fff-ffffffffffff'
+
+  function makeRequirement(overrides: Record<string, unknown> = {}) {
+    return {
+      required: true,
+      approvalId: APPROVAL_ID,
+      approvalSubjectType: 'cart',
+      approvalSubjectId: CART_ID,
+      approvalCustomerId: COMPANY_ID,
+      buyerCustomerEntityId: BUYER_ENTITY_ID,
+      recordedAt: '2026-11-02T00:00:00.000Z',
+      ...overrides,
+    }
+  }
+
+  function makeApproval(overrides: Record<string, unknown> = {}) {
+    return {
+      id: APPROVAL_ID,
+      status: 'approved',
+      currencyCode: 'USD',
+      amountGross: '5000',
+      subjectType: 'cart',
+      subjectId: CART_ID,
+      customerId: COMPANY_ID,
+      ...overrides,
+    }
+  }
 
   function makeFlaggedQuote(overrides: Record<string, unknown> = {}) {
     return {
@@ -907,14 +946,37 @@ describe('accept - re-checks the approval gate for a quote flagged by checkout (
       updatedAt: new Date(),
       currencyCode: 'USD',
       grandTotalGrossAmount: '5000',
-      metadata: { sourceModule: 'checkout', pendingApproval: { required: true, approvalId: APPROVAL_ID } },
+      customerEntityId: BUYER_ENTITY_ID,
+      metadata: { sourceModule: 'checkout' },
+      approvalRequirement: makeRequirement(),
       ...overrides,
     }
+  }
+
+  function mockConvertibleQuote(quote: Record<string, unknown>, orderId: string) {
+    mockEm.findOne.mockImplementation(async (cls: any) => {
+      if (cls === SalesQuote) return quote
+      if (cls === Dictionary) return { id: 'dict-1' }
+      if (cls === DictionaryEntry) return { id: 'entry-confirmed' }
+      if (cls === SalesOrder) return { id: orderId, orderNumber: `SO-${orderId}`, deletedAt: null }
+      return null
+    })
+    mockCommandBus.execute.mockResolvedValue({ result: { orderId } })
+  }
+
+  async function expectRefusedWithApproval(quote: Record<string, unknown>) {
+    mockEm.findOne.mockImplementation(async (cls: any) => (cls === SalesQuote ? quote : null))
+    const res = await acceptQuote(makeAcceptRequest({ token: ACCEPTANCE_TOKEN }))
+    expect(res.status).toBe(409)
+    expect((await res.json()).code).toBe('quote_requires_approval')
+    expect(quote.status).toBe('sent')
+    expect(mockCommandBus.execute).not.toHaveBeenCalled()
   }
 
   beforeEach(async () => {
     jest.clearAllMocks()
     approvalServiceAvailable = true
+    approvalFactoryEms.length = 0
     mockEm.fork.mockReturnValue(mockEm)
     mockRateLimiterService.consume.mockResolvedValue({ allowed: true, remainingPoints: 9, msBeforeNext: 0 })
     const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
@@ -923,86 +985,85 @@ describe('accept - re-checks the approval gate for a quote flagged by checkout (
     ;(getCachedRateLimiterService as jest.Mock).mockReturnValue(mockRateLimiterService)
   })
 
-  test('refuses with 409 quote_requires_approval when no approval ever existed — the live bypass this fix closes', async () => {
-    const quote = makeFlaggedQuote()
-    mockEm.findOne.mockImplementation(async (cls: any) => (cls === SalesQuote ? quote : null))
+  test('refuses with 409 quote_requires_approval when no approval ever existed', async () => {
     mockApprovalService.getApproval.mockResolvedValue(null)
-
-    const res = await acceptQuote(makeAcceptRequest({ token: ACCEPTANCE_TOKEN }))
-
-    expect(res.status).toBe(409)
-    const body = await res.json()
-    expect(body.code).toBe('quote_requires_approval')
-    expect(quote.status).toBe('sent')
-    expect(mockCommandBus.execute).not.toHaveBeenCalled()
+    await expectRefusedWithApproval(makeFlaggedQuote())
   })
 
-  test('refuses with 409 when the snapshotted approval exists but no longer qualifies (wrong currency / insufficient amount)', async () => {
-    const quote = makeFlaggedQuote()
-    mockEm.findOne.mockImplementation(async (cls: any) => (cls === SalesQuote ? quote : null))
-    mockApprovalService.getApproval.mockResolvedValue({
-      id: APPROVAL_ID,
-      status: 'approved',
-      currencyCode: 'EUR',
-      amountGross: '5000',
-    })
-
-    const res = await acceptQuote(makeAcceptRequest({ token: ACCEPTANCE_TOKEN }))
-
-    expect(res.status).toBe(409)
-    expect((await res.json()).code).toBe('quote_requires_approval')
-    expect(mockCommandBus.execute).not.toHaveBeenCalled()
+  test('refuses with 409 when the approval no longer qualifies (wrong currency)', async () => {
+    mockApprovalService.getApproval.mockResolvedValue(makeApproval({ currencyCode: 'EUR' }))
+    await expectRefusedWithApproval(makeFlaggedQuote())
   })
 
   test('refuses with 409 (fails closed) when customer_groups cannot be resolved at all', async () => {
-    const quote = makeFlaggedQuote()
-    mockEm.findOne.mockImplementation(async (cls: any) => (cls === SalesQuote ? quote : null))
     approvalServiceAvailable = false
-
-    const res = await acceptQuote(makeAcceptRequest({ token: ACCEPTANCE_TOKEN }))
-
-    expect(res.status).toBe(409)
-    expect((await res.json()).code).toBe('quote_requires_approval')
-    expect(mockCommandBus.execute).not.toHaveBeenCalled()
+    await expectRefusedWithApproval(makeFlaggedQuote())
   })
 
-  test('converts normally once a qualifying approval exists', async () => {
+  test('refuses an approval that belongs to a different customer (wrong-customer proof)', async () => {
+    mockApprovalService.getApproval.mockResolvedValue(makeApproval({ customerId: 'a0a0a0a0-a0a0-4a0a-8a0a-a0a0a0a0a0a0' }))
+    await expectRefusedWithApproval(makeFlaggedQuote())
+  })
+
+  test('refuses an approval issued for a different subject (wrong cart/quote subject)', async () => {
+    mockApprovalService.getApproval.mockResolvedValue(makeApproval({ subjectId: 'b0b0b0b0-b0b0-4b0b-8b0b-b0b0b0b0b0b0' }))
+    await expectRefusedWithApproval(makeFlaggedQuote())
+  })
+
+  test('refuses when the quote was re-targeted to another customer after the requirement was recorded', async () => {
+    mockApprovalService.getApproval.mockResolvedValue(makeApproval())
+    await expectRefusedWithApproval(makeFlaggedQuote({ customerEntityId: 'c0c0c0c0-c0c0-4c0c-8c0c-c0c0c0c0c0c0' }))
+  })
+
+  test('metadata tampering cannot clear the requirement: metadata.pendingApproval.required=false is ignored', async () => {
+    mockApprovalService.getApproval.mockResolvedValue(null)
+    await expectRefusedWithApproval(
+      makeFlaggedQuote({ metadata: { sourceModule: 'checkout', pendingApproval: { required: false, approvalId: null } } }),
+    )
+  })
+
+  test('a legacy quote flagged only through metadata (no protected requirement) fails closed', async () => {
+    await expectRefusedWithApproval(
+      makeFlaggedQuote({
+        approvalRequirement: null,
+        metadata: { sourceModule: 'checkout', pendingApproval: { required: true, approvalId: APPROVAL_ID } },
+      }),
+    )
+  })
+
+  test('a malformed protected requirement fails closed', async () => {
+    await expectRefusedWithApproval(makeFlaggedQuote({ approvalRequirement: { required: 'no' } }))
+  })
+
+  test('reads the approval through the acceptance transaction EntityManager, never the request-root service', async () => {
     const quote = makeFlaggedQuote()
-    mockEm.findOne.mockImplementation(async (cls: any) => {
-      if (cls === SalesQuote) return quote
-      if (cls === Dictionary) return { id: 'dict-1' }
-      if (cls === DictionaryEntry) return { id: 'entry-confirmed' }
-      if (cls === SalesOrder) return { id: 'order-d-r5-23-1', orderNumber: 'SO-D-R5-23-1', deletedAt: null }
-      return null
-    })
-    mockApprovalService.getApproval.mockResolvedValue({
-      id: APPROVAL_ID,
-      status: 'approved',
-      currencyCode: 'USD',
-      amountGross: '5000',
-    })
-    mockCommandBus.execute.mockResolvedValue({ result: { orderId: 'order-d-r5-23-1' } })
+    mockConvertibleQuote(quote, 'order-d-r5-23-1')
+    mockApprovalService.getApproval.mockResolvedValue(makeApproval())
 
     const res = await acceptQuote(makeAcceptRequest({ token: ACCEPTANCE_TOKEN }))
 
     expect(res.status).toBe(200)
+    expect(approvalFactoryEms).toEqual([mockEm])
     expect(quote.status).toBe('confirmed')
     expect(mockCommandBus.execute).toHaveBeenCalledWith(
       'sales.quotes.convert_to_order',
-      expect.objectContaining({ input: { quoteId: quote.id } })
+      expect.objectContaining({ input: { quoteId: quote.id } }),
     )
   })
 
-  test('does not run the gate for a quote with no pendingApproval flag (unaffected, pre-existing behaviour)', async () => {
-    const quote = makeFlaggedQuote({ metadata: { sourceModule: 'checkout', pendingApproval: { required: false, approvalId: null } } })
-    mockEm.findOne.mockImplementation(async (cls: any) => {
-      if (cls === SalesQuote) return quote
-      if (cls === Dictionary) return { id: 'dict-1' }
-      if (cls === DictionaryEntry) return { id: 'entry-confirmed' }
-      if (cls === SalesOrder) return { id: 'order-d-r5-23-2', orderNumber: 'SO-D-R5-23-2', deletedAt: null }
-      return null
-    })
-    mockCommandBus.execute.mockResolvedValue({ result: { orderId: 'order-d-r5-23-2' } })
+  test('does not run the gate for a quote with no recorded requirement (staff-authored quote)', async () => {
+    const quote = makeFlaggedQuote({ approvalRequirement: null, metadata: null })
+    mockConvertibleQuote(quote, 'order-d-r5-23-2')
+
+    const res = await acceptQuote(makeAcceptRequest({ token: ACCEPTANCE_TOKEN }))
+
+    expect(res.status).toBe(200)
+    expect(mockApprovalService.getApproval).not.toHaveBeenCalled()
+  })
+
+  test('does not run the gate when the protected requirement says approval is not required', async () => {
+    const quote = makeFlaggedQuote({ approvalRequirement: makeRequirement({ required: false, approvalId: null }) })
+    mockConvertibleQuote(quote, 'order-d-r5-23-3')
 
     const res = await acceptQuote(makeAcceptRequest({ token: ACCEPTANCE_TOKEN }))
 

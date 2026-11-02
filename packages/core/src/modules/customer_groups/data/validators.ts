@@ -436,6 +436,7 @@ export const customerPurchaseApprovalWithdrawnReasonValues = [
   'cart_merged',
   'cart_expired',
   'cart_purged',
+  'cart_converted_as_quote',
 ] as const
 export const customerPurchaseApprovalWithdrawnReasonSchema = z.enum(customerPurchaseApprovalWithdrawnReasonValues)
 

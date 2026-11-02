@@ -71,8 +71,12 @@ export type StoreContextService = {
    * outside `tenantId`/`organizationId` is refused (`store_out_of_scope` / `buyer_out_of_scope`).
    * Always reads fresh and never writes to or reads from the buyer's own 60 s cache. No route, AI
    * tool or MCP tool exposes it.
+   *
+   * Optional so a DI-replaceable `StoreContextService` override written before Release 5 still
+   * satisfies the interface (BACKWARD_COMPATIBILITY.md: additive DI methods are optional). Every
+   * caller MUST treat an absent method as "identity refresh unavailable" and fail closed.
    */
-  resolveForBuyer(input: ResolveForBuyerInput): Promise<ResolveForBuyerResult>
+  resolveForBuyer?(input: ResolveForBuyerInput): Promise<ResolveForBuyerResult>
 }
 
 type StoreTenantDatabase = {

@@ -509,7 +509,7 @@ async function executeProposalAcceptance(input: CartMergeManualInput, ctx: Comma
     {},
     scope,
   )) as CartLine[]
-  const targetCustomerLines = filterCustomerLines(targetLinesAll)
+  let targetCustomerLines = filterCustomerLines(targetLinesAll)
 
   const knownLineIds = new Set(proposalLinesAll.map((line) => line.id))
   for (const entry of input.lines) {
@@ -529,7 +529,7 @@ async function executeProposalAcceptance(input: CartMergeManualInput, ctx: Comma
   }
 
   const maxQuantities = await resolveMaxOrderQuantities(em, ctx.container, scope, target.storeId ?? null, acceptedLines)
-  const startingLineNumber = targetLinesAll.reduce((max, line) => Math.max(max, line.lineNumber), 0) + 1
+  let startingLineNumber = targetLinesAll.reduce((max, line) => Math.max(max, line.lineNumber), 0) + 1
 
   // §6a.5/TC-CART-PROP-04: re-checked against the buyer's OWN freshly-resolved scope, never
   // the proposal's authoring-time one — the exact same enforcement key the guest-merge path
@@ -607,6 +607,23 @@ async function executeProposalAcceptance(input: CartMergeManualInput, ctx: Comma
         }
       },
       async () => {
+        await em.refresh(target)
+        assertCartNotLocked(target)
+        if (target.status !== 'active') {
+          throw new CrudHttpError(409, { error: '[internal] cart_not_active', code: 'cart_not_active', status: target.status })
+        }
+        const lockedTargetLines = (await findWithDecryption(
+          em,
+          CartLine,
+          { cartId: target.id, deletedAt: null, tenantId: scope.tenantId, organizationId: scope.organizationId },
+          {},
+          scope,
+        )) as CartLine[]
+        for (const line of lockedTargetLines) await em.refresh(line)
+        targetCustomerLines = filterCustomerLines(lockedTargetLines)
+        startingLineNumber = lockedTargetLines.reduce((max, line) => Math.max(max, line.lineNumber), 0) + 1
+      },
+      async () => {
         const affected = await em.nativeUpdate(
           Cart,
           { id: proposal.id, tenantId: scope.tenantId, organizationId: scope.organizationId, status: 'active' },
@@ -631,7 +648,6 @@ async function executeProposalAcceptance(input: CartMergeManualInput, ctx: Comma
         // actually prevent a lost update rather than just prevent two COMMITS from racing —
         // without this, `buildMergeOutcome` would still sum onto the stale in-memory
         // `matched.quantity` captured before the lock.
-        for (const line of targetCustomerLines) await em.refresh(line)
         built = buildMergeOutcome(em, acceptedLines, targetCustomerLines, maxQuantities, target, startingLineNumber, mergeVisibility)
         outcome = [...built.outcome, ...declinedOutcome]
         target.tokenHash = newTokenHash

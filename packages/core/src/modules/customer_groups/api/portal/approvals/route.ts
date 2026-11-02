@@ -6,7 +6,7 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { CustomerPurchaseApproval } from '../../../data/entities'
-import { customerPurchaseApprovalPortalListQuerySchema } from '../../../data/validators'
+import { customerPurchaseApprovalPortalListQuerySchema, customerPurchaseApprovalWithdrawnReasonSchema } from '../../../data/validators'
 import { resolvePortalApprovalContext } from '../../../lib/portalApprovalAuth'
 import { buildPortalApprovalListWhere } from '../../../lib/portalApprovalAccess'
 import type { PortalApprovalPrincipal } from '../../../lib/portalApprovalAccess'
@@ -152,7 +152,7 @@ const approvalViewSchema = z.object({
   requestedBy: z.object({ actorType: z.enum(['customer_user', 'staff_user']), actorId: z.string().uuid() }),
   buyer: slotViewSchema,
   merchant: slotViewSchema,
-  withdrawnReason: z.enum(['requester', 'cart_merged', 'cart_expired', 'cart_purged']).nullable(),
+  withdrawnReason: customerPurchaseApprovalWithdrawnReasonSchema.nullable(),
   decidedAt: z.string().nullable(),
   expiresAt: z.string(),
   createdAt: z.string(),

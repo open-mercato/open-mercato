@@ -1001,6 +1001,9 @@ export class SalesQuote {
   @Property({ name: 'acceptance_token', type: 'text', nullable: true })
   acceptanceToken?: string | null
 
+  @Property({ name: 'approval_requirement', type: 'jsonb', nullable: true })
+  approvalRequirement?: Record<string, unknown> | null
+
   @Property({ name: 'sent_at', type: Date, nullable: true })
   sentAt?: Date | null
 

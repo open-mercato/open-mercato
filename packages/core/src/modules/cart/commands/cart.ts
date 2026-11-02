@@ -156,7 +156,7 @@ async function resolveTrustedCartBuyerIdentity(
 ) {
   if (!input.customerUserId && !input.customerId) return null
   const storeContextService = tryResolveStoreContextService(container)
-  if (!storeContextService) return null
+  if (!storeContextService?.resolveForBuyer) return null
   return storeContextService.resolveForBuyer({
     tenantId: input.tenantId,
     organizationId: input.organizationId,

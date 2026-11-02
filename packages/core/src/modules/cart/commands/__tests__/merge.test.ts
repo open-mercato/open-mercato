@@ -1434,6 +1434,46 @@ describe('cart.merge — §7a.4 proposal acceptance (manual strategy, Step 3.4)'
     )
   })
 
+  it('re-reads the target inside the advisory locks and refuses without mutating when checkout locked it after the pre-read', async () => {
+    seededCarts = [makeCartFixture({ id: 'cart-target' }), makeProposalFixture()]
+    seededCartLines = [makeLineFixture({ id: 'proposal-line-1', cartId: PROPOSAL_ID, productId: 'product-1', quantity: '2' })]
+
+    const handler = getMergeHandler()
+    const em = makeEm()
+    let armed = false
+    em.execute.mockImplementation(async () => {
+      armed = true
+    })
+    em.refresh.mockImplementation(async (row: FakeRow) => {
+      if (armed && row.id === 'cart-target') {
+        row.status = 'locked'
+        row.checkoutSessionId = 'session-late'
+      }
+    })
+
+    let captured: unknown
+    try {
+      await handler.execute(
+        {
+          targetCartId: 'cart-target',
+          tenantId: TENANT_ID,
+          organizationId: ORG_ID,
+          proposalCartId: PROPOSAL_ID,
+          lines: [{ proposalLineId: 'proposal-line-1', accepted: true }],
+          routeContext: makeRouteContext(),
+        } as CartMergeInput,
+        makeCtx({ em }),
+      )
+    } catch (err) {
+      captured = err
+    }
+
+    expect(isCrudHttpError(captured)).toBe(true)
+    expect(seededMergeLogs).toHaveLength(0)
+    expect(seededCarts.find((row) => row.id === PROPOSAL_ID)!.status).toBe('active')
+    expect(seededCartLines.some((row) => row.cartId === 'cart-target')).toBe(false)
+  })
+
   it('refuses a locked target with 423 cart_locked, carrying its checkoutSessionId (TC-CART-PROP-14)', async () => {
     seededCarts = [
       makeCartFixture({ id: 'cart-target', status: 'locked', checkoutSessionId: 'session-1' }),

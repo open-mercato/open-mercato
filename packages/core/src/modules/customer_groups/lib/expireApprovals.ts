@@ -16,6 +16,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CustomerPurchaseApproval } from '../data/entities'
 import { emitCustomerGroupsEvent } from '../events'
+import { resolveApprovalPortalRecipientIds, type PortalApprovalRbac } from './approvalPortalAudience'
 
 export type Resolver = { resolve: <T = unknown>(name: string) => T }
 
@@ -23,6 +24,14 @@ const BATCH_SIZE = 200
 // Defensive circuit breaker, mirrors `availability/lib/reservationSweep.ts`'s own
 // `MAX_PAGES_PER_TICK`: one tick must never loop forever against a pathological backlog.
 const MAX_PAGES_PER_TICK = 1000
+
+function softResolve<T>(container: Resolver, name: string): T | null {
+  try {
+    return container.resolve<T>(name) ?? null
+  } catch {
+    return null
+  }
+}
 
 export type ExpireApprovalsResult = { expiredCount: number }
 
@@ -32,6 +41,7 @@ export async function expirePendingApprovals(
   now: Date = new Date(),
 ): Promise<ExpireApprovalsResult> {
   const em = (container.resolve('em') as EntityManager).fork()
+  const portalRbac = softResolve<PortalApprovalRbac>(container, 'customerRbacService')
   let expiredCount = 0
 
   for (let page = 0; page < MAX_PAGES_PER_TICK; page += 1) {
@@ -59,6 +69,7 @@ export async function expirePendingApprovals(
         {
           tenantId: candidate.tenantId,
           organizationId: candidate.organizationId,
+          recipientUserIds: await resolveApprovalPortalRecipientIds({ em, rbac: portalRbac, approval: candidate }),
           approvalId: candidate.id,
           customerId: candidate.customerId,
           subjectType: candidate.subjectType,

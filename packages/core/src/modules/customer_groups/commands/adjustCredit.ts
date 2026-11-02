@@ -103,7 +103,7 @@ const adjustCreditCommand: CommandHandler<CustomerCreditAdjustCommandInput, Adju
       // replays the SAME adjustment instead of posting a second one — the command only
       // mints its own random key when the caller didn't supply one, same fallback the
       // undo path below relies on being absent from a real business key.
-      idempotencyKey: parsed.idempotencyKey ?? `adjust:${randomUUID()}`,
+      idempotencyKey: parsed.idempotencyKey ? `adjust:client:${parsed.idempotencyKey}` : `adjust:auto:${randomUUID()}`,
       createdByUserId: actorUserId(ctx),
     })
 

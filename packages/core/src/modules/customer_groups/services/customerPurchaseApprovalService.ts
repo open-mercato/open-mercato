@@ -14,6 +14,7 @@ import {
 import { createCustomerGroupsService, type CustomerGroupsService } from './customerGroupsService'
 import { resolveCompanyFirstCustomerId, resolveCustomerUserCompanyId } from '../lib/creditIdentity'
 import { emitCustomerGroupsEvent } from '../events'
+import { resolveApprovalPortalRecipientIds, type PortalApprovalRbac } from '../lib/approvalPortalAudience'
 
 // Release 5 Phase 4 (spec §6, §6.6, §5.6). The approval contract (G3), every transition
 // a compare-and-set conditional update (G6), decision-authority guards (G24) and the
@@ -335,6 +336,7 @@ async function emitApprovalEvent(
     | 'customer_groups.approval.expired'
     | 'customer_groups.approval.withdrawn',
   row: CustomerPurchaseApproval,
+  recipientUserIds: string[],
   decidedBy?: { actorType: CustomerPurchaseApprovalActorType | 'system'; actorId: string | null },
 ): Promise<void> {
   await emitCustomerGroupsEvent(
@@ -342,6 +344,7 @@ async function emitApprovalEvent(
     {
       tenantId: row.tenantId,
       organizationId: row.organizationId,
+      recipientUserIds,
       approvalId: row.id,
       customerId: row.customerId,
       subjectType: row.subjectType,
@@ -365,7 +368,12 @@ export class DefaultCustomerPurchaseApprovalService implements CustomerPurchaseA
     private readonly em: EntityManager,
     private readonly groupsService: CustomerGroupsService,
     private readonly moduleConfigService: ModuleConfigService | null,
+    private readonly portalRbac: PortalApprovalRbac | null = null,
   ) {}
+
+  private resolvePortalRecipients(row: CustomerPurchaseApproval): Promise<string[]> {
+    return resolveApprovalPortalRecipientIds({ em: this.em, rbac: this.portalRbac, approval: row })
+  }
 
   private async loadDecrypted(approvalId: string, scope: CommerceScope): Promise<CustomerPurchaseApproval | null> {
     return findOneWithDecryption(
@@ -438,7 +446,7 @@ export class DefaultCustomerPurchaseApprovalService implements CustomerPurchaseA
       return { approval: toApprovalView(race), created: false }
     }
 
-    await emitApprovalEvent('customer_groups.approval.requested', created)
+    await emitApprovalEvent('customer_groups.approval.requested', created, await this.resolvePortalRecipients(created))
     return { approval: toApprovalView(created), created: true }
   }
 
@@ -502,7 +510,7 @@ export class DefaultCustomerPurchaseApprovalService implements CustomerPurchaseA
 
     const final = await this.loadDecrypted(approvalId, scope)
     if (!final) throw notFoundError()
-    await emitApprovalEvent('customer_groups.approval.withdrawn', final, decidedBy)
+    await emitApprovalEvent('customer_groups.approval.withdrawn', final, await this.resolvePortalRecipients(final), decidedBy)
     return toApprovalView(final)
   }
 
@@ -589,6 +597,7 @@ export class DefaultCustomerPurchaseApprovalService implements CustomerPurchaseA
       await emitApprovalEvent(
         final.status === 'approved' ? 'customer_groups.approval.approved' : 'customer_groups.approval.rejected',
         final,
+        await this.resolvePortalRecipients(final),
         { actorType: actor.actorType, actorId: actor.actorId },
       )
     }
@@ -599,6 +608,7 @@ export class DefaultCustomerPurchaseApprovalService implements CustomerPurchaseA
 export function createCustomerPurchaseApprovalService(
   em: EntityManager,
   moduleConfigService: ModuleConfigService | null = null,
+  portalRbac: PortalApprovalRbac | null = null,
 ): CustomerPurchaseApprovalService {
-  return new DefaultCustomerPurchaseApprovalService(em, createCustomerGroupsService(em), moduleConfigService)
+  return new DefaultCustomerPurchaseApprovalService(em, createCustomerGroupsService(em), moduleConfigService, portalRbac)
 }

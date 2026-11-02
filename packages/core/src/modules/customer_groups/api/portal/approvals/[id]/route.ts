@@ -6,6 +6,7 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { resolvePortalApprovalContext } from '../../../../lib/portalApprovalAuth'
 import { isApprovalVisibleToPortalPrincipal } from '../../../../lib/portalApprovalAccess'
+import { customerPurchaseApprovalWithdrawnReasonSchema } from '../../../../data/validators'
 
 const logger = createLogger('customer_groups')
 
@@ -72,7 +73,7 @@ const approvalViewSchema = z.object({
   requestedBy: z.object({ actorType: z.enum(['customer_user', 'staff_user']), actorId: z.string().uuid() }),
   buyer: slotViewSchema,
   merchant: slotViewSchema,
-  withdrawnReason: z.enum(['requester', 'cart_merged', 'cart_expired', 'cart_purged']).nullable(),
+  withdrawnReason: customerPurchaseApprovalWithdrawnReasonSchema.nullable(),
   decidedAt: z.string().nullable(),
   expiresAt: z.string(),
   createdAt: z.string(),

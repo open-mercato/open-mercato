@@ -192,50 +192,26 @@ const lockCartCommand: CommandHandler<CartLockInput, CartLockResult> = {
       { input: repriceInput, ctx },
     )
 
-    // Fresh fork, fresh reads: the mechanics for "any line still flagged after the forced
-    // re-price" (documented judgment call, Step 7.5) is a plain re-read of every
-    // non-deleted `CartLine` AFTER the reprice dispatch above has committed, rather than
-    // having `cart.reprice` return flag data on `CartRepriceResult` itself — `flag_state` is
-    // already a persisted column this command can read directly, and extending the shared,
-    // widely-reused `CartRepriceResult` shape just for this one caller would ripple into
-    // every other site that already destructures it (`cart.get`, `cart.merge`,
-    // `cart.mergeUndo`, `cart.promotions.apply`/`.remove`).
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const lines = (await findWithDecryption(
-      em,
-      CartLine,
-      { cartId: input.cartId, deletedAt: null, tenantId: scope.tenantId, organizationId: scope.organizationId },
-      {},
-      scope,
-    )) as CartLine[]
-    if (lines.some((line) => line.flagState != null)) {
-      throw new CrudHttpError(409, { error: '[internal] cart_has_unavailable_lines', code: 'cart_has_unavailable_lines' })
-    }
-
     const cart = await loadBasketCart(em, scope, input.cartId)
     if (!cart) throw notFound('[internal] cart not found')
-    // Defense in depth: nothing in this worktree can race this command yet (no real caller
-    // exists — §10), but re-asserting the same two guards the pre-check already ran, against
-    // the POST-reprice fresh read, costs nothing and protects a future concurrent in-process
-    // caller from locking (or double-locking) a cart that changed status while the reprice
-    // dispatch was in flight.
-    assertCartNotLocked(cart)
-    if (cart.status !== 'active') throw notFound('[internal] cart not found')
 
-    // §9a.3 (rev 10 — K2-K5, D-R5-12, D-R5-23, D-R5-29): the approval gate, run AFTER the
-    // visibility pass and BEFORE the lock columns are written, exactly per §9.1's "Order of
-    // checks on a fresh lock." `cart.requiresApproval` is already fresh at this point — the
-    // forced re-price dispatched above (`trigger: 'lock'`) just recomputed it from live
-    // terms as the final phase of `buildRecomputeCartTotalsPhase` (`lib/reprice.ts`), so
-    // this reads it off the cart this function already re-loaded post-reprice rather than
-    // calling `resolveTerms` a second time. `purpose: 'quote'` (D-R5-23) skips the gate
-    // entirely — the re-price and visibility pass above still ran unconditionally.
-    if (input.purpose !== 'quote' && cart.requiresApproval) {
-      // D-R5-12/D-R5-29: a guest cannot request approval (no `CustomerUser`, X7) — fail
-      // closed with the distinct, clearer refusal rather than falling through to the
-      // generic gate refusal. No channel exemption (D-R5-29): this runs identically for
-      // every channel, since `requiresApproval` and `customerUserId` are both plain cart
-      // columns with no channel branch.
+    const assertLockGate = async (): Promise<void> => {
+      await em.refresh(cart)
+      assertCartNotLocked(cart)
+      if (cart.status !== 'active') throw notFound('[internal] cart not found')
+      const lines = (await findWithDecryption(
+        em,
+        CartLine,
+        { cartId: input.cartId, deletedAt: null, tenantId: scope.tenantId, organizationId: scope.organizationId },
+        {},
+        scope,
+      )) as CartLine[]
+      for (const line of lines) await em.refresh(line)
+      if (lines.some((line) => line.flagState != null)) {
+        throw new CrudHttpError(409, { error: '[internal] cart_has_unavailable_lines', code: 'cart_has_unavailable_lines' })
+      }
+      if (input.purpose === 'quote' || !cart.requiresApproval) return
       if (!cart.customerUserId) {
         throw new CrudHttpError(409, {
           error: '[internal] approval_requires_identified_buyer',
@@ -247,8 +223,6 @@ const lockCartCommand: CommandHandler<CartLockInput, CartLockResult> = {
       const approval = cart.approvalId && approvalService
         ? await approvalService.getApproval({ scope, approvalId: cart.approvalId })
         : null
-      // Step 3.2 — shared with `commands/approval.ts`'s own pre-check and `lib/cartView.ts`'s
-      // `CartView.approval.qualifies` field (`lib/approvalGate.ts#approvalQualifies`).
       const qualifies = approvalQualifies({ approval, cartCurrencyCode: cart.currencyCode, goodsGrossAmount })
       if (!qualifies) {
         throw new CrudHttpError(409, {
@@ -283,6 +257,9 @@ const lockCartCommand: CommandHandler<CartLockInput, CartLockResult> = {
       [
         async () => {
           await em.execute('select pg_advisory_xact_lock(hashtextextended(?::text, 0))', [`cart:lines:${cart.id}`])
+        },
+        async () => {
+          await assertLockGate()
         },
         async () => {
           const affected = await em.nativeUpdate(

@@ -115,13 +115,15 @@ describe('CartServiceImpl.lock — request-based routeContext resolution (C2)', 
   })
 })
 
+const basketScope = { tenantId: 'tenant-1', organizationId: 'org-1', storeId: 'store-1' }
+
 describe('CartServiceImpl.resolveBasketByToken (Step 4.5, §5.1/§6.2, D-R5-21)', () => {
   it('returns null for an unknown token — never throws, same collapse as an unknown token elsewhere', async () => {
     mockFindOneWithDecryption.mockResolvedValueOnce(null)
     const { container } = makeContainer()
     const service = new CartServiceImpl(container)
 
-    const result = await service.resolveBasketByToken({ token: 'not-a-real-token' })
+    const result = await service.resolveBasketByToken({ token: 'not-a-real-token', ...basketScope })
 
     expect(result).toBeNull()
     const [, , where] = mockFindOneWithDecryption.mock.calls[0]
@@ -141,7 +143,7 @@ describe('CartServiceImpl.resolveBasketByToken (Step 4.5, §5.1/§6.2, D-R5-21)'
     const { container } = makeContainer()
     const service = new CartServiceImpl(container)
 
-    const result = await service.resolveBasketByToken({ token: 'a-real-token' })
+    const result = await service.resolveBasketByToken({ token: 'a-real-token', ...basketScope })
 
     expect(result).toEqual({
       id: 'cart-1',
@@ -153,8 +155,27 @@ describe('CartServiceImpl.resolveBasketByToken (Step 4.5, §5.1/§6.2, D-R5-21)'
       customerUserId: 'customer-user-1',
     })
     const [, , where] = mockFindOneWithDecryption.mock.calls[0]
-    expect(where).not.toHaveProperty('tenantId')
-    expect(where).not.toHaveProperty('organizationId')
+    expect(where).toMatchObject({ tenantId: 'tenant-1', organizationId: 'org-1', storeId: 'store-1' })
+  })
+
+  it('refuses to resolve when the caller supplies no tenant/organization scope', async () => {
+    const { container } = makeContainer()
+    const service = new CartServiceImpl(container)
+
+    const result = await service.resolveBasketByToken({ token: 'a-real-token', tenantId: '', organizationId: '', storeId: null })
+
+    expect(result).toBeNull()
+    expect(mockFindOneWithDecryption).not.toHaveBeenCalled()
+  })
+
+  it('returns null without querying when the caller scope contradicts the authenticated principal', async () => {
+    const { container } = makeContainer({ auth: { sub: 'rep-1', tenantId: 'tenant-2', orgId: 'org-1' } })
+    const service = new CartServiceImpl(container)
+
+    const result = await service.resolveBasketByToken({ token: 'a-real-token', ...basketScope })
+
+    expect(result).toBeNull()
+    expect(mockFindOneWithDecryption).not.toHaveBeenCalled()
   })
 
   // MEDIUM fix (inherited review finding #4): a cross-module caller with its OWN
@@ -167,7 +188,7 @@ describe('CartServiceImpl.resolveBasketByToken (Step 4.5, §5.1/§6.2, D-R5-21)'
     const { container } = makeContainer({ auth: { sub: 'rep-1', tenantId: 'tenant-1', orgId: 'org-1' } })
     const service = new CartServiceImpl(container)
 
-    const result = await service.resolveBasketByToken({ token: 'cross-tenant-token' })
+    const result = await service.resolveBasketByToken({ token: 'cross-tenant-token', ...basketScope })
 
     expect(result).toBeNull()
     const [, , where] = mockFindOneWithDecryption.mock.calls[0]
@@ -187,7 +208,7 @@ describe('CartServiceImpl.resolveBasketByToken (Step 4.5, §5.1/§6.2, D-R5-21)'
     const { container, commandBus } = makeContainer()
     const service = new CartServiceImpl(container)
 
-    await service.resolveBasketByToken({ token: 'a-real-token' })
+    await service.resolveBasketByToken({ token: 'a-real-token', ...basketScope })
 
     expect(commandBus.execute).not.toHaveBeenCalled()
   })

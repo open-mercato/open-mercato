@@ -724,6 +724,73 @@ describe('customerCreditService', () => {
       expect(tables.get(CustomerCreditLedgerEntry) ?? []).toHaveLength(1)
     })
 
+    test('a settle key already used on a DIFFERENT credit account is an idempotency mismatch, not a replay', async () => {
+      const { em, tables } = createFakeEm()
+      const otherAccount = seedAccount(tables, { id: randomUUID(), customerId: 'customer-other', creditLimit: '500.00' })
+      seedAccount(tables, { creditLimit: '500.00' })
+      tables.set(CustomerCreditLedgerEntry, [
+        {
+          id: randomUUID(),
+          tenantId: TENANT,
+          organizationId: ORG,
+          creditAccountId: otherAccount.id,
+          entryType: 'settle',
+          amount: '-50.00',
+          sourceType: 'payment',
+          sourceId: 'payment-1',
+          idempotencyKey: 'settle-shared-key',
+          relatedEntryId: null,
+          balanceAfter: '0.00',
+          createdAt: new Date(),
+        },
+      ])
+      const service = buildService(em, allowTerms(true))
+
+      await expect(
+        service.settleCredit({
+          scope: SCOPE,
+          buyer: { customerId: CUSTOMER_ID },
+          currencyCode: CURRENCY,
+          amount: '50.00',
+          sourceType: 'payment',
+          sourceId: 'payment-1',
+          idempotencyKey: 'settle-shared-key',
+        }),
+      ).rejects.toMatchObject({ code: 'idempotency_key_mismatch' })
+    })
+
+    test.each(['1e5', '1E+3', '0x10', '', 'NaN', '1,00', '--1'])(
+      'rejects the non-plain amount %p with a typed invalid_amount error instead of a raw SyntaxError',
+      async (amount) => {
+        const { em, tables } = createFakeEm()
+        seedAccount(tables, { creditLimit: '500.00' })
+        const service = buildService(em, allowTerms(true))
+
+        await expect(
+          service.settleCredit({
+            scope: SCOPE,
+            buyer: { customerId: CUSTOMER_ID },
+            currencyCode: CURRENCY,
+            amount,
+            sourceType: 'payment',
+            sourceId: 'payment-1',
+            idempotencyKey: `settle-invalid-${amount}`,
+          }),
+        ).rejects.toMatchObject({ code: 'invalid_amount' })
+      },
+    )
+
+    test('minor-unit conversion is exact BigInt math, not a float multiply (1.005 -> 1.01, 0.285 -> 0.29)', () => {
+      const { toMinorUnits, formatMinorUnits } = jest.requireActual('../customerCreditService') as typeof import('../customerCreditService')
+      expect(toMinorUnits('1.005')).toBe(101)
+      expect(toMinorUnits('0.285')).toBe(29)
+      expect(toMinorUnits('-19.995')).toBe(-2000)
+      expect(toMinorUnits('9007199254740.99')).toBe(900719925474099)
+      expect(formatMinorUnits(-5)).toBe('-0.05')
+      expect(() => toMinorUnits('1e2')).toThrow(CustomerCreditServiceError)
+      expect(() => toMinorUnits('99999999999999999999.99')).toThrow(CustomerCreditServiceError)
+    })
+
     test('throws no_account when nothing matches the scope', async () => {
       const { em } = createFakeEm()
       const service = buildService(em, allowTerms(true))

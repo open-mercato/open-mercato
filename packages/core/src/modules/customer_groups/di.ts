@@ -3,9 +3,10 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
 import type { BaseCurrencyService } from '@open-mercato/core/modules/currencies/services/baseCurrencyService'
+import type { CustomerRbacService } from '@open-mercato/core/modules/customer_accounts/services/customerRbacService'
 import { createCustomerGroupsService } from './services/customerGroupsService'
 import { createCustomerCreditService } from './services/customerCreditService'
-import { createCustomerPurchaseApprovalService } from './services/customerPurchaseApprovalService'
+import { createCustomerPurchaseApprovalService, type CustomerPurchaseApprovalService } from './services/customerPurchaseApprovalService'
 import { CustomerGroup, CustomerGroupMembership } from './data/entities'
 
 type AppCradle = AppContainer['cradle'] & {
@@ -50,8 +51,24 @@ export function register(container: AppContainer) {
     // Release 5 Phase 4 (G26): its own DI key and interface, beside `customerCreditService`
     // — see `services/customerPurchaseApprovalService.ts`.
     customerPurchaseApprovalService: asFunction((cradle: AppCradle) =>
-      createCustomerPurchaseApprovalService(cradle.em, softCradle<ModuleConfigService>(cradle, 'moduleConfigService')),
+      createCustomerPurchaseApprovalService(
+        cradle.em,
+        softCradle<ModuleConfigService>(cradle, 'moduleConfigService'),
+        softCradle<CustomerRbacService>(cradle, 'customerRbacService'),
+      ),
     )
+      .singleton()
+      .proxy(),
+    // Transaction-bound construction seam: a caller that already holds a transactional
+    // EntityManager (e.g. public quote acceptance under a `PESSIMISTIC_WRITE` row lock)
+    // builds the service over THAT em so the approval read never takes a second pooled
+    // connection while the first one waits on its own lock.
+    customerPurchaseApprovalServiceFactory: asFunction((cradle: AppCradle) => {
+      const moduleConfigService = softCradle<ModuleConfigService>(cradle, 'moduleConfigService')
+      const portalRbac = softCradle<CustomerRbacService>(cradle, 'customerRbacService')
+      return (em: EntityManager): CustomerPurchaseApprovalService =>
+        createCustomerPurchaseApprovalService(em, moduleConfigService, portalRbac)
+    })
       .singleton()
       .proxy(),
     CustomerGroup: asValue(CustomerGroup),

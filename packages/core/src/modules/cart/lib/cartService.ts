@@ -93,7 +93,12 @@ export type CartServiceProposalCartLine = {
  * `peekCartCustomerUserId`-shaped precedent in `lib/currentCartRoute.ts` (which the SAME
  * identity check already runs once a scope is known).
  */
-export type CartServiceResolveBasketByTokenInput = { token: string }
+export type CartServiceResolveBasketByTokenInput = {
+  token: string
+  tenantId: string
+  organizationId: string
+  storeId: string | null
+}
 
 export type CartServiceResolvedBasketIdentity = {
   id: string
@@ -462,16 +467,23 @@ export class CartServiceImpl implements CartService {
     // container-resolved `auth` (the same soft-resolve `resolveCartServiceAuth` above
     // already uses) when present; a caller with no authenticated principal at all (a
     // trusted/system context) keeps the previous scope-free behavior.
+    if (!input.tenantId || !input.organizationId) return null
     const auth = resolveCartServiceAuth(this.container)
-    const where: Record<string, unknown> = { tokenHash: hashCartToken(input.token), kind: 'basket' as const }
-    if (auth?.tenantId) where.tenantId = auth.tenantId
-    if (auth?.orgId) where.organizationId = auth.orgId
+    if (auth?.tenantId && auth.tenantId !== input.tenantId) return null
+    if (auth?.orgId && auth.orgId !== input.organizationId) return null
+    const where: Record<string, unknown> = {
+      tokenHash: hashCartToken(input.token),
+      kind: 'basket' as const,
+      tenantId: input.tenantId,
+      organizationId: input.organizationId,
+      storeId: input.storeId ?? null,
+    }
     const cart = (await findOneWithDecryption(
       em,
       Cart,
       where as Parameters<typeof findOneWithDecryption>[2],
       {},
-      auth?.tenantId ? { tenantId: auth.tenantId, organizationId: auth.orgId ?? undefined } : undefined,
+      { tenantId: input.tenantId, organizationId: input.organizationId },
     )) as Cart | null
     if (!cart) return null
     return {

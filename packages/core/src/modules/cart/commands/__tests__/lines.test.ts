@@ -1486,3 +1486,94 @@ describe('cart promotions + totals recompute (Step 8.2, QA F12)', () => {
     expect(seededCarts[0].totals.grandTotalNetAmount).toBe(10)
   })
 })
+
+describe('cart.lines.update / cart.lines.remove advisory lock', () => {
+  beforeEach(resetFixtures)
+
+  function seedCustomerLine(): Row {
+    const line = {
+      id: 'line-1',
+      tenantId: TENANT_ID,
+      organizationId: ORG_ID,
+      cartId: CART_ID,
+      lineNumber: 1,
+      productId: 'product-1',
+      variantId: null,
+      sku: null,
+      name: 'Widget',
+      optionValues: null,
+      quantity: '5',
+      unitPriceNet: '10',
+      unitPriceGross: '12',
+      taxRate: '20',
+      priceKindId: null,
+      priceRowId: 'price-row-1',
+      priceTierMinQuantity: 1,
+      pricedAt: new Date('2026-01-01T00:00:00.000Z'),
+      lineTotals: makeLineTotalsFixture(5),
+      discountTotalNet: null,
+      promotionId: null,
+      origin: 'customer',
+      configuration: null,
+      addedByActorType: 'buyer',
+      addedByActorId: null,
+      metadata: null,
+      createdAt: new Date('2026-01-01T00:00:00.000Z'),
+      updatedAt: new Date('2026-01-01T00:00:00.000Z'),
+      deletedAt: null,
+    }
+    seededCartLines = [line]
+    return line
+  }
+
+  async function runAfterLockRace(commandId: 'cart.lines.update' | 'cart.lines.remove', race: (row: Row) => void) {
+    seedCustomerLine()
+    const handler = getHandler<any, any>(commandId)
+    const em = makeEm()
+    const lockKeys: string[] = []
+    let armed = false
+    em.execute.mockImplementation(async (_sql: string, params: string[]) => {
+      lockKeys.push(params[0])
+      armed = true
+    })
+    em.refresh.mockImplementation(async (row: Row) => {
+      if (armed) race(row)
+    })
+    const input = commandId === 'cart.lines.update'
+      ? { tenantId: TENANT_ID, organizationId: ORG_ID, cartId: CART_ID, lineId: 'line-1', quantity: 5 }
+      : { tenantId: TENANT_ID, organizationId: ORG_ID, cartId: CART_ID, lineId: 'line-1' }
+    let captured: unknown
+    try {
+      await handler.execute(input, makeCtx({ em }))
+    } catch (err) {
+      captured = err
+    }
+    return { captured, lockKeys }
+  }
+
+  it.each(['cart.lines.update', 'cart.lines.remove'] as const)(
+    '%s takes the per-cart advisory lock and refuses once the cart is no longer active inside it',
+    async (commandId) => {
+      const { captured, lockKeys } = await runAfterLockRace(commandId, (row) => {
+        if (row.id === CART_ID) row.status = 'locked'
+      })
+
+      expect(lockKeys).toContain(`cart:lines:${CART_ID}`)
+      expect(isCrudHttpError(captured)).toBe(true)
+      expect((captured as { status: number }).status).toBe(409)
+      expect(seededCartLines[0].deletedAt).toBeNull()
+    },
+  )
+
+  it.each(['cart.lines.update', 'cart.lines.remove'] as const)(
+    '%s refuses with 404 when the line was removed by a concurrent writer before the lock granted',
+    async (commandId) => {
+      const { captured } = await runAfterLockRace(commandId, (row) => {
+        if (row.id === 'line-1') row.deletedAt = new Date()
+      })
+
+      expect(isCrudHttpError(captured)).toBe(true)
+      expect((captured as { status: number }).status).toBe(404)
+    },
+  )
+})

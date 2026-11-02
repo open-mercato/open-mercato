@@ -598,6 +598,23 @@ async function loadMutableCart(
   return cart
 }
 
+function buildCartLineMutationGuardPhases(em: EntityManager, cart: Cart, line: CartLine): Array<() => Promise<void>> {
+  return [
+    async () => {
+      await em.execute('select pg_advisory_xact_lock(hashtextextended(?::text, 0))', [`cart:lines:${cart.id}`])
+    },
+    async () => {
+      await em.refresh(cart)
+      if (cart.status !== 'active') {
+        throw new CrudHttpError(409, { error: '[internal] cart_not_active', code: 'cart_not_active', status: cart.status })
+      }
+      assertCartNotLocked(cart)
+      await em.refresh(line)
+      if (line.deletedAt) throw notFound('[internal] cart line not found')
+    },
+  ]
+}
+
 export type CartLineSnapshot = {
   id: string
   cartId: string
@@ -1329,6 +1346,7 @@ const updateLineCommand: CommandHandler<CartLinesUpdateInput, CartLinesUpdateOut
     const promotionWarnings: CartPromotionWarning[] = []
 
     await withAtomicFlush(em, [
+      ...buildCartLineMutationGuardPhases(em, cart, line),
       async () => {
         line.quantity = String(finalQuantity)
       },
@@ -1409,6 +1427,7 @@ const removeLineCommand: CommandHandler<CartLinesRemoveInput, CartLinesRemoveRes
     const promotionWarnings: CartPromotionWarning[] = []
 
     await withAtomicFlush(em, [
+      ...buildCartLineMutationGuardPhases(em, cart, line),
       async () => {
         line.deletedAt = now
       },

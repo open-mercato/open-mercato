@@ -342,6 +342,65 @@ beforeEach(() => {
 })
 
 describe('cart.lock', () => {
+  async function runLockWithRefreshRace(mutateOnRefresh: (row: FakeRow) => void): Promise<{ captured: unknown; em: any }> {
+    const handler = getHandler<CartLockInput, CartLockResult>('cart.lock')
+    const em = makeEm()
+    let armed = false
+    em.execute.mockImplementation(async () => {
+      armed = true
+    })
+    em.refresh.mockImplementation(async (row: FakeRow) => {
+      if (armed) mutateOnRefresh(row)
+    })
+    const ctx = makeCtx({ em })
+    let captured: unknown
+    try {
+      await handler.execute(
+        { cartId: CART_ID, tenantId: TENANT_ID, organizationId: ORG_ID, checkoutSessionId: 'checkout-session-1' },
+        ctx,
+      )
+    } catch (err) {
+      captured = err
+    }
+    return { captured, em }
+  }
+
+  it('re-reads the cart inside the advisory lock and refuses when it was locked by a concurrent writer', async () => {
+    const { captured, em } = await runLockWithRefreshRace((row) => {
+      if (row.id !== CART_ID) return
+      row.status = 'locked'
+      row.lockedAt = new Date()
+      row.lockExpiresAt = new Date(Date.now() + 60_000)
+      row.checkoutSessionId = 'other-session'
+    })
+
+    expect(isCrudHttpError(captured)).toBe(true)
+    expect((captured as { status: number }).status).toBe(423)
+    expect(em.nativeUpdate).not.toHaveBeenCalled()
+  })
+
+  it('re-reads approval inputs inside the advisory lock and refuses when the gate now requires approval', async () => {
+    const { captured, em } = await runLockWithRefreshRace((row) => {
+      if (row.id !== CART_ID) return
+      row.requiresApproval = true
+      row.customerUserId = 'customer-user-1'
+    })
+
+    expect(isCrudHttpError(captured)).toBe(true)
+    expect((captured as { body?: Record<string, unknown> }).body).toMatchObject({ code: 'cart_requires_approval' })
+    expect(em.nativeUpdate).not.toHaveBeenCalled()
+  })
+
+  it('re-reads the lines inside the advisory lock and refuses when one became flagged', async () => {
+    seededCartLines = [makeLineFixture()]
+    const { captured, em } = await runLockWithRefreshRace((row) => {
+      if (row.id === 'line-1') row.flagState = 'unavailable'
+    })
+
+    expect((captured as { body?: Record<string, unknown> }).body).toMatchObject({ code: 'cart_has_unavailable_lines' })
+    expect(em.nativeUpdate).not.toHaveBeenCalled()
+  })
+
   it('succeeds on a clean cart: sets status/lockedAt/lockExpiresAt/checkoutSessionId, and dispatches cart.reprice with trigger "lock"', async () => {
     const handler = getHandler<CartLockInput, CartLockResult>('cart.lock')
     const em = makeEm()

@@ -129,7 +129,15 @@ export async function POST(req: Request, context: RouteContext) {
     // `ecommerce` absent, or no store context service registered, is the documented
     // fallback: the reprice still runs, just without an identity/visibility refresh.
     const storeContextService = tryResolveStoreContextService(container)
-    const buyerRefresh = storeContextService
+    if (cart.channel === 'storefront' && storeContextService && !storeContextService.resolveForBuyer) {
+      throw new CrudHttpError(503, {
+        error: translate(
+          'cart.admin.errors.buyerResolutionUnavailable',
+          'Buyer identity resolution is unavailable, so this storefront cart cannot be re-priced right now.',
+        ),
+      })
+    }
+    const buyerRefresh = storeContextService?.resolveForBuyer
       ? await storeContextService.resolveForBuyer({
           tenantId: cart.tenantId,
           organizationId: cart.organizationId,

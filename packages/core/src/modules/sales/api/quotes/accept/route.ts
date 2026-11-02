@@ -22,28 +22,10 @@ import { resolveEffectiveTenantId } from '../../../lib/publicQuoteTenantScope'
 import { QuoteAcceptedAdminEmail } from '../../../emails/QuoteAcceptedAdminEmail'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
-import type { CustomerPurchaseApprovalService } from '@open-mercato/core/modules/customer_groups/services/customerPurchaseApprovalService'
+import { evaluateQuoteApprovalGate, extractPendingApprovalClaim } from '../../../lib/quoteApprovalRequirement'
+import { createQuoteApprovalLookup } from '../../../lib/quoteApprovalLookup'
 
 const logger = createLogger('sales')
-
-/**
- * `customer_groups` is an optional peer of `sales` — resolved defensively, same soft-DI
- * shape `cart/lib/adminCartScope.ts#tryResolveCustomerPurchaseApprovalService` already uses
- * for the same service. A quote whose `metadata.pendingApproval.required` is `true` (set by
- * checkout's `cart.lock`-time snapshot, D-R5-23) fails closed when the service cannot be
- * resolved — unlike the gate's own "degrade to false" default for computing whether
- * approval is required in the first place, a quote already flagged as requiring approval
- * must never silently convert just because the proof is unavailable.
- */
-function tryResolveCustomerPurchaseApprovalService(container: {
-  resolve: <T = unknown>(name: string) => T
-}): CustomerPurchaseApprovalService | null {
-  try {
-    return container.resolve<CustomerPurchaseApprovalService>('customerPurchaseApprovalService') ?? null
-  } catch {
-    return null
-  }
-}
 
 type ConvertToOrderResult = {
   result?: { orderId?: string } | null
@@ -136,32 +118,26 @@ export async function POST(req: Request) {
       }
 
       // D-R5-23: checkout's `cart.lock` skips the over-threshold approval gate (K2) for
-      // `purpose: 'quote'` carts and snapshots its own verdict onto `quote.metadata
-      // .pendingApproval` at quote-creation time (`checkout/commands/submit.ts`). Re-running
-      // that gate HERE — before the quote is allowed to convert to an order — is the
-      // "approval returns at quote acceptance" half of D-R5-23: without it, a buyer holding
-      // nothing but the emailed acceptance token could self-accept an over-threshold quote
-      // into a finalized order with no approval check at any point.
-      const pendingApproval = (quote.metadata as { pendingApproval?: { required?: boolean; approvalId?: string | null } } | null)
-        ?.pendingApproval
-      if (pendingApproval?.required) {
-        const approvalService = tryResolveCustomerPurchaseApprovalService(container)
-        const approval = pendingApproval.approvalId && approvalService
-          ? await approvalService.getApproval({
-              scope: { tenantId: quote.tenantId, organizationId: quote.organizationId },
-              approvalId: pendingApproval.approvalId,
-            })
-          : null
-        const qualifies = !!approval
-          && approval.status === 'approved'
-          && approval.currencyCode === quote.currencyCode
-          && Number(approval.amountGross) >= Number(quote.grandTotalGrossAmount)
-        if (!qualifies) {
-          throw new CrudHttpError(409, {
-            error: translate('sales.quotes.accept.requiresApproval', 'This quote requires approval before it can be accepted.'),
-            code: 'quote_requires_approval',
-          })
-        }
+      // `purpose: 'quote'` carts. The verdict is persisted server-side by the trusted
+      // creator in the protected `approvalRequirement` column (never in `metadata`, which any
+      // `sales.quotes.manage` actor can rewrite) together with the approval's subject and
+      // customer provenance. Acceptance re-verifies that proof against the approval row read
+      // through THIS transaction's EntityManager, and fails closed when it cannot.
+      const legacyMetadataRequiresApproval = extractPendingApprovalClaim(quote.metadata)?.required === true
+      const gate = await evaluateQuoteApprovalGate({
+        rawRequirement: quote.approvalRequirement ?? (legacyMetadataRequiresApproval ? { legacyUnboundRequirement: true } : null),
+        quote,
+        lookupApproval: createQuoteApprovalLookup(
+          container,
+          { tenantId: quote.tenantId, organizationId: quote.organizationId },
+          trx as EntityManager,
+        ),
+      })
+      if (gate === 'unsatisfied') {
+        throw new CrudHttpError(409, {
+          error: translate('sales.quotes.accept.requiresApproval', 'This quote requires approval before it can be accepted.'),
+          code: 'quote_requires_approval',
+        })
       }
 
       quote.status = 'confirmed'

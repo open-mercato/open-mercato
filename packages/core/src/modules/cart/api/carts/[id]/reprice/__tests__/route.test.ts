@@ -44,6 +44,8 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: (...args: unknown[]) => mockFindOneWithDecryption(...(args as [unknown, unknown, Record<string, unknown>])),
 }))
 
+let mockStoreContextService: Record<string, unknown> | null = null
+
 const mockCommandBusExecute = jest.fn(async () => ({ result: { cart: {}, priceChanges: [], warnings: undefined } }))
 const fakeEm: FakeCartRow = {}
 fakeEm.fork = jest.fn(() => fakeEm)
@@ -51,6 +53,7 @@ const container = {
   resolve: jest.fn((name: string) => {
     if (name === 'em') return fakeEm
     if (name === 'commandBus') return { execute: mockCommandBusExecute }
+    if (name === 'storeContextService' && mockStoreContextService) return mockStoreContextService
     // `storeContextService` stays an unregistered (`ecommerce` disabled) soft peer by
     // default — the route's own `tryResolveStoreContextService` catches this.
     throw new Error(`service not registered: ${name}`)
@@ -117,6 +120,7 @@ describe('admin cart reprice route', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     seededCart = makeCartRow()
+    mockStoreContextService = null
     mockAuth = { sub: 'staff-1', tenantId: TENANT_ID, orgId: ORG_ID }
     mockOrgScope = { selectedId: ORG_ID, filterIds: [ORG_ID], allowedIds: [ORG_ID] }
     mockRunRouteMutationGuards.mockImplementation(async () => ({ ok: true, runAfterSuccess: jest.fn(async () => undefined) }))
@@ -124,6 +128,25 @@ describe('admin cart reprice route', () => {
 
   it('declares cart.carts.manage on the ACL gate (§10.2)', () => {
     expect(metadata.POST.requireFeatures).toContain('cart.carts.manage')
+  })
+
+  it('fails closed with 503 when a storefront cart is repriced against a StoreContextService without resolveForBuyer', async () => {
+    seededCart = makeCartRow({ channel: 'storefront', storeId: '55555555-5555-4555-8555-555555555555' })
+    mockStoreContextService = { resolve: jest.fn() }
+
+    const response = await callPost(CART_ID, expectedHeader)
+
+    expect(response.status).toBe(503)
+    expect(mockCommandBusExecute).not.toHaveBeenCalled()
+  })
+
+  it('still reprices a non-storefront cart when the registered StoreContextService has no resolveForBuyer', async () => {
+    mockStoreContextService = { resolve: jest.fn() }
+
+    const response = await callPost(CART_ID, expectedHeader)
+
+    expect(response.status).toBe(200)
+    expect(mockCommandBusExecute).toHaveBeenCalledTimes(1)
   })
 
   it('answers 400 when the optimistic-lock header is missing (required, not fail-open)', async () => {

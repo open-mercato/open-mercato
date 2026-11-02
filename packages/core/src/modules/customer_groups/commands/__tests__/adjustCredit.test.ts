@@ -167,7 +167,24 @@ describe('customer_groups.credit.adjust command', () => {
       )
 
       const callInput = adjustCreditMock.mock.calls[0][0] as AdjustCreditInput
-      expect(callInput.idempotencyKey).toBe('client-retry-key-1')
+      expect(callInput.idempotencyKey).toBe('adjust:client:client-retry-key-1')
+    })
+
+    it('namespaces a caller-supplied key so it can never collide with the undo:* keyspace', async () => {
+      const account = makeAccount()
+      const em = makeEm(account)
+      const entry = makeEntryView({ amount: '40.00', balanceAfter: '40.00' })
+      const adjustCreditMock = jest.fn(async () => ({ entry }) satisfies AdjustCreditResult)
+      const ctx = makeCtx({ em, creditService: makeCreditService(adjustCreditMock), organizationIds: [ORG_ID] })
+
+      await adjustCreditCommand.execute(
+        { creditAccountId: ACCOUNT_ID, amount: '40.00', note: 'Manual correction', idempotencyKey: 'undo:entry-42' },
+        ctx as never,
+      )
+
+      const callInput = adjustCreditMock.mock.calls[0][0] as AdjustCreditInput
+      expect(callInput.idempotencyKey.startsWith('undo:')).toBe(false)
+      expect(callInput.idempotencyKey).toBe('adjust:client:undo:entry-42')
     })
 
     it('refuses zero as a validation error before ever reaching the service', async () => {

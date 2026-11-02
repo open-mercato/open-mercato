@@ -232,16 +232,46 @@ export interface CustomerCreditService {
 const MONEY_FRACTION_DIGITS = 2
 const MONEY_MINOR_UNIT_FACTOR = 10 ** MONEY_FRACTION_DIGITS
 
+const DECIMAL_STRING_PATTERN = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/
+
+function parseDecimalToMinorUnitsBigInt(value: string): bigint {
+  const trimmed = typeof value === 'string' ? value.trim() : ''
+  if (!DECIMAL_STRING_PATTERN.test(trimmed)) {
+    throw new CustomerCreditServiceError('invalid_amount', '[internal] amount must be a plain decimal string')
+  }
+  const negative = trimmed.startsWith('-')
+  const unsigned = trimmed.replace(/^[+-]/, '')
+  const [integerPart, fractionPart = ''] = unsigned.split('.')
+  const keptFraction = fractionPart.slice(0, MONEY_FRACTION_DIGITS).padEnd(MONEY_FRACTION_DIGITS, '0')
+  const roundingDigit = fractionPart.charAt(MONEY_FRACTION_DIGITS)
+  let minorUnits = BigInt(integerPart || '0') * BigInt(MONEY_MINOR_UNIT_FACTOR) + BigInt(keptFraction)
+  if (roundingDigit !== '' && roundingDigit >= '5') minorUnits += 1n
+  return negative ? -minorUnits : minorUnits
+}
+
+function formatMinorUnitsBigInt(minorUnits: bigint): string {
+  const negative = minorUnits < 0n
+  const magnitude = negative ? -minorUnits : minorUnits
+  const factor = BigInt(MONEY_MINOR_UNIT_FACTOR)
+  const formatted = `${(magnitude / factor).toString()}.${(magnitude % factor).toString().padStart(MONEY_FRACTION_DIGITS, '0')}`
+  return negative && magnitude !== 0n ? `-${formatted}` : formatted
+}
+
 // Exported for `workers/credit-exposure-audit.ts` (G21), which recomputes the same
 // `SUM(amount)` this service computes under the lock (`sumExposure` below) and must use
 // the identical minor-unit rounding to compare against `balance_after` without reporting
 // its own rounding as drift (G14).
 export function toMinorUnits(value: string): number {
-  return Math.round(Number(value) * MONEY_MINOR_UNIT_FACTOR)
+  const minorUnits = parseDecimalToMinorUnitsBigInt(value)
+  const asNumber = Number(minorUnits)
+  if (!Number.isSafeInteger(asNumber)) {
+    throw new CustomerCreditServiceError('invalid_amount', '[internal] amount exceeds the supported magnitude')
+  }
+  return asNumber
 }
 
 export function formatMinorUnits(value: number): string {
-  return (value / MONEY_MINOR_UNIT_FACTOR).toFixed(MONEY_FRACTION_DIGITS)
+  return formatMinorUnitsBigInt(BigInt(Math.round(value)))
 }
 
 function addDecimalStrings(a: string, b: string): string {
@@ -267,21 +297,7 @@ function exceedsLimit(total: string, limit: string): boolean {
 // direction, matching standard round-half-up (any value whose third decimal digit is
 // `5`-`9` carries a remainder of at least half a cent, regardless of further digits).
 function roundHalfUpToTwoDp(value: string): string {
-  const trimmed = value.trim()
-  const negative = trimmed.startsWith('-')
-  const unsigned = negative ? trimmed.slice(1) : trimmed
-  const [integerPart, fractionPart = ''] = unsigned.split('.')
-  const keptFraction = fractionPart.slice(0, MONEY_FRACTION_DIGITS).padEnd(MONEY_FRACTION_DIGITS, '0')
-  const roundingDigit = fractionPart.charAt(MONEY_FRACTION_DIGITS)
-
-  const factor = BigInt(MONEY_MINOR_UNIT_FACTOR)
-  let minorUnits = BigInt(integerPart || '0') * factor + BigInt(keptFraction)
-  if (roundingDigit !== '' && roundingDigit >= '5') minorUnits += 1n
-
-  const whole = minorUnits / factor
-  const fraction = minorUnits % factor
-  const formatted = `${whole.toString()}.${fraction.toString().padStart(MONEY_FRACTION_DIGITS, '0')}`
-  return negative && minorUnits !== 0n ? `-${formatted}` : formatted
+  return formatMinorUnitsBigInt(parseDecimalToMinorUnitsBigInt(value))
 }
 
 // §10.1 `CreditLimitExceededPayload`. No PII (ids and amounts only), consistent with
@@ -819,6 +835,7 @@ export class DefaultCustomerCreditService implements CustomerCreditService {
           })
           if (existing) {
             if (
+              existing.creditAccountId !== account.id ||
               existing.entryType !== 'settle' ||
               toMinorUnits(existing.amount) !== toMinorUnits(signedAmount) ||
               existing.sourceType !== input.sourceType ||

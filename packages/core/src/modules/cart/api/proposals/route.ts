@@ -165,7 +165,7 @@ export async function POST(request: Request) {
     let routeContext: CartProposalRouteContext | undefined
     if (target?.channel === 'storefront' && target.storeId) {
       const storeContextService = tryResolveStoreContextService(container)
-      const buyerRefresh = storeContextService
+      const buyerRefresh = storeContextService?.resolveForBuyer
         ? await storeContextService.resolveForBuyer({
             tenantId: target.tenantId,
             organizationId: target.organizationId,

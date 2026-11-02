@@ -32,10 +32,29 @@ Two public surfaces widen as part of B2B checkout and cart proposals:
   non-null-or-undefined will need an explicit `null` check; this is additive at
   the schema level (every existing non-null payload still validates).
 - **`StoreContextService`** (`packages/core/src/modules/ecommerce/lib/storeContextService.ts`)
-  adds a required `resolveForBuyer(input): Promise<ResolveForBuyerResult>` method
-  to the DI-replaceable service interface. **Module authors providing a custom
-  `StoreContextService` override** must implement `resolveForBuyer` or their
-  override will fail to satisfy the interface at compile time.
+  adds an optional `resolveForBuyer?(input): Promise<ResolveForBuyerResult>` method
+  to the DI-replaceable service interface. Existing `StoreContextService`
+  overrides keep compiling unchanged. **Module authors providing a custom
+  override** should implement `resolveForBuyer` to support trusted buyer
+  resolution (cart reprice, proposals, pay-link seeding); when it is absent,
+  callers treat the identity refresh as unavailable and fail closed (the
+  storefront assortment scope is not resolved and the operation is refused or
+  runs without a buyer-scoped refresh, as each caller documents). **Callers**
+  must check `service.resolveForBuyer` before invoking it.
+
+
+Checkout hardening in the same release:
+
+- **Gateway return URLs** (`POST /api/checkout/sessions/current/submit`): `successUrl` and
+  `cancelUrl` now accept only relative paths (no absolute, protocol-relative or
+  backslash forms). They are resolved against the server-pinned origin
+  (`CHECKOUT_ALLOWED_ORIGINS`, else `APP_URL` / `NEXT_PUBLIC_APP_URL`). **Storefronts**
+  that sent absolute URLs must send a path instead.
+- **Pay-link slots** are reserved when the buyer submits, not when the session is
+  created; abandoned anonymous sessions no longer hold a `maxCompletions` slot.
+- **Quote approval** is recorded server-side in `sales_quotes.approval_requirement`;
+  `metadata.pendingApproval` is no longer trusted at acceptance. Legacy quotes flagged
+  only in metadata are rejected with `quote_requires_approval`.
 
 ## Production Content Security Policy (#7264)
 

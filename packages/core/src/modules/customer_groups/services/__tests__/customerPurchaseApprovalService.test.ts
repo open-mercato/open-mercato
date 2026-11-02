@@ -223,7 +223,12 @@ describe('customerPurchaseApprovalService', () => {
       expect(rows).toHaveLength(1)
       expect(emitCustomerGroupsEventMock).toHaveBeenCalledWith(
         'customer_groups.approval.requested',
-        expect.objectContaining({ approvalId: result.approval.id, tenantId: TENANT, organizationId: ORG }),
+        expect.objectContaining({
+          approvalId: result.approval.id,
+          tenantId: TENANT,
+          organizationId: ORG,
+          recipientUserIds: expect.arrayContaining([expect.any(String)]),
+        }),
         expect.anything(),
       )
     })
