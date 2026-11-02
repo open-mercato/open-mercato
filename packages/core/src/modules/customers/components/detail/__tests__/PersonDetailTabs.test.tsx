@@ -109,6 +109,34 @@ describe('PersonDetailTabs', () => {
     expect(screen.getByRole('tab', { name: 'Pending work' }).querySelector('svg.lucide-list-checks')).not.toBeNull()
   })
 
+  it('folds a tab that appears after the first measurement instead of staying on the measuring render', () => {
+    const widthSpy = jest.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ width: 100 } as DOMRect)
+    const clientWidth = Object.getOwnPropertyDescriptor(Element.prototype, 'clientWidth')
+    Object.defineProperty(Element.prototype, 'clientWidth', { configurable: true, get: () => 450 })
+    try {
+      const { rerender } = render(
+        <PersonDetailTabs activeTab="activities" onTabChange={() => {}}>
+          <div>content</div>
+        </PersonDetailTabs>,
+      )
+      const inlineBefore = screen.getAllByRole('tab').length
+      expect(inlineBefore).toBeLessThan(8)
+
+      rerender(
+        <PersonDetailTabs activeTab="activities" onTabChange={() => {}} injectedTabs={[{ id: 'late', label: 'Late tab', priority: -10 }]}>
+          <div>content</div>
+        </PersonDetailTabs>,
+      )
+
+      expect(screen.getAllByRole('tab')).toHaveLength(inlineBefore)
+      fireEvent.click(screen.getByRole('button', { name: /^More/ }))
+      expect(screen.getByRole('menuitem', { name: 'Late tab' })).toBeInTheDocument()
+    } finally {
+      widthSpy.mockRestore()
+      if (clientWidth) Object.defineProperty(Element.prototype, 'clientWidth', clientWidth)
+    }
+  })
+
   it('hides built-in and injected tabs listed in hiddenTabIds (#4379)', () => {
     render(
       <PersonDetailTabs
