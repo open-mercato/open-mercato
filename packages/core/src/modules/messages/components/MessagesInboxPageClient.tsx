@@ -360,7 +360,7 @@ export function MessagesInboxPageClient() {
   const totalPages = listQuery.data?.totalPages ?? 0
 
   return (
-    <div className="space-y-4">
+    <div className="min-w-0 max-w-full space-y-4 [&_.isolate]:overflow-x-auto">
       <DataTable
         title={t('messages.title', 'Messages')}
         titleHeadingLevel={1}

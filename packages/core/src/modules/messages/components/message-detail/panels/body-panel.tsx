@@ -14,14 +14,14 @@ type BodyPanelProps = {
 export function MessageDetailBodySection(props: BodyPanelProps) {
   if (props.ContentComponent) {
     return (
-      <div className="rounded border bg-muted/30 p-3">
+      <div className="min-w-0 max-w-full overflow-x-auto rounded border bg-muted/30 p-3 break-words">
         <props.ContentComponent {...props.contentProps} />
       </div>
     )
   }
 
   return (
-    <div className="rounded border bg-muted/30 p-3 text-sm whitespace-pre-wrap">
+    <div className="min-w-0 max-w-full overflow-x-auto rounded border bg-muted/30 p-3 text-sm whitespace-pre-wrap break-words">
       <MarkdownContent
         body={props.detail.body}
         format={props.detail.bodyFormat}
