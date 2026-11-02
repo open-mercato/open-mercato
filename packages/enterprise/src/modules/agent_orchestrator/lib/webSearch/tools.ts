@@ -226,7 +226,8 @@ export const webFetchTool: AiToolDefinition = {
       })
 
       if (outcome.status !== 'ok') {
-        return { ok: false as const, code: outcome.status, error: outcome.reason ?? outcome.status }
+        const code = outcome.status === 'blocked' ? outcome.code ?? outcome.status : outcome.status
+        return { ok: false as const, code, error: outcome.reason ?? outcome.status }
       }
       // The engine follows redirects, so the host that actually answered may not
       // be the one the guardrail cleared above.
