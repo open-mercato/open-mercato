@@ -17,6 +17,10 @@ export class SsoAuthService extends AuthService {
     super(ssoEm)
   }
 
+  override async isUserSessionEligible(scope: { userId: string; tenantId: string | null; organizationId: string | null; apiKeyId?: string }): Promise<boolean> {
+    return await super.isUserSessionEligible(scope) && !await isSsoUserDeactivated(this.ssoEm, scope)
+  }
+
   override async verifyPassword(user: User | null, password: string): Promise<boolean> {
     const verified = await super.verifyPassword(user, password)
     if (!verified || !user) return false

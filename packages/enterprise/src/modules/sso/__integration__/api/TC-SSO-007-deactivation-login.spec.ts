@@ -4,6 +4,7 @@ import {
   createOrganizationFixture, createUserFixture, deleteOrganizationIfExists, deleteUserIfExists,
 } from '@open-mercato/core/helpers/integration/authFixtures'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
+import { createApiKeyFixture } from '@open-mercato/core/helpers/integration/apiKeysFixtures'
 import { getTokenContext, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures'
 import { createSsoConfigFixture, createScimTokenFixture, scimRequest } from '../helpers/ssoFixtures'
@@ -24,6 +25,7 @@ test.describe('TC-SSO-007: SCIM deactivation blocks sign-in', () => {
         let otherOrganizationId: string | null = null
         let otherUserId: string | null = null
         let identityId: string | null = null
+        let delegatedKeyId: string | null = null
         let rawScimToken: string | null = null
         let cleanupConfig: (() => Promise<void>) | undefined
         let cleanupScimToken: (() => Promise<void>) | undefined
@@ -64,6 +66,19 @@ test.describe('TC-SSO-007: SCIM deactivation blocks sign-in', () => {
           const firstBody = await readJsonSafe<{ token: string; refreshToken: string }>(firstLogin)
           expect(firstBody?.token).toBeTruthy()
           expect(firstBody?.refreshToken).toBeTruthy()
+          const delegatedKey = await createApiKeyFixture(request, adminToken, `SCIM delegated ${stamp}`)
+          delegatedKeyId = delegatedKey.id
+          await withClient(async (client) => {
+            await client.query(
+              'update api_keys set session_user_id = $1, organization_id = $2, tenant_id = $3 where id = $4',
+              [userId, organizationId, tenantId, delegatedKey.id],
+            )
+          })
+          const delegatedFeatureCheck = () => request.post('/api/auth/feature-check', {
+            headers: { 'x-api-key': delegatedKey.secret, Cookie: '', Authorization: '' }, data: { features: [] },
+          })
+          expect((await delegatedFeatureCheck()).status()).toBe(200)
+
           const oldToken = firstBody!.token
           const oldRefreshToken = firstBody!.refreshToken
           expect((await apiRequest(request, 'GET', '/api/auth/profile', { token: oldToken })).status()).toBe(200)
@@ -114,6 +129,16 @@ test.describe('TC-SSO-007: SCIM deactivation blocks sign-in', () => {
           expect(apiRefresh.status()).toBe(401)
           expect((await readJsonSafe<Record<string, unknown>>(apiRefresh))?.accessToken).toBeUndefined()
 
+          expect((await delegatedFeatureCheck()).status()).toBe(401)
+          await withClient(async (client) => {
+            const keys = await client.query<{ deleted_at: Date | null }>(
+              'select deleted_at from api_keys where id = $1 and session_user_id = $2 and organization_id = $3 and tenant_id = $4',
+              [delegatedKey.id, userId, organizationId, tenantId],
+            )
+            expect(keys.rows).toHaveLength(1)
+            expect(keys.rows[0]?.deleted_at).not.toBeNull()
+          })
+
           const deniedLogin = await signIn()
           expect(deniedLogin.status()).toBe(401)
           expect((await readJsonSafe<Record<string, unknown>>(deniedLogin))?.token).toBeUndefined()
@@ -127,9 +152,15 @@ test.describe('TC-SSO-007: SCIM deactivation blocks sign-in', () => {
           expect(restoredLogin.status()).toBe(200)
           expect((await readJsonSafe<{ token: string }>(restoredLogin))?.token).toBeTruthy()
           expect((await apiRequest(request, 'GET', '/api/auth/profile', { token: oldToken })).status()).toBe(401)
+          expect((await delegatedFeatureCheck()).status()).toBe(401)
         } finally {
           if (identityId && rawScimToken) {
             await scimRequest(request, 'DELETE', `/api/sso/scim/v2/Users/${identityId}`, rawScimToken).catch(() => undefined)
+          }
+          if (delegatedKeyId) {
+            await withClient(async (client) => {
+              await client.query('delete from api_keys where id = $1 and tenant_id = $2', [delegatedKeyId, tenantId])
+            })
           }
           await cleanupScimToken?.()
           await cleanupConfig?.()

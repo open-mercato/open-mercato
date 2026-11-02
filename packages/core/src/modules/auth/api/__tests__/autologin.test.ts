@@ -6,6 +6,11 @@ import { AuthSessionRejectedError } from '@open-mercato/core/modules/auth/lib/se
 
 const tenantId = randomUUID()
 const orgId = randomUUID()
+const mockTenantLookup = jest.fn(async () => ({ id: tenantId }))
+
+jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
+  findOneWithDecryption: (...args: unknown[]) => mockTenantLookup(...args as []),
+}))
 
 const authServiceMock = {
   findUsersByEmail: jest.fn(async (email: string) => ([{ id: 1, email, passwordHash: 'hash', tenantId, organizationId: orgId }])),
@@ -58,6 +63,7 @@ function setAutoLoginEnv(env: Record<string, string | undefined>) {
 describe('GET /api/auth/autologin', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    mockTenantLookup.mockResolvedValue({ id: tenantId })
     getAuthFromRequestMock.mockResolvedValue(null)
     setAutoLoginEnv({})
   })
@@ -66,8 +72,6 @@ describe('GET /api/auth/autologin', () => {
     process.env = { ...ORIGINAL_ENV }
   })
 
-<<<<<<< HEAD
-=======
   test('falls back to login without credentials when session eligibility is revoked after verification', async () => {
     setAutoLoginEnv({ OM_AUTOLOGIN_EMAIL: 'superadmin@acme.com', OM_AUTOLOGIN_PASSWORD: 'secret' })
     authServiceMock.createSession.mockRejectedValueOnce(new AuthSessionRejectedError())
@@ -89,7 +93,6 @@ describe('GET /api/auth/autologin', () => {
     expect(authServiceMock.createSession).not.toHaveBeenCalled()
   })
 
->>>>>>> f0365b403 (fix(sso): block fresh sign-in after SCIM deactivation (#8088))
   test('is a no-op that redirects to /login when the env credentials are unset', async () => {
     const res = await GET(autologinRequest())
     expect(res.status).toBe(307)

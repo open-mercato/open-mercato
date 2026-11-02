@@ -39,6 +39,18 @@ describe('SSO-scoped password verification', () => {
     )
   })
 
+  it('applies scoped deactivation eligibility to delegated credentials', async () => {
+    jest.mocked(findOneWithDecryption).mockResolvedValue({ id: 'deactivation-1' } as SsoUserDeactivation)
+    const service = new SsoAuthService(em)
+
+    await expect(service.isUserSessionEligible({ userId: user.id, tenantId: user.tenantId ?? null, organizationId: user.organizationId ?? null })).resolves.toBe(false)
+    expect(findOneWithDecryption).toHaveBeenCalledWith(
+      em, SsoUserDeactivation,
+      { userId: 'user-1', tenantId: 'tenant-1', organizationId: 'org-1', reactivatedAt: null },
+      {}, { tenantId: 'tenant-1', organizationId: 'org-1' },
+    )
+  })
+
   it('allows a correct password when no outstanding deactivation matches the account scope', async () => {
     await expect(new SsoAuthService(em).verifyPassword(user, 'password')).resolves.toBe(true)
   })

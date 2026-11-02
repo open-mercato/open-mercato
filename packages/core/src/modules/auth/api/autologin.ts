@@ -8,11 +8,8 @@ import { buildSafeRedirectResponse, resolveTrustedRedirectBase } from '@open-mer
 import { sanitizeRedirectPath } from '@open-mercato/core/modules/auth/lib/safeRedirect'
 import { resolveAutoLoginCredentials } from '@open-mercato/core/modules/auth/lib/autologin'
 import { emitAuthEvent } from '@open-mercato/core/modules/auth/events'
-<<<<<<< HEAD
-=======
 import { isAuthSessionRejectedError } from '@open-mercato/core/modules/auth/lib/sessionEligibility'
 import { isStaffTenantActive } from '@open-mercato/core/modules/auth/lib/tenantEligibility'
->>>>>>> f0365b403 (fix(sso): block fresh sign-in after SCIM deactivation (#8088))
 
 export const metadata = { requireAuth: false }
 
@@ -52,7 +49,8 @@ export async function GET(req: Request) {
   }
 
   const ok = await auth.verifyPassword(user, credentials.password)
-  if (!user || !ok) {
+  const tenantActive = user ? await isStaffTenantActive(container.resolve('em'), user.tenantId) : false
+  if (!user || !ok || !tenantActive) {
     // Misconfigured demo credentials — never loop; drop to the manual form.
     logger.warn('OM_AUTOLOGIN credentials did not resolve to a single valid user; falling back to login')
     return buildSafeRedirectResponse(req, '/login')

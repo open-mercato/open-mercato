@@ -6,6 +6,11 @@ import { AuthSessionRejectedError } from '@open-mercato/core/modules/auth/lib/se
 
 const tenantId = randomUUID()
 const orgId = randomUUID()
+const mockTenantLookup = jest.fn(async () => ({ id: tenantId }))
+
+jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
+  findOneWithDecryption: (...args: unknown[]) => mockTenantLookup(...args as []),
+}))
 
 const authServiceMock = {
   findUsersByEmail: jest.fn(async (email: string) => ([{ id: 1, email, passwordHash: 'hash', tenantId, organizationId: orgId }])),
@@ -56,6 +61,7 @@ describe('POST /api/auth/login with custom route interceptors', () => {
   beforeEach(() => {
     registerApiInterceptors([])
     jest.clearAllMocks()
+    mockTenantLookup.mockResolvedValue({ id: tenantId })
   })
 
   test('returns the existing generic 401 when session eligibility changes after password verification', async () => {
