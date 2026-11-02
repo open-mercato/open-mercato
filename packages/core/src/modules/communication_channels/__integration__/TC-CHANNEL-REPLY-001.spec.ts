@@ -1,6 +1,7 @@
 import path from 'node:path'
 import { config as loadEnv } from 'dotenv'
 import { expect, test, type APIRequestContext } from '@playwright/test'
+import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 import { drainIntegrationQueue } from '@open-mercato/core/helpers/integration/queue'
@@ -59,8 +60,8 @@ function readTokenUserId(token: string): string {
 
 /**
  * The outbound path is asynchronous: `messages.message.sent` reaches the bridge
- * through the events queue, which enqueues the delivery job. Drain both, then
- * re-read the channel's health totals until the outbound record shows up.
+ * through the events queue, which enqueues the delivery job. Reuse enabled
+ * harness workers or drain both queues, then re-read the channel's health totals.
  */
 async function drainUntilOutbound(
   request: APIRequestContext,
@@ -68,11 +69,14 @@ async function drainUntilOutbound(
   channelId: string,
   expectedTotal: number,
 ): Promise<number> {
+  const shouldDrainQueues = parseBooleanToken(process.env.AUTO_SPAWN_WORKERS) !== true
   const deadline = Date.now() + 30_000
   let lastTotal = 0
   while (Date.now() < deadline) {
-    await drainIntegrationQueue(EVENTS_QUEUE, { appRoot: APP_ROOT })
-    await drainIntegrationQueue(OUTBOUND_QUEUE, { appRoot: APP_ROOT })
+    if (shouldDrainQueues) {
+      await drainIntegrationQueue(EVENTS_QUEUE, { appRoot: APP_ROOT })
+      await drainIntegrationQueue(OUTBOUND_QUEUE, { appRoot: APP_ROOT })
+    }
     const healthResponse = await apiRequest(
       request,
       'GET',

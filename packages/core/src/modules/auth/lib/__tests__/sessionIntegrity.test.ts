@@ -1,6 +1,7 @@
 import { RoleAcl, Session, User, UserAcl } from '@open-mercato/core/modules/auth/data/entities'
 import { isAuthContextValid, resolveCanonicalStaffAuthContext } from '@open-mercato/core/modules/auth/lib/sessionIntegrity'
 import { signJwt, verifyJwt } from '@open-mercato/shared/lib/auth/jwt'
+import { Tenant } from '@open-mercato/core/modules/directory/data/entities'
 
 const findOneWithDecryption = jest.fn()
 const findWithDecryption = jest.fn()
@@ -20,6 +21,7 @@ const impostorRoleId = '77777777-7777-4777-8777-777777777777'
 const sessionId = '88888888-8888-4888-8888-888888888888'
 
 type MockStore = {
+  tenant?: unknown
   user?: unknown
   userAcl?: unknown
   roleAcl?: unknown
@@ -28,6 +30,7 @@ type MockStore = {
 function mockFindOneByEntity(store: MockStore & { session?: SessionLookupResult }) {
   findOneWithDecryption.mockImplementation(async (...args: unknown[]) => {
     const entity = args[1]
+    if (entity === Tenant) return 'tenant' in store ? store.tenant : { id: tenantId }
     if (entity === Session) return store.session ?? null
     if (entity === User) return store.user ?? null
     if (entity === UserAcl) return store.userAcl ?? null
@@ -70,6 +73,14 @@ describe('isAuthContextValid', () => {
       undefined,
       { tenantId, organizationId },
     )
+  })
+
+  it.each(['inactive', 'soft-deleted', 'missing'])('rejects an otherwise valid session for an %s tenant', async () => {
+    mockFindOneByEntity({ session: validSession, user: { id: userId, tenantId, organizationId }, tenant: null })
+    await expect(isAuthContextValid(em, {
+      sub: userId, sid: sessionId, tenantId, orgId: organizationId, roles: [],
+    })).resolves.toBe(false)
+    expect(findWithDecryption).not.toHaveBeenCalled()
   })
 
   it('returns canonical auth with roles refreshed from the database', async () => {
@@ -207,6 +218,22 @@ describe('isAuthContextValid', () => {
     expect(findOneWithDecryption).not.toHaveBeenCalled()
   })
 
+  it('rejects an unavailable actor tenant even when a superadmin selected an active tenant', async () => {
+    mockFindOneByEntity({ session: validSession, user: { id: userId, tenantId, organizationId }, tenant: null })
+    await expect(isAuthContextValid(em, {
+      sub: userId,
+      sid: sessionId,
+      tenantId: scopedTenantId,
+      orgId: scopedOrganizationId,
+      actorTenantId: tenantId,
+      actorOrgId: organizationId,
+      roles: [],
+      isSuperAdmin: true,
+    })).resolves.toBe(false)
+    expect(findOneWithDecryption).toHaveBeenCalledWith(em, Tenant,
+      { id: tenantId, isActive: true, deletedAt: null }, { fields: ['id'], refresh: true })
+  })
+
   it('accepts legacy tokens without sid when _legacyToken flag is set (grace period)', async () => {
     mockFindOneByEntity({ user: { id: userId, tenantId, organizationId } })
 
@@ -299,6 +326,7 @@ describe('isAuthContextValid', () => {
     })
     findOneWithDecryption.mockImplementation(async (...args: unknown[]) => {
       const entity = args[1]
+      if (entity === Tenant) return { id: tenantId }
       if (entity === Session) {
         callOrder.push('session')
         await sessionGate
@@ -334,6 +362,7 @@ describe('isAuthContextValid', () => {
     })
     findOneWithDecryption.mockImplementation(async (...args: unknown[]) => {
       const entity = args[1]
+      if (entity === Tenant) return { id: tenantId }
       if (entity === Session) return validSession
       if (entity === User) return { id: userId, tenantId, organizationId }
       if (entity === UserAcl) {

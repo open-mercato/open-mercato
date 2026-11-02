@@ -93,6 +93,8 @@ type AttachmentResponse = { items: PortalAttachment[] }
 type MutationOkResponse = { ok: boolean; error?: string }
 type UploadResponse = MutationOkResponse & { item?: PortalAttachment }
 type ClaimActionResponse = MutationOkResponse & { claimId?: string; status?: string }
+type PortalOption = { value: string; label: string }
+type PortalOptionsResponse = { ok: boolean; result?: { reasons: PortalOption[] } }
 
 type PortalClaimAction = 'submit' | 'withdraw'
 
@@ -248,10 +250,12 @@ function buildTrackerSteps(claim: PortalClaim, t: TranslateFn, locale: string): 
   })
 }
 
-function buildClaimTitle(claim: PortalClaim, t: TranslateFn): string {
+function buildClaimTitle(claim: PortalClaim, reasonOptions: PortalOption[], t: TranslateFn): string {
   const typeLabel = t(`warranty_claims.claimType.${claim.claimType}`)
   if (claim.reasonCode) {
-    const reasonLabel = localizeDictionaryLabel(t, 'reason', claim.reasonCode, claim.reasonCode)
+    const reasonCode = claim.reasonCode
+    const dictionaryLabel = reasonOptions.find((option) => option.value === reasonCode)?.label ?? reasonCode
+    const reasonLabel = localizeDictionaryLabel(t, 'reason', reasonCode, dictionaryLabel)
     return t('warranty_claims.portal.tracker.titleWithReason', { reason: reasonLabel, type: typeLabel })
   }
   return t('warranty_claims.portal.tracker.titleFallback', { type: typeLabel })
@@ -340,6 +344,7 @@ export default function WarrantyClaimPortalDetailPage({ params }: Props) {
   const [claim, setClaim] = React.useState<PortalClaim | null>(null)
   const [events, setEvents] = React.useState<PortalClaimEvent[]>([])
   const [attachments, setAttachments] = React.useState<PortalAttachment[]>([])
+  const [reasonOptions, setReasonOptions] = React.useState<PortalOption[]>([])
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const [notFound, setNotFound] = React.useState(false)
@@ -401,6 +406,20 @@ export default function WarrantyClaimPortalDetailPage({ params }: Props) {
   React.useEffect(() => {
     if (user) void loadClaim()
   }, [loadClaim, user])
+
+  React.useEffect(() => {
+    if (!user) return
+    let cancelled = false
+    apiCall<PortalOptionsResponse>('/api/warranty_claims/portal/options')
+      .then((result) => {
+        if (cancelled) return
+        setReasonOptions(result.result?.ok ? result.result.result?.reasons ?? [] : [])
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [user])
 
   const submitComment = React.useCallback(async () => {
     if (!claim || commentSubmitting) return
@@ -741,7 +760,7 @@ export default function WarrantyClaimPortalDetailPage({ params }: Props) {
             ) : null}
           </div>
           <h1 className="text-xl font-bold text-foreground">
-            {buildClaimTitle(claim, t)}
+            {buildClaimTitle(claim, reasonOptions, t)}
           </h1>
           <p className="text-sm text-muted-foreground">
             {buildClaimSubtitle(claim, t, locale)}

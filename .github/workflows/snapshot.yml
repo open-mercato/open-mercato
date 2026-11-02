@@ -3,9 +3,11 @@ name: Develop Snapshot Release
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
 
+# Every push to main (the next minor) publishes a snapshot. The channel and dist-tag keep the
+# `develop` name from the retired develop branch so `@open-mercato/*@develop` installs keep working.
 on:
   push:
-    branches: [develop]
+    branches: [main]
 
 permissions:
   contents: read
@@ -200,24 +202,7 @@ jobs:
           # first while the tarball stays quarantined for a security scan) — that
           # is handled by retrying the real scaffold/install steps below via
           # scripts/ci/npm-retry-on-quarantine.sh.
-          echo "Waiting for Open Mercato packages @ ${VERSION} on npm..."
-          for pkg in "${PACKAGES[@]}"; do
-            echo "Checking ${pkg}@${VERSION}..."
-            ok=false
-            for i in $(seq 1 30); do
-              if npm view "${pkg}@${VERSION}" version 2>/dev/null; then
-                echo "  ${pkg} available after attempt ${i}"
-                ok=true
-                break
-              fi
-              echo "  Attempt ${i}/30: waiting 10s..."
-              sleep 10
-            done
-            if [ "$ok" != "true" ]; then
-              echo "Package ${pkg}@${VERSION} not available after 5 minutes"
-              exit 1
-            fi
-          done
+          bash "$GITHUB_WORKSPACE/scripts/ci/npm-wait-for-metadata.sh" "$VERSION" "${PACKAGES[@]}"
 
       # --- Scaffold & build standalone app ---
       - name: Scaffold standalone app
