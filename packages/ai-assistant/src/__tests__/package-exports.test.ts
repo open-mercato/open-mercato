@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import ts from 'typescript'
@@ -11,7 +11,7 @@ describe('published ai-assistant root export', () => {
     ['bundler', ts.ModuleResolutionKind.Bundler, ts.ModuleKind.ESNext],
     ['NodeNext', ts.ModuleResolutionKind.NodeNext, ts.ModuleKind.NodeNext],
   ])('resolves root types outside workspace aliases with %s', (_name, moduleResolution, module) => {
-    const consumerDir = mkdtempSync(path.join(tmpdir(), 'ai-assistant-consumer-'))
+    const consumerDir = realpathSync(mkdtempSync(path.join(tmpdir(), 'ai-assistant-consumer-')))
     try {
       const installedDir = path.join(consumerDir, 'node_modules/@open-mercato/ai-assistant')
       mkdirSync(installedDir, { recursive: true })
