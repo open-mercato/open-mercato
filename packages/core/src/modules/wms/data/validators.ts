@@ -238,6 +238,7 @@ export const inventoryReservationCreateSchema = scopedSchema.extend({
   lotId: uuid().optional(),
   serialNumber: z.string().trim().max(120).optional(),
   quantity: positiveQuantity,
+  reservedBefore: nonNegativeQuantity.optional(),
   sourceType: inventoryReservationSourceTypeSchema,
   sourceId: uuid(),
   expiresAt: z.coerce.date().optional(),

@@ -93,8 +93,8 @@ function toNumber(value: unknown): number {
   return 0
 }
 
-function getWarehouseId(balance: InventoryBalance): string | null {
-  const relation = balance.warehouse as { id?: string } | string | undefined
+function getWarehouseId(record: { warehouse?: { id?: string } | string | null }): string | null {
+  const relation = record.warehouse
   if (typeof relation === 'string') return relation
   return typeof relation?.id === 'string' ? relation.id : null
 }
@@ -336,19 +336,31 @@ export async function reserveInventoryForConfirmedOrder(
       preferredWarehouseId,
     )
     let reservedForVariant = 0
+    const reservedBeforeByWarehouse = new Map<string, number>()
+    for (const reservation of activeReservations) {
+      if (reservation.catalogVariantId !== variantId) continue
+      const warehouseId = getWarehouseId(reservation)
+      if (!warehouseId) continue
+      reservedBeforeByWarehouse.set(
+        warehouseId,
+        (reservedBeforeByWarehouse.get(warehouseId) ?? 0) + toNumber(reservation.quantity),
+      )
+    }
     try {
       for (const bucket of warehouseAvailability) {
         if (remainingQuantity <= 0) break
         const reserveQuantity = Math.min(remainingQuantity, bucket.available)
         if (reserveQuantity <= 0) continue
+        const reservedBefore = reservedBeforeByWarehouse.get(bucket.warehouseId) ?? 0
 
-        await commandBus.execute('wms.inventory.reserve', {
+        const executed = await commandBus.execute('wms.inventory.reserve', {
           input: {
             tenantId: scope.tenantId,
             organizationId: scope.organizationId,
             warehouseId: bucket.warehouseId,
             catalogVariantId: variantId,
             quantity: reserveQuantity,
+            reservedBefore,
             sourceType: 'order',
             sourceId: orderId,
             metadata: {
@@ -360,10 +372,20 @@ export async function reserveInventoryForConfirmedOrder(
           },
           ctx: commandCtx,
         })
+        const commandResult = executed.result as { appliedQuantity?: number } | undefined
+        const appliedQuantity =
+          typeof commandResult?.appliedQuantity === 'number'
+            ? commandResult.appliedQuantity
+            : reserveQuantity
+        if (appliedQuantity <= 0) {
+          bucket.available -= reserveQuantity
+          continue
+        }
 
-        remainingQuantity -= reserveQuantity
-        reservedForVariant += reserveQuantity
-        bucket.available -= reserveQuantity
+        remainingQuantity -= appliedQuantity
+        reservedForVariant += appliedQuantity
+        bucket.available -= appliedQuantity
+        reservedBeforeByWarehouse.set(bucket.warehouseId, reservedBefore + appliedQuantity)
       }
     } catch (error) {
       if (!isInsufficientStockError(error)) throw error

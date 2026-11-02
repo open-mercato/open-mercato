@@ -283,6 +283,155 @@ describe('reserveInventoryForConfirmedOrder', () => {
       }),
     )
   })
+
+  it('reserves a later delivery against the quantity already reserved in that warehouse', async () => {
+    loadExplicitWarehouseIdForOrderMock.mockResolvedValue('warehouse-1')
+    findWithDecryptionMock.mockImplementation(async (_em, entity) => {
+      if (entity === InventoryReservation) {
+        return [
+          {
+            catalogVariantId: 'variant-1',
+            quantity: '2',
+            warehouse: { id: 'warehouse-1' },
+          },
+        ]
+      }
+      if (entity === InventoryBalance) {
+        return [
+          {
+            catalogVariantId: 'variant-1',
+            quantityOnHand: '4',
+            quantityReserved: '2',
+            quantityAllocated: '0',
+            warehouse: { id: 'warehouse-1' },
+            location: { id: 'bin-1', type: 'bin' },
+          },
+        ]
+      }
+      return []
+    })
+
+    const queryEngine = {
+      query: jest
+        .fn()
+        .mockResolvedValueOnce({ items: [{ id: 'order-1', order_number: 'SO-4' }] })
+        .mockResolvedValueOnce({
+          items: [
+            {
+              id: 'line-1',
+              kind: 'product',
+              product_variant_id: 'variant-1',
+              quantity: '4',
+              line_number: 1,
+            },
+          ],
+        }),
+    }
+    const featureTogglesService = {
+      getBoolConfig: jest.fn().mockResolvedValue({ ok: true, value: true }),
+      invalidateIsEnabledCacheByKey: jest.fn().mockResolvedValue(undefined),
+    }
+
+    await reserveInventoryForConfirmedOrder(
+      { orderId: 'order-1', tenantId: 'tenant-1', organizationId: 'org-1' },
+      {
+        resolve: (name: string) => {
+          if (name === 'em') return { fork: () => ({}) }
+          if (name === 'commandBus') return { execute }
+          if (name === 'queryEngine') return queryEngine
+          if (name === 'featureTogglesService') return featureTogglesService
+          throw new Error(`Unexpected resolve: ${name}`)
+        },
+      },
+    )
+
+    expect(execute).toHaveBeenCalledWith(
+      'wms.inventory.reserve',
+      expect.objectContaining({
+        input: expect.objectContaining({
+          warehouseId: 'warehouse-1',
+          catalogVariantId: 'variant-1',
+          quantity: 2,
+          reservedBefore: 2,
+        }),
+      }),
+    )
+    expect(emitWmsEventMock).not.toHaveBeenCalled()
+  })
+
+  it('does not count an idempotent reservation replay as newly reserved', async () => {
+    loadExplicitWarehouseIdForOrderMock.mockResolvedValue('warehouse-1')
+    execute.mockImplementation(async () => ({ result: { appliedQuantity: 0, idempotentReplay: true } }))
+    findWithDecryptionMock.mockImplementation(async (_em, entity) => {
+      if (entity === InventoryReservation) return []
+      if (entity === InventoryBalance) {
+        return [
+          {
+            catalogVariantId: 'variant-1',
+            quantityOnHand: '2',
+            quantityReserved: '0',
+            quantityAllocated: '0',
+            warehouse: { id: 'warehouse-1' },
+            location: { id: 'bin-1', type: 'bin' },
+          },
+        ]
+      }
+      return []
+    })
+
+    const queryEngine = {
+      query: jest
+        .fn()
+        .mockResolvedValueOnce({ items: [{ id: 'order-1', order_number: 'SO-5' }] })
+        .mockResolvedValueOnce({
+          items: [
+            {
+              id: 'line-1',
+              kind: 'product',
+              product_variant_id: 'variant-1',
+              quantity: '4',
+              line_number: 1,
+            },
+          ],
+        }),
+    }
+    const featureTogglesService = {
+      getBoolConfig: jest.fn().mockResolvedValue({ ok: true, value: true }),
+      invalidateIsEnabledCacheByKey: jest.fn().mockResolvedValue(undefined),
+    }
+
+    await reserveInventoryForConfirmedOrder(
+      { orderId: 'order-1', tenantId: 'tenant-1', organizationId: 'org-1' },
+      {
+        resolve: (name: string) => {
+          if (name === 'em') return { fork: () => ({}) }
+          if (name === 'commandBus') return { execute }
+          if (name === 'queryEngine') return queryEngine
+          if (name === 'featureTogglesService') return featureTogglesService
+          throw new Error(`Unexpected resolve: ${name}`)
+        },
+      },
+    )
+
+    expect(execute).toHaveBeenCalledWith(
+      'wms.inventory.reserve',
+      expect.objectContaining({
+        input: expect.objectContaining({ quantity: 2, reservedBefore: 0 }),
+      }),
+    )
+    expect(emitWmsEventMock).toHaveBeenCalledWith(
+      'wms.inventory.reservation_shortfall',
+      expect.objectContaining({
+        shortfalls: [
+          expect.objectContaining({
+            catalogVariantId: 'variant-1',
+            reservedQuantity: 0,
+            shortfallQuantity: 4,
+          }),
+        ],
+      }),
+    )
+  })
 })
 
 describe('cancelled sales orders (issue #4521)', () => {
