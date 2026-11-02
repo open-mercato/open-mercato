@@ -85,6 +85,6 @@ describe('MCP delegated credential revocation', () => {
     expect(mockExecuteTool).toHaveBeenCalledTimes(1)
     expect(loadAcl).toHaveBeenCalledTimes(1)
     expect(isUserSessionEligible).toHaveBeenLastCalledWith({ userId: 'user-1', tenantId: 'tenant-1', organizationId: 'org-1', apiKeyId: 'key-1' })
-    expect(findOne).toHaveBeenLastCalledWith(expect.any(Function), expect.objectContaining({ id: 'key-1', sessionUserId: 'user-1', tenantId: 'tenant-1', organizationId: 'org-1', deletedAt: null, $or: [{ expiresAt: null }, { expiresAt: { $gt: expect.any(Date) } }] }), expect.objectContaining({ fields: ['id'] }), { tenantId: 'tenant-1', organizationId: 'org-1' })
+    expect(findOne).toHaveBeenLastCalledWith(expect.any(Function), expect.objectContaining({ id: 'key-1', sessionUserId: 'user-1', tenantId: 'tenant-1', organizationId: 'org-1', deletedAt: null, $or: [{ expiresAt: null }, { expiresAt: { $gt: expect.any(Date) } }] }), expect.objectContaining({ fields: ['id'], refresh: true }), { tenantId: 'tenant-1', organizationId: 'org-1' })
   })
 })

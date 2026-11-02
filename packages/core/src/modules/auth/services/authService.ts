@@ -66,7 +66,7 @@ export class AuthService {
       organizationId: scope.organizationId,
       deletedAt: null,
       $or: [{ expiresAt: null }, { expiresAt: { $gt: new Date() } }],
-    }, { fields: ['id'] }, { tenantId: scope.tenantId, organizationId: scope.organizationId })
+    }, { fields: ['id'], refresh: true }, { tenantId: scope.tenantId, organizationId: scope.organizationId })
     return key !== null
   }
 
