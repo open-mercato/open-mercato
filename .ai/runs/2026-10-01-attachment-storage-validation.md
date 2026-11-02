@@ -18,7 +18,11 @@ Opt-in strict deployments must register validators and repair legacy implicit co
 
 ## Progress
 
-PR: #6820
+PR: #8446
+
+Branch: `carry/pr-6820-ready-a344`
+
+Carried forward from #6820 by `om-auto-review-pr` autofix on 2026-11-02. Original implementation and authorship remain intact.
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
@@ -42,3 +46,9 @@ Runner: local. Docker probes found no usable running app (daemon access denied f
 The broader Windows attachment fallback reports 32 passing suites and five failures: six pre-existing absolute-path assertions in `localDriver.test.ts`/`storage.test.ts` expect rooted paths without a Windows drive; three UI suites cannot load missing transitive dependencies in the shared install. These are disclosed limitations, not a claim that the complete configured gate passed locally. Exact-head GitHub CI must validate the published merge. No database migration or UI smoke test was run in this resume; the existing strict/legacy native integration evidence above predates this merge.
 
 TC-ATT-015 creates a private partition with a parameterized database fixture because production CI locks the partition-management API and malformed legacy JSON cannot be arranged through its validator. The native runner must supply DATABASE_URL; no developer-env fallback is accepted. All attachment uploads and behavior assertions use real HTTP, and each test restores configuration, deletes its file, and removes its partition. Default/legacy runs assert compatible reads; strict runs assert typed 503 failures before side effects, including primed image-cache reads. No external S3 service is required.
+
+### Current-main carry-forward (2026-11-02)
+
+Current main `3655f86a12351f9eff3263791fe910f871dc07cd` is merged. All171 lesson rows survive; `BACKWARD_COMPATIBILITY.md` matches main exactly. Validator imports are grouped. The source spec records the scoped missing-partition diagnostic trade-off and the strict library preflight no-reference-lock guarantee, with owner/storage validation repeated under the transaction lock. No original test/assertion was removed.
+
+Focused native validation under Node24.19.0: attachment route/policy suites121/121; driver/access/scoped-upload compatibility suites125/125 (overlap not summed); full storage-s3 suites146/146. Core and S3 native typechecks, lessons catalog, full template parity and diff checks pass. Fresh hosted CI, current-head required QA and any exact-target baseline exception remain independent orchestrator gates; no QA label is carried forward. No schema, dependency, workflow or runtime-policy default changes were added.
