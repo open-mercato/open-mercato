@@ -91,7 +91,7 @@ export async function GET(
   const forceDownload = url.searchParams.get("download") === "1";
   const renderInline = !forceDownload && canRenderInlineAttachment(attachment.mimeType);
   const headers: Record<string, string> = {
-    "Cache-Control": partition.isPublic
+    "Cache-Control": checkAttachmentAccess(null, attachment, partition).ok
       ? "public, max-age=86400"
       : "private, max-age=60",
     "Content-Security-Policy": "default-src 'none'; sandbox",
