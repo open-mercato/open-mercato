@@ -3,9 +3,9 @@
 ## 📝 TLDR
 
 **Key Points:**
-- Add a fourth **Timeline** tab to the backend Deals area (`Kanban | List | Map | Timeline`). It lays deals out by `expectedCloseAt` in a lanes × time-bucket grid: **owner** or **pipeline-stage** lanes against **week**, **month** or **quarter** columns. Each deal renders as a compact version of the Kanban `DealCard`.
+- Add a fourth **Timeline** tab to the backend Deals area (`Kanban | List | Map | Timeline`). It lays deals out by `expectedCloseAt` in a lanes × time-bucket grid: **owner** or **pipeline-stage** lanes against **week**, **month** or **quarter** columns. Each deal renders as a compact version of the Kanban `DealCard`. Clicking a card opens a **deal drawer** over the board (summary, review context and existing actions), so the review never leaves the timeline; the full details page is one link away.
 - A new read-only endpoint, `GET /api/customers/deals/timeline`, returns the grid already bucketed, with exact per-column counts and the top cards per cell. A paged **cell mode** of the same endpoint backs the "+N more" popover. It reuses the deals-list filter builder, so filter semantics stay identical across views.
-- Reps reschedule an open deal by dragging its card into another column (a whole-bucket shift) or through an explicit "Change close date" action (card menu or "+N more" row) with an exact-date dialog. The write is the existing `PUT /api/customers/deals` (`customers.deals.update` command) with optimistic locking. Undo comes from the shell's `LastOperationBanner`, and a 409 surfaces through `surfaceRecordConflict`.
+- Reps reschedule an open deal by dragging its card into another column (a whole-bucket shift) or through an explicit "Change close date" action (card menu, deal drawer or "+N more" row) with an exact-date dialog. The write is the existing `PUT /api/customers/deals` (`customers.deals.update` command) with optimistic locking. Undo comes from the shell's `LastOperationBanner`, and a 409 surfaces through `surfaceRecordConflict`.
 - Saved views use the existing `perspectives` module (`tableId: customers.deals.timeline`). The deals list gains one additive filter, `hasExpectedCloseAt`, behind the timeline's "N deals have no close date" link. There are no new entities, no migrations and no new ACL features.
 
 **Scope:** one spec, two independently shippable phases. **Phase 1** is the read-only timeline: endpoint, page, saved views and the undated link. **Phase 2** adds rescheduling: drag, the exact-date dialog and conflict handling.
@@ -51,8 +51,8 @@ Sales reps and managers plan around *when* deals close. The Deals area shows tha
    - view controls (Group by, Columns, Prev/Today/Next);
    - the board of compact `TimelineDealCard`s.
 
-   A "+N more" cell opens a popover listing that cell's deals, fetched through the endpoint's cell mode.
-3. **Rescheduling (Phase 2).** Dropping a card into another column of the same lane shifts its date by whole buckets, through the pure helper `shiftCloseDate`. The page sends `PUT /api/customers/deals { id, expectedCloseAt }` through `useGuardedMutation`, with the `buildOptimisticLockHeader(updatedAt)` header. It applies the move optimistically, rolls back on failure, and calls `surfaceRecordConflict` on a 409. The command already records an undoable operation, so the shell's `LastOperationBanner` provides Undo. Day precision goes through an explicit **Change close date** action on the card menu and on each "+N more" popover row, which opens an exact-date dialog. Click and Enter on a card always open the deal. Closed deals have neither drag nor the date action (see Design Decisions).
+   A "+N more" cell opens a popover listing that cell's deals, fetched through the endpoint's cell mode. Clicking a card or a popover row opens `TimelineDealDrawer`.
+3. **Rescheduling (Phase 2).** Dropping a card into another column of the same lane shifts its date by whole buckets, through the pure helper `shiftCloseDate`. The page sends `PUT /api/customers/deals { id, expectedCloseAt }` through `useGuardedMutation`, with the `buildOptimisticLockHeader(updatedAt)` header. It applies the move optimistically, rolls back on failure, and calls `surfaceRecordConflict` on a 409. The command already records an undoable operation, so the shell's `LastOperationBanner` provides Undo. Day precision goes through an explicit **Change close date** action on the card menu, in the deal drawer and on each "+N more" popover row, which opens an exact-date dialog. Click and Enter on a card always open the deal drawer. Closed deals have neither drag nor the date action (see Design Decisions).
 4. **The undated link.** `dealListQuerySchema` gains an additive `hasExpectedCloseAt` boolean, honoured by `buildDealListFilters`. The List page reads it from the URL, using the same pattern as `needsAttention`.
    - The List page restores only `search`, `personId`/`companyId`, `needsAttention` and the advanced-filter tree (`filter[...]`) from the URL; plain `status`, `ownerUserId` and `pipelineId` are ignored.
    - The link is therefore built by a shared helper, `buildDealsListHref(timelineFilters)`, which encodes Status, Owner and Pipeline as an advanced-filter tree, using the tree serializer the List page already deserializes. Search, people and companies go as plain params.
@@ -77,6 +77,7 @@ Sales reps and managers plan around *when* deals close. The Deals area shows tha
 | **Undo comes from `LastOperationBanner`**, not a timeline-specific Undo | The shell already offers Undo for the last command through its audit-log undo token. A second Undo control would be inconsistent with the Kanban. |
 | **Saved views via `perspectives` (Q4b)** | The module stores per-user views by `tableId`, and `settings.filters` is a free-form record, so timeline state fits with no schema change. The List already uses perspectives through the DataTable; the Kanban and Map never shipped saved views. The timeline doesn't reuse the List's payload, because that shape describes table columns, sorting and the advanced-filter tree, none of which exist on the board, while the timeline needs `groupBy` and `bucket`, which the table has no slot for. |
 | **The window position is not saved** | A saved view is "My Q4 review", not "the week of Oct 19". Views always reopen anchored on today. The URL carries `from` so a link can be shared. |
+| **Deal drawer instead of navigating to the details page** | A review touches many deals; navigating away loses the window and scroll position, and the compact card drops the Kanban's activity and stage signals. The drawer (the `Drawer` primitive from `@open-mercato/ui`, already used by `forms`' `SubmissionDrawer`) restores that context in place. It is deliberately a **summary plus existing actions, not the edit form**: embedding the form would reopen close-date edits on closed deals (see the closed-deals decision) and duplicate the details page. The open deal lives in the URL (`?deal=<id>`), so reload, Back and shared links work, and "Open full page" keeps the details page one click away. |
 | **New `TimelineDealCard`** instead of a prop variant of `DealCard` | `DealCard` carries quick actions, an activity badge, days-in-stage and bulk selection. A compact sibling avoids regression risk on the Kanban. Shared tone classes and formatting helpers are reused. |
 | **Stage-lane metadata is gated on `customers.pipelines.view`** | With the feature, stage lanes include empty stages, their order, the tone from `customer_dictionary_entries.color` (the Kanban's source) and the pipeline name. Without it, lanes derive only from the deals in the window, labelled with the deal's own `pipelineStage` text (already visible to `customers.deals.view` users), in a neutral tone, and grouped by `pipelineId` without a name. No pipeline metadata leaks beyond the existing gate. |
 | **Open, won and lost are classified only through `lib/dealStatus.ts`** | Status spellings are becoming tenant-configurable (`.ai/specs/2026-10-18-deal-status-vocabulary.md`, PR #7625). The server passes the request's resolved vocabulary when that lands. The client uses the vocabulary the settings endpoint delivers, falling back to the shipped helpers. No `'open'`/`'win'`/`'lost'` literals in timeline code. `lib/dealStatus.ts` defines *open* as "not closed" and has no open-status list. So the Status filter defaults to empty, as on the Kanban and Map, and the endpoint's `excludeClosed` (default `true` while no Status filter is set) adds a `status $nin` condition built from the helpers' closed set (`CLOSED_DEAL_STATUS_LIST` expanded through `expandDealStatusAliases`, or the resolved vocabulary once #7625 lands). Choosing any status in the popover disables `excludeClosed`. |
@@ -119,8 +120,9 @@ The approved story map in `.ai/prototypes/deals-close-timeline/REQUIREMENTS.md` 
        ├─ TimelineCellPopover → GET /api/customers/deals/timeline?cellLane=…&cellColumn=… (paged, ≤ 100)
        ├─ [Phase 2] @dnd-kit drag between cells of one lane → shiftCloseDate()
        │            → useGuardedMutation(PUT /api/customers/deals, lock header)
-       ├─ TimelineDealPreview (card menu → Preview: activity, days in stage, stalled; follow-up/stage/closure actions)
-       └─ [Phase 2] ChangeCloseDateDialog (card menu or popover row → Change close date)
+       ├─ TimelineDealDrawer (click/Enter on a card or popover row; URL ?deal=<id>)
+       │     └─ summary · activity, days in stage, stalled · follow-up/stage/closure actions · Open full page
+       └─ [Phase 2] ChangeCloseDateDialog (card menu, drawer or popover row → Change close date)
 
 /api/customers/deals/timeline  (custom GET route)
   ├─ zod (route-local, derived from dealListQuerySchema): filter subset + grid params
@@ -270,7 +272,7 @@ All five customers locales (`en`, `pl`, `de`, `es`, `ko`) go in `packages/core/s
   - cards and cells: `card.aria` (composed label), `cell.more` ("+{count} more"), `cell.popoverTitle`;
   - edge links: `overdueBefore` ("{count} overdue before {date}"), `undated` ("{count} deals have no close date", with no status word because the Status filter is applied);
   - empty, error and saved-view states: `empty.noDeals.*`, `empty.noResults.*`, `jump.previous`, `jump.next`, `loadError`, `truncated`, `savedViews.*`;
-  - closed toggle, preview, context and truncation: `closed.hide`, `closed.all`, `empty.showClosed`, `card.menu`, `preview.*`, `droppedFilters` ("Some List filters don't apply on the timeline: {fields}"), `truncated` (owners may be missing), `truncatedOpenInList`, `partialCount` ("{count}+");
+  - closed toggle, preview, context and truncation: `closed.hide`, `closed.all`, `empty.showClosed`, `card.menu`, `drawer.*` (title, sections, actions, `openFullPage`), `droppedFilters` ("Some List filters don't apply on the timeline: {fields}"), `truncated` (owners may be missing), `truncatedOpenInList`, `partialCount` ("{count}+");
   - Phase 2: `reschedule.action`, `reschedule.showDeal`, `reschedule.closedHint`, `reschedule.success`, `reschedule.error`, `reschedule.dialog.title`, `reschedule.dialog.current`, `reschedule.dialog.quick.*`, `reschedule.readOnlyHint`.
 - **List chip:** `customers.deals.list.filters.noCloseDate`.
 - Dates and currency are formatted through the existing locale-aware helpers (`formatCurrency` from `components/detail/utils.ts`). No hard-coded user-facing strings.
@@ -306,11 +308,16 @@ The prototype in `.ai/prototypes/deals-close-timeline/index.html` (screens s1–
   - row 3: the primary company, plus an owner avatar when `groupBy=stage`;
   - a left edge in the stage tone, using the `Lane.tsx` tone-class map;
   - deals the status helpers classify as won or lost (only shown when the Status filter includes them) render muted with a status badge;
-  - the card is a link: click and Enter both open `/backend/customers/deals/{id}`, in both phases;
-  - a card menu (icon button, `aria-label` from i18n) with **Preview**, and in Phase 2 **Change close date** for managers on open deals.
-- **Deal preview (`TimelineDealPreview`):** opened from the card menu's **Preview** or from a "+N more" popover row. It keeps the card compact while restoring the review context the Kanban card shows:
-  - open activities count, days in current stage and the stalled flag, read from the existing `_pipeline` enrichment (`data/enrichers.ts`) with one `GET /api/customers/deals?ids=<id>` when the preview opens;
-  - actions that reuse existing components and permissions: **Schedule follow-up** (`ActivityComposerDialog`), **Change stage** (`ChangeStageDialog`), **Mark won** and **Mark lost** with a reason (the closure flow of `useDealClosure` and `ConfirmDealLostDialog`, extracted from the deal detail page into a shared hook if needed), and **Open deal**. Mutating actions require `customers.deals.manage`. After any of them the timeline query is invalidated.
+  - the card is a button: click and Enter both open the deal drawer, in both phases. Modified clicks (Cmd/Ctrl-click, middle-click) open `/backend/customers/deals/{id}` in a new tab, so the old link behaviour isn't lost;
+  - a card menu (icon button, `aria-label` from i18n) with **Open full page**, and in Phase 2 **Change close date** for managers on open deals.
+- **Deal drawer (`TimelineDealDrawer`):** opened by click or Enter on a card, or on a "+N more" popover row. Built on the `Drawer` primitive (`@open-mercato/ui/primitives/drawer`), right side, overlay. It keeps the card compact while restoring the review context the Kanban card shows:
+  - **Content:** title, status, value, probability, close date (overdue treatment), stage, owner and primary company, then open activities count, days in current stage and the stalled flag. The `_pipeline` signals come from the existing enrichment (`data/enrichers.ts`); the drawer fetches `GET /api/customers/deals?ids=<id>` when it opens, so it never shows stale card data.
+  - **Actions**, reusing existing components and permissions: **Schedule follow-up** (`ActivityComposerDialog`), **Change stage** (`ChangeStageDialog`), **Mark won** and **Mark lost** with a reason (the closure flow of `useDealClosure` and `ConfirmDealLostDialog`, extracted from the deal detail page into a shared hook if needed), in Phase 2 **Change close date** (open deals only), and **Open full page** (`/backend/customers/deals/{id}`, with the current timeline URL as `returnTo`). Mutating actions require `customers.deals.manage`; read-only users see the content and Open full page only.
+  - **No edit form.** Field edits happen on the details page. Closed deals never get a close-date control in the drawer.
+  - **URL state:** the open deal is `?deal=<id>` on the timeline URL. Reload, Back (closes the drawer) and shared links restore it. A `deal` id that doesn't resolve in scope (deleted, other organization, no access) closes the drawer silently and drops the param.
+  - **Focus and keyboard:** it is a modal dialog: focus moves into the drawer, Escape closes it, and focus returns to the card that opened it. If that card is no longer rendered (rescheduled out of view), focus follows the "Destination not visible" rule.
+  - **Narrow screens:** the drawer overlays the board (max `32rem`, full width below the `sm` breakpoint), and the board keeps its scroll position underneath.
+  - **Freshness and locking:** every write from the drawer uses the `updatedAt` it fetched, with `buildOptimisticLockHeader`. After any write from the drawer, or a drag of the same deal on the board, the drawer re-reads the deal and the timeline query is invalidated, so it never writes with a stale version.
 - **Collapsed lanes:** a single row showing per-column counts ("{n} deals", status-error tone when the cell holds an overdue deal), remembered in `sessionStorage`.
 - **States:**
   - first run, only when `scopeHasDeals` is `false`: an `EmptyState` with "Create deal", and the filter and controls rows hidden;
@@ -321,12 +328,12 @@ The prototype in `.ai/prototypes/deals-close-timeline/index.html` (screens s1–
 - **Phase 2, rescheduling:**
   - **Drag:** `@dnd-kit` with `PointerSensor` and `KeyboardSensor`; drop targets are only the cells of the source lane. While dragging, the origin shows a ghost, the target cell is highlighted, and a tooltip shows the resulting date and the shift ("+1 week"). Esc cancels. Dropping on the origin column does nothing.
   - **After a drop:** the card moves optimistically and is re-sorted in its cell. A success flash appears, and the shell's `LastOperationBanner` offers Undo.
-  - **Change close date action:** on the card menu and on every "+N more" popover row, for managers on open deals, so hidden deals can be rescheduled without leaving the timeline.
+  - **Change close date action:** on the card menu, in the deal drawer and on every "+N more" popover row, for managers on open deals, so hidden deals can be rescheduled without leaving the timeline.
   - **Destination not visible:** when the new date falls outside the window, or the card lands behind "+N more", the view stays where it is. The success flash says "Close date moved to {date}" and carries a **Show deal** action, which moves `from` to the bucket containing the date and, if the card is behind "+N more", opens that cell's popover with the deal focused. Focus goes to the **Show deal** action (never to a card that is no longer rendered); if the card is still visible, focus returns to it.
   - **Closed deals:** no drag handle and no Change close date action; a tooltip explains that closed deals can't be rescheduled from the timeline.
   - **Exact-date dialog:** `ChangeCloseDateDialog` holds the current date, a date input, and quick chips (+1 week, +2 weeks, end of month, end of quarter) that are relative to the current close date. Cmd/Ctrl+Enter saves and Escape cancels. Focus follows the rule under "Destination not visible".
   - **Keyboard:** Up/Down moves focus within a cell, Left/Right across columns.
-  - **Read-only users** (no `customers.deals.manage`): no drag affordance and no Change close date action. A tooltip explains why.
+  - **Read-only users** (no `customers.deals.manage`): no drag affordance and no Change close date action (card menu, drawer or popover). Click and Enter still open the drawer. A tooltip explains why.
 - **Accessibility:** each card's `aria-label` is composed from the title, company, value, close date and overdue state, and is recomputed from the current data after a move, an Undo and a rollback (a regression found in the prototype). Icon-only buttons carry `aria-label`. The drag also works from the keyboard through the `@dnd-kit` `KeyboardSensor`.
 - **Visual acceptance:** the board stays readable at a 1024 px viewport and at 200% browser zoom: full close dates visible, titles truncated to at least two lines, lane names visible while scrolling horizontally.
 - **Page meta (`timeline/page.meta.ts`):** follows the Map page's shape. The Map also requires `customers.activities.view`; the timeline doesn't, because it shows no activity data. Fields: `requireAuth`, `requireFeatures: ['customers.deals.view']`, `pageTitleKey: 'customers.nav.deals.timeline'`, group Customers, `pageOrder: 123`, and breadcrumb Deals → Deals Timeline.
@@ -339,6 +346,8 @@ The prototype in `.ai/prototypes/deals-close-timeline/index.html` (screens s1–
 | A month shift lands on a day that doesn't exist (Jan 31 + 1 month) | Clamped to the month's last day (Feb 28 or 29). `shiftCloseDate` is unit-tested. |
 | Dropping a card into a past column | Allowed without confirmation (story map §7.1). The card turns overdue. |
 | A won or lost deal (per the resolved status vocabulary) is shown | Only when the toggle is All deals or the Status filter includes it. It renders muted with a status badge, has no drag handle and no Change close date action, and the overdue treatment never applies. This keeps the summary reports, which bucket closures by `updated_at`, stable. |
+| The drawer is open on a deal that is then dragged, or changed by someone else | A drag re-reads the drawer's deal. A write from the drawer with a stale version returns `409`, surfaced with `surfaceRecordConflict`, and the drawer re-reads. |
+| `?deal=<id>` points at a deal that is missing or out of scope | The drawer stays closed and the param is dropped; no error page. |
 | A new date falls outside the window, or behind "+N more" | The view stays put; the flash's **Show deal** action navigates there, and focus goes to that action. |
 | An organization has deals, but none match (all closed, all undated, or all filtered out) | `scopeHasDeals` is `true`, so the filters and toggle stay visible with the no-results state, "Show closed deals" and the undated link as applicable. |
 | The List had filters the timeline can't apply | They are dropped and named in the one-shot info alert. |
@@ -346,7 +355,7 @@ The prototype in `.ai/prototypes/deals-close-timeline/index.html` (screens s1–
 | A deal has no stage (`pipelineStageId` null) | It appears in its pipeline's "No stage" lane (`__nostage:<pipelineId>`). Stages can't be deleted while active deals reference them (`commands/pipeline-stages.ts` returns 409), so there are no orphaned stage ids. |
 | More than `TIMELINE_COLUMN_CAP` matching deals in one column | That column is flagged `truncated`. Its `total` stays exact, its lane split covers only the capped rows (`partial: true`, shown as "{n}+"), and the popover (cell mode) lists every deal of an existing lane with the exact total. An owner whose deals all fall past the cap has no lane, so the alert says owners may be missing and offers **Open in List** for the whole period. |
 | A deal sits exactly on a bucket boundary | Columns are half-open `[from, to)` in both the grid and cell mode, so a deal is counted and listed in exactly one cell. |
-| Undo via `LastOperationBanner` | The banner reloads the page after a successful undo. The timeline state lives in the URL, so the view is restored; only collapsed lanes (`sessionStorage`) and open popovers reset. |
+| Undo via `LastOperationBanner` | The banner reloads the page after a successful undo. The timeline state lives in the URL (including an open drawer's `?deal=`), so the view is restored; only collapsed lanes (`sessionStorage`) and open popovers reset. |
 | The deal was changed by someone else before the drop | `409`: the card is rolled back and the conflict bar offers Refresh (US-C3). |
 | A mutation guard rejects the write (for example, record lock) | `useGuardedMutation` throws, the card is rolled back, and the guard's message is flashed. |
 | The perspective payload is invalid or from an older version | Fields fall back to defaults. The view still loads, and a warning is logged. |
@@ -362,7 +371,7 @@ The timeline is a **close-date planning view** for CRM deals. It is not a foreca
   - **Date:** `expected_close_at`, the rep's expected close date.
 - **What a reschedule changes:** only `customer_deals.expected_close_at`, through the existing update command. Activity dates, quote validity, order delivery dates and payment dates are untouched.
 - **Sales documents today:** the Sales quote and order entities reference the customer, not the deal. There is no deal↔quote or deal↔order link, so the timeline doesn't show quotes and doesn't infer one from the company (ambiguous when a customer has several opportunities).
-- **Status ownership:** the deal's status is changed only by CRM actions (deal form, Kanban, the preview's Mark won/lost). Accepting a quote, creating an order, or cancelling either does **not** change the deal in v1, and reopening a deal doesn't touch Sales documents. The configured Sales document flow is unchanged.
+- **Status ownership:** the deal's status is changed only by CRM actions (deal form, Kanban, the deal drawer's Mark won/lost). Accepting a quote, creating an order, or cancelling either does **not** change the deal in v1, and reopening a deal doesn't touch Sales documents. The configured Sales document flow is unchanged.
 - **Intended flow (follow-up spec, owned by the customers and sales modules together):** an explicit deal reference on quotes and orders (FK id plus snapshot, no ORM relation), a deal panel listing them, and opt-in rules (for example quote accepted → deal won, order cancelled → reopen prompt) implemented as event subscribers so neither module depends on the other. Alternative quotes for one deal, and which one feeds the deal amount, belong to that spec.
 - **Forecasting:** period totals and weighted forecast stay out of scope. Totals per currency (no conversion) are the first follow-up.
 
@@ -447,7 +456,7 @@ The timeline is a **close-date planning view** for CRM deals. It is not a foreca
    - empty (first run from `scopeHasDeals`, no-results with the filters kept), loading, error and truncation states (owners-may-be-missing alert, "{n}+" partial counts, Open in List), and collapsed lanes in `sessionStorage`;
    - the Hide closed deals / All deals toggle and its reset rules;
    - minimum column width, horizontal scrolling and the pinned lane-header column;
-   - the card menu with **Preview** and `TimelineDealPreview` (activity, days in stage, stalled flag, and the reused follow-up, stage and closure actions);
+   - `TimelineDealDrawer` on the `Drawer` primitive: content, `_pipeline` signals, the reused follow-up, stage and closure actions, Open full page, `?deal=` URL state, focus return, and re-read after writes; the card menu with Open full page; modified clicks opening the details page in a new tab;
    - "New deal" with the current timeline URL as `returnTo`.
    - Owner names come from `fetchAssignableStaffMembers` (as on the Kanban). The helper takes no header option, so the call is wrapped in `withScopedApiRequestHeaders({ 'x-om-forbidden-redirect': '0' }, …)` and any error falls back to the generic "Owner" label. The same fallback applies when an owner isn't on the first page.
 7. **Saved views:** `TimelineSavedViews.tsx`, built on the perspectives API (`/api/perspectives/customers.deals.timeline`) and the `ViewChip`/`NewViewForm` primitives. Saving, renaming and deleting go through `useGuardedMutation`, with the lock header and the `duplicate_name`/conflict handling described in UI/UX. Applying a view sets the filters, the closed-deals toggle, `groupBy` and `bucket` and resets `from`. Unit tests cover payload parse and fallback.
@@ -469,7 +478,7 @@ The timeline is a **close-date planning view** for CRM deals. It is not a foreca
     - on success flashes and invalidates the timeline query; Undo comes through `LastOperationBanner`.
 
     Unit tests cover the cache move, rollback and conflict routing.
-13. **Change close date action and `ChangeCloseDateDialog.tsx`:** the action on the card menu and on "+N more" popover rows; keyboard navigation between cards (Up/Down and Left/Right); Cmd/Ctrl+Enter to save and Escape to cancel; the Show deal flash and focus rule when the destination isn't visible; `aria-label` recomputed after move, Undo and rollback.
+13. **Change close date action and `ChangeCloseDateDialog.tsx`:** the action on the card menu, in the deal drawer and on "+N more" popover rows; keyboard navigation between cards (Up/Down and Left/Right); Cmd/Ctrl+Enter to save and Escape to cancel; the Show deal flash and focus rule when the destination isn't visible; `aria-label` recomputed after move, Undo and rollback.
 14. **Read-only affordances** without `customers.deals.manage`, and for closed deals: no drag, no Change close date action, and a tooltip hint.
 15. **Integration test** TC-CRM-TL-003 (UI rescheduling), the DS guardian pass, the full verification gate, and the spec's changelog and Implementation Status.
 
@@ -485,17 +494,18 @@ The timeline is a **close-date planning view** for CRM deals. It is not a foreca
 | `packages/core/src/modules/customers/backend/customers/deals/timeline/page.meta.ts`, `page.tsx` | Create | 1 |
 | `packages/core/src/modules/customers/backend/customers/deals/timeline/components/*` | Create | 1–2 |
 | `packages/core/src/modules/customers/backend/customers/deals/page.tsx` | Modify (`hasExpectedCloseAt` URL filter) | 1 |
+| `packages/core/src/modules/customers/backend/customers/deals/timeline/components/TimelineDealDrawer.tsx` | Create (on `@open-mercato/ui/primitives/drawer`) | 1 |
 | `packages/core/src/modules/customers/i18n/{en,pl,de,es,ko}.json` | Modify | 1–2 |
 | `packages/core/src/modules/customers/__integration__/TC-CRM-TL-00{1,2,3}.spec.ts` | Create | 1–2 |
 | `UPGRADE_NOTES.md` | Modify (informational `visibleViews` note) | 1 |
 | `packages/core/src/modules/customers/lib/dealsListHref.ts` (+ `__tests__`) | Create (`buildDealsListHref`, `buildTimelineHrefFromList`) | 1 |
-| `packages/core/src/modules/customers/backend/customers/deals/[id]/hooks/useDealClosure.ts`, `components/detail/ConfirmDealLostDialog.tsx` | Reuse (extract to a shared hook only if the preview needs it; no behaviour change) | 1 |
+| `packages/core/src/modules/customers/backend/customers/deals/[id]/hooks/useDealClosure.ts`, `components/detail/ConfirmDealLostDialog.tsx` | Reuse (extract to a shared hook only if the drawer needs it; no behaviour change) | 1 |
 | `BACKWARD_COMPATIBILITY.md` | Modify (`KanbanView` additive-only row) | 1 |
 | `packages/core/package.json` | Modify (declare `@dnd-kit/core`, already hoisted) | 2 |
 
 ### Testing Strategy
 
-- **Unit:** the bucket library (largest surface); the query schemas; the timeline route (grouping, lanes, scope, cap); the `hasExpectedCloseAt` filter; `ViewTabsRow`; saved-view payload parsing; the reschedule hook (optimistic move, rollback, conflict).
+- **Unit:** the bucket library (largest surface); the drawer (URL state, missing-deal param, permission-gated actions, no close-date control on closed deals); the query schemas; the timeline route (grouping, lanes, scope, cap); the `hasExpectedCloseAt` filter; `ViewTabsRow`; saved-view payload parsing; the reschedule hook (optimistic move, rollback, conflict).
 - **Integration:** below.
 - **Manual or preview:** compare against prototype screens s1–s16 in light and dark themes, at a 1024 px viewport and at 200% zoom, and keyboard-only rescheduling.
 
@@ -524,16 +534,17 @@ The specs are self-contained Playwright tests. Fixtures come from `packages/core
 8. Context: from the List filtered by Owner and a value condition, the Timeline tab keeps the owner filter and shows the dropped-filters alert naming the value field. From a timeline on a future quarter, "New deal" → Cancel returns to the same window, grouping and filters.
 9. Closed toggle: with a won fixture deal in the window, it is hidden under Hide closed deals and shown muted under All deals; Clear filters resets to Hide closed deals. With every fixture deal filtered out, the filter bar stays visible with the no-results state.
 10. Layout: at a 1024 px viewport, the board scrolls horizontally, a card's full close date is visible, and the lane name stays visible after scrolling right.
-11. Preview: Preview on a card shows days in stage and the open-activities count, and Schedule follow-up opens the activity dialog.
+11. Drawer: clicking a card opens the drawer with days in stage and the open-activities count, and adds `?deal=<id>` to the URL; Schedule follow-up opens the activity dialog. Reloading keeps the drawer open; Back closes it with the window and filters unchanged; Escape returns focus to the card; Open full page navigates to the details page. Clicking a "+N more" popover row opens the same drawer.
 
 **TC-CRM-TL-003: Rescheduling (UI, Phase 2)**
 1. Dragging a card one week later moves it, and the API readback shows the date shifted by 7 days with the weekday kept. The card's `aria-label` names the new date. The last-operation Undo restores the original date, and the label with it.
-2. Keyboard path: focus the card, Enter opens the deal (go back); open the card menu, choose Change close date, enter an exact date, press Cmd/Ctrl+Enter, and the card lands in the matching column.
+2. Keyboard path: focus the card, Enter opens the drawer (Escape closes it and focus returns to the card); open the card menu, choose Change close date, enter an exact date, press Cmd/Ctrl+Enter, and the card lands in the matching column.
 3. Destination not visible: change a date to one outside the window; the view stays, focus is on the flash's Show deal action, and Show deal moves the window to the card. Repeat for a date whose cell already holds `perCell` cards: Show deal opens that cell's popover with the deal focused.
 4. "+N more": from a busy cell's popover, Change close date on a hidden deal reschedules it without leaving the timeline.
-5. Conflict: after the deal is updated through the API behind the page's back, a drag shows the record-conflict bar, the card returns to its origin, and its `aria-label` names the original date.
-6. A user without `customers.deals.manage` sees no drag affordance and no Change close date action, and Enter opens the deal.
-7. Closed deals: under All deals, a won deal has no drag affordance and no Change close date action. Regression: the CRM summary's won count for the current quarter is unchanged after the page is used to reschedule an open deal next to it.
+5. Drawer: Change close date from an open drawer moves the card; the drawer shows the new date. With the drawer open, dragging the same deal updates the drawer's date, and a following Mark won from the drawer succeeds (no stale-version 409).
+6. Conflict: after the deal is updated through the API behind the page's back, a drag shows the record-conflict bar, the card returns to its origin, and its `aria-label` names the original date.
+7. A user without `customers.deals.manage` sees no drag affordance and no Change close date action (card menu, drawer or popover), and Enter opens the drawer with no mutating actions.
+8. Closed deals: under All deals, a won deal has no drag affordance and no Change close date action on the card or in its drawer. Regression: the CRM summary's won count for the current quarter is unchanged after the page is used to reschedule an open deal next to it.
 
 ## 📝 Risks & Impact Review
 
@@ -593,7 +604,7 @@ Endpoint cost: the filter build runs once. Each column is up to 3 OFFSET pages o
 - **Scenario:** a won deal is rescheduled in a later quarter; its `updated_at` moves, and the summary reports count the win in the wrong quarter.
 - **Severity:** Medium
 - **Affected area:** CRM win/loss summary reports and closure statistics.
-- **Mitigation:** the timeline offers no reschedule for closed deals (v1), covered by TL-003 §7. A stable closure date is a separate follow-up.
+- **Mitigation:** the timeline offers no reschedule for closed deals (v1), covered by TL-003 §8. A stable closure date is a separate follow-up.
 - **Residual risk:** Low. Other edit paths (the deal form) can still bump `updated_at` on closed deals, as they do today.
 
 #### Saved-view payload drift
@@ -699,13 +710,14 @@ Draft, ready for review. No non-compliant items.
 ### 2026-11-02
 - Design review on PR #7999 (changes requested, 12 points plus one prototype bug; all addressed). Decisions agreed with the author:
   - **1:** minimum column width (`12rem`), horizontal scrolling with a pinned lane-header column; 1024 px and 200% zoom in the visual acceptance and TL-002.
-  - **2:** click and Enter always open the deal; an explicit Change close date action on the card menu and on "+N more" popover rows.
+  - **2:** click and Enter always open the deal (in the drawer, see below); an explicit Change close date action on the card menu, in the drawer and on "+N more" popover rows.
   - **3:** when the new date isn't visible, the view stays, the flash offers Show deal, and focus goes to that action.
   - **4:** a visible Hide closed deals / All deals toggle replaces the hidden default; reset and saved-view rules defined.
   - **5:** `buildTimelineHrefFromList` carries the supported List conditions and names the dropped ones; "New deal" returns to the full timeline URL.
   - **6:** `scopeHasDeals` separates first run from no results; four organization cases covered.
   - **7:** truncation alert says owners may be missing, partial counts render as "{n}+", and Open in List covers the whole period.
-  - **8:** `TimelineDealPreview` with activity, days in stage and stalled flag, reusing the existing follow-up, stage and closure actions.
+  - **8:** the deal drawer carries activity, days in stage and the stalled flag, reusing the existing follow-up, stage and closure actions.
+  - **Deal drawer (author decision):** click and Enter open `TimelineDealDrawer` instead of navigating to the details page. Summary and existing actions only, no edit form (keeps closed deals view-only); `?deal=<id>` URL state; Open full page and modified clicks reach the details page; focus return, overlay on narrow screens, re-read after writes for optimistic locking.
   - **9:** closed deals are view-only on the board until reporting has a stable closure date; regression test added.
   - **10/11:** new "CRM and Sales Workflow Consistency" section: no deal↔Sales link today, status ownership, reschedule scope, and the follow-up integration flow.
   - **12:** the undated journey is an integration test; repeated postponements listed as a follow-up.

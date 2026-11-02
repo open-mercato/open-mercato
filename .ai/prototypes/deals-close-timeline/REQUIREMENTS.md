@@ -61,7 +61,9 @@ row by row. Slipped or bunched-up deals get missed.
   - AC: cards in one cell are sorted by date, then id (amounts in different currencies aren't
     comparable). With more than 3 in a cell, a "+N more" button opens a popover listing all of them
     with dates.
-  - AC: clicking a deal, or pressing Enter on it, opens the existing deal detail page.
+  - AC: clicking a deal, or pressing Enter on it, opens a deal drawer over the timeline (summary,
+    activity, days in stage, stalled flag and the existing actions), with "Open full page" for the
+    deal detail page. The open deal is kept in the URL.
   - AC: columns keep a readable minimum width; on narrow screens the board scrolls horizontally and
     lane names stay visible.
 - **US-A2** As a sales manager, I want to switch columns between weeks, months, and quarters, so
@@ -109,7 +111,7 @@ row by row. Slipped or bunched-up deals get missed.
   - AC: Esc during a drag cancels it, and the card returns to its origin.
   - AC: dropping into the original column does nothing and makes no request.
 - **US-C2** As a keyboard user, I want to reschedule without a mouse.
-  - AC: a "Change close date" action on the card menu, and on each "+N more" popover row, opens a
+  - AC: a "Change close date" action on the card menu, in the deal drawer, and on each "+N more" popover row, opens a
     dialog containing a date input. This is also the path for picking an exact day. When the new
     date isn't visible, the view stays and the flash offers "Show deal", which receives focus. `Cmd/Ctrl+Enter` saves and `Escape` cancels.
     Arrow Up/Down move focus within a cell, and Left/Right move it across columns.
