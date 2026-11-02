@@ -160,27 +160,7 @@ class CommandRegistry {
   }
 }
 
-// Use globalThis to survive tsx/esbuild module duplication: a standalone
-// integration test bootstraps the app through the source path while the app's
-// generated lazy command loaders import node_modules/@open-mercato/shared/dist/,
-// so two module-local registries would split handlers from the bus resolving them.
-// Mirrors the modules registry in `../modules/registry.ts`.
-const COMMAND_REGISTRY_GLOBAL_KEY = '__openMercatoCommandRegistry__'
-
-type CommandRegistryGlobalScope = typeof globalThis & {
-  [COMMAND_REGISTRY_GLOBAL_KEY]?: CommandRegistry
-}
-
-function resolveSharedCommandRegistry(): CommandRegistry {
-  const scope = globalThis as CommandRegistryGlobalScope
-  const existing = scope[COMMAND_REGISTRY_GLOBAL_KEY]
-  if (existing) return existing
-  const created = new CommandRegistry()
-  scope[COMMAND_REGISTRY_GLOBAL_KEY] = created
-  return created
-}
-
-export const commandRegistry = resolveSharedCommandRegistry()
+export const commandRegistry = new CommandRegistry()
 
 export function registerCommand(handler: CommandHandler) {
   commandRegistry.register(handler)

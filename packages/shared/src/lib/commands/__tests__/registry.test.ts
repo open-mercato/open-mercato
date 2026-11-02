@@ -170,25 +170,3 @@ describe('command registry registration', () => {
     expect(commandRegistry.get('test.command.sibling')).not.toBeNull()
   })
 })
-
-describe('command registry module duplication', () => {
-  it('shares one registry across duplicated module instances', async () => {
-    const commandId = 'registry_duplication_probe.thing.create'
-    let duplicate: typeof import('../registry') | undefined
-    jest.isolateModules(() => {
-      duplicate = jest.requireActual<typeof import('../registry')>('../registry')
-    })
-    expect(duplicate).toBeDefined()
-    expect(duplicate!.commandRegistry).toBe(commandRegistry)
-
-    const handler = { id: commandId, execute: async () => ({ ok: true }) }
-    duplicate!.registerCommand(handler)
-    try {
-      expect(commandRegistry.get(commandId)).toBe(handler)
-      expect(await commandRegistry.load(commandId)).toBe(handler)
-    } finally {
-      duplicate!.commandRegistry.unregister(commandId)
-    }
-    expect(commandRegistry.get(commandId)).toBeNull()
-  })
-})
