@@ -113,3 +113,31 @@ export async function getPendingSuggestion(
   const body = await readJsonSafe<{ items?: SuggestionDto[] }>(response)
   return body?.items?.[0] ?? null
 }
+
+export const BULK_PATH = '/api/catalog/ai-categorization/bulk'
+export const BULK_QUEUE_NAME = 'catalog-product-ai-categorize'
+
+export async function startBulkCategorization(
+  request: APIRequestContext,
+  token: string,
+  productIds: string[],
+): Promise<{ status: number; progressJobId: string | null }> {
+  const response = await apiRequest(request, 'POST', BULK_PATH, {
+    token,
+    data: { productIds, scope: 'selected' },
+  })
+  const body = await readJsonSafe<{ progressJobId?: string | null }>(response)
+  return { status: response.status(), progressJobId: body?.progressJobId ?? null }
+}
+
+export async function listSuggestions(
+  request: APIRequestContext,
+  token: string,
+  query: Record<string, string>,
+): Promise<SuggestionDto[]> {
+  const params = new URLSearchParams({ pageSize: '100', ...query })
+  const response = await apiRequest(request, 'GET', `${SUGGESTIONS_PATH}?${params.toString()}`, { token })
+  expect(response.ok(), `GET ${SUGGESTIONS_PATH} failed: ${response.status()}`).toBeTruthy()
+  const body = await readJsonSafe<{ items?: SuggestionDto[] }>(response)
+  return body?.items ?? []
+}
