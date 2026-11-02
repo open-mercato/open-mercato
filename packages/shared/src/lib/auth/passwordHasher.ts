@@ -69,7 +69,7 @@ export const DEFAULT_ARGON2ID_PARAMS: Readonly<Argon2idParams> = Object.freeze({
 // bcrypt timing floor is unchanged (issue #2242).
 const BCRYPT_TIMING_EQUALIZER_HASH = '$2b$10$OcZrhmZpIzJOjkfwUrk7d.Nl0eHNzOvalBcBlt5Ran.4lj8R3HZg6'
 
-const BCRYPT_PREFIX = /^\$2[aby]\$(\d{2})\$/
+const BCRYPT_HASH = /^\$2[aby]\$(\d{2})\$[./A-Za-z0-9]{53}$/
 const ARGON2_VERSION = 19
 const ARGON2_SALT_MIN_BYTES = 16
 const ARGON2_OUTPUT_BYTES = 32
@@ -81,7 +81,7 @@ const logger = createLogger('auth').child({ component: 'password-hasher' })
 
 export function detectPasswordHashAlgorithm(storedHash: string | null | undefined): PasswordHashAlgorithm | null {
   if (typeof storedHash !== 'string') return null
-  if (BCRYPT_PREFIX.test(storedHash)) return 'bcrypt'
+  if (BCRYPT_HASH.test(storedHash)) return 'bcrypt'
   if (storedHash.startsWith('$argon2id$')) return 'argon2id'
   return null
 }
@@ -270,10 +270,17 @@ export function createPasswordHasher(
       // A missing Argon2 implementation is an operator error and must surface,
       // not masquerade as a wrong password.
       const argon2 = await getArgon2()
+      if (!parseArgon2idHash(storedHash)) {
+        await verifyArgon2TimingHash(password)
+        await bcryptCompare(password, BCRYPT_TIMING_EQUALIZER_HASH)
+        return false
+      }
       try {
         if (await argon2.verify(storedHash, password)) return true
       } catch {
-        // Malformed Argon2id hashes still receive the complete failed-auth work profile.
+        await verifyArgon2TimingHash(password)
+        await bcryptCompare(password, BCRYPT_TIMING_EQUALIZER_HASH)
+        return false
       }
       // On a cold process, the unknown-account path creates its dummy Argon2id
       // hash before verifying it. Create the same cached hash here so a failed
@@ -282,9 +289,8 @@ export function createPasswordHasher(
       await bcryptCompare(password, BCRYPT_TIMING_EQUALIZER_HASH)
       return false
     }
-    // bcryptjs rejects values that are not valid bcrypt hashes. A failed or
-    // unknown hash then pays the Argon2id side of the same mixed-algorithm profile.
-    if (await bcryptCompare(password, storedHash)) return true
+    const bcryptHash = algorithm === 'bcrypt' ? storedHash : BCRYPT_TIMING_EQUALIZER_HASH
+    if (await bcryptCompare(password, bcryptHash)) return true
     await verifyArgon2TimingHash(password)
     return false
   }

@@ -300,6 +300,46 @@ describe('createPasswordHasher', () => {
     },
   )
 
+  it.each([
+    ['malformed Argon2id', '$argon2id$garbage'],
+    ['unknown', 'legacy-or-corrupted-hash'],
+  ])('gives %s stored hashes the cold and warm dummy Argon2id profile', async (_label, storedHash) => {
+    const timingHash = argon2Hash()
+    const argon2 = {
+      hash: jest.fn(async () => timingHash),
+      verify: jest.fn(async () => false),
+    }
+    const hasher = createPasswordHasher(config(), { loadArgon2: async () => argon2 })
+
+    await expect(hasher.verify('wrong', storedHash)).resolves.toBe(false)
+    expect(argon2.hash).toHaveBeenCalledTimes(1)
+    expect(argon2.verify).toHaveBeenCalledTimes(1)
+    expect(argon2.verify).toHaveBeenLastCalledWith(timingHash, 'wrong')
+
+    await expect(hasher.verify('wrong again', storedHash)).resolves.toBe(false)
+    expect(argon2.hash).toHaveBeenCalledTimes(1)
+    expect(argon2.verify).toHaveBeenCalledTimes(2)
+    expect(argon2.verify).toHaveBeenLastCalledWith(timingHash, 'wrong again')
+  })
+
+  it('falls back to the dummy profile when a structurally valid Argon2id verification throws', async () => {
+    const storedHash = argon2Hash()
+    const timingHash = argon2Hash(FAST_ARGON2, phcBase64(16, 3), phcBase64(32, 4))
+    const argon2 = {
+      hash: jest.fn(async () => timingHash),
+      verify: jest.fn(async (candidate: string) => {
+        if (candidate === storedHash) throw new Error('verification failed')
+        return false
+      }),
+    }
+    const hasher = createPasswordHasher(config(), { loadArgon2: async () => argon2 })
+
+    await expect(hasher.verify('wrong', storedHash)).resolves.toBe(false)
+    expect(argon2.hash).toHaveBeenCalledTimes(1)
+    expect(argon2.verify).toHaveBeenCalledTimes(2)
+    expect(argon2.verify).toHaveBeenLastCalledWith(timingHash, 'wrong')
+  })
+
   it('surfaces a missing Argon2 implementation instead of reporting a wrong password', async () => {
     const loadArgon2 = jest.fn(async () => {
       throw new Error('Argon2id password hashing needs the "@node-rs/argon2" package')
