@@ -197,6 +197,10 @@ describe('TimeEntryProjectField', () => {
     renderField()
 
     expect((await screen.findByTestId('entry-dialog-project-empty')).textContent).toBe('No projects you can log time to.')
+    expect(mockApiCall).toHaveBeenCalledWith(
+      expect.stringContaining('status=active'),
+      { headers: { 'x-om-forbidden-redirect': '0' } },
+    )
   })
 
   it('shows no empty state when an active project is reachable', async () => {

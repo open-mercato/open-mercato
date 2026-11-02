@@ -441,4 +441,36 @@ test.describe('TC-TT-024: TimeEntryDialog project mode', () => {
       await removeSelfStaffMemberIfCreated(request, adminToken, adminMember)
     }
   })
+
+  test('shows the empty project state when the project directory is refused', async ({ page, request }) => {
+    test.setTimeout(120_000)
+
+    const adminToken = await getAuthToken(request, 'admin')
+    const original = await readSettings(request, adminToken)
+    let sawSuppressedProjectRefusal = false
+
+    try {
+      await writeEntryMode(request, adminToken, original, 'project')
+      await login(page, 'employee')
+      await page.route('**/api/staff/timesheets/time-projects?**', async (route) => {
+        sawSuppressedProjectRefusal = route.request().headers()['x-om-forbidden-redirect'] === '0'
+        await route.fulfill({
+          status: 403,
+          contentType: 'application/json',
+          body: JSON.stringify({ error: 'Forbidden', requiredFeatures: ['staff.view'] }),
+        })
+      })
+
+      await openAddEntryDialog(page)
+
+      const empty = page.getByTestId('entry-dialog-project-empty')
+      await expect(empty).toHaveText('No projects you can log time to.')
+      const emptyId = await empty.getAttribute('id')
+      if (!emptyId) throw new Error('[internal] The project empty state must have an id.')
+      await expect(projectCombobox(page)).toHaveAttribute('aria-describedby', emptyId)
+      expect(sawSuppressedProjectRefusal).toBe(true)
+    } finally {
+      await restoreEntryMode(request, adminToken, original)
+    }
+  })
 })

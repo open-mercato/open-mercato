@@ -20,7 +20,10 @@ async function fetchProjectOptions(term: string): Promise<ProjectOption[]> {
     status: 'active',
   })
   if (term) params.set('q', term)
-  const call = await apiCall<Record<string, unknown>>(`/api/staff/timesheets/time-projects?${params.toString()}`)
+  const call = await apiCall<Record<string, unknown>>(
+    `/api/staff/timesheets/time-projects?${params.toString()}`,
+    { headers: { 'x-om-forbidden-redirect': '0' } },
+  )
   if (!call.ok) return []
   return readRowItems(call.result)
     .map(toProjectOption)
