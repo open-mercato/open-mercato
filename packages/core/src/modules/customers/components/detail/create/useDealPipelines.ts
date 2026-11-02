@@ -53,16 +53,20 @@ export function useDealPipelines(): UseDealPipelinesResult {
     }
   }, [])
 
+  const latestStagesRequest = React.useRef(0)
+
   const loadStages = React.useCallback(async (pipelineId: string) => {
-    if (!pipelineId) {
-      if (mountedRef.current) setStages([])
-      return
-    }
+    const requestId = ++latestStagesRequest.current
+    const isCurrent = () => mountedRef.current && requestId === latestStagesRequest.current
+    // Cleared up front: stages of the previous pipeline must never be offered, or preselected,
+    // for the newly chosen one while its own stages load.
+    if (mountedRef.current) setStages([])
+    if (!pipelineId) return
     try {
       const call = await apiCall<{ items: PipelineStageOption[] }>(
         `/api/customers/pipeline-stages?pipelineId=${encodeURIComponent(pipelineId)}`,
       )
-      if (!mountedRef.current) return
+      if (!isCurrent()) return
       if (call.ok && call.result?.items) {
         const sorted = [...call.result.items].sort((a, b) => a.order - b.order)
         setStages(sorted)
@@ -70,7 +74,7 @@ export function useDealPipelines(): UseDealPipelinesResult {
         setStages([])
       }
     } catch {
-      if (mountedRef.current) setStages([])
+      if (isCurrent()) setStages([])
     }
   }, [])
 
