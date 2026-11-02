@@ -63,6 +63,7 @@ export function mapInteractionRecordToTodoSummary(interaction: InteractionRecord
     todoId: interaction.id,
     todoSource: CUSTOMER_INTERACTION_TASK_SOURCE,
     createdAt: interaction.createdAt,
+    updatedAt: interaction.updatedAt,
     title: interaction.title ?? null,
     isDone: interaction.status === 'done',
     status: interaction.status,
