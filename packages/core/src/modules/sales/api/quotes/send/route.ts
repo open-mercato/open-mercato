@@ -7,6 +7,7 @@ import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/di
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { resolveTranslations, detectLocale } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError, isCrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
+import { invalidateCrudCache } from '@open-mercato/shared/lib/crud/cache'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -61,15 +62,30 @@ async function resolveRequestContext(req: Request): Promise<RequestContext> {
   return { ctx }
 }
 
-function resolveQuoteEmail(quote: SalesQuote): string | null {
-  const normalizeRecord = (value: unknown): Record<string, unknown> | null => {
-    if (value && typeof value === 'object' && !Array.isArray(value)) return value as Record<string, unknown>
-    if (typeof value !== 'string') return null
-    const parsed = parseDecryptedFieldValue(value)
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-      ? parsed as Record<string, unknown>
-      : null
+function normalizeRecord(value: unknown): Record<string, unknown> | null {
+  if (value && typeof value === 'object' && !Array.isArray(value)) return value as Record<string, unknown>
+  if (typeof value !== 'string') return null
+  const parsed = parseDecryptedFieldValue(value)
+  return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+    ? parsed as Record<string, unknown>
+    : null
+}
+
+/** Lower-cased, de-duplicated CC list without the primary recipient (#8460). */
+function resolveCcRecipients(requested: string[], primary: string): string[] {
+  const primaryKey = primary.trim().toLowerCase()
+  const seen = new Set<string>()
+  const result: string[] = []
+  for (const entry of requested) {
+    const key = entry.trim().toLowerCase()
+    if (!key || key === primaryKey || seen.has(key)) continue
+    seen.add(key)
+    result.push(entry.trim())
   }
+  return result
+}
+
+function resolveQuoteEmail(quote: SalesQuote): string | null {
   const snapshot = normalizeRecord(quote.customerSnapshot)
   const metadata = normalizeRecord(quote.metadata)
   const contact = snapshot?.contact as Record<string, unknown> | undefined
@@ -133,6 +149,7 @@ export async function POST(req: Request) {
     if (!email) {
       throw new CrudHttpError(400, { error: translate('sales.quotes.send.missingEmail', 'Customer email is required to send a quote.') })
     }
+    const cc = resolveCcRecipients(input.cc, email)
 
     const now = new Date()
     const validUntil = new Date(now)
@@ -153,9 +170,20 @@ export async function POST(req: Request) {
         organizationId: quote.organizationId,
         value: 'sent',
       })
+      quote.metadata = { ...(normalizeRecord(quote.metadata) ?? {}), recipients: { cc } }
       quote.updatedAt = now
       tx.persist(quote)
     })
+
+    // The quotes list is served from the CRUD GET cache; a custom route has to flush it
+    // itself, or the list keeps reporting the quote as unsent until the entry expires.
+    await invalidateCrudCache(
+      ctx.container,
+      'sales.quote',
+      { id: quote.id, tenantId: quote.tenantId, organizationId: quote.organizationId },
+      quote.tenantId ?? null,
+      'updated',
+    )
 
     const appUrl = process.env.APP_URL || ''
     const url = appUrl ? `${appUrl.replace(/\/$/, '')}/quote/${rawAcceptanceToken}` : `/quote/${rawAcceptanceToken}`
@@ -182,6 +210,7 @@ export async function POST(req: Request) {
     // Side effect after commit: an email failure must not roll back the send state.
     await sendEmail({
       to: email,
+      cc,
       subject: translate('sales.quotes.email.subject', 'Quote {quoteNumber}', { quoteNumber: quote.quoteNumber }),
       react: QuoteSentEmail({ url, copy }),
       tenantId: quote.tenantId,

@@ -293,6 +293,7 @@ export async function sendSystemEmail(
     bodyFormat: body.bodyFormat,
     channelMetadata: {
       to: payload.to,
+      cc: payload.cc?.length ? payload.cc : undefined,
       subject: payload.subject,
       from: resolveOutboundFromAddress(payload, credentials),
       replyTo: payload.replyTo,
