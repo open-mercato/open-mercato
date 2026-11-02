@@ -26,6 +26,7 @@
 | 7 | 7.2 | Docs page in apps/docs (spec step 17) | dispatch | done | f6148e197d |
 | 8 | 8.1 | Spec sync, PR body update, full gate | inline | done | 867ec9e7ba |
 | 8 | 8.2-review-fix | Worker must not rethrow after failJob; fail the progress job when enqueue fails | inline | done | 472a06e644 |
+| 8 | 8.3-qa-fix | Product card shows suggested category names instead of ids | inline | done | — |
 
 **Source doc:** `.ai/specs/2026-10-28-catalog-ai-product-categorization.md`
 **Spec PR:** adeptofvoltron/open-mercato#17 (design only). This plan's PR is the separate **implementation PR**, so the spec-only guard of `om-auto-continue-pr` does not apply to it.

@@ -14,6 +14,7 @@ import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider
 import { hasFeature } from '@open-mercato/shared/security/features'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import type { ProductCategorizePickerOption } from './ProductCategorizeSection'
 
 const logger = createLogger('catalog')
 
@@ -40,12 +41,17 @@ type SuggestResponse = {
 type ListResponse = { items?: CategorySuggestion[] }
 type AcceptResponse = { suggestion: CategorySuggestion; product: { id: string; categoryIds: string[]; updatedAt: string } }
 
+type CategoryLabelLookupResponse = {
+  items?: Array<{ id: string; name?: string | null; pathLabel?: string | null }>
+}
+
 type CategorySuggestionCardProps = {
   productId: string
   categoryIds: string[]
   initialCategoryIds: string[]
   setValue: (id: string, value: unknown) => void
   resolveCategoryLabel: (id: string) => string
+  registerCategoryOptions: (options: ProductCategorizePickerOption[]) => void
 }
 
 function portErrorMessageKey(code: string | undefined): string {
@@ -68,6 +74,7 @@ export function CategorySuggestionCard({
   initialCategoryIds,
   setValue,
   resolveCategoryLabel,
+  registerCategoryOptions,
 }: CategorySuggestionCardProps) {
   const t = useT()
   const { payload, isReady } = useBackendChrome()
@@ -112,6 +119,47 @@ export function CategorySuggestionCard({
     void loadStatus()
     void loadPending()
   }, [loadStatus, loadPending])
+
+  const requestedLabelIds = React.useRef<Set<string>>(new Set())
+  React.useEffect(() => {
+    if (!suggestion) return
+    const lastLevel = suggestion.levels[suggestion.levels.length - 1]
+    const referencedIds = [
+      ...suggestion.categoryPathIds,
+      ...(lastLevel ? lastLevel.alternatives.map((alternative) => alternative.categoryId) : []),
+    ]
+    const missingIds = Array.from(new Set(referencedIds)).filter(
+      (id) => resolveCategoryLabel(id) === id && !requestedLabelIds.current.has(id),
+    )
+    if (!missingIds.length) return
+    missingIds.forEach((id) => requestedLabelIds.current.add(id))
+    let cancelled = false
+    const loadLabels = async () => {
+      try {
+        const lookup = await readApiResultOrThrow<CategoryLabelLookupResponse>(
+          `/api/catalog/categories?view=manage&ids=${encodeURIComponent(missingIds.join(','))}&pageSize=100`,
+          undefined,
+          { errorMessage: '[internal] failed to load suggested category labels', fallback: { items: [] } },
+        )
+        if (cancelled) return
+        const options = (lookup.items ?? [])
+          .filter((item) => typeof item.id === 'string' && item.id.length > 0)
+          .map((item) => ({
+            value: item.id,
+            label: (item.name ?? item.pathLabel ?? item.id) || item.id,
+            description: item.pathLabel ?? null,
+          }))
+        if (options.length) registerCategoryOptions(options)
+      } catch (err) {
+        missingIds.forEach((id) => requestedLabelIds.current.delete(id))
+        logger.error('catalog.products.create.organize.aiSuggestion.labels failed', { err })
+      }
+    }
+    void loadLabels()
+    return () => {
+      cancelled = true
+    }
+  }, [suggestion, resolveCategoryLabel, registerCategoryOptions])
 
   const handleSuggest = React.useCallback(async () => {
     setLoading(true)

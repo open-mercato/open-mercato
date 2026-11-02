@@ -85,6 +85,10 @@ export function ProductCategorizeSection({
     }
   }, [initialTagOptions, registerPickerOptions])
 
+  const registerCategoryOptions = React.useCallback(
+    (options: ProductCategorizePickerOption[]) => registerPickerOptions(setCategoryOptionsMap, options),
+    [registerPickerOptions],
+  )
   const resolveCategoryLabel = React.useCallback(
     (id: string) => categoryOptionsMap[id]?.label ?? id,
     [categoryOptionsMap],
@@ -237,6 +241,7 @@ export function ProductCategorizeSection({
           initialCategoryIds={initialCategoryIds ?? []}
           setValue={setValue}
           resolveCategoryLabel={resolveCategoryLabel}
+          registerCategoryOptions={registerCategoryOptions}
         />
       ) : null}
 
