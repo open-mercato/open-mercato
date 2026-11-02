@@ -25,7 +25,18 @@ type DocumentKind = 'order' | 'quote'
 type LineRecord = Record<string, unknown>
 type DocumentRecord = Record<string, unknown>
 
-const GROSS_ONLY_LINE = { quantity: 1, unitPriceGross: 123, taxRate: 23, discountPercent: 10 }
+const GROSS_ONLY_CASES = [
+  {
+    label: 'an exactly representable net price',
+    line: { quantity: 1, unitPriceGross: 123, taxRate: 23, discountPercent: 10 },
+    expected: { unitNet: 100, discount: 10, net: 90, tax: 20.7, gross: 110.7 },
+  },
+  {
+    label: 'a net price that rounds to the database scale',
+    line: { quantity: 1000, unitPriceGross: 1, taxRate: 19, discountPercent: 10 },
+    expected: { unitNet: 0.8403, discount: 84.03, net: 756.27, tax: 143.6913, gross: 899.9613 },
+  },
+] as const
 
 function amount(record: Record<string, unknown>, snakeKey: string, camelKey: string): number {
   return Number(record[snakeKey] ?? record[camelKey] ?? Number.NaN)
@@ -66,78 +77,104 @@ async function readDocument(
   return (body.items as DocumentRecord[])[0]
 }
 
-function expectGrossOnlyLine(line: LineRecord | undefined, label: string) {
+function expectGrossOnlyLine(
+  line: LineRecord | undefined,
+  label: string,
+  expected: (typeof GROSS_ONLY_CASES)[number]['expected'],
+) {
   expect(line, `${label}: the gross-only line should come back from the list route`).toBeTruthy()
   const record = line as LineRecord
-  expect(amount(record, 'unit_price_net', 'unitPriceNet'), `${label}: unit net before the discount`).toBeCloseTo(100, 4)
-  expect(amount(record, 'total_net_amount', 'totalNetAmount'), `${label}: line net`).toBeCloseTo(90, 4)
-  expect(amount(record, 'tax_amount', 'taxAmount'), `${label}: line tax`).toBeCloseTo(20.7, 4)
-  expect(amount(record, 'total_gross_amount', 'totalGrossAmount'), `${label}: line gross`).toBeCloseTo(110.7, 4)
+  expect(amount(record, 'unit_price_net', 'unitPriceNet'), `${label}: unit net before the discount`).toBeCloseTo(
+    expected.unitNet,
+    4,
+  )
+  expect(amount(record, 'discount_amount', 'discountAmount'), `${label}: line discount`).toBeCloseTo(
+    expected.discount,
+    4,
+  )
+  expect(amount(record, 'total_net_amount', 'totalNetAmount'), `${label}: line net`).toBeCloseTo(expected.net, 4)
+  expect(amount(record, 'tax_amount', 'taxAmount'), `${label}: line tax`).toBeCloseTo(expected.tax, 4)
+  expect(amount(record, 'total_gross_amount', 'totalGrossAmount'), `${label}: line gross`).toBeCloseTo(expected.gross, 4)
 }
 
 test.describe('TC-SALES-8232: gross-only discounted lines keep their totals on the next recalculation', () => {
   for (const documentKind of ['order', 'quote'] as const) {
-    test(`${documentKind}: adding an untaxed line leaves the gross-only line and the totals unchanged`, async ({ request }) => {
-      const token = await getAuthToken(request, 'admin')
-      test.skip(!(await canManageSalesOrders(request, token)), 'sales.orders.manage not granted on this tenant')
+    for (const grossOnlyCase of GROSS_ONLY_CASES) {
+      test(`${documentKind}: ${grossOnlyCase.label} stays stable after adding a line`, async ({ request }) => {
+        const token = await getAuthToken(request, 'admin')
+        test.skip(!(await canManageSalesOrders(request, token)), 'sales.orders.manage not granted on this tenant')
 
-      let documentId: string | null = null
-      try {
-        const createRes = await apiRequest(request, 'POST', `/api/sales/${documentKind}s`, {
-          token,
-          retryTransport: false,
-          data: {
-            currencyCode: 'USD',
-            lines: [{ currencyCode: 'USD', name: `TC-SALES-8232 gross-only line ${Date.now()}`, ...GROSS_ONLY_LINE }],
-          },
-        })
-        expect(createRes.status(), `POST ${documentKind} failed: ${createRes.status()}`).toBe(201)
-        const created = await readJsonSafe<{ id?: string }>(createRes)
-        documentId = expectId(created?.id, `Created ${documentKind} must have an id`)
-
-        const createdLines = await readLines(request, token, documentKind, documentId)
-        expect(createdLines).toHaveLength(1)
-        const grossOnlyLineId = createdLines[0].id
-        expectGrossOnlyLine(createdLines[0], 'after create')
-
-        const upsertRes = await apiRequest(request, 'POST', `/api/sales/${documentKind}-lines`, {
-          token,
-          data: {
-            [`${documentKind}Id`]: documentId,
-            currencyCode: 'USD',
-            kind: 'product',
-            quantity: 1,
-            unitPriceNet: 10,
-            unitPriceGross: 10,
-            taxRate: 0,
-            name: `TC-SALES-8232 untaxed line ${Date.now()}`,
-          },
-        })
-        expect(upsertRes.ok(), `POST ${documentKind}-line failed: ${upsertRes.status()}`).toBeTruthy()
-
-        const linesAfter = await readLines(request, token, documentKind, documentId)
-        expect(linesAfter).toHaveLength(2)
-        expectGrossOnlyLine(
-          linesAfter.find((line) => line.id === grossOnlyLineId),
-          'after adding another line',
-        )
-
-        const document = await readDocument(request, token, documentKind, documentId)
-        expect(amount(document, 'grand_total_net_amount', 'grandTotalNetAmount'), 'document net').toBeCloseTo(100, 4)
-        expect(amount(document, 'tax_total_amount', 'taxTotalAmount'), 'document tax').toBeCloseTo(20.7, 4)
-        expect(amount(document, 'grand_total_gross_amount', 'grandTotalGrossAmount'), 'document gross').toBeCloseTo(
-          120.7,
-          4,
-        )
-      } finally {
-        if (documentId) {
-          const deleteRes = await apiRequest(request, 'DELETE', `/api/sales/${documentKind}s`, {
+        let documentId: string | null = null
+        try {
+          const createRes = await apiRequest(request, 'POST', `/api/sales/${documentKind}s`, {
             token,
-            data: { id: documentId },
+            retryTransport: false,
+            data: {
+              currencyCode: 'USD',
+              lines: [
+                {
+                  currencyCode: 'USD',
+                  name: `TC-SALES-8232 gross-only line ${Date.now()}`,
+                  ...grossOnlyCase.line,
+                },
+              ],
+            },
           })
-          expect(deleteRes.ok(), `DELETE ${documentKind} failed: ${deleteRes.status()}`).toBeTruthy()
+          expect(createRes.status(), `POST ${documentKind} failed: ${createRes.status()}`).toBe(201)
+          const created = await readJsonSafe<{ id?: string }>(createRes)
+          documentId = expectId(created?.id, `Created ${documentKind} must have an id`)
+
+          const createdLines = await readLines(request, token, documentKind, documentId)
+          expect(createdLines).toHaveLength(1)
+          const grossOnlyLineId = createdLines[0].id
+          expectGrossOnlyLine(createdLines[0], 'after create', grossOnlyCase.expected)
+
+          const upsertRes = await apiRequest(request, 'POST', `/api/sales/${documentKind}-lines`, {
+            token,
+            data: {
+              [`${documentKind}Id`]: documentId,
+              currencyCode: 'USD',
+              kind: 'product',
+              quantity: 1,
+              unitPriceNet: 10,
+              unitPriceGross: 10,
+              taxRate: 0,
+              name: `TC-SALES-8232 untaxed line ${Date.now()}`,
+            },
+          })
+          expect(upsertRes.ok(), `POST ${documentKind}-line failed: ${upsertRes.status()}`).toBeTruthy()
+
+          const linesAfter = await readLines(request, token, documentKind, documentId)
+          expect(linesAfter).toHaveLength(2)
+          expectGrossOnlyLine(
+            linesAfter.find((line) => line.id === grossOnlyLineId),
+            'after adding another line',
+            grossOnlyCase.expected,
+          )
+
+          const document = await readDocument(request, token, documentKind, documentId)
+          expect(amount(document, 'grand_total_net_amount', 'grandTotalNetAmount'), 'document net').toBeCloseTo(
+            grossOnlyCase.expected.net + 10,
+            4,
+          )
+          expect(amount(document, 'tax_total_amount', 'taxTotalAmount'), 'document tax').toBeCloseTo(
+            grossOnlyCase.expected.tax,
+            4,
+          )
+          expect(amount(document, 'grand_total_gross_amount', 'grandTotalGrossAmount'), 'document gross').toBeCloseTo(
+            grossOnlyCase.expected.gross + 10,
+            4,
+          )
+        } finally {
+          if (documentId) {
+            const deleteRes = await apiRequest(request, 'DELETE', `/api/sales/${documentKind}s`, {
+              token,
+              data: { id: documentId },
+            })
+            expect(deleteRes.ok(), `DELETE ${documentKind} failed: ${deleteRes.status()}`).toBeTruthy()
+          }
         }
-      }
-    })
+      })
+    }
   }
 })

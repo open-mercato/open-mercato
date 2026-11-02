@@ -313,4 +313,38 @@ describe.each([
     expect(num(stored.taxAmount)).toBeCloseTo(20.7, 4)
     expect(num(stored.totalGrossAmount)).toBeCloseTo(110.7, 4)
   })
+
+  it('calculates totals from the four-decimal unit net that a gross-only line persists', async () => {
+    const { createdLines, ctx } = buildHarness()
+    const handler = commandRegistry.get<unknown, unknown>(commandId)
+    expect(handler).toBeTruthy()
+
+    await handler!.execute(
+      {
+        organizationId: TEST_ORG_ID,
+        tenantId: TEST_TENANT_ID,
+        currencyCode: 'USD',
+        lines: [
+          {
+            kind: 'product',
+            name: 'Discounted item with a repeating net price',
+            currencyCode: 'USD',
+            quantity: 1000,
+            unitPriceGross: 1,
+            taxRate: 19,
+            discountPercent: 10,
+          },
+        ],
+      } as never,
+      ctx,
+    )
+
+    expect(createdLines).toHaveLength(1)
+    const stored = createdLines[0]
+    expect(num(stored.unitPriceNet)).toBeCloseTo(0.8403, 4)
+    expect(num(stored.discountAmount)).toBeCloseTo(84.03, 4)
+    expect(num(stored.totalNetAmount)).toBeCloseTo(756.27, 4)
+    expect(num(stored.taxAmount)).toBeCloseTo(143.6913, 4)
+    expect(num(stored.totalGrossAmount)).toBeCloseTo(899.9613, 4)
+  })
 })

@@ -595,4 +595,62 @@ describe.each([
     expect(num(document.taxTotalAmount)).toBeCloseTo(20.7, 4)
     expect(num(document.grandTotalGrossAmount)).toBeCloseTo(120.7, 4)
   })
+
+  it('keeps a rounded gross-derived unit net stable when another line is upserted', async () => {
+    const [createdLine, createdOtherLine] = await runDocumentCreate(createCommandId, [
+      {
+        kind: 'product',
+        lineNumber: 1,
+        name: 'Discounted item with a repeating net price',
+        currencyCode: 'USD',
+        quantity: 1000,
+        unitPriceGross: 1,
+        taxRate: 19,
+        discountPercent: 10,
+      },
+      {
+        kind: 'product',
+        lineNumber: 2,
+        name: 'Other item',
+        currencyCode: 'USD',
+        quantity: 1,
+        unitPriceNet: 10,
+        unitPriceGross: 10,
+        taxRate: 0,
+      },
+    ])
+
+    setWorld([
+      { ...createdLine, id: UNTOUCHED_LINE_ID, updatedAt: new Date() },
+      { ...createdOtherLine, id: EDITED_LINE_ID, updatedAt: new Date() },
+    ])
+
+    const lines = await runUpsert(
+      {
+        id: EDITED_LINE_ID,
+        [documentIdField]: ORDER_ID,
+        organizationId: ORG_ID,
+        tenantId: TENANT_ID,
+        currencyCode: 'USD',
+        kind: 'product',
+        quantity: 1,
+        unitPriceNet: 10,
+        unitPriceGross: 10,
+        taxRate: 0,
+      },
+      upsertCommandId,
+    )
+
+    const untouched = lines.get(UNTOUCHED_LINE_ID)! as PersistedLine & Record<string, unknown>
+    expect(num(untouched.unitPriceNet)).toBeCloseTo(0.8403, 4)
+    expect(num(untouched.discountAmount)).toBeCloseTo(84.03, 4)
+    expect(num(untouched.totalNetAmount)).toBeCloseTo(756.27, 4)
+    expect(num(untouched.taxAmount)).toBeCloseTo(143.6913, 4)
+    expect(num(untouched.totalGrossAmount)).toBeCloseTo(899.9613, 4)
+
+    const document = (globalThis as any).__discountWorld.order
+    expect(num(document.grandTotalNetAmount)).toBeCloseTo(766.27, 4)
+    expect(num(document.taxTotalAmount)).toBeCloseTo(143.6913, 4)
+    expect(num(document.grandTotalGrossAmount)).toBeCloseTo(909.9613, 4)
+  })
 })
