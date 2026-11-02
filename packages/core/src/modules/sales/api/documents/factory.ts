@@ -226,8 +226,8 @@ const mapUpdateResponse = (entity: any) => {
     channelId: (entity as any)?.channelId ?? null,
     customerName: resolveCustomerName(customerSnapshot, entity?.customerEntityId ?? null),
     contactEmail:
-      resolveCustomerEmail(customerSnapshot) ??
-      (typeof metadata?.customerEmail === 'string' ? metadata.customerEmail : null),
+      (typeof metadata?.customerEmail === 'string' && metadata.customerEmail.trim() ? metadata.customerEmail.trim() : null) ??
+      resolveCustomerEmail(customerSnapshot),
     currencyCode: entity?.currencyCode ?? null,
     placedAt: entity?.placedAt ? entity.placedAt.toISOString() : null,
     expectedDeliveryAt: entity?.expectedDeliveryAt ? entity.expectedDeliveryAt.toISOString() : null,
