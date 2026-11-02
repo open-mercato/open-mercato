@@ -15,6 +15,7 @@ import { redactSecretForLog, deriveApiKeySessionId } from './log-redaction'
 import type { McpServerConfig, McpToolContext } from './types'
 import type { SearchService } from '@open-mercato/search/service'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import type { AuthService } from '@open-mercato/core/modules/auth/services/authService'
 import type { ApiKey } from '@open-mercato/core/modules/api_keys/data/entities'
 import { findApiKeyBySecret, findSessionApiKeyWithSecret } from '@open-mercato/core/modules/api_keys/services/apiKeyService'
 
@@ -34,6 +35,13 @@ export type McpHttpServerOptions = {
  * Returns null if session token is invalid or expired.
  * Includes the decrypted API key secret for making authenticated API calls.
  */
+async function isDelegatedKeyEligible(key: ApiKey, userId: string, context: McpToolContext): Promise<boolean> {
+  const authService = context.container.resolve<Partial<Pick<AuthService, 'isUserSessionEligible'>>>('authService', { allowUnregistered: true })
+  return authService?.isUserSessionEligible ? authService.isUserSessionEligible({
+    userId, tenantId: key.tenantId ?? null, organizationId: key.organizationId ?? null, apiKeyId: key.id,
+  }) : true
+}
+
 async function resolveSessionContext(
   sessionToken: string,
   baseContext: McpToolContext,
@@ -62,6 +70,8 @@ async function resolveSessionContext(
       }
       return null
     }
+
+    if (!await isDelegatedKeyEligible(sessionKey, userId, baseContext)) return null
 
     const acl = await rbacService.loadAcl(`api_key:${sessionKey.id}`, {
       tenantId: sessionKey.tenantId ?? null,
@@ -116,6 +126,8 @@ async function resolveApiKeyContext(
       return null
     }
 
+    if (apiKeyRecord.sessionUserId && !await isDelegatedKeyEligible(apiKeyRecord, userId, baseContext)) return null
+
     const acl = await rbacService.loadAcl(`api_key:${apiKeyRecord.id}`, {
       tenantId: apiKeyRecord.tenantId ?? null,
       organizationId: apiKeyRecord.organizationId ?? null,
@@ -153,7 +165,7 @@ async function resolveApiKeyContext(
  * Tools are registered without pre-filtering - permission checks happen at execution time
  * based on the session token provided in each tool call.
  */
-function createMcpServerForRequest(
+export function createMcpServerForRequest(
   config: McpServerConfig,
   toolContext: McpToolContext,
   apiKeyRecord: ApiKey
@@ -263,7 +275,7 @@ function createMcpServerForRequest(
             const apiKeyContext = await resolveApiKeyContext(apiKeyRecord, toolContext, config.debug)
             if (apiKeyContext) {
               effectiveContext = apiKeyContext
-            } else if (!effectiveContext.userId && effectiveContext.userFeatures.length === 0) {
+            } else if (apiKeyRecord.sessionUserId || (!effectiveContext.userId && effectiveContext.userFeatures.length === 0)) {
               return {
                 content: [
                   {

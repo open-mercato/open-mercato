@@ -1,6 +1,6 @@
 # Lessons
 
-This catalog indexes 146 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
+This catalog indexes 148 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
 
 ## How to use this catalog
 
@@ -17,6 +17,9 @@ This catalog indexes 146 focused lessons. Route the task first, then read only r
 - Run `yarn lessons:check` before committing.
 
 ## Catalog
+
+- [Serialize deprovisioning with final session issuance](lessons/serialize-deprovisioning-with-session-issuance.md) — area:module-data,testing; module:auth,sso; topic:security,concurrency,session-revocation,tenant-isolation
+- [Assert auth redirect responses before following them](lessons/assert-auth-redirects-before-following-them.md) — area:integration,testing; module:auth,sso; topic:testing,api-contracts,redirects,session-revocation
 
 ### architecture
 
