@@ -86,11 +86,11 @@ const interactions = [
  *   - 'MessageChannelLink' (string)      → hub links
  *   - 'Message' (string)                 → hub messages
  */
-function mockHubReads(interactionRows: unknown[], users: unknown[] = defaultUsers) {
+function mockHubReads(interactionRows: unknown[], users: unknown[] = defaultUsers, messageRows: unknown[] = messages) {
   mockFindWithDecryption.mockImplementation(async (_em: unknown, entity: unknown) => {
     if (entity === CustomerInteraction) return interactionRows as never
     if (entity === 'MessageChannelLink') return links as never
-    if (entity === 'Message') return messages as never
+    if (entity === 'Message') return messageRows as never
     if (entity === User) return users as never
     return [] as never
   })
@@ -114,6 +114,47 @@ beforeEach(() => {
 })
 
 describe('buildPersonEmailThreads', () => {
+  it('keeps sentAt null instead of falling back to link or interaction creation time', async () => {
+    mockHubReads(interactions, defaultUsers, messages.map((message) => (
+      message.id === 'M3' ? { ...message, sentAt: null } : message
+    )))
+
+    const threads = await buildPersonEmailThreads({} as never, { ...baseOpts, userFeatures: [] })
+    const unknownDateThread = threads.find((thread) => thread.threadKey === 'T2')
+
+    expect(unknownDateThread?.messages[0].sentAt).toBeNull()
+    expect(unknownDateThread?.lastMessageAt).toBeNull()
+  })
+
+  it('summarizes a mixed thread from its newest dated message', async () => {
+    mockHubReads(interactions, defaultUsers, messages.map((message) => (
+      message.id === 'M2' ? { ...message, sentAt: null } : message
+    )))
+
+    const threads = await buildPersonEmailThreads({} as never, { ...baseOpts, userFeatures: [] })
+    const mixedThread = threads.find((thread) => thread.threadKey === 'T1')
+
+    expect(mixedThread?.messages.map((message) => message.id)).toEqual(['L1', 'L2'])
+    expect(mixedThread?.lastMessageAt).toBe('2026-05-20T10:00:00.000Z')
+    expect(mixedThread?.lastDirection).toBe('inbound')
+    expect(mixedThread?.preview).toBe('Hi, can we schedule the kickoff?')
+  })
+
+  it('retains the newest dated message before undated messages when limiting a thread', async () => {
+    mockHubReads(interactions, defaultUsers, messages.map((message) => (
+      message.id === 'M2' ? { ...message, sentAt: null } : message
+    )))
+
+    const threads = await buildPersonEmailThreads(
+      {} as never,
+      { ...baseOpts, userFeatures: [], maxMessagesPerThread: 1 },
+    )
+    const mixedThread = threads.find((thread) => thread.threadKey === 'T1')
+
+    expect(mixedThread?.messages.map((message) => message.id)).toEqual(['L1'])
+    expect(mixedThread?.lastMessageAt).toBe('2026-05-20T10:00:00.000Z')
+  })
+
   it('groups messages into threads, newest thread first, messages chronological', async () => {
     mockHubReads(interactions)
     const threads = await buildPersonEmailThreads({} as never, { ...baseOpts, userFeatures: [] })

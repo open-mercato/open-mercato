@@ -17,6 +17,10 @@ import {
 } from '@open-mercato/shared/lib/search/entityAccess'
 import { defineAiTool } from '../lib/ai-tool-definition'
 import type { AiToolDefinition, McpToolContext } from '../lib/types'
+import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
+import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
+import type { AwilixContainer } from 'awilix'
 
 type SearchServiceLike = {
   search: (query: string, options: SearchOptions) => Promise<SearchResult[]>
@@ -67,6 +71,43 @@ function authorizeEntityAccess(
   throw new SearchToolAuthorizationError(
     `[internal] Insufficient permissions for entity "${entityType}". Required: ${required.join(', ')}`,
   )
+}
+
+/**
+ * Resolve the actor's allowed-organization scope the same way the HTTP search
+ * route does, so this tool pack can never return results outside a
+ * restricted user's organization allowlist — even when their current
+ * organization is null. Mirrors packages/search/.../api/search/route.ts.
+ *
+ * `organizationId` is the re-validated selection (`scope.selectedId`), not the
+ * raw `ctx.organizationId` — `SearchOptions.organizationId` takes precedence
+ * over `organizationIds` in `normalizeOrganizationFilter`, so passing the
+ * unvalidated context value through would let a stale/out-of-allowlist
+ * selection bypass the allowlist below.
+ */
+async function resolveActorOrganizationScope(ctx: McpToolContext): Promise<{
+  organizationId: string | undefined
+  organizationIds: string[] | undefined
+  denyAll: boolean
+}> {
+  if (!ctx.userId) return { organizationId: undefined, organizationIds: undefined, denyAll: true }
+  const auth: AuthContext = {
+    sub: ctx.userId,
+    tenantId: ctx.tenantId,
+    orgId: ctx.organizationId,
+    isSuperAdmin: ctx.isSuperAdmin,
+  }
+  const scope = await resolveOrganizationScopeForRequest({
+    container: ctx.container as unknown as AwilixContainer,
+    auth,
+    selectedId: ctx.organizationId,
+  })
+  const scopeFilter = resolveOrganizationScopeFilter(scope, auth)
+  const denyAll = Array.isArray(scope.filterIds) && scope.filterIds.length === 0
+  const organizationId = typeof scope.selectedId === 'string' && scope.selectedId.trim().length > 0
+    ? scope.selectedId.trim()
+    : undefined
+  return { organizationId, organizationIds: scopeFilter.organizationIds, denyAll }
 }
 
 const hybridSearchInput = z.object({
@@ -142,9 +183,21 @@ const hybridSearchTool = defineAiTool({
       }
     }
 
+    const orgScope = await resolveActorOrganizationScope(ctx)
+    if (orgScope.denyAll) {
+      return {
+        query: input.q,
+        totalResults: 0,
+        results: [],
+        strategiesUsed: [],
+        timing: { ms: Date.now() - started },
+      }
+    }
+
     const rawResults = await service.search(input.q, {
       tenantId: ctx.tenantId,
-      organizationId: ctx.organizationId,
+      organizationId: orgScope.organizationId,
+      organizationIds: orgScope.organizationIds,
       limit,
       strategies: input.strategies as SearchStrategyId[] | undefined,
       entityTypes: readableEntityTypes,
@@ -193,10 +246,20 @@ const getRecordContextTool = defineAiTool({
       authorizeEntityAccess(input.entityId, lookup, subject)
     }
 
+    const orgScope = await resolveActorOrganizationScope(ctx)
+    if (orgScope.denyAll) {
+      return {
+        found: false as const,
+        entityId: input.entityId,
+        recordId: input.recordId,
+      }
+    }
+
     const service = ctx.container.resolve<SearchServiceLike>('searchService')
     const rawResults = await service.search(input.recordId, {
       tenantId: ctx.tenantId,
-      organizationId: ctx.organizationId,
+      organizationId: orgScope.organizationId,
+      organizationIds: orgScope.organizationIds,
       limit: 5,
       entityTypes: [input.entityId],
     })
