@@ -21,6 +21,14 @@ export type BarChartProps = {
   className?: string
   emptyMessage?: string
   categoryLabels?: Record<string, string>
+  /** Render only the plot (no card border, padding or title) so a host card can own the chrome. */
+  bare?: boolean
+  /** Height utility for the plot area in bare mode; defaults to `h-52`. */
+  heightClassName?: string
+  /** Recharts draw-in animation; pass false for charts that re-render on interaction. */
+  animate?: boolean
+  /** Recharts keyboard/focus layer; pass false for decorative charts so the plot never takes focus. */
+  accessibilityLayer?: boolean
 }
 
 function defaultValueFormatter(value: number): string {
@@ -57,15 +65,20 @@ export function BarChart({
   className = '',
   emptyMessage = 'No data available',
   categoryLabels,
+  bare = false,
+  heightClassName = 'h-52',
+  animate = true,
+  accessibilityLayer = true,
 }: BarChartProps) {
-  const hasWrapper = !!title
+  const hasWrapper = !!title && !bare
   const wrapperClass = hasWrapper ? `rounded-lg border bg-card p-4 ${className}` : className
+  const stateClassName = bare ? `flex items-center justify-center ${heightClassName}` : 'flex h-40 sm:h-48 items-center justify-center'
 
   if (error) {
     return (
       <div className={wrapperClass}>
-        {title && <h3 className="mb-4 text-base font-medium text-card-foreground">{title}</h3>}
-        <div className="flex h-40 sm:h-48 items-center justify-center">
+        {title && !bare && <h3 className="mb-4 text-base font-medium text-card-foreground">{title}</h3>}
+        <div className={stateClassName}>
           <p className="text-sm text-destructive">{error}</p>
         </div>
       </div>
@@ -75,8 +88,8 @@ export function BarChart({
   if (loading) {
     return (
       <div className={wrapperClass}>
-        {title && <h3 className="mb-4 text-base font-medium text-card-foreground">{title}</h3>}
-        <div className="flex h-40 sm:h-48 items-center justify-center">
+        {title && !bare && <h3 className="mb-4 text-base font-medium text-card-foreground">{title}</h3>}
+        <div className={stateClassName}>
           <Spinner className="h-6 w-6 text-muted-foreground" />
         </div>
       </div>
@@ -86,8 +99,8 @@ export function BarChart({
   if (!data || data.length === 0) {
     return (
       <div className={wrapperClass}>
-        {title && <h3 className="mb-4 text-base font-medium text-card-foreground">{title}</h3>}
-        <div className="flex h-40 sm:h-48 items-center justify-center">
+        {title && !bare && <h3 className="mb-4 text-base font-medium text-card-foreground">{title}</h3>}
+        <div className={stateClassName}>
           <p className="text-sm text-muted-foreground">{emptyMessage}</p>
         </div>
       </div>
@@ -96,18 +109,23 @@ export function BarChart({
 
   return (
     <div className={wrapperClass}>
-      {title && <h3 className="mb-4 text-base font-medium text-card-foreground">{title}</h3>}
-      <BarChartImpl
-        data={data}
-        index={index}
-        categories={categories}
-        colors={colors}
-        layout={layout}
-        valueFormatter={valueFormatter}
-        showLegend={showLegend}
-        showGridLines={showGridLines}
-        categoryLabels={categoryLabels}
-      />
+      {title && !bare && <h3 className="mb-4 text-base font-medium text-card-foreground">{title}</h3>}
+      <div className={bare ? `${heightClassName} w-full` : undefined}>
+        <BarChartImpl
+          data={data}
+          index={index}
+          categories={categories}
+          colors={colors}
+          layout={layout}
+          valueFormatter={valueFormatter}
+          showLegend={showLegend}
+          showGridLines={showGridLines}
+          categoryLabels={categoryLabels}
+          animate={animate}
+          accessibilityLayer={accessibilityLayer}
+          fillHeight={bare}
+        />
+      </div>
     </div>
   )
 }

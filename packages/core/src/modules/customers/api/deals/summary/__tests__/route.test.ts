@@ -128,7 +128,7 @@ describe('customers deals summary route', () => {
     resolveBaseCurrencyMock.mockResolvedValue({ status: 'resolved', code: 'USD' })
     fetchStuckDealIdsMock.mockResolvedValue([])
     jest.useFakeTimers()
-    // Fix "today" inside Q1 2026 so quarter bucketing is deterministic.
+    // Fix "today" so the trailing-window bucketing is deterministic.
     jest.setSystemTime(new Date('2026-02-15T12:00:00Z'))
   })
 
@@ -153,7 +153,7 @@ describe('customers deals summary route', () => {
     expect(response.status).toBe(200)
   })
 
-  it('computes KPI values, deltas, UTC quarter bucketing, multi-currency conversion and need-attention union', async () => {
+  it('computes KPI values, deltas, UTC trailing-window bucketing, multi-currency conversion and need-attention union', async () => {
     // Base currency = USD; EUR rate present, GBP rate missing.
     getRatesMock.mockResolvedValue(
       new Map([
@@ -186,6 +186,10 @@ describe('customers deals summary route', () => {
         { period: '2026-02', won: '3', lost: '1' },
         { period: '2026-01', won: '1', lost: '3' },
       ])
+      // 5b) pipeline inflow series (open deals created per trailing month)
+      .mockResolvedValueOnce([])
+      // 5c) won value series (deals won per trailing month)
+      .mockResolvedValueOnce([])
       // 6) overdue open deal ids
       .mockResolvedValueOnce([{ id: overdueDealId }])
       // 7) open-status intersection for the stuck ids (both seeded ids resolve as open here)
@@ -247,13 +251,13 @@ describe('customers deals summary route', () => {
     expect(series.find((p) => p.period === '2026-01')).toEqual({ period: '2026-01', rate: 0.25 })
     expect(series.find((p) => p.period === '2025-11')).toEqual({ period: '2025-11', rate: 0 })
 
-    // Quarter window params were passed to the inflow query (current quarter start/end, UTC).
+    // The default 6-month trailing window (UTC month boundaries) was passed to the inflow
+    // query: current window start/end, plus the previous window's start for the delta.
     const inflowCall = executeMock.mock.calls[1]
     const inflowValues = inflowCall[1] as string[]
-    expect(inflowValues).toContain('2026-01-01T00:00:00.000Z')
-    expect(inflowValues).toContain('2026-04-01T00:00:00.000Z')
-    // Previous quarter start present too.
-    expect(inflowValues).toContain('2025-10-01T00:00:00.000Z')
+    expect(inflowValues).toContain('2025-09-01T00:00:00.000Z')
+    expect(inflowValues).toContain('2026-03-01T00:00:00.000Z')
+    expect(inflowValues).toContain('2025-03-01T00:00:00.000Z')
   })
 
   it('falls back to the dominant currency total when no base currency is configured', async () => {
@@ -271,6 +275,10 @@ describe('customers deals summary route', () => {
       // 4) win/loss
       .mockResolvedValueOnce([{ current_won: '0', current_lost: '0', previous_won: '0', previous_lost: '0' }])
       // 5) series
+      .mockResolvedValueOnce([])
+      // 5b) pipeline inflow series (open deals created per trailing month)
+      .mockResolvedValueOnce([])
+      // 5c) won value series (deals won per trailing month)
       .mockResolvedValueOnce([])
       // 6) overdue
       .mockResolvedValueOnce([])
@@ -308,6 +316,10 @@ describe('customers deals summary route', () => {
       // 4) win/loss
       .mockResolvedValueOnce([{ current_won: '0', current_lost: '0', previous_won: '0', previous_lost: '0' }])
       // 5) series
+      .mockResolvedValueOnce([])
+      // 5b) pipeline inflow series (open deals created per trailing month)
+      .mockResolvedValueOnce([])
+      // 5c) won value series (deals won per trailing month)
       .mockResolvedValueOnce([])
       // 6) overdue (none)
       .mockResolvedValueOnce([])

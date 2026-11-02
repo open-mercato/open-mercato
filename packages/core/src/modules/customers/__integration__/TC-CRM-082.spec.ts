@@ -39,6 +39,7 @@ const SUMMARY_PATH = '/api/customers/deals/summary';
 type SummaryDelta = { value: number; direction: 'up' | 'down' | 'unchanged' };
 
 type DealsSummaryResponse = {
+  range: '3m' | '6m' | '12m';
   baseCurrencyCode: string | null;
   convertedAll: boolean;
   missingRateCurrencies: string[];
@@ -46,16 +47,18 @@ type DealsSummaryResponse = {
     value: number;
     delta: SummaryDelta;
     stages: { stage: string | null; count: number; value: number }[];
+    series: { period: string; value: number }[];
   };
   activeDeals: {
     value: number;
     delta: SummaryDelta;
+    series: { period: string; count: number }[];
     ownersCount: number;
     needAttention: number;
     owners: { id: string; count: number }[];
     ownersOverflow: number;
   };
-  wonThisQuarter: { value: number; delta: SummaryDelta; dealsClosed: number; avgDeal: number };
+  wonThisQuarter: { value: number; delta: SummaryDelta; dealsClosed: number; avgDeal: number; series: { period: string; value: number }[] };
   winRate: {
     value: number;
     deltaPp: number;
@@ -74,6 +77,7 @@ async function fetchSummary(request: APIRequestContext, token: string): Promise<
 }
 
 function assertSummaryShape(summary: DealsSummaryResponse): void {
+  expect(['3m', '6m', '12m']).toContain(summary.range);
   expect(typeof summary.convertedAll).toBe('boolean');
   expect(Array.isArray(summary.missingRateCurrencies)).toBe(true);
 
@@ -96,6 +100,13 @@ function assertSummaryShape(summary: DealsSummaryResponse): void {
   expect(typeof summary.winRate.deltaPp).toBe('number');
   expect(['up', 'down', 'unchanged']).toContain(summary.winRate.direction);
   expect(Array.isArray(summary.winRate.series)).toBe(true);
+
+  // Trailing-month series behind the metric tabs (#7494 follow-up, deals KPI redesign).
+  expect(summary.pipelineValue.series.length, 'pipelineValue.series should have 6 trailing-month points').toBe(6);
+  expect(summary.activeDeals.series.length, 'activeDeals.series should have 6 trailing-month points').toBe(6);
+  expect(summary.wonThisQuarter.series.length, 'wonThisQuarter.series should have 6 trailing-month points').toBe(6);
+  for (const point of summary.pipelineValue.series) expect(typeof point.value).toBe('number');
+  for (const point of summary.activeDeals.series) expect(typeof point.count).toBe('number');
 }
 
 test.describe('TC-CRM-082: Deals KPI summary endpoint', () => {
