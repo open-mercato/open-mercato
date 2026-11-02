@@ -70,6 +70,7 @@
   "cart.audit.proposal.reject": "Reject proposal cart",
   "cart.errors.approval_not_required": "This cart does not need approval right now",
   "cart.errors.approval_requires_identified_buyer": "This cart must be identified to a buyer before it can request approval",
+  "cart.errors.busy": "El carrito está ocupado. Inténtalo de nuevo.",
   "cart.errors.cart_requires_approval": "This cart requires approval before it can be locked for checkout",
   "cart.errors.store_context_unavailable": "Cart is unavailable for this store right now",
   "cart.errors.tenant_required": "Tenant context is required",

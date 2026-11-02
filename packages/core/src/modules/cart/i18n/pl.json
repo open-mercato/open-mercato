@@ -70,6 +70,7 @@
   "cart.audit.proposal.reject": "Odrzuć koszyk propozycji",
   "cart.errors.approval_not_required": "Ten koszyk nie wymaga obecnie zatwierdzenia",
   "cart.errors.approval_requires_identified_buyer": "Ten koszyk musi być zidentyfikowany z kupującym, zanim będzie można zażądać zatwierdzenia",
+  "cart.errors.busy": "Koszyk jest zajęty. Spróbuj ponownie.",
   "cart.errors.cart_requires_approval": "Ten koszyk wymaga zatwierdzenia, zanim będzie można go zablokować do realizacji zamówienia",
   "cart.errors.store_context_unavailable": "Koszyk jest obecnie niedostępny dla tego sklepu",
   "cart.errors.tenant_required": "Wymagany jest kontekst najemcy",

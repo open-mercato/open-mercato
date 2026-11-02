@@ -260,7 +260,6 @@
   "example.priority.normal": "Normal",
   "example.publicPage": "Öffentliche Beispielseite.",
   "example.salesTodos.tabLabel": "Aufgaben (Beispiel)",
-  "example.search.todo.badge": "Aufgabe",
   "example.search.todo.subtitle.done": "Erledigt",
   "example.search.todo.subtitle.open": "Offen",
   "example.todos.bulk.markDone": "Ausgewählte Aufgaben als erledigt markieren",
@@ -546,5 +545,6 @@
   "example.workPlan.nav.group": "Arbeitsplan",
   "integrations.marketplace.filters.category": "Category",
   "notifications.categories.demo": "Demo",
-  "notifications.categories.example": "Beispiele"
+  "notifications.categories.example": "Beispiele",
+  "search.entityType.example.todo": "Aufgabe"
 }

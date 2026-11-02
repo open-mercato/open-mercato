@@ -70,6 +70,7 @@
   "cart.audit.proposal.reject": "Angebotswarenkorb ablehnen",
   "cart.errors.approval_not_required": "Dieser Warenkorb benötigt derzeit keine Genehmigung",
   "cart.errors.approval_requires_identified_buyer": "Dieser Warenkorb muss einem Käufer zugeordnet sein, bevor eine Genehmigung angefordert werden kann",
+  "cart.errors.busy": "Der Warenkorb ist ausgelastet. Bitte versuche es erneut.",
   "cart.errors.cart_requires_approval": "Dieser Warenkorb benötigt eine Genehmigung, bevor er für den Checkout gesperrt werden kann",
   "cart.errors.store_context_unavailable": "Der Warenkorb ist für diesen Shop derzeit nicht verfügbar",
   "cart.errors.tenant_required": "Mandantenkontext ist erforderlich",

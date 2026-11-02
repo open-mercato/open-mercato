@@ -177,7 +177,7 @@ function makeEm() {
     // `withAtomicFlush({ transaction: true })` plus a `pg_advisory_xact_lock` via
     // `em.execute` (concurrency fix, review finding) — stub the transaction/raw-SQL surface
     // `withAtomicFlush` drives so this fake EM still satisfies it.
-    execute: jest.fn(async () => undefined),
+    execute: jest.fn(async () => [{ locked: true }]),
     // MAJOR fix (review finding #2) — the lock phase now re-reads the cart's live status
     // via `em.refresh(cart)` right after the lock grants. `cart` is the same object
     // reference `findOneWithDecryption`/`seededCarts` already share, so this is a safe
