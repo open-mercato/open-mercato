@@ -6,17 +6,12 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import type { ProductFormValues } from './productForm'
 import { CategorySuggestionCard } from './CategorySuggestionCard'
+import { formatCategoryLabel } from './categoryPickerLabel'
 
 export type ProductCategorizePickerOption = {
   value: string
   label: string
   description?: string | null
-}
-
-const formatCategoryLabel = (name: string | null | undefined, fallback: string, parentName?: string | null) => {
-  const base = typeof name === 'string' && name.trim().length ? name.trim() : fallback
-  const parent = typeof parentName === 'string' && parentName.trim().length ? parentName.trim() : null
-  return parent ? `${base} / ${parent}` : base
 }
 
 type ProductCategorizeSectionProps = {
@@ -240,7 +235,6 @@ export function ProductCategorizeSection({
           categoryIds={Array.isArray(values.categoryIds) ? values.categoryIds : []}
           initialCategoryIds={initialCategoryIds ?? []}
           setValue={setValue}
-          resolveCategoryLabel={resolveCategoryLabel}
           registerCategoryOptions={registerCategoryOptions}
         />
       ) : null}

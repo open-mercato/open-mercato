@@ -15,6 +15,7 @@ import { hasFeature } from '@open-mercato/shared/security/features'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { ProductCategorizePickerOption } from './ProductCategorizeSection'
+import { formatCategoryLabel } from './categoryPickerLabel'
 
 const logger = createLogger('catalog')
 
@@ -42,15 +43,16 @@ type ListResponse = { items?: CategorySuggestion[] }
 type AcceptResponse = { suggestion: CategorySuggestion; product: { id: string; categoryIds: string[]; updatedAt: string } }
 
 type CategoryLabelLookupResponse = {
-  items?: Array<{ id: string; name?: string | null; pathLabel?: string | null }>
+  items?: Array<{ id: string; name?: string | null; pathLabel?: string | null; parentName?: string | null }>
 }
+
+type CategoryLookupEntry = { name: string; pathLabel: string }
 
 type CategorySuggestionCardProps = {
   productId: string
   categoryIds: string[]
   initialCategoryIds: string[]
   setValue: (id: string, value: unknown) => void
-  resolveCategoryLabel: (id: string) => string
   registerCategoryOptions: (options: ProductCategorizePickerOption[]) => void
 }
 
@@ -73,7 +75,6 @@ export function CategorySuggestionCard({
   categoryIds,
   initialCategoryIds,
   setValue,
-  resolveCategoryLabel,
   registerCategoryOptions,
 }: CategorySuggestionCardProps) {
   const t = useT()
@@ -120,46 +121,58 @@ export function CategorySuggestionCard({
     void loadPending()
   }, [loadStatus, loadPending])
 
-  const requestedLabelIds = React.useRef<Set<string>>(new Set())
+  const [categoryLookup, setCategoryLookup] = React.useState<Record<string, CategoryLookupEntry>>({})
+  const categoryLookupRef = React.useRef<Record<string, CategoryLookupEntry>>({})
+
+  const ensureCategoryLabels = React.useCallback(async (ids: string[]) => {
+    const missingIds = Array.from(new Set(ids)).filter((id) => id && !categoryLookupRef.current[id])
+    if (!missingIds.length) return
+    try {
+      const lookup = await readApiResultOrThrow<CategoryLabelLookupResponse>(
+        `/api/catalog/categories?view=manage&ids=${encodeURIComponent(missingIds.join(','))}&pageSize=100`,
+        undefined,
+        { errorMessage: '[internal] failed to load suggested category labels', fallback: { items: [] } },
+      )
+      const items = (lookup.items ?? []).filter((item) => typeof item.id === 'string' && item.id.length > 0)
+      if (!items.length) return
+      const nextEntries: Record<string, CategoryLookupEntry> = {}
+      const options: ProductCategorizePickerOption[] = []
+      items.forEach((item) => {
+        const name = (item.name ?? item.pathLabel ?? item.id) || item.id
+        nextEntries[item.id] = { name, pathLabel: item.pathLabel ?? name }
+        const parentName = typeof item.parentName === 'string' && item.parentName.trim().length ? item.parentName : null
+        const label = formatCategoryLabel(name, item.id, parentName)
+        options.push({
+          value: item.id,
+          label,
+          description: parentName && !label.toLowerCase().includes(parentName.toLowerCase()) ? parentName : null,
+        })
+      })
+      categoryLookupRef.current = { ...categoryLookupRef.current, ...nextEntries }
+      setCategoryLookup(categoryLookupRef.current)
+      registerCategoryOptions(options)
+    } catch (err) {
+      logger.error('catalog.products.create.organize.aiSuggestion.labels failed', { err })
+    }
+  }, [registerCategoryOptions])
+
+  const resolveCategoryName = React.useCallback(
+    (id: string) => categoryLookup[id]?.name ?? id,
+    [categoryLookup],
+  )
+  const resolveCategoryPath = React.useCallback(
+    (id: string) => categoryLookup[id]?.pathLabel ?? id,
+    [categoryLookup],
+  )
+
   React.useEffect(() => {
     if (!suggestion) return
     const lastLevel = suggestion.levels[suggestion.levels.length - 1]
-    const referencedIds = [
+    void ensureCategoryLabels([
       ...suggestion.categoryPathIds,
       ...(lastLevel ? lastLevel.alternatives.map((alternative) => alternative.categoryId) : []),
-    ]
-    const missingIds = Array.from(new Set(referencedIds)).filter(
-      (id) => resolveCategoryLabel(id) === id && !requestedLabelIds.current.has(id),
-    )
-    if (!missingIds.length) return
-    missingIds.forEach((id) => requestedLabelIds.current.add(id))
-    let cancelled = false
-    const loadLabels = async () => {
-      try {
-        const lookup = await readApiResultOrThrow<CategoryLabelLookupResponse>(
-          `/api/catalog/categories?view=manage&ids=${encodeURIComponent(missingIds.join(','))}&pageSize=100`,
-          undefined,
-          { errorMessage: '[internal] failed to load suggested category labels', fallback: { items: [] } },
-        )
-        if (cancelled) return
-        const options = (lookup.items ?? [])
-          .filter((item) => typeof item.id === 'string' && item.id.length > 0)
-          .map((item) => ({
-            value: item.id,
-            label: (item.name ?? item.pathLabel ?? item.id) || item.id,
-            description: item.pathLabel ?? null,
-          }))
-        if (options.length) registerCategoryOptions(options)
-      } catch (err) {
-        missingIds.forEach((id) => requestedLabelIds.current.delete(id))
-        logger.error('catalog.products.create.organize.aiSuggestion.labels failed', { err })
-      }
-    }
-    void loadLabels()
-    return () => {
-      cancelled = true
-    }
-  }, [suggestion, resolveCategoryLabel, registerCategoryOptions])
+    ])
+  }, [suggestion, ensureCategoryLabels])
 
   const handleSuggest = React.useCallback(async () => {
     setLoading(true)
@@ -179,7 +192,10 @@ export function CategorySuggestionCard({
         return
       }
       if (payload.suggestion?.status === 'auto_applied' && payload.product) {
-        if (!categoryIdsDirty) setValue('categoryIds', payload.product.categoryIds)
+        if (!categoryIdsDirty) {
+          await ensureCategoryLabels(payload.product.categoryIds)
+          setValue('categoryIds', payload.product.categoryIds)
+        }
         setValue('updatedAt', payload.product.updatedAt)
         setSuggestion(null)
         flash(t('catalog.products.create.organize.aiSuggestion.autoApplied', 'Category applied automatically. You can undo it from the action log.'), 'success')
@@ -195,7 +211,7 @@ export function CategorySuggestionCard({
     } finally {
       setLoading(false)
     }
-  }, [productId, categoryIdsDirty, setValue, t])
+  }, [productId, categoryIdsDirty, ensureCategoryLabels, setValue, t])
 
   const handleAccept = React.useCallback(async (categoryId: string, makeMain: boolean) => {
     if (!suggestion) return
@@ -218,6 +234,7 @@ export function CategorySuggestionCard({
         ),
         context: { resourceKind: 'catalog.category_suggestion', resourceId: suggestion.id },
       })
+      await ensureCategoryLabels(result.product.categoryIds)
       setValue('categoryIds', result.product.categoryIds)
       setValue('updatedAt', result.product.updatedAt)
       setSuggestion(null)
@@ -231,7 +248,7 @@ export function CategorySuggestionCard({
     } finally {
       setBusy(false)
     }
-  }, [suggestion, runMutation, setValue, t])
+  }, [suggestion, runMutation, ensureCategoryLabels, setValue, t])
 
   const handleReject = React.useCallback(async () => {
     if (!suggestion) return
@@ -306,7 +323,7 @@ export function CategorySuggestionCard({
         ) : (
           <div className="space-y-3">
             <div className="flex items-center gap-2 text-sm">
-              <span>{suggestion.categoryPathIds.map((id) => resolveCategoryLabel(id)).join(' / ')}</span>
+              <span>{suggestion.categoryPathIds.map((id) => resolveCategoryName(id)).join(' / ')}</span>
               {confidencePercent !== null ? (
                 <span className={`text-xs ${confidenceTone === 'success' ? 'text-status-success-text' : 'text-status-warning-text'}`}>
                   {t('catalog.products.create.organize.aiSuggestion.confidence', '{percent}%', { percent: confidencePercent })}
@@ -317,7 +334,7 @@ export function CategorySuggestionCard({
               <p className="text-xs text-muted-foreground">
                 {t('catalog.products.create.organize.aiSuggestion.alternatives', 'Alternatives: {labels}', {
                   labels: suggestion.levels[suggestion.levels.length - 1].alternatives
-                    .map((alternative) => resolveCategoryLabel(alternative.categoryId))
+                    .map((alternative) => resolveCategoryPath(alternative.categoryId))
                     .join(', '),
                 })}
               </p>

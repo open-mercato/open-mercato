@@ -7,8 +7,11 @@ import { ProductCategorizeSection } from '../ProductCategorizeSection'
 import type { ProductFormValues } from '../productForm'
 
 const mockReadApiResultOrThrow = jest.fn()
+const mockApiCall = jest.fn()
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   readApiResultOrThrow: (...args: unknown[]) => mockReadApiResultOrThrow(...args),
+  apiCall: (...args: unknown[]) => mockApiCall(...args),
+  withScopedApiRequestHeaders: (_headers: unknown, run: () => unknown) => run(),
 }))
 
 const mockUseBackendChrome = jest.fn()
@@ -23,12 +26,17 @@ jest.mock('@open-mercato/ui/backend/BackendChromeProvider', () => {
 })
 
 jest.mock('@open-mercato/ui/backend/inputs/TagsInput', () => ({
-  TagsInput: ({ value = [], placeholder, onChange }: {
+  TagsInput: ({ value = [], placeholder, onChange, resolveLabel }: {
     value?: string[]
     placeholder?: string
     onChange?: (next: string[]) => void
+    resolveLabel?: (id: string) => string
   }) => (
-    <div data-testid={`tags-input-${placeholder}`} data-value={Array.isArray(value) ? value.join(',') : ''}>
+    <div
+      data-testid={`tags-input-${placeholder}`}
+      data-value={Array.isArray(value) ? value.join(',') : ''}
+      data-labels={Array.isArray(value) ? value.map((id) => (resolveLabel ? resolveLabel(id) : id)).join(',') : ''}
+    >
       <button data-testid={`trigger-${placeholder}`} type="button" onClick={() => onChange?.([...value, 'new-value'])}>
         add
       </button>
@@ -278,5 +286,100 @@ describe('ProductCategorizeSection', () => {
     } finally {
       mockUseBackendChrome.mockReset()
     }
+  })
+
+  describe('suggestion card with category names', () => {
+    const rootId = '11111111-1111-4111-8111-111111111111'
+    const childId = '22222222-2222-4222-8222-222222222222'
+    const alternativeId = '33333333-3333-4333-8333-333333333333'
+    const pendingSuggestion = {
+      id: 's1',
+      productId: 'product-1',
+      outcome: 'suggested',
+      categoryId: childId,
+      categoryPathIds: [rootId, childId],
+      confidence: 0.9,
+      levels: [{
+        categoryId: childId,
+        probability: 0.9,
+        alternatives: [{ categoryId: alternativeId, probability: 0.1 }],
+      }],
+      status: 'pending',
+      updatedAt: '2026-11-02T10:00:00.000Z',
+      categoryLive: true,
+    }
+    const categoryRows = [
+      { id: rootId, name: 'Sports & Outdoor', parentName: null, pathLabel: 'Sports & Outdoor' },
+      { id: childId, name: 'Fitness', parentName: 'Sports & Outdoor', pathLabel: 'Sports & Outdoor / Fitness' },
+      { id: alternativeId, name: 'Camping', parentName: 'Sports & Outdoor', pathLabel: 'Sports & Outdoor / Camping' },
+    ]
+
+    const mockSuggestionApis = (pending: unknown[]) => {
+      mockUseBackendChrome.mockImplementation(() => ({
+        payload: { grantedFeatures: ['catalog.ai_categorization.use'] },
+        isReady: true,
+      }))
+      mockReadApiResultOrThrow.mockImplementation(async (url: string) => {
+        if (url.startsWith('/api/catalog/ai-categorization/settings')) return { effective: true }
+        if (url.startsWith('/api/catalog/category-suggestions')) return { items: pending }
+        if (url.startsWith('/api/catalog/categories')) return { items: categoryRows }
+        return { items: [] }
+      })
+    }
+
+    afterEach(() => {
+      mockUseBackendChrome.mockReset()
+      mockApiCall.mockReset()
+    })
+
+    it('renders plain names for the path and alternatives when the product already has a category', async () => {
+      mockSuggestionApis([pendingSuggestion])
+      render(
+        <ProductCategorizeSection
+          values={createDefaultValues({ categoryIds: [childId] })}
+          setValue={jest.fn()}
+          errors={{}}
+          productId="product-1"
+          initialCategoryIds={[childId]}
+          initialCategoryOptions={[{ value: childId, label: 'Fitness / Sports & Outdoor', description: 'Sports & Outdoor' }]}
+        />,
+      )
+      await waitFor(() => {
+        expect(screen.getByText('Sports & Outdoor / Fitness')).toBeInTheDocument()
+      })
+      expect(screen.getByText('Alternatives: Sports & Outdoor / Camping')).toBeInTheDocument()
+      expect(screen.getByTestId('tags-input-Search categories')).toHaveAttribute('data-labels', 'Fitness / Sports & Outdoor')
+    })
+
+    it('shows the category name instead of the id in the Categories field after an automatic apply', async () => {
+      mockSuggestionApis([])
+      mockApiCall.mockResolvedValue({
+        ok: true,
+        result: {
+          suggestion: { ...pendingSuggestion, status: 'auto_applied' },
+          product: { id: 'product-1', categoryIds: [childId], updatedAt: '2026-11-02T11:00:00.000Z' },
+        },
+      })
+      const Harness = () => {
+        const [values, setValues] = React.useState(createDefaultValues())
+        return (
+          <ProductCategorizeSection
+            values={values}
+            setValue={(id, value) => setValues((previous) => ({ ...previous, [id]: value }))}
+            errors={{}}
+            productId="product-1"
+            initialCategoryIds={[]}
+          />
+        )
+      }
+      render(<Harness />)
+      fireEvent.click(await screen.findByRole('button', { name: 'Suggest category' }))
+      await waitFor(() => {
+        expect(screen.getByTestId('tags-input-Search categories')).toHaveAttribute('data-value', childId)
+      })
+      const field = screen.getByTestId('tags-input-Search categories')
+      expect(field).toHaveAttribute('data-labels', 'Fitness / Sports & Outdoor')
+      expect(field.getAttribute('data-labels')).not.toContain(childId)
+    })
   })
 })
