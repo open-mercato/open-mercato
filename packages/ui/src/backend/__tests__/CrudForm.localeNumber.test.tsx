@@ -166,9 +166,6 @@ describe('CrudForm number field redisplays a reloaded value with the locale deci
   it('shows a saved value with the comma, not a dot, under a Polish locale', () => {
     const { container } = renderNumberForm('pl', () => {}, { amount: 1.5 })
     const input = amountInput(container)
-    // The stored value is a number (1.5), not user-typed text, so the initial buffer
-    // must go through the same locale formatting as typed input — a bare `String(1.5)`
-    // would render `1.5` instead of the Polish `1,5`.
     expect(input.value).toBe('1,5')
   })
 

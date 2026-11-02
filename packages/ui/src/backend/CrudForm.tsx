@@ -4349,9 +4349,6 @@ function NumberInput({
   readOnly?: boolean
 }) {
   const locale = useOptionalLocale()
-  // A reloaded/initial value is already a number, not user-typed text, so it must be
-  // formatted with the locale's decimal separator rather than String()'s dot-only output
-  // (issue #7387) — mirrors the ArrowUp/ArrowDown re-serialization below.
   const serializedValue = React.useMemo(() => {
     if (value === undefined || value === null) return ''
     const { decimal } = resolveLocaleNumberSeparators(locale)
