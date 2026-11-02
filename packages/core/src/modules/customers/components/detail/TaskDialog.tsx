@@ -45,6 +45,8 @@ export function TaskDialog({ open, mode, onOpenChange, initialValues, onSubmit, 
         event.currentTarget.querySelector('form')?.requestSubmit()
       }
       if (event.key === 'Escape') {
+        if (event.defaultPrevented) return
+        if (event.target instanceof Node && !event.currentTarget.contains(event.target)) return
         event.preventDefault()
         handleCancel()
       }
