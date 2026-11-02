@@ -32,17 +32,26 @@ import { fixturePriority, uniqueStamp } from './helpers';
  * assumption about zone-2 mounting changes later.
  */
 async function openGroupsTab(page: Page): Promise<void> {
+  // The person page keeps six tabs inline and folds the rest (including the
+  // injected Groups tab) into a More menu; an already-active Groups tab is
+  // lifted back inline.
   const groupsTab = page.getByRole('tab', { name: 'Groups' });
   if (await groupsTab.isVisible().catch(() => false)) {
     await groupsTab.click();
+    return;
+  }
+  const moreMenu = page.getByTestId('detail-tabs-more');
+  if (await moreMenu.isVisible().catch(() => false)) {
+    await moreMenu.click();
+    await page.getByRole('menuitem', { name: 'Groups' }).click();
     return;
   }
   const expandPanel = page.getByRole('button', { name: /expand form panel/i });
   if (await expandPanel.isVisible().catch(() => false)) {
     await expandPanel.click();
   }
-  await expect(groupsTab).toBeVisible({ timeout: 15_000 });
-  await groupsTab.click();
+  await page.getByTestId('detail-tabs-more').click();
+  await page.getByRole('menuitem', { name: 'Groups' }).click();
 }
 
 test.describe('TC-CGRP-018: membership assignment from the customer detail page', () => {
