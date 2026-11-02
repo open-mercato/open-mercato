@@ -541,6 +541,12 @@ Each phase is one PR, independently shippable, with its integration tests in the
 4. Unlock: modal requiring a reason, sent-to-client warning, report history timeline, destructive-outline styling.
 5. Exports: PDF (mirrors the sheet), CSV/XLSX (adds raw date / person / description columns for accounting).
 
+Export money visibility is gated by `staff.timesheets.rates.view`, independently of the report's `showRates` presentation setting. A caller without that permission receives time and work details without rate or amount columns or invoice totals. Before dispatching to any EP-35 serializer, including contributed formats, the route recursively replaces group and line rates with `null` and amounts with `0`, row rates and amounts with `null`, and the grand amount with `0`. These are redaction sentinels preserving the existing input types; serializers must not present them as actual monetary values. `ReportExportInput.canSeeMoney` carries the permission decision. Authorized viewers can still set `showRates: false` while retaining amounts.
+
+Regression coverage: `api/timesheets/reports/[id]/export/__tests__/route.test.ts` exercises the real request-context money check and export handler with built-in PDF/CSV/XLSX serializers, a contributed serializer, nested group lines, authorized hidden-rate output, and tenant/organization/report scope. `lib/timesheets-reports/__tests__/reportExport.test.ts` also checks rendering without permission, including callers supplying raw monetary input. The route suite substitutes the report data loader and database; it does not replace live database integration coverage.
+
+`__integration__/TC-TT-026-report-export-money-permissions.spec.ts` covers the live CSV and PDF export APIs with a billable rated entry. It creates its own customer, staff member, project, report, roles and users, and verifies that a reports-view-only caller receives no rate or amount columns/values while a caller with `rates.view` receives them. Separate request contexts isolate their sessions; all fixtures are cleaned up in `finally`.
+
 **Exit:** TC-TT-013/014/015/021 pass; closing a report freezes values such that a later rounding change does not move the total; an hour already frozen elsewhere cannot reach a second invoice without a deliberate tick.
 
 ### Phase 7 — Settings and polish (screen 16)
@@ -648,6 +654,8 @@ Reviewed against [`BACKWARD_COMPATIBILITY.md`](../../BACKWARD_COMPATIBILITY.md)'
 
 No deprecation protocol is triggered beyond that, because nothing is removed in this change.
 
+The #7834 export permission fix adds only the optional `ReportExportInput.canSeeMoney` field; omission preserves existing serializer callers. Routes, methods, format identifiers, ACL features, required input fields and authorized output remain compatible. Contributed serializers now receive redacted money for unauthorized callers and should honor `canSeeMoney: false` when deciding which monetary columns to display. No database migration is required.
+
 ---
 
 ## Resolved Decisions
@@ -701,6 +709,7 @@ Every question the requirements left open — each one traced to the mockup note
 
 | Date | Change |
 |---|---|
+| 2026-10-26 | #7834: redact monetary group/line values before the export serializer registry and omit money from built-in PDF/CSV/XLSX for callers without `staff.timesheets.rates.view`. Preserve amounts for authorized callers using `showRates: false`; add handler/serializer and scope regressions plus self-contained live CSV/PDF API coverage in TC-TT-026. |
 | 2026-10-07 | D-12 extended with an entry-date bound (#6988, split from #6987): time-entry writes also require the entry date to fall inside the granting assignment window (plus grace), and the grid bulk save (`POST /api/staff/timesheets/time-entries/bulk`), which previously checked no membership at all, now enforces the same rule and refuses the batch with 403. Right to write remains today-based. |
 | 2026-10-14 | QA follow-ups on #6998 (#7393, #7394): each bulk 403 `errors[]` item now also carries the payload row `index` and the `date` it refers to (additive). The timesheet grid shows the server's reason and marks the refused cell instead of a generic toast, and the List-view quick add, Duplicate and description edit show the reason too. A grid save that stored some cells before a later cell was refused now drops the stored cells from the pending set and reloads, so retrying never creates them a second time. TC-STAFF-028 and TC-STAFF-029 cover both in the browser. |
 | 2026-10-02 | An entry quoted by two closed reports (D-5 opt-in): each closed report now resolves its own freeze record, so neither sheet nor export drops the hour, and unlocking the report that locked the entry first moves `locked_report_id` to the remaining closed report instead of clearing it. Unlock row-locks the entries it quotes so unlocks of overlapping reports serialize. Integration coverage: TC-TT-023. |

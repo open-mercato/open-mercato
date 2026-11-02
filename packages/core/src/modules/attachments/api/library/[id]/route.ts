@@ -1,3 +1,11 @@
+import { LockMode } from '@mikro-orm/core'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
+import { prepareAttachmentMutation } from '../../../lib/access-mutation'
+import { throwAttachmentAccessError } from '../../../lib/access-errors'
+import { createAttachmentAccessContext } from '../../../lib/access-runner'
+import { assertAttachmentOwnerAccess } from '../../../lib/access-query'
+import { withAttachmentAccessErrors } from '../../../lib/access-errors'
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
@@ -12,7 +20,7 @@ import {
   readAttachmentMetadata,
 } from '../../../lib/metadata'
 import type { StorageDriverFactory } from '../../../lib/drivers'
-import { removeAttachmentRecord } from '../../../lib/storageReferences'
+import { lockAttachmentStorageReferences, resolveAttachmentStorageRelease } from '../../../lib/storageReferences'
 import { splitCustomFieldPayload, loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
 import { emitCrudSideEffects, setCustomFieldsIfAny } from '@open-mercato/shared/lib/commands/helpers'
 import { normalizeCustomFieldResponse } from '@open-mercato/shared/lib/custom-fields/normalize'
@@ -26,9 +34,6 @@ import {
   attachmentDetailResponseSchema,
   attachmentErrorSchema,
 } from '../../openapi'
-import { createLogger } from '@open-mercato/shared/lib/logger'
-
-const logger = createLogger('attachments').child({ component: 'library' })
 
 const updateSchema = z.object({
   tags: z.array(z.string()).optional(),
@@ -66,7 +71,7 @@ async function resolveAttachmentId(ctx: RouteContext): Promise<string | null> {
   }
 }
 
-export async function GET(req: NextRequest, ctx: RouteContext) {
+async function getAttachment(req: NextRequest, ctx: RouteContext) {
   const auth = await getAuthFromRequest(req)
   if (!auth || !auth.tenantId || (!auth.orgId && !auth.isSuperAdmin)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -75,7 +80,8 @@ export async function GET(req: NextRequest, ctx: RouteContext) {
   if (!attachmentId) {
     return NextResponse.json({ error: 'Attachment id is required' }, { status: 400 })
   }
-  const { resolve } = await createRequestContainer()
+  const container = await createRequestContainer()
+  const { resolve } = container
   const em = resolve('em') as EntityManager
   let queryEngine: QueryEngine | null = null
   try {
@@ -94,6 +100,7 @@ export async function GET(req: NextRequest, ctx: RouteContext) {
   if (!record) {
     return NextResponse.json({ error: 'Attachment not found' }, { status: 404 })
   }
+  await assertAttachmentOwnerAccess({ em, context: createAttachmentAccessContext(container), auth, attachment: record, action: 'metadata' })
   const metadata = readAttachmentMetadata(record.storageMetadata)
   const partition = record.partitionCode
     ? await em.findOne(AttachmentPartition, { code: record.partitionCode })
@@ -127,10 +134,12 @@ export async function GET(req: NextRequest, ctx: RouteContext) {
       content: record.content && record.content.trim() ? record.content : null,
       customFields,
     },
-  })
+  }, { headers: { 'Cache-Control': 'private, no-store' } })
 }
 
-export async function PATCH(req: NextRequest, ctx: RouteContext) {
+export const GET = withAttachmentAccessErrors(getAttachment)
+
+async function updateAttachment(req: NextRequest, ctx: RouteContext) {
   const auth = await getAuthFromRequest(req)
   if (!auth || !auth.tenantId || !auth.orgId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -139,13 +148,14 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
   if (!attachmentId) {
     return NextResponse.json({ error: 'Attachment id is required' }, { status: 400 })
   }
-  const rawBody = await req.json().catch(() => null)
+  const rawBody = await readJsonSafe(req, null)
   const { base, custom } = splitCustomFieldPayload(rawBody)
   const parsed = updateSchema.safeParse(base)
   if (!parsed.success) {
     return NextResponse.json({ error: 'Invalid payload' }, { status: 400 })
   }
-  const { resolve } = await createRequestContainer()
+  const container = await createRequestContainer()
+  const { resolve } = container
   const em = resolve('em') as EntityManager
   let queryEngine: QueryEngine | null = null
   try {
@@ -159,34 +169,38 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
     tenantId: auth.tenantId,
     organizationId: auth.orgId,
   }
-  const record = await em.findOne(Attachment, patchFilter)
-  if (!record) {
-    return NextResponse.json({ error: 'Attachment not found' }, { status: 404 })
-  }
-  const patch: Record<string, unknown> = {}
-  if (parsed.data.tags) patch.tags = normalizeAttachmentTags(parsed.data.tags)
-  if (parsed.data.assignments) patch.assignments = normalizeAttachmentAssignments(parsed.data.assignments)
-  record.storageMetadata = mergeAttachmentMetadata(record.storageMetadata, patch)
-  // Commit the metadata mutation and the custom-field write atomically so a
-  // custom-field failure cannot leave the attachment metadata partially updated.
-  try {
-    await em.transactional(async (tx) => {
-      await tx.flush()
-      if (dataEngine && custom && Object.keys(custom).length) {
-        await setCustomFieldsIfAny({
-          dataEngine,
-          entityId: E.attachments.attachment,
-          recordId: record.id,
-          tenantId: record.tenantId ?? auth.tenantId ?? null,
-          organizationId: record.organizationId ?? auth.orgId ?? null,
-          values: custom,
-        })
-      }
+  const accessContext = createAttachmentAccessContext(container)
+  const outcome = await em.transactional(async (tx) => {
+    const record = await findOneWithDecryption(tx, Attachment, patchFilter, {
+      lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true,
+    }, { tenantId: auth.tenantId, organizationId: auth.orgId })
+    if (!record) return throwAttachmentAccessError(404)
+    const guard = await prepareAttachmentMutation({
+      container, req, auth, recordId: record.id, operation: 'update',
+      payload: { ...parsed.data, customFields: custom },
     })
-  } catch (error) {
-    logger.error('Failed to persist custom attributes', { err: error })
-    return NextResponse.json({ error: 'Failed to save attachment attributes.' }, { status: 500 })
-  }
+    const effective = splitCustomFieldPayload(guard.modifiedPayload ?? { ...parsed.data, customFields: custom })
+    const effectiveParsed = updateSchema.safeParse(effective.base)
+    if (!effectiveParsed.success) return throwAttachmentAccessError(403)
+    const patch: Record<string, unknown> = {}
+    if (effectiveParsed.data.tags) patch.tags = normalizeAttachmentTags(effectiveParsed.data.tags)
+    if (effectiveParsed.data.assignments) patch.assignments = normalizeAttachmentAssignments(effectiveParsed.data.assignments)
+    const nextMetadata = mergeAttachmentMetadata(record.storageMetadata, patch)
+    await assertAttachmentOwnerAccess({ em: tx, context: accessContext, auth, attachment: record, action: 'reassign', persistProtection: true })
+    await assertAttachmentOwnerAccess({ em: tx, context: accessContext, auth, attachment: { ...record, storageMetadata: nextMetadata }, action: 'reassign' })
+    await assertAttachmentOwnerAccess({ em: tx, context: accessContext, auth, attachment: { ...record, storageMetadata: nextMetadata }, action: 'metadata' })
+    record.storageMetadata = nextMetadata
+    await tx.flush()
+    if (dataEngine && Object.keys(effective.custom).length) {
+      await setCustomFieldsIfAny({ dataEngine, entityId: E.attachments.attachment, recordId: record.id,
+        tenantId: record.tenantId ?? auth.tenantId, organizationId: record.organizationId ?? auth.orgId,
+        values: effective.custom,
+      })
+    }
+    return { record, custom: effective.custom, guard }
+  })
+  const { record } = outcome
+  await outcome.guard.runAfterSuccess()
 
   if (dataEngine) {
     await emitCrudSideEffects({
@@ -218,12 +232,12 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
       id: record.id,
       tags: metadata.tags ?? [],
       assignments: enrichedAssignments,
-      customFields: normalizeCustomFieldResponse(custom ?? null),
+      customFields: normalizeCustomFieldResponse(outcome.custom ?? null),
     },
   })
 }
 
-export async function DELETE(req: NextRequest, ctx: RouteContext) {
+async function deleteAttachment(req: NextRequest, ctx: RouteContext) {
   const auth = await getAuthFromRequest(req)
   if (!auth || !auth.tenantId || !auth.orgId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -232,7 +246,8 @@ export async function DELETE(req: NextRequest, ctx: RouteContext) {
   if (!attachmentId) {
     return NextResponse.json({ error: 'Attachment id is required' }, { status: 400 })
   }
-  const { resolve } = await createRequestContainer()
+  const container = await createRequestContainer()
+  const { resolve } = container
   const em = resolve('em') as EntityManager
   const dataEngine = resolve('dataEngine') as DataEngine
   const storageDriverFactory = resolve('storageDriverFactory') as StorageDriverFactory
@@ -241,25 +256,30 @@ export async function DELETE(req: NextRequest, ctx: RouteContext) {
     tenantId: auth.tenantId,
     organizationId: auth.orgId,
   }
-  const record = await em.findOne(Attachment, deleteFilter)
-  if (!record) {
-    return NextResponse.json({ error: 'Attachment not found' }, { status: 404 })
-  }
-  const deleteDriver = await storageDriverFactory.resolveForPartition(record.partitionCode, {
-    tenantId: record.tenantId ?? auth.tenantId,
-    organizationId: record.organizationId ?? auth.orgId,
+  const outcome = await em.transactional(async (tx) => {
+    const candidate = await findOneWithDecryption(tx, Attachment, deleteFilter, undefined, {
+      tenantId: auth.tenantId, organizationId: auth.orgId,
+    })
+    if (!candidate) return throwAttachmentAccessError(404)
+    const referenceIds = await lockAttachmentStorageReferences(tx, candidate)
+    const removal = resolveAttachmentStorageRelease(referenceIds, candidate.id)
+    if (!removal.removed) return throwAttachmentAccessError(404)
+    const record = await findOneWithDecryption(tx, Attachment, deleteFilter, {
+      lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true,
+    }, { tenantId: auth.tenantId, organizationId: auth.orgId })
+    if (!record) return throwAttachmentAccessError(404)
+    const guard = await prepareAttachmentMutation({ container, req, auth, recordId: record.id, operation: 'delete' })
+    await assertAttachmentOwnerAccess({ em: tx, context: createAttachmentAccessContext(container), auth, attachment: record, action: 'delete' })
+    const driver = await storageDriverFactory.resolveForPartition(record.partitionCode, {
+      tenantId: record.tenantId ?? auth.tenantId!, organizationId: record.organizationId ?? auth.orgId!,
+    })
+    tx.remove(record)
+    await tx.flush()
+    return { record, driver, guard, releaseStorage: removal.releaseStorage }
   })
-  // Commit the DB row removal before deleting the irreversible storage file so a
-  // failed commit cannot leave a dangling record whose backing file is already gone.
-  const recordPartitionCode = record.partitionCode
-  const recordStoragePath = record.storagePath
-  const removal = await removeAttachmentRecord(em, record)
-  if (!removal.removed) {
-    return NextResponse.json({ error: 'Attachment not found' }, { status: 404 })
-  }
-  if (removal.releaseStorage) {
-    await deleteDriver.delete(recordPartitionCode, recordStoragePath)
-  }
+  const { record } = outcome
+  if (outcome.releaseStorage) await outcome.driver.delete(record.partitionCode, record.storagePath)
+  await outcome.guard.runAfterSuccess()
 
   if (dataEngine) {
     await emitCrudSideEffects({
@@ -280,6 +300,9 @@ export async function DELETE(req: NextRequest, ctx: RouteContext) {
   return NextResponse.json({ ok: true })
 }
 
+export const PATCH = withAttachmentAccessErrors(updateAttachment)
+export const DELETE = withAttachmentAccessErrors(deleteAttachment)
+
 export const openApi: OpenApiRouteDoc = {
   tag: attachmentsTag,
   summary: 'Attachment detail management',
@@ -294,6 +317,8 @@ export const openApi: OpenApiRouteDoc = {
         { status: 400, description: 'Invalid attachment ID', schema: attachmentErrorSchema },
         { status: 401, description: 'Unauthorized', schema: attachmentErrorSchema },
         { status: 404, description: 'Attachment not found', schema: attachmentErrorSchema },
+        { status: 403, description: 'Owner policy denies access', schema: attachmentErrorSchema },
+        { status: 504, description: 'Owner authorization timed out', schema: attachmentErrorSchema },
       ],
     },
     PATCH: {
@@ -311,6 +336,8 @@ export const openApi: OpenApiRouteDoc = {
         { status: 401, description: 'Unauthorized', schema: attachmentErrorSchema },
         { status: 404, description: 'Attachment not found', schema: attachmentErrorSchema },
         { status: 500, description: 'Failed to save attributes', schema: attachmentErrorSchema },
+        { status: 403, description: 'Owner policy denies access', schema: attachmentErrorSchema },
+        { status: 504, description: 'Owner authorization timed out', schema: attachmentErrorSchema },
       ],
     },
     DELETE: {
@@ -323,6 +350,8 @@ export const openApi: OpenApiRouteDoc = {
         { status: 400, description: 'Invalid attachment ID', schema: attachmentErrorSchema },
         { status: 401, description: 'Unauthorized', schema: attachmentErrorSchema },
         { status: 404, description: 'Attachment not found', schema: attachmentErrorSchema },
+        { status: 403, description: 'Owner policy denies access', schema: attachmentErrorSchema },
+        { status: 504, description: 'Owner authorization timed out', schema: attachmentErrorSchema },
       ],
     },
   },

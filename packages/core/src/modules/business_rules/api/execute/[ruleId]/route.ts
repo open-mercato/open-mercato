@@ -95,7 +95,9 @@ export async function POST(req: Request, context: RouteContext) {
   }
 
   try {
-    const result = await ruleEngine.executeRuleById(em, execContext)
+    const result = await ruleEngine.executeRuleById(em, execContext, {
+      rbacService: ruleEngine.resolveBusinessRuleRbacService(container.resolve.bind(container)),
+    })
 
     const response = {
       success: result.success,

@@ -5,15 +5,15 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { CheckCircle2, FileText, Paperclip, Zap } from 'lucide-react'
 
-function formatDateTime(value: Date | null): string {
-  if (!value) return '—'
-  if (Number.isNaN(value.getTime())) return '—'
+function formatDateTime(value: Date | null, unknownDate: string): string {
+  if (!value) return unknownDate
+  if (Number.isNaN(value.getTime())) return unknownDate
   return value.toLocaleString()
 }
 
-function formatSentTime(value: Date | null): string {
-  if (!value) return '—'
-  if (Number.isNaN(value.getTime())) return '—'
+function formatSentTime(value: Date | null, unknownDate: string): string {
+  if (!value) return unknownDate
+  if (Number.isNaN(value.getTime())) return unknownDate
 
   const now = new Date()
   const isSameDay = now.toDateString() === value.toDateString()
@@ -41,8 +41,10 @@ export function DefaultMessageListItem({ message, onClick }: MessageListItemProp
   const t = useT()
   const senderLabel = message.senderName?.trim() || t('messages.list.noRecipient', '(No recipient)')
   const subject = message.subject.trim() || t('messages.list.noSubject', '(No subject)')
-  const absoluteSentAt = formatDateTime(message.sentAt)
-  const sentAtLabel = formatSentTime(message.sentAt)
+  const unknownDate = t('messages.unknownDate', 'Unknown date')
+  const notSentYet = '—'
+  const absoluteSentAt = message.isDraft ? notSentYet : formatDateTime(message.sentAt, unknownDate)
+  const sentAtLabel = message.isDraft ? notSentYet : formatSentTime(message.sentAt, unknownDate)
   const bodyPreview = truncateWords(message.body || '', 16)
 
   return (
