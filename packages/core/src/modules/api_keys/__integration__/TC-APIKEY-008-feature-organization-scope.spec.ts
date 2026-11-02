@@ -13,7 +13,7 @@ import {
 } from '@open-mercato/core/helpers/integration/authFixtures'
 import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 
-test('TC-APIKEY-004: unrelated global grants do not expose tenant-wide API keys', async ({ request }) => {
+test('TC-APIKEY-008: unrelated global grants do not expose tenant-wide API keys', async ({ request }) => {
   const adminToken = await getAuthToken(request, 'admin')
   const marker = randomUUID()
   const roles: string[] = []
@@ -52,7 +52,7 @@ test('TC-APIKEY-004: unrelated global grants do not expose tenant-wide API keys'
     expect(body?.total).toBe(1)
   } finally {
     for (const id of keys.reverse()) {
-      await apiRequest(request, 'DELETE', `/api/api_keys/keys?id=${encodeURIComponent(id)}`, { token: adminToken })
+      await apiRequest(request, 'DELETE', `/api/api_keys/keys?id=${encodeURIComponent(id)}`, { token: adminToken }).catch(() => undefined)
     }
     await deleteUserIfExists(request, adminToken, userId)
     for (const id of roles.reverse()) await deleteRoleIfExists(request, adminToken, id)
