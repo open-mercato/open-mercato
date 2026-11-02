@@ -2839,7 +2839,7 @@ export default function SalesDocumentDetailPage({
     record?.metadata && typeof (record.metadata as Record<string, unknown>).customerEmail === 'string'
       ? (record.metadata as Record<string, unknown>).customerEmail
       : null
-  const contactEmail = resolveCustomerEmail(customerSnapshot) ?? metadataEmail ?? record?.contactEmail ?? null
+  const contactEmail = metadataEmail ?? resolveCustomerEmail(customerSnapshot) ?? record?.contactEmail ?? null
   const statusDisplay = record?.status ? statusDictionaryMap[record.status] ?? null : null
   const previewAmount = formatMessageAmount(record?.grandTotalGrossAmount ?? null, record?.currencyCode ?? null, locale)
   const messagePreviewMetadata: Record<string, string> = {}

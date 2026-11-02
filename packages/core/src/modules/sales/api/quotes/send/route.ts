@@ -74,10 +74,13 @@ function resolveQuoteEmail(quote: SalesQuote): string | null {
   const metadata = normalizeRecord(quote.metadata)
   const contact = snapshot?.contact as Record<string, unknown> | undefined
   const customer = snapshot?.customer as Record<string, unknown> | undefined
+  // The document's own "Send to" address is the user's explicit choice (#8459); the
+  // snapshot contact and the customer's primary e-mail are fallbacks for documents
+  // saved without one.
   const candidate =
+    (typeof metadata?.customerEmail === 'string' && metadata.customerEmail.trim()) ||
     (typeof contact?.email === 'string' && contact.email.trim()) ||
     (typeof customer?.primaryEmail === 'string' && customer.primaryEmail.trim()) ||
-    (typeof metadata?.customerEmail === 'string' && metadata.customerEmail.trim()) ||
     null
   if (!candidate) return null
   const parsed = z.string().email().safeParse(candidate)
