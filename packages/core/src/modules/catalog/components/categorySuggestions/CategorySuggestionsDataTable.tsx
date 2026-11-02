@@ -306,15 +306,18 @@ export default function CategorySuggestionsDataTable() {
       header: t('catalog.categorySuggestions.list.columns.product', 'Product'),
       meta: { priority: 1 },
       cell: ({ row }) => (
-        <div className="flex flex-col">
+        <div className="flex max-w-xs flex-col">
           <Link
             href={`/backend/catalog/products/${row.original.productId}`}
-            className="text-sm font-medium text-foreground hover:underline"
+            title={row.original.productTitle ?? row.original.productId}
+            className="truncate text-sm font-medium text-foreground hover:underline"
           >
             {row.original.productTitle ?? row.original.productId}
           </Link>
           {row.original.productSku ? (
-            <span className="text-xs text-muted-foreground">{row.original.productSku}</span>
+            <span className="truncate text-xs text-muted-foreground" title={row.original.productSku}>
+              {row.original.productSku}
+            </span>
           ) : null}
         </div>
       ),
@@ -332,8 +335,10 @@ export default function CategorySuggestionsDataTable() {
           )
         }
         return (
-          <div className="flex flex-col">
-            <span className="text-sm text-foreground">{row.original.categoryLabel}</span>
+          <div className="flex max-w-xs flex-col">
+            <span className="truncate text-sm text-foreground" title={row.original.categoryLabel ?? undefined}>
+              {row.original.categoryLabel}
+            </span>
             {!row.original.categoryLive ? (
               <span className="text-xs text-status-error-text">
                 {t('catalog.categorySuggestions.list.categoryGone', 'This category no longer exists.')}
