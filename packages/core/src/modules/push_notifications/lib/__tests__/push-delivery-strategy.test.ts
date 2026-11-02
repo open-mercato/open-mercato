@@ -293,6 +293,27 @@ describe('mobilePushDeliveryStrategy', () => {
     expect(row.silent).toBe(false)
   })
 
+  it('does not copy a stored linkHref that resolves to another origin into the payload data', async () => {
+    const { ctx, captured } = makeCtx({
+      channels: [{ providerKey: 'fcm' }],
+      devices: [{ id: 'dev-1', pushToken: 'token-aaaaaaaa', pushProvider: 'fcm' }],
+      notification: { linkHref: '/\\evil.example/phish' },
+    })
+    await mobilePushDeliveryStrategy.deliver(ctx)
+    const payload = decodePayload(captured.insertRows![0])
+    expect(payload.data).not.toHaveProperty('linkHref')
+    expect(payload.data).toMatchObject({ notificationId: 'notif-1', type: 'orders.shipped' })
+  })
+
+  it('copies a same-origin linkHref into the payload data', async () => {
+    const { ctx, captured } = makeCtx({
+      channels: [{ providerKey: 'fcm' }],
+      devices: [{ id: 'dev-1', pushToken: 'token-aaaaaaaa', pushProvider: 'fcm' }],
+    })
+    await mobilePushDeliveryStrategy.deliver(ctx)
+    expect(decodePayload(captured.insertRows![0]).data.linkHref).toBe('/orders/1')
+  })
+
   it('reuses the default-locale copy for a device without a locale (no translation)', async () => {
     const { ctx, captured } = makeCtx({
       channels: [{ providerKey: 'fcm' }],

@@ -171,6 +171,8 @@
   "search.settings.model.label": "Model",
   "search.settings.model.namePlaceholder": "Nazwa modelu",
   "search.settings.noIndexMessage": "Nie utworzono jeszcze indeksu wyszukiwania.",
+  "search.settings.ollama.baseUrl.hint": "Pozostaw puste, aby użyć zmiennej środowiskowej OLLAMA_BASE_URL.",
+  "search.settings.ollama.baseUrl.label": "Adres bazowy (URL)",
   "search.settings.pageDescription": "Konfiguruj strategie wyszukiwania, zarządzaj indeksami i monitoruj aktywność.",
   "search.settings.pageTitle": "Ustawienia wyszukiwania",
   "search.settings.processingLabel": "Przetwarzanie…",

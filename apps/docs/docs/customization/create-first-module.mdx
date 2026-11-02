@@ -7,6 +7,8 @@ description: Scaffold the Inventory module and surface its first admin page in t
 
 With the base app running, add a custom `inventory` module directly inside the app. Modules placed under `apps/mercato/src/modules/<id>/` (or `src/modules/<id>/` in a standalone app) are automatically resolved when you register them with `from: '@app'` -- no separate package setup required.
 
+Before you build, search [modules.openmercato.com](https://modules.openmercato.com). The feature you need may already exist as a module you can install with one command.
+
 :::info Monorepo vs. standalone paths
 This tutorial uses monorepo paths (`apps/mercato/src/modules/`). If you scaffolded a standalone app with `create-mercato-app`, replace every `apps/mercato/src/` prefix with `src/`. Everything else is identical.
 :::
@@ -138,6 +140,6 @@ Browse `apps/mercato/src/modules/example/` for a full working module that exerci
 
 :::tip Publish your module
 
-If you've built a module that would be useful for others, you can publish it to the [Official Modules repository](../framework/modules/official-modules). This is the recommended way to share your work with the community -- your module gets core-team review, npm publication, and one-command installation for all Open Mercato users.
+If you've built a module that would be useful for others, publish it as an npm package with [`create-mercato-module`](../framework/modules/publishing-custom-modules) and list it on [modules.openmercato.com/submit](https://modules.openmercato.com/submit). Other Open Mercato users then find it in the [Modules catalog](../framework/modules/official-modules) and install it with one command.
 
 :::

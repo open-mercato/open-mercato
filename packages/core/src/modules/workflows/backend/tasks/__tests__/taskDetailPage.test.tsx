@@ -355,6 +355,44 @@ describe('a task with no decisions', () => {
   })
 })
 
+describe('a refused completion', () => {
+  function mockCompleteRefusal(task: TaskPayload, body: Record<string, unknown>) {
+    apiCallMock.mockImplementation(async (url: string, init?: { method?: string }) => {
+      if (init?.method === 'POST' && url.endsWith('/complete')) {
+        return { ok: false, status: 409, result: body } as never
+      }
+      return { ok: true, status: 200, result: { data: task } } as never
+    })
+  }
+
+  test('shows the translated message when the run is no longer active', async () => {
+    mockCompleteRefusal(baseTask(), {
+      error: 'Workflow is no longer active',
+      code: 'WORKFLOW_NOT_ACTIVE',
+    })
+    renderPage()
+
+    await waitFor(() => expect(screen.getByTestId('task-complete')).toBeTruthy())
+    fireEvent.click(screen.getByTestId('task-complete'))
+
+    await waitFor(() =>
+      expect(flashMock).toHaveBeenCalledWith('workflows.tasks.messages.workflowNotActive', 'error'),
+    )
+  })
+
+  test('keeps the server message for any other refusal', async () => {
+    mockCompleteRefusal(baseTask(), { error: 'Task is assigned to another user' })
+    renderPage()
+
+    await waitFor(() => expect(screen.getByTestId('task-complete')).toBeTruthy())
+    fireEvent.click(screen.getByTestId('task-complete'))
+
+    await waitFor(() =>
+      expect(flashMock).toHaveBeenCalledWith('Task is assigned to another user', 'error'),
+    )
+  })
+})
+
 describe('claim', () => {
   test('offers the claim button for a role-queued task and posts to the claim endpoint', async () => {
     mockTask(

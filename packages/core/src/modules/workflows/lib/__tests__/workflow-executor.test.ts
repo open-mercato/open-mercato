@@ -3,11 +3,9 @@ import { LockMode, type EntityManager } from '@mikro-orm/core'
 import type { AwilixContainer } from 'awilix'
 import * as workflowExecutor from '../workflow-executor'
 import { WORKFLOW_ENGINE_VERSION } from '../engine-version'
-import type {
-  WorkflowDefinition,
-  WorkflowInstance,
-  WorkflowEvent,
-} from '../../data/entities'
+import { decryptEntitiesWithFallbackScope } from '@open-mercato/shared/lib/encryption/subscriber'
+import { UserTask, WorkflowEvent } from '../../data/entities'
+import type { WorkflowDefinition, WorkflowInstance } from '../../data/entities'
 
 jest.mock('../transition-handler', () => ({
   findValidTransitions: jest.fn(),
@@ -21,6 +19,16 @@ jest.mock('../compensation-handler', () => ({
 jest.mock('../step-handler', () => ({
   executeStep: jest.fn(),
 }))
+
+jest.mock('@open-mercato/shared/lib/encryption/subscriber', () => {
+  const actual = jest.requireActual<typeof import('@open-mercato/shared/lib/encryption/subscriber')>(
+    '@open-mercato/shared/lib/encryption/subscriber'
+  )
+  return {
+    ...actual,
+    decryptEntitiesWithFallbackScope: jest.fn(actual.decryptEntitiesWithFallbackScope),
+  }
+})
 
 describe('Workflow Executor (Unit Tests)', () => {
   let mockEm: jest.Mocked<EntityManager>
@@ -69,7 +77,7 @@ describe('Workflow Executor (Unit Tests)', () => {
     // Create mock EntityManager
     mockEm = {
       findOne: jest.fn(),
-      find: jest.fn(),
+      find: jest.fn(async () => []),
       count: jest.fn(async () => 0),
       create: jest.fn(),
       persist: jest.fn(function persist(this: any) { return this }),
@@ -1093,6 +1101,243 @@ describe('Workflow Executor (Unit Tests)', () => {
         workflowExecutor.completeWorkflow(mockEm, mockContainer, 'non-existent-id', 'COMPLETED')
       ).rejects.toThrow('Workflow instance not found')
     })
+
+    describe('open user tasks when the run ends', () => {
+      const branchInstanceId = '00000000-0000-4000-8000-000000000009'
+
+      const buildInstance = (status: string) =>
+        ({
+          id: testInstanceId,
+          definitionId: testDefinitionId,
+          workflowId: 'simple-workflow',
+          version: 1,
+          status,
+          currentStepId: 'review',
+          context: {},
+          tenantId: testTenantId,
+          organizationId: testOrgId,
+          startedAt: new Date(),
+          retryCount: 0,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        }) as WorkflowInstance
+
+      const buildTask = (overrides: Partial<UserTask>) =>
+        ({
+          id: '00000000-0000-4000-8000-000000000010',
+          workflowInstanceId: testInstanceId,
+          stepInstanceId: '00000000-0000-4000-8000-000000000020',
+          branchInstanceId: null,
+          taskName: 'Review order',
+          status: 'PENDING',
+          tenantId: testTenantId,
+          organizationId: testOrgId,
+          updatedAt: new Date('2026-09-30T08:00:00.000Z'),
+          ...overrides,
+        }) as UserTask
+
+      const loggedEvents = () =>
+        mockEm.create.mock.calls.map((call) => call[1] as Record<string, unknown>)
+
+      test('CANCELLED closes PENDING and IN_PROGRESS tasks in the flush that persists the status', async () => {
+        const instance = buildInstance('PAUSED')
+        const pendingTask = buildTask({})
+        const claimedTask = buildTask({
+          id: '00000000-0000-4000-8000-000000000011',
+          stepInstanceId: '00000000-0000-4000-8000-000000000021',
+          taskName: 'Confirm stock',
+          status: 'IN_PROGRESS',
+          claimedBy: 'user-1',
+        })
+        mockEm.findOne.mockResolvedValue(instance)
+
+        const operations: Array<Record<string, unknown>> = []
+        const snapshot = () => ({
+          instance: instance.status,
+          cancelledAt: instance.cancelledAt ?? null,
+          tasks: [pendingTask.status, claimedTask.status],
+        })
+        mockEm.find.mockImplementation((async () => {
+          operations.push({ op: 'find', ...snapshot() })
+          return [pendingTask, claimedTask]
+        }) as never)
+        mockEm.count.mockImplementation((async () => {
+          operations.push({ op: 'count', ...snapshot() })
+          return 0
+        }) as never)
+
+        const statusesAtFlush: Array<Record<string, unknown>> = []
+        mockEm.flush.mockImplementation(async () => {
+          operations.push({ op: 'flush', ...snapshot() })
+          statusesAtFlush.push({
+            instance: instance.status,
+            tasks: [pendingTask.status, claimedTask.status],
+            events: mockEm.create.mock.calls.length,
+          })
+        })
+
+        await workflowExecutor.completeWorkflow(mockEm, mockContainer, testInstanceId, 'CANCELLED')
+
+        // The task read runs before the run is dirtied, and no read runs
+        // between the task writes and the flush that persists them.
+        const firstFlush = operations.findIndex((entry) => entry.op === 'flush')
+        expect(operations[0]).toEqual({
+          op: 'find',
+          instance: 'PAUSED',
+          cancelledAt: null,
+          tasks: ['PENDING', 'IN_PROGRESS'],
+        })
+        expect(
+          operations
+            .slice(0, firstFlush)
+            .filter((entry) => entry.op !== 'find')
+            .every((entry) => (entry.tasks as string[]).join() === 'PENDING,IN_PROGRESS')
+        ).toBe(true)
+        expect(operations[firstFlush]).toMatchObject({
+          instance: 'CANCELLED',
+          tasks: ['CANCELLED', 'CANCELLED'],
+        })
+
+        expect(mockEm.find).toHaveBeenCalledTimes(1)
+        expect(mockEm.find).toHaveBeenCalledWith(UserTask, {
+          workflowInstanceId: testInstanceId,
+          tenantId: testTenantId,
+          organizationId: testOrgId,
+          status: { $in: ['PENDING', 'IN_PROGRESS'] },
+        }, undefined)
+
+        expect(pendingTask.status).toBe('CANCELLED')
+        expect(claimedTask.status).toBe('CANCELLED')
+        expect(pendingTask.updatedAt).toBe(instance.updatedAt)
+        expect(claimedTask.updatedAt).toBe(instance.updatedAt)
+        expect(instance.status).toBe('CANCELLED')
+
+        // One flush carries the run status AND the task statuses, before any
+        // event row exists.
+        expect(statusesAtFlush[0]).toEqual({
+          instance: 'CANCELLED',
+          tasks: ['CANCELLED', 'CANCELLED'],
+          events: 0,
+        })
+
+        // One audit row per closed task, and the terminal event stays last.
+        expect(loggedEvents().map((event) => event.eventType)).toEqual([
+          'USER_TASK_CANCELLED',
+          'USER_TASK_CANCELLED',
+          'WORKFLOW_CANCELLED',
+        ])
+        expect(loggedEvents()[0]).toMatchObject({
+          workflowInstanceId: testInstanceId,
+          stepInstanceId: pendingTask.stepInstanceId,
+          eventData: {
+            taskId: pendingTask.id,
+            taskName: 'Review order',
+            reason: 'workflow-cancelled',
+          },
+          tenantId: testTenantId,
+          organizationId: testOrgId,
+        })
+        expect(loggedEvents()[0]).not.toHaveProperty('branchInstanceId')
+        expect(loggedEvents()[1]).toMatchObject({
+          stepInstanceId: claimedTask.stepInstanceId,
+          eventData: {
+            taskId: claimedTask.id,
+            taskName: 'Confirm stock',
+            reason: 'workflow-cancelled',
+          },
+        })
+      })
+
+      test('CANCELLED decrypts the open tasks in the run scope before logging their names', async () => {
+        const instance = buildInstance('PAUSED')
+        const encryptedTask = buildTask({ taskName: 'enc:v1:cipher' })
+        mockEm.findOne.mockResolvedValue(instance)
+        mockEm.find.mockResolvedValue([encryptedTask] as never)
+        jest.mocked(decryptEntitiesWithFallbackScope).mockImplementationOnce(async (targets) => {
+          for (const target of targets as UserTask[]) target.taskName = 'Review order'
+        })
+
+        await workflowExecutor.completeWorkflow(mockEm, mockContainer, testInstanceId, 'CANCELLED')
+
+        expect(decryptEntitiesWithFallbackScope).toHaveBeenCalledWith(
+          [encryptedTask],
+          expect.objectContaining({ tenantId: testTenantId, organizationId: testOrgId })
+        )
+        expect(encryptedTask.status).toBe('CANCELLED')
+        expect(loggedEvents()[0]).toMatchObject({
+          eventType: 'USER_TASK_CANCELLED',
+          eventData: { taskId: encryptedTask.id, taskName: 'Review order', reason: 'workflow-cancelled' },
+        })
+        expect(JSON.stringify(loggedEvents())).not.toContain('enc:v1:cipher')
+      })
+
+      test('CANCELLED on a FORKED run closes a branch-scoped task and leaves the branch alone', async () => {
+        const instance = buildInstance('FORKED')
+        const branchTask = buildTask({ branchInstanceId })
+        mockEm.findOne.mockResolvedValue(instance)
+        mockEm.find.mockResolvedValue([branchTask] as never)
+
+        await workflowExecutor.completeWorkflow(mockEm, mockContainer, testInstanceId, 'CANCELLED')
+
+        expect(branchTask.status).toBe('CANCELLED')
+        expect(branchTask.branchInstanceId).toBe(branchInstanceId)
+        expect(instance.status).toBe('CANCELLED')
+        expect(mockEm.find).toHaveBeenCalledTimes(1)
+        expect(mockEm.find.mock.calls[0][1]).not.toHaveProperty('branchInstanceId')
+        expect(loggedEvents().map((event) => event.eventType)).toEqual([
+          'USER_TASK_CANCELLED',
+          'WORKFLOW_CANCELLED',
+        ])
+        expect(loggedEvents()[0]).toMatchObject({
+          branchInstanceId,
+          eventData: { taskId: branchTask.id, reason: 'workflow-cancelled' },
+        })
+      })
+
+      test('CANCELLED with no open task logs only the terminal event', async () => {
+        mockEm.findOne.mockResolvedValue(buildInstance('RUNNING'))
+
+        await workflowExecutor.completeWorkflow(mockEm, mockContainer, testInstanceId, 'CANCELLED')
+
+        expect(loggedEvents().map((event) => event.eventType)).toEqual(['WORKFLOW_CANCELLED'])
+      })
+
+      test('COMPLETED leaves open tasks untouched', async () => {
+        const instance = buildInstance('RUNNING')
+        const openTask = buildTask({})
+        const taskUpdatedAt = openTask.updatedAt
+        mockEm.findOne.mockResolvedValue(instance)
+        mockEm.find.mockResolvedValue([openTask] as never)
+
+        await workflowExecutor.completeWorkflow(mockEm, mockContainer, testInstanceId, 'COMPLETED')
+
+        expect(instance.status).toBe('COMPLETED')
+        expect(mockEm.find).not.toHaveBeenCalled()
+        expect(openTask.status).toBe('PENDING')
+        expect(openTask.updatedAt).toBe(taskUpdatedAt)
+        expect(loggedEvents().map((event) => event.eventType)).toEqual(['WORKFLOW_COMPLETED'])
+      })
+
+      test('FAILED leaves open tasks untouched, so a retry still finds them', async () => {
+        const instance = buildInstance('RUNNING')
+        const openTask = buildTask({})
+        const taskUpdatedAt = openTask.updatedAt
+        mockEm.findOne
+          .mockResolvedValueOnce(instance)
+          .mockResolvedValueOnce(mockDefinition as WorkflowDefinition)
+        mockEm.find.mockResolvedValue([openTask] as never)
+
+        await workflowExecutor.completeWorkflow(mockEm, mockContainer, testInstanceId, 'FAILED', {
+          error: 'Something went wrong',
+        })
+
+        expect(instance.status).toBe('FAILED')
+        expect(mockEm.find).not.toHaveBeenCalled()
+        expect(openTask.status).toBe('PENDING')
+        expect(openTask.updatedAt).toBe(taskUpdatedAt)
+        expect(loggedEvents().map((event) => event.eventType)).not.toContain('USER_TASK_CANCELLED')
+      })
+    })
   })
 
   // ============================================================================
@@ -1100,6 +1345,50 @@ describe('Workflow Executor (Unit Tests)', () => {
   // ============================================================================
 
   describe('resumeWorkflowAfterActivities', () => {
+    const asyncOutcomeEvent = (
+      eventType: 'ACTIVITY_COMPLETED' | 'ACTIVITY_FAILED',
+      jobId: string,
+      extra: Record<string, unknown> = {},
+    ) => ({
+      eventType,
+      eventData: { async: true, activityId: `activity-${jobId}`, jobId, ...extra },
+    })
+
+    const makeWaitingInstance = (pending: Array<{ activityId: string; jobId: string }>) => ({
+      id: testInstanceId,
+      definitionId: testDefinitionId,
+      workflowId: 'simple-workflow',
+      version: 1,
+      status: 'WAITING_FOR_ACTIVITIES',
+      currentStepId: 'start',
+      context: { _pendingAsyncActivities: pending },
+      pendingTransition: { transitionId: 'start-to-end', toStepId: 'end' },
+      tenantId: testTenantId,
+      organizationId: testOrgId,
+      startedAt: new Date(),
+      retryCount: 0,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    }) as unknown as WorkflowInstance
+
+    const stubResume = (instance: WorkflowInstance, events: Array<ReturnType<typeof asyncOutcomeEvent>>) => {
+      const executeStep = jest.requireMock('../step-handler').executeStep as jest.Mock
+      executeStep.mockResolvedValue({ success: true })
+      mockEm.findOne.mockImplementation(async (_entity: unknown, where: unknown) => {
+        if ((where as Record<string, unknown>)?.id === testInstanceId) return instance
+        if ((where as Record<string, unknown>)?.id === testDefinitionId) return mockDefinition as WorkflowDefinition
+        return null
+      })
+      ;(mockEm as any).findOneOrFail = jest.fn().mockResolvedValue(mockDefinition)
+      ;(mockEm as any).find = jest.fn(async (entity: unknown, where: { eventType?: unknown }) => {
+        if (entity !== WorkflowEvent) return []
+        return typeof where.eventType === 'string' ? events.filter((event) => event.eventType === where.eventType) : events
+      })
+      ;(mockEm as any).count = jest.fn(async (entity: unknown, where: { eventType?: string }) =>
+        entity === WorkflowEvent ? events.filter((event) => event.eventType === where.eventType).length : 0)
+      return executeStep
+    }
+
     test('should use transaction and pessimistic write lock to prevent concurrent resume', async () => {
       const mockInstance = {
         id: testInstanceId,
@@ -1108,7 +1397,7 @@ describe('Workflow Executor (Unit Tests)', () => {
         version: 1,
         status: 'WAITING_FOR_ACTIVITIES',
         currentStepId: 'step1',
-        context: { _pendingAsyncActivities: ['job-1'] },
+        context: { _pendingAsyncActivities: [{ activityId: 'notify', jobId: 'job-1' }] },
         pendingTransition: null,
         tenantId: testTenantId,
         organizationId: testOrgId,
@@ -1139,10 +1428,10 @@ describe('Workflow Executor (Unit Tests)', () => {
         }
         return mockInstance
       })
-      ;(mockEm as any).count = jest.fn()
-        .mockResolvedValueOnce(1)  // completedActivities
-        .mockResolvedValueOnce(0)  // failedActivities
-      ;(mockEm as any).find = jest.fn().mockResolvedValue([])
+      ;(mockEm as any).find = jest.fn(async (entity: unknown) =>
+        entity === WorkflowEvent ? [asyncOutcomeEvent('ACTIVITY_COMPLETED', 'job-1')] : [])
+      ;(mockEm as any).count = jest.fn(async (entity: unknown, where: { eventType?: string }) =>
+        entity === WorkflowEvent && where.eventType === 'ACTIVITY_COMPLETED' ? 1 : 0)
 
       await workflowExecutor.resumeWorkflowAfterActivities(mockEm, mockContainer, testInstanceId)
 
@@ -1164,7 +1453,7 @@ describe('Workflow Executor (Unit Tests)', () => {
         version: 1,
         status: 'WAITING_FOR_ACTIVITIES',
         currentStepId: 'step1',
-        context: { _pendingAsyncActivities: ['job-1'] },
+        context: { _pendingAsyncActivities: [{ activityId: 'notify', jobId: 'job-1' }] },
         metadata: { initiatedBy: 'metadata-user-123' },
         pendingTransition: {
           transitionId: 'step1-to-update-order',
@@ -1199,10 +1488,10 @@ describe('Workflow Executor (Unit Tests)', () => {
         return null
       })
       ;(mockEm as any).findOneOrFail = jest.fn().mockResolvedValue(definition)
-      ;(mockEm as any).count = jest.fn()
-        .mockResolvedValueOnce(1)
-        .mockResolvedValueOnce(0)
-      ;(mockEm as any).find = jest.fn().mockResolvedValue([])
+      ;(mockEm as any).find = jest.fn(async (entity: unknown) =>
+        entity === WorkflowEvent ? [asyncOutcomeEvent('ACTIVITY_COMPLETED', 'job-1')] : [])
+      ;(mockEm as any).count = jest.fn(async (entity: unknown, where: { eventType?: string }) =>
+        entity === WorkflowEvent && where.eventType === 'ACTIVITY_COMPLETED' ? 1 : 0)
 
       await workflowExecutor.resumeWorkflowAfterActivities(mockEm, mockContainer, testInstanceId)
 
@@ -1216,6 +1505,97 @@ describe('Workflow Executor (Unit Tests)', () => {
         }),
         mockContainer
       )
+    })
+
+    test('ignores a failed async activity left by an earlier attempt of the run', async () => {
+      const instance = makeWaitingInstance([{ activityId: 'notify', jobId: 'job-retry' }])
+      const executeStep = stubResume(instance, [
+        asyncOutcomeEvent('ACTIVITY_FAILED', 'job-first'),
+        asyncOutcomeEvent('ACTIVITY_COMPLETED', 'job-retry', { output: { sent: true } }),
+      ])
+
+      await workflowExecutor.resumeWorkflowAfterActivities(mockEm, mockContainer, testInstanceId)
+
+      expect(instance.status).not.toBe('FAILED')
+      expect(instance.currentStepId).toBe('end')
+      expect(instance.context['activity-job-retry_result']).toEqual({ sent: true })
+      expect((mockEm as any).find).toHaveBeenCalledWith(
+        WorkflowEvent,
+        expect.objectContaining({
+          workflowInstanceId: testInstanceId,
+          eventData: { async: true, jobId: { $in: ['job-retry'] } },
+        }),
+        expect.anything(),
+      )
+      expect(executeStep).toHaveBeenCalledWith(mockEm, instance, 'end', expect.anything(), mockContainer)
+    })
+
+    test('keeps waiting while a job of the current wait is unsettled, whatever earlier waits logged', async () => {
+      const instance = makeWaitingInstance([
+        { activityId: 'quick', jobId: 'job-quick' },
+        { activityId: 'slow', jobId: 'job-slow' },
+      ])
+      const executeStep = stubResume(instance, [
+        asyncOutcomeEvent('ACTIVITY_COMPLETED', 'job-earlier-wait'),
+        asyncOutcomeEvent('ACTIVITY_COMPLETED', 'job-quick'),
+      ])
+
+      await expect(
+        workflowExecutor.resumeWorkflowAfterActivities(mockEm, mockContainer, testInstanceId)
+      ).rejects.toThrow('Activities still pending')
+      expect(instance.status).toBe('WAITING_FOR_ACTIVITIES')
+      expect(instance.currentStepId).toBe('start')
+      expect(executeStep).not.toHaveBeenCalled()
+    })
+
+    test('counts a redelivered job once', async () => {
+      const instance = makeWaitingInstance([
+        { activityId: 'quick', jobId: 'job-quick' },
+        { activityId: 'slow', jobId: 'job-slow' },
+      ])
+      stubResume(instance, [
+        asyncOutcomeEvent('ACTIVITY_COMPLETED', 'job-quick'),
+        asyncOutcomeEvent('ACTIVITY_COMPLETED', 'job-quick'),
+      ])
+
+      await expect(
+        workflowExecutor.resumeWorkflowAfterActivities(mockEm, mockContainer, testInstanceId)
+      ).rejects.toThrow('Activities still pending')
+      expect(instance.status).toBe('WAITING_FOR_ACTIVITIES')
+    })
+
+    test('treats a job whose later attempt completed as completed', async () => {
+      const instance = makeWaitingInstance([{ activityId: 'notify', jobId: 'job-1' }])
+      stubResume(instance, [
+        asyncOutcomeEvent('ACTIVITY_FAILED', 'job-1', { attemptNumber: 1 }),
+        asyncOutcomeEvent('ACTIVITY_COMPLETED', 'job-1', { attemptNumber: 2 }),
+      ])
+
+      await workflowExecutor.resumeWorkflowAfterActivities(mockEm, mockContainer, testInstanceId)
+
+      expect(instance.status).not.toBe('FAILED')
+      expect(instance.currentStepId).toBe('end')
+    })
+
+    test('fails the run only with the failures of the current wait', async () => {
+      const instance = makeWaitingInstance([
+        { activityId: 'quick', jobId: 'job-quick' },
+        { activityId: 'slow', jobId: 'job-slow' },
+      ])
+      const executeStep = stubResume(instance, [
+        asyncOutcomeEvent('ACTIVITY_FAILED', 'job-earlier-wait', { error: 'old' }),
+        asyncOutcomeEvent('ACTIVITY_COMPLETED', 'job-quick'),
+        asyncOutcomeEvent('ACTIVITY_FAILED', 'job-slow', { error: 'boom' }),
+      ])
+
+      await workflowExecutor.resumeWorkflowAfterActivities(mockEm, mockContainer, testInstanceId)
+
+      expect(instance.status).toBe('FAILED')
+      expect(instance.errorMessage).toBe('1 async activities failed')
+      expect(instance.errorDetails).toEqual({
+        failedActivities: [{ activityId: 'activity-job-slow', error: 'boom', jobId: 'job-slow' }],
+      })
+      expect(executeStep).not.toHaveBeenCalled()
     })
 
     test('should reject resume when instance is no longer WAITING_FOR_ACTIVITIES under lock', async () => {

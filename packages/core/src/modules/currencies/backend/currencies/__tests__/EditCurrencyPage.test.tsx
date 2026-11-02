@@ -6,9 +6,11 @@ import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import EditCurrencyPage from '../[id]/page'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { updateCrud } from '@open-mercato/ui/backend/utils/crud'
 
 const mockTranslate = (key: string, fallback?: string) => fallback ?? key
 const mockPush = jest.fn()
+let mockCrudFormProps: any = null
 
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
   useT: () => mockTranslate,
@@ -26,14 +28,17 @@ jest.mock('@open-mercato/ui/backend/Page', () => ({
 }))
 
 jest.mock('@open-mercato/ui/backend/CrudForm', () => ({
-  CrudForm: (props: any) => (
-    <div data-testid="crud-form-mock">
-      <div data-testid="crud-form-title">{props.title}</div>
-      <button data-testid="submit-button" onClick={() => props.onSubmit?.(props.initialValues)}>
-        {props.submitLabel}
-      </button>
-    </div>
-  ),
+  CrudForm: (props: any) => {
+    mockCrudFormProps = props
+    return (
+      <div data-testid="crud-form-mock">
+        <div data-testid="crud-form-title">{props.title}</div>
+        <button data-testid="submit-button" onClick={() => props.onSubmit?.(props.initialValues)}>
+          {props.submitLabel}
+        </button>
+      </div>
+    )
+  },
 }))
 
 jest.mock('@open-mercato/ui/backend/utils/crud', () => ({
@@ -93,9 +98,13 @@ const mockCurrency = {
   tenantId: 'ten-1',
 }
 
+const findIsBaseField = () =>
+  mockCrudFormProps.groups.flatMap((group: any) => group.fields).find((field: any) => field.id === 'isBase')
+
 describe('EditCurrencyPage', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    mockCrudFormProps = null
     ;(apiCall as jest.Mock).mockResolvedValue({
       ok: true,
       result: {
@@ -116,5 +125,29 @@ describe('EditCurrencyPage', () => {
 
     await waitFor(() => expect(screen.getByTestId('crud-form-mock')).toBeTruthy())
     expect(screen.getByTestId('crud-form-title')).toHaveTextContent('currencies.edit.title')
+  })
+
+  it('keeps the base flag editable on a non-base currency', async () => {
+    render(<EditCurrencyPage params={{ id: 'cur-1' }} />)
+
+    await waitFor(() => expect(screen.getByTestId('crud-form-mock')).toBeTruthy())
+    expect(findIsBaseField().disabled).toBe(false)
+    expect(findIsBaseField().description).toBeUndefined()
+  })
+
+  it('locks the base flag on the base currency and still submits it as the base', async () => {
+    ;(apiCall as jest.Mock).mockResolvedValue({
+      ok: true,
+      result: { items: [{ ...mockCurrency, isBase: true }] },
+    })
+    render(<EditCurrencyPage params={{ id: 'cur-1' }} />)
+
+    await waitFor(() => expect(screen.getByTestId('crud-form-mock')).toBeTruthy())
+    expect(findIsBaseField().disabled).toBe(true)
+    expect(findIsBaseField().description).toBe('currencies.form.field.isBaseLocked')
+
+    fireEvent.click(screen.getByTestId('submit-button'))
+    await waitFor(() => expect(updateCrud).toHaveBeenCalled())
+    expect((updateCrud as jest.Mock).mock.calls[0][1]).toMatchObject({ id: 'cur-1', isBase: true })
   })
 })

@@ -87,6 +87,11 @@ export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
 
 export type ApiHandler = (req: Request, ctx?: any) => Promise<Response> | Response
 
+export type ApiRouteBeforeAuth = (
+  req: Request,
+  context: { method: HttpMethod; params: Record<string, string | string[]> },
+) => Promise<Response | null> | Response | null
+
 export type ModuleSubscriberHandler = (
   payload: any,
   ctx: any
@@ -178,6 +183,11 @@ export type ApiRouteManifestEntry = {
 export type ModuleCli = {
   command: string
   run: (argv: string[]) => Promise<void> | void
+  // Usage text printed by the `mercato` dispatcher when the command is invoked with --help/-h.
+  help?: string
+  // Set when the command parses --help/-h itself; the dispatcher then forwards the flag
+  // instead of intercepting it, so the command can print its own richer usage text.
+  handlesHelp?: boolean
 }
 
 export type ModuleSubscriber = {
