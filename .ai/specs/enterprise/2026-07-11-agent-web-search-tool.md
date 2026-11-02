@@ -310,6 +310,14 @@ Per-feature, self-contained (fixtures created in setup, cleaned in teardown; no 
 - **ACL denial:** agent without `agent_orchestrator.web_search` → tool call rejected mid-run (per-call, not just load-time).
 - **ACL grant:** granted agent → `web_search` returns provider results (SearXNG stubbed).
 - **Guardrail — domain deny:** query/fetch to a denied domain rejected.
+- **Guardrail — redirected inline content (#7548):** `lib/webSearch/__tests__/redirectPolicy.integration.test.ts`
+  drives the real registry, engine, HTTP client and both tools against local socket fixtures.
+  A private adapter endpoint remains reachable for discovery while agent page reads are checked
+  before the initial request and every redirect. Denied destinations receive no request and
+  contribute no inline text; permitted redirects expose their final URL. Cover exclusive
+  allowlists, direct `web_fetch` redirects, and bypassing legacy enriched result caches.
+  Engine/client unit tests cover final-URL rejection with custom clients, retained SSRF checks,
+  fetch-budget accounting, and browser escalation refusing restrictive content policies.
 - **Guardrail — SSRF:** `web_fetch` to `169.254.169.254`, `localhost`, private ranges, and non-http scheme all blocked; DNS-rebinding case (public name → private IP) blocked.
 - **Guardrail — caps:** result count capped; oversized response truncated to limit.
 - **Guardrail — rate limit:** over-ceiling calls rejected within a run.
@@ -354,8 +362,6 @@ MCP tools on the existing `open-mercato` server (zod-validated; types via `z.inf
 Both `isMutation: false`. Errors return clean tool errors (ACL-denied, guardrail-blocked,
 provider-unhealthy, timeout) — never a crash.
 
-<<<<<<< HEAD
-=======
 ## Migration & Backward Compatibility
 
 The #7234 correction applies domain policy to provider-synthesized answers in both
@@ -398,7 +404,6 @@ bypass result caching so previously enriched pages cannot survive a policy chang
 migration or manual cache purge is required. Operators needing rendered content must wait for
 browser domain enforcement; keep the restrictive domain rules in place.
 
->>>>>>> 3655f86a1 (fix(agent_orchestrator): enforce domain policy on synthesized answers (#7234) (#8378))
 ## Final Compliance Report (to complete at implementation)
 
 | MUST | Status |
@@ -446,8 +451,6 @@ Notes: `tsconfig.json` sets `types: ["node"]` — this pure-lib package pulls no
 
 ## Changelog
 
-<<<<<<< HEAD
-=======
 - 2026-11-01 — Corrected #7234 independently: suppress unattributed synthesized answers
   under domain policies at the agent and preview boundaries, with explicit diagnostics
   and handler-level regressions. Finding and prior proof of concept: @AHKSammich (#7323).
@@ -455,7 +458,6 @@ Notes: `tsconfig.json` sets `types: ["node"]` — this pure-lib package pulls no
   each HTTP hop, retain final URL attribution, bypass restricted result caches, and fail closed
   for browser content navigation with domain restrictions. Added socket-backed tool integration
   coverage and engine/client regressions; preserved version 1 adapter support.
->>>>>>> 3655f86a1 (fix(agent_orchestrator): enforce domain policy on synthesized answers (#7234) (#8378))
 - 2026-07-11 — Initial draft. Route B (ACL-gated `defineAiTool` on existing MCP server) chosen over
   native OpenCode `websearch`/Exa/model-built-in. Open Questions resolved: SearXNG-first adapter,
   search + fetch, dedicated package, new ACL feature + permissive (SSRF-always-on) guardrails.
