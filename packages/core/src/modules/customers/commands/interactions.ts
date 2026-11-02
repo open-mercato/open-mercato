@@ -12,7 +12,7 @@ import {
 import { DefaultDataEngine, type DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
-import { CustomerInteraction, CustomerEntity } from '../data/entities'
+import { CustomerActivity, CustomerInteraction, CustomerEntity } from '../data/entities'
 import {
   interactionCreateSchema,
   interactionUpdateSchema,
@@ -38,7 +38,7 @@ import {
   loadCustomFieldSnapshot,
   buildCustomFieldResetMap,
 } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
-import { CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
+import { badRequest, CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
 import { enforceRecordGoneIsConflict, enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { CrudIndexerConfig, CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
@@ -51,6 +51,10 @@ import {
 import { canChangeEmailVisibility, isEmailHiddenFrom } from '../lib/visibilityFilter'
 import { listGrantsForViewerOnPerson, listSharedChannelIds } from '../lib/conversationShares'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+
+import { User } from '@open-mercato/core/modules/auth/data/entities'
+import { findInteractionUserInScope, requireInteractionUsersInScope } from '../lib/interactionUsers'
+import { CUSTOMER_INTERACTION_ACTIVITY_ADAPTER_SOURCE } from '../lib/interactionCompatibility'
 
 const logger = createLogger('customers')
 
@@ -131,6 +135,18 @@ type InteractionUndoPayload = {
 
 const INTERACTION_UNDO_DATE_OPTIONS = {
   datePaths: ['before.interaction.scheduledAt', 'before.interaction.occurredAt', 'before.interaction.recurrenceEnd'],
+}
+
+async function ensureRestoredInteractionUsers(em: EntityManager, restored: InteractionSnapshot['interaction']): Promise<void> {
+  const userIds = new Set([restored.authorUserId, restored.ownerUserId].filter((value): value is string => !!value))
+  for (const userId of userIds) {
+    const user = await findOneWithDecryption(em, User, { id: userId, tenantId: restored.tenantId }, undefined, {
+      tenantId: restored.tenantId, organizationId: restored.organizationId,
+    })
+    if (user) continue
+    const { translate } = await resolveTranslations()
+    throw badRequest(translate('auth.users.form.errors.notFound', 'User not found'))
+  }
 }
 
 async function ensureInteractionMutationAccess(
@@ -453,11 +469,24 @@ const createInteractionCommand: CommandHandler<InteractionCreateInput, { interac
     const { parsed, custom } = parseWithCustomFields(interactionCreateSchema, rawInput)
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const normalizedAuthor = normalizeAuthorUserId(parsed.authorUserId ?? null, ctx.auth)
+    const defaultAuthor = normalizeAuthorUserId(parsed.authorUserId ?? null, ctx.auth)
     const { interaction, entityId, nextInteractionId } = await runInTransaction(em, async (trx) => {
       const entity = await requireTimelineParentEntity(trx, parsed.entityId, { tenantId: parsed.tenantId, organizationId: parsed.organizationId })
       ensureTenantScope(ctx, entity.tenantId)
       ensureOrganizationScope(ctx, entity.organizationId)
+
+      const legacyActivity = parsed.id && parsed.source === CUSTOMER_INTERACTION_ACTIVITY_ADAPTER_SOURCE
+        ? await findOneWithDecryption(trx, CustomerActivity, {
+          id: parsed.id, entity: entity.id, tenantId: entity.tenantId, organizationId: entity.organizationId,
+        }, undefined, entity)
+        : null
+      const preservesHistoricalAuthor = !!legacyActivity && parsed.authorUserId === legacyActivity.authorUserId
+      await requireInteractionUsersInScope(trx, entity, parsed, legacyActivity ?? {})
+      const normalizedAuthor = preservesHistoricalAuthor
+        ? legacyActivity.authorUserId ?? null
+        : defaultAuthor && await findInteractionUserInScope(trx, defaultAuthor, entity)
+          ? defaultAuthor
+          : null
 
       if (parsed.dealId) {
         await requireDealInScope(trx, parsed.dealId, entity.tenantId, entity.organizationId)
@@ -593,6 +622,7 @@ const createInteractionCommand: CommandHandler<InteractionCreateInput, { interac
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const { interaction, nextInteractionId } = await runInTransaction(em, async (trx) => {
       const entity = await requireTimelineParentEntity(trx, after.interaction.entityId, { tenantId: after.interaction.tenantId, organizationId: after.interaction.organizationId })
+      await ensureRestoredInteractionUsers(trx, after.interaction)
       let interaction = await findOneWithDecryption(trx, CustomerInteraction, { id: after.interaction.id })
       await ensureInteractionRestoreAccess(ctx, trx, interaction, after.interaction)
       if (!interaction) {
@@ -737,6 +767,8 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
 
       await ensureInteractionPrivacyChangeAccess(ctx, interaction, parsed)
 
+      await requireInteractionUsersInScope(trx, interaction, parsed, interaction)
+
       // Re-link to a different person/company (#5938). Resolved before any scalar
       // mutation below so the lookup never lands between a mutation and `trx.flush()`
       // (packages/core/AGENTS.md → Entity Update Safety). `requireTimelineParentEntity`
@@ -867,6 +899,7 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
       let interaction = await findOneWithDecryption(trx, CustomerInteraction, { id: before.interaction.id })
       await ensureInteractionRestoreAccess(ctx, trx, interaction, before.interaction)
       const entity = await requireTimelineParentEntity(trx, before.interaction.entityId, { tenantId: before.interaction.tenantId, organizationId: before.interaction.organizationId })
+      await ensureRestoredInteractionUsers(trx, before.interaction)
 
       if (!interaction) {
         interaction = trx.create(CustomerInteraction, {
@@ -1352,6 +1385,7 @@ const deleteInteractionCommand: CommandHandler<{ body?: Record<string, unknown>;
       const em = (ctx.container.resolve('em') as EntityManager).fork()
       const { interaction, nextInteractionId } = await runInTransaction(em, async (trx) => {
         const entity = await requireTimelineParentEntity(trx, before.interaction.entityId, { tenantId: before.interaction.tenantId, organizationId: before.interaction.organizationId })
+      await ensureRestoredInteractionUsers(trx, before.interaction)
         let interaction = await findOneWithDecryption(trx, CustomerInteraction, { id: before.interaction.id })
         await ensureInteractionRestoreAccess(ctx, trx, interaction, before.interaction)
         if (!interaction) {
