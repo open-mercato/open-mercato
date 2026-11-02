@@ -180,8 +180,19 @@ docker compose --project-directory . -f starters/docker/compose.fullapp.yml exec
 
 **Restore PostgreSQL:**
 
+Replace `YYYYMMDD` with the date of the dump you restore. Restore into an empty database with the app stopped. A plain-SQL dump replayed over existing tables fails with `already exists` errors, and a running app keeps writing while the dump loads.
+
 ```bash
-cat backup.sql | docker compose --project-directory . -f starters/docker/compose.fullapp.yml exec -T postgres psql -U postgres -d open-mercato
+# Stop the services that connect to the database
+docker compose --project-directory . -f starters/docker/compose.fullapp.yml stop app mcp documents-collab
+
+# Recreate an empty database and load the dump
+docker compose --project-directory . -f starters/docker/compose.fullapp.yml exec -T postgres dropdb -U postgres --if-exists open-mercato
+docker compose --project-directory . -f starters/docker/compose.fullapp.yml exec -T postgres createdb -U postgres open-mercato
+cat backup-YYYYMMDD.sql | docker compose --project-directory . -f starters/docker/compose.fullapp.yml exec -T postgres psql -U postgres -d open-mercato
+
+# Start the services again (add documents-collab if you run that profile)
+docker compose --project-directory . -f starters/docker/compose.fullapp.yml up -d app mcp
 ```
 
 ---
