@@ -138,7 +138,8 @@ themselves — that would bypass every control below in a single step.
   addresses (`2002::/16`) whose embedded IPv4 destination is non-public. Public
   IPv6, including 6to4 and well-known NAT64 addresses embedding public IPv4,
   remains allowed. These checks apply to literals and DNS answers in both the
-  HTTP client and browser proxy. Whether a local-use destination could reach an
+  HTTP client. This release does not include a pinned browser egress proxy.
+  Whether a local-use destination could reach an
   internal service depends on the deployment's IPv6 routing.
 - **A named escape hatch, not a switch.** A service you run yourself — a SearXNG
   instance on the container network — is unreachable under that guard, so

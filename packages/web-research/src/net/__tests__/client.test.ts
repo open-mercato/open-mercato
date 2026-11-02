@@ -1,6 +1,8 @@
+import http from 'node:http'
+import https from 'node:https'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
-import { isWebResearchError } from '../../contract/errors'
+import { isWebResearchError, WebResearchError } from '../../contract/errors'
 import { createHttpClient } from '../client'
 
 /**
@@ -52,6 +54,27 @@ describe('http client against a real server', () => {
     await expect(createHttpClient().request(origin)).rejects.toMatchObject({ code: 'ssrf_blocked' })
   })
 
+  it.each(['http', 'https'] as const)('rejects local-use IPv6 literals and DNS answers before %s transport egress', async (protocol) => {
+    const transport = jest.spyOn(protocol === 'http' ? http : https, 'request')
+    const destinations = [
+      { host: '[64:ff9b:1::a00:1]', address: '64:ff9b:1::a00:1', dns: false },
+      { host: '[2002:a00:1::1]', address: '2002:a00:1::1', dns: false },
+      { host: 'local-translation.test', address: '64:ff9b:1::a00:1', dns: true },
+      { host: 'private-6to4.test', address: '2002:a00:1::1', dns: true },
+    ]
+    try {
+      for (const destination of destinations) {
+        const lookup = jest.fn(async () => [{ address: destination.address, family: 6 }])
+        await expect(createHttpClient({ lookup }).request(`${protocol}://${destination.host}/secret`)).rejects.toMatchObject({ code: 'ssrf_blocked' })
+        expect(transport).not.toHaveBeenCalled()
+        if (destination.dns) expect(lookup).toHaveBeenCalledWith(destination.host)
+        else expect(lookup).not.toHaveBeenCalled()
+      }
+    } finally {
+      transport.mockRestore()
+    }
+  })
+
   it('reads a body and reports the final url', async () => {
     const { origin } = track(
       await listen((_req, res) => {
@@ -65,6 +88,138 @@ describe('http client against a real server', () => {
     expect(response.status).toBe(200)
     expect(response.body).toContain('hello')
     expect(response.url).toBe(`${origin}/page`)
+  })
+
+  it('checks caller URL policy before initial DNS resolution or socket egress', async () => {
+    const received = jest.fn((_req: IncomingMessage, res: ServerResponse) => res.end('denied content'))
+    const { port } = track(await listen(received))
+    const lookup = jest.fn(async () => [{ address: '127.0.0.1', family: 4 }])
+    const http = createHttpClient({ lookup, allowPrivateHosts: ['denied.test'] })
+
+    await expect(
+      http.request(`http://denied.test:${port}/admin`, {
+        assertUrlAllowed: () => {
+          throw new WebResearchError('blocked', 'domain not allowed')
+        },
+      }),
+    ).rejects.toMatchObject({ code: 'blocked' })
+
+    expect(lookup).not.toHaveBeenCalled()
+    expect(received).not.toHaveBeenCalled()
+  })
+
+  it('checks caller URL policy on redirects before contacting a permitted private host', async () => {
+    const received: string[] = []
+    const { port } = track(
+      await listen((req, res) => {
+        received.push(`${req.headers.host}${req.url}`)
+        res.writeHead(302, { location: `http://denied.test:${port}/admin` })
+        res.end()
+      }),
+    )
+    const lookup = jest.fn(async () => [{ address: '127.0.0.1', family: 4 }])
+    const http = createHttpClient({ lookup, allowPrivateHosts: ['allowed.test', 'denied.test'] })
+
+    await expect(
+      http.request(`http://allowed.test:${port}/start`, {
+        assertUrlAllowed: (url) => {
+          if (new URL(url).hostname === 'denied.test') {
+            throw new WebResearchError('blocked', 'domain not allowed')
+          }
+        },
+      }),
+    ).rejects.toMatchObject({ code: 'blocked' })
+
+    expect(lookup.mock.calls).toEqual([['allowed.test']])
+    expect(received).toEqual([`allowed.test:${port}/start`])
+  })
+
+  it.each(['initial request', 'redirect'])(
+    'awaits asynchronous authorization before %s DNS resolution or socket egress',
+    async (stage) => {
+      const received: string[] = []
+      const { port } = track(
+        await listen((req, res) => {
+          received.push(`${req.headers.host}${req.url}`)
+          if (req.url === '/start') {
+            res.writeHead(302, { location: `http://denied.test:${port}/admin` })
+          }
+          res.end('denied content')
+        }),
+      )
+      const lookup = jest.fn(async () => [{ address: '127.0.0.1', family: 4 }])
+      const http = createHttpClient({ lookup, allowPrivateHosts: ['allowed.test', 'denied.test'] })
+      const authorization = Promise.withResolvers<void>()
+      const authorizationStarted = Promise.withResolvers<void>()
+      const initialUrl = stage === 'redirect' ? `http://allowed.test:${port}/start` : `http://denied.test:${port}/admin`
+      const response = http.request(initialUrl, {
+        assertUrlAllowed: (url) => {
+          if (new URL(url).hostname !== 'denied.test') return
+          authorizationStarted.resolve()
+          return authorization.promise
+        },
+      })
+      const rejection = expect(response).rejects.toMatchObject({ code: 'blocked' })
+
+      await authorizationStarted.promise
+
+      expect(lookup.mock.calls).toEqual(stage === 'redirect' ? [['allowed.test']] : [])
+      expect(received).toEqual(stage === 'redirect' ? [`allowed.test:${port}/start`] : [])
+
+      authorization.reject(new WebResearchError('blocked', 'domain not allowed'))
+      await rejection
+
+      expect(lookup.mock.calls).toEqual(stage === 'redirect' ? [['allowed.test']] : [])
+      expect(received).toEqual(stage === 'redirect' ? [`allowed.test:${port}/start`] : [])
+    },
+  )
+
+  it('preserves permitted redirects and reports their final URL', async () => {
+    const { origin } = track(
+      await listen((req, res) => {
+        if (req.url === '/start') {
+          res.writeHead(302, { location: '/final' })
+          res.end()
+          return
+        }
+        res.writeHead(200, { 'content-type': 'text/plain' })
+        res.end('permitted content')
+      }),
+    )
+    const assertUrlAllowed = jest.fn(async () => {})
+
+    const response = await client().request(`${origin}/start`, { assertUrlAllowed })
+
+    expect(assertUrlAllowed.mock.calls).toEqual([[`${origin}/start`], [`${origin}/final`]])
+    expect(response).toMatchObject({ url: `${origin}/final`, body: 'permitted content' })
+  })
+
+  it('keeps SSRF protection active when caller policy allows a URL', async () => {
+    const received = jest.fn((_req: IncomingMessage, res: ServerResponse) => res.end('private content'))
+    const { origin } = track(await listen(received))
+    const assertUrlAllowed = jest.fn()
+
+    await expect(createHttpClient().request(origin, { assertUrlAllowed })).rejects.toMatchObject({
+      code: 'ssrf_blocked',
+    })
+
+    expect(assertUrlAllowed).toHaveBeenCalledWith(origin)
+    expect(received).not.toHaveBeenCalled()
+  })
+
+  it('does not apply one request policy to adapter service requests on the same client', async () => {
+    const { origin } = track(await listen((_req, res) => res.end('adapter response')))
+    const http = client()
+
+    await expect(
+      http.request(origin, {
+        assertUrlAllowed: () => {
+          throw new WebResearchError('blocked', 'domain not allowed')
+        },
+      }),
+    ).rejects.toMatchObject({ code: 'blocked' })
+
+    await expect(http.request(origin)).resolves.toMatchObject({ body: 'adapter response' })
   })
 
   it('keeps caller headers on a same-origin redirect', async () => {
@@ -120,9 +275,16 @@ describe('http client against a real server', () => {
         res.end()
       }),
     )
+    const assertUrlAllowed = jest.fn()
 
     // The allowlist named 127.0.0.1 only, so the metadata endpoint is still refused.
-    await expect(client().request(`${origin}/start`)).rejects.toMatchObject({ code: 'ssrf_blocked' })
+    await expect(client().request(`${origin}/start`, { assertUrlAllowed })).rejects.toMatchObject({
+      code: 'ssrf_blocked',
+    })
+    expect(assertUrlAllowed.mock.calls).toEqual([
+      [`${origin}/start`],
+      ['http://169.254.169.254/latest/meta-data/'],
+    ])
   })
 
   it.each(['64:ff9b:1::a00:1', '2002:a00:1::1'])(
