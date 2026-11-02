@@ -54,6 +54,19 @@ import { createBoundedTtlMemo } from '@open-mercato/shared/lib/query/bounded-ttl
 
 const logger = createLogger('query_index').child({ component: 'engine' })
 
+function resolveCustomDocumentDecryptScope(input: {
+  rowTenantId: string | null
+  rowOrganizationId: string | null
+  callerTenantId: string | null | undefined
+  callerOrganizationId: string | null
+}): { decrypt: boolean; tenantId: string | null; organizationId: string | null } {
+  return {
+    decrypt: !(input.rowTenantId && input.callerTenantId && input.rowTenantId !== input.callerTenantId),
+    tenantId: input.rowTenantId ?? input.callerTenantId ?? null,
+    organizationId: input.rowOrganizationId ?? input.callerOrganizationId,
+  }
+}
+
 function customDocumentValue(row: Record<string, unknown>, field: string): unknown {
   const bare = field.replace(/^cf[:_]/, '')
   return row[field] ?? row[`cf_${bare.replace(/[^a-zA-Z0-9_]/g, '_')}`] ?? row[`cf:${bare}`] ?? row[bare]
@@ -117,8 +130,6 @@ function matchesCustomDocumentFilter(row: Record<string, unknown>, filter: Filte
     case 'ne': return actual != null && !values.some((value) => equal(value, expected))
     case 'in': return included(Array.isArray(expected) ? expected : [])
     case 'nin': return actual != null && !included(Array.isArray(expected) ? expected : [])
-    case 'overlap': return Array.isArray(actual) && normalizeOverlapValues(expected).some((value) => actual.map(String).includes(value))
-    case 'noverlap': return Array.isArray(actual) && !normalizeOverlapValues(expected).some((value) => actual.map(String).includes(value))
     case 'gt': case 'gte': case 'lt': case 'lte': {
       if (actual == null || expected == null) return false
       const left = typeof actual === 'number' ? actual : String(actual)
@@ -2202,7 +2213,7 @@ export class HybridQueryEngine implements QueryEngine {
     if (!opts.tenantId) throw new Error('QueryEngine: tenantId is required')
 
     const normalizedFilters = normalizeFilters(opts.filters)
-    const encryptionService = resolveDecryptEnabled(opts) ? this.getEncryptionService() : null
+    const encryptionService = !('decryptEncryptedFields' in opts && opts.decryptEncryptedFields === false) ? this.getEncryptionService() : null
     const documentEncryptionService = encryptionService && 'getDek' in encryptionService
       && typeof encryptionService.getDek === 'function' && typeof encryptionService.isEnabled === 'function'
       ? encryptionService as TenantDataEncryptionService
@@ -2218,10 +2229,6 @@ export class HybridQueryEngine implements QueryEngine {
     const plaintextSort = (opts.sort ?? []).some((sort) => isProtected(sort.field))
     const scanPlaintext = plaintextFilters || plaintextSort
     const deferredFilters = plaintextFilters ? normalizedFilters.filter((filter) => filter.orGroup || isProtected(filter.field)) : []
-    const jsonComparisonAliases = new Map(Array.from(new Set(deferredFilters
-      .filter((filter) => !isProtected(filter.field) && !filter.field.startsWith('cf:')
-        && !this.resolveCustomEntityColumn(alias, filter.field) && (filter.op === 'overlap' || filter.op === 'noverlap'))
-      .map((filter) => filter.field)), (field, index) => [field, `__om_ce_filter_${index}`]))
     const searchConfig = resolveSearchConfig()
     const searchEnabled = await this.searchAvailability().staticEnabled()
     // Same gate as `query()` (#4723): without a like/ilike filter the probe's answer is never read.
@@ -2333,9 +2340,6 @@ export class HybridQueryEngine implements QueryEngine {
         const aliasName = this.sanitize(`cf:${key}`)
         next = next.select(this.jsonbSqlAlias(alias, `cf:${key}`).as(aliasName))
       }
-      for (const [field, comparisonAlias] of jsonComparisonAliases) {
-        next = next.select(sql<unknown>`(${sql.ref(alias + '.doc')} -> ${field})`.as(comparisonAlias))
-      }
       if (encryptionService) {
         next = next.select([`${alias}.tenant_id as __om_ce_tenant_id`, `${alias}.organization_id as __om_ce_organization_id`])
       }
@@ -2368,7 +2372,7 @@ export class HybridQueryEngine implements QueryEngine {
       let next = item
       if (encryptionService) {
         const hasOrganizationScope = Object.prototype.hasOwnProperty.call(item, '__om_ce_organization_id')
-        const decision = resolveDecryptScope({
+        const decision = resolveCustomDocumentDecryptScope({
           rowTenantId: (Object.prototype.hasOwnProperty.call(item, '__om_ce_tenant_id') ? item.__om_ce_tenant_id : item.tenant_id ?? null) as string | null,
           rowOrganizationId: (hasOrganizationScope ? item.__om_ce_organization_id : item.organization_id ?? null) as string | null,
           callerTenantId: opts.tenantId,
@@ -2399,8 +2403,7 @@ export class HybridQueryEngine implements QueryEngine {
           if (filter.orGroup) groups.set(filter.orGroup, [...(groups.get(filter.orGroup) ?? []), filter])
         }
         const matches = (row: Record<string, unknown>, filter: Filter) => {
-          const comparisonAlias = jsonComparisonAliases.get(filter.field)
-          return matchesCustomDocumentFilter(row, filter, comparisonAlias ? row[comparisonAlias] : customDocumentValue(row, filter.field))
+          return matchesCustomDocumentFilter(row, filter)
         }
         candidates = candidates.filter((row) => common.every((filter) => matches(row, filter))
           && (!groups.size || Array.from(groups.values()).some((group) => group.every((filter) => matches(row, filter)))))
@@ -2415,7 +2418,6 @@ export class HybridQueryEngine implements QueryEngine {
       const items = candidates.slice((page - 1) * pageSize, page * pageSize).map((row) => {
         const projected = { ...row }
         for (const field of hiddenFields) delete projected[field]
-        for (const comparisonAlias of jsonComparisonAliases.values()) delete projected[comparisonAlias]
         return projected
       })
       return { items: items as T[], page, pageSize, total }
