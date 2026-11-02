@@ -29,7 +29,7 @@
 | 8 | 8.3-qa-fix | Product card shows suggested category names instead of ids | inline | done | 74ddf82c49 |
 
 **Source doc:** `.ai/specs/2026-10-28-catalog-ai-product-categorization.md`
-**Spec PR:** adeptofvoltron/open-mercato#17 (design only). This plan's PR is the separate **implementation PR**, so the spec-only guard of `om-auto-continue-pr` does not apply to it.
+**Spec:** included in this PR (originally a separate design-only PR). Plan Phases 1-4 are spec Phase 1; plan Phases 5-8 cover spec Phases 2-4 and the closing gate.
 **Branch:** `feat/catalog-ai-categorization-phase-1` · stacked on `spec/catalog-ai-categorization`
 **Prepared:** 2026-10-29, against upstream `main` at `9d41ec411` (#7553 merged).
 
