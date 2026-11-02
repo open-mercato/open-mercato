@@ -47,6 +47,23 @@ describe('translations locales route scope', () => {
         scope: { tenantId },
       }),
     )
-    await expect(response.json()).resolves.toEqual({ locales: ['en', 'pl'] })
+    await expect(response.json()).resolves.toEqual({
+      locales: ['en', 'pl'],
+      servable: ['en', 'pl', 'es', 'de', 'ko'],
+    })
+  })
+
+  it('reports which locales the app can actually serve its own UI in', async () => {
+    // The stored selection accepts any ISO 639-1 code, but the UI can only be
+    // rendered in a locale the app ships (or registered) a dictionary for. The
+    // settings screen needs both sets to say which of the two an added code
+    // affects (UX finding 2).
+    getValueMock.mockResolvedValue(['en', 'fr'])
+
+    const response = await GET(makeRequest())
+    const body = await response.json() as { locales: string[]; servable: string[] }
+
+    expect(body.locales).toEqual(['en', 'fr'])
+    expect(body.servable).not.toContain('fr')
   })
 })

@@ -19,7 +19,8 @@ export const TERMINAL_PIPELINE_STAGE_LABELS: Record<DealClosureOutcome, Readonly
 }
 
 /**
- * Map a deal status spelling (UI `win`/`loose` or AI `won`/`lost`) to its closure
+ * Map a deal status spelling (`win`/`lost`, the AI tool's `won`, or the pre-0.7.1
+ * `loose`) to its closure
  * outcome. Case-insensitive because callers such as the AI tool pass free-form model
  * text through, while every persisted status is lower-case.
  */

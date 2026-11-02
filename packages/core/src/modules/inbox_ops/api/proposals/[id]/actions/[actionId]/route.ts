@@ -57,7 +57,13 @@ export async function PATCH(req: Request) {
     }
 
     const mergedPayload = { ...action.payload as Record<string, unknown>, ...parsed.data.payload }
-    const payloadValidation = validateActionPayloadForType(action.actionType, mergedPayload)
+    const { getInboxAction } = await import('@/.mercato/generated/inbox-actions.generated')
+    const definition = getInboxAction(action.actionType)
+    const payloadValidation = validateActionPayloadForType(
+      action.actionType,
+      mergedPayload,
+      definition?.payloadSchema,
+    )
     if (!payloadValidation.success) {
       return NextResponse.json({ error: payloadValidation.error }, { status: 400 })
     }

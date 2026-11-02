@@ -4,7 +4,8 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
-import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
+import { CrudHttpError, isCrudHttpError, translateCrudErrorBody } from '@open-mercato/shared/lib/crud/errors'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
@@ -43,6 +44,7 @@ type SuggestionsRouteContext = {
   tenantId: string
   organizationId: string
   scope: WarrantyClaimScope
+  translate: (key: string, fallback?: string) => string
   em: EntityManager
 }
 
@@ -70,7 +72,7 @@ async function resolveSuggestionsContext(req: Request): Promise<SuggestionsRoute
     throw new CrudHttpError(401, { error: translate('warranty_claims.errors.unauthorized', 'Unauthorized') })
   }
   const organizationScope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
-  const organizationId = organizationScope?.selectedId ?? auth.orgId ?? null
+  const organizationId = resolveSingleOrganizationIdOrDeny(organizationScope, auth) ?? null
   if (!organizationId) {
     throw new CrudHttpError(400, { error: translate('warranty_claims.errors.organization_required', 'Organization context is required') })
   }
@@ -79,6 +81,7 @@ async function resolveSuggestionsContext(req: Request): Promise<SuggestionsRoute
     tenantId: auth.tenantId,
     organizationId,
     scope: { tenantId: auth.tenantId, organizationId },
+    translate,
     em,
   }
 }
@@ -88,7 +91,7 @@ export async function GET(req: Request) {
     const context = await resolveSuggestionsContext(req)
     const url = new URL(req.url)
     const query = querySchema.parse(Object.fromEntries(url.searchParams))
-    const claim = await requireScopedClaim(context.em, query.claimId, context.scope)
+    const claim = await requireScopedClaim(context.em, query.claimId, context.scope, {}, context.translate('warranty_claims.errors.notFound', 'Claim not found.'))
     if (claim.claimType !== 'warranty' || (claim.status !== 'resolved' && claim.status !== 'closed')) {
       return NextResponse.json({ ok: true, result: { claimId: claim.id, suggestions: [] } })
     }
@@ -138,8 +141,8 @@ export async function GET(req: Request) {
     }))
     return NextResponse.json({ ok: true, result: { claimId: claim.id, suggestions } })
   } catch (err) {
-    if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
     const { translate } = await resolveTranslations()
+    if (isCrudHttpError(err)) return NextResponse.json(translateCrudErrorBody(err.body, translate), { status: err.status })
     if (err instanceof z.ZodError) {
       return NextResponse.json({ error: translate('warranty_claims.errors.invalidInput', 'Invalid input') }, { status: 400 })
     }

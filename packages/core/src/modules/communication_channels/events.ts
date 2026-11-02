@@ -70,6 +70,13 @@ const events = [
     category: 'lifecycle',
     clientBroadcast: true,
   },
+  {
+    id: 'communication_channels.channel.visibility_changed',
+    label: 'Channel Visibility Changed',
+    entity: 'communication_channel',
+    category: 'lifecycle',
+    clientBroadcast: true,
+  },
   // ── Reaction events ──────────────────────────────────────
   {
     id: 'communication_channels.reaction.added',

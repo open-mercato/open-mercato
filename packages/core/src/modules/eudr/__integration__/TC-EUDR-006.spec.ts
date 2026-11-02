@@ -216,7 +216,7 @@ test.describe('TC-EUDR-006: Risk assessments + mitigation API', () => {
         },
       })
       expect(concernWithoutMitigationResponse.status(), 'concerns require mitigation before negligible conclusion').toBe(400)
-      expectErrorKey(await readJsonSafe(concernWithoutMitigationResponse), 'mitigationRequired')
+      expectErrorKey(await readJsonSafe(concernWithoutMitigationResponse), 'Complete at least one mitigation action before marking this assessment negligible.')
 
       const createRiskResponse = await apiRequest(request, 'POST', RISK_ASSESSMENTS_PATH, {
         token,

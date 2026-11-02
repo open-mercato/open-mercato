@@ -141,7 +141,10 @@ test.describe('TC-WC-021: warranty claim return-label seam', () => {
         invalidStatusResponse.status(),
         `draft generated return label should be rejected: ${JSON.stringify(invalidStatusBody)}`,
       ).toBe(400)
-      expect(invalidStatusBody?.error).toBe('warranty_claims.errors.returnLabelInvalidStatus')
+      expect(
+        invalidStatusBody?.error,
+        'the rejection should read as a localized sentence, not a raw i18n key',
+      ).toBe('Return labels can only be created for approved claims that are awaiting return.')
     } finally {
       await restoreWarrantyClaimSettings(request, adminToken, settingsBefore)
       await cancelThenDeleteClaimIfPossible(request, adminToken, draftClaimId)

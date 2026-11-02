@@ -463,6 +463,7 @@ export default function EditWarrantyClaimPage({ params }: { params?: { id?: stri
           title={editableMode === 'fulfillment'
             ? t('warranty_claims.edit.fulfillment.title', 'Edit claim — Fulfillment')
             : t('warranty_claims.edit.title')}
+          titleHeadingLevel={1}
           backHref={`/backend/warranty_claims/${claim.id}`}
           fields={fields}
           groups={groups}

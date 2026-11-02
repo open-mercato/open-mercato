@@ -13,12 +13,8 @@ import { cn } from '@open-mercato/shared/lib/utils'
  * the slider ARIA contract (`role="slider"`, `aria-valuemin/max/now`,
  * keyboard arrow / home / end navigation, RTL flip).
  *
- * No dedicated Figma node in the DS Open Mercato library at the time
- * this primitive was authored — `Level Slider` in the file is an emoji
- * icon, not a track-thumb component. Styling inferred from DS tokens
- * (primary brand on the selected portion, muted track, contrasting
- * thumb with focus ring) — see R4 in the v5 spec for the
- * inferred-design protocol.
+ * Figma source: Slider [1.1] (2617:1169) and Range Slider [1.1]
+ * (2617:1588). Labels and value outputs are composed by the caller.
  *
  * Single thumb:
  *
@@ -105,12 +101,12 @@ const sliderThumbVariants = cva(
 )
 
 export type SliderProps = React.ComponentPropsWithoutRef<typeof SliderPrimitive.Root> &
-  VariantProps<typeof sliderRootVariants>
+  VariantProps<typeof sliderRootVariants> & { thumbLabels?: readonly string[] }
 
 export const Slider = React.forwardRef<
   React.ElementRef<typeof SliderPrimitive.Root>,
   SliderProps
->(({ className, orientation, value, defaultValue, ...props }, ref) => {
+>(({ className, orientation, value, defaultValue, thumbLabels, 'aria-label': ariaLabel, 'aria-labelledby': ariaLabelledBy, 'aria-describedby': ariaDescribedBy, ...props }, ref) => {
   // Derive the number of thumbs from the value/defaultValue length so we
   // render the right number of `Thumb` nodes. Radix supports both
   // single-thumb and range; the dom-level pattern is identical apart
@@ -128,6 +124,9 @@ export const Slider = React.forwardRef<
       value={value}
       defaultValue={defaultValue}
       data-slot="slider-root"
+      aria-label={ariaLabel}
+      aria-labelledby={ariaLabelledBy}
+      aria-describedby={ariaDescribedBy}
       className={cn(sliderRootVariants({ orientation }), className)}
       {...props}
     >
@@ -144,6 +143,9 @@ export const Slider = React.forwardRef<
         <SliderPrimitive.Thumb
           key={index}
           data-slot="slider-thumb"
+          aria-label={thumbLabels?.[index] ?? ariaLabel}
+          aria-labelledby={thumbLabels?.[index] ? undefined : ariaLabelledBy}
+          aria-describedby={ariaDescribedBy}
           className={cn(sliderThumbVariants())}
         />
       ))}

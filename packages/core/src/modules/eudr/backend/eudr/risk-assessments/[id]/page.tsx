@@ -323,6 +323,7 @@ export default function EditEudrRiskAssessmentPage({ params }: { params?: { id?:
       <PageBody>
         <CrudForm<RiskAssessmentFormValues>
           title={translate('eudr.riskAssessments.edit.title')}
+          titleHeadingLevel={1}
           backHref="/backend/eudr/risk-assessments"
           cancelHref="/backend/eudr/risk-assessments"
           deleteRedirect="/backend/eudr/risk-assessments"

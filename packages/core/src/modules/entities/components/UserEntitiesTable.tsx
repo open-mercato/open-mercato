@@ -74,6 +74,7 @@ export default function UserEntitiesTable() {
   return (
     <DataTable
       title={t('entities.user.table.title', 'User Entities')}
+      titleHeadingLevel={1}
       actions={(
         <>
           <Button variant="outline" onClick={() => {

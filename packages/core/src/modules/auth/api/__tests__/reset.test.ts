@@ -241,4 +241,74 @@ describe('POST /api/auth/reset', () => {
     expect(body).toEqual({ ok: true })
     expect(mockRequestPasswordReset).toHaveBeenCalledWith('staff@example.com')
   })
+
+  describe('tenant continuity in the reset link', () => {
+    function resolveTenantBoundUser(tenantId: unknown) {
+      mockRequestPasswordReset.mockResolvedValueOnce({
+        user: { id: 'user-1', email: 'staff@example.com', tenantId, organizationId: 'org-1' },
+        token: 'reset-token-1',
+      })
+    }
+
+    test('carries the resolved tenant so the link lands on the tenant login entry', async () => {
+      resolveTenantBoundUser('tenant-1')
+
+      await POST(makeResetRequest('https://app.example.com/api/auth/reset'))
+
+      expect(mockResetPasswordEmail).toHaveBeenCalledWith(
+        expect.objectContaining({
+          resetUrl: 'https://app.example.com/reset/reset-token-1?tenant=tenant-1',
+        }),
+      )
+    })
+
+    test('leaves a tenantless user on the generic reset link', async () => {
+      await POST(makeResetRequest('https://app.example.com/api/auth/reset'))
+
+      expect(mockResetPasswordEmail).toHaveBeenCalledWith(
+        expect.objectContaining({
+          resetUrl: 'https://app.example.com/reset/reset-token-1',
+        }),
+      )
+    })
+
+    test('escapes a tenant id that would otherwise alter the link', async () => {
+      resolveTenantBoundUser('a&b=c')
+
+      await POST(makeResetRequest('https://app.example.com/api/auth/reset'))
+
+      const { resetUrl } = mockResetPasswordEmail.mock.calls[0]?.[0] as { resetUrl: string }
+      const parsed = new URL(resetUrl)
+      expect(parsed.pathname).toBe('/reset/reset-token-1')
+      expect([...parsed.searchParams.keys()]).toEqual(['tenant'])
+      expect(parsed.searchParams.get('tenant')).toBe('a&b=c')
+    })
+
+    test('ignores a tenant supplied by the caller and uses the resolved user instead', async () => {
+      resolveTenantBoundUser('tenant-1')
+      const body = new URLSearchParams()
+      body.set('email', 'staff@example.com')
+      body.set('tenant', 'forged-tenant')
+
+      await POST(new Request('https://app.example.com/api/auth/reset?tenant=forged-tenant', {
+        method: 'POST',
+        headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        body: body.toString(),
+      }))
+
+      const { resetUrl } = mockResetPasswordEmail.mock.calls[0]?.[0] as { resetUrl: string }
+      expect(new URL(resetUrl).searchParams.get('tenant')).toBe('tenant-1')
+      expect(resetUrl).not.toContain('forged-tenant')
+    })
+
+    test('keeps the generic response for an unknown account without sending mail', async () => {
+      mockRequestPasswordReset.mockResolvedValueOnce(null)
+
+      const res = await POST(makeResetRequest('https://app.example.com/api/auth/reset'))
+
+      expect(res.status).toBe(200)
+      expect(await res.json()).toEqual({ ok: true })
+      expect(mockSendEmail).not.toHaveBeenCalled()
+    })
+  })
 })

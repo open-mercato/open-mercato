@@ -120,6 +120,10 @@ Optional override for cache time-to-live in milliseconds. Leave blank to use per
 **Default:** `./.mercato/cache/cache.db`
 Filesystem path for the SQLite cache file used when `CACHE_STRATEGY=sqlite`. Ensure the process has write permissions at this location.
 
+### OM_WEBHOOKS_SUBSCRIPTION_CACHE_TTL_MS {#om_webhooks_subscription_cache_ttl_ms}
+**Default:** `60000`  
+TTL in milliseconds for the outbound webhook dispatcher's per-tenant active-subscription cache. Set to `0` to disable the cache entirely. Goes through `CACHE_STRATEGY`, so a `memory` strategy across multiple instances only sees invalidations on the instance that processed the write until this TTL expires. Related docs: [Webhooks](https://docs.openmercato.com/docs/framework/webhooks/overview).
+
 ## Authentication {#authentication}
 
 ### OM_PASSWORD_MIN_LENGTH {#om_password_min_length}

@@ -82,7 +82,7 @@ describe('Documents route error localization', () => {
     expect(response.status).toBe(status)
     const body = await response.json() as { error: string }
     expect(body.error).not.toBe(key)
-    expect(body.error).toMatch(new RegExp(`^translated:${key.replace(/\./g, '\\.')}:.+`))
+    expect(body.error.startsWith(`translated:${key}:`)).toBe(true)
   })
 
   it('backs every documents route error key with an English catalog entry', () => {

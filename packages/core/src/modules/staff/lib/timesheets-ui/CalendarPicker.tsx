@@ -3,12 +3,22 @@
 import * as React from 'react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useOptionalLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { CalendarDays, ChevronLeft, ChevronRight } from 'lucide-react'
 
 type CalendarPickerProps = {
   selectedWeekStart: Date
   onWeekSelect: (weekStart: Date) => void
+  /**
+   * Reference "now". A function is read at click time; a Date is used as rendered.
+   * Defaults to `new Date()`.
+   */
+  today?: Date | (() => Date)
+}
+
+function resolveToday(today: CalendarPickerProps['today']): Date {
+  if (typeof today === 'function') return new Date(today())
+  return today ? new Date(today) : new Date()
 }
 
 function getMonday(date: Date): Date {
@@ -53,23 +63,24 @@ function buildWeeks(year: number, month: number): Date[][] {
   return weeks
 }
 
-function getLocalizedDayHeaders(): string[] {
+function getLocalizedDayHeaders(locale: string | undefined): string[] {
   const baseMonday = new Date(2024, 0, 1) // Known Monday
   return Array.from({ length: 7 }, (_, idx) => {
     const date = new Date(baseMonday)
     date.setDate(date.getDate() + idx)
-    return date.toLocaleDateString(undefined, { weekday: 'narrow' })
+    return date.toLocaleDateString(locale, { weekday: 'narrow' })
   })
 }
 
-export function CalendarPicker({ selectedWeekStart, onWeekSelect }: CalendarPickerProps) {
+export function CalendarPicker({ selectedWeekStart, onWeekSelect, today: todayProp }: CalendarPickerProps) {
   const t = useT()
+  const locale = useOptionalLocale()
   const [open, setOpen] = React.useState(false)
   const [viewYear, setViewYear] = React.useState(selectedWeekStart.getFullYear())
   const [viewMonth, setViewMonth] = React.useState(selectedWeekStart.getMonth())
   const containerRef = React.useRef<HTMLDivElement>(null)
 
-  const dayHeaders = React.useMemo(() => getLocalizedDayHeaders(), [])
+  const dayHeaders = React.useMemo(() => getLocalizedDayHeaders(locale), [locale])
 
   React.useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -89,10 +100,10 @@ export function CalendarPicker({ selectedWeekStart, onWeekSelect }: CalendarPick
   const weeks = React.useMemo(() => buildWeeks(viewYear, viewMonth), [viewYear, viewMonth])
 
   const monthLabel = React.useMemo(() => {
-    return new Date(viewYear, viewMonth, 1).toLocaleString(undefined, { month: 'long', year: 'numeric' })
-  }, [viewYear, viewMonth])
+    return new Date(viewYear, viewMonth, 1).toLocaleString(locale, { month: 'long', year: 'numeric' })
+  }, [locale, viewYear, viewMonth])
 
-  const today = React.useMemo(() => new Date(), [])
+  const today = resolveToday(todayProp)
 
   const handleWeekClick = React.useCallback((monday: Date) => {
     onWeekSelect(monday)
@@ -134,7 +145,7 @@ export function CalendarPicker({ selectedWeekStart, onWeekSelect }: CalendarPick
               variant="ghost"
               size="sm"
               className="h-auto px-2 py-1 text-xs"
-              onClick={() => handleWeekClick(getMonday(new Date()))}
+              onClick={() => handleWeekClick(getMonday(resolveToday(todayProp)))}
             >
               {t('staff.timesheets.my.calendar.thisWeek', 'This week')}
             </Button>
@@ -144,7 +155,7 @@ export function CalendarPicker({ selectedWeekStart, onWeekSelect }: CalendarPick
               size="sm"
               className="h-auto px-2 py-1 text-xs"
               onClick={() => {
-                const lastWeek = new Date()
+                const lastWeek = resolveToday(todayProp)
                 lastWeek.setDate(lastWeek.getDate() - 7)
                 handleWeekClick(getMonday(lastWeek))
               }}

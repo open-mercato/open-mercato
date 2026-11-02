@@ -49,6 +49,7 @@ const FIELD_DETAIL_KEYS: Array<keyof CustomFieldDefinition> = [
   'formEditable',
   'listVisible',
   'indexed',
+  'encrypted',
   'priority',
   'editor',
   'input',

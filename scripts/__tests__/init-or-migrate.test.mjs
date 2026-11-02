@@ -10,7 +10,14 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../
 const scriptPath = path.join(repoRoot, 'docker/scripts/init-or-migrate.sh')
 const templateScriptPath = path.join(repoRoot, 'packages/create-app/template/docker/scripts/init-or-migrate.sh')
 
-function runScript({ seeded = false, initFails = false, initReportsExistingUsers = false, syncFails = false } = {}) {
+function runScript({
+  seeded = false,
+  initFails = false,
+  initReportsExistingUsers = false,
+  syncFails = false,
+  migrateFails = false,
+  migrateExitCode = 1,
+} = {}) {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'init-or-migrate-'))
   const markerFile = path.join(tempDir, 'marker', '.seeded')
   const stepsFile = path.join(tempDir, 'steps.txt')
@@ -26,13 +33,16 @@ function runScript({ seeded = false, initFails = false, initReportsExistingUsers
     : initFails
       ? `${record('init')}; echo 'boom'; exit 1`
       : record('init')
+  const migrateCommand = migrateFails
+    ? `${record('migrate')}; exit ${migrateExitCode}`
+    : record('migrate')
 
   const result = spawnSync('sh', [scriptPath], {
     env: {
       ...process.env,
       INIT_MARKER_FILE: markerFile,
       INIT_COMMAND: initCommand,
-      MIGRATE_COMMAND: record('migrate'),
+      MIGRATE_COMMAND: migrateCommand,
       SYNC_ROLE_ACLS_COMMAND: syncFails ? `${record('sync')}; exit 1` : record('sync'),
     },
     encoding: 'utf8',
@@ -84,6 +94,13 @@ test('an initialization failure still aborts startup', () => {
 
   assert.notEqual(result.status, 0)
   assert.equal(markerExists, false)
+})
+
+test('a failing migration on an already-seeded run aborts startup with the migration exit status', () => {
+  const { result, steps } = runScript({ seeded: true, migrateFails: true, migrateExitCode: 3 })
+
+  assert.equal(result.status, 3, result.stderr)
+  assert.deepEqual(steps, ['migrate'])
 })
 
 test('the create-app template ships the same boot script', () => {

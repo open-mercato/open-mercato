@@ -171,7 +171,11 @@ export async function GET(req: Request) {
     }
   }
   const acl = tenantId
-    ? await em.findOne(UserAcl, { user: parsed.data.userId as any, tenantId })
+    ? await em.findOne(UserAcl, {
+        user: parsed.data.userId as unknown as User,
+        tenantId,
+        deletedAt: null,
+      } as FilterQuery<UserAcl>)
     : null
   const response = acl
     ? {
@@ -268,7 +272,11 @@ export async function PUT(req: Request) {
     }
   }
 
-  const acl = await em.findOne(UserAcl, { user: parsed.data.userId as any, tenantId })
+  const acl = await em.findOne(UserAcl, {
+    user: parsed.data.userId as unknown as User,
+    tenantId,
+    deletedAt: null,
+  } as FilterQuery<UserAcl>)
   // Optimistic lock: refuse a stale per-user ACL overwrite so concurrent edits
   // cannot silently clobber each other (#2055). Strictly additive — a no-op when
   // the client sends no expected-version header; skipped when no ACL row exists.
@@ -347,7 +355,7 @@ export async function PUT(req: Request) {
     return NextResponse.json({
       error: translate(
         'auth.acl.organizationWarning',
-        'Organization restrictions are saved only when at least one feature override is selected. Add a feature or enable a module wildcard before saving.',
+        'Organization restrictions require at least one feature override. Add a feature or module wildcard, or clear the organization scope before saving.',
       ),
     }, { status: 400 })
   }
@@ -422,9 +430,10 @@ function normalizeOrganizations(organizations: unknown): string[] | null {
 
 // Whether the caller expressed an intentional narrowing. `null` and `__all__`
 // are the two documented ways to say "every organization"; an empty list is the
-// editor's "no organization picked" state ("Empty = all organizations"), which
-// is not a restriction an administrator chose. Only a concrete list narrows, so
-// only a concrete list has to justify itself against the feature grant below.
+// editor's "no organization picked" state, which this route treats as
+// unrestricted rather than a deliberate restriction. Only a concrete list
+// narrows, so only a concrete list has to justify itself against the feature
+// grant below.
 function hasOrganizationRestriction(organizations: string[] | null): boolean {
   if (!organizations || organizations.length === 0) return false
   return !organizations.includes('__all__')
@@ -475,7 +484,7 @@ export const openApi: OpenApiRouteDoc = {
     },
     PUT: {
       summary: 'Update user ACL',
-      description: 'Updates a per-user ACL override. Omitted super admin, feature, and organization fields preserve their stored values. An organization-scoped non-super-admin override requires at least one feature grant.',
+      description: 'Updates a per-user ACL override. Omitted super admin, feature, and organization fields preserve their stored values. Authorization evaluates the merged ACL, so a partial request returns 403 when a preserved grant is outside the actor\'s grantable ACL. An organization-scoped non-super-admin override requires at least one feature grant.',
       requestBody: {
         contentType: 'application/json',
         schema: putSchema,

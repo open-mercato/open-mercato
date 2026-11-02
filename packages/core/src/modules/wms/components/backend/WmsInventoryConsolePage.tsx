@@ -342,6 +342,7 @@ function InventoryDataTableSection<T extends RowData>({
       <DataTable
         embedded
         title={t(titleKey, titleFallback)}
+        titleHeadingLevel={2}
         columns={columns}
         data={query.data?.items ?? []}
         isLoading={query.isLoading}

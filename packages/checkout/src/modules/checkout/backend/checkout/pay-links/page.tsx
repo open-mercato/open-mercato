@@ -189,7 +189,8 @@ export default function CheckoutPayLinksPage() {
     <Page>
       <PageBody>
         <DataTable
-          title={t('checkout.admin.payLinks.title')}
+        title={t('checkout.admin.payLinks.title')}
+        titleHeadingLevel={1}
           columns={columns}
           data={rows}
           searchValue={search}

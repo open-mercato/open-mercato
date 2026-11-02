@@ -2,8 +2,22 @@ import type { NotificationTypeDefinition } from '@open-mercato/shared/modules/no
 
 export const notificationTypes: NotificationTypeDefinition[] = [
   {
+    type: 'security.mfa.emergency_bypass_detected',
+    module: 'security',
+    category: 'auth',
+    channels: ['in_app'],
+    titleKey: 'security.notifications.mfaEmergencyBypass.title',
+    bodyKey: 'security.notifications.mfaEmergencyBypass.body',
+    icon: 'shield-alert',
+    severity: 'warning',
+    actions: [],
+    expiresAfterHours: 168,
+  },
+  {
     type: 'security.password.changed',
     module: 'security',
+    category: 'auth',
+    channels: ['in_app', 'email'],
     titleKey: 'security.notifications.passwordChanged.title',
     bodyKey: 'security.notifications.passwordChanged.body',
     icon: 'key-round',
@@ -23,6 +37,8 @@ export const notificationTypes: NotificationTypeDefinition[] = [
   {
     type: 'security.mfa.enrolled',
     module: 'security',
+    category: 'auth',
+    channels: ['in_app', 'email'],
     titleKey: 'security.notifications.mfaEnrolled.title',
     bodyKey: 'security.notifications.mfaEnrolled.body',
     icon: 'shield-check',
@@ -42,6 +58,8 @@ export const notificationTypes: NotificationTypeDefinition[] = [
   {
     type: 'security.mfa.reset',
     module: 'security',
+    category: 'auth',
+    channels: ['in_app', 'email'],
     titleKey: 'security.notifications.mfaReset.title',
     bodyKey: 'security.notifications.mfaReset.body',
     icon: 'shield-alert',
@@ -61,6 +79,8 @@ export const notificationTypes: NotificationTypeDefinition[] = [
   {
     type: 'security.mfa.enforcement_deadline',
     module: 'security',
+    category: 'auth',
+    channels: ['in_app', 'email'],
     titleKey: 'security.notifications.enforcementDeadline.title',
     bodyKey: 'security.notifications.enforcementDeadline.bodyImmediate',
     icon: 'clock-3',

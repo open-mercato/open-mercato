@@ -22,6 +22,14 @@
 // A flagged advisory with no upstream fix would otherwise block the gate
 // forever; audit-ci-allowlist.json holds narrowly-scoped, justified
 // exceptions (matched by GHSA id) for exactly that case.
+//
+// `--baseline <lockfile>` turns the gate into a "new advisories only" check:
+// an advisory also flagged against the baseline lockfile (the PR base / the
+// previous push) is reported but does not fail the run. Without it a PR that
+// merely adds one clean dependency stays red for every advisory already on the
+// base branch, which it can neither cause nor fix. Pre-existing advisories are
+// owned by the scheduled `.github/workflows/audit.yml`, which runs without a
+// baseline and keeps a tracking issue open until they are resolved.
 
 import fs from 'node:fs'
 import zlib from 'node:zlib'
@@ -43,9 +51,18 @@ export function parseArgs(argv) {
   if (!SEVERITY_ORDER.includes(threshold)) {
     throw new Error(`unknown --severity "${threshold}" (expected one of ${SEVERITY_ORDER.join(', ')})`)
   }
+  const inlineBaseline = (argv.find((arg) => arg.startsWith('--baseline=')) || '').slice('--baseline='.length)
+  const baselineIndex = argv.indexOf('--baseline')
+  const separateBaseline = baselineIndex >= 0 ? argv[baselineIndex + 1] : undefined
+  if (baselineIndex >= 0 && (!separateBaseline || separateBaseline.startsWith('--'))) {
+    throw new Error('--baseline requires a lockfile path')
+  }
+  const baseline = inlineBaseline || separateBaseline
+  const lockArg = argv.find((arg, index) => arg.endsWith('yarn.lock') && !arg.startsWith('--') && (baselineIndex < 0 || index !== baselineIndex + 1))
   return {
     threshold,
-    lockPath: path.resolve(argv.find((arg) => arg.endsWith('yarn.lock')) || 'yarn.lock'),
+    lockPath: path.resolve(lockArg || 'yarn.lock'),
+    baselinePath: baseline ? path.resolve(baseline) : null,
   }
 }
 
@@ -157,7 +174,50 @@ export function partitionAllowlisted(flagged, allowlist) {
   return { blocking, suppressed }
 }
 
-export async function main(argv = process.argv.slice(2)) {
+function advisoryKey(advisory) {
+  return `${advisory.name}\u0000${extractGhsaId(advisory.url) ?? advisory.url ?? advisory.title}`
+}
+
+// An advisory is pre-existing when the same advisory on the same package is
+// already flagged against the baseline lockfile — even if the change moved the
+// package to another still-vulnerable version, it did not introduce the issue.
+export function partitionByBaseline(flagged, baselineFlagged) {
+  const baselineKeys = new Set(baselineFlagged.map(advisoryKey))
+  const introduced = []
+  const preexisting = []
+  for (const advisory of flagged) {
+    if (baselineKeys.has(advisoryKey(advisory))) preexisting.push(advisory)
+    else introduced.push(advisory)
+  }
+  return { introduced, preexisting }
+}
+
+// Returns null (after logging) when the lockfile cannot be audited, so callers fail closed.
+async function auditLockfile(lockPath, threshold, fetchImpl) {
+  const packages = readLockPackages(lockPath)
+  const names = [...packages.keys()]
+  if (names.length === 0) {
+    console.error(`audit-ci: no npm packages found in ${lockPath}`)
+    return null
+  }
+  const advisories = {}
+  for (let i = 0; i < names.length; i += 200) {
+    const chunk = {}
+    for (const name of names.slice(i, i + 200)) chunk[name] = [...packages.get(name)]
+    let result
+    try {
+      result = await fetchAdvisories(chunk, { fetchImpl })
+    } catch (error) {
+      // Fail closed — never pass the gate when advisory data is unavailable.
+      console.error(`audit-ci: could not retrieve advisories for ${lockPath} (batch ${i / 200 + 1}): ${error.message}`)
+      return null
+    }
+    Object.assign(advisories, result)
+  }
+  return { scanned: names.length, flagged: collectFlaggedAdvisories(advisories, threshold) }
+}
+
+export async function main(argv = process.argv.slice(2), { fetchImpl, allowlistPath } = {}) {
   let options
   try {
     options = parseArgs(argv)
@@ -166,52 +226,46 @@ export async function main(argv = process.argv.slice(2)) {
     return 2
   }
 
-  const { lockPath, threshold } = options
-  const packages = readLockPackages(lockPath)
-  const names = [...packages.keys()]
-  if (names.length === 0) {
-    console.error(`audit-ci: no npm packages found in ${lockPath}`)
-    return 2
-  }
-  const advisories = {}
-  for (let i = 0; i < names.length; i += 200) {
-    const chunk = {}
-    for (const name of names.slice(i, i + 200)) chunk[name] = [...packages.get(name)]
-    let result
-    try {
-      result = await fetchAdvisories(chunk)
-    } catch (error) {
-      // Fail closed — never pass the gate when advisory data is unavailable.
-      console.error(`audit-ci: could not retrieve advisories (batch ${i / 200 + 1}): ${error.message}`)
-      return 2
-    }
-    Object.assign(advisories, result)
-  }
-
-  const flagged = collectFlaggedAdvisories(advisories, threshold)
+  const { lockPath, threshold, baselinePath } = options
+  const audit = await auditLockfile(lockPath, threshold, fetchImpl)
+  if (!audit) return 2
 
   let allowlist
   try {
-    allowlist = loadAllowlist()
+    allowlist = loadAllowlist(allowlistPath)
   } catch (error) {
     // Fail closed — a broken allowlist must never silently suppress advisories.
     console.error(`audit-ci: could not read allowlist: ${error.message}`)
     return 2
   }
-  const { blocking, suppressed } = partitionAllowlisted(flagged, allowlist)
+  const { blocking: unallowlisted, suppressed } = partitionAllowlisted(audit.flagged, allowlist)
 
-  console.log(`audit-ci: scanned ${names.length} packages; threshold=${threshold}+`)
+  let blocking = unallowlisted
+  let preexisting = []
+  if (baselinePath) {
+    const baselineAudit = await auditLockfile(baselinePath, threshold, fetchImpl)
+    if (!baselineAudit) return 2
+    ;({ introduced: blocking, preexisting } = partitionByBaseline(unallowlisted, baselineAudit.flagged))
+  }
+
+  console.log(`audit-ci: scanned ${audit.scanned} packages; threshold=${threshold}+${baselinePath ? `; baseline=${baselinePath}` : ''}`)
   if (suppressed.length > 0) {
     console.log(`audit-ci: ${suppressed.length} advisory(ies) allowlisted:`)
     for (const advisory of suppressed) {
       console.log(`  [${advisory.severity}] ${advisory.name} ${advisory.range} — ${advisory.ghsaId}: ${advisory.reason}`)
     }
   }
+  if (preexisting.length > 0) {
+    console.log(`audit-ci: ${preexisting.length} advisory(ies) already present in the baseline (not introduced by this change; tracked by .github/workflows/audit.yml):`)
+    for (const advisory of preexisting) {
+      console.log(`  [${advisory.severity}] ${advisory.name} ${advisory.range} — ${advisory.title} (${advisory.url})`)
+    }
+  }
   if (blocking.length === 0) {
-    console.log('audit-ci: no advisories at or above threshold.')
+    console.log(baselinePath ? 'audit-ci: no new advisories at or above threshold.' : 'audit-ci: no advisories at or above threshold.')
     return 0
   }
-  console.error(`audit-ci: ${blocking.length} advisory(ies) at or above ${threshold}:`)
+  console.error(`audit-ci: ${blocking.length} ${baselinePath ? 'new ' : ''}advisory(ies) at or above ${threshold}:`)
   for (const advisory of blocking) {
     console.error(`  [${advisory.severity}] ${advisory.name} ${advisory.range} — ${advisory.title} (${advisory.url})`)
   }

@@ -156,3 +156,40 @@ describe('CustomerSessionService.createSession — concurrent session cap', () =
     expect(nativeUpdateMock).not.toHaveBeenCalled()
   })
 })
+
+describe('CustomerSessionService.hasActiveSessionForUser', () => {
+  const userId = '33333333-3333-4333-8333-333333333333'
+  const tenantId = '44444444-4444-4444-8444-444444444444'
+  const organizationId = '55555555-5555-4555-8555-555555555555'
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+  })
+
+  it('scopes the lookup to live sessions owned by that customer identity', async () => {
+    const { CustomerSessionService } = await import('../services/customerSessionService')
+    const { CustomerUserSession } = await import('../data/entities')
+    const findOneMock = jest.fn(async () => ({ id: 'live-session' }))
+    const service = new CustomerSessionService({ findOne: findOneMock } as any)
+
+    await expect(
+      service.hasActiveSessionForUser({ userId, tenantId, organizationId }),
+    ).resolves.toBe(true)
+
+    const [entity, filter] = findOneMock.mock.calls[0] as unknown as [unknown, any]
+    expect(entity).toBe(CustomerUserSession)
+    expect(filter.user).toEqual({ id: userId, tenantId, organizationId })
+    expect(filter.deletedAt).toBeNull()
+    expect(filter.expiresAt.$gt).toBeInstanceOf(Date)
+  })
+
+  it('reports no active session once every session row is revoked', async () => {
+    const { CustomerSessionService } = await import('../services/customerSessionService')
+    const findOneMock = jest.fn(async () => null)
+    const service = new CustomerSessionService({ findOne: findOneMock } as any)
+
+    await expect(
+      service.hasActiveSessionForUser({ userId, tenantId, organizationId }),
+    ).resolves.toBe(false)
+  })
+})

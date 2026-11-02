@@ -349,7 +349,8 @@ export default function EudrPlotsPage() {
     <Page>
       <PageBody>
         <DataTable<PlotRow>
-          title={translate('eudr.plots.list.title')}
+        title={translate('eudr.plots.list.title')}
+        titleHeadingLevel={1}
           columns={columns}
           data={rows}
           searchValue={search}

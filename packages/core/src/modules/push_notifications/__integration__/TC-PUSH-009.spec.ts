@@ -68,12 +68,14 @@ test.describe('TC-PUSH-009: admin send page → delivery log shows sent', () => 
 
       // The recipient is the admin itself — the device registered above belongs to them.
       // `ComboboxInput` renders its suggestions as ARIA `option`s inside a popover listbox. Their
-      // accessible name is `"<name> — <email>"` (see `loadUserOptions` in the send page).
+      // accessible name is `"<name> — <email>"` (see `loadUserOptions` in the send page). The popover
+      // is portaled to `<body>` (so a Dialog's overflow cannot clip it), so scope the option lookup
+      // to the page rather than to the field wrapper.
       const recipientField = fieldByLabel('Recipient')
       const recipientInput = recipientField.locator('input').first()
       await recipientInput.click()
       await recipientInput.fill(ADMIN_EMAIL)
-      await recipientField.getByRole('option', { name: new RegExp(ADMIN_EMAIL, 'i') }).first().click()
+      await page.getByRole('option', { name: new RegExp(ADMIN_EMAIL, 'i') }).first().click()
 
       await fieldByLabel('Title').locator('input').first().fill(PUSH_TITLE)
 

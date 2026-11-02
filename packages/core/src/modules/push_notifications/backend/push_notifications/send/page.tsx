@@ -246,6 +246,7 @@ export default function PushCustomSendPage() {
       <PageBody>
         <CrudForm<FormValues>
           title={t('push_notifications.send.pageTitle')}
+          titleHeadingLevel={1}
           backHref={DELIVERIES_HREF}
           formId={FORM_ID}
           hideFooterActions

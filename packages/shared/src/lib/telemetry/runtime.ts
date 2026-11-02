@@ -2,7 +2,19 @@ export type TelemetryTraceCarrier = Record<string, string>
 
 export type TelemetrySpanAttributes = Record<string, string | number | boolean | undefined>
 
+export type TelemetryMetricLabels = Record<string, string | number | boolean | undefined>
+
 export type TelemetrySpanKind = 'internal' | 'server' | 'client' | 'producer' | 'consumer'
+
+export type TelemetryMetricPoint = {
+  kind: 'counter' | 'histogram' | 'gauge'
+  name: string
+  value: number
+  labels?: TelemetryMetricLabels
+  unit?: string
+}
+
+export type TelemetryMetricCollector = () => void
 
 /** The subset of the telemetry package's `Span` that bridge consumers need. */
 export type TelemetrySpan = {
@@ -43,11 +55,24 @@ export type TelemetryRuntime = {
    * running `fn` untraced.
    */
   withSpan?<T>(name: string, fn: (span: TelemetrySpan) => T, options?: TelemetrySpanOptions): T
+  recordMetric?(point: TelemetryMetricPoint): void
+  recordHistogram?(
+    name: string,
+    value: number,
+    labels?: TelemetryMetricLabels,
+    unit?: string,
+  ): void
   recordHttpDuration(method: string, route: string, status: number, startedAt: number): void
   reportError(
     error: unknown,
     context?: {
       module?: string
+      /**
+       * Stable, enumerated fingerprint (`module.reason`) the backend groups on.
+       * Optional so a bootstrap predating it still satisfies the contract — an
+       * older bridge simply ignores the field.
+       */
+      code?: string
       attributes?: Record<string, string | number | boolean | undefined>
     },
   ): void
@@ -59,6 +84,7 @@ const ENABLED_BACKENDS = new Set(['console', 'signoz', 'newrelic', 'otlp'])
 
 type TelemetryRuntimeStore = {
   active?: TelemetryRuntime
+  metricCollectors?: Set<TelemetryMetricCollector>
 }
 
 function store(): TelemetryRuntimeStore {
@@ -96,9 +122,59 @@ export function getTelemetryRuntime(): TelemetryRuntime | undefined {
   return store().active
 }
 
+export function recordTelemetryMetric(point: TelemetryMetricPoint): boolean {
+  const runtime = getTelemetryRuntime()
+  if (!runtime?.recordMetric) return false
+  runtime.recordMetric(point)
+  return true
+}
+
+export function registerTelemetryMetricCollector(collector: TelemetryMetricCollector): () => void {
+  const current = store()
+  current.metricCollectors ??= new Set()
+  current.metricCollectors.add(collector)
+  return () => {
+    current.metricCollectors?.delete(collector)
+  }
+}
+
+export function collectTelemetryMetrics(onError?: (error: Error) => void): void {
+  const collectors = Array.from(store().metricCollectors ?? [])
+  for (const collector of collectors) {
+    try {
+      collector()
+    } catch (error) {
+      const failure = error instanceof Error
+        ? error
+        : new Error('[internal] Telemetry metric collector failed with a non-Error value')
+      try {
+        getTelemetryRuntime()?.reportError(failure, {
+          module: 'telemetry',
+          code: 'telemetry.metric_collector_failed',
+        })
+      } catch {}
+      try {
+        onError?.(failure)
+      } catch (callbackError) {
+        try {
+          getTelemetryRuntime()?.reportError(callbackError, {
+            module: 'telemetry',
+            code: 'telemetry.metric_collector_callback_failed',
+          })
+        } catch {}
+      }
+    }
+  }
+}
+
 /** Test-only: clear the process-wide telemetry bridge. */
 export function resetTelemetryRuntime(): void {
   store().active = undefined
+}
+
+/** Test-only: clear process-wide metric collectors registered by shared owners. */
+export function resetTelemetryMetricCollectors(): void {
+  store().metricCollectors?.clear()
 }
 
 const NOOP_SPAN: TelemetrySpan = { setAttributes() {} }

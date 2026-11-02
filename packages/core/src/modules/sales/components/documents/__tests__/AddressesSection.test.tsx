@@ -84,8 +84,13 @@ jest.mock('@open-mercato/ui/primitives/switch-field', () => ({
 }))
 
 jest.mock('@open-mercato/core/modules/customers/components/AddressEditor', () => ({
-  AddressEditor: ({ value, onChange }: any) => (
+  AddressEditor: ({ value, onChange, disabled }: any) => (
     <>
+      <span data-testid="address-editor-disabled">{String(Boolean(disabled))}</span>
+      {/* The editor renders the contact details itself; what this section owes it is a draft that
+          carries them off the snapshot, which is what these expose. */}
+      <span data-testid="draft-taxId">{value?.taxId ?? ''}</span>
+      <span data-testid="draft-phone">{value?.phone ?? ''}</span>
       <button
         type="button"
         onClick={() =>
@@ -105,10 +110,12 @@ jest.mock('@open-mercato/core/modules/customers/components/AddressEditor', () =>
   ),
 }))
 
-jest.mock('@open-mercato/core/modules/customers/utils/addressFormat', () => ({
-  AddressView: () => null,
-  formatAddressString: (value: Record<string, unknown>) =>
-    [value.addressLine1, value.city].filter(Boolean).join(', '),
+// `addressFormat` is deliberately NOT mocked: stubbing AddressView to () => null is what once let
+// a contact block wired to an address path that cannot carry contact details look like a working
+// feature. The real formatter is pure and cheap.
+
+jest.mock('@open-mercato/ui/backend/BackendChromeProvider', () => ({
+  useBackendChrome: () => ({ payload: {}, isReady: true }),
 }))
 
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
@@ -284,6 +291,36 @@ describe('SalesDocumentAddressesSection', () => {
     })
   })
 
+  it('round-trips the tax id type the picker holds, rather than dropping it', async () => {
+    // `taxIdType` is an editable key now, so the unowned-key merge-back no longer carries it: the
+    // draft has to seed it from the snapshot and the assign list has to write it back. Miss either
+    // and a save silently clears the scheme off an address nobody touched.
+    mockApiCallOrThrow.mockResolvedValue({ ok: true, result: {} })
+
+    render(
+      <SalesDocumentAddressesSection
+        documentId="order-1"
+        kind="order"
+        customerId="customer-1"
+        shippingAddressSnapshot={{
+          addressLine1: '12 Market Street',
+          city: 'Warszawa',
+          country: 'PL',
+          taxId: '1234567890',
+          taxIdType: 'pl_nip',
+        }}
+      />,
+    )
+
+    await screen.findByRole('button', { name: 'Update addresses' })
+    fireEvent.click(screen.getByRole('button', { name: 'Update addresses' }))
+
+    await waitFor(() => expect(mockApiCallOrThrow).toHaveBeenCalledTimes(1))
+    const [, request] = mockApiCallOrThrow.mock.calls[0]
+    const payload = JSON.parse(request.body)
+    expect(payload.shippingAddressSnapshot).toMatchObject({ taxId: '1234567890', taxIdType: 'pl_nip' })
+  })
+
   it('clears the whole snapshot when every editable field is emptied, keeping no unowned keys', async () => {
     mockApiCallOrThrow.mockResolvedValue({ ok: true, result: {} })
 
@@ -341,5 +378,138 @@ describe('SalesDocumentAddressesSection', () => {
       addressLine1: '12 Market Street',
       taxId: 'PL1234567890',
     })
+  })
+
+  it('hands the editor the tax id and phone the snapshot carries', async () => {
+    render(
+      <SalesDocumentAddressesSection
+        documentId="order-1"
+        kind="order"
+        customerId="customer-1"
+        billingAddressSnapshot={{
+          addressLine1: '12 Market Street',
+          city: 'London',
+          postalCode: 'SW1A 1AA',
+          country: 'GB',
+          taxId: 'PL1234567890',
+          taxIdType: 'eu_vat',
+          phone: '+48 600 100 200',
+        }}
+      />,
+    )
+
+    await screen.findByRole('combobox')
+    expect(screen.getByTestId('draft-taxId').textContent).toBe('PL1234567890')
+    expect(screen.getByTestId('draft-phone').textContent).toBe('+48 600 100 200')
+    // The type interprets the value; it is never a displayed line of its own.
+    expect(screen.queryByText(/eu_vat/)).toBeNull()
+  })
+
+  it('hands the editor empty fields when the snapshot carries neither', async () => {
+    render(
+      <SalesDocumentAddressesSection
+        documentId="order-1"
+        kind="order"
+        customerId="customer-1"
+        billingAddressSnapshot={{
+          addressLine1: '12 Market Street',
+          city: 'London',
+          postalCode: 'SW1A 1AA',
+          country: 'GB',
+        }}
+      />,
+    )
+
+    await screen.findByRole('combobox')
+    expect(screen.getByTestId('draft-taxId').textContent).toBe('')
+    expect(screen.getByTestId('draft-phone').textContent).toBe('')
+  })
+
+  it('renders a disabled editor on a locked document, instead of an editable form the API will refuse', async () => {
+    render(
+      <SalesDocumentAddressesSection
+        documentId="order-1"
+        kind="order"
+        customerId="customer-1"
+        lockedReason="Document is closed"
+        shippingAddressSnapshot={{ addressLine1: '12 Market Street', city: 'London' }}
+      />,
+    )
+    await screen.findByRole('combobox')
+    for (const marker of screen.getAllByTestId('address-editor-disabled')) {
+      expect(marker.textContent).toBe('true')
+    }
+  })
+
+  it('keeps the editor editable while the document is not locked', async () => {
+    render(
+      <SalesDocumentAddressesSection
+        documentId="order-1"
+        kind="order"
+        customerId="customer-1"
+        shippingAddressSnapshot={{ addressLine1: '12 Market Street', city: 'London' }}
+      />,
+    )
+    await screen.findByRole('combobox')
+    for (const marker of screen.getAllByTestId('address-editor-disabled')) {
+      expect(marker.textContent).toBe('false')
+    }
+  })
+
+  it('shows a domestic tax id — the same as any other field on the address', async () => {
+    render(
+      <SalesDocumentAddressesSection
+        documentId="order-1"
+        kind="order"
+        customerId="customer-1"
+        billingAddressSnapshot={{
+          addressLine1: '12 Market Street',
+          city: 'London',
+          taxId: '1234567890',
+          taxIdType: 'pl_nip',
+        }}
+      />,
+    )
+    await screen.findByRole('combobox')
+    expect(screen.getByTestId('draft-taxId').textContent).toBe('1234567890')
+  })
+
+  it('renders an EU VAT number', async () => {
+    render(
+      <SalesDocumentAddressesSection
+        documentId="order-1"
+        kind="order"
+        customerId="customer-1"
+        billingAddressSnapshot={{
+          addressLine1: '12 Market Street',
+          city: 'London',
+          taxId: 'PL1234567890',
+          taxIdType: 'eu_vat',
+        }}
+      />,
+    )
+    await screen.findByRole('combobox')
+    expect(screen.getByTestId('draft-taxId').textContent).toBe('PL1234567890')
+  })
+
+  it('shows no snapshot tax id once a saved address is selected, so it cannot show stale details', async () => {
+    // The block renders the FROZEN snapshot. With a saved address chosen the tile shows that address
+    // while the snapshot still describes the previous one, so the pairing would be a lie until save.
+    render(
+      <SalesDocumentAddressesSection
+        documentId="order-1"
+        kind="order"
+        customerId="customer-1"
+        shippingAddressId="address-1"
+        shippingAddressSnapshot={{
+          addressLine1: '12 Market Street',
+          city: 'London',
+          taxId: '1234567890',
+          taxIdType: 'pl_nip',
+        }}
+      />,
+    )
+    await screen.findAllByRole('combobox')
+    expect(screen.queryByText(/1234567890/)).toBeNull()
   })
 })

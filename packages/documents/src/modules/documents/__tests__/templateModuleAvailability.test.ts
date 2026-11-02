@@ -13,13 +13,18 @@ jest.mock('../lib/entityRegistryAvailability.server', () => ({
   ),
 }))
 
-jest.mock('../lib/collabMaterializer', () => ({
-  materializeDocumentHtml: (html: string) => ({
-    yjsState: Buffer.from(html),
-    html,
-    text: html.replace(/<[^>]+>/g, ''),
-  }),
-}))
+jest.mock('../lib/collabMaterializer', () => {
+  const { htmlToPlainText } = jest.requireActual<typeof import('@open-mercato/shared/lib/html/htmlToPlainText')>(
+    '@open-mercato/shared/lib/html/htmlToPlainText',
+  )
+  return {
+    materializeDocumentHtml: (html: string) => ({
+      yjsState: Buffer.from(html),
+      html,
+      text: htmlToPlainText(html),
+    }),
+  }
+})
 
 import { prepareTemplateRender } from '../lib/templateInstantiation'
 

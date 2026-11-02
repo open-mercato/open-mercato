@@ -31,18 +31,17 @@ export const DISCORD_MAX_BODY_LENGTH = 2000
  *   replaces the "thinking…" placeholder over Discord's interaction-webhook
  *   endpoints. Pinned by the parity test in `lib/__tests__/capabilities.test.ts`,
  *   which drives the whole path rather than asserting the flag alone.
+ * - `threading` — a reply composed with `parentMessageId` arrives in Discord
+ *   attached to the message it answers. The hub resolves the parent's Discord
+ *   snowflake in `communication_channels/lib/outbound-reply-ref.ts` and writes it
+ *   to `channelMetadata.replyToExternalId`; `convertOutbound` turns that into
+ *   `messageReferenceId`, and `discord-rest` sends it as `message_reference`.
+ *   This flag was `false` for exactly as long as that hub-side producer was
+ *   missing (#5541, found against a live bot) — the whole path, not the flag
+ *   alone, is pinned by `lib/__tests__/capabilities.test.ts`.
  *
  * Deliberately disabled until implemented (declaring them would make the hub
  * hand this adapter work it silently drops):
- * - `threading` — `convertOutbound` reads `channelMetadata.replyToExternalId`
- *   and emits `message_reference` from it, but nothing hub-side ever writes that
- *   key into OUTBOUND metadata: `replyToExternalId` exists only on the inbound
- *   `NormalizedInboundMessage` shape, and the hub's outbound metadata producers
- *   (`send-as-user.ts`, `deliver-outbound-message.ts`) write the email-shaped
- *   `inReplyTo` / `references` instead. The conversion is therefore unreachable
- *   in production — confirmed against a live bot in #5541. The flag flips back
- *   to `true` in the same change that gives the hub an outbound reply producer
- *   this adapter can read, guarded by a contract test.
  * - `fileSharing` / `inlineImages` — `convertOutbound` drops
  *   `input.content.attachments` and `discord-rest` has no multipart upload, so
  *   outbound attachments never reach Discord. `maxFileSize` /
@@ -73,7 +72,7 @@ export const discordCapabilities: ChannelCapabilities = {
   recipientFormat: 'provider-native',
 
   // Core
-  threading: false,
+  threading: true,
   richText: true,
   fileSharing: false,
   readReceipts: false,

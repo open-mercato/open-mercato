@@ -127,10 +127,9 @@ const pastOrNowIsoDateTimeSchema = () => isoDateTimeSchema().refine((value) => v
 const isoDateOrDateTimeSchema = () => z.union([isoDateSchema(), isoDateTimeSchema()])
 
 // Country codes are validated through ICU rather than the shared country helper.
-// That helper imports language-subtag-registry's JSON, and the build strips the
-// import attribute Node's ESM loader requires, so importing it from server-side
-// code (CLI, workers) fails with ERR_IMPORT_ATTRIBUTE_MISSING. UI components can
-// keep using the helper because bundlers resolve the JSON themselves.
+// ICU keeps this schema self-contained (no dependency on the generated country
+// list) and accepts any region code Node's DisplayNames can resolve, including
+// codes the shared helper supplements separately (e.g. XK).
 const countryDisplayNames = typeof Intl !== 'undefined' && typeof Intl.DisplayNames !== 'undefined'
   ? new Intl.DisplayNames(['en'], { type: 'region' })
   : null

@@ -6,6 +6,7 @@ import * as ruleEvaluator from './rule-evaluator'
 import * as actionExecutor from './action-executor'
 import type { RuleEvaluationContext } from './rule-evaluator'
 import type { ActionContext, ActionExecutionOutcome } from './action-executor'
+import type { RbacService } from '../../auth/services/rbacService'
 import { ruleEngineContextSchema, ruleDiscoveryOptionsSchema, directRuleExecutionContextSchema, ruleIdExecutionContextSchema } from '../data/validators'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
@@ -54,6 +55,14 @@ export interface RuleEngineContext {
   organizationId: string
   executedBy?: string
   dryRun?: boolean
+  /**
+   * Evaluate the conditions but do NOT run the rule's success/failure actions.
+   *
+   * `dryRun` is deliberately not that flag: it only suppresses the execution
+   * LOG, so a caller that must produce no side effects (the workflows dry-run
+   * path, spec section 8.2) needs this one.
+   */
+  skipActions?: boolean
   [key: string]: any
 }
 
@@ -140,6 +149,15 @@ export function resolveBusinessRuleDiscoveryCache(resolve: (token: string) => un
   }
 }
 
+export function resolveBusinessRuleRbacService(resolve: (token: string) => unknown): RbacService | undefined {
+  try {
+    const rbacService = resolve('rbacService')
+    return rbacService ? rbacService as RbacService : undefined
+  } catch {
+    return undefined
+  }
+}
+
 function getRuleDiscoveryCacheTags(options: Pick<RuleDiscoveryOptions, 'organizationId'>): string[] {
   return [
     'business_rules:discovery',
@@ -223,6 +241,7 @@ export async function invalidateBusinessRuleDiscoveryCache(
 export type RuleEngineExecutionOptions = {
   eventBus?: Pick<EventBus, 'emitEvent'> | null
   cache?: RuleDiscoveryCache | null
+  rbacService?: RbacService
 }
 
 type RuleExecutionFailedPayload = {
@@ -250,6 +269,8 @@ export interface DirectRuleExecutionContext {
   organizationId: string
   executedBy?: string
   dryRun?: boolean
+  /** See `RuleEngineContext.skipActions`. */
+  skipActions?: boolean
   // Optional for logging (falls back to rule's entityType)
   entityType?: string
   entityId?: string
@@ -288,6 +309,8 @@ export interface RuleIdExecutionContext {
   organizationId: string
   executedBy?: string
   dryRun?: boolean
+  /** See `RuleEngineContext.skipActions`. */
+  skipActions?: boolean
   entityType?: string
   entityId?: string
   eventType?: string
@@ -516,7 +539,7 @@ export async function executeSingleRule(
 
       let actionsExecuted: ActionExecutionOutcome | null = null
 
-      if (actions && Array.isArray(actions) && actions.length > 0) {
+      if (actions && Array.isArray(actions) && actions.length > 0 && !context.skipActions) {
         // Build action context
         const actionContext: ActionContext = {
           ...evalContext,
@@ -527,6 +550,8 @@ export async function executeSingleRule(
           organizationId: context.organizationId,
           executedBy: context.executedBy ?? context.user?.id ?? null,
           em: em as any,
+          ruleAuthorId: rule.updatedBy ?? rule.createdBy ?? null,
+          rbacService: options.rbacService,
         }
 
         // Execute actions
@@ -675,7 +700,8 @@ export async function findApplicableRules(
  */
 export async function executeRuleById(
   em: EntityManager,
-  context: DirectRuleExecutionContext
+  context: DirectRuleExecutionContext,
+  options: RuleEngineExecutionOptions = {}
 ): Promise<DirectRuleExecutionResult> {
   const startTime = Date.now()
 
@@ -762,10 +788,11 @@ export async function executeRuleById(
     organizationId: context.organizationId,
     executedBy: context.executedBy,
     dryRun: context.dryRun,
+    skipActions: context.skipActions,
   }
 
   // Execute via existing executeSingleRule
-  const result = await executeSingleRule(em, rule, engineContext)
+  const result = await executeSingleRule(em, rule, engineContext, options)
 
   return {
     success: !result.error,
@@ -786,7 +813,8 @@ export async function executeRuleById(
  */
 export async function executeRuleByRuleId(
   em: EntityManager,
-  context: RuleIdExecutionContext
+  context: RuleIdExecutionContext,
+  options: RuleEngineExecutionOptions = {}
 ): Promise<DirectRuleExecutionResult> {
   const startTime = Date.now()
 
@@ -873,10 +901,11 @@ export async function executeRuleByRuleId(
     organizationId: context.organizationId,
     executedBy: context.executedBy,
     dryRun: context.dryRun,
+    skipActions: context.skipActions,
   }
 
   // Execute via existing executeSingleRule
-  const result = await executeSingleRule(em, rule, engineContext)
+  const result = await executeSingleRule(em, rule, engineContext, options)
 
   return {
     success: !result.error,

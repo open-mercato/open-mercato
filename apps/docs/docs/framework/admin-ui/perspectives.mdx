@@ -25,6 +25,12 @@ Both permissions are seeded by `mercato auth setup`. If you introduce new roles 
 
 The `tableId` can be any unique string; it scopes the stored data and maps to the `/api/perspectives/{tableId}` endpoints from the `perspectives` module.
 
+A saved view is dense: on every save it records an explicit `true`/`false` for every leaf
+column the table currently renders, not just the ones the user touched. A column a view
+never names — because it registered after the view was saved, such as a custom field or a
+widget-injected column — falls back to that column's own `meta.hidden` default instead of
+defaulting to visible.
+
 ## Eliminating flicker with SSR
 
 When a user lands on the table for the first time, the client component normally downloads perspectives and applies the selected view afterwards. To hydrate the table with the right layout from the start, fetch the initial state on the server and pass it down:
@@ -53,6 +59,10 @@ Then forward `initialPerspective` to `DataTable`:
 ```
 
 `fetchInitialPerspectiveState()` reads the user’s cookie and calls the perspectives API using the incoming request credentials. It returns the saved response payload, the id that should be activated, and a sanitized copy of the perspective settings. The client uses that information to render the table with the correct columns immediately while still revalidating the data once hydrated.
+
+On the initial load, `DataTable` shows its loading state until `isLoading` clears and injected columns finish loading. If the host builds columns from asynchronous custom-field definitions, include that query's loading state in `isLoading` alongside the row request. Hidden defaults and injected-column placement are applied before the header appears; later data refreshes retain the header.
+
+Keep definition-query identity tied to the organization scope, rather than a row-reload counter. Refetch the existing definitions so established columns remain available while the request runs. A real tenant or organization change must use a separate query identity and must not reuse the previous scope's definitions.
 
 ## What the client stores locally
 

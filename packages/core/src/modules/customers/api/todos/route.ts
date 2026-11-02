@@ -37,6 +37,7 @@ import {
   resolveLegacyTodoDetails,
 } from '../../lib/todoCompatibility'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 
 const logger = createLogger('customers')
 
@@ -439,6 +440,10 @@ export async function POST(request: Request): Promise<Response> {
     if (isCrudHttpError(err)) {
       return withAdapterHeaders(NextResponse.json(err.body, { status: err.status }))
     }
+    const interceptorRejection = getCommandInterceptorHttpRejection(err)
+    if (interceptorRejection) {
+      return withAdapterHeaders(NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status }))
+    }
     if (err instanceof z.ZodError) {
       return withAdapterHeaders(
         NextResponse.json({ error: 'Validation failed', details: err.issues }, { status: 400 }),
@@ -499,14 +504,22 @@ export async function PUT(request: Request): Promise<Response> {
         ...(nextDone !== undefined ? { status: nextDone ? 'done' : 'planned' } : {}),
         ...(customValues ? {
           customValues,
-          priority: typeof customValues.priority === 'number' ? customValues.priority : null,
-          body: typeof customValues.description === 'string' ? customValues.description : null,
-          scheduledAt:
-            typeof customValues.due_at === 'string'
-              ? customValues.due_at
-              : typeof customValues.dueAt === 'string'
-                ? customValues.dueAt
-                : null,
+          ...(customValues.priority !== undefined
+            ? { priority: typeof customValues.priority === 'number' ? customValues.priority : null }
+            : {}),
+          ...(customValues.description !== undefined
+            ? { body: typeof customValues.description === 'string' ? customValues.description : null }
+            : {}),
+          ...(customValues.due_at !== undefined || customValues.dueAt !== undefined
+            ? {
+                scheduledAt:
+                  typeof customValues.due_at === 'string'
+                    ? customValues.due_at
+                    : typeof customValues.dueAt === 'string'
+                      ? customValues.dueAt
+                      : null,
+              }
+            : {}),
         } : {}),
       },
       ctx: commandContext,
@@ -535,6 +548,10 @@ export async function PUT(request: Request): Promise<Response> {
   } catch (err) {
     if (isCrudHttpError(err)) {
       return withAdapterHeaders(NextResponse.json(err.body, { status: err.status }))
+    }
+    const interceptorRejection = getCommandInterceptorHttpRejection(err)
+    if (interceptorRejection) {
+      return withAdapterHeaders(NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status }))
     }
     if (err instanceof z.ZodError) {
       return withAdapterHeaders(
@@ -615,6 +632,10 @@ export async function DELETE(request: Request): Promise<Response> {
   } catch (err) {
     if (isCrudHttpError(err)) {
       return withAdapterHeaders(NextResponse.json(err.body, { status: err.status }))
+    }
+    const interceptorRejection = getCommandInterceptorHttpRejection(err)
+    if (interceptorRejection) {
+      return withAdapterHeaders(NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status }))
     }
     if (err instanceof z.ZodError) {
       return withAdapterHeaders(

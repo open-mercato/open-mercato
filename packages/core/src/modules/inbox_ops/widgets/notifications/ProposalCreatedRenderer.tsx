@@ -25,7 +25,7 @@ export function ProposalCreatedRenderer({
   const reviewAction = actions.find((action) => action.id === 'review') ?? actions[0] ?? null
 
   const handleReview = async () => {
-    if (!reviewAction) {
+    if (!reviewAction || notification.status === 'actioned') {
       if (notification.linkHref) router.push(notification.linkHref)
       return
     }
@@ -89,7 +89,7 @@ export function ProposalCreatedRenderer({
                 event.stopPropagation()
                 handleReview()
               }}
-              disabled={executing || (!reviewAction && !notification.linkHref)}
+              disabled={executing || (!reviewAction && !notification.linkHref) || (notification.status === 'actioned' && !notification.linkHref)}
               className="gap-1"
             >
               <ExternalLink className="h-3 w-3" />

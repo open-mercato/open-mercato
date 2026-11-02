@@ -149,6 +149,10 @@ function mockApiResponses(secretConfigured = true) {
   apiCallMock.mockImplementation((url: unknown, init?: RequestInit) => {
     const href = typeof url === 'string' ? url : ''
     const method = (init?.method ?? 'GET').toUpperCase()
+    if (href.includes('/api/auth/feature-check')) {
+      const body = { ok: true, granted: ['integrations.credentials.manage'], userId: 'user-1' }
+      return Promise.resolve({ ok: true, status: 200, result: body, response: makeResponse(200, body) })
+    }
     if (href.includes('/credentials')) {
       if (method === 'PUT') {
         return Promise.resolve({

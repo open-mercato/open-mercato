@@ -1,9 +1,10 @@
 import { execFileSync } from 'node:child_process'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Project, ScriptKind, SyntaxKind, type ObjectLiteralExpression, type SourceFile } from 'ts-morph'
-import { buildLucideRegistrySource } from '../../../../scripts/lucideRegistrySource.cjs'
+import { discoverResolvedIcons } from '../../../../scripts/lucideIconDiscovery.cjs'
+import { buildLucideRegistrySource, checkLucideRegistryDrift } from '../../../../scripts/lucideRegistrySource.cjs'
 import jestConfig from '../../../../jest.config.cjs'
 
 const packageDir = join(__dirname, '..', '..', '..', '..')
@@ -222,6 +223,78 @@ describe('lucideRegistry.generated importers', () => {
     const probe = detectGitWorkTree(absentDir)
     expect(probe.available).toBe(false)
     expect(probe.available ? '' : probe.reason).toContain(absentDir)
+  })
+})
+
+type MonorepoProbe = { available: true } | { available: false; reason: string }
+
+function detectMonorepoCheckout(repoRoot: string): MonorepoProbe {
+  const generatorPath = join(repoRoot, 'packages', 'ui', 'build.mjs')
+  if (!existsSync(generatorPath)) return { available: false, reason: `${generatorPath} is missing` }
+  return { available: true }
+}
+
+// The registry is build output, so a module can reference an icon string and merge
+// while the committed file still lacks it — the icon then silently renders as nothing.
+// Running the real discovery pass here turns that drift into a failing test.
+describe('committed lucideRegistry.generated.tsx', () => {
+  const repoRoot = join(packageDir, '..', '..')
+  const committedSource = readFileSync(join(iconsDir, 'lucideRegistry.generated.tsx'), 'utf-8')
+  const regenerationHint = 'run `yarn build:packages` and commit the regenerated file'
+  // The scan reads the repo, so — like the `git grep` guard above — it can only run
+  // inside the monorepo. Published tarballs ship these tests without the sources they
+  // scan, where an empty scan would fail an invariant it cannot evaluate rather than
+  // report real drift. There, this degrades to a skip that states why.
+  const checkout = detectMonorepoCheckout(repoRoot)
+  const itInsideMonorepo = checkout.available ? it : it.skip
+  const skipReason = checkout.available ? '' : ` — skipped: ${checkout.reason}`
+  let discoveredIcons: ResolvedIcon[] = []
+
+  beforeAll(async () => {
+    if (!checkout.available) return
+    discoveredIcons = await discoverResolvedIcons(repoRoot)
+  })
+
+  itInsideMonorepo(`registers every icon string used across the repo — ${regenerationHint}${skipReason}`, () => {
+    const registered = new Set(Object.keys(registryEntries(committedSource)))
+    const missing = discoveredIcons.map((icon) => icon.kebab).filter((kebab) => !registered.has(kebab))
+    expect(missing).toEqual([])
+  })
+
+  itInsideMonorepo(`is byte-identical to a fresh generator run — ${regenerationHint}${skipReason}`, () => {
+    expect(committedSource).toBe(buildLucideRegistrySource(discoveredIcons))
+  })
+
+  it('states a reason instead of asserting when the monorepo sources are absent', () => {
+    const probe = detectMonorepoCheckout(join(tmpdir(), 'lucide-registry-absent-monorepo'))
+    expect(probe.available).toBe(false)
+    expect(probe.available ? '' : probe.reason).toContain('build.mjs')
+  })
+})
+
+// `yarn ui:icons:check` runs this decision unfiltered in CI, where only the in-sync
+// branch is ever exercised — every PR runs it against a registry that matches. The
+// branch that does the work is the drifted one, so it is asserted here instead.
+describe('checkLucideRegistryDrift', () => {
+  const source = buildLucideRegistrySource(populatedFixture)
+
+  it('reports no drift when the committed file matches the emitter', () => {
+    expect(checkLucideRegistryDrift(source, source)).toEqual({ drifted: false })
+  })
+
+  it('reports drift when an icon is missing from the committed file', () => {
+    const stale = buildLucideRegistrySource(populatedFixture.slice(0, -1))
+    expect(checkLucideRegistryDrift(stale, source).drifted).toBe(true)
+  })
+
+  it('reports drift when the committed file has never been written', () => {
+    expect(checkLucideRegistryDrift('', source).drifted).toBe(true)
+  })
+
+  it('names the drifted file and the command that regenerates it', () => {
+    const drift = checkLucideRegistryDrift('', source, '/repo/lucideRegistry.generated.tsx')
+    expect(drift.message).toContain('/repo/lucideRegistry.generated.tsx')
+    expect(drift.message).toContain('yarn workspace @open-mercato/ui build')
   })
 })
 

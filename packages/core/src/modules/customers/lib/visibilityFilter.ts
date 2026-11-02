@@ -1,6 +1,7 @@
 import type { FilterQuery } from '@mikro-orm/postgresql'
 import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
 import { CustomerInteraction } from '../data/entities'
+import type { ConversationShareGrant } from './conversationShares'
 
 /**
  * The ACL feature that grants admins the right to see private emails authored
@@ -52,6 +53,29 @@ export function canChangeEmailVisibility(opts: {
 export interface ApplyEmailVisibilityFilterOptions {
   currentUserId: string | null
   userFeatures: string[] | null | undefined
+  /**
+   * Conversation shares that widen what this caller may read: each grant means
+   * "the owner of this mailbox handed their email history with this Person to the
+   * team" (`lib/conversationShares.ts`).
+   *
+   * OPTIONAL and fail-closed by design — omitting it (or passing `[]`) yields the
+   * byte-identical strict owner-only predicate that shipped in v1, so a read path
+   * that has not been taught about sharing can only ever under-share.
+   */
+  sharedConversations?: ConversationShareGrant[]
+  /**
+   * Ids of channels the caller may read in full because their owner marked them
+   * as a shared team mailbox (`CommunicationChannel.visibility = 'shared'`).
+   *
+   * Matched against the denormalized `customer_interactions.channel_id`, NOT
+   * against `author_user_id`: an owner with one shared and one private mailbox has
+   * the same author on both, so an author-keyed rule would leak the private one.
+   *
+   * OPTIONAL and fail-closed — omitting it (or passing `[]`) yields the predicate
+   * as it stood before channel sharing existed, so an unconverted read path can
+   * only ever under-share. A row with `channel_id IS NULL` never matches.
+   */
+  sharedChannelIds?: string[]
 }
 
 /**
@@ -81,6 +105,8 @@ export function applyEmailVisibilityFilter<T extends { where: (...args: any[]) =
   //   - legacy/unset rows where `visibility IS NULL` (e.g. email-log entries
   //     created before per-email visibility shipped) — these must remain
   //     visible to avoid silently hiding pre-existing CRM history.
+  const grants = opts.sharedConversations ?? []
+  const sharedChannelIds = opts.sharedChannelIds ?? []
   return query.where((eb: any) =>
     eb.or([
       eb('interaction_type', '!=', 'email'),
@@ -89,8 +115,117 @@ export function applyEmailVisibilityFilter<T extends { where: (...args: any[]) =
       currentUserId
         ? eb('author_user_id', '=', currentUserId)
         : eb.val(false),
+      // Conversation shares: the owner handed their history with this Person to
+      // the team. One arm per grant, each an AND of the two columns the covering
+      // index already leads with.
+      ...grants.map((grant) =>
+        eb.and([
+          eb('entity_id', '=', grant.personEntityId),
+          eb('author_user_id', '=', grant.ownerUserId),
+        ]),
+      ),
+      // Shared team mailboxes: the whole channel was handed to the team. One arm
+      // for the whole set, matching the indexed `channel_id` column.
+      ...(sharedChannelIds.length > 0
+        ? [eb('channel_id', 'in', sharedChannelIds)]
+        : []),
     ]),
   )
+}
+
+/**
+ * Row-level predicate: is this email interaction HIDDEN from the caller?
+ *
+ * The exact logical complement of {@link applyEmailVisibilityFilter}, extracted so
+ * every enforcement point derives from one definition of the rule. Any change to
+ * the visibility predicate MUST be mirrored here and in
+ * {@link applyEmailHiddenFilter} in the same commit — the unit tests assert the
+ * three agree on a shared row matrix.
+ */
+export function isEmailHiddenFrom(opts: {
+  interactionType: string | null | undefined
+  visibility: string | null | undefined
+  authorUserId: string | null | undefined
+  currentUserId: string | null | undefined
+  /** The Person this interaction is anchored to; required to match a share grant. */
+  personEntityId?: string | null | undefined
+  sharedConversations?: ConversationShareGrant[]
+  /** The channel this email arrived through; required to match a shared mailbox. */
+  channelId?: string | null | undefined
+  sharedChannelIds?: string[]
+}): boolean {
+  if (opts.interactionType !== 'email') return false
+  if (opts.visibility !== 'private') return false
+  if (opts.currentUserId && opts.authorUserId && opts.authorUserId === opts.currentUserId) {
+    return false
+  }
+  // A shared team mailbox makes every one of its rows readable. Checked before the
+  // per-Person grants because it is the broader escalation.
+  const sharedChannelIds = opts.sharedChannelIds ?? []
+  if (sharedChannelIds.length > 0 && opts.channelId && sharedChannelIds.includes(opts.channelId)) {
+    return false
+  }
+  const grants = opts.sharedConversations ?? []
+  if (grants.length > 0 && opts.personEntityId && opts.authorUserId) {
+    const shared = grants.some(
+      (grant) =>
+        grant.personEntityId === opts.personEntityId && grant.ownerUserId === opts.authorUserId,
+    )
+    if (shared) return false
+  }
+  return true
+}
+
+/**
+ * Kysely complement of {@link applyEmailVisibilityFilter}: narrows a query to the
+ * email rows the caller may NOT read. Used to count another user's private email
+ * without duplicating the rule in raw SQL.
+ *
+ * Note the SQL NULL semantics deliberately preserved from the original inline
+ * query: `author_user_id != caller` does not match rows whose author is NULL, so a
+ * private row with no author is neither visible nor counted. Private rows always
+ * carry the channel owner as author, so this is unreachable in practice; it is
+ * documented rather than "fixed" so counts do not shift silently.
+ */
+export function applyEmailHiddenFilter<T extends { where: (...args: any[]) => T }>(
+  query: T,
+  opts: ApplyEmailVisibilityFilterOptions,
+): T {
+  const currentUserId = opts.currentUserId
+  const grants = opts.sharedConversations ?? []
+  const sharedChannelIds = opts.sharedChannelIds ?? []
+  return query
+    .where('interaction_type', '=', 'email')
+    .where('visibility', '=', 'private')
+    .where((eb: any) =>
+      currentUserId ? eb('author_user_id', '!=', currentUserId) : eb.val(true),
+    )
+    // Subtract shared team mailboxes, or the Person page would keep reporting
+    // "3 private emails" for a mailbox the caller can now read end to end.
+    // `channel_id IS NULL` must still COUNT, so the NULL case is explicit rather
+    // than left to SQL's three-valued `not in`.
+    .where((eb: any) =>
+      sharedChannelIds.length === 0
+        ? eb.val(true)
+        : eb.or([
+            eb('channel_id', 'is', null),
+            eb('channel_id', 'not in', sharedChannelIds),
+          ]),
+    )
+    // Subtract the shared conversations. Without this the Person page would keep
+    // reporting "3 private emails" for emails the caller can now actually read.
+    .where((eb: any) =>
+      grants.length === 0
+        ? eb.val(true)
+        : eb.and(
+            grants.map((grant) =>
+              eb.or([
+                eb('entity_id', '!=', grant.personEntityId),
+                eb('author_user_id', '!=', grant.ownerUserId),
+              ]),
+            ),
+          ),
+    )
 }
 
 type RbacServiceLike = {
@@ -138,17 +273,49 @@ export async function resolveCallerEmailFeatures(
  * privacy (v1: strict owner-only): no admin bypass — a private email is hidden
  * from everyone except its author. `opts.userFeatures` is reserved for v2.
  */
-export type EmailVisibilityMikroFilter = { $or?: FilterQuery<CustomerInteraction>[] }
+/**
+ * @deprecated Use {@link EmailVisibilityFilterFragment}. The old shape exposed
+ * `$or` as the only possible key, which invited callers to consume the fragment
+ * as `where.$or = build(...).$or` and silently drop any other arm the predicate
+ * grows. Retained for one minor per the deprecation protocol in
+ * `BACKWARD_COMPATIBILITY.md`.
+ */
+export type EmailVisibilityMikroFilter = EmailVisibilityFilterFragment
+
+/**
+ * Opaque where-fragment to merge (implicit AND) into a `CustomerInteraction`
+ * where-clause. Callers MUST merge the WHOLE fragment — `{ ...fragment }` or
+ * `Object.assign(where, fragment)` — and never cherry-pick a single key, so the
+ * predicate can grow arms without leaking private rows at compile-clean call
+ * sites.
+ */
+export type EmailVisibilityFilterFragment = { $or: FilterQuery<CustomerInteraction>[] }
 
 export function buildEmailVisibilityMikroFilter(
   opts: ApplyEmailVisibilityFilterOptions,
-): EmailVisibilityMikroFilter {
+): EmailVisibilityFilterFragment {
+  // Deliberately a SINGLE `$or` key. Several callers merge this fragment by
+  // object spread into a where-clause that may itself carry other keys; keeping
+  // the whole predicate inside one `$or` means such a spread can never split the
+  // predicate into independently-satisfiable arms. Any future widening MUST be
+  // added as another arm of THIS `$or`, not as a sibling top-level key.
+  const grants = opts.sharedConversations ?? []
+  const sharedChannelIds = opts.sharedChannelIds ?? []
   return {
     $or: [
       { interactionType: { $ne: 'email' } },
       { visibility: null },
       { visibility: { $ne: 'private' } },
       ...(opts.currentUserId ? [{ authorUserId: opts.currentUserId }] : []),
+      // Mirrors the kysely share arm: one AND-pair per grant, kept flat inside
+      // this single `$or` so the fragment stays a one-key object.
+      ...grants.map((grant) => ({
+        entity: grant.personEntityId,
+        authorUserId: grant.ownerUserId,
+      })),
+      // Mirrors the kysely channel arm. Still flat inside this single `$or`, so
+      // the fragment stays a one-key object every caller can spread losslessly.
+      ...(sharedChannelIds.length > 0 ? [{ channelId: { $in: sharedChannelIds } }] : []),
     ],
-  }
+  } as EmailVisibilityFilterFragment
 }

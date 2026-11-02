@@ -182,11 +182,18 @@ test.afterAll(async () => {
 
 test.describe('TC-WC-022: warranty claim email-to-claim subscriber', () => {
   test('creates one unlinked API claim from inbound email and ignores redelivery of the same message id', async ({ request }) => {
+    // Multiple drainIntegrationQueue calls each spawn a fresh Node process, which
+    // under CI resource contention can exceed the default 20s test timeout on its
+    // own even though the email-to-claim flow completes correctly.
+    test.setTimeout(60_000)
     const adminToken = await getAuthToken(request, 'admin')
     const { organizationId, tenantId } = getTokenContext(adminToken)
     const stamp = uniqueLabel('tc-wc-022')
     const senderEmail = `${stamp}@test.invalid`
     const password = 'Valid1!Pass'
+    const subject = `Warranty request ${stamp}`
+    const description = `The pump for serial ${stamp} loses power under load. ${'Failure details. '.repeat(600)}`
+    const expectedNotes = `Subject: ${subject}\n\n${description}`.slice(0, 8000)
 
     let roleId: string | null = null
     let userId: string | null = null
@@ -216,8 +223,8 @@ test.describe('TC-WC-022: warranty claim email-to-claim subscriber', () => {
       const senderToken = await getAuthToken(request, senderEmail, password)
 
       const submitResult = await submitTextExtraction(request, senderToken, {
-        title: `Warranty request ${stamp}`,
-        text: `Hello, please open a warranty claim for serial ${stamp}.`,
+        title: subject,
+        text: description,
         metadata: { testCase: 'TC-WC-022' },
       })
 
@@ -240,6 +247,8 @@ test.describe('TC-WC-022: warranty claim email-to-claim subscriber', () => {
       expect(firstClaim.customerName).toBe(senderEmail)
       expect(firstClaim.contactEmail).toBe(senderEmail)
       expect(firstClaim.intakeMessageRef).toBe(inboxEmailId)
+      expect(firstClaim.notes).toBe(expectedNotes)
+      expect(firstClaim.notes).toHaveLength(8000)
 
       await markInboxEmailRedeliverable(inboxEmailId!)
       const redeliveryResponse = await apiRequest(
@@ -254,6 +263,7 @@ test.describe('TC-WC-022: warranty claim email-to-claim subscriber', () => {
       expect(emailClaims, 'redelivery should not create a duplicate warranty claim').toHaveLength(1)
       expect(emailClaims[0].id).toBe(claimId)
       expect(emailClaims[0].intakeMessageRef).toBe(inboxEmailId)
+      expect(emailClaims[0].notes).toBe(expectedNotes)
     } finally {
       await deleteInboxEmail(request, userId ? await getAuthToken(request, senderEmail, password).catch(() => adminToken) : adminToken, inboxEmailId ?? '')
         .catch(() => undefined)

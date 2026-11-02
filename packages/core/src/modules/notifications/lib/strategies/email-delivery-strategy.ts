@@ -24,7 +24,7 @@ export const emailDeliveryStrategy: NotificationDeliveryStrategy = {
   defaultEnabled: true,
   isConfigured: (ctx: NotificationDeliveryContext) => ctx.deliveryConfig.strategies.email.enabled === true,
   async deliver(ctx: NotificationDeliveryContext) {
-    const { recipient, panelLink, title, body, actionLinks, deliveryConfig, t } = ctx
+    const { notification, recipient, panelLink, title, body, actionLinks, deliveryConfig, t } = ctx
     if (!recipient?.email || !panelLink) {
       debug('email skipped: missing recipient email or panelLink')
       return
@@ -48,6 +48,8 @@ export const emailDeliveryStrategy: NotificationDeliveryStrategy = {
         subject,
         from: deliveryConfig.strategies.email.from,
         replyTo: deliveryConfig.strategies.email.replyTo,
+        tenantId: notification.tenantId,
+        organizationId: notification.organizationId ?? null,
         react: NotificationEmail({
           title,
           body,

@@ -5,7 +5,7 @@ const config: Config = {
   title: 'Open Mercato Docs',
   tagline: 'Extensible commerce platform with modular architecture',
   favicon: 'img/open-mercato.svg',
-  url: 'https://docs.open-mercato.dev',
+  url: 'https://docs.openmercato.com',
   baseUrl: '/',
   organizationName: 'open-mercato',
   projectName: 'documentation',
@@ -52,7 +52,7 @@ const config: Config = {
         docs: {
           sidebarPath: require.resolve('./sidebars.ts'),
           routeBasePath: '/',
-          editUrl: 'https://github.com/open-mercato/open-mercato/tree/main/docs',
+          editUrl: 'https://github.com/open-mercato/open-mercato/tree/main/apps/docs',
           showLastUpdateAuthor: true,
           showLastUpdateTime: true,
         },
