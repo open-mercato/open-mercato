@@ -8,6 +8,7 @@ export type CustomerInjectedTab = {
   id: string
   label: string
   priority: number
+  icon?: string
   widgets: LoadedInjectionSpotWidget[]
 }
 
@@ -23,13 +24,15 @@ export function groupCustomerInjectedTabs(
     const id = widget.placement?.groupId ?? widget.widgetId
     const declaredPriority = widget.placement?.priority ?? widget.module.metadata.priority
     const priority = typeof declaredPriority === 'number' ? declaredPriority : 0
+    const placementIcon = typeof widget.placement?.icon === 'string' ? widget.placement.icon : undefined
     const group = groups.get(id)
     if (group) {
       group.widgets.push(widget)
       group.priority = Math.max(group.priority, priority)
+      if (!group.icon && placementIcon) group.icon = placementIcon
     } else {
       const label = widget.placement?.groupLabel ?? widget.module.metadata.title ?? id
-      groups.set(id, { id, label: translate(label, label), priority, widgets: [widget] })
+      groups.set(id, { id, label: translate(label, label), priority, icon: placementIcon, widgets: [widget] })
     }
   }
   return Array.from(groups.values()).sort((left, right) => right.priority - left.priority)
