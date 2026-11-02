@@ -30,6 +30,7 @@ import {
   mapCompanyOverviewToFormValues,
   mapPersonOverviewToFormValues,
   type Translator,
+  createCompanyEditFields,
 } from '../formConfig'
 
 const t: Translator = (_key, fallback) => fallback ?? _key
@@ -372,5 +373,39 @@ describe('CRM contributed form data', () => {
     expect(company._example).toEqual(namespace)
     expect(buildPersonPayload({ ...person, displayName: 'Ada', '_example.priority': 'critical' })).not.toHaveProperty('_example')
     expect(buildCompanyPayload({ ...company, displayName: 'Acme', '_example.priority': 'critical' })).not.toHaveProperty('_example')
+  })
+})
+
+describe('company VAT / tax ID (required company field)', () => {
+  it('sends the VAT ID with a new company and prefills it on edit', () => {
+    const payload = buildCompanyPayload({ displayName: 'Acme', taxId: ' PL1234567890 ' } as any)
+    expect(payload.taxId).toBe('PL1234567890')
+
+    const values = mapCompanyOverviewToFormValues({
+      company: { id: 'company-1', displayName: 'Acme' },
+      profile: { taxId: 'PL1234567890' },
+      customFields: {},
+    } as any)
+    expect(values.taxId).toBe('PL1234567890')
+  })
+
+  it('transmits the edited VAT ID and an explicit clear', () => {
+    const kept = createCompanyEditSchema().safeParse({ id: COMPANY_ID, displayName: 'Acme', taxId: 'DE123456789' })
+    expect(kept.success).toBe(true)
+    if (!kept.success) return
+    expect(buildCompanyEditPayload(kept.data as any).taxId).toBe('DE123456789')
+
+    const blanked = createCompanyEditSchema().safeParse({ id: COMPANY_ID, displayName: 'Acme', taxId: '' })
+    expect(blanked.success).toBe(true)
+    if (!blanked.success) return
+    expect(buildCompanyEditPayload(blanked.data as any).taxId).toBeNull()
+  })
+
+  it('requires the VAT ID when creating a company but not when editing a legacy record', () => {
+    const t = (_key: string, fallback?: string) => fallback ?? _key
+    const createField = createCompanyFormFields(t as any).find((entry) => entry.id === 'taxId')
+    expect(createField).toMatchObject({ required: true, type: 'text' })
+    const editField = createCompanyEditFields(t as any).find((entry) => entry.id === 'taxId')
+    expect(editField).toMatchObject({ required: false, type: 'text' })
   })
 })

@@ -492,6 +492,7 @@ const crud = makeCrudRoute({
           industry: profile.industry ?? null,
           size_bucket: profile.sizeBucket ?? null,
           annual_revenue: profile.annualRevenue ?? null,
+          tax_id: profile.taxId ?? null,
         }
       })
     },

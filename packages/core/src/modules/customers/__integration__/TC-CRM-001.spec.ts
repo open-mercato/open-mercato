@@ -21,6 +21,7 @@ test.describe('TC-CRM-001: Company Creation', () => {
       await login(page, 'admin');
       await page.goto('/backend/customers/companies/create');
       await page.locator('form').getByRole('textbox').first().fill(companyName);
+      await page.locator('[data-crud-field-id="taxId"] input').fill('PL1234567890');
       await page.getByPlaceholder('https://example.com').fill('https://example.com');
       await page.locator('form').getByRole('button', { name: /Create Company/i }).click();
 
