@@ -107,6 +107,8 @@ describe('entities rotate-encryption-key CLI', () => {
 
   beforeEach(() => {
     jest.clearAllMocks()
+    execute.mockReset()
+    execute.mockImplementation(async (sql: string) => sql.includes('RETURNING') ? [{ id: 'row-1' }] : [])
     getAllMetadata.mockReturnValue([accessLogMetadata])
     getDek.mockImplementation(defaultGetDek)
     encryptEntityPayload.mockImplementation(defaultEncryptEntityPayload)
@@ -144,12 +146,12 @@ describe('entities rotate-encryption-key CLI', () => {
       .mockReturnValueOnce('resource-value')
       .mockReturnValueOnce('{"note":"hello"}')
 
-    await rotate.run(['--old-key', 'old-secret', '--tenant', 'tenant-1', '--org', 'org-1'])
+    await rotate.run(['--allow-unsafe-old-key', '--old-key', 'old-secret', '--tenant', 'tenant-1', '--org', 'org-1'])
 
     expect(decryptWithAesGcm).toHaveBeenCalledTimes(2)
     expect(execute).toHaveBeenCalledTimes(2)
     const updateCall = execute.mock.calls[1]
-    expect(updateCall[0]).toMatch(/update\s+"access_logs"/)
+    expect(updateCall[0]).toMatch(/UPDATE\s+"access_logs"/)
     expect(updateCall[1]).toEqual(expect.arrayContaining([
       'enc:resource-value',
       '"enc:{\\"note\\":\\"hello\\"}"',
@@ -172,7 +174,7 @@ describe('entities rotate-encryption-key CLI', () => {
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
 
     await expect(
-      rotate.run(['--old-key', 'old-secret', '--tenant', 'tenant-1', '--org', 'org-1']),
+      rotate.run(['--allow-unsafe-old-key', '--old-key', 'old-secret', '--tenant', 'tenant-1', '--org', 'org-1']),
     ).rejects.toThrow('could not be rotated')
 
     // The unopenable field must not reach the encrypt path at all.
@@ -200,7 +202,7 @@ describe('entities rotate-encryption-key CLI', () => {
     const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {})
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
 
-    await rotate.run(['--old-key', 'old-secret', '--tenant', 'tenant-1', '--org', 'org-1'])
+    await rotate.run(['--allow-unsafe-old-key', '--old-key', 'old-secret', '--tenant', 'tenant-1', '--org', 'org-1'])
 
     expect(encryptEntityPayload.mock.calls[0][1]).toHaveProperty('resource_id', alreadyRotated)
     expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining('opens under neither'))
@@ -224,7 +226,7 @@ describe('entities rotate-encryption-key CLI', () => {
     const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {})
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
 
-    await rotate.run(['--old-key', 'old-secret', '--tenant', 'tenant-1', '--org', 'org-1'])
+    await rotate.run(['--allow-unsafe-old-key', '--old-key', 'old-secret', '--tenant', 'tenant-1', '--org', 'org-1'])
 
     expect(decryptWithAesGcm).not.toHaveBeenCalled()
     expect(encryptEntityPayload).not.toHaveBeenCalled()
@@ -350,7 +352,7 @@ describe('entities rotate-encryption-key CLI', () => {
     execute.mockResolvedValueOnce([])
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
 
-    await rotate.run(['--old-key', 'old-secret', '--tenant', 'tenant-1', '--org', 'org-1'])
+    await rotate.run(['--allow-unsafe-old-key', '--old-key', 'old-secret', '--tenant', 'tenant-1', '--org', 'org-1'])
 
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('TENANT_DATA_ENCRYPTION_OLD_KEY'))
     warnSpy.mockRestore()
@@ -361,7 +363,7 @@ describe('entities rotate-encryption-key CLI', () => {
     process.env.TENANT_DATA_ENCRYPTION_OLD_KEY = 'environment-secret'
 
     await expect(
-      rotate.run(['--old-key', 'argument-secret', '--tenant', 'tenant-1']),
+      rotate.run(['--allow-unsafe-old-key', '--old-key', 'argument-secret', '--tenant', 'tenant-1']),
     ).rejects.toThrow('contain different values')
 
     expect(find).not.toHaveBeenCalled()
@@ -532,4 +534,20 @@ describe('entities rotate-encryption-key CLI', () => {
     expect(encryptEntityPayload).not.toHaveBeenCalled()
     logSpy.mockRestore()
   })
+
+  it('rejects legacy argv key material unless the unsafe compatibility bridge is explicit', async () => {
+    const rotate = cli.find((entry) => entry.command === 'rotate-encryption-key')!
+    await expect(rotate.run(['--old-key', 'old-secret', '--tenant', 'tenant-1'])).rejects.toThrow('--allow-unsafe-old-key')
+    expect(execute).not.toHaveBeenCalled()
+  })
+
+  it('does not overwrite a concurrently changed value during rotation', async () => {
+    const rotate = cli.find((entry) => entry.command === 'rotate-encryption-key')!
+    singleMapFixture()
+    execute.mockResolvedValueOnce([{ id: 'row-1', resource_id: 'plain-value' }]).mockResolvedValueOnce([])
+    await expect(rotate.run(['--tenant', 'tenant-1', '--org', 'org-1'])).rejects.toThrow('changed concurrently')
+    expect(execute.mock.calls[1][0]).toContain('IS NOT DISTINCT FROM ?')
+    expect(execute.mock.calls[1][1]).toContain('plain-value')
+  })
+
 })
