@@ -137,15 +137,11 @@ function isPushOntoVariable(node: ts.Node, variableName: string): node is ts.Cal
  */
 function readDeclaredModuleIdsFromConfig(
   registryPath: string,
-  options: { variableName?: string; includePushes?: boolean } = {},
+  options: { variableName?: string; includePushes?: boolean; optional?: boolean } = {},
 ): string[] {
   const variableName = options.variableName ?? 'enabledModules'
-  let source: string
-  try {
-    source = readFileSync(registryPath, 'utf8')
-  } catch {
-    return []
-  }
+  if (options.optional && !existsSync(registryPath)) return []
+  const source = readFileSync(registryPath, 'utf8')
   const sourceFile = ts.createSourceFile(
     registryPath,
     source,
@@ -158,6 +154,8 @@ function readDeclaredModuleIdsFromConfig(
   const visit = (node: ts.Node): void => {
     if (
       ts.isVariableDeclaration(node)
+      && ts.isVariableStatement(node.parent.parent)
+      && node.parent.parent.parent === sourceFile
       && ts.isIdentifier(node.name)
       && node.name.text === variableName
       && node.initializer
@@ -190,7 +188,7 @@ function resolvePossiblyEnabledTestAppModuleIds(testAppRoot: string): Set<string
       ...readDeclaredModuleIdsFromConfig(path.join(testAppRoot, 'src', 'modules.ts'), { includePushes: true }),
       ...readDeclaredModuleIdsFromConfig(
         path.join(testAppRoot, 'src', 'official-modules.generated.ts'),
-        { variableName: 'officialModuleEntries', includePushes: true },
+        { variableName: 'officialModuleEntries', includePushes: true, optional: true },
       ),
     ].map(normalizeModuleId),
   )

@@ -256,6 +256,33 @@ describe('integration discovery', () => {
     expect(discovered.map((entry) => entry.path)).toEqual([])
   })
 
+  it('fails loudly when OM_TEST_APP_ROOT has no modules.ts instead of skipping every spec', async () => {
+    await writeTestFile(tempRoot, 'packages/core/src/modules/sales/index.ts')
+    await writeTestFile(tempRoot, 'packages/core/src/modules/sales/__integration__/TC-SALES-040.spec.ts')
+    process.env.OM_TEST_APP_ROOT = path.join(tempRoot, 'missing-standalone-app')
+
+    expect(() => discoverIntegrationSpecFiles(tempRoot, path.join(tempRoot, '.ai', 'qa', 'tests'))).toThrow(/modules\.ts/)
+  })
+
+  it('reads only the top-level enabledModules declaration of a standalone app', async () => {
+    await writeTestFile(tempRoot, 'packages/core/src/modules/sales/index.ts')
+    await writeTestFile(
+      tempRoot,
+      'packages/core/src/modules/sales/__integration__/TC-SALES-041.meta.ts',
+      "export const integrationMeta = { dependsOnModules: ['nested_probe'] }\n",
+    )
+    await writeTestFile(tempRoot, 'packages/core/src/modules/sales/__integration__/TC-SALES-041.spec.ts')
+    await writeTestFile(
+      tempRoot,
+      'standalone-app/src/modules.ts',
+      "export const enabledModules = [{ id: 'sales', from: '@open-mercato/core' }]\nfunction preview() {\n  const enabledModules = [{ id: 'nested_probe', from: '@app' }]\n  return enabledModules\n}\n",
+    )
+    process.env.OM_TEST_APP_ROOT = path.join(tempRoot, 'standalone-app')
+
+    const discovered = discoverIntegrationSpecFiles(tempRoot, path.join(tempRoot, '.ai', 'qa', 'tests'))
+    expect(discovered.map((entry) => entry.path)).toEqual([])
+  })
+
   it('applies folder and per-test metadata environment requirements', async () => {
     await writeTestFile(tempRoot, 'packages/ai-assistant/src/modules/ai_assistant/.gitkeep')
     await writeTestFile(
