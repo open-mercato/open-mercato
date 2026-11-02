@@ -27,15 +27,21 @@ function buildSuggestion(overrides: Record<string, unknown> = {}) {
   } as unknown as CatalogProductCategorySuggestion
 }
 
-function buildDeps(options: { assignmentCount?: number; execute?: jest.Mock } = {}) {
+function buildDeps(options: { assignmentCount?: number; execute?: jest.Mock; allowManage?: boolean; userId?: string | null } = {}) {
   const execute = options.execute ?? jest.fn().mockResolvedValue({
     result: { product: { id: 'product-1', categoryIds: ['category-1'], updatedAt: '2026-01-01T00:00:00.000Z' } },
     logEntry: { id: 'log-1' },
   })
-  const container = { resolve: jest.fn(() => ({ execute })) } as unknown as AwilixContainer
+  const userHasAllFeatures = jest.fn(async (_userId: string, required: string[]) =>
+    (options.allowManage ?? true) && required.every((feature) => feature === 'catalog.products.manage'),
+  )
+  const container = {
+    resolve: jest.fn((name: string) => (name === 'rbacService' ? { userHasAllFeatures } : { execute })),
+  } as unknown as AwilixContainer
   const em = { count: jest.fn().mockResolvedValue(options.assignmentCount ?? 0) } as unknown as EntityManager
-  const commandContext = { container } as unknown as CommandRuntimeContext
-  return { container, em, execute, commandContext }
+  const userId = options.userId === undefined ? 'user-1' : options.userId
+  const commandContext = { container, auth: userId ? { sub: userId } : undefined } as unknown as CommandRuntimeContext
+  return { container, em, execute, commandContext, userHasAllFeatures }
 }
 
 describe('decideAutoApply', () => {
@@ -131,6 +137,62 @@ describe('maybeAutoApplySuggestion', () => {
       settings: { applyMode: 'suggest', autoApplyThreshold: 0.5 },
     })
     expect(deps.em.count).not.toHaveBeenCalled()
+    expect(deps.execute).not.toHaveBeenCalled()
+  })
+
+  it('applies for an initiator holding catalog.products.manage, checked in the suggestion scope', async () => {
+    const deps = buildDeps({ allowManage: true })
+    const result = await maybeAutoApplySuggestion({ ...deps, suggestion: buildSuggestion(), trigger: 'bulk', settings: settingsOn })
+    expect(deps.userHasAllFeatures).toHaveBeenCalledWith('user-1', ['catalog.products.manage'], {
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+    })
+    expect(result).toMatchObject({ applied: true })
+  })
+
+  it.each(['manual', 'bulk'] as const)(
+    'leaves the suggestion pending for a %s run by an initiator limited to view and AI use',
+    async (trigger) => {
+      const deps = buildDeps({ allowManage: false })
+      const result = await maybeAutoApplySuggestion({ ...deps, suggestion: buildSuggestion(), trigger, settings: settingsOn })
+      expect(result).toEqual({ applied: false, reason: 'missing_manage_permission' })
+      expect(deps.execute).not.toHaveBeenCalled()
+      expect(deps.em.count).not.toHaveBeenCalled()
+      expect(reportError).not.toHaveBeenCalled()
+    },
+  )
+
+  it('re-checks the permission on every call so a revoked grant stops later products of the same job', async () => {
+    const deps = buildDeps({ allowManage: true })
+    const first = await maybeAutoApplySuggestion({ ...deps, suggestion: buildSuggestion(), trigger: 'bulk', settings: settingsOn })
+    deps.userHasAllFeatures.mockResolvedValueOnce(false)
+    const second = await maybeAutoApplySuggestion({ ...deps, suggestion: buildSuggestion(), trigger: 'bulk', settings: settingsOn })
+    expect(first).toMatchObject({ applied: true })
+    expect(second).toEqual({ applied: false, reason: 'missing_manage_permission' })
+    expect(deps.execute).toHaveBeenCalledTimes(1)
+  })
+
+  it('leaves the suggestion pending when the run has no initiating user', async () => {
+    const deps = buildDeps({ userId: null })
+    const result = await maybeAutoApplySuggestion({ ...deps, suggestion: buildSuggestion(), trigger: 'bulk', settings: settingsOn })
+    expect(result).toEqual({ applied: false, reason: 'missing_manage_permission' })
+    expect(deps.userHasAllFeatures).not.toHaveBeenCalled()
+    expect(deps.execute).not.toHaveBeenCalled()
+  })
+
+  it('fails closed and stays pending when the permission lookup throws', async () => {
+    const deps = buildDeps()
+    deps.userHasAllFeatures.mockRejectedValueOnce(new Error('[internal] rbac down'))
+    const result = await maybeAutoApplySuggestion({ ...deps, suggestion: buildSuggestion(), trigger: 'manual', settings: settingsOn })
+    expect(result).toEqual({ applied: false, reason: 'accept_failed' })
+    expect(deps.execute).not.toHaveBeenCalled()
+  })
+
+  it('never checks permissions or applies for on_create runs', async () => {
+    const deps = buildDeps()
+    const result = await maybeAutoApplySuggestion({ ...deps, suggestion: buildSuggestion(), trigger: 'on_create', settings: settingsOn })
+    expect(result).toEqual({ applied: false, reason: 'trigger_not_user_started' })
+    expect(deps.userHasAllFeatures).not.toHaveBeenCalled()
     expect(deps.execute).not.toHaveBeenCalled()
   })
 })

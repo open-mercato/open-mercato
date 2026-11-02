@@ -3,6 +3,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import {
   CatalogProductCategoryAssignment,
@@ -13,11 +14,15 @@ import type { AiCategorizationSettings } from '../../data/validators'
 
 const logger = createLogger('catalog')
 
+const AUTO_APPLY_REQUIRED_FEATURE = 'catalog.products.manage'
+
 const USER_STARTED_TRIGGERS: ReadonlySet<CatalogCategorySuggestionTrigger> = new Set(['manual', 'bulk'])
 
 export type AutoApplyDecision =
   | { apply: true }
   | { apply: false; reason: 'mode_suggest' | 'trigger_not_user_started' | 'not_suggested' | 'below_threshold' | 'not_pending' }
+
+type AutoApplyPermissionReason = 'missing_manage_permission'
 
 export function decideAutoApply(params: {
   settings: Pick<AiCategorizationSettings, 'applyMode' | 'autoApplyThreshold'>
@@ -41,13 +46,30 @@ type SkippedReason = Extract<AutoApplyDecision, { apply: false }>['reason']
 
 export type AutoApplyResult =
   | { applied: true; logEntry: unknown; product: AutoAppliedProduct | null }
-  | { applied: false; reason: SkippedReason | 'already_categorized' | 'accept_failed' }
+  | { applied: false; reason: SkippedReason | AutoApplyPermissionReason | 'already_categorized' | 'accept_failed' }
+
+async function initiatorMayManageProducts(params: {
+  container: AwilixContainer
+  suggestion: CatalogProductCategorySuggestion
+  commandContext: CommandRuntimeContext
+}): Promise<boolean> {
+  const { container, suggestion, commandContext } = params
+  const userId = commandContext.auth?.sub
+  if (!userId) return false
+  const rbacService = container.resolve('rbacService') as RbacService
+  return rbacService.userHasAllFeatures(userId, [AUTO_APPLY_REQUIRED_FEATURE], {
+    tenantId: suggestion.tenantId,
+    organizationId: suggestion.organizationId,
+  })
+}
 
 /**
  * Applies a freshly persisted suggestion through the accept command when the
  * tenant opted into `auto_apply` (spec D2). Only user-started triggers
- * (`manual`, `bulk`) ever apply; `on_create` runs never do. Never throws: any
- * failure leaves the suggestion `pending` for human review.
+ * (`manual`, `bulk`) ever apply; `on_create` runs never do. The initiating
+ * user must currently hold `catalog.products.manage` (checked per call, so a
+ * permission revoked while a bulk job waited stops applying). Never throws: any
+ * failure, including a failed permission lookup, leaves the suggestion `pending` for human review.
  */
 export async function maybeAutoApplySuggestion(params: {
   container: AwilixContainer
@@ -63,6 +85,15 @@ export async function maybeAutoApplySuggestion(params: {
 
   const productId = typeof suggestion.product === 'string' ? suggestion.product : suggestion.product.id
   try {
+    const actorMayManage = await initiatorMayManageProducts({ container, suggestion, commandContext })
+    if (!actorMayManage) {
+      logger.info('catalog.ai_categorization.auto_apply skipped: initiator lacks catalog.products.manage', {
+        suggestionId: suggestion.id,
+        productId,
+        userId: commandContext.auth?.sub ?? null,
+      })
+      return { applied: false, reason: 'missing_manage_permission' }
+    }
     const assignmentCount = await em.count(CatalogProductCategoryAssignment, {
       product: productId,
       tenantId: suggestion.tenantId,
